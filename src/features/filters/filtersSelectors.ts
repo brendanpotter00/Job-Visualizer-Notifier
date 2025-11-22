@@ -122,85 +122,90 @@ export const selectGraphFilteredJobs = createSelector(
 export const selectListFilteredJobs = createSelector(
   [selectCurrentCompanyJobs, selectListFilters],
   (jobs, filters) => {
-    return jobs.filter((job: Job) => {
-      // Time window filter
-      if (!isWithinTimeWindow(job.createdAt, filters.timeWindow)) {
-        return false;
-      }
-
-      // Search query filter (multi-tag with OR logic)
-      if (filters.searchQuery && filters.searchQuery.length > 0) {
-        const searchableText = [
-          job.title,
-          job.department,
-          job.team,
-          job.location,
-          ...(job.tags || []),
-        ]
-          .filter(Boolean)
-          .join(' ')
-          .toLowerCase();
-
-        // Job matches if ANY tag matches (OR logic)
-        const matchesAnyTag = filters.searchQuery.some(tag =>
-          searchableText.includes(tag.toLowerCase())
-        );
-
-        if (!matchesAnyTag) {
+    return jobs
+      .filter((job: Job) => {
+        // Time window filter
+        if (!isWithinTimeWindow(job.createdAt, filters.timeWindow)) {
           return false;
         }
-      }
 
-      // Software-only filter
-      if (filters.softwareOnly && !job.classification.isSoftwareAdjacent) {
-        return false;
-      }
+        // Search query filter (multi-tag with OR logic)
+        if (filters.searchQuery && filters.searchQuery.length > 0) {
+          const searchableText = [
+            job.title,
+            job.department,
+            job.team,
+            job.location,
+            ...(job.tags || []),
+          ]
+            .filter(Boolean)
+            .join(' ')
+            .toLowerCase();
 
-      // Location filter (multi-select with OR logic)
-      if (filters.location && filters.location.length > 0) {
-        const matchesLocation = filters.location.some(filterLoc => {
-          // Special handling for "United States" meta-filter
-          if (filterLoc === 'United States') {
-            return isUnitedStatesLocation(job.location);
+          // Job matches if ANY tag matches (OR logic)
+          const matchesAnyTag = filters.searchQuery.some(tag =>
+            searchableText.includes(tag.toLowerCase())
+          );
+
+          if (!matchesAnyTag) {
+            return false;
           }
-          // Exact match for specific locations
-          return job.location === filterLoc;
-        });
+        }
 
-        if (!matchesLocation) {
+        // Software-only filter
+        if (filters.softwareOnly && !job.classification.isSoftwareAdjacent) {
           return false;
         }
-      }
 
-      // Department filter (multi-select with OR logic)
-      if (filters.department && filters.department.length > 0) {
-        const matchesDepartment = filters.department.some(
-          filterDept => job.department === filterDept
-        );
+        // Location filter (multi-select with OR logic)
+        if (filters.location && filters.location.length > 0) {
+          const matchesLocation = filters.location.some(filterLoc => {
+            // Special handling for "United States" meta-filter
+            if (filterLoc === 'United States') {
+              return isUnitedStatesLocation(job.location);
+            }
+            // Exact match for specific locations
+            return job.location === filterLoc;
+          });
 
-        if (!matchesDepartment) {
+          if (!matchesLocation) {
+            return false;
+          }
+        }
+
+        // Department filter (multi-select with OR logic)
+        if (filters.department && filters.department.length > 0) {
+          const matchesDepartment = filters.department.some(
+            filterDept => job.department === filterDept
+          );
+
+          if (!matchesDepartment) {
+            return false;
+          }
+        }
+
+        // Employment type filter
+        if (filters.employmentType && job.employmentType !== filters.employmentType) {
           return false;
         }
-      }
 
-      // Employment type filter
-      if (filters.employmentType && job.employmentType !== filters.employmentType) {
-        return false;
-      }
+        // Role category filter (multi-select with OR logic)
+        if (filters.roleCategory && filters.roleCategory.length > 0) {
+          const matchesCategory = filters.roleCategory.some(
+            filterCat => job.classification.category === filterCat
+          );
 
-      // Role category filter (multi-select with OR logic)
-      if (filters.roleCategory && filters.roleCategory.length > 0) {
-        const matchesCategory = filters.roleCategory.some(
-          filterCat => job.classification.category === filterCat
-        );
-
-        if (!matchesCategory) {
-          return false;
+          if (!matchesCategory) {
+            return false;
+          }
         }
-      }
 
-      return true;
-    });
+        return true;
+      })
+      .sort((a, b) => {
+        // Sort by createdAt descending (most recent first)
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
   }
 );
 
