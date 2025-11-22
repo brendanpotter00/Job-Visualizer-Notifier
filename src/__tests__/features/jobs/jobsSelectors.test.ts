@@ -81,7 +81,7 @@ describe('jobsSelectors', () => {
       },
       list: {
         timeWindow: '24h',
-        searchQuery: '',
+        searchQuery: undefined,
         softwareOnly: true,
         roleCategory: 'all',
       },

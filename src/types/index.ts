@@ -179,7 +179,7 @@ export interface GraphFilters {
  */
 export interface ListFilters {
   timeWindow: TimeWindow;
-  searchQuery?: string;
+  searchQuery?: string[];
   location?: string;
   department?: string;
   employmentType?: string;

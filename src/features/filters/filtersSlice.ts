@@ -54,8 +54,32 @@ const filtersSlice = createSlice({
     setListTimeWindow(state, action: PayloadAction<TimeWindow>) {
       state.list.timeWindow = action.payload;
     },
-    setListSearchQuery(state, action: PayloadAction<string | undefined>) {
+    setListSearchQuery(state, action: PayloadAction<string[] | undefined>) {
       state.list.searchQuery = action.payload;
+    },
+    addSearchTag(state, action: PayloadAction<string>) {
+      const tag = action.payload.trim();
+      if (!tag) return;
+
+      if (!state.list.searchQuery) {
+        state.list.searchQuery = [tag];
+      } else if (!state.list.searchQuery.includes(tag)) {
+        state.list.searchQuery.push(tag);
+      }
+    },
+    removeSearchTag(state, action: PayloadAction<string>) {
+      if (!state.list.searchQuery) return;
+
+      state.list.searchQuery = state.list.searchQuery.filter(
+        tag => tag !== action.payload
+      );
+
+      if (state.list.searchQuery.length === 0) {
+        state.list.searchQuery = undefined;
+      }
+    },
+    clearSearchTags(state) {
+      state.list.searchQuery = undefined;
     },
     setListLocation(state, action: PayloadAction<string | undefined>) {
       state.list.location = action.payload;
@@ -96,6 +120,9 @@ export const {
   // List actions
   setListTimeWindow,
   setListSearchQuery,
+  addSearchTag,
+  removeSearchTag,
+  clearSearchTags,
   setListLocation,
   setListDepartment,
   setListEmploymentType,

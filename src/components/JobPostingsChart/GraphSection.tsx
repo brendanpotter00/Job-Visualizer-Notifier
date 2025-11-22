@@ -39,7 +39,6 @@ export function GraphSection() {
     dispatch(
       loadJobsForCompany({
         companyId: selectedCompanyId,
-        timeWindow: graphFilters.timeWindow,
       })
     );
   };

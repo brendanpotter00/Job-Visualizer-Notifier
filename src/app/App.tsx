@@ -15,7 +15,6 @@ import { BucketJobsModal } from '../components/BucketJobsModal/BucketJobsModal';
 function App() {
   const dispatch = useAppDispatch();
   const selectedCompanyId = useAppSelector((state) => state.app.selectedCompanyId);
-  const graphFilters = useAppSelector((state) => state.filters.graph);
   const globalLoading = useAppSelector((state) => state.ui.globalLoading);
   const isLoading = useAppSelector(selectCurrentCompanyLoading);
   const error = useAppSelector(selectCurrentCompanyError);
@@ -25,16 +24,14 @@ function App() {
     dispatch(
       loadJobsForCompany({
         companyId: selectedCompanyId,
-        timeWindow: graphFilters.timeWindow,
       })
     );
-  }, [dispatch, selectedCompanyId, graphFilters.timeWindow]);
+  }, [dispatch, selectedCompanyId]);
 
   const handleRetry = () => {
     dispatch(
       loadJobsForCompany({
         companyId: selectedCompanyId,
-        timeWindow: graphFilters.timeWindow,
       })
     );
   };

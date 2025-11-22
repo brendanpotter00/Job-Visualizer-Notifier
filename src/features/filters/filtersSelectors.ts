@@ -83,9 +83,8 @@ export const selectListFilteredJobs = createSelector(
         return false;
       }
 
-      // Search query filter
-      if (filters.searchQuery) {
-        const query = filters.searchQuery.toLowerCase();
+      // Search query filter (multi-tag with OR logic)
+      if (filters.searchQuery && filters.searchQuery.length > 0) {
         const searchableText = [
           job.title,
           job.department,
@@ -97,7 +96,12 @@ export const selectListFilteredJobs = createSelector(
           .join(' ')
           .toLowerCase();
 
-        if (!searchableText.includes(query)) {
+        // Job matches if ANY tag matches (OR logic)
+        const matchesAnyTag = filters.searchQuery.some(tag =>
+          searchableText.includes(tag.toLowerCase())
+        );
+
+        if (!matchesAnyTag) {
           return false;
         }
       }

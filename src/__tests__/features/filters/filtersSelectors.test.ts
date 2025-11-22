@@ -102,7 +102,7 @@ describe('filtersSelectors', () => {
       },
       list: {
         timeWindow: '24h',
-        searchQuery: '',
+        searchQuery: undefined,
         softwareOnly: true,
         roleCategory: 'all',
         ...listFilters,
@@ -165,7 +165,7 @@ describe('filtersSelectors', () => {
   describe('selectListFilteredJobs', () => {
     it('should filter by search query', () => {
       const state = createMockState([softwareJob, nonTechJob, oldJob], {}, {
-        searchQuery: 'frontend',
+        searchQuery: ['frontend'],
         softwareOnly: false,
         timeWindow: '3d'
       });
@@ -173,6 +173,30 @@ describe('filtersSelectors', () => {
 
       expect(filtered).toHaveLength(1);
       expect(filtered[0].title).toContain('Frontend');
+    });
+
+    it('should filter by multiple search tags with OR logic', () => {
+      const state = createMockState([softwareJob, nonTechJob, oldJob], {}, {
+        searchQuery: ['frontend', 'hr'],
+        softwareOnly: false,
+        timeWindow: '3d'
+      });
+      const filtered = selectListFilteredJobs(state);
+
+      expect(filtered).toHaveLength(2); // Frontend job + HR job
+      expect(filtered.some(j => j.title.includes('Frontend'))).toBe(true);
+      expect(filtered.some(j => j.title.includes('HR'))).toBe(true);
+    });
+
+    it('should return all jobs when no tags match', () => {
+      const state = createMockState([softwareJob, nonTechJob], {}, {
+        searchQuery: ['nonexistent'],
+        softwareOnly: false,
+        timeWindow: '3d'
+      });
+      const filtered = selectListFilteredJobs(state);
+
+      expect(filtered).toHaveLength(0);
     });
 
     it('should search across multiple fields', () => {
@@ -184,7 +208,7 @@ describe('filtersSelectors', () => {
       });
 
       const state = createMockState([jobWithTag], {}, {
-        searchQuery: 'react',
+        searchQuery: ['react'],
         timeWindow: '3d'
       });
       const filtered = selectListFilteredJobs(state);
@@ -194,12 +218,44 @@ describe('filtersSelectors', () => {
 
     it('should be case insensitive', () => {
       const state = createMockState([softwareJob], {}, {
-        searchQuery: 'FRONTEND',
+        searchQuery: ['FRONTEND'],
         timeWindow: '3d'
       });
       const filtered = selectListFilteredJobs(state);
 
       expect(filtered).toHaveLength(1);
+    });
+
+    it('should handle substring matching', () => {
+      const state = createMockState([softwareJob], {}, {
+        searchQuery: ['front'],
+        timeWindow: '3d'
+      });
+      const filtered = selectListFilteredJobs(state);
+
+      expect(filtered).toHaveLength(1);
+    });
+
+    it('should return all jobs when searchQuery is undefined', () => {
+      const state = createMockState([softwareJob, oldJob], {}, {
+        searchQuery: undefined,
+        softwareOnly: false,
+        timeWindow: '3d'
+      });
+      const filtered = selectListFilteredJobs(state);
+
+      expect(filtered).toHaveLength(2);
+    });
+
+    it('should return all jobs when searchQuery is empty array', () => {
+      const state = createMockState([softwareJob, oldJob], {}, {
+        searchQuery: [],
+        softwareOnly: false,
+        timeWindow: '3d'
+      });
+      const filtered = selectListFilteredJobs(state);
+
+      expect(filtered).toHaveLength(2);
     });
   });
 

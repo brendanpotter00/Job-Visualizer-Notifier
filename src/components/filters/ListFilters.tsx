@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import {
   Box,
   FormControl,
@@ -8,6 +9,8 @@ import {
   Switch,
   Stack,
   TextField,
+  Autocomplete,
+  Chip,
 } from '@mui/material';
 import { useAppDispatch, useAppSelector } from '../../app/hooks';
 import {
@@ -15,7 +18,8 @@ import {
   setListLocation,
   setListDepartment,
   setListRoleCategory,
-  setListSearchQuery,
+  addSearchTag,
+  removeSearchTag,
   toggleListSoftwareOnly,
 } from '../../features/filters/filtersSlice';
 import {
@@ -64,17 +68,57 @@ export function ListFilters() {
   const filters = useAppSelector(selectListFilters);
   const availableLocations = useAppSelector(selectAvailableLocations);
   const availableDepartments = useAppSelector(selectAvailableDepartments);
+  const [inputValue, setInputValue] = useState('');
 
   return (
     <Box sx={{ mb: 3 }}>
       <Stack spacing={2}>
-        <TextField
+        <Autocomplete
+          multiple
+          freeSolo
           size="small"
-          placeholder="Search jobs by title, department, location..."
-          value={filters.searchQuery || ''}
-          onChange={(e) => {
-            const value = e.target.value;
-            dispatch(setListSearchQuery(value || undefined));
+          options={[]}
+          value={filters.searchQuery || []}
+          inputValue={inputValue}
+          onInputChange={(_, newValue) => setInputValue(newValue)}
+          onChange={(_, newValue) => {
+            // Handle chip removal via the X button
+            if (Array.isArray(newValue)) {
+              const removedTags = (filters.searchQuery || []).filter(
+                tag => !newValue.includes(tag)
+              );
+              removedTags.forEach(tag => dispatch(removeSearchTag(tag)));
+            }
+          }}
+          renderTags={(value, getTagProps) =>
+            value.map((option, index) => {
+              const { key, ...tagProps } = getTagProps({ index });
+              return (
+                <Chip
+                  key={key}
+                  label={option}
+                  size="small"
+                  {...tagProps}
+                />
+              );
+            })
+          }
+          renderInput={(params) => (
+            <TextField
+              {...params}
+              placeholder={
+                filters.searchQuery && filters.searchQuery.length > 0
+                  ? 'Add another tag...'
+                  : 'Type to add search tags (e.g., software, data, backend)...'
+              }
+            />
+          )}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && inputValue.trim()) {
+              event.preventDefault();
+              dispatch(addSearchTag(inputValue.trim()));
+              setInputValue('');
+            }
           }}
           fullWidth
         />

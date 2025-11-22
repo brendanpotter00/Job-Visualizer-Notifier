@@ -7,6 +7,9 @@ import filtersReducer, {
   resetGraphFilters,
   setListTimeWindow,
   setListSearchQuery,
+  addSearchTag,
+  removeSearchTag,
+  clearSearchTags,
   toggleListSoftwareOnly,
   resetListFilters,
   resetAllFilters,
@@ -84,9 +87,86 @@ describe('filtersSlice', () => {
     });
 
     it('should set list search query', () => {
-      const newState = filtersReducer(initialState, setListSearchQuery('engineer'));
+      const newState = filtersReducer(initialState, setListSearchQuery(['engineer']));
 
-      expect(newState.list.searchQuery).toBe('engineer');
+      expect(newState.list.searchQuery).toEqual(['engineer']);
+    });
+
+    it('should add search tag', () => {
+      const newState = filtersReducer(initialState, addSearchTag('software'));
+
+      expect(newState.list.searchQuery).toEqual(['software']);
+    });
+
+    it('should add multiple search tags', () => {
+      let state = initialState;
+      state = filtersReducer(state, addSearchTag('software'));
+      state = filtersReducer(state, addSearchTag('data'));
+      state = filtersReducer(state, addSearchTag('backend'));
+
+      expect(state.list.searchQuery).toEqual(['software', 'data', 'backend']);
+    });
+
+    it('should not add duplicate search tags', () => {
+      let state = initialState;
+      state = filtersReducer(state, addSearchTag('software'));
+      state = filtersReducer(state, addSearchTag('software'));
+
+      expect(state.list.searchQuery).toEqual(['software']);
+    });
+
+    it('should trim whitespace when adding tags', () => {
+      const newState = filtersReducer(initialState, addSearchTag('  software  '));
+
+      expect(newState.list.searchQuery).toEqual(['software']);
+    });
+
+    it('should ignore empty tags', () => {
+      const newState = filtersReducer(initialState, addSearchTag('  '));
+
+      expect(newState.list.searchQuery).toBeUndefined();
+    });
+
+    it('should remove search tag', () => {
+      const stateWithTags: FiltersState = {
+        ...initialState,
+        list: {
+          ...initialState.list,
+          searchQuery: ['software', 'data', 'backend'],
+        },
+      };
+
+      const newState = filtersReducer(stateWithTags, removeSearchTag('data'));
+
+      expect(newState.list.searchQuery).toEqual(['software', 'backend']);
+    });
+
+    it('should set searchQuery to undefined when removing last tag', () => {
+      const stateWithOneTag: FiltersState = {
+        ...initialState,
+        list: {
+          ...initialState.list,
+          searchQuery: ['software'],
+        },
+      };
+
+      const newState = filtersReducer(stateWithOneTag, removeSearchTag('software'));
+
+      expect(newState.list.searchQuery).toBeUndefined();
+    });
+
+    it('should clear all search tags', () => {
+      const stateWithTags: FiltersState = {
+        ...initialState,
+        list: {
+          ...initialState.list,
+          searchQuery: ['software', 'data', 'backend'],
+        },
+      };
+
+      const newState = filtersReducer(stateWithTags, clearSearchTags());
+
+      expect(newState.list.searchQuery).toBeUndefined();
     });
 
     it('should toggle list software only', () => {
@@ -100,7 +180,7 @@ describe('filtersSlice', () => {
         ...initialState,
         list: {
           timeWindow: '7d',
-          searchQuery: 'test',
+          searchQuery: ['test'],
           softwareOnly: false,
           roleCategory: 'qa',
         },
@@ -123,7 +203,7 @@ describe('filtersSlice', () => {
         },
         list: {
           timeWindow: '7d',
-          searchQuery: 'test',
+          searchQuery: ['test'],
           softwareOnly: false,
           roleCategory: 'backend',
         },
@@ -145,12 +225,12 @@ describe('filtersSlice', () => {
 
       // Modify list
       state = filtersReducer(state, setListTimeWindow('7d'));
-      state = filtersReducer(state, setListSearchQuery('engineer'));
+      state = filtersReducer(state, addSearchTag('engineer'));
 
       expect(state.graph.timeWindow).toBe('1h');
       expect(state.graph.location).toBe('Remote');
       expect(state.list.timeWindow).toBe('7d');
-      expect(state.list.searchQuery).toBe('engineer');
+      expect(state.list.searchQuery).toEqual(['engineer']);
     });
   });
 });

@@ -8,7 +8,7 @@ import { calculateSinceTimestamp } from '../../utils/dateUtils';
 
 interface LoadJobsParams {
   companyId: string;
-  timeWindow: TimeWindow;
+  timeWindow?: TimeWindow;
 }
 
 /**
@@ -23,8 +23,8 @@ export const loadJobsForCompany = createAsyncThunk(
       return rejectWithValue(`Company not found: ${companyId}`);
     }
 
-    // Calculate 'since' timestamp based on time window
-    const since = calculateSinceTimestamp(timeWindow);
+    // Calculate 'since' timestamp based on time window (fetch all jobs if not specified)
+    const since = timeWindow ? calculateSinceTimestamp(timeWindow) : undefined;
 
     try {
       // Select appropriate client based on ATS type
