@@ -39,6 +39,29 @@ export const selectGraphFilteredJobs = createSelector(
         return false;
       }
 
+      // Search query filter (multi-tag with OR logic)
+      if (filters.searchQuery && filters.searchQuery.length > 0) {
+        const searchableText = [
+          job.title,
+          job.department,
+          job.team,
+          job.location,
+          ...(job.tags || []),
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+
+        // Job matches if ANY tag matches (OR logic)
+        const matchesAnyTag = filters.searchQuery.some(tag =>
+          searchableText.includes(tag.toLowerCase())
+        );
+
+        if (!matchesAnyTag) {
+          return false;
+        }
+      }
+
       // Software-only filter
       if (filters.softwareOnly && !job.classification.isSoftwareAdjacent) {
         return false;

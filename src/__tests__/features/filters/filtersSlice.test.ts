@@ -2,6 +2,9 @@ import { describe, it, expect } from 'vitest';
 import filtersReducer, {
   setGraphTimeWindow,
   setGraphLocation,
+  addGraphSearchTag,
+  removeGraphSearchTag,
+  clearGraphSearchTags,
   toggleGraphSoftwareOnly,
   setGraphRoleCategory,
   resetGraphFilters,
@@ -60,11 +63,89 @@ describe('filtersSlice', () => {
       expect(newState.graph.roleCategory).toBe('frontend');
     });
 
+    it('should add graph search tag', () => {
+      const newState = filtersReducer(initialState, addGraphSearchTag('software'));
+
+      expect(newState.graph.searchQuery).toEqual(['software']);
+    });
+
+    it('should add multiple graph search tags', () => {
+      let state = initialState;
+      state = filtersReducer(state, addGraphSearchTag('software'));
+      state = filtersReducer(state, addGraphSearchTag('data'));
+      state = filtersReducer(state, addGraphSearchTag('backend'));
+
+      expect(state.graph.searchQuery).toEqual(['software', 'data', 'backend']);
+    });
+
+    it('should not add duplicate graph search tags', () => {
+      let state = initialState;
+      state = filtersReducer(state, addGraphSearchTag('software'));
+      state = filtersReducer(state, addGraphSearchTag('software'));
+
+      expect(state.graph.searchQuery).toEqual(['software']);
+    });
+
+    it('should trim whitespace when adding graph tags', () => {
+      const newState = filtersReducer(initialState, addGraphSearchTag('  software  '));
+
+      expect(newState.graph.searchQuery).toEqual(['software']);
+    });
+
+    it('should ignore empty graph tags', () => {
+      const newState = filtersReducer(initialState, addGraphSearchTag('  '));
+
+      expect(newState.graph.searchQuery).toBeUndefined();
+    });
+
+    it('should remove graph search tag', () => {
+      const stateWithTags: FiltersState = {
+        ...initialState,
+        graph: {
+          ...initialState.graph,
+          searchQuery: ['software', 'data', 'backend'],
+        },
+      };
+
+      const newState = filtersReducer(stateWithTags, removeGraphSearchTag('data'));
+
+      expect(newState.graph.searchQuery).toEqual(['software', 'backend']);
+    });
+
+    it('should set searchQuery to undefined when removing last graph tag', () => {
+      const stateWithOneTag: FiltersState = {
+        ...initialState,
+        graph: {
+          ...initialState.graph,
+          searchQuery: ['software'],
+        },
+      };
+
+      const newState = filtersReducer(stateWithOneTag, removeGraphSearchTag('software'));
+
+      expect(newState.graph.searchQuery).toBeUndefined();
+    });
+
+    it('should clear all graph search tags', () => {
+      const stateWithTags: FiltersState = {
+        ...initialState,
+        graph: {
+          ...initialState.graph,
+          searchQuery: ['software', 'data', 'backend'],
+        },
+      };
+
+      const newState = filtersReducer(stateWithTags, clearGraphSearchTags());
+
+      expect(newState.graph.searchQuery).toBeUndefined();
+    });
+
     it('should reset graph filters', () => {
       const modifiedState: FiltersState = {
         ...initialState,
         graph: {
           timeWindow: '1h',
+          searchQuery: ['test'],
           softwareOnly: false,
           roleCategory: 'backend',
           location: 'Remote',

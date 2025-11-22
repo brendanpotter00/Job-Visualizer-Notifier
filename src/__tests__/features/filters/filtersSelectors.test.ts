@@ -124,6 +124,51 @@ describe('filtersSelectors', () => {
       expect(filtered[0].id).toBe('1');
     });
 
+    it('should filter by search query', () => {
+      const state = createMockState([softwareJob, nonTechJob, oldJob], {
+        searchQuery: ['frontend'],
+        softwareOnly: false,
+        timeWindow: '3d'
+      });
+      const filtered = selectGraphFilteredJobs(state);
+
+      expect(filtered).toHaveLength(1);
+      expect(filtered[0].title).toContain('Frontend');
+    });
+
+    it('should filter by multiple search tags with OR logic', () => {
+      const state = createMockState([softwareJob, nonTechJob, oldJob], {
+        searchQuery: ['frontend', 'hr'],
+        softwareOnly: false,
+        timeWindow: '3d'
+      });
+      const filtered = selectGraphFilteredJobs(state);
+
+      expect(filtered).toHaveLength(2); // Frontend job + HR job
+      expect(filtered.some(j => j.title.includes('Frontend'))).toBe(true);
+      expect(filtered.some(j => j.title.includes('HR'))).toBe(true);
+    });
+
+    it('should handle substring matching in graph search', () => {
+      const state = createMockState([softwareJob], {
+        searchQuery: ['front'],
+        timeWindow: '3d'
+      });
+      const filtered = selectGraphFilteredJobs(state);
+
+      expect(filtered).toHaveLength(1);
+    });
+
+    it('should be case insensitive in graph search', () => {
+      const state = createMockState([softwareJob], {
+        searchQuery: ['FRONTEND'],
+        timeWindow: '3d'
+      });
+      const filtered = selectGraphFilteredJobs(state);
+
+      expect(filtered).toHaveLength(1);
+    });
+
     it('should filter out non-software jobs when softwareOnly is true', () => {
       const state = createMockState([softwareJob, nonTechJob], { softwareOnly: true });
       const filtered = selectGraphFilteredJobs(state);

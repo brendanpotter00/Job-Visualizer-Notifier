@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import {
   Box,
   FormControl,
@@ -7,10 +8,15 @@ import {
   FormControlLabel,
   Switch,
   Stack,
+  TextField,
+  Autocomplete,
+  Chip,
 } from '@mui/material';
 import { useAppDispatch, useAppSelector } from '../../app/hooks';
 import {
   setGraphTimeWindow,
+  addGraphSearchTag,
+  removeGraphSearchTag,
   setGraphLocation,
   setGraphDepartment,
   setGraphRoleCategory,
@@ -62,24 +68,76 @@ export function GraphFilters() {
   const filters = useAppSelector(selectGraphFilters);
   const availableLocations = useAppSelector(selectAvailableLocations);
   const availableDepartments = useAppSelector(selectAvailableDepartments);
+  const [inputValue, setInputValue] = useState('');
 
   return (
     <Box sx={{ mb: 3 }}>
-      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mb: 2 }}>
-        <FormControl size="small" sx={{ minWidth: 150 }}>
-          <InputLabel>Time Window</InputLabel>
-          <Select
-            value={filters.timeWindow}
-            label="Time Window"
-            onChange={(e) => dispatch(setGraphTimeWindow(e.target.value as TimeWindow))}
-          >
-            {TIME_WINDOWS.map((tw) => (
-              <MenuItem key={tw.value} value={tw.value}>
-                {tw.label}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
+      <Stack spacing={2}>
+        <Autocomplete
+          multiple
+          freeSolo
+          size="small"
+          options={[]}
+          value={filters.searchQuery || []}
+          inputValue={inputValue}
+          onInputChange={(_, newValue) => setInputValue(newValue)}
+          onChange={(_, newValue) => {
+            // Handle chip removal via the X button
+            if (Array.isArray(newValue)) {
+              const removedTags = (filters.searchQuery || []).filter(
+                tag => !newValue.includes(tag)
+              );
+              removedTags.forEach(tag => dispatch(removeGraphSearchTag(tag)));
+            }
+          }}
+          renderTags={(value, getTagProps) =>
+            value.map((option, index) => {
+              const { key, ...tagProps } = getTagProps({ index });
+              return (
+                <Chip
+                  key={key}
+                  label={option}
+                  size="small"
+                  {...tagProps}
+                />
+              );
+            })
+          }
+          renderInput={(params) => (
+            <TextField
+              {...params}
+              placeholder={
+                filters.searchQuery && filters.searchQuery.length > 0
+                  ? 'Add another tag...'
+                  : 'Type to add search tags (e.g., software, data, backend)...'
+              }
+            />
+          )}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && inputValue.trim()) {
+              event.preventDefault();
+              dispatch(addGraphSearchTag(inputValue.trim()));
+              setInputValue('');
+            }
+          }}
+          fullWidth
+        />
+
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+          <FormControl size="small" sx={{ minWidth: 150 }}>
+            <InputLabel>Time Window</InputLabel>
+            <Select
+              value={filters.timeWindow}
+              label="Time Window"
+              onChange={(e) => dispatch(setGraphTimeWindow(e.target.value as TimeWindow))}
+            >
+              {TIME_WINDOWS.map((tw) => (
+                <MenuItem key={tw.value} value={tw.value}>
+                  {tw.label}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
 
         <FormControl size="small" sx={{ minWidth: 150 }}>
           <InputLabel>Role Category</InputLabel>
@@ -137,18 +195,19 @@ export function GraphFilters() {
             </Select>
           </FormControl>
         )}
-      </Stack>
+        </Stack>
 
-      <Stack direction="row" spacing={2} alignItems="center">
-        <FormControlLabel
-          control={
-            <Switch
-              checked={filters.softwareOnly}
-              onChange={() => dispatch(toggleGraphSoftwareOnly())}
-            />
-          }
-          label="Software roles only"
-        />
+        <Stack direction="row" spacing={2} alignItems="center">
+          <FormControlLabel
+            control={
+              <Switch
+                checked={filters.softwareOnly}
+                onChange={() => dispatch(toggleGraphSoftwareOnly())}
+              />
+            }
+            label="Software roles only"
+          />
+        </Stack>
       </Stack>
     </Box>
   );

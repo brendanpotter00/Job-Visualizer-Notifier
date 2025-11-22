@@ -12,6 +12,7 @@ export interface FiltersState {
 const initialState: FiltersState = {
   graph: {
     timeWindow: '30d',
+    searchQuery: undefined,
     softwareOnly: false,
     roleCategory: 'all',
   },
@@ -30,6 +31,33 @@ const filtersSlice = createSlice({
     // Graph filters
     setGraphTimeWindow(state, action: PayloadAction<TimeWindow>) {
       state.graph.timeWindow = action.payload;
+    },
+    setGraphSearchQuery(state, action: PayloadAction<string[] | undefined>) {
+      state.graph.searchQuery = action.payload;
+    },
+    addGraphSearchTag(state, action: PayloadAction<string>) {
+      const tag = action.payload.trim();
+      if (!tag) return;
+
+      if (!state.graph.searchQuery) {
+        state.graph.searchQuery = [tag];
+      } else if (!state.graph.searchQuery.includes(tag)) {
+        state.graph.searchQuery.push(tag);
+      }
+    },
+    removeGraphSearchTag(state, action: PayloadAction<string>) {
+      if (!state.graph.searchQuery) return;
+
+      state.graph.searchQuery = state.graph.searchQuery.filter(
+        tag => tag !== action.payload
+      );
+
+      if (state.graph.searchQuery.length === 0) {
+        state.graph.searchQuery = undefined;
+      }
+    },
+    clearGraphSearchTags(state) {
+      state.graph.searchQuery = undefined;
     },
     setGraphLocation(state, action: PayloadAction<string | undefined>) {
       state.graph.location = action.payload;
@@ -111,6 +139,10 @@ const filtersSlice = createSlice({
 export const {
   // Graph actions
   setGraphTimeWindow,
+  setGraphSearchQuery,
+  addGraphSearchTag,
+  removeGraphSearchTag,
+  clearGraphSearchTags,
   setGraphLocation,
   setGraphDepartment,
   setGraphEmploymentType,

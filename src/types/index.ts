@@ -167,6 +167,7 @@ export interface Company {
  */
 export interface GraphFilters {
   timeWindow: TimeWindow;
+  searchQuery?: string[];
   location?: string;
   department?: string;
   employmentType?: string;
