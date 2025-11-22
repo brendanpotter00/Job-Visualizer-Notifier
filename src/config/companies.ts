@@ -89,16 +89,6 @@ export const COMPANIES: Company[] = [
         },
     },
     {
-        id: 'openai',
-        name: 'openai',
-        ats: 'lever',
-        config: {
-            type: 'lever',
-            companyId: 'nominal',
-            jobsUrl: 'https://jobs.lever.co/openai',
-        },
-    },
-    {
         id: 'coinbase',
         name: 'Coinbase',
         ats: 'greenhouse',
@@ -106,6 +96,25 @@ export const COMPANIES: Company[] = [
             type: 'greenhouse',
             boardToken: 'coinbase',
         }
+    },
+    {
+        id: 'robinhood',
+        name: 'Robinhood',
+        ats: 'greenhouse',
+        config: {
+            type: 'greenhouse',
+            boardToken: 'robinhood',
+        }
+    },
+    {
+        id: 'spotify',
+        name: 'Spotify',
+        ats: 'lever',
+        config: {
+            type: 'lever',
+            companyId: 'spotify',
+            jobsUrl: 'https://jobs.lever.co/spotify',
+        },
     },
     {
         id: 'xai',
