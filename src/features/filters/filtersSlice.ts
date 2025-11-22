@@ -14,13 +14,13 @@ const initialState: FiltersState = {
     timeWindow: '30d',
     searchQuery: undefined,
     softwareOnly: false,
-    roleCategory: 'all',
+    roleCategory: undefined,
   },
   list: {
     timeWindow: '30d',
     searchQuery: undefined,
     softwareOnly: false,
-    roleCategory: 'all',
+    roleCategory: undefined,
   },
 };
 
@@ -92,8 +92,28 @@ const filtersSlice = createSlice({
     setGraphEmploymentType(state, action: PayloadAction<string | undefined>) {
       state.graph.employmentType = action.payload;
     },
-    setGraphRoleCategory(state, action: PayloadAction<SoftwareRoleCategory | 'all'>) {
-      state.graph.roleCategory = action.payload;
+    addGraphRoleCategory(state, action: PayloadAction<SoftwareRoleCategory>) {
+      const category = action.payload;
+
+      if (!state.graph.roleCategory) {
+        state.graph.roleCategory = [category];
+      } else if (!state.graph.roleCategory.includes(category)) {
+        state.graph.roleCategory.push(category);
+      }
+    },
+    removeGraphRoleCategory(state, action: PayloadAction<SoftwareRoleCategory>) {
+      if (!state.graph.roleCategory) return;
+
+      state.graph.roleCategory = state.graph.roleCategory.filter(
+        cat => cat !== action.payload
+      );
+
+      if (state.graph.roleCategory.length === 0) {
+        state.graph.roleCategory = undefined;
+      }
+    },
+    clearGraphRoleCategories(state) {
+      state.graph.roleCategory = undefined;
     },
     toggleGraphSoftwareOnly(state) {
       state.graph.softwareOnly = !state.graph.softwareOnly;
@@ -166,8 +186,28 @@ const filtersSlice = createSlice({
     setListEmploymentType(state, action: PayloadAction<string | undefined>) {
       state.list.employmentType = action.payload;
     },
-    setListRoleCategory(state, action: PayloadAction<SoftwareRoleCategory | 'all'>) {
-      state.list.roleCategory = action.payload;
+    addListRoleCategory(state, action: PayloadAction<SoftwareRoleCategory>) {
+      const category = action.payload;
+
+      if (!state.list.roleCategory) {
+        state.list.roleCategory = [category];
+      } else if (!state.list.roleCategory.includes(category)) {
+        state.list.roleCategory.push(category);
+      }
+    },
+    removeListRoleCategory(state, action: PayloadAction<SoftwareRoleCategory>) {
+      if (!state.list.roleCategory) return;
+
+      state.list.roleCategory = state.list.roleCategory.filter(
+        cat => cat !== action.payload
+      );
+
+      if (state.list.roleCategory.length === 0) {
+        state.list.roleCategory = undefined;
+      }
+    },
+    clearListRoleCategories(state) {
+      state.list.roleCategory = undefined;
     },
     toggleListSoftwareOnly(state) {
       state.list.softwareOnly = !state.list.softwareOnly;
@@ -197,7 +237,9 @@ export const {
   clearGraphLocations,
   setGraphDepartment,
   setGraphEmploymentType,
-  setGraphRoleCategory,
+  addGraphRoleCategory,
+  removeGraphRoleCategory,
+  clearGraphRoleCategories,
   toggleGraphSoftwareOnly,
   resetGraphFilters,
   // List actions
@@ -212,7 +254,9 @@ export const {
   clearListLocations,
   setListDepartment,
   setListEmploymentType,
-  setListRoleCategory,
+  addListRoleCategory,
+  removeListRoleCategory,
+  clearListRoleCategories,
   toggleListSoftwareOnly,
   resetListFilters,
   // Combined

@@ -8,7 +8,9 @@ import filtersReducer, {
   removeGraphSearchTag,
   clearGraphSearchTags,
   toggleGraphSoftwareOnly,
-  setGraphRoleCategory,
+  addGraphRoleCategory,
+  removeGraphRoleCategory,
+  clearGraphRoleCategories,
   resetGraphFilters,
   setListTimeWindow,
   setListSearchQuery,
@@ -18,6 +20,9 @@ import filtersReducer, {
   addListLocation,
   removeListLocation,
   clearListLocations,
+  addListRoleCategory,
+  removeListRoleCategory,
+  clearListRoleCategories,
   toggleListSoftwareOnly,
   resetListFilters,
   resetAllFilters,
@@ -29,13 +34,13 @@ describe('filtersSlice', () => {
     graph: {
       timeWindow: '30d',
       softwareOnly: false,
-      roleCategory: 'all',
+      roleCategory: undefined,
     },
     list: {
       timeWindow: '30d',
       searchQuery: undefined,
       softwareOnly: false,
-      roleCategory: 'all',
+      roleCategory: undefined,
     },
   };
 
@@ -57,10 +62,69 @@ describe('filtersSlice', () => {
       expect(toggledAgain.graph.softwareOnly).toBe(false);
     });
 
-    it('should set graph role category', () => {
-      const newState = filtersReducer(initialState, setGraphRoleCategory('frontend'));
+    it('should add graph role category', () => {
+      const newState = filtersReducer(initialState, addGraphRoleCategory('frontend'));
 
-      expect(newState.graph.roleCategory).toBe('frontend');
+      expect(newState.graph.roleCategory).toEqual(['frontend']);
+    });
+
+    it('should add multiple graph role categories', () => {
+      let state = initialState;
+      state = filtersReducer(state, addGraphRoleCategory('frontend'));
+      state = filtersReducer(state, addGraphRoleCategory('backend'));
+      state = filtersReducer(state, addGraphRoleCategory('fullstack'));
+
+      expect(state.graph.roleCategory).toEqual(['frontend', 'backend', 'fullstack']);
+    });
+
+    it('should not add duplicate graph role categories', () => {
+      let state = initialState;
+      state = filtersReducer(state, addGraphRoleCategory('frontend'));
+      state = filtersReducer(state, addGraphRoleCategory('frontend'));
+
+      expect(state.graph.roleCategory).toEqual(['frontend']);
+    });
+
+    it('should remove graph role category', () => {
+      const stateWithCats: FiltersState = {
+        ...initialState,
+        graph: {
+          ...initialState.graph,
+          roleCategory: ['frontend', 'backend', 'fullstack'],
+        },
+      };
+
+      const newState = filtersReducer(stateWithCats, removeGraphRoleCategory('backend'));
+
+      expect(newState.graph.roleCategory).toEqual(['frontend', 'fullstack']);
+    });
+
+    it('should set roleCategory to undefined when removing last graph category', () => {
+      const stateWithOneCat: FiltersState = {
+        ...initialState,
+        graph: {
+          ...initialState.graph,
+          roleCategory: ['frontend'],
+        },
+      };
+
+      const newState = filtersReducer(stateWithOneCat, removeGraphRoleCategory('frontend'));
+
+      expect(newState.graph.roleCategory).toBeUndefined();
+    });
+
+    it('should clear all graph role categories', () => {
+      const stateWithCats: FiltersState = {
+        ...initialState,
+        graph: {
+          ...initialState.graph,
+          roleCategory: ['frontend', 'backend'],
+        },
+      };
+
+      const newState = filtersReducer(stateWithCats, clearGraphRoleCategories());
+
+      expect(newState.graph.roleCategory).toBeUndefined();
     });
 
     it('should add graph search tag', () => {
@@ -213,7 +277,7 @@ describe('filtersSlice', () => {
           searchQuery: ['test'],
           location: ['United States', 'Remote'],
           softwareOnly: false,
-          roleCategory: 'backend',
+          roleCategory: ['backend'],
         },
       };
 
@@ -363,6 +427,71 @@ describe('filtersSlice', () => {
       expect(newState.list.softwareOnly).toBe(true);
     });
 
+    it('should add list role category', () => {
+      const newState = filtersReducer(initialState, addListRoleCategory('frontend'));
+
+      expect(newState.list.roleCategory).toEqual(['frontend']);
+    });
+
+    it('should add multiple list role categories', () => {
+      let state = initialState;
+      state = filtersReducer(state, addListRoleCategory('frontend'));
+      state = filtersReducer(state, addListRoleCategory('backend'));
+      state = filtersReducer(state, addListRoleCategory('fullstack'));
+
+      expect(state.list.roleCategory).toEqual(['frontend', 'backend', 'fullstack']);
+    });
+
+    it('should not add duplicate list role categories', () => {
+      let state = initialState;
+      state = filtersReducer(state, addListRoleCategory('frontend'));
+      state = filtersReducer(state, addListRoleCategory('frontend'));
+
+      expect(state.list.roleCategory).toEqual(['frontend']);
+    });
+
+    it('should remove list role category', () => {
+      const stateWithCats: FiltersState = {
+        ...initialState,
+        list: {
+          ...initialState.list,
+          roleCategory: ['frontend', 'backend', 'fullstack'],
+        },
+      };
+
+      const newState = filtersReducer(stateWithCats, removeListRoleCategory('backend'));
+
+      expect(newState.list.roleCategory).toEqual(['frontend', 'fullstack']);
+    });
+
+    it('should set roleCategory to undefined when removing last list category', () => {
+      const stateWithOneCat: FiltersState = {
+        ...initialState,
+        list: {
+          ...initialState.list,
+          roleCategory: ['frontend'],
+        },
+      };
+
+      const newState = filtersReducer(stateWithOneCat, removeListRoleCategory('frontend'));
+
+      expect(newState.list.roleCategory).toBeUndefined();
+    });
+
+    it('should clear all list role categories', () => {
+      const stateWithCats: FiltersState = {
+        ...initialState,
+        list: {
+          ...initialState.list,
+          roleCategory: ['frontend', 'backend'],
+        },
+      };
+
+      const newState = filtersReducer(stateWithCats, clearListRoleCategories());
+
+      expect(newState.list.roleCategory).toBeUndefined();
+    });
+
     it('should reset list filters', () => {
       const modifiedState: FiltersState = {
         ...initialState,
@@ -370,7 +499,7 @@ describe('filtersSlice', () => {
           timeWindow: '7d',
           searchQuery: ['test'],
           softwareOnly: false,
-          roleCategory: 'qa',
+          roleCategory: ['qa'],
         },
       };
 
@@ -387,13 +516,13 @@ describe('filtersSlice', () => {
         graph: {
           timeWindow: '1h',
           softwareOnly: false,
-          roleCategory: 'frontend',
+          roleCategory: ['frontend'],
         },
         list: {
           timeWindow: '7d',
           searchQuery: ['test'],
           softwareOnly: false,
-          roleCategory: 'backend',
+          roleCategory: ['backend'],
         },
       };
 

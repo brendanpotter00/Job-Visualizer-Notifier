@@ -171,7 +171,7 @@ export interface GraphFilters {
   location?: string[];
   department?: string;
   employmentType?: string;
-  roleCategory?: SoftwareRoleCategory | 'all';
+  roleCategory?: SoftwareRoleCategory[];
   softwareOnly: boolean;
 }
 
@@ -184,6 +184,6 @@ export interface ListFilters {
   location?: string[];
   department?: string;
   employmentType?: string;
-  roleCategory?: SoftwareRoleCategory | 'all';
+  roleCategory?: SoftwareRoleCategory[];
   softwareOnly: boolean;
 }

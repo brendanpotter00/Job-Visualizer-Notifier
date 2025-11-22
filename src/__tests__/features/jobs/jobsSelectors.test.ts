@@ -77,13 +77,13 @@ describe('jobsSelectors', () => {
       graph: {
         timeWindow: '24h',
         softwareOnly: true,
-        roleCategory: 'all',
+        roleCategory: undefined,
       },
       list: {
         timeWindow: '24h',
         searchQuery: undefined,
         softwareOnly: true,
-        roleCategory: 'all',
+        roleCategory: undefined,
       },
     },
     ui: {

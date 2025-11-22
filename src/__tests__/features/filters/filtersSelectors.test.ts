@@ -97,14 +97,14 @@ describe('filtersSelectors', () => {
       graph: {
         timeWindow: '24h',
         softwareOnly: true,
-        roleCategory: 'all',
+        roleCategory: undefined,
         ...graphFilters,
       },
       list: {
         timeWindow: '24h',
         searchQuery: undefined,
         softwareOnly: true,
-        roleCategory: 'all',
+        roleCategory: undefined,
         ...listFilters,
       },
     },
@@ -195,15 +195,49 @@ describe('filtersSelectors', () => {
       expect(filtered[0].location).toBe('Los Angeles, CA');
     });
 
-    it('should filter by role category', () => {
+    it('should filter by single role category', () => {
       const state = createMockState([softwareJob, oldJob], {
-        roleCategory: 'frontend',
+        roleCategory: ['frontend'],
         timeWindow: '3d'
       });
       const filtered = selectGraphFilteredJobs(state);
 
       expect(filtered).toHaveLength(1);
       expect(filtered[0].classification.category).toBe('frontend');
+    });
+
+    it('should filter by multiple role categories with OR logic', () => {
+      const state = createMockState([softwareJob, oldJob], {
+        roleCategory: ['frontend', 'backend'],
+        timeWindow: '3d'
+      });
+      const filtered = selectGraphFilteredJobs(state);
+
+      expect(filtered).toHaveLength(2);
+      expect(filtered.some(j => j.classification.category === 'frontend')).toBe(true);
+      expect(filtered.some(j => j.classification.category === 'backend')).toBe(true);
+    });
+
+    it('should return all jobs when roleCategory is undefined', () => {
+      const state = createMockState([softwareJob, oldJob], {
+        roleCategory: undefined,
+        timeWindow: '3d',
+        softwareOnly: false
+      });
+      const filtered = selectGraphFilteredJobs(state);
+
+      expect(filtered).toHaveLength(2);
+    });
+
+    it('should return all jobs when roleCategory is empty array', () => {
+      const state = createMockState([softwareJob, oldJob], {
+        roleCategory: [],
+        timeWindow: '3d',
+        softwareOnly: false
+      });
+      const filtered = selectGraphFilteredJobs(state);
+
+      expect(filtered).toHaveLength(2);
     });
 
     it('should filter by multiple locations with OR logic', () => {

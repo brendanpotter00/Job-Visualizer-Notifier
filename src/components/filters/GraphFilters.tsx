@@ -20,7 +20,8 @@ import {
   addGraphLocation,
   removeGraphLocation,
   setGraphDepartment,
-  setGraphRoleCategory,
+  addGraphRoleCategory,
+  removeGraphRoleCategory,
   toggleGraphSoftwareOnly,
 } from '../../features/filters/filtersSlice';
 import {
@@ -47,8 +48,7 @@ const TIME_WINDOWS: { value: TimeWindow; label: string }[] = [
   { value: '2y', label: '2 years' },
 ];
 
-const ROLE_CATEGORIES: { value: SoftwareRoleCategory | 'all'; label: string }[] = [
-  { value: 'all', label: 'All Categories' },
+const ROLE_CATEGORIES: { value: SoftwareRoleCategory; label: string }[] = [
   { value: 'frontend', label: 'Frontend' },
   { value: 'backend', label: 'Backend' },
   { value: 'fullstack', label: 'Full Stack' },
@@ -140,22 +140,51 @@ export function GraphFilters() {
             </Select>
           </FormControl>
 
-        <FormControl size="small" sx={{ minWidth: 150 }}>
-          <InputLabel>Role Category</InputLabel>
-          <Select
-            value={filters.roleCategory || 'all'}
-            label="Role Category"
-            onChange={(e) =>
-              dispatch(setGraphRoleCategory(e.target.value as SoftwareRoleCategory | 'all'))
+        <Autocomplete
+          multiple
+          size="small"
+          options={ROLE_CATEGORIES.map(cat => cat.value)}
+          value={filters.roleCategory || []}
+          onChange={(_, newValue) => {
+            // Handle chip removal
+            if (Array.isArray(newValue)) {
+              const removedCats = (filters.roleCategory || []).filter(
+                cat => !newValue.includes(cat)
+              );
+              removedCats.forEach(cat => dispatch(removeGraphRoleCategory(cat)));
+
+              // Handle chip addition
+              const addedCats = newValue.filter(
+                cat => !(filters.roleCategory || []).includes(cat)
+              );
+              addedCats.forEach(cat => dispatch(addGraphRoleCategory(cat)));
             }
-          >
-            {ROLE_CATEGORIES.map((cat) => (
-              <MenuItem key={cat.value} value={cat.value}>
-                {cat.label}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
+          }}
+          renderTags={(value, getTagProps) =>
+            value.map((option, index) => {
+              const { key, ...tagProps } = getTagProps({ index });
+              return (
+                <Chip
+                  key={key}
+                  label={ROLE_CATEGORIES.find(c => c.value === option)?.label || option}
+                  size="small"
+                  {...tagProps}
+                />
+              );
+            })
+          }
+          getOptionLabel={(option) =>
+            ROLE_CATEGORIES.find(c => c.value === option)?.label || option
+          }
+          renderInput={(params) => (
+            <TextField
+              {...params}
+              label="Role Category"
+              placeholder="Select categories..."
+            />
+          )}
+          sx={{ minWidth: 200 }}
+        />
 
         {availableLocations.length > 0 && (
           <Autocomplete

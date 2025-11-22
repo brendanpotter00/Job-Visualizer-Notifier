@@ -94,9 +94,13 @@ export const selectGraphFilteredJobs = createSelector(
         return false;
       }
 
-      // Role category filter
-      if (filters.roleCategory && filters.roleCategory !== 'all') {
-        if (job.classification.category !== filters.roleCategory) {
+      // Role category filter (multi-select with OR logic)
+      if (filters.roleCategory && filters.roleCategory.length > 0) {
+        const matchesCategory = filters.roleCategory.some(
+          filterCat => job.classification.category === filterCat
+        );
+
+        if (!matchesCategory) {
           return false;
         }
       }
@@ -172,9 +176,13 @@ export const selectListFilteredJobs = createSelector(
         return false;
       }
 
-      // Role category filter
-      if (filters.roleCategory && filters.roleCategory !== 'all') {
-        if (job.classification.category !== filters.roleCategory) {
+      // Role category filter (multi-select with OR logic)
+      if (filters.roleCategory && filters.roleCategory.length > 0) {
+        const matchesCategory = filters.roleCategory.some(
+          filterCat => job.classification.category === filterCat
+        );
+
+        if (!matchesCategory) {
           return false;
         }
       }
