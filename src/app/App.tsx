@@ -8,6 +8,7 @@ import { CompanySelector } from '../components/CompanySelector/CompanySelector';
 import { GraphSection } from '../components/JobPostingsChart/GraphSection';
 import { ListSection } from '../components/JobList/ListSection';
 import { BucketJobsModal } from '../components/BucketJobsModal/BucketJobsModal';
+import { getCompanyById } from '../config/companies';
 
 /**
  * Root application component
@@ -18,6 +19,9 @@ function App() {
   const globalLoading = useAppSelector((state) => state.ui.globalLoading);
   const isLoading = useAppSelector(selectCurrentCompanyLoading);
   const error = useAppSelector(selectCurrentCompanyError);
+
+  // Get selected company name
+  const companyName = getCompanyById(selectedCompanyId)?.name || 'Job Posting Analytics';
 
   // Load jobs on mount and when company changes
   useEffect(() => {
@@ -47,7 +51,7 @@ function App() {
           sx={{ mb: 4 }}
         >
           <Typography variant="h3" component="h1">
-            Job Posting Analytics
+            {companyName} - Job Posting Analytics
           </Typography>
           <CompanySelector />
         </Stack>
