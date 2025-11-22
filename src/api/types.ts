@@ -25,7 +25,7 @@ export interface GreenhouseJobResponse {
   metadata?: Array<{
     id: number;
     name: string;
-    value: string;
+    value: string | string[] | null; // API can return string, array, or null
   }>;
 }
 
@@ -48,7 +48,7 @@ export interface LeverJobResponse {
     team?: string;
   };
   createdAt: number; // Unix timestamp (milliseconds)
-  tags?: string[];
+  tags?: (string | string[] | null)[]; // API can return mixed types
   workplaceType?: 'remote' | 'onsite' | 'unspecified';
 }
 

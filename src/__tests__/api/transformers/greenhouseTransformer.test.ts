@@ -101,4 +101,70 @@ describe('transformGreenhouseJob', () => {
     expect(job.department).toBeUndefined();
     expect(job.tags).toEqual([]);
   });
+
+  it('should filter out null values from metadata tags', () => {
+    const responseWithNullTags: GreenhouseJobResponse = {
+      ...mockGreenhouseResponse,
+      metadata: [
+        { id: 1, name: 'tag', value: 'Regular' },
+        { id: 2, name: 'tag', value: 'Production' },
+        { id: 3, name: 'tag', value: null },
+      ],
+    };
+
+    const job = transformGreenhouseJob(responseWithNullTags, 'spacex');
+
+    expect(job.tags).toEqual(['Regular', 'Production']);
+    expect(job.tags).not.toContain(null);
+  });
+
+  it('should flatten nested arrays in metadata tags', () => {
+    const responseWithNestedTags: GreenhouseJobResponse = {
+      ...mockGreenhouseResponse,
+      metadata: [
+        { id: 1, name: 'tag', value: 'Regular' },
+        { id: 2, name: 'tag', value: ['Starlink', 'Dragon'] },
+        { id: 3, name: 'tag', value: 'Production' },
+      ],
+    };
+
+    const job = transformGreenhouseJob(responseWithNestedTags, 'spacex');
+
+    expect(job.tags).toEqual(['Regular', 'Starlink', 'Dragon', 'Production']);
+  });
+
+  it('should filter out empty strings from tags', () => {
+    const responseWithEmptyTags: GreenhouseJobResponse = {
+      ...mockGreenhouseResponse,
+      metadata: [
+        { id: 1, name: 'tag', value: 'Valid' },
+        { id: 2, name: 'tag', value: '' },
+        { id: 3, name: 'tag', value: 'AlsoValid' },
+      ],
+    };
+
+    const job = transformGreenhouseJob(responseWithEmptyTags, 'spacex');
+
+    expect(job.tags).toEqual(['Valid', 'AlsoValid']);
+    expect(job.tags).not.toContain('');
+  });
+
+  it('should handle mixed null, nested arrays, and strings in tags', () => {
+    const responseWithMixedTags: GreenhouseJobResponse = {
+      ...mockGreenhouseResponse,
+      metadata: [
+        { id: 1, name: 'tag', value: 'Regular' },
+        { id: 2, name: 'tag', value: 'Production' },
+        { id: 3, name: 'tag', value: ['Starlink'] },
+        { id: 4, name: 'tag', value: null },
+        { id: 5, name: 'tag', value: '' },
+        { id: 6, name: 'tag', value: 'Valid' },
+      ],
+    };
+
+    const job = transformGreenhouseJob(responseWithMixedTags, 'spacex');
+
+    expect(job.tags).toEqual(['Regular', 'Production', 'Starlink', 'Valid']);
+    expect(job.tags).toHaveLength(4);
+  });
 });

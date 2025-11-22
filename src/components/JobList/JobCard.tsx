@@ -60,9 +60,12 @@ export function JobCard({ job }: JobCardProps) {
 
           {job.tags && job.tags.length > 0 && (
             <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
-              {job.tags.slice(0, 5).map((tag, index) => (
-                <Chip key={index} label={tag} size="small" variant="filled" />
-              ))}
+              {job.tags
+                .filter((tag): tag is string => typeof tag === 'string' && tag.length > 0)
+                .slice(0, 5)
+                .map((tag, index) => (
+                  <Chip key={index} label={tag} size="small" variant="filled" />
+                ))}
             </Stack>
           )}
         </Stack>

@@ -111,4 +111,51 @@ describe('transformLeverJob', () => {
     expect(job.classification.category).toBe('frontend');
     expect(job.tags).toEqual(['react', 'javascript', 'typescript']);
   });
+
+  it('should filter out null values from tags', () => {
+    const responseWithNullTags: LeverJobResponse = {
+      ...mockLeverResponse,
+      tags: ['Regular', 'Production', null, 'Valid'] as any,
+    };
+
+    const job = transformLeverJob(responseWithNullTags, 'nominal');
+
+    expect(job.tags).toEqual(['Regular', 'Production', 'Valid']);
+    expect(job.tags).not.toContain(null);
+  });
+
+  it('should flatten nested arrays in tags', () => {
+    const responseWithNestedTags: LeverJobResponse = {
+      ...mockLeverResponse,
+      tags: ['Regular', ['Starlink', 'Dragon'], 'Production'] as any,
+    };
+
+    const job = transformLeverJob(responseWithNestedTags, 'nominal');
+
+    expect(job.tags).toEqual(['Regular', 'Starlink', 'Dragon', 'Production']);
+  });
+
+  it('should filter out empty strings from tags', () => {
+    const responseWithEmptyTags: LeverJobResponse = {
+      ...mockLeverResponse,
+      tags: ['Valid', '', 'AlsoValid'] as any,
+    };
+
+    const job = transformLeverJob(responseWithEmptyTags, 'nominal');
+
+    expect(job.tags).toEqual(['Valid', 'AlsoValid']);
+    expect(job.tags).not.toContain('');
+  });
+
+  it('should handle mixed null, nested arrays, and strings in tags', () => {
+    const responseWithMixedTags: LeverJobResponse = {
+      ...mockLeverResponse,
+      tags: ['Regular', 'Production', ['Starlink'], null, '', 'Valid'] as any,
+    };
+
+    const job = transformLeverJob(responseWithMixedTags, 'nominal');
+
+    expect(job.tags).toEqual(['Regular', 'Production', 'Starlink', 'Valid']);
+    expect(job.tags).toHaveLength(4);
+  });
 });

@@ -1,6 +1,7 @@
 import type { Job } from '../../types';
 import type { GreenhouseJobResponse } from '../types';
 import { classifyJobRole } from '../../utils/roleClassification';
+import { sanitizeTags } from '../../utils/tagUtils';
 
 /**
  * Transforms Greenhouse API response to internal Job model
@@ -25,7 +26,7 @@ export function transformGreenhouseJob(
     location,
     createdAt: raw.first_published || raw.updated_at, // Use first_published when available
     url: raw.absolute_url,
-    tags: raw.metadata?.map((m) => m.value) || [],
+    tags: sanitizeTags(raw.metadata?.map((m) => m.value)),
     raw,
   };
 

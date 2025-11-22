@@ -1,6 +1,7 @@
 import type { Job } from '../../types';
 import type { LeverJobResponse } from '../types';
 import { classifyJobRole } from '../../utils/roleClassification';
+import { sanitizeTags } from '../../utils/tagUtils';
 
 /**
  * Transforms Lever API response to internal Job model
@@ -18,7 +19,7 @@ export function transformLeverJob(raw: LeverJobResponse, companyId: string): Job
     employmentType: raw.categories.commitment,
     createdAt: new Date(raw.createdAt).toISOString(),
     url: raw.hostedUrl,
-    tags: raw.tags || [],
+    tags: sanitizeTags(raw.tags),
     raw,
   };
 
