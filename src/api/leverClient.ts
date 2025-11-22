@@ -37,7 +37,6 @@ export const leverClient: JobAPIClient = {
 
       const data: LeverJobResponse[] = await response.json();
       console.log('[Lever Client] Received jobs:', data.length, 'jobs');
-      console.log(data)
 
       // Transform to internal model
       const jobs = data.map((job) => transformLeverJob(job, config.companyId));

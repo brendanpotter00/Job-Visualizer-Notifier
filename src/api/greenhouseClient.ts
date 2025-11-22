@@ -37,7 +37,6 @@ export const greenhouseClient: JobAPIClient = {
 
       const data: GreenhouseAPIResponse = await response.json();
       console.log('[Greenhouse Client] Received jobs:', data.jobs.length, 'jobs');
-      console.log(data)
 
       // Transform to internal model
       const jobs = data.jobs.map((job) => transformGreenhouseJob(job, config.boardToken));

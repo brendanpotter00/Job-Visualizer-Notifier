@@ -37,7 +37,6 @@ export const ashbyClient: JobAPIClient = {
 
       const data: AshbyAPIResponse = await response.json();
       console.log('[Ashby Client] Received jobs:', data.jobs.length, 'jobs');
-      console.log(data);
 
       // Transform to internal model
       const jobs = data.jobs.map((job) => transformAshbyJob(job, config.jobBoardName));
