@@ -1,4 +1,4 @@
-import type { Job, GreenhouseConfig, LeverConfig } from '../types';
+import type { Job, GreenhouseConfig, LeverConfig, AshbyConfig } from '../types';
 
 /**
  * Greenhouse job board API response
@@ -53,6 +53,55 @@ export interface LeverJobResponse {
 }
 
 /**
+ * Ashby job posting API response
+ * @see https://developers.ashbyhq.com/docs/public-job-posting-api
+ */
+export interface AshbyJobResponse {
+  id: string;
+  title: string;
+  jobUrl: string;
+  applyUrl: string;
+  publishedAt: string; // ISO 8601 timestamp
+  location: string;
+  secondaryLocations?: Array<{
+    location: string;
+    address: {
+      postalAddress: {
+        addressRegion?: string;
+        addressCountry?: string;
+        addressLocality?: string;
+      };
+    };
+  }>;
+  department?: string;
+  team?: string;
+  employmentType: string; // "FullTime", "PartTime", "Intern", "Contract", "Temporary"
+  isRemote?: boolean;
+  isListed: boolean;
+  descriptionHtml: string;
+  descriptionPlain: string;
+  address?: {
+    postalAddress?: {
+      addressRegion?: string;
+      addressCountry?: string;
+      addressLocality?: string;
+    };
+  };
+  compensation?: {
+    compensationTierSummary?: string;
+    scrapeableCompensationSalarySummary?: string;
+    compensationTiers?: unknown[];
+    summaryComponents?: unknown[];
+  };
+  shouldDisplayCompensationOnJobPostings?: boolean;
+}
+
+export interface AshbyAPIResponse {
+  apiVersion?: string;
+  jobs: AshbyJobResponse[];
+}
+
+/**
  * Standard API client interface.
  * All ATS clients implement this interface.
  */
@@ -64,7 +113,7 @@ export interface JobAPIClient {
    * @returns Normalized jobs array
    */
   fetchJobs(
-    config: GreenhouseConfig | LeverConfig,
+    config: GreenhouseConfig | LeverConfig | AshbyConfig,
     options?: FetchJobsOptions
   ): Promise<FetchJobsResult>;
 }
@@ -96,7 +145,7 @@ export class APIError extends Error {
   constructor(
     message: string,
     public statusCode?: number,
-    public atsProvider?: 'greenhouse' | 'lever',
+    public atsProvider?: 'greenhouse' | 'lever' | 'ashby',
     public retryable: boolean = false
   ) {
     super(message);

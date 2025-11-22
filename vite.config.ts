@@ -19,6 +19,12 @@ export default defineConfig({
         rewrite: (path) => path.replace(/^\/api\/lever/, ''),
         secure: false,
       },
+      '/api/ashby': {
+        target: 'https://api.ashbyhq.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/ashby/, ''),
+        secure: false,
+      },
     },
   },
   build: {

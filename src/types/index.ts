@@ -5,7 +5,7 @@
 /**
  * ATS provider type
  */
-export type ATSProvider = 'greenhouse' | 'lever';
+export type ATSProvider = 'greenhouse' | 'lever' | 'ashby';
 
 /**
  * Software role categories for filtering and analytics
@@ -146,6 +146,17 @@ export interface LeverConfig {
 }
 
 /**
+ * Ashby-specific configuration
+ */
+export interface AshbyConfig {
+  type: 'ashby';
+  /** Job board name from Ashby careers page URL */
+  jobBoardName: string;
+  /** Optional custom API base URL */
+  apiBaseUrl?: string;
+}
+
+/**
  * Company configuration for multi-ATS support
  */
 export interface Company {
@@ -159,7 +170,7 @@ export interface Company {
   ats: ATSProvider;
 
   /** ATS-specific configuration */
-  config: GreenhouseConfig | LeverConfig;
+  config: GreenhouseConfig | LeverConfig | AshbyConfig;
 }
 
 /**

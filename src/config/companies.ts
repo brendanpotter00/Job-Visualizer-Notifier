@@ -41,6 +41,24 @@ export const COMPANIES: Company[] = [
         }
     },
     {
+        id: 'notion',
+        name: 'Notion',
+        ats: 'ashby',
+        config: {
+            type: 'ashby',
+            jobBoardName: 'notion',
+        }
+    },
+    {
+        id: 'neuralink',
+        name: 'Neuralink',
+        ats: 'greenhouse',
+        config: {
+            type: 'greenhouse',
+            boardToken: 'neuralink',
+        }
+    },
+    {
         id: 'palantir',
         name: 'Palantir',
         ats: 'lever',
@@ -51,6 +69,16 @@ export const COMPANIES: Company[] = [
         },
     },
     {
+        id: 'saronic',
+        name: 'Saronic',
+        ats: 'lever',
+        config: {
+            type: 'lever',
+            companyId: 'saronic',
+            jobsUrl: 'https://jobs.lever.co/saronic',
+        },
+    },
+    {
         id: 'nominal',
         name: 'Nominal',
         ats: 'lever',
@@ -58,6 +86,16 @@ export const COMPANIES: Company[] = [
             type: 'lever',
             companyId: 'nominal',
             jobsUrl: 'https://jobs.lever.co/nominal',
+        },
+    },
+    {
+        id: 'openai',
+        name: 'openai',
+        ats: 'lever',
+        config: {
+            type: 'lever',
+            companyId: 'nominal',
+            jobsUrl: 'https://jobs.lever.co/openai',
         },
     },
     {

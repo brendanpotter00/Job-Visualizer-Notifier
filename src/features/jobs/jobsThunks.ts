@@ -3,6 +3,7 @@ import type { TimeWindow } from '../../types';
 import { getCompanyById } from '../../config/companies';
 import { greenhouseClient } from '../../api/greenhouseClient';
 import { leverClient } from '../../api/leverClient';
+import { ashbyClient } from '../../api/ashbyClient';
 import { APIError } from '../../api/types';
 import { calculateSinceTimestamp } from '../../utils/dateUtils';
 
@@ -28,7 +29,12 @@ export const loadJobsForCompany = createAsyncThunk(
 
     try {
       // Select appropriate client based on ATS type
-      const client = company.ats === 'greenhouse' ? greenhouseClient : leverClient;
+      const client =
+        company.ats === 'greenhouse'
+          ? greenhouseClient
+          : company.ats === 'lever'
+            ? leverClient
+            : ashbyClient;
 
       const result = await client.fetchJobs(company.config, {
         since,
