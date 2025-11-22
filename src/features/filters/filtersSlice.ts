@@ -86,8 +86,28 @@ const filtersSlice = createSlice({
     clearGraphLocations(state) {
       state.graph.location = undefined;
     },
-    setGraphDepartment(state, action: PayloadAction<string | undefined>) {
-      state.graph.department = action.payload;
+    addGraphDepartment(state, action: PayloadAction<string>) {
+      const department = action.payload;
+
+      if (!state.graph.department) {
+        state.graph.department = [department];
+      } else if (!state.graph.department.includes(department)) {
+        state.graph.department.push(department);
+      }
+    },
+    removeGraphDepartment(state, action: PayloadAction<string>) {
+      if (!state.graph.department) return;
+
+      state.graph.department = state.graph.department.filter(
+        dept => dept !== action.payload
+      );
+
+      if (state.graph.department.length === 0) {
+        state.graph.department = undefined;
+      }
+    },
+    clearGraphDepartments(state) {
+      state.graph.department = undefined;
     },
     setGraphEmploymentType(state, action: PayloadAction<string | undefined>) {
       state.graph.employmentType = action.payload;
@@ -180,8 +200,28 @@ const filtersSlice = createSlice({
     clearListLocations(state) {
       state.list.location = undefined;
     },
-    setListDepartment(state, action: PayloadAction<string | undefined>) {
-      state.list.department = action.payload;
+    addListDepartment(state, action: PayloadAction<string>) {
+      const department = action.payload;
+
+      if (!state.list.department) {
+        state.list.department = [department];
+      } else if (!state.list.department.includes(department)) {
+        state.list.department.push(department);
+      }
+    },
+    removeListDepartment(state, action: PayloadAction<string>) {
+      if (!state.list.department) return;
+
+      state.list.department = state.list.department.filter(
+        dept => dept !== action.payload
+      );
+
+      if (state.list.department.length === 0) {
+        state.list.department = undefined;
+      }
+    },
+    clearListDepartments(state) {
+      state.list.department = undefined;
     },
     setListEmploymentType(state, action: PayloadAction<string | undefined>) {
       state.list.employmentType = action.payload;
@@ -235,7 +275,9 @@ export const {
   addGraphLocation,
   removeGraphLocation,
   clearGraphLocations,
-  setGraphDepartment,
+  addGraphDepartment,
+  removeGraphDepartment,
+  clearGraphDepartments,
   setGraphEmploymentType,
   addGraphRoleCategory,
   removeGraphRoleCategory,
@@ -252,7 +294,9 @@ export const {
   addListLocation,
   removeListLocation,
   clearListLocations,
-  setListDepartment,
+  addListDepartment,
+  removeListDepartment,
+  clearListDepartments,
   setListEmploymentType,
   addListRoleCategory,
   removeListRoleCategory,

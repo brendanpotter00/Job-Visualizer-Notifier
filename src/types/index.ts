@@ -169,7 +169,7 @@ export interface GraphFilters {
   timeWindow: TimeWindow;
   searchQuery?: string[];
   location?: string[];
-  department?: string;
+  department?: string[];
   employmentType?: string;
   roleCategory?: SoftwareRoleCategory[];
   softwareOnly: boolean;
@@ -182,7 +182,7 @@ export interface ListFilters {
   timeWindow: TimeWindow;
   searchQuery?: string[];
   location?: string[];
-  department?: string;
+  department?: string[];
   employmentType?: string;
   roleCategory?: SoftwareRoleCategory[];
   softwareOnly: boolean;

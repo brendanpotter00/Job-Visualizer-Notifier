@@ -19,7 +19,8 @@ import {
   removeGraphSearchTag,
   addGraphLocation,
   removeGraphLocation,
-  setGraphDepartment,
+  addGraphDepartment,
+  removeGraphDepartment,
   addGraphRoleCategory,
   removeGraphRoleCategory,
   toggleGraphSoftwareOnly,
@@ -232,23 +233,48 @@ export function GraphFilters() {
         )}
 
         {availableDepartments.length > 0 && (
-          <FormControl size="small" sx={{ minWidth: 150 }}>
-            <InputLabel>Department</InputLabel>
-            <Select
-              value={filters.department || ''}
-              label="Department"
-              onChange={(e) =>
-                dispatch(setGraphDepartment(e.target.value || undefined))
+          <Autocomplete
+            multiple
+            size="small"
+            options={availableDepartments}
+            value={filters.department || []}
+            onChange={(_, newValue) => {
+              // Handle chip removal
+              if (Array.isArray(newValue)) {
+                const removedDepts = (filters.department || []).filter(
+                  dept => !newValue.includes(dept)
+                );
+                removedDepts.forEach(dept => dispatch(removeGraphDepartment(dept)));
+
+                // Handle chip addition
+                const addedDepts = newValue.filter(
+                  dept => !(filters.department || []).includes(dept)
+                );
+                addedDepts.forEach(dept => dispatch(addGraphDepartment(dept)));
               }
-            >
-              <MenuItem value="">All Departments</MenuItem>
-              {availableDepartments.map((dept) => (
-                <MenuItem key={dept} value={dept}>
-                  {dept}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+            }}
+            renderTags={(value, getTagProps) =>
+              value.map((option, index) => {
+                const { key, ...tagProps } = getTagProps({ index });
+                return (
+                  <Chip
+                    key={key}
+                    label={option}
+                    size="small"
+                    {...tagProps}
+                  />
+                );
+              })
+            }
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Department"
+                placeholder="Select departments..."
+              />
+            )}
+            sx={{ minWidth: 200 }}
+          />
         )}
         </Stack>
 

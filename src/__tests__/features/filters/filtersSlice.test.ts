@@ -7,6 +7,9 @@ import filtersReducer, {
   addGraphSearchTag,
   removeGraphSearchTag,
   clearGraphSearchTags,
+  addGraphDepartment,
+  removeGraphDepartment,
+  clearGraphDepartments,
   toggleGraphSoftwareOnly,
   addGraphRoleCategory,
   removeGraphRoleCategory,
@@ -20,6 +23,9 @@ import filtersReducer, {
   addListLocation,
   removeListLocation,
   clearListLocations,
+  addListDepartment,
+  removeListDepartment,
+  clearListDepartments,
   addListRoleCategory,
   removeListRoleCategory,
   clearListRoleCategories,
@@ -269,6 +275,71 @@ describe('filtersSlice', () => {
       expect(newState.graph.location).toBeUndefined();
     });
 
+    it('should add graph department', () => {
+      const newState = filtersReducer(initialState, addGraphDepartment('Engineering'));
+
+      expect(newState.graph.department).toEqual(['Engineering']);
+    });
+
+    it('should add multiple graph departments', () => {
+      let state = initialState;
+      state = filtersReducer(state, addGraphDepartment('Engineering'));
+      state = filtersReducer(state, addGraphDepartment('Product'));
+      state = filtersReducer(state, addGraphDepartment('Design'));
+
+      expect(state.graph.department).toEqual(['Engineering', 'Product', 'Design']);
+    });
+
+    it('should not add duplicate graph departments', () => {
+      let state = initialState;
+      state = filtersReducer(state, addGraphDepartment('Engineering'));
+      state = filtersReducer(state, addGraphDepartment('Engineering'));
+
+      expect(state.graph.department).toEqual(['Engineering']);
+    });
+
+    it('should remove graph department', () => {
+      const stateWithDepts: FiltersState = {
+        ...initialState,
+        graph: {
+          ...initialState.graph,
+          department: ['Engineering', 'Product', 'Design'],
+        },
+      };
+
+      const newState = filtersReducer(stateWithDepts, removeGraphDepartment('Product'));
+
+      expect(newState.graph.department).toEqual(['Engineering', 'Design']);
+    });
+
+    it('should set department to undefined when removing last graph department', () => {
+      const stateWithOneDept: FiltersState = {
+        ...initialState,
+        graph: {
+          ...initialState.graph,
+          department: ['Engineering'],
+        },
+      };
+
+      const newState = filtersReducer(stateWithOneDept, removeGraphDepartment('Engineering'));
+
+      expect(newState.graph.department).toBeUndefined();
+    });
+
+    it('should clear all graph departments', () => {
+      const stateWithDepts: FiltersState = {
+        ...initialState,
+        graph: {
+          ...initialState.graph,
+          department: ['Engineering', 'Product'],
+        },
+      };
+
+      const newState = filtersReducer(stateWithDepts, clearGraphDepartments());
+
+      expect(newState.graph.department).toBeUndefined();
+    });
+
     it('should reset graph filters', () => {
       const modifiedState: FiltersState = {
         ...initialState,
@@ -419,6 +490,71 @@ describe('filtersSlice', () => {
       const newState = filtersReducer(stateWithLocs, clearListLocations());
 
       expect(newState.list.location).toBeUndefined();
+    });
+
+    it('should add list department', () => {
+      const newState = filtersReducer(initialState, addListDepartment('Engineering'));
+
+      expect(newState.list.department).toEqual(['Engineering']);
+    });
+
+    it('should add multiple list departments', () => {
+      let state = initialState;
+      state = filtersReducer(state, addListDepartment('Engineering'));
+      state = filtersReducer(state, addListDepartment('Product'));
+      state = filtersReducer(state, addListDepartment('Design'));
+
+      expect(state.list.department).toEqual(['Engineering', 'Product', 'Design']);
+    });
+
+    it('should not add duplicate list departments', () => {
+      let state = initialState;
+      state = filtersReducer(state, addListDepartment('Engineering'));
+      state = filtersReducer(state, addListDepartment('Engineering'));
+
+      expect(state.list.department).toEqual(['Engineering']);
+    });
+
+    it('should remove list department', () => {
+      const stateWithDepts: FiltersState = {
+        ...initialState,
+        list: {
+          ...initialState.list,
+          department: ['Engineering', 'Product', 'Design'],
+        },
+      };
+
+      const newState = filtersReducer(stateWithDepts, removeListDepartment('Product'));
+
+      expect(newState.list.department).toEqual(['Engineering', 'Design']);
+    });
+
+    it('should set department to undefined when removing last list department', () => {
+      const stateWithOneDept: FiltersState = {
+        ...initialState,
+        list: {
+          ...initialState.list,
+          department: ['Engineering'],
+        },
+      };
+
+      const newState = filtersReducer(stateWithOneDept, removeListDepartment('Engineering'));
+
+      expect(newState.list.department).toBeUndefined();
+    });
+
+    it('should clear all list departments', () => {
+      const stateWithDepts: FiltersState = {
+        ...initialState,
+        list: {
+          ...initialState.list,
+          department: ['Engineering', 'Product'],
+        },
+      };
+
+      const newState = filtersReducer(stateWithDepts, clearListDepartments());
+
+      expect(newState.list.department).toBeUndefined();
     });
 
     it('should toggle list software only', () => {

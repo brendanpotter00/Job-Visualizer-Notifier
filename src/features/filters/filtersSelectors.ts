@@ -84,9 +84,15 @@ export const selectGraphFilteredJobs = createSelector(
         }
       }
 
-      // Department filter
-      if (filters.department && job.department !== filters.department) {
-        return false;
+      // Department filter (multi-select with OR logic)
+      if (filters.department && filters.department.length > 0) {
+        const matchesDepartment = filters.department.some(
+          filterDept => job.department === filterDept
+        );
+
+        if (!matchesDepartment) {
+          return false;
+        }
       }
 
       // Employment type filter
@@ -166,9 +172,15 @@ export const selectListFilteredJobs = createSelector(
         }
       }
 
-      // Department filter
-      if (filters.department && job.department !== filters.department) {
-        return false;
+      // Department filter (multi-select with OR logic)
+      if (filters.department && filters.department.length > 0) {
+        const matchesDepartment = filters.department.some(
+          filterDept => job.department === filterDept
+        );
+
+        if (!matchesDepartment) {
+          return false;
+        }
       }
 
       // Employment type filter

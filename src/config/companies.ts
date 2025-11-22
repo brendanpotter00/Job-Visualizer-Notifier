@@ -70,6 +70,15 @@ export const COMPANIES: Company[] = [
         }
     },
     {
+        id: 'xai',
+        name: 'XAI',
+        ats: 'greenhouse',
+        config: {
+            type: 'greenhouse',
+            boardToken: 'xai',
+        }
+    },
+    {
         id: 'doordash',
         name: 'Doordash',
         ats: 'greenhouse',
