@@ -12,7 +12,8 @@ export const leverClient: JobAPIClient = {
     }
 
     // Lever API endpoint: /api/lever/v0/postings/{company} (proxied)
-    const url = `/api/lever/v0/postings/${config.companyId}`;
+    const baseUrl = config.apiBaseUrl || '/api/lever';
+    const url = `${baseUrl}/v0/postings/${config.companyId}`;
     console.log('[Lever Client] Fetching from URL:', url);
 
     try {

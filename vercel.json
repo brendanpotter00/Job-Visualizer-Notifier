@@ -1,0 +1,36 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    {
+      "source": "/api/greenhouse/:path*",
+      "destination": "/api/greenhouse?path=:path*"
+    },
+    {
+      "source": "/api/lever/:path*",
+      "destination": "/api/lever?path=:path*"
+    },
+    {
+      "source": "/api/ashby/:path*",
+      "destination": "/api/ashby?path=:path*"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        {
+          "key": "Access-Control-Allow-Origin",
+          "value": "*"
+        },
+        {
+          "key": "Access-Control-Allow-Methods",
+          "value": "GET, OPTIONS"
+        },
+        {
+          "key": "Access-Control-Allow-Headers",
+          "value": "Content-Type"
+        }
+      ]
+    }
+  ]
+}

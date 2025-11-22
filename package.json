@@ -20,7 +20,13 @@
     "type": "git",
     "url": "git+https://github.com/brendanpotter00/Job-Visualizer-Notifier.git"
   },
-  "keywords": ["job-tracking", "analytics", "greenhouse", "lever", "ats"],
+  "keywords": [
+    "job-tracking",
+    "analytics",
+    "greenhouse",
+    "lever",
+    "ats"
+  ],
   "author": "",
   "license": "ISC",
   "bugs": {
@@ -49,6 +55,7 @@
     "@types/react-dom": "^19.2.3",
     "@typescript-eslint/eslint-plugin": "^8.47.0",
     "@typescript-eslint/parser": "^8.47.0",
+    "@vercel/node": "^5.5.9",
     "@vitest/coverage-v8": "^4.0.12",
     "@vitest/ui": "^4.0.12",
     "eslint": "^9.39.1",

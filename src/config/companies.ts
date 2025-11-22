@@ -126,6 +126,15 @@ export const COMPANIES: Company[] = [
         }
     },
     {
+        id: 'lyft',
+        name: 'Lyft',
+        ats: 'greenhouse',
+        config: {
+            type: 'greenhouse',
+            boardToken: 'lyft',
+        }
+    },
+    {
         id: 'doordash',
         name: 'Doordash',
         ats: 'greenhouse',

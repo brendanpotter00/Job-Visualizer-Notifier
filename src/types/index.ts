@@ -143,6 +143,8 @@ export interface LeverConfig {
   companyId: string;
   /** Full jobs URL */
   jobsUrl: string;
+  /** Optional custom API base URL */
+  apiBaseUrl?: string;
 }
 
 /**
