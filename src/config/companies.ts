@@ -126,6 +126,15 @@ export const COMPANIES: Company[] = [
         }
     },
     {
+        id: 'anthropic',
+        name: 'Anthropic',
+        ats: 'greenhouse',
+        config: {
+            type: 'greenhouse',
+            boardToken: 'anthropic',
+        }
+    },
+    {
         id: 'lyft',
         name: 'Lyft',
         ats: 'greenhouse',
@@ -135,12 +144,12 @@ export const COMPANIES: Company[] = [
         }
     },
     {
-        id: 'doordash',
+        id: 'doordashusa',
         name: 'Doordash',
         ats: 'greenhouse',
         config: {
             type: 'greenhouse',
-            boardToken: 'doordash',
+            boardToken: 'doordashusa',
         }
     },
     {
@@ -152,6 +161,52 @@ export const COMPANIES: Company[] = [
             boardToken: 'stripe',
         }
     },
+    {
+        id: 'ramp',
+        name: 'Ramp',
+        ats: 'ashby',
+        config: {
+            type: 'ashby',
+            jobBoardName: 'ramp',
+        },
+    },
+    {
+        id: 'plaid',
+        name: 'Plaid',
+        ats: 'lever',
+        config: {
+            type: 'lever',
+            companyId: 'plaid',
+            jobsUrl: 'https://jobs.lever.co/plaid',
+        },
+    },
+    {
+        id: 'appliedintuition',
+        name: 'Applied Intuition',
+        ats: 'greenhouse',
+        config: {
+            type: 'greenhouse',
+            boardToken: 'appliedintuition',
+        }
+    },
+    {
+        id: 'discord',
+        name: 'Discord',
+        ats: 'greenhouse',
+        config: {
+            type: 'greenhouse',
+            boardToken: 'discord',
+        },
+    },{
+        id: 'brex',
+        name: 'Brex',
+        ats: 'greenhouse',
+        config: {
+            type: 'greenhouse',
+            boardToken: 'brex',
+        },
+    },
+
 ];
 
 /**
