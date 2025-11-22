@@ -4,6 +4,7 @@ import { selectCurrentCompanyJobs } from '../jobs/jobsSelectors';
 import type { Job, TimeWindow } from '../../types';
 import { bucketJobsByTime } from '../../utils/timeBucketing';
 import { getTimeWindowDuration } from '../../utils/dateUtils';
+import { isUnitedStatesLocation } from '../../utils/locationUtils';
 
 /**
  * Select graph filters
@@ -67,9 +68,20 @@ export const selectGraphFilteredJobs = createSelector(
         return false;
       }
 
-      // Location filter
-      if (filters.location && job.location !== filters.location) {
-        return false;
+      // Location filter (multi-select with OR logic)
+      if (filters.location && filters.location.length > 0) {
+        const matchesLocation = filters.location.some(filterLoc => {
+          // Special handling for "United States" meta-filter
+          if (filterLoc === 'United States') {
+            return isUnitedStatesLocation(job.location);
+          }
+          // Exact match for specific locations
+          return job.location === filterLoc;
+        });
+
+        if (!matchesLocation) {
+          return false;
+        }
       }
 
       // Department filter
@@ -134,9 +146,20 @@ export const selectListFilteredJobs = createSelector(
         return false;
       }
 
-      // Location filter
-      if (filters.location && job.location !== filters.location) {
-        return false;
+      // Location filter (multi-select with OR logic)
+      if (filters.location && filters.location.length > 0) {
+        const matchesLocation = filters.location.some(filterLoc => {
+          // Special handling for "United States" meta-filter
+          if (filterLoc === 'United States') {
+            return isUnitedStatesLocation(job.location);
+          }
+          // Exact match for specific locations
+          return job.location === filterLoc;
+        });
+
+        if (!matchesLocation) {
+          return false;
+        }
       }
 
       // Department filter
@@ -163,6 +186,7 @@ export const selectListFilteredJobs = createSelector(
 
 /**
  * Get unique locations from current company jobs
+ * Prepends "United States" as first option if any US locations exist
  */
 export const selectAvailableLocations = createSelector(
   [selectCurrentCompanyJobs],
@@ -170,7 +194,15 @@ export const selectAvailableLocations = createSelector(
     const locations = jobs
       .map((job) => job.location)
       .filter((loc): loc is string => Boolean(loc));
-    return Array.from(new Set(locations)).sort();
+    const uniqueLocations = Array.from(new Set(locations)).sort();
+
+    // Add "United States" as first option if there are any US locations
+    const hasUSLocations = uniqueLocations.some(isUnitedStatesLocation);
+    if (hasUSLocations) {
+      return ['United States', ...uniqueLocations];
+    }
+
+    return uniqueLocations;
   }
 );
 

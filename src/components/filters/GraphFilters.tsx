@@ -17,7 +17,8 @@ import {
   setGraphTimeWindow,
   addGraphSearchTag,
   removeGraphSearchTag,
-  setGraphLocation,
+  addGraphLocation,
+  removeGraphLocation,
   setGraphDepartment,
   setGraphRoleCategory,
   toggleGraphSoftwareOnly,
@@ -157,23 +158,48 @@ export function GraphFilters() {
         </FormControl>
 
         {availableLocations.length > 0 && (
-          <FormControl size="small" sx={{ minWidth: 150 }}>
-            <InputLabel>Location</InputLabel>
-            <Select
-              value={filters.location || ''}
-              label="Location"
-              onChange={(e) =>
-                dispatch(setGraphLocation(e.target.value || undefined))
+          <Autocomplete
+            multiple
+            size="small"
+            options={availableLocations}
+            value={filters.location || []}
+            onChange={(_, newValue) => {
+              // Handle chip removal
+              if (Array.isArray(newValue)) {
+                const removedLocs = (filters.location || []).filter(
+                  loc => !newValue.includes(loc)
+                );
+                removedLocs.forEach(loc => dispatch(removeGraphLocation(loc)));
+
+                // Handle chip addition
+                const addedLocs = newValue.filter(
+                  loc => !(filters.location || []).includes(loc)
+                );
+                addedLocs.forEach(loc => dispatch(addGraphLocation(loc)));
               }
-            >
-              <MenuItem value="">All Locations</MenuItem>
-              {availableLocations.map((loc) => (
-                <MenuItem key={loc} value={loc}>
-                  {loc}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+            }}
+            renderTags={(value, getTagProps) =>
+              value.map((option, index) => {
+                const { key, ...tagProps } = getTagProps({ index });
+                return (
+                  <Chip
+                    key={key}
+                    label={option}
+                    size="small"
+                    {...tagProps}
+                  />
+                );
+              })
+            }
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Location"
+                placeholder="Select locations..."
+              />
+            )}
+            sx={{ minWidth: 200 }}
+          />
         )}
 
         {availableDepartments.length > 0 && (

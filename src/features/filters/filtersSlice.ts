@@ -59,8 +59,32 @@ const filtersSlice = createSlice({
     clearGraphSearchTags(state) {
       state.graph.searchQuery = undefined;
     },
-    setGraphLocation(state, action: PayloadAction<string | undefined>) {
+    setGraphLocation(state, action: PayloadAction<string[] | undefined>) {
       state.graph.location = action.payload;
+    },
+    addGraphLocation(state, action: PayloadAction<string>) {
+      const location = action.payload.trim();
+      if (!location) return;
+
+      if (!state.graph.location) {
+        state.graph.location = [location];
+      } else if (!state.graph.location.includes(location)) {
+        state.graph.location.push(location);
+      }
+    },
+    removeGraphLocation(state, action: PayloadAction<string>) {
+      if (!state.graph.location) return;
+
+      state.graph.location = state.graph.location.filter(
+        loc => loc !== action.payload
+      );
+
+      if (state.graph.location.length === 0) {
+        state.graph.location = undefined;
+      }
+    },
+    clearGraphLocations(state) {
+      state.graph.location = undefined;
     },
     setGraphDepartment(state, action: PayloadAction<string | undefined>) {
       state.graph.department = action.payload;
@@ -109,8 +133,32 @@ const filtersSlice = createSlice({
     clearSearchTags(state) {
       state.list.searchQuery = undefined;
     },
-    setListLocation(state, action: PayloadAction<string | undefined>) {
+    setListLocation(state, action: PayloadAction<string[] | undefined>) {
       state.list.location = action.payload;
+    },
+    addListLocation(state, action: PayloadAction<string>) {
+      const location = action.payload.trim();
+      if (!location) return;
+
+      if (!state.list.location) {
+        state.list.location = [location];
+      } else if (!state.list.location.includes(location)) {
+        state.list.location.push(location);
+      }
+    },
+    removeListLocation(state, action: PayloadAction<string>) {
+      if (!state.list.location) return;
+
+      state.list.location = state.list.location.filter(
+        loc => loc !== action.payload
+      );
+
+      if (state.list.location.length === 0) {
+        state.list.location = undefined;
+      }
+    },
+    clearListLocations(state) {
+      state.list.location = undefined;
     },
     setListDepartment(state, action: PayloadAction<string | undefined>) {
       state.list.department = action.payload;
@@ -144,6 +192,9 @@ export const {
   removeGraphSearchTag,
   clearGraphSearchTags,
   setGraphLocation,
+  addGraphLocation,
+  removeGraphLocation,
+  clearGraphLocations,
   setGraphDepartment,
   setGraphEmploymentType,
   setGraphRoleCategory,
@@ -156,6 +207,9 @@ export const {
   removeSearchTag,
   clearSearchTags,
   setListLocation,
+  addListLocation,
+  removeListLocation,
+  clearListLocations,
   setListDepartment,
   setListEmploymentType,
   setListRoleCategory,

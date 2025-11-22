@@ -168,7 +168,7 @@ export interface Company {
 export interface GraphFilters {
   timeWindow: TimeWindow;
   searchQuery?: string[];
-  location?: string;
+  location?: string[];
   department?: string;
   employmentType?: string;
   roleCategory?: SoftwareRoleCategory | 'all';
@@ -181,7 +181,7 @@ export interface GraphFilters {
 export interface ListFilters {
   timeWindow: TimeWindow;
   searchQuery?: string[];
-  location?: string;
+  location?: string[];
   department?: string;
   employmentType?: string;
   roleCategory?: SoftwareRoleCategory | 'all';

@@ -37,7 +37,7 @@ describe('filtersSelectors', () => {
     id: '1',
     title: 'Frontend Engineer',
     department: 'Engineering',
-    location: 'Los Angeles',
+    location: 'Los Angeles, CA',
     createdAt: '2025-11-20T11:00:00Z', // 1 hour ago
     classification: {
       isSoftwareAdjacent: true,
@@ -51,7 +51,7 @@ describe('filtersSelectors', () => {
     id: '2',
     title: 'HR Manager',
     department: 'Human Resources',
-    location: 'New York',
+    location: 'New York, NY',
     createdAt: '2025-11-20T10:00:00Z', // 2 hours ago
     classification: {
       isSoftwareAdjacent: false,
@@ -65,7 +65,7 @@ describe('filtersSelectors', () => {
     id: '3',
     title: 'Backend Engineer',
     department: 'Engineering',
-    location: 'Los Angeles',
+    location: 'Los Angeles, CA',
     createdAt: '2025-11-18T12:00:00Z', // 2 days ago
     classification: {
       isSoftwareAdjacent: true,
@@ -186,13 +186,13 @@ describe('filtersSelectors', () => {
 
     it('should filter by location', () => {
       const state = createMockState([softwareJob, nonTechJob], {
-        location: 'Los Angeles',
+        location: ['Los Angeles, CA'],
         softwareOnly: false
       });
       const filtered = selectGraphFilteredJobs(state);
 
       expect(filtered).toHaveLength(1);
-      expect(filtered[0].location).toBe('Los Angeles');
+      expect(filtered[0].location).toBe('Los Angeles, CA');
     });
 
     it('should filter by role category', () => {
@@ -204,6 +204,34 @@ describe('filtersSelectors', () => {
 
       expect(filtered).toHaveLength(1);
       expect(filtered[0].classification.category).toBe('frontend');
+    });
+
+    it('should filter by multiple locations with OR logic', () => {
+      const state = createMockState([softwareJob, nonTechJob], {
+        location: ['Los Angeles, CA', 'New York, NY'],
+        softwareOnly: false
+      });
+      const filtered = selectGraphFilteredJobs(state);
+
+      expect(filtered).toHaveLength(2);
+    });
+
+    it('should filter by "United States" meta-filter', () => {
+      const remoteJob = createMockJob({
+        id: '4',
+        title: 'Remote Engineer',
+        location: 'Remote',
+        createdAt: '2025-11-20T11:30:00Z',
+      });
+
+      const state = createMockState([softwareJob, nonTechJob, remoteJob], {
+        location: ['United States'],
+        softwareOnly: false
+      });
+      const filtered = selectGraphFilteredJobs(state);
+
+      // Should match LA (has CA state code), NY (has state code), and Remote
+      expect(filtered).toHaveLength(3);
     });
   });
 
@@ -305,11 +333,11 @@ describe('filtersSelectors', () => {
   });
 
   describe('selectAvailableLocations', () => {
-    it('should return unique locations', () => {
+    it('should return unique locations with "United States" first', () => {
       const state = createMockState([softwareJob, nonTechJob, oldJob]);
       const locations = selectAvailableLocations(state);
 
-      expect(locations).toEqual(['Los Angeles', 'New York']);
+      expect(locations).toEqual(['United States', 'Los Angeles, CA', 'New York, NY']);
     });
 
     it('should filter out undefined locations', () => {
@@ -317,7 +345,7 @@ describe('filtersSelectors', () => {
       const state = createMockState([softwareJob, jobWithoutLocation]);
       const locations = selectAvailableLocations(state);
 
-      expect(locations).toEqual(['Los Angeles']);
+      expect(locations).toEqual(['United States', 'Los Angeles, CA']);
     });
   });
 

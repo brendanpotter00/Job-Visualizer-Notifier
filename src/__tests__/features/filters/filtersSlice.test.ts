@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import filtersReducer, {
   setGraphTimeWindow,
-  setGraphLocation,
+  addGraphLocation,
+  removeGraphLocation,
+  clearGraphLocations,
   addGraphSearchTag,
   removeGraphSearchTag,
   clearGraphSearchTags,
@@ -13,6 +15,9 @@ import filtersReducer, {
   addSearchTag,
   removeSearchTag,
   clearSearchTags,
+  addListLocation,
+  removeListLocation,
+  clearListLocations,
   toggleListSoftwareOnly,
   resetListFilters,
   resetAllFilters,
@@ -42,11 +47,6 @@ describe('filtersSlice', () => {
       expect(newState.list.timeWindow).toBe('30d'); // List unchanged
     });
 
-    it('should set graph location', () => {
-      const newState = filtersReducer(initialState, setGraphLocation('Los Angeles'));
-
-      expect(newState.graph.location).toBe('Los Angeles');
-    });
 
     it('should toggle graph software only', () => {
       const newState = filtersReducer(initialState, toggleGraphSoftwareOnly());
@@ -140,15 +140,80 @@ describe('filtersSlice', () => {
       expect(newState.graph.searchQuery).toBeUndefined();
     });
 
+    it('should add graph location', () => {
+      const newState = filtersReducer(initialState, addGraphLocation('San Francisco, CA'));
+
+      expect(newState.graph.location).toEqual(['San Francisco, CA']);
+    });
+
+    it('should add multiple graph locations', () => {
+      let state = initialState;
+      state = filtersReducer(state, addGraphLocation('United States'));
+      state = filtersReducer(state, addGraphLocation('San Francisco, CA'));
+      state = filtersReducer(state, addGraphLocation('New York, NY'));
+
+      expect(state.graph.location).toEqual(['United States', 'San Francisco, CA', 'New York, NY']);
+    });
+
+    it('should not add duplicate graph locations', () => {
+      let state = initialState;
+      state = filtersReducer(state, addGraphLocation('San Francisco, CA'));
+      state = filtersReducer(state, addGraphLocation('San Francisco, CA'));
+
+      expect(state.graph.location).toEqual(['San Francisco, CA']);
+    });
+
+    it('should remove graph location', () => {
+      const stateWithLocs: FiltersState = {
+        ...initialState,
+        graph: {
+          ...initialState.graph,
+          location: ['United States', 'San Francisco, CA', 'New York, NY'],
+        },
+      };
+
+      const newState = filtersReducer(stateWithLocs, removeGraphLocation('San Francisco, CA'));
+
+      expect(newState.graph.location).toEqual(['United States', 'New York, NY']);
+    });
+
+    it('should set location to undefined when removing last graph location', () => {
+      const stateWithOneLoc: FiltersState = {
+        ...initialState,
+        graph: {
+          ...initialState.graph,
+          location: ['San Francisco, CA'],
+        },
+      };
+
+      const newState = filtersReducer(stateWithOneLoc, removeGraphLocation('San Francisco, CA'));
+
+      expect(newState.graph.location).toBeUndefined();
+    });
+
+    it('should clear all graph locations', () => {
+      const stateWithLocs: FiltersState = {
+        ...initialState,
+        graph: {
+          ...initialState.graph,
+          location: ['United States', 'San Francisco, CA'],
+        },
+      };
+
+      const newState = filtersReducer(stateWithLocs, clearGraphLocations());
+
+      expect(newState.graph.location).toBeUndefined();
+    });
+
     it('should reset graph filters', () => {
       const modifiedState: FiltersState = {
         ...initialState,
         graph: {
           timeWindow: '1h',
           searchQuery: ['test'],
+          location: ['United States', 'Remote'],
           softwareOnly: false,
           roleCategory: 'backend',
-          location: 'Remote',
         },
       };
 
@@ -250,6 +315,48 @@ describe('filtersSlice', () => {
       expect(newState.list.searchQuery).toBeUndefined();
     });
 
+    it('should add list location', () => {
+      const newState = filtersReducer(initialState, addListLocation('San Francisco, CA'));
+
+      expect(newState.list.location).toEqual(['San Francisco, CA']);
+    });
+
+    it('should add multiple list locations', () => {
+      let state = initialState;
+      state = filtersReducer(state, addListLocation('United States'));
+      state = filtersReducer(state, addListLocation('San Francisco, CA'));
+
+      expect(state.list.location).toEqual(['United States', 'San Francisco, CA']);
+    });
+
+    it('should remove list location', () => {
+      const stateWithLocs: FiltersState = {
+        ...initialState,
+        list: {
+          ...initialState.list,
+          location: ['United States', 'San Francisco, CA'],
+        },
+      };
+
+      const newState = filtersReducer(stateWithLocs, removeListLocation('United States'));
+
+      expect(newState.list.location).toEqual(['San Francisco, CA']);
+    });
+
+    it('should clear all list locations', () => {
+      const stateWithLocs: FiltersState = {
+        ...initialState,
+        list: {
+          ...initialState.list,
+          location: ['United States', 'San Francisco, CA'],
+        },
+      };
+
+      const newState = filtersReducer(stateWithLocs, clearListLocations());
+
+      expect(newState.list.location).toBeUndefined();
+    });
+
     it('should toggle list software only', () => {
       const newState = filtersReducer(initialState, toggleListSoftwareOnly());
 
@@ -302,14 +409,14 @@ describe('filtersSlice', () => {
 
       // Modify graph
       state = filtersReducer(state, setGraphTimeWindow('1h'));
-      state = filtersReducer(state, setGraphLocation('Remote'));
+      state = filtersReducer(state, addGraphLocation('Remote'));
 
       // Modify list
       state = filtersReducer(state, setListTimeWindow('7d'));
       state = filtersReducer(state, addSearchTag('engineer'));
 
       expect(state.graph.timeWindow).toBe('1h');
-      expect(state.graph.location).toBe('Remote');
+      expect(state.graph.location).toEqual(['Remote']);
       expect(state.list.timeWindow).toBe('7d');
       expect(state.list.searchQuery).toEqual(['engineer']);
     });
