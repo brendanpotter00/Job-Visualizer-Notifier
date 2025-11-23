@@ -410,7 +410,7 @@ describe('filtersSlice', () => {
         ...initialState,
         graph: {
           timeWindow: '1h',
-          searchQuery: ['test'],
+          searchTags: [{ text: 'test', mode: 'include' }],
           location: ['United States', 'Remote'],
           softwareOnly: false,
           roleCategory: ['backend'],
