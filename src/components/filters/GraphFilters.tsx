@@ -12,6 +12,7 @@ import {
   addGraphRoleCategory,
   removeGraphRoleCategory,
   toggleGraphSoftwareOnly,
+  syncGraphToList,
 } from '../../features/filters/filtersSlice';
 import {
   selectGraphFilters,
@@ -23,6 +24,7 @@ import { TimeWindowSelect } from './shared/TimeWindowSelect';
 import { RoleCategorySelect } from './shared/RoleCategorySelect';
 import { MultiSelectAutocomplete } from './shared/MultiSelectAutocomplete';
 import { SoftwareOnlyToggle } from './shared/SoftwareOnlyToggle';
+import { SyncFiltersButton } from './shared/SyncFiltersButton';
 
 /**
  * Filter controls for the graph visualization
@@ -77,7 +79,8 @@ export function GraphFilters() {
         </Stack>
 
         <Stack direction="row" spacing={2} alignItems="center">
-          <SoftwareOnlyToggle
+            <SyncFiltersButton direction="toList" onClick={() => dispatch(syncGraphToList())} />
+            <SoftwareOnlyToggle
             checked={filters.softwareOnly}
             onChange={() => dispatch(toggleGraphSoftwareOnly())}
           />

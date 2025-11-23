@@ -12,6 +12,7 @@ import {
   removeListSearchTag,
   toggleListSearchTagMode,
   toggleListSoftwareOnly,
+  syncListToGraph,
 } from '../../features/filters/filtersSlice';
 import {
   selectListFilters,
@@ -23,6 +24,7 @@ import { TimeWindowSelect } from './shared/TimeWindowSelect';
 import { RoleCategorySelect } from './shared/RoleCategorySelect';
 import { MultiSelectAutocomplete } from './shared/MultiSelectAutocomplete';
 import { SoftwareOnlyToggle } from './shared/SoftwareOnlyToggle';
+import { SyncFiltersButton } from './shared/SyncFiltersButton';
 
 /**
  * Filter controls for the job list
@@ -77,7 +79,8 @@ export function ListFilters() {
         </Stack>
 
         <Stack direction="row" spacing={2} alignItems="center">
-          <SoftwareOnlyToggle
+            <SyncFiltersButton direction="toGraph" onClick={() => dispatch(syncListToGraph())} />
+            <SoftwareOnlyToggle
             checked={filters.softwareOnly}
             onChange={() => dispatch(toggleListSoftwareOnly())}
           />

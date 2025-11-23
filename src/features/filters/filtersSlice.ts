@@ -122,6 +122,9 @@ const filtersSlice = createSlice({
     clearGraphDepartments(state) {
       state.graph.department = undefined;
     },
+    setGraphDepartment(state, action: PayloadAction<string[] | undefined>) {
+      state.graph.department = action.payload;
+    },
     setGraphEmploymentType(state, action: PayloadAction<string | undefined>) {
       state.graph.employmentType = action.payload;
     },
@@ -148,8 +151,14 @@ const filtersSlice = createSlice({
     clearGraphRoleCategories(state) {
       state.graph.roleCategory = undefined;
     },
+    setGraphRoleCategory(state, action: PayloadAction<SoftwareRoleCategory[] | undefined>) {
+      state.graph.roleCategory = action.payload;
+    },
     toggleGraphSoftwareOnly(state) {
       state.graph.softwareOnly = !state.graph.softwareOnly;
+    },
+    setGraphSoftwareOnly(state, action: PayloadAction<boolean>) {
+      state.graph.softwareOnly = action.payload;
     },
     resetGraphFilters(state) {
       state.graph = initialState.graph;
@@ -249,6 +258,9 @@ const filtersSlice = createSlice({
     clearListDepartments(state) {
       state.list.department = undefined;
     },
+    setListDepartment(state, action: PayloadAction<string[] | undefined>) {
+      state.list.department = action.payload;
+    },
     setListEmploymentType(state, action: PayloadAction<string | undefined>) {
       state.list.employmentType = action.payload;
     },
@@ -275,11 +287,25 @@ const filtersSlice = createSlice({
     clearListRoleCategories(state) {
       state.list.roleCategory = undefined;
     },
+    setListRoleCategory(state, action: PayloadAction<SoftwareRoleCategory[] | undefined>) {
+      state.list.roleCategory = action.payload;
+    },
     toggleListSoftwareOnly(state) {
       state.list.softwareOnly = !state.list.softwareOnly;
     },
+    setListSoftwareOnly(state, action: PayloadAction<boolean>) {
+      state.list.softwareOnly = action.payload;
+    },
     resetListFilters(state) {
       state.list = initialState.list;
+    },
+
+    // Sync filters
+    syncGraphToList(state) {
+      state.list = { ...state.graph };
+    },
+    syncListToGraph(state) {
+      state.graph = { ...state.list };
     },
 
     // Reset all filters
@@ -305,11 +331,14 @@ export const {
   addGraphDepartment,
   removeGraphDepartment,
   clearGraphDepartments,
+  setGraphDepartment,
   setGraphEmploymentType,
   addGraphRoleCategory,
   removeGraphRoleCategory,
   clearGraphRoleCategories,
+  setGraphRoleCategory,
   toggleGraphSoftwareOnly,
+  setGraphSoftwareOnly,
   resetGraphFilters,
   // List actions
   setListTimeWindow,
@@ -325,12 +354,18 @@ export const {
   addListDepartment,
   removeListDepartment,
   clearListDepartments,
+  setListDepartment,
   setListEmploymentType,
   addListRoleCategory,
   removeListRoleCategory,
   clearListRoleCategories,
+  setListRoleCategory,
   toggleListSoftwareOnly,
+  setListSoftwareOnly,
   resetListFilters,
+  // Sync actions
+  syncGraphToList,
+  syncListToGraph,
   // Combined
   resetAllFilters,
 } = filtersSlice.actions;

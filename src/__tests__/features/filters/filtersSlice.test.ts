@@ -11,10 +11,13 @@ import filtersReducer, {
   addGraphDepartment,
   removeGraphDepartment,
   clearGraphDepartments,
+  setGraphDepartment,
   toggleGraphSoftwareOnly,
+  setGraphSoftwareOnly,
   addGraphRoleCategory,
   removeGraphRoleCategory,
   clearGraphRoleCategories,
+  setGraphRoleCategory,
   resetGraphFilters,
   setListTimeWindow,
   addListSearchTag,
@@ -27,12 +30,17 @@ import filtersReducer, {
   addListDepartment,
   removeListDepartment,
   clearListDepartments,
+  setListDepartment,
   addListRoleCategory,
   removeListRoleCategory,
   clearListRoleCategories,
+  setListRoleCategory,
   toggleListSoftwareOnly,
+  setListSoftwareOnly,
   resetListFilters,
   resetAllFilters,
+  syncGraphToList,
+  syncListToGraph,
 } from '../../../features/filters/filtersSlice';
 import type { FiltersState } from '../../../features/filters/filtersSlice';
 
@@ -405,6 +413,66 @@ describe('filtersSlice', () => {
       expect(newState.graph.department).toBeUndefined();
     });
 
+    it('should set graph department array directly', () => {
+      const newState = filtersReducer(initialState, setGraphDepartment(['Engineering', 'Product', 'Design']));
+
+      expect(newState.graph.department).toEqual(['Engineering', 'Product', 'Design']);
+    });
+
+    it('should set graph department to undefined', () => {
+      const stateWithDepts: FiltersState = {
+        ...initialState,
+        graph: {
+          ...initialState.graph,
+          department: ['Engineering', 'Product'],
+        },
+      };
+
+      const newState = filtersReducer(stateWithDepts, setGraphDepartment(undefined));
+
+      expect(newState.graph.department).toBeUndefined();
+    });
+
+    it('should set graph role category array directly', () => {
+      const newState = filtersReducer(initialState, setGraphRoleCategory(['frontend', 'backend', 'fullstack']));
+
+      expect(newState.graph.roleCategory).toEqual(['frontend', 'backend', 'fullstack']);
+    });
+
+    it('should set graph role category to undefined', () => {
+      const stateWithCats: FiltersState = {
+        ...initialState,
+        graph: {
+          ...initialState.graph,
+          roleCategory: ['frontend', 'backend'],
+        },
+      };
+
+      const newState = filtersReducer(stateWithCats, setGraphRoleCategory(undefined));
+
+      expect(newState.graph.roleCategory).toBeUndefined();
+    });
+
+    it('should set graph software only to true', () => {
+      const newState = filtersReducer(initialState, setGraphSoftwareOnly(true));
+
+      expect(newState.graph.softwareOnly).toBe(true);
+    });
+
+    it('should set graph software only to false', () => {
+      const stateWithSoftware: FiltersState = {
+        ...initialState,
+        graph: {
+          ...initialState.graph,
+          softwareOnly: true,
+        },
+      };
+
+      const newState = filtersReducer(stateWithSoftware, setGraphSoftwareOnly(false));
+
+      expect(newState.graph.softwareOnly).toBe(false);
+    });
+
     it('should reset graph filters', () => {
       const modifiedState: FiltersState = {
         ...initialState,
@@ -736,6 +804,66 @@ describe('filtersSlice', () => {
       expect(newState.list.roleCategory).toBeUndefined();
     });
 
+    it('should set list department array directly', () => {
+      const newState = filtersReducer(initialState, setListDepartment(['Engineering', 'Product', 'Design']));
+
+      expect(newState.list.department).toEqual(['Engineering', 'Product', 'Design']);
+    });
+
+    it('should set list department to undefined', () => {
+      const stateWithDepts: FiltersState = {
+        ...initialState,
+        list: {
+          ...initialState.list,
+          department: ['Engineering', 'Product'],
+        },
+      };
+
+      const newState = filtersReducer(stateWithDepts, setListDepartment(undefined));
+
+      expect(newState.list.department).toBeUndefined();
+    });
+
+    it('should set list role category array directly', () => {
+      const newState = filtersReducer(initialState, setListRoleCategory(['frontend', 'backend', 'fullstack']));
+
+      expect(newState.list.roleCategory).toEqual(['frontend', 'backend', 'fullstack']);
+    });
+
+    it('should set list role category to undefined', () => {
+      const stateWithCats: FiltersState = {
+        ...initialState,
+        list: {
+          ...initialState.list,
+          roleCategory: ['frontend', 'backend'],
+        },
+      };
+
+      const newState = filtersReducer(stateWithCats, setListRoleCategory(undefined));
+
+      expect(newState.list.roleCategory).toBeUndefined();
+    });
+
+    it('should set list software only to true', () => {
+      const newState = filtersReducer(initialState, setListSoftwareOnly(true));
+
+      expect(newState.list.softwareOnly).toBe(true);
+    });
+
+    it('should set list software only to false', () => {
+      const stateWithSoftware: FiltersState = {
+        ...initialState,
+        list: {
+          ...initialState.list,
+          softwareOnly: true,
+        },
+      };
+
+      const newState = filtersReducer(stateWithSoftware, setListSoftwareOnly(false));
+
+      expect(newState.list.softwareOnly).toBe(false);
+    });
+
     it('should reset list filters', () => {
       const modifiedState: FiltersState = {
         ...initialState,
@@ -793,6 +921,195 @@ describe('filtersSlice', () => {
       expect(state.graph.location).toEqual(['Remote']);
       expect(state.list.timeWindow).toBe('7d');
       expect(state.list.searchTags).toEqual([{ text: 'engineer', mode: 'include' }]);
+    });
+  });
+
+  describe('sync actions', () => {
+    it('should sync graph filters to list with all fields populated', () => {
+      const stateWithGraphFilters: FiltersState = {
+        graph: {
+          timeWindow: '1h',
+          searchTags: [
+            { text: 'software', mode: 'include' },
+            { text: 'senior', mode: 'exclude' },
+          ],
+          location: ['San Francisco, CA', 'Remote'],
+          department: ['Engineering', 'Product'],
+          employmentType: 'Full-time',
+          roleCategory: ['frontend', 'backend'],
+          softwareOnly: true,
+        },
+        list: {
+          timeWindow: '7d',
+          searchTags: [{ text: 'test', mode: 'include' }],
+          location: ['New York, NY'],
+          softwareOnly: false,
+          roleCategory: undefined,
+        },
+      };
+
+      const newState = filtersReducer(stateWithGraphFilters, syncGraphToList());
+
+      // List should now match graph
+      expect(newState.list).toEqual(stateWithGraphFilters.graph);
+
+      // Graph should remain unchanged
+      expect(newState.graph).toEqual(stateWithGraphFilters.graph);
+    });
+
+    it('should sync graph filters to list with partial state', () => {
+      const stateWithPartialGraph: FiltersState = {
+        graph: {
+          timeWindow: '3h',
+          searchTags: undefined,
+          location: undefined,
+          department: ['Engineering'],
+          softwareOnly: false,
+          roleCategory: undefined,
+        },
+        list: {
+          timeWindow: '30d',
+          searchTags: [{ text: 'data', mode: 'include' }],
+          location: ['Remote'],
+          department: ['Product', 'Design'],
+          softwareOnly: true,
+          roleCategory: ['qa', 'devops'],
+        },
+      };
+
+      const newState = filtersReducer(stateWithPartialGraph, syncGraphToList());
+
+      // List should now match graph (including undefined values)
+      expect(newState.list).toEqual(stateWithPartialGraph.graph);
+      expect(newState.list.searchTags).toBeUndefined();
+      expect(newState.list.location).toBeUndefined();
+      expect(newState.list.roleCategory).toBeUndefined();
+    });
+
+    it('should sync list filters to graph with all fields populated', () => {
+      const stateWithListFilters: FiltersState = {
+        graph: {
+          timeWindow: '1h',
+          searchTags: [{ text: 'test', mode: 'include' }],
+          softwareOnly: true,
+          roleCategory: ['frontend'],
+        },
+        list: {
+          timeWindow: '7d',
+          searchTags: [
+            { text: 'engineer', mode: 'include' },
+            { text: 'manager', mode: 'exclude' },
+          ],
+          location: ['United States', 'San Francisco, CA'],
+          department: ['Engineering', 'Design'],
+          employmentType: 'Contract',
+          roleCategory: ['backend', 'fullstack', 'mobile'],
+          softwareOnly: false,
+        },
+      };
+
+      const newState = filtersReducer(stateWithListFilters, syncListToGraph());
+
+      // Graph should now match list
+      expect(newState.graph).toEqual(stateWithListFilters.list);
+
+      // List should remain unchanged
+      expect(newState.list).toEqual(stateWithListFilters.list);
+    });
+
+    it('should sync list filters to graph with partial state', () => {
+      const stateWithPartialList: FiltersState = {
+        graph: {
+          timeWindow: '24h',
+          searchTags: [{ text: 'test', mode: 'include' }],
+          location: ['Remote', 'San Francisco, CA'],
+          department: ['Engineering'],
+          softwareOnly: true,
+          roleCategory: ['frontend', 'backend'],
+        },
+        list: {
+          timeWindow: '3d',
+          searchTags: undefined,
+          location: undefined,
+          department: undefined,
+          softwareOnly: false,
+          roleCategory: ['qa'],
+        },
+      };
+
+      const newState = filtersReducer(stateWithPartialList, syncListToGraph());
+
+      // Graph should now match list (including undefined values)
+      expect(newState.graph).toEqual(stateWithPartialList.list);
+      expect(newState.graph.searchTags).toBeUndefined();
+      expect(newState.graph.location).toBeUndefined();
+      expect(newState.graph.department).toBeUndefined();
+    });
+
+    it('should handle bidirectional sync correctly', () => {
+      const originalGraphState: FiltersState = {
+        graph: {
+          timeWindow: '6h',
+          searchTags: [{ text: 'software', mode: 'include' }],
+          location: ['San Francisco, CA'],
+          department: ['Engineering'],
+          softwareOnly: true,
+          roleCategory: ['frontend'],
+        },
+        list: {
+          timeWindow: '30d',
+          searchTags: undefined,
+          softwareOnly: false,
+          roleCategory: undefined,
+        },
+      };
+
+      // Sync graph to list
+      let state = filtersReducer(originalGraphState, syncGraphToList());
+
+      expect(state.list).toEqual(originalGraphState.graph);
+
+      // Now modify list
+      state = filtersReducer(state, setListTimeWindow('12h'));
+      state = filtersReducer(state, addListLocation('New York, NY'));
+
+      // Sync list back to graph
+      state = filtersReducer(state, syncListToGraph());
+
+      expect(state.graph.timeWindow).toBe('12h');
+      expect(state.graph.location).toEqual(['San Francisco, CA', 'New York, NY']);
+    });
+
+    it('should preserve all filter types during sync', () => {
+      const complexState: FiltersState = {
+        graph: {
+          timeWindow: '1h',
+          searchTags: [
+            { text: 'include-tag', mode: 'include' },
+            { text: 'exclude-tag', mode: 'exclude' },
+          ],
+          location: ['Location 1', 'Location 2'],
+          department: ['Dept 1', 'Dept 2'],
+          employmentType: 'Full-time',
+          roleCategory: ['frontend', 'backend', 'fullstack'],
+          softwareOnly: true,
+        },
+        list: initialState.list,
+      };
+
+      const newState = filtersReducer(complexState, syncGraphToList());
+
+      // Verify every field is copied correctly
+      expect(newState.list.timeWindow).toBe('1h');
+      expect(newState.list.searchTags).toEqual([
+        { text: 'include-tag', mode: 'include' },
+        { text: 'exclude-tag', mode: 'exclude' },
+      ]);
+      expect(newState.list.location).toEqual(['Location 1', 'Location 2']);
+      expect(newState.list.department).toEqual(['Dept 1', 'Dept 2']);
+      expect(newState.list.employmentType).toBe('Full-time');
+      expect(newState.list.roleCategory).toEqual(['frontend', 'backend', 'fullstack']);
+      expect(newState.list.softwareOnly).toBe(true);
     });
   });
 });
