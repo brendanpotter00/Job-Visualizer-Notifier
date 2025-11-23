@@ -1,0 +1,199 @@
+import { createSlice, PayloadAction } from '@reduxjs/toolkit';
+import type { ListFilters, TimeWindow, SoftwareRoleCategory, SearchTag } from '../../types';
+
+/**
+ * List filter state
+ */
+export interface ListFiltersState {
+  filters: ListFilters;
+}
+
+const initialState: ListFiltersState = {
+  filters: {
+    timeWindow: '30d',
+    searchTags: undefined,
+    softwareOnly: false,
+    roleCategory: undefined,
+  },
+};
+
+const listFiltersSlice = createSlice({
+  name: 'listFilters',
+  initialState,
+  reducers: {
+    // Time window
+    setListTimeWindow(state, action: PayloadAction<TimeWindow>) {
+      state.filters.timeWindow = action.payload;
+    },
+
+    // Search tags
+    setListSearchTags(state, action: PayloadAction<SearchTag[] | undefined>) {
+      state.filters.searchTags = action.payload;
+    },
+    addListSearchTag(state, action: PayloadAction<SearchTag>) {
+      const trimmedText = action.payload.text.trim();
+      if (!trimmedText) return;
+
+      const tag = { text: trimmedText, mode: action.payload.mode };
+
+      if (!state.filters.searchTags) {
+        state.filters.searchTags = [tag];
+      } else {
+        const exists = state.filters.searchTags.some((t) => t.text === tag.text);
+        if (!exists) {
+          state.filters.searchTags.push(tag);
+        }
+      }
+    },
+    removeListSearchTag(state, action: PayloadAction<string>) {
+      if (!state.filters.searchTags) return;
+
+      state.filters.searchTags = state.filters.searchTags.filter((tag) => tag.text !== action.payload);
+
+      if (state.filters.searchTags.length === 0) {
+        state.filters.searchTags = undefined;
+      }
+    },
+    toggleListSearchTagMode(state, action: PayloadAction<string>) {
+      if (!state.filters.searchTags) return;
+
+      const tag = state.filters.searchTags.find((t) => t.text === action.payload);
+      if (tag) {
+        tag.mode = tag.mode === 'include' ? 'exclude' : 'include';
+      }
+    },
+    clearListSearchTags(state) {
+      state.filters.searchTags = undefined;
+    },
+
+    // Location
+    setListLocation(state, action: PayloadAction<string[] | undefined>) {
+      state.filters.location = action.payload;
+    },
+    addListLocation(state, action: PayloadAction<string>) {
+      const location = action.payload.trim();
+      if (!location) return;
+
+      if (!state.filters.location) {
+        state.filters.location = [location];
+      } else if (!state.filters.location.includes(location)) {
+        state.filters.location.push(location);
+      }
+    },
+    removeListLocation(state, action: PayloadAction<string>) {
+      if (!state.filters.location) return;
+
+      state.filters.location = state.filters.location.filter((loc) => loc !== action.payload);
+
+      if (state.filters.location.length === 0) {
+        state.filters.location = undefined;
+      }
+    },
+    clearListLocations(state) {
+      state.filters.location = undefined;
+    },
+
+    // Department
+    addListDepartment(state, action: PayloadAction<string>) {
+      const department = action.payload;
+
+      if (!state.filters.department) {
+        state.filters.department = [department];
+      } else if (!state.filters.department.includes(department)) {
+        state.filters.department.push(department);
+      }
+    },
+    removeListDepartment(state, action: PayloadAction<string>) {
+      if (!state.filters.department) return;
+
+      state.filters.department = state.filters.department.filter((dept) => dept !== action.payload);
+
+      if (state.filters.department.length === 0) {
+        state.filters.department = undefined;
+      }
+    },
+    clearListDepartments(state) {
+      state.filters.department = undefined;
+    },
+    setListDepartment(state, action: PayloadAction<string[] | undefined>) {
+      state.filters.department = action.payload;
+    },
+
+    // Employment type
+    setListEmploymentType(state, action: PayloadAction<string | undefined>) {
+      state.filters.employmentType = action.payload;
+    },
+
+    // Role category
+    addListRoleCategory(state, action: PayloadAction<SoftwareRoleCategory>) {
+      const category = action.payload;
+
+      if (!state.filters.roleCategory) {
+        state.filters.roleCategory = [category];
+      } else if (!state.filters.roleCategory.includes(category)) {
+        state.filters.roleCategory.push(category);
+      }
+    },
+    removeListRoleCategory(state, action: PayloadAction<SoftwareRoleCategory>) {
+      if (!state.filters.roleCategory) return;
+
+      state.filters.roleCategory = state.filters.roleCategory.filter((cat) => cat !== action.payload);
+
+      if (state.filters.roleCategory.length === 0) {
+        state.filters.roleCategory = undefined;
+      }
+    },
+    clearListRoleCategories(state) {
+      state.filters.roleCategory = undefined;
+    },
+    setListRoleCategory(state, action: PayloadAction<SoftwareRoleCategory[] | undefined>) {
+      state.filters.roleCategory = action.payload;
+    },
+
+    // Software only
+    toggleListSoftwareOnly(state) {
+      state.filters.softwareOnly = !state.filters.softwareOnly;
+    },
+    setListSoftwareOnly(state, action: PayloadAction<boolean>) {
+      state.filters.softwareOnly = action.payload;
+    },
+
+    // Reset
+    resetListFilters(state) {
+      state.filters = initialState.filters;
+    },
+
+    // Sync from graph (for cross-slice sync)
+    syncListFromGraph(state, action: PayloadAction<ListFilters>) {
+      state.filters = action.payload;
+    },
+  },
+});
+
+export const {
+  setListTimeWindow,
+  setListSearchTags,
+  addListSearchTag,
+  removeListSearchTag,
+  toggleListSearchTagMode,
+  clearListSearchTags,
+  setListLocation,
+  addListLocation,
+  removeListLocation,
+  clearListLocations,
+  addListDepartment,
+  removeListDepartment,
+  clearListDepartments,
+  setListDepartment,
+  setListEmploymentType,
+  addListRoleCategory,
+  removeListRoleCategory,
+  clearListRoleCategories,
+  setListRoleCategory,
+  toggleListSoftwareOnly,
+  setListSoftwareOnly,
+  resetListFilters,
+  syncListFromGraph,
+} = listFiltersSlice.actions;
+
+export default listFiltersSlice.reducer;

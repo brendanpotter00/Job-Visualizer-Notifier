@@ -2,7 +2,7 @@ import { Paper, Typography } from '@mui/material';
 import { useAppSelector } from '../../app/hooks';
 import { JobList } from './JobList';
 import { ListFilters } from '../filters/ListFilters';
-import { selectListFilteredJobs } from '../../features/filters/filtersSelectors';
+import { selectListFilteredJobs } from '../../features/filters/listFiltersSelectors';
 import { selectCurrentCompanyLoading } from '../../features/jobs/jobsSelectors';
 
 /**

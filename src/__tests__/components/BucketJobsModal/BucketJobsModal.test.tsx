@@ -7,7 +7,8 @@ import { BucketJobsModal } from '../../../components/BucketJobsModal/BucketJobsM
 import jobsReducer from '../../../features/jobs/jobsSlice';
 import uiReducer from '../../../features/ui/uiSlice';
 import appReducer from '../../../features/app/appSlice';
-import filtersReducer from '../../../features/filters/filtersSlice';
+import graphFiltersReducer from '../../../features/filters/graphFiltersSlice';
+import listFiltersReducer from '../../../features/filters/listFiltersSlice';
 import type { Job } from '../../../types';
 
 const mockJobs: Job[] = [
@@ -65,7 +66,8 @@ describe('BucketJobsModal', () => {
         app: appReducer,
         jobs: jobsReducer,
         ui: uiReducer,
-        filters: filtersReducer,
+        graphFilters: graphFiltersReducer,
+        listFilters: listFiltersReducer,
       },
       preloadedState: {
         app: {

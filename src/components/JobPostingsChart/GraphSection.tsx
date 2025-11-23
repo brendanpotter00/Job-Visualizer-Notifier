@@ -2,7 +2,7 @@ import { Paper, Typography } from '@mui/material';
 import { useAppDispatch, useAppSelector } from '../../app/hooks';
 import { JobPostingsChart } from './JobPostingsChart';
 import { GraphFilters } from '../filters/GraphFilters';
-import { selectGraphBucketData } from '../../features/filters/filtersSelectors';
+import { selectGraphBucketData } from '../../features/filters/graphFiltersSelectors';
 import {
   selectCurrentCompanyLoading,
   selectCurrentCompanyError,
@@ -21,7 +21,7 @@ export function GraphSection() {
   const isLoading = useAppSelector(selectCurrentCompanyLoading);
   const error = useAppSelector(selectCurrentCompanyError);
   const selectedCompanyId = useAppSelector((state) => state.app.selectedCompanyId);
-  const graphFilters = useAppSelector((state) => state.filters.graph);
+  const graphFilters = useAppSelector((state) => state.graphFilters.filters);
 
   const handlePointClick = (bucket: TimeBucket) => {
     if (bucket.count > 0) {

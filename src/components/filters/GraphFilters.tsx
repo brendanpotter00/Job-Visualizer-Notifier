@@ -12,13 +12,13 @@ import {
   addGraphRoleCategory,
   removeGraphRoleCategory,
   toggleGraphSoftwareOnly,
-  syncGraphToList,
-} from '../../features/filters/filtersSlice';
+} from '../../features/filters/graphFiltersSlice';
+import { selectGraphFilters } from '../../features/filters/graphFiltersSelectors';
 import {
-  selectGraphFilters,
   selectAvailableLocations,
   selectAvailableDepartments,
-} from '../../features/filters/filtersSelectors';
+} from '../../features/filters/commonFiltersSelectors';
+import { syncGraphToList } from '../../features/filters/filtersSyncActions';
 import { SearchTagsInput } from './shared/SearchTagsInput';
 import { TimeWindowSelect } from './shared/TimeWindowSelect';
 import { RoleCategorySelect } from './shared/RoleCategorySelect';

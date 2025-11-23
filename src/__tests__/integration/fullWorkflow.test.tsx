@@ -7,7 +7,8 @@ import { http, HttpResponse } from 'msw';
 import { configureStore } from '@reduxjs/toolkit';
 import appReducer from '../../features/app/appSlice';
 import jobsReducer from '../../features/jobs/jobsSlice';
-import filtersReducer from '../../features/filters/filtersSlice';
+import graphFiltersReducer from '../../features/filters/graphFiltersSlice';
+import listFiltersReducer from '../../features/filters/listFiltersSlice';
 import uiReducer from '../../features/ui/uiSlice';
 import App from '../../app/App';
 import { theme } from '../../config/theme';
@@ -94,7 +95,8 @@ describe('Full Application Workflow', () => {
       reducer: {
         app: appReducer,
         jobs: jobsReducer,
-        filters: filtersReducer,
+        graphFilters: graphFiltersReducer,
+        listFilters: listFiltersReducer,
         ui: uiReducer,
       },
     });

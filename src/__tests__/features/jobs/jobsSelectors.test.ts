@@ -73,13 +73,15 @@ describe('jobsSelectors', () => {
         },
       },
     },
-    filters: {
-      graph: {
+    graphFilters: {
+      filters: {
         timeWindow: '24h',
         softwareOnly: true,
         roleCategory: undefined,
       },
-      list: {
+    },
+    listFilters: {
+      filters: {
         timeWindow: '24h',
         searchTags: undefined,
         softwareOnly: true,

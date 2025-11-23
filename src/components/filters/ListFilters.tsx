@@ -12,13 +12,13 @@ import {
   removeListSearchTag,
   toggleListSearchTagMode,
   toggleListSoftwareOnly,
-  syncListToGraph,
-} from '../../features/filters/filtersSlice';
+} from '../../features/filters/listFiltersSlice';
+import { selectListFilters } from '../../features/filters/listFiltersSelectors';
 import {
-  selectListFilters,
   selectAvailableLocations,
   selectAvailableDepartments,
-} from '../../features/filters/filtersSelectors';
+} from '../../features/filters/commonFiltersSelectors';
+import { syncListToGraph } from '../../features/filters/filtersSyncActions';
 import { SearchTagsInput } from './shared/SearchTagsInput';
 import { TimeWindowSelect } from './shared/TimeWindowSelect';
 import { RoleCategorySelect } from './shared/RoleCategorySelect';

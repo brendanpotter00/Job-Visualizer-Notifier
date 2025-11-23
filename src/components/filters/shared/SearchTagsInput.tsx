@@ -80,7 +80,7 @@ export function SearchTagsInput({ value, onAdd, onRemove, onToggleMode }: Search
             placeholder={
               value.length > 0
                 ? 'Add another tag...'
-                : 'Type to add search tags (e.g., software, -senior, backend)...'
+                : 'Type to add search tags: -senior (exclude) or senior (include)...'
             }
           />
         )}

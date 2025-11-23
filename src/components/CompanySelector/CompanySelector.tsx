@@ -10,7 +10,7 @@ import { COMPANIES } from '../../config/companies';
 export function CompanySelector() {
   const dispatch = useAppDispatch();
   const selectedCompanyId = useAppSelector((state) => state.app.selectedCompanyId);
-  const graphFilters = useAppSelector((state) => state.filters.graph);
+  const graphFilters = useAppSelector((state) => state.graphFilters.filters);
 
   const handleCompanyChange = (event: SelectChangeEvent) => {
     const newCompanyId = event.target.value;
