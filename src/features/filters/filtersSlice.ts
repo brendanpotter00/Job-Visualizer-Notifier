@@ -1,5 +1,5 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
-import type { GraphFilters, ListFilters, TimeWindow, SoftwareRoleCategory } from '../../types';
+import type { GraphFilters, ListFilters, TimeWindow, SoftwareRoleCategory, SearchTag } from '../../types';
 
 /**
  * Filter state (graph and list are independent)
@@ -12,13 +12,13 @@ export interface FiltersState {
 const initialState: FiltersState = {
   graph: {
     timeWindow: '30d',
-    searchQuery: undefined,
+    searchTags: undefined,
     softwareOnly: false,
     roleCategory: undefined,
   },
   list: {
     timeWindow: '30d',
-    searchQuery: undefined,
+    searchTags: undefined,
     softwareOnly: false,
     roleCategory: undefined,
   },
@@ -32,32 +32,45 @@ const filtersSlice = createSlice({
     setGraphTimeWindow(state, action: PayloadAction<TimeWindow>) {
       state.graph.timeWindow = action.payload;
     },
-    setGraphSearchQuery(state, action: PayloadAction<string[] | undefined>) {
-      state.graph.searchQuery = action.payload;
+    setGraphSearchTags(state, action: PayloadAction<SearchTag[] | undefined>) {
+      state.graph.searchTags = action.payload;
     },
-    addGraphSearchTag(state, action: PayloadAction<string>) {
-      const tag = action.payload.trim();
-      if (!tag) return;
+    addGraphSearchTag(state, action: PayloadAction<SearchTag>) {
+      const trimmedText = action.payload.text.trim();
+      if (!trimmedText) return;
 
-      if (!state.graph.searchQuery) {
-        state.graph.searchQuery = [tag];
-      } else if (!state.graph.searchQuery.includes(tag)) {
-        state.graph.searchQuery.push(tag);
+      const tag = { text: trimmedText, mode: action.payload.mode };
+
+      if (!state.graph.searchTags) {
+        state.graph.searchTags = [tag];
+      } else {
+        const exists = state.graph.searchTags.some(t => t.text === tag.text);
+        if (!exists) {
+          state.graph.searchTags.push(tag);
+        }
       }
     },
     removeGraphSearchTag(state, action: PayloadAction<string>) {
-      if (!state.graph.searchQuery) return;
+      if (!state.graph.searchTags) return;
 
-      state.graph.searchQuery = state.graph.searchQuery.filter(
-        tag => tag !== action.payload
+      state.graph.searchTags = state.graph.searchTags.filter(
+        tag => tag.text !== action.payload
       );
 
-      if (state.graph.searchQuery.length === 0) {
-        state.graph.searchQuery = undefined;
+      if (state.graph.searchTags.length === 0) {
+        state.graph.searchTags = undefined;
+      }
+    },
+    toggleGraphSearchTagMode(state, action: PayloadAction<string>) {
+      if (!state.graph.searchTags) return;
+
+      const tag = state.graph.searchTags.find(t => t.text === action.payload);
+      if (tag) {
+        tag.mode = tag.mode === 'include' ? 'exclude' : 'include';
       }
     },
     clearGraphSearchTags(state) {
-      state.graph.searchQuery = undefined;
+      state.graph.searchTags = undefined;
     },
     setGraphLocation(state, action: PayloadAction<string[] | undefined>) {
       state.graph.location = action.payload;
@@ -146,32 +159,45 @@ const filtersSlice = createSlice({
     setListTimeWindow(state, action: PayloadAction<TimeWindow>) {
       state.list.timeWindow = action.payload;
     },
-    setListSearchQuery(state, action: PayloadAction<string[] | undefined>) {
-      state.list.searchQuery = action.payload;
+    setListSearchTags(state, action: PayloadAction<SearchTag[] | undefined>) {
+      state.list.searchTags = action.payload;
     },
-    addSearchTag(state, action: PayloadAction<string>) {
-      const tag = action.payload.trim();
-      if (!tag) return;
+    addListSearchTag(state, action: PayloadAction<SearchTag>) {
+      const trimmedText = action.payload.text.trim();
+      if (!trimmedText) return;
 
-      if (!state.list.searchQuery) {
-        state.list.searchQuery = [tag];
-      } else if (!state.list.searchQuery.includes(tag)) {
-        state.list.searchQuery.push(tag);
+      const tag = { text: trimmedText, mode: action.payload.mode };
+
+      if (!state.list.searchTags) {
+        state.list.searchTags = [tag];
+      } else {
+        const exists = state.list.searchTags.some(t => t.text === tag.text);
+        if (!exists) {
+          state.list.searchTags.push(tag);
+        }
       }
     },
-    removeSearchTag(state, action: PayloadAction<string>) {
-      if (!state.list.searchQuery) return;
+    removeListSearchTag(state, action: PayloadAction<string>) {
+      if (!state.list.searchTags) return;
 
-      state.list.searchQuery = state.list.searchQuery.filter(
-        tag => tag !== action.payload
+      state.list.searchTags = state.list.searchTags.filter(
+        tag => tag.text !== action.payload
       );
 
-      if (state.list.searchQuery.length === 0) {
-        state.list.searchQuery = undefined;
+      if (state.list.searchTags.length === 0) {
+        state.list.searchTags = undefined;
       }
     },
-    clearSearchTags(state) {
-      state.list.searchQuery = undefined;
+    toggleListSearchTagMode(state, action: PayloadAction<string>) {
+      if (!state.list.searchTags) return;
+
+      const tag = state.list.searchTags.find(t => t.text === action.payload);
+      if (tag) {
+        tag.mode = tag.mode === 'include' ? 'exclude' : 'include';
+      }
+    },
+    clearListSearchTags(state) {
+      state.list.searchTags = undefined;
     },
     setListLocation(state, action: PayloadAction<string[] | undefined>) {
       state.list.location = action.payload;
@@ -267,9 +293,10 @@ const filtersSlice = createSlice({
 export const {
   // Graph actions
   setGraphTimeWindow,
-  setGraphSearchQuery,
+  setGraphSearchTags,
   addGraphSearchTag,
   removeGraphSearchTag,
+  toggleGraphSearchTagMode,
   clearGraphSearchTags,
   setGraphLocation,
   addGraphLocation,
@@ -286,10 +313,11 @@ export const {
   resetGraphFilters,
   // List actions
   setListTimeWindow,
-  setListSearchQuery,
-  addSearchTag,
-  removeSearchTag,
-  clearSearchTags,
+  setListSearchTags,
+  addListSearchTag,
+  removeListSearchTag,
+  toggleListSearchTagMode,
+  clearListSearchTags,
   setListLocation,
   addListLocation,
   removeListLocation,

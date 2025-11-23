@@ -12,6 +12,7 @@ import {
   Autocomplete,
   Chip,
 } from '@mui/material';
+import { Add as AddIcon, Remove as RemoveIcon } from '@mui/icons-material';
 import { useAppDispatch, useAppSelector } from '../../app/hooks';
 import {
   setListTimeWindow,
@@ -21,8 +22,9 @@ import {
   removeListDepartment,
   addListRoleCategory,
   removeListRoleCategory,
-  addSearchTag,
-  removeSearchTag,
+  addListSearchTag,
+  removeListSearchTag,
+  toggleListSearchTagMode,
   toggleListSoftwareOnly,
 } from '../../features/filters/filtersSlice';
 import {
@@ -71,59 +73,94 @@ export function ListFilters() {
   const availableLocations = useAppSelector(selectAvailableLocations);
   const availableDepartments = useAppSelector(selectAvailableDepartments);
   const [inputValue, setInputValue] = useState('');
+  const [searchMode, setSearchMode] = useState<'include' | 'exclude'>('include');
 
   return (
     <Box sx={{ mb: 3 }}>
       <Stack spacing={2}>
-        <Autocomplete
-          multiple
-          freeSolo
-          size="small"
-          options={[]}
-          value={filters.searchQuery || []}
-          inputValue={inputValue}
-          onInputChange={(_, newValue) => setInputValue(newValue)}
-          onChange={(_, newValue) => {
-            // Handle chip removal via the X button
-            if (Array.isArray(newValue)) {
-              const removedTags = (filters.searchQuery || []).filter(
-                tag => !newValue.includes(tag)
-              );
-              removedTags.forEach(tag => dispatch(removeSearchTag(tag)));
-            }
-          }}
-          renderValue={(value, getItemProps) =>
-            value.map((option, index) => {
-              const { key, ...itemProps } = getItemProps({ index });
-              return (
-                <Chip
-                  key={key}
-                  label={option}
-                  size="small"
-                  {...itemProps}
-                />
-              );
-            })
-          }
-          renderInput={(params) => (
-            <TextField
-              {...params}
-              placeholder={
-                filters.searchQuery && filters.searchQuery.length > 0
-                  ? 'Add another tag...'
-                  : 'Type to add search tags (e.g., software, data, backend)...'
+        <Stack direction="row" spacing={2} alignItems="center">
+          <Autocomplete
+            multiple
+            freeSolo
+            size="small"
+            options={[]}
+            value={filters.searchTags || []}
+            inputValue={inputValue}
+            onInputChange={(_, newValue) => setInputValue(newValue)}
+            onChange={(_, newValue) => {
+              // Handle chip removal via the X button
+              if (Array.isArray(newValue)) {
+                const removedTags = (filters.searchTags || []).filter(
+                  tag => !newValue.some(v => (typeof v === 'string' ? v : v.text) === tag.text)
+                );
+                removedTags.forEach(tag => dispatch(removeListSearchTag(tag.text)));
               }
-            />
-          )}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' && inputValue.trim()) {
-              event.preventDefault();
-              dispatch(addSearchTag(inputValue.trim()));
-              setInputValue('');
+            }}
+            getOptionLabel={(option) => typeof option === 'string' ? option : option.text}
+            isOptionEqualToValue={(option, value) =>
+              (typeof option === 'string' ? option : option.text) === (typeof value === 'string' ? value : value.text)
             }
-          }}
-          fullWidth
-        />
+            renderValue={(value, getItemProps) =>
+              value.map((tag, index) => {
+                if (typeof tag === 'string') return null;
+                const { key, ...itemProps } = getItemProps({ index });
+                return (
+                  <Chip
+                    key={key}
+                    color={tag.mode === 'include' ? 'success' : 'error'}
+                    icon={tag.mode === 'include' ? <AddIcon /> : <RemoveIcon />}
+                    label={tag.text}
+                    size="small"
+                    onClick={() => dispatch(toggleListSearchTagMode(tag.text))}
+                    {...itemProps}
+                  />
+                );
+              })
+            }
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                placeholder={
+                  filters.searchTags && filters.searchTags.length > 0
+                    ? 'Add another tag...'
+                    : 'Type to add search tags (e.g., software, -senior, backend)...'
+                }
+              />
+            )}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && inputValue.trim()) {
+                event.preventDefault();
+                let text = inputValue.trim();
+                let mode: 'include' | 'exclude' = searchMode;
+
+                // Check for prefix override
+                if (text.startsWith('-')) {
+                  text = text.slice(1).trim();
+                  mode = 'exclude';
+                } else if (text.startsWith('+')) {
+                  text = text.slice(1).trim();
+                  mode = 'include';
+                }
+
+                if (text) {
+                  dispatch(addListSearchTag({ text, mode }));
+                  setInputValue('');
+                }
+              }
+            }}
+            sx={{ flex: 1 }}
+          />
+          <FormControlLabel
+            control={
+              <Switch
+                checked={searchMode === 'exclude'}
+                onChange={() => setSearchMode(searchMode === 'include' ? 'exclude' : 'include')}
+                color="error"
+              />
+            }
+            label="Exclude search tags"
+          />
+        </Stack>
 
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
           <FormControl size="small" sx={{ minWidth: 150 }}>

@@ -102,7 +102,7 @@ describe('filtersSelectors', () => {
       },
       list: {
         timeWindow: '24h',
-        searchQuery: undefined,
+        searchTags: undefined,
         softwareOnly: true,
         roleCategory: undefined,
         ...listFilters,
@@ -126,7 +126,7 @@ describe('filtersSelectors', () => {
 
     it('should filter by search query', () => {
       const state = createMockState([softwareJob, nonTechJob, oldJob], {
-        searchQuery: ['frontend'],
+        searchTags: [{ text: 'frontend', mode: 'include' }],
         softwareOnly: false,
         timeWindow: '3d'
       });
@@ -138,7 +138,7 @@ describe('filtersSelectors', () => {
 
     it('should filter by multiple search tags with OR logic', () => {
       const state = createMockState([softwareJob, nonTechJob, oldJob], {
-        searchQuery: ['frontend', 'hr'],
+        searchTags: [{ text: 'frontend', mode: 'include' }, { text: 'hr', mode: 'include' }],
         softwareOnly: false,
         timeWindow: '3d'
       });
@@ -151,7 +151,7 @@ describe('filtersSelectors', () => {
 
     it('should handle substring matching in graph search', () => {
       const state = createMockState([softwareJob], {
-        searchQuery: ['front'],
+        searchTags: [{ text: 'front', mode: 'include' }],
         timeWindow: '3d'
       });
       const filtered = selectGraphFilteredJobs(state);
@@ -161,7 +161,7 @@ describe('filtersSelectors', () => {
 
     it('should be case insensitive in graph search', () => {
       const state = createMockState([softwareJob], {
-        searchQuery: ['FRONTEND'],
+        searchTags: [{ text: 'FRONTEND', mode: 'include' }],
         timeWindow: '3d'
       });
       const filtered = selectGraphFilteredJobs(state);
@@ -272,7 +272,7 @@ describe('filtersSelectors', () => {
   describe('selectListFilteredJobs', () => {
     it('should filter by search query', () => {
       const state = createMockState([softwareJob, nonTechJob, oldJob], {}, {
-        searchQuery: ['frontend'],
+        searchTags: [{ text: 'frontend', mode: 'include' }],
         softwareOnly: false,
         timeWindow: '3d'
       });
@@ -284,7 +284,7 @@ describe('filtersSelectors', () => {
 
     it('should filter by multiple search tags with OR logic', () => {
       const state = createMockState([softwareJob, nonTechJob, oldJob], {}, {
-        searchQuery: ['frontend', 'hr'],
+        searchTags: [{ text: 'frontend', mode: 'include' }, { text: 'hr', mode: 'include' }],
         softwareOnly: false,
         timeWindow: '3d'
       });
@@ -297,7 +297,7 @@ describe('filtersSelectors', () => {
 
     it('should return all jobs when no tags match', () => {
       const state = createMockState([softwareJob, nonTechJob], {}, {
-        searchQuery: ['nonexistent'],
+        searchTags: [{ text: 'nonexistent', mode: 'include' }],
         softwareOnly: false,
         timeWindow: '3d'
       });
@@ -315,7 +315,7 @@ describe('filtersSelectors', () => {
       });
 
       const state = createMockState([jobWithTag], {}, {
-        searchQuery: ['react'],
+        searchTags: [{ text: 'react', mode: 'include' }],
         timeWindow: '3d'
       });
       const filtered = selectListFilteredJobs(state);
@@ -325,7 +325,7 @@ describe('filtersSelectors', () => {
 
     it('should be case insensitive', () => {
       const state = createMockState([softwareJob], {}, {
-        searchQuery: ['FRONTEND'],
+        searchTags: [{ text: 'FRONTEND', mode: 'include' }],
         timeWindow: '3d'
       });
       const filtered = selectListFilteredJobs(state);
@@ -335,7 +335,7 @@ describe('filtersSelectors', () => {
 
     it('should handle substring matching', () => {
       const state = createMockState([softwareJob], {}, {
-        searchQuery: ['front'],
+        searchTags: [{ text: 'front', mode: 'include' }],
         timeWindow: '3d'
       });
       const filtered = selectListFilteredJobs(state);
@@ -343,9 +343,9 @@ describe('filtersSelectors', () => {
       expect(filtered).toHaveLength(1);
     });
 
-    it('should return all jobs when searchQuery is undefined', () => {
+    it('should return all jobs when searchTags is undefined', () => {
       const state = createMockState([softwareJob, oldJob], {}, {
-        searchQuery: undefined,
+        searchTags: undefined,
         softwareOnly: false,
         timeWindow: '3d'
       });
@@ -354,15 +354,108 @@ describe('filtersSelectors', () => {
       expect(filtered).toHaveLength(2);
     });
 
-    it('should return all jobs when searchQuery is empty array', () => {
+    it('should return all jobs when searchTags is empty array', () => {
       const state = createMockState([softwareJob, oldJob], {}, {
-        searchQuery: [],
+        searchTags: [],
         softwareOnly: false,
         timeWindow: '3d'
       });
       const filtered = selectListFilteredJobs(state);
 
       expect(filtered).toHaveLength(2);
+    });
+
+    describe('exclude tag filtering', () => {
+      it('should exclude jobs matching single exclude tag', () => {
+        const state = createMockState([softwareJob, nonTechJob, oldJob], {}, {
+          searchTags: [{ text: 'frontend', mode: 'exclude' }],
+          softwareOnly: false,
+          timeWindow: '3d'
+        });
+        const filtered = selectListFilteredJobs(state);
+
+        expect(filtered).toHaveLength(2); // nonTechJob and oldJob
+        expect(filtered.every(j => !j.title.toLowerCase().includes('frontend'))).toBe(true);
+      });
+
+      it('should exclude jobs matching multiple exclude tags (AND NOT logic)', () => {
+        const state = createMockState([softwareJob, nonTechJob, oldJob], {}, {
+          searchTags: [{ text: 'frontend', mode: 'exclude' }, { text: 'hr', mode: 'exclude' }],
+          softwareOnly: false,
+          timeWindow: '3d'
+        });
+        const filtered = selectListFilteredJobs(state);
+
+        expect(filtered).toHaveLength(1); // Only oldJob (no frontend, no hr)
+        expect(filtered[0].id).toBe('3');
+      });
+
+      it('should combine include and exclude tags correctly', () => {
+        const state = createMockState([softwareJob, nonTechJob, oldJob], {}, {
+          searchTags: [
+            { text: 'engineer', mode: 'include' },
+            { text: 'frontend', mode: 'exclude' }
+          ],
+          softwareOnly: false,
+          timeWindow: '3d'
+        });
+        const filtered = selectListFilteredJobs(state);
+
+        // Should include jobs with "engineer" but exclude those with "frontend"
+        expect(filtered).toHaveLength(1); // oldJob has "Backend Engineer" but not "Frontend"
+        expect(filtered[0].title).toContain('Backend Engineer');
+        expect(filtered[0].title).not.toContain('Frontend');
+      });
+
+      it('should handle substring matching in exclude tags', () => {
+        const state = createMockState([softwareJob, nonTechJob, oldJob], {}, {
+          searchTags: [{ text: 'front', mode: 'exclude' }],
+          softwareOnly: false,
+          timeWindow: '3d'
+        });
+        const filtered = selectListFilteredJobs(state);
+
+        expect(filtered).toHaveLength(2); // Excludes softwareJob (has "Frontend")
+        expect(filtered.every(j => !j.title.toLowerCase().includes('front'))).toBe(true);
+      });
+
+      it('should be case insensitive for exclude tags', () => {
+        const state = createMockState([softwareJob, nonTechJob, oldJob], {}, {
+          searchTags: [{ text: 'FRONTEND', mode: 'exclude' }],
+          softwareOnly: false,
+          timeWindow: '3d'
+        });
+        const filtered = selectListFilteredJobs(state);
+
+        expect(filtered).toHaveLength(2);
+        expect(filtered.every(j => !j.title.toLowerCase().includes('frontend'))).toBe(true);
+      });
+
+      it('should return all jobs when only exclude tags and none match', () => {
+        const state = createMockState([softwareJob, nonTechJob], {}, {
+          searchTags: [{ text: 'nonexistent', mode: 'exclude' }],
+          softwareOnly: false,
+          timeWindow: '3d'
+        });
+        const filtered = selectListFilteredJobs(state);
+
+        expect(filtered).toHaveLength(2); // All jobs pass (nothing to exclude)
+      });
+
+      it('should handle mixed includes and excludes with no matches', () => {
+        const state = createMockState([softwareJob, nonTechJob], {}, {
+          searchTags: [
+            { text: 'frontend', mode: 'include' },
+            { text: 'frontend', mode: 'exclude' }
+          ],
+          softwareOnly: false,
+          timeWindow: '3d'
+        });
+        const filtered = selectListFilteredJobs(state);
+
+        // Include finds frontend job, but exclude removes it
+        expect(filtered).toHaveLength(0);
+      });
     });
   });
 

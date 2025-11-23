@@ -176,11 +176,19 @@ export interface Company {
 }
 
 /**
+ * Search tag with include/exclude mode
+ */
+export type SearchTag = {
+  text: string;
+  mode: 'include' | 'exclude';
+};
+
+/**
  * Graph filter state
  */
 export interface GraphFilters {
   timeWindow: TimeWindow;
-  searchQuery?: string[];
+  searchTags?: SearchTag[];
   location?: string[];
   department?: string[];
   employmentType?: string;
@@ -193,7 +201,7 @@ export interface GraphFilters {
  */
 export interface ListFilters {
   timeWindow: TimeWindow;
-  searchQuery?: string[];
+  searchTags?: SearchTag[];
   location?: string[];
   department?: string[];
   employmentType?: string;

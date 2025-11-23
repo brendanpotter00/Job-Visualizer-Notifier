@@ -40,8 +40,8 @@ export const selectGraphFilteredJobs = createSelector(
         return false;
       }
 
-      // Search query filter (multi-tag with OR logic)
-      if (filters.searchQuery && filters.searchQuery.length > 0) {
+      // Search tags filter (include/exclude logic)
+      if (filters.searchTags && filters.searchTags.length > 0) {
         const searchableText = [
           job.title,
           job.department,
@@ -53,13 +53,29 @@ export const selectGraphFilteredJobs = createSelector(
           .join(' ')
           .toLowerCase();
 
-        // Job matches if ANY tag matches (OR logic)
-        const matchesAnyTag = filters.searchQuery.some(tag =>
-          searchableText.includes(tag.toLowerCase())
-        );
+        const includeTags = filters.searchTags.filter(t => t.mode === 'include');
+        const excludeTags = filters.searchTags.filter(t => t.mode === 'exclude');
 
-        if (!matchesAnyTag) {
-          return false;
+        // Include logic: If include tags exist, job must match at least one (OR logic)
+        if (includeTags.length > 0) {
+          const matchesAnyIncludeTag = includeTags.some(tag =>
+            searchableText.includes(tag.text.toLowerCase())
+          );
+
+          if (!matchesAnyIncludeTag) {
+            return false;
+          }
+        }
+
+        // Exclude logic: Job must NOT match any exclude tags (AND NOT logic)
+        if (excludeTags.length > 0) {
+          const matchesAnyExcludeTag = excludeTags.some(tag =>
+            searchableText.includes(tag.text.toLowerCase())
+          );
+
+          if (matchesAnyExcludeTag) {
+            return false;
+          }
         }
       }
 
@@ -129,8 +145,8 @@ export const selectListFilteredJobs = createSelector(
           return false;
         }
 
-        // Search query filter (multi-tag with OR logic)
-        if (filters.searchQuery && filters.searchQuery.length > 0) {
+        // Search tags filter (include/exclude logic)
+        if (filters.searchTags && filters.searchTags.length > 0) {
           const searchableText = [
             job.title,
             job.department,
@@ -142,13 +158,29 @@ export const selectListFilteredJobs = createSelector(
             .join(' ')
             .toLowerCase();
 
-          // Job matches if ANY tag matches (OR logic)
-          const matchesAnyTag = filters.searchQuery.some(tag =>
-            searchableText.includes(tag.toLowerCase())
-          );
+          const includeTags = filters.searchTags.filter(t => t.mode === 'include');
+          const excludeTags = filters.searchTags.filter(t => t.mode === 'exclude');
 
-          if (!matchesAnyTag) {
-            return false;
+          // Include logic: If include tags exist, job must match at least one (OR logic)
+          if (includeTags.length > 0) {
+            const matchesAnyIncludeTag = includeTags.some(tag =>
+              searchableText.includes(tag.text.toLowerCase())
+            );
+
+            if (!matchesAnyIncludeTag) {
+              return false;
+            }
+          }
+
+          // Exclude logic: Job must NOT match any exclude tags (AND NOT logic)
+          if (excludeTags.length > 0) {
+            const matchesAnyExcludeTag = excludeTags.some(tag =>
+              searchableText.includes(tag.text.toLowerCase())
+            );
+
+            if (matchesAnyExcludeTag) {
+              return false;
+            }
           }
         }
 

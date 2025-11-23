@@ -6,6 +6,7 @@ import filtersReducer, {
   clearGraphLocations,
   addGraphSearchTag,
   removeGraphSearchTag,
+  toggleGraphSearchTagMode,
   clearGraphSearchTags,
   addGraphDepartment,
   removeGraphDepartment,
@@ -16,10 +17,10 @@ import filtersReducer, {
   clearGraphRoleCategories,
   resetGraphFilters,
   setListTimeWindow,
-  setListSearchQuery,
-  addSearchTag,
-  removeSearchTag,
-  clearSearchTags,
+  addListSearchTag,
+  removeListSearchTag,
+  toggleListSearchTagMode,
+  clearListSearchTags,
   addListLocation,
   removeListLocation,
   clearListLocations,
@@ -41,10 +42,11 @@ describe('filtersSlice', () => {
       timeWindow: '30d',
       softwareOnly: false,
       roleCategory: undefined,
+      searchTags: undefined,
     },
     list: {
       timeWindow: '30d',
-      searchQuery: undefined,
+      searchTags: undefined,
       softwareOnly: false,
       roleCategory: undefined,
     },
@@ -133,39 +135,91 @@ describe('filtersSlice', () => {
       expect(newState.graph.roleCategory).toBeUndefined();
     });
 
-    it('should add graph search tag', () => {
-      const newState = filtersReducer(initialState, addGraphSearchTag('software'));
+    it('should add graph search tag with include mode', () => {
+      const newState = filtersReducer(initialState, addGraphSearchTag({ text: 'software', mode: 'include' }));
 
-      expect(newState.graph.searchQuery).toEqual(['software']);
+      expect(newState.graph.searchTags).toEqual([{ text: 'software', mode: 'include' }]);
+    });
+
+    it('should add graph search tag with exclude mode', () => {
+      const newState = filtersReducer(initialState, addGraphSearchTag({ text: 'senior', mode: 'exclude' }));
+
+      expect(newState.graph.searchTags).toEqual([{ text: 'senior', mode: 'exclude' }]);
     });
 
     it('should add multiple graph search tags', () => {
       let state = initialState;
-      state = filtersReducer(state, addGraphSearchTag('software'));
-      state = filtersReducer(state, addGraphSearchTag('data'));
-      state = filtersReducer(state, addGraphSearchTag('backend'));
+      state = filtersReducer(state, addGraphSearchTag({ text: 'software', mode: 'include' }));
+      state = filtersReducer(state, addGraphSearchTag({ text: 'data', mode: 'include' }));
+      state = filtersReducer(state, addGraphSearchTag({ text: 'senior', mode: 'exclude' }));
 
-      expect(state.graph.searchQuery).toEqual(['software', 'data', 'backend']);
+      expect(state.graph.searchTags).toEqual([
+        { text: 'software', mode: 'include' },
+        { text: 'data', mode: 'include' },
+        { text: 'senior', mode: 'exclude' },
+      ]);
     });
 
     it('should not add duplicate graph search tags', () => {
       let state = initialState;
-      state = filtersReducer(state, addGraphSearchTag('software'));
-      state = filtersReducer(state, addGraphSearchTag('software'));
+      state = filtersReducer(state, addGraphSearchTag({ text: 'software', mode: 'include' }));
+      state = filtersReducer(state, addGraphSearchTag({ text: 'software', mode: 'include' }));
 
-      expect(state.graph.searchQuery).toEqual(['software']);
+      expect(state.graph.searchTags).toEqual([{ text: 'software', mode: 'include' }]);
     });
 
     it('should trim whitespace when adding graph tags', () => {
-      const newState = filtersReducer(initialState, addGraphSearchTag('  software  '));
+      const newState = filtersReducer(initialState, addGraphSearchTag({ text: '  software  ', mode: 'include' }));
 
-      expect(newState.graph.searchQuery).toEqual(['software']);
+      expect(newState.graph.searchTags).toEqual([{ text: 'software', mode: 'include' }]);
     });
 
     it('should ignore empty graph tags', () => {
-      const newState = filtersReducer(initialState, addGraphSearchTag('  '));
+      const newState = filtersReducer(initialState, addGraphSearchTag({ text: '  ', mode: 'include' }));
 
-      expect(newState.graph.searchQuery).toBeUndefined();
+      expect(newState.graph.searchTags).toBeUndefined();
+    });
+
+    it('should toggle graph search tag mode from include to exclude', () => {
+      const stateWithTag: FiltersState = {
+        ...initialState,
+        graph: {
+          ...initialState.graph,
+          searchTags: [{ text: 'software', mode: 'include' }],
+        },
+      };
+
+      const newState = filtersReducer(stateWithTag, toggleGraphSearchTagMode('software'));
+
+      expect(newState.graph.searchTags).toEqual([{ text: 'software', mode: 'exclude' }]);
+    });
+
+    it('should toggle graph search tag mode from exclude to include', () => {
+      const stateWithTag: FiltersState = {
+        ...initialState,
+        graph: {
+          ...initialState.graph,
+          searchTags: [{ text: 'senior', mode: 'exclude' }],
+        },
+      };
+
+      const newState = filtersReducer(stateWithTag, toggleGraphSearchTagMode('senior'));
+
+      expect(newState.graph.searchTags).toEqual([{ text: 'senior', mode: 'include' }]);
+    });
+
+    it('should do nothing when toggling non-existent tag', () => {
+      const stateWithTag: FiltersState = {
+        ...initialState,
+        graph: {
+          ...initialState.graph,
+          searchTags: [{ text: 'software', mode: 'include' }],
+        },
+      };
+
+      const newState = filtersReducer(stateWithTag, toggleGraphSearchTagMode('nonexistent'));
+
+      expect(newState.graph.searchTags).toEqual([{ text: 'software', mode: 'include' }]);
     });
 
     it('should remove graph search tag', () => {
@@ -173,27 +227,34 @@ describe('filtersSlice', () => {
         ...initialState,
         graph: {
           ...initialState.graph,
-          searchQuery: ['software', 'data', 'backend'],
+          searchTags: [
+            { text: 'software', mode: 'include' },
+            { text: 'data', mode: 'include' },
+            { text: 'senior', mode: 'exclude' },
+          ],
         },
       };
 
       const newState = filtersReducer(stateWithTags, removeGraphSearchTag('data'));
 
-      expect(newState.graph.searchQuery).toEqual(['software', 'backend']);
+      expect(newState.graph.searchTags).toEqual([
+        { text: 'software', mode: 'include' },
+        { text: 'senior', mode: 'exclude' },
+      ]);
     });
 
-    it('should set searchQuery to undefined when removing last graph tag', () => {
+    it('should set searchTags to undefined when removing last graph tag', () => {
       const stateWithOneTag: FiltersState = {
         ...initialState,
         graph: {
           ...initialState.graph,
-          searchQuery: ['software'],
+          searchTags: [{ text: 'software', mode: 'include' }],
         },
       };
 
       const newState = filtersReducer(stateWithOneTag, removeGraphSearchTag('software'));
 
-      expect(newState.graph.searchQuery).toBeUndefined();
+      expect(newState.graph.searchTags).toBeUndefined();
     });
 
     it('should clear all graph search tags', () => {
@@ -201,13 +262,17 @@ describe('filtersSlice', () => {
         ...initialState,
         graph: {
           ...initialState.graph,
-          searchQuery: ['software', 'data', 'backend'],
+          searchTags: [
+            { text: 'software', mode: 'include' },
+            { text: 'data', mode: 'include' },
+            { text: 'senior', mode: 'exclude' },
+          ],
         },
       };
 
       const newState = filtersReducer(stateWithTags, clearGraphSearchTags());
 
-      expect(newState.graph.searchQuery).toBeUndefined();
+      expect(newState.graph.searchTags).toBeUndefined();
     });
 
     it('should add graph location', () => {
@@ -367,87 +432,130 @@ describe('filtersSlice', () => {
       expect(newState.graph.timeWindow).toBe('30d'); // Graph unchanged
     });
 
-    it('should set list search query', () => {
-      const newState = filtersReducer(initialState, setListSearchQuery(['engineer']));
+    it('should add list search tag with include mode', () => {
+      const newState = filtersReducer(initialState, addListSearchTag({ text: 'software', mode: 'include' }));
 
-      expect(newState.list.searchQuery).toEqual(['engineer']);
+      expect(newState.list.searchTags).toEqual([{ text: 'software', mode: 'include' }]);
     });
 
-    it('should add search tag', () => {
-      const newState = filtersReducer(initialState, addSearchTag('software'));
+    it('should add list search tag with exclude mode', () => {
+      const newState = filtersReducer(initialState, addListSearchTag({ text: 'senior', mode: 'exclude' }));
 
-      expect(newState.list.searchQuery).toEqual(['software']);
+      expect(newState.list.searchTags).toEqual([{ text: 'senior', mode: 'exclude' }]);
     });
 
-    it('should add multiple search tags', () => {
+    it('should add multiple list search tags', () => {
       let state = initialState;
-      state = filtersReducer(state, addSearchTag('software'));
-      state = filtersReducer(state, addSearchTag('data'));
-      state = filtersReducer(state, addSearchTag('backend'));
+      state = filtersReducer(state, addListSearchTag({ text: 'software', mode: 'include' }));
+      state = filtersReducer(state, addListSearchTag({ text: 'data', mode: 'include' }));
+      state = filtersReducer(state, addListSearchTag({ text: 'senior', mode: 'exclude' }));
 
-      expect(state.list.searchQuery).toEqual(['software', 'data', 'backend']);
+      expect(state.list.searchTags).toEqual([
+        { text: 'software', mode: 'include' },
+        { text: 'data', mode: 'include' },
+        { text: 'senior', mode: 'exclude' },
+      ]);
     });
 
-    it('should not add duplicate search tags', () => {
+    it('should not add duplicate list search tags', () => {
       let state = initialState;
-      state = filtersReducer(state, addSearchTag('software'));
-      state = filtersReducer(state, addSearchTag('software'));
+      state = filtersReducer(state, addListSearchTag({ text: 'software', mode: 'include' }));
+      state = filtersReducer(state, addListSearchTag({ text: 'software', mode: 'include' }));
 
-      expect(state.list.searchQuery).toEqual(['software']);
+      expect(state.list.searchTags).toEqual([{ text: 'software', mode: 'include' }]);
     });
 
-    it('should trim whitespace when adding tags', () => {
-      const newState = filtersReducer(initialState, addSearchTag('  software  '));
+    it('should trim whitespace when adding list tags', () => {
+      const newState = filtersReducer(initialState, addListSearchTag({ text: '  software  ', mode: 'include' }));
 
-      expect(newState.list.searchQuery).toEqual(['software']);
+      expect(newState.list.searchTags).toEqual([{ text: 'software', mode: 'include' }]);
     });
 
-    it('should ignore empty tags', () => {
-      const newState = filtersReducer(initialState, addSearchTag('  '));
+    it('should ignore empty list tags', () => {
+      const newState = filtersReducer(initialState, addListSearchTag({ text: '  ', mode: 'include' }));
 
-      expect(newState.list.searchQuery).toBeUndefined();
+      expect(newState.list.searchTags).toBeUndefined();
     });
 
-    it('should remove search tag', () => {
+    it('should toggle list search tag mode from include to exclude', () => {
+      const stateWithTag: FiltersState = {
+        ...initialState,
+        list: {
+          ...initialState.list,
+          searchTags: [{ text: 'software', mode: 'include' }],
+        },
+      };
+
+      const newState = filtersReducer(stateWithTag, toggleListSearchTagMode('software'));
+
+      expect(newState.list.searchTags).toEqual([{ text: 'software', mode: 'exclude' }]);
+    });
+
+    it('should toggle list search tag mode from exclude to include', () => {
+      const stateWithTag: FiltersState = {
+        ...initialState,
+        list: {
+          ...initialState.list,
+          searchTags: [{ text: 'senior', mode: 'exclude' }],
+        },
+      };
+
+      const newState = filtersReducer(stateWithTag, toggleListSearchTagMode('senior'));
+
+      expect(newState.list.searchTags).toEqual([{ text: 'senior', mode: 'include' }]);
+    });
+
+    it('should remove list search tag', () => {
       const stateWithTags: FiltersState = {
         ...initialState,
         list: {
           ...initialState.list,
-          searchQuery: ['software', 'data', 'backend'],
+          searchTags: [
+            { text: 'software', mode: 'include' },
+            { text: 'data', mode: 'include' },
+            { text: 'senior', mode: 'exclude' },
+          ],
         },
       };
 
-      const newState = filtersReducer(stateWithTags, removeSearchTag('data'));
+      const newState = filtersReducer(stateWithTags, removeListSearchTag('data'));
 
-      expect(newState.list.searchQuery).toEqual(['software', 'backend']);
+      expect(newState.list.searchTags).toEqual([
+        { text: 'software', mode: 'include' },
+        { text: 'senior', mode: 'exclude' },
+      ]);
     });
 
-    it('should set searchQuery to undefined when removing last tag', () => {
+    it('should set searchTags to undefined when removing last list tag', () => {
       const stateWithOneTag: FiltersState = {
         ...initialState,
         list: {
           ...initialState.list,
-          searchQuery: ['software'],
+          searchTags: [{ text: 'software', mode: 'include' }],
         },
       };
 
-      const newState = filtersReducer(stateWithOneTag, removeSearchTag('software'));
+      const newState = filtersReducer(stateWithOneTag, removeListSearchTag('software'));
 
-      expect(newState.list.searchQuery).toBeUndefined();
+      expect(newState.list.searchTags).toBeUndefined();
     });
 
-    it('should clear all search tags', () => {
+    it('should clear all list search tags', () => {
       const stateWithTags: FiltersState = {
         ...initialState,
         list: {
           ...initialState.list,
-          searchQuery: ['software', 'data', 'backend'],
+          searchTags: [
+            { text: 'software', mode: 'include' },
+            { text: 'data', mode: 'include' },
+            { text: 'senior', mode: 'exclude' },
+          ],
         },
       };
 
-      const newState = filtersReducer(stateWithTags, clearSearchTags());
+      const newState = filtersReducer(stateWithTags, clearListSearchTags());
 
-      expect(newState.list.searchQuery).toBeUndefined();
+      expect(newState.list.searchTags).toBeUndefined();
     });
 
     it('should add list location', () => {
@@ -633,7 +741,7 @@ describe('filtersSlice', () => {
         ...initialState,
         list: {
           timeWindow: '7d',
-          searchQuery: ['test'],
+          searchTags: [{ text: 'test', mode: 'include' }],
           softwareOnly: false,
           roleCategory: ['qa'],
         },
@@ -651,12 +759,13 @@ describe('filtersSlice', () => {
       const modifiedState: FiltersState = {
         graph: {
           timeWindow: '1h',
+          searchTags: [{ text: 'test', mode: 'include' }],
           softwareOnly: false,
           roleCategory: ['frontend'],
         },
         list: {
           timeWindow: '7d',
-          searchQuery: ['test'],
+          searchTags: [{ text: 'test', mode: 'include' }],
           softwareOnly: false,
           roleCategory: ['backend'],
         },
@@ -678,12 +787,12 @@ describe('filtersSlice', () => {
 
       // Modify list
       state = filtersReducer(state, setListTimeWindow('7d'));
-      state = filtersReducer(state, addSearchTag('engineer'));
+      state = filtersReducer(state, addListSearchTag({ text: 'engineer', mode: 'include' }));
 
       expect(state.graph.timeWindow).toBe('1h');
       expect(state.graph.location).toEqual(['Remote']);
       expect(state.list.timeWindow).toBe('7d');
-      expect(state.list.searchQuery).toEqual(['engineer']);
+      expect(state.list.searchTags).toEqual([{ text: 'engineer', mode: 'include' }]);
     });
   });
 });
