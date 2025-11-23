@@ -92,15 +92,15 @@ export function ListFilters() {
               removedTags.forEach(tag => dispatch(removeSearchTag(tag)));
             }
           }}
-          renderTags={(value, getTagProps) =>
+          renderValue={(value, getItemProps) =>
             value.map((option, index) => {
-              const { key, ...tagProps } = getTagProps({ index });
+              const { key, ...itemProps } = getItemProps({ index });
               return (
                 <Chip
                   key={key}
                   label={option}
                   size="small"
-                  {...tagProps}
+                  {...itemProps}
                 />
               );
             })
@@ -161,15 +161,15 @@ export function ListFilters() {
                 addedCats.forEach(cat => dispatch(addListRoleCategory(cat)));
               }
             }}
-            renderTags={(value, getTagProps) =>
+            renderValue={(value, getItemProps) =>
               value.map((option, index) => {
-                const { key, ...tagProps } = getTagProps({ index });
+                const { key, ...itemProps } = getItemProps({ index });
                 return (
                   <Chip
                     key={key}
                     label={ROLE_CATEGORIES.find(c => c.value === option)?.label || option}
                     size="small"
-                    {...tagProps}
+                    {...itemProps}
                   />
                 );
               })
@@ -208,15 +208,15 @@ export function ListFilters() {
                   addedLocs.forEach(loc => dispatch(addListLocation(loc)));
                 }
               }}
-              renderTags={(value, getTagProps) =>
+              renderValue={(value, getItemProps) =>
                 value.map((option, index) => {
-                  const { key, ...tagProps } = getTagProps({ index });
+                  const { key, ...itemProps } = getItemProps({ index });
                   return (
                     <Chip
                       key={key}
                       label={option}
                       size="small"
-                      {...tagProps}
+                      {...itemProps}
                     />
                   );
                 })
@@ -253,15 +253,15 @@ export function ListFilters() {
                   addedDepts.forEach(dept => dispatch(addListDepartment(dept)));
                 }
               }}
-              renderTags={(value, getTagProps) =>
+              renderValue={(value, getItemProps) =>
                 value.map((option, index) => {
-                  const { key, ...tagProps } = getTagProps({ index });
+                  const { key, ...itemProps } = getItemProps({ index });
                   return (
                     <Chip
                       key={key}
                       label={option}
                       size="small"
-                      {...tagProps}
+                      {...itemProps}
                     />
                   );
                 })

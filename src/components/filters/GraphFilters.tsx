@@ -92,15 +92,15 @@ export function GraphFilters() {
               removedTags.forEach(tag => dispatch(removeGraphSearchTag(tag)));
             }
           }}
-          renderTags={(value, getTagProps) =>
+          renderValue={(value, getItemProps) =>
             value.map((option, index) => {
-              const { key, ...tagProps } = getTagProps({ index });
+              const { key, ...itemProps } = getItemProps({ index });
               return (
                 <Chip
                   key={key}
                   label={option}
                   size="small"
-                  {...tagProps}
+                  {...itemProps}
                 />
               );
             })
@@ -161,15 +161,15 @@ export function GraphFilters() {
               addedCats.forEach(cat => dispatch(addGraphRoleCategory(cat)));
             }
           }}
-          renderTags={(value, getTagProps) =>
+          renderValue={(value, getItemProps) =>
             value.map((option, index) => {
-              const { key, ...tagProps } = getTagProps({ index });
+              const { key, ...itemProps } = getItemProps({ index });
               return (
                 <Chip
                   key={key}
                   label={ROLE_CATEGORIES.find(c => c.value === option)?.label || option}
                   size="small"
-                  {...tagProps}
+                  {...itemProps}
                 />
               );
             })
@@ -208,15 +208,15 @@ export function GraphFilters() {
                 addedLocs.forEach(loc => dispatch(addGraphLocation(loc)));
               }
             }}
-            renderTags={(value, getTagProps) =>
+            renderValue={(value, getItemProps) =>
               value.map((option, index) => {
-                const { key, ...tagProps } = getTagProps({ index });
+                const { key, ...itemProps } = getItemProps({ index });
                 return (
                   <Chip
                     key={key}
                     label={option}
                     size="small"
-                    {...tagProps}
+                    {...itemProps}
                   />
                 );
               })
@@ -253,15 +253,15 @@ export function GraphFilters() {
                 addedDepts.forEach(dept => dispatch(addGraphDepartment(dept)));
               }
             }}
-            renderTags={(value, getTagProps) =>
+            renderValue={(value, getItemProps) =>
               value.map((option, index) => {
-                const { key, ...tagProps } = getTagProps({ index });
+                const { key, ...itemProps } = getItemProps({ index });
                 return (
                   <Chip
                     key={key}
                     label={option}
                     size="small"
-                    {...tagProps}
+                    {...itemProps}
                   />
                 );
               })
