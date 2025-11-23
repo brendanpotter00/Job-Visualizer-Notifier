@@ -173,6 +173,12 @@ export interface Company {
 
   /** ATS-specific configuration */
   config: GreenhouseConfig | LeverConfig | AshbyConfig;
+
+  /** Optional URL to company's job postings website */
+  jobsUrl?: string;
+
+  /** Optional URL to find recruiters on LinkedIn */
+  recruiterLinkedInUrl?: string;
 }
 
 /**

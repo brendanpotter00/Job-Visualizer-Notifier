@@ -2,6 +2,7 @@ import { Paper, Typography } from '@mui/material';
 import { useAppDispatch, useAppSelector } from '../../app/hooks';
 import { JobPostingsChart } from './JobPostingsChart';
 import { GraphFilters } from '../filters/GraphFilters';
+import { MetricsDashboard } from '../MetricsDashboard/MetricsDashboard';
 import { selectGraphBucketData } from '../../features/filters/graphFiltersSelectors';
 import {
   selectCurrentCompanyLoading,
@@ -44,28 +45,32 @@ export function GraphSection() {
   };
 
   return (
-    <Paper sx={{ p: { xs: 2, sm: 3 }, mb: 3 }}>
-      <Typography variant="h5" component="h2" gutterBottom>
-        Job Posting Timeline
-      </Typography>
+    <>
+      <MetricsDashboard />
 
-      <GraphFilters />
+      <Paper sx={{ p: { xs: 2, sm: 3 }, mb: 3 }}>
+        <Typography variant="h5" component="h2" gutterBottom>
+          Job Posting Timeline
+        </Typography>
 
-      {error ? (
-        <ErrorDisplay
-          title="Failed to Load Chart Data"
-          message={error}
-          onRetry={handleRetry}
-        />
-      ) : (
-        <JobPostingsChart
-          data={bucketData}
-          onPointClick={handlePointClick}
-          timeWindow={graphFilters.timeWindow}
-          isLoading={isLoading}
-          height={400}
-        />
-      )}
-    </Paper>
+        <GraphFilters />
+
+        {error ? (
+          <ErrorDisplay
+            title="Failed to Load Chart Data"
+            message={error}
+            onRetry={handleRetry}
+          />
+        ) : (
+          <JobPostingsChart
+            data={bucketData}
+            onPointClick={handlePointClick}
+            timeWindow={graphFilters.timeWindow}
+            isLoading={isLoading}
+            height={400}
+          />
+        )}
+      </Paper>
+    </>
   );
 }

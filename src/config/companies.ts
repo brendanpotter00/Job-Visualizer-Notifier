@@ -11,7 +11,9 @@ export const COMPANIES: Company[] = [
         config: {
             type: 'greenhouse',
             boardToken: 'spacex',
-        }
+        },
+        jobsUrl: 'https://boards.greenhouse.io/spacex',
+        recruiterLinkedInUrl: '',
     },
     {
         id: 'andurilindustries',
@@ -20,7 +22,9 @@ export const COMPANIES: Company[] = [
         config: {
             type: 'greenhouse',
             boardToken: 'andurilindustries',
-        }
+        },
+        jobsUrl: 'https://boards.greenhouse.io/andurilindustries',
+        recruiterLinkedInUrl: '',
     },
     {
         id: 'airbnb',
@@ -29,7 +33,9 @@ export const COMPANIES: Company[] = [
         config: {
             type: 'greenhouse',
             boardToken: 'airbnb',
-        }
+        },
+        jobsUrl: 'https://boards.greenhouse.io/airbnb',
+        recruiterLinkedInUrl: '',
     },
     {
         id: 'figma',
@@ -38,7 +44,9 @@ export const COMPANIES: Company[] = [
         config: {
             type: 'greenhouse',
             boardToken: 'figma',
-        }
+        },
+        jobsUrl: 'https://boards.greenhouse.io/figma',
+        recruiterLinkedInUrl: '',
     },
     {
         id: 'notion',
@@ -47,7 +55,9 @@ export const COMPANIES: Company[] = [
         config: {
             type: 'ashby',
             jobBoardName: 'notion',
-        }
+        },
+        jobsUrl: 'https://careers.ashbyhq.com/notion',
+        recruiterLinkedInUrl: '',
     },
     {
         id: 'neuralink',
@@ -56,7 +66,9 @@ export const COMPANIES: Company[] = [
         config: {
             type: 'greenhouse',
             boardToken: 'neuralink',
-        }
+        },
+        jobsUrl: 'https://boards.greenhouse.io/neuralink',
+        recruiterLinkedInUrl: '',
     },
     {
         id: 'palantir',
@@ -67,6 +79,8 @@ export const COMPANIES: Company[] = [
             companyId: 'palantir',
             jobsUrl: 'https://jobs.lever.co/palantir',
         },
+        jobsUrl: 'https://jobs.lever.co/palantir',
+        recruiterLinkedInUrl: '',
     },
     {
         id: 'saronic',
@@ -77,6 +91,8 @@ export const COMPANIES: Company[] = [
             companyId: 'saronic',
             jobsUrl: 'https://jobs.lever.co/saronic',
         },
+        jobsUrl: 'https://jobs.lever.co/saronic',
+        recruiterLinkedInUrl: '',
     },
     {
         id: 'nominal',
@@ -87,6 +103,8 @@ export const COMPANIES: Company[] = [
             companyId: 'nominal',
             jobsUrl: 'https://jobs.lever.co/nominal',
         },
+        jobsUrl: 'https://jobs.lever.co/nominal',
+        recruiterLinkedInUrl: '',
     },
     {
         id: 'coinbase',
@@ -95,7 +113,9 @@ export const COMPANIES: Company[] = [
         config: {
             type: 'greenhouse',
             boardToken: 'coinbase',
-        }
+        },
+        jobsUrl: 'https://boards.greenhouse.io/coinbase',
+        recruiterLinkedInUrl: '',
     },
     {
         id: 'robinhood',
@@ -104,7 +124,9 @@ export const COMPANIES: Company[] = [
         config: {
             type: 'greenhouse',
             boardToken: 'robinhood',
-        }
+        },
+        jobsUrl: 'https://boards.greenhouse.io/robinhood',
+        recruiterLinkedInUrl: '',
     },
     {
         id: 'spotify',
@@ -115,6 +137,8 @@ export const COMPANIES: Company[] = [
             companyId: 'spotify',
             jobsUrl: 'https://jobs.lever.co/spotify',
         },
+        jobsUrl: 'https://jobs.lever.co/spotify',
+        recruiterLinkedInUrl: '',
     },
     {
         id: 'xai',
@@ -123,7 +147,9 @@ export const COMPANIES: Company[] = [
         config: {
             type: 'greenhouse',
             boardToken: 'xai',
-        }
+        },
+        jobsUrl: 'https://boards.greenhouse.io/xai',
+        recruiterLinkedInUrl: '',
     },
     {
         id: 'anthropic',
@@ -132,7 +158,9 @@ export const COMPANIES: Company[] = [
         config: {
             type: 'greenhouse',
             boardToken: 'anthropic',
-        }
+        },
+        jobsUrl: 'https://boards.greenhouse.io/anthropic',
+        recruiterLinkedInUrl: '',
     },
     {
         id: 'lyft',
@@ -141,7 +169,9 @@ export const COMPANIES: Company[] = [
         config: {
             type: 'greenhouse',
             boardToken: 'lyft',
-        }
+        },
+        jobsUrl: 'https://boards.greenhouse.io/lyft',
+        recruiterLinkedInUrl: '',
     },
     {
         id: 'doordashusa',
@@ -150,7 +180,9 @@ export const COMPANIES: Company[] = [
         config: {
             type: 'greenhouse',
             boardToken: 'doordashusa',
-        }
+        },
+        jobsUrl: 'https://boards.greenhouse.io/doordashusa',
+        recruiterLinkedInUrl: '',
     },
     {
         id: 'stripe',
@@ -159,7 +191,9 @@ export const COMPANIES: Company[] = [
         config: {
             type: 'greenhouse',
             boardToken: 'stripe',
-        }
+        },
+        jobsUrl: 'https://boards.greenhouse.io/stripe',
+        recruiterLinkedInUrl: '',
     },
     {
         id: 'ramp',
@@ -169,6 +203,8 @@ export const COMPANIES: Company[] = [
             type: 'ashby',
             jobBoardName: 'ramp',
         },
+        jobsUrl: 'https://careers.ashbyhq.com/ramp',
+        recruiterLinkedInUrl: '',
     },
     {
         id: 'plaid',
@@ -179,6 +215,8 @@ export const COMPANIES: Company[] = [
             companyId: 'plaid',
             jobsUrl: 'https://jobs.lever.co/plaid',
         },
+        jobsUrl: 'https://jobs.lever.co/plaid',
+        recruiterLinkedInUrl: '',
     },
     {
         id: 'appliedintuition',
@@ -187,7 +225,9 @@ export const COMPANIES: Company[] = [
         config: {
             type: 'greenhouse',
             boardToken: 'appliedintuition',
-        }
+        },
+        jobsUrl: 'https://boards.greenhouse.io/appliedintuition',
+        recruiterLinkedInUrl: '',
     },
     {
         id: 'discord',
@@ -197,7 +237,10 @@ export const COMPANIES: Company[] = [
             type: 'greenhouse',
             boardToken: 'discord',
         },
-    },{
+        jobsUrl: 'https://boards.greenhouse.io/discord',
+        recruiterLinkedInUrl: '',
+    },
+    {
         id: 'brex',
         name: 'Brex',
         ats: 'greenhouse',
@@ -205,6 +248,8 @@ export const COMPANIES: Company[] = [
             type: 'greenhouse',
             boardToken: 'brex',
         },
+        jobsUrl: 'https://boards.greenhouse.io/brex',
+        recruiterLinkedInUrl: '',
     },
 
 ];

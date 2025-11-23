@@ -1,0 +1,433 @@
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { render, screen } from '@testing-library/react';
+import { Provider } from 'react-redux';
+import { configureStore } from '@reduxjs/toolkit';
+import { MetricsDashboard } from '../../../components/MetricsDashboard/MetricsDashboard';
+import appReducer from '../../../features/app/appSlice';
+import jobsReducer from '../../../features/jobs/jobsSlice';
+import graphFiltersReducer from '../../../features/filters/graphFiltersSlice';
+import listFiltersReducer from '../../../features/filters/listFiltersSlice';
+import uiReducer from '../../../features/ui/uiSlice';
+import type { Job } from '../../../types';
+
+// Mock Date.now() to have consistent time for tests
+const MOCK_NOW = new Date('2025-11-23T12:00:00Z').getTime();
+vi.spyOn(Date, 'now').mockReturnValue(MOCK_NOW);
+
+describe('MetricsDashboard', () => {
+  // Jobs with different timestamps for testing time windows
+  const jobPosted6HoursAgo: Job = {
+    id: '1',
+    source: 'greenhouse',
+    company: 'spacex',
+    title: 'Senior Frontend Engineer',
+    department: 'Engineering',
+    location: 'San Francisco, CA',
+    employmentType: 'Full-time',
+    createdAt: new Date(MOCK_NOW - 6 * 60 * 60 * 1000).toISOString(), // 6 hours ago
+    url: 'https://example.com/job/1',
+    classification: {
+      isSoftwareAdjacent: true,
+      category: 'frontend',
+      confidence: 0.95,
+      matchedKeywords: ['react', 'frontend'],
+    },
+    raw: {},
+  };
+
+  const jobPosted18HoursAgo: Job = {
+    id: '2',
+    source: 'greenhouse',
+    company: 'spacex',
+    title: 'Backend Engineer',
+    department: 'Engineering',
+    location: 'Remote',
+    employmentType: 'Full-time',
+    createdAt: new Date(MOCK_NOW - 18 * 60 * 60 * 1000).toISOString(), // 18 hours ago
+    url: 'https://example.com/job/2',
+    classification: {
+      isSoftwareAdjacent: true,
+      category: 'backend',
+      confidence: 0.9,
+      matchedKeywords: ['node', 'backend'],
+    },
+    raw: {},
+  };
+
+  const jobPosted30HoursAgo: Job = {
+    id: '3',
+    source: 'greenhouse',
+    company: 'spacex',
+    title: 'DevOps Engineer',
+    department: 'Engineering',
+    location: 'Austin, TX',
+    employmentType: 'Full-time',
+    createdAt: new Date(MOCK_NOW - 30 * 60 * 60 * 1000).toISOString(), // 30 hours ago (outside 24h window)
+    url: 'https://example.com/job/3',
+    classification: {
+      isSoftwareAdjacent: true,
+      category: 'devops',
+      confidence: 0.95,
+      matchedKeywords: ['kubernetes', 'devops'],
+    },
+    raw: {},
+  };
+
+  const jobPosted2DaysAgo: Job = {
+    id: '4',
+    source: 'greenhouse',
+    company: 'spacex',
+    title: 'Platform Engineer',
+    department: 'Engineering',
+    location: 'Seattle, WA',
+    employmentType: 'Full-time',
+    createdAt: new Date(MOCK_NOW - 2 * 24 * 60 * 60 * 1000).toISOString(), // 2 days ago (within 3 days)
+    url: 'https://example.com/job/4',
+    classification: {
+      isSoftwareAdjacent: true,
+      category: 'platform',
+      confidence: 0.9,
+      matchedKeywords: ['infrastructure', 'platform'],
+    },
+    raw: {},
+  };
+
+  const jobPosted4DaysAgo: Job = {
+    id: '5',
+    source: 'greenhouse',
+    company: 'spacex',
+    title: 'Security Engineer',
+    department: 'Security',
+    location: 'Remote',
+    employmentType: 'Full-time',
+    createdAt: new Date(MOCK_NOW - 4 * 24 * 60 * 60 * 1000).toISOString(), // 4 days ago (outside 3 days)
+    url: 'https://example.com/job/5',
+    classification: {
+      isSoftwareAdjacent: true,
+      category: 'security',
+      confidence: 0.95,
+      matchedKeywords: ['security', 'cybersecurity'],
+    },
+    raw: {},
+  };
+
+  const createMockStore = (overrides = {}) => {
+    return configureStore({
+      reducer: {
+        app: appReducer,
+        jobs: jobsReducer,
+        graphFilters: graphFiltersReducer,
+        listFilters: listFiltersReducer,
+        ui: uiReducer,
+      },
+      preloadedState: {
+        app: {
+          selectedCompanyId: 'spacex',
+          selectedView: 'greenhouse' as const,
+          isInitialized: true,
+        },
+        jobs: {
+          byCompany: {
+            spacex: {
+              items: [jobPosted6HoursAgo, jobPosted18HoursAgo, jobPosted30HoursAgo, jobPosted2DaysAgo, jobPosted4DaysAgo],
+              isLoading: false,
+              metadata: {
+                totalCount: 10,
+                softwareCount: 8,
+                newestJobDate: '2025-11-23T10:00:00Z',
+                oldestJobDate: '2025-11-20T08:00:00Z',
+              },
+            },
+          },
+        },
+        graphFilters: {
+          filters: {
+            timeWindow: '7d' as const,
+            softwareOnly: false,
+          },
+        },
+        listFilters: {
+          filters: {
+            timeWindow: '7d' as const,
+            softwareOnly: false,
+          },
+        },
+        ui: {
+          graphModal: {
+            open: false,
+          },
+          globalLoading: false,
+          notifications: [],
+        },
+        ...overrides,
+      },
+    });
+  };
+
+  beforeEach(() => {
+    // Reset any mocks if needed
+  });
+
+  it('renders all four metric sections', () => {
+    const store = createMockStore();
+    render(
+      <Provider store={store}>
+        <MetricsDashboard />
+      </Provider>
+    );
+
+    expect(screen.getByText('Total Jobs')).toBeInTheDocument();
+    expect(screen.getByText('Past 3 Days')).toBeInTheDocument();
+    expect(screen.getByText('Past 24 Hours')).toBeInTheDocument();
+    expect(screen.getByText('Past 12 Hours')).toBeInTheDocument();
+  });
+
+  it('displays correct total jobs count from metadata', () => {
+    const store = createMockStore();
+    render(
+      <Provider store={store}>
+        <MetricsDashboard />
+      </Provider>
+    );
+
+    expect(screen.getByText('10')).toBeInTheDocument();
+  });
+
+  it('displays zero when no metadata available', () => {
+    const store = createMockStore({
+      jobs: {
+        byCompany: {
+          spacex: {
+            items: [],
+            isLoading: false,
+          },
+        },
+      },
+    });
+
+    render(
+      <Provider store={store}>
+        <MetricsDashboard />
+      </Provider>
+    );
+
+    // Both Total Jobs and Filtered Jobs should show 0
+    const zeros = screen.getAllByText('0');
+    expect(zeros.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('displays correct count for jobs posted in past 3 days', () => {
+    const store = createMockStore();
+    render(
+      <Provider store={store}>
+        <MetricsDashboard />
+      </Provider>
+    );
+
+    // Should show 4 jobs (6h, 18h, 30h, and 2 days ago - all within 3 days)
+    expect(screen.getByText('4')).toBeInTheDocument();
+  });
+
+  it('displays correct count for jobs posted in past 24 hours', () => {
+    const store = createMockStore();
+    render(
+      <Provider store={store}>
+        <MetricsDashboard />
+      </Provider>
+    );
+
+    // Should show 2 jobs (6 hours and 18 hours ago, both within 24 hours)
+    const counts = screen.getAllByText('2');
+    expect(counts.length).toBeGreaterThan(0);
+  });
+
+  it('displays correct count for jobs posted in past 12 hours', () => {
+    const store = createMockStore();
+    render(
+      <Provider store={store}>
+        <MetricsDashboard />
+      </Provider>
+    );
+
+    // Should show 1 job (only the one from 6 hours ago is within 12 hours)
+    expect(screen.getByText('1')).toBeInTheDocument();
+  });
+
+  it('displays zero when no jobs in time window', () => {
+    const store = createMockStore({
+      jobs: {
+        byCompany: {
+          spacex: {
+            items: [jobPosted4DaysAgo], // Only job outside 3-day window
+            isLoading: false,
+            metadata: {
+              totalCount: 1,
+              softwareCount: 1,
+            },
+          },
+        },
+      },
+    });
+
+    render(
+      <Provider store={store}>
+        <MetricsDashboard />
+      </Provider>
+    );
+
+    // Should show 0 for all three time windows (3 days, 24h, 12h)
+    const zeros = screen.getAllByText('0');
+    expect(zeros.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('renders link cards for job postings and LinkedIn', () => {
+    const store = createMockStore();
+    render(
+      <Provider store={store}>
+        <MetricsDashboard />
+      </Provider>
+    );
+
+    expect(screen.getByText('Official Job Postings')).toBeInTheDocument();
+    expect(screen.getByText('Find Recruiters')).toBeInTheDocument();
+  });
+
+  it('displays job postings URL when configured', () => {
+    const store = createMockStore();
+    render(
+      <Provider store={store}>
+        <MetricsDashboard />
+      </Provider>
+    );
+
+    const link = screen.getByText('View All Openings');
+    expect(link).toBeInTheDocument();
+    expect(link.closest('a')).toHaveAttribute('href', 'https://boards.greenhouse.io/spacex');
+    expect(link.closest('a')).toHaveAttribute('target', '_blank');
+    expect(link.closest('a')).toHaveAttribute('rel', 'noopener noreferrer');
+  });
+
+  it('displays LinkedIn URL when configured', () => {
+    const store = createMockStore({
+      app: {
+        selectedCompanyId: 'palantir',
+        selectedView: 'lever' as const,
+        isInitialized: true,
+      },
+      jobs: {
+        byCompany: {
+          palantir: {
+            items: [{ ...jobPosted6HoursAgo, company: 'palantir' }],
+            isLoading: false,
+            metadata: {
+              totalCount: 5,
+              softwareCount: 4,
+              newestJobDate: '2025-11-23T10:00:00Z',
+            },
+          },
+        },
+      },
+    });
+
+    render(
+      <Provider store={store}>
+        <MetricsDashboard />
+      </Provider>
+    );
+
+    // Palantir has empty string for recruiterLinkedInUrl, should show "URL not configured"
+    expect(screen.getByText('URL not configured')).toBeInTheDocument();
+  });
+
+  it('displays placeholder text when URLs are not configured', () => {
+    const store = createMockStore({
+      app: {
+        selectedCompanyId: 'palantir',
+      },
+      jobs: {
+        byCompany: {
+          palantir: {
+            items: [],
+            isLoading: false,
+            metadata: {
+              totalCount: 0,
+              softwareCount: 0,
+            },
+          },
+        },
+      },
+    });
+
+    render(
+      <Provider store={store}>
+        <MetricsDashboard />
+      </Provider>
+    );
+
+    // Should show "URL not configured" for recruiter LinkedIn
+    const notConfiguredTexts = screen.getAllByText('URL not configured');
+    expect(notConfiguredTexts.length).toBeGreaterThan(0);
+  });
+
+  it('does not render metric icons', () => {
+    const store = createMockStore();
+    const { container } = render(
+      <Provider store={store}>
+        <MetricsDashboard />
+      </Provider>
+    );
+
+    // Should have no icons - no SVG elements
+    const svgIcons = container.querySelectorAll('svg');
+    expect(svgIcons.length).toBe(0);
+  });
+
+  it('renders single Paper card container', () => {
+    const store = createMockStore();
+    const { container } = render(
+      <Provider store={store}>
+        <MetricsDashboard />
+      </Provider>
+    );
+
+    // Check for single Paper container
+    const paperElements = container.querySelectorAll('.MuiPaper-root');
+    expect(paperElements.length).toBe(1);
+
+    // Check for Stack containers inside
+    const stackContainers = container.querySelectorAll('.MuiStack-root');
+    expect(stackContainers.length).toBeGreaterThan(0);
+  });
+
+  it('displays correct company name in context', () => {
+    const store = createMockStore({
+      app: {
+        selectedCompanyId: 'nominal',
+        selectedView: 'lever' as const,
+        isInitialized: true,
+      },
+      jobs: {
+        byCompany: {
+          nominal: {
+            items: [{ ...jobPosted6HoursAgo, company: 'nominal' }],
+            isLoading: false,
+            metadata: {
+              totalCount: 15,
+              softwareCount: 12,
+              newestJobDate: '2025-11-23T09:00:00Z',
+            },
+          },
+        },
+      },
+    });
+
+    render(
+      <Provider store={store}>
+        <MetricsDashboard />
+      </Provider>
+    );
+
+    // Should display total jobs for Nominal
+    expect(screen.getByText('15')).toBeInTheDocument();
+  });
+});
