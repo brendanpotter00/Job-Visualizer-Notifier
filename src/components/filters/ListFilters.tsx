@@ -11,7 +11,6 @@ import {
   addListSearchTag,
   removeListSearchTag,
   toggleListSearchTagMode,
-  toggleListSoftwareOnly,
 } from '../../features/filters/listFiltersSlice';
 import { selectListFilters } from '../../features/filters/listFiltersSelectors';
 import {
@@ -23,7 +22,6 @@ import { SearchTagsInput } from './shared/SearchTagsInput';
 import { TimeWindowSelect } from './shared/TimeWindowSelect';
 import { RoleCategorySelect } from './shared/RoleCategorySelect';
 import { MultiSelectAutocomplete } from './shared/MultiSelectAutocomplete';
-import { SoftwareOnlyToggle } from './shared/SoftwareOnlyToggle';
 import { SyncFiltersButton } from './shared/SyncFiltersButton';
 
 /**
@@ -80,10 +78,10 @@ export function ListFilters() {
 
         <Stack direction="row" spacing={2} alignItems="center">
             <SyncFiltersButton direction="toGraph" onClick={() => dispatch(syncListToGraph())} />
-            <SoftwareOnlyToggle
-            checked={filters.softwareOnly}
-            onChange={() => dispatch(toggleListSoftwareOnly())}
-          />
+          {/*  <SoftwareOnlyToggle*/}
+          {/*  checked={filters.softwareOnly}*/}
+          {/*  onChange={() => dispatch(toggleListSoftwareOnly())}*/}
+          {/*/>*/}
         </Stack>
       </Stack>
     </Box>

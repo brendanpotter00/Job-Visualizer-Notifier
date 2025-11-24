@@ -11,7 +11,6 @@ import {
   removeGraphDepartment,
   addGraphRoleCategory,
   removeGraphRoleCategory,
-  toggleGraphSoftwareOnly,
 } from '../../features/filters/graphFiltersSlice';
 import { selectGraphFilters } from '../../features/filters/graphFiltersSelectors';
 import {
@@ -23,7 +22,6 @@ import { SearchTagsInput } from './shared/SearchTagsInput';
 import { TimeWindowSelect } from './shared/TimeWindowSelect';
 import { RoleCategorySelect } from './shared/RoleCategorySelect';
 import { MultiSelectAutocomplete } from './shared/MultiSelectAutocomplete';
-import { SoftwareOnlyToggle } from './shared/SoftwareOnlyToggle';
 import { SyncFiltersButton } from './shared/SyncFiltersButton';
 
 /**
@@ -80,10 +78,10 @@ export function GraphFilters() {
 
         <Stack direction="row" spacing={2} alignItems="center">
             <SyncFiltersButton direction="toList" onClick={() => dispatch(syncGraphToList())} />
-            <SoftwareOnlyToggle
-            checked={filters.softwareOnly}
-            onChange={() => dispatch(toggleGraphSoftwareOnly())}
-          />
+          {/*  <SoftwareOnlyToggle*/}
+          {/*  checked={filters.softwareOnly}*/}
+          {/*  onChange={() => dispatch(toggleGraphSoftwareOnly())}*/}
+          {/*/>*/}
         </Stack>
       </Stack>
     </Box>
