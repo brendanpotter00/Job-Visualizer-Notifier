@@ -14,10 +14,7 @@ export const selectJobsForCompany = (companyId: string) =>
  * Select jobs for the currently selected company
  */
 export const selectCurrentCompanyJobs = createSelector(
-  [
-    (state: RootState) => state.app.selectedCompanyId,
-    (state: RootState) => state.jobs.byCompany,
-  ],
+  [(state: RootState) => state.app.selectedCompanyId, (state: RootState) => state.jobs.byCompany],
   (companyId, byCompany) => byCompany[companyId]?.items || []
 );
 
@@ -25,10 +22,7 @@ export const selectCurrentCompanyJobs = createSelector(
  * Select loading state for current company
  */
 export const selectCurrentCompanyLoading = createSelector(
-  [
-    (state: RootState) => state.app.selectedCompanyId,
-    (state: RootState) => state.jobs.byCompany,
-  ],
+  [(state: RootState) => state.app.selectedCompanyId, (state: RootState) => state.jobs.byCompany],
   (companyId, byCompany) => byCompany[companyId]?.isLoading || false
 );
 
@@ -36,10 +30,7 @@ export const selectCurrentCompanyLoading = createSelector(
  * Select error for current company
  */
 export const selectCurrentCompanyError = createSelector(
-  [
-    (state: RootState) => state.app.selectedCompanyId,
-    (state: RootState) => state.jobs.byCompany,
-  ],
+  [(state: RootState) => state.app.selectedCompanyId, (state: RootState) => state.jobs.byCompany],
   (companyId, byCompany) => byCompany[companyId]?.error
 );
 
@@ -47,20 +38,17 @@ export const selectCurrentCompanyError = createSelector(
  * Select metadata for current company
  */
 export const selectCurrentCompanyMetadata = createSelector(
-  [
-    (state: RootState) => state.app.selectedCompanyId,
-    (state: RootState) => state.jobs.byCompany,
-  ],
-  (companyId, byCompany) => byCompany[companyId]?.metadata || {
-    totalCount: 0,
-    softwareCount: 0,
-  }
+  [(state: RootState) => state.app.selectedCompanyId, (state: RootState) => state.jobs.byCompany],
+  (companyId, byCompany) =>
+    byCompany[companyId]?.metadata || {
+      totalCount: 0,
+      softwareCount: 0,
+    }
 );
 
 /**
  * Select software jobs only for current company
  */
-export const selectCurrentCompanySoftwareJobs = createSelector(
-  [selectCurrentCompanyJobs],
-  (jobs) => jobs.filter((job) => job.classification.isSoftwareAdjacent)
+export const selectCurrentCompanySoftwareJobs = createSelector([selectCurrentCompanyJobs], (jobs) =>
+  jobs.filter((job) => job.classification.isSoftwareAdjacent)
 );

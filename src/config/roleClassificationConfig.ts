@@ -136,15 +136,7 @@ export const ROLE_CLASSIFICATION_CONFIG: RoleClassificationConfig = {
       'game',
       'visualization',
     ],
-    embedded: [
-      'embedded',
-      'firmware',
-      'hardware',
-      'iot',
-      'rtos',
-      'c++',
-      'microcontroller',
-    ],
+    embedded: ['embedded', 'firmware', 'hardware', 'iot', 'rtos', 'c++', 'microcontroller'],
     otherTech: [
       'engineer',
       'developer',

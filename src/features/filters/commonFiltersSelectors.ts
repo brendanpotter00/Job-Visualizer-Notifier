@@ -23,7 +23,9 @@ export const selectAvailableLocations = createSelector([selectCurrentCompanyJobs
  * Get unique departments from current company jobs
  */
 export const selectAvailableDepartments = createSelector([selectCurrentCompanyJobs], (jobs) => {
-  const departments = jobs.map((job) => job.department).filter((dept): dept is string => Boolean(dept));
+  const departments = jobs
+    .map((job) => job.department)
+    .filter((dept): dept is string => Boolean(dept));
   return Array.from(new Set(departments)).sort();
 });
 
@@ -31,6 +33,8 @@ export const selectAvailableDepartments = createSelector([selectCurrentCompanyJo
  * Get unique employment types from current company jobs
  */
 export const selectAvailableEmploymentTypes = createSelector([selectCurrentCompanyJobs], (jobs) => {
-  const types = jobs.map((job) => job.employmentType).filter((type): type is string => Boolean(type));
+  const types = jobs
+    .map((job) => job.employmentType)
+    .filter((type): type is string => Boolean(type));
   return Array.from(new Set(types)).sort();
 });

@@ -91,9 +91,7 @@ export function LoadingOverlay({ message }: { message?: string }) {
       }}
     >
       <CircularProgress size={60} />
-      {message && (
-        <Box sx={{ mt: 2, color: 'text.secondary', fontSize: '1rem' }}>{message}</Box>
-      )}
+      {message && <Box sx={{ mt: 2, color: 'text.secondary', fontSize: '1rem' }}>{message}</Box>}
     </Box>
   );
 }

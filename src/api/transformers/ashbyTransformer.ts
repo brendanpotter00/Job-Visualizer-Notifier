@@ -21,10 +21,7 @@ function normalizeEmploymentType(ashbyType: string): string {
 /**
  * Transforms Ashby API response to internal Job model
  */
-export function transformAshbyJob(
-  raw: AshbyJobResponse,
-  companyId: string = 'notion'
-): Job {
+export function transformAshbyJob(raw: AshbyJobResponse, companyId: string = 'notion'): Job {
   // Create base job object without classification
   const jobWithoutClassification = {
     id: raw.id,

@@ -48,7 +48,9 @@ const listFiltersSlice = createSlice({
     removeListSearchTag(state, action: PayloadAction<string>) {
       if (!state.filters.searchTags) return;
 
-      state.filters.searchTags = state.filters.searchTags.filter((tag) => tag.text !== action.payload);
+      state.filters.searchTags = state.filters.searchTags.filter(
+        (tag) => tag.text !== action.payload
+      );
 
       if (state.filters.searchTags.length === 0) {
         state.filters.searchTags = undefined;
@@ -137,7 +139,9 @@ const listFiltersSlice = createSlice({
     removeListRoleCategory(state, action: PayloadAction<SoftwareRoleCategory>) {
       if (!state.filters.roleCategory) return;
 
-      state.filters.roleCategory = state.filters.roleCategory.filter((cat) => cat !== action.payload);
+      state.filters.roleCategory = state.filters.roleCategory.filter(
+        (cat) => cat !== action.payload
+      );
 
       if (state.filters.roleCategory.length === 0) {
         state.filters.roleCategory = undefined;

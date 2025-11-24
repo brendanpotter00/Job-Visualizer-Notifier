@@ -1,7 +1,10 @@
 import { Paper, Divider } from '@mui/material';
 import { useMemo, useState, useEffect } from 'react';
 import { useAppSelector } from '../../app/hooks';
-import { selectCurrentCompanyMetadata, selectCurrentCompanyJobs } from '../../features/jobs/jobsSelectors';
+import {
+  selectCurrentCompanyMetadata,
+  selectCurrentCompanyJobs,
+} from '../../features/jobs/jobsSelectors';
 import { getCompanyById } from '../../config/companies';
 import { useTimeBasedJobCounts } from './hooks/useTimeBasedJobCounts';
 import { MetricsRow } from './MetricsRow';
@@ -31,7 +34,10 @@ export function MetricsDashboard() {
   const company = useMemo(() => getCompanyById(selectedCompanyId), [selectedCompanyId]);
 
   // Get time-based job counts using custom hook
-  const { jobsLast3Days, jobsLast24Hours, jobsLast12Hours } = useTimeBasedJobCounts(allJobs, currentTime);
+  const { jobsLast3Days, jobsLast24Hours, jobsLast12Hours } = useTimeBasedJobCounts(
+    allJobs,
+    currentTime
+  );
 
   return (
     <Paper sx={{ p: 3, mb: 3 }}>
@@ -44,10 +50,7 @@ export function MetricsDashboard() {
 
       <Divider sx={{ mb: 2 }} />
 
-      <LinksRow
-        jobsUrl={company?.jobsUrl}
-        recruiterLinkedInUrl={company?.recruiterLinkedInUrl}
-      />
+      <LinksRow jobsUrl={company?.jobsUrl} recruiterLinkedInUrl={company?.recruiterLinkedInUrl} />
     </Paper>
   );
 }

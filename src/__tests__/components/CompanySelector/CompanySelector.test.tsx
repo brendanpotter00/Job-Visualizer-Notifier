@@ -76,7 +76,10 @@ describe('CompanySelector', () => {
     );
 
     const select = screen.getByRole('combobox');
-    expect(select).toHaveAttribute('aria-labelledby', expect.stringContaining('company-selector-label'));
+    expect(select).toHaveAttribute(
+      'aria-labelledby',
+      expect.stringContaining('company-selector-label')
+    );
 
     // Verify the label exists with correct ID
     const label = document.getElementById('company-selector-label');

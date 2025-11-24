@@ -14,5 +14,7 @@ export function SoftwareOnlyToggle({
   onChange,
   label = 'Software roles only',
 }: SoftwareOnlyToggleProps) {
-  return <FormControlLabel control={<Switch checked={checked} onChange={onChange} />} label={label} />;
+  return (
+    <FormControlLabel control={<Switch checked={checked} onChange={onChange} />} label={label} />
+  );
 }

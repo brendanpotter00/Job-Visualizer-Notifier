@@ -75,16 +75,7 @@ function CustomDot({ cx, cy, r = 4, fill, payload, onPointClick }: CustomDotProp
     }
   };
 
-  return (
-    <circle
-      cx={cx}
-      cy={cy}
-      r={r}
-      fill={fill}
-      cursor="pointer"
-      onClick={handleClick}
-    />
-  );
+  return <circle cx={cx} cy={cy} r={r} fill={fill} cursor="pointer" onClick={handleClick} />;
 }
 
 /**
@@ -130,10 +121,7 @@ export function JobPostingsChart({
 
   return (
     <ResponsiveContainer width="100%" height={height}>
-      <LineChart
-        data={chartData}
-        margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-      >
+      <LineChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
         <XAxis
           dataKey="time"

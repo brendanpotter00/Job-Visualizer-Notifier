@@ -43,8 +43,10 @@ export const loadJobsForCompany = createAsyncThunk(
 
       // Calculate date range
       const dates = result.jobs.map((job) => new Date(job.createdAt).getTime());
-      const oldestJobDate = dates.length > 0 ? new Date(Math.min(...dates)).toISOString() : undefined;
-      const newestJobDate = dates.length > 0 ? new Date(Math.max(...dates)).toISOString() : undefined;
+      const oldestJobDate =
+        dates.length > 0 ? new Date(Math.min(...dates)).toISOString() : undefined;
+      const newestJobDate =
+        dates.length > 0 ? new Date(Math.max(...dates)).toISOString() : undefined;
 
       return {
         companyId,

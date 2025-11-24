@@ -55,10 +55,7 @@ const uiSlice = createSlice({
     setGlobalLoading(state, action: PayloadAction<boolean>) {
       state.globalLoading = action.payload;
     },
-    addNotification(
-      state,
-      action: PayloadAction<Omit<UIState['notifications'][0], 'id'>>
-    ) {
+    addNotification(state, action: PayloadAction<Omit<UIState['notifications'][0], 'id'>>) {
       const id = Date.now().toString();
       state.notifications.push({ id, ...action.payload });
     },

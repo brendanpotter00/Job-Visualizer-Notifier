@@ -49,12 +49,6 @@ export function ListFilters() {
             onChange={(tw) => dispatch(setListTimeWindow(tw))}
           />
 
-          <RoleCategorySelect
-            value={filters.roleCategory || []}
-            onAdd={(cat) => dispatch(addListRoleCategory(cat))}
-            onRemove={(cat) => dispatch(removeListRoleCategory(cat))}
-          />
-
           {availableLocations.length > 0 && (
             <MultiSelectAutocomplete
               label="Location"
@@ -74,10 +68,15 @@ export function ListFilters() {
               onRemove={(dept) => dispatch(removeListDepartment(dept))}
             />
           )}
+          <RoleCategorySelect
+            value={filters.roleCategory || []}
+            onAdd={(cat) => dispatch(addListRoleCategory(cat))}
+            onRemove={(cat) => dispatch(removeListRoleCategory(cat))}
+          />
         </Stack>
 
         <Stack direction="row" spacing={2} alignItems="center">
-            <SyncFiltersButton direction="toGraph" onClick={() => dispatch(syncListToGraph())} />
+          <SyncFiltersButton direction="toGraph" onClick={() => dispatch(syncListToGraph())} />
           {/*  <SoftwareOnlyToggle*/}
           {/*  checked={filters.softwareOnly}*/}
           {/*  onChange={() => dispatch(toggleListSoftwareOnly())}*/}

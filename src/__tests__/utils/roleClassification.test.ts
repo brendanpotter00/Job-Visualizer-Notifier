@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { classifyJobRole, isSoftwareRole, getCategoryKeywords } from '../../utils/roleClassification';
+import {
+  classifyJobRole,
+  isSoftwareRole,
+  getCategoryKeywords,
+} from '../../utils/roleClassification';
 import type { Job } from '../../types';
 
 describe('classifyJobRole', () => {

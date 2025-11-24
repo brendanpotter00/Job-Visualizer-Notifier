@@ -48,9 +48,7 @@ export const leverClient: JobAPIClient = {
         : jobs;
 
       // Apply limit if provided
-      const limitedJobs = options.limit
-        ? filteredJobs.slice(0, options.limit)
-        : filteredJobs;
+      const limitedJobs = options.limit ? filteredJobs.slice(0, options.limit) : filteredJobs;
 
       return {
         jobs: limitedJobs,

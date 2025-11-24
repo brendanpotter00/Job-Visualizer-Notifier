@@ -38,9 +38,7 @@ export function BucketJobsModal() {
   }
 
   // Filter jobs to only those in this bucket
-  const bucketJobs = allJobs.filter((job) =>
-    filteredJobIds?.includes(job.id)
-  );
+  const bucketJobs = allJobs.filter((job) => filteredJobIds?.includes(job.id));
 
   const startDate = new Date(bucketStart);
   const endDate = new Date(bucketEnd);
@@ -64,11 +62,7 @@ export function BucketJobsModal() {
               {format(startDate, 'MMM d, yyyy HH:mm')} - {format(endDate, 'HH:mm')}
             </Typography>
           </Box>
-          <IconButton
-            aria-label="close"
-            onClick={handleClose}
-            sx={{ color: 'text.secondary' }}
-          >
+          <IconButton aria-label="close" onClick={handleClose} sx={{ color: 'text.secondary' }}>
             <CloseIcon />
           </IconButton>
         </Box>

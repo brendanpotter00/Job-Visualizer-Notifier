@@ -97,7 +97,9 @@ export const selectGraphFilteredJobs = createSelector(
 
       // Department filter (multi-select with OR logic)
       if (filters.department && filters.department.length > 0) {
-        const matchesDepartment = filters.department.some((filterDept) => job.department === filterDept);
+        const matchesDepartment = filters.department.some(
+          (filterDept) => job.department === filterDept
+        );
 
         if (!matchesDepartment) {
           return false;

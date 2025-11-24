@@ -20,15 +20,11 @@ export function useTimeBasedJobCounts(allJobs: Job[], currentTime: number): Time
     const last12Hours = currentTime - 12 * 60 * 60 * 1000;
 
     return {
-      jobsLast3Days: allJobs.filter(
-        (job) => new Date(job.createdAt).getTime() >= last3Days
-      ).length,
-      jobsLast24Hours: allJobs.filter(
-        (job) => new Date(job.createdAt).getTime() >= last24Hours
-      ).length,
-      jobsLast12Hours: allJobs.filter(
-        (job) => new Date(job.createdAt).getTime() >= last12Hours
-      ).length,
+      jobsLast3Days: allJobs.filter((job) => new Date(job.createdAt).getTime() >= last3Days).length,
+      jobsLast24Hours: allJobs.filter((job) => new Date(job.createdAt).getTime() >= last24Hours)
+        .length,
+      jobsLast12Hours: allJobs.filter((job) => new Date(job.createdAt).getTime() >= last12Hours)
+        .length,
     };
   }, [allJobs, currentTime]);
 }

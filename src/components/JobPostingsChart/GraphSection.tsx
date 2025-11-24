@@ -56,11 +56,7 @@ export function GraphSection() {
         <GraphFilters />
 
         {error ? (
-          <ErrorDisplay
-            title="Failed to Load Chart Data"
-            message={error}
-            onRetry={handleRetry}
-          />
+          <ErrorDisplay title="Failed to Load Chart Data" message={error} onRetry={handleRetry} />
         ) : (
           <JobPostingsChart
             data={bucketData}

@@ -34,12 +34,8 @@ export function JobCard({ job }: JobCardProps) {
           </Box>
 
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-            {job.department && (
-              <Chip label={job.department} size="small" variant="outlined" />
-            )}
-            {job.location && (
-              <Chip label={job.location} size="small" variant="outlined" />
-            )}
+            {job.department && <Chip label={job.department} size="small" variant="outlined" />}
+            {job.location && <Chip label={job.location} size="small" variant="outlined" />}
             {job.isRemote && (
               <Chip label="Remote" size="small" color="primary" variant="outlined" />
             )}
@@ -50,11 +46,7 @@ export function JobCard({ job }: JobCardProps) {
 
           {job.classification.isSoftwareAdjacent && (
             <Stack direction="row" spacing={1}>
-              <Chip
-                label={job.classification.category}
-                size="small"
-                color="primary"
-              />
+              <Chip label={job.classification.category} size="small" color="primary" />
             </Stack>
           )}
 

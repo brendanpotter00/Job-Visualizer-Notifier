@@ -3,7 +3,10 @@ import { Box, Typography, Container, CircularProgress, Stack, Alert, Button } fr
 import { Refresh } from '@mui/icons-material';
 import { useAppDispatch, useAppSelector } from './hooks';
 import { loadJobsForCompany } from '../features/jobs/jobsThunks';
-import { selectCurrentCompanyError, selectCurrentCompanyLoading } from '../features/jobs/jobsSelectors';
+import {
+  selectCurrentCompanyError,
+  selectCurrentCompanyLoading,
+} from '../features/jobs/jobsSelectors';
 import { CompanySelector } from '../components/CompanySelector/CompanySelector';
 import { GraphSection } from '../components/JobPostingsChart/GraphSection';
 import { ListSection } from '../components/JobList/ListSection';

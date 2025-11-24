@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { bucketJobsByTime, getCumulativeCounts, calculateBucketStats } from '../../utils/timeBucketing';
+import {
+  bucketJobsByTime,
+  getCumulativeCounts,
+  calculateBucketStats,
+} from '../../utils/timeBucketing';
 import type { Job } from '../../types';
 
 describe('timeBucketing', () => {
@@ -38,16 +42,12 @@ describe('timeBucketing', () => {
       expect(buckets).toHaveLength(24);
 
       // Find bucket containing first two jobs (10:00-11:00)
-      const bucket10 = buckets.find(b =>
-        b.bucketStart === '2025-11-20T10:00:00.000Z'
-      );
+      const bucket10 = buckets.find((b) => b.bucketStart === '2025-11-20T10:00:00.000Z');
       expect(bucket10?.count).toBe(2);
       expect(bucket10?.jobIds).toHaveLength(2);
 
       // Find bucket containing third job (11:00-12:00)
-      const bucket11 = buckets.find(b =>
-        b.bucketStart === '2025-11-20T11:00:00.000Z'
-      );
+      const bucket11 = buckets.find((b) => b.bucketStart === '2025-11-20T11:00:00.000Z');
       expect(bucket11?.count).toBe(1);
     });
 
@@ -71,8 +71,8 @@ describe('timeBucketing', () => {
       const buckets = bucketJobsByTime([], '24h');
 
       expect(buckets).toHaveLength(24);
-      expect(buckets.every(b => b.count === 0)).toBe(true);
-      expect(buckets.every(b => b.jobIds.length === 0)).toBe(true);
+      expect(buckets.every((b) => b.count === 0)).toBe(true);
+      expect(buckets.every((b) => b.jobIds.length === 0)).toBe(true);
     });
 
     it('should exclude jobs outside the time window', () => {
@@ -92,7 +92,7 @@ describe('timeBucketing', () => {
 
       const buckets = bucketJobsByTime(jobs, '24h');
 
-      buckets.forEach(bucket => {
+      buckets.forEach((bucket) => {
         const start = new Date(bucket.bucketStart);
         const end = new Date(bucket.bucketEnd);
 
@@ -109,9 +109,7 @@ describe('timeBucketing', () => {
 
       const buckets = bucketJobsByTime(jobs, '24h');
 
-      const bucket11 = buckets.find(b =>
-        b.bucketStart === '2025-11-20T11:00:00.000Z'
-      );
+      const bucket11 = buckets.find((b) => b.bucketStart === '2025-11-20T11:00:00.000Z');
 
       expect(bucket11?.count).toBe(2);
     });
@@ -129,7 +127,7 @@ describe('timeBucketing', () => {
       expect(buckets.length).toBeLessThanOrEqual(8);
 
       // Each bucket should span 24 hours
-      buckets.forEach(bucket => {
+      buckets.forEach((bucket) => {
         const start = new Date(bucket.bucketStart);
         const end = new Date(bucket.bucketEnd);
         expect(end.getTime() - start.getTime()).toBe(24 * 60 * 60 * 1000);
@@ -143,9 +141,24 @@ describe('timeBucketing', () => {
   describe('getCumulativeCounts', () => {
     it('should calculate cumulative counts', () => {
       const buckets = [
-        { bucketStart: '2025-11-20T10:00:00Z', bucketEnd: '2025-11-20T11:00:00Z', count: 2, jobIds: ['1', '2'] },
-        { bucketStart: '2025-11-20T11:00:00Z', bucketEnd: '2025-11-20T12:00:00Z', count: 3, jobIds: ['3', '4', '5'] },
-        { bucketStart: '2025-11-20T12:00:00Z', bucketEnd: '2025-11-20T13:00:00Z', count: 1, jobIds: ['6'] },
+        {
+          bucketStart: '2025-11-20T10:00:00Z',
+          bucketEnd: '2025-11-20T11:00:00Z',
+          count: 2,
+          jobIds: ['1', '2'],
+        },
+        {
+          bucketStart: '2025-11-20T11:00:00Z',
+          bucketEnd: '2025-11-20T12:00:00Z',
+          count: 3,
+          jobIds: ['3', '4', '5'],
+        },
+        {
+          bucketStart: '2025-11-20T12:00:00Z',
+          bucketEnd: '2025-11-20T13:00:00Z',
+          count: 1,
+          jobIds: ['6'],
+        },
       ];
 
       const cumulative = getCumulativeCounts(buckets);
@@ -155,8 +168,18 @@ describe('timeBucketing', () => {
 
     it('should handle empty buckets', () => {
       const buckets = [
-        { bucketStart: '2025-11-20T10:00:00Z', bucketEnd: '2025-11-20T11:00:00Z', count: 0, jobIds: [] },
-        { bucketStart: '2025-11-20T11:00:00Z', bucketEnd: '2025-11-20T12:00:00Z', count: 5, jobIds: ['1', '2', '3', '4', '5'] },
+        {
+          bucketStart: '2025-11-20T10:00:00Z',
+          bucketEnd: '2025-11-20T11:00:00Z',
+          count: 0,
+          jobIds: [],
+        },
+        {
+          bucketStart: '2025-11-20T11:00:00Z',
+          bucketEnd: '2025-11-20T12:00:00Z',
+          count: 5,
+          jobIds: ['1', '2', '3', '4', '5'],
+        },
       ];
 
       const cumulative = getCumulativeCounts(buckets);
@@ -168,9 +191,24 @@ describe('timeBucketing', () => {
   describe('calculateBucketStats', () => {
     it('should calculate correct statistics', () => {
       const buckets = [
-        { bucketStart: '2025-11-20T10:00:00Z', bucketEnd: '2025-11-20T11:00:00Z', count: 2, jobIds: ['1', '2'] },
-        { bucketStart: '2025-11-20T11:00:00Z', bucketEnd: '2025-11-20T12:00:00Z', count: 0, jobIds: [] },
-        { bucketStart: '2025-11-20T12:00:00Z', bucketEnd: '2025-11-20T13:00:00Z', count: 4, jobIds: ['3', '4', '5', '6'] },
+        {
+          bucketStart: '2025-11-20T10:00:00Z',
+          bucketEnd: '2025-11-20T11:00:00Z',
+          count: 2,
+          jobIds: ['1', '2'],
+        },
+        {
+          bucketStart: '2025-11-20T11:00:00Z',
+          bucketEnd: '2025-11-20T12:00:00Z',
+          count: 0,
+          jobIds: [],
+        },
+        {
+          bucketStart: '2025-11-20T12:00:00Z',
+          bucketEnd: '2025-11-20T13:00:00Z',
+          count: 4,
+          jobIds: ['3', '4', '5', '6'],
+        },
       ];
 
       const stats = calculateBucketStats(buckets);
@@ -183,8 +221,18 @@ describe('timeBucketing', () => {
 
     it('should handle all empty buckets', () => {
       const buckets = [
-        { bucketStart: '2025-11-20T10:00:00Z', bucketEnd: '2025-11-20T11:00:00Z', count: 0, jobIds: [] },
-        { bucketStart: '2025-11-20T11:00:00Z', bucketEnd: '2025-11-20T12:00:00Z', count: 0, jobIds: [] },
+        {
+          bucketStart: '2025-11-20T10:00:00Z',
+          bucketEnd: '2025-11-20T11:00:00Z',
+          count: 0,
+          jobIds: [],
+        },
+        {
+          bucketStart: '2025-11-20T11:00:00Z',
+          bucketEnd: '2025-11-20T12:00:00Z',
+          count: 0,
+          jobIds: [],
+        },
       ];
 
       const stats = calculateBucketStats(buckets);

@@ -94,7 +94,21 @@ export interface Job {
 /**
  * Supported time window options
  */
-export type TimeWindow = '30m' | '1h' | '3h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | '90d' | '180d' | '1y' | '2y';
+export type TimeWindow =
+  | '30m'
+  | '1h'
+  | '3h'
+  | '6h'
+  | '12h'
+  | '24h'
+  | '3d'
+  | '7d'
+  | '14d'
+  | '30d'
+  | '90d'
+  | '180d'
+  | '1y'
+  | '2y';
 
 /**
  * Time window display configuration

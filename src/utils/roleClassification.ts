@@ -76,8 +76,7 @@ export function classifyJobRole(job: Partial<Job>): RoleClassification {
   );
 
   // Determine if software-adjacent
-  const isSoftwareAdjacent =
-    bestCategory !== 'nonTech' || (isTechDepartment && maxMatches === 0);
+  const isSoftwareAdjacent = bestCategory !== 'nonTech' || (isTechDepartment && maxMatches === 0);
 
   // If tech department but no specific category, mark as otherTech
   if (isTechDepartment && bestCategory === 'nonTech') {

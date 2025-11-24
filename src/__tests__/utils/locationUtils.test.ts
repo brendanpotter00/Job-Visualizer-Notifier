@@ -52,7 +52,7 @@ describe('locationUtils', () => {
     it('should require comma before state code', () => {
       expect(isUnitedStatesLocation('San Francisco CA')).toBe(false);
       expect(isUnitedStatesLocation('San Francisco,CA')).toBe(false); // No space
-      expect(isUnitedStatesLocation('San Francisco, CA')).toBe(true);  // Correct format
+      expect(isUnitedStatesLocation('San Francisco, CA')).toBe(true); // Correct format
     });
   });
 
@@ -70,7 +70,7 @@ describe('locationUtils', () => {
     });
 
     it('should be in uppercase', () => {
-      US_STATE_CODES.forEach(code => {
+      US_STATE_CODES.forEach((code) => {
         expect(code).toBe(code.toUpperCase());
         expect(code).toHaveLength(2);
       });

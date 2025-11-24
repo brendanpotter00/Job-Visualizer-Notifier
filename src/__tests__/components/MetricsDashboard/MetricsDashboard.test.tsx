@@ -129,7 +129,13 @@ describe('MetricsDashboard', () => {
         jobs: {
           byCompany: {
             spacex: {
-              items: [jobPosted6HoursAgo, jobPosted18HoursAgo, jobPosted30HoursAgo, jobPosted2DaysAgo, jobPosted4DaysAgo],
+              items: [
+                jobPosted6HoursAgo,
+                jobPosted18HoursAgo,
+                jobPosted30HoursAgo,
+                jobPosted2DaysAgo,
+                jobPosted4DaysAgo,
+              ],
               isLoading: false,
               metadata: {
                 totalCount: 10,

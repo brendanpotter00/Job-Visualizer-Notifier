@@ -58,24 +58,24 @@ export function GraphFilters() {
               onRemove={(loc) => dispatch(removeGraphLocation(loc))}
             />
           )}
-              {availableDepartments.length > 0 && (
-                <MultiSelectAutocomplete
-                  label="Department"
-                  options={availableDepartments}
-                  value={filters.department || []}
-                  onAdd={(dept) => dispatch(addGraphDepartment(dept))}
-                  onRemove={(dept) => dispatch(removeGraphDepartment(dept))}
-                />
-              )}
-            <RoleCategorySelect
-                value={filters.roleCategory || []}
-                onAdd={(cat) => dispatch(addGraphRoleCategory(cat))}
-                onRemove={(cat) => dispatch(removeGraphRoleCategory(cat))}
+          {availableDepartments.length > 0 && (
+            <MultiSelectAutocomplete
+              label="Department"
+              options={availableDepartments}
+              value={filters.department || []}
+              onAdd={(dept) => dispatch(addGraphDepartment(dept))}
+              onRemove={(dept) => dispatch(removeGraphDepartment(dept))}
             />
+          )}
+          <RoleCategorySelect
+            value={filters.roleCategory || []}
+            onAdd={(cat) => dispatch(addGraphRoleCategory(cat))}
+            onRemove={(cat) => dispatch(removeGraphRoleCategory(cat))}
+          />
         </Stack>
 
         <Stack direction="row" spacing={2} alignItems="center">
-            <SyncFiltersButton direction="toList" onClick={() => dispatch(syncGraphToList())} />
+          <SyncFiltersButton direction="toList" onClick={() => dispatch(syncGraphToList())} />
           {/*  <SoftwareOnlyToggle*/}
           {/*  checked={filters.softwareOnly}*/}
           {/*  onChange={() => dispatch(toggleGraphSoftwareOnly())}*/}

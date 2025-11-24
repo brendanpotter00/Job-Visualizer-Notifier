@@ -45,10 +45,7 @@ export function parseSearchTagInput(input: string): SearchTag | null {
  * @param newArray - The new array
  * @returns Object containing arrays of added and removed elements
  */
-export function getArrayDiff<T>(
-  oldArray: T[],
-  newArray: T[]
-): { added: T[]; removed: T[] } {
+export function getArrayDiff<T>(oldArray: T[], newArray: T[]): { added: T[]; removed: T[] } {
   const oldSet = new Set(oldArray);
   const newSet = new Set(newArray);
 

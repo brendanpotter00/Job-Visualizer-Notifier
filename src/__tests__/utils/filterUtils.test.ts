@@ -1,9 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  parseSearchTagInput,
-  getArrayDiff,
-  sanitizeSearchTag,
-} from '../../utils/filterUtils';
+import { parseSearchTagInput, getArrayDiff, sanitizeSearchTag } from '../../utils/filterUtils';
 
 describe('filterUtils', () => {
   describe('parseSearchTagInput', () => {
