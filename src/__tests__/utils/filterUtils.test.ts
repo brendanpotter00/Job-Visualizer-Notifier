@@ -8,72 +8,67 @@ import {
 describe('filterUtils', () => {
   describe('parseSearchTagInput', () => {
     it('should parse basic input with default include mode', () => {
-      const result = parseSearchTagInput('software', 'include');
+      const result = parseSearchTagInput('software');
       expect(result).toEqual({ text: 'software', mode: 'include' });
     });
 
-    it('should parse basic input with default exclude mode', () => {
-      const result = parseSearchTagInput('senior', 'exclude');
-      expect(result).toEqual({ text: 'senior', mode: 'exclude' });
-    });
-
     it('should detect exclude prefix (-)', () => {
-      const result = parseSearchTagInput('-senior', 'include');
+      const result = parseSearchTagInput('-senior');
       expect(result).toEqual({ text: 'senior', mode: 'exclude' });
     });
 
     it('should detect include prefix (+)', () => {
-      const result = parseSearchTagInput('+backend', 'exclude');
+      const result = parseSearchTagInput('+backend');
       expect(result).toEqual({ text: 'backend', mode: 'include' });
     });
 
     it('should handle whitespace around input', () => {
-      const result = parseSearchTagInput('  frontend  ', 'include');
+      const result = parseSearchTagInput('  frontend  ');
       expect(result).toEqual({ text: 'frontend', mode: 'include' });
     });
 
     it('should handle whitespace after prefix', () => {
-      const result = parseSearchTagInput('-  senior', 'include');
+      const result = parseSearchTagInput('-  senior');
       expect(result).toEqual({ text: 'senior', mode: 'exclude' });
     });
 
     it('should return null for empty string', () => {
-      const result = parseSearchTagInput('', 'include');
+      const result = parseSearchTagInput('');
       expect(result).toBeNull();
     });
 
     it('should return null for whitespace only', () => {
-      const result = parseSearchTagInput('   ', 'include');
+      const result = parseSearchTagInput('   ');
       expect(result).toBeNull();
     });
 
     it('should return null for prefix only (-)', () => {
-      const result = parseSearchTagInput('-', 'include');
+      const result = parseSearchTagInput('-');
       expect(result).toBeNull();
     });
 
     it('should return null for prefix only (+)', () => {
-      const result = parseSearchTagInput('+', 'include');
+      const result = parseSearchTagInput('+');
       expect(result).toBeNull();
     });
 
     it('should return null for prefix with only whitespace', () => {
-      const result = parseSearchTagInput('-   ', 'include');
+      const result = parseSearchTagInput('-   ');
       expect(result).toBeNull();
     });
 
     it('should handle multi-word input', () => {
-      const result = parseSearchTagInput('machine learning', 'include');
+      const result = parseSearchTagInput('machine learning');
       expect(result).toEqual({ text: 'machine learning', mode: 'include' });
     });
 
     it('should handle multi-word input with prefix', () => {
-      const result = parseSearchTagInput('-full stack', 'include');
+      const result = parseSearchTagInput('-full stack');
       expect(result).toEqual({ text: 'full stack', mode: 'exclude' });
     });
 
     it('should preserve internal spaces', () => {
-      const result = parseSearchTagInput('software   engineer', 'include');
+      const result = parseSearchTagInput('software   engineer');
       expect(result).toEqual({ text: 'software   engineer', mode: 'include' });
     });
   });

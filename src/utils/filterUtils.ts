@@ -5,16 +5,12 @@ import type { SearchTag } from '../types';
  * Supports:
  * - Prefixed with '-' for exclude mode
  * - Prefixed with '+' for include mode
- * - No prefix uses the provided default mode
+ * - No prefix defaults to include mode
  *
  * @param input - The raw input string from the user
- * @param defaultMode - The mode to use if no prefix is detected
  * @returns Parsed search tag object, or null if input is invalid
  */
-export function parseSearchTagInput(
-  input: string,
-  defaultMode: 'include' | 'exclude' = 'include'
-): SearchTag | null {
+export function parseSearchTagInput(input: string): SearchTag | null {
   const trimmed = input.trim();
 
   if (!trimmed) {
@@ -22,7 +18,7 @@ export function parseSearchTagInput(
   }
 
   let text = trimmed;
-  let mode: 'include' | 'exclude' = defaultMode;
+  let mode: 'include' | 'exclude' = 'include';
 
   // Check for prefix override
   if (text.startsWith('-')) {

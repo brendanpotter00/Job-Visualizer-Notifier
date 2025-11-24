@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Stack, TextField, Autocomplete, Chip, FormControlLabel, Switch } from '@mui/material';
+import { TextField, Autocomplete, Chip } from '@mui/material';
 import { Add as AddIcon, Remove as RemoveIcon } from '@mui/icons-material';
 import { parseSearchTagInput } from '../../../utils/filterUtils';
 import type { SearchTag } from '../../../types';
@@ -17,13 +17,12 @@ export interface SearchTagsInputProps {
  */
 export function SearchTagsInput({ value, onAdd, onRemove, onToggleMode }: SearchTagsInputProps) {
   const [inputValue, setInputValue] = useState('');
-  const [searchMode, setSearchMode] = useState<'include' | 'exclude'>('include');
 
   const handleKeyDown = (event: React.KeyboardEvent) => {
     if (event.key === 'Enter' && inputValue.trim()) {
       event.preventDefault();
 
-      const parsed = parseSearchTagInput(inputValue, searchMode);
+      const parsed = parseSearchTagInput(inputValue);
       if (parsed) {
         onAdd(parsed);
         setInputValue('');
@@ -42,61 +41,48 @@ export function SearchTagsInput({ value, onAdd, onRemove, onToggleMode }: Search
   };
 
   return (
-    <Stack direction="row" spacing={2} alignItems="center">
-      <Autocomplete
-        multiple
-        freeSolo
-        size="small"
-        options={[]}
-        value={value}
-        inputValue={inputValue}
-        onInputChange={(_, newValue) => setInputValue(newValue)}
-        onChange={handleChange}
-        getOptionLabel={(option) => (typeof option === 'string' ? option : option.text)}
-        isOptionEqualToValue={(option, tagValue) =>
-          (typeof option === 'string' ? option : option.text) ===
-          (typeof tagValue === 'string' ? tagValue : tagValue.text)
-        }
-        renderValue={(currentValue, getItemProps) =>
-          currentValue.map((tag, index) => {
-            if (typeof tag === 'string') return null;
-            const { key, ...itemProps } = getItemProps({ index });
-            return (
-              <Chip
-                key={key}
-                color={tag.mode === 'include' ? 'success' : 'error'}
-                icon={tag.mode === 'include' ? <AddIcon /> : <RemoveIcon />}
-                label={tag.text}
-                size="small"
-                onClick={() => onToggleMode(tag.text)}
-                {...itemProps}
-              />
-            );
-          })
-        }
-        renderInput={(params) => (
-          <TextField
-            {...params}
-            placeholder={
-              value.length > 0
-                ? 'Add another tag...'
-                : 'Type to add search tags: -senior (exclude) or senior (include)...'
-            }
-          />
-        )}
-        onKeyDown={handleKeyDown}
-        sx={{ flex: 1 }}
-      />
-      <FormControlLabel
-        control={
-          <Switch
-            checked={searchMode === 'exclude'}
-            onChange={() => setSearchMode(searchMode === 'include' ? 'exclude' : 'include')}
-            color="error"
-          />
-        }
-        label="Exclude search tags"
-      />
-    </Stack>
+    <Autocomplete
+      multiple
+      freeSolo
+      size="small"
+      options={[]}
+      value={value}
+      inputValue={inputValue}
+      onInputChange={(_, newValue) => setInputValue(newValue)}
+      onChange={handleChange}
+      getOptionLabel={(option) => (typeof option === 'string' ? option : option.text)}
+      isOptionEqualToValue={(option, tagValue) =>
+        (typeof option === 'string' ? option : option.text) ===
+        (typeof tagValue === 'string' ? tagValue : tagValue.text)
+      }
+      renderValue={(currentValue, getItemProps) =>
+        currentValue.map((tag, index) => {
+          if (typeof tag === 'string') return null;
+          const { key, ...itemProps } = getItemProps({ index });
+          return (
+            <Chip
+              key={key}
+              color={tag.mode === 'include' ? 'success' : 'error'}
+              icon={tag.mode === 'include' ? <AddIcon /> : <RemoveIcon />}
+              label={tag.text}
+              size="small"
+              onClick={() => onToggleMode(tag.text)}
+              {...itemProps}
+            />
+          );
+        })
+      }
+      renderInput={(params) => (
+        <TextField
+          {...params}
+          placeholder={
+            value.length > 0
+              ? 'Add another tag...'
+              : 'Type to add search tags: -senior (exclude) or senior (include)...'
+          }
+        />
+      )}
+      onKeyDown={handleKeyDown}
+    />
   );
 }
