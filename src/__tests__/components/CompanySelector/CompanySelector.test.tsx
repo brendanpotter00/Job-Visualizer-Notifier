@@ -1,9 +1,28 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { Provider } from 'react-redux';
+import { configureStore } from '@reduxjs/toolkit';
 import userEvent from '@testing-library/user-event';
 import { CompanySelector } from '../../../components/CompanySelector/CompanySelector';
 import { store } from '../../../app/store';
+import appReducer from '../../../features/app/appSlice';
+import jobsReducer from '../../../features/jobs/jobsSlice';
+import graphFiltersReducer from '../../../features/filters/graphFiltersSlice';
+import listFiltersReducer from '../../../features/filters/listFiltersSlice';
+import uiReducer from '../../../features/ui/uiSlice';
+
+function createTestStore(preloadedState = {}) {
+  return configureStore({
+    reducer: {
+      app: appReducer,
+      jobs: jobsReducer,
+      graphFilters: graphFiltersReducer,
+      listFilters: listFiltersReducer,
+      ui: uiReducer,
+    },
+    preloadedState,
+  });
+}
 
 describe('CompanySelector', () => {
   it('renders company selector with label', () => {
@@ -85,5 +104,44 @@ describe('CompanySelector', () => {
     const label = document.getElementById('company-selector-label');
     expect(label).toBeInTheDocument();
     expect(label).toHaveTextContent('Company');
+  });
+
+  describe('URL synchronization', () => {
+    beforeEach(() => {
+      // Reset window.location and history before each test
+      const url = 'http://localhost:5173/';
+      Object.defineProperty(window, 'location', {
+        value: new URL(url),
+        writable: true,
+        configurable: true,
+      });
+
+      vi.spyOn(window.history, 'pushState').mockImplementation(() => {});
+      vi.clearAllMocks();
+    });
+
+    it('should dispatch selectCompany action when company changes', async () => {
+      const user = userEvent.setup();
+      const testStore = createTestStore();
+
+      render(
+        <Provider store={testStore}>
+          <CompanySelector />
+        </Provider>
+      );
+
+      // Open dropdown
+      const selector = screen.getByRole('combobox');
+      await user.click(selector);
+
+      // Select a different company
+      const anthropicOption = await screen.findByRole('option', { name: 'Anthropic' });
+      await user.click(anthropicOption);
+
+      // Verify Redux state changed
+      await waitFor(() => {
+        expect(testStore.getState().app.selectedCompanyId).toBe('anthropic');
+      });
+    });
   });
 });
