@@ -52,7 +52,7 @@ export function RoleCategorySelect({
       }
       getOptionLabel={(option) => getLabel(option)}
       renderInput={(params) => (
-        <TextField {...params} label="Role Category" placeholder="Select categories..." />
+        <TextField {...params} label="Type (Experiemental)" placeholder="Select categories..." />
       )}
       sx={{ minWidth }}
     />
