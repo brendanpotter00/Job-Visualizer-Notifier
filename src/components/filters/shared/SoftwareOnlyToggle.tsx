@@ -7,12 +7,13 @@ export interface SoftwareOnlyToggleProps {
 }
 
 /**
- * Toggle switch for filtering software-only roles
+ * Toggle switch for filtering software engineering roles
+ * When enabled, adds predefined search tags for software engineering positions
  */
 export function SoftwareOnlyToggle({
   checked,
   onChange,
-  label = 'Software roles only',
+  label = 'Software engineering roles only',
 }: SoftwareOnlyToggleProps) {
   return (
     <FormControlLabel control={<Switch checked={checked} onChange={onChange} />} label={label} />

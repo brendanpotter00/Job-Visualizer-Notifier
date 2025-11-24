@@ -5,11 +5,25 @@ import type { Job, TimeWindow } from '../../types';
 import { bucketJobsByTime } from '../../utils/timeBucketing';
 import { getTimeWindowDuration } from '../../utils/dateUtils';
 import { isUnitedStatesLocation } from '../../utils/locationUtils';
+import { getSoftwareEngineeringTagTexts } from '../../constants/softwareEngineeringTags';
 
 /**
  * Select graph filters
  */
 export const selectGraphFilters = (state: RootState) => state.graphFilters.filters;
+
+/**
+ * Select whether the software-only toggle is currently ON
+ * (checks if all software engineering tags are present)
+ */
+export const selectGraphSoftwareOnlyState = createSelector([selectGraphFilters], (filters) => {
+  const seTagTexts = getSoftwareEngineeringTagTexts();
+  const currentTags = filters.searchTags || [];
+
+  return seTagTexts.every((text) =>
+    currentTags.some((tag) => tag.text === text && tag.mode === 'include')
+  );
+});
 
 /**
  * Helper function to check if a job is within a time window
@@ -72,11 +86,6 @@ export const selectGraphFilteredJobs = createSelector(
             return false;
           }
         }
-      }
-
-      // Software-only filter
-      if (filters.softwareOnly && !job.classification.isSoftwareAdjacent) {
-        return false;
       }
 
       // Location filter (multi-select with OR logic)

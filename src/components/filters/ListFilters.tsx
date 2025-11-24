@@ -11,8 +11,12 @@ import {
   addListSearchTag,
   removeListSearchTag,
   toggleListSearchTagMode,
+  toggleListSoftwareOnly,
 } from '../../features/filters/listFiltersSlice';
-import { selectListFilters } from '../../features/filters/listFiltersSelectors';
+import {
+  selectListFilters,
+  selectListSoftwareOnlyState,
+} from '../../features/filters/listFiltersSelectors';
 import {
   selectAvailableLocations,
   selectAvailableDepartments,
@@ -23,6 +27,7 @@ import { TimeWindowSelect } from './shared/TimeWindowSelect';
 import { RoleCategorySelect } from './shared/RoleCategorySelect';
 import { MultiSelectAutocomplete } from './shared/MultiSelectAutocomplete';
 import { SyncFiltersButton } from './shared/SyncFiltersButton';
+import { SoftwareOnlyToggle } from './shared/SoftwareOnlyToggle';
 
 /**
  * Filter controls for the job list
@@ -30,6 +35,7 @@ import { SyncFiltersButton } from './shared/SyncFiltersButton';
 export function ListFilters() {
   const dispatch = useAppDispatch();
   const filters = useAppSelector(selectListFilters);
+  const softwareOnlyChecked = useAppSelector(selectListSoftwareOnlyState);
   const availableLocations = useAppSelector(selectAvailableLocations);
   const availableDepartments = useAppSelector(selectAvailableDepartments);
 
@@ -73,14 +79,15 @@ export function ListFilters() {
             onAdd={(cat) => dispatch(addListRoleCategory(cat))}
             onRemove={(cat) => dispatch(removeListRoleCategory(cat))}
           />
+          <SoftwareOnlyToggle
+            checked={softwareOnlyChecked}
+            onChange={() => dispatch(toggleListSoftwareOnly())}
+            label="Software engineering roles only"
+          />
         </Stack>
 
         <Stack direction="row" spacing={2} alignItems="center">
           <SyncFiltersButton direction="toGraph" onClick={() => dispatch(syncListToGraph())} />
-          {/*  <SoftwareOnlyToggle*/}
-          {/*  checked={filters.softwareOnly}*/}
-          {/*  onChange={() => dispatch(toggleListSoftwareOnly())}*/}
-          {/*/>*/}
         </Stack>
       </Stack>
     </Box>

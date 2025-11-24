@@ -11,8 +11,12 @@ import {
   removeGraphDepartment,
   addGraphRoleCategory,
   removeGraphRoleCategory,
+  toggleGraphSoftwareOnly,
 } from '../../features/filters/graphFiltersSlice';
-import { selectGraphFilters } from '../../features/filters/graphFiltersSelectors';
+import {
+  selectGraphFilters,
+  selectGraphSoftwareOnlyState,
+} from '../../features/filters/graphFiltersSelectors';
 import {
   selectAvailableLocations,
   selectAvailableDepartments,
@@ -23,6 +27,7 @@ import { TimeWindowSelect } from './shared/TimeWindowSelect';
 import { RoleCategorySelect } from './shared/RoleCategorySelect';
 import { MultiSelectAutocomplete } from './shared/MultiSelectAutocomplete';
 import { SyncFiltersButton } from './shared/SyncFiltersButton';
+import { SoftwareOnlyToggle } from './shared/SoftwareOnlyToggle';
 
 /**
  * Filter controls for the graph visualization
@@ -30,6 +35,7 @@ import { SyncFiltersButton } from './shared/SyncFiltersButton';
 export function GraphFilters() {
   const dispatch = useAppDispatch();
   const filters = useAppSelector(selectGraphFilters);
+  const softwareOnlyChecked = useAppSelector(selectGraphSoftwareOnlyState);
   const availableLocations = useAppSelector(selectAvailableLocations);
   const availableDepartments = useAppSelector(selectAvailableDepartments);
 
@@ -72,14 +78,15 @@ export function GraphFilters() {
             onAdd={(cat) => dispatch(addGraphRoleCategory(cat))}
             onRemove={(cat) => dispatch(removeGraphRoleCategory(cat))}
           />
+          <SoftwareOnlyToggle
+            checked={softwareOnlyChecked}
+            onChange={() => dispatch(toggleGraphSoftwareOnly())}
+            label="Software engineering roles only"
+          />
         </Stack>
 
         <Stack direction="row" spacing={2} alignItems="center">
           <SyncFiltersButton direction="toList" onClick={() => dispatch(syncGraphToList())} />
-          {/*  <SoftwareOnlyToggle*/}
-          {/*  checked={filters.softwareOnly}*/}
-          {/*  onChange={() => dispatch(toggleGraphSoftwareOnly())}*/}
-          {/*/>*/}
         </Stack>
       </Stack>
     </Box>

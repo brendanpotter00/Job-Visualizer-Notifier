@@ -1,5 +1,9 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 import type { ListFilters, TimeWindow, SoftwareRoleCategory, SearchTag } from '../../types';
+import {
+  SOFTWARE_ENGINEERING_TAGS,
+  getSoftwareEngineeringTagTexts,
+} from '../../constants/softwareEngineeringTags';
 
 /**
  * List filter state
@@ -154,11 +158,55 @@ const listFiltersSlice = createSlice({
       state.filters.roleCategory = action.payload;
     },
 
-    // Software only
+    // Software only - now manages search tags instead of boolean flag
     toggleListSoftwareOnly(state) {
-      state.filters.softwareOnly = !state.filters.softwareOnly;
+      const seTagTexts = getSoftwareEngineeringTagTexts();
+      const currentTags = state.filters.searchTags || [];
+
+      // Check if all SE tags are present
+      const allPresent = seTagTexts.every((text) =>
+        currentTags.some((tag) => tag.text === text && tag.mode === 'include')
+      );
+
+      if (allPresent) {
+        // Remove all SE tags (smart removal)
+        state.filters.searchTags = currentTags.filter((tag) => !seTagTexts.includes(tag.text));
+        if (state.filters.searchTags.length === 0) {
+          state.filters.searchTags = undefined;
+        }
+      } else {
+        // Add all SE tags
+        const tagsToAdd = [...SOFTWARE_ENGINEERING_TAGS];
+        const existingTexts = new Set(currentTags.map((tag) => tag.text));
+
+        // Only add tags that don't already exist
+        const newTags = tagsToAdd.filter((tag) => !existingTexts.has(tag.text));
+
+        state.filters.searchTags = [...currentTags, ...newTags];
+      }
+
+      // Keep softwareOnly in sync for backwards compatibility
+      state.filters.softwareOnly = !allPresent;
     },
     setListSoftwareOnly(state, action: PayloadAction<boolean>) {
+      const seTagTexts = getSoftwareEngineeringTagTexts();
+      const currentTags = state.filters.searchTags || [];
+
+      if (action.payload) {
+        // Add all SE tags
+        const tagsToAdd = [...SOFTWARE_ENGINEERING_TAGS];
+        const existingTexts = new Set(currentTags.map((tag) => tag.text));
+        const newTags = tagsToAdd.filter((tag) => !existingTexts.has(tag.text));
+
+        state.filters.searchTags = [...currentTags, ...newTags];
+      } else {
+        // Remove all SE tags
+        state.filters.searchTags = currentTags.filter((tag) => !seTagTexts.includes(tag.text));
+        if (state.filters.searchTags.length === 0) {
+          state.filters.searchTags = undefined;
+        }
+      }
+
       state.filters.softwareOnly = action.payload;
     },
 
