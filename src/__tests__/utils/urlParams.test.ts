@@ -113,11 +113,7 @@ describe('urlParams', () => {
       updateURLWithCompany('spacex');
 
       expect(window.history.pushState).toHaveBeenCalledTimes(1);
-      expect(window.history.pushState).toHaveBeenCalledWith(
-        {},
-        '',
-        expect.any(String)
-      );
+      expect(window.history.pushState).toHaveBeenCalledWith({}, '', expect.any(String));
     });
 
     it('should maintain the current pathname and origin', () => {

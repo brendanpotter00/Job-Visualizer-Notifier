@@ -1,11 +1,6 @@
 import { Box, Container, Alert, Button } from '@mui/material';
 import { Refresh } from '@mui/icons-material';
-import {
-  useAppSelector,
-  useURLSync,
-  useCompanyLoader,
-  useBrowserNavigation,
-} from './hooks';
+import { useAppSelector, useURLSync, useCompanyLoader, useBrowserNavigation } from './hooks';
 import { AppHeader } from '../components/AppLayout/AppHeader';
 import { AppContent } from '../components/AppLayout/AppContent';
 import { BucketJobsModal } from '../components/BucketJobsModal/BucketJobsModal';
