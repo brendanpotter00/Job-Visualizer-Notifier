@@ -136,7 +136,8 @@ export const COMPANIES: Company[] = [
       boardToken: 'robinhood',
     },
     jobsUrl: 'https://boards.greenhouse.io/robinhood',
-    recruiterLinkedInUrl: 'https://www.linkedin.com/search/results/content/?authorCompany=%5B%223254263%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=AsA&sortBy=%22date_posted%22',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%223254263%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=AsA&sortBy=%22date_posted%22',
   },
   {
     id: 'spotify',
@@ -148,7 +149,8 @@ export const COMPANIES: Company[] = [
       jobsUrl: 'https://jobs.lever.co/spotify',
     },
     jobsUrl: 'https://jobs.lever.co/spotify',
-    recruiterLinkedInUrl: 'https://www.linkedin.com/search/results/content/?authorCompany=%5B%22207470%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=%4072&sortBy=%22date_posted%22',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%22207470%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=%4072&sortBy=%22date_posted%22',
   },
   {
     id: 'xai',
@@ -159,7 +161,8 @@ export const COMPANIES: Company[] = [
       boardToken: 'xai',
     },
     jobsUrl: 'https://boards.greenhouse.io/xai',
-    recruiterLinkedInUrl: 'https://www.linkedin.com/search/results/content/?authorCompany=%5B%2296151950%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=bYM&sortBy=%22date_posted%22',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%2296151950%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=bYM&sortBy=%22date_posted%22',
   },
   {
     id: 'anthropic',
@@ -170,7 +173,8 @@ export const COMPANIES: Company[] = [
       boardToken: 'anthropic',
     },
     jobsUrl: 'https://boards.greenhouse.io/anthropic',
-    recruiterLinkedInUrl: 'https://www.linkedin.com/search/results/content/?authorCompany=%5B%2274126343%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=L2U&sortBy=%22date_posted%22',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%2274126343%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=L2U&sortBy=%22date_posted%22',
   },
   {
     id: 'lyft',
@@ -181,7 +185,8 @@ export const COMPANIES: Company[] = [
       boardToken: 'lyft',
     },
     jobsUrl: 'https://boards.greenhouse.io/lyft',
-    recruiterLinkedInUrl: 'https://www.linkedin.com/search/results/content/?authorCompany=%5B%222620735%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=hp!&sortBy=%22date_posted%22',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%222620735%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=hp!&sortBy=%22date_posted%22',
   },
   {
     id: 'doordashusa',
@@ -192,7 +197,8 @@ export const COMPANIES: Company[] = [
       boardToken: 'doordashusa',
     },
     jobsUrl: 'https://boards.greenhouse.io/doordashusa',
-    recruiterLinkedInUrl: 'https://www.linkedin.com/search/results/content/?authorCompany=%5B%223205573%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=DT%3A&sortBy=%22date_posted%22',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%223205573%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=DT%3A&sortBy=%22date_posted%22',
   },
   {
     id: 'stripe',
@@ -203,7 +209,8 @@ export const COMPANIES: Company[] = [
       boardToken: 'stripe',
     },
     jobsUrl: 'https://boards.greenhouse.io/stripe',
-    recruiterLinkedInUrl: 'https://www.linkedin.com/search/results/content/?authorCompany=%5B%222135371%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=z(2&sortBy=%22date_posted%22',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%222135371%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=z(2&sortBy=%22date_posted%22',
   },
   {
     id: 'ramp',
@@ -214,7 +221,8 @@ export const COMPANIES: Company[] = [
       jobBoardName: 'ramp',
     },
     jobsUrl: 'https://careers.ashbyhq.com/ramp',
-    recruiterLinkedInUrl: 'https://www.linkedin.com/search/results/content/?authorCompany=%5B%221406226%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=e%3Ab&sortBy=%22date_posted%22',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%221406226%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=e%3Ab&sortBy=%22date_posted%22',
   },
   {
     id: 'plaid',
@@ -226,7 +234,8 @@ export const COMPANIES: Company[] = [
       jobsUrl: 'https://jobs.lever.co/plaid',
     },
     jobsUrl: 'https://jobs.lever.co/plaid',
-    recruiterLinkedInUrl: 'https://www.linkedin.com/search/results/content/?authorCompany=%5B%222684737%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=8n%3B&sortBy=%22date_posted%22',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%222684737%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=8n%3B&sortBy=%22date_posted%22',
   },
   {
     id: 'appliedintuition',
@@ -237,7 +246,8 @@ export const COMPANIES: Company[] = [
       boardToken: 'appliedintuition',
     },
     jobsUrl: 'https://boards.greenhouse.io/appliedintuition',
-    recruiterLinkedInUrl: 'https://www.linkedin.com/search/results/content/?authorCompany=%5B%2218808325%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=Pz-&sortBy=%22date_posted%22',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%2218808325%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=Pz-&sortBy=%22date_posted%22',
   },
   {
     id: 'discord',
@@ -248,7 +258,8 @@ export const COMPANIES: Company[] = [
       boardToken: 'discord',
     },
     jobsUrl: 'https://boards.greenhouse.io/discord',
-    recruiterLinkedInUrl: 'https://www.linkedin.com/search/results/content/?authorCompany=%5B%223765675%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=P0b&sortBy=%22date_posted%22',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%223765675%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=P0b&sortBy=%22date_posted%22',
   },
   {
     id: 'brex',
@@ -259,7 +270,8 @@ export const COMPANIES: Company[] = [
       boardToken: 'brex',
     },
     jobsUrl: 'https://boards.greenhouse.io/brex',
-    recruiterLinkedInUrl: 'https://www.linkedin.com/search/results/content/?authorCompany=%5B%2218505670%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=o-E&sortBy=%22date_posted%22',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%2218505670%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=o-E&sortBy=%22date_posted%22',
   },
 ];
 
