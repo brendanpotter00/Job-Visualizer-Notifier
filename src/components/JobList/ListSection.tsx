@@ -12,8 +12,6 @@ export function ListSection() {
   const jobs = useAppSelector(selectListFilteredJobs);
   const isLoading = useAppSelector(selectCurrentCompanyLoading);
 
-  // console.log("list section", jobs)
-
   return (
     <Paper sx={{ p: { xs: 2, sm: 3 } }}>
       <Typography variant="h5" component="h2" gutterBottom>

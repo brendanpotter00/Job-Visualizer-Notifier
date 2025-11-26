@@ -3,30 +3,16 @@ import { ROLE_CLASSIFICATION_CONFIG } from '../config/roleClassificationConfig';
 import { CLASSIFICATION_CONFIDENCE } from '../constants/classificationConstants';
 
 /**
- * Classifies a job role based on title, department, team, and tags.
- * Uses keyword matching and confidence scoring.
+ * Check if combined text matches exclusion patterns
  */
-export function classifyJobRole(job: Partial<Job>): RoleClassification {
-  const { title = '', department = '', team = '', tags = [] } = job;
+function checkExclusion(combinedText: string): boolean {
+  return ROLE_CLASSIFICATION_CONFIG.exclusionPatterns.some((pattern) => pattern.test(combinedText));
+}
 
-  // Combine all text fields for analysis
-  const combinedText = [title, department, team, ...tags].join(' ').toLowerCase();
-
-  // Check exclusion patterns first
-  const isExcluded = ROLE_CLASSIFICATION_CONFIG.exclusionPatterns.some((pattern) =>
-    pattern.test(combinedText)
-  );
-
-  if (isExcluded) {
-    return {
-      isSoftwareAdjacent: false,
-      category: 'nonTech',
-      confidence: CLASSIFICATION_CONFIDENCE.EXCLUSION,
-      matchedKeywords: [],
-    };
-  }
-
-  // Track matches for each category
+/**
+ * Find keyword matches for each category
+ */
+function findCategoryMatches(combinedText: string): Record<SoftwareRoleCategory, string[]> {
   const categoryMatches: Record<SoftwareRoleCategory, string[]> = {
     frontend: [],
     backend: [],
@@ -44,7 +30,6 @@ export function classifyJobRole(job: Partial<Job>): RoleClassification {
     nonTech: [],
   };
 
-  // Find keyword matches for each category
   Object.entries(ROLE_CLASSIFICATION_CONFIG.categoryKeywords).forEach(([category, keywords]) => {
     keywords.forEach((keyword) => {
       if (combinedText.includes(keyword.toLowerCase())) {
@@ -53,7 +38,15 @@ export function classifyJobRole(job: Partial<Job>): RoleClassification {
     });
   });
 
-  // Determine the category with the most matches (excluding otherTech for now)
+  return categoryMatches;
+}
+
+/**
+ * Select the best category based on keyword matches
+ */
+function selectBestCategory(
+  categoryMatches: Record<SoftwareRoleCategory, string[]>
+): { category: SoftwareRoleCategory; matchCount: number } {
   let bestCategory: SoftwareRoleCategory = 'nonTech';
   let maxMatches = 0;
 
@@ -71,26 +64,25 @@ export function classifyJobRole(job: Partial<Job>): RoleClassification {
     maxMatches = categoryMatches.otherTech.length;
   }
 
-  // Check if it matches tech department
-  const isTechDepartment = ROLE_CLASSIFICATION_CONFIG.techDepartments.some((pattern) =>
-    pattern.test(department)
-  );
+  return { category: bestCategory, matchCount: maxMatches };
+}
 
-  // Determine if software-adjacent
-  const isSoftwareAdjacent = bestCategory !== 'nonTech' || (isTechDepartment && maxMatches === 0);
-
-  // If tech department but no specific category, mark as otherTech
-  if (isTechDepartment && bestCategory === 'nonTech') {
-    bestCategory = 'otherTech';
-  }
-
-  // Calculate confidence score
+/**
+ * Calculate confidence score based on matches and context
+ */
+function calculateConfidence(
+  matchCount: number,
+  bestCategory: SoftwareRoleCategory,
+  categoryMatches: Record<SoftwareRoleCategory, string[]>,
+  title: string,
+  isTechDepartment: boolean
+): number {
   let confidence: number = CLASSIFICATION_CONFIDENCE.BASE;
 
-  if (maxMatches > 0) {
+  if (matchCount > 0) {
     // More matches = higher confidence, but cap the increase
     confidence = Math.min(
-      CLASSIFICATION_CONFIDENCE.BASE + maxMatches * CLASSIFICATION_CONFIDENCE.MATCH_INCREMENT,
+      CLASSIFICATION_CONFIDENCE.BASE + matchCount * CLASSIFICATION_CONFIDENCE.MATCH_INCREMENT,
       CLASSIFICATION_CONFIDENCE.MAX_MATCH_BONUS
     );
   }
@@ -120,11 +112,57 @@ export function classifyJobRole(job: Partial<Job>): RoleClassification {
     confidence = Math.min(confidence, CLASSIFICATION_CONFIDENCE.OTHER_TECH_MAX);
   }
 
+  return confidence;
+}
+
+/**
+ * Classifies a job role based on title, department, team, and tags.
+ * Uses keyword matching and confidence scoring.
+ */
+export function classifyJobRole(job: Partial<Job>): RoleClassification {
+  const { title = '', department = '', team = '', tags = [] } = job;
+
+  // Combine all text fields for analysis
+  const combinedText = [title, department, team, ...tags].join(' ').toLowerCase();
+
+  // Check exclusion patterns first
+  if (checkExclusion(combinedText)) {
+    return {
+      isSoftwareAdjacent: false,
+      category: 'nonTech',
+      confidence: CLASSIFICATION_CONFIDENCE.EXCLUSION,
+      matchedKeywords: [],
+    };
+  }
+
+  // Find keyword matches for each category
+  const categoryMatches = findCategoryMatches(combinedText);
+
+  // Select the best category based on matches
+  const { category: bestCategory, matchCount } = selectBestCategory(categoryMatches);
+
+  // Check if it matches tech department
+  const isTechDepartment = ROLE_CLASSIFICATION_CONFIG.techDepartments.some((pattern) =>
+    pattern.test(department)
+  );
+
+  // Adjust category if tech department but no specific match
+  let finalCategory = bestCategory;
+  if (isTechDepartment && bestCategory === 'nonTech') {
+    finalCategory = 'otherTech';
+  }
+
+  // Determine if software-adjacent
+  const isSoftwareAdjacent = finalCategory !== 'nonTech' || (isTechDepartment && matchCount === 0);
+
+  // Calculate confidence score
+  const confidence = calculateConfidence(matchCount, finalCategory, categoryMatches, title, isTechDepartment);
+
   return {
     isSoftwareAdjacent,
-    category: bestCategory,
+    category: finalCategory,
     confidence,
-    matchedKeywords: categoryMatches[bestCategory],
+    matchedKeywords: categoryMatches[finalCategory],
   };
 }
 
