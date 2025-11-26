@@ -55,7 +55,10 @@ export function createAPIClient<TResponse, TConfig extends ATSCompanyConfig>(
   clientConfig: ClientConfig<TResponse, TConfig>
 ): JobAPIClient {
   return {
-    async fetchJobs(config: ATSCompanyConfig, options: FetchJobsOptions = {}): Promise<FetchJobsResult> {
+    async fetchJobs(
+      config: ATSCompanyConfig,
+      options: FetchJobsOptions = {}
+    ): Promise<FetchJobsResult> {
       // 1. Validate config type
       if (!clientConfig.validateConfig(config)) {
         throw new Error(`Invalid config type for ${clientConfig.name} client`);

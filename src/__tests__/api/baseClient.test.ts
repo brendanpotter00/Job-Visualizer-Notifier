@@ -17,21 +17,22 @@ describe('createAPIClient', () => {
       name: 'Test',
       buildUrl: (config: GreenhouseConfig) => `https://api.test.com/${config.boardToken}`,
       extractJobs: (response: any) => response.jobs,
-      transformer: (job: any, identifier: string) => ({
-        id: job.id,
-        source: 'greenhouse',
-        company: identifier,
-        title: job.title,
-        createdAt: job.createdAt,
-        url: job.url,
-        classification: {
-          isSoftwareAdjacent: false,
-          category: 'nonTech',
-          confidence: 0,
-          matchedKeywords: [],
-        },
-        raw: job,
-      } as Job),
+      transformer: (job: any, identifier: string) =>
+        ({
+          id: job.id,
+          source: 'greenhouse',
+          company: identifier,
+          title: job.title,
+          createdAt: job.createdAt,
+          url: job.url,
+          classification: {
+            isSoftwareAdjacent: false,
+            category: 'nonTech',
+            confidence: 0,
+            matchedKeywords: [],
+          },
+          raw: job,
+        }) as Job,
       getIdentifier: (config: GreenhouseConfig) => config.boardToken,
       validateConfig: (config): config is GreenhouseConfig => config.type === 'greenhouse',
     });
@@ -45,14 +46,16 @@ describe('createAPIClient', () => {
       name: 'Test',
       buildUrl: (config: GreenhouseConfig) => `https://api.test.com/${config.boardToken}`,
       extractJobs: (response: any) => response.jobs,
-      transformer: (_job: any) => ({} as Job),
+      transformer: (_job: any) => ({}) as Job,
       getIdentifier: (config: GreenhouseConfig) => config.boardToken,
       validateConfig: (config): config is GreenhouseConfig => config.type === 'greenhouse',
     });
 
     const invalidConfig = { type: 'lever' as const, companyId: 'test', jobsUrl: 'http://test.com' };
 
-    await expect(client.fetchJobs(invalidConfig)).rejects.toThrow('Invalid config type for Test client');
+    await expect(client.fetchJobs(invalidConfig)).rejects.toThrow(
+      'Invalid config type for Test client'
+    );
   });
 
   it('should successfully fetch and transform jobs', async () => {
@@ -71,21 +74,22 @@ describe('createAPIClient', () => {
       name: 'Test',
       buildUrl: (config: GreenhouseConfig) => `https://api.test.com/${config.boardToken}`,
       extractJobs: (response: any) => response.jobs,
-      transformer: (job: any, identifier: string) => ({
-        id: job.id,
-        source: 'greenhouse' as const,
-        company: identifier,
-        title: job.title,
-        createdAt: job.createdAt,
-        url: job.url,
-        classification: {
-          isSoftwareAdjacent: job.title.includes('Engineer'),
-          category: 'backend' as const,
-          confidence: 0.9,
-          matchedKeywords: [],
-        },
-        raw: job,
-      } as Job),
+      transformer: (job: any, identifier: string) =>
+        ({
+          id: job.id,
+          source: 'greenhouse' as const,
+          company: identifier,
+          title: job.title,
+          createdAt: job.createdAt,
+          url: job.url,
+          classification: {
+            isSoftwareAdjacent: job.title.includes('Engineer'),
+            category: 'backend' as const,
+            confidence: 0.9,
+            matchedKeywords: [],
+          },
+          raw: job,
+        }) as Job,
       getIdentifier: (config: GreenhouseConfig) => config.boardToken,
       validateConfig: (config): config is GreenhouseConfig => config.type === 'greenhouse',
     });
@@ -117,16 +121,22 @@ describe('createAPIClient', () => {
       name: 'Test',
       buildUrl: (config: GreenhouseConfig) => `https://api.test.com/${config.boardToken}`,
       extractJobs: (response: any) => response.jobs,
-      transformer: (job: any, identifier: string) => ({
-        id: job.id,
-        source: 'greenhouse' as const,
-        company: identifier,
-        title: 'Test',
-        createdAt: job.createdAt,
-        url: 'http://test.com',
-        classification: { isSoftwareAdjacent: false, category: 'nonTech' as const, confidence: 0, matchedKeywords: [] },
-        raw: job,
-      } as Job),
+      transformer: (job: any, identifier: string) =>
+        ({
+          id: job.id,
+          source: 'greenhouse' as const,
+          company: identifier,
+          title: 'Test',
+          createdAt: job.createdAt,
+          url: 'http://test.com',
+          classification: {
+            isSoftwareAdjacent: false,
+            category: 'nonTech' as const,
+            confidence: 0,
+            matchedKeywords: [],
+          },
+          raw: job,
+        }) as Job,
       getIdentifier: (config: GreenhouseConfig) => config.boardToken,
       validateConfig: (config): config is GreenhouseConfig => config.type === 'greenhouse',
     });
@@ -155,16 +165,22 @@ describe('createAPIClient', () => {
       name: 'Test',
       buildUrl: (config: GreenhouseConfig) => `https://api.test.com/${config.boardToken}`,
       extractJobs: (response: any) => response.jobs,
-      transformer: (job: any, identifier: string) => ({
-        id: job.id,
-        source: 'greenhouse' as const,
-        company: identifier,
-        title: 'Test',
-        createdAt: job.createdAt,
-        url: 'http://test.com',
-        classification: { isSoftwareAdjacent: false, category: 'nonTech' as const, confidence: 0, matchedKeywords: [] },
-        raw: job,
-      } as Job),
+      transformer: (job: any, identifier: string) =>
+        ({
+          id: job.id,
+          source: 'greenhouse' as const,
+          company: identifier,
+          title: 'Test',
+          createdAt: job.createdAt,
+          url: 'http://test.com',
+          classification: {
+            isSoftwareAdjacent: false,
+            category: 'nonTech' as const,
+            confidence: 0,
+            matchedKeywords: [],
+          },
+          raw: job,
+        }) as Job,
       getIdentifier: (config: GreenhouseConfig) => config.boardToken,
       validateConfig: (config): config is GreenhouseConfig => config.type === 'greenhouse',
     });
@@ -188,7 +204,7 @@ describe('createAPIClient', () => {
       name: 'Test',
       buildUrl: (config: GreenhouseConfig) => `https://api.test.com/${config.boardToken}`,
       extractJobs: (response: any) => response.jobs,
-      transformer: (_job: any) => ({} as Job),
+      transformer: (_job: any) => ({}) as Job,
       getIdentifier: (config: GreenhouseConfig) => config.boardToken,
       validateConfig: (config): config is GreenhouseConfig => config.type === 'greenhouse',
     });
@@ -206,7 +222,7 @@ describe('createAPIClient', () => {
       name: 'Test',
       buildUrl: (config: GreenhouseConfig) => `https://api.test.com/${config.boardToken}`,
       extractJobs: (response: any) => response.jobs,
-      transformer: (_job: any) => ({} as Job),
+      transformer: (_job: any) => ({}) as Job,
       getIdentifier: (config: GreenhouseConfig) => config.boardToken,
       validateConfig: (config): config is GreenhouseConfig => config.type === 'greenhouse',
     });
@@ -214,7 +230,9 @@ describe('createAPIClient', () => {
     const config: GreenhouseConfig = { type: 'greenhouse', boardToken: 'test-token' };
 
     await expect(client.fetchJobs(config)).rejects.toThrow(APIError);
-    await expect(client.fetchJobs(config)).rejects.toThrow('Failed to fetch Test jobs: Network failure');
+    await expect(client.fetchJobs(config)).rejects.toThrow(
+      'Failed to fetch Test jobs: Network failure'
+    );
   });
 
   it('should pass signal to fetch for cancellation support', async () => {
@@ -228,7 +246,7 @@ describe('createAPIClient', () => {
       name: 'Test',
       buildUrl: (config: GreenhouseConfig) => `https://api.test.com/${config.boardToken}`,
       extractJobs: (response: any) => response.jobs,
-      transformer: (_job: any) => ({} as Job),
+      transformer: (_job: any) => ({}) as Job,
       getIdentifier: (config: GreenhouseConfig) => config.boardToken,
       validateConfig: (config): config is GreenhouseConfig => config.type === 'greenhouse',
     });
@@ -263,16 +281,22 @@ describe('createAPIClient', () => {
         name: 'Test',
         buildUrl: (config: GreenhouseConfig) => `https://api.test.com/${config.boardToken}`,
         extractJobs: (response: any) => response.jobs,
-        transformer: (job: any, identifier: string) => ({
-          id: job.id,
-          source: 'greenhouse' as const,
-          company: identifier,
-          title: 'Test',
-          createdAt: job.createdAt,
-          url: 'http://test.com',
-          classification: { isSoftwareAdjacent: false, category: 'nonTech' as const, confidence: 0, matchedKeywords: [] },
-          raw: job,
-        } as Job),
+        transformer: (job: any, identifier: string) =>
+          ({
+            id: job.id,
+            source: 'greenhouse' as const,
+            company: identifier,
+            title: 'Test',
+            createdAt: job.createdAt,
+            url: 'http://test.com',
+            classification: {
+              isSoftwareAdjacent: false,
+              category: 'nonTech' as const,
+              confidence: 0,
+              matchedKeywords: [],
+            },
+            raw: job,
+          }) as Job,
         getIdentifier: (config: GreenhouseConfig) => config.boardToken,
         validateConfig: (config): config is GreenhouseConfig => config.type === 'greenhouse',
       });
@@ -281,7 +305,7 @@ describe('createAPIClient', () => {
       // Filter: since Jan 5, limit 3
       const result = await client.fetchJobs(config, {
         since: new Date(2025, 0, 5).toISOString(),
-        limit: 3
+        limit: 3,
       });
 
       // Should get jobs 5, 6, 7 (first 3 after Jan 5)
@@ -307,16 +331,22 @@ describe('createAPIClient', () => {
         name: 'Test',
         buildUrl: (config: GreenhouseConfig) => `https://api.test.com/${config.boardToken}`,
         extractJobs: (response: any) => response.jobs,
-        transformer: (job: any, identifier: string) => ({
-          id: job.id,
-          source: 'greenhouse' as const,
-          company: identifier,
-          title: 'Test',
-          createdAt: job.createdAt,
-          url: 'http://test.com',
-          classification: { isSoftwareAdjacent: false, category: 'nonTech' as const, confidence: 0, matchedKeywords: [] },
-          raw: job,
-        } as Job),
+        transformer: (job: any, identifier: string) =>
+          ({
+            id: job.id,
+            source: 'greenhouse' as const,
+            company: identifier,
+            title: 'Test',
+            createdAt: job.createdAt,
+            url: 'http://test.com',
+            classification: {
+              isSoftwareAdjacent: false,
+              category: 'nonTech' as const,
+              confidence: 0,
+              matchedKeywords: [],
+            },
+            raw: job,
+          }) as Job,
         getIdentifier: (config: GreenhouseConfig) => config.boardToken,
         validateConfig: (config): config is GreenhouseConfig => config.type === 'greenhouse',
       });
@@ -325,7 +355,7 @@ describe('createAPIClient', () => {
       // Filter: since Jan 10, limit 5 (but only 1 job matches)
       const result = await client.fetchJobs(config, {
         since: '2025-01-10T00:00:00Z',
-        limit: 5
+        limit: 5,
       });
 
       // Should only get 1 job even though limit is 5
@@ -346,7 +376,7 @@ describe('createAPIClient', () => {
         name: 'Test',
         buildUrl: (config: GreenhouseConfig) => `https://api.test.com/${config.boardToken}`,
         extractJobs: (response: any) => response.jobs,
-        transformer: (_job: any) => ({} as Job),
+        transformer: (_job: any) => ({}) as Job,
         getIdentifier: (config: GreenhouseConfig) => config.boardToken,
         validateConfig: (config): config is GreenhouseConfig => config.type === 'greenhouse',
       });
@@ -361,7 +391,12 @@ describe('createAPIClient', () => {
 
     it('should calculate metadata correctly with mixed job types', async () => {
       const mockJobs = [
-        { id: '1', title: 'Software Engineer', createdAt: '2025-01-01T00:00:00Z', isSoftware: true },
+        {
+          id: '1',
+          title: 'Software Engineer',
+          createdAt: '2025-01-01T00:00:00Z',
+          isSoftware: true,
+        },
         { id: '2', title: 'Designer', createdAt: '2025-01-02T00:00:00Z', isSoftware: false },
         { id: '3', title: 'Backend Engineer', createdAt: '2025-01-03T00:00:00Z', isSoftware: true },
         { id: '4', title: 'HR Manager', createdAt: '2025-01-04T00:00:00Z', isSoftware: false },
@@ -377,21 +412,22 @@ describe('createAPIClient', () => {
         name: 'Test',
         buildUrl: (config: GreenhouseConfig) => `https://api.test.com/${config.boardToken}`,
         extractJobs: (response: any) => response.jobs,
-        transformer: (job: any, identifier: string) => ({
-          id: job.id,
-          source: 'greenhouse' as const,
-          company: identifier,
-          title: job.title,
-          createdAt: job.createdAt,
-          url: 'http://test.com',
-          classification: {
-            isSoftwareAdjacent: job.isSoftware,
-            category: job.isSoftware ? 'backend' as const : 'nonTech' as const,
-            confidence: 0.9,
-            matchedKeywords: [],
-          },
-          raw: job,
-        } as Job),
+        transformer: (job: any, identifier: string) =>
+          ({
+            id: job.id,
+            source: 'greenhouse' as const,
+            company: identifier,
+            title: job.title,
+            createdAt: job.createdAt,
+            url: 'http://test.com',
+            classification: {
+              isSoftwareAdjacent: job.isSoftware,
+              category: job.isSoftware ? ('backend' as const) : ('nonTech' as const),
+              confidence: 0.9,
+              matchedKeywords: [],
+            },
+            raw: job,
+          }) as Job,
         getIdentifier: (config: GreenhouseConfig) => config.boardToken,
         validateConfig: (config): config is GreenhouseConfig => config.type === 'greenhouse',
       });
@@ -421,21 +457,22 @@ describe('createAPIClient', () => {
         name: 'Test',
         buildUrl: (config: GreenhouseConfig) => `https://api.test.com/${config.boardToken}`,
         extractJobs: (response: any) => response.jobs,
-        transformer: (job: any, identifier: string) => ({
-          id: job.id,
-          source: 'greenhouse' as const,
-          company: identifier,
-          title: 'Test',
-          createdAt: job.createdAt,
-          url: 'http://test.com',
-          classification: {
-            isSoftwareAdjacent: job.isSoftware,
-            category: job.isSoftware ? 'backend' as const : 'nonTech' as const,
-            confidence: 0.9,
-            matchedKeywords: [],
-          },
-          raw: job,
-        } as Job),
+        transformer: (job: any, identifier: string) =>
+          ({
+            id: job.id,
+            source: 'greenhouse' as const,
+            company: identifier,
+            title: 'Test',
+            createdAt: job.createdAt,
+            url: 'http://test.com',
+            classification: {
+              isSoftwareAdjacent: job.isSoftware,
+              category: job.isSoftware ? ('backend' as const) : ('nonTech' as const),
+              confidence: 0.9,
+              matchedKeywords: [],
+            },
+            raw: job,
+          }) as Job,
         getIdentifier: (config: GreenhouseConfig) => config.boardToken,
         validateConfig: (config): config is GreenhouseConfig => config.type === 'greenhouse',
       });
@@ -468,16 +505,22 @@ describe('createAPIClient', () => {
         name: 'Test',
         buildUrl: (config: GreenhouseConfig) => `https://api.test.com/${config.boardToken}`,
         extractJobs: (response: any) => response.jobs,
-        transformer: (job: any, identifier: string) => ({
-          id: job.id,
-          source: 'greenhouse' as const,
-          company: identifier,
-          title: 'Test',
-          createdAt: job.createdAt,
-          url: 'http://test.com',
-          classification: { isSoftwareAdjacent: false, category: 'nonTech' as const, confidence: 0, matchedKeywords: [] },
-          raw: job,
-        } as Job),
+        transformer: (job: any, identifier: string) =>
+          ({
+            id: job.id,
+            source: 'greenhouse' as const,
+            company: identifier,
+            title: 'Test',
+            createdAt: job.createdAt,
+            url: 'http://test.com',
+            classification: {
+              isSoftwareAdjacent: false,
+              category: 'nonTech' as const,
+              confidence: 0,
+              matchedKeywords: [],
+            },
+            raw: job,
+          }) as Job,
         getIdentifier: (config: GreenhouseConfig) => config.boardToken,
         validateConfig: (config): config is GreenhouseConfig => config.type === 'greenhouse',
       });
@@ -487,7 +530,7 @@ describe('createAPIClient', () => {
 
       // Should include all jobs with exactly the same timestamp (inclusive)
       expect(result.jobs).toHaveLength(4); // Jobs 2, 3, 4, 5
-      expect(result.jobs.map(j => j.id)).toEqual(['2', '3', '4', '5']);
+      expect(result.jobs.map((j) => j.id)).toEqual(['2', '3', '4', '5']);
     });
 
     it('should handle response with non-array jobs field gracefully', async () => {
@@ -501,7 +544,7 @@ describe('createAPIClient', () => {
         name: 'Test',
         buildUrl: (config: GreenhouseConfig) => `https://api.test.com/${config.boardToken}`,
         extractJobs: (response: any) => response.jobs || [], // Handle null/undefined
-        transformer: (_job: any) => ({} as Job),
+        transformer: (_job: any) => ({}) as Job,
         getIdentifier: (config: GreenhouseConfig) => config.boardToken,
         validateConfig: (config): config is GreenhouseConfig => config.type === 'greenhouse',
       });
@@ -526,7 +569,7 @@ describe('createAPIClient', () => {
         name: 'Test',
         buildUrl: (config: GreenhouseConfig) => `https://api.test.com/${config.boardToken}`,
         extractJobs: (response: any) => response.jobs,
-        transformer: (_job: any) => ({} as Job),
+        transformer: (_job: any) => ({}) as Job,
         getIdentifier: (config: GreenhouseConfig) => config.boardToken,
         validateConfig: (config): config is GreenhouseConfig => config.type === 'greenhouse',
       });
@@ -554,7 +597,7 @@ describe('createAPIClient', () => {
         name: 'Test',
         buildUrl: (config: GreenhouseConfig) => `https://api.test.com/${config.boardToken}`,
         extractJobs: (response: any) => response.jobs,
-        transformer: (_job: any) => ({} as Job),
+        transformer: (_job: any) => ({}) as Job,
         getIdentifier: (config: GreenhouseConfig) => config.boardToken,
         validateConfig: (config): config is GreenhouseConfig => config.type === 'greenhouse',
       });
@@ -582,7 +625,7 @@ describe('createAPIClient', () => {
         name: 'Test',
         buildUrl: (config: GreenhouseConfig) => `https://api.test.com/${config.boardToken}`,
         extractJobs: (response: any) => response.jobs,
-        transformer: (_job: any) => ({} as Job),
+        transformer: (_job: any) => ({}) as Job,
         getIdentifier: (config: GreenhouseConfig) => config.boardToken,
         validateConfig: (config): config is GreenhouseConfig => config.type === 'greenhouse',
       });
@@ -611,7 +654,7 @@ describe('createAPIClient', () => {
         name: 'Test',
         buildUrl: (config: GreenhouseConfig) => `https://api.test.com/${config.boardToken}`,
         extractJobs: (response: any) => response.jobs,
-        transformer: (_job: any) => ({} as Job),
+        transformer: (_job: any) => ({}) as Job,
         getIdentifier: (config: GreenhouseConfig) => config.boardToken,
         validateConfig: (config): config is GreenhouseConfig => config.type === 'greenhouse',
       });
@@ -639,7 +682,7 @@ describe('createAPIClient', () => {
         name: 'Test',
         buildUrl: (config: GreenhouseConfig) => `https://api.test.com/${config.boardToken}`,
         extractJobs: (response: any) => response.jobs,
-        transformer: (_job: any) => ({} as Job),
+        transformer: (_job: any) => ({}) as Job,
         getIdentifier: (config: GreenhouseConfig) => config.boardToken,
         validateConfig: (config): config is GreenhouseConfig => config.type === 'greenhouse',
       });
@@ -671,7 +714,7 @@ describe('createAPIClient', () => {
         name: 'Test',
         buildUrl: (config: GreenhouseConfig) => `https://api.test.com/${config.boardToken}`,
         extractJobs: (response: any) => response.jobs,
-        transformer: (_job: any) => ({} as Job),
+        transformer: (_job: any) => ({}) as Job,
         getIdentifier: (config: GreenhouseConfig) => config.boardToken,
         validateConfig: (config): config is GreenhouseConfig => config.type === 'greenhouse',
       });
@@ -679,7 +722,9 @@ describe('createAPIClient', () => {
       const config: GreenhouseConfig = { type: 'greenhouse', boardToken: 'test-token' };
 
       await expect(client.fetchJobs(config)).rejects.toThrow(APIError);
-      await expect(client.fetchJobs(config)).rejects.toThrow('Failed to fetch Test jobs: Invalid JSON');
+      await expect(client.fetchJobs(config)).rejects.toThrow(
+        'Failed to fetch Test jobs: Invalid JSON'
+      );
     });
 
     it('should handle empty response body', async () => {
@@ -693,7 +738,7 @@ describe('createAPIClient', () => {
         name: 'Test',
         buildUrl: (config: GreenhouseConfig) => `https://api.test.com/${config.boardToken}`,
         extractJobs: (response: any) => response.jobs || [], // Handle missing jobs field
-        transformer: (_job: any) => ({} as Job),
+        transformer: (_job: any) => ({}) as Job,
         getIdentifier: (config: GreenhouseConfig) => config.boardToken,
         validateConfig: (config): config is GreenhouseConfig => config.type === 'greenhouse',
       });

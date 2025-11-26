@@ -1,5 +1,11 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
-import type { GraphFilters, ListFilters, TimeWindow, SoftwareRoleCategory, SearchTag } from '../../types';
+import type {
+  GraphFilters,
+  ListFilters,
+  TimeWindow,
+  SoftwareRoleCategory,
+  SearchTag,
+} from '../../types';
 import {
   setSearchTags as setSearchTagsUtil,
   addSearchTagToFilters,
@@ -66,10 +72,7 @@ function capitalize(str: string): string {
  * @param initialFilters - Initial filter values
  * @returns Redux Toolkit slice with all filter actions
  */
-export function createFilterSlice<T extends Filters>(
-  name: FilterSliceName,
-  initialFilters: T
-) {
+export function createFilterSlice<T extends Filters>(name: FilterSliceName, initialFilters: T) {
   const capitalizedName = capitalize(name);
 
   const initialState: FiltersState<T> = {
@@ -86,7 +89,10 @@ export function createFilterSlice<T extends Filters>(
       },
 
       // Search tags (5 actions)
-      [`set${capitalizedName}SearchTags`]: (state, action: PayloadAction<SearchTag[] | undefined>) => {
+      [`set${capitalizedName}SearchTags`]: (
+        state,
+        action: PayloadAction<SearchTag[] | undefined>
+      ) => {
         setSearchTagsUtil(state.filters, action.payload);
       },
       [`add${capitalizedName}SearchTag`]: (state, action: PayloadAction<SearchTag>) => {
@@ -131,21 +137,33 @@ export function createFilterSlice<T extends Filters>(
       },
 
       // Employment type (1 action)
-      [`set${capitalizedName}EmploymentType`]: (state, action: PayloadAction<string | undefined>) => {
+      [`set${capitalizedName}EmploymentType`]: (
+        state,
+        action: PayloadAction<string | undefined>
+      ) => {
         state.filters.employmentType = action.payload;
       },
 
       // Role category (4 actions)
-      [`add${capitalizedName}RoleCategory`]: (state, action: PayloadAction<SoftwareRoleCategory>) => {
+      [`add${capitalizedName}RoleCategory`]: (
+        state,
+        action: PayloadAction<SoftwareRoleCategory>
+      ) => {
         addRoleCategoryToFilters(state.filters, action.payload);
       },
-      [`remove${capitalizedName}RoleCategory`]: (state, action: PayloadAction<SoftwareRoleCategory>) => {
+      [`remove${capitalizedName}RoleCategory`]: (
+        state,
+        action: PayloadAction<SoftwareRoleCategory>
+      ) => {
         removeRoleCategoryFromFilters(state.filters, action.payload);
       },
       [`clear${capitalizedName}RoleCategories`]: (state) => {
         clearRoleCategoriesUtil(state.filters);
       },
-      [`set${capitalizedName}RoleCategory`]: (state, action: PayloadAction<SoftwareRoleCategory[] | undefined>) => {
+      [`set${capitalizedName}RoleCategory`]: (
+        state,
+        action: PayloadAction<SoftwareRoleCategory[] | undefined>
+      ) => {
         setRoleCategories(state.filters, action.payload);
       },
 

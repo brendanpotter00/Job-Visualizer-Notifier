@@ -9,6 +9,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { format } from 'date-fns';
+import { useMemo } from 'react';
 import { ChartSkeleton } from '../LoadingIndicator';
 import { formatBucketLabel } from '../../utils/dateUtils';
 import type { TimeBucket, TimeWindow } from '../../types';
@@ -111,13 +112,17 @@ export function JobPostingsChart({
     );
   }
 
-  // Transform TimeBucket[] to Recharts format
-  const chartData = data.map((bucket) => ({
-    time: new Date(bucket.bucketStart).getTime(),
-    count: bucket.count,
-    label: format(new Date(bucket.bucketStart), 'MMM d HH:mm'),
-    bucket, // Store original for click handler
-  }));
+  // Transform TimeBucket[] to Recharts format (memoized to prevent unnecessary recalculations)
+  const chartData = useMemo(
+    () =>
+      data.map((bucket) => ({
+        time: new Date(bucket.bucketStart).getTime(),
+        count: bucket.count,
+        label: format(new Date(bucket.bucketStart), 'MMM d HH:mm'),
+        bucket, // Store original for click handler
+      })),
+    [data]
+  );
 
   return (
     <ResponsiveContainer width="100%" height={height}>

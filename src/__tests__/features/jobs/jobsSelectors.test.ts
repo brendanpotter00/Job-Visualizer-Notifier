@@ -230,18 +230,32 @@ describe('jobsSelectors', () => {
 
   describe('selectJobsForCompany', () => {
     it('should return jobs for a specific company', () => {
-      const selector = selectJobsForCompany('spacex');
-      const jobs = selector(mockState);
+      const jobs = selectJobsForCompany(mockState, 'spacex');
 
       expect(jobs).toHaveLength(2);
       expect(jobs).toEqual([mockSoftwareJob, mockNonTechJob]);
     });
 
     it('should return empty array for nonexistent company', () => {
-      const selector = selectJobsForCompany('nonexistent');
-      const jobs = selector(mockState);
+      const jobs = selectJobsForCompany(mockState, 'nonexistent');
 
       expect(jobs).toEqual([]);
+    });
+
+    it('should memoize results for same inputs', () => {
+      const result1 = selectJobsForCompany(mockState, 'spacex');
+      const result2 = selectJobsForCompany(mockState, 'spacex');
+
+      // Should return same reference for same inputs
+      expect(result1).toBe(result2);
+    });
+
+    it('should return different references for different companies', () => {
+      const result1 = selectJobsForCompany(mockState, 'spacex');
+      const result2 = selectJobsForCompany(mockState, 'nominal');
+
+      // Should return different references for different companies
+      expect(result1).not.toBe(result2);
     });
   });
 });

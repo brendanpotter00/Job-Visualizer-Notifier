@@ -254,7 +254,7 @@ describe('createFilterSlice', () => {
       });
 
       expect(newState.filters.searchTags).toHaveLength(2);
-      expect(newState.filters.searchTags?.map(t => t.text)).toEqual(['frontend', 'backend']);
+      expect(newState.filters.searchTags?.map((t) => t.text)).toEqual(['frontend', 'backend']);
     });
 
     it('should remove search tag by text', () => {

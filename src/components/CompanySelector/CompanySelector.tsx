@@ -1,7 +1,6 @@
 import { FormControl, InputLabel, Select, MenuItem, SelectChangeEvent } from '@mui/material';
 import { useAppDispatch, useAppSelector } from '../../app/hooks';
 import { selectCompany } from '../../features/app/appSlice';
-import { loadJobsForCompany } from '../../features/jobs/jobsThunks';
 import { COMPANIES } from '../../config/companies';
 
 /**
@@ -10,19 +9,11 @@ import { COMPANIES } from '../../config/companies';
 export function CompanySelector() {
   const dispatch = useAppDispatch();
   const selectedCompanyId = useAppSelector((state) => state.app.selectedCompanyId);
-  const graphFilters = useAppSelector((state) => state.graphFilters.filters);
 
   const handleCompanyChange = (event: SelectChangeEvent) => {
     const newCompanyId = event.target.value;
     dispatch(selectCompany(newCompanyId));
-
-    // Load jobs for the new company with current time window
-    dispatch(
-      loadJobsForCompany({
-        companyId: newCompanyId,
-        timeWindow: graphFilters.timeWindow,
-      })
-    );
+    // useCompanyLoader hook (in App.tsx) handles loading jobs automatically
   };
 
   return (
