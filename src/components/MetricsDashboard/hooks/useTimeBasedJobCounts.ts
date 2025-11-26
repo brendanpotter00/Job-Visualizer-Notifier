@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import type { Job } from '../../../types';
+import { TIME_UNITS } from '../../../constants/timeConstants';
 
 interface TimeBasedCounts {
   jobsLast3Days: number;
@@ -16,9 +17,9 @@ interface TimeBasedCounts {
 export function useTimeBasedJobCounts(allJobs: Job[]): TimeBasedCounts {
   return useMemo(() => {
     const now = Date.now();
-    const last3Days = now - 3 * 24 * 60 * 60 * 1000;
-    const last24Hours = now - 24 * 60 * 60 * 1000;
-    const last12Hours = now - 12 * 60 * 60 * 1000;
+    const last3Days = now - 3 * TIME_UNITS.DAY;
+    const last24Hours = now - 24 * TIME_UNITS.HOUR;
+    const last12Hours = now - 12 * TIME_UNITS.HOUR;
 
     return {
       jobsLast3Days: allJobs.filter((job) => new Date(job.createdAt).getTime() >= last3Days).length,

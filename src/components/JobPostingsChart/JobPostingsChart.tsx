@@ -32,14 +32,29 @@ interface JobPostingsChartProps {
 }
 
 /**
+ * Props for ChartTooltip component
+ */
+interface ChartTooltipProps {
+  active?: boolean;
+  payload?: Array<{
+    payload: {
+      time: number;
+      count: number;
+      label: string;
+      bucket: TimeBucket;
+    };
+  }>;
+}
+
+/**
  * Custom tooltip for the chart
  */
-function ChartTooltip({ active, payload }: any) {
+function ChartTooltip({ active, payload }: ChartTooltipProps) {
   if (!active || !payload || !payload.length) {
     return null;
   }
 
-  const data = payload[0].payload as { time: number; count: number; label: string };
+  const data = payload[0].payload;
   if (!data) return null;
 
   return (

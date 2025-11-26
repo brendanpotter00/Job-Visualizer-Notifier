@@ -1,5 +1,6 @@
 import type { RoleClassification, SoftwareRoleCategory, Job } from '../types';
 import { ROLE_CLASSIFICATION_CONFIG } from '../config/roleClassificationConfig';
+import { CLASSIFICATION_CONFIDENCE } from '../constants/classificationConstants';
 
 /**
  * Classifies a job role based on title, department, team, and tags.
@@ -20,7 +21,7 @@ export function classifyJobRole(job: Partial<Job>): RoleClassification {
     return {
       isSoftwareAdjacent: false,
       category: 'nonTech',
-      confidence: 0.9,
+      confidence: CLASSIFICATION_CONFIDENCE.EXCLUSION,
       matchedKeywords: [],
     };
   }
@@ -84,11 +85,14 @@ export function classifyJobRole(job: Partial<Job>): RoleClassification {
   }
 
   // Calculate confidence score
-  let confidence = 0.5; // Base confidence
+  let confidence: number = CLASSIFICATION_CONFIDENCE.BASE;
 
   if (maxMatches > 0) {
     // More matches = higher confidence, but cap the increase
-    confidence = Math.min(0.5 + maxMatches * 0.1, 0.85);
+    confidence = Math.min(
+      CLASSIFICATION_CONFIDENCE.BASE + maxMatches * CLASSIFICATION_CONFIDENCE.MATCH_INCREMENT,
+      CLASSIFICATION_CONFIDENCE.MAX_MATCH_BONUS
+    );
   }
 
   // Title matches are more confident than tag matches
@@ -97,17 +101,23 @@ export function classifyJobRole(job: Partial<Job>): RoleClassification {
   );
 
   if (titleKeywords.length > 0) {
-    confidence = Math.min(confidence + 0.15, 0.95);
+    confidence = Math.min(
+      confidence + CLASSIFICATION_CONFIDENCE.TITLE_BONUS,
+      CLASSIFICATION_CONFIDENCE.MAX_CONFIDENCE
+    );
   }
 
   if (isTechDepartment && bestCategory !== 'nonTech') {
     // Tech department adds a small confidence boost
-    confidence = Math.min(confidence + 0.05, 0.95);
+    confidence = Math.min(
+      confidence + CLASSIFICATION_CONFIDENCE.TECH_DEPT_BONUS,
+      CLASSIFICATION_CONFIDENCE.MAX_CONFIDENCE
+    );
   }
 
   // Cap confidence for otherTech category
   if (bestCategory === 'otherTech') {
-    confidence = Math.min(confidence, 0.75);
+    confidence = Math.min(confidence, CLASSIFICATION_CONFIDENCE.OTHER_TECH_MAX);
   }
 
   return {

@@ -1,6 +1,7 @@
 import type { Job, GreenhouseConfig, LeverConfig, AshbyConfig } from '../types';
 import type { JobAPIClient, FetchJobsOptions, FetchJobsResult } from './types';
 import { APIError } from './types';
+import { logger } from '../utils/logger';
 
 /** Union of all ATS company configuration types */
 export type ATSCompanyConfig = GreenhouseConfig | LeverConfig | AshbyConfig;
@@ -66,7 +67,7 @@ export function createAPIClient<TResponse, TConfig extends ATSCompanyConfig>(
 
       // 2. Build URL
       const url = clientConfig.buildUrl(config);
-      console.log(`[${clientConfig.name} Client] Fetching from URL:`, url);
+      logger.debug(`[${clientConfig.name} Client] Fetching from URL:`, url);
 
       try {
         // 3. Fetch with signal and headers
@@ -77,11 +78,11 @@ export function createAPIClient<TResponse, TConfig extends ATSCompanyConfig>(
           },
         });
 
-        console.log(`[${clientConfig.name} Client] Response status:`, response.status);
+        logger.debug(`[${clientConfig.name} Client] Response status:`, response.status);
 
         // 4. Check response status
         if (!response.ok) {
-          console.error(`[${clientConfig.name} Client] Response not OK:`, response.statusText);
+          logger.error(`[${clientConfig.name} Client] Response not OK:`, response.statusText);
           throw new APIError(
             `${clientConfig.name} API error: ${response.statusText}`,
             response.status,
@@ -95,7 +96,7 @@ export function createAPIClient<TResponse, TConfig extends ATSCompanyConfig>(
 
         // 6. Extract jobs array from response
         const rawJobs = clientConfig.extractJobs(data);
-        console.log(`[${clientConfig.name} Client] Received jobs:`, rawJobs.length, 'jobs');
+        logger.debug(`[${clientConfig.name} Client] Received jobs:`, rawJobs.length, 'jobs');
 
         // 7. Transform to internal model
         const identifier = clientConfig.getIdentifier(config);
@@ -119,7 +120,7 @@ export function createAPIClient<TResponse, TConfig extends ATSCompanyConfig>(
           },
         };
       } catch (error) {
-        console.error(`[${clientConfig.name} Client] Error:`, error);
+        logger.error(`[${clientConfig.name} Client] Error:`, error);
 
         // Re-throw APIError as-is
         if (error instanceof APIError) {
