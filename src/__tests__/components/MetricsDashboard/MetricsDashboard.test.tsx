@@ -341,18 +341,25 @@ describe('MetricsDashboard', () => {
       </Provider>
     );
 
-    // Palantir has empty string for recruiterLinkedInUrl, should show "URL not configured"
-    expect(screen.getByText('URL not configured')).toBeInTheDocument();
+    // Palantir has both URLs configured, should show LinkedIn Search link
+    const linkedInLink = screen.getByText('LinkedIn Search');
+    expect(linkedInLink).toBeInTheDocument();
+    expect(linkedInLink.closest('a')).toHaveAttribute(
+      'href',
+      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%2220708%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=%40ld&sortBy=%22date_posted%22'
+    );
+    expect(linkedInLink.closest('a')).toHaveAttribute('target', '_blank');
+    expect(linkedInLink.closest('a')).toHaveAttribute('rel', 'noopener noreferrer');
   });
 
   it('displays placeholder text when URLs are not configured', () => {
     const store = createMockStore({
       app: {
-        selectedCompanyId: 'palantir',
+        selectedCompanyId: 'nonexistent-company',
       },
       jobs: {
         byCompany: {
-          palantir: {
+          'nonexistent-company': {
             items: [],
             isLoading: false,
             metadata: {
@@ -370,9 +377,9 @@ describe('MetricsDashboard', () => {
       </Provider>
     );
 
-    // Should show "URL not configured" for recruiter LinkedIn
+    // Should show "URL not configured" for both job postings and LinkedIn recruiter
     const notConfiguredTexts = screen.getAllByText('URL not configured');
-    expect(notConfiguredTexts.length).toBeGreaterThan(0);
+    expect(notConfiguredTexts.length).toBe(2);
   });
 
   it('does not render metric icons', () => {
