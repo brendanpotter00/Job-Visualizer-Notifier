@@ -34,23 +34,78 @@ export interface ClientConfig<TResponse, TConfig extends ATSCompanyConfig> {
 /**
  * Factory function to create an API client with shared logic.
  *
- * This eliminates 90%+ code duplication across ATS clients by extracting
- * common patterns: fetch, error handling, filtering, metadata calculation.
+ * This factory eliminates 220+ lines of code duplication across ATS clients by
+ * extracting common patterns into a reusable implementation. All API clients
+ * (Greenhouse, Lever, Ashby) are created using this factory.
+ *
+ * **Shared Logic Provided:**
+ * 1. Config validation with type guards
+ * 2. URL building from config
+ * 3. Fetch with AbortSignal support
+ * 4. HTTP error handling (retryable vs non-retryable)
+ * 5. JSON parsing with error handling
+ * 6. Job extraction from response structure
+ * 7. Transformation to unified Job model
+ * 8. Optional 'since' date filtering
+ * 9. Optional 'limit' count filtering
+ * 10. Metadata calculation (total, software count, timestamp)
+ * 11. Environment-aware logging
+ *
+ * **Error Handling:**
+ * - HTTP 500/503/429: Retryable APIError
+ * - HTTP 401/403/404: Non-retryable APIError
+ * - Network errors: Retryable APIError
+ * - JSON parse errors: Retryable APIError (malformed response)
+ *
+ * **Benefits:**
+ * - Consistency: All clients behave identically
+ * - Maintainability: Fix bugs once, applies to all clients
+ * - Extensibility: Add new ATS provider in ~15 lines
+ * - Type Safety: Generic types ensure correct configuration
+ *
+ * @template TResponse - Raw API response type (e.g., GreenhouseAPIResponse)
+ * @template TConfig - Company configuration type (e.g., GreenhouseConfig)
+ *
+ * @param clientConfig - Configuration object defining client-specific behavior
+ * @returns JobAPIClient implementation with fetchJobs method
  *
  * @example
  * ```typescript
- * export const greenhouseClient = createAPIClient({
+ * // Creating a Greenhouse client (~15 lines vs 74 lines before)
+ * export const greenhouseClient = createAPIClient<
+ *   GreenhouseAPIResponse,
+ *   GreenhouseConfig
+ * >({
  *   name: 'Greenhouse',
- *   buildUrl: (config) => `${config.apiBaseUrl}/v1/boards/${config.boardToken}/jobs?content=true`,
+ *   buildUrl: (config) =>
+ *     `${config.apiBaseUrl}/v1/boards/${config.boardToken}/jobs?content=true`,
  *   extractJobs: (response) => response.jobs,
  *   transformer: transformGreenhouseJob,
  *   getIdentifier: (config) => config.boardToken,
- *   validateConfig: (config): config is GreenhouseConfig => config.type === 'greenhouse',
+ *   validateConfig: (config): config is GreenhouseConfig =>
+ *     config.type === 'greenhouse',
  * });
  * ```
  *
- * @param clientConfig - Configuration for the specific ATS client
- * @returns JobAPIClient implementation
+ * @example
+ * ```typescript
+ * // Adding a new ATS provider (hypothetical example)
+ * export const newATSClient = createAPIClient<NewATSResponse, NewATSConfig>({
+ *   name: 'NewATS',
+ *   buildUrl: (config) => `${config.apiBaseUrl}/api/v1/jobs`,
+ *   extractJobs: (response) => response.data.positions,
+ *   transformer: transformNewATSJob,
+ *   getIdentifier: (config) => config.companyId,
+ *   validateConfig: (config): config is NewATSConfig =>
+ *     config.type === 'newats',
+ * });
+ * ```
+ *
+ * @see {@link ClientConfig} for configuration interface details
+ * @see {@link JobAPIClient} for returned client interface
+ * @see {@link APIError} for error handling details
+ * @see docs/architecture.md for factory pattern diagram
+ * @see docs/MIGRATION.md for migration guide from old pattern
  */
 export function createAPIClient<TResponse, TConfig extends ATSCompanyConfig>(
   clientConfig: ClientConfig<TResponse, TConfig>
