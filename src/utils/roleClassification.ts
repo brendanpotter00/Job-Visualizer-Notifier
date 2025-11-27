@@ -101,9 +101,10 @@ function findCategoryMatches(combinedText: string): Record<SoftwareRoleCategory,
  * // Frontend wins with 2 matches vs backend's 1 match
  * ```
  */
-function selectBestCategory(
-  categoryMatches: Record<SoftwareRoleCategory, string[]>
-): { category: SoftwareRoleCategory; matchCount: number } {
+function selectBestCategory(categoryMatches: Record<SoftwareRoleCategory, string[]>): {
+  category: SoftwareRoleCategory;
+  matchCount: number;
+} {
   let bestCategory: SoftwareRoleCategory = 'nonTech';
   let maxMatches = 0;
 
@@ -316,7 +317,13 @@ export function classifyJobRole(job: Partial<Job>): RoleClassification {
   const isSoftwareAdjacent = finalCategory !== 'nonTech' || (isTechDepartment && matchCount === 0);
 
   // Calculate confidence score
-  const confidence = calculateConfidence(matchCount, finalCategory, categoryMatches, title, isTechDepartment);
+  const confidence = calculateConfidence(
+    matchCount,
+    finalCategory,
+    categoryMatches,
+    title,
+    isTechDepartment
+  );
 
   return {
     isSoftwareAdjacent,
