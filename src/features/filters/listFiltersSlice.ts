@@ -9,7 +9,7 @@ export interface ListFiltersState {
 }
 
 const initialFilters: ListFilters = {
-  timeWindow: '30d',
+  timeWindow: '24h',
   searchTags: undefined,
   softwareOnly: false,
   roleCategory: undefined,

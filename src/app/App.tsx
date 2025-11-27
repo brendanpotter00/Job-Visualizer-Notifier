@@ -1,4 +1,4 @@
-import { Box, Container, Alert, Button } from '@mui/material';
+import { Box, Container, Alert, Button, capitalize } from '@mui/material';
 import { Refresh } from '@mui/icons-material';
 import { useAppSelector, useURLSync, useCompanyLoader, useBrowserNavigation } from './hooks';
 import { AppHeader } from '../components/AppLayout/AppHeader';
@@ -13,7 +13,6 @@ import { getCompanyById } from '../config/companies';
  * Uses custom hooks for complex logic and presentational components for UI.
  */
 function App() {
-  const selectedCompanyId = useAppSelector((state) => state.app.selectedCompanyId);
   const globalLoading = useAppSelector((state) => state.ui.globalLoading);
 
   // Custom hooks handle complex side effects and business logic
@@ -21,14 +20,12 @@ function App() {
   useURLSync();
   useBrowserNavigation();
 
-  // Derive presentation data
-  const companyName = getCompanyById(selectedCompanyId)?.name || 'Job Posting Analytics';
   const showLoading = globalLoading || isLoading;
 
   return (
     <Container maxWidth="xl">
       <Box sx={{ my: 4 }}>
-        <AppHeader companyName={companyName} />
+        <AppHeader />
 
         {error && (
           <Alert
