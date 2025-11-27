@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import type { Job } from '../../../types';
+import { TIME_UNITS } from '../../../constants/timeConstants';
 
 interface TimeBasedCounts {
   jobsLast3Days: number;
@@ -9,15 +10,16 @@ interface TimeBasedCounts {
 
 /**
  * Custom hook to calculate time-based job counts
+ * Calculations are deterministic based on job.createdAt timestamps
  * @param allJobs - Array of all jobs for the company
- * @param currentTime - Current timestamp in milliseconds
  * @returns Memoized object with counts for different time windows
  */
-export function useTimeBasedJobCounts(allJobs: Job[], currentTime: number): TimeBasedCounts {
+export function useTimeBasedJobCounts(allJobs: Job[]): TimeBasedCounts {
   return useMemo(() => {
-    const last3Days = currentTime - 3 * 24 * 60 * 60 * 1000;
-    const last24Hours = currentTime - 24 * 60 * 60 * 1000;
-    const last12Hours = currentTime - 12 * 60 * 60 * 1000;
+    const now = Date.now();
+    const last3Days = now - 3 * TIME_UNITS.DAY;
+    const last24Hours = now - 24 * TIME_UNITS.HOUR;
+    const last12Hours = now - 12 * TIME_UNITS.HOUR;
 
     return {
       jobsLast3Days: allJobs.filter((job) => new Date(job.createdAt).getTime() >= last3Days).length,
@@ -26,5 +28,5 @@ export function useTimeBasedJobCounts(allJobs: Job[], currentTime: number): Time
       jobsLast12Hours: allJobs.filter((job) => new Date(job.createdAt).getTime() >= last12Hours)
         .length,
     };
-  }, [allJobs, currentTime]);
+  }, [allJobs]);
 }

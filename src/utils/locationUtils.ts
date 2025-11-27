@@ -59,6 +59,12 @@ export const US_STATE_CODES = [
 ];
 
 /**
+ * Pre-compiled RegExp for US state code detection
+ * Matches locations ending with ", XX" where XX is a US state code
+ */
+const STATE_PATTERN = new RegExp(`, (${US_STATE_CODES.join('|')})$`);
+
+/**
  * Determines if a location string represents a United States location.
  *
  * Detection logic:
@@ -86,6 +92,5 @@ export function isUnitedStatesLocation(location: string | undefined): boolean {
   }
 
   // Check for ", XX" pattern where XX is a US state code
-  const statePattern = new RegExp(`, (${US_STATE_CODES.join('|')})$`);
-  return statePattern.test(location);
+  return STATE_PATTERN.test(location);
 }

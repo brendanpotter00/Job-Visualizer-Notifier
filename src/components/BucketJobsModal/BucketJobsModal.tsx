@@ -10,6 +10,7 @@ import {
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import { format } from 'date-fns';
+import { useMemo } from 'react';
 import { useAppDispatch, useAppSelector } from '../../app/hooks';
 import { closeGraphModal } from '../../features/ui/uiSlice';
 import { JobList } from '../JobList/JobList';
@@ -32,13 +33,16 @@ export function BucketJobsModal() {
     dispatch(closeGraphModal());
   };
 
+  // Filter jobs to only those in this bucket (memoized to prevent unnecessary filtering)
+  const bucketJobs = useMemo(
+    () => allJobs.filter((job) => filteredJobIds?.includes(job.id)),
+    [allJobs, filteredJobIds]
+  );
+
   // Don't render if modal is not open or data is missing
   if (!open || !bucketStart || !bucketEnd) {
     return null;
   }
-
-  // Filter jobs to only those in this bucket
-  const bucketJobs = allJobs.filter((job) => filteredJobIds?.includes(job.id));
 
   const startDate = new Date(bucketStart);
   const endDate = new Date(bucketEnd);

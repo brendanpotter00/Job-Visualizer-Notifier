@@ -1,4 +1,4 @@
-import { Box, Paper, Typography } from '@mui/material';
+import { Box, Typography } from '@mui/material';
 import {
   LineChart,
   Line,
@@ -9,9 +9,12 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { format } from 'date-fns';
+import { useMemo } from 'react';
 import { ChartSkeleton } from '../LoadingIndicator';
 import { formatBucketLabel } from '../../utils/dateUtils';
 import type { TimeBucket, TimeWindow } from '../../types';
+import { ChartTooltip } from './ChartTooltip';
+import { CustomDot } from './CustomDot';
 
 interface JobPostingsChartProps {
   /** Bucketed data for the chart */
@@ -28,54 +31,6 @@ interface JobPostingsChartProps {
 
   /** Optional height override */
   height?: number;
-}
-
-/**
- * Custom tooltip for the chart
- */
-function ChartTooltip({ active, payload }: any) {
-  if (!active || !payload || !payload.length) {
-    return null;
-  }
-
-  const data = payload[0].payload as { time: number; count: number; label: string };
-  if (!data) return null;
-
-  return (
-    <Paper sx={{ p: 1.5, border: '1px solid', borderColor: 'divider' }}>
-      <Typography variant="body2" fontWeight="bold">
-        {data.label}
-      </Typography>
-      <Typography variant="body2" color="text.secondary">
-        {data.count} {data.count === 1 ? 'job' : 'jobs'} posted
-      </Typography>
-    </Paper>
-  );
-}
-
-/**
- * Custom dot component that handles clicks
- */
-interface CustomDotProps {
-  cx?: number;
-  cy?: number;
-  r?: number;
-  fill?: string;
-  stroke?: string;
-  strokeWidth?: number;
-  payload?: any;
-  onPointClick?: (bucket: TimeBucket) => void;
-}
-
-function CustomDot({ cx, cy, r = 4, fill, payload, onPointClick }: CustomDotProps) {
-  const handleClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (payload?.bucket && onPointClick) {
-      onPointClick(payload.bucket);
-    }
-  };
-
-  return <circle cx={cx} cy={cy} r={r} fill={fill} cursor="pointer" onClick={handleClick} />;
 }
 
 /**
@@ -111,13 +66,17 @@ export function JobPostingsChart({
     );
   }
 
-  // Transform TimeBucket[] to Recharts format
-  const chartData = data.map((bucket) => ({
-    time: new Date(bucket.bucketStart).getTime(),
-    count: bucket.count,
-    label: format(new Date(bucket.bucketStart), 'MMM d HH:mm'),
-    bucket, // Store original for click handler
-  }));
+  // Transform TimeBucket[] to Recharts format (memoized to prevent unnecessary recalculations)
+  const chartData = useMemo(
+    () =>
+      data.map((bucket) => ({
+        time: new Date(bucket.bucketStart).getTime(),
+        count: bucket.count,
+        label: format(new Date(bucket.bucketStart), 'MMM d HH:mm'),
+        bucket, // Store original for click handler
+      })),
+    [data]
+  );
 
   return (
     <ResponsiveContainer width="100%" height={height}>

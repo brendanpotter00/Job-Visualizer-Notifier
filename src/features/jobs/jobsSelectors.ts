@@ -2,13 +2,13 @@ import { createSelector } from '@reduxjs/toolkit';
 import type { RootState } from '../../app/store';
 
 /**
- * Select all jobs for a specific company
+ * Select all jobs for a specific company (parameterized selector)
+ * Usage: useAppSelector(state => selectJobsForCompany(state, companyId))
  */
-export const selectJobsForCompany = (companyId: string) =>
-  createSelector(
-    [(state: RootState) => state.jobs.byCompany[companyId]],
-    (companyState) => companyState?.items || []
-  );
+export const selectJobsForCompany = createSelector(
+  [(state: RootState) => state.jobs.byCompany, (_state: RootState, companyId: string) => companyId],
+  (byCompany, companyId) => byCompany[companyId]?.items || []
+);
 
 /**
  * Select jobs for the currently selected company
