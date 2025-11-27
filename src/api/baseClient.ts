@@ -1,10 +1,10 @@
-import type { Job, GreenhouseConfig, LeverConfig, AshbyConfig } from '../types';
+import type { Job, GreenhouseConfig, LeverConfig, AshbyConfig, WorkdayConfig } from '../types';
 import type { JobAPIClient, FetchJobsOptions, FetchJobsResult } from './types';
 import { APIError } from './types';
 import { logger } from '../utils/logger';
 
 /** Union of all ATS company configuration types */
-export type ATSCompanyConfig = GreenhouseConfig | LeverConfig | AshbyConfig;
+export type ATSCompanyConfig = GreenhouseConfig | LeverConfig | AshbyConfig | WorkdayConfig;
 
 /**
  * Configuration for creating an API client

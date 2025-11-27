@@ -31,7 +31,7 @@ describe('Redux Store', () => {
 
     expect(state.graphFilters.filters.timeWindow).toBe('30d');
     expect(state.graphFilters.filters.softwareOnly).toBe(false);
-    expect(state.listFilters.filters.timeWindow).toBe('30d');
+    expect(state.listFilters.filters.timeWindow).toBe('24h');
     expect(state.listFilters.filters.searchTags).toBeUndefined();
   });
 

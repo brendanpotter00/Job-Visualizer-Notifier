@@ -273,6 +273,21 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?authorCompany=%5B%2218505670%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=o-E&sortBy=%22date_posted%22',
   },
+  {
+    id: 'nvidia',
+    name: 'NVIDIA',
+    ats: 'workday',
+    config: {
+      type: 'workday',
+      baseUrl: 'https://nvidia.wd5.myworkdayjobs.com',
+      tenantSlug: 'nvidia',
+      careerSiteSlug: 'NVIDIAExternalCareerSite',
+      jobsUrl: 'https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/details',
+    },
+    jobsUrl: 'https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/details',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%223608%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=YU9&sortBy=%22date_posted%22',
+  },
 ];
 
 /**

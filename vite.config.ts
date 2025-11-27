@@ -25,6 +25,12 @@ export default defineConfig({
         rewrite: (path) => path.replace(/^\/api\/ashby/, ''),
         secure: false,
       },
+      '/api/workday': {
+        target: 'https://nvidia.wd5.myworkdayjobs.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/workday/, ''),
+        secure: false,
+      },
     },
   },
   build: {

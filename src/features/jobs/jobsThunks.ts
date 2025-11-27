@@ -4,6 +4,7 @@ import { getCompanyById } from '../../config/companies';
 import { greenhouseClient } from '../../api/greenhouseClient';
 import { leverClient } from '../../api/leverClient';
 import { ashbyClient } from '../../api/ashbyClient';
+import { workdayClient } from '../../api/workdayClient';
 import { APIError } from '../../api/types';
 import { calculateSinceTimestamp } from '../../utils/dateUtils';
 
@@ -34,7 +35,9 @@ export const loadJobsForCompany = createAsyncThunk(
           ? greenhouseClient
           : company.ats === 'lever'
             ? leverClient
-            : ashbyClient;
+            : company.ats === 'ashby'
+              ? ashbyClient
+              : workdayClient;
 
       const result = await client.fetchJobs(company.config, {
         since,

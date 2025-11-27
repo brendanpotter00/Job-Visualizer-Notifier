@@ -1,4 +1,4 @@
-import type { Job, GreenhouseConfig, LeverConfig, AshbyConfig } from '../types';
+import type { Job, GreenhouseConfig, LeverConfig, AshbyConfig, WorkdayConfig } from '../types';
 
 /**
  * Greenhouse job board API response
@@ -102,6 +102,40 @@ export interface AshbyAPIResponse {
 }
 
 /**
+ * Workday job posting from API response
+ * NOTE: This is a preliminary structure - will be updated after investigating actual API response
+ */
+export interface WorkdayJobPosting {
+  /** Job title */
+  title: string;
+  /** Relative path to job posting (combine with baseUrl for full URL) */
+  externalPath: string;
+  /** Location text (may be "X Locations" for multiple) */
+  locationsText?: string;
+  /** Relative posting date (e.g., "Posted Today", "Posted Yesterday") */
+  postedOn?: string;
+  /** Array of metadata, first element is typically job requisition ID */
+  bulletFields?: string[];
+  /** Allow additional fields we haven't discovered yet */
+  [key: string]: unknown;
+}
+
+/**
+ * Workday jobs API response
+ * NOTE: This is a preliminary structure - will be updated after investigating actual API response
+ */
+export interface WorkdayJobsResponse {
+  /** Total number of matching jobs (used for pagination) */
+  total: number;
+  /** Array of job postings for current page */
+  jobPostings: WorkdayJobPosting[];
+  /** Available filters (not used in V1) */
+  facets?: unknown[];
+  /** Whether user is authenticated (always false for public API) */
+  userAuthenticated?: boolean;
+}
+
+/**
  * Standard API client interface.
  * All ATS clients implement this interface.
  */
@@ -113,7 +147,7 @@ export interface JobAPIClient {
    * @returns Normalized jobs array
    */
   fetchJobs(
-    config: GreenhouseConfig | LeverConfig | AshbyConfig,
+    config: GreenhouseConfig | LeverConfig | AshbyConfig | WorkdayConfig,
     options?: FetchJobsOptions
   ): Promise<FetchJobsResult>;
 }
@@ -145,7 +179,7 @@ export class APIError extends Error {
   constructor(
     message: string,
     public statusCode?: number,
-    public atsProvider?: 'greenhouse' | 'lever' | 'ashby',
+    public atsProvider?: 'greenhouse' | 'lever' | 'ashby' | 'workday',
     public retryable: boolean = false
   ) {
     super(message);
