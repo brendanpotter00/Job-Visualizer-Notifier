@@ -35,7 +35,14 @@ export const workdayClient: JobAPIClient = {
     // Use proxy since Workday does NOT support CORS
     const apiBase = workdayConfig.apiBaseUrl || '/api/workday';
     const baseUrl = workdayConfig.baseUrl.replace(/\/+$/, ''); // Remove trailing slashes (for URL generation)
-    const jobsUrl = `${apiBase}/wday/cxs/${workdayConfig.tenantSlug}/${workdayConfig.careerSiteSlug}/jobs`;
+
+    // Extract domain from baseUrl and encode for proxy routing
+    // Example: https://nvidia.wd5.myworkdayjobs.com → nvidia.wd5.myworkdayjobs.com → base64url encoded
+    const domain = new URL(baseUrl).hostname;
+    const encodedDomain = Buffer.from(domain).toString('base64url');
+
+    // Build URL with encoded domain as first path segment for serverless function routing
+    const jobsUrl = `${apiBase}/${encodedDomain}/wday/cxs/${workdayConfig.tenantSlug}/${workdayConfig.careerSiteSlug}/jobs`;
 
     logger.debug('[Workday Client] Fetching jobs from:', jobsUrl);
 
