@@ -283,6 +283,12 @@ export const COMPANIES: Company[] = [
       tenantSlug: 'nvidia',
       careerSiteSlug: 'NVIDIAExternalCareerSite',
       jobsUrl: 'https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/details',
+      // Default facet filters - restricts to US Engineering full-time positions
+      defaultFacets: {
+        locationHierarchy1: ['2fcb99c455831013ea52fb338f2932d8'], // United States
+        jobFamilyGroup: ['0c40f6bd1d8f10ae43ffaefd46dc7e78'], // Engineering
+        timeType: ['5509c0b5959810ac0029943377d47364'], // Full time
+      },
     },
     jobsUrl: 'https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/details',
     recruiterLinkedInUrl:

@@ -121,18 +121,42 @@ export interface WorkdayJobPosting {
 }
 
 /**
+ * Workday facet value - represents a single selectable filter option
+ */
+export interface WorkdayFacetValue {
+  /** Human-readable name (e.g., "United States", "Engineering") */
+  descriptor: string;
+  /** Opaque identifier used in appliedFacets (e.g., "2fcb99c455831013ea52fb338f2932d8") */
+  id: string;
+  /** Number of jobs matching this facet value */
+  count: number;
+}
+
+/**
+ * Workday facet - represents a filter category with available options
+ */
+export interface WorkdayFacet {
+  /** Facet type identifier (e.g., "locationHierarchy1", "jobFamilyGroup") */
+  facetParameter: string;
+  /** Human-readable facet name (e.g., "Locations", "Job Category") */
+  descriptor?: string;
+  /** Available filter values for this facet */
+  values: WorkdayFacetValue[];
+}
+
+/**
  * Workday jobs API response
- * NOTE: This is a preliminary structure - will be updated after investigating actual API response
+ * @see https://[tenant].wd5.myworkdayjobs.com/wday/cxs/[tenant]/[careerSite]/jobs
  */
 export interface WorkdayJobsResponse {
   /** Total number of matching jobs (used for pagination) */
   total: number;
   /** Array of job postings for current page */
   jobPostings: WorkdayJobPosting[];
-  /** Available filters (not used in V1) */
-  facets?: unknown[];
+  /** Available filters with counts (only present in first page response) */
+  facets: WorkdayFacet[];
   /** Whether user is authenticated (always false for public API) */
-  userAuthenticated?: boolean;
+  userAuthenticated: boolean;
 }
 
 /**
