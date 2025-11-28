@@ -45,7 +45,21 @@ export const workdayClient: JobAPIClient = {
     }
 
     // Use shared base64url utility with round-trip validation
-    const encodedDomain = encodeBase64url(domain);
+    let encodedDomain: string;
+    try {
+      encodedDomain = encodeBase64url(domain);
+      if (!encodedDomain || encodedDomain.length === 0) {
+        throw new Error(`encodeBase64url returned empty string for domain: ${domain}`);
+      }
+    } catch (err) {
+      logger.error('[Workday Client] Failed to encode domain:', {
+        domain,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      throw new Error(
+        `Failed to encode Workday domain "${domain}": ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
 
     // Build URL with encoded domain as first path segment for serverless function routing
     const jobsUrl = `${apiBase}/${encodedDomain}/wday/cxs/${workdayConfig.tenantSlug}/${workdayConfig.careerSiteSlug}/jobs`;
@@ -53,6 +67,7 @@ export const workdayClient: JobAPIClient = {
     logger.debug('[Workday Client] Fetching jobs from:', {
       originalDomain: domain,
       encodedDomain: encodedDomain,
+      encodedDomainLength: encodedDomain.length,
       jobsUrl: jobsUrl,
       validBase64url: /^[A-Za-z0-9_-]+$/.test(encodedDomain),
     });
