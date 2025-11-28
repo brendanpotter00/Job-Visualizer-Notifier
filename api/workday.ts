@@ -44,12 +44,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Build the full Workday API URL
   const targetUrl = `https://${domain}/${remainingPath}`;
 
+  // Parse request body if it's a Buffer
+  let requestBody = req.body;
+  if (Buffer.isBuffer(requestBody)) {
+    try {
+      requestBody = JSON.parse(requestBody.toString('utf-8'));
+    } catch (err) {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: 'Invalid JSON in request body',
+      });
+    }
+  }
+
   console.log('[Workday Proxy] Request:', {
     method: req.method,
     encodedDomain,
     decodedDomain: domain,
     targetUrl,
-    hasBody: !!req.body,
+    hasBody: !!requestBody,
+    bodyType: typeof requestBody,
   });
 
   try {
@@ -62,7 +77,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         'User-Agent': 'Job-Visualizer-Notifier/1.0',
       },
       // Forward POST body for pagination/filters/search
-      body: req.method === 'POST' ? JSON.stringify(req.body) : undefined,
+      body: req.method === 'POST' ? JSON.stringify(requestBody) : undefined,
     });
 
     console.log('[Workday Proxy] Response status:', response.status);
