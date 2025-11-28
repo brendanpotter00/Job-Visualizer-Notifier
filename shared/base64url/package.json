@@ -1,0 +1,8 @@
+{
+  "name": "@job-visualizer/base64url",
+  "version": "1.0.0",
+  "description": "Shared base64url encoding/decoding utility for Workday API integration",
+  "main": "index.ts",
+  "types": "index.ts",
+  "private": true
+}

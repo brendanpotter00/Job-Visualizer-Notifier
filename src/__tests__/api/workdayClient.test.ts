@@ -3,6 +3,7 @@ import { workdayClient } from '../../api/workdayClient';
 import type { WorkdayConfig } from '../../types';
 import type { WorkdayJobPosting } from '../../api/types';
 import { APIError } from '../../api/types';
+import { decodeBase64url } from '@shared/base64url';
 
 describe('workdayClient', () => {
   beforeEach(() => {
@@ -1172,7 +1173,8 @@ describe('workdayClient', () => {
 
       await workdayClient.fetchJobs(config);
 
-      expect(capturedUrl).toContain('/api/workday/wday/cxs');
+      // URL now includes encoded domain: /api/workday/{encoded}/wday/cxs/...
+      expect(capturedUrl).toMatch(/\/api\/workday\/[A-Za-z0-9_-]+\/wday\/cxs/);
     });
 
     it('should handle AbortSignal for request cancellation', async () => {
@@ -1313,6 +1315,99 @@ describe('workdayClient', () => {
       expect(result.jobs).toHaveLength(2);
       expect(result.jobs[0].location).toBeUndefined(); // Filtered out
       expect(result.jobs[1].location).toBe('US, CA, Santa Clara'); // Preserved
+    });
+  });
+
+  describe('Base64url Domain Encoding', () => {
+    it('should use encodeBase64url for domain in URL', async () => {
+      const config: WorkdayConfig = {
+        type: 'workday',
+        baseUrl: 'https://nvidia.wd5.myworkdayjobs.com',
+        tenantSlug: 'nvidia',
+        careerSiteSlug: 'NVIDIAExternalCareerSite',
+      };
+
+      let capturedUrl: string = '';
+      (globalThis.fetch as any).mockImplementation(async (url: string) => {
+        capturedUrl = url;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ total: 0, jobPostings: [] }),
+        };
+      });
+
+      await workdayClient.fetchJobs(config);
+
+      // Verify URL contains encoded domain in correct position
+      expect(capturedUrl).toMatch(/\/api\/workday\/[A-Za-z0-9_-]+\/wday\/cxs/);
+
+      // Extract encoded domain from URL
+      const urlMatch = capturedUrl.match(/\/api\/workday\/([A-Za-z0-9_-]+)\//);
+      expect(urlMatch).toBeTruthy();
+
+      const encodedDomain = urlMatch![1];
+
+      // Verify encoded domain is valid base64url (no +, /, =)
+      expect(encodedDomain).toMatch(/^[A-Za-z0-9_-]+$/);
+      expect(encodedDomain).not.toContain('+');
+      expect(encodedDomain).not.toContain('/');
+      expect(encodedDomain).not.toContain('=');
+
+      // Verify can decode back to original domain
+      const decodedDomain = decodeBase64url(encodedDomain);
+      expect(decodedDomain).toBe('nvidia.wd5.myworkdayjobs.com');
+    });
+
+    it('should encode different Workday domains correctly', async () => {
+      const testDomains = [
+        { baseUrl: 'https://nvidia.wd5.myworkdayjobs.com', expected: 'nvidia.wd5.myworkdayjobs.com' },
+        { baseUrl: 'https://acme.wd5.myworkdayjobs.com', expected: 'acme.wd5.myworkdayjobs.com' },
+        {
+          baseUrl: 'https://test-company.wd5.myworkdayjobs.com',
+          expected: 'test-company.wd5.myworkdayjobs.com',
+        },
+      ];
+
+      for (const { baseUrl, expected } of testDomains) {
+        const config: WorkdayConfig = {
+          type: 'workday',
+          baseUrl,
+          tenantSlug: 'test',
+          careerSiteSlug: 'TestSite',
+        };
+
+        let capturedUrl: string = '';
+        (globalThis.fetch as any).mockImplementation(async (url: string) => {
+          capturedUrl = url;
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ total: 0, jobPostings: [] }),
+          };
+        });
+
+        await workdayClient.fetchJobs(config);
+
+        // Extract and decode domain
+        const urlMatch = capturedUrl.match(/\/api\/workday\/([A-Za-z0-9_-]+)\//);
+        expect(urlMatch).toBeTruthy();
+        const encodedDomain = urlMatch![1];
+        const decodedDomain = decodeBase64url(encodedDomain);
+
+        expect(decodedDomain).toBe(expected);
+      }
+    });
+
+    it('should throw error if baseUrl has no domain', async () => {
+      const config: WorkdayConfig = {
+        type: 'workday',
+        baseUrl: '', // Invalid - empty
+        tenantSlug: 'test',
+        careerSiteSlug: 'TestSite',
+      };
+
+      await expect(workdayClient.fetchJobs(config)).rejects.toThrow();
     });
   });
 });

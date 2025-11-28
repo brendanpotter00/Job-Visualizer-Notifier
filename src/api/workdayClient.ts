@@ -5,6 +5,7 @@ import type { WorkdayJobsResponse, WorkdayJobPosting } from './types';
 import { APIError } from './types';
 import { logger } from '../utils/logger';
 import { transformWorkdayJob } from './transformers/workdayTransformer';
+import { encodeBase64url } from '@shared/base64url';
 
 /**
  * Workday ATS client - implements JobAPIClient for Workday career sites
@@ -39,16 +40,22 @@ export const workdayClient: JobAPIClient = {
     // Extract domain from baseUrl and encode for proxy routing
     // Example: https://nvidia.wd5.myworkdayjobs.com → nvidia.wd5.myworkdayjobs.com → base64url encoded
     const domain = new URL(baseUrl).hostname;
-    // Use browser-compatible base64 encoding (convert base64 to base64url format)
-    const encodedDomain = btoa(domain)
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=/g, '');
+    if (!domain) {
+      throw new Error(`Cannot extract domain from baseUrl: ${baseUrl}`);
+    }
+
+    // Use shared base64url utility with round-trip validation
+    const encodedDomain = encodeBase64url(domain);
 
     // Build URL with encoded domain as first path segment for serverless function routing
     const jobsUrl = `${apiBase}/${encodedDomain}/wday/cxs/${workdayConfig.tenantSlug}/${workdayConfig.careerSiteSlug}/jobs`;
 
-    logger.debug('[Workday Client] Fetching jobs from:', jobsUrl);
+    logger.debug('[Workday Client] Fetching jobs from:', {
+      originalDomain: domain,
+      encodedDomain: encodedDomain,
+      jobsUrl: jobsUrl,
+      validBase64url: /^[A-Za-z0-9_-]+$/.test(encodedDomain),
+    });
 
     // 3. Initialize pagination
     // IMPORTANT: Workday API has a maximum page size of 20

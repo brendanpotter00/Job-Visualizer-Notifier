@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { decodeBase64url } from '../shared/base64url/index';
 
 /**
  * Vercel serverless function to proxy Workday API requests
@@ -26,18 +27,30 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
   }
 
-  // Decode domain from base64url (convert base64url back to base64, then decode)
+  // Decode domain from base64url using shared utility
   let domain: string;
   try {
-    // Convert base64url to base64
-    const base64 = encodedDomain.replace(/-/g, '+').replace(/_/g, '/');
-    // Decode from base64
-    domain = Buffer.from(base64, 'base64').toString('utf-8');
+    domain = decodeBase64url(encodedDomain);
+
+    console.log('[Workday Proxy] Domain decoded:', {
+      encodedDomain,
+      decodedDomain: domain,
+      timestamp: new Date().toISOString(),
+    });
   } catch (err) {
+    const errorContext = {
+      encodedDomain,
+      error: err instanceof Error ? err.message : String(err),
+      timestamp: new Date().toISOString(),
+    };
+
+    console.error('[Workday Proxy] Base64 decoding failed:', errorContext);
+
     res.setHeader('Access-Control-Allow-Origin', '*');
     return res.status(400).json({
       error: 'Bad Request',
       message: 'Invalid base64url-encoded domain',
+      details: errorContext,
     });
   }
 

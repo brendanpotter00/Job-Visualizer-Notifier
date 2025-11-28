@@ -34,8 +34,14 @@
     "forceConsistentCasingInFileNames": true,
 
     /* Type checking */
-    "types": ["vitest/globals", "@testing-library/jest-dom"]
+    "types": ["vitest/globals", "@testing-library/jest-dom"],
+
+    /* Path mapping for shared modules */
+    "baseUrl": ".",
+    "paths": {
+      "@shared/base64url": ["./shared/base64url/index.ts"]
+    }
   },
-  "include": ["src"],
+  "include": ["src", "shared"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }
