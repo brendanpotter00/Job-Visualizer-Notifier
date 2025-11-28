@@ -26,10 +26,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
   }
 
-  // Decode domain from base64url
+  // Decode domain from base64url (convert base64url back to base64, then decode)
   let domain: string;
   try {
-    domain = Buffer.from(encodedDomain, 'base64url').toString('utf-8');
+    // Convert base64url to base64
+    const base64 = encodedDomain.replace(/-/g, '+').replace(/_/g, '/');
+    // Decode from base64
+    domain = Buffer.from(base64, 'base64').toString('utf-8');
   } catch (err) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     return res.status(400).json({

@@ -39,7 +39,11 @@ export const workdayClient: JobAPIClient = {
     // Extract domain from baseUrl and encode for proxy routing
     // Example: https://nvidia.wd5.myworkdayjobs.com → nvidia.wd5.myworkdayjobs.com → base64url encoded
     const domain = new URL(baseUrl).hostname;
-    const encodedDomain = Buffer.from(domain).toString('base64url');
+    // Use browser-compatible base64 encoding (convert base64 to base64url format)
+    const encodedDomain = btoa(domain)
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=/g, '');
 
     // Build URL with encoded domain as first path segment for serverless function routing
     const jobsUrl = `${apiBase}/${encodedDomain}/wday/cxs/${workdayConfig.tenantSlug}/${workdayConfig.careerSiteSlug}/jobs`;

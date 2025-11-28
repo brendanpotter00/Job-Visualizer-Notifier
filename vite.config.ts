@@ -28,7 +28,15 @@ export default defineConfig({
       '/api/workday': {
         target: 'https://nvidia.wd5.myworkdayjobs.com',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/workday/, ''),
+        rewrite: (path) => {
+          // Strip /api/workday and the base64url-encoded domain segment
+          // Example: /api/workday/bnZpZGlhLndkNS5teXdvcmtkYXlqb2JzLmNvbQ/wday/cxs/nvidia/...
+          // Becomes: /wday/cxs/nvidia/...
+          const withoutPrefix = path.replace(/^\/api\/workday/, '');
+          const segments = withoutPrefix.split('/').filter(Boolean);
+          // Remove first segment (encoded domain) and reconstruct
+          return '/' + segments.slice(1).join('/');
+        },
         secure: false,
       },
     },
