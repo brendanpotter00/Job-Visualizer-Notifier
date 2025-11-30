@@ -76,12 +76,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
     // Forward the status code and data
-    res.status(response.status).json(data);
+    return res.status(response.status).json(data);
   } catch (error) {
     console.error('[Workday Proxy] Error:', error);
 
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.status(500).json({
+    return res.status(500).json({
       error: 'Proxy error',
       message: error instanceof Error ? error.message : 'Unknown error',
     });

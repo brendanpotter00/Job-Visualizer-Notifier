@@ -24,7 +24,7 @@ describe('/api/greenhouse serverless function', () => {
     };
 
     fetchMock = vi.fn();
-    global.fetch = fetchMock;
+    global.fetch = fetchMock as unknown as typeof fetch;
   });
 
   describe('Path Parsing', () => {

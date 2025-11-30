@@ -308,7 +308,6 @@ export const COMPANIES: Company[] = [
       defaultFacets: {
         locationCountry: ['bc33aa3152ec42d4995f4791a106ed09'], // United States
         jobFamilyGroup: ['591af8b812fa10737af39db3d96eed9f', '591af8b812fa10737b43a1662896f01c'], // Engineering, University
-        //     timeType: ['5509c0b5959810ac0029943377d47364'], // Full time
       },
     },
     jobsUrl: 'https://adobe.wd5.myworkdayjobs.com/external_experienced/details',
