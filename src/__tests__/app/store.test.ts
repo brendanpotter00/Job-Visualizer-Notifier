@@ -16,7 +16,7 @@ describe('Redux Store', () => {
     const state = store.getState();
 
     expect(state.app.selectedCompanyId).toBe('spacex');
-    expect(state.app.selectedView).toBe('greenhouse');
+    expect(state.app.selectedATS).toBe('greenhouse');
     expect(state.app.isInitialized).toBe(false);
   });
 

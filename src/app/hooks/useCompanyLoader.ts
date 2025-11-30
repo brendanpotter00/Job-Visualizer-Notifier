@@ -1,6 +1,6 @@
 import { useEffect, useCallback } from 'react';
 import { useAppDispatch, useAppSelector } from '../hooks';
-import { selectCompany } from '../../features/app/appSlice';
+import { setSelectedCompanyId } from '../../features/app/appSlice';
 import { loadJobsForCompany } from '../../features/jobs/jobsThunks';
 import {
   selectCurrentCompanyError,
@@ -28,7 +28,7 @@ export function useCompanyLoader() {
   useEffect(() => {
     const initialCompanyId = getInitialCompanyId();
     if (initialCompanyId !== selectedCompanyId) {
-      dispatch(selectCompany(initialCompanyId));
+      dispatch(setSelectedCompanyId(initialCompanyId));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run on mount

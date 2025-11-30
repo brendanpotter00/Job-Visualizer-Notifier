@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useAppDispatch, useAppSelector } from '../hooks';
-import { selectCompany } from '../../features/app/appSlice';
+import { setSelectedCompanyId } from '../../features/app/appSlice';
 import { getCompanyFromURL } from '../../utils/urlParams';
 
 /**
@@ -22,7 +22,7 @@ export function useBrowserNavigation() {
     const handlePopState = () => {
       const companyFromURL = getCompanyFromURL();
       if (companyFromURL && companyFromURL !== selectedCompanyId) {
-        dispatch(selectCompany(companyFromURL));
+        dispatch(setSelectedCompanyId(companyFromURL));
       }
     };
 

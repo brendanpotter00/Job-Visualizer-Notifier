@@ -1,7 +1,8 @@
 import { FormControl, InputLabel, Select, MenuItem, SelectChangeEvent } from '@mui/material';
 import { useAppDispatch, useAppSelector } from '../../app/hooks';
-import { selectCompany } from '../../features/app/appSlice';
-import { COMPANIES } from '../../config/companies';
+import { setSelectedATS, setSelectedCompanyId } from '../../features/app/appSlice';
+import { COMPANIES, getCompanyById } from '../../config/companies';
+import { ATSConstants } from '../../api/types.ts';
 
 /**
  * Company selector dropdown
@@ -12,7 +13,8 @@ export function CompanySelector() {
 
   const handleCompanyChange = (event: SelectChangeEvent) => {
     const newCompanyId = event.target.value;
-    dispatch(selectCompany(newCompanyId));
+    dispatch(setSelectedCompanyId(newCompanyId));
+    dispatch(setSelectedATS(getCompanyById(newCompanyId)?.ats ?? ATSConstants.Greenhouse));
     // useCompanyLoader hook (in App.tsx) handles loading jobs automatically
   };
 

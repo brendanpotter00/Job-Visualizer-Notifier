@@ -210,3 +210,10 @@ export class APIError extends Error {
     this.name = 'APIError';
   }
 }
+
+export enum ATSConstants {
+  Greenhouse = 'greenhouse',
+  Workday = 'workday',
+  Ashby = 'ashby',
+  Lever = 'lever',
+}

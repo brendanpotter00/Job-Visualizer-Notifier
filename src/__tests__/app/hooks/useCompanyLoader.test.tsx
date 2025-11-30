@@ -194,7 +194,7 @@ describe('useCompanyLoader', () => {
     });
 
     // Change company
-    store.dispatch({ type: 'app/selectCompany', payload: 'anthropic' });
+    store.dispatch({ type: 'app/setSelectedCompanyId', payload: 'anthropic' });
     rerender();
 
     // Should load new company jobs

@@ -1,6 +1,8 @@
-import { Box, CircularProgress, Stack } from '@mui/material';
+import { Box, CircularProgress, Stack, Typography } from '@mui/material';
 import { GraphSection } from '../JobPostingsChart/GraphSection';
 import { ListSection } from '../JobList/ListSection';
+import { useAppSelector } from '../../app/hooks.ts';
+import { ATSConstants } from '../../api/types.ts';
 
 /**
  * Props for the AppContent component
@@ -20,6 +22,7 @@ interface AppContentProps {
  * @returns Loading indicator or main content sections
  */
 export function AppContent({ isLoading }: AppContentProps) {
+  const selectedATS = useAppSelector((state) => state.app.selectedATS);
   if (isLoading) {
     return (
       <Box
@@ -30,7 +33,14 @@ export function AppContent({ isLoading }: AppContentProps) {
           minHeight: '400px',
         }}
       >
-        <CircularProgress size={60} />
+        <Stack direction="column" spacing={2} sx={{ alignItems: 'center', textAlign: 'center' }}>
+          <CircularProgress size={60} />
+          {selectedATS === ATSConstants.Workday && (
+            <Typography variant="body1" color="text.disabled">
+              Workday source requires more loading time to fetch all paginated jobs...
+            </Typography>
+          )}
+        </Stack>
       </Box>
     );
   }

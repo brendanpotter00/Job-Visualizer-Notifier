@@ -120,7 +120,7 @@ describe('CompanySelector', () => {
       vi.clearAllMocks();
     });
 
-    it('should dispatch selectCompany action when company changes', async () => {
+    it('should dispatch setSelectedCompanyId action when company changes', async () => {
       const user = userEvent.setup();
       const testStore = createTestStore();
 
