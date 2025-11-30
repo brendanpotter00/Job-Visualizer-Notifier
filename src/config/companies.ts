@@ -273,6 +273,46 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?authorCompany=%5B%2218505670%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=o-E&sortBy=%22date_posted%22',
   },
+  {
+    id: 'nvidia',
+    name: 'NVIDIA',
+    ats: 'workday',
+    config: {
+      type: 'workday',
+      baseUrl: 'https://nvidia.wd5.myworkdayjobs.com',
+      tenantSlug: 'nvidia',
+      careerSiteSlug: 'NVIDIAExternalCareerSite',
+      jobsUrl: 'https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/details',
+      // Default facet filters - restricts to US Engineering full-time positions
+      defaultFacets: {
+        locationHierarchy1: ['2fcb99c455831013ea52fb338f2932d8'], // United States
+        jobFamilyGroup: ['0c40f6bd1d8f10ae43ffaefd46dc7e78'], // Engineering
+        timeType: ['5509c0b5959810ac0029943377d47364'], // Full time
+      },
+    },
+    jobsUrl: 'https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/details',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%223608%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=YU9&sortBy=%22date_posted%22',
+  },
+  {
+    id: 'adobe',
+    name: 'Adobe',
+    ats: 'workday',
+    config: {
+      type: 'workday',
+      baseUrl: 'https://adobe.wd5.myworkdayjobs.com',
+      tenantSlug: 'adobe',
+      careerSiteSlug: 'external_experienced',
+      jobsUrl: 'https://adobe.wd5.myworkdayjobs.com/external_experienced/details',
+      // Default facet filters - restricts to US Engineering full-time positions
+      defaultFacets: {
+        locationCountry: ['bc33aa3152ec42d4995f4791a106ed09'], // United States
+        jobFamilyGroup: ['591af8b812fa10737af39db3d96eed9f', '591af8b812fa10737b43a1662896f01c'], // Engineering, University
+      },
+    },
+    jobsUrl: 'https://adobe.wd5.myworkdayjobs.com/external_experienced/details',
+    recruiterLinkedInUrl: '',
+  },
 ];
 
 /**

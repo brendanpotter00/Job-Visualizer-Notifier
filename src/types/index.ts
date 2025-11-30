@@ -5,7 +5,7 @@
 /**
  * ATS provider type
  */
-export type ATSProvider = 'greenhouse' | 'lever' | 'ashby';
+export type ATSProvider = 'greenhouse' | 'lever' | 'ashby' | 'workday';
 
 /**
  * Software role categories for filtering and analytics
@@ -173,6 +173,27 @@ export interface AshbyConfig {
 }
 
 /**
+ * Workday-specific configuration
+ */
+export interface WorkdayConfig {
+  type: 'workday';
+  /** Base URL for the Workday tenant (e.g., "https://nvidia.wd5.myworkdayjobs.com") */
+  baseUrl: string;
+  /** Tenant slug - path segment after /wday/cxs/ (e.g., "nvidia") */
+  tenantSlug: string;
+  /** Career site slug - path segment after tenant (e.g., "NVIDIAExternalCareerSite") */
+  careerSiteSlug: string;
+  /** Optional: Job detail base URL for constructing job links (e.g., "https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/details") */
+  jobsUrl?: string;
+  /** Optional: Override default page size for pagination (default: 50) */
+  defaultPageSize?: number;
+  /** Optional: Apply default filters to all requests */
+  defaultFacets?: Record<string, string[]>;
+  /** Optional custom API base URL for proxying */
+  apiBaseUrl?: string;
+}
+
+/**
  * Company configuration for multi-ATS support
  */
 export interface Company {
@@ -186,7 +207,7 @@ export interface Company {
   ats: ATSProvider;
 
   /** ATS-specific configuration */
-  config: GreenhouseConfig | LeverConfig | AshbyConfig;
+  config: GreenhouseConfig | LeverConfig | AshbyConfig | WorkdayConfig;
 
   /** Optional URL to company's job postings website */
   jobsUrl?: string;

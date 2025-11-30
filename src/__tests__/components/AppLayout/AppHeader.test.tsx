@@ -1,14 +1,42 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { Provider } from 'react-redux';
-import { store } from '../../../app/store';
+import { configureStore } from '@reduxjs/toolkit';
+import appReducer from '../../../features/app/appSlice';
+import jobsReducer from '../../../features/jobs/jobsSlice';
+import graphFiltersReducer from '../../../features/filters/graphFiltersSlice';
+import listFiltersReducer from '../../../features/filters/listFiltersSlice';
+import uiReducer from '../../../features/ui/uiSlice';
 import { AppHeader } from '../../../components/AppLayout/AppHeader';
+import type { RootState } from '../../../app/store';
+
+// Helper to create a store with custom initial state
+function createTestStore(preloadedState?: Partial<RootState>) {
+  return configureStore({
+    reducer: {
+      app: appReducer,
+      jobs: jobsReducer,
+      graphFilters: graphFiltersReducer,
+      listFilters: listFiltersReducer,
+      ui: uiReducer,
+    },
+    preloadedState: preloadedState as RootState,
+  });
+}
 
 describe('AppHeader', () => {
   it('should render with company name in title', () => {
+    const testStore = createTestStore({
+      app: {
+        selectedCompanyId: 'spacex',
+        selectedView: 'greenhouse',
+        isInitialized: false,
+      },
+    } as Partial<RootState>);
+
     render(
-      <Provider store={store}>
-        <AppHeader companyName="SpaceX" />
+      <Provider store={testStore}>
+        <AppHeader />
       </Provider>
     );
 
@@ -18,9 +46,17 @@ describe('AppHeader', () => {
   });
 
   it('should render company selector', () => {
+    const testStore = createTestStore({
+      app: {
+        selectedCompanyId: 'anthropic',
+        selectedView: 'greenhouse',
+        isInitialized: false,
+      },
+    } as Partial<RootState>);
+
     render(
-      <Provider store={store}>
-        <AppHeader companyName="Anthropic" />
+      <Provider store={testStore}>
+        <AppHeader />
       </Provider>
     );
 
@@ -28,9 +64,17 @@ describe('AppHeader', () => {
   });
 
   it('should render with default fallback name', () => {
+    const testStore = createTestStore({
+      app: {
+        selectedCompanyId: 'invalid-company-id',
+        selectedView: 'greenhouse',
+        isInitialized: false,
+      },
+    } as Partial<RootState>);
+
     render(
-      <Provider store={store}>
-        <AppHeader companyName="Job Posting Analytics" />
+      <Provider store={testStore}>
+        <AppHeader />
       </Provider>
     );
 
@@ -40,9 +84,17 @@ describe('AppHeader', () => {
   });
 
   it('should have proper layout structure', () => {
+    const testStore = createTestStore({
+      app: {
+        selectedCompanyId: 'notion',
+        selectedView: 'greenhouse',
+        isInitialized: false,
+      },
+    } as Partial<RootState>);
+
     const { container } = render(
-      <Provider store={store}>
-        <AppHeader companyName="Notion" />
+      <Provider store={testStore}>
+        <AppHeader />
       </Provider>
     );
 
@@ -52,17 +104,31 @@ describe('AppHeader', () => {
   });
 
   it('should display different company names correctly', () => {
-    const companies = ['SpaceX', 'Anthropic', 'Notion', 'Stripe', 'Palantir'];
+    const companies = [
+      { id: 'spacex', name: 'SpaceX' },
+      { id: 'anthropic', name: 'Anthropic' },
+      { id: 'notion', name: 'Notion' },
+      { id: 'stripe', name: 'Stripe' },
+      { id: 'palantir', name: 'Palantir' },
+    ];
 
-    companies.forEach((companyName) => {
+    companies.forEach(({ id, name }) => {
+      const testStore = createTestStore({
+        app: {
+          selectedCompanyId: id,
+          selectedView: 'greenhouse',
+          isInitialized: false,
+        },
+      } as Partial<RootState>);
+
       const { unmount } = render(
-        <Provider store={store}>
-          <AppHeader companyName={companyName} />
+        <Provider store={testStore}>
+          <AppHeader />
         </Provider>
       );
 
       expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
-        `${companyName} - Job Posting Analytics`
+        `${name} - Job Posting Analytics`
       );
 
       unmount();

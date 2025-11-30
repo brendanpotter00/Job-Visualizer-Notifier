@@ -48,13 +48,19 @@ export function transformWorkdayJob(
   // Extract company identifier (first part before slash)
   const company = identifier.split('/')[0];
 
+  // Filter out generic location text like "2 Locations", "3 Locations"
+  // Only use locationsText if it's a specific location, not a count
+  const locationText = raw.locationsText;
+  const isGenericLocationCount = locationText && /^\d+\s+Locations?$/i.test(locationText);
+  const location = isGenericLocationCount ? undefined : locationText;
+
   // Create job without classification first
   const jobWithoutClassification = {
     id,
     source: 'workday' as const,
     company,
     title: raw.title,
-    location: raw.locationsText,
+    location,
     createdAt,
     url,
     raw,

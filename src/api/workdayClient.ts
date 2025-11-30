@@ -54,13 +54,7 @@ export const workdayClient: JobAPIClient = {
 
       // 4.1 Build request body
       const requestBody = {
-        // TODO: THESE MIGHT NEED TO BE REMOVED TO MAKE IT JOB AGNOSTIC
-        appliedFacets: {
-          locationHierarchy1: ['2fcb99c455831013ea52fb338f2932d8'],
-          jobFamilyGroup: ['0c40f6bd1d8f10ae43ffaefd46dc7e78'],
-          timeType: ['5509c0b5959810ac0029943377d47364'],
-          ...workdayConfig.defaultFacets, // Allow config to override
-        },
+        appliedFacets: workdayConfig.defaultFacets || {}, // Use config or empty object for job-agnostic fetching
         limit: pageSize,
         offset,
         searchText: '', // Empty for fetching all jobs
