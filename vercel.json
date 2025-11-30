@@ -12,6 +12,10 @@
     {
       "source": "/api/ashby/:path*",
       "destination": "/api/ashby?path=:path*"
+    },
+    {
+      "source": "/api/workday/:path*",
+      "destination": "/api/workday?path=:path*"
     }
   ],
   "headers": [
@@ -24,7 +28,7 @@
         },
         {
           "key": "Access-Control-Allow-Methods",
-          "value": "GET, OPTIONS"
+          "value": "GET, POST, OPTIONS"
         },
         {
           "key": "Access-Control-Allow-Headers",
