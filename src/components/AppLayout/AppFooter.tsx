@@ -12,7 +12,7 @@ export function AppFooter() {
     <Box
       component="footer"
       sx={{
-        mt: 6,
+        mt: 'auto',
         mb: 2,
         pt: 3,
         borderTop: '1px solid',

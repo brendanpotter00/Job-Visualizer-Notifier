@@ -23,36 +23,38 @@ function App() {
   const showLoading = globalLoading || isLoading;
 
   return (
-    <Container maxWidth="xl">
-      <Box sx={{ my: 4 }}>
-        <AppHeader />
+    <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+      <Container maxWidth="xl" sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+        <Box sx={{ my: 4, flex: 1 }}>
+          <AppHeader />
 
-        {error && (
-          <Alert
-            severity="error"
-            sx={{ mb: 3 }}
-            action={
-              <Button
-                color="inherit"
-                size="small"
-                onClick={handleRetry}
-                startIcon={<Refresh />}
-                disabled={isLoading}
-              >
-                Retry
-              </Button>
-            }
-          >
-            Failed to load job data: {error}
-          </Alert>
-        )}
+          {error && (
+            <Alert
+              severity="error"
+              sx={{ mb: 3 }}
+              action={
+                <Button
+                  color="inherit"
+                  size="small"
+                  onClick={handleRetry}
+                  startIcon={<Refresh />}
+                  disabled={isLoading}
+                >
+                  Retry
+                </Button>
+              }
+            >
+              Failed to load job data: {error}
+            </Alert>
+          )}
 
-        <AppContent isLoading={showLoading} />
+          <AppContent isLoading={showLoading} />
 
-        <BucketJobsModal />
-        <AppFooter />
-      </Box>
-    </Container>
+          <BucketJobsModal />
+        </Box>
+      </Container>
+      <AppFooter />
+    </Box>
   );
 }
 
