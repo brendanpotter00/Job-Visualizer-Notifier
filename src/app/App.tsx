@@ -4,6 +4,7 @@ import { useAppSelector, useURLSync, useCompanyLoader, useBrowserNavigation } fr
 import { AppHeader } from '../components/AppLayout/AppHeader';
 import { AppContent } from '../components/AppLayout/AppContent';
 import { BucketJobsModal } from '../components/BucketJobsModal/BucketJobsModal';
+import { AppFooter } from '../components/AppLayout/AppFooter.tsx';
 
 /**
  * Root application component
@@ -49,6 +50,7 @@ function App() {
         <AppContent isLoading={showLoading} />
 
         <BucketJobsModal />
+        <AppFooter />
       </Box>
     </Container>
   );
