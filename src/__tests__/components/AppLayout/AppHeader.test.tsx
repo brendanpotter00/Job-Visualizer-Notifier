@@ -29,7 +29,7 @@ describe('AppHeader', () => {
     const testStore = createTestStore({
       app: {
         selectedCompanyId: 'spacex',
-        selectedView: 'greenhouse',
+        selectedATS: 'greenhouse',
         isInitialized: false,
       },
     } as Partial<RootState>);
@@ -49,7 +49,7 @@ describe('AppHeader', () => {
     const testStore = createTestStore({
       app: {
         selectedCompanyId: 'anthropic',
-        selectedView: 'greenhouse',
+        selectedATS: 'greenhouse',
         isInitialized: false,
       },
     } as Partial<RootState>);
@@ -67,7 +67,7 @@ describe('AppHeader', () => {
     const testStore = createTestStore({
       app: {
         selectedCompanyId: 'invalid-company-id',
-        selectedView: 'greenhouse',
+        selectedATS: 'greenhouse',
         isInitialized: false,
       },
     } as Partial<RootState>);
@@ -87,7 +87,7 @@ describe('AppHeader', () => {
     const testStore = createTestStore({
       app: {
         selectedCompanyId: 'notion',
-        selectedView: 'greenhouse',
+        selectedATS: 'greenhouse',
         isInitialized: false,
       },
     } as Partial<RootState>);
@@ -116,7 +116,7 @@ describe('AppHeader', () => {
       const testStore = createTestStore({
         app: {
           selectedCompanyId: id,
-          selectedView: 'greenhouse',
+          selectedATS: 'greenhouse',
           isInitialized: false,
         },
       } as Partial<RootState>);

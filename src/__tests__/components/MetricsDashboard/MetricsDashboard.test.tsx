@@ -123,7 +123,7 @@ describe('MetricsDashboard', () => {
       preloadedState: {
         app: {
           selectedCompanyId: 'spacex',
-          selectedView: 'greenhouse' as const,
+          selectedATS: 'greenhouse' as const,
           isInitialized: true,
         },
         jobs: {
@@ -317,7 +317,7 @@ describe('MetricsDashboard', () => {
     const store = createMockStore({
       app: {
         selectedCompanyId: 'palantir',
-        selectedView: 'lever' as const,
+        selectedATS: 'lever' as const,
         isInitialized: true,
       },
       jobs: {
@@ -416,7 +416,7 @@ describe('MetricsDashboard', () => {
     const store = createMockStore({
       app: {
         selectedCompanyId: 'nominal',
-        selectedView: 'lever' as const,
+        selectedATS: 'lever' as const,
         isInitialized: true,
       },
       jobs: {

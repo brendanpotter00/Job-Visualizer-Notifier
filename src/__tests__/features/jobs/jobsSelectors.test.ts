@@ -46,7 +46,7 @@ describe('jobsSelectors', () => {
   const mockState: RootState = {
     app: {
       selectedCompanyId: 'spacex',
-      selectedView: 'greenhouse',
+      selectedATS: 'greenhouse',
       isInitialized: true,
     },
     jobs: {

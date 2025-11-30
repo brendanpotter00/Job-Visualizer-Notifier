@@ -10,6 +10,7 @@ import appReducer from '../../../features/app/appSlice';
 import graphFiltersReducer from '../../../features/filters/graphFiltersSlice';
 import listFiltersReducer from '../../../features/filters/listFiltersSlice';
 import type { Job } from '../../../types';
+import { ATSConstants } from '../../../api/types.ts';
 
 const mockJobs: Job[] = [
   {
@@ -72,7 +73,7 @@ describe('BucketJobsModal', () => {
       preloadedState: {
         app: {
           selectedCompanyId: 'spacex',
-          selectedView: 'greenhouse' as const,
+          selectedATS: ATSConstants.Greenhouse as const,
           isInitialized: true,
         },
         jobs: {

@@ -487,7 +487,7 @@ interface AppState {
   selectedCompanyId: string;
 
   /** Current view type (derived from company.ats) */
-  selectedView: ATSProvider;
+  selectedATS: ATSProvider;
 
   /** App initialization status */
   isInitialized: boolean;
@@ -565,13 +565,13 @@ const appSlice = createSlice({
   name: 'app',
   initialState: {
     selectedCompanyId: 'spacex', // Default to SpaceX
-    selectedView: 'greenhouse' as ATSProvider,
+    selectedATS: 'greenhouse' as ATSProvider,
     isInitialized: false,
   },
   reducers: {
     setSelectedCompanyId(state, action: PayloadAction<string>) {
       state.selectedCompanyId = action.payload;
-      // selectedView is derived in selector based on company config
+      // selectedATS is derived in selector based on company config
     },
     setInitialized(state) {
       state.isInitialized = true;
