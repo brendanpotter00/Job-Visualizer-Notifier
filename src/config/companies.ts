@@ -320,7 +320,7 @@ export const COMPANIES: Company[] = [
       'https://www.linkedin.com/search/results/content/?authorCompany=%5B%2218505670%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=o-E&sortBy=%22date_posted%22',
   },
   {
-    id: 'squarespace',
+    id: 'Squarespace',
     name: 'squarespace',
     ats: 'greenhouse',
     config: {
