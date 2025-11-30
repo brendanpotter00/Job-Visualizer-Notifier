@@ -177,6 +177,40 @@ export const COMPANIES: Company[] = [
       'https://www.linkedin.com/search/results/content/?authorCompany=%5B%2274126343%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=L2U&sortBy=%22date_posted%22',
   },
   {
+    id: 'reddit',
+    name: 'Reddit',
+    ats: 'greenhouse',
+    config: {
+      type: 'greenhouse',
+      boardToken: 'reddit',
+    },
+    jobsUrl: 'https://boards.greenhouse.io/reddit',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%22150573%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=4ar&sortBy=%22date_posted%22',
+  },
+  {
+    id: 'cloudflare',
+    name: 'cloudflare',
+    ats: 'greenhouse',
+    config: {
+      type: 'greenhouse',
+      boardToken: 'cloudflare',
+    },
+    jobsUrl: 'https://boards.greenhouse.io/cloudflare',
+    recruiterLinkedInUrl: '',
+  },
+  {
+    id: 'scaleai',
+    name: 'ScaleAI',
+    ats: 'greenhouse',
+    config: {
+      type: 'greenhouse',
+      boardToken: 'scaleai',
+    },
+    jobsUrl: 'https://boards.greenhouse.io/scaleai',
+    recruiterLinkedInUrl: '',
+  },
+  {
     id: 'lyft',
     name: 'Lyft',
     ats: 'greenhouse',
@@ -223,6 +257,18 @@ export const COMPANIES: Company[] = [
     jobsUrl: 'https://careers.ashbyhq.com/ramp',
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?authorCompany=%5B%221406226%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=e%3Ab&sortBy=%22date_posted%22',
+  },
+  {
+    id: 'snowflake',
+    name: 'Snowflake',
+    ats: 'ashby',
+    config: {
+      type: 'ashby',
+      jobBoardName: 'ramp',
+    },
+    jobsUrl: 'https://careers.ashbyhq.com/snowflake',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%223653845%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=4o9&sortBy=%22date_posted%22',
   },
   {
     id: 'plaid',
@@ -274,6 +320,18 @@ export const COMPANIES: Company[] = [
       'https://www.linkedin.com/search/results/content/?authorCompany=%5B%2218505670%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=o-E&sortBy=%22date_posted%22',
   },
   {
+    id: 'squarespace',
+    name: 'squarespace',
+    ats: 'greenhouse',
+    config: {
+      type: 'greenhouse',
+      boardToken: 'squarespace',
+    },
+    jobsUrl: 'https://boards.greenhouse.io/squarespace',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%22265314%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=JwA&sortBy=%22date_posted%22',
+  },
+  {
     id: 'nvidia',
     name: 'NVIDIA',
     ats: 'workday',
@@ -311,8 +369,28 @@ export const COMPANIES: Company[] = [
       },
     },
     jobsUrl: 'https://adobe.wd5.myworkdayjobs.com/external_experienced/details',
-    recruiterLinkedInUrl: '',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%221480%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=!%3BQ&sortBy=%22date_posted%22',
   },
+  // {
+  //     id: 'netflix',
+  //     name: 'Netflix',
+  //     ats: 'workday',
+  //     config: {
+  //         type: 'workday',
+  //         baseUrl: 'https://netflix.wd1.myworkdayjobs.com',
+  //         tenantSlug: 'Netflix',
+  //         careerSiteSlug: 'Netflix',
+  //         jobsUrl: 'https://netflix.wd1.myworkdayjobs.com/Netflix/details',
+  //         // Default facet filters - restricts to US Engineering full-time positions
+  //         defaultFacets: {
+  //             // locationCountry: ['bc33aa3152ec42d4995f4791a106ed09'], // United States
+  //             // jobFamilyGroup: ['591af8b812fa10737af39db3d96eed9f', '591af8b812fa10737b43a1662896f01c'], // Engineering, University
+  //         },
+  //     },
+  //     jobsUrl: 'https://netflix.wd1.myworkdayjobs.com/Netflix/details',
+  //     recruiterLinkedInUrl: '',
+  // },
 ];
 
 /**
