@@ -85,7 +85,7 @@ graph TB
 
 ### Key Data Flow Patterns
 
-1. **User selects company** → Dispatches `selectCompany` action
+1. **User selects company** → Dispatches `setSelectedCompanyId` action
 2. **App slice updates** → `useCompanyLoader` hook detects change
 3. **Thunk dispatched** → `loadJobsForCompany` starts async operation
 4. **API client selected** → Based on company's ATS type (Greenhouse/Lever/Ashby)

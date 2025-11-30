@@ -569,7 +569,7 @@ const appSlice = createSlice({
     isInitialized: false,
   },
   reducers: {
-    selectCompany(state, action: PayloadAction<string>) {
+    setSelectedCompanyId(state, action: PayloadAction<string>) {
       state.selectedCompanyId = action.payload;
       // selectedView is derived in selector based on company config
     },
@@ -2068,7 +2068,7 @@ test('renders when open', () => {
    - Dispatch company selection
 
 3. Update `src/features/app/appSlice.ts`:
-   - `selectCompany` action
+   - `setSelectedCompanyId` action
    - Derive view type from selected company
 
 4. Update thunk to handle company switching:
@@ -2085,11 +2085,11 @@ test('renders when open', () => {
 ```typescript
 // src/__tests__/features/app/appSlice.test.ts
 
-import appReducer, { selectCompany } from '../../../features/app/appSlice';
+import appReducer, { setSelectedCompanyId } from '../../../features/app/appSlice';
 
 test('updates selected company', () => {
   const initialState = { selectedCompanyId: 'spacex' };
-  const newState = appReducer(initialState, selectCompany('nominal'));
+  const newState = appReducer(initialState, setSelectedCompanyId('nominal'));
   expect(newState.selectedCompanyId).toBe('nominal');
 });
 ```

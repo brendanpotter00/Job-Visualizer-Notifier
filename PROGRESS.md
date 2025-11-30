@@ -297,7 +297,7 @@
 
 **Deliverables**:
 - ✅ CompanySelector dropdown component
-- ✅ Company switching logic with selectCompany action
+- ✅ Company switching logic with setSelectedCompanyId action
 - ✅ Auto-load jobs on company change and mount
 - ✅ Per-company job caching (already implemented in jobs slice)
 - ✅ App.tsx integration with all components
