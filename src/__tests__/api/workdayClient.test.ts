@@ -822,10 +822,30 @@ describe('workdayClient', () => {
       };
 
       const jobs = [
-        { title: 'Old 1', externalPath: '/job/JR1', postedOn: 'Posted 10 Days Ago', bulletFields: ['JR1'] },
-        { title: 'New 1', externalPath: '/job/JR2', postedOn: 'Posted Today', bulletFields: ['JR2'] },
-        { title: 'New 2', externalPath: '/job/JR3', postedOn: 'Posted Yesterday', bulletFields: ['JR3'] },
-        { title: 'New 3', externalPath: '/job/JR4', postedOn: 'Posted Today', bulletFields: ['JR4'] },
+        {
+          title: 'Old 1',
+          externalPath: '/job/JR1',
+          postedOn: 'Posted 10 Days Ago',
+          bulletFields: ['JR1'],
+        },
+        {
+          title: 'New 1',
+          externalPath: '/job/JR2',
+          postedOn: 'Posted Today',
+          bulletFields: ['JR2'],
+        },
+        {
+          title: 'New 2',
+          externalPath: '/job/JR3',
+          postedOn: 'Posted Yesterday',
+          bulletFields: ['JR3'],
+        },
+        {
+          title: 'New 3',
+          externalPath: '/job/JR4',
+          postedOn: 'Posted Today',
+          bulletFields: ['JR4'],
+        },
       ];
 
       (globalThis.fetch as any).mockResolvedValue({
