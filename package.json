@@ -6,6 +6,7 @@
   "description": "Job Posting Analytics SPA - Multi-ATS job tracking and visualization",
   "scripts": {
     "dev": "vite",
+    "dev:vercel": "vercel dev",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "vitest",

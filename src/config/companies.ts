@@ -294,6 +294,26 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?authorCompany=%5B%223608%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=YU9&sortBy=%22date_posted%22',
   },
+  {
+    id: 'adobe',
+    name: 'Adobe',
+    ats: 'workday',
+    config: {
+      type: 'workday',
+      baseUrl: 'https://adobe.wd5.myworkdayjobs.com',
+      tenantSlug: 'adobe',
+      careerSiteSlug: 'external_experienced',
+      jobsUrl: 'https://adobe.wd5.myworkdayjobs.com/external_experienced/details',
+      // Default facet filters - restricts to US Engineering full-time positions
+      defaultFacets: {
+        locationCountry: ['bc33aa3152ec42d4995f4791a106ed09'], // United States
+        jobFamilyGroup: ['591af8b812fa10737af39db3d96eed9f', '591af8b812fa10737b43a1662896f01c'], // Engineering, University
+        //     timeType: ['5509c0b5959810ac0029943377d47364'], // Full time
+      },
+    },
+    jobsUrl: 'https://adobe.wd5.myworkdayjobs.com/external_experienced/details',
+    recruiterLinkedInUrl: '',
+  },
 ];
 
 /**

@@ -25,12 +25,8 @@ export default defineConfig({
         rewrite: (path) => path.replace(/^\/api\/ashby/, ''),
         secure: false,
       },
-      '/api/workday': {
-        target: 'https://nvidia.wd5.myworkdayjobs.com',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/workday/, ''),
-        secure: false,
-      },
+      // Workday proxy removed - use `vercel dev` for local Workday testing
+      // The serverless function (api/workday.ts) handles dynamic routing for multiple Workday tenants
     },
   },
   build: {
