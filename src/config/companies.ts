@@ -190,7 +190,7 @@ export const COMPANIES: Company[] = [
   },
   {
     id: 'cloudflare',
-    name: 'cloudflare',
+    name: 'Cloudflare',
     ats: 'greenhouse',
     config: {
       type: 'greenhouse',
