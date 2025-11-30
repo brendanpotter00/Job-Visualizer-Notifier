@@ -245,8 +245,14 @@ describe('/api/ashby serverless function', () => {
       await handler(mockReq as VercelRequest, mockRes as VercelResponse);
 
       expect(mockRes.setHeader).toHaveBeenCalledWith('Access-Control-Allow-Origin', '*');
-      expect(mockRes.setHeader).toHaveBeenCalledWith('Access-Control-Allow-Methods', 'GET, OPTIONS');
-      expect(mockRes.setHeader).toHaveBeenCalledWith('Access-Control-Allow-Headers', 'Content-Type');
+      expect(mockRes.setHeader).toHaveBeenCalledWith(
+        'Access-Control-Allow-Methods',
+        'GET, OPTIONS'
+      );
+      expect(mockRes.setHeader).toHaveBeenCalledWith(
+        'Access-Control-Allow-Headers',
+        'Content-Type'
+      );
     });
 
     it('should forward 404 status from Ashby API', async () => {
@@ -461,8 +467,14 @@ describe('/api/ashby serverless function', () => {
 
       // Verify CORS headers were set
       expect(mockRes.setHeader).toHaveBeenCalledWith('Access-Control-Allow-Origin', '*');
-      expect(mockRes.setHeader).toHaveBeenCalledWith('Access-Control-Allow-Methods', 'GET, OPTIONS');
-      expect(mockRes.setHeader).toHaveBeenCalledWith('Access-Control-Allow-Headers', 'Content-Type');
+      expect(mockRes.setHeader).toHaveBeenCalledWith(
+        'Access-Control-Allow-Methods',
+        'GET, OPTIONS'
+      );
+      expect(mockRes.setHeader).toHaveBeenCalledWith(
+        'Access-Control-Allow-Headers',
+        'Content-Type'
+      );
     });
   });
 });
