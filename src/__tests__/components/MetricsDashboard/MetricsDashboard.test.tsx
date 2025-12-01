@@ -3,7 +3,6 @@ import { render, screen } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { MetricsDashboard } from '../../../components/MetricsDashboard/MetricsDashboard';
 import { createTestStore } from '../../../test/testUtils';
-import { jobsApi } from '../../../features/jobs/jobsApi';
 import type { Job } from '../../../types';
 
 // Mock Date.now() to have consistent time for tests
