@@ -1,5 +1,5 @@
-import { Card, CardContent, Typography, IconButton, Chip, Stack, Box } from '@mui/material';
-import { LinkedIn as LinkedInIcon } from '@mui/icons-material';
+import { Card, CardContent, Typography, Chip, Stack, Link } from '@mui/material';
+import { OpenInNew } from '@mui/icons-material';
 import { formatDistanceToNow } from 'date-fns';
 import type { Job } from '../../types';
 
@@ -36,25 +36,10 @@ export function RecentJobCard({ job, companyName, recruiterLinkedInUrl }: Recent
       onClick={handleCardClick}
     >
       <CardContent>
-        {/* Company header with LinkedIn button */}
-        <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
-          <Typography variant="subtitle2" color="text.secondary" fontWeight="bold">
-            {companyName}
-          </Typography>
-          {recruiterLinkedInUrl && (
-            <IconButton
-              size="small"
-              href={recruiterLinkedInUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="View LinkedIn recruiters"
-              sx={{ color: 'primary.main' }}
-              onClick={handleLinkedInClick}
-            >
-              <LinkedInIcon fontSize="small" />
-            </IconButton>
-          )}
-        </Box>
+        {/* Company header */}
+        <Typography variant="subtitle2" color="text.secondary" fontWeight="bold" mb={1}>
+          {companyName}
+        </Typography>
 
         {/* Job title */}
         <Typography variant="h6" component="h3" gutterBottom>
@@ -76,6 +61,29 @@ export function RecentJobCard({ job, companyName, recruiterLinkedInUrl }: Recent
             <Chip label={job.classification.category} size="small" color="primary" />
           )}
         </Stack>
+
+        {/* LinkedIn recruiter link */}
+        {recruiterLinkedInUrl && (
+          <Link
+            href={recruiterLinkedInUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            variant="caption"
+            color="primary"
+            underline="hover"
+            onClick={handleLinkedInClick}
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 0.5,
+              mb: 0.5,
+              cursor: 'pointer',
+            }}
+          >
+            Find recruiter and hiring manager posts on LinkedIn
+            <OpenInNew sx={{ fontSize: '0.875rem' }} />
+          </Link>
+        )}
 
         {/* Posted date */}
         <Typography variant="caption" color="text.secondary">
