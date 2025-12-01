@@ -125,7 +125,7 @@ describe('Full Application Workflow', () => {
   it('renders company selector', () => {
     renderApp();
 
-    // Company selector should be present
-    expect(screen.getByLabelText(/company/i)).toBeInTheDocument();
+    // Company selector should be present (use role to distinguish from navigation item)
+    expect(screen.getByRole('combobox', { name: /company/i })).toBeInTheDocument();
   });
 });

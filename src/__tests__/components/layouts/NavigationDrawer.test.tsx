@@ -21,7 +21,7 @@ describe('NavigationDrawer', () => {
         </MemoryRouter>
       );
 
-      expect(screen.getByText('Companies')).toBeInTheDocument();
+      expect(screen.getByText('Company Job Postings')).toBeInTheDocument();
       expect(screen.getByText('Recent Job Postings')).toBeInTheDocument();
     });
 
@@ -59,7 +59,7 @@ describe('NavigationDrawer', () => {
       );
 
       // When mobile and open, temporary drawer renders navigation items
-      expect(screen.getByText('Companies')).toBeInTheDocument();
+      expect(screen.getByText('Company Job Postings')).toBeInTheDocument();
       expect(screen.getByText('Recent Job Postings')).toBeInTheDocument();
     });
   });
@@ -73,7 +73,9 @@ describe('NavigationDrawer', () => {
       );
 
       // Check that the Companies button has selected styling via computed styles
-      const companiesButton = screen.getByText('Companies').closest('div[role="button"]');
+      const companiesButton = screen
+        .getByText('Company Job Postings')
+        .closest('div[role="button"]');
       expect(companiesButton).toBeInTheDocument();
 
       // Verify background color is set (action.selected)
@@ -109,7 +111,7 @@ describe('NavigationDrawer', () => {
         </MemoryRouter>
       );
 
-      const companiesButton = screen.getByText('Companies');
+      const companiesButton = screen.getByText('Company Job Postings');
       await user.click(companiesButton);
 
       expect(onClose).toHaveBeenCalledTimes(1);
@@ -125,7 +127,7 @@ describe('NavigationDrawer', () => {
         </MemoryRouter>
       );
 
-      const companiesButton = screen.getByText('Companies');
+      const companiesButton = screen.getByText('Company Job Postings');
       await user.click(companiesButton);
 
       expect(onClose).not.toHaveBeenCalled();
@@ -178,7 +180,7 @@ describe('NavigationDrawer', () => {
         </MemoryRouter>
       );
 
-      const companiesButton = screen.getByText('Companies').closest('button');
+      const companiesButton = screen.getByText('Company Job Postings').closest('button');
       if (companiesButton) {
         companiesButton.focus();
         expect(companiesButton).toHaveFocus();
@@ -198,6 +200,85 @@ describe('NavigationDrawer', () => {
 
       const list = container.querySelector('ul');
       expect(list).toBeInTheDocument();
+    });
+  });
+
+  describe('Tooltips', () => {
+    it('shows tooltip when drawer is collapsed and hovering over icon', async () => {
+      const user = userEvent.setup();
+
+      render(
+        <MemoryRouter>
+          <NavigationDrawer {...mockProps} open={false} />
+        </MemoryRouter>
+      );
+
+      // Find the icon by its test ID
+      const businessIcon = screen.getByTestId('BusinessIcon');
+
+      // Hover over the icon
+      await user.hover(businessIcon);
+
+      // Tooltip should appear with the navigation label
+      expect(await screen.findByRole('tooltip')).toHaveTextContent('Company Job Postings');
+    });
+
+    it('does not show tooltip when drawer is expanded', async () => {
+      const user = userEvent.setup();
+
+      render(
+        <MemoryRouter>
+          <NavigationDrawer {...mockProps} open={true} />
+        </MemoryRouter>
+      );
+
+      // Find the icon by its test ID
+      const businessIcon = screen.getByTestId('BusinessIcon');
+
+      // Hover over the icon
+      await user.hover(businessIcon);
+
+      // Tooltip should NOT appear when drawer is expanded
+      expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+    });
+
+    it('shows correct label in tooltip for each navigation item', async () => {
+      const user = userEvent.setup();
+
+      render(
+        <MemoryRouter>
+          <NavigationDrawer {...mockProps} open={false} />
+        </MemoryRouter>
+      );
+
+      // Test Company Job Postings tooltip
+      const businessIcon = screen.getByTestId('BusinessIcon');
+      await user.hover(businessIcon);
+      expect(await screen.findByRole('tooltip')).toHaveTextContent('Company Job Postings');
+
+      // Unhover to hide tooltip
+      await user.unhover(businessIcon);
+
+      // Test Recent Job Postings tooltip
+      const scheduleIcon = screen.getByTestId('ScheduleIcon');
+      await user.hover(scheduleIcon);
+      expect(await screen.findByRole('tooltip')).toHaveTextContent('Recent Job Postings');
+    });
+
+    it('tooltip appears on mobile when drawer is collapsed', async () => {
+      const user = userEvent.setup();
+
+      render(
+        <MemoryRouter>
+          <NavigationDrawer {...mockProps} open={false} isMobile={true} />
+        </MemoryRouter>
+      );
+
+      // Even on mobile, tooltip should work when drawer is collapsed
+      const businessIcon = screen.getByTestId('BusinessIcon');
+      await user.hover(businessIcon);
+
+      expect(await screen.findByRole('tooltip')).toHaveTextContent('Company Job Postings');
     });
   });
 });

@@ -97,7 +97,7 @@ describe('useCompanyLoader', () => {
       const state = store.getState();
       // Check RTK Query cache for spacex data
       const queries = state.jobsApi?.queries || {};
-      const hasSpacexQuery = Object.keys(queries).some(key => key.includes('spacex'));
+      const hasSpacexQuery = Object.keys(queries).some((key) => key.includes('spacex'));
       expect(hasSpacexQuery).toBe(true);
     });
   });
@@ -166,7 +166,7 @@ describe('useCompanyLoader', () => {
     await waitFor(() => {
       const state = store.getState();
       const queries = state.jobsApi?.queries || {};
-      const hasSpacexQuery = Object.keys(queries).some(key => key.includes('spacex'));
+      const hasSpacexQuery = Object.keys(queries).some((key) => key.includes('spacex'));
       expect(hasSpacexQuery).toBe(true);
     });
 
@@ -190,7 +190,7 @@ describe('useCompanyLoader', () => {
     await waitFor(() => {
       const state = store.getState();
       const queries = state.jobsApi?.queries || {};
-      const hasSpacexQuery = Object.keys(queries).some(key => key.includes('spacex'));
+      const hasSpacexQuery = Object.keys(queries).some((key) => key.includes('spacex'));
       expect(hasSpacexQuery).toBe(true);
     });
 
@@ -202,7 +202,7 @@ describe('useCompanyLoader', () => {
     await waitFor(() => {
       const state = store.getState();
       const queries = state.jobsApi?.queries || {};
-      const hasAnthropicQuery = Object.keys(queries).some(key => key.includes('anthropic'));
+      const hasAnthropicQuery = Object.keys(queries).some((key) => key.includes('anthropic'));
       expect(hasAnthropicQuery).toBe(true);
     });
   });

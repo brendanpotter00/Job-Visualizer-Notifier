@@ -55,12 +55,10 @@ export function RecentJobsFilters() {
             <MultiSelectAutocomplete
               label="Company"
               options={availableCompanies.map((c) => c.name)}
-              value={
-                (filters.company || []).map((companyId) => {
-                  const company = availableCompanies.find((c) => c.id === companyId);
-                  return company?.name || companyId;
-                })
-              }
+              value={(filters.company || []).map((companyId) => {
+                const company = availableCompanies.find((c) => c.id === companyId);
+                return company?.name || companyId;
+              })}
               onAdd={(companyName) => {
                 const company = availableCompanies.find((c) => c.name === companyName);
                 if (company) dispatch(addRecentJobsCompany(company.id));

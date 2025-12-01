@@ -250,10 +250,7 @@ describe('dateUtils', () => {
     });
 
     it('should handle jobs with same timestamp', () => {
-      const jobs = [
-        { createdAt: '2025-01-15T10:30:00Z' },
-        { createdAt: '2025-01-15T10:30:00Z' },
-      ];
+      const jobs = [{ createdAt: '2025-01-15T10:30:00Z' }, { createdAt: '2025-01-15T10:30:00Z' }];
       const result = calculateJobDateRange(jobs);
 
       expect(result.oldestJobDate).toBe('2025-01-15T10:30:00.000Z');
@@ -272,10 +269,7 @@ describe('dateUtils', () => {
     });
 
     it('should handle jobs across different years', () => {
-      const jobs = [
-        { createdAt: '2024-12-31T23:59:59Z' },
-        { createdAt: '2025-01-01T00:00:00Z' },
-      ];
+      const jobs = [{ createdAt: '2024-12-31T23:59:59Z' }, { createdAt: '2025-01-01T00:00:00Z' }];
       const result = calculateJobDateRange(jobs);
 
       expect(result.oldestJobDate).toBe('2024-12-31T23:59:59.000Z');

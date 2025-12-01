@@ -71,9 +71,7 @@ export function RecentJobCard({ job, companyName, recruiterLinkedInUrl }: Recent
         {/* Chips for metadata */}
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
           {job.department && <Chip label={job.department} size="small" variant="outlined" />}
-          {job.isRemote && (
-            <Chip label="Remote" size="small" color="primary" variant="outlined" />
-          )}
+          {job.isRemote && <Chip label="Remote" size="small" color="primary" variant="outlined" />}
           {job.classification.isSoftwareAdjacent && (
             <Chip label={job.classification.category} size="small" color="primary" />
           )}

@@ -12,7 +12,7 @@ export const ROUTES = {
 export const NAV_ITEMS = [
   {
     path: ROUTES.COMPANIES,
-    label: 'Companies',
+    label: 'Company Job Postings',
     icon: 'Business', // MUI Business icon
   },
   {

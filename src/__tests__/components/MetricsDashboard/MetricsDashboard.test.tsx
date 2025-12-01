@@ -115,13 +115,16 @@ describe('MetricsDashboard', () => {
     const companyId = isConfig && jobsOrConfig.companyId ? jobsOrConfig.companyId : 'spacex';
 
     // Calculate metadata from jobs if not explicitly provided
-    const metadata = isConfig && jobsOrConfig.metadata ? jobsOrConfig.metadata : {
-      totalCount: jobs.length,
-      softwareCount: jobs.filter(j => j.classification.isSoftwareAdjacent).length,
-      newestJobDate: jobs.length > 0 ? '2025-11-23T10:00:00Z' : undefined,
-      oldestJobDate: jobs.length > 0 ? '2025-11-20T08:00:00Z' : undefined,
-      fetchedAt: new Date().toISOString(),
-    };
+    const metadata =
+      isConfig && jobsOrConfig.metadata
+        ? jobsOrConfig.metadata
+        : {
+            totalCount: jobs.length,
+            softwareCount: jobs.filter((j) => j.classification.isSoftwareAdjacent).length,
+            newestJobDate: jobs.length > 0 ? '2025-11-23T10:00:00Z' : undefined,
+            oldestJobDate: jobs.length > 0 ? '2025-11-20T08:00:00Z' : undefined,
+            fetchedAt: new Date().toISOString(),
+          };
 
     // Build cache key matching RTK Query format
     const cacheKey = `getJobsForCompany({"companyId":"${companyId}"})`;

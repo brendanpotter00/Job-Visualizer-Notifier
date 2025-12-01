@@ -71,9 +71,7 @@ export function roundToBucketStart(date: Date, bucketSizeMs: number): Date {
  * // { oldestJobDate: '2025-01-01T10:00:00.000Z', newestJobDate: '2025-01-05T15:30:00.000Z' }
  * ```
  */
-export function calculateJobDateRange(
-  jobs: Array<{ createdAt: string }>
-): {
+export function calculateJobDateRange(jobs: Array<{ createdAt: string }>): {
   oldestJobDate?: string;
   newestJobDate?: string;
 } {

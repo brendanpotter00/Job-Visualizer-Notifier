@@ -9,6 +9,7 @@ import ListItem from '@mui/material/ListItem';
 import ListItemButton from '@mui/material/ListItemButton';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import ListItemText from '@mui/material/ListItemText';
+import Tooltip from '@mui/material/Tooltip';
 import BusinessIcon from '@mui/icons-material/Business';
 import ScheduleIcon from '@mui/icons-material/Schedule';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -171,23 +172,25 @@ export function NavigationDrawer({
                   },
                 ]}
               >
-                <ListItemIcon
-                  sx={[
-                    {
-                      minWidth: 0,
-                      justifyContent: 'center',
-                    },
-                    open
-                      ? {
-                          mr: 3,
-                        }
-                      : {
-                          mr: 'auto',
-                        },
-                  ]}
-                >
-                  <Icon />
-                </ListItemIcon>
+                <Tooltip title={item.label} placement="right" arrow disableHoverListener={open}>
+                  <ListItemIcon
+                    sx={[
+                      {
+                        minWidth: 0,
+                        justifyContent: 'center',
+                      },
+                      open
+                        ? {
+                            mr: 3,
+                          }
+                        : {
+                            mr: 'auto',
+                          },
+                    ]}
+                  >
+                    <Icon />
+                  </ListItemIcon>
+                </Tooltip>
                 <ListItemText
                   primary={item.label}
                   sx={[

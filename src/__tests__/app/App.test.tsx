@@ -250,7 +250,7 @@ describe('App', () => {
         const state = store.getState();
         // Check that RTK Query cache has data for spacex
         const queries = state.jobsApi?.queries || {};
-        const hasSpacexQuery = Object.keys(queries).some(key => key.includes('spacex'));
+        const hasSpacexQuery = Object.keys(queries).some((key) => key.includes('spacex'));
         expect(hasSpacexQuery).toBe(true);
       });
     });

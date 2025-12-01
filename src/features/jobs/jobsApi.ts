@@ -105,10 +105,7 @@ export const jobsApi = createApi({
         };
       },
 
-      async onCacheEntryAdded(
-        _arg,
-        { updateCachedData, cacheDataLoaded, cacheEntryRemoved }
-      ) {
+      async onCacheEntryAdded(_arg, { updateCachedData, cacheDataLoaded, cacheEntryRemoved }) {
         try {
           // Wait for initial data to be in cache
           await cacheDataLoaded;

@@ -25,7 +25,7 @@ export const selectAllJobsFromQuery = createSelector(
     const allJobs = Object.values(data.byCompanyId).flat();
 
     // Deduplicate by job ID (in case same job appears multiple times)
-    const jobsMap = new Map<string, typeof allJobs[0]>();
+    const jobsMap = new Map<string, (typeof allJobs)[0]>();
     allJobs.forEach((job) => {
       if (!jobsMap.has(job.id)) {
         jobsMap.set(job.id, job);
@@ -120,9 +120,8 @@ export const selectRecentAvailableCompanies = createSelector(
 /**
  * Check if software-only toggle is enabled
  */
-export const selectRecentSoftwareOnlyState = createSelector(
-  [selectRecentJobsFilters],
-  (filters) => isSoftwareOnlyEnabled(filters.searchTags)
+export const selectRecentSoftwareOnlyState = createSelector([selectRecentJobsFilters], (filters) =>
+  isSoftwareOnlyEnabled(filters.searchTags)
 );
 
 /**
