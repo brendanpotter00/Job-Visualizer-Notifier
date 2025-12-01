@@ -59,14 +59,14 @@ describe('NavigationDrawer', () => {
       );
 
       // When mobile and open, temporary drawer renders navigation items
-      expect(screen.getByText('Companies', { hidden: true })).toBeInTheDocument();
-      expect(screen.getByText('Recent Job Postings', { hidden: true })).toBeInTheDocument();
+      expect(screen.getByText('Companies')).toBeInTheDocument();
+      expect(screen.getByText('Recent Job Postings')).toBeInTheDocument();
     });
   });
 
   describe('Navigation', () => {
     it('highlights active route with selected background', () => {
-      const { container } = render(
+      render(
         <MemoryRouter initialEntries={['/']}>
           <NavigationDrawer {...mockProps} />
         </MemoryRouter>
@@ -141,12 +141,11 @@ describe('NavigationDrawer', () => {
         </MemoryRouter>
       );
 
-      // Chevron button is icon button at top of drawer (use hidden: true to find inaccessible elements)
-      const buttons = screen.getAllByRole('button', { hidden: true });
-      // First button is the chevron (before navigation items)
-      const chevronButton = buttons[0];
+      // Find chevron button by test ID icon
+      const chevronButton = screen.getByTestId('ChevronLeftIcon').closest('button');
+      expect(chevronButton).toBeTruthy();
 
-      await user.click(chevronButton);
+      await user.click(chevronButton!);
       expect(onClose).toHaveBeenCalledTimes(1);
     });
 
