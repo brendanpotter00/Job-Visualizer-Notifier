@@ -393,7 +393,7 @@ export const COMPANIES: Company[] = [
   // },
 ];
 
-export const enum CompanyId {
+export const enum COMPANY_IDS {
   Spacex = 'spacex',
   AndurilIndustries = 'andurilindustries',
   Airbnb = 'airbnb',

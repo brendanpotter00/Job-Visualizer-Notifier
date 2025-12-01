@@ -6,7 +6,7 @@ describe('Redux Store', () => {
     const state = store.getState();
 
     expect(state).toHaveProperty('app');
-    expect(state).toHaveProperty('jobs');
+    expect(state).toHaveProperty('jobsApi');
     expect(state).toHaveProperty('graphFilters');
     expect(state).toHaveProperty('listFilters');
     expect(state).toHaveProperty('ui');
@@ -23,7 +23,10 @@ describe('Redux Store', () => {
   it('should have correct initial jobs state', () => {
     const state = store.getState();
 
-    expect(state.jobs.byCompany).toEqual({});
+    // RTK Query initial state has queries/mutations objects
+    expect(state.jobsApi).toBeDefined();
+    expect(state.jobsApi.queries).toEqual({});
+    expect(state.jobsApi.mutations).toEqual({});
   });
 
   it('should have correct initial filters state', () => {

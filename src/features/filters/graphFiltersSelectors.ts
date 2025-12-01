@@ -1,6 +1,6 @@
 import { createSelector } from '@reduxjs/toolkit';
 import type { RootState } from '../../app/store';
-import { selectCurrentCompanyJobs } from '../jobs/jobsSelectors';
+import { selectCurrentCompanyJobsRtk } from '../jobs/jobsSelectors';
 import { bucketJobsByTime } from '../../utils/timeBucketing';
 import { isSoftwareOnlyEnabled } from '../../constants/softwareEngineeringTags';
 import { filterJobsByFilters } from '../../utils/jobFilteringUtils';
@@ -22,7 +22,7 @@ export const selectGraphSoftwareOnlyState = createSelector([selectGraphFilters],
  * Filter jobs based on graph filters
  */
 export const selectGraphFilteredJobs = createSelector(
-  [selectCurrentCompanyJobs, selectGraphFilters],
+  [selectCurrentCompanyJobsRtk, selectGraphFilters],
   (jobs, filters) => {
     return filterJobsByFilters(jobs, filters);
   }

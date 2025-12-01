@@ -4,12 +4,7 @@ import { Provider } from 'react-redux';
 import { ThemeProvider } from '@mui/material';
 import { setupServer } from 'msw/node';
 import { http, HttpResponse } from 'msw';
-import { configureStore } from '@reduxjs/toolkit';
-import appReducer from '../../features/app/appSlice';
-import jobsReducer from '../../features/jobs/jobsSlice';
-import graphFiltersReducer from '../../features/filters/graphFiltersSlice';
-import listFiltersReducer from '../../features/filters/listFiltersSlice';
-import uiReducer from '../../features/ui/uiSlice';
+import { createTestStore } from '../../test/testUtils';
 import App from '../../app/App';
 import { theme } from '../../config/theme';
 
@@ -90,16 +85,8 @@ afterAll(() => {
 
 describe('Full Application Workflow', () => {
   const renderApp = () => {
-    // Create fresh store for each test
-    const testStore = configureStore({
-      reducer: {
-        app: appReducer,
-        jobs: jobsReducer,
-        graphFilters: graphFiltersReducer,
-        listFilters: listFiltersReducer,
-        ui: uiReducer,
-      },
-    });
+    // Create fresh store for each test using testUtils
+    const testStore = createTestStore();
 
     return render(
       <Provider store={testStore}>

@@ -9,7 +9,6 @@ import {
   selectCurrentCompanyError,
 } from '../../features/jobs/jobsSelectors';
 import { openGraphModal } from '../../features/ui/uiSlice';
-import { loadJobsForCompany } from '../../features/jobs/jobsThunks';
 import { ErrorDisplay } from '../ErrorDisplay';
 import type { TimeBucket } from '../../types';
 
@@ -21,7 +20,6 @@ export function GraphSection() {
   const bucketData = useAppSelector(selectGraphBucketData);
   const isLoading = useAppSelector(selectCurrentCompanyLoading);
   const error = useAppSelector(selectCurrentCompanyError);
-  const selectedCompanyId = useAppSelector((state) => state.app.selectedCompanyId);
   const graphFilters = useAppSelector((state) => state.graphFilters.filters);
 
   const handlePointClick = (bucket: TimeBucket) => {
@@ -36,14 +34,6 @@ export function GraphSection() {
     }
   };
 
-  const handleRetry = () => {
-    dispatch(
-      loadJobsForCompany({
-        companyId: selectedCompanyId,
-      })
-    );
-  };
-
   return (
     <>
       <MetricsDashboard />
@@ -56,7 +46,7 @@ export function GraphSection() {
         <GraphFilters />
 
         {error ? (
-          <ErrorDisplay title="Failed to Load Chart Data" message={error} onRetry={handleRetry} />
+          <ErrorDisplay title="Failed to Load Chart Data" message={error} />
         ) : (
           <JobPostingsChart
             data={bucketData}

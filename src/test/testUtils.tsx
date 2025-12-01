@@ -5,10 +5,10 @@ import { BrowserRouter } from 'react-router-dom';
 import { configureStore } from '@reduxjs/toolkit';
 import type { RootState } from '../app/store';
 import appReducer from '../features/app/appSlice';
-import jobsReducer from '../features/jobs/jobsSlice';
 import graphFiltersReducer from '../features/filters/graphFiltersSlice';
 import listFiltersReducer from '../features/filters/listFiltersSlice';
 import uiReducer from '../features/ui/uiSlice';
+import { jobsApi } from '../features/jobs/jobsApi';
 
 /**
  * Creates a test Redux store with optional preloaded state
@@ -20,11 +20,12 @@ export function createTestStore(preloadedState: Partial<RootState> | Record<stri
   return configureStore({
     reducer: {
       app: appReducer,
-      jobs: jobsReducer,
       graphFilters: graphFiltersReducer,
       listFilters: listFiltersReducer,
       ui: uiReducer,
+      [jobsApi.reducerPath]: jobsApi.reducer,
     },
+    middleware: (getDefaultMiddleware) => getDefaultMiddleware().concat(jobsApi.middleware),
     preloadedState: preloadedState as RootState,
   });
 }

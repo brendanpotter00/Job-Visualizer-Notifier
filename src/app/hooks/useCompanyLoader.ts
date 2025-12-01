@@ -2,11 +2,7 @@ import { useEffect, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAppDispatch, useAppSelector } from '../hooks';
 import { setSelectedCompanyId } from '../../features/app/appSlice';
-import { loadJobsForCompany } from '../../features/jobs/jobsThunks';
-import {
-  selectCurrentCompanyError,
-  selectCurrentCompanyLoading,
-} from '../../features/jobs/jobsSelectors';
+import { useGetJobsForCompanyQuery } from '../../features/jobs/jobsApi';
 import { getInitialCompanyId } from '../../utils/urlParams';
 import { ROUTES } from '../../config/routes';
 
@@ -19,16 +15,15 @@ import { ROUTES } from '../../config/routes';
  * - Provide retry functionality for failed requests
  *
  * Note: This hook only runs on the Companies page to prevent
- * unnecessary API calls on other pages.
+ * unnecessary API calls on other pages. Uses RTK Query for automatic
+ * caching and request deduplication.
  *
- * @returns Object containing loading state, error message, and retry handler
+ * @returns Object containing loading state, error message, retry handler, jobs, and metadata
  */
 export function useCompanyLoader() {
   const location = useLocation();
   const dispatch = useAppDispatch();
   const selectedCompanyId = useAppSelector((state) => state.app.selectedCompanyId);
-  const isLoading = useAppSelector(selectCurrentCompanyLoading);
-  const error = useAppSelector(selectCurrentCompanyError);
 
   // Only run on Companies page
   const isCompaniesPage = location.pathname === ROUTES.COMPANIES;
@@ -44,29 +39,29 @@ export function useCompanyLoader() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isCompaniesPage]); // Only run on mount or when page changes
 
-  // Load jobs when company changes (only on Companies page)
-  useEffect(() => {
-    if (!isCompaniesPage) return;
+  // RTK Query hook - automatically fetches on mount and when companyId changes
+  // Skip fetching if not on Companies page
+  const { data, isLoading, error, refetch } = useGetJobsForCompanyQuery(
+    { companyId: selectedCompanyId },
+    { skip: !isCompaniesPage }
+  );
 
-    dispatch(
-      loadJobsForCompany({
-        companyId: selectedCompanyId,
-      })
-    );
-  }, [dispatch, selectedCompanyId, isCompaniesPage]);
-
-  // Memoized retry handler to prevent unnecessary re-renders
+  // Memoized retry handler
   const handleRetry = useCallback(() => {
-    dispatch(
-      loadJobsForCompany({
-        companyId: selectedCompanyId,
-      })
-    );
-  }, [dispatch, selectedCompanyId]);
+    refetch();
+  }, [refetch]);
 
   return {
     isLoading,
-    error,
+    error: error
+      ? typeof error === 'string'
+        ? error
+        : typeof error === 'object' && error !== null && 'data' in error
+          ? String(error.data)
+          : 'Unknown error'
+      : undefined,
     handleRetry,
+    jobs: data?.jobs || [],
+    metadata: data?.metadata,
   };
 }

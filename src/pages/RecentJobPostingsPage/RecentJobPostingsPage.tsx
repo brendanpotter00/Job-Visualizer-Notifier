@@ -1,28 +1,46 @@
 import { Box, Container, Typography } from '@mui/material';
-import { COMPANIES } from '../../config/companies.ts';
-import { useEffect } from 'react';
-import { loadJobsForCompany } from '../../features/jobs/jobsThunks.ts';
-import { useAppDispatch, useAppSelector } from '../../app/hooks.ts';
+import { useGetAllJobsQuery } from '../../features/jobs/jobsApi';
 
 /**
  * Recent Job Postings page component
  *
- * Placeholder page for future feature showing recently posted jobs
- * across all companies.
+ * Displays recently posted jobs across all companies using RTK Query
+ * with 10-minute cache and automatic request deduplication.
  *
- * @returns Recent job postings page with placeholder content
+ * @returns Recent job postings page with loading, error, or data display
  */
 export function RecentJobPostingsPage() {
-  const dispatch = useAppDispatch();
-  const allJobs = useAppSelector((state) => state.jobs);
+  const { data, isLoading, error } = useGetAllJobsQuery();
 
-  useEffect(() => {
-    COMPANIES.forEach((company) => {
-      dispatch(loadJobsForCompany({ companyId: company.id }));
-    });
-  }, [dispatch]);
+  console.log('All jobs data:', data);
 
-  console.log(allJobs);
+  if (isLoading) {
+    return (
+      <Container maxWidth="xl">
+        <Box sx={{ my: 4 }}>
+          <Typography variant="h3" component="h1" gutterBottom>
+            Recent Job Postings
+          </Typography>
+          <Typography variant="body1">Loading jobs from all companies...</Typography>
+        </Box>
+      </Container>
+    );
+  }
+
+  if (error) {
+    return (
+      <Container maxWidth="xl">
+        <Box sx={{ my: 4 }}>
+          <Typography variant="h3" component="h1" gutterBottom>
+            Recent Job Postings
+          </Typography>
+          <Typography variant="body1" color="error">
+            Error loading jobs. Please try again later.
+          </Typography>
+        </Box>
+      </Container>
+    );
+  }
 
   return (
     <Container maxWidth="xl">
@@ -31,8 +49,9 @@ export function RecentJobPostingsPage() {
           Recent Job Postings
         </Typography>
         <Typography variant="body1" color="text.secondary">
-          This page is under construction. Check back soon!
+          Loaded jobs from {Object.keys(data?.byCompanyId || {}).length} companies.
         </Typography>
+        {/* TODO: Add job list visualization here */}
       </Box>
     </Container>
   );

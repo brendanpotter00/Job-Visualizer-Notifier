@@ -1,28 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { Provider } from 'react-redux';
-import { configureStore } from '@reduxjs/toolkit';
 import userEvent from '@testing-library/user-event';
 import { CompanySelector } from '../../../components/CompanySelector/CompanySelector';
 import { store } from '../../../app/store';
-import appReducer from '../../../features/app/appSlice';
-import jobsReducer from '../../../features/jobs/jobsSlice';
-import graphFiltersReducer from '../../../features/filters/graphFiltersSlice';
-import listFiltersReducer from '../../../features/filters/listFiltersSlice';
-import uiReducer from '../../../features/ui/uiSlice';
-
-function createTestStore(preloadedState = {}) {
-  return configureStore({
-    reducer: {
-      app: appReducer,
-      jobs: jobsReducer,
-      graphFilters: graphFiltersReducer,
-      listFilters: listFiltersReducer,
-      ui: uiReducer,
-    },
-    preloadedState,
-  });
-}
+import { createTestStore } from '../../../test/testUtils';
 
 describe('CompanySelector', () => {
   it('renders company selector with label', () => {
