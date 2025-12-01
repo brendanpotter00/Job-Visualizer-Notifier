@@ -18,12 +18,7 @@ export function LoadingSkeletons({ count }: LoadingSkeletonsProps) {
   return (
     <div role="status" aria-label="Loading more jobs">
       {Array.from({ length: count }).map((_, index) => (
-        <Card
-          key={`skeleton-${index}`}
-          variant="outlined"
-          sx={{ mb: 2 }}
-          aria-hidden="true"
-        >
+        <Card key={`skeleton-${index}`} variant="outlined" sx={{ mb: 2 }} aria-hidden="true">
           <CardContent>
             {/* Company name skeleton */}
             <Skeleton variant="text" width="30%" height={20} sx={{ mb: 1 }} />

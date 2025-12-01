@@ -70,17 +70,9 @@ export interface UseInfiniteScrollReturn {
  * );
  * ```
  */
-export function useInfiniteScroll(
-  options: UseInfiniteScrollOptions
-): UseInfiniteScrollReturn {
+export function useInfiniteScroll(options: UseInfiniteScrollOptions): UseInfiniteScrollReturn {
   const sentinelRef = useRef<HTMLDivElement>(null);
-  const {
-    hasMore,
-    isLoadingMore,
-    onLoadMore,
-    rootMargin = '200px',
-    threshold = 0.1,
-  } = options;
+  const { hasMore, isLoadingMore, onLoadMore, rootMargin = '200px', threshold = 0.1 } = options;
 
   useEffect(() => {
     const sentinel = sentinelRef.current;

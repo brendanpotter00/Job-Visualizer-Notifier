@@ -97,9 +97,7 @@ describe('RecentJobsList', () => {
       </Provider>
     );
 
-    expect(
-      screen.getByText(/No jobs found matching your filters/)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/No jobs found matching your filters/)).toBeInTheDocument();
     expect(
       screen.getByText(/Try adjusting your filters or extending the time window/)
     ).toBeInTheDocument();
@@ -152,9 +150,7 @@ describe('RecentJobsList', () => {
 
     // Check for sentinel div (should not exist when all jobs displayed)
     // BackToTopButton might have aria-hidden, so check more specifically
-    const sentinelInStack = container.querySelector(
-      '.MuiStack-root > div[aria-hidden="true"]'
-    );
+    const sentinelInStack = container.querySelector('.MuiStack-root > div[aria-hidden="true"]');
     expect(sentinelInStack).not.toBeInTheDocument();
   });
 

@@ -33,10 +33,7 @@ export function RecentJobsList() {
     // This gives the browser time to update UI before processing next batch
     setTimeout(() => {
       setDisplayedCount((prev) =>
-        Math.min(
-          prev + INFINITE_SCROLL_CONFIG.SUBSEQUENT_BATCH_SIZE,
-          jobs.length
-        )
+        Math.min(prev + INFINITE_SCROLL_CONFIG.SUBSEQUENT_BATCH_SIZE, jobs.length)
       );
       setIsLoadingMore(false);
     }, 0);
@@ -59,10 +56,7 @@ export function RecentJobsList() {
   }, [jobs.length]);
 
   // Memoize displayed jobs slice
-  const displayedJobs = useMemo(
-    () => jobs.slice(0, displayedCount),
-    [jobs, displayedCount]
-  );
+  const displayedJobs = useMemo(() => jobs.slice(0, displayedCount), [jobs, displayedCount]);
 
   // Empty state
   if (jobs.length === 0) {
@@ -94,17 +88,11 @@ export function RecentJobsList() {
         })}
 
         {/* Loading skeletons */}
-        {isLoadingMore && (
-          <LoadingSkeletons count={INFINITE_SCROLL_CONFIG.SKELETON_COUNT} />
-        )}
+        {isLoadingMore && <LoadingSkeletons count={INFINITE_SCROLL_CONFIG.SKELETON_COUNT} />}
 
         {/* Sentinel element for infinite scroll trigger */}
         {hasMore && !isLoadingMore && (
-          <div
-            ref={sentinelRef}
-            aria-hidden="true"
-            style={{ height: '1px', width: '100%' }}
-          />
+          <div ref={sentinelRef} aria-hidden="true" style={{ height: '1px', width: '100%' }} />
         )}
 
         {/* All jobs loaded message */}

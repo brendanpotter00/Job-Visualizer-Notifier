@@ -134,16 +134,13 @@ describe('useInfiniteScroll', () => {
   it('handles prop changes correctly', () => {
     const onLoadMore = vi.fn();
 
-    const { rerender } = renderHook(
-      (props) => useInfiniteScroll(props),
-      {
-        initialProps: {
-          hasMore: true,
-          isLoadingMore: false,
-          onLoadMore,
-        },
-      }
-    );
+    const { rerender } = renderHook((props) => useInfiniteScroll(props), {
+      initialProps: {
+        hasMore: true,
+        isLoadingMore: false,
+        onLoadMore,
+      },
+    });
 
     // Change hasMore to false
     rerender({
