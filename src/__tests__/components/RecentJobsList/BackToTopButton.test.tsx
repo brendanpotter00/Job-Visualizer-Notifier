@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, fireEvent } from '@testing-library/react';
 import { BackToTopButton } from '../../../components/RecentJobsList/BackToTopButton';
 import { INFINITE_SCROLL_CONFIG } from '../../../constants/infiniteScrollConstants';
 

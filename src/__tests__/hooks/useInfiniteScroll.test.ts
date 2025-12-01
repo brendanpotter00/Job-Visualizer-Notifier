@@ -6,7 +6,6 @@ describe('useInfiniteScroll', () => {
   let observeMock: ReturnType<typeof vi.fn>;
   let disconnectMock: ReturnType<typeof vi.fn>;
   let unobserveMock: ReturnType<typeof vi.fn>;
-  let intersectionObserverCallback: IntersectionObserverCallback;
 
   beforeEach(() => {
     observeMock = vi.fn();
@@ -14,8 +13,7 @@ describe('useInfiniteScroll', () => {
     unobserveMock = vi.fn();
 
     // Mock IntersectionObserver
-    global.IntersectionObserver = vi.fn().mockImplementation((callback) => {
-      intersectionObserverCallback = callback;
+    global.IntersectionObserver = vi.fn().mockImplementation(() => {
       return {
         observe: observeMock,
         disconnect: disconnectMock,

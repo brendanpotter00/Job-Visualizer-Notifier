@@ -55,15 +55,60 @@ export const selectRecentJobsSorted = createSelector([selectRecentFilteredJobs],
 });
 
 /**
- * Get available locations from all jobs
+ * Apply all filters EXCEPT company filter
+ * This is used to determine which companies should appear in the company dropdown
  */
-export const selectRecentAvailableLocations = createSelector([selectAllJobsFromQuery], (jobs) => {
-  const locations = new Set<string>();
-  jobs.forEach((job) => {
-    if (job.location) locations.add(job.location);
-  });
-  return Array.from(locations).sort();
-});
+export const selectRecentJobsFilteredWithoutCompany = createSelector(
+  [selectAllJobsFromQuery, selectRecentJobsFilters],
+  (allJobs, filters) => {
+    // Create a copy of filters WITHOUT the company field
+    const filtersWithoutCompany = { ...filters, company: undefined };
+    return filterJobsByFilters(allJobs, filtersWithoutCompany);
+  }
+);
+
+/**
+ * Apply all filters EXCEPT location filter
+ * Used to determine which locations should appear in the location dropdown
+ *
+ * Filters applied (in order):
+ * 1. Time Window - required, always applied
+ * 2. Company - if selected (multi-select OR logic)
+ * 3. Search Tags - if any tags added (include/exclude logic)
+ * 4. Employment Type - if selected
+ * 5. Software-Only - if enabled
+ * 6. Location - EXCLUDED (determining availability for this filter)
+ */
+export const selectRecentJobsFilteredWithoutLocation = createSelector(
+  [selectAllJobsFromQuery, selectRecentJobsFilters],
+  (allJobs, filters) => {
+    // Create a copy of filters WITHOUT the location field
+    const filtersWithoutLocation = { ...filters, location: undefined };
+    return filterJobsByFilters(allJobs, filtersWithoutLocation);
+  }
+);
+
+/**
+ * Get available locations from filtered jobs (excluding location filter)
+ * Only shows locations that have jobs matching all OTHER active filters
+ * Creates dynamic, context-aware dropdown
+ *
+ * Example scenarios:
+ * - If time window=1h, only shows locations with jobs in past hour
+ * - If company selected, only shows locations for that company
+ * - If employment type=Full-time, only shows locations with full-time jobs
+ * - If software-only enabled, only shows locations with software eng. roles
+ */
+export const selectRecentAvailableLocations = createSelector(
+  [selectRecentJobsFilteredWithoutLocation],
+  (jobs) => {
+    const locations = new Set<string>();
+    jobs.forEach((job) => {
+      if (job.location) locations.add(job.location);
+    });
+    return Array.from(locations).sort();
+  }
+);
 
 /**
  * Get available employment types from all jobs
@@ -76,19 +121,6 @@ export const selectRecentAvailableEmploymentTypes = createSelector(
       if (job.employmentType) types.add(job.employmentType);
     });
     return Array.from(types).sort();
-  }
-);
-
-/**
- * Apply all filters EXCEPT company filter
- * This is used to determine which companies should appear in the company dropdown
- */
-export const selectRecentJobsFilteredWithoutCompany = createSelector(
-  [selectAllJobsFromQuery, selectRecentJobsFilters],
-  (allJobs, filters) => {
-    // Create a copy of filters WITHOUT the company field
-    const filtersWithoutCompany = { ...filters, company: undefined };
-    return filterJobsByFilters(allJobs, filtersWithoutCompany);
   }
 );
 
