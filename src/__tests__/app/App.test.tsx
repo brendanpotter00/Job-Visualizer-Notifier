@@ -1,16 +1,11 @@
 import { describe, it, expect, beforeEach, vi, beforeAll, afterAll, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, render } from '@testing-library/react';
 import { Provider } from 'react-redux';
-import { configureStore } from '@reduxjs/toolkit';
 import { setupServer } from 'msw/node';
 import { http, HttpResponse } from 'msw';
-import App from '../../app/App';
-import appReducer from '../../features/app/appSlice';
-import jobsReducer from '../../features/jobs/jobsSlice';
-import graphFiltersReducer from '../../features/filters/graphFiltersSlice';
-import listFiltersReducer from '../../features/filters/listFiltersSlice';
-import uiReducer from '../../features/ui/uiSlice';
 import userEvent from '@testing-library/user-event';
+import App from '../../app/App';
+import { createTestStore } from '../../test/testUtils';
 
 // Mock API responses
 const mockGreenhouseJobs = {
@@ -56,19 +51,6 @@ vi.mock('recharts', () => ({
   Legend: () => null,
 }));
 
-function createTestStore(preloadedState = {}) {
-  return configureStore({
-    reducer: {
-      app: appReducer,
-      jobs: jobsReducer,
-      graphFilters: graphFiltersReducer,
-      listFilters: listFiltersReducer,
-      ui: uiReducer,
-    },
-    preloadedState,
-  });
-}
-
 describe('App', () => {
   beforeEach(() => {
     // Reset window.location and history before each test
@@ -84,7 +66,7 @@ describe('App', () => {
   });
 
   describe('Component Composition', () => {
-    it('should render AppHeader with company name', async () => {
+    it('should render Companies page with company name at root route', async () => {
       const store = createTestStore();
       render(
         <Provider store={store}>
@@ -99,7 +81,7 @@ describe('App', () => {
       });
     });
 
-    it('should render company selector', async () => {
+    it('should render company selector on Companies page', async () => {
       const store = createTestStore();
       render(
         <Provider store={store}>
@@ -112,18 +94,16 @@ describe('App', () => {
       });
     });
 
-    it('should render AppContent section', async () => {
+    it('should render navigation drawer with app name', async () => {
       const store = createTestStore();
-      const { container } = render(
+      render(
         <Provider store={store}>
           <App />
         </Provider>
       );
 
-      // Should render content (look for Container component)
       await waitFor(() => {
-        const muiContainer = container.querySelector('.MuiContainer-root');
-        expect(muiContainer).toBeInTheDocument();
+        expect(screen.getByText('1 Hour Jobs')).toBeInTheDocument();
       });
     });
   });
@@ -133,7 +113,6 @@ describe('App', () => {
       const store = createTestStore({
         ui: { globalLoading: true, graphModal: { isOpen: false } },
       });
-
       render(
         <Provider store={store}>
           <App />
@@ -159,7 +138,6 @@ describe('App', () => {
           },
         },
       });
-
       render(
         <Provider store={store}>
           <App />
@@ -182,7 +160,6 @@ describe('App', () => {
       );
 
       const store = createTestStore();
-
       render(
         <Provider store={store}>
           <App />
@@ -206,7 +183,6 @@ describe('App', () => {
       );
 
       const store = createTestStore();
-
       render(
         <Provider store={store}>
           <App />
@@ -229,9 +205,8 @@ describe('App', () => {
         })
       );
 
-      const store = createTestStore();
       const user = userEvent.setup();
-
+      const store = createTestStore();
       render(
         <Provider store={store}>
           <App />
@@ -294,8 +269,8 @@ describe('App', () => {
 
     it('should display correct company name from Redux state', async () => {
       window.location.search = '?company=anthropic';
-      const store = createTestStore();
 
+      const store = createTestStore();
       render(
         <Provider store={store}>
           <App />
