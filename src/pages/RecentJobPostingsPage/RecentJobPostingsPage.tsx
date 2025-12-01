@@ -1,46 +1,27 @@
-import { Box, Container, Typography } from '@mui/material';
+import { Container, Typography, Box, CircularProgress, Alert } from '@mui/material';
 import { useGetAllJobsQuery } from '../../features/jobs/jobsApi';
+import { useAppSelector } from '../../app/hooks';
+import {
+  selectRecentJobsMetadata,
+  selectRecentJobsFilters,
+} from '../../features/filters/recentJobsSelectors';
+import { RecentJobsMetrics } from '../../components/RecentJobsMetrics';
+import { RecentJobsFilters } from '../../components/RecentJobsFilters';
+import { RecentJobsList } from '../../components/RecentJobsList';
 
 /**
  * Recent Job Postings page component
  *
  * Displays recently posted jobs across all companies using RTK Query
  * with 10-minute cache and automatic request deduplication.
+ * Features independent filters and chronological job list.
  *
  * @returns Recent job postings page with loading, error, or data display
  */
 export function RecentJobPostingsPage() {
   const { data, isLoading, error } = useGetAllJobsQuery();
-
-  console.log('All jobs data:', data);
-
-  if (isLoading) {
-    return (
-      <Container maxWidth="xl">
-        <Box sx={{ my: 4 }}>
-          <Typography variant="h3" component="h1" gutterBottom>
-            Recent Job Postings
-          </Typography>
-          <Typography variant="body1">Loading jobs from all companies...</Typography>
-        </Box>
-      </Container>
-    );
-  }
-
-  if (error) {
-    return (
-      <Container maxWidth="xl">
-        <Box sx={{ my: 4 }}>
-          <Typography variant="h3" component="h1" gutterBottom>
-            Recent Job Postings
-          </Typography>
-          <Typography variant="body1" color="error">
-            Error loading jobs. Please try again later.
-          </Typography>
-        </Box>
-      </Container>
-    );
-  }
+  const metadata = useAppSelector(selectRecentJobsMetadata);
+  const filters = useAppSelector(selectRecentJobsFilters);
 
   return (
     <Container maxWidth="xl">
@@ -48,10 +29,32 @@ export function RecentJobPostingsPage() {
         <Typography variant="h3" component="h1" gutterBottom>
           Recent Job Postings
         </Typography>
-        <Typography variant="body1" color="text.secondary">
-          Loaded jobs from {Object.keys(data?.byCompanyId || {}).length} companies.
+        <Typography variant="body1" color="text.secondary" gutterBottom>
+          View the latest job postings across all companies
         </Typography>
-        {/* TODO: Add job list visualization here */}
+
+        {isLoading && (
+          <Box display="flex" flexDirection="column" alignItems="center" py={8}>
+            <CircularProgress />
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+              Loading job postings from all companies...
+            </Typography>
+          </Box>
+        )}
+
+        {error ? (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            Failed to load job postings. Please try again later.
+          </Alert>
+        ) : null}
+
+        {!isLoading && !error && data && (
+          <>
+            <RecentJobsMetrics metadata={metadata} timeWindow={filters.timeWindow} />
+            <RecentJobsFilters />
+            <RecentJobsList />
+          </>
+        )}
       </Box>
     </Container>
   );

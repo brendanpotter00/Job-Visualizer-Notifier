@@ -1,0 +1,1 @@
+export { RecentJobCard } from './RecentJobCard';

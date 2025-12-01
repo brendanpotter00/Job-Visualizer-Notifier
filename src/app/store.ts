@@ -2,6 +2,7 @@ import { configureStore } from '@reduxjs/toolkit';
 import appReducer from '../features/app/appSlice';
 import graphFiltersReducer from '../features/filters/graphFiltersSlice';
 import listFiltersReducer from '../features/filters/listFiltersSlice';
+import recentJobsFiltersReducer from '../features/filters/recentJobsFiltersSlice';
 import uiReducer from '../features/ui/uiSlice';
 import { jobsApi } from '../features/jobs/jobsApi';
 
@@ -10,6 +11,7 @@ export const store = configureStore({
     app: appReducer,
     graphFilters: graphFiltersReducer,
     listFilters: listFiltersReducer,
+    recentJobsFilters: recentJobsFiltersReducer,
     ui: uiReducer,
     [jobsApi.reducerPath]: jobsApi.reducer,
   },

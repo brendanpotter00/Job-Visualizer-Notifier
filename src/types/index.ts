@@ -249,3 +249,16 @@ export interface ListFilters {
   roleCategory?: SoftwareRoleCategory[];
   softwareOnly: boolean;
 }
+
+/**
+ * Recent jobs filter state (for all-companies view)
+ * Subset of GraphFilters/ListFilters without department and roleCategory
+ */
+export interface RecentJobsFilters {
+  timeWindow: TimeWindow;
+  searchTags?: SearchTag[];
+  location?: string[];
+  employmentType?: string;
+  softwareOnly: boolean;
+  company?: string[];
+}

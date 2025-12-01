@@ -2,6 +2,7 @@ import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 import type {
   GraphFilters,
   ListFilters,
+  RecentJobsFilters,
   TimeWindow,
   SoftwareRoleCategory,
   SearchTag,
@@ -31,12 +32,12 @@ import {
 /**
  * Type for filter slice name
  */
-export type FilterSliceName = 'graph' | 'list';
+export type FilterSliceName = 'graph' | 'list' | 'recentJobs';
 
 /**
  * Union type for all filter types
  */
-export type Filters = GraphFilters | ListFilters;
+export type Filters = GraphFilters | ListFilters | RecentJobsFilters;
 
 /**
  * Filter state structure
@@ -124,16 +125,16 @@ export function createFilterSlice<T extends Filters>(name: FilterSliceName, init
 
       // Department (4 actions)
       [`add${capitalizedName}Department`]: (state, action: PayloadAction<string>) => {
-        addDepartmentToFilters(state.filters, action.payload);
+        addDepartmentToFilters(state.filters as any, action.payload);
       },
       [`remove${capitalizedName}Department`]: (state, action: PayloadAction<string>) => {
-        removeDepartmentFromFilters(state.filters, action.payload);
+        removeDepartmentFromFilters(state.filters as any, action.payload);
       },
       [`clear${capitalizedName}Departments`]: (state) => {
-        clearDepartmentsUtil(state.filters);
+        clearDepartmentsUtil(state.filters as any);
       },
       [`set${capitalizedName}Department`]: (state, action: PayloadAction<string[] | undefined>) => {
-        setDepartments(state.filters, action.payload);
+        setDepartments(state.filters as any, action.payload);
       },
 
       // Employment type (1 action)
@@ -144,27 +145,53 @@ export function createFilterSlice<T extends Filters>(name: FilterSliceName, init
         state.filters.employmentType = action.payload;
       },
 
+      // Company (4 actions)
+      [`set${capitalizedName}Company`]: (state, action: PayloadAction<string[] | undefined>) => {
+        (state.filters as any).company = action.payload;
+      },
+      [`add${capitalizedName}Company`]: (state, action: PayloadAction<string>) => {
+        const filters = state.filters as any;
+        if (!filters.company) {
+          filters.company = [];
+        }
+        if (!filters.company.includes(action.payload)) {
+          filters.company.push(action.payload);
+        }
+      },
+      [`remove${capitalizedName}Company`]: (state, action: PayloadAction<string>) => {
+        const filters = state.filters as any;
+        if (filters.company) {
+          filters.company = filters.company.filter((c: string) => c !== action.payload);
+          if (filters.company.length === 0) {
+            filters.company = undefined;
+          }
+        }
+      },
+      [`clear${capitalizedName}Companies`]: (state) => {
+        (state.filters as any).company = undefined;
+      },
+
       // Role category (4 actions)
       [`add${capitalizedName}RoleCategory`]: (
         state,
         action: PayloadAction<SoftwareRoleCategory>
       ) => {
-        addRoleCategoryToFilters(state.filters, action.payload);
+        addRoleCategoryToFilters(state.filters as any, action.payload);
       },
       [`remove${capitalizedName}RoleCategory`]: (
         state,
         action: PayloadAction<SoftwareRoleCategory>
       ) => {
-        removeRoleCategoryFromFilters(state.filters, action.payload);
+        removeRoleCategoryFromFilters(state.filters as any, action.payload);
       },
       [`clear${capitalizedName}RoleCategories`]: (state) => {
-        clearRoleCategoriesUtil(state.filters);
+        clearRoleCategoriesUtil(state.filters as any);
       },
       [`set${capitalizedName}RoleCategory`]: (
         state,
         action: PayloadAction<SoftwareRoleCategory[] | undefined>
       ) => {
-        setRoleCategories(state.filters, action.payload);
+        setRoleCategories(state.filters as any, action.payload);
       },
 
       // Software only (2 actions) - manages search tags instead of boolean flag
