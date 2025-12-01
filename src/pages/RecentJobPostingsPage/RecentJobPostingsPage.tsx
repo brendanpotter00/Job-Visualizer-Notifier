@@ -3,11 +3,12 @@ import { useGetAllJobsQuery } from '../../features/jobs/jobsApi';
 import { useAppSelector } from '../../app/hooks';
 import {
   selectRecentJobsMetadata,
-  selectRecentJobsFilters,
+  selectAllJobsFromQuery,
 } from '../../features/filters/recentJobsSelectors';
 import { RecentJobsMetrics } from '../../components/RecentJobsMetrics';
 import { RecentJobsFilters } from '../../components/RecentJobsFilters';
 import { RecentJobsList } from '../../components/RecentJobsList';
+import { useRecentJobsTimeBasedCounts } from '../../components/RecentJobsMetrics/hooks/useRecentJobsTimeBasedCounts';
 
 /**
  * Recent Job Postings page component
@@ -21,7 +22,10 @@ import { RecentJobsList } from '../../components/RecentJobsList';
 export function RecentJobPostingsPage() {
   const { data, isLoading, error } = useGetAllJobsQuery();
   const metadata = useAppSelector(selectRecentJobsMetadata);
-  const filters = useAppSelector(selectRecentJobsFilters);
+  const allJobs = useAppSelector(selectAllJobsFromQuery);
+
+  // Calculate time-based job counts (24h and 3h)
+  const timeBasedCounts = useRecentJobsTimeBasedCounts(allJobs);
 
   return (
     <Container maxWidth="xl">
@@ -50,7 +54,12 @@ export function RecentJobPostingsPage() {
 
         {!isLoading && !error && data && (
           <>
-            <RecentJobsMetrics metadata={metadata} timeWindow={filters.timeWindow} />
+            <RecentJobsMetrics
+              totalJobs={metadata.filteredCount}
+              companiesRepresented={metadata.companiesRepresented}
+              jobsLast24Hours={timeBasedCounts.jobsLast24Hours}
+              jobsLast3Hours={timeBasedCounts.jobsLast3Hours}
+            />
             <RecentJobsFilters />
             <RecentJobsList />
           </>

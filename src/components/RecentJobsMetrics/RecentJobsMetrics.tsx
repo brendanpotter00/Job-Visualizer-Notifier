@@ -1,46 +1,34 @@
-import { Paper, Stack, Box, Typography } from '@mui/material';
+import { Paper, Stack, Divider } from '@mui/material';
+import { MetricCard } from '../MetricsDashboard/MetricCard';
 
 interface RecentJobsMetricsProps {
-  metadata: {
-    totalJobs: number;
-    filteredCount: number;
-    companiesRepresented: number;
-  };
-  timeWindow: string;
+  totalJobs: number;
+  companiesRepresented: number;
+  jobsLast24Hours: number;
+  jobsLast3Hours: number;
 }
 
 /**
  * Displays metrics for Recent Job Postings page
- * Shows filtered job count, companies represented, and time window
+ * Matches styling of MetricsDashboard component
+ * Shows total jobs, companies, and time-based counts (24h, 3h)
  */
-export function RecentJobsMetrics({ metadata, timeWindow }: RecentJobsMetricsProps) {
+export function RecentJobsMetrics({
+  totalJobs,
+  companiesRepresented,
+  jobsLast24Hours,
+  jobsLast3Hours,
+}: RecentJobsMetricsProps) {
   return (
-    <Paper sx={{ p: 2, mb: 3, bgcolor: 'background.default' }}>
-      <Stack direction="row" spacing={4} justifyContent="center">
-        <Box textAlign="center">
-          <Typography variant="h4" component="div">
-            {metadata.filteredCount}
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            Job Postings
-          </Typography>
-        </Box>
-        <Box textAlign="center">
-          <Typography variant="h4" component="div">
-            {metadata.companiesRepresented}
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            Companies
-          </Typography>
-        </Box>
-        <Box textAlign="center">
-          <Typography variant="h4" component="div">
-            {timeWindow}
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            Time Window
-          </Typography>
-        </Box>
+    <Paper sx={{ p: 3, mb: 3 }}>
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3} sx={{ mb: 3 }}>
+        <MetricCard value={totalJobs} label="Total Job Postings" />
+        <Divider orientation="vertical" flexItem />
+        <MetricCard value={companiesRepresented} label="Companies Represented" />
+        <Divider orientation="vertical" flexItem />
+        <MetricCard value={jobsLast24Hours} label="Past 24 Hours" />
+        <Divider orientation="vertical" flexItem />
+        <MetricCard value={jobsLast3Hours} label="Past 3 Hours" />
       </Stack>
     </Paper>
   );

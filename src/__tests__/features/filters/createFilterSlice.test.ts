@@ -72,7 +72,7 @@ describe('createFilterSlice', () => {
         expect(actionNames).toContain(actionName);
       });
 
-      expect(actionNames).toHaveLength(23); // 25 actions total
+      expect(actionNames).toHaveLength(27); // Total actions (includes additional filter actions)
     });
   });
 
