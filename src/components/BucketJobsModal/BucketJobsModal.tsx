@@ -14,7 +14,7 @@ import { useMemo } from 'react';
 import { useAppDispatch, useAppSelector } from '../../app/hooks';
 import { closeGraphModal } from '../../features/ui/uiSlice';
 import { JobList } from '../JobList/JobList';
-import { selectCurrentCompanyJobs } from '../../features/jobs/jobsSelectors';
+import { selectCurrentCompanyJobsRtk } from '../../features/jobs/jobsSelectors';
 
 /**
  * Modal displaying jobs from a clicked time bucket
@@ -27,7 +27,7 @@ export function BucketJobsModal() {
   const { open, bucketStart, bucketEnd, filteredJobIds } = useAppSelector(
     (state) => state.ui.graphModal
   );
-  const allJobs = useAppSelector(selectCurrentCompanyJobs);
+  const allJobs = useAppSelector(selectCurrentCompanyJobsRtk);
 
   const handleClose = () => {
     dispatch(closeGraphModal());

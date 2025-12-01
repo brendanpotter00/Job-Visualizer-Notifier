@@ -13,9 +13,6 @@ export const selectCurrentCompanyJobsRtk = createSelector(
   }
 );
 
-// Alias for backward compatibility
-export const selectCurrentCompanyJobs = selectCurrentCompanyJobsRtk;
-
 /**
  * Select loading state for current company
  */
@@ -27,9 +24,6 @@ export const selectCurrentCompanyLoadingRtk = createSelector(
   }
 );
 
-// Alias for backward compatibility
-export const selectCurrentCompanyLoading = selectCurrentCompanyLoadingRtk;
-
 /**
  * Select error for current company
  */
@@ -40,7 +34,7 @@ export const selectCurrentCompanyError = createSelector(
     if (!result.error) return undefined;
     return typeof result.error === 'string'
       ? result.error
-      : typeof result.error === 'object' && result.error !== null && 'data' in result.error
+      : typeof result.error === 'object' && true && 'data' in result.error
         ? String(result.error.data)
         : 'Unknown error';
   }
@@ -62,9 +56,6 @@ export const selectCurrentCompanyMetadataRtk = createSelector(
   }
 );
 
-// Alias for backward compatibility
-export const selectCurrentCompanyMetadata = selectCurrentCompanyMetadataRtk;
-
 /**
  * Select software jobs only for current company
  */
@@ -72,9 +63,6 @@ export const selectCurrentCompanySoftwareJobsRtk = createSelector(
   [selectCurrentCompanyJobsRtk],
   (jobs) => jobs.filter((job) => job.classification.isSoftwareAdjacent)
 );
-
-// Alias for backward compatibility
-export const selectCurrentCompanySoftwareJobs = selectCurrentCompanySoftwareJobsRtk;
 
 /**
  * Select jobs for a specific company (parameterized selector)

@@ -5,7 +5,7 @@ import { GraphFilters } from '../filters/GraphFilters';
 import { MetricsDashboard } from '../MetricsDashboard/MetricsDashboard';
 import { selectGraphBucketData } from '../../features/filters/graphFiltersSelectors';
 import {
-  selectCurrentCompanyLoading,
+  selectCurrentCompanyLoadingRtk,
   selectCurrentCompanyError,
 } from '../../features/jobs/jobsSelectors';
 import { openGraphModal } from '../../features/ui/uiSlice';
@@ -18,7 +18,7 @@ import type { TimeBucket } from '../../types';
 export function GraphSection() {
   const dispatch = useAppDispatch();
   const bucketData = useAppSelector(selectGraphBucketData);
-  const isLoading = useAppSelector(selectCurrentCompanyLoading);
+  const isLoading = useAppSelector(selectCurrentCompanyLoadingRtk);
   const error = useAppSelector(selectCurrentCompanyError);
   const graphFilters = useAppSelector((state) => state.graphFilters.filters);
 

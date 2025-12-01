@@ -2,8 +2,8 @@ import { Paper, Divider } from '@mui/material';
 import { useMemo } from 'react';
 import { useAppSelector } from '../../app/hooks';
 import {
-  selectCurrentCompanyMetadata,
-  selectCurrentCompanyJobs,
+  selectCurrentCompanyMetadataRtk,
+  selectCurrentCompanyJobsRtk,
 } from '../../features/jobs/jobsSelectors';
 import { getCompanyById } from '../../config/companies';
 import { useTimeBasedJobCounts } from './hooks/useTimeBasedJobCounts';
@@ -14,8 +14,8 @@ import { LinksRow } from './LinksRow';
  * Dashboard displaying key metrics and links above the graph
  */
 export function MetricsDashboard() {
-  const metadata = useAppSelector(selectCurrentCompanyMetadata);
-  const allJobs = useAppSelector(selectCurrentCompanyJobs);
+  const metadata = useAppSelector(selectCurrentCompanyMetadataRtk);
+  const allJobs = useAppSelector(selectCurrentCompanyJobsRtk);
   const selectedCompanyId = useAppSelector((state) => state.app.selectedCompanyId);
 
   // Memoize company lookup
