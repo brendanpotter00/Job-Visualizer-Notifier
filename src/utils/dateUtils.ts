@@ -54,3 +54,36 @@ export function roundToBucketStart(date: Date, bucketSizeMs: number): Date {
   const roundedTimestamp = Math.floor(timestamp / bucketSizeMs) * bucketSizeMs;
   return new Date(roundedTimestamp);
 }
+
+/**
+ * Calculate the date range (oldest and newest) for a collection of jobs
+ *
+ * @param jobs - Array of jobs with createdAt timestamps
+ * @returns Object with oldestJobDate and newestJobDate (undefined if no jobs)
+ *
+ * @example
+ * ```typescript
+ * const jobs = [
+ *   { id: '1', createdAt: '2025-01-01T10:00:00Z', ... },
+ *   { id: '2', createdAt: '2025-01-05T15:30:00Z', ... },
+ * ];
+ * const range = calculateJobDateRange(jobs);
+ * // { oldestJobDate: '2025-01-01T10:00:00.000Z', newestJobDate: '2025-01-05T15:30:00.000Z' }
+ * ```
+ */
+export function calculateJobDateRange(
+  jobs: Array<{ createdAt: string }>
+): {
+  oldestJobDate?: string;
+  newestJobDate?: string;
+} {
+  if (jobs.length === 0) {
+    return { oldestJobDate: undefined, newestJobDate: undefined };
+  }
+
+  const timestamps = jobs.map((job) => new Date(job.createdAt).getTime());
+  return {
+    oldestJobDate: new Date(Math.min(...timestamps)).toISOString(),
+    newestJobDate: new Date(Math.max(...timestamps)).toISOString(),
+  };
+}

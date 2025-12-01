@@ -262,3 +262,42 @@ export interface RecentJobsFilters {
   softwareOnly: boolean;
   company?: string[];
 }
+
+/**
+ * Company fetch progress status
+ */
+export type CompanyFetchStatus = 'pending' | 'loading' | 'success' | 'error';
+
+/**
+ * Progress tracking for individual company fetch
+ */
+export interface CompanyFetchProgress {
+  /** Company identifier */
+  companyId: string;
+
+  /** Current fetch status */
+  status: CompanyFetchStatus;
+
+  /** Timestamp when fetch completed (ISO 8601) */
+  completedAt?: string;
+
+  /** Error message if fetch failed */
+  error?: string;
+
+  /** Number of jobs fetched (only for successful fetches) */
+  jobCount?: number;
+}
+
+/**
+ * Progress metadata for getAllJobs query
+ */
+export interface FetchProgress {
+  /** Number of companies that have completed (success or error) */
+  completed: number;
+
+  /** Total number of companies to fetch */
+  total: number;
+
+  /** Per-company progress tracking */
+  companies: CompanyFetchProgress[];
+}

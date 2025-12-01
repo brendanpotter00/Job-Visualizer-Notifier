@@ -5,6 +5,7 @@ import {
   getBucketSize,
   formatBucketLabel,
   roundToBucketStart,
+  calculateJobDateRange,
 } from '../../utils/dateUtils';
 import { TIME_WINDOW_DURATIONS, BUCKET_SIZES, TIME_UNITS } from '../../constants/timeConstants';
 import type { TimeWindow, TimeBucket } from '../../types';
@@ -216,6 +217,69 @@ describe('dateUtils', () => {
         expect(size).toBeGreaterThan(0);
         expect(size).toBe(BUCKET_SIZES[window]);
       });
+    });
+  });
+
+  describe('calculateJobDateRange', () => {
+    it('should return undefined dates for empty array', () => {
+      const result = calculateJobDateRange([]);
+      expect(result).toEqual({
+        oldestJobDate: undefined,
+        newestJobDate: undefined,
+      });
+    });
+
+    it('should calculate date range for single job', () => {
+      const jobs = [{ createdAt: '2025-01-15T10:30:00Z' }];
+      const result = calculateJobDateRange(jobs);
+
+      expect(result.oldestJobDate).toBe('2025-01-15T10:30:00.000Z');
+      expect(result.newestJobDate).toBe('2025-01-15T10:30:00.000Z');
+    });
+
+    it('should calculate date range for multiple jobs', () => {
+      const jobs = [
+        { createdAt: '2025-01-15T10:30:00Z' },
+        { createdAt: '2025-01-10T08:00:00Z' },
+        { createdAt: '2025-01-20T16:45:00Z' },
+      ];
+      const result = calculateJobDateRange(jobs);
+
+      expect(result.oldestJobDate).toBe('2025-01-10T08:00:00.000Z');
+      expect(result.newestJobDate).toBe('2025-01-20T16:45:00.000Z');
+    });
+
+    it('should handle jobs with same timestamp', () => {
+      const jobs = [
+        { createdAt: '2025-01-15T10:30:00Z' },
+        { createdAt: '2025-01-15T10:30:00Z' },
+      ];
+      const result = calculateJobDateRange(jobs);
+
+      expect(result.oldestJobDate).toBe('2025-01-15T10:30:00.000Z');
+      expect(result.newestJobDate).toBe('2025-01-15T10:30:00.000Z');
+    });
+
+    it('should work with millisecond precision', () => {
+      const jobs = [
+        { createdAt: '2025-01-15T10:30:00.123Z' },
+        { createdAt: '2025-01-15T10:30:00.456Z' },
+      ];
+      const result = calculateJobDateRange(jobs);
+
+      expect(result.oldestJobDate).toBe('2025-01-15T10:30:00.123Z');
+      expect(result.newestJobDate).toBe('2025-01-15T10:30:00.456Z');
+    });
+
+    it('should handle jobs across different years', () => {
+      const jobs = [
+        { createdAt: '2024-12-31T23:59:59Z' },
+        { createdAt: '2025-01-01T00:00:00Z' },
+      ];
+      const result = calculateJobDateRange(jobs);
+
+      expect(result.oldestJobDate).toBe('2024-12-31T23:59:59.000Z');
+      expect(result.newestJobDate).toBe('2025-01-01T00:00:00.000Z');
     });
   });
 });

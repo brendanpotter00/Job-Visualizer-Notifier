@@ -1,5 +1,6 @@
-import { Container, Typography, Box, CircularProgress, Alert } from '@mui/material';
+import { Container, Typography, Box, Alert } from '@mui/material';
 import { useGetAllJobsQuery } from '../../features/jobs/jobsApi';
+import { useAllJobsProgress } from '../../features/jobs/useAllJobsProgress';
 import { useAppSelector } from '../../app/hooks';
 import {
   selectRecentJobsMetadata,
@@ -9,6 +10,7 @@ import { RecentJobsMetrics } from '../../components/RecentJobsMetrics';
 import { RecentJobsFilters } from '../../components/RecentJobsFilters';
 import { RecentJobsList } from '../../components/RecentJobsList';
 import { useRecentJobsTimeBasedCounts } from '../../components/RecentJobsMetrics/hooks/useRecentJobsTimeBasedCounts';
+import { FetchProgressBar } from '../../components/FetchProgressBar';
 
 /**
  * Recent Job Postings page component
@@ -20,7 +22,7 @@ import { useRecentJobsTimeBasedCounts } from '../../components/RecentJobsMetrics
  * @returns Recent job postings page with loading, error, or data display
  */
 export function RecentJobPostingsPage() {
-  const { data, isLoading, error } = useGetAllJobsQuery();
+  const { data, error } = useGetAllJobsQuery();
   const metadata = useAppSelector(selectRecentJobsMetadata);
   const allJobs = useAppSelector(selectAllJobsFromQuery);
 
@@ -36,15 +38,7 @@ export function RecentJobPostingsPage() {
         <Typography variant="body1" color="text.secondary" gutterBottom>
           View the latest job postings across all companies
         </Typography>
-
-        {isLoading && (
-          <Box display="flex" flexDirection="column" alignItems="center" py={8}>
-            <CircularProgress />
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-              Loading job postings from all companies...
-            </Typography>
-          </Box>
-        )}
+        {data?.isStreaming && <FetchProgressBar />}
 
         {error ? (
           <Alert severity="error" sx={{ mb: 2 }}>
@@ -52,7 +46,7 @@ export function RecentJobPostingsPage() {
           </Alert>
         ) : null}
 
-        {!isLoading && !error && data && (
+        {!error && data && (
           <>
             <RecentJobsMetrics
               totalJobs={metadata.filteredCount}

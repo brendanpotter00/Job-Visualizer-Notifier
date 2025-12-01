@@ -1,11 +1,11 @@
 import { createApi, fakeBaseQuery } from '@reduxjs/toolkit/query/react';
-import type { Job } from '../../types';
+import type { Job, FetchProgress } from '../../types';
 import { getCompanyById, COMPANIES } from '../../config/companies';
-import { greenhouseClient } from '../../api/greenhouseClient';
-import { leverClient } from '../../api/leverClient';
-import { ashbyClient } from '../../api/ashbyClient';
-import { workdayClient } from '../../api/workdayClient';
 import type { FetchJobsResult } from '../../api/types';
+import { getClientForATS } from '../../api/utils';
+import { calculateJobDateRange } from '../../utils/dateUtils';
+import { updateCompanyProgress } from './progressHelpers';
+import { logger } from '../../utils/logger';
 
 interface JobsQueryResult {
   jobs: Job[];
@@ -31,6 +31,8 @@ interface AllJobsQueryResult {
     }
   >;
   errors: Record<string, string>;
+  progress: FetchProgress;
+  isStreaming: boolean;
 }
 
 export const jobsApi = createApi({
@@ -50,14 +52,7 @@ export const jobsApi = createApi({
           }
 
           // Select appropriate client based on ATS type
-          const client =
-            company.ats === 'greenhouse'
-              ? greenhouseClient
-              : company.ats === 'lever'
-                ? leverClient
-                : company.ats === 'ashby'
-                  ? ashbyClient
-                  : workdayClient;
+          const client = getClientForATS(company.ats);
 
           // Fetch ALL jobs (ignore timeWindow - filter client-side)
           const result: FetchJobsResult = await client.fetchJobs(company.config, {
@@ -65,19 +60,14 @@ export const jobsApi = createApi({
           });
 
           // Calculate date range
-          const dates = result.jobs.map((job) => new Date(job.createdAt).getTime());
-          const oldestJobDate =
-            dates.length > 0 ? new Date(Math.min(...dates)).toISOString() : undefined;
-          const newestJobDate =
-            dates.length > 0 ? new Date(Math.max(...dates)).toISOString() : undefined;
+          const dateRange = calculateJobDateRange(result.jobs);
 
           return {
             data: {
               jobs: result.jobs,
               metadata: {
                 ...result.metadata,
-                oldestJobDate,
-                newestJobDate,
+                ...dateRange,
               },
             },
           };
@@ -93,81 +83,106 @@ export const jobsApi = createApi({
       providesTags: (_result, _error, { companyId }) => [{ type: 'Jobs', id: companyId }],
     }),
 
-    // All companies endpoint (parallel fetch with Promise.allSettled)
+    // All companies endpoint (parallel fetch with streaming progress updates)
     getAllJobs: builder.query<AllJobsQueryResult, void>({
-      async queryFn(_, { signal }) {
-        try {
-          // Fetch all companies in parallel
-          const results = await Promise.allSettled(
-            COMPANIES.map(async (company) => {
-              const client =
-                company.ats === 'greenhouse'
-                  ? greenhouseClient
-                  : company.ats === 'lever'
-                    ? leverClient
-                    : company.ats === 'ashby'
-                      ? ashbyClient
-                      : workdayClient;
+      async queryFn() {
+        // Return initial skeleton data immediately
+        return {
+          data: {
+            byCompanyId: {},
+            metadata: {},
+            errors: {},
+            progress: {
+              completed: 0,
+              total: COMPANIES.length,
+              companies: COMPANIES.map((c) => ({
+                companyId: c.id,
+                status: 'pending' as const,
+              })),
+            },
+            isStreaming: true,
+          },
+        };
+      },
 
-              const result = await client.fetchJobs(company.config, { signal });
+      async onCacheEntryAdded(
+        _arg,
+        { updateCachedData, cacheDataLoaded, cacheEntryRemoved }
+      ) {
+        try {
+          // Wait for initial data to be in cache
+          await cacheDataLoaded;
+
+          // Start parallel fetches for all companies
+          const fetchPromises = COMPANIES.map(async (company) => {
+            const client = getClientForATS(company.ats);
+
+            try {
+              // Mark as loading
+              updateCachedData((draft) => {
+                updateCompanyProgress(draft.progress, company.id, { status: 'loading' });
+              });
+
+              // Fetch data
+              const result: FetchJobsResult = await client.fetchJobs(company.config, {});
 
               // Calculate date range
-              const dates = result.jobs.map((job) => new Date(job.createdAt).getTime());
-              const oldestJobDate =
-                dates.length > 0 ? new Date(Math.min(...dates)).toISOString() : undefined;
-              const newestJobDate =
-                dates.length > 0 ? new Date(Math.max(...dates)).toISOString() : undefined;
+              const dateRange = calculateJobDateRange(result.jobs);
 
-              return {
-                companyId: company.id,
-                jobs: result.jobs,
-                metadata: {
+              // Update cache with successful company fetch
+              updateCachedData((draft) => {
+                draft.byCompanyId[company.id] = result.jobs;
+                draft.metadata[company.id] = {
                   ...result.metadata,
-                  oldestJobDate,
-                  newestJobDate,
-                },
-              };
-            })
-          );
+                  ...dateRange,
+                };
 
-          // Organize results
-          const byCompanyId: Record<string, Job[]> = {};
-          const metadata: Record<string, any> = {};
-          const errors: Record<string, string> = {};
+                updateCompanyProgress(draft.progress, company.id, {
+                  status: 'success',
+                  jobCount: result.jobs.length,
+                });
+              });
 
-          results.forEach((result, index) => {
-            const companyId = COMPANIES[index].id;
+              return { companyId: company.id, success: true };
+            } catch (error) {
+              const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 
-            if (result.status === 'fulfilled') {
-              byCompanyId[companyId] = result.value.jobs;
-              metadata[companyId] = result.value.metadata;
-            } else {
-              errors[companyId] = result.reason?.message || 'Unknown error';
-              byCompanyId[companyId] = [];
-              metadata[companyId] = {
-                totalCount: 0,
-                softwareCount: 0,
-                fetchedAt: new Date().toISOString(),
-              };
+              // Update cache with error
+              updateCachedData((draft) => {
+                draft.byCompanyId[company.id] = [];
+                draft.metadata[company.id] = {
+                  totalCount: 0,
+                  softwareCount: 0,
+                  fetchedAt: new Date().toISOString(),
+                };
+                draft.errors[company.id] = errorMessage;
+
+                updateCompanyProgress(draft.progress, company.id, {
+                  status: 'error',
+                  error: errorMessage,
+                });
+              });
+
+              return { companyId: company.id, success: false };
             }
           });
 
-          return {
-            data: {
-              byCompanyId,
-              metadata,
-              errors,
-            },
-          };
+          // Wait for all fetches to complete
+          await Promise.allSettled(fetchPromises);
+
+          // Mark streaming as complete
+          updateCachedData((draft) => {
+            draft.isStreaming = false;
+          });
+
+          // Wait for cache to be removed before cleanup
+          await cacheEntryRemoved;
         } catch (error) {
-          return {
-            error: {
-              status: 'CUSTOM_ERROR',
-              data: error instanceof Error ? error.message : 'Unknown error',
-            },
-          };
+          // Handle any errors during streaming
+          logger.error('getAllJobs streaming error:', error);
         }
       },
+
       providesTags: ['Jobs'],
     }),
   }),
