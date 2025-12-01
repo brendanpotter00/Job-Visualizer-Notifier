@@ -15,10 +15,14 @@ interface GlobalAppBarProps {
   onDrawerToggle: () => void;
   /** Drawer width for calculating margins */
   drawerWidth: number;
+  /** Whether the current viewport is mobile */
+  isMobile: boolean;
 }
 
 interface AppBarProps extends MuiAppBarProps {
-  open?: boolean;
+  /** Whether app bar should shift right to accommodate drawer */
+  shouldShift?: boolean;
+  /** Width of the drawer when open */
   drawerWidth?: number;
 }
 
@@ -26,14 +30,14 @@ interface AppBarProps extends MuiAppBarProps {
  * Styled MUI AppBar that shifts when drawer opens
  */
 const AppBar = styled(MuiAppBar, {
-  shouldForwardProp: (prop) => prop !== 'open' && prop !== 'drawerWidth',
-})<AppBarProps>(({ theme, open, drawerWidth = 240 }) => ({
+  shouldForwardProp: (prop) => prop !== 'shouldShift' && prop !== 'drawerWidth',
+})<AppBarProps>(({ theme, shouldShift, drawerWidth = 240 }) => ({
   zIndex: theme.zIndex.drawer + 1,
   transition: theme.transitions.create(['width', 'margin'], {
     easing: theme.transitions.easing.sharp,
     duration: theme.transitions.duration.leavingScreen,
   }),
-  ...(open && {
+  ...(shouldShift && {
     marginLeft: drawerWidth,
     width: `calc(100% - ${drawerWidth}px)`,
     transition: theme.transitions.create(['width', 'margin'], {
@@ -49,14 +53,15 @@ const AppBar = styled(MuiAppBar, {
  * Features:
  * - Displays "1 Hour Jobs" title
  * - Hamburger menu button to toggle drawer
- * - Shifts right when drawer opens (desktop only)
+ * - Desktop: Shifts right when drawer opens (persistent drawer)
+ * - Mobile: Stays fixed (drawer is temporary overlay)
  *
  * @param props - Component props
  * @returns Global app bar component
  */
-export function GlobalAppBar({ open, onDrawerToggle, drawerWidth }: GlobalAppBarProps) {
+export function GlobalAppBar({ open, onDrawerToggle, drawerWidth, isMobile }: GlobalAppBarProps) {
   return (
-    <AppBar position="fixed" open={open} drawerWidth={drawerWidth}>
+    <AppBar position="fixed" shouldShift={!isMobile && open} drawerWidth={drawerWidth}>
       <Toolbar>
         <IconButton
           color="inherit"
@@ -67,7 +72,9 @@ export function GlobalAppBar({ open, onDrawerToggle, drawerWidth }: GlobalAppBar
             {
               marginRight: 5,
             },
-            open && { display: 'none' },
+            // On desktop: hide when drawer is open (persistent drawer)
+            // On mobile: always show (drawer is temporary overlay)
+            !isMobile && open && { display: 'none' },
           ]}
         >
           <MenuIcon />

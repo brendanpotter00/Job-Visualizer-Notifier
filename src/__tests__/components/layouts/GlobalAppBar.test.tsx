@@ -8,6 +8,7 @@ describe('GlobalAppBar', () => {
     open: false,
     onDrawerToggle: vi.fn(),
     drawerWidth: 240,
+    isMobile: false,
   };
 
   describe('Rendering', () => {
@@ -30,16 +31,28 @@ describe('GlobalAppBar', () => {
   });
 
   describe('Button Visibility', () => {
-    it('menu button visible when drawer closed', () => {
-      render(<GlobalAppBar {...mockProps} open={false} />);
+    it('menu button visible when drawer closed (desktop)', () => {
+      render(<GlobalAppBar {...mockProps} open={false} isMobile={false} />);
       const button = screen.getByLabelText('open drawer');
       expect(button).toBeVisible();
     });
 
-    it('menu button hidden when drawer open', () => {
-      render(<GlobalAppBar {...mockProps} open={true} />);
+    it('menu button hidden when drawer open (desktop)', () => {
+      render(<GlobalAppBar {...mockProps} open={true} isMobile={false} />);
       const button = screen.getByLabelText('open drawer');
       expect(button).not.toBeVisible();
+    });
+
+    it('menu button always visible on mobile (drawer closed)', () => {
+      render(<GlobalAppBar {...mockProps} open={false} isMobile={true} />);
+      const button = screen.getByLabelText('open drawer');
+      expect(button).toBeVisible();
+    });
+
+    it('menu button always visible on mobile (drawer open)', () => {
+      render(<GlobalAppBar {...mockProps} open={true} isMobile={true} />);
+      const button = screen.getByLabelText('open drawer');
+      expect(button).toBeVisible();
     });
 
     it('button has correct aria-label', () => {

@@ -69,9 +69,9 @@ const DrawerHeader = styled('div')(({ theme }) => ({
 }));
 
 /**
- * Styled drawer that supports permanent and temporary variants
+ * Styled drawer for permanent (desktop) variant only
  */
-const Drawer = styled(MuiDrawer, {
+const PermanentDrawer = styled(MuiDrawer, {
   shouldForwardProp: (prop) => prop !== 'open' && prop !== 'drawerWidth',
 })<{ open?: boolean; drawerWidth?: number }>(({ theme, open, drawerWidth = 240 }) => ({
   width: drawerWidth,
@@ -91,7 +91,8 @@ const Drawer = styled(MuiDrawer, {
 /**
  * Map icon names to MUI icon components
  */
-const iconMap = {
+type IconName = 'Business' | 'Schedule';
+const iconMap: Record<IconName, React.ComponentType> = {
   Business: BusinessIcon,
   Schedule: ScheduleIcon,
 };
@@ -104,6 +105,11 @@ const iconMap = {
  * - Mobile (<900px): Temporary drawer that closes on navigation
  * - Highlights active route
  * - Icon-only mode when collapsed (desktop only)
+ *
+ * Implementation:
+ * - Uses separate JSX branches for mobile vs desktop for clarity
+ * - Mobile: MUI Drawer with temporary variant
+ * - Desktop: Custom PermanentDrawer with collapse animations
  *
  * @param props - Component props
  * @returns Navigation drawer component
@@ -127,16 +133,12 @@ export function NavigationDrawer({
     }
   };
 
-  return (
-    <Drawer
-      variant={isMobile ? 'temporary' : 'permanent'}
-      open={open}
-      onClose={onClose}
-      drawerWidth={drawerWidth}
-      ModalProps={{
-        keepMounted: true, // Better mobile performance
-      }}
-    >
+  /**
+   * Renders the drawer content (header, divider, nav items)
+   * Extracted to avoid duplication between mobile and desktop drawers
+   */
+  const renderDrawerContent = () => (
+    <>
       <DrawerHeader>
         <IconButton onClick={isMobile ? onClose : onToggleCollapse}>
           {theme.direction === 'rtl' ? <ChevronRightIcon /> : <ChevronLeftIcon />}
@@ -145,7 +147,7 @@ export function NavigationDrawer({
       <Divider />
       <List>
         {NAV_ITEMS.map((item) => {
-          const Icon = iconMap[item.icon as keyof typeof iconMap];
+          const Icon = iconMap[item.icon as IconName];
           const isActive = location.pathname === item.path;
 
           return (
@@ -203,6 +205,34 @@ export function NavigationDrawer({
           );
         })}
       </List>
-    </Drawer>
+    </>
+  );
+
+  // Mobile: temporary drawer with standard MUI behavior
+  if (isMobile) {
+    return (
+      <MuiDrawer
+        variant="temporary"
+        open={open}
+        onClose={onClose}
+        ModalProps={{
+          keepMounted: true, // Better mobile performance
+        }}
+        sx={{
+          '& .MuiDrawer-paper': {
+            width: drawerWidth,
+          },
+        }}
+      >
+        {renderDrawerContent()}
+      </MuiDrawer>
+    );
+  }
+
+  // Desktop: permanent drawer with custom collapse behavior
+  return (
+    <PermanentDrawer variant="permanent" open={open} drawerWidth={drawerWidth}>
+      {renderDrawerContent()}
+    </PermanentDrawer>
   );
 }

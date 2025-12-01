@@ -1,6 +1,5 @@
 import { Container, Typography, Box, Alert } from '@mui/material';
 import { useGetAllJobsQuery } from '../../features/jobs/jobsApi';
-import { useAllJobsProgress } from '../../features/jobs/useAllJobsProgress';
 import { useAppSelector } from '../../app/hooks';
 import {
   selectRecentJobsMetadata,
