@@ -16,6 +16,10 @@
     {
       "source": "/api/workday/:path(.*)",
       "destination": "/api/workday?path=:path"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
     }
   ],
   "headers": [
