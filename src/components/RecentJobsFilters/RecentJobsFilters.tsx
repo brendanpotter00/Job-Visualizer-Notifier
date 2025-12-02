@@ -40,10 +40,7 @@ export function RecentJobsFilters() {
    * Memoized company options for dropdown
    * Avoids recreating array on every render
    */
-  const companyOptions = useMemo(
-    () => availableCompanies.map((c) => c.name),
-    [availableCompanies]
-  );
+  const companyOptions = useMemo(() => availableCompanies.map((c) => c.name), [availableCompanies]);
 
   /**
    * Memoized selected company names

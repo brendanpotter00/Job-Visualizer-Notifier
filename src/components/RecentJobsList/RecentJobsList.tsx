@@ -54,7 +54,7 @@ export function RecentJobsList() {
   useEffect(() => {
     setDisplayedCount(INFINITE_SCROLL_CONFIG.INITIAL_BATCH_SIZE);
     // Scroll to top instantly when filters change
-      window.scrollTo({ top: 0, behavior: 'auto' });
+    window.scrollTo({ top: 0, behavior: 'auto' });
   }, [jobs.length]);
 
   // Memoize displayed jobs slice

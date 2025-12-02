@@ -53,7 +53,7 @@ export function RecentJobPostingsPage() {
               jobsLast24Hours={timeBasedCounts.jobsLast24Hours}
               jobsLast3Hours={timeBasedCounts.jobsLast3Hours}
             />
-              {data?.isStreaming && <FetchProgressBar />}
+            {data?.isStreaming && <FetchProgressBar />}
             <RecentJobsFilters />
             <RecentJobsList />
           </>

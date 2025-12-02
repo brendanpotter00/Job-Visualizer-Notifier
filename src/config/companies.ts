@@ -65,6 +65,17 @@ export const COMPANIES: Company[] = [
       'https://www.linkedin.com/search/results/content/?authorCompany=%5B%2230898036%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=_GL&sortBy=%22date_posted%22',
   },
   {
+    id: 'twitch',
+    name: 'Twitch',
+    ats: 'greenhouse',
+    config: {
+      type: 'greenhouse',
+      boardToken: 'twitch',
+    },
+    jobsUrl: 'https://boards.greenhouse.io/twitch',
+    recruiterLinkedInUrl: '',
+  },
+  {
     id: 'neuralink',
     name: 'Neuralink',
     ats: 'greenhouse',
@@ -399,6 +410,7 @@ export const enum COMPANY_IDS {
   Airbnb = 'airbnb',
   Figma = 'figma',
   Notion = 'notion',
+  Twitch = 'twitch',
   Neuralink = 'neuralink',
   Palantir = 'palantir',
   Saronic = 'saronic',

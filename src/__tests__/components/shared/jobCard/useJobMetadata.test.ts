@@ -67,10 +67,9 @@ describe('useJobMetadata', () => {
       const firstCreatedAt = '2025-12-01T10:00:00Z';
       const secondCreatedAt = '2025-12-01T11:00:00Z';
 
-      const { result, rerender } = renderHook(
-        ({ createdAt }) => useJobMetadata(createdAt),
-        { initialProps: { createdAt: firstCreatedAt } }
-      );
+      const { result, rerender } = renderHook(({ createdAt }) => useJobMetadata(createdAt), {
+        initialProps: { createdAt: firstCreatedAt },
+      });
 
       const firstValue = result.current.postedAgo;
 
