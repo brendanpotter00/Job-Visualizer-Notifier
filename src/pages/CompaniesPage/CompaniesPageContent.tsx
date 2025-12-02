@@ -1,19 +1,19 @@
 import { Box, CircularProgress, Stack, Typography } from '@mui/material';
-import { GraphSection } from '../JobPostingsChart/GraphSection';
-import { ListSection } from '../JobList/ListSection';
-import { useAppSelector } from '../../app/hooks.ts';
-import { ATSConstants } from '../../api/types.ts';
+import { GraphSection } from '../../components/JobPostingsChart/GraphSection';
+import { ListSection } from '../../components/JobList/ListSection';
+import { useAppSelector } from '../../app/hooks';
+import { ATSConstants } from '../../api/types';
 
 /**
- * Props for the AppContent component
+ * Props for the CompaniesPageContent component
  */
-interface AppContentProps {
+interface CompaniesPageContentProps {
   /** Whether data is currently being loaded */
   isLoading: boolean;
 }
 
 /**
- * Main application content component
+ * Main companies page content component
  *
  * Displays either a loading indicator or the main content sections
  * (graph and list) based on the loading state.
@@ -21,7 +21,7 @@ interface AppContentProps {
  * @param props - Component props
  * @returns Loading indicator or main content sections
  */
-export function AppContent({ isLoading }: AppContentProps) {
+export function CompaniesPageContent({ isLoading }: CompaniesPageContentProps) {
   const selectedATS = useAppSelector((state) => state.app.selectedATS);
   if (isLoading) {
     return (

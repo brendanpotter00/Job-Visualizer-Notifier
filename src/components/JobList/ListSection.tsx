@@ -3,14 +3,14 @@ import { useAppSelector } from '../../app/hooks';
 import { JobList } from './JobList';
 import { ListFilters } from '../filters/ListFilters';
 import { selectListFilteredJobs } from '../../features/filters/listFiltersSelectors';
-import { selectCurrentCompanyLoading } from '../../features/jobs/jobsSelectors';
+import { selectCurrentCompanyLoadingRtk } from '../../features/jobs/jobsSelectors';
 
 /**
  * Job list section with filters
  */
 export function ListSection() {
   const jobs = useAppSelector(selectListFilteredJobs);
-  const isLoading = useAppSelector(selectCurrentCompanyLoading);
+  const isLoading = useAppSelector(selectCurrentCompanyLoadingRtk);
 
   return (
     <Paper sx={{ p: { xs: 2, sm: 3 } }}>

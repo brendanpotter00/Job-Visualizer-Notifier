@@ -1,13 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { Provider } from 'react-redux';
-import { configureStore } from '@reduxjs/toolkit';
 import { MetricsDashboard } from '../../../components/MetricsDashboard/MetricsDashboard';
-import appReducer from '../../../features/app/appSlice';
-import jobsReducer from '../../../features/jobs/jobsSlice';
-import graphFiltersReducer from '../../../features/filters/graphFiltersSlice';
-import listFiltersReducer from '../../../features/filters/listFiltersSlice';
-import uiReducer from '../../../features/ui/uiSlice';
+import { createTestStore } from '../../../test/testUtils';
 import type { Job } from '../../../types';
 
 // Mock Date.now() to have consistent time for tests
@@ -111,63 +106,86 @@ describe('MetricsDashboard', () => {
     raw: {},
   };
 
-  const createMockStore = (overrides = {}) => {
-    return configureStore({
-      reducer: {
-        app: appReducer,
-        jobs: jobsReducer,
-        graphFilters: graphFiltersReducer,
-        listFilters: listFiltersReducer,
-        ui: uiReducer,
+  const createMockStore = (
+    jobsOrConfig: Job[] | { jobs: Job[]; companyId?: string; metadata?: any } = []
+  ) => {
+    // Determine if argument is jobs array or config object
+    const isConfig = !Array.isArray(jobsOrConfig) && typeof jobsOrConfig === 'object';
+    const jobs = isConfig ? jobsOrConfig.jobs : jobsOrConfig;
+    const companyId = isConfig && jobsOrConfig.companyId ? jobsOrConfig.companyId : 'spacex';
+
+    // Calculate metadata from jobs if not explicitly provided
+    const metadata =
+      isConfig && jobsOrConfig.metadata
+        ? jobsOrConfig.metadata
+        : {
+            totalCount: jobs.length,
+            softwareCount: jobs.filter((j) => j.classification.isSoftwareAdjacent).length,
+            newestJobDate: jobs.length > 0 ? '2025-11-23T10:00:00Z' : undefined,
+            oldestJobDate: jobs.length > 0 ? '2025-11-20T08:00:00Z' : undefined,
+            fetchedAt: new Date().toISOString(),
+          };
+
+    // Build cache key matching RTK Query format
+    const cacheKey = `getJobsForCompany({"companyId":"${companyId}"})`;
+
+    const store = createTestStore({
+      app: {
+        selectedCompanyId: companyId,
+        selectedATS: 'greenhouse' as const,
+        isInitialized: true,
       },
-      preloadedState: {
-        app: {
-          selectedCompanyId: 'spacex',
-          selectedATS: 'greenhouse' as const,
-          isInitialized: true,
+      graphFilters: {
+        filters: {
+          timeWindow: '7d' as const,
+          softwareOnly: false,
         },
-        jobs: {
-          byCompany: {
-            spacex: {
-              items: [
-                jobPosted6HoursAgo,
-                jobPosted18HoursAgo,
-                jobPosted30HoursAgo,
-                jobPosted2DaysAgo,
-                jobPosted4DaysAgo,
-              ],
-              isLoading: false,
-              metadata: {
-                totalCount: 10,
-                softwareCount: 8,
-                newestJobDate: '2025-11-23T10:00:00Z',
-                oldestJobDate: '2025-11-20T08:00:00Z',
-              },
+      },
+      listFilters: {
+        filters: {
+          timeWindow: '7d' as const,
+          softwareOnly: false,
+        },
+      },
+      ui: {
+        graphModal: {
+          open: false,
+        },
+        globalLoading: false,
+        notifications: [],
+      },
+      // Preload RTK Query cache
+      jobsApi: {
+        queries: {
+          [cacheKey]: {
+            status: 'fulfilled',
+            endpointName: 'getJobsForCompany',
+            requestId: 'test-request',
+            data: {
+              jobs,
+              metadata,
             },
+            startedTimeStamp: Date.now(),
+            fulfilledTimeStamp: Date.now(),
           },
         },
-        graphFilters: {
-          filters: {
-            timeWindow: '7d' as const,
-            softwareOnly: false,
-          },
+        mutations: {},
+        provided: {},
+        subscriptions: {},
+        config: {
+          online: true,
+          focused: true,
+          middlewareRegistered: true,
+          refetchOnFocus: false,
+          refetchOnReconnect: false,
+          refetchOnMountOrArgChange: false,
+          keepUnusedDataFor: 60,
+          reducerPath: 'jobsApi',
         },
-        listFilters: {
-          filters: {
-            timeWindow: '7d' as const,
-            softwareOnly: false,
-          },
-        },
-        ui: {
-          graphModal: {
-            open: false,
-          },
-          globalLoading: false,
-          notifications: [],
-        },
-        ...overrides,
       },
     });
+
+    return store;
   };
 
   beforeEach(() => {
@@ -175,7 +193,13 @@ describe('MetricsDashboard', () => {
   });
 
   it('renders all four metric sections', () => {
-    const store = createMockStore();
+    const store = createMockStore([
+      jobPosted6HoursAgo,
+      jobPosted18HoursAgo,
+      jobPosted30HoursAgo,
+      jobPosted2DaysAgo,
+      jobPosted4DaysAgo,
+    ]);
     render(
       <Provider store={store}>
         <MetricsDashboard />
@@ -189,28 +213,24 @@ describe('MetricsDashboard', () => {
   });
 
   it('displays correct total jobs count from metadata', () => {
-    const store = createMockStore();
+    const store = createMockStore([
+      jobPosted6HoursAgo,
+      jobPosted18HoursAgo,
+      jobPosted30HoursAgo,
+      jobPosted2DaysAgo,
+      jobPosted4DaysAgo,
+    ]);
     render(
       <Provider store={store}>
         <MetricsDashboard />
       </Provider>
     );
 
-    expect(screen.getByText('10')).toBeInTheDocument();
+    expect(screen.getByText('5')).toBeInTheDocument();
   });
 
   it('displays zero when no metadata available', () => {
-    const store = createMockStore({
-      jobs: {
-        byCompany: {
-          spacex: {
-            items: [],
-            isLoading: false,
-          },
-        },
-      },
-    });
-
+    const store = createMockStore([]);
     render(
       <Provider store={store}>
         <MetricsDashboard />
@@ -223,7 +243,13 @@ describe('MetricsDashboard', () => {
   });
 
   it('displays correct count for jobs posted in past 3 days', () => {
-    const store = createMockStore();
+    const store = createMockStore([
+      jobPosted6HoursAgo,
+      jobPosted18HoursAgo,
+      jobPosted30HoursAgo,
+      jobPosted2DaysAgo,
+      jobPosted4DaysAgo,
+    ]);
     render(
       <Provider store={store}>
         <MetricsDashboard />
@@ -235,7 +261,13 @@ describe('MetricsDashboard', () => {
   });
 
   it('displays correct count for jobs posted in past 24 hours', () => {
-    const store = createMockStore();
+    const store = createMockStore([
+      jobPosted6HoursAgo,
+      jobPosted18HoursAgo,
+      jobPosted30HoursAgo,
+      jobPosted2DaysAgo,
+      jobPosted4DaysAgo,
+    ]);
     render(
       <Provider store={store}>
         <MetricsDashboard />
@@ -248,7 +280,13 @@ describe('MetricsDashboard', () => {
   });
 
   it('displays correct count for jobs posted in past 12 hours', () => {
-    const store = createMockStore();
+    const store = createMockStore([
+      jobPosted6HoursAgo,
+      jobPosted18HoursAgo,
+      jobPosted30HoursAgo,
+      jobPosted2DaysAgo,
+      jobPosted4DaysAgo,
+    ]);
     render(
       <Provider store={store}>
         <MetricsDashboard />
@@ -260,21 +298,7 @@ describe('MetricsDashboard', () => {
   });
 
   it('displays zero when no jobs in time window', () => {
-    const store = createMockStore({
-      jobs: {
-        byCompany: {
-          spacex: {
-            items: [jobPosted4DaysAgo], // Only job outside 3-day window
-            isLoading: false,
-            metadata: {
-              totalCount: 1,
-              softwareCount: 1,
-            },
-          },
-        },
-      },
-    });
-
+    const store = createMockStore([jobPosted4DaysAgo]); // Only job outside 3-day window
     render(
       <Provider store={store}>
         <MetricsDashboard />
@@ -287,7 +311,13 @@ describe('MetricsDashboard', () => {
   });
 
   it('renders link cards for job postings and LinkedIn', () => {
-    const store = createMockStore();
+    const store = createMockStore([
+      jobPosted6HoursAgo,
+      jobPosted18HoursAgo,
+      jobPosted30HoursAgo,
+      jobPosted2DaysAgo,
+      jobPosted4DaysAgo,
+    ]);
     render(
       <Provider store={store}>
         <MetricsDashboard />
@@ -315,23 +345,13 @@ describe('MetricsDashboard', () => {
 
   it('displays LinkedIn URL when configured', () => {
     const store = createMockStore({
-      app: {
-        selectedCompanyId: 'palantir',
-        selectedATS: 'lever' as const,
-        isInitialized: true,
-      },
-      jobs: {
-        byCompany: {
-          palantir: {
-            items: [{ ...jobPosted6HoursAgo, company: 'palantir' }],
-            isLoading: false,
-            metadata: {
-              totalCount: 5,
-              softwareCount: 4,
-              newestJobDate: '2025-11-23T10:00:00Z',
-            },
-          },
-        },
+      jobs: [{ ...jobPosted6HoursAgo, company: 'palantir' }],
+      companyId: 'palantir',
+      metadata: {
+        totalCount: 5,
+        softwareCount: 4,
+        newestJobDate: '2025-11-23T10:00:00Z',
+        fetchedAt: new Date().toISOString(),
       },
     });
 
@@ -354,20 +374,12 @@ describe('MetricsDashboard', () => {
 
   it('displays placeholder text when URLs are not configured', () => {
     const store = createMockStore({
-      app: {
-        selectedCompanyId: 'nonexistent-company',
-      },
-      jobs: {
-        byCompany: {
-          'nonexistent-company': {
-            items: [],
-            isLoading: false,
-            metadata: {
-              totalCount: 0,
-              softwareCount: 0,
-            },
-          },
-        },
+      jobs: [],
+      companyId: 'nonexistent-company',
+      metadata: {
+        totalCount: 0,
+        softwareCount: 0,
+        fetchedAt: new Date().toISOString(),
       },
     });
 
@@ -414,23 +426,13 @@ describe('MetricsDashboard', () => {
 
   it('displays correct company name in context', () => {
     const store = createMockStore({
-      app: {
-        selectedCompanyId: 'nominal',
-        selectedATS: 'lever' as const,
-        isInitialized: true,
-      },
-      jobs: {
-        byCompany: {
-          nominal: {
-            items: [{ ...jobPosted6HoursAgo, company: 'nominal' }],
-            isLoading: false,
-            metadata: {
-              totalCount: 15,
-              softwareCount: 12,
-              newestJobDate: '2025-11-23T09:00:00Z',
-            },
-          },
-        },
+      jobs: [{ ...jobPosted6HoursAgo, company: 'nominal' }],
+      companyId: 'nominal',
+      metadata: {
+        totalCount: 15,
+        softwareCount: 12,
+        newestJobDate: '2025-11-23T09:00:00Z',
+        fetchedAt: new Date().toISOString(),
       },
     });
 

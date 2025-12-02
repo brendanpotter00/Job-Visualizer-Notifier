@@ -1,56 +1,47 @@
-import { Box, Container, Alert, Button } from '@mui/material';
-import { Refresh } from '@mui/icons-material';
-import { useAppSelector, useURLSync, useCompanyLoader, useBrowserNavigation } from './hooks';
-import { AppHeader } from '../components/AppLayout/AppHeader';
-import { AppContent } from '../components/AppLayout/AppContent';
-import { BucketJobsModal } from '../components/BucketJobsModal/BucketJobsModal';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { useURLSync, useBrowserNavigation } from './hooks';
+import { RootLayout } from '../components/layouts/RootLayout';
+import { CompaniesPage } from '../pages/CompaniesPage/CompaniesPage';
+import { RecentJobPostingsPage } from '../pages/RecentJobPostingsPage/RecentJobPostingsPage';
+import { ROUTES } from '../config/routes';
+
+/**
+ * App content component with routing and hooks
+ *
+ * This component must be inside BrowserRouter to use hooks that
+ * depend on React Router context (useLocation).
+ */
+function AppContent() {
+  // Custom hooks for URL synchronization (page-aware)
+  useURLSync();
+  useBrowserNavigation();
+
+  return (
+    <Routes>
+      <Route path="/" element={<RootLayout />}>
+        <Route index element={<CompaniesPage />} />
+        <Route path={ROUTES.RECENT_JOBS} element={<RecentJobPostingsPage />} />
+      </Route>
+    </Routes>
+  );
+}
 
 /**
  * Root application component
  *
- * Coordinates routing, data loading, and layout composition.
- * Uses custom hooks for complex logic and presentational components for UI.
+ * Coordinates routing, URL synchronization, and page rendering.
+ * Uses React Router v6 for multi-page navigation and custom hooks
+ * for URL/state synchronization.
+ *
+ * Routes:
+ * - / - Companies page (job analytics for selected company)
+ * - /recent-jobs - Recent job postings page (placeholder)
  */
 function App() {
-  const globalLoading = useAppSelector((state) => state.ui.globalLoading);
-
-  // Custom hooks handle complex side effects and business logic
-  const { isLoading, error, handleRetry } = useCompanyLoader();
-  useURLSync();
-  useBrowserNavigation();
-
-  const showLoading = globalLoading || isLoading;
-
   return (
-    <Container maxWidth="xl">
-      <Box sx={{ my: 4 }}>
-        <AppHeader />
-
-        {error && (
-          <Alert
-            severity="error"
-            sx={{ mb: 3 }}
-            action={
-              <Button
-                color="inherit"
-                size="small"
-                onClick={handleRetry}
-                startIcon={<Refresh />}
-                disabled={isLoading}
-              >
-                Retry
-              </Button>
-            }
-          >
-            Failed to load job data: {error}
-          </Alert>
-        )}
-
-        <AppContent isLoading={showLoading} />
-
-        <BucketJobsModal />
-      </Box>
-    </Container>
+    <BrowserRouter>
+      <AppContent />
+    </BrowserRouter>
   );
 }
 

@@ -1,6 +1,8 @@
 import { Card, CardContent, Typography, Chip, Stack, Link, Box } from '@mui/material';
-import { formatDistanceToNow } from 'date-fns';
 import type { Job } from '../../types';
+import { useJobMetadata } from '../shared/jobCard/useJobMetadata';
+import { JobChipsSection } from '../shared/jobCard/JobChipsSection';
+import { CARD_HOVER_SX, CARD_VARIANT } from '../shared/jobCard/jobCardStyles';
 
 interface JobCardProps {
   job: Job;
@@ -10,10 +12,10 @@ interface JobCardProps {
  * Card component for displaying individual job posting
  */
 export function JobCard({ job }: JobCardProps) {
-  const postedAgo = formatDistanceToNow(new Date(job.createdAt), { addSuffix: true });
+  const { postedAgo } = useJobMetadata(job.createdAt);
 
   return (
-    <Card variant="outlined" sx={{ '&:hover': { bgcolor: 'action.hover' } }}>
+    <Card variant={CARD_VARIANT} sx={CARD_HOVER_SX}>
       <CardContent>
         <Stack spacing={1}>
           <Box>
@@ -34,21 +36,17 @@ export function JobCard({ job }: JobCardProps) {
           </Box>
 
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-            {job.department && <Chip label={job.department} size="small" variant="outlined" />}
             {job.location && <Chip label={job.location} size="small" variant="outlined" />}
-            {job.isRemote && (
-              <Chip label="Remote" size="small" color="primary" variant="outlined" />
-            )}
             {job.employmentType && (
               <Chip label={job.employmentType} size="small" variant="outlined" />
             )}
           </Stack>
 
-          {job.classification.isSoftwareAdjacent && (
-            <Stack direction="row" spacing={1}>
-              <Chip label={job.classification.category} size="small" color="primary" />
-            </Stack>
-          )}
+          <JobChipsSection
+            department={job.department}
+            isRemote={job.isRemote}
+            classification={job.classification}
+          />
 
           {job.tags && job.tags.length > 0 && (
             <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>

@@ -1,17 +1,17 @@
 import { capitalize, Stack, Typography } from '@mui/material';
-import { CompanySelector } from '../CompanySelector/CompanySelector';
-import { useAppSelector } from '../../app/hooks.ts';
-import { getCompanyById } from '../../config/companies.ts';
+import { CompanySelector } from '../../components/CompanySelector/CompanySelector';
+import { useAppSelector } from '../../app/hooks';
+import { getCompanyById } from '../../config/companies';
 
 /**
- * Application header component
+ * Companies page header component
  *
- * Displays the application title with the selected company name
+ * Displays the company name with job posting analytics title
  * and provides the company selector dropdown.
  *
- * @returns The application header with title and company selector
+ * @returns The companies page header with title and company selector
  */
-export function AppHeader() {
+export function CompaniesPageHeader() {
   const selectedCompanyId = useAppSelector((state) => state.app.selectedCompanyId);
   const companyNameHeaderTitle = getCompanyById(selectedCompanyId)?.name || 'Job Posting Analytics';
   const companyATSSource = capitalize(getCompanyById(selectedCompanyId)?.ats || 'Unknown Source');

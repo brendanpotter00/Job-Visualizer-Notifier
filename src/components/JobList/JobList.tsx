@@ -1,6 +1,7 @@
-import { Box, Typography, Stack } from '@mui/material';
+import { Typography, Stack } from '@mui/material';
 import { JobCard } from './JobCard';
 import { JobListSkeleton } from '../LoadingIndicator';
+import { EmptyJobListState } from '../shared/EmptyJobListState';
 import type { Job } from '../../types';
 
 interface JobListProps {
@@ -20,18 +21,7 @@ export function JobList({ jobs, isLoading = false }: JobListProps) {
   }
 
   if (jobs.length === 0) {
-    return (
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          py: 8,
-        }}
-      >
-        <Typography color="text.secondary">No jobs found matching your filters</Typography>
-      </Box>
-    );
+    return <EmptyJobListState />;
   }
 
   return (

@@ -5,6 +5,7 @@ import type {
   SoftwareRoleCategory,
   GraphFilters,
   ListFilters,
+  RecentJobsFilters,
 } from '../types';
 import { getTimeWindowDuration } from './dateUtils';
 import { isUnitedStatesLocation } from './locationUtils';
@@ -122,10 +123,24 @@ export function matchesRoleCategory(
 }
 
 /**
- * Filter jobs based on provided filters
- * Works with both GraphFilters and ListFilters
+ * Check if a job matches company filter (multi-select with OR logic)
  */
-export function filterJobsByFilters(jobs: Job[], filters: GraphFilters | ListFilters): Job[] {
+export function matchesCompany(job: Job, companies: string[] | undefined): boolean {
+  if (!companies || companies.length === 0) {
+    return true;
+  }
+
+  return companies.some((filterCompany) => job.company === filterCompany);
+}
+
+/**
+ * Filter jobs based on provided filters
+ * Works with GraphFilters, ListFilters, and RecentJobsFilters
+ */
+export function filterJobsByFilters(
+  jobs: Job[],
+  filters: GraphFilters | ListFilters | RecentJobsFilters
+): Job[] {
   return jobs.filter((job: Job) => {
     // Time window filter
     if (!isJobWithinTimeWindow(job.createdAt, filters.timeWindow)) {
@@ -143,7 +158,8 @@ export function filterJobsByFilters(jobs: Job[], filters: GraphFilters | ListFil
     }
 
     // Department filter (multi-select with OR logic)
-    if (!matchesDepartment(job, filters.department)) {
+    // Only check if department exists on filters (GraphFilters/ListFilters only)
+    if ('department' in filters && !matchesDepartment(job, filters.department)) {
       return false;
     }
 
@@ -153,7 +169,14 @@ export function filterJobsByFilters(jobs: Job[], filters: GraphFilters | ListFil
     }
 
     // Role category filter (multi-select with OR logic)
-    if (!matchesRoleCategory(job, filters.roleCategory)) {
+    // Only check if roleCategory exists on filters (GraphFilters/ListFilters only)
+    if ('roleCategory' in filters && !matchesRoleCategory(job, filters.roleCategory)) {
+      return false;
+    }
+
+    // Company filter (multi-select with OR logic)
+    // Only check if company exists on filters (RecentJobsFilters only)
+    if ('company' in filters && !matchesCompany(job, filters.company)) {
       return false;
     }
 

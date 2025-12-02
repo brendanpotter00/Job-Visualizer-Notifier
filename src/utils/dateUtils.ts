@@ -1,6 +1,6 @@
-import type { TimeWindow, TimeBucket } from '../types';
+import type { TimeWindow, TimeBucket, Job } from '../types';
 import { format } from 'date-fns';
-import { TIME_WINDOW_DURATIONS, BUCKET_SIZES } from '../constants/timeConstants';
+import { TIME_WINDOW_DURATIONS, BUCKET_SIZES, TIME_UNITS } from '../constants/timeConstants';
 
 /**
  * Calculate the 'since' timestamp for a given time window
@@ -53,4 +53,54 @@ export function roundToBucketStart(date: Date, bucketSizeMs: number): Date {
   const timestamp = date.getTime();
   const roundedTimestamp = Math.floor(timestamp / bucketSizeMs) * bucketSizeMs;
   return new Date(roundedTimestamp);
+}
+
+/**
+ * Filter jobs by a time window in hours
+ * Returns jobs created within the specified number of hours from now
+ *
+ * @param jobs - Array of jobs to filter
+ * @param hours - Number of hours to look back from now
+ * @returns Filtered array of jobs within the time window
+ *
+ * @example
+ * ```typescript
+ * const recentJobs = filterJobsByHours(allJobs, 24); // Last 24 hours
+ * const veryRecentJobs = filterJobsByHours(allJobs, 3); // Last 3 hours
+ * ```
+ */
+export function filterJobsByHours(jobs: Job[], hours: number): Job[] {
+  const cutoffTime = Date.now() - hours * TIME_UNITS.HOUR;
+  return jobs.filter((job) => new Date(job.createdAt).getTime() >= cutoffTime);
+}
+
+/**
+ * Calculate the date range (oldest and newest) for a collection of jobs
+ *
+ * @param jobs - Array of jobs with createdAt timestamps
+ * @returns Object with oldestJobDate and newestJobDate (undefined if no jobs)
+ *
+ * @example
+ * ```typescript
+ * const jobs = [
+ *   { id: '1', createdAt: '2025-01-01T10:00:00Z', ... },
+ *   { id: '2', createdAt: '2025-01-05T15:30:00Z', ... },
+ * ];
+ * const range = calculateJobDateRange(jobs);
+ * // { oldestJobDate: '2025-01-01T10:00:00.000Z', newestJobDate: '2025-01-05T15:30:00.000Z' }
+ * ```
+ */
+export function calculateJobDateRange(jobs: Array<{ createdAt: string }>): {
+  oldestJobDate?: string;
+  newestJobDate?: string;
+} {
+  if (jobs.length === 0) {
+    return { oldestJobDate: undefined, newestJobDate: undefined };
+  }
+
+  const timestamps = jobs.map((job) => new Date(job.createdAt).getTime());
+  return {
+    oldestJobDate: new Date(Math.min(...timestamps)).toISOString(),
+    newestJobDate: new Date(Math.max(...timestamps)).toISOString(),
+  };
 }

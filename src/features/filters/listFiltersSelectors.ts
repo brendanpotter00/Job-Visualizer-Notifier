@@ -1,6 +1,6 @@
 import { createSelector } from '@reduxjs/toolkit';
 import type { RootState } from '../../app/store';
-import { selectCurrentCompanyJobs } from '../jobs/jobsSelectors';
+import { selectCurrentCompanyJobsRtk } from '../jobs/jobsSelectors';
 import { isSoftwareOnlyEnabled } from '../../constants/softwareEngineeringTags';
 import { filterJobsByFilters } from '../../utils/jobFilteringUtils';
 
@@ -21,7 +21,7 @@ export const selectListSoftwareOnlyState = createSelector([selectListFilters], (
  * Filter jobs based on list filters
  */
 export const selectListFilteredJobs = createSelector(
-  [selectCurrentCompanyJobs, selectListFilters],
+  [selectCurrentCompanyJobsRtk, selectListFilters],
   (jobs, filters) => {
     return filterJobsByFilters(jobs, filters).sort((a, b) => {
       // Sort by createdAt descending (most recent first)

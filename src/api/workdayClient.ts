@@ -167,6 +167,24 @@ export const workdayClient: JobAPIClient = {
 
     logger.debug(`[Workday Client] Total postings fetched: ${allPostings.length}`);
 
+    // 4.9 Filter out invalid postings (missing required fields)
+    const validPostings = allPostings.filter((posting) => {
+      const isValid = posting.externalPath && posting.title;
+      if (!isValid) {
+        logger.debug('[Workday Client] Skipping invalid posting:', {
+          title: posting.title,
+          externalPath: posting.externalPath,
+        });
+      }
+      return isValid;
+    });
+
+    if (validPostings.length < allPostings.length) {
+      logger.debug(
+        `[Workday Client] Filtered out ${allPostings.length - validPostings.length} invalid postings`
+      );
+    }
+
     // 5. Transform postings into Job objects
     const identifier = `${workdayConfig.tenantSlug}/${workdayConfig.careerSiteSlug}`;
 
@@ -174,7 +192,7 @@ export const workdayClient: JobAPIClient = {
     // Fallback to baseUrl for backwards compatibility
     const jobDetailBaseUrl = workdayConfig.jobsUrl || baseUrl;
 
-    const jobs = allPostings.map((posting) =>
+    const jobs = validPostings.map((posting) =>
       transformWorkdayJob(posting, identifier, jobDetailBaseUrl)
     );
 

@@ -1,27 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { Provider } from 'react-redux';
-import { configureStore } from '@reduxjs/toolkit';
+import { BrowserRouter } from 'react-router-dom';
 import React from 'react';
 import { useBrowserNavigation } from '../../../app/hooks/useBrowserNavigation';
-import appReducer from '../../../features/app/appSlice';
-import jobsReducer from '../../../features/jobs/jobsSlice';
-import graphFiltersReducer from '../../../features/filters/graphFiltersSlice';
-import listFiltersReducer from '../../../features/filters/listFiltersSlice';
-import uiReducer from '../../../features/ui/uiSlice';
-
-function createTestStore(preloadedState = {}) {
-  return configureStore({
-    reducer: {
-      app: appReducer,
-      jobs: jobsReducer,
-      graphFilters: graphFiltersReducer,
-      listFilters: listFiltersReducer,
-      ui: uiReducer,
-    },
-    preloadedState,
-  });
-}
+import { createTestStore } from '../../../test/testUtils';
 
 describe('useBrowserNavigation', () => {
   beforeEach(() => {
@@ -39,7 +22,9 @@ describe('useBrowserNavigation', () => {
   it('should register popstate event listener on mount', () => {
     const store = createTestStore();
     const wrapper = ({ children }: { children: React.ReactNode }) => (
-      <Provider store={store}>{children}</Provider>
+      <Provider store={store}>
+        <BrowserRouter>{children}</BrowserRouter>
+      </Provider>
     );
     renderHook(() => useBrowserNavigation(), { wrapper });
 
@@ -49,7 +34,9 @@ describe('useBrowserNavigation', () => {
   it('should remove popstate event listener on unmount', () => {
     const store = createTestStore();
     const wrapper = ({ children }: { children: React.ReactNode }) => (
-      <Provider store={store}>{children}</Provider>
+      <Provider store={store}>
+        <BrowserRouter>{children}</BrowserRouter>
+      </Provider>
     );
     const { unmount } = renderHook(() => useBrowserNavigation(), { wrapper });
 
@@ -68,7 +55,9 @@ describe('useBrowserNavigation', () => {
     });
 
     const wrapper = ({ children }: { children: React.ReactNode }) => (
-      <Provider store={store}>{children}</Provider>
+      <Provider store={store}>
+        <BrowserRouter>{children}</BrowserRouter>
+      </Provider>
     );
     renderHook(() => useBrowserNavigation(), { wrapper });
 
@@ -95,7 +84,9 @@ describe('useBrowserNavigation', () => {
     });
 
     const wrapper = ({ children }: { children: React.ReactNode }) => (
-      <Provider store={store}>{children}</Provider>
+      <Provider store={store}>
+        <BrowserRouter>{children}</BrowserRouter>
+      </Provider>
     );
     renderHook(() => useBrowserNavigation(), { wrapper });
 
@@ -121,7 +112,9 @@ describe('useBrowserNavigation', () => {
     });
 
     const wrapper = ({ children }: { children: React.ReactNode }) => (
-      <Provider store={store}>{children}</Provider>
+      <Provider store={store}>
+        <BrowserRouter>{children}</BrowserRouter>
+      </Provider>
     );
     renderHook(() => useBrowserNavigation(), { wrapper });
 
@@ -147,7 +140,9 @@ describe('useBrowserNavigation', () => {
     });
 
     const wrapper = ({ children }: { children: React.ReactNode }) => (
-      <Provider store={store}>{children}</Provider>
+      <Provider store={store}>
+        <BrowserRouter>{children}</BrowserRouter>
+      </Provider>
     );
     renderHook(() => useBrowserNavigation(), { wrapper });
 

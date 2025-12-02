@@ -36,17 +36,17 @@ export function transformWorkdayJob(
 
   // Extract job title+ID from externalPath (last segment after final /)
   // Example: "/job/US-CA-Santa-Clara/Title_JR123" → "Title_JR123"
-  const jobTitleId = raw.externalPath.split('/').pop() || raw.externalPath;
+  const jobTitleId = raw.externalPath?.split('/').pop() || raw.externalPath || '';
 
   // Construct proper job detail URL
   // Example: "https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/details" + "/Title_JR123"
-  const url = `${jobDetailBaseUrl}/${jobTitleId}`;
+  const url = jobTitleId ? `${jobDetailBaseUrl}/${jobTitleId}` : jobDetailBaseUrl;
 
   // Parse Workday's relative date format into ISO 8601
   const createdAt = parseWorkdayDate(raw.postedOn);
 
   // Extract company identifier (first part before slash)
-  const company = identifier.split('/')[0];
+  const company = identifier?.split('/')[0];
 
   // Filter out generic location text like "2 Locations", "3 Locations"
   // Only use locationsText if it's a specific location, not a count

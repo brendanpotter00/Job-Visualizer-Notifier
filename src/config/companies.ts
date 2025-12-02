@@ -393,6 +393,38 @@ export const COMPANIES: Company[] = [
   // },
 ];
 
+export const enum COMPANY_IDS {
+  Spacex = 'spacex',
+  AndurilIndustries = 'andurilindustries',
+  Airbnb = 'airbnb',
+  Figma = 'figma',
+  Notion = 'notion',
+  Neuralink = 'neuralink',
+  Palantir = 'palantir',
+  Saronic = 'saronic',
+  Nominal = 'nominal',
+  Coinbase = 'coinbase',
+  Robinhood = 'robinhood',
+  Spotify = 'spotify',
+  Xai = 'xai',
+  Anthropic = 'anthropic',
+  Reddit = 'reddit',
+  Cloudflare = 'cloudflare',
+  Scaleai = 'scaleai',
+  Lyft = 'lyft',
+  Doordashusa = 'doordashusa',
+  Stripe = 'stripe',
+  Ramp = 'ramp',
+  Snowflake = 'snowflake',
+  Plaid = 'plaid',
+  AppliedIntuition = 'appliedintuition',
+  Discord = 'discord',
+  Brex = 'brex',
+  Squarespace = 'Squarespace',
+  Nvidia = 'nvidia',
+  Adobe = 'adobe',
+}
+
 /**
  * Get company configuration by ID
  */

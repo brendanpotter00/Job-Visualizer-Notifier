@@ -2,20 +2,20 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "rewrites": [
     {
-      "source": "/api/greenhouse/:path*",
-      "destination": "/api/greenhouse?path=:path*"
+      "source": "/api/greenhouse/:path(.*)",
+      "destination": "/api/greenhouse?path=:path"
     },
     {
-      "source": "/api/lever/:path*",
-      "destination": "/api/lever?path=:path*"
+      "source": "/api/lever/:path(.*)",
+      "destination": "/api/lever?path=:path"
     },
     {
-      "source": "/api/ashby/:path*",
-      "destination": "/api/ashby?path=:path*"
+      "source": "/api/ashby/:path(.*)",
+      "destination": "/api/ashby?path=:path"
     },
     {
-      "source": "/api/workday/:path*",
-      "destination": "/api/workday?path=:path*"
+      "source": "/api/workday/:path(.*)",
+      "destination": "/api/workday?path=:path"
     }
   ],
   "headers": [

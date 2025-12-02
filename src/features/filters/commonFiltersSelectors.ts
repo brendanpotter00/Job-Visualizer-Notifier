@@ -1,12 +1,12 @@
 import { createSelector } from '@reduxjs/toolkit';
-import { selectCurrentCompanyJobs } from '../jobs/jobsSelectors';
+import { selectCurrentCompanyJobsRtk } from '../jobs/jobsSelectors';
 import { isUnitedStatesLocation } from '../../utils/locationUtils';
 
 /**
  * Get unique locations from current company jobs
  * Prepends "United States" as first option if any US locations exist
  */
-export const selectAvailableLocations = createSelector([selectCurrentCompanyJobs], (jobs) => {
+export const selectAvailableLocations = createSelector([selectCurrentCompanyJobsRtk], (jobs) => {
   const locations = jobs.map((job) => job.location).filter((loc): loc is string => Boolean(loc));
   const uniqueLocations = Array.from(new Set(locations)).sort();
 
@@ -22,7 +22,7 @@ export const selectAvailableLocations = createSelector([selectCurrentCompanyJobs
 /**
  * Get unique departments from current company jobs
  */
-export const selectAvailableDepartments = createSelector([selectCurrentCompanyJobs], (jobs) => {
+export const selectAvailableDepartments = createSelector([selectCurrentCompanyJobsRtk], (jobs) => {
   const departments = jobs
     .map((job) => job.department)
     .filter((dept): dept is string => Boolean(dept));
@@ -32,9 +32,12 @@ export const selectAvailableDepartments = createSelector([selectCurrentCompanyJo
 /**
  * Get unique employment types from current company jobs
  */
-export const selectAvailableEmploymentTypes = createSelector([selectCurrentCompanyJobs], (jobs) => {
-  const types = jobs
-    .map((job) => job.employmentType)
-    .filter((type): type is string => Boolean(type));
-  return Array.from(new Set(types)).sort();
-});
+export const selectAvailableEmploymentTypes = createSelector(
+  [selectCurrentCompanyJobsRtk],
+  (jobs) => {
+    const types = jobs
+      .map((job) => job.employmentType)
+      .filter((type): type is string => Boolean(type));
+    return Array.from(new Set(types)).sort();
+  }
+);
