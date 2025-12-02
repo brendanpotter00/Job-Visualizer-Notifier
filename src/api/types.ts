@@ -109,7 +109,7 @@ export interface WorkdayJobPosting {
   /** Job title */
   title: string;
   /** Relative path to job posting (combine with baseUrl for full URL) */
-  externalPath: string;
+  externalPath?: string;
   /** Location text (may be "X Locations" for multiple) */
   locationsText?: string;
   /** Relative posting date (e.g., "Posted Today", "Posted Yesterday") */

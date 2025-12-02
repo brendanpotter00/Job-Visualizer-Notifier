@@ -6,8 +6,10 @@ import { getCompanyById } from '../../config/companies';
 import { RecentJobCard } from '../RecentJobCard';
 import { LoadingSkeletons } from './LoadingSkeletons';
 import { BackToTopButton } from './BackToTopButton';
+import { EmptyJobListState } from '../shared/EmptyJobListState';
 import { useInfiniteScroll } from '../../hooks/useInfiniteScroll';
 import { INFINITE_SCROLL_CONFIG } from '../../constants/infiniteScrollConstants';
+import { EMPTY_STATE_MESSAGES } from '../../constants/messageConstants';
 
 /**
  * List of jobs from all companies sorted chronologically
@@ -52,7 +54,7 @@ export function RecentJobsList() {
   useEffect(() => {
     setDisplayedCount(INFINITE_SCROLL_CONFIG.INITIAL_BATCH_SIZE);
     // Scroll to top instantly when filters change
-    window.scrollTo({ top: 0, behavior: 'auto' });
+      window.scrollTo({ top: 0, behavior: 'auto' });
   }, [jobs.length]);
 
   // Memoize displayed jobs slice
@@ -60,16 +62,7 @@ export function RecentJobsList() {
 
   // Empty state
   if (jobs.length === 0) {
-    return (
-      <Box sx={{ textAlign: 'center', py: 8 }}>
-        <Typography variant="h6" gutterBottom>
-          No jobs found matching your filters
-        </Typography>
-        <Typography variant="body2" color="text.secondary">
-          Try adjusting your filters or extending the time window
-        </Typography>
-      </Box>
-    );
+    return <EmptyJobListState />;
   }
 
   return (
@@ -99,7 +92,7 @@ export function RecentJobsList() {
         {!hasMore && jobs.length > INFINITE_SCROLL_CONFIG.INITIAL_BATCH_SIZE && (
           <Box sx={{ textAlign: 'center', py: 4 }} role="status">
             <Typography variant="body2" color="text.secondary">
-              All {jobs.length} jobs loaded
+              {EMPTY_STATE_MESSAGES.ALL_LOADED(jobs.length)}
             </Typography>
           </Box>
         )}

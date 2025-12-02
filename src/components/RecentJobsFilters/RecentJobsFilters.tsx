@@ -1,4 +1,5 @@
 import { Box, Stack, Button } from '@mui/material';
+import { useMemo, useCallback } from 'react';
 import { useAppDispatch, useAppSelector } from '../../app/hooks';
 import {
   setRecentJobsTimeWindow,
@@ -35,6 +36,52 @@ export function RecentJobsFilters() {
   const availableLocations = useAppSelector(selectRecentAvailableLocations);
   const availableCompanies = useAppSelector(selectRecentAvailableCompanies);
 
+  /**
+   * Memoized company options for dropdown
+   * Avoids recreating array on every render
+   */
+  const companyOptions = useMemo(
+    () => availableCompanies.map((c) => c.name),
+    [availableCompanies]
+  );
+
+  /**
+   * Memoized selected company names
+   * Converts company IDs to names for display
+   */
+  const selectedCompanyNames = useMemo(
+    () =>
+      (filters.company || []).map((id) => {
+        const company = availableCompanies.find((c) => c.id === id);
+        return company?.name || id;
+      }),
+    [filters.company, availableCompanies]
+  );
+
+  /**
+   * Memoized handler for adding company filter
+   * Avoids recreating function on every render
+   */
+  const handleAddCompany = useCallback(
+    (name: string) => {
+      const company = availableCompanies.find((c) => c.name === name);
+      if (company) dispatch(addRecentJobsCompany(company.id));
+    },
+    [availableCompanies, dispatch]
+  );
+
+  /**
+   * Memoized handler for removing company filter
+   * Avoids recreating function on every render
+   */
+  const handleRemoveCompany = useCallback(
+    (name: string) => {
+      const company = availableCompanies.find((c) => c.name === name);
+      if (company) dispatch(removeRecentJobsCompany(company.id));
+    },
+    [availableCompanies, dispatch]
+  );
+
   return (
     <Box sx={{ mb: 3 }}>
       <Stack spacing={2}>
@@ -54,19 +101,10 @@ export function RecentJobsFilters() {
           {availableCompanies.length > 0 && (
             <MultiSelectAutocomplete
               label="Company"
-              options={availableCompanies.map((c) => c.name)}
-              value={(filters.company || []).map((companyId) => {
-                const company = availableCompanies.find((c) => c.id === companyId);
-                return company?.name || companyId;
-              })}
-              onAdd={(companyName) => {
-                const company = availableCompanies.find((c) => c.name === companyName);
-                if (company) dispatch(addRecentJobsCompany(company.id));
-              }}
-              onRemove={(companyName) => {
-                const company = availableCompanies.find((c) => c.name === companyName);
-                if (company) dispatch(removeRecentJobsCompany(company.id));
-              }}
+              options={companyOptions}
+              value={selectedCompanyNames}
+              onAdd={handleAddCompany}
+              onRemove={handleRemoveCompany}
             />
           )}
 

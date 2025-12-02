@@ -4,6 +4,7 @@ import { jobsApi } from '../jobs/jobsApi';
 import { filterJobsByFilters } from '../../utils/jobFilteringUtils';
 import { isSoftwareOnlyEnabled } from '../../constants/softwareEngineeringTags';
 import { getCompanyById } from '../../config/companies';
+import { filterJobsByHours } from '../../utils/dateUtils';
 
 /**
  * Selectors for Recent Jobs page filters and data
@@ -165,5 +166,20 @@ export const selectRecentJobsMetadata = createSelector(
     totalJobs: allJobs.length,
     filteredCount: filteredJobs.length,
     companiesRepresented: new Set(filteredJobs.map((j) => j.company)).size,
+  })
+);
+
+/**
+ * Calculate time-based job counts for Recent Jobs page
+ * Returns counts for jobs posted in last 24 hours and last 3 hours
+ * Uses memoized selector pattern for optimal performance
+ *
+ * @returns Object with jobsLast24Hours and jobsLast3Hours counts
+ */
+export const selectRecentJobsTimeBasedCounts = createSelector(
+  [selectAllJobsFromQuery],
+  (allJobs) => ({
+    jobsLast24Hours: filterJobsByHours(allJobs, 24).length,
+    jobsLast3Hours: filterJobsByHours(allJobs, 3).length,
   })
 );

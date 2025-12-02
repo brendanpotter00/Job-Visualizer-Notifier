@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Fab, Zoom } from '@mui/material';
 import { KeyboardArrowUp } from '@mui/icons-material';
 import { INFINITE_SCROLL_CONFIG } from '../../constants/infiniteScrollConstants';
+import { ARIA_LABELS } from '../../constants/messageConstants';
 
 /**
  * Floating Action Button that appears after scrolling down
@@ -47,7 +48,7 @@ export function BackToTopButton() {
       <Fab
         color="primary"
         size="medium"
-        aria-label="Scroll to top"
+        aria-label={ARIA_LABELS.SCROLL_TO_TOP}
         onClick={scrollToTop}
         sx={{
           position: 'fixed',

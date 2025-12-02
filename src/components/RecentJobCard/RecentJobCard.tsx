@@ -1,7 +1,9 @@
-import { Card, CardContent, Typography, Chip, Stack, Link } from '@mui/material';
+import { Card, CardContent, Typography, Stack, Link } from '@mui/material';
 import { OpenInNew } from '@mui/icons-material';
-import { formatDistanceToNow } from 'date-fns';
 import type { Job } from '../../types';
+import { useJobMetadata } from '../shared/jobCard/useJobMetadata';
+import { JobChipsSection } from '../shared/jobCard/JobChipsSection';
+import { CARD_HOVER_SX, CARD_VARIANT } from '../shared/jobCard/jobCardStyles';
 
 interface RecentJobCardProps {
   job: Job;
@@ -15,7 +17,7 @@ interface RecentJobCardProps {
  * Entire card is clickable to view job posting
  */
 export function RecentJobCard({ job, companyName, recruiterLinkedInUrl }: RecentJobCardProps) {
-  const postedAgo = formatDistanceToNow(new Date(job.createdAt), { addSuffix: true });
+  const { postedAgo } = useJobMetadata(job.createdAt);
 
   const handleCardClick = () => {
     window.open(job.url, '_blank', 'noopener,noreferrer');
@@ -27,11 +29,11 @@ export function RecentJobCard({ job, companyName, recruiterLinkedInUrl }: Recent
 
   return (
     <Card
-      variant="outlined"
+      variant={CARD_VARIANT}
       sx={{
         mb: 2,
         cursor: 'pointer',
-        '&:hover': { bgcolor: 'action.hover' },
+        ...CARD_HOVER_SX,
       }}
       onClick={handleCardClick}
     >
@@ -54,12 +56,12 @@ export function RecentJobCard({ job, companyName, recruiterLinkedInUrl }: Recent
         </Typography>
 
         {/* Chips for metadata */}
-        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
-          {job.department && <Chip label={job.department} size="small" variant="outlined" />}
-          {job.isRemote && <Chip label="Remote" size="small" color="primary" variant="outlined" />}
-          {job.classification.isSoftwareAdjacent && (
-            <Chip label={job.classification.category} size="small" color="primary" />
-          )}
+        <Stack sx={{ mb: 1 }}>
+          <JobChipsSection
+            department={job.department}
+            isRemote={job.isRemote}
+            classification={job.classification}
+          />
         </Stack>
 
         {/* LinkedIn recruiter link */}
