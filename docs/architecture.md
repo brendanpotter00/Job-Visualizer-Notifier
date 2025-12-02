@@ -16,8 +16,6 @@ This document provides visual diagrams and detailed explanations of the Job Visu
 
 ## High-Level Data Flow
 
-This diagram shows how data flows through the application from user interaction to UI updates.
-
 ```mermaid
 graph TB
     User[User Interaction]
@@ -83,24 +81,11 @@ graph TB
     GraphSection --> UISlice
 ```
 
-### Key Data Flow Patterns
-
-1. **User selects company** → Dispatches `setSelectedCompanyId` action
-2. **App slice updates** → `useCompanyLoader` hook detects change
-3. **Thunk dispatched** → `loadJobsForCompany` starts async operation
-4. **API client selected** → Based on company's ATS type (Greenhouse/Lever/Ashby)
-5. **Data fetched** → External API returns job data
-6. **Transformation** → Raw API response converted to normalized `Job` model
-7. **Role classification** → Algorithm categorizes each job
-8. **Redux updated** → Jobs stored in `byCompany` map with metadata
-9. **Selectors recompute** → Memoized selectors filter/transform data
-10. **Components re-render** → Only affected components update
+User selects company → `loadJobsForCompany` thunk → Factory selects API client → External API fetch → Transform to normalized Job model → Role classification → Redux update → Memoized selectors filter data → Components render
 
 ---
 
 ## Redux State Shape
-
-Visual representation of the Redux store structure.
 
 ```mermaid
 graph LR
@@ -144,8 +129,6 @@ graph LR
     UI --> ModalData[modal job IDs, timestamps]
 ```
 
-### State Structure Details
-
 **Jobs Slice:**
 ```typescript
 {
@@ -166,7 +149,7 @@ graph LR
 }
 ```
 
-**Filter Slices (Graph & List are identical structure):**
+**Filter Slices (Graph & List identical):**
 ```typescript
 {
   filters: {
@@ -180,17 +163,11 @@ graph LR
 }
 ```
 
-**Important Notes:**
-- Graph and list filters are **completely independent**
-- `softwareOnly` computed via selector (not stored in state)
-- Jobs normalized by company ID for efficient lookup
-- Metadata calculated during transformation
+Graph and list filters are completely independent. Jobs normalized by company ID for O(1) lookup.
 
 ---
 
 ## API Client Architecture
-
-Diagram showing the factory pattern for API clients.
 
 ```mermaid
 graph TB
@@ -233,32 +210,11 @@ graph TB
     Classification --> FinalJob[Final Job Object]
 ```
 
-### Factory Pattern Benefits
-
-1. **Code Reuse**: 220+ lines of duplication eliminated
-2. **Consistency**: All clients use identical error handling, filtering, metadata calculation
-3. **Easy Extension**: Add new ATS provider in ~15 lines instead of 74
-4. **Single Source of Truth**: One place to fix bugs affecting all clients
-5. **Type Safety**: Generic types ensure correct configuration
-
-### Adding a New ATS Provider
-
-```typescript
-// Only ~15 lines needed!
-export const newATSClient = createAPIClient<NewATSResponse, NewATSConfig>({
-  name: 'NewATS',
-  buildUrl: (config) => `${config.apiBaseUrl}/jobs`,
-  extractJobs: (response) => response.jobs,
-  transformer: transformNewATSJob,
-  validateConfig: (config): config is NewATSConfig => config.type === 'newats',
-});
-```
+Factory eliminates 220+ lines of duplication. All clients use identical error handling, filtering, and metadata calculation. Add new ATS provider in ~15 lines instead of 74.
 
 ---
 
 ## Filter Slice Architecture
-
-Diagram showing the filter slice factory pattern.
 
 ```mermaid
 graph TB
@@ -303,41 +259,11 @@ graph TB
     Dispatch --> ListActions
 ```
 
-### Factory Pattern Benefits
-
-1. **Code Reuse**: 158 lines of duplication eliminated
-2. **Consistency**: Both slices have identical action patterns
-3. **Maintainability**: One place to add new filter types
-4. **Type Safety**: Dynamic action creator types maintained
-5. **Independence**: Graph and list filters remain completely separate
-
-### Filter Slice Structure
-
-Both graph and list slices support:
-
-**Search Tag Actions (5):**
-- Add tag (include/exclude)
-- Remove tag
-- Toggle tag mode
-- Clear all tags
-
-**Location/Department/RoleCategory Actions (4 each):**
-- Add single value
-- Remove single value
-- Clear all
-- Set array
-
-**Other Actions:**
-- Set time window
-- Set employment type
-- Reset to initial state
-- Sync from other slice (graph ↔ list)
+Factory eliminates 158 lines of duplication. Both graph and list slices dynamically generate 25 action creators each: search tags (5), locations/departments/role categories (4 each), time window, employment type, reset, and sync actions.
 
 ---
 
 ## Component Hierarchy
-
-Visual representation of the component tree.
 
 ```mermaid
 graph TB
@@ -392,47 +318,11 @@ graph TB
     style Modals fill:#e8f5e9
 ```
 
-### Component Responsibility Summary
-
-**App.tsx:**
-- Redux Provider setup
-- MUI Theme configuration
-- Main layout structure
-- Route handling (currently single page)
-
-**CompanySelector:**
-- Company dropdown
-- Auto-loads jobs via `useCompanyLoader` hook
-- Single dispatch (no double loading)
-
-**MetricsDashboard:**
-- Displays job counts for multiple time windows
-- Uses `useTimeBasedJobCounts` hook
-- No timer-based re-renders (deterministic calculations)
-
-**Graph Section:**
-- Independent filter system
-- Memoized bucket data via selectors
-- Recharts integration
-- Click-to-drill-down functionality
-
-**List Section:**
-- Independent filter system
-- Search with include/exclude tags
-- Can sync filters from graph
-- Job cards with metadata
-
-**BucketJobsModal:**
-- Fullscreen on mobile
-- Reuses JobList component
-- Displays jobs for clicked graph point
-- Memoized job filtering
+App.tsx provides Redux/MUI setup. CompanySelector auto-loads jobs (single dispatch). MetricsDashboard shows job counts (no timer re-renders). Graph and List sections have independent filter systems with memoized data. BucketJobsModal reuses JobList for drill-down.
 
 ---
 
 ## Time Bucketing Algorithm
-
-Flowchart showing how jobs are bucketed for graph visualization.
 
 ```mermaid
 graph TB
@@ -496,20 +386,11 @@ graph TB
 | 1y | 12 days | 30 | Annual patterns |
 | 2y | 24 days | 30 | Two-year trends |
 
-### Key Algorithm Features
-
-1. **Empty Buckets**: Created for entire range (critical for proper graph spacing)
-2. **Boundary Alignment**: Buckets align to clean boundaries (e.g., top of hour)
-3. **Cumulative Counts**: For line graph visualization
-4. **Job ID Storage**: Enables drill-down to individual jobs
-5. **Time Complexity**: O(n + b) where n = jobs, b = buckets
-6. **Memoization**: Results cached via Redux selectors
+Empty buckets created for entire range (critical for proper graph spacing). Buckets align to clean boundaries. Cumulative counts for line graphs. Time complexity: O(n + b). Results memoized via Redux selectors.
 
 ---
 
 ## Role Classification System
-
-Flowchart showing how jobs are classified into role categories.
 
 ```mermaid
 graph TB
@@ -613,35 +494,10 @@ graph TB
 | otherTech category | 0.75 cap | Lower confidence for generic |
 | Exclusion patterns | 0.9 | High confidence for non-tech |
 
-### Example Classification
-
-```
-Job Title: "Senior Frontend Engineer"
-Department: "Engineering"
-Description: "React, TypeScript, Redux..."
-
-1. Extract text → "senior frontend engineer engineering react typescript redux"
-2. Check exclusions → No match
-3. Scan categories:
-   - frontend: 3 matches (frontend, react, redux)
-   - backend: 0 matches
-   - fullstack: 0 matches
-   ...
-4. Best category: frontend (3 matches)
-5. Calculate confidence:
-   - Base: 0.5
-   - 3 matches: +0.3
-   - "frontend" in title: +0.15
-   - Tech department: +0.05
-   - Total: 1.0 → clamped to 0.95
-6. Return: { category: 'frontend', confidence: 0.95 }
-```
 
 ---
 
 ## Performance Optimizations
-
-### Memoization Strategy
 
 ```mermaid
 graph LR
@@ -669,25 +525,9 @@ graph LR
     style Render fill:#c8e6c9
 ```
 
-### Re-render Prevention
+Selector memoization via `createSelector` from Reselect. Chart data wrapped in `useMemo`. Filter independence prevents cross-contamination. No timer re-renders in MetricsDashboard. Single dispatch in CompanySelector.
 
-1. **Selector Memoization**: Redux selectors use `createSelector` from Reselect
-2. **Component Memoization**: Chart data wrapped in `useMemo`
-3. **Filter Independence**: Graph and list filters don't affect each other
-4. **Deterministic Calculations**: No timer-based updates in MetricsDashboard
-5. **Single Dispatch**: CompanySelector doesn't double-dispatch loads
-
-### Performance Benchmarks
-
-| Operation | Time Complexity | Notes |
-|-----------|----------------|-------|
-| Load jobs | O(n) | n = number of jobs |
-| Role classification | O(n × k) | k = average keywords per job (~10) |
-| Time bucketing | O(n + b) | b = number of buckets (~30 max) |
-| Filter by location | O(n) | Memoized, only runs when filters change |
-| Filter by role category | O(n) | Memoized, only runs when filters change |
-| Graph data transformation | O(b) | Memoized with useMemo |
-| Bucket job filtering | O(n) | Memoized with useMemo |
+Key complexities: Load jobs O(n), role classification O(n × k), time bucketing O(n + b), filtering O(n) memoized.
 
 ---
 
@@ -746,15 +586,6 @@ graph TB
 
 ## Summary
 
-This architecture provides:
-
-1. **Separation of Concerns**: Clear boundaries between API, state, and UI layers
-2. **Code Reuse**: Factory patterns eliminate duplication
-3. **Performance**: Aggressive memoization at all levels
-4. **Maintainability**: Easy to extend with new ATS providers or filter types
-5. **Type Safety**: Full TypeScript coverage with strict mode
-6. **Testability**: Pure functions and dependency injection throughout
-7. **Error Resilience**: Comprehensive error handling with retryable failures
-8. **Scalability**: Handles 1000+ jobs efficiently with bucketing and virtualization
+This architecture provides clear separation of concerns, code reuse via factory patterns, aggressive memoization, easy extensibility, full TypeScript coverage, comprehensive error handling, and efficient scaling to 1000+ jobs.
 
 For implementation details, see `CLAUDE.md`. For migration guidance, see `docs/MIGRATION.md`.
