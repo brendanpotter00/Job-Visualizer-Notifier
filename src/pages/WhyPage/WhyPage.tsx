@@ -97,7 +97,7 @@ export function WhyPage() {
                       Notification System
                   </Typography>
                   <Typography component="li" variant="body1" sx={{ mb: 1 }}>
-                      Company-Website Webscrapers (Apple, Google, Microsoft, Meta, etc)
+                      Company-Website Web Scrapers (Apple, Google, Microsoft, Meta, etc)
                   </Typography>
                   <Typography component="li" variant="body1" sx={{ mb: 1 }}>
                       AI Powered Resume to Job Listing Matching
