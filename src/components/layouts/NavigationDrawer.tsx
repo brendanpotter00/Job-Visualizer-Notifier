@@ -12,6 +12,7 @@ import ListItemText from '@mui/material/ListItemText';
 import Tooltip from '@mui/material/Tooltip';
 import BusinessIcon from '@mui/icons-material/Business';
 import ScheduleIcon from '@mui/icons-material/Schedule';
+import InfoIcon from '@mui/icons-material/Info';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { NAV_ITEMS } from '../../config/routes';
 
@@ -92,10 +93,11 @@ const PermanentDrawer = styled(MuiDrawer, {
 /**
  * Map icon names to MUI icon components
  */
-type IconName = 'Business' | 'Schedule';
+type IconName = 'Business' | 'Schedule' | 'Info';
 const iconMap: Record<IconName, React.ComponentType> = {
   Business: BusinessIcon,
   Schedule: ScheduleIcon,
+  Info: InfoIcon,
 };
 
 /**
