@@ -3,6 +3,7 @@ import { useURLSync, useBrowserNavigation } from './hooks';
 import { RootLayout } from '../components/layouts/RootLayout';
 import { CompaniesPage } from '../pages/CompaniesPage/CompaniesPage';
 import { RecentJobPostingsPage } from '../pages/RecentJobPostingsPage/RecentJobPostingsPage';
+import { WhyPage } from '../pages/WhyPage';
 import { ROUTES } from '../config/routes';
 
 /**
@@ -21,6 +22,7 @@ function AppContent() {
       <Route path="/" element={<RootLayout />}>
         <Route index element={<CompaniesPage />} />
         <Route path={ROUTES.RECENT_JOBS} element={<RecentJobPostingsPage />} />
+        <Route path={ROUTES.WHY} element={<WhyPage />} />
       </Route>
     </Routes>
   );
@@ -35,7 +37,8 @@ function AppContent() {
  *
  * Routes:
  * - / - Companies page (job analytics for selected company)
- * - /recent-jobs - Recent job postings page (placeholder)
+ * - /recent-jobs - Recent job postings page (all jobs across companies)
+ * - /why - Why This Was Built page (about and supported companies)
  */
 function App() {
   return (

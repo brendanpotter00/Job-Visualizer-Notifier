@@ -1,0 +1,1 @@
+export { WhyPage } from './WhyPage';

@@ -332,7 +332,7 @@ export const COMPANIES: Company[] = [
   },
   {
     id: 'Squarespace',
-    name: 'squarespace',
+    name: 'Squarespace',
     ats: 'greenhouse',
     config: {
       type: 'greenhouse',
