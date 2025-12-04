@@ -23,26 +23,26 @@ npm run format           # Prettier formatting
 ## Architecture Quick Reference
 
 **State Management:**
-- Redux Toolkit with feature-based slices (jobs, filters, app, ui)
-- Factory patterns: `createAPIClient` (src/api/baseClient.ts) and `createFilterSlice` (src/features/filters/createFilterSlice.ts)
+- Redux Toolkit Query (RTK Query) for jobs data fetching with caching
+- Traditional Redux slices for filters, app, and ui state
+- Factory patterns: `createAPIClient` (src/api/clients/baseClient.ts) and `createFilterSlice` (src/features/filters/slices/createFilterSlice.ts)
 - Graph and list filters operate independently (manual sync available)
 - Jobs normalized by company ID in `byCompany` map for O(1) lookup
 
 **Data Flow:**
-User selects company → `loadJobsForCompany` thunk (src/features/jobs/jobsThunks.ts) → Factory selects API client → Transform to normalized Job model → Role classification → Redux update → Memoized selectors filter data → Components render
+User selects company → `getJobsForCompany` RTK Query endpoint (src/features/jobs/jobsApi.ts) → Factory selects API client → Transform to normalized Job model → RTK Query cache update → Memoized selectors filter data → Components render
 
 **API Clients:**
-All three ATS providers (Greenhouse, Lever, Ashby) use `createAPIClient` factory (src/api/baseClient.ts). Factory handles: validation, fetch, error handling, filtering, transformation, metadata calculation. Only URL building and response extraction differ per provider.
+All four ATS providers (Greenhouse, Lever, Ashby, Workday) use `createAPIClient` factory (src/api/clients/baseClient.ts). Factory handles: validation, fetch, error handling, filtering, transformation, metadata calculation. Only URL building and response extraction differ per provider.
 
 **Key Selectors:**
 - `selectCurrentCompanyJobs` (src/features/jobs/jobsSelectors.ts) - Jobs for selected company
-- `selectGraphFilteredJobs` (src/features/filters/filtersSelectors.ts) - Apply graph filters
-- `selectListFilteredJobs` (src/features/filters/filtersSelectors.ts) - Apply list filters + search
-- `selectGraphBucketData` (src/features/filters/filtersSelectors.ts) - Filtered jobs + time bucketing
+- `selectGraphFilteredJobs` (src/features/filters/selectors/graphFiltersSelectors.ts) - Apply graph filters
+- `selectListFilteredJobs` (src/features/filters/selectors/listFiltersSelectors.ts) - Apply list filters + search
+- `selectGraphBucketData` (src/features/filters/selectors/graphFiltersSelectors.ts) - Filtered jobs + time bucketing
 
 **Key Algorithms:**
-- Role Classification: src/utils/roleClassification.ts (keyword-based with confidence scoring)
-- Time Bucketing: src/utils/timeBucketing.ts (dynamic bucket sizing for graph visualization)
+- Time Bucketing: src/lib/timeBucketing.ts (dynamic bucket sizing for graph visualization)
 
 ## Common Tasks
 
@@ -57,15 +57,15 @@ See `docs/MIGRATION.md` for detailed guide.
 
 **Adding Filters:**
 1. Add field to `GraphFilters` or `ListFilters` type (src/types/index.ts)
-2. Update `createFilterSlice` factory (src/features/filters/createFilterSlice.ts)
-3. Update filtering logic (src/features/filters/filtersSelectors.ts)
-4. Add UI control (src/components/filters/GraphFilters.tsx or ListFilters.tsx)
+2. Update `createFilterSlice` factory (src/features/filters/slices/createFilterSlice.ts)
+3. Update filtering logic (src/features/filters/selectors/graphFiltersSelectors.ts or listFiltersSelectors.ts)
+4. Add UI control (src/components/companies-page/GraphFilters.tsx or ListFilters.tsx, or src/components/shared/filters/)
 
 **Debugging:**
 - Redux DevTools for state inspection
 - Selector tests: src/__tests__/features/filters/
 - API transformer tests: src/__tests__/api/transformers/
-- Time bucketing tests: src/__tests__/utils/timeBucketing.test.ts
+- Time bucketing tests: src/__tests__/lib/timeBucketing.test.ts
 
 ## Critical Gotchas
 
@@ -81,10 +81,10 @@ See `docs/MIGRATION.md` for detailed guide.
 - Redux Store: `src/app/store.ts`
 - Type Definitions: `src/types/index.ts`
 - Company Config: `src/config/companies.ts`
-- API Client Factory: `src/api/baseClient.ts`
-- Filter Slice Factory: `src/features/filters/createFilterSlice.ts`
-- Jobs State: `src/features/jobs/jobsSlice.ts`, `jobsSelectors.ts`, `jobsThunks.ts`
-- Role Classification: `src/utils/roleClassification.ts`, `src/config/roleClassificationConfig.ts`
+- API Client Factory: `src/api/clients/baseClient.ts`
+- Filter Slice Factory: `src/features/filters/slices/createFilterSlice.ts`
+- Jobs RTK Query API: `src/features/jobs/jobsApi.ts`, `jobsSelectors.ts`, `progressHelpers.ts`
+- Time Bucketing: `src/lib/timeBucketing.ts`
 - Main App: `src/app/App.tsx`
 
 ## See Also

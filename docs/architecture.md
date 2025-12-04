@@ -42,9 +42,9 @@ graph TB
     end
 
     subgraph "API Layer"
-        Thunks[Async Thunks<br/>loadJobsForCompany]
+        RTKQuery[RTK Query API<br/>getJobsForCompany]
         BaseClient[Base Client Factory]
-        Clients[ATS Clients<br/>Greenhouse<br/>Lever<br/>Ashby]
+        Clients[ATS Clients<br/>Greenhouse<br/>Lever<br/>Ashby<br/>Workday]
         Transformers[Transformers<br/>API → Job Model]
     end
 
@@ -52,18 +52,21 @@ graph TB
         GreenhouseAPI[Greenhouse API]
         LeverAPI[Lever API]
         AshbyAPI[Ashby API]
+        WorkdayAPI[Workday API]
     end
 
     User --> CompSelector
     CompSelector --> AppSlice
-    AppSlice --> Thunks
-    Thunks --> Clients
+    AppSlice --> RTKQuery
+    RTKQuery --> Clients
     Clients --> GreenhouseAPI
     Clients --> LeverAPI
     Clients --> AshbyAPI
+    Clients --> WorkdayAPI
     GreenhouseAPI --> Transformers
     LeverAPI --> Transformers
     AshbyAPI --> Transformers
+    WorkdayAPI --> Transformers
     Transformers --> JobsSlice
 
     JobsSlice --> JobsSelectors
@@ -81,7 +84,7 @@ graph TB
     GraphSection --> UISlice
 ```
 
-User selects company → `loadJobsForCompany` thunk → Factory selects API client → External API fetch → Transform to normalized Job model → Role classification → Redux update → Memoized selectors filter data → Components render
+User selects company → `getJobsForCompany` RTK Query endpoint → Factory selects API client → External API fetch → Transform to normalized Job model → RTK Query cache update → Memoized selectors filter data → Components render
 
 ---
 
@@ -118,7 +121,6 @@ graph LR
     GFilters --> GSearchTags[searchTags]
     GFilters --> GLocations[locations]
     GFilters --> GDepartments[departments]
-    GFilters --> GRoleCategory[roleCategory]
 
     ListFilters --> LFilters[filters: ListFilters]
     LFilters --> LTimeWindow[timeWindow]
@@ -157,8 +159,7 @@ graph LR
     searchTags?: SearchTag[],
     locations: string[],
     departments: string[],
-    employmentType?: EmploymentType,
-    roleCategory?: SoftwareRoleCategory
+    employmentType?: EmploymentType
   }
 }
 ```
@@ -202,15 +203,18 @@ graph TB
     LeverClient --> LTransformer[transformLeverJob]
     AshbyClient --> ATransformer[transformAshbyJob]
 
+    Factory --> WorkdayClient[workdayClient]
+    WorkdayClient --> WTransformer[transformWorkdayJob]
+
     GTransformer --> UnifiedModel[Unified Job Model]
     LTransformer --> UnifiedModel
     ATransformer --> UnifiedModel
+    WTransformer --> UnifiedModel
 
-    UnifiedModel --> Classification[Role Classification]
-    Classification --> FinalJob[Final Job Object]
+    UnifiedModel --> FinalJob[Final Job Object]
 ```
 
-Factory eliminates 220+ lines of duplication. All clients use identical error handling, filtering, and metadata calculation. Add new ATS provider in ~15 lines instead of 74.
+Factory eliminates 220+ lines of duplication. All four clients use identical error handling, filtering, and metadata calculation. Add new ATS provider in ~15 lines instead of 74.
 
 ---
 
@@ -232,13 +236,12 @@ graph TB
         DynamicSlice --> SliceConfig[Slice Configuration]
         SliceConfig --> StateName[name: graphFilters / listFilters]
         SliceConfig --> State[initialState]
-        SliceConfig --> Reducers[25 Reducers]
+        SliceConfig --> Reducers[21 Reducers]
 
         Reducers --> TimeWindow[setGraphTimeWindow / setListTimeWindow]
         Reducers --> SearchTags[5 search tag actions]
         Reducers --> Locations[4 location actions]
         Reducers --> Departments[4 department actions]
-        Reducers --> RoleCategory[4 role category actions]
         Reducers --> Employment[employment type actions]
         Reducers --> Reset[reset filters]
         Reducers --> Sync[sync from other slice]
@@ -259,7 +262,7 @@ graph TB
     Dispatch --> ListActions
 ```
 
-Factory eliminates 158 lines of duplication. Both graph and list slices dynamically generate 25 action creators each: search tags (5), locations/departments/role categories (4 each), time window, employment type, reset, and sync actions.
+Factory eliminates 158 lines of duplication. Both graph and list slices dynamically generate 21 action creators each: search tags (5), locations/departments (4 each), time window, employment type, reset, and sync actions.
 
 ---
 
@@ -281,13 +284,12 @@ graph TB
 
     MetricsDash --> JobCountCards[3 JobCountCard Components<br/>3 days / 24 hours / 12 hours]
 
-    GraphSection --> GraphFilters[GraphFilters<br/>Time/Location/Dept/Role/Software]
+    GraphSection --> GraphFilters[GraphFilters<br/>Time/Location/Dept/Software]
     GraphSection --> JobPostingsChart[JobPostingsChart<br/>Recharts Line Graph]
 
     GraphFilters --> TimeWindowSelect[Time Window Selector]
     GraphFilters --> LocationFilter[Location Multi-Select]
     GraphFilters --> DeptFilter[Department Multi-Select]
-    GraphFilters --> RoleCatFilter[Role Category Select]
     GraphFilters --> SoftwareToggle[Software Only Toggle]
 
     JobPostingsChart --> ChartTooltip[ChartTooltip<br/>Custom Tooltip]
@@ -390,113 +392,6 @@ Empty buckets created for entire range (critical for proper graph spacing). Buck
 
 ---
 
-## Role Classification System
-
-```mermaid
-graph TB
-    Start[Start: Job Object]
-
-    Start --> Extract[Extract Text<br/>title + location + description + dept]
-    Extract --> Normalize[Normalize Text<br/>lowercase, trim]
-
-    Normalize --> CheckExclusion{Check Exclusion Patterns<br/>recruiter, coordinator, etc.}
-    CheckExclusion -->|Match Found| ReturnNonTech[Return: nonTech<br/>confidence: 0.9]
-
-    CheckExclusion -->|No Match| InitVars[Initialize:<br/>matchCounts = empty<br/>baseConfidence = 0.5]
-
-    InitVars --> CategoryLoop{For each category<br/>frontend, backend, etc.}
-
-    CategoryLoop --> GetKeywords[Get keywords for category]
-    GetKeywords --> KeywordLoop{For each keyword}
-
-    KeywordLoop --> CheckKeyword{Keyword in text?}
-    CheckKeyword -->|No| NextKeyword{More keywords?}
-    CheckKeyword -->|Yes| RecordMatch[Record match]
-
-    RecordMatch --> CheckTitle{Keyword in title?}
-    CheckTitle -->|Yes| TitleBonus[Store: titleMatch = true]
-    CheckTitle -->|No| NextKeyword
-    TitleBonus --> NextKeyword
-
-    NextKeyword -->|Yes| KeywordLoop
-    NextKeyword -->|No| NextCategory{More categories?}
-    NextCategory -->|Yes| CategoryLoop
-
-    NextCategory -->|No| CheckMatches{Any matches found?}
-    CheckMatches -->|No| CheckTech{In tech department?}
-
-    CheckTech -->|Yes| ReturnOtherTech[Return: otherTech<br/>confidence: 0.6]
-    CheckTech -->|No| ReturnNonTech2[Return: nonTech<br/>confidence: 0.3]
-
-    CheckMatches -->|Yes| SelectBest[Select category with<br/>most keyword matches]
-
-    SelectBest --> CalcConfidence[Calculate Confidence]
-
-    CalcConfidence --> BaseConf[Start: 0.5]
-    BaseConf --> AddMatches[Add: matchCount × 0.1<br/>max 0.85]
-    AddMatches --> AddTitle{Title match?}
-    AddTitle -->|Yes| TitleBonusConf[Add: 0.15]
-    AddTitle -->|No| CheckDept{Tech department?}
-    TitleBonusConf --> CheckDept
-
-    CheckDept -->|Yes| DeptBonus[Add: 0.05]
-    CheckDept -->|No| Clamp[Clamp to max 0.95]
-    DeptBonus --> Clamp
-
-    Clamp --> OtherTechCheck{Category = otherTech?}
-    OtherTechCheck -->|Yes| OtherTechCap[Cap at 0.75]
-    OtherTechCheck -->|No| FinalConf[Final Confidence]
-    OtherTechCap --> FinalConf
-
-    FinalConf --> Return[Return: category + confidence]
-    ReturnNonTech --> End[End: RoleClassification]
-    ReturnOtherTech --> End
-    ReturnNonTech2 --> End
-    Return --> End
-
-    style Start fill:#e1f5ff
-    style End fill:#c8e6c9
-    style ReturnNonTech fill:#ffcdd2
-    style ReturnOtherTech fill:#fff9c4
-    style ReturnNonTech2 fill:#ffcdd2
-    style Return fill:#c8e6c9
-```
-
-### Role Categories (14 Total)
-
-**Software Engineering Roles:**
-1. **frontend** - React, Vue, Angular, UI/UX
-2. **backend** - API, microservices, server-side
-3. **fullstack** - Full-stack, end-to-end
-4. **mobile** - iOS, Android, React Native
-5. **data** - Data engineer, analytics, pipelines
-6. **ml** - Machine learning, AI, ML engineer
-7. **devops** - DevOps, SRE, infrastructure
-8. **platform** - Platform, infrastructure, tooling
-9. **qa** - QA, test, SDET
-10. **security** - Security, infosec, AppSec
-11. **graphics** - Graphics, rendering, game
-12. **embedded** - Embedded, firmware, hardware
-
-**Non-Engineering Roles:**
-13. **otherTech** - Generic software/tech (fallback)
-14. **nonTech** - Non-technical roles
-
-### Confidence Scoring
-
-| Factor | Impact | Calculation |
-|--------|--------|-------------|
-| Base confidence | +0.5 | Starting point for any match |
-| Each keyword match | +0.1 | Up to 0.85 total from keywords |
-| Keyword in title | +0.15 | Bonus for title mentions |
-| Tech department | +0.05 | Small bonus for tech dept |
-| Maximum confidence | 0.95 | Upper limit (except exclusions) |
-| otherTech category | 0.75 cap | Lower confidence for generic |
-| Exclusion patterns | 0.9 | High confidence for non-tech |
-
-
----
-
 ## Performance Optimizations
 
 ```mermaid
@@ -525,9 +420,9 @@ graph LR
     style Render fill:#c8e6c9
 ```
 
-Selector memoization via `createSelector` from Reselect. Chart data wrapped in `useMemo`. Filter independence prevents cross-contamination. No timer re-renders in MetricsDashboard. Single dispatch in CompanySelector.
+Selector memoization via `createSelector` from Reselect. Chart data wrapped in `useMemo`. Filter independence prevents cross-contamination. No timer re-renders in MetricsDashboard. Single dispatch in CompanySelector. RTK Query provides automatic caching and background refetching.
 
-Key complexities: Load jobs O(n), role classification O(n × k), time bucketing O(n + b), filtering O(n) memoized.
+Key complexities: Load jobs O(n), time bucketing O(n + b), filtering O(n) memoized.
 
 ---
 
@@ -560,13 +455,13 @@ graph TB
 
     TransformError --> PartialReturn[Return Partial JobsResponse]
 
-    Retryable --> ThunkRejected[Thunk Rejected with Value]
-    NonRetryable --> ThunkRejected
-    NetworkError --> ThunkRejected
-    ParseError --> ThunkRejected
-    ValidationError --> ThunkRejected
+    Retryable --> RTKQueryError[RTK Query Error State]
+    NonRetryable --> RTKQueryError
+    NetworkError --> RTKQueryError
+    ParseError --> RTKQueryError
+    ValidationError --> RTKQueryError
 
-    ThunkRejected --> ErrorSlice[Update Redux Error State]
+    RTKQueryError --> ErrorSlice[Update Error State]
     ErrorSlice --> ShowUI[Display Error in UI]
 
     Return --> SuccessSlice[Update Redux Jobs State]
@@ -578,6 +473,7 @@ graph TB
     style PartialReturn fill:#fff9c4
     style Retryable fill:#ffcdd2
     style NonRetryable fill:#ffcdd2
+    style RTKQueryError fill:#ffcdd2
     style ShowUI fill:#ffcdd2
     style UpdateUI fill:#c8e6c9
 ```
@@ -586,6 +482,13 @@ graph TB
 
 ## Summary
 
-This architecture provides clear separation of concerns, code reuse via factory patterns, aggressive memoization, easy extensibility, full TypeScript coverage, comprehensive error handling, and efficient scaling to 1000+ jobs.
+This architecture provides clear separation of concerns, code reuse via factory patterns, RTK Query for efficient data fetching and caching, aggressive memoization, easy extensibility, full TypeScript coverage, comprehensive error handling, and efficient scaling to 1000+ jobs.
+
+**Key Technologies:**
+- RTK Query for API data management
+- Redux Toolkit for UI state
+- Factory patterns for API clients and filter slices
+- Memoized selectors for performance
+- Four ATS provider integrations (Greenhouse, Lever, Ashby, Workday)
 
 For implementation details, see `CLAUDE.md`. For migration guidance, see `docs/MIGRATION.md`.
