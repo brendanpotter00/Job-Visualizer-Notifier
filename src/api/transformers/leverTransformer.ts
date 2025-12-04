@@ -1,13 +1,12 @@
 import type { Job } from '../../types';
 import type { LeverJobResponse } from '../types';
-import { classifyJobRole } from '../../utils/roleClassification';
-import { sanitizeTags } from '../../utils/tagUtils';
+import { sanitizeTags } from '../../lib/tags';
 
 /**
  * Transforms Lever API response to internal Job model
  */
 export function transformLeverJob(raw: LeverJobResponse, companyId: string): Job {
-  const jobWithoutClassification = {
+  return {
     id: raw.id,
     source: 'lever' as const,
     company: companyId,
@@ -21,12 +20,5 @@ export function transformLeverJob(raw: LeverJobResponse, companyId: string): Job
     url: raw.hostedUrl,
     tags: sanitizeTags(raw.tags),
     raw,
-  };
-
-  const classification = classifyJobRole(jobWithoutClassification);
-
-  return {
-    ...jobWithoutClassification,
-    classification,
   };
 }

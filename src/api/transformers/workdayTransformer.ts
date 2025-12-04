@@ -1,7 +1,6 @@
 import type { Job } from '../../types';
 import type { WorkdayJobPosting } from '../types';
-import { classifyJobRole } from '../../utils/roleClassification';
-import { parseWorkdayDate } from '../../utils/workdayDateParser';
+import { parseWorkdayDate } from '../../lib/workdayDateParser';
 
 /**
  * Transforms a Workday job posting into the normalized Job model
@@ -9,7 +8,7 @@ import { parseWorkdayDate } from '../../utils/workdayDateParser';
  * @param raw - Raw Workday job posting from API
  * @param identifier - Company identifier (tenantSlug/careerSiteSlug)
  * @param jobDetailBaseUrl - Base URL for job detail pages (e.g., "https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/details")
- * @returns Normalized Job object with classification
+ * @returns Normalized Job object
  *
  * @example
  * transformWorkdayJob(
@@ -54,8 +53,7 @@ export function transformWorkdayJob(
   const isGenericLocationCount = locationText && /^\d+\s+Locations?$/i.test(locationText);
   const location = isGenericLocationCount ? undefined : locationText;
 
-  // Create job without classification first
-  const jobWithoutClassification = {
+  return {
     id,
     source: 'workday' as const,
     company,
@@ -64,13 +62,5 @@ export function transformWorkdayJob(
     createdAt,
     url,
     raw,
-  };
-
-  // Classify the role using existing classification system
-  const classification = classifyJobRole(jobWithoutClassification);
-
-  return {
-    ...jobWithoutClassification,
-    classification,
   };
 }

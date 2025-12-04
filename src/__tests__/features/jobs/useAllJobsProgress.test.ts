@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { renderHook } from '@testing-library/react';
-import { useAllJobsProgress } from '../../../features/jobs/useAllJobsProgress';
+import { useAllJobsProgress } from '../../../features/jobs/hooks/useAllJobsProgress';
 import * as jobsApi from '../../../features/jobs/jobsApi';
 
 // Mock the RTK Query hook

@@ -28,12 +28,12 @@ describe('transformGreenhouseJob', () => {
     });
   });
 
-  it('should classify the job role', () => {
+  it('should transform job properties correctly', () => {
     const job = transformGreenhouseJob(mockGreenhouseResponse, 'spacex');
 
-    expect(job.classification).toBeDefined();
-    expect(job.classification.isSoftwareAdjacent).toBe(true);
-    expect(job.classification.category).toBe('fullstack');
+    expect(job.id).toBe('12345');
+    expect(job.title).toBe('Software Engineer');
+    expect(job.company).toBe('spacex');
   });
 
   it('should handle jobs with offices', () => {
@@ -59,7 +59,6 @@ describe('transformGreenhouseJob', () => {
     const job = transformGreenhouseJob(responseWithMetadata, 'spacex');
 
     expect(job.tags).toEqual(['react', 'frontend']);
-    expect(job.classification.category).toBe('frontend');
   });
 
   it('should handle jobs with multiple departments', () => {

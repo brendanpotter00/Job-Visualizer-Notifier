@@ -4,12 +4,12 @@ import { useAppSelector } from '../../app/hooks';
 import {
   selectRecentJobsMetadata,
   selectRecentJobsTimeBasedCounts,
-} from '../../features/filters/recentJobsSelectors';
-import { RecentJobsMetrics } from '../../components/RecentJobsMetrics';
-import { RecentJobsFilters } from '../../components/RecentJobsFilters';
-import { RecentJobsList } from '../../components/RecentJobsList';
-import { FetchProgressBar } from '../../components/FetchProgressBar';
-import { ERROR_MESSAGES } from '../../constants/messageConstants';
+} from '../../features/filters/selectors/recentJobsSelectors';
+import { RecentJobsMetrics } from '../../components/recent-jobs-page/RecentJobsMetrics/RecentJobsMetrics';
+import { RecentJobsFilters } from '../../components/recent-jobs-page/RecentJobsFilters';
+import { RecentJobsList } from '../../components/recent-jobs-page/RecentJobsList/RecentJobsList';
+import { FetchProgressBar } from '../../components/companies-page/FetchProgressBar/FetchProgressBar';
+import { ERROR_MESSAGES } from '../../constants/messages';
 
 /**
  * Recent Job Postings page component

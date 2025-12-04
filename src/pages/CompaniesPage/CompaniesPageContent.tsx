@@ -1,6 +1,6 @@
 import { Box, CircularProgress, Stack, Typography } from '@mui/material';
-import { GraphSection } from '../../components/JobPostingsChart/GraphSection';
-import { ListSection } from '../../components/JobList/ListSection';
+import { GraphSection } from '../../components/companies-page/JobPostingsChart/GraphSection';
+import { ListSection } from '../../components/companies-page/JobList/ListSection';
 import { useAppSelector } from '../../app/hooks';
 import { ATSConstants } from '../../api/types';
 

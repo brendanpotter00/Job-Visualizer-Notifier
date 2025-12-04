@@ -1,1 +1,0 @@
-export { WhyPage } from './WhyPage';

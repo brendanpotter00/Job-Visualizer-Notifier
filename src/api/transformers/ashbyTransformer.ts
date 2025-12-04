@@ -1,6 +1,5 @@
 import type { Job } from '../../types';
 import type { AshbyJobResponse } from '../types';
-import { classifyJobRole } from '../../utils/roleClassification';
 
 /**
  * Normalize Ashby employment type to standard format
@@ -22,8 +21,7 @@ function normalizeEmploymentType(ashbyType: string): string {
  * Transforms Ashby API response to internal Job model
  */
 export function transformAshbyJob(raw: AshbyJobResponse, companyId: string = 'notion'): Job {
-  // Create base job object without classification
-  const jobWithoutClassification = {
+  return {
     id: raw.id,
     source: 'ashby' as const,
     company: companyId,
@@ -37,13 +35,5 @@ export function transformAshbyJob(raw: AshbyJobResponse, companyId: string = 'no
     url: raw.jobUrl,
     tags: undefined, // Ashby doesn't provide tags in the response
     raw,
-  };
-
-  // Classify role
-  const classification = classifyJobRole(jobWithoutClassification);
-
-  return {
-    ...jobWithoutClassification,
-    classification,
   };
 }

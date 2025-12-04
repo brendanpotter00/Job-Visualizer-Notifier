@@ -3,15 +3,15 @@ import graphFiltersReducer, {
   toggleGraphSoftwareOnly,
   setGraphSoftwareOnly,
   type GraphFiltersState,
-} from '../../../features/filters/graphFiltersSlice';
+} from '../../../features/filters/slices/graphFiltersSlice';
 import listFiltersReducer, {
   toggleListSoftwareOnly,
   type ListFiltersState,
-} from '../../../features/filters/listFiltersSlice';
-import { selectGraphSoftwareOnlyState } from '../../../features/filters/graphFiltersSelectors';
-import { selectListSoftwareOnlyState } from '../../../features/filters/listFiltersSelectors';
+} from '../../../features/filters/slices/listFiltersSlice';
+import { selectGraphSoftwareOnlyState } from '../../../features/filters/selectors/graphFiltersSelectors';
+import { selectListSoftwareOnlyState } from '../../../features/filters/selectors/listFiltersSelectors';
 import type { RootState } from '../../../app/store';
-import { SOFTWARE_ENGINEERING_TAGS } from '../../../constants/softwareEngineeringTags';
+import { SOFTWARE_ENGINEERING_TAGS } from '../../../constants/tags';
 import type { SearchTag } from '../../../types';
 
 // Helper to create a minimal RootState for selector testing

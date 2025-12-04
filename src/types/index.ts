@@ -8,42 +8,6 @@
 export type ATSProvider = 'greenhouse' | 'lever' | 'ashby' | 'workday';
 
 /**
- * Software role categories for filtering and analytics
- */
-export type SoftwareRoleCategory =
-  | 'frontend'
-  | 'backend'
-  | 'fullstack'
-  | 'mobile'
-  | 'data'
-  | 'ml'
-  | 'devops'
-  | 'platform'
-  | 'qa'
-  | 'security'
-  | 'graphics'
-  | 'embedded'
-  | 'otherTech'
-  | 'nonTech';
-
-/**
- * Result of role classification analysis
- */
-export interface RoleClassification {
-  /** Is this a software/tech role? */
-  isSoftwareAdjacent: boolean;
-
-  /** Specific category */
-  category: SoftwareRoleCategory;
-
-  /** Confidence score (0-1) */
-  confidence: number;
-
-  /** Keywords that triggered classification */
-  matchedKeywords: string[];
-}
-
-/**
  * Normalized job posting model.
  * All ATS-specific data is transformed into this structure.
  */
@@ -83,9 +47,6 @@ export interface Job {
 
   /** Tags, keywords, or job families from ATS */
   tags?: string[];
-
-  /** Role classification (computed) */
-  classification: RoleClassification;
 
   /** Original ATS response for debugging */
   raw: unknown;
@@ -233,7 +194,6 @@ export interface GraphFilters {
   location?: string[];
   department?: string[];
   employmentType?: string;
-  roleCategory?: SoftwareRoleCategory[];
   softwareOnly: boolean;
 }
 
@@ -246,13 +206,12 @@ export interface ListFilters {
   location?: string[];
   department?: string[];
   employmentType?: string;
-  roleCategory?: SoftwareRoleCategory[];
   softwareOnly: boolean;
 }
 
 /**
  * Recent jobs filter state (for all-companies view)
- * Subset of GraphFilters/ListFilters without department and roleCategory
+ * Subset of GraphFilters/ListFilters without department
  */
 export interface RecentJobsFilters {
   timeWindow: TimeWindow;

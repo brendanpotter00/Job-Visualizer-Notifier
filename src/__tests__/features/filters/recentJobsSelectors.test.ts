@@ -3,16 +3,16 @@ import { configureStore } from '@reduxjs/toolkit';
 import type { RootState } from '../../../app/store';
 import type { Job, RecentJobsFilters, SearchTag } from '../../../types';
 import { jobsApi } from '../../../features/jobs/jobsApi';
-import recentJobsFiltersReducer from '../../../features/filters/recentJobsFiltersSlice';
+import recentJobsFiltersReducer from '../../../features/filters/slices/recentJobsFiltersSlice';
 import appReducer from '../../../features/app/appSlice';
-import graphFiltersReducer from '../../../features/filters/graphFiltersSlice';
-import listFiltersReducer from '../../../features/filters/listFiltersSlice';
+import graphFiltersReducer from '../../../features/filters/slices/graphFiltersSlice';
+import listFiltersReducer from '../../../features/filters/slices/listFiltersSlice';
 import uiReducer from '../../../features/ui/uiSlice';
 import {
   selectRecentJobsFilteredWithoutLocation,
   selectRecentAvailableLocations,
   selectRecentAvailableCompanies,
-} from '../../../features/filters/recentJobsSelectors';
+} from '../../../features/filters/selectors/recentJobsSelectors';
 
 // Helper to create mock jobs
 const createMockJob = (overrides: Partial<Job> = {}): Job => ({
@@ -26,12 +26,6 @@ const createMockJob = (overrides: Partial<Job> = {}): Job => ({
   employmentType: 'Full-time',
   createdAt: new Date().toISOString(),
   url: 'https://example.com/job/1',
-  classification: {
-    isSoftwareAdjacent: true,
-    category: 'fullstack',
-    confidence: 0.9,
-    matchedKeywords: ['software engineer'],
-  },
   raw: {},
   ...overrides,
 });

@@ -3,7 +3,7 @@ import { renderHook, waitFor } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { BrowserRouter } from 'react-router-dom';
 import React from 'react';
-import { useBrowserNavigation } from '../../../app/hooks/useBrowserNavigation';
+import { useBrowserNavigation } from '../../../hooks/useBrowserNavigation';
 import { createTestStore } from '../../../test/testUtils';
 
 describe('useBrowserNavigation', () => {

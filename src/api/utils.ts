@@ -1,8 +1,8 @@
 import type { JobAPIClient } from './types';
-import { greenhouseClient } from './greenhouseClient';
-import { leverClient } from './leverClient';
-import { ashbyClient } from './ashbyClient';
-import { workdayClient } from './workdayClient';
+import { greenhouseClient } from './clients/greenhouseClient';
+import { leverClient } from './clients/leverClient';
+import { ashbyClient } from './clients/ashbyClient';
+import { workdayClient } from './clients/workdayClient';
 
 /**
  * Get the appropriate API client for a given ATS type

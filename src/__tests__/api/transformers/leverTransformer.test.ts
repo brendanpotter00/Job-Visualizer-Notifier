@@ -42,12 +42,12 @@ describe('transformLeverJob', () => {
     expect(job.createdAt).toBe('2023-11-14T22:13:20.000Z');
   });
 
-  it('should classify the job role', () => {
+  it('should transform job properties correctly', () => {
     const job = transformLeverJob(mockLeverResponse, 'nominal');
 
-    expect(job.classification).toBeDefined();
-    expect(job.classification.isSoftwareAdjacent).toBe(true);
-    expect(job.classification.category).toBe('backend');
+    expect(job.id).toBe('abc-123');
+    expect(job.title).toBe('Backend Engineer');
+    expect(job.company).toBe('nominal');
   });
 
   it('should handle remote jobs', () => {
@@ -108,7 +108,6 @@ describe('transformLeverJob', () => {
 
     const job = transformLeverJob(frontendResponse, 'nominal');
 
-    expect(job.classification.category).toBe('frontend');
     expect(job.tags).toEqual(['react', 'javascript', 'typescript']);
   });
 

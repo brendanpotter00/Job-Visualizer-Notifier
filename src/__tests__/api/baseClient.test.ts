@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { createAPIClient } from '../../api/baseClient';
+import { createAPIClient } from '../../api/clients/baseClient';
 import type { Job, GreenhouseConfig } from '../../types';
 import { APIError } from '../../api/types';
 
@@ -25,12 +25,6 @@ describe('createAPIClient', () => {
           title: job.title,
           createdAt: job.createdAt,
           url: job.url,
-          classification: {
-            isSoftwareAdjacent: false,
-            category: 'nonTech',
-            confidence: 0,
-            matchedKeywords: [],
-          },
           raw: job,
         }) as Job,
       getIdentifier: (config: GreenhouseConfig) => config.boardToken,
@@ -82,12 +76,6 @@ describe('createAPIClient', () => {
           title: job.title,
           createdAt: job.createdAt,
           url: job.url,
-          classification: {
-            isSoftwareAdjacent: job.title.includes('Engineer'),
-            category: 'backend' as const,
-            confidence: 0.9,
-            matchedKeywords: [],
-          },
           raw: job,
         }) as Job,
       getIdentifier: (config: GreenhouseConfig) => config.boardToken,
@@ -101,7 +89,7 @@ describe('createAPIClient', () => {
     expect(result.jobs[0].id).toBe('1');
     expect(result.jobs[0].title).toBe('Engineer');
     expect(result.metadata.totalCount).toBe(2);
-    expect(result.metadata.softwareCount).toBe(1); // Only Engineer counts as software
+    expect(result.metadata.softwareCount).toBe(0); // Classification feature removed
   });
 
   it('should apply since filter correctly', async () => {
@@ -129,12 +117,6 @@ describe('createAPIClient', () => {
           title: 'Test',
           createdAt: job.createdAt,
           url: 'http://test.com',
-          classification: {
-            isSoftwareAdjacent: false,
-            category: 'nonTech' as const,
-            confidence: 0,
-            matchedKeywords: [],
-          },
           raw: job,
         }) as Job,
       getIdentifier: (config: GreenhouseConfig) => config.boardToken,
@@ -173,12 +155,6 @@ describe('createAPIClient', () => {
           title: 'Test',
           createdAt: job.createdAt,
           url: 'http://test.com',
-          classification: {
-            isSoftwareAdjacent: false,
-            category: 'nonTech' as const,
-            confidence: 0,
-            matchedKeywords: [],
-          },
           raw: job,
         }) as Job,
       getIdentifier: (config: GreenhouseConfig) => config.boardToken,
@@ -289,12 +265,6 @@ describe('createAPIClient', () => {
             title: 'Test',
             createdAt: job.createdAt,
             url: 'http://test.com',
-            classification: {
-              isSoftwareAdjacent: false,
-              category: 'nonTech' as const,
-              confidence: 0,
-              matchedKeywords: [],
-            },
             raw: job,
           }) as Job,
         getIdentifier: (config: GreenhouseConfig) => config.boardToken,
@@ -339,12 +309,6 @@ describe('createAPIClient', () => {
             title: 'Test',
             createdAt: job.createdAt,
             url: 'http://test.com',
-            classification: {
-              isSoftwareAdjacent: false,
-              category: 'nonTech' as const,
-              confidence: 0,
-              matchedKeywords: [],
-            },
             raw: job,
           }) as Job,
         getIdentifier: (config: GreenhouseConfig) => config.boardToken,
@@ -420,12 +384,6 @@ describe('createAPIClient', () => {
             title: job.title,
             createdAt: job.createdAt,
             url: 'http://test.com',
-            classification: {
-              isSoftwareAdjacent: job.isSoftware,
-              category: job.isSoftware ? ('backend' as const) : ('nonTech' as const),
-              confidence: 0.9,
-              matchedKeywords: [],
-            },
             raw: job,
           }) as Job,
         getIdentifier: (config: GreenhouseConfig) => config.boardToken,
@@ -437,7 +395,7 @@ describe('createAPIClient', () => {
 
       expect(result.jobs).toHaveLength(4);
       expect(result.metadata.totalCount).toBe(4);
-      expect(result.metadata.softwareCount).toBe(2);
+      expect(result.metadata.softwareCount).toBe(0); // Classification feature removed
     });
 
     it('should handle large datasets (1000+ jobs)', async () => {
@@ -465,12 +423,6 @@ describe('createAPIClient', () => {
             title: 'Test',
             createdAt: job.createdAt,
             url: 'http://test.com',
-            classification: {
-              isSoftwareAdjacent: job.isSoftware,
-              category: job.isSoftware ? ('backend' as const) : ('nonTech' as const),
-              confidence: 0.9,
-              matchedKeywords: [],
-            },
             raw: job,
           }) as Job,
         getIdentifier: (config: GreenhouseConfig) => config.boardToken,
@@ -482,7 +434,7 @@ describe('createAPIClient', () => {
 
       expect(result.jobs).toHaveLength(1500);
       expect(result.metadata.totalCount).toBe(1500);
-      expect(result.metadata.softwareCount).toBe(500); // 1500 / 3 = 500
+      expect(result.metadata.softwareCount).toBe(0); // Classification feature removed
     });
 
     it('should filter jobs with identical timestamps correctly', async () => {
@@ -513,12 +465,6 @@ describe('createAPIClient', () => {
             title: 'Test',
             createdAt: job.createdAt,
             url: 'http://test.com',
-            classification: {
-              isSoftwareAdjacent: false,
-              category: 'nonTech' as const,
-              confidence: 0,
-              matchedKeywords: [],
-            },
             raw: job,
           }) as Job,
         getIdentifier: (config: GreenhouseConfig) => config.boardToken,

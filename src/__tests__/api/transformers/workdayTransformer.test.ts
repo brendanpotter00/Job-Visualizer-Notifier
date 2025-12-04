@@ -28,7 +28,6 @@ describe('transformWorkdayJob', () => {
       });
 
       expect(result.createdAt).toBeTruthy();
-      expect(result.classification).toBeTruthy();
       expect(result.raw).toBe(rawJob);
     });
 
@@ -251,8 +250,8 @@ describe('transformWorkdayJob', () => {
     });
   });
 
-  describe('Role Classification', () => {
-    it('should classify software engineering roles', () => {
+  describe('Role Handling', () => {
+    it('should handle software engineering roles', () => {
       const rawJob: WorkdayJobPosting = {
         title: 'Senior Software Engineer',
         externalPath: '/job/test_JR1',
@@ -261,13 +260,10 @@ describe('transformWorkdayJob', () => {
 
       const result = transformWorkdayJob(rawJob, identifier, jobDetailBaseUrl);
 
-      expect(result.classification).toBeDefined();
-      expect(result.classification.isSoftwareAdjacent).toBe(true);
-      expect(result.classification.category).toBeTruthy();
-      expect(result.classification.confidence).toBeGreaterThan(0);
+      expect(result.title).toBe('Senior Software Engineer');
     });
 
-    it('should classify non-tech roles', () => {
+    it('should handle non-tech roles', () => {
       const rawJob: WorkdayJobPosting = {
         title: 'Recruiter',
         externalPath: '/job/test_JR1',
@@ -276,9 +272,7 @@ describe('transformWorkdayJob', () => {
 
       const result = transformWorkdayJob(rawJob, identifier, jobDetailBaseUrl);
 
-      expect(result.classification).toBeDefined();
-      expect(result.classification.isSoftwareAdjacent).toBe(false);
-      expect(result.classification.category).toBe('nonTech');
+      expect(result.title).toBe('Recruiter');
     });
   });
 
