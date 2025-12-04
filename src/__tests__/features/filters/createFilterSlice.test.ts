@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createFilterSlice } from '../../../features/filters/createFilterSlice';
+import { createFilterSlice } from '../../../features/filters/slices/createFilterSlice';
 import type { GraphFilters, ListFilters, TimeWindow, SoftwareRoleCategory } from '../../../types';
 
 describe('createFilterSlice', () => {

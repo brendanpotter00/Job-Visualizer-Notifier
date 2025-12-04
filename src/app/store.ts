@@ -1,8 +1,8 @@
 import { configureStore } from '@reduxjs/toolkit';
 import appReducer from '../features/app/appSlice';
-import graphFiltersReducer from '../features/filters/graphFiltersSlice';
-import listFiltersReducer from '../features/filters/listFiltersSlice';
-import recentJobsFiltersReducer from '../features/filters/recentJobsFiltersSlice';
+import graphFiltersReducer from '../features/filters/slices/graphFiltersSlice';
+import listFiltersReducer from '../features/filters/slices/listFiltersSlice';
+import recentJobsFiltersReducer from '../features/filters/slices/recentJobsFiltersSlice';
 import uiReducer from '../features/ui/uiSlice';
 import { jobsApi } from '../features/jobs/jobsApi';
 

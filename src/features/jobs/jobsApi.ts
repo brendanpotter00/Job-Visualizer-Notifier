@@ -3,9 +3,9 @@ import type { Job, FetchProgress } from '../../types';
 import { getCompanyById, COMPANIES } from '../../config/companies';
 import type { FetchJobsResult } from '../../api/types';
 import { getClientForATS } from '../../api/utils';
-import { calculateJobDateRange } from '../../utils/dateUtils';
+import { calculateJobDateRange } from '../../lib/date';
 import { updateCompanyProgress } from './progressHelpers';
-import { logger } from '../../utils/logger';
+import { logger } from '../../lib/logger';
 
 interface JobsQueryResult {
   jobs: Job[];

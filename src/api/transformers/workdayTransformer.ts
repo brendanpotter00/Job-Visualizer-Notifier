@@ -1,7 +1,7 @@
 import type { Job } from '../../types';
 import type { WorkdayJobPosting } from '../types';
-import { classifyJobRole } from '../../utils/roleClassification';
-import { parseWorkdayDate } from '../../utils/workdayDateParser';
+import { classifyJobRole } from '../../lib/roleClassification';
+import { parseWorkdayDate } from '../../lib/workdayDateParser';
 
 /**
  * Transforms a Workday job posting into the normalized Job model

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { EmptyJobListState } from '../../../components/shared/EmptyJobListState';
-import { EMPTY_STATE_MESSAGES } from '../../../constants/messageConstants';
+import { EmptyJobListState } from '../../../components/shared/EmptyJobListState.tsx';
+import { EMPTY_STATE_MESSAGES } from '../../../constants/messages.ts';
 
 /**
  * Tests for EmptyJobListState component

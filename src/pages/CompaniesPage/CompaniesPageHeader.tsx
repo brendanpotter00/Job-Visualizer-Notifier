@@ -1,5 +1,5 @@
 import { capitalize, Stack, Typography } from '@mui/material';
-import { CompanySelector } from '../../components/CompanySelector/CompanySelector';
+import { CompanySelector } from '../../components/companies-page/CompanySelector/CompanySelector';
 import { useAppSelector } from '../../app/hooks';
 import { getCompanyById } from '../../config/companies';
 

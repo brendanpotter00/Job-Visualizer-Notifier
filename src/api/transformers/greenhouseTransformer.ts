@@ -1,7 +1,7 @@
 import type { Job } from '../../types';
 import type { GreenhouseJobResponse } from '../types';
-import { classifyJobRole } from '../../utils/roleClassification';
-import { sanitizeTags } from '../../utils/tagUtils';
+import { classifyJobRole } from '../../lib/roleClassification';
+import { sanitizeTags } from '../../lib/tags';
 
 /**
  * Transforms Greenhouse API response to internal Job model

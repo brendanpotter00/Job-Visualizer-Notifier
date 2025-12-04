@@ -1,6 +1,6 @@
 import type { Job } from '../../types';
 import type { AshbyJobResponse } from '../types';
-import { classifyJobRole } from '../../utils/roleClassification';
+import { classifyJobRole } from '../../lib/roleClassification';
 
 /**
  * Normalize Ashby employment type to standard format

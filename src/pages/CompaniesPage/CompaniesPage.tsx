@@ -3,7 +3,7 @@ import { Refresh } from '@mui/icons-material';
 import { useAppSelector, useCompanyLoader } from '../../app/hooks';
 import { CompaniesPageHeader } from './CompaniesPageHeader';
 import { CompaniesPageContent } from './CompaniesPageContent';
-import { BucketJobsModal } from '../../components/BucketJobsModal/BucketJobsModal';
+import { BucketJobsModal } from '../../components/modals/BucketJobsModal/BucketJobsModal';
 
 /**
  * Companies page component

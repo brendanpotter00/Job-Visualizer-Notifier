@@ -5,9 +5,9 @@ import { BrowserRouter } from 'react-router-dom';
 import { setupServer } from 'msw/node';
 import { http, HttpResponse } from 'msw';
 import React from 'react';
-import { useCompanyLoader } from '../../../app/hooks/useCompanyLoader';
+import { useCompanyLoader } from '../../../hooks/useCompanyLoader';
 import { createTestStore } from '../../../test/testUtils';
-import * as urlParams from '../../../utils/urlParams';
+import * as urlParams from '../../../lib/url';
 
 // Mock API responses
 const mockGreenhouseJobs = {

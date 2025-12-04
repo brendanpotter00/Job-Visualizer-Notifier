@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { createAPIClient } from '../../api/baseClient';
+import { createAPIClient } from '../../api/clients/baseClient';
 import type { Job, GreenhouseConfig } from '../../types';
 import { APIError } from '../../api/types';
 

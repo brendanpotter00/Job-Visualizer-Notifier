@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { workdayClient } from '../../api/workdayClient';
+import { workdayClient } from '../../api/clients/workdayClient';
 import type { WorkdayConfig } from '../../types';
 import type { WorkdayJobPosting } from '../../api/types';
 import { APIError } from '../../api/types';

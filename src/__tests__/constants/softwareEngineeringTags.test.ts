@@ -7,7 +7,7 @@ import {
   isSoftwareOnlyEnabled,
   addAllSoftwareEngineeringTags,
   removeAllSoftwareEngineeringTags,
-} from '../../constants/softwareEngineeringTags';
+} from '../../constants/tags';
 
 describe('softwareEngineeringTags', () => {
   describe('SOFTWARE_ENGINEERING_TAGS constant', () => {

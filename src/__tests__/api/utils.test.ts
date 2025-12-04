@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { getClientForATS } from '../../api/utils';
-import { greenhouseClient } from '../../api/greenhouseClient';
-import { leverClient } from '../../api/leverClient';
-import { ashbyClient } from '../../api/ashbyClient';
-import { workdayClient } from '../../api/workdayClient';
+import { greenhouseClient } from '../../api/clients/greenhouseClient';
+import { leverClient } from '../../api/clients/leverClient';
+import { ashbyClient } from '../../api/clients/ashbyClient';
+import { workdayClient } from '../../api/clients/workdayClient';
 
 describe('getClientForATS', () => {
   it('returns greenhouseClient for greenhouse ATS type', () => {

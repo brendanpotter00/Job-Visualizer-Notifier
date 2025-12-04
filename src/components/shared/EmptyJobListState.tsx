@@ -1,5 +1,5 @@
 import { Box, Typography } from '@mui/material';
-import { EMPTY_STATE_MESSAGES } from '../../constants/messageConstants';
+import { EMPTY_STATE_MESSAGES } from '../../constants/messages.ts';
 
 interface EmptyJobListStateProps {
   /**

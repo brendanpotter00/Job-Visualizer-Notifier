@@ -3,7 +3,7 @@ import type { TypedUseSelectorHook } from 'react-redux';
 import type { RootState, AppDispatch } from './store';
 import { useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
-import { updateURLWithCompany } from '../utils/urlParams';
+import { updateURLWithCompany } from '../lib/url';
 import { ROUTES } from '../config/routes';
 
 /**
@@ -46,5 +46,5 @@ export function useURLSync(): void {
 }
 
 // Re-export custom hooks for convenience
-export { useCompanyLoader } from './hooks/useCompanyLoader';
-export { useBrowserNavigation } from './hooks/useBrowserNavigation';
+export { useCompanyLoader } from '../hooks/useCompanyLoader';
+export { useBrowserNavigation } from '../hooks/useBrowserNavigation';
