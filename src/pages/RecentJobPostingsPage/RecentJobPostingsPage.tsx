@@ -5,10 +5,10 @@ import {
   selectRecentJobsMetadata,
   selectRecentJobsTimeBasedCounts,
 } from '../../features/filters/recentJobsSelectors';
-import { RecentJobsMetrics } from '../../components/RecentJobsMetrics';
-import { RecentJobsFilters } from '../../components/RecentJobsFilters';
-import { RecentJobsList } from '../../components/RecentJobsList';
-import { FetchProgressBar } from '../../components/FetchProgressBar';
+import { RecentJobsMetrics } from '../../components/RecentJobsMetrics/RecentJobsMetrics';
+import { RecentJobsFilters } from '../../components/RecentJobsFilters/RecentJobsFilters';
+import { RecentJobsList } from '../../components/RecentJobsList/RecentJobsList';
+import { FetchProgressBar } from '../../components/FetchProgressBar/FetchProgressBar';
 import { ERROR_MESSAGES } from '../../constants/messageConstants';
 
 /**

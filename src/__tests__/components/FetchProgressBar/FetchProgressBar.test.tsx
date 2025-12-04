@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { FetchProgressBar } from '../../../components/FetchProgressBar';
+import { FetchProgressBar } from '../../../components/FetchProgressBar/FetchProgressBar';
 import * as useAllJobsProgressHook from '../../../features/jobs/useAllJobsProgress';
 
 // Mock the custom hook

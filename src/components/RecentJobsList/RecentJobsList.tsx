@@ -3,7 +3,7 @@ import { Stack, Typography, Box } from '@mui/material';
 import { useAppSelector } from '../../app/hooks';
 import { selectRecentJobsSorted } from '../../features/filters/recentJobsSelectors';
 import { getCompanyById } from '../../config/companies';
-import { RecentJobCard } from '../RecentJobCard';
+import { RecentJobCard } from '../RecentJobCard/RecentJobCard';
 import { LoadingSkeletons } from './LoadingSkeletons';
 import { BackToTopButton } from './BackToTopButton';
 import { EmptyJobListState } from '../shared/EmptyJobListState';
