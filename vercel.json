@@ -16,6 +16,14 @@
     {
       "source": "/api/workday/:path(.*)",
       "destination": "/api/workday?path=:path"
+    },
+    {
+      "source": "/recent-jobs",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/why",
+      "destination": "/index.html"
     }
   ],
   "headers": [
