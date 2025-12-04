@@ -4,7 +4,7 @@ import { FetchProgressBar } from '../../../../components/companies-page/FetchPro
 import * as useAllJobsProgressHook from '../../../../features/jobs/hooks/useAllJobsProgress';
 
 // Mock the custom hook
-vi.mock('../../../features/jobs/useAllJobsProgress');
+vi.mock('../../../../features/jobs/hooks/useAllJobsProgress');
 
 describe('FetchProgressBar', () => {
   it('should render progress bar with correct percentage', () => {

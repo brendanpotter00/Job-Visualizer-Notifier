@@ -12,7 +12,6 @@ const initialFilters: GraphFilters = {
   timeWindow: '30d',
   searchTags: undefined,
   softwareOnly: false,
-  roleCategory: undefined,
 };
 
 const graphFiltersSlice = createFilterSlice('graph', initialFilters);
@@ -49,10 +48,6 @@ export const {
   clearGraphDepartments,
   setGraphDepartment,
   setGraphEmploymentType,
-  addGraphRoleCategory,
-  removeGraphRoleCategory,
-  clearGraphRoleCategories,
-  setGraphRoleCategory,
   toggleGraphSoftwareOnly,
   setGraphSoftwareOnly,
   resetGraphFilters,

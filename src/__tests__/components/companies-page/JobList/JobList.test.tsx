@@ -12,12 +12,6 @@ describe('JobList', () => {
       title: 'Frontend Engineer',
       createdAt: new Date().toISOString(),
       url: 'https://example.com/job/1',
-      classification: {
-        isSoftwareAdjacent: true,
-        category: 'frontend',
-        confidence: 0.9,
-        matchedKeywords: ['react'],
-      },
       raw: {},
     },
     {
@@ -27,12 +21,6 @@ describe('JobList', () => {
       title: 'Backend Engineer',
       createdAt: new Date().toISOString(),
       url: 'https://example.com/job/2',
-      classification: {
-        isSoftwareAdjacent: true,
-        category: 'backend',
-        confidence: 0.85,
-        matchedKeywords: ['node'],
-      },
       raw: {},
     },
   ];

@@ -5,13 +5,17 @@ import { configureStore } from '@reduxjs/toolkit';
 import { RecentJobsList } from '../../../../components/recent-jobs-page/RecentJobsList/RecentJobsList';
 import { INFINITE_SCROLL_CONFIG } from '../../../../constants/ui';
 import type { Job } from '../../../../types';
+import * as recentJobsSelectors from '../../../../features/filters/selectors/recentJobsSelectors';
 
 // Mock the useInfiniteScroll hook
-vi.mock('../../../hooks/useInfiniteScroll', () => ({
+vi.mock('../../../../hooks/useInfiniteScroll', () => ({
   useInfiniteScroll: () => ({
     sentinelRef: { current: null },
   }),
 }));
+
+// Mock the selector
+vi.mock('../../../../features/filters/selectors/recentJobsSelectors');
 
 // Mock window.scrollTo
 beforeEach(() => {
@@ -28,12 +32,6 @@ function createMockJobs(count: number): Job[] {
     employmentType: 'Full-time',
     createdAt: new Date(Date.now() - i * 1000).toISOString(),
     url: `https://example.com/job-${i}`,
-    classification: {
-      category: 'backend' as const,
-      isSoftwareAdjacent: true,
-      confidence: 0.85,
-      matchedKeywords: ['backend', 'engineer'],
-    },
     department: 'Engineering',
     team: 'Backend',
     tags: [],
@@ -60,18 +58,10 @@ function createMockStore() {
   });
 }
 
-// Mock the selector
-vi.mock('../../../features/filters/recentJobsSelectors', () => ({
-  selectRecentJobsSorted: () => {
-    // Return jobs from test context
-    return (global as { testJobs?: Job[] }).testJobs || [];
-  },
-}));
-
 describe('RecentJobsList', () => {
   it('renders initial batch of jobs (50)', () => {
     const jobs = createMockJobs(100);
-    (global as { testJobs?: Job[] }).testJobs = jobs;
+    vi.mocked(recentJobsSelectors.selectRecentJobsSorted).mockReturnValue(jobs);
 
     const store = createMockStore();
 
@@ -87,7 +77,7 @@ describe('RecentJobsList', () => {
   });
 
   it('shows empty state when no jobs', () => {
-    (global as { testJobs?: Job[] }).testJobs = [];
+    vi.mocked(recentJobsSelectors.selectRecentJobsSorted).mockReturnValue([]);
 
     const store = createMockStore();
 
@@ -105,7 +95,7 @@ describe('RecentJobsList', () => {
 
   it('renders all jobs when count is less than initial batch size', () => {
     const jobs = createMockJobs(25);
-    (global as { testJobs?: Job[] }).testJobs = jobs;
+    vi.mocked(recentJobsSelectors.selectRecentJobsSorted).mockReturnValue(jobs);
 
     const store = createMockStore();
 
@@ -121,7 +111,7 @@ describe('RecentJobsList', () => {
 
   it('renders BackToTopButton', () => {
     const jobs = createMockJobs(100);
-    (global as { testJobs?: Job[] }).testJobs = jobs;
+    vi.mocked(recentJobsSelectors.selectRecentJobsSorted).mockReturnValue(jobs);
 
     const store = createMockStore();
 
@@ -138,7 +128,7 @@ describe('RecentJobsList', () => {
 
   it('does not show sentinel when all jobs are displayed', () => {
     const jobs = createMockJobs(30);
-    (global as { testJobs?: Job[] }).testJobs = jobs;
+    vi.mocked(recentJobsSelectors.selectRecentJobsSorted).mockReturnValue(jobs);
 
     const store = createMockStore();
 
@@ -156,7 +146,7 @@ describe('RecentJobsList', () => {
 
   it('shows "All X jobs loaded" message when more than initial batch', async () => {
     const jobs = createMockJobs(100);
-    (global as { testJobs?: Job[] }).testJobs = jobs;
+    vi.mocked(recentJobsSelectors.selectRecentJobsSorted).mockReturnValue(jobs);
 
     const store = createMockStore();
 
@@ -176,7 +166,7 @@ describe('RecentJobsList', () => {
 
   it('scrolls to top when jobs change (filter change)', async () => {
     const jobs = createMockJobs(100);
-    (global as { testJobs?: Job[] }).testJobs = jobs;
+    vi.mocked(recentJobsSelectors.selectRecentJobsSorted).mockReturnValue(jobs);
 
     const store = createMockStore();
 
@@ -188,7 +178,7 @@ describe('RecentJobsList', () => {
 
     // Change jobs (simulating filter change)
     const newJobs = createMockJobs(50);
-    (global as { testJobs?: Job[] }).testJobs = newJobs;
+    vi.mocked(recentJobsSelectors.selectRecentJobsSorted).mockReturnValue(newJobs);
 
     rerender(
       <Provider store={store}>
@@ -206,7 +196,7 @@ describe('RecentJobsList', () => {
 
   it('renders job cards with correct props', () => {
     const jobs = createMockJobs(5);
-    (global as { testJobs?: Job[] }).testJobs = jobs;
+    vi.mocked(recentJobsSelectors.selectRecentJobsSorted).mockReturnValue(jobs);
 
     const store = createMockStore();
 
@@ -225,7 +215,7 @@ describe('RecentJobsList', () => {
 
   it('displays correct number of jobs after filter reset', async () => {
     const jobs = createMockJobs(100);
-    (global as { testJobs?: Job[] }).testJobs = jobs;
+    vi.mocked(recentJobsSelectors.selectRecentJobsSorted).mockReturnValue(jobs);
 
     const store = createMockStore();
 
@@ -241,7 +231,7 @@ describe('RecentJobsList', () => {
 
     // Simulate filter change with fewer jobs
     const newJobs = createMockJobs(75);
-    (global as { testJobs?: Job[] }).testJobs = newJobs;
+    vi.mocked(recentJobsSelectors.selectRecentJobsSorted).mockReturnValue(newJobs);
 
     // This would trigger the useEffect that resets displayedCount
     // In a real scenario, this would be handled by Redux state change

@@ -19,12 +19,6 @@ describe('timeBucketing', () => {
     title: 'Software Engineer',
     createdAt,
     url: `https://example.com/job/${id}`,
-    classification: {
-      isSoftwareAdjacent: true,
-      category: 'fullstack',
-      confidence: 0.9,
-      matchedKeywords: [],
-    },
     raw: {},
   });
 

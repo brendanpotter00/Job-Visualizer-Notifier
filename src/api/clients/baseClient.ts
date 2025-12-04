@@ -170,7 +170,7 @@ export function createAPIClient<TResponse, TConfig extends ATSCompanyConfig>(
           jobs: limitedJobs,
           metadata: {
             totalCount: limitedJobs.length,
-            softwareCount: limitedJobs.filter((j) => j.classification.isSoftwareAdjacent).length,
+            softwareCount: 0, // Removed classification feature
             fetchedAt: new Date().toISOString(),
           },
         };

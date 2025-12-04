@@ -1,6 +1,5 @@
 import type { Job } from '../../types';
 import type { GreenhouseJobResponse } from '../types';
-import { classifyJobRole } from '../../lib/roleClassification';
 import { sanitizeTags } from '../../lib/tags';
 
 /**
@@ -16,8 +15,7 @@ export function transformGreenhouseJob(
   // Extract location (prefer office, fallback to location)
   const location = raw.offices[0]?.name || raw.location?.name;
 
-  // Create base job object without classification
-  const jobWithoutClassification = {
+  return {
     id: raw.id.toString(),
     source: 'greenhouse' as const,
     company: companyId,
@@ -28,13 +26,5 @@ export function transformGreenhouseJob(
     url: raw.absolute_url,
     tags: sanitizeTags(raw.metadata?.map((m) => m.value)),
     raw,
-  };
-
-  // Classify role
-  const classification = classifyJobRole(jobWithoutClassification);
-
-  return {
-    ...jobWithoutClassification,
-    classification,
   };
 }

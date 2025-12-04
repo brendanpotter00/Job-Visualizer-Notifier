@@ -26,12 +26,6 @@ const createMockJob = (overrides: Partial<Job> = {}): Job => ({
   employmentType: 'Full-time',
   createdAt: new Date().toISOString(),
   url: 'https://example.com/job/1',
-  classification: {
-    isSoftwareAdjacent: true,
-    category: 'fullstack',
-    confidence: 0.9,
-    matchedKeywords: ['software engineer'],
-  },
   raw: {},
   ...overrides,
 });

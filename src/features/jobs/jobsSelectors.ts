@@ -57,14 +57,6 @@ export const selectCurrentCompanyMetadataRtk = createSelector(
 );
 
 /**
- * Select software jobs only for current company
- */
-export const selectCurrentCompanySoftwareJobsRtk = createSelector(
-  [selectCurrentCompanyJobsRtk],
-  (jobs) => jobs.filter((job) => job.classification.isSoftwareAdjacent)
-);
-
-/**
  * Select jobs for a specific company (parameterized selector)
  * Usage: useAppSelector(state => selectJobsForCompany(state, companyId))
  */

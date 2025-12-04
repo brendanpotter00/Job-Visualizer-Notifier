@@ -930,8 +930,8 @@ describe('workdayClient', () => {
 
       const result = await workdayClient.fetchJobs(config);
 
-      expect(result.metadata.softwareCount).toBeGreaterThan(0);
-      expect(result.metadata.softwareCount).toBeLessThanOrEqual(result.metadata.totalCount);
+      // Classification feature removed - softwareCount is always 0
+      expect(result.metadata.softwareCount).toBe(0);
     });
 
     it('should include fetchedAt timestamp', async () => {
@@ -1293,7 +1293,7 @@ describe('workdayClient', () => {
       expect(result.jobs[0].location).toBe('US, CA, Santa Clara');
       expect(result.jobs[0].source).toBe('workday');
       expect(result.jobs[0].company).toBe('test');
-      expect(result.jobs[0].classification).toBeDefined();
+      expect(result.jobs[0].title).toBeDefined();
     });
 
     it('should filter out "X Locations" text via transformer', async () => {

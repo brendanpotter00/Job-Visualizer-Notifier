@@ -4,7 +4,6 @@ import type {
   ListFilters,
   RecentJobsFilters,
   TimeWindow,
-  SoftwareRoleCategory,
   SearchTag,
 } from '../../../types';
 import {
@@ -21,10 +20,6 @@ import {
   addDepartmentToFilters,
   removeDepartmentFromFilters,
   clearDepartments as clearDepartmentsUtil,
-  setRoleCategories,
-  addRoleCategoryToFilters,
-  removeRoleCategoryFromFilters,
-  clearRoleCategories as clearRoleCategoriesUtil,
   toggleSoftwareOnlyInFilters,
   setSoftwareOnlyInFilters,
 } from '../utils/filterReducerUtils';
@@ -169,29 +164,6 @@ export function createFilterSlice<T extends Filters>(name: FilterSliceName, init
       },
       [`clear${capitalizedName}Companies`]: (state) => {
         (state.filters as any).company = undefined;
-      },
-
-      // Role category (4 actions)
-      [`add${capitalizedName}RoleCategory`]: (
-        state,
-        action: PayloadAction<SoftwareRoleCategory>
-      ) => {
-        addRoleCategoryToFilters(state.filters as any, action.payload);
-      },
-      [`remove${capitalizedName}RoleCategory`]: (
-        state,
-        action: PayloadAction<SoftwareRoleCategory>
-      ) => {
-        removeRoleCategoryFromFilters(state.filters as any, action.payload);
-      },
-      [`clear${capitalizedName}RoleCategories`]: (state) => {
-        clearRoleCategoriesUtil(state.filters as any);
-      },
-      [`set${capitalizedName}RoleCategory`]: (
-        state,
-        action: PayloadAction<SoftwareRoleCategory[] | undefined>
-      ) => {
-        setRoleCategories(state.filters as any, action.payload);
       },
 
       // Software only (2 actions) - manages search tags instead of boolean flag

@@ -16,12 +16,6 @@ describe('JobCard', () => {
     createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(), // 2 hours ago
     url: 'https://example.com/job/1',
     tags: ['React', 'TypeScript', 'GraphQL', 'Testing', 'CI/CD', 'Extra Tag'],
-    classification: {
-      isSoftwareAdjacent: true,
-      category: 'frontend',
-      confidence: 0.95,
-      matchedKeywords: ['react', 'typescript', 'frontend'],
-    },
     raw: {},
   };
 
@@ -62,25 +56,6 @@ describe('JobCard', () => {
   it('displays employment type chip', () => {
     render(<JobCard job={mockJob} />);
     expect(screen.getByText('Full-time')).toBeInTheDocument();
-  });
-
-  it('displays role category chip for software roles', () => {
-    render(<JobCard job={mockJob} />);
-    expect(screen.getByText('frontend')).toBeInTheDocument();
-  });
-
-  it('does not display role category for non-software roles', () => {
-    const nonSoftwareJob: Job = {
-      ...mockJob,
-      classification: {
-        isSoftwareAdjacent: false,
-        category: 'nonTech',
-        confidence: 0.6,
-        matchedKeywords: [],
-      },
-    };
-    render(<JobCard job={nonSoftwareJob} />);
-    expect(screen.queryByText('nonTech')).not.toBeInTheDocument();
   });
 
   it('displays first 5 tags', () => {
@@ -132,12 +107,6 @@ describe('JobCard', () => {
       title: 'Engineer',
       createdAt: new Date().toISOString(),
       url: 'https://example.com/job/2',
-      classification: {
-        isSoftwareAdjacent: false,
-        category: 'nonTech',
-        confidence: 0.5,
-        matchedKeywords: [],
-      },
       raw: {},
     };
     render(<JobCard job={minimalJob} />);

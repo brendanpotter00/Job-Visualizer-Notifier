@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createFilterSlice } from '../../../features/filters/slices/createFilterSlice';
-import type { GraphFilters, ListFilters, TimeWindow, SoftwareRoleCategory } from '../../../types';
+import type { GraphFilters, ListFilters, TimeWindow } from '../../../types';
 
 describe('createFilterSlice', () => {
   describe('Factory Pattern', () => {
@@ -9,7 +9,6 @@ describe('createFilterSlice', () => {
         timeWindow: '30d',
         searchTags: undefined,
         softwareOnly: false,
-        roleCategory: undefined,
       };
 
       const slice = createFilterSlice('graph', initialFilters);
@@ -22,7 +21,6 @@ describe('createFilterSlice', () => {
         timeWindow: '7d',
         searchTags: undefined,
         softwareOnly: true,
-        roleCategory: undefined,
       };
 
       const slice = createFilterSlice('list', initialFilters);
@@ -35,13 +33,12 @@ describe('createFilterSlice', () => {
         timeWindow: '30d',
         searchTags: undefined,
         softwareOnly: false,
-        roleCategory: undefined,
       };
 
       const slice = createFilterSlice('graph', initialFilters);
       const actionNames = Object.keys(slice.actions);
 
-      // Verify all 25 actions exist
+      // Verify all expected actions exist
       const expectedActions = [
         'setGraphTimeWindow',
         'setGraphSearchTags',
@@ -58,10 +55,6 @@ describe('createFilterSlice', () => {
         'clearGraphDepartments',
         'setGraphDepartment',
         'setGraphEmploymentType',
-        'addGraphRoleCategory',
-        'removeGraphRoleCategory',
-        'clearGraphRoleCategories',
-        'setGraphRoleCategory',
         'toggleGraphSoftwareOnly',
         'setGraphSoftwareOnly',
         'resetGraphFilters',
@@ -72,7 +65,7 @@ describe('createFilterSlice', () => {
         expect(actionNames).toContain(actionName);
       });
 
-      expect(actionNames).toHaveLength(27); // Total actions (includes additional filter actions)
+      expect(actionNames).toHaveLength(23); // Total actions (roleCategory actions removed)
     });
   });
 
@@ -82,7 +75,6 @@ describe('createFilterSlice', () => {
         timeWindow: '30d',
         searchTags: undefined,
         softwareOnly: false,
-        roleCategory: undefined,
       };
 
       const slice = createFilterSlice('graph', initialFilters);
@@ -101,7 +93,6 @@ describe('createFilterSlice', () => {
         timeWindow: '30d',
         searchTags: undefined,
         softwareOnly: false,
-        roleCategory: undefined,
       };
 
       const slice = createFilterSlice('graph', initialFilters);
@@ -123,7 +114,6 @@ describe('createFilterSlice', () => {
         timeWindow: '30d',
         searchTags: undefined,
         softwareOnly: false,
-        roleCategory: undefined,
       };
 
       const slice = createFilterSlice('graph', initialFilters);
@@ -133,7 +123,6 @@ describe('createFilterSlice', () => {
         timeWindow: '7d',
         searchTags: [{ text: 'engineer', mode: 'include' }],
         softwareOnly: true,
-        roleCategory: ['backend' as SoftwareRoleCategory],
       };
 
       const newState = slice.reducer(initialState, {
@@ -149,7 +138,6 @@ describe('createFilterSlice', () => {
         timeWindow: '30d',
         searchTags: undefined,
         softwareOnly: false,
-        roleCategory: undefined,
       };
 
       const slice = createFilterSlice('list', initialFilters);
@@ -170,7 +158,6 @@ describe('createFilterSlice', () => {
         timeWindow: '30d',
         searchTags: undefined,
         softwareOnly: false,
-        roleCategory: undefined,
       };
 
       const slice = createFilterSlice('graph', initialFilters);
@@ -187,7 +174,6 @@ describe('createFilterSlice', () => {
         timeWindow: '30d',
         searchTags: undefined,
         softwareOnly: false,
-        roleCategory: undefined,
       };
 
       const slice = createFilterSlice('list', initialFilters);
@@ -206,7 +192,6 @@ describe('createFilterSlice', () => {
         timeWindow: '3h',
         searchTags: [{ text: 'test', mode: 'include' }],
         softwareOnly: true,
-        roleCategory: ['frontend' as SoftwareRoleCategory],
       };
 
       const slice = createFilterSlice('graph', customInitial);
@@ -222,7 +207,6 @@ describe('createFilterSlice', () => {
         timeWindow: '30d',
         searchTags: undefined,
         softwareOnly: false,
-        roleCategory: undefined,
       };
 
       const slice = createFilterSlice('graph', initialFilters);
@@ -242,7 +226,6 @@ describe('createFilterSlice', () => {
         timeWindow: '30d',
         searchTags: [{ text: 'frontend', mode: 'include' }],
         softwareOnly: false,
-        roleCategory: undefined,
       };
 
       const slice = createFilterSlice('graph', initialFilters);
@@ -265,7 +248,6 @@ describe('createFilterSlice', () => {
           { text: 'backend', mode: 'include' },
         ],
         softwareOnly: false,
-        roleCategory: undefined,
       };
 
       const slice = createFilterSlice('graph', initialFilters);
@@ -285,7 +267,6 @@ describe('createFilterSlice', () => {
         timeWindow: '30d',
         searchTags: [{ text: 'frontend', mode: 'include' }],
         softwareOnly: false,
-        roleCategory: undefined,
       };
 
       const slice = createFilterSlice('graph', initialFilters);
@@ -307,7 +288,6 @@ describe('createFilterSlice', () => {
           { text: 'backend', mode: 'include' },
         ],
         softwareOnly: false,
-        roleCategory: undefined,
       };
 
       const slice = createFilterSlice('graph', initialFilters);
@@ -328,7 +308,6 @@ describe('createFilterSlice', () => {
         timeWindow: '30d',
         searchTags: undefined,
         softwareOnly: false,
-        roleCategory: undefined,
       };
 
       const slice = createFilterSlice('graph', initialFilters);
@@ -347,7 +326,6 @@ describe('createFilterSlice', () => {
         timeWindow: '30d',
         searchTags: undefined,
         softwareOnly: false,
-        roleCategory: undefined,
         location: ['San Francisco, CA', 'New York, NY'],
       };
 
@@ -367,7 +345,6 @@ describe('createFilterSlice', () => {
         timeWindow: '30d',
         searchTags: undefined,
         softwareOnly: false,
-        roleCategory: undefined,
         location: ['San Francisco, CA', 'New York, NY'],
       };
 
@@ -387,7 +364,6 @@ describe('createFilterSlice', () => {
         timeWindow: '30d',
         searchTags: undefined,
         softwareOnly: false,
-        roleCategory: undefined,
       };
 
       const slice = createFilterSlice('graph', initialFilters);
@@ -408,7 +384,6 @@ describe('createFilterSlice', () => {
         timeWindow: '30d',
         searchTags: undefined,
         softwareOnly: false,
-        roleCategory: undefined,
       };
 
       const slice = createFilterSlice('graph', initialFilters);
@@ -427,7 +402,6 @@ describe('createFilterSlice', () => {
         timeWindow: '30d',
         searchTags: undefined,
         softwareOnly: false,
-        roleCategory: undefined,
         department: ['Engineering', 'Design'],
       };
 
@@ -447,7 +421,6 @@ describe('createFilterSlice', () => {
         timeWindow: '30d',
         searchTags: undefined,
         softwareOnly: false,
-        roleCategory: undefined,
         department: ['Engineering', 'Design'],
       };
 
@@ -467,7 +440,6 @@ describe('createFilterSlice', () => {
         timeWindow: '30d',
         searchTags: undefined,
         softwareOnly: false,
-        roleCategory: undefined,
       };
 
       const slice = createFilterSlice('graph', initialFilters);
@@ -482,91 +454,12 @@ describe('createFilterSlice', () => {
     });
   });
 
-  describe('Role Category Actions', () => {
-    it('should add role category to filters', () => {
-      const initialFilters: GraphFilters = {
-        timeWindow: '30d',
-        searchTags: undefined,
-        softwareOnly: false,
-        roleCategory: undefined,
-      };
-
-      const slice = createFilterSlice('graph', initialFilters);
-      const initialState = { filters: initialFilters };
-
-      const newState = slice.reducer(initialState, {
-        type: 'graphFilters/addGraphRoleCategory',
-        payload: 'frontend' as SoftwareRoleCategory,
-      });
-
-      expect(newState.filters.roleCategory).toContain('frontend');
-    });
-
-    it('should remove role category from filters', () => {
-      const initialFilters: GraphFilters = {
-        timeWindow: '30d',
-        searchTags: undefined,
-        softwareOnly: false,
-        roleCategory: ['frontend' as SoftwareRoleCategory, 'backend' as SoftwareRoleCategory],
-      };
-
-      const slice = createFilterSlice('graph', initialFilters);
-      const initialState = { filters: initialFilters };
-
-      const newState = slice.reducer(initialState, {
-        type: 'graphFilters/removeGraphRoleCategory',
-        payload: 'frontend' as SoftwareRoleCategory,
-      });
-
-      expect(newState.filters.roleCategory).toEqual(['backend']);
-    });
-
-    it('should clear all role categories', () => {
-      const initialFilters: GraphFilters = {
-        timeWindow: '30d',
-        searchTags: undefined,
-        softwareOnly: false,
-        roleCategory: ['frontend' as SoftwareRoleCategory, 'backend' as SoftwareRoleCategory],
-      };
-
-      const slice = createFilterSlice('graph', initialFilters);
-      const initialState = { filters: initialFilters };
-
-      const newState = slice.reducer(initialState, {
-        type: 'graphFilters/clearGraphRoleCategories',
-        payload: undefined,
-      });
-
-      expect(newState.filters.roleCategory).toBeUndefined();
-    });
-
-    it('should set entire role category array', () => {
-      const initialFilters: GraphFilters = {
-        timeWindow: '30d',
-        searchTags: undefined,
-        softwareOnly: false,
-        roleCategory: undefined,
-      };
-
-      const slice = createFilterSlice('graph', initialFilters);
-      const initialState = { filters: initialFilters };
-
-      const newState = slice.reducer(initialState, {
-        type: 'graphFilters/setGraphRoleCategory',
-        payload: ['fullstack' as SoftwareRoleCategory, 'mobile' as SoftwareRoleCategory],
-      });
-
-      expect(newState.filters.roleCategory).toEqual(['fullstack', 'mobile']);
-    });
-  });
-
   describe('Software Only Actions', () => {
     it('should toggle software only (add/remove SE tags)', () => {
       const initialFilters: GraphFilters = {
         timeWindow: '30d',
         searchTags: undefined,
         softwareOnly: false,
-        roleCategory: undefined,
       };
 
       const slice = createFilterSlice('graph', initialFilters);
@@ -587,7 +480,6 @@ describe('createFilterSlice', () => {
         timeWindow: '30d',
         searchTags: undefined,
         softwareOnly: false,
-        roleCategory: undefined,
       };
 
       const slice = createFilterSlice('graph', initialFilters);
@@ -610,7 +502,6 @@ describe('createFilterSlice', () => {
           { text: 'developer', mode: 'include' },
         ],
         softwareOnly: true,
-        roleCategory: undefined,
       };
 
       const slice = createFilterSlice('graph', initialFilters);
@@ -632,7 +523,6 @@ describe('createFilterSlice', () => {
         timeWindow: '30d',
         searchTags: [{ text: 'test', mode: 'include' }],
         softwareOnly: false,
-        roleCategory: ['frontend' as SoftwareRoleCategory],
       };
 
       const slice = createFilterSlice('graph', initialFilters);
@@ -642,7 +532,6 @@ describe('createFilterSlice', () => {
         timeWindow: '7d',
         searchTags: undefined,
         softwareOnly: true,
-        roleCategory: undefined,
       };
 
       const newState = slice.reducer(initialState, {
@@ -652,7 +541,6 @@ describe('createFilterSlice', () => {
 
       expect(newState.filters.timeWindow).toBe('7d');
       expect(newState.filters.searchTags).toBeUndefined();
-      expect(newState.filters.roleCategory).toBeUndefined();
     });
 
     it('should preserve slice name after reset', () => {
@@ -660,7 +548,6 @@ describe('createFilterSlice', () => {
         timeWindow: '7d',
         searchTags: [{ text: 'test', mode: 'include' }],
         softwareOnly: true,
-        roleCategory: ['frontend' as SoftwareRoleCategory],
       };
 
       const slice = createFilterSlice('graph', initialFilters);
@@ -680,7 +567,6 @@ describe('createFilterSlice', () => {
         timeWindow: '30d',
         searchTags: undefined,
         softwareOnly: false,
-        roleCategory: undefined,
       };
 
       const slice = createFilterSlice('graph', initialFilters);
@@ -691,7 +577,6 @@ describe('createFilterSlice', () => {
         timeWindow: '7d',
         searchTags: [{ text: 'test', mode: 'include' }],
         softwareOnly: true,
-        roleCategory: ['backend' as SoftwareRoleCategory],
       };
 
       const newState = slice.reducer(initialState, {

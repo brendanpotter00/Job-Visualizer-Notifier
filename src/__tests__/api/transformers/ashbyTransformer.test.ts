@@ -100,21 +100,13 @@ describe('transformAshbyJob', () => {
     expect(result.tags).toBeUndefined();
   });
 
-  it('should include role classification', () => {
+  it('should transform basic job properties', () => {
     const result = transformAshbyJob(mockAshbyJob, 'notion');
 
-    expect(result.classification).toBeDefined();
-    expect(result.classification).toHaveProperty('isSoftwareAdjacent');
-    expect(result.classification).toHaveProperty('category');
-    expect(result.classification).toHaveProperty('confidence');
-    expect(result.classification).toHaveProperty('matchedKeywords');
-  });
-
-  it('should classify software engineer role correctly', () => {
-    const result = transformAshbyJob(mockAshbyJob, 'notion');
-
-    expect(result.classification.isSoftwareAdjacent).toBe(true);
-    expect(result.classification.confidence).toBeGreaterThan(0);
+    expect(result.id).toBe('26a55f5f-8022-4f65-a3dd-b876e01bc456');
+    expect(result.title).toBe('Senior Software Engineer');
+    expect(result.source).toBe('ashby');
+    expect(result.company).toBe('notion');
   });
 
   it('should handle remote jobs', () => {
@@ -143,7 +135,7 @@ describe('transformAshbyJob', () => {
     expect(result.company).toBe('notion');
   });
 
-  it('should handle frontend role classification', () => {
+  it('should handle frontend role', () => {
     const frontendJob: AshbyJobResponse = {
       ...mockAshbyJob,
       title: 'Senior Frontend Engineer',
@@ -151,11 +143,10 @@ describe('transformAshbyJob', () => {
 
     const result = transformAshbyJob(frontendJob, 'notion');
 
-    expect(result.classification.isSoftwareAdjacent).toBe(true);
-    expect(result.classification.category).toBe('frontend');
+    expect(result.title).toBe('Senior Frontend Engineer');
   });
 
-  it('should handle non-tech role classification', () => {
+  it('should handle non-tech roles', () => {
     const salesJob: AshbyJobResponse = {
       ...mockAshbyJob,
       title: 'Sales Representative',
@@ -164,7 +155,7 @@ describe('transformAshbyJob', () => {
 
     const result = transformAshbyJob(salesJob, 'notion');
 
-    expect(result.classification.isSoftwareAdjacent).toBe(false);
-    expect(result.classification.category).toBe('nonTech');
+    expect(result.title).toBe('Sales Representative');
+    expect(result.department).toBe('Sales');
   });
 });

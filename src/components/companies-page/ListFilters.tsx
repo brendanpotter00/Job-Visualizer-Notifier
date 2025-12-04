@@ -6,8 +6,6 @@ import {
   removeListLocation,
   addListDepartment,
   removeListDepartment,
-  addListRoleCategory,
-  removeListRoleCategory,
   addListSearchTag,
   removeListSearchTag,
   toggleListSearchTagMode,
@@ -24,7 +22,6 @@ import {
 import { syncListToGraph } from '../../features/filters/syncActions.ts';
 import { SearchTagsInput } from '../shared/filters/SearchTagsInput.tsx';
 import { TimeWindowSelect } from '../shared/filters/TimeWindowSelect.tsx';
-import { RoleCategorySelect } from '../shared/filters/RoleCategorySelect.tsx';
 import { MultiSelectAutocomplete } from '../shared/filters/MultiSelectAutocomplete.tsx';
 import { SyncFiltersButton } from '../shared/filters/SyncFiltersButton.tsx';
 import { SoftwareOnlyToggle } from '../shared/filters/SoftwareOnlyToggle.tsx';
@@ -74,11 +71,6 @@ export function ListFilters() {
               onRemove={(dept) => dispatch(removeListDepartment(dept))}
             />
           )}
-          <RoleCategorySelect
-            value={filters.roleCategory || []}
-            onAdd={(cat) => dispatch(addListRoleCategory(cat))}
-            onRemove={(cat) => dispatch(removeListRoleCategory(cat))}
-          />
           <SoftwareOnlyToggle
             checked={softwareOnlyChecked}
             onChange={() => dispatch(toggleListSoftwareOnly())}

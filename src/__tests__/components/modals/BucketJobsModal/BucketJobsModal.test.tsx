@@ -15,12 +15,6 @@ const mockJobs: Job[] = [
     title: 'Frontend Engineer',
     createdAt: '2025-11-21T10:00:00Z',
     url: 'https://example.com/job/1',
-    classification: {
-      isSoftwareAdjacent: true,
-      category: 'frontend',
-      confidence: 0.9,
-      matchedKeywords: ['react'],
-    },
     raw: {},
   },
   {
@@ -30,12 +24,6 @@ const mockJobs: Job[] = [
     title: 'Backend Engineer',
     createdAt: '2025-11-21T10:15:00Z',
     url: 'https://example.com/job/2',
-    classification: {
-      isSoftwareAdjacent: true,
-      category: 'backend',
-      confidence: 0.85,
-      matchedKeywords: ['node'],
-    },
     raw: {},
   },
   {
@@ -45,12 +33,6 @@ const mockJobs: Job[] = [
     title: 'DevOps Engineer',
     createdAt: '2025-11-21T11:00:00Z',
     url: 'https://example.com/job/3',
-    classification: {
-      isSoftwareAdjacent: true,
-      category: 'devops',
-      confidence: 0.88,
-      matchedKeywords: ['kubernetes'],
-    },
     raw: {},
   },
 ];

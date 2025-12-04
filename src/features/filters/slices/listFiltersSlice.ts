@@ -12,7 +12,6 @@ const initialFilters: ListFilters = {
   timeWindow: '24h',
   searchTags: undefined,
   softwareOnly: false,
-  roleCategory: undefined,
 };
 
 const listFiltersSlice = createFilterSlice('list', initialFilters);
@@ -49,10 +48,6 @@ export const {
   clearListDepartments,
   setListDepartment,
   setListEmploymentType,
-  addListRoleCategory,
-  removeListRoleCategory,
-  clearListRoleCategories,
-  setListRoleCategory,
   toggleListSoftwareOnly,
   setListSoftwareOnly,
   resetListFilters,

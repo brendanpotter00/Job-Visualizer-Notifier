@@ -1,4 +1,4 @@
-import type { TimeWindow, SoftwareRoleCategory } from '../types';
+import type { TimeWindow } from '../types';
 
 /**
  * Available time window options for filtering jobs
@@ -18,20 +18,4 @@ export const TIME_WINDOWS: { value: TimeWindow; label: string }[] = [
   { value: '180d', label: '6 months' },
   { value: '1y', label: '1 year' },
   { value: '2y', label: '2 years' },
-];
-
-/**
- * Available software role categories for filtering
- */
-export const ROLE_CATEGORIES: { value: SoftwareRoleCategory; label: string }[] = [
-  { value: 'frontend', label: 'Frontend' },
-  { value: 'backend', label: 'Backend' },
-  { value: 'fullstack', label: 'Full Stack' },
-  { value: 'mobile', label: 'Mobile' },
-  { value: 'data', label: 'Data' },
-  { value: 'ml', label: 'ML/AI' },
-  { value: 'devops', label: 'DevOps' },
-  { value: 'platform', label: 'Platform' },
-  { value: 'qa', label: 'QA' },
-  { value: 'security', label: 'Security' },
 ];

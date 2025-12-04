@@ -57,11 +57,7 @@ export function RecentJobCard({ job, companyName, recruiterLinkedInUrl }: Recent
 
         {/* Chips for metadata */}
         <Stack sx={{ mb: 1 }}>
-          <JobChipsSection
-            department={job.department}
-            isRemote={job.isRemote}
-            classification={job.classification}
-          />
+          <JobChipsSection department={job.department} isRemote={job.isRemote} />
         </Stack>
 
         {/* LinkedIn recruiter link */}

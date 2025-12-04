@@ -9,8 +9,6 @@ import {
   removeGraphLocation,
   addGraphDepartment,
   removeGraphDepartment,
-  addGraphRoleCategory,
-  removeGraphRoleCategory,
   toggleGraphSoftwareOnly,
 } from '../../features/filters/slices/graphFiltersSlice.ts';
 import {
@@ -24,7 +22,6 @@ import {
 import { syncGraphToList } from '../../features/filters/syncActions.ts';
 import { SearchTagsInput } from '../shared/filters/SearchTagsInput.tsx';
 import { TimeWindowSelect } from '../shared/filters/TimeWindowSelect.tsx';
-import { RoleCategorySelect } from '../shared/filters/RoleCategorySelect.tsx';
 import { MultiSelectAutocomplete } from '../shared/filters/MultiSelectAutocomplete.tsx';
 import { SyncFiltersButton } from '../shared/filters/SyncFiltersButton.tsx';
 import { SoftwareOnlyToggle } from '../shared/filters/SoftwareOnlyToggle.tsx';
@@ -73,11 +70,6 @@ export function GraphFilters() {
               onRemove={(dept) => dispatch(removeGraphDepartment(dept))}
             />
           )}
-          <RoleCategorySelect
-            value={filters.roleCategory || []}
-            onAdd={(cat) => dispatch(addGraphRoleCategory(cat))}
-            onRemove={(cat) => dispatch(removeGraphRoleCategory(cat))}
-          />
           <SoftwareOnlyToggle
             checked={softwareOnlyChecked}
             onChange={() => dispatch(toggleGraphSoftwareOnly())}

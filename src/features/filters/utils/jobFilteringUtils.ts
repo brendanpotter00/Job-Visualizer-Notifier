@@ -2,7 +2,6 @@ import type {
   Job,
   TimeWindow,
   SearchTag,
-  SoftwareRoleCategory,
   GraphFilters,
   ListFilters,
   RecentJobsFilters,
@@ -109,20 +108,6 @@ export function matchesEmploymentType(job: Job, employmentType: string | undefin
 }
 
 /**
- * Check if a job matches role category filter (multi-select with OR logic)
- */
-export function matchesRoleCategory(
-  job: Job,
-  roleCategories: SoftwareRoleCategory[] | undefined
-): boolean {
-  if (!roleCategories || roleCategories.length === 0) {
-    return true;
-  }
-
-  return roleCategories.some((filterCat) => job.classification.category === filterCat);
-}
-
-/**
  * Check if a job matches company filter (multi-select with OR logic)
  */
 export function matchesCompany(job: Job, companies: string[] | undefined): boolean {
@@ -165,12 +150,6 @@ export function filterJobsByFilters(
 
     // Employment type filter
     if (!matchesEmploymentType(job, filters.employmentType)) {
-      return false;
-    }
-
-    // Role category filter (multi-select with OR logic)
-    // Only check if roleCategory exists on filters (GraphFilters/ListFilters only)
-    if ('roleCategory' in filters && !matchesRoleCategory(job, filters.roleCategory)) {
       return false;
     }
 

@@ -3,7 +3,7 @@ import { useURLSync, useBrowserNavigation } from './hooks';
 import { RootLayout } from '../components/layout/RootLayout.tsx';
 import { CompaniesPage } from '../pages/CompaniesPage/CompaniesPage';
 import { RecentJobPostingsPage } from '../pages/RecentJobPostingsPage/RecentJobPostingsPage';
-import { WhyPage} from "../pages/WhyPage/WhyPage.tsx";
+import { WhyPage } from '../pages/WhyPage/WhyPage.tsx';
 import { ROUTES } from '../config/routes';
 
 /**

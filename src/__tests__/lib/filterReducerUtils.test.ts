@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { SearchTag, SoftwareRoleCategory } from '../../types';
+import type { SearchTag } from '../../types';
 import {
   setSearchTags,
   addSearchTagToFilters,
@@ -14,10 +14,6 @@ import {
   addDepartmentToFilters,
   removeDepartmentFromFilters,
   clearDepartments,
-  setRoleCategories,
-  addRoleCategoryToFilters,
-  removeRoleCategoryFromFilters,
-  clearRoleCategories,
   toggleSoftwareOnlyInFilters,
   setSoftwareOnlyInFilters,
 } from '../../features/filters/utils/filterReducerUtils';
@@ -351,73 +347,6 @@ describe('filterReducerUtils - Departments', () => {
       clearDepartments(filters);
 
       expect(filters.department).toBeUndefined();
-    });
-  });
-});
-
-describe('filterReducerUtils - Role Categories', () => {
-  describe('setRoleCategories', () => {
-    it('should set role categories to a specific value', () => {
-      const filters = { roleCategory: undefined };
-      const categories: SoftwareRoleCategory[] = ['frontend', 'backend'];
-
-      setRoleCategories(filters, categories);
-
-      expect(filters.roleCategory).toEqual(categories);
-    });
-  });
-
-  describe('addRoleCategoryToFilters', () => {
-    it('should add a role category to empty categories array', () => {
-      const filters = { roleCategory: undefined };
-
-      addRoleCategoryToFilters(filters, 'frontend');
-
-      expect(filters.roleCategory).toEqual(['frontend']);
-    });
-
-    it('should add a role category to existing categories', () => {
-      const filters = { roleCategory: ['frontend' as const] };
-
-      addRoleCategoryToFilters(filters, 'backend');
-
-      expect(filters.roleCategory).toEqual(['frontend', 'backend']);
-    });
-
-    it('should not add duplicate categories', () => {
-      const filters = { roleCategory: ['frontend' as const] };
-
-      addRoleCategoryToFilters(filters, 'frontend');
-
-      expect(filters.roleCategory).toHaveLength(1);
-    });
-  });
-
-  describe('removeRoleCategoryFromFilters', () => {
-    it('should remove a role category', () => {
-      const filters = { roleCategory: ['frontend' as const, 'backend' as const] };
-
-      removeRoleCategoryFromFilters(filters, 'frontend');
-
-      expect(filters.roleCategory).toEqual(['backend']);
-    });
-
-    it('should set roleCategory to undefined when removing last category', () => {
-      const filters = { roleCategory: ['frontend' as const] };
-
-      removeRoleCategoryFromFilters(filters, 'frontend');
-
-      expect(filters.roleCategory).toBeUndefined();
-    });
-  });
-
-  describe('clearRoleCategories', () => {
-    it('should clear all role categories', () => {
-      const filters = { roleCategory: ['frontend' as const, 'backend' as const] };
-
-      clearRoleCategories(filters);
-
-      expect(filters.roleCategory).toBeUndefined();
     });
   });
 });

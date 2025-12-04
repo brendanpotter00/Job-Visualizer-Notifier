@@ -6,7 +6,6 @@ import {
   matchesLocation,
   matchesDepartment,
   matchesEmploymentType,
-  matchesRoleCategory,
   filterJobsByFilters,
 } from '../../features/filters/utils/jobFilteringUtils';
 
@@ -22,12 +21,6 @@ const createMockJob = (overrides: Partial<Job> = {}): Job => ({
   employmentType: 'Full-time',
   createdAt: new Date().toISOString(),
   url: 'https://example.com/job/1',
-  classification: {
-    isSoftwareAdjacent: true,
-    category: 'fullstack',
-    confidence: 0.9,
-    matchedKeywords: ['software engineer'],
-  },
   raw: {},
   ...overrides,
 });
@@ -271,54 +264,6 @@ describe('jobFilteringUtils', () => {
     });
   });
 
-  describe('matchesRoleCategory', () => {
-    it('should return true when no role category filter provided', () => {
-      const job = createMockJob();
-
-      expect(matchesRoleCategory(job, undefined)).toBe(true);
-      expect(matchesRoleCategory(job, [])).toBe(true);
-    });
-
-    it('should match role category', () => {
-      const job = createMockJob({
-        classification: {
-          isSoftwareAdjacent: true,
-          category: 'frontend',
-          confidence: 0.9,
-          matchedKeywords: ['frontend'],
-        },
-      });
-
-      expect(matchesRoleCategory(job, ['frontend'])).toBe(true);
-    });
-
-    it('should match any role category (OR logic)', () => {
-      const job = createMockJob({
-        classification: {
-          isSoftwareAdjacent: true,
-          category: 'backend',
-          confidence: 0.9,
-          matchedKeywords: ['backend'],
-        },
-      });
-
-      expect(matchesRoleCategory(job, ['frontend', 'backend'])).toBe(true);
-    });
-
-    it('should fail when role category does not match', () => {
-      const job = createMockJob({
-        classification: {
-          isSoftwareAdjacent: false,
-          category: 'nonTech',
-          confidence: 0.9,
-          matchedKeywords: [],
-        },
-      });
-
-      expect(matchesRoleCategory(job, ['frontend', 'backend'])).toBe(false);
-    });
-  });
-
   describe('filterJobsByFilters', () => {
     let jobs: Job[];
 
@@ -332,12 +277,6 @@ describe('jobFilteringUtils', () => {
           location: 'San Francisco',
           employmentType: 'Full-time',
           createdAt: new Date(now - 5 * 24 * 60 * 60 * 1000).toISOString(), // 5 days ago
-          classification: {
-            isSoftwareAdjacent: true,
-            category: 'backend',
-            confidence: 0.9,
-            matchedKeywords: ['software', 'engineer'],
-          },
         }),
         createMockJob({
           id: '2',
@@ -346,12 +285,6 @@ describe('jobFilteringUtils', () => {
           location: 'New York',
           employmentType: 'Full-time',
           createdAt: new Date(now - 10 * 24 * 60 * 60 * 1000).toISOString(), // 10 days ago
-          classification: {
-            isSoftwareAdjacent: true,
-            category: 'frontend',
-            confidence: 0.9,
-            matchedKeywords: ['frontend', 'developer'],
-          },
         }),
         createMockJob({
           id: '3',
@@ -360,12 +293,6 @@ describe('jobFilteringUtils', () => {
           location: 'Remote',
           employmentType: 'Full-time',
           createdAt: new Date(now - 2 * 24 * 60 * 60 * 1000).toISOString(), // 2 days ago
-          classification: {
-            isSoftwareAdjacent: false,
-            category: 'nonTech',
-            confidence: 0.8,
-            matchedKeywords: [],
-          },
         }),
         createMockJob({
           id: '4',
@@ -374,12 +301,6 @@ describe('jobFilteringUtils', () => {
           location: 'Austin, TX',
           employmentType: 'Contract',
           createdAt: new Date(now - 40 * 24 * 60 * 60 * 1000).toISOString(), // 40 days ago
-          classification: {
-            isSoftwareAdjacent: true,
-            category: 'data',
-            confidence: 0.95,
-            matchedKeywords: ['data', 'engineer'],
-          },
         }),
       ];
     });
@@ -389,7 +310,6 @@ describe('jobFilteringUtils', () => {
         timeWindow: '7d',
         searchTags: undefined,
         softwareOnly: false,
-        roleCategory: undefined,
       };
 
       const result = filterJobsByFilters(jobs, filters);
@@ -404,7 +324,6 @@ describe('jobFilteringUtils', () => {
         timeWindow: '30d',
         searchTags: [{ text: 'software', mode: 'include' }],
         softwareOnly: false,
-        roleCategory: undefined,
       };
 
       const result = filterJobsByFilters(jobs, filters);
@@ -418,7 +337,6 @@ describe('jobFilteringUtils', () => {
         timeWindow: '30d',
         searchTags: [{ text: 'manager', mode: 'exclude' }],
         softwareOnly: false,
-        roleCategory: undefined,
       };
 
       const result = filterJobsByFilters(jobs, filters);
@@ -433,7 +351,6 @@ describe('jobFilteringUtils', () => {
         searchTags: undefined,
         location: ['San Francisco'],
         softwareOnly: false,
-        roleCategory: undefined,
       };
 
       const result = filterJobsByFilters(jobs, filters);
@@ -448,7 +365,6 @@ describe('jobFilteringUtils', () => {
         searchTags: undefined,
         department: ['Engineering'],
         softwareOnly: false,
-        roleCategory: undefined,
       };
 
       const result = filterJobsByFilters(jobs, filters);
@@ -473,27 +389,12 @@ describe('jobFilteringUtils', () => {
         searchTags: undefined,
         employmentType: 'Contract',
         softwareOnly: false,
-        roleCategory: undefined,
       };
 
       const result = filterJobsByFilters(testJobs, filters);
 
       expect(result).toHaveLength(1);
       expect(result[0].id).toBe('5');
-    });
-
-    it('should filter by role category', () => {
-      const filters: GraphFilters = {
-        timeWindow: '30d',
-        searchTags: undefined,
-        roleCategory: ['frontend'],
-        softwareOnly: false,
-      };
-
-      const result = filterJobsByFilters(jobs, filters);
-
-      expect(result).toHaveLength(1);
-      expect(result[0].id).toBe('2');
     });
 
     it('should combine multiple filters (AND logic)', () => {
@@ -503,7 +404,6 @@ describe('jobFilteringUtils', () => {
         department: ['Engineering'],
         location: ['San Francisco'],
         softwareOnly: false,
-        roleCategory: undefined,
       };
 
       const result = filterJobsByFilters(jobs, filters);
@@ -517,7 +417,6 @@ describe('jobFilteringUtils', () => {
         timeWindow: '30d',
         searchTags: undefined,
         softwareOnly: false,
-        roleCategory: undefined,
       };
 
       const result = filterJobsByFilters(jobs, filters);
@@ -531,7 +430,6 @@ describe('jobFilteringUtils', () => {
         timeWindow: '30d',
         searchTags: [{ text: 'nonexistent', mode: 'include' }],
         softwareOnly: false,
-        roleCategory: undefined,
       };
 
       const result = filterJobsByFilters(jobs, filters);

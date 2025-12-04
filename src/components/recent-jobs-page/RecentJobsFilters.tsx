@@ -95,25 +95,21 @@ export function RecentJobsFilters() {
             onChange={(tw) => dispatch(setRecentJobsTimeWindow(tw))}
           />
 
-          {availableCompanies.length > 0 && (
-            <MultiSelectAutocomplete
-              label="Company"
-              options={companyOptions}
-              value={selectedCompanyNames}
-              onAdd={handleAddCompany}
-              onRemove={handleRemoveCompany}
-            />
-          )}
+          <MultiSelectAutocomplete
+            label="Company"
+            options={companyOptions}
+            value={selectedCompanyNames}
+            onAdd={handleAddCompany}
+            onRemove={handleRemoveCompany}
+          />
 
-          {availableLocations.length > 0 && (
-            <MultiSelectAutocomplete
-              label="Location"
-              options={availableLocations}
-              value={filters.location || []}
-              onAdd={(loc) => dispatch(addRecentJobsLocation(loc))}
-              onRemove={(loc) => dispatch(removeRecentJobsLocation(loc))}
-            />
-          )}
+          <MultiSelectAutocomplete
+            label="Location"
+            options={availableLocations}
+            value={filters.location || []}
+            onAdd={(loc) => dispatch(addRecentJobsLocation(loc))}
+            onRemove={(loc) => dispatch(removeRecentJobsLocation(loc))}
+          />
 
           <SoftwareOnlyToggle
             checked={softwareOnlyChecked}

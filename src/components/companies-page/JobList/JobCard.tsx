@@ -42,11 +42,7 @@ export function JobCard({ job }: JobCardProps) {
             )}
           </Stack>
 
-          <JobChipsSection
-            department={job.department}
-            isRemote={job.isRemote}
-            classification={job.classification}
-          />
+          <JobChipsSection department={job.department} isRemote={job.isRemote} />
 
           {job.tags && job.tags.length > 0 && (
             <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>

@@ -21,12 +21,6 @@ describe('MetricsDashboard', () => {
     employmentType: 'Full-time',
     createdAt: new Date(MOCK_NOW - 6 * 60 * 60 * 1000).toISOString(), // 6 hours ago
     url: 'https://example.com/job/1',
-    classification: {
-      isSoftwareAdjacent: true,
-      category: 'frontend',
-      confidence: 0.95,
-      matchedKeywords: ['react', 'frontend'],
-    },
     raw: {},
   };
 
@@ -40,12 +34,6 @@ describe('MetricsDashboard', () => {
     employmentType: 'Full-time',
     createdAt: new Date(MOCK_NOW - 18 * 60 * 60 * 1000).toISOString(), // 18 hours ago
     url: 'https://example.com/job/2',
-    classification: {
-      isSoftwareAdjacent: true,
-      category: 'backend',
-      confidence: 0.9,
-      matchedKeywords: ['node', 'backend'],
-    },
     raw: {},
   };
 
@@ -59,12 +47,6 @@ describe('MetricsDashboard', () => {
     employmentType: 'Full-time',
     createdAt: new Date(MOCK_NOW - 30 * 60 * 60 * 1000).toISOString(), // 30 hours ago (outside 24h window)
     url: 'https://example.com/job/3',
-    classification: {
-      isSoftwareAdjacent: true,
-      category: 'devops',
-      confidence: 0.95,
-      matchedKeywords: ['kubernetes', 'devops'],
-    },
     raw: {},
   };
 
@@ -78,12 +60,6 @@ describe('MetricsDashboard', () => {
     employmentType: 'Full-time',
     createdAt: new Date(MOCK_NOW - 2 * 24 * 60 * 60 * 1000).toISOString(), // 2 days ago (within 3 days)
     url: 'https://example.com/job/4',
-    classification: {
-      isSoftwareAdjacent: true,
-      category: 'platform',
-      confidence: 0.9,
-      matchedKeywords: ['infrastructure', 'platform'],
-    },
     raw: {},
   };
 
@@ -97,12 +73,6 @@ describe('MetricsDashboard', () => {
     employmentType: 'Full-time',
     createdAt: new Date(MOCK_NOW - 4 * 24 * 60 * 60 * 1000).toISOString(), // 4 days ago (outside 3 days)
     url: 'https://example.com/job/5',
-    classification: {
-      isSoftwareAdjacent: true,
-      category: 'security',
-      confidence: 0.95,
-      matchedKeywords: ['security', 'cybersecurity'],
-    },
     raw: {},
   };
 
@@ -120,7 +90,6 @@ describe('MetricsDashboard', () => {
         ? jobsOrConfig.metadata
         : {
             totalCount: jobs.length,
-            softwareCount: jobs.filter((j) => j.classification.isSoftwareAdjacent).length,
             newestJobDate: jobs.length > 0 ? '2025-11-23T10:00:00Z' : undefined,
             oldestJobDate: jobs.length > 0 ? '2025-11-20T08:00:00Z' : undefined,
             fetchedAt: new Date().toISOString(),

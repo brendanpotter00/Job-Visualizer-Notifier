@@ -216,9 +216,7 @@ export const workdayClient: JobAPIClient = {
     }
 
     // 8. Calculate metadata
-    const softwareCount = filteredJobs.filter(
-      (job) => job.classification.isSoftwareAdjacent
-    ).length;
+    const softwareCount = 0; // Removed classification feature
 
     const result: FetchJobsResult = {
       jobs: filteredJobs,

@@ -1,4 +1,4 @@
-import type { SearchTag, SoftwareRoleCategory } from '../../../types';
+import type { SearchTag } from '../../../types';
 import {
   SOFTWARE_ENGINEERING_TAGS,
   getSoftwareEngineeringTagTexts,
@@ -28,13 +28,6 @@ interface FiltersWithLocation {
  */
 interface FiltersWithDepartment {
   department?: string[];
-}
-
-/**
- * Interface for filter state with role category
- */
-interface FiltersWithRoleCategory {
-  roleCategory?: SoftwareRoleCategory[];
 }
 
 /**
@@ -197,57 +190,6 @@ export function removeDepartmentFromFilters(
  */
 export function clearDepartments(filters: FiltersWithDepartment): void {
   filters.department = undefined;
-}
-
-// ============================================================================
-// Role Category Utilities
-// ============================================================================
-
-/**
- * Set role categories to a specific value or undefined
- */
-export function setRoleCategories(
-  filters: FiltersWithRoleCategory,
-  categories: SoftwareRoleCategory[] | undefined
-): void {
-  filters.roleCategory = categories;
-}
-
-/**
- * Add a role category to filters with duplicate checking
- */
-export function addRoleCategoryToFilters(
-  filters: FiltersWithRoleCategory,
-  category: SoftwareRoleCategory
-): void {
-  if (!filters.roleCategory) {
-    filters.roleCategory = [category];
-  } else if (!filters.roleCategory.includes(category)) {
-    filters.roleCategory.push(category);
-  }
-}
-
-/**
- * Remove a role category from filters
- */
-export function removeRoleCategoryFromFilters(
-  filters: FiltersWithRoleCategory,
-  category: SoftwareRoleCategory
-): void {
-  if (!filters.roleCategory) return;
-
-  filters.roleCategory = filters.roleCategory.filter((cat) => cat !== category);
-
-  if (filters.roleCategory.length === 0) {
-    filters.roleCategory = undefined;
-  }
-}
-
-/**
- * Clear all role categories
- */
-export function clearRoleCategories(filters: FiltersWithRoleCategory): void {
-  filters.roleCategory = undefined;
 }
 
 // ============================================================================
