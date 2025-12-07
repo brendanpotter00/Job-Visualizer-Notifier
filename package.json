@@ -1,73 +1,14 @@
 {
-  "name": "job-visualizer-notifier",
-  "private": true,
+  "name": "job-visualizer-notifier-monorepo",
   "version": "1.0.0",
-  "type": "module",
-  "description": "Job Posting Analytics SPA - Multi-ATS job tracking and visualization",
+  "private": true,
+  "workspaces": ["src/frontend"],
   "scripts": {
-    "dev": "vite",
-    "dev:vercel": "vercel dev",
-    "build": "tsc && vite build",
-    "preview": "vite preview",
-    "test": "vitest",
-    "test:watch": "vitest --watch",
-    "test:coverage": "vitest --coverage",
-    "test:ui": "vitest --ui",
-    "type-check": "tsc --noEmit",
-    "lint": "eslint src --ext ts,tsx",
-    "format": "prettier --write \"src/**/*.{ts,tsx,json,css,md}\""
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/brendanpotter00/Job-Visualizer-Notifier.git"
-  },
-  "keywords": [
-    "job-tracking",
-    "analytics",
-    "greenhouse",
-    "lever",
-    "ats"
-  ],
-  "author": "",
-  "license": "ISC",
-  "bugs": {
-    "url": "https://github.com/brendanpotter00/Job-Visualizer-Notifier/issues"
-  },
-  "homepage": "https://github.com/brendanpotter00/Job-Visualizer-Notifier#readme",
-  "dependencies": {
-    "@emotion/react": "^11.14.0",
-    "@emotion/styled": "^11.14.1",
-    "@mui/icons-material": "^7.3.5",
-    "@mui/material": "^7.3.5",
-    "@reduxjs/toolkit": "^2.10.1",
-    "@vitejs/plugin-react": "^5.1.1",
-    "date-fns": "^4.1.0",
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
-    "react-redux": "^9.2.0",
-    "react-router-dom": "^7.9.6",
-    "recharts": "^3.4.1",
-    "vite": "^7.2.4"
-  },
-  "devDependencies": {
-    "@testing-library/jest-dom": "^6.9.1",
-    "@testing-library/react": "^16.3.0",
-    "@testing-library/user-event": "^14.6.1",
-    "@types/react": "^19.2.6",
-    "@types/react-dom": "^19.2.3",
-    "@typescript-eslint/eslint-plugin": "^8.47.0",
-    "@typescript-eslint/parser": "^8.47.0",
-    "@vercel/node": "^5.5.9",
-    "@vitest/coverage-v8": "^4.0.12",
-    "@vitest/ui": "^4.0.12",
-    "eslint": "^9.39.1",
-    "eslint-plugin-react-hooks": "^7.0.1",
-    "eslint-plugin-react-refresh": "^0.4.24",
-    "jsdom": "^27.2.0",
-    "msw": "^2.12.2",
-    "playwright": "^1.57.0",
-    "prettier": "^3.6.2",
-    "typescript": "^5.9.3",
-    "vitest": "^4.0.12"
+    "dev": "npm run dev -w src/frontend",
+    "build": "npm run build -w src/frontend",
+    "test": "npm run test -w src/frontend",
+    "type-check": "npm run type-check -w src/frontend",
+    "lint": "npm run lint -w src/frontend",
+    "format": "npm run format -w src/frontend"
   }
 }

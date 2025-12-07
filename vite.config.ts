@@ -1,36 +1,24 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import path from 'path';
 
 export default defineConfig({
+  // Set root to the frontend directory
+  root: path.resolve(__dirname, 'src/frontend'),
+
   plugins: [react()],
+
   server: {
     port: 3000,
-    open: true,
-    proxy: {
-      '/api/greenhouse': {
-        target: 'https://boards-api.greenhouse.io',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/greenhouse/, ''),
-        secure: false,
-      },
-      '/api/lever': {
-        target: 'https://api.lever.co',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/lever/, ''),
-        secure: false,
-      },
-      '/api/ashby': {
-        target: 'https://api.ashbyhq.com',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/ashby/, ''),
-        secure: false,
-      },
-      // Workday proxy removed - use `vercel dev` for local Workday testing
-      // The serverless function (api/workday.ts) handles dynamic routing for multiple Workday tenants
-    },
+    open: false,  // Don't auto-open since vercel dev will report the URL
+    // No need for proxy config - Vercel dev handles API routes
   },
+
   build: {
-    outDir: 'dist',
+    // Output relative to the root (src/frontend)
+    outDir: path.resolve(__dirname, 'src/frontend/dist'),
     sourcemap: true,
+    // Empty the output directory before building
+    emptyOutDir: true,
   },
 });
