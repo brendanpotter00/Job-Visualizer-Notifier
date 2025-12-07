@@ -3,37 +3,44 @@ Pydantic data models for Google Jobs scraper
 """
 
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from datetime import datetime
 
 
-class GoogleJob(BaseModel):
+class JobListing(BaseModel):
     """
-    Job model aligned with the existing TypeScript Job interface
+    Job model aligned with the JobListings database schema
     """
 
-    # Core fields (matching src/types/index.ts Job interface)
+    # Primary fields
     id: str  # e.g., "114423471240291014"
-    source: str = "google"  # New ATS provider
-    company: str = "google"  # Always "google"
     title: str  # e.g., "Software Engineer III, Google Cloud"
+    company: str = "google"  # Always "google" for this scraper
     location: Optional[str] = None  # e.g., "Mountain View, CA, USA"
-    createdAt: str  # ISO 8601 timestamp (using scraped_at as fallback)
     url: str  # Full job detail URL
+    source_id: str = "google_scraper"  # Workday, Lever, Greenhouse, Scraper, etc
 
-    # Extended fields specific to Google
-    experience_level: Optional[str] = None  # "Mid", "Advanced", "Early"
-    minimum_qualifications: List[str] = Field(default_factory=list)
-    preferred_qualifications: List[str] = Field(default_factory=list)
-    about_the_job: Optional[str] = None
-    responsibilities: List[str] = Field(default_factory=list)
-    apply_url: Optional[str] = None
-    salary_range: Optional[str] = None  # Extracted from about_the_job
-    is_remote_eligible: bool = False
+    # Details JSONB - qualifications, description, etc.
+    details: Dict[str, Any] = Field(default_factory=dict)
 
-    # Metadata
-    scraped_at: str  # When this job was scraped
-    raw: dict = Field(default_factory=dict)  # Original scraped data for debugging
+    # Timestamps
+    posted_on: Optional[str] = None  # When job was posted (if available)
+    created_at: str  # First time we saw it (ISO 8601)
+    closed_on: Optional[str] = None  # When job was closed (null if still open)
+
+    # Status
+    status: str = "OPEN"  # OPEN / CLOSED
+
+    # AI matching fields
+    has_matched: bool = False  # Has gone through AI notification service
+    ai_metadata: Dict[str, Any] = Field(default_factory=dict)  # AI matched tags
+
+    # Embedding placeholder (not used in JSON output)
+    # embedding: Optional[List[float]] = None
+
+
+# Alias for backwards compatibility
+GoogleJob = JobListing
 
 
 class ScraperOutput(BaseModel):
@@ -42,14 +49,14 @@ class ScraperOutput(BaseModel):
     scraped_at: str
     total_jobs: int  # Total jobs seen across all queries
     filtered_jobs: int  # After applying software/US filters and deduplication
-    metadata: dict = Field(default_factory=dict)
-    jobs: List[GoogleJob]
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    jobs: List[JobListing]
 
 
 class CheckpointData(BaseModel):
     """Checkpoint data for resuming interrupted scrapes"""
 
     completed_queries: List[str] = Field(default_factory=list)
-    jobs: List[GoogleJob] = Field(default_factory=list)
+    jobs: List[JobListing] = Field(default_factory=list)
     total_jobs_seen: int = 0
     last_updated: str
