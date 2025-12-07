@@ -225,30 +225,39 @@ class GoogleJobsScraper:
             await page.goto(url, wait_until="domcontentloaded", timeout=PAGE_LOAD_TIMEOUT)
 
     def transform_to_job_model(self, job_data: Dict[str, Any]) -> GoogleJob:
-        """Transform scraped data to GoogleJob model"""
+        """Transform scraped data to JobListing model (database schema)"""
         job_url = job_data.get("job_url", "")
         job_id = extract_job_id_from_url(job_url) or "unknown"
 
-        scraped_at = get_iso_timestamp()
+        created_at = get_iso_timestamp()
+
+        # Build details JSONB with all extended job information
+        details = {
+            "minimum_qualifications": job_data.get("minimum_qualifications", []),
+            "preferred_qualifications": job_data.get("preferred_qualifications", []),
+            "about_the_job": job_data.get("about_the_job"),
+            "responsibilities": job_data.get("responsibilities", []),
+            "experience_level": job_data.get("experience_level"),
+            "salary_range": job_data.get("salary_range"),
+            "is_remote_eligible": job_data.get("is_remote_eligible", False),
+            "apply_url": job_data.get("apply_url"),
+            "raw": job_data,  # Original scraped data for debugging
+        }
 
         return GoogleJob(
             id=job_id,
-            source="google",
-            company=job_data.get("company", "google"),
             title=job_data.get("title", ""),
+            company=job_data.get("company", "google"),
             location=job_data.get("location"),
-            createdAt=scraped_at,  # Using scraped_at as fallback
             url=job_url,
-            experience_level=job_data.get("experience_level"),
-            minimum_qualifications=job_data.get("minimum_qualifications", []),
-            preferred_qualifications=job_data.get("preferred_qualifications", []),
-            about_the_job=job_data.get("about_the_job"),
-            responsibilities=job_data.get("responsibilities", []),
-            apply_url=job_data.get("apply_url"),
-            salary_range=job_data.get("salary_range"),
-            is_remote_eligible=job_data.get("is_remote_eligible", False),
-            scraped_at=scraped_at,
-            raw=job_data,
+            source_id="google_scraper",
+            details=details,
+            posted_on=None,  # Google doesn't expose post date
+            created_at=created_at,
+            closed_on=None,
+            status="OPEN",
+            has_matched=False,
+            ai_metadata={},
         )
 
     def deduplicate_jobs(self, jobs: List[Dict[str, Any]]) -> List[GoogleJob]:

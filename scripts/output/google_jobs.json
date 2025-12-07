@@ -1,7 +1,7 @@
 {
-  "scraped_at": "2025-12-05T03:01:09.415308Z",
-  "total_jobs": 3,
-  "filtered_jobs": 3,
+  "scraped_at": "2025-12-07T03:20:48.080307Z",
+  "total_jobs": 10,
+  "filtered_jobs": 10,
   "metadata": {
     "search_queries": [
       "software engineer"
@@ -10,55 +10,24 @@
       "software engineer"
     ],
     "location_filter": "United States",
-    "scrape_duration_seconds": 17.948187,
+    "scrape_duration_seconds": 48.847328,
     "detail_scrape": true
   },
   "jobs": [
     {
       "id": "114423471240291014",
-      "source": "google",
-      "company": "google",
       "title": "Software Engineer",
-      "location": null,
-      "createdAt": "2025-12-05T03:01:09.414928Z",
+      "company": "google",
+      "location": "Mountain View, CA, USA",
       "url": "https://www.google.com/about/careers/applications/jobs/results/114423471240291014-software-engineer?location=United%20States&q=software%20engineer",
-      "experience_level": null,
-      "minimum_qualifications": [
-        "Bachelor's degree or equivalent practical experience.",
-        "8 years of experience in software development.",
-        "5 years of experience testing, and launching software products.",
-        "3 years of experience with software design and architecture."
-      ],
-      "preferred_qualifications": [
-        "Bachelor's degree or equivalent practical experience.",
-        "8 years of experience in software development.",
-        "5 years of experience testing, and launching software products.",
-        "3 years of experience with software design and architecture."
-      ],
-      "about_the_job": "Google's software engineers develop the next-generation technologies that change how billions of users connect, explore, and interact with information and one another. Our products need to handle information at massive scale, and extend well beyond web search. We're looking for engineers who bring fresh ideas from all areas, including information retrieval, distributed computing, large-scale system design, networking and data storage, security, artificial intelligence, natural language processing, UI design and mobile; the list goes on and is growing every day. As a software engineer, you will work on a specific project critical to Google\u2019s needs with opportunities to switch teams and projects as you and our fast-paced business grow and evolve. We need our engineers to be versatile, display leadership qualities and be enthusiastic to take on new problems across the full-stack as we continue to push technology forward.\n\nIn Google Search, we're reimagining what it means to search for information any way and anywhere. To do that, we need to solve complex engineering challenges and expand our infrastructure, while maintaining a universally accessible and useful experience that people around the world rely on. In joining the Search team, you'll have an opportunity to make an impact on billions of people globally.\n\nThe US base salary range for this full-time position is $197,000-$291,000 + bonus + equity + benefits. Our salary ranges are determined by role, level, and location. Within the range, individual pay is determined by work location and additional factors, including job-related skills, experience, and relevant education or training. Your recruiter can share more about the specific salary range for your preferred location during the hiring process.\n\nPlease note that the compensation details listed in US role postings reflect the base salary only, and do not include bonus, equity, or benefits. Learn more about benefits at Google.",
-      "responsibilities": [
-        "Provide technical leadership on projects.",
-        "Influence and coach a distributed team of engineers.",
-        "Facilitate alignment and clarity across teams on goals, outcomes, and timelines.",
-        "Manage project priorities, deadlines, and deliverables.",
-        "Design, develop, test, deploy, maintain, and enhance large-scale software solutions."
-      ],
-      "apply_url": "https://www.google.com/about/careers/applications/./apply?jobId=CiUAL2FckSNd64NsjRaNft8NAex2__PUZPNor3V0_tK1m4XXNd5tEjsAbDj5iAqOe1MgQT4hqixvWksVy8JzP8Gu6__fSv15fX0MR2_AmZhlE26aNgaLoAkD5HaB_GnlwbMNyA%3D%3D_V2&loc=US&title=Software+Engineer&location=United%20States&q=software%20engineer",
-      "salary_range": "$197,000-$291,000 + bonus + equity + benefits",
-      "is_remote_eligible": true,
-      "scraped_at": "2025-12-05T03:01:09.414928Z",
-      "raw": {
-        "title": "Software Engineer",
-        "location": null,
-        "job_url": "https://www.google.com/about/careers/applications/jobs/results/114423471240291014-software-engineer?location=United%20States&q=software%20engineer",
+      "source_id": "google_scraper",
+      "details": {
         "minimum_qualifications": [
           "Bachelor's degree or equivalent practical experience.",
           "8 years of experience in software development.",
           "5 years of experience testing, and launching software products.",
           "3 years of experience with software design and architecture."
         ],
-        "experience_level": null,
-        "company": "google",
         "preferred_qualifications": [
           "Bachelor's degree or equivalent practical experience.",
           "8 years of experience in software development.",
@@ -73,53 +42,61 @@
           "Manage project priorities, deadlines, and deliverables.",
           "Design, develop, test, deploy, maintain, and enhance large-scale software solutions."
         ],
-        "apply_url": "https://www.google.com/about/careers/applications/./apply?jobId=CiUAL2FckSNd64NsjRaNft8NAex2__PUZPNor3V0_tK1m4XXNd5tEjsAbDj5iAqOe1MgQT4hqixvWksVy8JzP8Gu6__fSv15fX0MR2_AmZhlE26aNgaLoAkD5HaB_GnlwbMNyA%3D%3D_V2&loc=US&title=Software+Engineer&location=United%20States&q=software%20engineer",
+        "experience_level": null,
         "salary_range": "$197,000-$291,000 + bonus + equity + benefits",
-        "is_remote_eligible": true
-      }
+        "is_remote_eligible": true,
+        "apply_url": "https://www.google.com/about/careers/applications/./apply?jobId=CiUAL2FckSNd64NsjRaNft8NAex2__PUZPNor3V0_tK1m4XXNd5tEjsAbDj5iAqOe1MgQT4hqixvWksVy8JzP8Gu6__fSv15fX0MR2_AmZhlE26aNgaLoAkD5HaB_GnlwbMNyA%3D%3D_V2&loc=US&title=Software+Engineer&location=United%20States&q=software%20engineer",
+        "raw": {
+          "title": "Software Engineer",
+          "location": "Mountain View, CA, USA",
+          "job_url": "https://www.google.com/about/careers/applications/jobs/results/114423471240291014-software-engineer?location=United%20States&q=software%20engineer",
+          "minimum_qualifications": [
+            "Bachelor's degree or equivalent practical experience.",
+            "8 years of experience in software development.",
+            "5 years of experience testing, and launching software products.",
+            "3 years of experience with software design and architecture."
+          ],
+          "experience_level": null,
+          "company": "google",
+          "preferred_qualifications": [
+            "Bachelor's degree or equivalent practical experience.",
+            "8 years of experience in software development.",
+            "5 years of experience testing, and launching software products.",
+            "3 years of experience with software design and architecture."
+          ],
+          "about_the_job": "Google's software engineers develop the next-generation technologies that change how billions of users connect, explore, and interact with information and one another. Our products need to handle information at massive scale, and extend well beyond web search. We're looking for engineers who bring fresh ideas from all areas, including information retrieval, distributed computing, large-scale system design, networking and data storage, security, artificial intelligence, natural language processing, UI design and mobile; the list goes on and is growing every day. As a software engineer, you will work on a specific project critical to Google\u2019s needs with opportunities to switch teams and projects as you and our fast-paced business grow and evolve. We need our engineers to be versatile, display leadership qualities and be enthusiastic to take on new problems across the full-stack as we continue to push technology forward.\n\nIn Google Search, we're reimagining what it means to search for information any way and anywhere. To do that, we need to solve complex engineering challenges and expand our infrastructure, while maintaining a universally accessible and useful experience that people around the world rely on. In joining the Search team, you'll have an opportunity to make an impact on billions of people globally.\n\nThe US base salary range for this full-time position is $197,000-$291,000 + bonus + equity + benefits. Our salary ranges are determined by role, level, and location. Within the range, individual pay is determined by work location and additional factors, including job-related skills, experience, and relevant education or training. Your recruiter can share more about the specific salary range for your preferred location during the hiring process.\n\nPlease note that the compensation details listed in US role postings reflect the base salary only, and do not include bonus, equity, or benefits. Learn more about benefits at Google.",
+          "responsibilities": [
+            "Provide technical leadership on projects.",
+            "Influence and coach a distributed team of engineers.",
+            "Facilitate alignment and clarity across teams on goals, outcomes, and timelines.",
+            "Manage project priorities, deadlines, and deliverables.",
+            "Design, develop, test, deploy, maintain, and enhance large-scale software solutions."
+          ],
+          "apply_url": "https://www.google.com/about/careers/applications/./apply?jobId=CiUAL2FckSNd64NsjRaNft8NAex2__PUZPNor3V0_tK1m4XXNd5tEjsAbDj5iAqOe1MgQT4hqixvWksVy8JzP8Gu6__fSv15fX0MR2_AmZhlE26aNgaLoAkD5HaB_GnlwbMNyA%3D%3D_V2&loc=US&title=Software+Engineer&location=United%20States&q=software%20engineer",
+          "salary_range": "$197,000-$291,000 + bonus + equity + benefits",
+          "is_remote_eligible": true
+        }
+      },
+      "posted_on": null,
+      "created_at": "2025-12-07T03:20:48.078602Z",
+      "closed_on": null,
+      "status": "OPEN",
+      "has_matched": false,
+      "ai_metadata": {}
     },
     {
       "id": "117224102778806982",
-      "source": "google",
-      "company": "google",
       "title": "Software Engineer, Mobile, Android Permissions",
-      "location": null,
-      "createdAt": "2025-12-05T03:01:09.415240Z",
+      "company": "google",
+      "location": "Mountain View, CA, USA",
       "url": "https://www.google.com/about/careers/applications/jobs/results/117224102778806982-software-engineer-mobile-android-permissions?location=United%20States&q=software%20engineer",
-      "experience_level": null,
-      "minimum_qualifications": [
-        "Bachelor\u2019s degree or equivalent practical experience.",
-        "2 years of experience programming in Java or Kotlin.",
-        "2 years of experience Android application development."
-      ],
-      "preferred_qualifications": [
-        "Bachelor\u2019s degree or equivalent practical experience.",
-        "2 years of experience programming in Java or Kotlin.",
-        "2 years of experience Android application development."
-      ],
-      "about_the_job": "Google's software engineers develop the next-generation technologies that change how billions of users connect, explore, and interact with information and one another. Our products need to handle information at massive scale, and extend well beyond web search. We're looking for engineers who bring fresh ideas from all areas, including information retrieval, distributed computing, large-scale system design, networking and data storage, security, artificial intelligence, natural language processing, UI design and mobile; the list goes on and is growing every day. As a software engineer, you will work on a specific project critical to Google\u2019s needs with opportunities to switch teams and projects as you and our fast-paced business grow and evolve. We need our engineers to be versatile, display leadership qualities and be enthusiastic to take on new problems across the full-stack as we continue to push technology forward.\n\nWith your technical expertise you will manage project priorities, deadlines, and deliverables. You will design, develop, test, deploy, maintain, and enhance software solutions.\n\nThe Platforms and Devices team encompasses Google's various computing software platforms across environments (desktop, mobile, applications), as well as our first party devices and services that combine the best of Google AI, software, and hardware. Teams across this area research, design, and develop new technologies to make our user's interaction with computing faster and more seamless, building innovative experiences for our users around the world.",
-      "responsibilities": [
-        "Write product or system development code.",
-        "Review code developed by other engineers and provide feedback to ensure best practices (e.g., style guidelines, checking code in, accuracy, testability, and efficiency).",
-        "Contribute to existing documentation or educational content and adapt content based on product/program updates and user feedback.",
-        "Triage product or system issues and debug/track/resolve by analyzing the sources of issues and the impact on hardware, network, or service operations and quality.",
-        "Participate in, or lead design reviews with peers and stakeholders to decide amongst available technologies."
-      ],
-      "apply_url": "https://www.google.com/about/careers/applications/./apply?jobId=CiUAL2FckfkxeaeLI5rZXgbD4uTdc59fyjXTa4i8_SRx5A1HOF07EjsAbDj5iGFVUGwSc1BGlW5iY7gTyjHdYvVtMLTW7fMwTFEg7v_f98fogbfYF_spzS2Ux-nmOyohQyhAYQ%3D%3D_V2&loc=US&title=Software+Engineer&location=United%20States&q=software%20engineer",
-      "salary_range": null,
-      "is_remote_eligible": true,
-      "scraped_at": "2025-12-05T03:01:09.415240Z",
-      "raw": {
-        "title": "Software Engineer, Mobile, Android Permissions",
-        "location": null,
-        "job_url": "https://www.google.com/about/careers/applications/jobs/results/117224102778806982-software-engineer-mobile-android-permissions?location=United%20States&q=software%20engineer",
+      "source_id": "google_scraper",
+      "details": {
         "minimum_qualifications": [
           "Bachelor\u2019s degree or equivalent practical experience.",
           "2 years of experience programming in Java or Kotlin.",
           "2 years of experience Android application development."
         ],
-        "experience_level": null,
-        "company": "google",
         "preferred_qualifications": [
           "Bachelor\u2019s degree or equivalent practical experience.",
           "2 years of experience programming in Java or Kotlin.",
@@ -133,53 +110,132 @@
           "Triage product or system issues and debug/track/resolve by analyzing the sources of issues and the impact on hardware, network, or service operations and quality.",
           "Participate in, or lead design reviews with peers and stakeholders to decide amongst available technologies."
         ],
-        "apply_url": "https://www.google.com/about/careers/applications/./apply?jobId=CiUAL2FckfkxeaeLI5rZXgbD4uTdc59fyjXTa4i8_SRx5A1HOF07EjsAbDj5iGFVUGwSc1BGlW5iY7gTyjHdYvVtMLTW7fMwTFEg7v_f98fogbfYF_spzS2Ux-nmOyohQyhAYQ%3D%3D_V2&loc=US&title=Software+Engineer&location=United%20States&q=software%20engineer",
+        "experience_level": null,
         "salary_range": null,
-        "is_remote_eligible": true
-      }
+        "is_remote_eligible": true,
+        "apply_url": "https://www.google.com/about/careers/applications/./apply?jobId=CiUAL2FckfkxeaeLI5rZXgbD4uTdc59fyjXTa4i8_SRx5A1HOF07EjsAbDj5iGFVUGwSc1BGlW5iY7gTyjHdYvVtMLTW7fMwTFEg7v_f98fogbfYF_spzS2Ux-nmOyohQyhAYQ%3D%3D_V2&loc=US&title=Software+Engineer&location=United%20States&q=software%20engineer",
+        "raw": {
+          "title": "Software Engineer, Mobile, Android Permissions",
+          "location": "Mountain View, CA, USA",
+          "job_url": "https://www.google.com/about/careers/applications/jobs/results/117224102778806982-software-engineer-mobile-android-permissions?location=United%20States&q=software%20engineer",
+          "minimum_qualifications": [
+            "Bachelor\u2019s degree or equivalent practical experience.",
+            "2 years of experience programming in Java or Kotlin.",
+            "2 years of experience Android application development."
+          ],
+          "experience_level": null,
+          "company": "google",
+          "preferred_qualifications": [
+            "Bachelor\u2019s degree or equivalent practical experience.",
+            "2 years of experience programming in Java or Kotlin.",
+            "2 years of experience Android application development."
+          ],
+          "about_the_job": "Google's software engineers develop the next-generation technologies that change how billions of users connect, explore, and interact with information and one another. Our products need to handle information at massive scale, and extend well beyond web search. We're looking for engineers who bring fresh ideas from all areas, including information retrieval, distributed computing, large-scale system design, networking and data storage, security, artificial intelligence, natural language processing, UI design and mobile; the list goes on and is growing every day. As a software engineer, you will work on a specific project critical to Google\u2019s needs with opportunities to switch teams and projects as you and our fast-paced business grow and evolve. We need our engineers to be versatile, display leadership qualities and be enthusiastic to take on new problems across the full-stack as we continue to push technology forward.\n\nWith your technical expertise you will manage project priorities, deadlines, and deliverables. You will design, develop, test, deploy, maintain, and enhance software solutions.\n\nThe Platforms and Devices team encompasses Google's various computing software platforms across environments (desktop, mobile, applications), as well as our first party devices and services that combine the best of Google AI, software, and hardware. Teams across this area research, design, and develop new technologies to make our user's interaction with computing faster and more seamless, building innovative experiences for our users around the world.",
+          "responsibilities": [
+            "Write product or system development code.",
+            "Review code developed by other engineers and provide feedback to ensure best practices (e.g., style guidelines, checking code in, accuracy, testability, and efficiency).",
+            "Contribute to existing documentation or educational content and adapt content based on product/program updates and user feedback.",
+            "Triage product or system issues and debug/track/resolve by analyzing the sources of issues and the impact on hardware, network, or service operations and quality.",
+            "Participate in, or lead design reviews with peers and stakeholders to decide amongst available technologies."
+          ],
+          "apply_url": "https://www.google.com/about/careers/applications/./apply?jobId=CiUAL2FckfkxeaeLI5rZXgbD4uTdc59fyjXTa4i8_SRx5A1HOF07EjsAbDj5iGFVUGwSc1BGlW5iY7gTyjHdYvVtMLTW7fMwTFEg7v_f98fogbfYF_spzS2Ux-nmOyohQyhAYQ%3D%3D_V2&loc=US&title=Software+Engineer&location=United%20States&q=software%20engineer",
+          "salary_range": null,
+          "is_remote_eligible": true
+        }
+      },
+      "posted_on": null,
+      "created_at": "2025-12-07T03:20:48.080063Z",
+      "closed_on": null,
+      "status": "OPEN",
+      "has_matched": false,
+      "ai_metadata": {}
+    },
+    {
+      "id": "141773847543063238",
+      "title": "Software Engineer, IDE, Extensions, Gemini Code Assist",
+      "company": "google",
+      "location": "Mountain View, CA, USA",
+      "url": "https://www.google.com/about/careers/applications/jobs/results/141773847543063238-software-engineer-ide-extensions-gemini-code-assist?location=United%20States&q=software%20engineer",
+      "source_id": "google_scraper",
+      "details": {
+        "minimum_qualifications": [
+          "Bachelor\u2019s degree or equivalent practical experience.",
+          "2 years of experience with software development or 1 year of experience with an advanced degree in an industry setting.",
+          "2 years of experience with developing infrastructure, distributed systems or networks, or with compute technologies, storage or hardware architecture.",
+          "Experience with TypeScript.",
+          "Experience with enterprise software architecture, full-stack development, Google Cloud Platform, software architecture, software development, software engineering."
+        ],
+        "preferred_qualifications": [
+          "Bachelor\u2019s degree or equivalent practical experience.",
+          "2 years of experience with software development or 1 year of experience with an advanced degree in an industry setting.",
+          "2 years of experience with developing infrastructure, distributed systems or networks, or with compute technologies, storage or hardware architecture.",
+          "Experience with TypeScript.",
+          "Experience with enterprise software architecture, full-stack development, Google Cloud Platform, software architecture, software development, software engineering."
+        ],
+        "about_the_job": null,
+        "responsibilities": [
+          "Manage project priorities, deadlines, and deliverables. Work with Product Manager and User Experience (UX) teams to design, develop, test, deploy, maintain, and enhance software solutions.",
+          "Write and test product or system development code. Review code developed by other developers and provide feedback to ensure best practices (e.g., style guidelines, checking code in, accuracy, testability, and efficiency).",
+          "Lead design reviews with peers and stakeholders to select among available technologies.",
+          "Contribute to existing documentation or educational content and adapt content based on product/program updates and user feedback.",
+          "Triage product or system issues and debug/track/resolve by analyzing the sources of issues and the impact on hardware, network, or service operations and quality."
+        ],
+        "experience_level": null,
+        "salary_range": null,
+        "is_remote_eligible": false,
+        "apply_url": "https://www.google.com/about/careers/applications/./apply?jobId=CiUAL2FckVG5zbTZIANOch1-rzVO8um9aWDA-4JVj2ylk-DMPKjEEjsAbDj5iJtByuKxKuOJ_SXDbFu-gkiSFQ9_fWIWcwTu1bH7a25iimw5j6cBPi6DVimKf-XOvCzCJkwexw%3D%3D_V2&loc=US&title=Software+Engineer&location=United%20States&q=software%20engineer",
+        "raw": {
+          "title": "Software Engineer, IDE, Extensions, Gemini Code Assist",
+          "location": "Mountain View, CA, USA",
+          "job_url": "https://www.google.com/about/careers/applications/jobs/results/141773847543063238-software-engineer-ide-extensions-gemini-code-assist?location=United%20States&q=software%20engineer",
+          "minimum_qualifications": [
+            "Bachelor\u2019s degree or equivalent practical experience.",
+            "2 years of experience with software development or 1 year of experience with an advanced degree in an industry setting.",
+            "2 years of experience with developing infrastructure, distributed systems or networks, or with compute technologies, storage or hardware architecture.",
+            "Experience with TypeScript.",
+            "Experience with enterprise software architecture, full-stack development, Google Cloud Platform, software architecture, software development, software engineering."
+          ],
+          "experience_level": null,
+          "company": "google",
+          "preferred_qualifications": [
+            "Bachelor\u2019s degree or equivalent practical experience.",
+            "2 years of experience with software development or 1 year of experience with an advanced degree in an industry setting.",
+            "2 years of experience with developing infrastructure, distributed systems or networks, or with compute technologies, storage or hardware architecture.",
+            "Experience with TypeScript.",
+            "Experience with enterprise software architecture, full-stack development, Google Cloud Platform, software architecture, software development, software engineering."
+          ],
+          "about_the_job": null,
+          "responsibilities": [
+            "Manage project priorities, deadlines, and deliverables. Work with Product Manager and User Experience (UX) teams to design, develop, test, deploy, maintain, and enhance software solutions.",
+            "Write and test product or system development code. Review code developed by other developers and provide feedback to ensure best practices (e.g., style guidelines, checking code in, accuracy, testability, and efficiency).",
+            "Lead design reviews with peers and stakeholders to select among available technologies.",
+            "Contribute to existing documentation or educational content and adapt content based on product/program updates and user feedback.",
+            "Triage product or system issues and debug/track/resolve by analyzing the sources of issues and the impact on hardware, network, or service operations and quality."
+          ],
+          "apply_url": "https://www.google.com/about/careers/applications/./apply?jobId=CiUAL2FckVG5zbTZIANOch1-rzVO8um9aWDA-4JVj2ylk-DMPKjEEjsAbDj5iJtByuKxKuOJ_SXDbFu-gkiSFQ9_fWIWcwTu1bH7a25iimw5j6cBPi6DVimKf-XOvCzCJkwexw%3D%3D_V2&loc=US&title=Software+Engineer&location=United%20States&q=software%20engineer",
+          "is_remote_eligible": false
+        }
+      },
+      "posted_on": null,
+      "created_at": "2025-12-07T03:20:48.080094Z",
+      "closed_on": null,
+      "status": "OPEN",
+      "has_matched": false,
+      "ai_metadata": {}
     },
     {
       "id": "118398939543020230",
-      "source": "google",
-      "company": "google",
       "title": "Software Engineer, API Features, Ads",
-      "location": null,
-      "createdAt": "2025-12-05T03:01:09.415252Z",
+      "company": "google",
+      "location": "Mountain View, CA, USA",
       "url": "https://www.google.com/about/careers/applications/jobs/results/118398939543020230-software-engineer-api-features-ads?location=United%20States&q=software%20engineer",
-      "experience_level": null,
-      "minimum_qualifications": [
-        "Bachelor\u2019s degree or equivalent practical experience.",
-        "2 years of experience with software development in one or more programming languages, or 1 year of experience with an advanced degree.",
-        "Experience with C++, Spanner, API Design, API Development, Database Design, Flume."
-      ],
-      "preferred_qualifications": [
-        "Bachelor\u2019s degree or equivalent practical experience.",
-        "2 years of experience with software development in one or more programming languages, or 1 year of experience with an advanced degree.",
-        "Experience with C++, Spanner, API Design, API Development, Database Design, Flume."
-      ],
-      "about_the_job": "Google's software engineers develop the next-generation technologies that change how billions of users connect, explore, and interact with information and one another. Our products need to handle information at massive scale, and extend well beyond web search. We're looking for engineers who bring fresh ideas from all areas, including information retrieval, distributed computing, large-scale system design, networking and data storage, security, artificial intelligence, natural language processing, UI design and mobile; the list goes on and is growing every day. As a software engineer, you will work on a specific project critical to Google\u2019s needs with opportunities to switch teams and projects as you and our fast-paced business grow and evolve. We need our engineers to be versatile, display leadership qualities and be enthusiastic to take on new problems across the full-stack as we continue to push technology forward.",
-      "responsibilities": [
-        "Write product or system development code.",
-        "Participate in, or lead design reviews with peers and stakeholders to decide amongst available technologies.",
-        "Review code developed by other developers and provide feedback to ensure best practices (e.g., style guidelines, checking code in, accuracy, testability, and efficiency).",
-        "Contribute to existing documentation or educational content and adapt content based on product/program updates and user feedback.",
-        "Triage product or system issues and debug/track/resolve by analyzing the sources of issues and the impact on hardware, network, or service operations and quality."
-      ],
-      "apply_url": "https://www.google.com/about/careers/applications/./apply?jobId=CiUAL2FckZSDQhAsLm9kxVqzvSiV8HZ9wYQWEdt9pQQFLsW-6chKEjsAbDj5iBE-mJLtzJpq1OI9ArHBk_36Xo_0Xl07xeYXUVag_wkyFe94JitU-XhLRKWE7RZihV4t-vzDEA%3D%3D_V2&loc=US&title=Software+Engineer&location=United%20States&q=software%20engineer",
-      "salary_range": null,
-      "is_remote_eligible": true,
-      "scraped_at": "2025-12-05T03:01:09.415252Z",
-      "raw": {
-        "title": "Software Engineer, API Features, Ads",
-        "location": null,
-        "job_url": "https://www.google.com/about/careers/applications/jobs/results/118398939543020230-software-engineer-api-features-ads?location=United%20States&q=software%20engineer",
+      "source_id": "google_scraper",
+      "details": {
         "minimum_qualifications": [
           "Bachelor\u2019s degree or equivalent practical experience.",
           "2 years of experience with software development in one or more programming languages, or 1 year of experience with an advanced degree.",
           "Experience with C++, Spanner, API Design, API Development, Database Design, Flume."
         ],
-        "experience_level": null,
-        "company": "google",
         "preferred_qualifications": [
           "Bachelor\u2019s degree or equivalent practical experience.",
           "2 years of experience with software development in one or more programming languages, or 1 year of experience with an advanced degree.",
@@ -193,10 +249,465 @@
           "Contribute to existing documentation or educational content and adapt content based on product/program updates and user feedback.",
           "Triage product or system issues and debug/track/resolve by analyzing the sources of issues and the impact on hardware, network, or service operations and quality."
         ],
-        "apply_url": "https://www.google.com/about/careers/applications/./apply?jobId=CiUAL2FckZSDQhAsLm9kxVqzvSiV8HZ9wYQWEdt9pQQFLsW-6chKEjsAbDj5iBE-mJLtzJpq1OI9ArHBk_36Xo_0Xl07xeYXUVag_wkyFe94JitU-XhLRKWE7RZihV4t-vzDEA%3D%3D_V2&loc=US&title=Software+Engineer&location=United%20States&q=software%20engineer",
+        "experience_level": null,
         "salary_range": null,
-        "is_remote_eligible": true
-      }
+        "is_remote_eligible": true,
+        "apply_url": "https://www.google.com/about/careers/applications/./apply?jobId=CiUAL2FckZSDQhAsLm9kxVqzvSiV8HZ9wYQWEdt9pQQFLsW-6chKEjsAbDj5iBE-mJLtzJpq1OI9ArHBk_36Xo_0Xl07xeYXUVag_wkyFe94JitU-XhLRKWE7RZihV4t-vzDEA%3D%3D_V2&loc=US&title=Software+Engineer&location=United%20States&q=software%20engineer",
+        "raw": {
+          "title": "Software Engineer, API Features, Ads",
+          "location": "Mountain View, CA, USA",
+          "job_url": "https://www.google.com/about/careers/applications/jobs/results/118398939543020230-software-engineer-api-features-ads?location=United%20States&q=software%20engineer",
+          "minimum_qualifications": [
+            "Bachelor\u2019s degree or equivalent practical experience.",
+            "2 years of experience with software development in one or more programming languages, or 1 year of experience with an advanced degree.",
+            "Experience with C++, Spanner, API Design, API Development, Database Design, Flume."
+          ],
+          "experience_level": null,
+          "company": "google",
+          "preferred_qualifications": [
+            "Bachelor\u2019s degree or equivalent practical experience.",
+            "2 years of experience with software development in one or more programming languages, or 1 year of experience with an advanced degree.",
+            "Experience with C++, Spanner, API Design, API Development, Database Design, Flume."
+          ],
+          "about_the_job": "Google's software engineers develop the next-generation technologies that change how billions of users connect, explore, and interact with information and one another. Our products need to handle information at massive scale, and extend well beyond web search. We're looking for engineers who bring fresh ideas from all areas, including information retrieval, distributed computing, large-scale system design, networking and data storage, security, artificial intelligence, natural language processing, UI design and mobile; the list goes on and is growing every day. As a software engineer, you will work on a specific project critical to Google\u2019s needs with opportunities to switch teams and projects as you and our fast-paced business grow and evolve. We need our engineers to be versatile, display leadership qualities and be enthusiastic to take on new problems across the full-stack as we continue to push technology forward.",
+          "responsibilities": [
+            "Write product or system development code.",
+            "Participate in, or lead design reviews with peers and stakeholders to decide amongst available technologies.",
+            "Review code developed by other developers and provide feedback to ensure best practices (e.g., style guidelines, checking code in, accuracy, testability, and efficiency).",
+            "Contribute to existing documentation or educational content and adapt content based on product/program updates and user feedback.",
+            "Triage product or system issues and debug/track/resolve by analyzing the sources of issues and the impact on hardware, network, or service operations and quality."
+          ],
+          "apply_url": "https://www.google.com/about/careers/applications/./apply?jobId=CiUAL2FckZSDQhAsLm9kxVqzvSiV8HZ9wYQWEdt9pQQFLsW-6chKEjsAbDj5iBE-mJLtzJpq1OI9ArHBk_36Xo_0Xl07xeYXUVag_wkyFe94JitU-XhLRKWE7RZihV4t-vzDEA%3D%3D_V2&loc=US&title=Software+Engineer&location=United%20States&q=software%20engineer",
+          "salary_range": null,
+          "is_remote_eligible": true
+        }
+      },
+      "posted_on": null,
+      "created_at": "2025-12-07T03:20:48.080108Z",
+      "closed_on": null,
+      "status": "OPEN",
+      "has_matched": false,
+      "ai_metadata": {}
+    },
+    {
+      "id": "98879474971353798",
+      "title": "Staff Software Engineer, Front End, Google Cloud",
+      "company": "google",
+      "location": "Mountain View, CA, USA",
+      "url": "https://www.google.com/about/careers/applications/jobs/results/98879474971353798-staff-software-engineer-front-end-google-cloud?location=United%20States&q=software%20engineer",
+      "source_id": "google_scraper",
+      "details": {
+        "minimum_qualifications": [
+          "Bachelor's degree or equivalent practical experience.",
+          "8 years of experience in software development.",
+          "5 years of experience testing, and launching software products.",
+          "5 years of experience with front-end and user interface development."
+        ],
+        "preferred_qualifications": [
+          "Bachelor's degree or equivalent practical experience.",
+          "8 years of experience in software development.",
+          "5 years of experience testing, and launching software products.",
+          "5 years of experience with front-end and user interface development."
+        ],
+        "about_the_job": "Google's software engineers develop the next-generation technologies that change how billions of users connect, explore, and interact with information and one another. Our products need to handle information at massive scale, and extend well beyond web search. We're looking for engineers who bring fresh ideas from all areas, including information retrieval, distributed computing, large-scale system design, networking and data storage, security, artificial intelligence, natural language processing, UI design and mobile; the list goes on and is growing every day. As a software engineer, you will work on a specific project critical to Google\u2019s needs with opportunities to switch teams and projects as you and our fast-paced business grow and evolve. We need our engineers to be versatile, display leadership qualities and be enthusiastic to take on new problems across the full-stack as we continue to push technology forward.\n\nWith your technical expertise you will manage project priorities, deadlines, and deliverables. You will design, develop, test, deploy, maintain, and enhance software solutions.\n\nGoogle Cloud accelerates every organization\u2019s ability to digitally transform its business and industry. We deliver enterprise-grade solutions that leverage Google\u2019s cutting-edge technology, and tools that help developers build more sustainably. Customers in more than 200 countries and territories turn to Google Cloud as their trusted partner to enable growth and solve their most critical business problems.\n\nThe US base salary range for this full-time position is $197,000-$291,000 + bonus + equity + benefits. Our salary ranges are determined by role, level, and location. Within the range, individual pay is determined by work location and additional factors, including job-related skills, experience, and relevant education or training. Your recruiter can share more about the specific salary range for your preferred location during the hiring process.\n\nPlease note that the compensation details listed in US role postings reflect the base salary only, and do not include bonus, equity, or benefits. Learn more about benefits at Google.",
+        "responsibilities": [
+          "Provide technical leadership on high-impact projects.",
+          "Influence and coach a distributed team of engineers.",
+          "Facilitate alignment and clarity across teams on goals, outcomes, and timelines.",
+          "Manage project priorities, deadlines, and deliverables.",
+          "Design, develop, test, deploy, maintain, and enhance large-scale software solutions."
+        ],
+        "experience_level": null,
+        "salary_range": "$197,000-$291,000 + bonus + equity + benefits",
+        "is_remote_eligible": true,
+        "apply_url": "https://www.google.com/about/careers/applications/./apply?jobId=CiUAL2FckQXytDu6rr0_Uu52r_TFoeqaYZqaN6kJ9uzQR2yPYdO0EjsAbDj5iPn9ZarRp67BAbYcSnrlHfAmkXSrevZXuoEL1ruBG2jir2Jt--cNTCAmZ9J1MrL4d8MO0vKKaw%3D%3D_V2&loc=US&title=Staff+Software+Engineer&location=United%20States&q=software%20engineer",
+        "raw": {
+          "title": "Staff Software Engineer, Front End, Google Cloud",
+          "location": "Mountain View, CA, USA",
+          "job_url": "https://www.google.com/about/careers/applications/jobs/results/98879474971353798-staff-software-engineer-front-end-google-cloud?location=United%20States&q=software%20engineer",
+          "minimum_qualifications": [
+            "Bachelor's degree or equivalent practical experience.",
+            "8 years of experience in software development.",
+            "5 years of experience testing, and launching software products.",
+            "5 years of experience with front-end and user interface development."
+          ],
+          "experience_level": null,
+          "company": "google",
+          "preferred_qualifications": [
+            "Bachelor's degree or equivalent practical experience.",
+            "8 years of experience in software development.",
+            "5 years of experience testing, and launching software products.",
+            "5 years of experience with front-end and user interface development."
+          ],
+          "about_the_job": "Google's software engineers develop the next-generation technologies that change how billions of users connect, explore, and interact with information and one another. Our products need to handle information at massive scale, and extend well beyond web search. We're looking for engineers who bring fresh ideas from all areas, including information retrieval, distributed computing, large-scale system design, networking and data storage, security, artificial intelligence, natural language processing, UI design and mobile; the list goes on and is growing every day. As a software engineer, you will work on a specific project critical to Google\u2019s needs with opportunities to switch teams and projects as you and our fast-paced business grow and evolve. We need our engineers to be versatile, display leadership qualities and be enthusiastic to take on new problems across the full-stack as we continue to push technology forward.\n\nWith your technical expertise you will manage project priorities, deadlines, and deliverables. You will design, develop, test, deploy, maintain, and enhance software solutions.\n\nGoogle Cloud accelerates every organization\u2019s ability to digitally transform its business and industry. We deliver enterprise-grade solutions that leverage Google\u2019s cutting-edge technology, and tools that help developers build more sustainably. Customers in more than 200 countries and territories turn to Google Cloud as their trusted partner to enable growth and solve their most critical business problems.\n\nThe US base salary range for this full-time position is $197,000-$291,000 + bonus + equity + benefits. Our salary ranges are determined by role, level, and location. Within the range, individual pay is determined by work location and additional factors, including job-related skills, experience, and relevant education or training. Your recruiter can share more about the specific salary range for your preferred location during the hiring process.\n\nPlease note that the compensation details listed in US role postings reflect the base salary only, and do not include bonus, equity, or benefits. Learn more about benefits at Google.",
+          "responsibilities": [
+            "Provide technical leadership on high-impact projects.",
+            "Influence and coach a distributed team of engineers.",
+            "Facilitate alignment and clarity across teams on goals, outcomes, and timelines.",
+            "Manage project priorities, deadlines, and deliverables.",
+            "Design, develop, test, deploy, maintain, and enhance large-scale software solutions."
+          ],
+          "apply_url": "https://www.google.com/about/careers/applications/./apply?jobId=CiUAL2FckQXytDu6rr0_Uu52r_TFoeqaYZqaN6kJ9uzQR2yPYdO0EjsAbDj5iPn9ZarRp67BAbYcSnrlHfAmkXSrevZXuoEL1ruBG2jir2Jt--cNTCAmZ9J1MrL4d8MO0vKKaw%3D%3D_V2&loc=US&title=Staff+Software+Engineer&location=United%20States&q=software%20engineer",
+          "salary_range": "$197,000-$291,000 + bonus + equity + benefits",
+          "is_remote_eligible": true
+        }
+      },
+      "posted_on": null,
+      "created_at": "2025-12-07T03:20:48.080120Z",
+      "closed_on": null,
+      "status": "OPEN",
+      "has_matched": false,
+      "ai_metadata": {}
+    },
+    {
+      "id": "129191296857187014",
+      "title": "Software Engineer, Platforms and Devices, Android Extended Reality",
+      "company": "google",
+      "location": "Mountain View, CA, USA",
+      "url": "https://www.google.com/about/careers/applications/jobs/results/129191296857187014-software-engineer-platforms-and-devices-android-extended-reality?location=United%20States&q=software%20engineer",
+      "source_id": "google_scraper",
+      "details": {
+        "minimum_qualifications": [
+          "Bachelor\u2019s degree or equivalent practical experience.",
+          "5 years of experience programming in C++ and Java.",
+          "3 years of experience with Android application development.",
+          "3 years of experience testing, maintaining, or launching software products, and 1 year of experience with software design and architecture."
+        ],
+        "preferred_qualifications": [
+          "Bachelor\u2019s degree or equivalent practical experience.",
+          "5 years of experience programming in C++ and Java.",
+          "3 years of experience with Android application development.",
+          "3 years of experience testing, maintaining, or launching software products, and 1 year of experience with software design and architecture."
+        ],
+        "about_the_job": null,
+        "responsibilities": [
+          "Write and test product or system development code.",
+          "Participate in, or lead design reviews with peers and stakeholders to decide amongst available technologies.",
+          "Review code developed by other developers and provide feedback to ensure best practices (e.g., style guidelines, checking code in, accuracy, testability, and efficiency).",
+          "Contribute to existing documentation or educational content and adapt content based on product/program updates and user feedback.",
+          "Triage product or system issues and debug/track/resolve by analyzing the sources of issues and the impact on hardware, network, or service operations and quality."
+        ],
+        "experience_level": null,
+        "salary_range": null,
+        "is_remote_eligible": false,
+        "apply_url": "https://www.google.com/about/careers/applications/./apply?jobId=CiUAL2FckV_M4o3oOgioro91GgSasGpZm5rcDF85GoezrYX7_OtDEjsAbDj5iDTbm84X0LivFxx43mOxjG6S11IHlKRfOdheh1LINLj20b8OyiN3GggGeEav-9Q3R38mHM0qVA%3D%3D_V2&loc=US&title=Software+Engineer&location=United%20States&q=software%20engineer",
+        "raw": {
+          "title": "Software Engineer, Platforms and Devices, Android Extended Reality",
+          "location": "Mountain View, CA, USA",
+          "job_url": "https://www.google.com/about/careers/applications/jobs/results/129191296857187014-software-engineer-platforms-and-devices-android-extended-reality?location=United%20States&q=software%20engineer",
+          "minimum_qualifications": [
+            "Bachelor\u2019s degree or equivalent practical experience.",
+            "5 years of experience programming in C++ and Java.",
+            "3 years of experience with Android application development.",
+            "3 years of experience testing, maintaining, or launching software products, and 1 year of experience with software design and architecture."
+          ],
+          "experience_level": null,
+          "company": "google",
+          "preferred_qualifications": [
+            "Bachelor\u2019s degree or equivalent practical experience.",
+            "5 years of experience programming in C++ and Java.",
+            "3 years of experience with Android application development.",
+            "3 years of experience testing, maintaining, or launching software products, and 1 year of experience with software design and architecture."
+          ],
+          "about_the_job": null,
+          "responsibilities": [
+            "Write and test product or system development code.",
+            "Participate in, or lead design reviews with peers and stakeholders to decide amongst available technologies.",
+            "Review code developed by other developers and provide feedback to ensure best practices (e.g., style guidelines, checking code in, accuracy, testability, and efficiency).",
+            "Contribute to existing documentation or educational content and adapt content based on product/program updates and user feedback.",
+            "Triage product or system issues and debug/track/resolve by analyzing the sources of issues and the impact on hardware, network, or service operations and quality."
+          ],
+          "apply_url": "https://www.google.com/about/careers/applications/./apply?jobId=CiUAL2FckV_M4o3oOgioro91GgSasGpZm5rcDF85GoezrYX7_OtDEjsAbDj5iDTbm84X0LivFxx43mOxjG6S11IHlKRfOdheh1LINLj20b8OyiN3GggGeEav-9Q3R38mHM0qVA%3D%3D_V2&loc=US&title=Software+Engineer&location=United%20States&q=software%20engineer",
+          "is_remote_eligible": false
+        }
+      },
+      "posted_on": null,
+      "created_at": "2025-12-07T03:20:48.080131Z",
+      "closed_on": null,
+      "status": "OPEN",
+      "has_matched": false,
+      "ai_metadata": {}
+    },
+    {
+      "id": "108916003001246406",
+      "title": "Staff Software Engineer, Infrastructure, Google Cloud Security and Privacy",
+      "company": "google",
+      "location": "Mountain View, CA, USA",
+      "url": "https://www.google.com/about/careers/applications/jobs/results/108916003001246406-staff-software-engineer-infrastructure-google-cloud-security-and-privacy?location=United%20States&q=software%20engineer",
+      "source_id": "google_scraper",
+      "details": {
+        "minimum_qualifications": [
+          "Bachelor's degree or equivalent practical experience.",
+          "8 years of experience in software development.",
+          "5 years of experience building and developing large-scale infrastructure, distributed systems or networks, or experience with compute technologies, storage, or hardware architecture.",
+          "5 years of experience testing, and launching software products.",
+          "3 years of experience with software design and architecture."
+        ],
+        "preferred_qualifications": [
+          "Bachelor's degree or equivalent practical experience.",
+          "8 years of experience in software development.",
+          "5 years of experience building and developing large-scale infrastructure, distributed systems or networks, or experience with compute technologies, storage, or hardware architecture.",
+          "5 years of experience testing, and launching software products.",
+          "3 years of experience with software design and architecture."
+        ],
+        "about_the_job": "Google's software engineers develop the next-generation technologies that change how billions of users connect, explore, and interact with information and one another. Our products need to handle information at massive scale, and extend well beyond web search. We're looking for engineers who bring fresh ideas from all areas, including information retrieval, distributed computing, large-scale system design, networking and data storage, security, artificial intelligence, natural language processing, UI design and mobile; the list goes on and is growing every day. As a software engineer, you will work on a specific project critical to Google\u2019s needs with opportunities to switch teams and projects as you and our fast-paced business grow and evolve. We need our engineers to be versatile, display leadership qualities and be enthusiastic to take on new problems across the full-stack as we continue to push technology forward.\n\nWith your technical expertise you will manage project priorities, deadlines, and deliverables. You will design, develop, test, deploy, maintain, and enhance software solutions.\n\nGoogle Cloud accelerates every organization\u2019s ability to digitally transform its business and industry. We deliver enterprise-grade solutions that leverage Google\u2019s cutting-edge technology, and tools that help developers build more sustainably. Customers in more than 200 countries and territories turn to Google Cloud as their trusted partner to enable growth and solve their most critical business problems.\n\nThe US base salary range for this full-time position is $197,000-$291,000 + bonus + equity + benefits. Our salary ranges are determined by role, level, and location. Within the range, individual pay is determined by work location and additional factors, including job-related skills, experience, and relevant education or training. Your recruiter can share more about the specific salary range for your preferred location during the hiring process.\n\nPlease note that the compensation details listed in US role postings reflect the base salary only, and do not include bonus, equity, or benefits. Learn more about benefits at Google.",
+        "responsibilities": [
+          "Provide technical leadership on high-impact projects.",
+          "Influence and coach a distributed team of engineers.",
+          "Facilitate alignment and clarity across teams on goals, outcomes, and timelines.",
+          "Manage project priorities, deadlines, and deliverables.",
+          "Design, develop, test, deploy, maintain, and enhance large scale software solutions."
+        ],
+        "experience_level": null,
+        "salary_range": "$197,000-$291,000 + bonus + equity + benefits",
+        "is_remote_eligible": true,
+        "apply_url": "https://www.google.com/about/careers/applications/./apply?jobId=CiUAL2FckSkAa9-eRPWEx79ruxb1Y-Nk9wjc6s-_ZB5iLguXu1DyEjsASXckS9lvx9T4kWZuGb1HEYHKv2QwkbaJCzdf-UWRCb1msKXdxtm3bi_bxi4vMGu4mvQt6Jt1qoguug%3D%3D_V2&loc=US&title=Staff+Software+Engineer&location=United%20States&q=software%20engineer",
+        "raw": {
+          "title": "Staff Software Engineer, Infrastructure, Google Cloud Security and Privacy",
+          "location": "Mountain View, CA, USA",
+          "job_url": "https://www.google.com/about/careers/applications/jobs/results/108916003001246406-staff-software-engineer-infrastructure-google-cloud-security-and-privacy?location=United%20States&q=software%20engineer",
+          "minimum_qualifications": [
+            "Bachelor's degree or equivalent practical experience.",
+            "8 years of experience in software development.",
+            "5 years of experience building and developing large-scale infrastructure, distributed systems or networks, or experience with compute technologies, storage, or hardware architecture.",
+            "5 years of experience testing, and launching software products.",
+            "3 years of experience with software design and architecture."
+          ],
+          "experience_level": null,
+          "company": "google",
+          "preferred_qualifications": [
+            "Bachelor's degree or equivalent practical experience.",
+            "8 years of experience in software development.",
+            "5 years of experience building and developing large-scale infrastructure, distributed systems or networks, or experience with compute technologies, storage, or hardware architecture.",
+            "5 years of experience testing, and launching software products.",
+            "3 years of experience with software design and architecture."
+          ],
+          "about_the_job": "Google's software engineers develop the next-generation technologies that change how billions of users connect, explore, and interact with information and one another. Our products need to handle information at massive scale, and extend well beyond web search. We're looking for engineers who bring fresh ideas from all areas, including information retrieval, distributed computing, large-scale system design, networking and data storage, security, artificial intelligence, natural language processing, UI design and mobile; the list goes on and is growing every day. As a software engineer, you will work on a specific project critical to Google\u2019s needs with opportunities to switch teams and projects as you and our fast-paced business grow and evolve. We need our engineers to be versatile, display leadership qualities and be enthusiastic to take on new problems across the full-stack as we continue to push technology forward.\n\nWith your technical expertise you will manage project priorities, deadlines, and deliverables. You will design, develop, test, deploy, maintain, and enhance software solutions.\n\nGoogle Cloud accelerates every organization\u2019s ability to digitally transform its business and industry. We deliver enterprise-grade solutions that leverage Google\u2019s cutting-edge technology, and tools that help developers build more sustainably. Customers in more than 200 countries and territories turn to Google Cloud as their trusted partner to enable growth and solve their most critical business problems.\n\nThe US base salary range for this full-time position is $197,000-$291,000 + bonus + equity + benefits. Our salary ranges are determined by role, level, and location. Within the range, individual pay is determined by work location and additional factors, including job-related skills, experience, and relevant education or training. Your recruiter can share more about the specific salary range for your preferred location during the hiring process.\n\nPlease note that the compensation details listed in US role postings reflect the base salary only, and do not include bonus, equity, or benefits. Learn more about benefits at Google.",
+          "responsibilities": [
+            "Provide technical leadership on high-impact projects.",
+            "Influence and coach a distributed team of engineers.",
+            "Facilitate alignment and clarity across teams on goals, outcomes, and timelines.",
+            "Manage project priorities, deadlines, and deliverables.",
+            "Design, develop, test, deploy, maintain, and enhance large scale software solutions."
+          ],
+          "apply_url": "https://www.google.com/about/careers/applications/./apply?jobId=CiUAL2FckSkAa9-eRPWEx79ruxb1Y-Nk9wjc6s-_ZB5iLguXu1DyEjsASXckS9lvx9T4kWZuGb1HEYHKv2QwkbaJCzdf-UWRCb1msKXdxtm3bi_bxi4vMGu4mvQt6Jt1qoguug%3D%3D_V2&loc=US&title=Staff+Software+Engineer&location=United%20States&q=software%20engineer",
+          "salary_range": "$197,000-$291,000 + bonus + equity + benefits",
+          "is_remote_eligible": true
+        }
+      },
+      "posted_on": null,
+      "created_at": "2025-12-07T03:20:48.080142Z",
+      "closed_on": null,
+      "status": "OPEN",
+      "has_matched": false,
+      "ai_metadata": {}
+    },
+    {
+      "id": "85613336216904390",
+      "title": "Software Engineer, Meeting Experiences, Google Beam",
+      "company": "google",
+      "location": "Mountain View, CA, USA",
+      "url": "https://www.google.com/about/careers/applications/jobs/results/85613336216904390-software-engineer-meeting-experiences-google-beam?location=United%20States&q=software%20engineer",
+      "source_id": "google_scraper",
+      "details": {
+        "minimum_qualifications": [
+          "Bachelor\u2019s degree in Computer Science, related technical field, or equivalent practical experience.",
+          "2 years of experience with software development in C++ or Java, or 1 year of experience with an advanced degree.",
+          "2 years of experience with full stack development, bridging native backend services (C++, Go) and front-end applications (Android, Java).",
+          "Experience working with Operating Systems concepts (concurrency, memory management) and building production-grade systems."
+        ],
+        "preferred_qualifications": [
+          "Bachelor\u2019s degree in Computer Science, related technical field, or equivalent practical experience.",
+          "2 years of experience with software development in C++ or Java, or 1 year of experience with an advanced degree.",
+          "2 years of experience with full stack development, bridging native backend services (C++, Go) and front-end applications (Android, Java).",
+          "Experience working with Operating Systems concepts (concurrency, memory management) and building production-grade systems."
+        ],
+        "about_the_job": "Google's software engineers develop the next-generation technologies that change how billions of users connect, explore, and interact with information and one another. Our products need to handle information at massive scale, and extend well beyond web search. We're looking for engineers who bring fresh ideas from all areas, including information retrieval, distributed computing, large-scale system design, networking and data storage, security, artificial intelligence, natural language processing, UI design and mobile; the list goes on and is growing every day. As a software engineer, you will work on a specific project critical to Google\u2019s needs with opportunities to switch teams and projects as you and our fast-paced business grow and evolve. We need our engineers to be versatile, display leadership qualities and be enthusiastic to take on new problems across the full-stack as we continue to push technology forward.\n\nJoin the Google Beam effort a creative, fast-paced team turning science fiction into reality. We are developing advanced software and hardware technology to enable people separated by distance to experience a conversation as if they were physically together (telepresence). You will have the opportunity to make impact working alongside exceptional researchers and engineers, inventing the future of communication within the Google ecosystem.\n\nAs a Full Stack Software Engineer on the Meeting Integrations team, you will build the next-generation hardware device. You will bridge the gap between high-performance native services and user-facing applications. You will be responsible for bringing 2D and 3D call experiences (including instant travel) to customers by natively integrating with the meeting software they already rely on, such as Google Meet and Zoom.\n\nLabs is a group focused on incubating early-stage efforts in support of Google\u2019s mission to organize the world\u2019s information and make it universally accessible and useful. Our team exists to help discover and create new ways to advance our core products through exploration and the application of new technologies. We work to build new solutions that have the potential to transform how users interact with Google. Our goal is to drive innovation by developing new Google products and capabilities that deliver significant impact over longer timeframes.\n\nThe US base salary range for this full-time position is $141,000-$202,000 + bonus + equity + benefits. Our salary ranges are determined by role, level, and location. Within the range, individual pay is determined by work location and additional factors, including job-related skills, experience, and relevant education or training. Your recruiter can share more about the specific salary range for your preferred location during the hiring process.\n\nPlease note that the compensation details listed in US role postings reflect the base salary only, and do not include bonus, equity, or benefits. Learn more about benefits at Google.",
+        "responsibilities": [
+          "Design and implement the core application logic that powers the meeting experience, ensure high fidelity and magic interactions for the user.",
+          "Manage the complex communication between user-facing applications (Android/Java) and low-latency native client services (C++ and Go).",
+          "Work across multiple layers of the stack\u2014specifically ChromeOS, Android, and ARCVM (Android Runtime for Chrome) to debug performance bottlenecks and ensure reliability.",
+          "Collaborate with the Google Meet team and third-party vendors to integrate Beam-specific features (like 3D depth sensing or spatial audio) into the broader video conferencing ecosystem."
+        ],
+        "experience_level": null,
+        "salary_range": "$141,000-$202,000 + bonus + equity + benefits",
+        "is_remote_eligible": true,
+        "apply_url": "https://www.google.com/about/careers/applications/./apply?jobId=CiUAL2FckQuH0aIDIqnBjrpbh2ThSt0VJDP4MBoZyF0Ecd-Mxq0uEjsAbDj5iDUld00PhwMGLuIubuvNkRoW0acqK9HIwn5x8GLGZkGiq1YN6hoCpk6_ERnTGFd72zC0iUvx8w%3D%3D_V2&loc=US&title=Software+Engineer&location=United%20States&q=software%20engineer",
+        "raw": {
+          "title": "Software Engineer, Meeting Experiences, Google Beam",
+          "location": "Mountain View, CA, USA",
+          "job_url": "https://www.google.com/about/careers/applications/jobs/results/85613336216904390-software-engineer-meeting-experiences-google-beam?location=United%20States&q=software%20engineer",
+          "minimum_qualifications": [
+            "Bachelor\u2019s degree in Computer Science, related technical field, or equivalent practical experience.",
+            "2 years of experience with software development in C++ or Java, or 1 year of experience with an advanced degree.",
+            "2 years of experience with full stack development, bridging native backend services (C++, Go) and front-end applications (Android, Java).",
+            "Experience working with Operating Systems concepts (concurrency, memory management) and building production-grade systems."
+          ],
+          "experience_level": null,
+          "company": "google",
+          "preferred_qualifications": [
+            "Bachelor\u2019s degree in Computer Science, related technical field, or equivalent practical experience.",
+            "2 years of experience with software development in C++ or Java, or 1 year of experience with an advanced degree.",
+            "2 years of experience with full stack development, bridging native backend services (C++, Go) and front-end applications (Android, Java).",
+            "Experience working with Operating Systems concepts (concurrency, memory management) and building production-grade systems."
+          ],
+          "about_the_job": "Google's software engineers develop the next-generation technologies that change how billions of users connect, explore, and interact with information and one another. Our products need to handle information at massive scale, and extend well beyond web search. We're looking for engineers who bring fresh ideas from all areas, including information retrieval, distributed computing, large-scale system design, networking and data storage, security, artificial intelligence, natural language processing, UI design and mobile; the list goes on and is growing every day. As a software engineer, you will work on a specific project critical to Google\u2019s needs with opportunities to switch teams and projects as you and our fast-paced business grow and evolve. We need our engineers to be versatile, display leadership qualities and be enthusiastic to take on new problems across the full-stack as we continue to push technology forward.\n\nJoin the Google Beam effort a creative, fast-paced team turning science fiction into reality. We are developing advanced software and hardware technology to enable people separated by distance to experience a conversation as if they were physically together (telepresence). You will have the opportunity to make impact working alongside exceptional researchers and engineers, inventing the future of communication within the Google ecosystem.\n\nAs a Full Stack Software Engineer on the Meeting Integrations team, you will build the next-generation hardware device. You will bridge the gap between high-performance native services and user-facing applications. You will be responsible for bringing 2D and 3D call experiences (including instant travel) to customers by natively integrating with the meeting software they already rely on, such as Google Meet and Zoom.\n\nLabs is a group focused on incubating early-stage efforts in support of Google\u2019s mission to organize the world\u2019s information and make it universally accessible and useful. Our team exists to help discover and create new ways to advance our core products through exploration and the application of new technologies. We work to build new solutions that have the potential to transform how users interact with Google. Our goal is to drive innovation by developing new Google products and capabilities that deliver significant impact over longer timeframes.\n\nThe US base salary range for this full-time position is $141,000-$202,000 + bonus + equity + benefits. Our salary ranges are determined by role, level, and location. Within the range, individual pay is determined by work location and additional factors, including job-related skills, experience, and relevant education or training. Your recruiter can share more about the specific salary range for your preferred location during the hiring process.\n\nPlease note that the compensation details listed in US role postings reflect the base salary only, and do not include bonus, equity, or benefits. Learn more about benefits at Google.",
+          "responsibilities": [
+            "Design and implement the core application logic that powers the meeting experience, ensure high fidelity and magic interactions for the user.",
+            "Manage the complex communication between user-facing applications (Android/Java) and low-latency native client services (C++ and Go).",
+            "Work across multiple layers of the stack\u2014specifically ChromeOS, Android, and ARCVM (Android Runtime for Chrome) to debug performance bottlenecks and ensure reliability.",
+            "Collaborate with the Google Meet team and third-party vendors to integrate Beam-specific features (like 3D depth sensing or spatial audio) into the broader video conferencing ecosystem."
+          ],
+          "apply_url": "https://www.google.com/about/careers/applications/./apply?jobId=CiUAL2FckQuH0aIDIqnBjrpbh2ThSt0VJDP4MBoZyF0Ecd-Mxq0uEjsAbDj5iDUld00PhwMGLuIubuvNkRoW0acqK9HIwn5x8GLGZkGiq1YN6hoCpk6_ERnTGFd72zC0iUvx8w%3D%3D_V2&loc=US&title=Software+Engineer&location=United%20States&q=software%20engineer",
+          "salary_range": "$141,000-$202,000 + bonus + equity + benefits",
+          "is_remote_eligible": true
+        }
+      },
+      "posted_on": null,
+      "created_at": "2025-12-07T03:20:48.080152Z",
+      "closed_on": null,
+      "status": "OPEN",
+      "has_matched": false,
+      "ai_metadata": {}
+    },
+    {
+      "id": "94209465762357958",
+      "title": "Staff Software Engineer, Security and Privacy, Search",
+      "company": "google",
+      "location": "Mountain View, CA, USA",
+      "url": "https://www.google.com/about/careers/applications/jobs/results/94209465762357958-staff-software-engineer-security-and-privacy-search?location=United%20States&q=software%20engineer",
+      "source_id": "google_scraper",
+      "details": {
+        "minimum_qualifications": [
+          "Bachelor's degree or equivalent practical experience.",
+          "8 years of experience in software development.",
+          "5 years of experience testing, and launching software products.",
+          "5 years of experience building software for data privacy or security (e.g., identity and access management).",
+          "3 years of experience with software design and architecture."
+        ],
+        "preferred_qualifications": [
+          "Bachelor's degree or equivalent practical experience.",
+          "8 years of experience in software development.",
+          "5 years of experience testing, and launching software products.",
+          "5 years of experience building software for data privacy or security (e.g., identity and access management).",
+          "3 years of experience with software design and architecture."
+        ],
+        "about_the_job": null,
+        "responsibilities": [
+          "Provide technical leadership on high-impact projects.",
+          "Influence and coach a distributed team of engineers.",
+          "Facilitate alignment and clarity across teams on goals, outcomes, and timelines.",
+          "Manage project priorities, deadlines, and deliverables.",
+          "Design, develop, test, deploy, maintain, and enhance large scale software solutions."
+        ],
+        "experience_level": null,
+        "salary_range": null,
+        "is_remote_eligible": false,
+        "apply_url": "https://www.google.com/about/careers/applications/./apply?jobId=CiUAL2FckTzh1D8LEHXfUtdJdnGcSZOQtpYp9TERMMFpI1fvW3EAEjsAbDj5iLKwAqYrjvbSOH8txQR_qdaHvWK3CrC3JgCTCDz0CvgK7crdWv1mXWaGDIuWVC_aJYKEQ1ykrg%3D%3D_V2&loc=US&title=Staff+Software+Engineer&location=United%20States&q=software%20engineer",
+        "raw": {
+          "title": "Staff Software Engineer, Security and Privacy, Search",
+          "location": "Mountain View, CA, USA",
+          "job_url": "https://www.google.com/about/careers/applications/jobs/results/94209465762357958-staff-software-engineer-security-and-privacy-search?location=United%20States&q=software%20engineer",
+          "minimum_qualifications": [
+            "Bachelor's degree or equivalent practical experience.",
+            "8 years of experience in software development.",
+            "5 years of experience testing, and launching software products.",
+            "5 years of experience building software for data privacy or security (e.g., identity and access management).",
+            "3 years of experience with software design and architecture."
+          ],
+          "experience_level": null,
+          "company": "google",
+          "preferred_qualifications": [
+            "Bachelor's degree or equivalent practical experience.",
+            "8 years of experience in software development.",
+            "5 years of experience testing, and launching software products.",
+            "5 years of experience building software for data privacy or security (e.g., identity and access management).",
+            "3 years of experience with software design and architecture."
+          ],
+          "about_the_job": null,
+          "responsibilities": [
+            "Provide technical leadership on high-impact projects.",
+            "Influence and coach a distributed team of engineers.",
+            "Facilitate alignment and clarity across teams on goals, outcomes, and timelines.",
+            "Manage project priorities, deadlines, and deliverables.",
+            "Design, develop, test, deploy, maintain, and enhance large scale software solutions."
+          ],
+          "apply_url": "https://www.google.com/about/careers/applications/./apply?jobId=CiUAL2FckTzh1D8LEHXfUtdJdnGcSZOQtpYp9TERMMFpI1fvW3EAEjsAbDj5iLKwAqYrjvbSOH8txQR_qdaHvWK3CrC3JgCTCDz0CvgK7crdWv1mXWaGDIuWVC_aJYKEQ1ykrg%3D%3D_V2&loc=US&title=Staff+Software+Engineer&location=United%20States&q=software%20engineer",
+          "is_remote_eligible": false
+        }
+      },
+      "posted_on": null,
+      "created_at": "2025-12-07T03:20:48.080162Z",
+      "closed_on": null,
+      "status": "OPEN",
+      "has_matched": false,
+      "ai_metadata": {}
+    },
+    {
+      "id": "114119616665395910",
+      "title": "Software Engineer, Game Discovery, AI Quality, Google Play",
+      "company": "google",
+      "location": "Mountain View, CA, USA",
+      "url": "https://www.google.com/about/careers/applications/jobs/results/114119616665395910-software-engineer-game-discovery-ai-quality-google-play?location=United%20States&q=software%20engineer",
+      "source_id": "google_scraper",
+      "details": {
+        "minimum_qualifications": [
+          "Bachelor\u2019s degree or equivalent practical experience.",
+          "5 years of experience with software development in one or more programming languages.",
+          "3 years of experience testing, maintaining, or launching software products, and 1 year of experience with software design and architecture."
+        ],
+        "preferred_qualifications": [
+          "Bachelor\u2019s degree or equivalent practical experience.",
+          "5 years of experience with software development in one or more programming languages.",
+          "3 years of experience testing, maintaining, or launching software products, and 1 year of experience with software design and architecture."
+        ],
+        "about_the_job": "In this role, you will help users find great mobile games and help them get the most fun out of playing them on Google Play. You will focus on leveraging AI to create compelling user experiences in the Google Play Store and on the new Play Games Sidekick overlay.",
+        "responsibilities": [
+          "Propose and make changes to AI prompts, serving, and input data.",
+          "Evaluate the quality of AI features at scale.",
+          "Evaluate the efficacy of experimental changes to AI system.",
+          "Analyze data to identify opportunities for improvement.",
+          "Collaborate with research and partner teams to learn and share the best AI techniques."
+        ],
+        "experience_level": null,
+        "salary_range": null,
+        "is_remote_eligible": false,
+        "apply_url": "https://www.google.com/about/careers/applications/./apply?jobId=CiUAL2FckdEXripMwEVWSSDGbWw1tPHasQ2Yttw8D5SNnPBSdMAEEjoAbDj5iN_rwwnzSST2yLwE26bdZwzFo0UtUtlzGpYSIwi6vDdKspIS2tDLzkKGjcGXwhaQJHdA36l7_V2&loc=US&title=Software+Engineer&location=United%20States&q=software%20engineer",
+        "raw": {
+          "title": "Software Engineer, Game Discovery, AI Quality, Google Play",
+          "location": "Mountain View, CA, USA",
+          "job_url": "https://www.google.com/about/careers/applications/jobs/results/114119616665395910-software-engineer-game-discovery-ai-quality-google-play?location=United%20States&q=software%20engineer",
+          "minimum_qualifications": [
+            "Bachelor\u2019s degree or equivalent practical experience.",
+            "5 years of experience with software development in one or more programming languages.",
+            "3 years of experience testing, maintaining, or launching software products, and 1 year of experience with software design and architecture."
+          ],
+          "experience_level": null,
+          "company": "google",
+          "preferred_qualifications": [
+            "Bachelor\u2019s degree or equivalent practical experience.",
+            "5 years of experience with software development in one or more programming languages.",
+            "3 years of experience testing, maintaining, or launching software products, and 1 year of experience with software design and architecture."
+          ],
+          "about_the_job": "In this role, you will help users find great mobile games and help them get the most fun out of playing them on Google Play. You will focus on leveraging AI to create compelling user experiences in the Google Play Store and on the new Play Games Sidekick overlay.",
+          "responsibilities": [
+            "Propose and make changes to AI prompts, serving, and input data.",
+            "Evaluate the quality of AI features at scale.",
+            "Evaluate the efficacy of experimental changes to AI system.",
+            "Analyze data to identify opportunities for improvement.",
+            "Collaborate with research and partner teams to learn and share the best AI techniques."
+          ],
+          "apply_url": "https://www.google.com/about/careers/applications/./apply?jobId=CiUAL2FckdEXripMwEVWSSDGbWw1tPHasQ2Yttw8D5SNnPBSdMAEEjoAbDj5iN_rwwnzSST2yLwE26bdZwzFo0UtUtlzGpYSIwi6vDdKspIS2tDLzkKGjcGXwhaQJHdA36l7_V2&loc=US&title=Software+Engineer&location=United%20States&q=software%20engineer",
+          "salary_range": null,
+          "is_remote_eligible": false
+        }
+      },
+      "posted_on": null,
+      "created_at": "2025-12-07T03:20:48.080172Z",
+      "closed_on": null,
+      "status": "OPEN",
+      "has_matched": false,
+      "ai_metadata": {}
     }
   ]
 }
