@@ -42,3 +42,8 @@ lerna-debug.log*
 # OS
 Thumbs.db
 .vercel
+
+# Data files
+data/
+*.db
+scripts/output/
