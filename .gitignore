@@ -46,3 +46,4 @@ Thumbs.db
 # Data files
 data/
 *.db
+scripts/output/
