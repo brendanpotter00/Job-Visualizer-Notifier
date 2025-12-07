@@ -35,6 +35,12 @@ class JobListing(BaseModel):
     has_matched: bool = False  # Has gone through AI notification service
     ai_metadata: Dict[str, Any] = Field(default_factory=dict)  # AI matched tags
 
+    # Incremental tracking fields (for database mode)
+    first_seen_at: Optional[str] = None  # When we first discovered this job
+    last_seen_at: Optional[str] = None  # Last time we saw this job in search results
+    consecutive_misses: int = 0  # Number of consecutive scrapes where job was missing
+    details_scraped: bool = False  # Whether we've scraped the detail page
+
     # Embedding placeholder (not used in JSON output)
     # embedding: Optional[List[float]] = None
 

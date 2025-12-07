@@ -8,21 +8,45 @@ The Google Jobs Scraper is a production-ready web scraper that uses Playwright b
 
 ```
 scripts/
-├── run_scraper.py                          # Main entry point (convenience wrapper)
+├── run_scraper.py                          # Main entry point (dual-mode: JSON/Database)
 ├── requirements.txt                         # Python dependencies
+├── requirements-dev.txt                     # Development dependencies (NEW)
+├── pytest.ini                               # Test configuration (NEW)
 ├── README.md                                # User documentation
+├── ARCHITECTURE.md                          # This file
+├── CLAUDE.md                                # Quick reference
 ├── __init__.py                              # Package marker
-├── google_jobs_scraper/                     # Main package directory
+├── google_jobs_scraper/                     # Google-specific implementation
 │   ├── __init__.py                          # Package metadata
-│   ├── main.py                              # CLI orchestration and async runner
+│   ├── main.py                              # CLI orchestration (JSON mode)
 │   ├── config.py                            # Configuration constants
 │   ├── models.py                            # Pydantic data models
-│   ├── scraper.py                           # Playwright browser automation
+│   ├── scraper.py                           # Playwright automation (extends BaseScraper)
 │   ├── parser.py                            # HTML parsing and data extraction
 │   └── utils.py                             # Helper functions
+├── shared/                                  # Multi-scraper framework (NEW)
+│   ├── __init__.py                          # Package marker
+│   ├── base_scraper.py                      # Abstract base class for scrapers
+│   ├── database.py                          # SQLite/PostgreSQL abstraction
+│   ├── incremental.py                       # 5-phase incremental algorithm
+│   └── models.py                            # Database-aligned Pydantic models
+├── tests/                                   # Test suite (NEW)
+│   ├── __init__.py                          # Package marker
+│   ├── conftest.py                          # Shared pytest fixtures
+│   ├── fixtures/                            # HTML fixtures for parser tests
+│   ├── unit/                                # Unit tests
+│   │   ├── test_models.py                   # JobListing/ScrapeRun validation
+│   │   ├── test_incremental_diff.py         # Job diff algorithm
+│   │   ├── test_parser_helpers.py           # Salary/remote detection
+│   │   └── test_utils.py                    # Filtering, ID extraction
+│   └── integration/                         # Integration tests
+│       ├── test_database.py                 # Database CRUD operations
+│       ├── test_incremental.py              # 5-phase algorithm
+│       └── test_scraper_transform.py        # Job transformation
 └── output/                                  # Generated output
-    ├── google_jobs.json                     # Scraped job data (JSON)
-    └── .checkpoint.json                     # Resume checkpoint (temporary)
+    ├── google_jobs.json                     # Scraped job data (JSON mode)
+    ├── .checkpoint.json                     # Resume checkpoint (JSON mode, temporary)
+    └── *.db                                 # SQLite databases (database mode)
 ```
 
 ## Data Flow Diagram
@@ -219,6 +243,295 @@ MAX_PAGES = 50  # Max 1000 jobs per query
 - **Data Extraction:** `get_iso_timestamp()`, `extract_job_id_from_url()`, `should_include_job()`
 - **File Operations:** `ensure_output_directory()`
 
+---
+
+## Shared Modules (NEW)
+
+The `shared/` directory contains reusable components for multi-company scraper support.
+
+### 8. shared/base_scraper.py
+**Purpose:** Abstract base class providing shared browser automation and defining the scraper interface.
+
+**Abstract Methods** (must be implemented by subclasses):
+- `get_company_name() -> str` - Return company identifier (e.g., "google")
+- `build_search_url(query, page_num) -> str` - Build company-specific search URL
+- `async extract_job_cards(page) -> List[Dict]` - Extract jobs from search results page
+- `async extract_job_details(page, url) -> Dict` - Extract detailed job information
+- `get_search_queries() -> List[str]` - Return list of search queries
+- `filter_job(title) -> bool` - Determine if job should be included
+
+**Concrete Methods** (shared implementation):
+- `async __aenter__()` / `async __aexit__()` - Async context manager for browser lifecycle
+- `async initialize_browser()` - Launch Chromium with anti-detection settings
+- `async close_browser()` - Cleanup browser resources
+- `async navigate_to_page(page, url, timeout)` - Navigate with retry logic
+- `async scrape_all_queries(max_jobs)` - Scrape all search queries
+
+**Anti-Detection Configuration:**
+- User agent: `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) ... Chrome/120.0.0.0`
+- Viewport: 1920x1080
+- Locale: en-US
+- Browser args: `--disable-blink-features=AutomationControlled`
+
+### 9. shared/database.py
+**Purpose:** Database abstraction layer supporting SQLite (local) and PostgreSQL (production).
+
+**Connection Management:**
+- `get_connection(db_url, env) -> Connection` - Create DB connection from URL
+  - SQLite: `sqlite:///path/to/file.db`
+  - PostgreSQL: `postgresql://user:pass@host:port/dbname`
+- `init_schema(conn, env)` - Create tables with environment-based naming
+
+**Schema:**
+- `job_listings_{env}` table:
+  - Primary: id, title, company, location, url, source_id
+  - Details: details (JSONB), posted_on, created_at, closed_on
+  - Status: status, has_matched, ai_metadata (JSONB)
+  - Incremental: first_seen_at, last_seen_at, consecutive_misses, details_scraped
+- `scrape_runs_{env}` table:
+  - Metadata: run_id, company, started_at, completed_at, mode
+  - Statistics: jobs_seen, new_jobs, closed_jobs, details_fetched, error_count
+
+**Query Operations:**
+- `get_active_job_ids(conn, company, env) -> Set[str]` - Get all OPEN job IDs
+- `get_job_by_id(conn, job_id, env) -> JobListing` - Retrieve job by ID
+- `get_all_active_jobs(conn, company, env) -> List[JobListing]` - Fetch all OPEN jobs
+- `insert_job(conn, job, env)` - Insert new job (with upsert logic)
+
+**Status Updates:**
+- `update_last_seen(conn, job_ids, env)` - Update timestamp, reset consecutive_misses
+- `increment_consecutive_misses(conn, job_ids, env)` - Track missing jobs
+- `mark_jobs_closed(conn, job_ids, env)` - Mark jobs as CLOSED
+- `reactivate_job(conn, job_id, env)` - Reopen closed jobs if they reappear
+
+**Audit Trail:**
+- `record_scrape_run(conn, run_data, env)` - Log scrape execution metadata
+
+**Features:**
+- JSON serialization/deserialization for JSONB fields
+- Indexes on status, company, last_seen_at for performance
+- Environment-based table naming (local/qa/prod)
+
+### 10. shared/incremental.py
+**Purpose:** 5-phase incremental scraping algorithm that minimizes scraping time.
+
+**Algorithm Overview:**
+```
+Phase 1: Quick list scrape (2-3 min) → Extract job IDs + basic info
+Phase 2: Compare with database → Identify new, active, missing jobs
+Phase 3: Fetch details for NEW jobs only → Minimizes detail page requests
+Phase 4: Update existing jobs → Reset last_seen, increment misses
+Phase 5: Mark as closed → consecutive_misses >= THRESHOLD (2)
+```
+
+**Key Functions:**
+- `run_incremental_scrape(scraper, conn, env, company, detail_scrape) -> ScrapeResult`
+  - Main orchestration function
+  - Returns statistics (jobs_seen, new_jobs, closed_jobs, details_fetched)
+
+- `calculate_job_diff(current_ids, known_ids, active_ids) -> Tuple`
+  - Compare current scrape vs database
+  - Returns: (new_job_ids, still_active_ids, missing_ids)
+  - Uses set operations for O(1) lookups
+
+- `process_new_jobs(scraper, conn, new_job_cards, env, detail_scrape)`
+  - Insert only NEW jobs into database
+  - Optional detail scraping via `scraper.scrape_job_details_batch()`
+  - Sets incremental tracking fields
+
+- `update_existing_jobs(conn, still_active, missing, env)`
+  - Update last_seen_at for still-active jobs
+  - Increment consecutive_misses for missing jobs
+  - Mark as CLOSED when consecutive_misses >= 2
+
+**Data Models:**
+- `ScrapeResult` - Result object with counters
+- `MISSED_RUN_THRESHOLD = 2` - Jobs marked closed after 2 consecutive misses
+
+### 11. shared/models.py
+**Purpose:** Database-aligned Pydantic models.
+
+**JobListing Model:**
+```python
+class JobListing(BaseModel):
+    id: str
+    title: str
+    company: str = "google"
+    location: Optional[str]
+    url: str
+    source_id: str = "google_scraper"
+    details: Dict[str, Any]           # JSONB for qualifications, etc.
+    posted_on: Optional[str]
+    created_at: str
+    closed_on: Optional[str]
+    status: str = "OPEN"
+    has_matched: bool = False
+    ai_metadata: Dict[str, Any]
+    first_seen_at: Optional[str]      # Incremental tracking
+    last_seen_at: Optional[str]
+    consecutive_misses: int = 0
+    details_scraped: bool = False
+
+GoogleJob = JobListing  # Alias for backwards compatibility
+```
+
+**ScrapeRun Model:**
+```python
+class ScrapeRun(BaseModel):
+    run_id: str
+    company: str
+    started_at: str
+    completed_at: Optional[str]
+    mode: str                          # "incremental" or "full"
+    jobs_seen: int
+    new_jobs: int
+    closed_jobs: int
+    details_fetched: int
+    error_count: int
+```
+
+---
+
+## Database Mode
+
+The scraper supports dual-mode operation: JSON output (legacy) and database persistence (NEW).
+
+### Mode Selection
+
+**JSON Mode** (default when `--db-url` not provided):
+- Outputs to `scripts/output/google_jobs.json`
+- Supports checkpoint/resume functionality
+- Deduplicates jobs by URL
+- Compatible with Redux store ingestion
+
+**Database Mode** (when `--db-url` provided):
+- Stores jobs in relational database (SQLite or PostgreSQL)
+- Supports incremental scraping
+- Tracks job lifecycle (open → missing → closed)
+- Environment-based table naming
+
+### Database Schema
+
+**job_listings_{env} Table:**
+| Column | Type | Description |
+|--------|------|-------------|
+| id | TEXT PRIMARY KEY | Job ID from URL |
+| title | TEXT NOT NULL | Job title |
+| company | TEXT NOT NULL | Company name |
+| location | TEXT | Job location |
+| url | TEXT UNIQUE NOT NULL | Job detail URL |
+| source_id | TEXT NOT NULL | Scraper identifier |
+| details | TEXT/JSONB | Job details (qualifications, etc.) |
+| posted_on | TEXT | When job was posted |
+| created_at | TEXT NOT NULL | First time scraped |
+| closed_on | TEXT | When job was closed |
+| status | TEXT NOT NULL | OPEN or CLOSED |
+| has_matched | BOOLEAN | AI notification flag |
+| ai_metadata | TEXT/JSONB | AI matched tags |
+| first_seen_at | TEXT | First discovery timestamp |
+| last_seen_at | TEXT | Last seen in search results |
+| consecutive_misses | INTEGER | Counter for disappearances |
+| details_scraped | BOOLEAN | Whether detail page fetched |
+
+**scrape_runs_{env} Table:**
+| Column | Type | Description |
+|--------|------|-------------|
+| run_id | TEXT PRIMARY KEY | Unique run identifier |
+| company | TEXT NOT NULL | Company scraped |
+| started_at | TEXT NOT NULL | Run start timestamp |
+| completed_at | TEXT | Run completion timestamp |
+| mode | TEXT NOT NULL | "incremental" or "full" |
+| jobs_seen | INTEGER | Total jobs in scrape |
+| new_jobs | INTEGER | New jobs added |
+| closed_jobs | INTEGER | Jobs marked closed |
+| details_fetched | INTEGER | Detail pages scraped |
+| error_count | INTEGER | Errors encountered |
+
+### Incremental Scraping Flow
+
+```
+1. Run quick list scrape (no details)
+   ↓
+2. Get active job IDs from database
+   ↓
+3. Compare: new_jobs = current - known
+            still_active = current ∩ known
+            missing = known - current
+   ↓
+4. Fetch details ONLY for new jobs
+   ↓
+5. Update database:
+   - Insert new jobs with first_seen_at
+   - Update last_seen_at for still_active
+   - Increment consecutive_misses for missing
+   - Mark as CLOSED if consecutive_misses >= 2
+   ↓
+6. Record scrape_run metadata
+```
+
+**Performance Benefits:**
+- First run: ~15-30 min (full scrape with details)
+- Subsequent runs: ~2-3 min (list only) + details for new jobs
+- Example: 500 jobs, 10 new → 2 min + 30 sec (vs 15-30 min full scrape)
+
+---
+
+## Testing
+
+### Test Structure
+
+**tests/conftest.py** - Shared pytest fixtures:
+- `sample_job_data_dict` - Raw scraped job data
+- `sample_job_listing` - Valid JobListing model
+- `in_memory_db` - SQLite in-memory database
+- `mock_scraper` - Mocked GoogleJobsScraper
+- `html_fixture` - Factory for loading HTML fixtures
+
+**Unit Tests** (tests/unit/):
+- `test_models.py` - JobListing and ScrapeRun validation
+- `test_incremental_diff.py` - calculate_job_diff() logic
+- `test_parser_helpers.py` - extract_salary_from_text(), check_remote_eligible()
+- `test_utils.py` - should_include_job(), extract_job_id_from_url()
+
+**Integration Tests** (tests/integration/):
+- `test_database.py` - Database operations with real SQLite
+- `test_incremental.py` - Full 5-phase algorithm execution
+- `test_scraper_transform.py` - transform_to_job_model(), deduplicate_jobs()
+
+### Running Tests
+
+```bash
+# All tests
+pytest
+
+# Specific test types
+pytest tests/unit
+pytest tests/integration
+
+# With coverage
+pytest --cov=google_jobs_scraper --cov=shared
+
+# Verbose output
+pytest -v --tb=short
+```
+
+### Test Configuration (pytest.ini)
+
+```ini
+[pytest]
+testpaths = tests
+python_files = test_*.py
+python_classes = Test*
+python_functions = test_*
+asyncio_mode = auto
+addopts = -v --tb=short
+markers =
+    unit: Unit tests without external dependencies
+    integration: Tests requiring database/mocks
+```
+
+---
+
 ## Configuration Options
 
 ### Environment Setup
@@ -340,6 +653,12 @@ From `requirements.txt`:
 - `python-dateutil>=2.8.0` - Date/time utilities
 - `tenacity>=8.0.0` - Retry logic with exponential backoff
 - `rich>=13.0.0` - Beautiful console output
+- `psycopg2-binary>=2.9.9` - PostgreSQL database driver (NEW)
+
+From `requirements-dev.txt` (NEW):
+- `pytest>=7.4.0` - Testing framework
+- `pytest-asyncio>=0.21.0` - Async test support
+- `pytest-mock>=3.11.0` - Mocking utilities
 
 ## Error Handling & Recovery
 

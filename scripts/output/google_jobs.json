@@ -1,5 +1,5 @@
 {
-  "scraped_at": "2025-12-07T03:20:48.080307Z",
+  "scraped_at": "2025-12-07T04:21:17.921680Z",
   "total_jobs": 10,
   "filtered_jobs": 10,
   "metadata": {
@@ -10,7 +10,7 @@
       "software engineer"
     ],
     "location_filter": "United States",
-    "scrape_duration_seconds": 48.847328,
+    "scrape_duration_seconds": 48.711721,
     "detail_scrape": true
   },
   "jobs": [
@@ -78,11 +78,15 @@
         }
       },
       "posted_on": null,
-      "created_at": "2025-12-07T03:20:48.078602Z",
+      "created_at": "2025-12-07T04:21:17.919379Z",
       "closed_on": null,
       "status": "OPEN",
       "has_matched": false,
-      "ai_metadata": {}
+      "ai_metadata": {},
+      "first_seen_at": "2025-12-07T04:21:17.919379Z",
+      "last_seen_at": "2025-12-07T04:21:17.919379Z",
+      "consecutive_misses": 0,
+      "details_scraped": false
     },
     {
       "id": "117224102778806982",
@@ -144,11 +148,15 @@
         }
       },
       "posted_on": null,
-      "created_at": "2025-12-07T03:20:48.080063Z",
+      "created_at": "2025-12-07T04:21:17.921424Z",
       "closed_on": null,
       "status": "OPEN",
       "has_matched": false,
-      "ai_metadata": {}
+      "ai_metadata": {},
+      "first_seen_at": "2025-12-07T04:21:17.921424Z",
+      "last_seen_at": "2025-12-07T04:21:17.921424Z",
+      "consecutive_misses": 0,
+      "details_scraped": false
     },
     {
       "id": "141773847543063238",
@@ -217,11 +225,15 @@
         }
       },
       "posted_on": null,
-      "created_at": "2025-12-07T03:20:48.080094Z",
+      "created_at": "2025-12-07T04:21:17.921467Z",
       "closed_on": null,
       "status": "OPEN",
       "has_matched": false,
-      "ai_metadata": {}
+      "ai_metadata": {},
+      "first_seen_at": "2025-12-07T04:21:17.921467Z",
+      "last_seen_at": "2025-12-07T04:21:17.921467Z",
+      "consecutive_misses": 0,
+      "details_scraped": false
     },
     {
       "id": "118398939543020230",
@@ -283,11 +295,15 @@
         }
       },
       "posted_on": null,
-      "created_at": "2025-12-07T03:20:48.080108Z",
+      "created_at": "2025-12-07T04:21:17.921483Z",
       "closed_on": null,
       "status": "OPEN",
       "has_matched": false,
-      "ai_metadata": {}
+      "ai_metadata": {},
+      "first_seen_at": "2025-12-07T04:21:17.921483Z",
+      "last_seen_at": "2025-12-07T04:21:17.921483Z",
+      "consecutive_misses": 0,
+      "details_scraped": false
     },
     {
       "id": "98879474971353798",
@@ -353,11 +369,15 @@
         }
       },
       "posted_on": null,
-      "created_at": "2025-12-07T03:20:48.080120Z",
+      "created_at": "2025-12-07T04:21:17.921495Z",
       "closed_on": null,
       "status": "OPEN",
       "has_matched": false,
-      "ai_metadata": {}
+      "ai_metadata": {},
+      "first_seen_at": "2025-12-07T04:21:17.921495Z",
+      "last_seen_at": "2025-12-07T04:21:17.921495Z",
+      "consecutive_misses": 0,
+      "details_scraped": false
     },
     {
       "id": "129191296857187014",
@@ -422,11 +442,15 @@
         }
       },
       "posted_on": null,
-      "created_at": "2025-12-07T03:20:48.080131Z",
+      "created_at": "2025-12-07T04:21:17.921507Z",
       "closed_on": null,
       "status": "OPEN",
       "has_matched": false,
-      "ai_metadata": {}
+      "ai_metadata": {},
+      "first_seen_at": "2025-12-07T04:21:17.921507Z",
+      "last_seen_at": "2025-12-07T04:21:17.921507Z",
+      "consecutive_misses": 0,
+      "details_scraped": false
     },
     {
       "id": "108916003001246406",
@@ -496,79 +520,15 @@
         }
       },
       "posted_on": null,
-      "created_at": "2025-12-07T03:20:48.080142Z",
+      "created_at": "2025-12-07T04:21:17.921518Z",
       "closed_on": null,
       "status": "OPEN",
       "has_matched": false,
-      "ai_metadata": {}
-    },
-    {
-      "id": "85613336216904390",
-      "title": "Software Engineer, Meeting Experiences, Google Beam",
-      "company": "google",
-      "location": "Mountain View, CA, USA",
-      "url": "https://www.google.com/about/careers/applications/jobs/results/85613336216904390-software-engineer-meeting-experiences-google-beam?location=United%20States&q=software%20engineer",
-      "source_id": "google_scraper",
-      "details": {
-        "minimum_qualifications": [
-          "Bachelor\u2019s degree in Computer Science, related technical field, or equivalent practical experience.",
-          "2 years of experience with software development in C++ or Java, or 1 year of experience with an advanced degree.",
-          "2 years of experience with full stack development, bridging native backend services (C++, Go) and front-end applications (Android, Java).",
-          "Experience working with Operating Systems concepts (concurrency, memory management) and building production-grade systems."
-        ],
-        "preferred_qualifications": [
-          "Bachelor\u2019s degree in Computer Science, related technical field, or equivalent practical experience.",
-          "2 years of experience with software development in C++ or Java, or 1 year of experience with an advanced degree.",
-          "2 years of experience with full stack development, bridging native backend services (C++, Go) and front-end applications (Android, Java).",
-          "Experience working with Operating Systems concepts (concurrency, memory management) and building production-grade systems."
-        ],
-        "about_the_job": "Google's software engineers develop the next-generation technologies that change how billions of users connect, explore, and interact with information and one another. Our products need to handle information at massive scale, and extend well beyond web search. We're looking for engineers who bring fresh ideas from all areas, including information retrieval, distributed computing, large-scale system design, networking and data storage, security, artificial intelligence, natural language processing, UI design and mobile; the list goes on and is growing every day. As a software engineer, you will work on a specific project critical to Google\u2019s needs with opportunities to switch teams and projects as you and our fast-paced business grow and evolve. We need our engineers to be versatile, display leadership qualities and be enthusiastic to take on new problems across the full-stack as we continue to push technology forward.\n\nJoin the Google Beam effort a creative, fast-paced team turning science fiction into reality. We are developing advanced software and hardware technology to enable people separated by distance to experience a conversation as if they were physically together (telepresence). You will have the opportunity to make impact working alongside exceptional researchers and engineers, inventing the future of communication within the Google ecosystem.\n\nAs a Full Stack Software Engineer on the Meeting Integrations team, you will build the next-generation hardware device. You will bridge the gap between high-performance native services and user-facing applications. You will be responsible for bringing 2D and 3D call experiences (including instant travel) to customers by natively integrating with the meeting software they already rely on, such as Google Meet and Zoom.\n\nLabs is a group focused on incubating early-stage efforts in support of Google\u2019s mission to organize the world\u2019s information and make it universally accessible and useful. Our team exists to help discover and create new ways to advance our core products through exploration and the application of new technologies. We work to build new solutions that have the potential to transform how users interact with Google. Our goal is to drive innovation by developing new Google products and capabilities that deliver significant impact over longer timeframes.\n\nThe US base salary range for this full-time position is $141,000-$202,000 + bonus + equity + benefits. Our salary ranges are determined by role, level, and location. Within the range, individual pay is determined by work location and additional factors, including job-related skills, experience, and relevant education or training. Your recruiter can share more about the specific salary range for your preferred location during the hiring process.\n\nPlease note that the compensation details listed in US role postings reflect the base salary only, and do not include bonus, equity, or benefits. Learn more about benefits at Google.",
-        "responsibilities": [
-          "Design and implement the core application logic that powers the meeting experience, ensure high fidelity and magic interactions for the user.",
-          "Manage the complex communication between user-facing applications (Android/Java) and low-latency native client services (C++ and Go).",
-          "Work across multiple layers of the stack\u2014specifically ChromeOS, Android, and ARCVM (Android Runtime for Chrome) to debug performance bottlenecks and ensure reliability.",
-          "Collaborate with the Google Meet team and third-party vendors to integrate Beam-specific features (like 3D depth sensing or spatial audio) into the broader video conferencing ecosystem."
-        ],
-        "experience_level": null,
-        "salary_range": "$141,000-$202,000 + bonus + equity + benefits",
-        "is_remote_eligible": true,
-        "apply_url": "https://www.google.com/about/careers/applications/./apply?jobId=CiUAL2FckQuH0aIDIqnBjrpbh2ThSt0VJDP4MBoZyF0Ecd-Mxq0uEjsAbDj5iDUld00PhwMGLuIubuvNkRoW0acqK9HIwn5x8GLGZkGiq1YN6hoCpk6_ERnTGFd72zC0iUvx8w%3D%3D_V2&loc=US&title=Software+Engineer&location=United%20States&q=software%20engineer",
-        "raw": {
-          "title": "Software Engineer, Meeting Experiences, Google Beam",
-          "location": "Mountain View, CA, USA",
-          "job_url": "https://www.google.com/about/careers/applications/jobs/results/85613336216904390-software-engineer-meeting-experiences-google-beam?location=United%20States&q=software%20engineer",
-          "minimum_qualifications": [
-            "Bachelor\u2019s degree in Computer Science, related technical field, or equivalent practical experience.",
-            "2 years of experience with software development in C++ or Java, or 1 year of experience with an advanced degree.",
-            "2 years of experience with full stack development, bridging native backend services (C++, Go) and front-end applications (Android, Java).",
-            "Experience working with Operating Systems concepts (concurrency, memory management) and building production-grade systems."
-          ],
-          "experience_level": null,
-          "company": "google",
-          "preferred_qualifications": [
-            "Bachelor\u2019s degree in Computer Science, related technical field, or equivalent practical experience.",
-            "2 years of experience with software development in C++ or Java, or 1 year of experience with an advanced degree.",
-            "2 years of experience with full stack development, bridging native backend services (C++, Go) and front-end applications (Android, Java).",
-            "Experience working with Operating Systems concepts (concurrency, memory management) and building production-grade systems."
-          ],
-          "about_the_job": "Google's software engineers develop the next-generation technologies that change how billions of users connect, explore, and interact with information and one another. Our products need to handle information at massive scale, and extend well beyond web search. We're looking for engineers who bring fresh ideas from all areas, including information retrieval, distributed computing, large-scale system design, networking and data storage, security, artificial intelligence, natural language processing, UI design and mobile; the list goes on and is growing every day. As a software engineer, you will work on a specific project critical to Google\u2019s needs with opportunities to switch teams and projects as you and our fast-paced business grow and evolve. We need our engineers to be versatile, display leadership qualities and be enthusiastic to take on new problems across the full-stack as we continue to push technology forward.\n\nJoin the Google Beam effort a creative, fast-paced team turning science fiction into reality. We are developing advanced software and hardware technology to enable people separated by distance to experience a conversation as if they were physically together (telepresence). You will have the opportunity to make impact working alongside exceptional researchers and engineers, inventing the future of communication within the Google ecosystem.\n\nAs a Full Stack Software Engineer on the Meeting Integrations team, you will build the next-generation hardware device. You will bridge the gap between high-performance native services and user-facing applications. You will be responsible for bringing 2D and 3D call experiences (including instant travel) to customers by natively integrating with the meeting software they already rely on, such as Google Meet and Zoom.\n\nLabs is a group focused on incubating early-stage efforts in support of Google\u2019s mission to organize the world\u2019s information and make it universally accessible and useful. Our team exists to help discover and create new ways to advance our core products through exploration and the application of new technologies. We work to build new solutions that have the potential to transform how users interact with Google. Our goal is to drive innovation by developing new Google products and capabilities that deliver significant impact over longer timeframes.\n\nThe US base salary range for this full-time position is $141,000-$202,000 + bonus + equity + benefits. Our salary ranges are determined by role, level, and location. Within the range, individual pay is determined by work location and additional factors, including job-related skills, experience, and relevant education or training. Your recruiter can share more about the specific salary range for your preferred location during the hiring process.\n\nPlease note that the compensation details listed in US role postings reflect the base salary only, and do not include bonus, equity, or benefits. Learn more about benefits at Google.",
-          "responsibilities": [
-            "Design and implement the core application logic that powers the meeting experience, ensure high fidelity and magic interactions for the user.",
-            "Manage the complex communication between user-facing applications (Android/Java) and low-latency native client services (C++ and Go).",
-            "Work across multiple layers of the stack\u2014specifically ChromeOS, Android, and ARCVM (Android Runtime for Chrome) to debug performance bottlenecks and ensure reliability.",
-            "Collaborate with the Google Meet team and third-party vendors to integrate Beam-specific features (like 3D depth sensing or spatial audio) into the broader video conferencing ecosystem."
-          ],
-          "apply_url": "https://www.google.com/about/careers/applications/./apply?jobId=CiUAL2FckQuH0aIDIqnBjrpbh2ThSt0VJDP4MBoZyF0Ecd-Mxq0uEjsAbDj5iDUld00PhwMGLuIubuvNkRoW0acqK9HIwn5x8GLGZkGiq1YN6hoCpk6_ERnTGFd72zC0iUvx8w%3D%3D_V2&loc=US&title=Software+Engineer&location=United%20States&q=software%20engineer",
-          "salary_range": "$141,000-$202,000 + bonus + equity + benefits",
-          "is_remote_eligible": true
-        }
-      },
-      "posted_on": null,
-      "created_at": "2025-12-07T03:20:48.080152Z",
-      "closed_on": null,
-      "status": "OPEN",
-      "has_matched": false,
-      "ai_metadata": {}
+      "ai_metadata": {},
+      "first_seen_at": "2025-12-07T04:21:17.921518Z",
+      "last_seen_at": "2025-12-07T04:21:17.921518Z",
+      "consecutive_misses": 0,
+      "details_scraped": false
     },
     {
       "id": "94209465762357958",
@@ -637,11 +597,87 @@
         }
       },
       "posted_on": null,
-      "created_at": "2025-12-07T03:20:48.080162Z",
+      "created_at": "2025-12-07T04:21:17.921528Z",
       "closed_on": null,
       "status": "OPEN",
       "has_matched": false,
-      "ai_metadata": {}
+      "ai_metadata": {},
+      "first_seen_at": "2025-12-07T04:21:17.921528Z",
+      "last_seen_at": "2025-12-07T04:21:17.921528Z",
+      "consecutive_misses": 0,
+      "details_scraped": false
+    },
+    {
+      "id": "85613336216904390",
+      "title": "Software Engineer, Meeting Experiences, Google Beam",
+      "company": "google",
+      "location": "Mountain View, CA, USA",
+      "url": "https://www.google.com/about/careers/applications/jobs/results/85613336216904390-software-engineer-meeting-experiences-google-beam?location=United%20States&q=software%20engineer",
+      "source_id": "google_scraper",
+      "details": {
+        "minimum_qualifications": [
+          "Bachelor\u2019s degree in Computer Science, related technical field, or equivalent practical experience.",
+          "2 years of experience with software development in C++ or Java, or 1 year of experience with an advanced degree.",
+          "2 years of experience with full stack development, bridging native backend services (C++, Go) and front-end applications (Android, Java).",
+          "Experience working with Operating Systems concepts (concurrency, memory management) and building production-grade systems."
+        ],
+        "preferred_qualifications": [
+          "Bachelor\u2019s degree in Computer Science, related technical field, or equivalent practical experience.",
+          "2 years of experience with software development in C++ or Java, or 1 year of experience with an advanced degree.",
+          "2 years of experience with full stack development, bridging native backend services (C++, Go) and front-end applications (Android, Java).",
+          "Experience working with Operating Systems concepts (concurrency, memory management) and building production-grade systems."
+        ],
+        "about_the_job": "Google's software engineers develop the next-generation technologies that change how billions of users connect, explore, and interact with information and one another. Our products need to handle information at massive scale, and extend well beyond web search. We're looking for engineers who bring fresh ideas from all areas, including information retrieval, distributed computing, large-scale system design, networking and data storage, security, artificial intelligence, natural language processing, UI design and mobile; the list goes on and is growing every day. As a software engineer, you will work on a specific project critical to Google\u2019s needs with opportunities to switch teams and projects as you and our fast-paced business grow and evolve. We need our engineers to be versatile, display leadership qualities and be enthusiastic to take on new problems across the full-stack as we continue to push technology forward.\n\nJoin the Google Beam effort a creative, fast-paced team turning science fiction into reality. We are developing advanced software and hardware technology to enable people separated by distance to experience a conversation as if they were physically together (telepresence). You will have the opportunity to make impact working alongside exceptional researchers and engineers, inventing the future of communication within the Google ecosystem.\n\nAs a Full Stack Software Engineer on the Meeting Integrations team, you will build the next-generation hardware device. You will bridge the gap between high-performance native services and user-facing applications. You will be responsible for bringing 2D and 3D call experiences (including instant travel) to customers by natively integrating with the meeting software they already rely on, such as Google Meet and Zoom.\n\nLabs is a group focused on incubating early-stage efforts in support of Google\u2019s mission to organize the world\u2019s information and make it universally accessible and useful. Our team exists to help discover and create new ways to advance our core products through exploration and the application of new technologies. We work to build new solutions that have the potential to transform how users interact with Google. Our goal is to drive innovation by developing new Google products and capabilities that deliver significant impact over longer timeframes.\n\nThe US base salary range for this full-time position is $141,000-$202,000 + bonus + equity + benefits. Our salary ranges are determined by role, level, and location. Within the range, individual pay is determined by work location and additional factors, including job-related skills, experience, and relevant education or training. Your recruiter can share more about the specific salary range for your preferred location during the hiring process.\n\nPlease note that the compensation details listed in US role postings reflect the base salary only, and do not include bonus, equity, or benefits. Learn more about benefits at Google.",
+        "responsibilities": [
+          "Design and implement the core application logic that powers the meeting experience, ensure high fidelity and magic interactions for the user.",
+          "Manage the complex communication between user-facing applications (Android/Java) and low-latency native client services (C++ and Go).",
+          "Work across multiple layers of the stack\u2014specifically ChromeOS, Android, and ARCVM (Android Runtime for Chrome) to debug performance bottlenecks and ensure reliability.",
+          "Collaborate with the Google Meet team and third-party vendors to integrate Beam-specific features (like 3D depth sensing or spatial audio) into the broader video conferencing ecosystem."
+        ],
+        "experience_level": null,
+        "salary_range": "$141,000-$202,000 + bonus + equity + benefits",
+        "is_remote_eligible": true,
+        "apply_url": "https://www.google.com/about/careers/applications/./apply?jobId=CiUAL2FckQuH0aIDIqnBjrpbh2ThSt0VJDP4MBoZyF0Ecd-Mxq0uEjsAbDj5iDUld00PhwMGLuIubuvNkRoW0acqK9HIwn5x8GLGZkGiq1YN6hoCpk6_ERnTGFd72zC0iUvx8w%3D%3D_V2&loc=US&title=Software+Engineer&location=United%20States&q=software%20engineer",
+        "raw": {
+          "title": "Software Engineer, Meeting Experiences, Google Beam",
+          "location": "Mountain View, CA, USA",
+          "job_url": "https://www.google.com/about/careers/applications/jobs/results/85613336216904390-software-engineer-meeting-experiences-google-beam?location=United%20States&q=software%20engineer",
+          "minimum_qualifications": [
+            "Bachelor\u2019s degree in Computer Science, related technical field, or equivalent practical experience.",
+            "2 years of experience with software development in C++ or Java, or 1 year of experience with an advanced degree.",
+            "2 years of experience with full stack development, bridging native backend services (C++, Go) and front-end applications (Android, Java).",
+            "Experience working with Operating Systems concepts (concurrency, memory management) and building production-grade systems."
+          ],
+          "experience_level": null,
+          "company": "google",
+          "preferred_qualifications": [
+            "Bachelor\u2019s degree in Computer Science, related technical field, or equivalent practical experience.",
+            "2 years of experience with software development in C++ or Java, or 1 year of experience with an advanced degree.",
+            "2 years of experience with full stack development, bridging native backend services (C++, Go) and front-end applications (Android, Java).",
+            "Experience working with Operating Systems concepts (concurrency, memory management) and building production-grade systems."
+          ],
+          "about_the_job": "Google's software engineers develop the next-generation technologies that change how billions of users connect, explore, and interact with information and one another. Our products need to handle information at massive scale, and extend well beyond web search. We're looking for engineers who bring fresh ideas from all areas, including information retrieval, distributed computing, large-scale system design, networking and data storage, security, artificial intelligence, natural language processing, UI design and mobile; the list goes on and is growing every day. As a software engineer, you will work on a specific project critical to Google\u2019s needs with opportunities to switch teams and projects as you and our fast-paced business grow and evolve. We need our engineers to be versatile, display leadership qualities and be enthusiastic to take on new problems across the full-stack as we continue to push technology forward.\n\nJoin the Google Beam effort a creative, fast-paced team turning science fiction into reality. We are developing advanced software and hardware technology to enable people separated by distance to experience a conversation as if they were physically together (telepresence). You will have the opportunity to make impact working alongside exceptional researchers and engineers, inventing the future of communication within the Google ecosystem.\n\nAs a Full Stack Software Engineer on the Meeting Integrations team, you will build the next-generation hardware device. You will bridge the gap between high-performance native services and user-facing applications. You will be responsible for bringing 2D and 3D call experiences (including instant travel) to customers by natively integrating with the meeting software they already rely on, such as Google Meet and Zoom.\n\nLabs is a group focused on incubating early-stage efforts in support of Google\u2019s mission to organize the world\u2019s information and make it universally accessible and useful. Our team exists to help discover and create new ways to advance our core products through exploration and the application of new technologies. We work to build new solutions that have the potential to transform how users interact with Google. Our goal is to drive innovation by developing new Google products and capabilities that deliver significant impact over longer timeframes.\n\nThe US base salary range for this full-time position is $141,000-$202,000 + bonus + equity + benefits. Our salary ranges are determined by role, level, and location. Within the range, individual pay is determined by work location and additional factors, including job-related skills, experience, and relevant education or training. Your recruiter can share more about the specific salary range for your preferred location during the hiring process.\n\nPlease note that the compensation details listed in US role postings reflect the base salary only, and do not include bonus, equity, or benefits. Learn more about benefits at Google.",
+          "responsibilities": [
+            "Design and implement the core application logic that powers the meeting experience, ensure high fidelity and magic interactions for the user.",
+            "Manage the complex communication between user-facing applications (Android/Java) and low-latency native client services (C++ and Go).",
+            "Work across multiple layers of the stack\u2014specifically ChromeOS, Android, and ARCVM (Android Runtime for Chrome) to debug performance bottlenecks and ensure reliability.",
+            "Collaborate with the Google Meet team and third-party vendors to integrate Beam-specific features (like 3D depth sensing or spatial audio) into the broader video conferencing ecosystem."
+          ],
+          "apply_url": "https://www.google.com/about/careers/applications/./apply?jobId=CiUAL2FckQuH0aIDIqnBjrpbh2ThSt0VJDP4MBoZyF0Ecd-Mxq0uEjsAbDj5iDUld00PhwMGLuIubuvNkRoW0acqK9HIwn5x8GLGZkGiq1YN6hoCpk6_ERnTGFd72zC0iUvx8w%3D%3D_V2&loc=US&title=Software+Engineer&location=United%20States&q=software%20engineer",
+          "salary_range": "$141,000-$202,000 + bonus + equity + benefits",
+          "is_remote_eligible": true
+        }
+      },
+      "posted_on": null,
+      "created_at": "2025-12-07T04:21:17.921539Z",
+      "closed_on": null,
+      "status": "OPEN",
+      "has_matched": false,
+      "ai_metadata": {},
+      "first_seen_at": "2025-12-07T04:21:17.921539Z",
+      "last_seen_at": "2025-12-07T04:21:17.921539Z",
+      "consecutive_misses": 0,
+      "details_scraped": false
     },
     {
       "id": "114119616665395910",
@@ -703,11 +739,15 @@
         }
       },
       "posted_on": null,
-      "created_at": "2025-12-07T03:20:48.080172Z",
+      "created_at": "2025-12-07T04:21:17.921550Z",
       "closed_on": null,
       "status": "OPEN",
       "has_matched": false,
-      "ai_metadata": {}
+      "ai_metadata": {},
+      "first_seen_at": "2025-12-07T04:21:17.921550Z",
+      "last_seen_at": "2025-12-07T04:21:17.921550Z",
+      "consecutive_misses": 0,
+      "details_scraped": false
     }
   ]
 }
