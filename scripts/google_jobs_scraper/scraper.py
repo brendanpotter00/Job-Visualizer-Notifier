@@ -3,13 +3,20 @@ Core scraping logic using Playwright browser automation
 """
 
 import logging
+import sys
+from pathlib import Path
 from urllib.parse import quote
 from typing import List, Dict, Any, Optional
-from playwright.async_api import async_playwright, Browser, BrowserContext, Page
+from playwright.async_api import Page
+
+# Add shared module to path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from shared.base_scraper import BaseScraper
 
 from .config import (
     BASE_URL,
     LOCATION_FILTER,
+    SEARCH_QUERIES,
     MAX_PAGES,
     PAGE_LOAD_TIMEOUT,
     INCLUDE_TITLE_KEYWORDS,
@@ -31,60 +38,44 @@ from .parser import (
 logger = logging.getLogger(__name__)
 
 
-class GoogleJobsScraper:
-    """Main scraper class for Google Careers"""
+class GoogleJobsScraper(BaseScraper):
+    """Main scraper class for Google Careers (extends BaseScraper)"""
 
     def __init__(self, headless: bool = True, detail_scrape: bool = False):
-        self.headless = headless
-        self.detail_scrape = detail_scrape
-        self.playwright = None
-        self.browser: Optional[Browser] = None
-        self.context: Optional[BrowserContext] = None
+        super().__init__(headless, detail_scrape)
 
-    async def __aenter__(self):
-        """Async context manager entry"""
-        await self.initialize_browser()
-        return self
+    # ========== Abstract Method Implementations ==========
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Async context manager exit"""
-        await self.close_browser()
+    def get_company_name(self) -> str:
+        """Return company identifier"""
+        return "google"
 
-    async def initialize_browser(self):
-        """Launch headless Chromium browser with anti-detection measures"""
-        logger.info("Initializing browser...")
+    def build_search_url(self, search_query: str, page_num: int) -> str:
+        """Build Google Careers search URL"""
+        url = f"{BASE_URL}?location={quote(LOCATION_FILTER)}&q={quote(search_query)}"
 
-        self.playwright = await async_playwright().start()
-        self.browser = await self.playwright.chromium.launch(
-            headless=self.headless,
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-            ],
-        )
+        if page_num > 1:
+            url += f"&page={page_num}"
 
-        self.context = await self.browser.new_context(
-            viewport={"width": 1920, "height": 1080},
-            user_agent=(
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            ),
-            locale="en-US",
-        )
+        return url
 
-        logger.info("Browser initialized successfully")
+    async def extract_job_cards(self, page: Page) -> List[Dict[str, Any]]:
+        """Extract job listings from Google search results page"""
+        return await extract_job_cards_from_list(page)
 
-    async def close_browser(self):
-        """Close browser and cleanup"""
-        if self.context:
-            await self.context.close()
-        if self.browser:
-            await self.browser.close()
-        if self.playwright:
-            await self.playwright.stop()
-        logger.info("Browser closed")
+    async def extract_job_details(self, page: Page, job_url: str) -> Dict[str, Any]:
+        """Extract detailed information from Google job detail page"""
+        return await extract_job_details(page, job_url)
+
+    def get_search_queries(self) -> List[str]:
+        """Return Google-specific search queries"""
+        return SEARCH_QUERIES
+
+    def filter_job(self, job_title: str) -> bool:
+        """Filter job by title keywords"""
+        return should_include_job(job_title, INCLUDE_TITLE_KEYWORDS, EXCLUDE_TITLE_KEYWORDS)
+
+    # ========== Google-Specific Methods ==========
 
     async def scrape_query(
         self, search_query: str, max_jobs: Optional[int] = None
@@ -106,13 +97,13 @@ class GoogleJobsScraper:
                 )
 
                 # Build URL with filters
-                url = self._build_search_url(search_query, page_num)
+                url = self.build_search_url(search_query, page_num)
 
                 # Navigate to page
-                await self._navigate_to_page(page, url)
+                await self.navigate_to_page(page, url, PAGE_LOAD_TIMEOUT)
 
                 # Extract job cards from list page
-                job_cards = await extract_job_cards_from_list(page)
+                job_cards = await self.extract_job_cards(page)
 
                 if not job_cards:
                     logger.info("No more jobs found")
@@ -124,11 +115,7 @@ class GoogleJobsScraper:
                 filtered_jobs = [
                     job
                     for job in job_cards
-                    if should_include_job(
-                        job.get("title", ""),
-                        INCLUDE_TITLE_KEYWORDS,
-                        EXCLUDE_TITLE_KEYWORDS,
-                    )
+                    if self.filter_job(job.get("title", ""))
                 ]
 
                 logger.info(
@@ -185,7 +172,7 @@ class GoogleJobsScraper:
 
                 try:
                     # Extract detailed information
-                    details = await extract_job_details(page, job_url)
+                    details = await self.extract_job_details(page, job_url)
 
                     # Merge with basic info from list page
                     enriched_job = {**job_card, **details}
@@ -205,24 +192,6 @@ class GoogleJobsScraper:
             await page.close()
 
         return enriched_jobs
-
-    def _build_search_url(self, search_query: str, page_num: int) -> str:
-        """Build search URL with filters and pagination"""
-        url = f"{BASE_URL}?location={quote(LOCATION_FILTER)}&q={quote(search_query)}"
-
-        if page_num > 1:
-            url += f"&page={page_num}"
-
-        return url
-
-    async def _navigate_to_page(self, page: Page, url: str):
-        """Navigate to URL with error handling"""
-        try:
-            await page.goto(url, wait_until="networkidle", timeout=PAGE_LOAD_TIMEOUT)
-        except Exception as e:
-            logger.warning(f"Error navigating to {url}: {e}, retrying...")
-            # Retry once
-            await page.goto(url, wait_until="domcontentloaded", timeout=PAGE_LOAD_TIMEOUT)
 
     def transform_to_job_model(self, job_data: Dict[str, Any]) -> GoogleJob:
         """Transform scraped data to JobListing model (database schema)"""
@@ -244,7 +213,7 @@ class GoogleJobsScraper:
             "raw": job_data,  # Original scraped data for debugging
         }
 
-        return GoogleJob(
+        job = GoogleJob(
             id=job_id,
             title=job_data.get("title", ""),
             company=job_data.get("company", "google"),
@@ -258,7 +227,13 @@ class GoogleJobsScraper:
             status="OPEN",
             has_matched=False,
             ai_metadata={},
+            # Incremental tracking fields (will be set by caller if using DB mode)
+            first_seen_at=created_at,
+            last_seen_at=created_at,
+            consecutive_misses=0,
+            details_scraped=False,
         )
+        return job
 
     def deduplicate_jobs(self, jobs: List[Dict[str, Any]]) -> List[GoogleJob]:
         """

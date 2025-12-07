@@ -11,7 +11,8 @@ This scraper uses Playwright (browser automation) to scrape job listings from Go
 ### 1. Install Python Dependencies
 
 ```bash
-pip install -r scripts/requirements.txt
+pip install -r scripts/requirements.txt           # Core dependencies
+pip install -r scripts/requirements-dev.txt       # Development/testing dependencies
 ```
 
 ### 2. Install Playwright Browser
@@ -59,18 +60,41 @@ python scripts/run_scraper.py -v
 python scripts/run_scraper.py -q "machine learning" "AI engineer"
 ```
 
+### Database Mode (NEW)
+
+```bash
+# SQLite database (local development)
+python scripts/run_scraper.py --db-url sqlite:///jobs.db
+
+# PostgreSQL database (production)
+python scripts/run_scraper.py --db-url postgresql://user:pass@host:5432/db
+
+# Incremental scrape (smart updates - only fetch new jobs)
+python scripts/run_scraper.py --db-url sqlite:///jobs.db --incremental
+
+# Full scrape with details to database
+python scripts/run_scraper.py --db-url sqlite:///jobs.db --detail-scrape
+
+# Specify environment (affects table naming)
+python scripts/run_scraper.py --db-url sqlite:///jobs.db --env prod
+```
+
 ### Command Line Arguments
 
 | Argument | Description |
 |----------|-------------|
-| `--output, -o` | Output JSON file path |
+| `--output, -o` | Output JSON file path (JSON mode only) |
 | `--queries, -q` | Custom search queries (space-separated) |
 | `--detail-scrape` | Also scrape individual job detail pages |
 | `--max-jobs` | Maximum number of jobs to scrape |
-| `--resume` | Resume from checkpoint if available |
+| `--resume` | Resume from checkpoint if available (JSON mode only) |
 | `--headless` | Run browser in headless mode (default: True) |
 | `--no-headless` | Show browser window for debugging |
 | `--verbose, -v` | Enable verbose logging |
+| `--company` | Which company to scrape (choices: google, all; default: google) |
+| `--env` | Environment for table naming (choices: local, qa, prod; default: local) |
+| `--db-url` | Database connection URL (enables database mode) |
+| `--incremental` | Run incremental scrape (requires --db-url) |
 
 ## Output Format
 
@@ -201,24 +225,74 @@ Edit `scripts/google_jobs_scraper/config.py` to customize:
 - `REQUEST_DELAY_MIN/MAX`: Adjust rate limiting
 - `MAX_PAGES`: Change pagination limit
 
+## Testing
+
+The scraper includes a comprehensive test suite with both unit and integration tests.
+
+### Running Tests
+
+```bash
+# Run all tests
+pytest
+
+# Run with verbose output
+pytest -v
+
+# Run specific test types
+pytest tests/unit                # Unit tests only
+pytest tests/integration         # Integration tests only
+
+# Run with coverage
+pytest --cov=google_jobs_scraper --cov=shared
+```
+
+### Test Organization
+
+- **Unit Tests** (`tests/unit/`): Test individual functions and models
+  - `test_models.py` - JobListing and ScrapeRun validation
+  - `test_incremental_diff.py` - Job diff algorithm
+  - `test_parser_helpers.py` - Salary extraction, remote detection
+  - `test_utils.py` - Filtering, ID extraction, timestamps
+
+- **Integration Tests** (`tests/integration/`): Test with real database
+  - `test_database.py` - Database operations (CRUD, schema)
+  - `test_incremental.py` - 5-phase incremental algorithm
+  - `test_scraper_transform.py` - Job transformation logic
+
 ## Architecture
 
 ```
-scripts/google_jobs_scraper/
-├── main.py        # CLI entry point, orchestration
-├── scraper.py     # Playwright browser automation
-├── parser.py      # HTML parsing and data extraction
-├── models.py      # Pydantic data models
-├── config.py      # Configuration constants
-└── utils.py       # Helper functions (retry, logging, etc.)
+scripts/
+├── run_scraper.py                # Entry point with dual-mode support
+├── google_jobs_scraper/          # Google-specific implementation
+│   ├── main.py                   # CLI orchestration (JSON mode)
+│   ├── scraper.py                # Playwright automation (extends BaseScraper)
+│   ├── parser.py                 # HTML parsing and data extraction
+│   ├── models.py                 # Pydantic data models
+│   ├── config.py                 # Configuration constants
+│   └── utils.py                  # Helper functions
+├── shared/                       # Multi-scraper framework (NEW)
+│   ├── base_scraper.py           # Abstract base class for scrapers
+│   ├── database.py               # SQLite/PostgreSQL abstraction
+│   ├── incremental.py            # 5-phase incremental algorithm
+│   └── models.py                 # Database-aligned models
+├── tests/                        # Test suite (NEW)
+│   ├── conftest.py               # Shared fixtures
+│   ├── unit/                     # Unit tests
+│   └── integration/              # Integration tests
+├── pytest.ini                    # Test configuration (NEW)
+└── requirements-dev.txt          # Dev dependencies (NEW)
 ```
 
 ## Notes
 
 - **No job post dates**: Google doesn't show when jobs were posted, so the scraper uses the scrape timestamp instead
 - **Salary extraction**: Parsed from the "About the job" text when available (format: "$X-$Y + bonus + equity")
-- **Resume capability**: The scraper saves checkpoints, so you can safely interrupt and resume
+- **Resume capability** (JSON mode): The scraper saves checkpoints, so you can safely interrupt and resume
 - **Deduplication**: Jobs appearing in multiple search queries are automatically deduplicated by URL
+- **Database mode** (NEW): Stores jobs in SQLite or PostgreSQL with incremental tracking
+- **Incremental scraping** (NEW): 5-phase algorithm only fetches details for new jobs, dramatically reducing scrape time
+- **Environment-based tables** (NEW): `--env` flag creates separate tables (e.g., `job_listings_local`, `job_listings_prod`)
 
 ## Examples
 
@@ -227,7 +301,7 @@ scripts/google_jobs_scraper/
 python scripts/run_scraper.py --max-jobs 10 -v
 ```
 
-### Full Scrape with Details
+### Full Scrape with Details (JSON)
 ```bash
 python scripts/run_scraper.py --detail-scrape -o data/google_jobs_full.json
 ```
@@ -235,6 +309,27 @@ python scripts/run_scraper.py --detail-scrape -o data/google_jobs_full.json
 ### Machine Learning Jobs Only
 ```bash
 python scripts/run_scraper.py -q "machine learning" "ML engineer" "AI" -o data/ml_jobs.json
+```
+
+### Database Mode Examples (NEW)
+
+#### Initial Full Scrape to Database
+```bash
+python scripts/run_scraper.py --db-url sqlite:///jobs.db --detail-scrape
+```
+
+#### Incremental Updates (Fast)
+```bash
+# Run daily/hourly - only fetches new jobs
+python scripts/run_scraper.py --db-url sqlite:///jobs.db --incremental
+```
+
+#### Production PostgreSQL
+```bash
+python scripts/run_scraper.py \
+  --db-url postgresql://user:pass@db.example.com:5432/jobs \
+  --env prod \
+  --incremental
 ```
 
 ## License
