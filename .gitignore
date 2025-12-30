@@ -48,3 +48,12 @@ data/
 *.db
 scripts/output/
 
+# .NET
+bin/
+obj/
+*.DotSettings.user
+
+# Python
+__pycache__/
+*.pyc
+.venv/

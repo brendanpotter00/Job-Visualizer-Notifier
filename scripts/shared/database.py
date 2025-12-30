@@ -1,63 +1,47 @@
 """
 Database abstraction layer for job scrapers
 
-Supports both SQLite (local development) and PostgreSQL (production).
-Uses environment-based table naming (e.g., job_listings_local, job_listings_prod).
+PostgreSQL only. Uses environment-based table naming (e.g., job_listings_local, job_listings_prod).
 """
 
+import json
 import logging
-import sqlite3
-from typing import Set, List, Optional, Dict, Any, Union
+from typing import Set, List, Optional, Dict, Any
 from urllib.parse import urlparse
-from datetime import datetime
+
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
 from .models import JobListing, ScrapeRun
 
 logger = logging.getLogger(__name__)
 
 # Type alias for database connections
-Connection = Union[sqlite3.Connection, Any]  # Any for psycopg2 connection
+Connection = psycopg2.extensions.connection
 
 
 def get_connection(db_url: str, env: str = "local") -> Connection:
     """
-    Create a database connection from a URL
+    Create a PostgreSQL database connection from a URL
 
     Args:
-        db_url: Database URL (sqlite:///path/to/db.db or postgresql://user:pass@host:port/dbname)
+        db_url: Database URL (postgresql://user:pass@host:port/dbname)
         env: Environment name (local, qa, prod) - used for table naming
 
     Returns:
-        Database connection object
+        PostgreSQL connection object
     """
     parsed = urlparse(db_url)
 
-    if parsed.scheme == "sqlite":
-        # Extract path from URL (remove leading slashes for relative paths)
-        db_path = db_url.replace("sqlite:///", "")
-        logger.info(f"Connecting to SQLite database: {db_path}")
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row  # Enable dict-like access
-        return conn
-
-    elif parsed.scheme == "postgresql":
-        try:
-            import psycopg2
-            from psycopg2.extras import RealDictCursor
-        except ImportError:
-            raise ImportError(
-                "psycopg2 not installed. Install with: pip install psycopg2-binary"
-            )
-
-        logger.info(f"Connecting to PostgreSQL database: {parsed.hostname}")
-        conn = psycopg2.connect(db_url, cursor_factory=RealDictCursor)
-        return conn
-
-    else:
+    if parsed.scheme != "postgresql":
         raise ValueError(
             f"Unsupported database scheme: {parsed.scheme}. "
-            "Use 'sqlite' or 'postgresql'"
+            "Only 'postgresql' is supported."
         )
+
+    logger.info(f"Connecting to PostgreSQL database: {parsed.hostname}")
+    conn = psycopg2.connect(db_url, cursor_factory=RealDictCursor)
+    return conn
 
 
 def init_schema(conn: Connection, env: str = "local") -> None:
@@ -82,17 +66,17 @@ def init_schema(conn: Connection, env: str = "local") -> None:
             location TEXT,
             url TEXT NOT NULL,
             source_id TEXT NOT NULL,
-            details TEXT DEFAULT '{{}}',
+            details JSONB DEFAULT '{{}}'::jsonb,
             posted_on TEXT,
             created_at TEXT NOT NULL,
             closed_on TEXT,
             status TEXT NOT NULL DEFAULT 'OPEN',
-            has_matched INTEGER DEFAULT 0,
-            ai_metadata TEXT DEFAULT '{{}}',
+            has_matched BOOLEAN DEFAULT FALSE,
+            ai_metadata JSONB DEFAULT '{{}}'::jsonb,
             first_seen_at TEXT NOT NULL,
             last_seen_at TEXT NOT NULL,
             consecutive_misses INTEGER DEFAULT 0,
-            details_scraped INTEGER DEFAULT 0
+            details_scraped BOOLEAN DEFAULT FALSE
         )
     """)
 
@@ -146,12 +130,12 @@ def get_active_job_ids(conn: Connection, company: str, env: str = "local") -> Se
     jobs_table = f"job_listings_{env}"
 
     cursor.execute(
-        f"SELECT id FROM {jobs_table} WHERE company = ? AND status = 'OPEN'",
+        f"SELECT id FROM {jobs_table} WHERE company = %s AND status = 'OPEN'",
         (company,)
     )
 
     rows = cursor.fetchall()
-    return {row[0] if isinstance(row, tuple) else row['id'] for row in rows}
+    return {row['id'] for row in rows}
 
 
 def get_job_by_id(conn: Connection, job_id: str, env: str = "local") -> Optional[Dict[str, Any]]:
@@ -169,11 +153,11 @@ def get_job_by_id(conn: Connection, job_id: str, env: str = "local") -> Optional
     cursor = conn.cursor()
     jobs_table = f"job_listings_{env}"
 
-    cursor.execute(f"SELECT * FROM {jobs_table} WHERE id = ?", (job_id,))
+    cursor.execute(f"SELECT * FROM {jobs_table} WHERE id = %s", (job_id,))
     row = cursor.fetchone()
 
     if row:
-        return dict(row) if hasattr(row, 'keys') else row
+        return dict(row)
     return None
 
 
@@ -186,8 +170,6 @@ def insert_job(conn: Connection, job: JobListing, env: str = "local") -> None:
         job: JobListing model
         env: Environment name
     """
-    import json
-
     cursor = conn.cursor()
     jobs_table = f"job_listings_{env}"
 
@@ -197,13 +179,13 @@ def insert_job(conn: Connection, job: JobListing, env: str = "local") -> None:
             details, posted_on, created_at, closed_on, status,
             has_matched, ai_metadata,
             first_seen_at, last_seen_at, consecutive_misses, details_scraped
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """, (
         job.id, job.title, job.company, job.location, job.url, job.source_id,
         json.dumps(job.details), job.posted_on, job.created_at, job.closed_on, job.status,
-        1 if job.has_matched else 0, json.dumps(job.ai_metadata),
+        job.has_matched, json.dumps(job.ai_metadata),
         job.first_seen_at, job.last_seen_at, job.consecutive_misses,
-        1 if job.details_scraped else 0
+        job.details_scraped
     ))
 
     conn.commit()
@@ -226,12 +208,11 @@ def update_last_seen(conn: Connection, job_ids: List[str], timestamp: str, env: 
     cursor = conn.cursor()
     jobs_table = f"job_listings_{env}"
 
-    # SQLite uses ? placeholders
-    placeholders = ','.join(['?' for _ in job_ids])
+    placeholders = ','.join(['%s' for _ in job_ids])
 
     cursor.execute(f"""
         UPDATE {jobs_table}
-        SET last_seen_at = ?, consecutive_misses = 0
+        SET last_seen_at = %s, consecutive_misses = 0
         WHERE id IN ({placeholders})
     """, [timestamp] + job_ids)
 
@@ -254,7 +235,7 @@ def increment_consecutive_misses(conn: Connection, job_ids: List[str], env: str 
     cursor = conn.cursor()
     jobs_table = f"job_listings_{env}"
 
-    placeholders = ','.join(['?' for _ in job_ids])
+    placeholders = ','.join(['%s' for _ in job_ids])
 
     cursor.execute(f"""
         UPDATE {jobs_table}
@@ -282,11 +263,11 @@ def mark_jobs_closed(conn: Connection, job_ids: List[str], timestamp: str, env: 
     cursor = conn.cursor()
     jobs_table = f"job_listings_{env}"
 
-    placeholders = ','.join(['?' for _ in job_ids])
+    placeholders = ','.join(['%s' for _ in job_ids])
 
     cursor.execute(f"""
         UPDATE {jobs_table}
-        SET status = 'CLOSED', closed_on = ?
+        SET status = 'CLOSED', closed_on = %s
         WHERE id IN ({placeholders})
     """, [timestamp] + job_ids)
 
@@ -309,8 +290,8 @@ def reactivate_job(conn: Connection, job_id: str, timestamp: str, env: str = "lo
 
     cursor.execute(f"""
         UPDATE {jobs_table}
-        SET status = 'OPEN', closed_on = NULL, last_seen_at = ?, consecutive_misses = 0
-        WHERE id = ?
+        SET status = 'OPEN', closed_on = NULL, last_seen_at = %s, consecutive_misses = 0
+        WHERE id = %s
     """, (timestamp, job_id))
 
     conn.commit()
@@ -333,7 +314,7 @@ def record_scrape_run(conn: Connection, run_data: ScrapeRun, env: str = "local")
         INSERT INTO {runs_table} (
             run_id, company, started_at, completed_at, mode,
             jobs_seen, new_jobs, closed_jobs, details_fetched, error_count
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """, (
         run_data.run_id, run_data.company, run_data.started_at, run_data.completed_at,
         run_data.mode, run_data.jobs_seen, run_data.new_jobs, run_data.closed_jobs,
@@ -356,13 +337,11 @@ def get_all_active_jobs(conn: Connection, company: str, env: str = "local") -> L
     Returns:
         List of JobListing objects
     """
-    import json
-
     cursor = conn.cursor()
     jobs_table = f"job_listings_{env}"
 
     cursor.execute(
-        f"SELECT * FROM {jobs_table} WHERE company = ? AND status = 'OPEN'",
+        f"SELECT * FROM {jobs_table} WHERE company = %s AND status = 'OPEN'",
         (company,)
     )
 
@@ -370,13 +349,12 @@ def get_all_active_jobs(conn: Connection, company: str, env: str = "local") -> L
     jobs = []
 
     for row in rows:
-        row_dict = dict(row) if hasattr(row, 'keys') else row
-        # Convert JSON strings back to dicts
-        row_dict['details'] = json.loads(row_dict['details']) if isinstance(row_dict['details'], str) else row_dict['details']
-        row_dict['ai_metadata'] = json.loads(row_dict['ai_metadata']) if isinstance(row_dict['ai_metadata'], str) else row_dict['ai_metadata']
-        # Convert integers back to booleans
-        row_dict['has_matched'] = bool(row_dict['has_matched'])
-        row_dict['details_scraped'] = bool(row_dict['details_scraped'])
+        row_dict = dict(row)
+        # JSONB columns are already parsed by psycopg2
+        if isinstance(row_dict['details'], str):
+            row_dict['details'] = json.loads(row_dict['details'])
+        if isinstance(row_dict['ai_metadata'], str):
+            row_dict['ai_metadata'] = json.loads(row_dict['ai_metadata'])
 
         jobs.append(JobListing(**row_dict))
 

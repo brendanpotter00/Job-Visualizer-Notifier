@@ -1,0 +1,15 @@
+**/bin/
+**/obj/
+**/.idea/
+**/.vs/
+**/.vscode/
+**/node_modules/
+**/.git/
+**/.gitignore
+**/README.md
+**/*.user
+**/*.suo
+**/output/
+**/__pycache__/
+**/.venv/
+**/*.pyc

@@ -2,13 +2,16 @@
 Shared pytest fixtures for the scraper test suite
 """
 
+import os
 import sys
-import sqlite3
+import uuid
 from pathlib import Path
 from typing import Dict, Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
 # Add scripts directory to path for imports
 scripts_dir = Path(__file__).parent.parent
@@ -16,6 +19,13 @@ sys.path.insert(0, str(scripts_dir))
 
 from shared.models import JobListing, ScrapeRun
 from shared import database as db
+
+
+# Default test database URL (local Docker postgres)
+TEST_DB_URL = os.environ.get(
+    "TEST_DATABASE_URL",
+    "postgresql://postgres:postgres@localhost:5432/jobscraper"
+)
 
 
 @pytest.fixture
@@ -97,16 +107,43 @@ def sample_scrape_run() -> ScrapeRun:
 
 
 @pytest.fixture
-def in_memory_db():
+def test_env():
     """
-    SQLite in-memory database connection with schema initialized
-    Yields the connection and cleans up after test
+    Generate unique test environment name to isolate test tables
     """
-    conn = sqlite3.connect(":memory:")
-    conn.row_factory = sqlite3.Row
-    db.init_schema(conn, env="test")
+    return f"test_{uuid.uuid4().hex[:8]}"
+
+
+@pytest.fixture
+def postgres_db(test_env):
+    """
+    PostgreSQL database connection with schema initialized
+    Uses unique table names per test to allow parallel execution
+    Yields the connection and cleans up tables after test
+    """
+    conn = psycopg2.connect(TEST_DB_URL, cursor_factory=RealDictCursor)
+    db.init_schema(conn, env=test_env)
     yield conn
-    conn.close()
+
+    # Cleanup: drop test tables
+    cursor = conn.cursor()
+    try:
+        cursor.execute(f"DROP TABLE IF EXISTS job_listings_{test_env} CASCADE")
+        cursor.execute(f"DROP TABLE IF EXISTS scrape_runs_{test_env} CASCADE")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+    finally:
+        conn.close()
+
+
+# Alias for backwards compatibility
+@pytest.fixture
+def in_memory_db(postgres_db):
+    """
+    Alias for postgres_db fixture (backwards compatibility)
+    """
+    return postgres_db
 
 
 @pytest.fixture

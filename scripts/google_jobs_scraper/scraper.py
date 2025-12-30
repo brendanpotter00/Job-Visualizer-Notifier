@@ -61,7 +61,11 @@ class GoogleJobsScraper(BaseScraper):
 
     async def extract_job_cards(self, page: Page) -> List[Dict[str, Any]]:
         """Extract job listings from Google search results page"""
-        return await extract_job_cards_from_list(page)
+        job_cards = await extract_job_cards_from_list(page)
+        # Add 'id' field required by incremental.py
+        for job in job_cards:
+            job['id'] = extract_job_id_from_url(job.get('job_url', '')) or 'unknown'
+        return job_cards
 
     async def extract_job_details(self, page: Page, job_url: str) -> Dict[str, Any]:
         """Extract detailed information from Google job detail page"""

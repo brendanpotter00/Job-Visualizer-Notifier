@@ -139,17 +139,17 @@ Examples:
   # JSON mode (backwards compatible)
   python scripts/run_scraper.py --detail-scrape
 
-  # Database mode with SQLite (local development)
+  # Database mode with PostgreSQL (local development via Docker)
   python scripts/run_scraper.py --company google --env local \\
-    --db-url "sqlite:///scripts/output/jobs_local.db"
+    --db-url "postgresql://postgres:postgres@localhost:5432/jobscraper"
 
   # Incremental mode (requires database)
   python scripts/run_scraper.py --company google --env local \\
-    --db-url "sqlite:///scripts/output/jobs_local.db" --incremental
+    --db-url "postgresql://postgres:postgres@localhost:5432/jobscraper" --incremental
 
   # PostgreSQL production mode
   python scripts/run_scraper.py --company google --env prod \\
-    --db-url "postgresql://user:pass@localhost:5432/jobscraper" --incremental
+    --db-url "postgresql://user:pass@host:5432/jobscraper" --incremental
         """,
     )
 
@@ -214,7 +214,7 @@ Examples:
     )
     parser.add_argument(
         "--db-url",
-        help="Database connection URL (e.g., sqlite:///path/to/db.db or postgresql://...)",
+        help="PostgreSQL connection URL (e.g., postgresql://user:pass@localhost:5432/dbname)",
     )
     parser.add_argument(
         "--incremental",

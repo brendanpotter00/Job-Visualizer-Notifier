@@ -13,10 +13,9 @@ python scripts/run_scraper.py                    # Quick scrape (list data only)
 python scripts/run_scraper.py --detail-scrape    # Full scrape with job details (slower)
 python scripts/run_scraper.py --resume           # Resume interrupted scrape from checkpoint
 
-# Database Mode (NEW)
-python scripts/run_scraper.py --db-url sqlite:///jobs.db                    # SQLite database
-python scripts/run_scraper.py --db-url sqlite:///jobs.db --incremental      # Smart incremental scrape
-python scripts/run_scraper.py --db-url postgresql://user:pass@host/db       # PostgreSQL
+# Database Mode (PostgreSQL)
+python scripts/run_scraper.py --db-url postgresql://user:pass@host/db       # PostgreSQL database
+python scripts/run_scraper.py --db-url postgresql://user:pass@host/db --incremental  # Smart incremental scrape
 
 # Testing & Development
 python scripts/run_scraper.py --max-jobs 10 -v   # Test scrape with verbose logging
@@ -48,7 +47,7 @@ pip install -r scripts/requirements-dev.txt      # Install dev dependencies (tes
 
 **Shared Modules (NEW - Multi-Scraper Foundation):**
 - `shared/base_scraper.py` - Abstract base class for all company scrapers
-- `shared/database.py` - SQLite/PostgreSQL abstraction layer with CRUD operations
+- `shared/database.py` - PostgreSQL database layer with CRUD operations
 - `shared/incremental.py` - 5-phase incremental scraping algorithm
 - `shared/models.py` - Database-aligned Pydantic models (JobListing, ScrapeRun)
 
@@ -72,7 +71,7 @@ User runs script → Parse CLI args → Choose mode (JSON vs Database) → **JSO
 - Exponential backoff retry logic (4-60s delays)
 - Anti-detection measures (real user agent, random delays 2-5s)
 - Abstract factory pattern (BaseScraper) for multi-company support
-- Database abstraction layer (SQLite/PostgreSQL)
+- PostgreSQL database layer
 - 5-phase incremental algorithm minimizes scraping time
 
 ## Common Tasks
@@ -83,13 +82,13 @@ python scripts/run_scraper.py --detail-scrape -o output/google_jobs.json
 ```
 Takes ~15-30 minutes depending on number of results. Scrapes both list and detail pages.
 
-**Running Incremental Database Scrape (NEW):**
+**Running Incremental Database Scrape (PostgreSQL):**
 ```bash
 # First run: Full scrape to populate database
-python scripts/run_scraper.py --db-url sqlite:///jobs.db --detail-scrape
+python scripts/run_scraper.py --db-url postgresql://user:pass@host/db --detail-scrape
 
 # Subsequent runs: Fast incremental updates (only new jobs)
-python scripts/run_scraper.py --db-url sqlite:///jobs.db --incremental
+python scripts/run_scraper.py --db-url postgresql://user:pass@host/db --incremental
 ```
 Incremental mode: ~2-3 min for list scrape, only fetches details for NEW jobs.
 
@@ -137,7 +136,7 @@ Edit `google_jobs_scraper/config.py`:
 5. **Google DOM Changes Break Parsers**: Scraper relies on specific CSS selectors - if Google redesigns careers site, update `parser.py` selectors
 6. **Rate Limiting is Conservative**: 2-5s delays prevent rate limiting but slow scraping - adjust `config.py` at your own risk
 7. **Run from Project Root**: Always execute as `python scripts/run_scraper.py` not `cd scripts && python run_scraper.py` - path setup depends on project root
-8. **Database Mode Requires --db-url** (NEW): Incremental mode requires database connection - use `--db-url sqlite:///path.db` or `postgresql://...`
+8. **Database Mode Requires --db-url**: Incremental mode requires database connection - use `--db-url postgresql://user:pass@host/db`
 9. **Environment Flag Affects Tables** (NEW): `--env` flag determines table names (`job_listings_local`, `job_listings_prod`) - use consistent env for same database
 10. **Incremental Mode Needs Initial Full Scrape** (NEW): First run should be without `--incremental` to populate database, subsequent runs use `--incremental`
 
@@ -168,7 +167,7 @@ Edit `google_jobs_scraper/config.py`:
 **Output:**
 - JSON: `scripts/output/google_jobs.json`
 - Checkpoint: `scripts/output/.checkpoint.json` (temporary, JSON mode)
-- Database: SQLite file or PostgreSQL connection
+- Database: PostgreSQL connection
 
 ## See Also
 
