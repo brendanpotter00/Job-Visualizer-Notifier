@@ -10,15 +10,18 @@ public class ScraperProcessRunner(
     {
         var env = configuration["Scraper:Environment"] ?? "local";
         var dbUrl = configuration.GetConnectionString("DefaultConnection") ?? "";
-        var scriptsPath = configuration["Scraper:ScriptsPath"] ?? "../../scripts";
+        var scriptsPath = configuration["Scraper:ScriptsPath"] ?? "../../../scripts";
+        var pythonPath = configuration["Scraper:PythonPath"] ?? "python3";
+        var detailScrape = configuration.GetValue<bool>("Scraper:DetailScrape", true);
 
-        var arguments = $"{scriptsPath}/run_scraper.py --company {company} --env {env} --db-url \"{dbUrl}\" --incremental --headless";
+        var detailScrapeFlag = detailScrape ? " --detail-scrape" : "";
+        var arguments = $"{scriptsPath}/run_scraper.py --company {company} --env {env} --db-url \"{dbUrl}\" --incremental --headless{detailScrapeFlag}";
 
-        logger.LogInformation("Running scraper: python {Arguments}", arguments);
+        logger.LogInformation("Running scraper: {PythonPath} {Arguments}", pythonPath, arguments);
 
         var startInfo = new ProcessStartInfo
         {
-            FileName = "python",
+            FileName = pythonPath,
             Arguments = arguments,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
