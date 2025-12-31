@@ -7,6 +7,12 @@ export default defineConfig({
     port: 3000,
     open: true,
     proxy: {
+      // Proxy to local .NET backend for QA page
+      '/api/jobs': {
+        target: 'http://localhost:5000',
+        changeOrigin: true,
+        secure: false,
+      },
       '/api/greenhouse': {
         target: 'https://boards-api.greenhouse.io',
         changeOrigin: true,

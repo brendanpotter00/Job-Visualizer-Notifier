@@ -13,7 +13,7 @@ public class JobsController(JobsDbContext dbContext) : ControllerBase
     public async Task<ActionResult<IEnumerable<JobListing>>> GetJobs(
         [FromQuery] string? company = null,
         [FromQuery] string? status = "OPEN",
-        [FromQuery] int limit = 100,
+        [FromQuery] int limit = 1000,
         [FromQuery] int offset = 0)
     {
         var query = dbContext.JobListings.AsQueryable();
@@ -23,10 +23,11 @@ public class JobsController(JobsDbContext dbContext) : ControllerBase
             query = query.Where(j => j.Company == company);
         }
 
-        if (!string.IsNullOrEmpty(status))
-        {
-            query = query.Where(j => j.Status == status);
-        }
+        // commented out for QA purposes -bp
+        // if (!string.IsNullOrEmpty(status))
+        // {
+        //     query = query.Where(j => j.Status == status);
+        // }
 
         var jobs = await query
             .OrderByDescending(j => j.LastSeenAt)

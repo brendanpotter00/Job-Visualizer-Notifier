@@ -5,6 +5,7 @@ import { CompaniesPage } from '../pages/CompaniesPage/CompaniesPage';
 import { RecentJobPostingsPage } from '../pages/RecentJobPostingsPage/RecentJobPostingsPage';
 import { WhyPage } from '../pages/WhyPage/WhyPage.tsx';
 import { ROUTES } from '../config/routes';
+import { QAPage } from '../pages/QAPage/QAPage.tsx';
 
 /**
  * App content component with routing and hooks
@@ -23,6 +24,7 @@ function AppContent() {
         <Route index element={<CompaniesPage />} />
         <Route path={ROUTES.RECENT_JOBS} element={<RecentJobPostingsPage />} />
         <Route path={ROUTES.WHY} element={<WhyPage />} />
+        {import.meta.env.DEV && <Route path={ROUTES.QA} element={<QAPage />} />}
       </Route>
     </Routes>
   );

@@ -9,7 +9,7 @@ public class ScraperProcessRunner(
     public async Task<ScraperResult> RunScraperAsync(string company, CancellationToken cancellationToken)
     {
         var env = configuration["Scraper:Environment"] ?? "local";
-        var dbUrl = configuration.GetConnectionString("DefaultConnection") ?? "";
+        var dbUrl = ConnectionStringHelper.ConvertToPostgresUrl(configuration.GetConnectionString("DefaultConnection") ?? "");
         var scriptsPath = configuration["Scraper:ScriptsPath"] ?? "../../../scripts";
         var pythonPath = configuration["Scraper:PythonPath"] ?? "python3";
         var detailScrape = configuration.GetValue<bool>("Scraper:DetailScrape", true);
@@ -74,4 +74,24 @@ public class ScraperResult
     public string Error { get; set; } = string.Empty;
     public string Company { get; set; } = string.Empty;
     public DateTime CompletedAt { get; set; }
+}
+
+public static class ConnectionStringHelper
+{
+    public static string ConvertToPostgresUrl(string connectionString)
+    {
+        // Parse ADO.NET format: Host=x;Port=y;Database=z;Username=u;Password=p
+        var parts = connectionString.Split(';')
+            .Select(p => p.Split('=', 2))
+            .Where(p => p.Length == 2)
+            .ToDictionary(p => p[0].Trim(), p => p[1].Trim(), StringComparer.OrdinalIgnoreCase);
+
+        var host = parts.GetValueOrDefault("Host", "localhost");
+        var port = parts.GetValueOrDefault("Port", "5432");
+        var database = parts.GetValueOrDefault("Database", "");
+        var username = parts.GetValueOrDefault("Username", "");
+        var password = parts.GetValueOrDefault("Password", "");
+
+        return $"postgresql://{username}:{password}@{host}:{port}/{database}";
+    }
 }
