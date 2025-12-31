@@ -275,6 +275,83 @@ class TestScrapeRun:
         assert dict(row)["new_jobs"] == 10
 
 
+class TestUpsertJob:
+    """Tests for upsert_job function (handles reappearing closed jobs)"""
+
+    def test_upsert_job_inserts_new(self, in_memory_db, test_env, sample_job_listing):
+        """New job gets inserted"""
+        result = db.upsert_job(in_memory_db, sample_job_listing, env=test_env)
+
+        assert result is True  # Was inserted (new)
+
+        job = db.get_job_by_id(in_memory_db, sample_job_listing.id, env=test_env)
+        assert job is not None
+        assert job["title"] == sample_job_listing.title
+        assert job["status"] == "OPEN"
+
+    def test_upsert_job_reactivates_closed(self, in_memory_db, test_env, sample_job_listing):
+        """Closed job gets reactivated when it reappears"""
+        # Insert and close the job
+        db.insert_job(in_memory_db, sample_job_listing, env=test_env)
+        db.mark_jobs_closed(in_memory_db, [sample_job_listing.id], "2024-01-16T10:00:00Z", env=test_env)
+
+        # Verify it's closed
+        job = db.get_job_by_id(in_memory_db, sample_job_listing.id, env=test_env)
+        assert job["status"] == "CLOSED"
+        assert job["closed_on"] is not None
+
+        # Now upsert with updated data (simulating job reappearing in scrape)
+        updated_job = JobListing(
+            id=sample_job_listing.id,
+            title="Updated Title",  # Title might have changed
+            company=sample_job_listing.company,
+            location="New Location",  # Location might have changed
+            url=sample_job_listing.url,
+            source_id=sample_job_listing.source_id,
+            details={"new": "details"},
+            created_at="2024-01-17T10:00:00Z",
+            first_seen_at="2024-01-17T10:00:00Z",
+            last_seen_at="2024-01-17T10:00:00Z"
+        )
+
+        result = db.upsert_job(in_memory_db, updated_job, env=test_env)
+
+        assert result is False  # Was updated (not inserted)
+
+        # Verify it's reactivated with updated fields
+        job = db.get_job_by_id(in_memory_db, sample_job_listing.id, env=test_env)
+        assert job["status"] == "OPEN"
+        assert job["closed_on"] is None
+        assert job["consecutive_misses"] == 0
+        assert job["title"] == "Updated Title"
+        assert job["location"] == "New Location"
+        # Original timestamps should be preserved
+        assert job["first_seen_at"] == sample_job_listing.first_seen_at
+        assert job["created_at"] == sample_job_listing.created_at
+
+    def test_upsert_job_updates_existing_open(self, in_memory_db, test_env, sample_job_listing):
+        """Existing open job gets updated (should not happen in practice, but handles edge case)"""
+        db.insert_job(in_memory_db, sample_job_listing, env=test_env)
+
+        # Upsert again with same ID
+        updated_job = JobListing(
+            id=sample_job_listing.id,
+            title="Updated Title",
+            company=sample_job_listing.company,
+            url=sample_job_listing.url,
+            source_id=sample_job_listing.source_id,
+            created_at="2024-01-17T10:00:00Z",
+            first_seen_at="2024-01-17T10:00:00Z",
+            last_seen_at="2024-01-17T10:00:00Z"
+        )
+
+        result = db.upsert_job(in_memory_db, updated_job, env=test_env)
+
+        assert result is False  # Was updated
+        job = db.get_job_by_id(in_memory_db, sample_job_listing.id, env=test_env)
+        assert job["title"] == "Updated Title"
+
+
 class TestGetAllActiveJobs:
     """Tests for get_all_active_jobs function"""
 

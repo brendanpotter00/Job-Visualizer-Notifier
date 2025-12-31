@@ -117,7 +117,7 @@ async def process_new_jobs(
             job.consecutive_misses = 0
             job.details_scraped = detail_scrape
 
-            db.insert_job(db_conn, job, env)
+            db.upsert_job(db_conn, job, env)
         except Exception as e:
             logger.error(f"Error inserting job {job_data.get('id', 'unknown')}: {e}")
 

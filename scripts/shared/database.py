@@ -192,6 +192,65 @@ def insert_job(conn: Connection, job: JobListing, env: str = "local") -> None:
     logger.debug(f"Inserted job: {job.id} - {job.title}")
 
 
+def upsert_job(conn: Connection, job: JobListing, env: str = "local") -> bool:
+    """
+    Insert a new job or update an existing one (e.g., reactivate a closed job)
+
+    Uses PostgreSQL's ON CONFLICT to atomically handle both cases.
+    On conflict: updates mutable fields and reactivates the job (status='OPEN').
+    Preserves: first_seen_at, created_at (original discovery metadata).
+
+    Args:
+        conn: Database connection
+        job: JobListing model
+        env: Environment name
+
+    Returns:
+        True if a new job was inserted, False if an existing job was updated
+    """
+    cursor = conn.cursor()
+    jobs_table = f"job_listings_{env}"
+
+    cursor.execute(f"""
+        INSERT INTO {jobs_table} (
+            id, title, company, location, url, source_id,
+            details, posted_on, created_at, closed_on, status,
+            has_matched, ai_metadata,
+            first_seen_at, last_seen_at, consecutive_misses, details_scraped
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (id) DO UPDATE SET
+            title = EXCLUDED.title,
+            location = EXCLUDED.location,
+            url = EXCLUDED.url,
+            details = EXCLUDED.details,
+            posted_on = EXCLUDED.posted_on,
+            status = 'OPEN',
+            closed_on = NULL,
+            last_seen_at = EXCLUDED.last_seen_at,
+            consecutive_misses = 0,
+            details_scraped = EXCLUDED.details_scraped
+        RETURNING (xmax = 0) AS inserted
+    """, (
+        job.id, job.title, job.company, job.location, job.url, job.source_id,
+        json.dumps(job.details), job.posted_on, job.created_at, job.closed_on, job.status,
+        job.has_matched, json.dumps(job.ai_metadata),
+        job.first_seen_at, job.last_seen_at, job.consecutive_misses,
+        job.details_scraped
+    ))
+
+    result = cursor.fetchone()
+    was_inserted = result['inserted'] if result else True
+
+    conn.commit()
+
+    if was_inserted:
+        logger.debug(f"Inserted new job: {job.id} - {job.title}")
+    else:
+        logger.info(f"Reactivated job: {job.id} - {job.title}")
+
+    return was_inserted
+
+
 def update_last_seen(conn: Connection, job_ids: List[str], timestamp: str, env: str = "local") -> None:
     """
     Update last_seen_at timestamp for jobs and reset consecutive_misses to 0
