@@ -40,4 +40,6 @@ ENV ASPNETCORE_URLS=http://+:8080
 ENV PATH="/app/venv/bin:$PATH"
 
 EXPOSE 8080
-ENTRYPOINT ["dotnet", "JobsApi.dll"]
+
+# Debug: Print environment and start app
+ENTRYPOINT ["/bin/bash", "-c", "echo '=== CONTAINER STARTING ===' && echo \"DATE: $(date)\" && echo \"HOSTNAME: $(hostname)\" && echo \"ASPNETCORE_URLS: $ASPNETCORE_URLS\" && echo \"PORT: 8080\" && echo \"=== Starting dotnet ===' && exec dotnet JobsApi.dll"]

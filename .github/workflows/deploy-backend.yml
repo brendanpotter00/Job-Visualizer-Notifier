@@ -12,7 +12,7 @@ on:
 env:
   AWS_REGION: us-east-1
   ECR_REPOSITORY: job-scraper-api
-  APP_RUNNER_SERVICE_ARN: arn:aws:apprunner:us-east-1:500140837569:service/job-scraper-api/03d008fe7656409b84bb754ad636e5ea
+  APP_RUNNER_SERVICE_ARN: arn:aws:apprunner:us-east-1:500140837569:service/job-scraper-api/a8ada11694204c61b771e96b76b36aa5
 
 jobs:
   build-and-deploy:
