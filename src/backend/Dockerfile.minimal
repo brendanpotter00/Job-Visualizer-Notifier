@@ -1,0 +1,14 @@
+# Ultra-minimal test image to verify App Runner can run anything
+FROM alpine:latest
+
+# Install a simple web server
+RUN apk add --no-cache busybox-extras
+
+# Create a simple health endpoint
+RUN mkdir -p /app && echo "OK" > /app/health
+
+WORKDIR /app
+
+# Simple HTTP server on port 8080
+EXPOSE 8080
+CMD ["sh", "-c", "echo 'MINIMAL CONTAINER STARTING' && httpd -f -p 8080 -h /app"]

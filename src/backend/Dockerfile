@@ -41,5 +41,16 @@ ENV PATH="/app/venv/bin:$PATH"
 
 EXPOSE 8080
 
-# Debug: Print environment and start app
-ENTRYPOINT ["/bin/bash", "-c", "echo '=== CONTAINER STARTING ===' && echo \"DATE: $(date)\" && echo \"HOSTNAME: $(hostname)\" && echo \"ASPNETCORE_URLS: $ASPNETCORE_URLS\" && echo 'PORT: 8080' && echo '=== Starting dotnet ===' && exec dotnet JobsApi.dll"]
+# Create startup script
+RUN echo '#!/bin/bash' > /app/start.sh && \
+    echo 'echo "=== CONTAINER STARTING ==="' >> /app/start.sh && \
+    echo 'echo "DATE: $(date)"' >> /app/start.sh && \
+    echo 'echo "HOSTNAME: $(hostname)"' >> /app/start.sh && \
+    echo 'echo "ASPNETCORE_URLS: $ASPNETCORE_URLS"' >> /app/start.sh && \
+    echo 'echo "PWD: $(pwd)"' >> /app/start.sh && \
+    echo 'ls -la' >> /app/start.sh && \
+    echo 'echo "=== Starting dotnet ==="' >> /app/start.sh && \
+    echo 'exec dotnet JobsApi.dll' >> /app/start.sh && \
+    chmod +x /app/start.sh
+
+ENTRYPOINT ["/app/start.sh"]
