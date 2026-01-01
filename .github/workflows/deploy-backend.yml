@@ -49,20 +49,54 @@ jobs:
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
 
       - name: Deploy to App Runner
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
-          aws apprunner start-deployment --service-arn $APP_RUNNER_SERVICE_ARN
+          # Check current service status
+          STATUS=$(aws apprunner describe-service --service-arn $APP_RUNNER_SERVICE_ARN --query 'Service.Status' --output text)
+          echo "Current service status: $STATUS"
+
+          if [ "$STATUS" = "RUNNING" ]; then
+            # Service is healthy, use start-deployment
+            echo "Service is RUNNING, triggering deployment..."
+            aws apprunner start-deployment --service-arn $APP_RUNNER_SERVICE_ARN
+          else
+            # Service is in failed state, use update-service to trigger new deployment
+            echo "Service is in $STATUS state, using update-service to trigger deployment..."
+            aws apprunner update-service \
+              --service-arn $APP_RUNNER_SERVICE_ARN \
+              --source-configuration "{
+                \"ImageRepository\": {
+                  \"ImageIdentifier\": \"$ECR_REGISTRY/$ECR_REPOSITORY:latest\",
+                  \"ImageConfiguration\": {
+                    \"Port\": \"8080\",
+                    \"RuntimeEnvironmentVariables\": {
+                      \"ASPNETCORE_ENVIRONMENT\": \"Production\"
+                    },
+                    \"RuntimeEnvironmentSecrets\": {
+                      \"ConnectionStrings__DefaultConnection\": \"arn:aws:secretsmanager:us-east-1:500140837569:secret:job-scraper-db-connection-lvneAB\"
+                    }
+                  },
+                  \"ImageRepositoryType\": \"ECR\"
+                },
+                \"AutoDeploymentsEnabled\": true,
+                \"AuthenticationConfiguration\": {
+                  \"AccessRoleArn\": \"arn:aws:iam::500140837569:role/AppRunnerECRAccessRole\"
+                }
+              }"
+          fi
 
           echo "Deployment started. Waiting for completion..."
 
-          # Wait for deployment to complete (up to 10 minutes)
-          for i in {1..20}; do
+          # Wait for deployment to complete (up to 15 minutes for CREATE_FAILED recovery)
+          for i in {1..30}; do
             STATUS=$(aws apprunner describe-service --service-arn $APP_RUNNER_SERVICE_ARN --query 'Service.Status' --output text)
             echo "Status: $STATUS"
 
             if [ "$STATUS" = "RUNNING" ]; then
               echo "Deployment successful!"
               exit 0
-            elif [ "$STATUS" = "CREATE_FAILED" ] || [ "$STATUS" = "DELETE_FAILED" ]; then
+            elif [ "$STATUS" = "DELETE_FAILED" ]; then
               echo "Deployment failed with status: $STATUS"
               exit 1
             fi
