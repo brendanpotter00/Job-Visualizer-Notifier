@@ -43,8 +43,8 @@ lerna-debug.log*
 Thumbs.db
 .vercel
 
-# Data files
-data/
+# Data files (root level only, not src/backend/JobsApi/Data/)
+/data/
 *.db
 scripts/output/
 
