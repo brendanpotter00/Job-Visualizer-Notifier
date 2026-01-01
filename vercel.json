@@ -21,7 +21,15 @@
       "destination": "/api/workday?path=:path"
     },
     {
+      "source": "/api/jobs-qa/:path(.*)",
+      "destination": "/api/jobs-qa?path=:path"
+    },
+    {
       "source": "/recent-jobs",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/qa",
       "destination": "/index.html"
     },
     {

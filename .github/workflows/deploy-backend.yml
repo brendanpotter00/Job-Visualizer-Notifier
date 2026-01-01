@@ -1,0 +1,74 @@
+name: Deploy Backend to App Runner
+
+on:
+  workflow_dispatch:  # Manual trigger for now
+  # push:
+  #   branches: [main]
+  #   paths:
+  #     - 'src/backend/**'
+  #     - 'scripts/**'
+  #     - '.github/workflows/deploy-backend.yml'
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: job-scraper-api
+  APP_RUNNER_SERVICE_ARN: arn:aws:apprunner:us-east-1:500140837569:service/job-scraper-api/03d008fe7656409b84bb754ad636e5ea
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest  # Native x86_64 Linux - no QEMU emulation
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push Docker image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          # Build on native x86_64 Linux - no cross-compilation
+          docker build \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:latest \
+            -f src/backend/Dockerfile \
+            .
+
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+      - name: Deploy to App Runner
+        run: |
+          aws apprunner start-deployment --service-arn $APP_RUNNER_SERVICE_ARN
+
+          echo "Deployment started. Waiting for completion..."
+
+          # Wait for deployment to complete (up to 10 minutes)
+          for i in {1..20}; do
+            STATUS=$(aws apprunner describe-service --service-arn $APP_RUNNER_SERVICE_ARN --query 'Service.Status' --output text)
+            echo "Status: $STATUS"
+
+            if [ "$STATUS" = "RUNNING" ]; then
+              echo "Deployment successful!"
+              exit 0
+            elif [ "$STATUS" = "CREATE_FAILED" ] || [ "$STATUS" = "DELETE_FAILED" ]; then
+              echo "Deployment failed with status: $STATUS"
+              exit 1
+            fi
+
+            sleep 30
+          done
+
+          echo "Deployment timed out"
+          exit 1

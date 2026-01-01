@@ -8,6 +8,7 @@ export const ROUTES = {
   COMPANIES: '/',
   RECENT_JOBS: '/recent-jobs',
   WHY: '/why',
+  QA: '/qa',
 } as const;
 
 export const NAV_ITEMS = [
@@ -25,5 +26,10 @@ export const NAV_ITEMS = [
     path: ROUTES.WHY,
     label: 'Why This Was Built',
     icon: 'Info', // MUI Info icon
+  },
+  {
+    path: ROUTES.QA,
+    label: 'QA',
+    icon: 'BugReport',
   },
 ] as const;
