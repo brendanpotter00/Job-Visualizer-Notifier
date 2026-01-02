@@ -18,6 +18,13 @@ export const selectListSoftwareOnlyState = createSelector([selectListFilters], (
 });
 
 /**
+ * Select active role groups for list filters
+ */
+export const selectListActiveRoleGroups = createSelector([selectListFilters], (filters) => {
+  return filters.activeRoleGroups || [];
+});
+
+/**
  * Filter jobs based on list filters
  */
 export const selectListFilteredJobs = createSelector(

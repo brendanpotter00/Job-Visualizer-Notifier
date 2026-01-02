@@ -2,6 +2,8 @@ import type { SearchTag } from '../../../types';
 import {
   SOFTWARE_ENGINEERING_TAGS,
   getSoftwareEngineeringTagTexts,
+  getRoleTagGroupById,
+  roleTagGroupToSearchTags,
 } from '../../../constants/tags.ts';
 
 /**
@@ -252,4 +254,149 @@ export function setSoftwareOnlyInFilters(filters: FiltersWithSoftwareOnly, enabl
   }
 
   filters.softwareOnly = enabled;
+}
+
+// ============================================================================
+// Role Tag Group Utilities
+// ============================================================================
+
+/**
+ * Interface for filter state with active role groups
+ */
+interface FiltersWithRoleGroups extends FiltersWithSearchTags {
+  activeRoleGroups?: string[];
+}
+
+/**
+ * Toggle a role tag group on/off
+ * When toggled on, adds the group's tags to searchTags
+ * When toggled off, removes the group's tags from searchTags
+ */
+export function toggleRoleGroupInFilters(
+  filters: FiltersWithRoleGroups,
+  groupId: string
+): void {
+  const group = getRoleTagGroupById(groupId);
+  if (!group) return;
+
+  const currentGroups = filters.activeRoleGroups || [];
+  const isActive = currentGroups.includes(groupId);
+
+  if (isActive) {
+    // Remove group from active groups
+    filters.activeRoleGroups = currentGroups.filter((id) => id !== groupId);
+    if (filters.activeRoleGroups.length === 0) {
+      filters.activeRoleGroups = undefined;
+    }
+
+    // Remove group's tags from searchTags
+    const groupTagTexts = new Set(group.tags);
+    if (filters.searchTags) {
+      filters.searchTags = filters.searchTags.filter(
+        (tag) => !groupTagTexts.has(tag.text)
+      );
+      if (filters.searchTags.length === 0) {
+        filters.searchTags = undefined;
+      }
+    }
+  } else {
+    // Add group to active groups
+    filters.activeRoleGroups = [...currentGroups, groupId];
+
+    // Add group's tags to searchTags
+    const tagsToAdd = roleTagGroupToSearchTags(group);
+    const currentTags = filters.searchTags || [];
+    const existingTexts = new Set(currentTags.map((tag) => tag.text));
+
+    // Only add tags that don't already exist
+    const newTags = tagsToAdd.filter((tag) => !existingTexts.has(tag.text));
+    filters.searchTags = [...currentTags, ...newTags];
+  }
+}
+
+/**
+ * Set a role tag group to enabled or disabled
+ */
+export function setRoleGroupInFilters(
+  filters: FiltersWithRoleGroups,
+  groupId: string,
+  enabled: boolean
+): void {
+  const group = getRoleTagGroupById(groupId);
+  if (!group) return;
+
+  const currentGroups = filters.activeRoleGroups || [];
+  const isActive = currentGroups.includes(groupId);
+
+  // Only take action if state needs to change
+  if (enabled && !isActive) {
+    // Add group to active groups
+    filters.activeRoleGroups = [...currentGroups, groupId];
+
+    // Add group's tags to searchTags
+    const tagsToAdd = roleTagGroupToSearchTags(group);
+    const currentTags = filters.searchTags || [];
+    const existingTexts = new Set(currentTags.map((tag) => tag.text));
+
+    const newTags = tagsToAdd.filter((tag) => !existingTexts.has(tag.text));
+    filters.searchTags = [...currentTags, ...newTags];
+  } else if (!enabled && isActive) {
+    // Remove group from active groups
+    filters.activeRoleGroups = currentGroups.filter((id) => id !== groupId);
+    if (filters.activeRoleGroups.length === 0) {
+      filters.activeRoleGroups = undefined;
+    }
+
+    // Remove group's tags from searchTags
+    const groupTagTexts = new Set(group.tags);
+    if (filters.searchTags) {
+      filters.searchTags = filters.searchTags.filter(
+        (tag) => !groupTagTexts.has(tag.text)
+      );
+      if (filters.searchTags.length === 0) {
+        filters.searchTags = undefined;
+      }
+    }
+  }
+}
+
+/**
+ * Clear all active role groups and their associated tags
+ */
+export function clearAllRoleGroups(filters: FiltersWithRoleGroups): void {
+  const currentGroups = filters.activeRoleGroups || [];
+
+  // Collect all tag texts from all active groups
+  const allGroupTagTexts = new Set<string>();
+  for (const groupId of currentGroups) {
+    const group = getRoleTagGroupById(groupId);
+    if (group) {
+      for (const tag of group.tags) {
+        allGroupTagTexts.add(tag);
+      }
+    }
+  }
+
+  // Clear active groups
+  filters.activeRoleGroups = undefined;
+
+  // Remove all group tags from searchTags
+  if (filters.searchTags) {
+    filters.searchTags = filters.searchTags.filter(
+      (tag) => !allGroupTagTexts.has(tag.text)
+    );
+    if (filters.searchTags.length === 0) {
+      filters.searchTags = undefined;
+    }
+  }
+}
+
+/**
+ * Check if a role group is currently active
+ */
+export function isRoleGroupActive(
+  activeRoleGroups: string[] | undefined,
+  groupId: string
+): boolean {
+  return activeRoleGroups?.includes(groupId) ?? false;
 }
