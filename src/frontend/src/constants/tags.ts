@@ -135,6 +135,13 @@ export const ROLE_TAG_GROUPS: readonly RoleTagGroup[] = [
     mode: 'exclude',
     tags: CONTRACT_TAGS,
   },
+  {
+    id: 'exclude-senior',
+    label: 'Exclude Senior+',
+    description: 'Hide senior, staff, principal, and higher level roles',
+    mode: 'exclude',
+    tags: SENIOR_PLUS_TAGS,
+  },
 ] as const;
 
 /**
