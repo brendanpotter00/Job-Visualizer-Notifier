@@ -50,6 +50,9 @@ export const {
   setListEmploymentType,
   toggleListSoftwareOnly,
   setListSoftwareOnly,
+  toggleListRoleGroup,
+  setListRoleGroup,
+  clearListRoleGroups,
   resetListFilters,
   syncListFromGraph,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

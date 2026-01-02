@@ -57,6 +57,9 @@ describe('createFilterSlice', () => {
         'setGraphEmploymentType',
         'toggleGraphSoftwareOnly',
         'setGraphSoftwareOnly',
+        'toggleGraphRoleGroup',
+        'setGraphRoleGroup',
+        'clearGraphRoleGroups',
         'resetGraphFilters',
         'syncGraphFromList',
       ];
@@ -65,7 +68,7 @@ describe('createFilterSlice', () => {
         expect(actionNames).toContain(actionName);
       });
 
-      expect(actionNames).toHaveLength(23); // Total actions (roleCategory actions removed)
+      expect(actionNames).toHaveLength(26); // Total actions (includes role group actions)
     });
   });
 

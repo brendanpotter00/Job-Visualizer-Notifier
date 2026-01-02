@@ -9,6 +9,8 @@ import {
   removeRecentJobsSearchTag,
   toggleRecentJobsSearchTagMode,
   toggleRecentJobsSoftwareOnly,
+  toggleRecentJobsRoleGroup,
+  clearRecentJobsRoleGroups,
   resetRecentJobsFilters,
   addRecentJobsCompany,
   removeRecentJobsCompany,
@@ -18,11 +20,13 @@ import {
   selectRecentAvailableLocations,
   selectRecentSoftwareOnlyState,
   selectRecentAvailableCompanies,
+  selectRecentActiveRoleGroups,
 } from '../../features/filters/selectors/recentJobsSelectors.ts';
 import { SearchTagsInput } from '../shared/filters/SearchTagsInput.tsx';
 import { TimeWindowSelect } from '../shared/filters/TimeWindowSelect.tsx';
 import { MultiSelectAutocomplete } from '../shared/filters/MultiSelectAutocomplete.tsx';
 import { SoftwareOnlyToggle } from '../shared/filters/SoftwareOnlyToggle.tsx';
+import { RoleTagGroupFilter } from '../shared/filters/RoleTagGroupFilter.tsx';
 
 /**
  * Filter controls for Recent Job Postings page
@@ -33,6 +37,7 @@ export function RecentJobsFilters() {
   const dispatch = useAppDispatch();
   const filters = useAppSelector(selectRecentJobsFilters);
   const softwareOnlyChecked = useAppSelector(selectRecentSoftwareOnlyState);
+  const activeRoleGroups = useAppSelector(selectRecentActiveRoleGroups);
   const availableLocations = useAppSelector(selectRecentAvailableLocations);
   const availableCompanies = useAppSelector(selectRecentAvailableCompanies);
 
@@ -89,7 +94,7 @@ export function RecentJobsFilters() {
           onToggleMode={(text) => dispatch(toggleRecentJobsSearchTagMode(text))}
         />
 
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} flexWrap="wrap">
           <TimeWindowSelect
             value={filters.timeWindow}
             onChange={(tw) => dispatch(setRecentJobsTimeWindow(tw))}
@@ -109,6 +114,12 @@ export function RecentJobsFilters() {
             value={filters.location || []}
             onAdd={(loc) => dispatch(addRecentJobsLocation(loc))}
             onRemove={(loc) => dispatch(removeRecentJobsLocation(loc))}
+          />
+
+          <RoleTagGroupFilter
+            activeGroups={activeRoleGroups}
+            onToggle={(groupId) => dispatch(toggleRecentJobsRoleGroup(groupId))}
+            onClear={() => dispatch(clearRecentJobsRoleGroups())}
           />
 
           <SoftwareOnlyToggle
