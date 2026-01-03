@@ -164,7 +164,7 @@ describe('RecentJobsList', () => {
     // This would require simulating the loadMore function
   });
 
-  it('scrolls to top when jobs change (filter change)', async () => {
+  it('does not scroll to top when jobs change (filter change)', async () => {
     const jobs = createMockJobs(100);
     vi.mocked(recentJobsSelectors.selectRecentJobsSorted).mockReturnValue(jobs);
 
@@ -176,6 +176,9 @@ describe('RecentJobsList', () => {
       </Provider>
     );
 
+    // Clear any scroll calls from initial render
+    vi.mocked(window.scrollTo).mockClear();
+
     // Change jobs (simulating filter change)
     const newJobs = createMockJobs(50);
     vi.mocked(recentJobsSelectors.selectRecentJobsSorted).mockReturnValue(newJobs);
@@ -186,12 +189,8 @@ describe('RecentJobsList', () => {
       </Provider>
     );
 
-    await waitFor(() => {
-      expect(window.scrollTo).toHaveBeenCalledWith({
-        top: 0,
-        behavior: 'auto',
-      });
-    });
+    // Verify scroll was NOT called - user stays at current position
+    expect(window.scrollTo).not.toHaveBeenCalled();
   });
 
   it('renders job cards with correct props', () => {
