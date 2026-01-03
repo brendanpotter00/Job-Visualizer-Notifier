@@ -12,9 +12,9 @@ describe('GlobalAppBar', () => {
   };
 
   describe('Rendering', () => {
-    it('renders app title "1 Hour Jobs"', () => {
+    it('renders app title "onehourswe"', () => {
       render(<GlobalAppBar {...mockProps} />);
-      expect(screen.getByText('1 Hour Jobs')).toBeInTheDocument();
+      expect(screen.getByText('onehourswe')).toBeInTheDocument();
     });
 
     it('renders hamburger menu button with MenuIcon', () => {

@@ -103,7 +103,7 @@ describe('App', () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByText('1 Hour Jobs')).toBeInTheDocument();
+        expect(screen.getByText('onehourswe')).toBeInTheDocument();
       });
     });
   });

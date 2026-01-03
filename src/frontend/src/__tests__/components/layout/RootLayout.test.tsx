@@ -23,7 +23,7 @@ describe('RootLayout', () => {
       );
 
       // Check for app title from GlobalAppBar
-      expect(screen.getByText('1 Hour Jobs')).toBeInTheDocument();
+      expect(screen.getByText('onehourswe')).toBeInTheDocument();
 
       // Check for navigation items from NavigationDrawer
       expect(screen.getByText('Company Job Postings')).toBeInTheDocument();
@@ -72,7 +72,7 @@ describe('RootLayout', () => {
 
       // On mobile, drawer starts closed - nav items should not be visible (modal is closed)
       // AppBar title should still be visible
-      expect(screen.getByText('1 Hour Jobs')).toBeInTheDocument();
+      expect(screen.getByText('onehourswe')).toBeInTheDocument();
     });
   });
 
@@ -162,7 +162,7 @@ describe('RootLayout', () => {
       );
 
       // AppBar should exist with title
-      expect(screen.getByText('1 Hour Jobs')).toBeInTheDocument();
+      expect(screen.getByText('onehourswe')).toBeInTheDocument();
     });
 
     it('NavigationDrawer receives navigation items', () => {

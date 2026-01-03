@@ -171,7 +171,7 @@ Edit `google_jobs_scraper/config.py`:
 
 ## See Also
 
-- **scripts/ARCHITECTURE.md** - Detailed architecture documentation with workflow diagrams
-- **scripts/README.md** - User-facing documentation
-- **Main App CLAUDE.md** - Parent project documentation at `/Users/brendanpotter/Documents/develop/Job-Visualizer-Notifier/CLAUDE.md`
-- **TypeScript Job Model**: `src/types/index.ts` - Data model that scraper output aligns with
+- **ARCHITECTURE.md** - Detailed architecture documentation with workflow diagrams
+- **README.md** - User-facing documentation
+- **Root CLAUDE.md** - Parent project documentation
+- **TypeScript Job Model**: `src/frontend/src/types/index.ts` - Data model that scraper output aligns with

@@ -1,8 +1,10 @@
-# CLAUDE.md
+# Frontend CLAUDE.md
 
-Job Posting Analytics SPA - A TypeScript + React application that visualizes job posting activity over time for multiple companies using external ATS APIs (Greenhouse, Lever, Ashby). Built with Redux Toolkit, Recharts, and Material-UI.
+React SPA for job posting analytics. Visualizes job posting activity over time for multiple companies using external ATS APIs (Greenhouse, Lever, Ashby, Workday). Built with Redux Toolkit, Recharts, and Material-UI.
 
-## Commands
+**Note:** Commands should be run from project root (not this directory). See root CLAUDE.md for full project context.
+
+## Commands (from project root)
 
 ```bash
 # Development
@@ -12,7 +14,7 @@ npm run build            # Production build (runs tsc + vite build)
 npm run type-check       # TypeScript validation only
 
 # Testing
-npm test                 # Run all tests (Vitest)
+npm test                 # Run all tests (Vitest - 746+ tests)
 npm run test:coverage    # Generate coverage report
 
 # Code Quality
@@ -22,50 +24,52 @@ npm run format           # Prettier formatting
 
 ## Architecture Quick Reference
 
+All paths below are relative to `src/frontend/src/`.
+
 **State Management:**
 - Redux Toolkit Query (RTK Query) for jobs data fetching with caching
 - Traditional Redux slices for filters, app, and ui state
-- Factory patterns: `createAPIClient` (src/api/clients/baseClient.ts) and `createFilterSlice` (src/features/filters/slices/createFilterSlice.ts)
+- Factory patterns: `createAPIClient` (api/clients/baseClient.ts) and `createFilterSlice` (features/filters/slices/createFilterSlice.ts)
 - Graph and list filters operate independently (manual sync available)
 - Jobs normalized by company ID in `byCompany` map for O(1) lookup
 
 **Data Flow:**
-User selects company → `getJobsForCompany` RTK Query endpoint (src/features/jobs/jobsApi.ts) → Factory selects API client → Transform to normalized Job model → RTK Query cache update → Memoized selectors filter data → Components render
+User selects company → `getJobsForCompany` RTK Query endpoint (features/jobs/jobsApi.ts) → Factory selects API client → Transform to normalized Job model → RTK Query cache update → Memoized selectors filter data → Components render
 
 **API Clients:**
-All four ATS providers (Greenhouse, Lever, Ashby, Workday) use `createAPIClient` factory (src/api/clients/baseClient.ts). Factory handles: validation, fetch, error handling, filtering, transformation, metadata calculation. Only URL building and response extraction differ per provider.
+All four ATS providers (Greenhouse, Lever, Ashby, Workday) use `createAPIClient` factory (api/clients/baseClient.ts). Factory handles: validation, fetch, error handling, filtering, transformation, metadata calculation. Only URL building and response extraction differ per provider.
 
 **Key Selectors:**
-- `selectCurrentCompanyJobs` (src/features/jobs/jobsSelectors.ts) - Jobs for selected company
-- `selectGraphFilteredJobs` (src/features/filters/selectors/graphFiltersSelectors.ts) - Apply graph filters
-- `selectListFilteredJobs` (src/features/filters/selectors/listFiltersSelectors.ts) - Apply list filters + search
-- `selectGraphBucketData` (src/features/filters/selectors/graphFiltersSelectors.ts) - Filtered jobs + time bucketing
+- `selectCurrentCompanyJobs` (features/jobs/jobsSelectors.ts) - Jobs for selected company
+- `selectGraphFilteredJobs` (features/filters/selectors/graphFiltersSelectors.ts) - Apply graph filters
+- `selectListFilteredJobs` (features/filters/selectors/listFiltersSelectors.ts) - Apply list filters + search
+- `selectGraphBucketData` (features/filters/selectors/graphFiltersSelectors.ts) - Filtered jobs + time bucketing
 
 **Key Algorithms:**
-- Time Bucketing: src/lib/timeBucketing.ts (dynamic bucket sizing for graph visualization)
+- Time Bucketing: lib/timeBucketing.ts (dynamic bucket sizing for graph visualization)
 
 ## Common Tasks
 
 **Adding a Company:**
-Edit `src/config/companies.ts` and add company config with ATS type (greenhouse/lever/ashby). System automatically uses correct client via factory pattern.
+Edit `config/companies.ts` and add company config with ATS type (greenhouse/lever/ashby/workday). System automatically uses correct client via factory pattern.
 
 **Adding ATS Provider:**
-1. Create transformer in `src/api/transformers/[provider]Transformer.ts`
+1. Create transformer in `api/transformers/[provider]Transformer.ts`
 2. Create client using `createAPIClient` factory (~15 lines)
-3. Add to company configs and client selection logic
-See `docs/MIGRATION.md` for detailed guide.
+3. Add Vercel serverless proxy in project root `api/[provider].ts`
+4. Add to company configs and client selection logic
 
 **Adding Filters:**
-1. Add field to `GraphFilters` or `ListFilters` type (src/types/index.ts)
-2. Update `createFilterSlice` factory (src/features/filters/slices/createFilterSlice.ts)
-3. Update filtering logic (src/features/filters/selectors/graphFiltersSelectors.ts or listFiltersSelectors.ts)
-4. Add UI control (src/components/companies-page/GraphFilters.tsx or ListFilters.tsx, or src/components/shared/filters/)
+1. Add field to `GraphFilters` or `ListFilters` type (types/index.ts)
+2. Update `createFilterSlice` factory (features/filters/slices/createFilterSlice.ts)
+3. Update filtering logic (features/filters/selectors/graphFiltersSelectors.ts or listFiltersSelectors.ts)
+4. Add UI control (components/companies-page/GraphFilters.tsx or ListFilters.tsx)
 
 **Debugging:**
 - Redux DevTools for state inspection
-- Selector tests: src/__tests__/features/filters/
-- API transformer tests: src/__tests__/api/transformers/
-- Time bucketing tests: src/__tests__/lib/timeBucketing.test.ts
+- Selector tests: __tests__/features/filters/
+- API transformer tests: __tests__/api/transformers/
+- Time bucketing tests: __tests__/lib/timeBucketing.test.ts
 
 ## Critical Gotchas
 
@@ -74,22 +78,24 @@ See `docs/MIGRATION.md` for detailed guide.
 3. **Empty Buckets Matter**: Time bucketing creates empty buckets for full range - don't filter them out
 4. **Factory Patterns**: When modifying API or filter logic, update the factory functions, not individual implementations
 5. **Zero TypeScript Errors Required**: Run `npm run type-check` before committing
-6. **Test Coverage**: Maintain >85% coverage (422+ tests passing)
+6. **Test Coverage**: Maintain >85% coverage (746+ tests passing)
 
 ## Key Files
 
-- Redux Store: `src/app/store.ts`
-- Type Definitions: `src/types/index.ts`
-- Company Config: `src/config/companies.ts`
-- API Client Factory: `src/api/clients/baseClient.ts`
-- Filter Slice Factory: `src/features/filters/slices/createFilterSlice.ts`
-- Jobs RTK Query API: `src/features/jobs/jobsApi.ts`, `jobsSelectors.ts`, `progressHelpers.ts`
-- Time Bucketing: `src/lib/timeBucketing.ts`
-- Main App: `src/app/App.tsx`
+All paths relative to `src/frontend/src/`:
+
+- Redux Store: `app/store.ts`
+- Type Definitions: `types/index.ts`
+- Company Config: `config/companies.ts`
+- API Client Factory: `api/clients/baseClient.ts`
+- Filter Slice Factory: `features/filters/slices/createFilterSlice.ts`
+- Jobs RTK Query API: `features/jobs/jobsApi.ts`, `jobsSelectors.ts`, `progressHelpers.ts`
+- Time Bucketing: `lib/timeBucketing.ts`
+- Main App: `app/App.tsx`
 
 ## See Also
 
-- **docs/architecture.md** - 9 comprehensive Mermaid diagrams including data flow, state shape, factory patterns, algorithm flowcharts, component hierarchy, and performance optimizations
-- **docs/MIGRATION.md** - Migration guide for adding new ATS providers with before/after comparisons
+- **Root CLAUDE.md** - Full project documentation including backend and scripts
+- **docs/architecture.md** - Comprehensive Mermaid diagrams for data flow, state shape, factory patterns
 - **Greenhouse API**: https://developers.greenhouse.io/job-board.html
 - **Lever API**: https://github.com/lever/postings-api

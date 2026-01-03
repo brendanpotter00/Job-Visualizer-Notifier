@@ -11,8 +11,8 @@ on:
 
 env:
   AWS_REGION: us-east-1
-  ECR_REPOSITORY: job-scraper-api
-  APP_RUNNER_SERVICE_ARN: arn:aws:apprunner:us-east-1:500140837569:service/job-scraper-api/a8ada11694204c61b771e96b76b36aa5
+  ECR_REPOSITORY: job-notifier-api
+  # APP_RUNNER_SERVICE_ARN will be set after service creation - use GitHub secret
 
 jobs:
   build-and-deploy:
@@ -51,6 +51,7 @@ jobs:
       - name: Deploy to App Runner
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          APP_RUNNER_SERVICE_ARN: ${{ secrets.APP_RUNNER_SERVICE_ARN }}
         run: |
           # Check current service status
           STATUS=$(aws apprunner describe-service --service-arn $APP_RUNNER_SERVICE_ARN --query 'Service.Status' --output text)
@@ -71,17 +72,18 @@ jobs:
                   \"ImageConfiguration\": {
                     \"Port\": \"8080\",
                     \"RuntimeEnvironmentVariables\": {
-                      \"ASPNETCORE_ENVIRONMENT\": \"Production\"
+                      \"ASPNETCORE_ENVIRONMENT\": \"Production\",
+                      \"Scraper__Environment\": \"prod\"
                     },
                     \"RuntimeEnvironmentSecrets\": {
-                      \"ConnectionStrings__DefaultConnection\": \"arn:aws:secretsmanager:us-east-1:500140837569:secret:job-scraper-db-connection-lvneAB\"
+                      \"ConnectionStrings__DefaultConnection\": \"arn:aws:secretsmanager:us-east-1:500140837569:secret:job-notifier-db-connection-VdnR40\"
                     }
                   },
                   \"ImageRepositoryType\": \"ECR\"
                 },
                 \"AutoDeploymentsEnabled\": true,
                 \"AuthenticationConfiguration\": {
-                  \"AccessRoleArn\": \"arn:aws:iam::500140837569:role/AppRunnerECRAccessRole\"
+                  \"AccessRoleArn\": \"arn:aws:iam::500140837569:role/job-notifier-apprunner-ecr-role\"
                 }
               }"
           fi
@@ -96,7 +98,7 @@ jobs:
             if [ "$STATUS" = "RUNNING" ]; then
               echo "Deployment successful!"
               exit 0
-            elif [ "$STATUS" = "DELETE_FAILED" ]; then
+            elif [ "$STATUS" = "DELETE_FAILED" ] || [ "$STATUS" = "CREATE_FAILED" ]; then
               echo "Deployment failed with status: $STATUS"
               exit 1
             fi

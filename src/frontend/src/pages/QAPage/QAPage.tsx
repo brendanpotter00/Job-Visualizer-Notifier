@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Container,
   Box,
@@ -14,7 +14,15 @@ import {
   Alert,
   Link,
   Button,
+  TablePagination,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  Stack,
 } from '@mui/material';
+import { SearchTagsInput } from '../../components/shared/filters/SearchTagsInput.tsx';
+import type { SearchTag } from '../../types/index.ts';
 
 type BackendJob = Record<string, unknown>;
 
@@ -61,6 +69,14 @@ export function QAPage() {
   const [scrapingInProgress, setScrapingInProgress] = useState(false);
   const [scrapeResult, setScrapeResult] = useState<ScraperResult | null>(null);
 
+  // Jobs filter state
+  const [searchTags, setSearchTags] = useState<SearchTag[]>([]);
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+
+  // Scrape runs pagination state
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
+
   useEffect(() => {
     const fetchJobs = async () => {
       try {
@@ -87,16 +103,14 @@ export function QAPage() {
     try {
       setScrapeRunsLoading(true);
       setScrapeRunsError(null);
-      const response = await fetch('/api/jobs-qa/scrape-runs?limit=20');
+      const response = await fetch('/api/jobs-qa/scrape-runs?limit=100');
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       const data = await response.json();
       setScrapeRuns(data);
     } catch (err) {
-      setScrapeRunsError(
-        err instanceof Error ? err.message : 'Failed to fetch scrape runs'
-      );
+      setScrapeRunsError(err instanceof Error ? err.message : 'Failed to fetch scrape runs');
     } finally {
       setScrapeRunsLoading(false);
     }
@@ -129,6 +143,71 @@ export function QAPage() {
       setScrapingInProgress(false);
     }
   };
+
+  // Filter jobs based on search tags and status
+  const filteredJobs = useMemo(() => {
+    return jobs.filter((job) => {
+      // Status filter
+      if (statusFilter !== 'all' && String(job.status) !== statusFilter) {
+        return false;
+      }
+
+      // Search tags filter
+      if (searchTags.length > 0) {
+        const searchableText = [
+          String(job.title || ''),
+          String(job.company || ''),
+          String(job.location || ''),
+        ]
+          .join(' ')
+          .toLowerCase();
+
+        const includeTags = searchTags.filter((t) => t.mode === 'include');
+        const excludeTags = searchTags.filter((t) => t.mode === 'exclude');
+
+        // Include: at least one must match (OR logic)
+        if (includeTags.length > 0) {
+          const hasIncludeMatch = includeTags.some((tag) =>
+            searchableText.includes(tag.text.toLowerCase())
+          );
+          if (!hasIncludeMatch) return false;
+        }
+
+        // Exclude: none must match (AND NOT logic)
+        if (excludeTags.length > 0) {
+          const hasExcludeMatch = excludeTags.some((tag) =>
+            searchableText.includes(tag.text.toLowerCase())
+          );
+          if (hasExcludeMatch) return false;
+        }
+      }
+
+      return true;
+    });
+  }, [jobs, statusFilter, searchTags]);
+
+  // Paginate scrape runs
+  const paginatedRuns = useMemo(() => {
+    const start = page * rowsPerPage;
+    return scrapeRuns.slice(start, start + rowsPerPage);
+  }, [scrapeRuns, page, rowsPerPage]);
+
+  // Handlers for search tags
+  const handleAddTag = useCallback((tag: SearchTag) => {
+    setSearchTags((prev) => [...prev, tag]);
+  }, []);
+
+  const handleRemoveTag = useCallback((text: string) => {
+    setSearchTags((prev) => prev.filter((t) => t.text !== text));
+  }, []);
+
+  const handleToggleTagMode = useCallback((text: string) => {
+    setSearchTags((prev) =>
+      prev.map((t) =>
+        t.text === text ? { ...t, mode: t.mode === 'include' ? 'exclude' : 'include' } : t
+      )
+    );
+  }, []);
 
   return (
     <Container maxWidth={false} sx={{ px: { xs: 2, sm: 3, md: 4 } }}>
@@ -199,16 +278,12 @@ export function QAPage() {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {scrapeRuns.map((run) => (
+                  {paginatedRuns.map((run) => (
                     <TableRow key={run.runId}>
                       <TableCell>{run.company}</TableCell>
+                      <TableCell>{new Date(run.startedAt).toLocaleString()}</TableCell>
                       <TableCell>
-                        {new Date(run.startedAt).toLocaleString()}
-                      </TableCell>
-                      <TableCell>
-                        {run.completedAt
-                          ? new Date(run.completedAt).toLocaleString()
-                          : '-'}
+                        {run.completedAt ? new Date(run.completedAt).toLocaleString() : '-'}
                       </TableCell>
                       <TableCell>{run.mode}</TableCell>
                       <TableCell align="right">{run.jobsSeen}</TableCell>
@@ -227,6 +302,18 @@ export function QAPage() {
                   )}
                 </TableBody>
               </Table>
+              <TablePagination
+                component="div"
+                count={scrapeRuns.length}
+                page={page}
+                onPageChange={(_, newPage) => setPage(newPage)}
+                rowsPerPage={rowsPerPage}
+                onRowsPerPageChange={(e) => {
+                  setRowsPerPage(parseInt(e.target.value, 10));
+                  setPage(0);
+                }}
+                rowsPerPageOptions={[10, 25, 50]}
+              />
             </TableContainer>
           )}
         </Box>
@@ -235,6 +322,37 @@ export function QAPage() {
         <Typography variant="h5" gutterBottom>
           All Jobs
         </Typography>
+
+        {/* Jobs Filters */}
+        <Box sx={{ mb: 3 }}>
+          <Stack spacing={2}>
+            <SearchTagsInput
+              value={searchTags}
+              onAdd={handleAddTag}
+              onRemove={handleRemoveTag}
+              onToggleMode={handleToggleTagMode}
+            />
+            <Stack direction="row" spacing={2} alignItems="center">
+              <FormControl size="small" sx={{ minWidth: 120 }}>
+                <InputLabel id="status-filter-label">Status</InputLabel>
+                <Select
+                  labelId="status-filter-label"
+                  value={statusFilter}
+                  label="Status"
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                >
+                  <MenuItem value="all">All</MenuItem>
+                  <MenuItem value="OPEN">Open</MenuItem>
+                  <MenuItem value="CLOSED">Closed</MenuItem>
+                </Select>
+              </FormControl>
+              <Typography variant="body2" color="text.secondary">
+                Showing {filteredJobs.length} of {jobs.length} jobs
+              </Typography>
+            </Stack>
+          </Stack>
+        </Box>
+
         {loading && (
           <Box sx={{ display: 'flex', justifyContent: 'center', my: 4 }}>
             <CircularProgress />
@@ -256,11 +374,12 @@ export function QAPage() {
                   <TableCell>Company</TableCell>
                   <TableCell>Location</TableCell>
                   <TableCell>Status</TableCell>
+                  <TableCell>First Seen</TableCell>
                   <TableCell>Last Seen</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
-                {jobs.map((job) => (
+                {filteredJobs.map((job) => (
                   <TableRow key={String(job.id)}>
                     <TableCell>
                       <Link href={String(job.url)} target="_blank" rel="noopener">
@@ -270,6 +389,7 @@ export function QAPage() {
                     <TableCell>{String(job.company)}</TableCell>
                     <TableCell>{job.location ? String(job.location) : '-'}</TableCell>
                     <TableCell>{String(job.status)}</TableCell>
+                    <TableCell>{new Date(String(job.firstSeenAt)).toLocaleDateString()}</TableCell>
                     <TableCell>{new Date(String(job.lastSeenAt)).toLocaleDateString()}</TableCell>
                   </TableRow>
                 ))}

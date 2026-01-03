@@ -80,7 +80,7 @@ export function GlobalAppBar({ open, onDrawerToggle, drawerWidth, isMobile }: Gl
           <MenuIcon />
         </IconButton>
         <Typography variant="h6" noWrap component="div">
-          1 Hour Jobs
+          onehourswe
         </Typography>
       </Toolbar>
     </AppBar>
