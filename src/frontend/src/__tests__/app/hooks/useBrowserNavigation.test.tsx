@@ -9,9 +9,9 @@ import { createTestStore } from '../../../test/testUtils';
 describe('useBrowserNavigation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Reset window.location
+    // Reset window.location to /companies (Companies page route)
     Object.defineProperty(window, 'location', {
-      value: new URL('http://localhost:5173/'),
+      value: new URL('http://localhost:5173/companies'),
       writable: true,
       configurable: true,
     });
@@ -61,9 +61,9 @@ describe('useBrowserNavigation', () => {
     );
     renderHook(() => useBrowserNavigation(), { wrapper });
 
-    // Simulate browser back/forward navigation
+    // Simulate browser back/forward navigation on /companies
     Object.defineProperty(window, 'location', {
-      value: new URL('http://localhost:5173/?company=anthropic'),
+      value: new URL('http://localhost:5173/companies?company=anthropic'),
       writable: true,
       configurable: true,
     });
@@ -90,9 +90,9 @@ describe('useBrowserNavigation', () => {
     );
     renderHook(() => useBrowserNavigation(), { wrapper });
 
-    // Simulate popstate with same company
+    // Simulate popstate with same company on /companies
     Object.defineProperty(window, 'location', {
-      value: new URL('http://localhost:5173/?company=spacex'),
+      value: new URL('http://localhost:5173/companies?company=spacex'),
       writable: true,
       configurable: true,
     });
@@ -118,9 +118,9 @@ describe('useBrowserNavigation', () => {
     );
     renderHook(() => useBrowserNavigation(), { wrapper });
 
-    // Simulate popstate with invalid company
+    // Simulate popstate with invalid company on /companies
     Object.defineProperty(window, 'location', {
-      value: new URL('http://localhost:5173/?company=invalid'),
+      value: new URL('http://localhost:5173/companies?company=invalid'),
       writable: true,
       configurable: true,
     });
@@ -146,9 +146,9 @@ describe('useBrowserNavigation', () => {
     );
     renderHook(() => useBrowserNavigation(), { wrapper });
 
-    // Simulate popstate with no company parameter
+    // Simulate popstate with no company parameter on /companies
     Object.defineProperty(window, 'location', {
-      value: new URL('http://localhost:5173/'),
+      value: new URL('http://localhost:5173/companies'),
       writable: true,
       configurable: true,
     });

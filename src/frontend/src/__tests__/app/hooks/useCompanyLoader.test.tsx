@@ -46,9 +46,9 @@ afterAll(() => server.close());
 describe('useCompanyLoader', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Reset window.location
+    // Reset window.location to /companies (Companies page route)
     Object.defineProperty(window, 'location', {
-      value: new URL('http://localhost:5173/'),
+      value: new URL('http://localhost:5173/companies'),
       writable: true,
       configurable: true,
     });

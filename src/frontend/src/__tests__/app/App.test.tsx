@@ -54,7 +54,8 @@ vi.mock('recharts', () => ({
 describe('App', () => {
   beforeEach(() => {
     // Reset window.location and history before each test
-    const url = 'http://localhost:5173/';
+    // Navigate to /companies since Companies page is no longer the home page
+    const url = 'http://localhost:5173/companies';
     Object.defineProperty(window, 'location', {
       value: new URL(url),
       writable: true,
@@ -66,7 +67,7 @@ describe('App', () => {
   });
 
   describe('Component Composition', () => {
-    it('should render Companies page with company name at root route', async () => {
+    it('should render Companies page with company name at /companies route', async () => {
       const store = createTestStore();
       render(
         <Provider store={store}>
@@ -271,7 +272,12 @@ describe('App', () => {
     });
 
     it('should display correct company name from Redux state', async () => {
-      window.location.search = '?company=anthropic';
+      // Set location to /companies with company parameter
+      Object.defineProperty(window, 'location', {
+        value: new URL('http://localhost:5173/companies?company=anthropic'),
+        writable: true,
+        configurable: true,
+      });
 
       const store = createTestStore();
       render(

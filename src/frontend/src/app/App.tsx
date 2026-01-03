@@ -21,8 +21,8 @@ function AppContent() {
   return (
     <Routes>
       <Route path="/" element={<RootLayout />}>
-        <Route index element={<CompaniesPage />} />
-        <Route path={ROUTES.RECENT_JOBS} element={<RecentJobPostingsPage />} />
+        <Route index element={<RecentJobPostingsPage />} />
+        <Route path={ROUTES.COMPANIES} element={<CompaniesPage />} />
         <Route path={ROUTES.WHY} element={<WhyPage />} />
         {import.meta.env.DEV && <Route path={ROUTES.QA} element={<QAPage />} />}
       </Route>
@@ -38,8 +38,8 @@ function AppContent() {
  * for URL/state synchronization.
  *
  * Routes:
- * - / - Companies page (job analytics for selected company)
- * - /recent-jobs - Recent job postings page (all jobs across companies)
+ * - / - Recent job postings page (all jobs across companies)
+ * - /companies - Companies page (job analytics for selected company)
  * - /why - Why This Was Built page (about and supported companies)
  */
 function App() {

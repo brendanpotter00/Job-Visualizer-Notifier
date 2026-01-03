@@ -84,6 +84,15 @@ afterAll(() => {
 });
 
 describe('Full Application Workflow', () => {
+  beforeEach(() => {
+    // Navigate to /companies since Companies page is no longer the home page
+    Object.defineProperty(window, 'location', {
+      value: new URL('http://localhost:5173/companies'),
+      writable: true,
+      configurable: true,
+    });
+  });
+
   const renderApp = () => {
     // Create fresh store for each test using testUtils
     const testStore = createTestStore();

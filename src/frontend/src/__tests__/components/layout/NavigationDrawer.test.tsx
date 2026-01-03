@@ -72,14 +72,14 @@ describe('NavigationDrawer', () => {
         </MemoryRouter>
       );
 
-      // Check that the Companies button has selected styling via computed styles
-      const companiesButton = screen
-        .getByText('Company Job Postings')
+      // Check that the Recent Jobs button has selected styling via computed styles (/ is the home page)
+      const recentJobsButton = screen
+        .getByText('Recent Job Postings')
         .closest('div[role="button"]');
-      expect(companiesButton).toBeInTheDocument();
+      expect(recentJobsButton).toBeInTheDocument();
 
       // Verify background color is set (action.selected)
-      const styles = window.getComputedStyle(companiesButton as Element);
+      const styles = window.getComputedStyle(recentJobsButton as Element);
       expect(styles.backgroundColor).not.toBe('rgba(0, 0, 0, 0)');
     });
 
@@ -92,11 +92,11 @@ describe('NavigationDrawer', () => {
         </MemoryRouter>
       );
 
-      const recentJobsButton = screen.getByText('Recent Job Postings');
-      await user.click(recentJobsButton);
+      const companiesButton = screen.getByText('Company Job Postings');
+      await user.click(companiesButton);
 
       // Check that button is still rendered (navigation happened)
-      expect(recentJobsButton).toBeInTheDocument();
+      expect(companiesButton).toBeInTheDocument();
     });
   });
 
