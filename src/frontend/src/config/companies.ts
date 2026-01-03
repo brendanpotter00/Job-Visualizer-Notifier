@@ -384,6 +384,17 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?authorCompany=%5B%221480%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=!%3BQ&sortBy=%22date_posted%22',
   },
+  {
+    id: 'elevenlabs',
+    name: 'ElevenLabs',
+    ats: 'ashby',
+    config: {
+      type: 'ashby',
+      jobBoardName: 'elevenlabs',
+    },
+    jobsUrl: 'https://jobs.ashbyhq.com/elevenlabs',
+    recruiterLinkedInUrl: '',
+  },
   // {
   //     id: 'netflix',
   //     name: 'Netflix',
@@ -436,6 +447,7 @@ export const enum COMPANY_IDS {
   Squarespace = 'Squarespace',
   Nvidia = 'nvidia',
   Adobe = 'adobe',
+  ElevenLabs = 'elevenlabs',
 }
 
 /**
