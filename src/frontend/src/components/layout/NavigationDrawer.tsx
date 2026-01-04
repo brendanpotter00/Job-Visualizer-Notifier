@@ -15,7 +15,7 @@ import ScheduleIcon from '@mui/icons-material/Schedule';
 import InfoIcon from '@mui/icons-material/Info';
 import BugReportIcon from '@mui/icons-material/BugReport';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { NAV_ITEMS, ROUTES } from '../../config/routes.ts';
+import { NAV_ITEMS } from '../../config/routes.ts';
 
 /**
  * Props for the NavigationDrawer component
@@ -139,9 +139,9 @@ export function NavigationDrawer({
   };
 
   // Filter nav items to hide QA page in production
-  const visibleNavItems = NAV_ITEMS.filter(
-    (item) => item.path !== ROUTES.QA || import.meta.env.DEV
-  );
+  // const visibleNavItems = NAV_ITEMS.filter(
+  //   (item) => item.path !== ROUTES.QA || import.meta.env.DEV
+  // );
 
   /**
    * Renders the drawer content (header, divider, nav items)
@@ -156,7 +156,7 @@ export function NavigationDrawer({
       </DrawerHeader>
       <Divider />
       <List>
-        {visibleNavItems.map((item) => {
+        {NAV_ITEMS.map((item) => {
           const Icon = iconMap[item.icon as IconName];
           const isActive = location.pathname === item.path;
 
