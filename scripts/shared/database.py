@@ -192,11 +192,11 @@ def insert_job(conn: Connection, job: JobListing, env: str = "local") -> None:
     logger.debug(f"Inserted job: {job.id} - {job.title}")
 
 
-def upsert_job(conn: Connection, job: JobListing, env: str = "local") -> bool:
+def _execute_upsert(conn: Connection, job: JobListing, env: str = "local") -> bool:
     """
-    Insert a new job or update an existing one (e.g., reactivate a closed job)
+    Internal: Execute upsert SQL without committing.
 
-    Uses PostgreSQL's ON CONFLICT to atomically handle both cases.
+    Uses PostgreSQL's ON CONFLICT to atomically handle insert/update.
     On conflict: updates mutable fields and reactivates the job (status='OPEN').
     Preserves: first_seen_at, created_at (original discovery metadata).
 
@@ -206,7 +206,7 @@ def upsert_job(conn: Connection, job: JobListing, env: str = "local") -> bool:
         env: Environment name
 
     Returns:
-        True if a new job was inserted, False if an existing job was updated
+        True if new job was inserted, False if existing job was updated
     """
     cursor = conn.cursor()
     jobs_table = f"job_listings_{env}"
@@ -239,14 +239,57 @@ def upsert_job(conn: Connection, job: JobListing, env: str = "local") -> bool:
     ))
 
     result = cursor.fetchone()
-    was_inserted = result['inserted'] if result else True
+    return result['inserted'] if result else True
 
+
+def upsert_job(conn: Connection, job: JobListing, env: str = "local") -> bool:
+    """
+    Insert a new job or update an existing one (e.g., reactivate a closed job)
+
+    Uses PostgreSQL's ON CONFLICT to atomically handle both cases.
+    On conflict: updates mutable fields and reactivates the job (status='OPEN').
+    Preserves: first_seen_at, created_at (original discovery metadata).
+
+    Args:
+        conn: Database connection
+        job: JobListing model
+        env: Environment name
+
+    Returns:
+        True if a new job was inserted, False if an existing job was updated
+    """
+    was_inserted = _execute_upsert(conn, job, env)
     conn.commit()
 
     if was_inserted:
         logger.debug(f"Inserted new job: {job.id} - {job.title}")
     else:
         logger.info(f"Reactivated job: {job.id} - {job.title}")
+
+    return was_inserted
+
+
+def upsert_job_no_commit(conn: Connection, job: JobListing, env: str = "local") -> bool:
+    """
+    Insert/update job WITHOUT committing - caller manages transactions.
+
+    Same logic as upsert_job() but no conn.commit() call.
+    Use this for batch operations where you want to commit multiple jobs together.
+
+    Args:
+        conn: Database connection
+        job: JobListing model
+        env: Environment name
+
+    Returns:
+        True if new job was inserted, False if existing job was updated
+    """
+    was_inserted = _execute_upsert(conn, job, env)
+
+    if was_inserted:
+        logger.debug(f"Staged new job (uncommitted): {job.id} - {job.title}")
+    else:
+        logger.debug(f"Staged job update (uncommitted): {job.id} - {job.title}")
 
     return was_inserted
 

@@ -25,6 +25,9 @@ logger = logging.getLogger(__name__)
 # Threshold for marking jobs as closed (number of consecutive misses)
 MISSED_RUN_THRESHOLD = 2
 
+# Batch commit configuration
+DEFAULT_BATCH_SIZE = 50  # Commit every N jobs (0 = commit each job individually)
+
 
 class ScrapeResult:
     """Result object returned by incremental scrape"""
@@ -77,10 +80,11 @@ async def process_new_jobs(
     db_conn,
     new_job_cards: List[Dict[str, Any]],
     env: str,
-    detail_scrape: bool = True
-) -> int:
+    detail_scrape: bool = True,
+    batch_size: int = DEFAULT_BATCH_SIZE
+) -> Tuple[int, int]:
     """
-    Process new jobs: fetch details and insert into database
+    Process new jobs: fetch details and insert into database with batch commits.
 
     Args:
         scraper: Scraper instance with extract_job_details method
@@ -88,14 +92,15 @@ async def process_new_jobs(
         new_job_cards: List of job card dicts (basic info from list page)
         env: Environment name
         detail_scrape: Whether to fetch detail pages
+        batch_size: Number of jobs to commit together (0 = commit each job individually)
 
     Returns:
-        Number of details fetched
+        Tuple of (details_fetched, error_count)
     """
     if not new_job_cards:
-        return 0
+        return 0, 0
 
-    logger.info(f"Processing {len(new_job_cards)} new jobs...")
+    logger.info(f"Processing {len(new_job_cards)} new jobs (batch_size={batch_size})...")
 
     # Fetch details if requested
     details_fetched = 0
@@ -105,9 +110,15 @@ async def process_new_jobs(
     else:
         enriched_jobs = new_job_cards
 
-    # Transform to JobListing models and insert
+    # Transform to JobListing models and insert with batching
     timestamp = get_iso_timestamp()
-    for job_data in enriched_jobs:
+    error_count = 0
+    successful_in_batch = 0
+    use_batching = batch_size and batch_size > 0
+    total_batches = (len(enriched_jobs) + batch_size - 1) // batch_size if use_batching else len(enriched_jobs)
+    current_batch = 0
+
+    for i, job_data in enumerate(enriched_jobs):
         try:
             job = scraper.transform_to_job_model(job_data)
 
@@ -117,11 +128,36 @@ async def process_new_jobs(
             job.consecutive_misses = 0
             job.details_scraped = detail_scrape
 
-            db.upsert_job(db_conn, job, env)
-        except Exception as e:
-            logger.error(f"Error inserting job {job_data.get('id', 'unknown')}: {e}")
+            if use_batching:
+                # Use no-commit variant for batching
+                db.upsert_job_no_commit(db_conn, job, env)
+                successful_in_batch += 1
 
-    return details_fetched
+                # Commit batch when size reached or on last job
+                if successful_in_batch >= batch_size or i == len(enriched_jobs) - 1:
+                    db_conn.commit()
+                    current_batch += 1
+                    logger.info(f"Committed batch {current_batch}/{total_batches} ({successful_in_batch} jobs)")
+                    successful_in_batch = 0
+            else:
+                # Original behavior: commit each job
+                db.upsert_job(db_conn, job, env)
+
+        except Exception as e:
+            logger.error(f"Error processing job {job_data.get('id', 'unknown')}: {e}")
+            error_count += 1
+            # On error: commit successful jobs in current batch to avoid losing them
+            if use_batching and successful_in_batch > 0:
+                try:
+                    db_conn.commit()
+                    logger.info(f"Committed {successful_in_batch} successful jobs before error")
+                    successful_in_batch = 0
+                except Exception as commit_error:
+                    logger.error(f"Failed to commit batch after error: {commit_error}")
+                    db_conn.rollback()
+                    successful_in_batch = 0
+
+    return details_fetched, error_count
 
 
 def update_existing_jobs(
@@ -232,9 +268,11 @@ async def run_incremental_scrape(
     # Phase 3: Fetch details ONLY for new jobs
     logger.info("Phase 3: Fetching details for new jobs...")
     new_job_cards = [job for job in job_cards if job['id'] in new_ids]
-    result.details_fetched = await process_new_jobs(
+    details_fetched, process_errors = await process_new_jobs(
         scraper, db_conn, new_job_cards, env, detail_scrape
     )
+    result.details_fetched = details_fetched
+    result.error_count += process_errors
     result.new_jobs = len(new_ids)
 
     # Phase 4 & 5: Update existing jobs and mark closed
