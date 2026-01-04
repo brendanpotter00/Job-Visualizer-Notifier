@@ -22,6 +22,9 @@ import {
   clearDepartments as clearDepartmentsUtil,
   toggleSoftwareOnlyInFilters,
   setSoftwareOnlyInFilters,
+  toggleRoleGroupInFilters,
+  setRoleGroupInFilters,
+  clearAllRoleGroups,
 } from '../utils/filterReducerUtils';
 
 /**
@@ -172,6 +175,20 @@ export function createFilterSlice<T extends Filters>(name: FilterSliceName, init
       },
       [`set${capitalizedName}SoftwareOnly`]: (state, action: PayloadAction<boolean>) => {
         setSoftwareOnlyInFilters(state.filters, action.payload);
+      },
+
+      // Role tag groups (3 actions) - manages groups of tags together
+      [`toggle${capitalizedName}RoleGroup`]: (state, action: PayloadAction<string>) => {
+        toggleRoleGroupInFilters(state.filters, action.payload);
+      },
+      [`set${capitalizedName}RoleGroup`]: (
+        state,
+        action: PayloadAction<{ groupId: string; enabled: boolean }>
+      ) => {
+        setRoleGroupInFilters(state.filters, action.payload.groupId, action.payload.enabled);
+      },
+      [`clear${capitalizedName}RoleGroups`]: (state) => {
+        clearAllRoleGroups(state.filters);
       },
 
       // Reset (1 action)

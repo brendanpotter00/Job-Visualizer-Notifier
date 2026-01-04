@@ -158,6 +158,13 @@ export const selectRecentSoftwareOnlyState = createSelector([selectRecentJobsFil
 );
 
 /**
+ * Select active role groups for recent jobs filters
+ */
+export const selectRecentActiveRoleGroups = createSelector([selectRecentJobsFilters], (filters) => {
+  return filters.activeRoleGroups || [];
+});
+
+/**
  * Get metadata about filtered jobs
  */
 export const selectRecentJobsMetadata = createSelector(
