@@ -24,7 +24,7 @@ function AppContent() {
         <Route index element={<RecentJobPostingsPage />} />
         <Route path={ROUTES.COMPANIES} element={<CompaniesPage />} />
         <Route path={ROUTES.WHY} element={<WhyPage />} />
-        {import.meta.env.DEV && <Route path={ROUTES.QA} element={<QAPage />} />}
+        <Route path={ROUTES.QA} element={<QAPage />} />
       </Route>
     </Routes>
   );
