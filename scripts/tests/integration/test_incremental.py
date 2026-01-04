@@ -18,8 +18,7 @@ from shared.incremental import (
     update_existing_jobs,
     run_incremental_scrape,
     ScrapeResult,
-    MISSED_RUN_THRESHOLD,
-    DEFAULT_BATCH_SIZE
+    MISSED_RUN_THRESHOLD
 )
 
 
@@ -86,7 +85,7 @@ class TestProcessNewJobs:
 
         # Should have called scrape_job_details_batch
         mock_scraper.scrape_job_details_batch.assert_called_once()
-        assert result == (1, 0)  # (details_fetched, error_count)
+        assert result == 1  # 1 detail fetched
 
     @pytest.mark.asyncio
     async def test_process_new_jobs_without_details(self, in_memory_db, test_env, mock_scraper):
@@ -112,15 +111,15 @@ class TestProcessNewJobs:
 
         # Should NOT have called scrape_job_details_batch
         mock_scraper.scrape_job_details_batch.assert_not_called()
-        assert result == (0, 0)  # (details_fetched, error_count)
+        assert result == 0  # 0 details fetched
 
     @pytest.mark.asyncio
     async def test_process_new_jobs_empty(self, in_memory_db, test_env, mock_scraper):
-        """Returns (0, 0) for empty job list"""
+        """Returns 0 for empty job list"""
         result = await process_new_jobs(
             mock_scraper, in_memory_db, [], env=test_env, detail_scrape=True
         )
-        assert result == (0, 0)  # (details_fetched, error_count)
+        assert result == 0
 
 
 class TestUpdateExistingJobs:
@@ -326,199 +325,3 @@ class TestScrapeResult:
         assert result.details_fetched == 10
         assert result.error_count == 2
         assert result.run_id == "custom-run-id"
-
-
-class TestProcessNewJobsBatching:
-    """Tests for process_new_jobs batch commit functionality"""
-
-    @pytest.mark.asyncio
-    async def test_batch_commits_multiple_jobs(self, in_memory_db, test_env, mock_scraper):
-        """Jobs committed in batches of specified size"""
-        # Create 7 job cards (to test partial final batch with batch_size=3)
-        new_job_cards = [
-            {"id": f"job-{i:03d}", "title": f"Job {i}", "job_url": f"https://example.com/job-{i}"}
-            for i in range(7)
-        ]
-
-        # Mock transformer to return valid JobListing for each
-        def create_job_listing(job_data):
-            return JobListing(
-                id=job_data["id"],
-                title=job_data["title"],
-                company="google",
-                url=job_data["job_url"],
-                source_id="google_scraper",
-                created_at="2024-01-15T10:30:00Z",
-                first_seen_at="2024-01-15T10:30:00Z",
-                last_seen_at="2024-01-15T10:30:00Z"
-            )
-        mock_scraper.transform_to_job_model.side_effect = create_job_listing
-
-        details_fetched, error_count = await process_new_jobs(
-            mock_scraper, in_memory_db, new_job_cards, env=test_env,
-            detail_scrape=False, batch_size=3
-        )
-
-        # All 7 jobs should be in database
-        active_ids = db.get_active_job_ids(in_memory_db, "google", env=test_env)
-        assert len(active_ids) == 7
-        assert error_count == 0
-
-    @pytest.mark.asyncio
-    async def test_batch_size_zero_disables_batching(self, in_memory_db, test_env, mock_scraper):
-        """batch_size=0 falls back to per-job commits"""
-        new_job_cards = [
-            {"id": "job-001", "title": "Test Job", "job_url": "https://example.com/job"}
-        ]
-
-        mock_scraper.transform_to_job_model.return_value = JobListing(
-            id="job-001",
-            title="Test Job",
-            company="google",
-            url="https://example.com/job",
-            source_id="google_scraper",
-            created_at="2024-01-15T10:30:00Z",
-            first_seen_at="2024-01-15T10:30:00Z",
-            last_seen_at="2024-01-15T10:30:00Z"
-        )
-
-        details_fetched, error_count = await process_new_jobs(
-            mock_scraper, in_memory_db, new_job_cards, env=test_env,
-            detail_scrape=False, batch_size=0
-        )
-
-        job = db.get_job_by_id(in_memory_db, "job-001", env=test_env)
-        assert job is not None
-        assert error_count == 0
-
-    @pytest.mark.asyncio
-    async def test_error_commits_successful_jobs(self, in_memory_db, test_env, mock_scraper):
-        """On error, successful jobs in batch are committed"""
-        new_job_cards = [
-            {"id": "job-001", "title": "Good Job 1", "job_url": "https://example.com/job-1"},
-            {"id": "job-002", "title": "Bad Job", "job_url": "https://example.com/job-2"},
-            {"id": "job-003", "title": "Good Job 2", "job_url": "https://example.com/job-3"},
-        ]
-
-        def transform_side_effect(job_data):
-            if job_data["id"] == "job-002":
-                raise ValueError("Simulated transform error")
-            return JobListing(
-                id=job_data["id"],
-                title=job_data["title"],
-                company="google",
-                url=job_data["job_url"],
-                source_id="google_scraper",
-                created_at="2024-01-15T10:30:00Z",
-                first_seen_at="2024-01-15T10:30:00Z",
-                last_seen_at="2024-01-15T10:30:00Z"
-            )
-
-        mock_scraper.transform_to_job_model.side_effect = transform_side_effect
-
-        details_fetched, error_count = await process_new_jobs(
-            mock_scraper, in_memory_db, new_job_cards, env=test_env,
-            detail_scrape=False, batch_size=5  # Large batch to test error handling
-        )
-
-        # Should have 2 successful jobs (job-001 and job-003)
-        active_ids = db.get_active_job_ids(in_memory_db, "google", env=test_env)
-        assert len(active_ids) == 2
-        assert "job-001" in active_ids
-        assert "job-003" in active_ids
-        assert "job-002" not in active_ids
-        assert error_count == 1
-
-    @pytest.mark.asyncio
-    async def test_returns_error_count(self, in_memory_db, test_env, mock_scraper):
-        """Error count is tracked and returned"""
-        new_job_cards = [
-            {"id": "job-001", "title": "Job 1", "job_url": "https://example.com/job-1"},
-            {"id": "job-002", "title": "Job 2", "job_url": "https://example.com/job-2"},
-        ]
-
-        call_count = 0
-        def transform_error_once(job_data):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                raise ValueError("First call fails")
-            return JobListing(
-                id=job_data["id"],
-                title=job_data["title"],
-                company="google",
-                url=job_data["job_url"],
-                source_id="google_scraper",
-                created_at="2024-01-15T10:30:00Z",
-                first_seen_at="2024-01-15T10:30:00Z",
-                last_seen_at="2024-01-15T10:30:00Z"
-            )
-
-        mock_scraper.transform_to_job_model.side_effect = transform_error_once
-
-        details_fetched, error_count = await process_new_jobs(
-            mock_scraper, in_memory_db, new_job_cards, env=test_env,
-            detail_scrape=False, batch_size=50
-        )
-
-        assert error_count == 1
-
-    @pytest.mark.asyncio
-    async def test_final_batch_committed(self, in_memory_db, test_env, mock_scraper):
-        """Final partial batch is committed even if smaller than batch_size"""
-        # 5 jobs with batch_size=3 means batches of [3, 2]
-        new_job_cards = [
-            {"id": f"job-{i:03d}", "title": f"Job {i}", "job_url": f"https://example.com/job-{i}"}
-            for i in range(5)
-        ]
-
-        def create_job_listing(job_data):
-            return JobListing(
-                id=job_data["id"],
-                title=job_data["title"],
-                company="google",
-                url=job_data["job_url"],
-                source_id="google_scraper",
-                created_at="2024-01-15T10:30:00Z",
-                first_seen_at="2024-01-15T10:30:00Z",
-                last_seen_at="2024-01-15T10:30:00Z"
-            )
-        mock_scraper.transform_to_job_model.side_effect = create_job_listing
-
-        await process_new_jobs(
-            mock_scraper, in_memory_db, new_job_cards, env=test_env,
-            detail_scrape=False, batch_size=3
-        )
-
-        # All 5 jobs should be committed
-        active_ids = db.get_active_job_ids(in_memory_db, "google", env=test_env)
-        assert len(active_ids) == 5
-
-    @pytest.mark.asyncio
-    async def test_default_batch_size(self, in_memory_db, test_env, mock_scraper):
-        """Default batch_size uses DEFAULT_BATCH_SIZE constant"""
-        new_job_cards = [
-            {"id": "job-001", "title": "Test Job", "job_url": "https://example.com/job"}
-        ]
-
-        mock_scraper.transform_to_job_model.return_value = JobListing(
-            id="job-001",
-            title="Test Job",
-            company="google",
-            url="https://example.com/job",
-            source_id="google_scraper",
-            created_at="2024-01-15T10:30:00Z",
-            first_seen_at="2024-01-15T10:30:00Z",
-            last_seen_at="2024-01-15T10:30:00Z"
-        )
-
-        # Call without batch_size parameter (uses default)
-        result = await process_new_jobs(
-            mock_scraper, in_memory_db, new_job_cards, env=test_env,
-            detail_scrape=False
-        )
-
-        job = db.get_job_by_id(in_memory_db, "job-001", env=test_env)
-        assert job is not None
-        # Verify default is being used (should be 50)
-        assert DEFAULT_BATCH_SIZE == 50

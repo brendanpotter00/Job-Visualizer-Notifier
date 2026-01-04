@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Diagnostics;
 
 namespace JobsApi.Services;
@@ -7,97 +6,63 @@ public class ScraperProcessRunner(
     IConfiguration configuration,
     ILogger<ScraperProcessRunner> logger)
 {
-    private readonly ConcurrentDictionary<string, SemaphoreSlim> _companySemaphores = new();
-    private readonly ConcurrentDictionary<string, ScraperState> _scraperStates = new();
-
-    public bool IsScraperRunning(string company)
-        => _scraperStates.TryGetValue(company, out var state) && state.IsRunning;
-
-    public IReadOnlyDictionary<string, ScraperState> GetAllScraperStates()
-        => _scraperStates;
-
     public async Task<ScraperResult> RunScraperAsync(string company, CancellationToken cancellationToken)
     {
-        var semaphore = _companySemaphores.GetOrAdd(company, _ => new SemaphoreSlim(1, 1));
+        var env = configuration["Scraper:Environment"] ?? "local";
+        var dbUrl = ConnectionStringHelper.ConvertToPostgresUrl(configuration.GetConnectionString("DefaultConnection") ?? "");
+        var scriptsPath = configuration["Scraper:ScriptsPath"] ?? "../../../scripts";
+        var pythonPath = configuration["Scraper:PythonPath"] ?? "python3";
+        var detailScrape = configuration.GetValue<bool>("Scraper:DetailScrape", true);
 
-        // Non-blocking check - return immediately if already running
-        if (!await semaphore.WaitAsync(0, cancellationToken))
+        var detailScrapeFlag = detailScrape ? " --detail-scrape" : "";
+        var arguments = $"{scriptsPath}/run_scraper.py --company {company} --env {env} --db-url \"{dbUrl}\" --incremental --headless{detailScrapeFlag}";
+
+        logger.LogInformation("Running scraper: {PythonPath} {Arguments}", pythonPath, arguments);
+
+        var startInfo = new ProcessStartInfo
         {
-            logger.LogWarning("Scrape rejected for {Company}: already in progress", company);
+            FileName = pythonPath,
+            Arguments = arguments,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        using var process = new Process { StartInfo = startInfo };
+
+        try
+        {
+            process.Start();
+
+            var stdout = await process.StandardOutput.ReadToEndAsync(cancellationToken);
+            var stderr = await process.StandardError.ReadToEndAsync(cancellationToken);
+
+            await process.WaitForExitAsync(cancellationToken);
+
+            logger.LogInformation("Scraper exited with code {ExitCode}", process.ExitCode);
+
             return new ScraperResult
             {
-                ExitCode = -1,
-                Error = $"Scrape already in progress for {company}",
+                ExitCode = process.ExitCode,
+                Output = stdout,
+                Error = stderr,
                 Company = company,
                 CompletedAt = DateTime.UtcNow
             };
         }
-
-        try
+        catch (Exception ex)
         {
-            _scraperStates[company] = new ScraperState(true, DateTime.UtcNow);
+            logger.LogError(ex, "Failed to run scraper for {Company}", company);
 
-            var env = configuration["Scraper:Environment"] ?? "local";
-            var dbUrl = ConnectionStringHelper.ConvertToPostgresUrl(configuration.GetConnectionString("DefaultConnection") ?? "");
-            var scriptsPath = configuration["Scraper:ScriptsPath"] ?? "../../../scripts";
-            var pythonPath = configuration["Scraper:PythonPath"] ?? "python3";
-            var detailScrape = configuration.GetValue<bool>("Scraper:DetailScrape", true);
-
-            var detailScrapeFlag = detailScrape ? " --detail-scrape" : "";
-            var arguments = $"{scriptsPath}/run_scraper.py --company {company} --env {env} --db-url \"{dbUrl}\" --incremental --headless{detailScrapeFlag}";
-
-            logger.LogInformation("Running scraper: {PythonPath} {Arguments}", pythonPath, arguments);
-
-            var startInfo = new ProcessStartInfo
+            return new ScraperResult
             {
-                FileName = pythonPath,
-                Arguments = arguments,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
+                ExitCode = -1,
+                Output = "",
+                Error = ex.Message,
+                Company = company,
+                CompletedAt = DateTime.UtcNow
             };
-
-            using var process = new Process { StartInfo = startInfo };
-
-            try
-            {
-                process.Start();
-
-                var stdout = await process.StandardOutput.ReadToEndAsync(cancellationToken);
-                var stderr = await process.StandardError.ReadToEndAsync(cancellationToken);
-
-                await process.WaitForExitAsync(cancellationToken);
-
-                logger.LogInformation("Scraper exited with code {ExitCode}", process.ExitCode);
-
-                return new ScraperResult
-                {
-                    ExitCode = process.ExitCode,
-                    Output = stdout,
-                    Error = stderr,
-                    Company = company,
-                    CompletedAt = DateTime.UtcNow
-                };
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "Failed to run scraper for {Company}", company);
-
-                return new ScraperResult
-                {
-                    ExitCode = -1,
-                    Output = "",
-                    Error = ex.Message,
-                    Company = company,
-                    CompletedAt = DateTime.UtcNow
-                };
-            }
-        }
-        finally
-        {
-            _scraperStates[company] = new ScraperState(false, null);
-            semaphore.Release();
         }
     }
 }
@@ -110,8 +75,6 @@ public class ScraperResult
     public string Company { get; set; } = string.Empty;
     public DateTime CompletedAt { get; set; }
 }
-
-public record ScraperState(bool IsRunning, DateTime? StartedAt);
 
 public static class ConnectionStringHelper
 {
