@@ -58,12 +58,25 @@ public class JobsQAController(
         return Ok(runs);
     }
 
+    // GET /api/jobs-qa/scraper-status - Check if scrapers are running
+    [HttpGet("scraper-status")]
+    public ActionResult<IReadOnlyDictionary<string, ScraperState>> GetScraperStatus()
+    {
+        return Ok(processRunner.GetAllScraperStates());
+    }
+
     // POST /api/jobs-qa/trigger-scrape - Manually trigger a scrape
     [HttpPost("trigger-scrape")]
     public async Task<ActionResult<ScraperResult>> TriggerScrape(
         [FromQuery] string company = "google",
         CancellationToken cancellationToken = default)
     {
+        if (processRunner.IsScraperRunning(company))
+        {
+            logger.LogWarning("Scrape request rejected for {Company}: already in progress", company);
+            return Conflict(new { error = $"Scrape already in progress for {company}" });
+        }
+
         logger.LogInformation("Manual scrape triggered for {Company}", company);
 
         var result = await processRunner.RunScraperAsync(company, cancellationToken);
