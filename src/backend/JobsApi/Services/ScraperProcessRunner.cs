@@ -13,6 +13,7 @@ public class ScraperProcessRunner(
         var scriptsPath = configuration["Scraper:ScriptsPath"] ?? "../../../scripts";
         var pythonPath = configuration["Scraper:PythonPath"] ?? "python3";
         var detailScrape = configuration.GetValue<bool>("Scraper:DetailScrape", true);
+        var timeoutMinutes = configuration.GetValue<int>("Scraper:TimeoutMinutes", 60);
 
         var detailScrapeFlag = detailScrape ? " --detail-scrape" : "";
         var arguments = $"{scriptsPath}/run_scraper.py --company {company} --env {env} --db-url \"{dbUrl}\" --incremental --headless{detailScrapeFlag}";
@@ -30,15 +31,40 @@ public class ScraperProcessRunner(
         };
 
         using var process = new Process { StartInfo = startInfo };
+        using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMinutes(timeoutMinutes));
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
 
         try
         {
             process.Start();
 
-            var stdout = await process.StandardOutput.ReadToEndAsync(cancellationToken);
-            var stderr = await process.StandardError.ReadToEndAsync(cancellationToken);
+            // Wait for process with timeout
+            var exited = await Task.Run(() => process.WaitForExit(TimeSpan.FromMinutes(timeoutMinutes)), linkedCts.Token);
 
-            await process.WaitForExitAsync(cancellationToken);
+            if (!exited)
+            {
+                logger.LogWarning("Scraper timed out after {Timeout} minutes, killing process", timeoutMinutes);
+                try
+                {
+                    process.Kill(entireProcessTree: true);
+                }
+                catch (Exception killEx)
+                {
+                    logger.LogError(killEx, "Failed to kill timed out scraper process");
+                }
+
+                return new ScraperResult
+                {
+                    ExitCode = -2,
+                    Output = "",
+                    Error = $"Process timed out after {timeoutMinutes} minutes",
+                    Company = company,
+                    CompletedAt = DateTime.UtcNow
+                };
+            }
+
+            var stdout = await process.StandardOutput.ReadToEndAsync(linkedCts.Token);
+            var stderr = await process.StandardError.ReadToEndAsync(linkedCts.Token);
 
             logger.LogInformation("Scraper exited with code {ExitCode}", process.ExitCode);
 
@@ -51,9 +77,34 @@ public class ScraperProcessRunner(
                 CompletedAt = DateTime.UtcNow
             };
         }
+        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
+        {
+            logger.LogWarning("Scraper timed out after {Timeout} minutes", timeoutMinutes);
+            try
+            {
+                if (!process.HasExited)
+                    process.Kill(entireProcessTree: true);
+            }
+            catch { }
+
+            return new ScraperResult
+            {
+                ExitCode = -2,
+                Output = "",
+                Error = $"Process timed out after {timeoutMinutes} minutes",
+                Company = company,
+                CompletedAt = DateTime.UtcNow
+            };
+        }
         catch (Exception ex)
         {
             logger.LogError(ex, "Failed to run scraper for {Company}", company);
+            try
+            {
+                if (!process.HasExited)
+                    process.Kill(entireProcessTree: true);
+            }
+            catch { }
 
             return new ScraperResult
             {

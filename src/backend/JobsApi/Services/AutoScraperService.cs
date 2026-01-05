@@ -19,8 +19,16 @@ public class AutoScraperService(
             foreach (var company in companies)
             {
                 logger.LogInformation("Starting scrape for {Company}", company);
-                await processRunner.RunScraperAsync(company, stoppingToken);
+                var result = await processRunner.RunScraperAsync(company, stoppingToken);
+
+                if (result.ExitCode == 0)
+                    logger.LogInformation("Scrape completed successfully for {Company}", company);
+                else
+                    logger.LogWarning("Scrape finished with exit code {ExitCode} for {Company}: {Error}",
+                        result.ExitCode, company, result.Error);
             }
+
+            logger.LogInformation("Scrape cycle complete, waiting {Interval} before next run", interval);
             await Task.Delay(interval, stoppingToken);
         }
     }

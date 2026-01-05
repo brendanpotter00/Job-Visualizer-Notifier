@@ -60,20 +60,28 @@ public class JobsQAController(
 
     // POST /api/jobs-qa/trigger-scrape - Manually trigger a scrape
     [HttpPost("trigger-scrape")]
-    public async Task<ActionResult<ScraperResult>> TriggerScrape(
-        [FromQuery] string company = "google",
-        CancellationToken cancellationToken = default)
+    public ActionResult TriggerScrape([FromQuery] string company = "google")
     {
         logger.LogInformation("Manual scrape triggered for {Company}", company);
 
-        var result = await processRunner.RunScraperAsync(company, cancellationToken);
-
-        if (result.ExitCode != 0)
+        // Run scraper in background - not tied to HTTP request lifecycle
+        _ = Task.Run(async () =>
         {
-            logger.LogError("Scrape failed for {Company}: {Error}", company, result.Error);
-            return StatusCode(500, result);
-        }
+            try
+            {
+                var result = await processRunner.RunScraperAsync(company, CancellationToken.None);
+                if (result.ExitCode == 0)
+                    logger.LogInformation("Manual scrape completed for {Company}: exit={ExitCode}", company, result.ExitCode);
+                else
+                    logger.LogWarning("Manual scrape finished with exit code {ExitCode} for {Company}: {Error}",
+                        result.ExitCode, company, result.Error);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Manual scrape failed for {Company}", company);
+            }
+        });
 
-        return Ok(result);
+        return Accepted(new { message = $"Scrape started for {company}", company });
     }
 }
