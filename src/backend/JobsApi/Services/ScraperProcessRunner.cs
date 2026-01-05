@@ -38,8 +38,13 @@ public class ScraperProcessRunner(
         {
             process.Start();
 
+            // Start reading stdout/stderr immediately to prevent buffer deadlock
+            // (if we wait for exit first, the process can block when its output buffer fills)
+            var stdoutTask = process.StandardOutput.ReadToEndAsync(linkedCts.Token);
+            var stderrTask = process.StandardError.ReadToEndAsync(linkedCts.Token);
+
             // Wait for process with timeout
-            var exited = await Task.Run(() => process.WaitForExit(TimeSpan.FromMinutes(timeoutMinutes)), linkedCts.Token);
+            var exited = process.WaitForExit(TimeSpan.FromMinutes(timeoutMinutes));
 
             if (!exited)
             {
@@ -63,8 +68,9 @@ public class ScraperProcessRunner(
                 };
             }
 
-            var stdout = await process.StandardOutput.ReadToEndAsync(linkedCts.Token);
-            var stderr = await process.StandardError.ReadToEndAsync(linkedCts.Token);
+            // Process exited, now safely await the output
+            var stdout = await stdoutTask;
+            var stderr = await stderrTask;
 
             logger.LogInformation("Scraper exited with code {ExitCode}", process.ExitCode);
 
