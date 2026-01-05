@@ -128,7 +128,20 @@ export function QAPage() {
         method: 'POST',
       });
       const data = await response.json();
-      setScrapeResult(data);
+
+      // Handle 202 Accepted (scrape started in background)
+      if (response.status === 202) {
+        setScrapeResult({
+          exitCode: 0,
+          output: data.message || 'Scrape started',
+          error: '',
+          company: data.company || 'google',
+          completedAt: new Date().toISOString(),
+        });
+      } else {
+        setScrapeResult(data);
+      }
+
       // Refresh scrape runs after triggering
       await fetchScrapeRuns();
     } catch (err) {
@@ -239,7 +252,7 @@ export function QAPage() {
                 sx={{ flexGrow: 1 }}
               >
                 {scrapeResult.exitCode === 0
-                  ? `Scrape completed successfully for ${scrapeResult.company}`
+                  ? scrapeResult.output || `Scrape started for ${scrapeResult.company}`
                   : `Scrape failed: ${scrapeResult.error}`}
               </Alert>
             )}
