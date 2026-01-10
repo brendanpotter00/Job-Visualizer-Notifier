@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { BucketJobsModal } from '../../../../components/modals/BucketJobsModal/BucketJobsModal';
 import { renderWithProviders, createTestStore } from '../../../../test/testUtils';
 import type { Job } from '../../../../types';
-import { ATSConstants } from '../../../../api/types.ts';
+import { ATSConstants } from '../../../../api/types';
 import { jobsApi } from '../../../../features/jobs/jobsApi';
 
 const mockJobs: Job[] = [
@@ -61,7 +61,6 @@ describe('BucketJobsModal', () => {
           jobs: mockJobs,
           metadata: {
             totalCount: mockJobs.length,
-            softwareCount: mockJobs.length,
             fetchedAt: new Date().toISOString(),
           },
         }
@@ -99,7 +98,6 @@ describe('BucketJobsModal', () => {
           jobs: mockJobs,
           metadata: {
             totalCount: mockJobs.length,
-            softwareCount: mockJobs.length,
             fetchedAt: new Date().toISOString(),
           },
         }
@@ -137,7 +135,6 @@ describe('BucketJobsModal', () => {
           jobs: mockJobs,
           metadata: {
             totalCount: mockJobs.length,
-            softwareCount: mockJobs.length,
             fetchedAt: new Date().toISOString(),
           },
         }
@@ -177,7 +174,6 @@ describe('BucketJobsModal', () => {
           jobs: mockJobs,
           metadata: {
             totalCount: mockJobs.length,
-            softwareCount: mockJobs.length,
             oldestJobDate: mockJobs[0]?.createdAt,
             newestJobDate: mockJobs[mockJobs.length - 1]?.createdAt,
             fetchedAt: new Date().toISOString(),
@@ -222,7 +218,6 @@ describe('BucketJobsModal', () => {
           jobs: mockJobs,
           metadata: {
             totalCount: mockJobs.length,
-            softwareCount: mockJobs.length,
             oldestJobDate: mockJobs[0]?.createdAt,
             newestJobDate: mockJobs[mockJobs.length - 1]?.createdAt,
             fetchedAt: new Date().toISOString(),
@@ -266,7 +261,6 @@ describe('BucketJobsModal', () => {
           jobs: mockJobs,
           metadata: {
             totalCount: mockJobs.length,
-            softwareCount: mockJobs.length,
             fetchedAt: new Date().toISOString(),
           },
         }
@@ -310,7 +304,6 @@ describe('BucketJobsModal', () => {
           jobs: mockJobs,
           metadata: {
             totalCount: mockJobs.length,
-            softwareCount: mockJobs.length,
             fetchedAt: new Date().toISOString(),
           },
         }
@@ -348,7 +341,6 @@ describe('BucketJobsModal', () => {
           jobs: mockJobs,
           metadata: {
             totalCount: mockJobs.length,
-            softwareCount: mockJobs.length,
             fetchedAt: new Date().toISOString(),
           },
         }
@@ -386,7 +378,6 @@ describe('BucketJobsModal', () => {
           jobs: mockJobs,
           metadata: {
             totalCount: mockJobs.length,
-            softwareCount: mockJobs.length,
             oldestJobDate: mockJobs[0]?.createdAt,
             newestJobDate: mockJobs[mockJobs.length - 1]?.createdAt,
             fetchedAt: new Date().toISOString(),

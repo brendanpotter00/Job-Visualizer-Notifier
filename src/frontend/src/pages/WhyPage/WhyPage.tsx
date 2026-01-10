@@ -15,6 +15,17 @@ import { OpenInNew } from '@mui/icons-material';
  * @returns Why This Was Built page component
  */
 export function WhyPage() {
+  // Display-friendly names for ATS types
+  const atsDisplayNames: Record<string, string> = {
+    'backend-scraper': 'Custom Scrapers',
+  };
+
+  // Coming soon companies for custom scrapers
+  const comingSoonScrapers = [
+    { name: 'Apple', jobsUrl: 'https://jobs.apple.com/' },
+    { name: 'Netflix', jobsUrl: 'https://jobs.netflix.com/' },
+  ];
+
   // Group companies by ATS type for organized display
   const companiesByATS = useMemo(() => {
     const grouped: Record<string, Company[]> = {};
@@ -131,18 +142,18 @@ export function WhyPage() {
         {/* Group companies by ATS */}
         <Grid container spacing={3}>
           {Object.entries(companiesByATS).map(([ats, companies]) => (
-            <Grid key={ats} size={{ xs: 12, sm: 6, md: 4, lg: 3 }}>
+            <Grid key={ats} size={{ xs: 12, sm: 6, md: 'grow' }}>
               <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                 <Typography
                   variant="h6"
                   component="h3"
                   sx={{
-                    textTransform: 'capitalize',
+                    textTransform: atsDisplayNames[ats] ? 'none' : 'capitalize',
                     mb: 1,
                     color: 'primary.main',
                   }}
                 >
-                  {ats} ({companies.length})
+                  {atsDisplayNames[ats] || ats} ({companies.length})
                 </Typography>
                 <Paper variant="outlined" sx={{ p: 2, flexGrow: 1 }}>
                   <List dense disablePadding>
@@ -159,6 +170,23 @@ export function WhyPage() {
                         </Link>
                       </ListItem>
                     ))}
+                    {ats === 'backend-scraper' &&
+                      comingSoonScrapers.map((company) => (
+                        <ListItem key={company.name} sx={{ py: 0.5, px: 0 }}>
+                          <Typography
+                            component="span"
+                            sx={{ fontWeight: 500, fontSize: '1rem', color: 'text.secondary' }}
+                          >
+                            {company.name}{' '}
+                            <Typography
+                              component="span"
+                              sx={{ fontSize: '0.75rem', fontStyle: 'italic' }}
+                            >
+                              (Coming Soon)
+                            </Typography>
+                          </Typography>
+                        </ListItem>
+                      ))}
                   </List>
                 </Paper>
               </Box>

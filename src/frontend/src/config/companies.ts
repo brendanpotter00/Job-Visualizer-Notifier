@@ -332,7 +332,7 @@ export const COMPANIES: Company[] = [
       'https://www.linkedin.com/search/results/content/?authorCompany=%5B%2218505670%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=o-E&sortBy=%22date_posted%22',
   },
   {
-    id: 'Squarespace',
+    id: 'squarespace',
     name: 'Squarespace',
     ats: 'greenhouse',
     config: {
@@ -395,6 +395,19 @@ export const COMPANIES: Company[] = [
     jobsUrl: 'https://jobs.ashbyhq.com/elevenlabs',
     recruiterLinkedInUrl: '',
   },
+  {
+    id: 'google',
+    name: 'Google',
+    ats: 'backend-scraper',
+    config: {
+      type: 'backend-scraper',
+      companyId: 'google',
+      apiBaseUrl: '/api/jobs',
+    },
+    jobsUrl: 'https://careers.google.com/',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%221441%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%22date_posted%22',
+  },
   // {
   //     id: 'netflix',
   //     name: 'Netflix',
@@ -444,10 +457,11 @@ export const enum COMPANY_IDS {
   AppliedIntuition = 'appliedintuition',
   Discord = 'discord',
   Brex = 'brex',
-  Squarespace = 'Squarespace',
+  Squarespace = 'squarespace',
   Nvidia = 'nvidia',
   Adobe = 'adobe',
   ElevenLabs = 'elevenlabs',
+  Google = 'google',
 }
 
 /**

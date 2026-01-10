@@ -32,11 +32,13 @@ export const selectCurrentCompanyError = createSelector(
   (companyId, state) => {
     const result = jobsApi.endpoints.getJobsForCompany.select({ companyId })(state);
     if (!result.error) return undefined;
-    return typeof result.error === 'string'
-      ? result.error
-      : typeof result.error === 'object' && true && 'data' in result.error
-        ? String(result.error.data)
-        : 'Unknown error';
+    if (typeof result.error === 'string') {
+      return result.error;
+    }
+    if (typeof result.error === 'object' && 'data' in result.error) {
+      return String(result.error.data);
+    }
+    return 'Unknown error';
   }
 );
 
@@ -50,7 +52,6 @@ export const selectCurrentCompanyMetadataRtk = createSelector(
     return (
       result.data?.metadata || {
         totalCount: 0,
-        softwareCount: 0,
       }
     );
   }

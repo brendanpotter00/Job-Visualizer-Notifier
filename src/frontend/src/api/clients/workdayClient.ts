@@ -197,32 +197,24 @@ export const workdayClient: JobAPIClient = {
     );
 
     // 6. Apply 'since' filter if provided (client-side filtering)
-    let filteredJobs = jobs;
+    const filteredJobs = options.since
+      ? jobs.filter((job) => new Date(job.createdAt) >= new Date(options.since!))
+      : jobs;
     if (options.since) {
-      const sinceDate = new Date(options.since);
-      filteredJobs = jobs.filter((job) => {
-        const jobDate = new Date(job.createdAt);
-        return jobDate >= sinceDate;
-      });
-      logger.debug(
-        `[Workday Client] Filtered by 'since': ${filteredJobs.length}/${jobs.length} jobs`
-      );
+      logger.debug(`[Workday Client] Filtered by 'since': ${filteredJobs.length}/${jobs.length} jobs`);
     }
 
     // 7. Apply 'limit' if provided (client-side limiting)
-    if (options.limit !== undefined && filteredJobs.length > options.limit) {
-      filteredJobs = filteredJobs.slice(0, options.limit);
-      logger.debug(`[Workday Client] Applied limit: ${filteredJobs.length} jobs`);
+    const limitedJobs = options.limit ? filteredJobs.slice(0, options.limit) : filteredJobs;
+    if (options.limit && limitedJobs.length < filteredJobs.length) {
+      logger.debug(`[Workday Client] Applied limit: ${limitedJobs.length} jobs`);
     }
 
     // 8. Calculate metadata
-    const softwareCount = 0; // Removed classification feature
-
     const result: FetchJobsResult = {
-      jobs: filteredJobs,
+      jobs: limitedJobs,
       metadata: {
-        totalCount: filteredJobs.length,
-        softwareCount,
+        totalCount: limitedJobs.length,
         fetchedAt: new Date().toISOString(),
       },
     };

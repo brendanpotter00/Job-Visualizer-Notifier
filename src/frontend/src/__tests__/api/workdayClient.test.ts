@@ -903,37 +903,6 @@ describe('workdayClient', () => {
       expect(result.metadata.totalCount).toBe(15);
     });
 
-    it('should calculate softwareCount from isSoftwareAdjacent flag', async () => {
-      const config: WorkdayConfig = {
-        type: 'workday',
-        baseUrl: 'https://test.wd5.myworkdayjobs.com',
-        tenantSlug: 'test',
-        careerSiteSlug: 'TestSite',
-      };
-
-      const jobs: WorkdayJobPosting[] = [
-        { title: 'Software Engineer', externalPath: '/job/JR1', bulletFields: ['JR1'] },
-        { title: 'Frontend Developer', externalPath: '/job/JR2', bulletFields: ['JR2'] },
-        { title: 'Recruiter', externalPath: '/job/JR3', bulletFields: ['JR3'] },
-      ];
-
-      (globalThis.fetch as any).mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: async () => ({
-          total: 3,
-          jobPostings: jobs,
-          facets: [],
-          userAuthenticated: false,
-        }),
-      });
-
-      const result = await workdayClient.fetchJobs(config);
-
-      // Classification feature removed - softwareCount is always 0
-      expect(result.metadata.softwareCount).toBe(0);
-    });
-
     it('should include fetchedAt timestamp', async () => {
       const config: WorkdayConfig = {
         type: 'workday',
