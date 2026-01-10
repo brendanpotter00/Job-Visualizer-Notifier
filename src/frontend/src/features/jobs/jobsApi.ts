@@ -11,7 +11,6 @@ interface JobsQueryResult {
   jobs: Job[];
   metadata: {
     totalCount: number;
-    softwareCount: number;
     oldestJobDate?: string;
     newestJobDate?: string;
     fetchedAt: string;
@@ -24,7 +23,6 @@ interface AllJobsQueryResult {
     string,
     {
       totalCount: number;
-      softwareCount: number;
       oldestJobDate?: string;
       newestJobDate?: string;
       fetchedAt: string;
@@ -149,7 +147,6 @@ export const jobsApi = createApi({
                 draft.byCompanyId[company.id] = [];
                 draft.metadata[company.id] = {
                   totalCount: 0,
-                  softwareCount: 0,
                   fetchedAt: new Date().toISOString(),
                 };
                 draft.errors[company.id] = errorMessage;

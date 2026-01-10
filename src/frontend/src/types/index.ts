@@ -5,7 +5,7 @@
 /**
  * ATS provider type
  */
-export type ATSProvider = 'greenhouse' | 'lever' | 'ashby' | 'workday';
+export type ATSProvider = 'greenhouse' | 'lever' | 'ashby' | 'workday' | 'backend-scraper';
 
 /**
  * Normalized job posting model.
@@ -155,6 +155,17 @@ export interface WorkdayConfig {
 }
 
 /**
+ * Backend scraper configuration - for companies scraped via Python scripts
+ */
+export interface BackendScraperConfig {
+  type: 'backend-scraper';
+  /** Company identifier used in backend API (e.g., 'google', 'apple') */
+  companyId: string;
+  /** Optional custom API base URL for proxying */
+  apiBaseUrl?: string;
+}
+
+/**
  * Company configuration for multi-ATS support
  */
 export interface Company {
@@ -168,7 +179,7 @@ export interface Company {
   ats: ATSProvider;
 
   /** ATS-specific configuration */
-  config: GreenhouseConfig | LeverConfig | AshbyConfig | WorkdayConfig;
+  config: GreenhouseConfig | LeverConfig | AshbyConfig | WorkdayConfig | BackendScraperConfig;
 
   /** Optional URL to company's job postings website */
   jobsUrl?: string;

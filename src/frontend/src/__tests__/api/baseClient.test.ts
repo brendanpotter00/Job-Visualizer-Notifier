@@ -89,7 +89,6 @@ describe('createAPIClient', () => {
     expect(result.jobs[0].id).toBe('1');
     expect(result.jobs[0].title).toBe('Engineer');
     expect(result.metadata.totalCount).toBe(2);
-    expect(result.metadata.softwareCount).toBe(0); // Classification feature removed
   });
 
   it('should apply since filter correctly', async () => {
@@ -350,7 +349,6 @@ describe('createAPIClient', () => {
 
       expect(result.jobs).toHaveLength(0);
       expect(result.metadata.totalCount).toBe(0);
-      expect(result.metadata.softwareCount).toBe(0);
     });
 
     it('should calculate metadata correctly with mixed job types', async () => {
@@ -395,7 +393,6 @@ describe('createAPIClient', () => {
 
       expect(result.jobs).toHaveLength(4);
       expect(result.metadata.totalCount).toBe(4);
-      expect(result.metadata.softwareCount).toBe(0); // Classification feature removed
     });
 
     it('should handle large datasets (1000+ jobs)', async () => {
@@ -434,7 +431,6 @@ describe('createAPIClient', () => {
 
       expect(result.jobs).toHaveLength(1500);
       expect(result.metadata.totalCount).toBe(1500);
-      expect(result.metadata.softwareCount).toBe(0); // Classification feature removed
     });
 
     it('should filter jobs with identical timestamps correctly', async () => {

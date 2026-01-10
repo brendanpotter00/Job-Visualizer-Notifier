@@ -22,7 +22,6 @@ export interface UseAllJobsProgressResult {
       string,
       {
         totalCount: number;
-        softwareCount: number;
         oldestJobDate?: string;
         newestJobDate?: string;
         fetchedAt: string;

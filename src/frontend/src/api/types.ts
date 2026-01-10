@@ -1,4 +1,11 @@
-import type { Job, GreenhouseConfig, LeverConfig, AshbyConfig, WorkdayConfig } from '../types';
+import type {
+  Job,
+  GreenhouseConfig,
+  LeverConfig,
+  AshbyConfig,
+  WorkdayConfig,
+  BackendScraperConfig,
+} from '../types';
 
 /**
  * Greenhouse job board API response
@@ -160,6 +167,47 @@ export interface WorkdayJobsResponse {
 }
 
 /**
+ * Backend job details stored in JobListing.details JSON field
+ * Contains structured data extracted from scraped job detail pages
+ * Works for any backend-scraped company (Google, Apple, etc.)
+ */
+export interface BackendJobDetails {
+  minimum_qualifications?: string;
+  preferred_qualifications?: string;
+  about_the_job?: string;
+  responsibilities?: string;
+  experience_level?: string;
+  salary_range?: string;
+  is_remote_eligible?: boolean;
+  apply_url?: string;
+}
+
+/**
+ * Backend JobListing entity structure
+ * Matches the C# JobListing class from the .NET backend
+ * Used for all scraped companies (Google, Apple, etc.)
+ */
+export interface BackendJobListing {
+  id: string;
+  title: string;
+  company: string;
+  location: string | null;
+  url: string;
+  sourceId: string;
+  details: string; // JSON string containing BackendJobDetails
+  createdAt: string; // ISO 8601
+  postedOn: string | null;
+  closedOn: string | null;
+  status: string; // "OPEN" | "CLOSED"
+  hasMatched: boolean;
+  aiMetadata: string; // JSON string
+  firstSeenAt: string; // ISO 8601
+  lastSeenAt: string; // ISO 8601
+  consecutiveMisses: number;
+  detailsScraped: boolean;
+}
+
+/**
  * Standard API client interface.
  * All ATS clients implement this interface.
  */
@@ -171,7 +219,7 @@ export interface JobAPIClient {
    * @returns Normalized jobs array
    */
   fetchJobs(
-    config: GreenhouseConfig | LeverConfig | AshbyConfig | WorkdayConfig,
+    config: GreenhouseConfig | LeverConfig | AshbyConfig | WorkdayConfig | BackendScraperConfig,
     options?: FetchJobsOptions
   ): Promise<FetchJobsResult>;
 }
@@ -191,7 +239,6 @@ export interface FetchJobsResult {
   jobs: Job[];
   metadata: {
     totalCount: number;
-    softwareCount: number;
     fetchedAt: string;
   };
 }
@@ -203,7 +250,7 @@ export class APIError extends Error {
   constructor(
     message: string,
     public statusCode?: number,
-    public atsProvider?: 'greenhouse' | 'lever' | 'ashby' | 'workday',
+    public atsProvider?: 'greenhouse' | 'lever' | 'ashby' | 'workday' | 'backend-scraper',
     public retryable: boolean = false
   ) {
     super(message);
@@ -216,4 +263,5 @@ export enum ATSConstants {
   Workday = 'workday',
   Ashby = 'ashby',
   Lever = 'lever',
+  BackendScraper = 'backend-scraper',
 }

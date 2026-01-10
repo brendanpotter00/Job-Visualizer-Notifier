@@ -1,10 +1,22 @@
-import type { Job, GreenhouseConfig, LeverConfig, AshbyConfig, WorkdayConfig } from '../../types';
+import type {
+  Job,
+  GreenhouseConfig,
+  LeverConfig,
+  AshbyConfig,
+  WorkdayConfig,
+  BackendScraperConfig,
+} from '../../types';
 import type { JobAPIClient, FetchJobsOptions, FetchJobsResult } from '../types';
 import { APIError } from '../types';
 import { logger } from '../../lib/logger';
 
 /** Union of all ATS company configuration types */
-export type ATSCompanyConfig = GreenhouseConfig | LeverConfig | AshbyConfig | WorkdayConfig;
+export type ATSCompanyConfig =
+  | GreenhouseConfig
+  | LeverConfig
+  | AshbyConfig
+  | WorkdayConfig
+  | BackendScraperConfig;
 
 /**
  * Configuration for creating an API client
@@ -141,7 +153,7 @@ export function createAPIClient<TResponse, TConfig extends ATSCompanyConfig>(
           throw new APIError(
             `${clientConfig.name} API error: ${response.statusText}`,
             response.status,
-            config.type as 'greenhouse' | 'lever' | 'ashby',
+            config.type as 'greenhouse' | 'lever' | 'ashby' | 'workday' | 'backend-scraper',
             response.status >= 500 || response.status === 429
           );
         }
@@ -170,7 +182,6 @@ export function createAPIClient<TResponse, TConfig extends ATSCompanyConfig>(
           jobs: limitedJobs,
           metadata: {
             totalCount: limitedJobs.length,
-            softwareCount: 0, // Removed classification feature
             fetchedAt: new Date().toISOString(),
           },
         };
@@ -186,7 +197,7 @@ export function createAPIClient<TResponse, TConfig extends ATSCompanyConfig>(
         throw new APIError(
           `Failed to fetch ${clientConfig.name} jobs: ${(error as Error).message}`,
           undefined,
-          config.type as 'greenhouse' | 'lever' | 'ashby',
+          config.type as 'greenhouse' | 'lever' | 'ashby' | 'workday' | 'backend-scraper',
           true // Assume retryable for network/unknown errors
         );
       }
