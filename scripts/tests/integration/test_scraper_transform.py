@@ -6,10 +6,6 @@ Tests the data transformation and deduplication logic.
 
 import pytest
 
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-
 from google_jobs_scraper.scraper import GoogleJobsScraper
 from google_jobs_scraper.models import GoogleJob
 

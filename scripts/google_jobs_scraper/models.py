@@ -1,51 +1,20 @@
 """
 Pydantic data models for Google Jobs scraper
+
+Re-exports shared models and provides Google-specific aliases.
 """
 
+import sys
+from pathlib import Path
+from typing import Any, Dict, List
+
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any
-from datetime import datetime
 
+# Import from shared models to avoid duplication
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from shared.models import JobListing
 
-class JobListing(BaseModel):
-    """
-    Job model aligned with the JobListings database schema
-    """
-
-    # Primary fields
-    id: str  # e.g., "114423471240291014"
-    title: str  # e.g., "Software Engineer III, Google Cloud"
-    company: str = "google"  # Always "google" for this scraper
-    location: Optional[str] = None  # e.g., "Mountain View, CA, USA"
-    url: str  # Full job detail URL
-    source_id: str = "google_scraper"  # Workday, Lever, Greenhouse, Scraper, etc
-
-    # Details JSONB - qualifications, description, etc.
-    details: Dict[str, Any] = Field(default_factory=dict)
-
-    # Timestamps
-    posted_on: Optional[str] = None  # When job was posted (if available)
-    created_at: str  # First time we saw it (ISO 8601)
-    closed_on: Optional[str] = None  # When job was closed (null if still open)
-
-    # Status
-    status: str = "OPEN"  # OPEN / CLOSED
-
-    # AI matching fields
-    has_matched: bool = False  # Has gone through AI notification service
-    ai_metadata: Dict[str, Any] = Field(default_factory=dict)  # AI matched tags
-
-    # Incremental tracking fields (for database mode)
-    first_seen_at: Optional[str] = None  # When we first discovered this job
-    last_seen_at: Optional[str] = None  # Last time we saw this job in search results
-    consecutive_misses: int = 0  # Number of consecutive scrapes where job was missing
-    details_scraped: bool = False  # Whether we've scraped the detail page
-
-    # Embedding placeholder (not used in JSON output)
-    # embedding: Optional[List[float]] = None
-
-
-# Alias for backwards compatibility
+# Alias for Google-specific code
 GoogleJob = JobListing
 
 

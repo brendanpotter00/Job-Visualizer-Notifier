@@ -5,11 +5,6 @@ Tests run against PostgreSQL (requires docker-compose postgres to be running).
 """
 
 import pytest
-import json
-
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from shared.models import JobListing, ScrapeRun
 from shared import database as db

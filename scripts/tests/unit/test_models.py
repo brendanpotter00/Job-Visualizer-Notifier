@@ -5,10 +5,6 @@ Unit tests for Pydantic models (shared/models.py)
 import pytest
 from pydantic import ValidationError
 
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-
 from shared.models import JobListing, ScrapeRun
 
 

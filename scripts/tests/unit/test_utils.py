@@ -3,17 +3,12 @@ Unit tests for utility functions (google_jobs_scraper/utils.py)
 """
 
 import pytest
-import re
 from datetime import datetime
-
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from google_jobs_scraper.utils import (
     should_include_job,
     extract_job_id_from_url,
-    get_iso_timestamp
+    get_iso_timestamp,
 )
 
 

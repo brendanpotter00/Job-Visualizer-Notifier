@@ -13,10 +13,16 @@ Algorithm phases:
 """
 
 import logging
+import sys
 import uuid
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Set, List, Dict, Any, Tuple
-from datetime import datetime
 
+# Add parent directory for google_jobs_scraper imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from google_jobs_scraper.utils import get_iso_timestamp
 from .models import JobListing, ScrapeRun
 from . import database as db
 
@@ -26,24 +32,21 @@ logger = logging.getLogger(__name__)
 MISSED_RUN_THRESHOLD = 2
 
 
-class ScrapeResult:
-    """Result object returned by incremental scrape"""
+def _generate_run_id() -> str:
+    """Generate a unique run ID."""
+    return str(uuid.uuid4())
 
-    def __init__(
-        self,
-        jobs_seen: int = 0,
-        new_jobs: int = 0,
-        closed_jobs: int = 0,
-        details_fetched: int = 0,
-        error_count: int = 0,
-        run_id: str = None,
-    ):
-        self.jobs_seen = jobs_seen
-        self.new_jobs = new_jobs
-        self.closed_jobs = closed_jobs
-        self.details_fetched = details_fetched
-        self.error_count = error_count
-        self.run_id = run_id or str(uuid.uuid4())
+
+@dataclass
+class ScrapeResult:
+    """Result object returned by incremental scrape."""
+
+    jobs_seen: int = 0
+    new_jobs: int = 0
+    closed_jobs: int = 0
+    details_fetched: int = 0
+    error_count: int = 0
+    run_id: str = field(default_factory=_generate_run_id)
 
 
 def calculate_job_diff(
@@ -265,8 +268,3 @@ async def run_incremental_scrape(
     )
 
     return result
-
-
-def get_iso_timestamp() -> str:
-    """Get current timestamp in ISO 8601 format"""
-    return datetime.utcnow().isoformat() + "Z"

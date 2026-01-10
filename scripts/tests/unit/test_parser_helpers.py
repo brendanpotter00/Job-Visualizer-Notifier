@@ -6,10 +6,6 @@ Tests synchronous helper functions that don't require browser/page objects.
 
 import pytest
 
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-
 from google_jobs_scraper.parser import extract_salary_from_text, check_remote_eligible
 
 

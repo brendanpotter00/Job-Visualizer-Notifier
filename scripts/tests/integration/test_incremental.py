@@ -5,11 +5,7 @@ Tests the 5-phase algorithm with mocked scraper and real database.
 """
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+from unittest.mock import AsyncMock, MagicMock
 
 from shared.models import JobListing
 from shared import database as db
@@ -18,7 +14,7 @@ from shared.incremental import (
     update_existing_jobs,
     run_incremental_scrape,
     ScrapeResult,
-    MISSED_RUN_THRESHOLD
+    MISSED_RUN_THRESHOLD,
 )
 
 

@@ -9,34 +9,20 @@ Modes:
 
 import argparse
 import asyncio
-import json
-import sys
 import logging
+import sys
 from pathlib import Path
-from datetime import datetime
+
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeRemainingColumn
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 # Import scraper modules
+from scripts.google_jobs_scraper.config import DEFAULT_OUTPUT_DIR, DEFAULT_OUTPUT_FILE
 from scripts.google_jobs_scraper.scraper import GoogleJobsScraper
-from scripts.google_jobs_scraper.config import (
-    DEFAULT_OUTPUT_DIR,
-    DEFAULT_OUTPUT_FILE,
-    CHECKPOINT_INTERVAL,
-)
-from scripts.google_jobs_scraper.models import ScraperOutput, CheckpointData
-from scripts.google_jobs_scraper.utils import (
-    setup_logging,
-    save_checkpoint,
-    load_checkpoint,
-    delete_checkpoint,
-    get_iso_timestamp,
-    ensure_output_directory,
-)
+from scripts.google_jobs_scraper.utils import get_iso_timestamp, setup_logging
 
 # Import shared modules for database mode
 from scripts.shared import database as db

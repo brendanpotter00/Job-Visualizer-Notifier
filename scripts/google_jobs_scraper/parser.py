@@ -89,7 +89,7 @@ async def extract_job_cards_from_list(page: Page) -> List[Dict[str, Any]]:
             with open('scripts/output/debug_page.html', 'w') as f:
                 f.write(content)
             logger.info("Saved page content to scripts/output/debug_page.html for inspection")
-        except:
+        except Exception:
             pass
 
     return jobs
