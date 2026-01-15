@@ -6,8 +6,10 @@ Company-specific scrapers extend this class and implement abstract methods.
 """
 
 import logging
+import asyncio
+import random
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, AsyncIterator
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 
 logger = logging.getLogger(__name__)
@@ -199,3 +201,58 @@ class BaseScraper(ABC):
                 break
 
         return all_jobs
+
+    async def _random_delay(self, min_seconds: float = 2.0, max_seconds: float = 5.0):
+        """
+        Rate limiting delay between requests.
+
+        Subclasses can override this to use their own delay configuration.
+
+        Args:
+            min_seconds: Minimum delay (default 2.0)
+            max_seconds: Maximum delay (default 5.0)
+        """
+        delay = random.uniform(min_seconds, max_seconds)
+        logger.debug(f"Waiting {delay:.2f} seconds before next request")
+        await asyncio.sleep(delay)
+
+    async def scrape_job_details_streaming(
+        self,
+        job_cards: List[Dict[str, Any]],
+    ) -> AsyncIterator[Dict[str, Any]]:
+        """
+        Async generator that yields enriched jobs one at a time as they're scraped.
+
+        Allows jobs to be processed (e.g., written to database) as they're scraped
+        rather than waiting for all jobs to complete. Reduces memory usage and
+        enables partial progress saving.
+
+        Args:
+            job_cards: List of job card dicts from search results
+
+        Yields:
+            Enriched job dictionaries with details merged in
+        """
+        page = await self.context.new_page()
+        total = len(job_cards)
+
+        try:
+            for i, job_card in enumerate(job_cards, 1):
+                job_url = job_card.get("job_url")
+                if not job_url:
+                    logger.warning(f"Job {i}/{total}: No URL, skipping")
+                    yield job_card
+                    continue
+
+                logger.info(f"Scraping details {i}/{total}: {job_card.get('title', 'Unknown')}")
+
+                try:
+                    details = await self.extract_job_details(page, job_url)
+                    yield {**job_card, **details}
+                except Exception as e:
+                    logger.error(f"Error scraping details for {job_url}: {e}")
+                    yield job_card
+
+                await self._random_delay()
+        finally:
+            await page.close()

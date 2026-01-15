@@ -42,7 +42,7 @@ export function transformBackendJob(raw: BackendJobListing, companyId: string): 
     location: raw.location || undefined,
     isRemote: details.is_remote_eligible,
     // employmentType not available from scraper
-    createdAt: raw.firstSeenAt, // Use firstSeenAt as the "posted" date
+    createdAt: raw.postedOn || raw.firstSeenAt, // Use actual posted date, fallback to first seen
     url: raw.url,
     tags: generateTags(details),
     raw, // Preserve full backend response for debugging

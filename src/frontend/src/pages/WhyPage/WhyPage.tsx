@@ -21,10 +21,7 @@ export function WhyPage() {
   };
 
   // Coming soon companies for custom scrapers
-  const comingSoonScrapers = [
-    { name: 'Apple', jobsUrl: 'https://jobs.apple.com/' },
-    { name: 'Netflix', jobsUrl: 'https://jobs.netflix.com/' },
-  ];
+  const comingSoonScrapers = [{ name: 'Netflix', jobsUrl: 'https://jobs.netflix.com/' }];
 
   // Group companies by ATS type for organized display
   const companiesByATS = useMemo(() => {

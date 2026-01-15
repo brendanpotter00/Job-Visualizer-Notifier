@@ -245,7 +245,9 @@ describe('QAPage', () => {
 
       // Should show error
       await waitFor(() => {
-        expect(screen.getByRole('alert')).toHaveTextContent('Scrape failed: Process failed with error');
+        expect(screen.getByRole('alert')).toHaveTextContent(
+          'Scrape failed: Process failed with error'
+        );
       });
 
       // Alert should have error severity

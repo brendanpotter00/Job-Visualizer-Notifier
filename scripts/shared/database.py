@@ -10,7 +10,7 @@ from typing import Set, List, Optional, Dict, Any
 from urllib.parse import urlparse
 
 import psycopg2
-from psycopg2.extras import RealDictCursor
+from psycopg2.extras import RealDictCursor, execute_values
 
 from .models import JobListing, ScrapeRun
 
@@ -251,6 +251,119 @@ def upsert_job(conn: Connection, job: JobListing, env: str = "local") -> bool:
     return was_inserted
 
 
+def upsert_jobs_batch(conn: Connection, jobs: List[JobListing], env: str = "local") -> int:
+    """
+    Batch upsert multiple jobs in a single transaction.
+
+    More efficient than calling upsert_job() in a loop - uses execute_values
+    for bulk operations (10-50x faster for large batches).
+
+    Args:
+        conn: Database connection
+        jobs: List of JobListing models
+        env: Environment name
+
+    Returns:
+        Number of jobs in the batch (all are upserted)
+    """
+    if not jobs:
+        return 0
+
+    cursor = conn.cursor()
+    jobs_table = f"job_listings_{env}"
+
+    values = [
+        (
+            job.id, job.title, job.company, job.location, job.url, job.source_id,
+            json.dumps(job.details), job.posted_on, job.created_at, job.closed_on, job.status,
+            job.has_matched, json.dumps(job.ai_metadata),
+            job.first_seen_at, job.last_seen_at, job.consecutive_misses, job.details_scraped
+        )
+        for job in jobs
+    ]
+
+    execute_values(
+        cursor,
+        f"""
+        INSERT INTO {jobs_table} (
+            id, title, company, location, url, source_id,
+            details, posted_on, created_at, closed_on, status,
+            has_matched, ai_metadata,
+            first_seen_at, last_seen_at, consecutive_misses, details_scraped
+        ) VALUES %s
+        ON CONFLICT (id) DO UPDATE SET
+            title = EXCLUDED.title,
+            location = EXCLUDED.location,
+            url = EXCLUDED.url,
+            details = EXCLUDED.details,
+            posted_on = EXCLUDED.posted_on,
+            status = 'OPEN',
+            closed_on = NULL,
+            last_seen_at = EXCLUDED.last_seen_at,
+            consecutive_misses = 0,
+            details_scraped = EXCLUDED.details_scraped
+        """,
+        values,
+        page_size=100
+    )
+
+    conn.commit()
+    logger.info(f"Batch upserted {len(jobs)} jobs")
+    return len(jobs)
+
+
+def insert_jobs_batch(conn: Connection, jobs: List[JobListing], env: str = "local") -> int:
+    """
+    Batch insert multiple jobs in a single transaction.
+
+    Skips jobs that already exist (ON CONFLICT DO NOTHING).
+    More efficient than calling insert_job() in a loop.
+
+    Args:
+        conn: Database connection
+        jobs: List of JobListing models
+        env: Environment name
+
+    Returns:
+        Number of jobs actually inserted (excludes duplicates skipped by ON CONFLICT)
+    """
+    if not jobs:
+        return 0
+
+    cursor = conn.cursor()
+    jobs_table = f"job_listings_{env}"
+
+    values = [
+        (
+            job.id, job.title, job.company, job.location, job.url, job.source_id,
+            json.dumps(job.details), job.posted_on, job.created_at, job.closed_on, job.status,
+            job.has_matched, json.dumps(job.ai_metadata),
+            job.first_seen_at, job.last_seen_at, job.consecutive_misses, job.details_scraped
+        )
+        for job in jobs
+    ]
+
+    execute_values(
+        cursor,
+        f"""
+        INSERT INTO {jobs_table} (
+            id, title, company, location, url, source_id,
+            details, posted_on, created_at, closed_on, status,
+            has_matched, ai_metadata,
+            first_seen_at, last_seen_at, consecutive_misses, details_scraped
+        ) VALUES %s
+        ON CONFLICT (id) DO NOTHING
+        """,
+        values,
+        page_size=100
+    )
+
+    actual_inserted = cursor.rowcount
+    conn.commit()
+    logger.info(f"Batch inserted {actual_inserted}/{len(jobs)} jobs (skipped {len(jobs) - actual_inserted} duplicates)")
+    return actual_inserted
+
+
 def update_last_seen(conn: Connection, job_ids: List[str], timestamp: str, env: str = "local") -> None:
     """
     Update last_seen_at timestamp for jobs and reset consecutive_misses to 0
@@ -404,17 +517,13 @@ def get_all_active_jobs(conn: Connection, company: str, env: str = "local") -> L
         (company,)
     )
 
-    rows = cursor.fetchall()
     jobs = []
-
-    for row in rows:
+    for row in cursor.fetchall():
         row_dict = dict(row)
-        # JSONB columns are already parsed by psycopg2
-        if isinstance(row_dict['details'], str):
-            row_dict['details'] = json.loads(row_dict['details'])
-        if isinstance(row_dict['ai_metadata'], str):
-            row_dict['ai_metadata'] = json.loads(row_dict['ai_metadata'])
-
+        # Parse JSONB columns if returned as strings (depends on psycopg2 config)
+        for json_col in ('details', 'ai_metadata'):
+            if isinstance(row_dict.get(json_col), str):
+                row_dict[json_col] = json.loads(row_dict[json_col])
         jobs.append(JobListing(**row_dict))
 
     return jobs

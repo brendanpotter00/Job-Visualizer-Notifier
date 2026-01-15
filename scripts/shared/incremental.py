@@ -15,10 +15,11 @@ Algorithm phases:
 import logging
 import uuid
 from typing import Set, List, Dict, Any, Tuple
-from datetime import datetime
 
 from .models import JobListing, ScrapeRun
 from . import database as db
+from .batch_writer import BatchWriter
+from .utils import get_iso_timestamp
 
 logger = logging.getLogger(__name__)
 
@@ -77,17 +78,22 @@ async def process_new_jobs(
     db_conn,
     new_job_cards: List[Dict[str, Any]],
     env: str,
-    detail_scrape: bool = True
+    detail_scrape: bool = True,
+    batch_size: int = 50
 ) -> int:
     """
-    Process new jobs: fetch details and insert into database
+    Process new jobs: fetch details and insert into database IN BATCHES.
+
+    Jobs are written to the database as they're scraped, not all at the end.
+    This provides fault tolerance and reduces memory usage.
 
     Args:
-        scraper: Scraper instance with extract_job_details method
+        scraper: Scraper instance with scrape_job_details_streaming method
         db_conn: Database connection
         new_job_cards: List of job card dicts (basic info from list page)
         env: Environment name
         detail_scrape: Whether to fetch detail pages
+        batch_size: Number of jobs per database batch
 
     Returns:
         Number of details fetched
@@ -95,31 +101,39 @@ async def process_new_jobs(
     if not new_job_cards:
         return 0
 
-    logger.info(f"Processing {len(new_job_cards)} new jobs...")
+    logger.info(f"Processing {len(new_job_cards)} new jobs (batch_size={batch_size})...")
 
-    # Fetch details if requested
-    details_fetched = 0
-    if detail_scrape:
-        enriched_jobs = await scraper.scrape_job_details_batch(new_job_cards)
-        details_fetched = len(enriched_jobs)
-    else:
-        enriched_jobs = new_job_cards
-
-    # Transform to JobListing models and insert
     timestamp = get_iso_timestamp()
-    for job_data in enriched_jobs:
-        try:
-            job = scraper.transform_to_job_model(job_data)
+    writer = BatchWriter(
+        db_conn=db_conn,
+        env=env,
+        scraper=scraper,
+        batch_size=batch_size,
+        detail_scrape=detail_scrape,
+        use_upsert=True  # Incremental mode uses upsert
+    )
 
-            # Set incremental tracking fields
-            job.first_seen_at = timestamp
-            job.last_seen_at = timestamp
-            job.consecutive_misses = 0
-            job.details_scraped = detail_scrape
+    details_fetched = 0
 
-            db.upsert_job(db_conn, job, env)
-        except Exception as e:
-            logger.error(f"Error inserting job {job_data.get('id', 'unknown')}: {e}")
+    if detail_scrape:
+        # Use streaming approach - jobs are saved as they're scraped
+        async for enriched_job in scraper.scrape_job_details_streaming(new_job_cards):
+            writer.add_job(enriched_job, timestamp)
+            details_fetched += 1
+    else:
+        # No detail scrape - just batch insert the cards
+        for job_data in new_job_cards:
+            writer.add_job(job_data, timestamp)
+
+    # Flush any remaining jobs in buffer
+    writer.flush()
+
+    logger.info(
+        f"Processed {writer.stats.total_processed} jobs: "
+        f"{writer.stats.total_written} written, "
+        f"{writer.stats.batches_written} batches, "
+        f"{writer.stats.errors} errors"
+    )
 
     return details_fetched
 
@@ -150,20 +164,23 @@ def update_existing_jobs(
     if still_active_ids:
         db.update_last_seen(db_conn, list(still_active_ids), timestamp, env)
 
+    if not missing_ids:
+        return 0
+
     # Increment consecutive_misses for missing jobs
-    if missing_ids:
-        db.increment_consecutive_misses(db_conn, list(missing_ids), env)
+    db.increment_consecutive_misses(db_conn, list(missing_ids), env)
 
-        # Check which jobs have exceeded threshold and mark as closed
-        jobs_to_close = []
-        for job_id in missing_ids:
-            job_data = db.get_job_by_id(db_conn, job_id, env)
-            if job_data and job_data['consecutive_misses'] + 1 >= threshold:
-                jobs_to_close.append(job_id)
+    # Check which jobs have exceeded threshold and mark as closed
+    # Note: consecutive_misses was already incremented above, so we check >= threshold
+    jobs_to_close = []
+    for job_id in missing_ids:
+        job_data = db.get_job_by_id(db_conn, job_id, env)
+        if job_data and job_data['consecutive_misses'] >= threshold:
+            jobs_to_close.append(job_id)
 
-        if jobs_to_close:
-            db.mark_jobs_closed(db_conn, jobs_to_close, timestamp, env)
-            return len(jobs_to_close)
+    if jobs_to_close:
+        db.mark_jobs_closed(db_conn, jobs_to_close, timestamp, env)
+        return len(jobs_to_close)
 
     return 0
 
@@ -265,8 +282,3 @@ async def run_incremental_scrape(
     )
 
     return result
-
-
-def get_iso_timestamp() -> str:
-    """Get current timestamp in ISO 8601 format"""
-    return datetime.utcnow().isoformat() + "Z"

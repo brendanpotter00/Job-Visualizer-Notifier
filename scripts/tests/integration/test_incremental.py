@@ -65,9 +65,12 @@ class TestProcessNewJobs:
             {"id": "job-001", "title": "Test Job", "job_url": "https://example.com/job"}
         ]
 
-        mock_scraper.scrape_job_details_batch = AsyncMock(return_value=[
-            {"id": "job-001", "title": "Test Job", "job_url": "https://example.com/job", "salary": "$100k"}
-        ])
+        # Mock scrape_job_details_streaming as an async generator
+        async def mock_streaming(job_cards):
+            for job in job_cards:
+                yield {"id": "job-001", "title": "Test Job", "job_url": "https://example.com/job", "salary": "$100k"}
+
+        mock_scraper.scrape_job_details_streaming = mock_streaming
         mock_scraper.transform_to_job_model.return_value = JobListing(
             id="job-001",
             title="Test Job",
@@ -83,8 +86,7 @@ class TestProcessNewJobs:
             mock_scraper, in_memory_db, new_job_cards, env=test_env, detail_scrape=True
         )
 
-        # Should have called scrape_job_details_batch
-        mock_scraper.scrape_job_details_batch.assert_called_once()
+        # Should have yielded 1 enriched job
         assert result == 1  # 1 detail fetched
 
     @pytest.mark.asyncio
@@ -94,6 +96,16 @@ class TestProcessNewJobs:
             {"id": "job-001", "title": "Test Job", "job_url": "https://example.com/job"}
         ]
 
+        # Track whether streaming was called
+        streaming_called = False
+
+        async def mock_streaming(job_cards):
+            nonlocal streaming_called
+            streaming_called = True
+            for job in job_cards:
+                yield job
+
+        mock_scraper.scrape_job_details_streaming = mock_streaming
         mock_scraper.transform_to_job_model.return_value = JobListing(
             id="job-001",
             title="Test Job",
@@ -109,8 +121,8 @@ class TestProcessNewJobs:
             mock_scraper, in_memory_db, new_job_cards, env=test_env, detail_scrape=False
         )
 
-        # Should NOT have called scrape_job_details_batch
-        mock_scraper.scrape_job_details_batch.assert_not_called()
+        # Should NOT have called scrape_job_details_streaming when detail_scrape=False
+        assert not streaming_called
         assert result == 0  # 0 details fetched
 
     @pytest.mark.asyncio
@@ -142,7 +154,7 @@ class TestUpdateExistingJobs:
         assert closed_count == 0
 
     def test_update_existing_jobs_missing_increment(self, in_memory_db, test_env, sample_job_listing):
-        """Missing jobs get misses incremented and closed at threshold"""
+        """Missing jobs get misses incremented but not closed until threshold"""
         db.insert_job(in_memory_db, sample_job_listing, env=test_env)
 
         still_active_ids = set()
@@ -152,14 +164,11 @@ class TestUpdateExistingJobs:
             in_memory_db, still_active_ids, missing_ids, env=test_env
         )
 
-        # After first miss with threshold logic (consecutive_misses + 1 >= 2),
-        # job will be closed since 0+1+1 = 2 >= 2
-        # Note: The current implementation closes after first miss due to +1 in check
+        # After first miss: consecutive_misses becomes 1, threshold is 2, so not closed yet
         job = db.get_job_by_id(in_memory_db, sample_job_listing.id, env=test_env)
         assert job["consecutive_misses"] == 1
-        # Job gets closed after first miss because of off-by-one in threshold check
-        assert job["status"] == "CLOSED"
-        assert closed_count == 1
+        assert job["status"] == "OPEN"
+        assert closed_count == 0
 
     def test_update_existing_jobs_closes_at_threshold(self, in_memory_db, test_env, sample_job_listing):
         """Jobs closed when misses >= threshold (2)"""

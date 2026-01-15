@@ -408,6 +408,19 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?authorCompany=%5B%221441%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%22date_posted%22',
   },
+  {
+    id: 'apple',
+    name: 'Apple',
+    ats: 'backend-scraper',
+    config: {
+      type: 'backend-scraper',
+      companyId: 'apple',
+      apiBaseUrl: '/api/jobs',
+    },
+    jobsUrl: 'https://jobs.apple.com/',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%22162479%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%22date_posted%22',
+  },
   // {
   //     id: 'netflix',
   //     name: 'Netflix',
@@ -462,6 +475,7 @@ export const enum COMPANY_IDS {
   Adobe = 'adobe',
   ElevenLabs = 'elevenlabs',
   Google = 'google',
+  Apple = 'apple',
 }
 
 /**

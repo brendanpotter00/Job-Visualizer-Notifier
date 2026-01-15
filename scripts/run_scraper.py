@@ -23,6 +23,7 @@ sys.path.insert(0, str(project_root))
 
 # Import scraper modules
 from scripts.google_jobs_scraper.scraper import GoogleJobsScraper
+from scripts.apple_jobs_scraper.scraper import AppleJobsScraper
 from scripts.google_jobs_scraper.config import (
     DEFAULT_OUTPUT_DIR,
     DEFAULT_OUTPUT_FILE,
@@ -41,6 +42,7 @@ from scripts.google_jobs_scraper.utils import (
 # Import shared modules for database mode
 from scripts.shared import database as db
 from scripts.shared import incremental
+from scripts.shared.batch_writer import BatchWriter
 
 console = Console()
 logger = logging.getLogger(__name__)
@@ -72,14 +74,17 @@ async def run_database_mode(args):
         sys.exit(2)
 
     # Initialize scraper based on company
-    if company == "google":
-        scraper = GoogleJobsScraper(
-            headless=args.headless,
-            detail_scrape=args.detail_scrape
-        )
-    else:
+    scraper_classes = {
+        "google": GoogleJobsScraper,
+        "apple": AppleJobsScraper,
+    }
+
+    scraper_class = scraper_classes.get(company)
+    if not scraper_class:
         console.print(f"[bold red]Unsupported company: {company}[/bold red]")
         sys.exit(1)
+
+    scraper = scraper_class(headless=args.headless, detail_scrape=args.detail_scrape)
 
     try:
         async with scraper:
@@ -100,30 +105,50 @@ async def run_database_mode(args):
                 # Run full scrape and save to database
                 console.print(f"\n[bold cyan]Running full scrape for {company}[/bold cyan]\n")
 
-                # Scrape all queries
+                # Scrape all queries (list pages only - fast)
                 job_cards = await scraper.scrape_all_queries(args.max_jobs)
                 console.print(f"Found {len(job_cards)} jobs")
 
-                # Fetch details if requested
-                if args.detail_scrape:
-                    enriched_jobs = await scraper.scrape_job_details_batch(job_cards)
-                else:
-                    enriched_jobs = job_cards
-
-                # Transform and insert into database
+                # Initialize batch writer for efficient database writes
                 timestamp = get_iso_timestamp()
-                for job_data in enriched_jobs:
-                    try:
-                        job = scraper.transform_to_job_model(job_data)
-                        job.first_seen_at = timestamp
-                        job.last_seen_at = timestamp
-                        job.details_scraped = args.detail_scrape
-                        db.insert_job(conn, job, env)
-                    except Exception as e:
-                        logger.error(f"Error inserting job: {e}")
+                writer = BatchWriter(
+                    db_conn=conn,
+                    env=env,
+                    scraper=scraper,
+                    batch_size=50,
+                    detail_scrape=args.detail_scrape,
+                    use_upsert=False  # Full scrape uses insert
+                )
+
+                if args.detail_scrape:
+                    # Stream details and batch write to database
+                    console.print("Fetching job details and saving in batches...")
+                    details_count = 0
+
+                    async for enriched_job in scraper.scrape_job_details_streaming(job_cards):
+                        writer.add_job(enriched_job, timestamp)
+                        details_count += 1
+
+                        # Progress update every batch
+                        if details_count % 50 == 0:
+                            console.print(
+                                f"  Progress: {details_count}/{len(job_cards)} details fetched, "
+                                f"{writer.stats.total_written} saved"
+                            )
+                else:
+                    # No detail scrape - batch insert cards directly
+                    for job_data in job_cards:
+                        writer.add_job(job_data, timestamp)
+
+                # Flush remaining jobs in buffer
+                writer.flush()
 
                 console.print(f"\n[bold green]✓ Full scrape completed![/bold green]")
-                console.print(f"Inserted {len(enriched_jobs)} jobs into database")
+                console.print(f"Jobs processed: {writer.stats.total_processed}")
+                console.print(f"Jobs written: {writer.stats.total_written}")
+                console.print(f"Batches: {writer.stats.batches_written}")
+                if writer.stats.errors > 0:
+                    console.print(f"[yellow]Errors: {writer.stats.errors}[/yellow]")
 
     finally:
         conn.close()
@@ -202,7 +227,7 @@ Examples:
     # New flags for database mode
     parser.add_argument(
         "--company",
-        choices=["google", "all"],
+        choices=["google", "apple", "all"],
         default="google",
         help="Which company scraper to run (default: google)",
     )
