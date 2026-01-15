@@ -170,40 +170,16 @@ def update_existing_jobs(
     # Increment consecutive_misses for missing jobs
     db.increment_consecutive_misses(db_conn, list(missing_ids), env)
 
-    # Check which jobs have exceeded threshold and mark as closed
+    # Check which jobs have exceeded threshold and mark as closed (single query)
     # Note: consecutive_misses was already incremented above, so we check >= threshold
-    jobs_to_close = []
-    for job_id in missing_ids:
-        job_data = db.get_job_by_id(db_conn, job_id, env)
-        if job_data and job_data['consecutive_misses'] >= threshold:
-            jobs_to_close.append(job_id)
+    jobs_to_close = db.get_jobs_exceeding_miss_threshold(
+        db_conn, list(missing_ids), threshold, env
+    )
 
     if jobs_to_close:
-        db.mark_jobs_closed(db_conn, jobs_to_close, timestamp, env)
+        db.mark_jobs_closed(db_conn, list(jobs_to_close), timestamp, env)
         return len(jobs_to_close)
 
-    return 0
-
-
-def handle_reappearing_jobs(
-    db_conn,
-    current_ids: Set[str],
-    env: str
-) -> int:
-    """
-    Check if any currently found jobs were previously marked as closed
-    and reactivate them
-
-    Args:
-        db_conn: Database connection
-        current_ids: Job IDs found in current scrape
-        env: Environment name
-
-    Returns:
-        Number of jobs reactivated
-    """
-    # This is a simplified version - in production you'd query for closed jobs
-    # For now, we'll skip this step as it requires additional DB queries
     return 0
 
 

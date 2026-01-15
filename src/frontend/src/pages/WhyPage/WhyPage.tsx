@@ -1,8 +1,12 @@
 import { useMemo } from 'react';
 import { Container, Box, Typography, List, ListItem, Link, Paper, Grid } from '@mui/material';
+import type { SxProps, Theme } from '@mui/material';
 import type { Company } from '../../types';
-import { COMPANIES } from '../../config/companies';
+import { COMPANIES, COMING_SOON_SCRAPERS } from '../../config/companies';
 import { OpenInNew } from '@mui/icons-material';
+
+/** Shared styling for Paper sections */
+const sectionPaperSx: SxProps<Theme> = { p: 3, mb: 4 };
 
 /**
  * WhyPage - Explains the purpose of this application and displays supported companies
@@ -15,14 +19,6 @@ import { OpenInNew } from '@mui/icons-material';
  * @returns Why This Was Built page component
  */
 export function WhyPage() {
-  // Display-friendly names for ATS types
-  const atsDisplayNames: Record<string, string> = {
-    'backend-scraper': 'Custom Scrapers',
-  };
-
-  // Coming soon companies for custom scrapers
-  const comingSoonScrapers = [{ name: 'Netflix', jobsUrl: 'https://jobs.netflix.com/' }];
-
   // Group companies by ATS type for organized display
   const companiesByATS = useMemo(() => {
     const grouped: Record<string, Company[]> = {};
@@ -43,7 +39,7 @@ export function WhyPage() {
         </Typography>
 
         {/* Introduction section */}
-        <Paper sx={{ p: 3, mb: 4 }}>
+        <Paper sx={sectionPaperSx}>
           <Typography variant="body1" component="p" sx={{ mb: 2 }}>
             I made this platform because the best way to get job interviews is to apply early. Other
             job platforms are bloated with random companies and stale job listings that were really
@@ -100,7 +96,7 @@ export function WhyPage() {
           Future Plans
         </Typography>
 
-        <Paper sx={{ p: 3, mb: 4 }}>
+        <Paper sx={sectionPaperSx}>
           <Typography variant="body1" component="p" sx={{ mb: 2 }}>
             I am planning on adding:
           </Typography>
@@ -138,57 +134,62 @@ export function WhyPage() {
 
         {/* Group companies by ATS */}
         <Grid container spacing={3}>
-          {Object.entries(companiesByATS).map(([ats, companies]) => (
-            <Grid key={ats} size={{ xs: 12, sm: 6, md: 'grow' }}>
-              <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                <Typography
-                  variant="h6"
-                  component="h3"
-                  sx={{
-                    textTransform: atsDisplayNames[ats] ? 'none' : 'capitalize',
-                    mb: 1,
-                    color: 'primary.main',
-                  }}
-                >
-                  {atsDisplayNames[ats] || ats} ({companies.length})
-                </Typography>
-                <Paper variant="outlined" sx={{ p: 2, flexGrow: 1 }}>
-                  <List dense disablePadding>
-                    {companies.map((company) => (
-                      <ListItem key={company.id} sx={{ py: 0.5, px: 0 }}>
-                        <Link
-                          href={company.jobsUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          underline="hover"
-                          sx={{ fontWeight: 500, fontSize: '1rem' }}
-                        >
-                          {company.name}
-                        </Link>
-                      </ListItem>
-                    ))}
-                    {ats === 'backend-scraper' &&
-                      comingSoonScrapers.map((company) => (
-                        <ListItem key={company.name} sx={{ py: 0.5, px: 0 }}>
-                          <Typography
-                            component="span"
-                            sx={{ fontWeight: 500, fontSize: '1rem', color: 'text.secondary' }}
+          {Object.entries(companiesByATS).map(([ats, companies]) => {
+            const displayName = ats === 'backend-scraper' ? 'Custom Scrapers' : ats;
+            const shouldCapitalize = ats !== 'backend-scraper';
+
+            return (
+              <Grid key={ats} size={{ xs: 12, sm: 6, md: 'grow' }}>
+                <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                  <Typography
+                    variant="h6"
+                    component="h3"
+                    sx={{
+                      textTransform: shouldCapitalize ? 'capitalize' : 'none',
+                      mb: 1,
+                      color: 'primary.main',
+                    }}
+                  >
+                    {displayName} ({companies.length})
+                  </Typography>
+                  <Paper variant="outlined" sx={{ p: 2, flexGrow: 1 }}>
+                    <List dense disablePadding>
+                      {companies.map((company) => (
+                        <ListItem key={company.id} sx={{ py: 0.5, px: 0 }}>
+                          <Link
+                            href={company.jobsUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            underline="hover"
+                            sx={{ fontWeight: 500, fontSize: '1rem' }}
                           >
-                            {company.name}{' '}
-                            <Typography
-                              component="span"
-                              sx={{ fontSize: '0.75rem', fontStyle: 'italic' }}
-                            >
-                              (Coming Soon)
-                            </Typography>
-                          </Typography>
+                            {company.name}
+                          </Link>
                         </ListItem>
                       ))}
-                  </List>
-                </Paper>
-              </Box>
-            </Grid>
-          ))}
+                      {ats === 'backend-scraper' &&
+                        COMING_SOON_SCRAPERS.map((company) => (
+                          <ListItem key={company.name} sx={{ py: 0.5, px: 0 }}>
+                            <Typography
+                              component="span"
+                              sx={{ fontWeight: 500, fontSize: '1rem', color: 'text.secondary' }}
+                            >
+                              {company.name}{' '}
+                              <Typography
+                                component="span"
+                                sx={{ fontSize: '0.75rem', fontStyle: 'italic' }}
+                              >
+                                (Coming Soon)
+                              </Typography>
+                            </Typography>
+                          </ListItem>
+                        ))}
+                    </List>
+                  </Paper>
+                </Box>
+              </Grid>
+            );
+          })}
         </Grid>
       </Box>
     </Container>

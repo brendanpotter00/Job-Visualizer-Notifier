@@ -13,16 +13,6 @@ function parseBackendDetails(detailsString: string): BackendJobDetails {
 }
 
 /**
- * Generate tags from job details
- */
-function generateTags(details: BackendJobDetails): string[] {
-  return [
-    details.experience_level,
-    details.is_remote_eligible ? 'Remote Eligible' : undefined,
-  ].filter((tag): tag is string => Boolean(tag));
-}
-
-/**
  * Transforms backend JobListing to frontend Job model
  * Works for any backend-scraped company (Google, Apple, etc.)
  *
@@ -32,6 +22,11 @@ function generateTags(details: BackendJobDetails): string[] {
  */
 export function transformBackendJob(raw: BackendJobListing, companyId: string): Job {
   const details = parseBackendDetails(raw.details);
+
+  const tags = [
+    details.experience_level,
+    details.is_remote_eligible ? 'Remote Eligible' : undefined,
+  ].filter((tag): tag is string => Boolean(tag));
 
   return {
     id: raw.id,
@@ -44,7 +39,7 @@ export function transformBackendJob(raw: BackendJobListing, companyId: string): 
     // employmentType not available from scraper
     createdAt: raw.postedOn || raw.firstSeenAt, // Use actual posted date, fallback to first seen
     url: raw.url,
-    tags: generateTags(details),
+    tags,
     raw, // Preserve full backend response for debugging
   };
 }

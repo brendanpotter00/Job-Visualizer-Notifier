@@ -42,22 +42,6 @@ from .api_client import fetch_job_details, get_apply_url
 logger = logging.getLogger(__name__)
 
 
-def should_include_job(title: str, include_keywords: list, exclude_keywords: list) -> bool:
-    """
-    Check if a job title should be included based on keyword filters
-    """
-    title_lower = title.lower()
-
-    # Check for exclusion keywords first
-    has_exclude = any(kw.lower() in title_lower for kw in exclude_keywords)
-    if has_exclude:
-        return False
-
-    # Check for inclusion keywords
-    has_include = any(kw.lower() in title_lower for kw in include_keywords)
-    return has_include
-
-
 class AppleJobsScraper(BaseScraper):
     """Main scraper class for Apple Careers (extends BaseScraper)"""
 
@@ -122,8 +106,15 @@ class AppleJobsScraper(BaseScraper):
         return [""]  # Single empty query - we scrape all US jobs then filter
 
     def filter_job(self, job_title: str) -> bool:
-        """Filter job by title keywords"""
-        return should_include_job(job_title, INCLUDE_TITLE_KEYWORDS, EXCLUDE_TITLE_KEYWORDS)
+        """Filter job by title keywords using include/exclude keyword lists"""
+        title_lower = job_title.lower()
+
+        # Check for exclusion keywords first
+        if any(kw.lower() in title_lower for kw in EXCLUDE_TITLE_KEYWORDS):
+            return False
+
+        # Check for inclusion keywords
+        return any(kw.lower() in title_lower for kw in INCLUDE_TITLE_KEYWORDS)
 
     # ========== Apple-Specific Methods ==========
 
@@ -204,11 +195,56 @@ class AppleJobsScraper(BaseScraper):
         logger.info(f"Completed Apple scrape: {len(all_jobs)} jobs collected")
         return all_jobs
 
+    async def _establish_session(self, page: Page) -> None:
+        """Navigate to Apple jobs site to establish session for API calls"""
+        await self.navigate_to_page(page, BASE_URL + SEARCH_PATH, PAGE_LOAD_TIMEOUT)
+
+    async def _fetch_job_details(
+        self,
+        job_cards: List[Dict[str, Any]],
+    ) -> AsyncIterator[Dict[str, Any]]:
+        """
+        Core detail-fetching logic shared by batch and streaming modes.
+
+        Args:
+            job_cards: List of job dictionaries from search results
+
+        Yields:
+            Enriched job dictionaries with details merged in
+        """
+        page = await self.context.new_page()
+        total = len(job_cards)
+
+        await self._establish_session(page)
+
+        try:
+            for i, job_card in enumerate(job_cards, 1):
+                job_id = job_card.get("id")
+                if not job_id:
+                    logger.warning(f"Job {i}/{total}: No ID, skipping")
+                    yield job_card
+                    continue
+
+                logger.info(
+                    f"Fetching details {i}/{total}: {job_card.get('title', 'Unknown')}"
+                )
+
+                try:
+                    details = await fetch_job_details(page, job_id)
+                    yield {**job_card, **details}
+                except Exception as e:
+                    logger.error(f"Error fetching details for {job_id}: {e}")
+                    yield job_card
+
+                await self._random_delay()
+        finally:
+            await page.close()
+
     async def scrape_job_details_batch(
         self, job_cards: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
         """
-        Scrape detailed information for a batch of jobs using API
+        Scrape detailed information for a batch of jobs using API.
 
         Args:
             job_cards: List of job dictionaries from search results
@@ -216,45 +252,7 @@ class AppleJobsScraper(BaseScraper):
         Returns:
             List of enriched job dictionaries with full details
         """
-        enriched_jobs = []
-
-        page = await self.context.new_page()
-
-        # First navigate to Apple jobs site to establish session
-        await self.navigate_to_page(page, BASE_URL + SEARCH_PATH, PAGE_LOAD_TIMEOUT)
-
-        try:
-            for i, job_card in enumerate(job_cards, 1):
-                job_id = job_card.get("id")
-                if not job_id:
-                    logger.warning(f"Job {i}/{len(job_cards)}: No ID, skipping")
-                    enriched_jobs.append(job_card)
-                    continue
-
-                logger.info(
-                    f"Fetching details for job {i}/{len(job_cards)}: {job_card.get('title', 'Unknown')}"
-                )
-
-                try:
-                    # Fetch details from API
-                    details = await fetch_job_details(page, job_id)
-
-                    # Merge with basic info from list page
-                    enriched_job = {**job_card, **details}
-                    enriched_jobs.append(enriched_job)
-
-                    # Rate limiting
-                    await self._random_delay()
-
-                except Exception as e:
-                    logger.error(f"Error fetching details for {job_id}: {e}")
-                    # Keep the basic info even if details fail
-                    enriched_jobs.append(job_card)
-
-        finally:
-            await page.close()
-
-        return enriched_jobs
+        return [job async for job in self._fetch_job_details(job_cards)]
 
     def transform_to_job_model(self, job_data: Dict[str, Any]) -> JobListing:
         """Transform scraped data to JobListing model (database schema)"""
@@ -344,29 +342,5 @@ class AppleJobsScraper(BaseScraper):
         Yields:
             Enriched job dictionaries with details merged in
         """
-        page = await self.context.new_page()
-        total = len(job_cards)
-
-        # Establish session first (required for API calls)
-        await self.navigate_to_page(page, BASE_URL + SEARCH_PATH, PAGE_LOAD_TIMEOUT)
-
-        try:
-            for i, job_card in enumerate(job_cards, 1):
-                job_id = job_card.get("id")
-                if not job_id:
-                    logger.warning(f"Job {i}/{total}: No ID, skipping")
-                    yield job_card
-                    continue
-
-                logger.info(f"Fetching details {i}/{total}: {job_card.get('title', 'Unknown')}")
-
-                try:
-                    details = await fetch_job_details(page, job_id)
-                    yield {**job_card, **details}
-                except Exception as e:
-                    logger.error(f"Error fetching details for {job_id}: {e}")
-                    yield job_card
-
-                await self._random_delay()
-        finally:
-            await page.close()
+        async for job in self._fetch_job_details(job_cards):
+            yield job

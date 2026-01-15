@@ -14,6 +14,17 @@ from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 
 logger = logging.getLogger(__name__)
 
+# Browser configuration for anti-detection
+BROWSER_CONFIG = {
+    "viewport": {"width": 1920, "height": 1080},
+    "user_agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    ),
+    "locale": "en-US",
+}
+
 
 class BaseScraper(ABC):
     """
@@ -103,10 +114,12 @@ class BaseScraper(ABC):
         """
         pass
 
-    @abstractmethod
     def filter_job(self, job_title: str) -> bool:
         """
-        Determine if a job should be included based on title
+        Determine if a job should be included based on title.
+
+        Default implementation includes all jobs. Subclasses can override
+        to implement custom filtering logic.
 
         Args:
             job_title: Job title string
@@ -114,7 +127,7 @@ class BaseScraper(ABC):
         Returns:
             True if job should be included, False otherwise
         """
-        pass
+        return True
 
     # ========== Concrete Methods (shared implementation) ==========
 
@@ -142,13 +155,9 @@ class BaseScraper(ABC):
         )
 
         self.context = await self.browser.new_context(
-            viewport={"width": 1920, "height": 1080},
-            user_agent=(
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            ),
-            locale="en-US",
+            viewport=BROWSER_CONFIG["viewport"],
+            user_agent=BROWSER_CONFIG["user_agent"],
+            locale=BROWSER_CONFIG["locale"],
         )
 
         logger.info("Browser initialized successfully")

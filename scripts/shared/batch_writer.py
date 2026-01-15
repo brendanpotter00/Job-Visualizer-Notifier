@@ -112,7 +112,6 @@ class BatchWriter:
             return 0
 
         batch_fn = db.upsert_jobs_batch if self.use_upsert else db.insert_jobs_batch
-        single_fn = db.upsert_job if self.use_upsert else db.insert_job
         count = 0
 
         try:
@@ -127,14 +126,15 @@ class BatchWriter:
             logger.error(f"Error writing batch: {e}")
             self.stats.errors += 1
             logger.info("Falling back to individual inserts...")
-            count = self._fallback_individual_writes(single_fn)
+            count = self._fallback_individual_writes()
         finally:
             self._buffer = []
 
         return count
 
-    def _fallback_individual_writes(self, write_fn) -> int:
+    def _fallback_individual_writes(self) -> int:
         """Write jobs individually when batch write fails."""
+        write_fn = db.upsert_job if self.use_upsert else db.insert_job
         count = 0
         for job in self._buffer:
             try:

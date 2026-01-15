@@ -48,6 +48,11 @@ console = Console()
 logger = logging.getLogger(__name__)
 
 
+def should_use_database_mode(args) -> bool:
+    """Determine if scraper should run in database mode based on CLI args."""
+    return args.db_url is not None
+
+
 async def run_json_mode(args):
     """Run scraper in JSON output mode (original behavior)"""
     # Import the original main module for JSON mode
@@ -258,12 +263,8 @@ Examples:
         sys.exit(1)
 
     # Route to appropriate mode
-    if args.db_url:
-        # Database mode
-        asyncio.run(run_database_mode(args))
-    else:
-        # JSON mode (original behavior)
-        asyncio.run(run_json_mode(args))
+    run_mode = run_database_mode if should_use_database_mode(args) else run_json_mode
+    asyncio.run(run_mode(args))
 
 
 if __name__ == "__main__":
