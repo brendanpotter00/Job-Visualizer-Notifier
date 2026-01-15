@@ -116,30 +116,30 @@ class BatchWriter:
 
         try:
             count = batch_fn(self.db_conn, self._buffer, self.env)
-            self.stats.total_written += count
             self.stats.batches_written += 1
-            logger.info(
-                f"Flushed batch {self.stats.batches_written}: "
-                f"{count} jobs written (total: {self.stats.total_written})"
-            )
         except Exception as e:
             logger.error(f"Error writing batch: {e}")
             self.stats.errors += 1
             logger.info("Falling back to individual inserts...")
             count = self._fallback_individual_writes()
         finally:
+            # Centralize stats update - only update total_written here
+            self.stats.total_written += count
+            logger.info(
+                f"Flushed batch {self.stats.batches_written}: "
+                f"{count} jobs written (total: {self.stats.total_written})"
+            )
             self._buffer = []
 
         return count
 
     def _fallback_individual_writes(self) -> int:
-        """Write jobs individually when batch write fails."""
+        """Write jobs individually when batch write fails. Returns count only."""
         write_fn = db.upsert_job if self.use_upsert else db.insert_job
         count = 0
         for job in self._buffer:
             try:
                 write_fn(self.db_conn, job, self.env)
-                self.stats.total_written += 1
                 count += 1
             except Exception as e:
                 logger.error(f"Fallback insert failed for {job.id}: {e}")

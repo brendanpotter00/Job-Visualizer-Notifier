@@ -54,33 +54,37 @@ class TestInitSchema:
 
     def test_env_table_naming(self, postgres_db):
         """Different env creates different tables"""
-        # Create tables with prod env
-        db.init_schema(postgres_db, env="prod_test")
+        # Use valid test environment names (test_<8 hex chars>)
+        env1 = "test_00000001"
+        env2 = "test_00000002"
 
-        # Create tables with local env
-        db.init_schema(postgres_db, env="local_test")
+        # Create tables with first env
+        db.init_schema(postgres_db, env=env1)
+
+        # Create tables with second env
+        db.init_schema(postgres_db, env=env2)
 
         cursor = postgres_db.cursor()
 
-        # Check prod tables
-        cursor.execute("""
+        # Check first env tables
+        cursor.execute(f"""
             SELECT table_name FROM information_schema.tables
-            WHERE table_schema = 'public' AND table_name = 'job_listings_prod_test'
+            WHERE table_schema = 'public' AND table_name = 'job_listings_{env1}'
         """)
         assert cursor.fetchone() is not None
 
-        # Check local tables
-        cursor.execute("""
+        # Check second env tables
+        cursor.execute(f"""
             SELECT table_name FROM information_schema.tables
-            WHERE table_schema = 'public' AND table_name = 'job_listings_local_test'
+            WHERE table_schema = 'public' AND table_name = 'job_listings_{env2}'
         """)
         assert cursor.fetchone() is not None
 
         # Cleanup
-        cursor.execute("DROP TABLE IF EXISTS job_listings_prod_test CASCADE")
-        cursor.execute("DROP TABLE IF EXISTS scrape_runs_prod_test CASCADE")
-        cursor.execute("DROP TABLE IF EXISTS job_listings_local_test CASCADE")
-        cursor.execute("DROP TABLE IF EXISTS scrape_runs_local_test CASCADE")
+        cursor.execute(f"DROP TABLE IF EXISTS job_listings_{env1} CASCADE")
+        cursor.execute(f"DROP TABLE IF EXISTS scrape_runs_{env1} CASCADE")
+        cursor.execute(f"DROP TABLE IF EXISTS job_listings_{env2} CASCADE")
+        cursor.execute(f"DROP TABLE IF EXISTS scrape_runs_{env2} CASCADE")
         postgres_db.commit()
 
 

@@ -6,6 +6,7 @@ PostgreSQL only. Uses environment-based table naming (e.g., job_listings_local, 
 
 import json
 import logging
+import re
 from typing import Set, List, Optional, Dict, Any, Tuple
 from urllib.parse import urlparse
 
@@ -18,6 +19,12 @@ logger = logging.getLogger(__name__)
 
 # Type alias for database connections
 Connection = psycopg2.extensions.connection
+
+# Allowed environment values (prevents SQL injection via table name construction)
+ALLOWED_ENVS = frozenset({"local", "qa", "prod"})
+
+# Pattern for test environments (test_<hex_chars> for test isolation)
+_TEST_ENV_PATTERN = re.compile(r"^test_[a-f0-9]{8}$")
 
 # Column list for job_listings table (used in INSERT statements)
 _JOB_COLUMNS = """
@@ -43,17 +50,27 @@ _UPSERT_ON_CONFLICT = """
 """.strip()
 
 
+def _is_valid_env(env: str) -> bool:
+    """Check if environment name is valid (prevents SQL injection)."""
+    return env in ALLOWED_ENVS or bool(_TEST_ENV_PATTERN.match(env))
+
+
 def _get_table_name(env: str, table_type: str = "jobs") -> str:
     """
     Get environment-specific table name.
 
     Args:
-        env: Environment name (local, qa, prod)
+        env: Environment name (local, qa, prod, or test_<hex> for tests)
         table_type: Type of table ("jobs" or "runs")
 
     Returns:
         Full table name with environment suffix
+
+    Raises:
+        ValueError: If env is not valid
     """
+    if not _is_valid_env(env):
+        raise ValueError(f"Invalid environment: {env}. Must be one of {ALLOWED_ENVS} or test_<hex>")
     if table_type == "runs":
         return f"scrape_runs_{env}"
     return f"job_listings_{env}"

@@ -189,25 +189,3 @@ async def check_has_next_page(page: Page) -> bool:
         return False
 
 
-async def get_total_pages(page: Page) -> int:
-    """
-    Get total number of pages from pagination info
-
-    Args:
-        page: Playwright page object
-
-    Returns:
-        Total number of pages (default 1 if not found)
-    """
-    try:
-        # Look for "Of X" text in pagination
-        pagination = await page.query_selector('div:has-text("Of")')
-        if pagination:
-            text = await pagination.inner_text()
-            match = re.search(r"Of\s+(\d+)", text)
-            if match:
-                return int(match.group(1))
-        return 1
-    except Exception as e:
-        logger.warning(f"Error getting total pages: {e}")
-        return 1

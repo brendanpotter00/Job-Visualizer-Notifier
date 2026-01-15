@@ -101,7 +101,7 @@ def _parse_api_response(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def parse_qualifications(text: str) -> List[str]:
+def parse_qualifications(text: Optional[str]) -> List[str]:
     """
     Parse newline-separated qualifications text into a list
 
@@ -109,7 +109,7 @@ def parse_qualifications(text: str) -> List[str]:
     Example: "Bachelor's degree\\n5+ years experience\\nStrong Python skills"
 
     Args:
-        text: Newline-separated qualifications string
+        text: Newline-separated qualifications string, or None
 
     Returns:
         List of individual qualification strings
@@ -152,12 +152,12 @@ def extract_salary(data: Dict[str, Any]) -> Optional[str]:
     return match.group(0) if match else None
 
 
-def format_location(locations: List[Dict[str, Any]]) -> str:
+def format_location(locations: Optional[List[Dict[str, Any]]]) -> str:
     """
     Format location from locations array into readable string
 
     Args:
-        locations: List of location dictionaries from API
+        locations: List of location dictionaries from API, or None
 
     Returns:
         Formatted location string (e.g., "Cupertino, California, United States")
