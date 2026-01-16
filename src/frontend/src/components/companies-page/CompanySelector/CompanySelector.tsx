@@ -28,7 +28,7 @@ export function CompanySelector() {
         label="Company"
         onChange={handleCompanyChange}
       >
-        {COMPANIES.map((company) => (
+        {[...COMPANIES].sort((a, b) => a.name.localeCompare(b.name)).map((company) => (
           <MenuItem key={company.id} value={company.id}>
             {company.name}
           </MenuItem>
