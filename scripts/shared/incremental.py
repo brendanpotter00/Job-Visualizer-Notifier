@@ -242,21 +242,24 @@ async def run_incremental_scrape(
         logger.error(f"Incremental scrape failed for {company}: {e}")
         result.error_count += 1
         scrape_error = e
-
-    # Always record scrape run (even on failure for audit trail)
-    run_record = ScrapeRun(
-        run_id=result.run_id,
-        company=company,
-        started_at=timestamp,
-        completed_at=get_iso_timestamp(),
-        mode="incremental",
-        jobs_seen=result.jobs_seen,
-        new_jobs=result.new_jobs,
-        closed_jobs=result.closed_jobs,
-        details_fetched=result.details_fetched,
-        error_count=result.error_count,
-    )
-    db.record_scrape_run(db_conn, run_record, env)
+    finally:
+        # ALWAYS record scrape run - even on timeout/kill (defense in depth)
+        run_record = ScrapeRun(
+            run_id=result.run_id,
+            company=company,
+            started_at=timestamp,
+            completed_at=get_iso_timestamp(),
+            mode="incremental",
+            jobs_seen=result.jobs_seen,
+            new_jobs=result.new_jobs,
+            closed_jobs=result.closed_jobs,
+            details_fetched=result.details_fetched,
+            error_count=result.error_count,
+        )
+        try:
+            db.record_scrape_run(db_conn, run_record, env)
+        except Exception as db_err:
+            logger.error(f"Failed to record scrape run: {db_err}")
 
     if scrape_error:
         logger.info(
