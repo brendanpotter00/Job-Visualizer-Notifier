@@ -201,7 +201,9 @@ export const workdayClient: JobAPIClient = {
       ? jobs.filter((job) => new Date(job.createdAt) >= new Date(options.since!))
       : jobs;
     if (options.since) {
-      logger.debug(`[Workday Client] Filtered by 'since': ${filteredJobs.length}/${jobs.length} jobs`);
+      logger.debug(
+        `[Workday Client] Filtered by 'since': ${filteredJobs.length}/${jobs.length} jobs`
+      );
     }
 
     // 7. Apply 'limit' if provided (client-side limiting)

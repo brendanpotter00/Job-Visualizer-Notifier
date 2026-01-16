@@ -6,7 +6,7 @@ public class ScraperProcessRunner(
     IConfiguration configuration,
     ILogger<ScraperProcessRunner> logger)
 {
-    public async Task<ScraperResult> RunScraperAsync(string company, CancellationToken cancellationToken)
+    public virtual async Task<ScraperResult> RunScraperAsync(string company, CancellationToken cancellationToken)
     {
         var env = configuration["Scraper:Environment"] ?? "local";
         var dbUrl = ConnectionStringHelper.ConvertToPostgresUrl(configuration.GetConnectionString("DefaultConnection") ?? "");
@@ -91,7 +91,10 @@ public class ScraperProcessRunner(
                 if (!process.HasExited)
                     process.Kill(entireProcessTree: true);
             }
-            catch { }
+            catch (Exception killEx)
+            {
+                logger.LogWarning(killEx, "Failed to kill timed out scraper process for {Company}", company);
+            }
 
             return new ScraperResult
             {
@@ -110,7 +113,10 @@ public class ScraperProcessRunner(
                 if (!process.HasExited)
                     process.Kill(entireProcessTree: true);
             }
-            catch { }
+            catch (Exception killEx)
+            {
+                logger.LogWarning(killEx, "Failed to kill scraper process during error cleanup for {Company}", company);
+            }
 
             return new ScraperResult
             {

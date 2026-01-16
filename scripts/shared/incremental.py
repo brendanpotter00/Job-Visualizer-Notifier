@@ -5,9 +5,9 @@ This module implements the incremental scraping logic that minimizes scraping ti
 by only fetching details for NEW jobs, while tracking job lifecycle (open/closed).
 
 Algorithm phases:
-1. Quick list scrape (IDs + basic info only) → 2-3 min
-2. Compare current_ids vs database active_ids → instant
-3. Fetch details ONLY for new job IDs → variable (depends on new jobs)
+1. Quick list scrape (IDs + basic info only)
+2. Compare current_ids vs database active_ids
+3. Fetch details ONLY for new job IDs (variable time, depends on new jobs)
 4. Update last_seen for existing, increment misses for missing
 5. Mark as closed if consecutive_misses >= 2
 """
@@ -15,10 +15,11 @@ Algorithm phases:
 import logging
 import uuid
 from typing import Set, List, Dict, Any, Tuple
-from datetime import datetime
 
 from .models import JobListing, ScrapeRun
 from . import database as db
+from .batch_writer import BatchWriter
+from .utils import get_iso_timestamp
 
 logger = logging.getLogger(__name__)
 
@@ -77,17 +78,22 @@ async def process_new_jobs(
     db_conn,
     new_job_cards: List[Dict[str, Any]],
     env: str,
-    detail_scrape: bool = True
+    detail_scrape: bool = True,
+    batch_size: int = 50
 ) -> int:
     """
-    Process new jobs: fetch details and insert into database
+    Process new jobs: fetch details and insert into database IN BATCHES.
+
+    Jobs are written to the database as they're scraped, not all at the end.
+    This provides fault tolerance and reduces memory usage.
 
     Args:
-        scraper: Scraper instance with extract_job_details method
+        scraper: Scraper instance with scrape_job_details_streaming method
         db_conn: Database connection
         new_job_cards: List of job card dicts (basic info from list page)
         env: Environment name
         detail_scrape: Whether to fetch detail pages
+        batch_size: Number of jobs per database batch
 
     Returns:
         Number of details fetched
@@ -95,31 +101,39 @@ async def process_new_jobs(
     if not new_job_cards:
         return 0
 
-    logger.info(f"Processing {len(new_job_cards)} new jobs...")
+    logger.info(f"Processing {len(new_job_cards)} new jobs (batch_size={batch_size})...")
 
-    # Fetch details if requested
-    details_fetched = 0
-    if detail_scrape:
-        enriched_jobs = await scraper.scrape_job_details_batch(new_job_cards)
-        details_fetched = len(enriched_jobs)
-    else:
-        enriched_jobs = new_job_cards
-
-    # Transform to JobListing models and insert
     timestamp = get_iso_timestamp()
-    for job_data in enriched_jobs:
-        try:
-            job = scraper.transform_to_job_model(job_data)
+    writer = BatchWriter(
+        db_conn=db_conn,
+        env=env,
+        scraper=scraper,
+        batch_size=batch_size,
+        detail_scrape=detail_scrape,
+        use_upsert=True  # Incremental mode uses upsert
+    )
 
-            # Set incremental tracking fields
-            job.first_seen_at = timestamp
-            job.last_seen_at = timestamp
-            job.consecutive_misses = 0
-            job.details_scraped = detail_scrape
+    details_fetched = 0
 
-            db.upsert_job(db_conn, job, env)
-        except Exception as e:
-            logger.error(f"Error inserting job {job_data.get('id', 'unknown')}: {e}")
+    if detail_scrape:
+        # Use streaming approach - jobs are saved as they're scraped
+        async for enriched_job in scraper.scrape_job_details_streaming(new_job_cards):
+            writer.add_job(enriched_job, timestamp)
+            details_fetched += 1
+    else:
+        # No detail scrape - just batch insert the cards
+        for job_data in new_job_cards:
+            writer.add_job(job_data, timestamp)
+
+    # Flush any remaining jobs in buffer
+    writer.flush()
+
+    logger.info(
+        f"Processed {writer.stats.total_processed} jobs: "
+        f"{writer.stats.total_written} written, "
+        f"{writer.stats.batches_written} batches, "
+        f"{writer.stats.errors} errors"
+    )
 
     return details_fetched
 
@@ -150,43 +164,22 @@ def update_existing_jobs(
     if still_active_ids:
         db.update_last_seen(db_conn, list(still_active_ids), timestamp, env)
 
+    if not missing_ids:
+        return 0
+
     # Increment consecutive_misses for missing jobs
-    if missing_ids:
-        db.increment_consecutive_misses(db_conn, list(missing_ids), env)
+    db.increment_consecutive_misses(db_conn, list(missing_ids), env)
 
-        # Check which jobs have exceeded threshold and mark as closed
-        jobs_to_close = []
-        for job_id in missing_ids:
-            job_data = db.get_job_by_id(db_conn, job_id, env)
-            if job_data and job_data['consecutive_misses'] + 1 >= threshold:
-                jobs_to_close.append(job_id)
+    # Check which jobs have exceeded threshold and mark as closed (single query)
+    # Note: consecutive_misses was already incremented above, so we check >= threshold
+    jobs_to_close = db.get_jobs_exceeding_miss_threshold(
+        db_conn, list(missing_ids), threshold, env
+    )
 
-        if jobs_to_close:
-            db.mark_jobs_closed(db_conn, jobs_to_close, timestamp, env)
-            return len(jobs_to_close)
+    if jobs_to_close:
+        db.mark_jobs_closed(db_conn, list(jobs_to_close), timestamp, env)
+        return len(jobs_to_close)
 
-    return 0
-
-
-def handle_reappearing_jobs(
-    db_conn,
-    current_ids: Set[str],
-    env: str
-) -> int:
-    """
-    Check if any currently found jobs were previously marked as closed
-    and reactivate them
-
-    Args:
-        db_conn: Database connection
-        current_ids: Job IDs found in current scrape
-        env: Environment name
-
-    Returns:
-        Number of jobs reactivated
-    """
-    # This is a simplified version - in production you'd query for closed jobs
-    # For now, we'll skip this step as it requires additional DB queries
     return 0
 
 
@@ -201,10 +194,10 @@ async def run_incremental_scrape(
     Run the 5-phase incremental scraping algorithm
 
     Args:
-        scraper: Scraper instance (must have scrape_query and scrape_job_details_batch methods)
+        scraper: Scraper instance (must have scrape_all_queries and scrape_job_details_streaming methods)
         db_conn: Database connection
         env: Environment name
-        company: Company name (e.g., "google")
+        company: Company name (e.g., "google", "apple")
         detail_scrape: Whether to fetch detail pages for new jobs
 
     Returns:
@@ -214,49 +207,67 @@ async def run_incremental_scrape(
 
     result = ScrapeResult()
     timestamp = get_iso_timestamp()
+    scrape_error = None
 
-    # Phase 1: Quick list scrape (no details)
-    logger.info("Phase 1: Quick list scrape...")
-    job_cards = await scraper.scrape_all_queries()
-    result.jobs_seen = len(job_cards)
-    logger.info(f"Found {result.jobs_seen} jobs in search results")
+    try:
+        # Phase 1: Quick list scrape (no details)
+        logger.info("Phase 1: Quick list scrape...")
+        job_cards = await scraper.scrape_all_queries()
+        result.jobs_seen = len(job_cards)
+        logger.info(f"Found {result.jobs_seen} jobs in search results")
 
-    # Extract current job IDs
-    current_ids = {job['id'] for job in job_cards}
+        # Extract current job IDs
+        current_ids = {job['id'] for job in job_cards}
 
-    # Phase 2: Compare against database
-    logger.info("Phase 2: Comparing against database...")
-    active_known_ids = db.get_active_job_ids(db_conn, company, env)
-    new_ids, still_active_ids, missing_ids = calculate_job_diff(current_ids, active_known_ids)
+        # Phase 2: Compare against database
+        logger.info("Phase 2: Comparing against database...")
+        active_known_ids = db.get_active_job_ids(db_conn, company, env)
+        new_ids, still_active_ids, missing_ids = calculate_job_diff(current_ids, active_known_ids)
 
-    # Phase 3: Fetch details ONLY for new jobs
-    logger.info("Phase 3: Fetching details for new jobs...")
-    new_job_cards = [job for job in job_cards if job['id'] in new_ids]
-    result.details_fetched = await process_new_jobs(
-        scraper, db_conn, new_job_cards, env, detail_scrape
-    )
-    result.new_jobs = len(new_ids)
+        # Phase 3: Fetch details ONLY for new jobs
+        logger.info("Phase 3: Fetching details for new jobs...")
+        new_job_cards = [job for job in job_cards if job['id'] in new_ids]
+        result.details_fetched = await process_new_jobs(
+            scraper, db_conn, new_job_cards, env, detail_scrape
+        )
+        result.new_jobs = len(new_ids)
 
-    # Phase 4 & 5: Update existing jobs and mark closed
-    logger.info("Phase 4 & 5: Updating job status...")
-    result.closed_jobs = update_existing_jobs(
-        db_conn, still_active_ids, missing_ids, env
-    )
+        # Phase 4 & 5: Update existing jobs and mark closed
+        logger.info("Phase 4 & 5: Updating job status...")
+        result.closed_jobs = update_existing_jobs(
+            db_conn, still_active_ids, missing_ids, env
+        )
 
-    # Record scrape run
-    run_record = ScrapeRun(
-        run_id=result.run_id,
-        company=company,
-        started_at=timestamp,
-        completed_at=get_iso_timestamp(),
-        mode="incremental",
-        jobs_seen=result.jobs_seen,
-        new_jobs=result.new_jobs,
-        closed_jobs=result.closed_jobs,
-        details_fetched=result.details_fetched,
-        error_count=result.error_count,
-    )
-    db.record_scrape_run(db_conn, run_record, env)
+    except Exception as e:
+        logger.error(f"Incremental scrape failed for {company}: {e}")
+        result.error_count += 1
+        scrape_error = e
+    finally:
+        # ALWAYS record scrape run - even on timeout/kill (defense in depth)
+        run_record = ScrapeRun(
+            run_id=result.run_id,
+            company=company,
+            started_at=timestamp,
+            completed_at=get_iso_timestamp(),
+            mode="incremental",
+            jobs_seen=result.jobs_seen,
+            new_jobs=result.new_jobs,
+            closed_jobs=result.closed_jobs,
+            details_fetched=result.details_fetched,
+            error_count=result.error_count,
+        )
+        try:
+            db.record_scrape_run(db_conn, run_record, env)
+        except Exception as db_err:
+            logger.error(f"Failed to record scrape run: {db_err}")
+
+    if scrape_error:
+        logger.info(
+            f"Incremental scrape failed - "
+            f"Seen: {result.jobs_seen}, New: {result.new_jobs}, "
+            f"Errors: {result.error_count}"
+        )
+        raise scrape_error
 
     logger.info(
         f"Incremental scrape complete - "
@@ -265,8 +276,3 @@ async def run_incremental_scrape(
     )
 
     return result
-
-
-def get_iso_timestamp() -> str:
-    """Get current timestamp in ISO 8601 format"""
-    return datetime.utcnow().isoformat() + "Z"

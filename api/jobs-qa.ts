@@ -28,19 +28,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         'Content-Type': 'application/json',
       },
     });
-
     const data = await response.json();
-
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
     res.status(response.status).json(data);
   } catch (error) {
-    res.setHeader('Access-Control-Allow-Origin', '*');
     res.status(500).json({
-      error: 'Proxy error',
-      message: error instanceof Error ? error.message : 'Unknown error',
+      error: 'Failed to fetch from backend',
+      details: error instanceof Error ? error.message : String(error),
     });
   }
 }

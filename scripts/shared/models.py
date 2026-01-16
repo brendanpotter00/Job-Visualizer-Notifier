@@ -5,7 +5,7 @@ These models are aligned with the database schema and support incremental scrapi
 """
 
 from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Literal
 
 
 class JobListing(BaseModel):
@@ -31,7 +31,7 @@ class JobListing(BaseModel):
     closed_on: Optional[str] = None  # When job was closed (null if still open)
 
     # Status
-    status: str = "OPEN"  # OPEN / CLOSED
+    status: Literal["OPEN", "CLOSED"] = "OPEN"
 
     # AI matching fields
     has_matched: bool = False  # Has gone through AI notification service
@@ -54,7 +54,7 @@ class ScrapeRun(BaseModel):
     company: str  # "google", "apple", etc.
     started_at: str  # ISO 8601 timestamp
     completed_at: Optional[str] = None  # ISO 8601 timestamp (null if failed/ongoing)
-    mode: str  # "incremental" or "full"
+    mode: Literal["incremental", "full"]
     jobs_seen: int = 0  # Total jobs found in search results
     new_jobs: int = 0  # New jobs discovered (not in DB before)
     closed_jobs: int = 0  # Jobs marked as closed this run

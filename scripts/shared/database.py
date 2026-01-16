@@ -6,11 +6,12 @@ PostgreSQL only. Uses environment-based table naming (e.g., job_listings_local, 
 
 import json
 import logging
-from typing import Set, List, Optional, Dict, Any
+import re
+from typing import Set, List, Optional, Dict, Any, Tuple
 from urllib.parse import urlparse
 
 import psycopg2
-from psycopg2.extras import RealDictCursor
+from psycopg2.extras import RealDictCursor, execute_values
 
 from .models import JobListing, ScrapeRun
 
@@ -18,6 +19,92 @@ logger = logging.getLogger(__name__)
 
 # Type alias for database connections
 Connection = psycopg2.extensions.connection
+
+# Allowed environment values (prevents SQL injection via table name construction)
+ALLOWED_ENVS = frozenset({"local", "qa", "prod"})
+
+# Pattern for test environments (test_<hex_chars> for test isolation)
+_TEST_ENV_PATTERN = re.compile(r"^test_[a-f0-9]{8}$")
+
+# Column list for job_listings table (used in INSERT statements)
+_JOB_COLUMNS = """
+    id, title, company, location, url, source_id,
+    details, posted_on, created_at, closed_on, status,
+    has_matched, ai_metadata,
+    first_seen_at, last_seen_at, consecutive_misses, details_scraped
+""".strip()
+
+# ON CONFLICT clause for upsert operations
+_UPSERT_ON_CONFLICT = """
+    ON CONFLICT (id) DO UPDATE SET
+        title = EXCLUDED.title,
+        location = EXCLUDED.location,
+        url = EXCLUDED.url,
+        details = EXCLUDED.details,
+        posted_on = EXCLUDED.posted_on,
+        status = 'OPEN',
+        closed_on = NULL,
+        last_seen_at = EXCLUDED.last_seen_at,
+        consecutive_misses = 0,
+        details_scraped = EXCLUDED.details_scraped
+""".strip()
+
+
+def _is_valid_env(env: str) -> bool:
+    """Check if environment name is valid (prevents SQL injection)."""
+    return env in ALLOWED_ENVS or bool(_TEST_ENV_PATTERN.match(env))
+
+
+def _get_table_name(env: str, table_type: str = "jobs") -> str:
+    """
+    Get environment-specific table name.
+
+    Args:
+        env: Environment name (local, qa, prod, or test_<hex> for tests)
+        table_type: Type of table ("jobs" or "runs")
+
+    Returns:
+        Full table name with environment suffix
+
+    Raises:
+        ValueError: If env is not valid
+    """
+    if not _is_valid_env(env):
+        raise ValueError(f"Invalid environment: {env}. Must be one of {ALLOWED_ENVS} or test_<hex>")
+    if table_type == "runs":
+        return f"scrape_runs_{env}"
+    return f"job_listings_{env}"
+
+
+def _build_job_values(job: JobListing) -> Tuple:
+    """
+    Build a tuple of values from a JobListing for database insertion.
+
+    Args:
+        job: JobListing model
+
+    Returns:
+        Tuple of values matching _JOB_COLUMNS order
+    """
+    return (
+        job.id, job.title, job.company, job.location, job.url, job.source_id,
+        json.dumps(job.details), job.posted_on, job.created_at, job.closed_on, job.status,
+        job.has_matched, json.dumps(job.ai_metadata),
+        job.first_seen_at, job.last_seen_at, job.consecutive_misses, job.details_scraped
+    )
+
+
+def _build_id_placeholders(ids: List[str]) -> str:
+    """
+    Build SQL placeholders for a list of IDs.
+
+    Args:
+        ids: List of IDs
+
+    Returns:
+        Comma-separated %s placeholders (e.g., "%s,%s,%s")
+    """
+    return ','.join(['%s' for _ in ids])
 
 
 def get_connection(db_url: str, env: str = "local") -> Connection:
@@ -54,8 +141,8 @@ def init_schema(conn: Connection, env: str = "local") -> None:
     """
     cursor = conn.cursor()
 
-    jobs_table = f"job_listings_{env}"
-    runs_table = f"scrape_runs_{env}"
+    jobs_table = _get_table_name(env, "jobs")
+    runs_table = _get_table_name(env, "runs")
 
     # Create job_listings table
     cursor.execute(f"""
@@ -127,7 +214,7 @@ def get_active_job_ids(conn: Connection, company: str, env: str = "local") -> Se
         Set of job IDs that are currently marked as OPEN
     """
     cursor = conn.cursor()
-    jobs_table = f"job_listings_{env}"
+    jobs_table = _get_table_name(env)
 
     cursor.execute(
         f"SELECT id FROM {jobs_table} WHERE company = %s AND status = 'OPEN'",
@@ -151,7 +238,7 @@ def get_job_by_id(conn: Connection, job_id: str, env: str = "local") -> Optional
         Job data as dict, or None if not found
     """
     cursor = conn.cursor()
-    jobs_table = f"job_listings_{env}"
+    jobs_table = _get_table_name(env)
 
     cursor.execute(f"SELECT * FROM {jobs_table} WHERE id = %s", (job_id,))
     row = cursor.fetchone()
@@ -171,22 +258,12 @@ def insert_job(conn: Connection, job: JobListing, env: str = "local") -> None:
         env: Environment name
     """
     cursor = conn.cursor()
-    jobs_table = f"job_listings_{env}"
+    jobs_table = _get_table_name(env)
 
-    cursor.execute(f"""
-        INSERT INTO {jobs_table} (
-            id, title, company, location, url, source_id,
-            details, posted_on, created_at, closed_on, status,
-            has_matched, ai_metadata,
-            first_seen_at, last_seen_at, consecutive_misses, details_scraped
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-    """, (
-        job.id, job.title, job.company, job.location, job.url, job.source_id,
-        json.dumps(job.details), job.posted_on, job.created_at, job.closed_on, job.status,
-        job.has_matched, json.dumps(job.ai_metadata),
-        job.first_seen_at, job.last_seen_at, job.consecutive_misses,
-        job.details_scraped
-    ))
+    cursor.execute(
+        f"INSERT INTO {jobs_table} ({_JOB_COLUMNS}) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        _build_job_values(job)
+    )
 
     conn.commit()
     logger.debug(f"Inserted job: {job.id} - {job.title}")
@@ -209,34 +286,17 @@ def upsert_job(conn: Connection, job: JobListing, env: str = "local") -> bool:
         True if a new job was inserted, False if an existing job was updated
     """
     cursor = conn.cursor()
-    jobs_table = f"job_listings_{env}"
+    jobs_table = _get_table_name(env)
 
-    cursor.execute(f"""
-        INSERT INTO {jobs_table} (
-            id, title, company, location, url, source_id,
-            details, posted_on, created_at, closed_on, status,
-            has_matched, ai_metadata,
-            first_seen_at, last_seen_at, consecutive_misses, details_scraped
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        ON CONFLICT (id) DO UPDATE SET
-            title = EXCLUDED.title,
-            location = EXCLUDED.location,
-            url = EXCLUDED.url,
-            details = EXCLUDED.details,
-            posted_on = EXCLUDED.posted_on,
-            status = 'OPEN',
-            closed_on = NULL,
-            last_seen_at = EXCLUDED.last_seen_at,
-            consecutive_misses = 0,
-            details_scraped = EXCLUDED.details_scraped
+    cursor.execute(
+        f"""
+        INSERT INTO {jobs_table} ({_JOB_COLUMNS})
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        {_UPSERT_ON_CONFLICT}
         RETURNING (xmax = 0) AS inserted
-    """, (
-        job.id, job.title, job.company, job.location, job.url, job.source_id,
-        json.dumps(job.details), job.posted_on, job.created_at, job.closed_on, job.status,
-        job.has_matched, json.dumps(job.ai_metadata),
-        job.first_seen_at, job.last_seen_at, job.consecutive_misses,
-        job.details_scraped
-    ))
+        """,
+        _build_job_values(job)
+    )
 
     result = cursor.fetchone()
     was_inserted = result['inserted'] if result else True
@@ -249,6 +309,75 @@ def upsert_job(conn: Connection, job: JobListing, env: str = "local") -> bool:
         logger.info(f"Reactivated job: {job.id} - {job.title}")
 
     return was_inserted
+
+
+def upsert_jobs_batch(conn: Connection, jobs: List[JobListing], env: str = "local") -> int:
+    """
+    Batch upsert multiple jobs in a single transaction.
+
+    More efficient than calling upsert_job() in a loop - uses execute_values
+    for bulk operations (10-50x faster for large batches).
+
+    Args:
+        conn: Database connection
+        jobs: List of JobListing models
+        env: Environment name
+
+    Returns:
+        Number of jobs in the batch (all are upserted)
+    """
+    if not jobs:
+        return 0
+
+    cursor = conn.cursor()
+    jobs_table = _get_table_name(env)
+    values = [_build_job_values(job) for job in jobs]
+
+    execute_values(
+        cursor,
+        f"INSERT INTO {jobs_table} ({_JOB_COLUMNS}) VALUES %s {_UPSERT_ON_CONFLICT}",
+        values,
+        page_size=100
+    )
+
+    conn.commit()
+    logger.info(f"Batch upserted {len(jobs)} jobs")
+    return len(jobs)
+
+
+def insert_jobs_batch(conn: Connection, jobs: List[JobListing], env: str = "local") -> int:
+    """
+    Batch insert multiple jobs in a single transaction.
+
+    Skips jobs that already exist (ON CONFLICT DO NOTHING).
+    More efficient than calling insert_job() in a loop.
+
+    Args:
+        conn: Database connection
+        jobs: List of JobListing models
+        env: Environment name
+
+    Returns:
+        Number of jobs actually inserted (excludes duplicates skipped by ON CONFLICT)
+    """
+    if not jobs:
+        return 0
+
+    cursor = conn.cursor()
+    jobs_table = _get_table_name(env)
+    values = [_build_job_values(job) for job in jobs]
+
+    execute_values(
+        cursor,
+        f"INSERT INTO {jobs_table} ({_JOB_COLUMNS}) VALUES %s ON CONFLICT (id) DO NOTHING",
+        values,
+        page_size=100
+    )
+
+    actual_inserted = cursor.rowcount
+    conn.commit()
+    logger.info(f"Batch inserted {actual_inserted}/{len(jobs)} jobs (skipped {len(jobs) - actual_inserted} duplicates)")
+    return actual_inserted
 
 
 def update_last_seen(conn: Connection, job_ids: List[str], timestamp: str, env: str = "local") -> None:
@@ -265,15 +394,13 @@ def update_last_seen(conn: Connection, job_ids: List[str], timestamp: str, env: 
         return
 
     cursor = conn.cursor()
-    jobs_table = f"job_listings_{env}"
+    jobs_table = _get_table_name(env)
+    placeholders = _build_id_placeholders(job_ids)
 
-    placeholders = ','.join(['%s' for _ in job_ids])
-
-    cursor.execute(f"""
-        UPDATE {jobs_table}
-        SET last_seen_at = %s, consecutive_misses = 0
-        WHERE id IN ({placeholders})
-    """, [timestamp] + job_ids)
+    cursor.execute(
+        f"UPDATE {jobs_table} SET last_seen_at = %s, consecutive_misses = 0 WHERE id IN ({placeholders})",
+        [timestamp] + job_ids
+    )
 
     conn.commit()
     logger.info(f"Updated last_seen for {len(job_ids)} jobs")
@@ -292,15 +419,13 @@ def increment_consecutive_misses(conn: Connection, job_ids: List[str], env: str 
         return
 
     cursor = conn.cursor()
-    jobs_table = f"job_listings_{env}"
+    jobs_table = _get_table_name(env)
+    placeholders = _build_id_placeholders(job_ids)
 
-    placeholders = ','.join(['%s' for _ in job_ids])
-
-    cursor.execute(f"""
-        UPDATE {jobs_table}
-        SET consecutive_misses = consecutive_misses + 1
-        WHERE id IN ({placeholders})
-    """, job_ids)
+    cursor.execute(
+        f"UPDATE {jobs_table} SET consecutive_misses = consecutive_misses + 1 WHERE id IN ({placeholders})",
+        job_ids
+    )
 
     conn.commit()
     logger.info(f"Incremented misses for {len(job_ids)} jobs")
@@ -320,18 +445,46 @@ def mark_jobs_closed(conn: Connection, job_ids: List[str], timestamp: str, env: 
         return
 
     cursor = conn.cursor()
-    jobs_table = f"job_listings_{env}"
+    jobs_table = _get_table_name(env)
+    placeholders = _build_id_placeholders(job_ids)
 
-    placeholders = ','.join(['%s' for _ in job_ids])
-
-    cursor.execute(f"""
-        UPDATE {jobs_table}
-        SET status = 'CLOSED', closed_on = %s
-        WHERE id IN ({placeholders})
-    """, [timestamp] + job_ids)
+    cursor.execute(
+        f"UPDATE {jobs_table} SET status = 'CLOSED', closed_on = %s WHERE id IN ({placeholders})",
+        [timestamp] + job_ids
+    )
 
     conn.commit()
     logger.info(f"Marked {len(job_ids)} jobs as CLOSED")
+
+
+def get_jobs_exceeding_miss_threshold(
+    conn: Connection, job_ids: List[str], threshold: int, env: str = "local"
+) -> Set[str]:
+    """
+    Get job IDs where consecutive_misses >= threshold in a single query.
+
+    Args:
+        conn: Database connection
+        job_ids: List of job IDs to check
+        threshold: Minimum consecutive_misses value
+        env: Environment name
+
+    Returns:
+        Set of job IDs that have consecutive_misses >= threshold
+    """
+    if not job_ids:
+        return set()
+
+    cursor = conn.cursor()
+    jobs_table = _get_table_name(env)
+    placeholders = _build_id_placeholders(job_ids)
+
+    cursor.execute(
+        f"SELECT id FROM {jobs_table} WHERE id IN ({placeholders}) AND consecutive_misses >= %s",
+        job_ids + [threshold]
+    )
+
+    return {row['id'] for row in cursor.fetchall()}
 
 
 def reactivate_job(conn: Connection, job_id: str, timestamp: str, env: str = "local") -> None:
@@ -345,13 +498,12 @@ def reactivate_job(conn: Connection, job_id: str, timestamp: str, env: str = "lo
         env: Environment name
     """
     cursor = conn.cursor()
-    jobs_table = f"job_listings_{env}"
+    jobs_table = _get_table_name(env)
 
-    cursor.execute(f"""
-        UPDATE {jobs_table}
-        SET status = 'OPEN', closed_on = NULL, last_seen_at = %s, consecutive_misses = 0
-        WHERE id = %s
-    """, (timestamp, job_id))
+    cursor.execute(
+        f"UPDATE {jobs_table} SET status = 'OPEN', closed_on = NULL, last_seen_at = %s, consecutive_misses = 0 WHERE id = %s",
+        (timestamp, job_id)
+    )
 
     conn.commit()
     logger.info(f"Reactivated job: {job_id}")
@@ -367,18 +519,21 @@ def record_scrape_run(conn: Connection, run_data: ScrapeRun, env: str = "local")
         env: Environment name
     """
     cursor = conn.cursor()
-    runs_table = f"scrape_runs_{env}"
+    runs_table = _get_table_name(env, "runs")
 
-    cursor.execute(f"""
+    cursor.execute(
+        f"""
         INSERT INTO {runs_table} (
             run_id, company, started_at, completed_at, mode,
             jobs_seen, new_jobs, closed_jobs, details_fetched, error_count
         ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-    """, (
-        run_data.run_id, run_data.company, run_data.started_at, run_data.completed_at,
-        run_data.mode, run_data.jobs_seen, run_data.new_jobs, run_data.closed_jobs,
-        run_data.details_fetched, run_data.error_count
-    ))
+        """,
+        (
+            run_data.run_id, run_data.company, run_data.started_at, run_data.completed_at,
+            run_data.mode, run_data.jobs_seen, run_data.new_jobs, run_data.closed_jobs,
+            run_data.details_fetched, run_data.error_count
+        )
+    )
 
     conn.commit()
     logger.info(f"Recorded scrape run: {run_data.run_id}")
@@ -397,24 +552,20 @@ def get_all_active_jobs(conn: Connection, company: str, env: str = "local") -> L
         List of JobListing objects
     """
     cursor = conn.cursor()
-    jobs_table = f"job_listings_{env}"
+    jobs_table = _get_table_name(env)
 
     cursor.execute(
         f"SELECT * FROM {jobs_table} WHERE company = %s AND status = 'OPEN'",
         (company,)
     )
 
-    rows = cursor.fetchall()
     jobs = []
-
-    for row in rows:
+    for row in cursor.fetchall():
         row_dict = dict(row)
-        # JSONB columns are already parsed by psycopg2
-        if isinstance(row_dict['details'], str):
-            row_dict['details'] = json.loads(row_dict['details'])
-        if isinstance(row_dict['ai_metadata'], str):
-            row_dict['ai_metadata'] = json.loads(row_dict['ai_metadata'])
-
+        # Parse JSONB columns if returned as strings (depends on psycopg2 config)
+        for json_col in ('details', 'ai_metadata'):
+            if isinstance(row_dict.get(json_col), str):
+                row_dict[json_col] = json.loads(row_dict[json_col])
         jobs.append(JobListing(**row_dict))
 
     return jobs

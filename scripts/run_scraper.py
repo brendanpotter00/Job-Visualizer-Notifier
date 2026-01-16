@@ -23,6 +23,7 @@ sys.path.insert(0, str(project_root))
 
 # Import scraper modules
 from scripts.google_jobs_scraper.scraper import GoogleJobsScraper
+from scripts.apple_jobs_scraper.scraper import AppleJobsScraper
 from scripts.google_jobs_scraper.config import (
     DEFAULT_OUTPUT_DIR,
     DEFAULT_OUTPUT_FILE,
@@ -41,9 +42,15 @@ from scripts.google_jobs_scraper.utils import (
 # Import shared modules for database mode
 from scripts.shared import database as db
 from scripts.shared import incremental
+from scripts.shared.batch_writer import BatchWriter
 
 console = Console()
 logger = logging.getLogger(__name__)
+
+
+def should_use_database_mode(args) -> bool:
+    """Determine if scraper should run in database mode based on CLI args."""
+    return args.db_url is not None
 
 
 async def run_json_mode(args):
@@ -61,6 +68,22 @@ async def run_database_mode(args):
     env = args.env
     db_url = args.db_url
 
+    # Map of supported companies and their scraper classes
+    scraper_classes = {
+        "google": GoogleJobsScraper,
+        "apple": AppleJobsScraper,
+    }
+
+    # Handle --company all by running all scrapers sequentially
+    if company == "all":
+        companies_to_run = list(scraper_classes.keys())
+        console.print(f"\n[bold cyan]Running all scrapers: {', '.join(companies_to_run)}[/bold cyan]\n")
+        for comp in companies_to_run:
+            args.company = comp
+            await run_database_mode(args)
+        args.company = "all"  # Restore original value
+        return
+
     logger.info(f"Running scraper in database mode: company={company}, env={env}")
 
     # Connect to database
@@ -71,15 +94,12 @@ async def run_database_mode(args):
         console.print(f"[bold red]Database connection failed: {e}[/bold red]")
         sys.exit(2)
 
-    # Initialize scraper based on company
-    if company == "google":
-        scraper = GoogleJobsScraper(
-            headless=args.headless,
-            detail_scrape=args.detail_scrape
-        )
-    else:
+    scraper_class = scraper_classes.get(company)
+    if not scraper_class:
         console.print(f"[bold red]Unsupported company: {company}[/bold red]")
         sys.exit(1)
+
+    scraper = scraper_class(headless=args.headless, detail_scrape=args.detail_scrape)
 
     try:
         async with scraper:
@@ -100,30 +120,70 @@ async def run_database_mode(args):
                 # Run full scrape and save to database
                 console.print(f"\n[bold cyan]Running full scrape for {company}[/bold cyan]\n")
 
-                # Scrape all queries
+                # Scrape all queries (list pages only - fast)
                 job_cards = await scraper.scrape_all_queries(args.max_jobs)
                 console.print(f"Found {len(job_cards)} jobs")
 
-                # Fetch details if requested
-                if args.detail_scrape:
-                    enriched_jobs = await scraper.scrape_job_details_batch(job_cards)
-                else:
-                    enriched_jobs = job_cards
-
-                # Transform and insert into database
+                # Initialize batch writer for efficient database writes
                 timestamp = get_iso_timestamp()
-                for job_data in enriched_jobs:
-                    try:
-                        job = scraper.transform_to_job_model(job_data)
-                        job.first_seen_at = timestamp
-                        job.last_seen_at = timestamp
-                        job.details_scraped = args.detail_scrape
-                        db.insert_job(conn, job, env)
-                    except Exception as e:
-                        logger.error(f"Error inserting job: {e}")
+                writer = BatchWriter(
+                    db_conn=conn,
+                    env=env,
+                    scraper=scraper,
+                    batch_size=50,
+                    detail_scrape=args.detail_scrape,
+                    use_upsert=False  # Full scrape uses insert
+                )
+
+                # Track details count (used in scrape run record)
+                details_count = 0
+
+                if args.detail_scrape:
+                    # Stream details and batch write to database
+                    console.print("Fetching job details and saving in batches...")
+
+                    async for enriched_job in scraper.scrape_job_details_streaming(job_cards):
+                        writer.add_job(enriched_job, timestamp)
+                        details_count += 1
+
+                        # Progress update every batch
+                        if details_count % 50 == 0:
+                            console.print(
+                                f"  Progress: {details_count}/{len(job_cards)} details fetched, "
+                                f"{writer.stats.total_written} saved"
+                            )
+                else:
+                    # No detail scrape - batch insert cards directly
+                    for job_data in job_cards:
+                        writer.add_job(job_data, timestamp)
+
+                # Flush remaining jobs in buffer
+                writer.flush()
 
                 console.print(f"\n[bold green]✓ Full scrape completed![/bold green]")
-                console.print(f"Inserted {len(enriched_jobs)} jobs into database")
+                console.print(f"Jobs processed: {writer.stats.total_processed}")
+                console.print(f"Jobs written: {writer.stats.total_written}")
+                console.print(f"Batches: {writer.stats.batches_written}")
+                if writer.stats.errors > 0:
+                    console.print(f"[yellow]Errors: {writer.stats.errors}[/yellow]")
+
+                # Record scrape run for full mode (audit trail)
+                from scripts.shared.models import ScrapeRun
+                import uuid
+                run_record = ScrapeRun(
+                    run_id=str(uuid.uuid4()),
+                    company=company,
+                    started_at=timestamp,
+                    completed_at=get_iso_timestamp(),
+                    mode="full",
+                    jobs_seen=len(job_cards),
+                    new_jobs=writer.stats.total_written,
+                    closed_jobs=0,
+                    details_fetched=details_count if args.detail_scrape else 0,
+                    error_count=writer.stats.errors,
+                )
+                db.record_scrape_run(conn, run_record, env)
+                console.print(f"Scrape run recorded: {run_record.run_id}")
 
     finally:
         conn.close()
@@ -202,7 +262,7 @@ Examples:
     # New flags for database mode
     parser.add_argument(
         "--company",
-        choices=["google", "all"],
+        choices=["google", "apple", "all"],
         default="google",
         help="Which company scraper to run (default: google)",
     )
@@ -233,12 +293,8 @@ Examples:
         sys.exit(1)
 
     # Route to appropriate mode
-    if args.db_url:
-        # Database mode
-        asyncio.run(run_database_mode(args))
-    else:
-        # JSON mode (original behavior)
-        asyncio.run(run_json_mode(args))
+    run_mode = run_database_mode if should_use_database_mode(args) else run_json_mode
+    asyncio.run(run_mode(args))
 
 
 if __name__ == "__main__":

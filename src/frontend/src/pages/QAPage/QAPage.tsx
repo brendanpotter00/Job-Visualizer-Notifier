@@ -23,8 +23,13 @@ import {
 } from '@mui/material';
 import { SearchTagsInput } from '../../components/shared/filters/SearchTagsInput.tsx';
 import type { SearchTag } from '../../types/index.ts';
+import type { BackendJobListing } from '../../api/types.ts';
+import { COMPANIES } from '../../config/companies';
 
-type BackendJob = Record<string, unknown>;
+// Backend scraper companies for QA filtering
+const BACKEND_SCRAPER_COMPANIES = COMPANIES.filter((c) => c.ats === 'backend-scraper');
+
+type QACompanySelection = 'all' | string;
 
 interface ScrapeRun {
   runId: string;
@@ -58,7 +63,7 @@ interface ScraperResult {
  * @returns QA page component
  */
 export function QAPage() {
-  const [jobs, setJobs] = useState<BackendJob[]>([]);
+  const [jobs, setJobs] = useState<BackendJobListing[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -77,13 +82,17 @@ export function QAPage() {
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
 
+  // Company filter state
+  const [selectedCompany, setSelectedCompany] = useState<QACompanySelection>('all');
+
   useEffect(() => {
     const fetchJobs = async () => {
       try {
         setLoading(true);
         setError(null);
-        // Empty status param to get all jobs (no status filter)
-        const response = await fetch('/api/jobs?status=');
+        // Build URL with company filter if selected
+        const companyParam = selectedCompany !== 'all' ? `&company=${selectedCompany}` : '';
+        const response = await fetch(`/api/jobs?status=${companyParam}`);
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -97,13 +106,15 @@ export function QAPage() {
     };
 
     fetchJobs();
-  }, []);
+  }, [selectedCompany]);
 
   const fetchScrapeRuns = useCallback(async () => {
     try {
       setScrapeRunsLoading(true);
       setScrapeRunsError(null);
-      const response = await fetch('/api/jobs-qa/scrape-runs?limit=100');
+      // Build URL with company filter if selected
+      const companyParam = selectedCompany !== 'all' ? `&company=${selectedCompany}` : '';
+      const response = await fetch(`/api/jobs-qa/scrape-runs?limit=100${companyParam}`);
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
@@ -114,19 +125,48 @@ export function QAPage() {
     } finally {
       setScrapeRunsLoading(false);
     }
-  }, []);
+  }, [selectedCompany]);
 
   useEffect(() => {
     fetchScrapeRuns();
   }, [fetchScrapeRuns]);
 
   const handleTriggerScrape = async () => {
+    // Guard: require specific company selection
+    if (selectedCompany === 'all') {
+      return;
+    }
+
     try {
       setScrapingInProgress(true);
       setScrapeResult(null);
-      const response = await fetch('/api/jobs-qa/trigger-scrape?company=google', {
+      const response = await fetch(`/api/jobs-qa/trigger-scrape?company=${selectedCompany}`, {
         method: 'POST',
       });
+
+      // Handle HTTP errors BEFORE attempting to parse JSON (like backendScraperClient)
+      if (!response.ok) {
+        // Try to get error details from JSON response (safe for API errors)
+        let errorMessage = `Request failed: ${response.status} ${response.statusText}`;
+        try {
+          const errorData = await response.json();
+          if (errorData.error) {
+            errorMessage = errorData.error;
+          }
+        } catch {
+          // Non-JSON response, use status text
+        }
+        setScrapeResult({
+          exitCode: -1,
+          output: '',
+          error: errorMessage,
+          company: selectedCompany,
+          completedAt: new Date().toISOString(),
+        });
+        return;
+      }
+
+      // Only parse JSON for successful responses
       const data = await response.json();
 
       // Handle 202 Accepted (scrape started in background)
@@ -135,7 +175,7 @@ export function QAPage() {
           exitCode: 0,
           output: data.message || 'Scrape started',
           error: '',
-          company: data.company || 'google',
+          company: data.company || selectedCompany,
           completedAt: new Date().toISOString(),
         });
       } else {
@@ -149,7 +189,7 @@ export function QAPage() {
         exitCode: -1,
         output: '',
         error: err instanceof Error ? err.message : 'Failed to trigger scrape',
-        company: 'google',
+        company: selectedCompany,
         completedAt: new Date().toISOString(),
       });
     } finally {
@@ -161,17 +201,13 @@ export function QAPage() {
   const filteredJobs = useMemo(() => {
     return jobs.filter((job) => {
       // Status filter
-      if (statusFilter !== 'all' && String(job.status) !== statusFilter) {
+      if (statusFilter !== 'all' && job.status !== statusFilter) {
         return false;
       }
 
       // Search tags filter
       if (searchTags.length > 0) {
-        const searchableText = [
-          String(job.title || ''),
-          String(job.company || ''),
-          String(job.location || ''),
-        ]
+        const searchableText = [job.title, job.company, job.location ?? '']
           .join(' ')
           .toLowerCase();
 
@@ -238,13 +274,33 @@ export function QAPage() {
             Scrape Controls
           </Typography>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
+            <FormControl size="small" sx={{ minWidth: 150 }}>
+              <InputLabel id="company-filter-label">Company</InputLabel>
+              <Select
+                labelId="company-filter-label"
+                value={selectedCompany}
+                label="Company"
+                onChange={(e) => setSelectedCompany(e.target.value as QACompanySelection)}
+              >
+                <MenuItem value="all">All Companies</MenuItem>
+                {BACKEND_SCRAPER_COMPANIES.map((company) => (
+                  <MenuItem key={company.id} value={company.id}>
+                    {company.name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
             <Button
               variant="contained"
               onClick={handleTriggerScrape}
-              disabled={scrapingInProgress}
+              disabled={scrapingInProgress || selectedCompany === 'all'}
               startIcon={scrapingInProgress ? <CircularProgress size={20} /> : null}
             >
-              {scrapingInProgress ? 'Scraping...' : 'Trigger Scrape (Google)'}
+              {scrapingInProgress
+                ? 'Scraping...'
+                : selectedCompany === 'all'
+                  ? 'Select Company to Scrape'
+                  : `Trigger Scrape (${BACKEND_SCRAPER_COMPANIES.find((c) => c.id === selectedCompany)?.name})`}
             </Button>
             {scrapeResult && (
               <Alert
@@ -262,7 +318,9 @@ export function QAPage() {
         {/* Scrape Runs Table */}
         <Box sx={{ mb: 4 }}>
           <Typography variant="h5" gutterBottom>
-            Scrape Runs
+            {selectedCompany === 'all'
+              ? 'Scrape Runs'
+              : `${BACKEND_SCRAPER_COMPANIES.find((c) => c.id === selectedCompany)?.name} Scrape Runs`}
           </Typography>
           {scrapeRunsLoading && (
             <Box sx={{ display: 'flex', justifyContent: 'center', my: 2 }}>
@@ -333,7 +391,9 @@ export function QAPage() {
 
         {/* Jobs Table */}
         <Typography variant="h5" gutterBottom>
-          All Jobs
+          {selectedCompany === 'all'
+            ? 'All Jobs'
+            : `${BACKEND_SCRAPER_COMPANIES.find((c) => c.id === selectedCompany)?.name} Jobs`}
         </Typography>
 
         {/* Jobs Filters */}
@@ -393,17 +453,17 @@ export function QAPage() {
               </TableHead>
               <TableBody>
                 {filteredJobs.map((job) => (
-                  <TableRow key={String(job.id)}>
+                  <TableRow key={job.id}>
                     <TableCell>
-                      <Link href={String(job.url)} target="_blank" rel="noopener">
-                        {String(job.title)}
+                      <Link href={job.url} target="_blank" rel="noopener">
+                        {job.title}
                       </Link>
                     </TableCell>
-                    <TableCell>{String(job.company)}</TableCell>
-                    <TableCell>{job.location ? String(job.location) : '-'}</TableCell>
-                    <TableCell>{String(job.status)}</TableCell>
-                    <TableCell>{new Date(String(job.firstSeenAt)).toLocaleDateString()}</TableCell>
-                    <TableCell>{new Date(String(job.lastSeenAt)).toLocaleDateString()}</TableCell>
+                    <TableCell>{job.company}</TableCell>
+                    <TableCell>{job.location ?? '-'}</TableCell>
+                    <TableCell>{job.status}</TableCell>
+                    <TableCell>{new Date(job.firstSeenAt).toLocaleDateString()}</TableCell>
+                    <TableCell>{new Date(job.lastSeenAt).toLocaleDateString()}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
