@@ -201,6 +201,10 @@ class AppleJobsScraper(BaseScraper):
 
                 # Check for next page
                 has_next = await check_has_next_page(page)
+                if has_next is None:
+                    # Check failed - log warning and stop to avoid infinite loop or data loss
+                    logger.warning("Failed to check for next page, stopping pagination")
+                    break
                 if not has_next:
                     logger.info("No next page available")
                     break

@@ -189,7 +189,7 @@ def extract_job_id_from_url(url: str) -> Optional[str]:
         return None
 
 
-async def check_has_next_page(page: Page) -> bool:
+async def check_has_next_page(page: Page) -> Optional[bool]:
     """
     Check if there's a next page of results
 
@@ -198,6 +198,8 @@ async def check_has_next_page(page: Page) -> bool:
 
     Returns:
         True if next page button exists and is enabled
+        False if no next page (button not found or disabled)
+        None if check failed (caller should handle - e.g., retry or stop with warning)
     """
     try:
         next_button = await page.query_selector('button:has-text("Next Page")')
@@ -209,7 +211,7 @@ async def check_has_next_page(page: Page) -> bool:
         return is_disabled is None
 
     except Exception as e:
-        logger.warning(f"Error checking for next page: {e}")
-        return False
+        logger.error(f"Failed to check for next page: {e}")
+        return None
 
 

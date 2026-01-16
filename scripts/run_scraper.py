@@ -68,6 +68,22 @@ async def run_database_mode(args):
     env = args.env
     db_url = args.db_url
 
+    # Map of supported companies and their scraper classes
+    scraper_classes = {
+        "google": GoogleJobsScraper,
+        "apple": AppleJobsScraper,
+    }
+
+    # Handle --company all by running all scrapers sequentially
+    if company == "all":
+        companies_to_run = list(scraper_classes.keys())
+        console.print(f"\n[bold cyan]Running all scrapers: {', '.join(companies_to_run)}[/bold cyan]\n")
+        for comp in companies_to_run:
+            args.company = comp
+            await run_database_mode(args)
+        args.company = "all"  # Restore original value
+        return
+
     logger.info(f"Running scraper in database mode: company={company}, env={env}")
 
     # Connect to database
@@ -77,12 +93,6 @@ async def run_database_mode(args):
     except Exception as e:
         console.print(f"[bold red]Database connection failed: {e}[/bold red]")
         sys.exit(2)
-
-    # Initialize scraper based on company
-    scraper_classes = {
-        "google": GoogleJobsScraper,
-        "apple": AppleJobsScraper,
-    }
 
     scraper_class = scraper_classes.get(company)
     if not scraper_class:
