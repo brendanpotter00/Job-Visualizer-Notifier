@@ -143,6 +143,30 @@ export function QAPage() {
       const response = await fetch(`/api/jobs-qa/trigger-scrape?company=${selectedCompany}`, {
         method: 'POST',
       });
+
+      // Handle HTTP errors BEFORE attempting to parse JSON (like backendScraperClient)
+      if (!response.ok) {
+        // Try to get error details from JSON response (safe for API errors)
+        let errorMessage = `Request failed: ${response.status} ${response.statusText}`;
+        try {
+          const errorData = await response.json();
+          if (errorData.error) {
+            errorMessage = errorData.error;
+          }
+        } catch {
+          // Non-JSON response, use status text
+        }
+        setScrapeResult({
+          exitCode: -1,
+          output: '',
+          error: errorMessage,
+          company: selectedCompany,
+          completedAt: new Date().toISOString(),
+        });
+        return;
+      }
+
+      // Only parse JSON for successful responses
       const data = await response.json();
 
       // Handle 202 Accepted (scrape started in background)
