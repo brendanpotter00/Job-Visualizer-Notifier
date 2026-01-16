@@ -155,6 +155,24 @@ async def run_database_mode(args):
                 if writer.stats.errors > 0:
                     console.print(f"[yellow]Errors: {writer.stats.errors}[/yellow]")
 
+                # Record scrape run for full mode (audit trail)
+                from scripts.shared.models import ScrapeRun
+                import uuid
+                run_record = ScrapeRun(
+                    run_id=str(uuid.uuid4()),
+                    company=company,
+                    started_at=timestamp,
+                    completed_at=get_iso_timestamp(),
+                    mode="full",
+                    jobs_seen=len(job_cards),
+                    new_jobs=writer.stats.total_written,
+                    closed_jobs=0,
+                    details_fetched=details_count if args.detail_scrape else 0,
+                    error_count=writer.stats.errors,
+                )
+                db.record_scrape_run(conn, run_record, env)
+                console.print(f"Scrape run recorded: {run_record.run_id}")
+
     finally:
         conn.close()
 

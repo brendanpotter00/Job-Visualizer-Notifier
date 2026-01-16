@@ -207,36 +207,43 @@ async def run_incremental_scrape(
 
     result = ScrapeResult()
     timestamp = get_iso_timestamp()
+    scrape_error = None
 
-    # Phase 1: Quick list scrape (no details)
-    logger.info("Phase 1: Quick list scrape...")
-    job_cards = await scraper.scrape_all_queries()
-    result.jobs_seen = len(job_cards)
-    logger.info(f"Found {result.jobs_seen} jobs in search results")
+    try:
+        # Phase 1: Quick list scrape (no details)
+        logger.info("Phase 1: Quick list scrape...")
+        job_cards = await scraper.scrape_all_queries()
+        result.jobs_seen = len(job_cards)
+        logger.info(f"Found {result.jobs_seen} jobs in search results")
 
-    # Extract current job IDs
-    current_ids = {job['id'] for job in job_cards}
+        # Extract current job IDs
+        current_ids = {job['id'] for job in job_cards}
 
-    # Phase 2: Compare against database
-    logger.info("Phase 2: Comparing against database...")
-    active_known_ids = db.get_active_job_ids(db_conn, company, env)
-    new_ids, still_active_ids, missing_ids = calculate_job_diff(current_ids, active_known_ids)
+        # Phase 2: Compare against database
+        logger.info("Phase 2: Comparing against database...")
+        active_known_ids = db.get_active_job_ids(db_conn, company, env)
+        new_ids, still_active_ids, missing_ids = calculate_job_diff(current_ids, active_known_ids)
 
-    # Phase 3: Fetch details ONLY for new jobs
-    logger.info("Phase 3: Fetching details for new jobs...")
-    new_job_cards = [job for job in job_cards if job['id'] in new_ids]
-    result.details_fetched = await process_new_jobs(
-        scraper, db_conn, new_job_cards, env, detail_scrape
-    )
-    result.new_jobs = len(new_ids)
+        # Phase 3: Fetch details ONLY for new jobs
+        logger.info("Phase 3: Fetching details for new jobs...")
+        new_job_cards = [job for job in job_cards if job['id'] in new_ids]
+        result.details_fetched = await process_new_jobs(
+            scraper, db_conn, new_job_cards, env, detail_scrape
+        )
+        result.new_jobs = len(new_ids)
 
-    # Phase 4 & 5: Update existing jobs and mark closed
-    logger.info("Phase 4 & 5: Updating job status...")
-    result.closed_jobs = update_existing_jobs(
-        db_conn, still_active_ids, missing_ids, env
-    )
+        # Phase 4 & 5: Update existing jobs and mark closed
+        logger.info("Phase 4 & 5: Updating job status...")
+        result.closed_jobs = update_existing_jobs(
+            db_conn, still_active_ids, missing_ids, env
+        )
 
-    # Record scrape run
+    except Exception as e:
+        logger.error(f"Incremental scrape failed for {company}: {e}")
+        result.error_count += 1
+        scrape_error = e
+
+    # Always record scrape run (even on failure for audit trail)
     run_record = ScrapeRun(
         run_id=result.run_id,
         company=company,
@@ -250,6 +257,14 @@ async def run_incremental_scrape(
         error_count=result.error_count,
     )
     db.record_scrape_run(db_conn, run_record, env)
+
+    if scrape_error:
+        logger.info(
+            f"Incremental scrape failed - "
+            f"Seen: {result.jobs_seen}, New: {result.new_jobs}, "
+            f"Errors: {result.error_count}"
+        )
+        raise scrape_error
 
     logger.info(
         f"Incremental scrape complete - "

@@ -134,6 +134,8 @@ class AppleJobsScraper(BaseScraper):
         logger.info("Scraping Apple jobs with US location filter")
         all_jobs = []
         page_num = 1
+        consecutive_errors = 0
+        max_consecutive_errors = 3
 
         page = await self.context.new_page()
 
@@ -144,8 +146,25 @@ class AppleJobsScraper(BaseScraper):
                 # Build URL with page number
                 url = self.build_search_url("", page_num)
 
-                # Navigate to page
-                await self.navigate_to_page(page, url, PAGE_LOAD_TIMEOUT)
+                try:
+                    # Navigate to page
+                    await self.navigate_to_page(page, url, PAGE_LOAD_TIMEOUT)
+                    consecutive_errors = 0  # Reset on success
+                except Exception as nav_error:
+                    consecutive_errors += 1
+                    logger.warning(
+                        f"Navigation error on page {page_num} ({consecutive_errors}/{max_consecutive_errors}): {nav_error}"
+                    )
+                    if consecutive_errors >= max_consecutive_errors:
+                        logger.error(
+                            f"Too many consecutive navigation errors, stopping pagination. "
+                            f"Collected {len(all_jobs)} jobs before failure."
+                        )
+                        break
+                    # Try next page
+                    page_num += 1
+                    await self._random_delay()
+                    continue
 
                 # Wait a bit for dynamic content to load
                 await asyncio.sleep(1)
