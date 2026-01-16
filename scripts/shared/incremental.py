@@ -5,9 +5,9 @@ This module implements the incremental scraping logic that minimizes scraping ti
 by only fetching details for NEW jobs, while tracking job lifecycle (open/closed).
 
 Algorithm phases:
-1. Quick list scrape (IDs + basic info only) → 2-3 min
-2. Compare current_ids vs database active_ids → instant
-3. Fetch details ONLY for new job IDs → variable (depends on new jobs)
+1. Quick list scrape (IDs + basic info only)
+2. Compare current_ids vs database active_ids
+3. Fetch details ONLY for new job IDs (variable time, depends on new jobs)
 4. Update last_seen for existing, increment misses for missing
 5. Mark as closed if consecutive_misses >= 2
 """
@@ -194,10 +194,10 @@ async def run_incremental_scrape(
     Run the 5-phase incremental scraping algorithm
 
     Args:
-        scraper: Scraper instance (must have scrape_query and scrape_job_details_batch methods)
+        scraper: Scraper instance (must have scrape_all_queries and scrape_job_details_streaming methods)
         db_conn: Database connection
         env: Environment name
-        company: Company name (e.g., "google")
+        company: Company name (e.g., "google", "apple")
         detail_scrape: Whether to fetch detail pages for new jobs
 
     Returns:

@@ -13,6 +13,11 @@ from playwright.async_api import Page
 logger = logging.getLogger(__name__)
 
 
+class JobCardExtractionError(Exception):
+    """Raised when job card extraction fails (page structure changed, blocked, etc.)"""
+    pass
+
+
 async def extract_job_cards_from_list(page: Page) -> List[Dict[str, Any]]:
     """
     Extract job listings from Apple search results page
@@ -22,8 +27,12 @@ async def extract_job_cards_from_list(page: Page) -> List[Dict[str, Any]]:
 
     Returns:
         List of job dictionaries with basic info
+
+    Raises:
+        JobCardExtractionError: If the job list cannot be found or parsed
     """
     job_cards = []
+    parse_errors = 0
 
     try:
         # Wait for job listings to load
@@ -34,17 +43,32 @@ async def extract_job_cards_from_list(page: Page) -> List[Dict[str, Any]]:
             'ul[aria-label="Job Opportunities"] > li'
         )
 
+        if not job_elements:
+            # No job elements found - could indicate page structure changed
+            logger.warning("No job elements found in job list")
+            return job_cards
+
         for element in job_elements:
             try:
                 job_card = await _parse_job_element(element)
                 if job_card:
                     job_cards.append(job_card)
             except Exception as e:
+                parse_errors += 1
                 logger.warning(f"Error parsing job element: {e}")
                 continue
 
+        # If all elements failed to parse, likely a systematic issue
+        if parse_errors > 0 and len(job_cards) == 0:
+            raise JobCardExtractionError(
+                f"All {parse_errors} job elements failed to parse - page structure may have changed"
+            )
+
+    except JobCardExtractionError:
+        raise
     except Exception as e:
         logger.error(f"Error extracting job cards: {e}")
+        raise JobCardExtractionError(f"Failed to extract job cards: {e}") from e
 
     return job_cards
 

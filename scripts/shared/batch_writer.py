@@ -63,10 +63,16 @@ class BatchWriter:
             db_conn: Database connection
             env: Environment name (local/qa/prod)
             scraper: Scraper instance with transform_to_job_model method
-            batch_size: Number of jobs per batch write (default 50)
+            batch_size: Number of jobs per batch write (default 50, must be > 0)
             detail_scrape: Whether details were scraped (sets details_scraped flag)
             use_upsert: Use upsert (True) or insert (False) for batch writes
+
+        Raises:
+            ValueError: If batch_size is not a positive integer
         """
+        if batch_size <= 0:
+            raise ValueError(f"batch_size must be positive, got {batch_size}")
+
         self.db_conn = db_conn
         self.env = env
         self.scraper = scraper

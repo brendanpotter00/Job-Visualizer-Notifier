@@ -23,13 +23,13 @@ import {
 } from '@mui/material';
 import { SearchTagsInput } from '../../components/shared/filters/SearchTagsInput.tsx';
 import type { SearchTag } from '../../types/index.ts';
+import type { BackendJobListing } from '../../api/types.ts';
 import { COMPANIES } from '../../config/companies';
 
 // Backend scraper companies for QA filtering
 const BACKEND_SCRAPER_COMPANIES = COMPANIES.filter((c) => c.ats === 'backend-scraper');
 
 type QACompanySelection = 'all' | string;
-type BackendJob = Record<string, unknown>;
 
 interface ScrapeRun {
   runId: string;
@@ -63,7 +63,7 @@ interface ScraperResult {
  * @returns QA page component
  */
 export function QAPage() {
-  const [jobs, setJobs] = useState<BackendJob[]>([]);
+  const [jobs, setJobs] = useState<BackendJobListing[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -201,17 +201,13 @@ export function QAPage() {
   const filteredJobs = useMemo(() => {
     return jobs.filter((job) => {
       // Status filter
-      if (statusFilter !== 'all' && String(job.status) !== statusFilter) {
+      if (statusFilter !== 'all' && job.status !== statusFilter) {
         return false;
       }
 
       // Search tags filter
       if (searchTags.length > 0) {
-        const searchableText = [
-          String(job.title || ''),
-          String(job.company || ''),
-          String(job.location || ''),
-        ]
+        const searchableText = [job.title, job.company, job.location ?? '']
           .join(' ')
           .toLowerCase();
 
@@ -457,17 +453,17 @@ export function QAPage() {
               </TableHead>
               <TableBody>
                 {filteredJobs.map((job) => (
-                  <TableRow key={String(job.id)}>
+                  <TableRow key={job.id}>
                     <TableCell>
-                      <Link href={String(job.url)} target="_blank" rel="noopener">
-                        {String(job.title)}
+                      <Link href={job.url} target="_blank" rel="noopener">
+                        {job.title}
                       </Link>
                     </TableCell>
-                    <TableCell>{String(job.company)}</TableCell>
-                    <TableCell>{job.location ? String(job.location) : '-'}</TableCell>
-                    <TableCell>{String(job.status)}</TableCell>
-                    <TableCell>{new Date(String(job.firstSeenAt)).toLocaleDateString()}</TableCell>
-                    <TableCell>{new Date(String(job.lastSeenAt)).toLocaleDateString()}</TableCell>
+                    <TableCell>{job.company}</TableCell>
+                    <TableCell>{job.location ?? '-'}</TableCell>
+                    <TableCell>{job.status}</TableCell>
+                    <TableCell>{new Date(job.firstSeenAt).toLocaleDateString()}</TableCell>
+                    <TableCell>{new Date(job.lastSeenAt).toLocaleDateString()}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

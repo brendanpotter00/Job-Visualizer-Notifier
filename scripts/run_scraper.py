@@ -125,10 +125,12 @@ async def run_database_mode(args):
                     use_upsert=False  # Full scrape uses insert
                 )
 
+                # Track details count (used in scrape run record)
+                details_count = 0
+
                 if args.detail_scrape:
                     # Stream details and batch write to database
                     console.print("Fetching job details and saving in batches...")
-                    details_count = 0
 
                     async for enriched_job in scraper.scrape_job_details_streaming(job_cards):
                         writer.add_job(enriched_job, timestamp)

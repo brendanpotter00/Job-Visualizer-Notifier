@@ -36,8 +36,9 @@ from .parser import (
     extract_job_cards_from_list,
     extract_job_id_from_url,
     check_has_next_page,
+    JobCardExtractionError,
 )
-from .api_client import fetch_job_details, get_apply_url
+from .api_client import fetch_job_details, get_apply_url, JobDetailsFetchError
 
 logger = logging.getLogger(__name__)
 
@@ -53,8 +54,6 @@ class AppleJobsScraper(BaseScraper):
         delay = random.uniform(REQUEST_DELAY_MIN, REQUEST_DELAY_MAX)
         logger.debug(f"Waiting {delay:.2f} seconds before next request")
         await asyncio.sleep(delay)
-
-    # ========== Abstract Method Implementations ==========
 
     def get_company_name(self) -> str:
         """Return company identifier"""
@@ -116,8 +115,6 @@ class AppleJobsScraper(BaseScraper):
         # Check for inclusion keywords
         return any(kw.lower() in title_lower for kw in INCLUDE_TITLE_KEYWORDS)
 
-    # ========== Apple-Specific Methods ==========
-
     async def scrape_query(
         self, search_query: str, max_jobs: Optional[int] = None
     ) -> List[Dict[str, Any]]:
@@ -149,7 +146,7 @@ class AppleJobsScraper(BaseScraper):
                 try:
                     # Navigate to page
                     await self.navigate_to_page(page, url, PAGE_LOAD_TIMEOUT)
-                    consecutive_errors = 0  # Reset on success
+                    consecutive_errors = 0
                 except Exception as nav_error:
                     consecutive_errors += 1
                     logger.warning(
@@ -170,7 +167,12 @@ class AppleJobsScraper(BaseScraper):
                 await asyncio.sleep(1)
 
                 # Extract job cards from list page
-                job_cards = await self.extract_job_cards(page)
+                try:
+                    job_cards = await self.extract_job_cards(page)
+                except JobCardExtractionError as e:
+                    # Critical extraction failure - stop pagination and log
+                    logger.error(f"Job card extraction failed on page {page_num}: {e}")
+                    break
 
                 if not job_cards:
                     logger.info("No more jobs found")
@@ -251,9 +253,14 @@ class AppleJobsScraper(BaseScraper):
                 try:
                     details = await fetch_job_details(page, job_id)
                     yield {**job_card, **details}
+                except JobDetailsFetchError as e:
+                    # API/network failure - log and yield original card with failure flag
+                    logger.error(f"Detail fetch failed for {job_id}: {e}")
+                    yield {**job_card, "_detail_fetch_failed": True}
                 except Exception as e:
-                    logger.error(f"Error fetching details for {job_id}: {e}")
-                    yield job_card
+                    # Unexpected error - log and yield original card with failure flag
+                    logger.error(f"Unexpected error fetching details for {job_id}: {e}")
+                    yield {**job_card, "_detail_fetch_failed": True}
 
                 await self._random_delay()
         finally:

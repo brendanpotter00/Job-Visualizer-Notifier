@@ -59,6 +59,26 @@ class TestBatchWriterInit:
         assert writer.detail_scrape is False
         assert writer.use_upsert is False
 
+    def test_init_rejects_zero_batch_size(self):
+        """Raises ValueError for batch_size=0"""
+        mock_conn = MagicMock()
+        mock_scraper = MagicMock()
+
+        with pytest.raises(ValueError) as exc_info:
+            BatchWriter(mock_conn, "test", mock_scraper, batch_size=0)
+
+        assert "batch_size must be positive" in str(exc_info.value)
+
+    def test_init_rejects_negative_batch_size(self):
+        """Raises ValueError for negative batch_size"""
+        mock_conn = MagicMock()
+        mock_scraper = MagicMock()
+
+        with pytest.raises(ValueError) as exc_info:
+            BatchWriter(mock_conn, "test", mock_scraper, batch_size=-5)
+
+        assert "batch_size must be positive" in str(exc_info.value)
+
 
 class TestBatchWriterAdd:
     """Tests for BatchWriter.add_job method"""

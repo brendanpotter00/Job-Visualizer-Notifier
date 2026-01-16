@@ -15,6 +15,11 @@ from .config import BASE_URL, API_BASE
 logger = logging.getLogger(__name__)
 
 
+class JobDetailsFetchError(Exception):
+    """Raised when fetching job details fails (network, API, or parsing error)"""
+    pass
+
+
 async def fetch_job_details(page: Page, job_id: str) -> Dict[str, Any]:
     """
     Fetch job details from Apple's API
@@ -25,11 +30,15 @@ async def fetch_job_details(page: Page, job_id: str) -> Dict[str, Any]:
 
     Returns:
         Dictionary with job details from API response
+
+    Raises:
+        JobDetailsFetchError: If the API request fails or returns unexpected format
     """
     api_url = f"{BASE_URL}{API_BASE}/jobDetails/{job_id}?locale=en-us"
 
     try:
-        # Use page.evaluate to fetch from the same origin (avoids CORS)
+        # Use page.evaluate to fetch from the same origin
+        # (leverages browser's session cookies for authenticated requests)
         response = await page.evaluate(
             """
             async (url) => {
@@ -51,7 +60,7 @@ async def fetch_job_details(page: Page, job_id: str) -> Dict[str, Any]:
 
     except Exception as e:
         logger.error(f"Error fetching job details for {job_id}: {e}")
-        return {}
+        raise JobDetailsFetchError(f"Failed to fetch details for job {job_id}: {e}") from e
 
 
 def _parse_api_response(data: Dict[str, Any]) -> Dict[str, Any]:

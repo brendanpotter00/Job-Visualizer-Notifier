@@ -32,16 +32,52 @@ describe('QAPage', () => {
     });
   });
 
+  /**
+   * Helper to select a company from the dropdown.
+   * Required before triggering a scrape since button is disabled when 'all' is selected.
+   */
+  async function selectCompany(user: ReturnType<typeof userEvent.setup>, companyName: string) {
+    // Click the company dropdown
+    const dropdown = screen.getByRole('combobox', { name: /company/i });
+    await user.click(dropdown);
+
+    // Select the company from the menu
+    const option = await screen.findByRole('option', { name: companyName });
+    await user.click(option);
+  }
+
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
   describe('Trigger Scrape Button', () => {
-    it('renders the trigger scrape button', async () => {
+    it('renders disabled button when no company selected', async () => {
       render(<QAPage />);
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /trigger scrape/i })).toBeInTheDocument();
+        const button = screen.getByRole('button', { name: /select company to scrape/i });
+        expect(button).toBeInTheDocument();
+        expect(button).toBeDisabled();
+      });
+    });
+
+    it('renders enabled trigger button when company is selected', async () => {
+      const user = userEvent.setup();
+      render(<QAPage />);
+
+      // Wait for initial load
+      await waitFor(() => {
+        expect(screen.getByRole('combobox', { name: /company/i })).toBeInTheDocument();
+      });
+
+      // Select Google company
+      await selectCompany(user, 'Google');
+
+      // Button should now show trigger text and be enabled
+      await waitFor(() => {
+        const button = screen.getByRole('button', { name: /trigger scrape.*google/i });
+        expect(button).toBeInTheDocument();
+        expect(button).toBeEnabled();
       });
     });
 
@@ -83,11 +119,14 @@ describe('QAPage', () => {
 
       // Wait for initial load
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /trigger scrape/i })).toBeInTheDocument();
+        expect(screen.getByRole('combobox', { name: /company/i })).toBeInTheDocument();
       });
 
-      // Click the trigger scrape button
-      const button = screen.getByRole('button', { name: /trigger scrape/i });
+      // Select a company first (required to enable the button)
+      await selectCompany(user, 'Google');
+
+      // Wait for trigger button to be available
+      const button = await screen.findByRole('button', { name: /trigger scrape.*google/i });
       await user.click(button);
 
       // Should show success alert with the message from 202 response
@@ -135,10 +174,11 @@ describe('QAPage', () => {
       render(<QAPage />);
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /trigger scrape/i })).toBeInTheDocument();
+        expect(screen.getByRole('combobox', { name: /company/i })).toBeInTheDocument();
       });
 
-      const button = screen.getByRole('button', { name: /trigger scrape/i });
+      await selectCompany(user, 'Google');
+      const button = await screen.findByRole('button', { name: /trigger scrape.*google/i });
       await user.click(button);
 
       // Should show default message when message is missing
@@ -186,10 +226,11 @@ describe('QAPage', () => {
       render(<QAPage />);
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /trigger scrape/i })).toBeInTheDocument();
+        expect(screen.getByRole('combobox', { name: /company/i })).toBeInTheDocument();
       });
 
-      const button = screen.getByRole('button', { name: /trigger scrape/i });
+      await selectCompany(user, 'Google');
+      const button = await screen.findByRole('button', { name: /trigger scrape.*google/i });
       await user.click(button);
 
       // Should show success for exitCode 0
@@ -206,6 +247,7 @@ describe('QAPage', () => {
           return Promise.resolve({
             ok: false,
             status: 500,
+            statusText: 'Internal Server Error',
             json: () =>
               Promise.resolve({
                 exitCode: 1,
@@ -237,17 +279,16 @@ describe('QAPage', () => {
       render(<QAPage />);
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /trigger scrape/i })).toBeInTheDocument();
+        expect(screen.getByRole('combobox', { name: /company/i })).toBeInTheDocument();
       });
 
-      const button = screen.getByRole('button', { name: /trigger scrape/i });
+      await selectCompany(user, 'Google');
+      const button = await screen.findByRole('button', { name: /trigger scrape.*google/i });
       await user.click(button);
 
-      // Should show error
+      // Should show error (uses error field from JSON response when available)
       await waitFor(() => {
-        expect(screen.getByRole('alert')).toHaveTextContent(
-          'Scrape failed: Process failed with error'
-        );
+        expect(screen.getByRole('alert')).toHaveTextContent('Scrape failed: Process failed with error');
       });
 
       // Alert should have error severity
@@ -283,10 +324,11 @@ describe('QAPage', () => {
       render(<QAPage />);
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /trigger scrape/i })).toBeInTheDocument();
+        expect(screen.getByRole('combobox', { name: /company/i })).toBeInTheDocument();
       });
 
-      const button = screen.getByRole('button', { name: /trigger scrape/i });
+      await selectCompany(user, 'Google');
+      const button = await screen.findByRole('button', { name: /trigger scrape.*google/i });
       await user.click(button);
 
       // Should show network error
@@ -337,10 +379,11 @@ describe('QAPage', () => {
       render(<QAPage />);
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /trigger scrape/i })).toBeInTheDocument();
+        expect(screen.getByRole('combobox', { name: /company/i })).toBeInTheDocument();
       });
 
-      const button = screen.getByRole('button', { name: /trigger scrape/i });
+      await selectCompany(user, 'Google');
+      const button = await screen.findByRole('button', { name: /trigger scrape.*google/i });
       await user.click(button);
 
       // Button should be disabled and show loading text
@@ -353,7 +396,7 @@ describe('QAPage', () => {
 
       // Button should be enabled again
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /trigger scrape/i })).toBeEnabled();
+        expect(screen.getByRole('button', { name: /trigger scrape.*google/i })).toBeEnabled();
       });
     });
 
@@ -401,7 +444,8 @@ describe('QAPage', () => {
 
       const initialCalls = scrapeRunsCalled;
 
-      const button = screen.getByRole('button', { name: /trigger scrape/i });
+      await selectCompany(user, 'Google');
+      const button = await screen.findByRole('button', { name: /trigger scrape.*google/i });
       await user.click(button);
 
       // Should fetch scrape runs again after triggering

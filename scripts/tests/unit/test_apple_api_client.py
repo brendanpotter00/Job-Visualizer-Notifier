@@ -5,6 +5,7 @@ Unit tests for Apple Jobs API client functions (apple_jobs_scraper/api_client.py
 import pytest
 import sys
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
@@ -13,6 +14,8 @@ from apple_jobs_scraper.api_client import (
     extract_salary,
     format_location,
     get_apply_url,
+    fetch_job_details,
+    JobDetailsFetchError,
 )
 
 
@@ -159,3 +162,98 @@ class TestGetApplyUrl:
         ]
         for job_id, expected in test_cases:
             assert get_apply_url(job_id) == expected
+
+
+class TestFetchJobDetails:
+    """Tests for fetch_job_details async function"""
+
+    @pytest.fixture
+    def mock_page(self):
+        """Create mock Playwright page object"""
+        return MagicMock()
+
+    @pytest.fixture
+    def sample_api_response(self):
+        """Sample successful API response"""
+        return {
+            "res": {
+                "postingTitle": "Software Engineer",
+                "jobNumber": "200640732-0836",
+                "positionId": "12345",
+                "description": "Work on cutting-edge systems",
+                "jobSummary": "Join our team",
+                "responsibilities": "Design and implement solutions",
+                "minimumQualifications": "BS in CS\n3+ years experience",
+                "preferredQualifications": "MS preferred",
+                "teamNames": ["Engineering"],
+                "locations": [
+                    {"city": "Cupertino", "stateProvince": "California", "countryName": "United States"}
+                ],
+                "homeOffice": False,
+                "postDateInGMT": "2024-12-15T00:00:00Z",
+                "jobType": "Full-Time",
+                "employmentType": "Individual Contributor",
+            }
+        }
+
+    @pytest.mark.asyncio
+    async def test_fetch_job_details_success(self, mock_page, sample_api_response):
+        """Successfully fetches and parses job details"""
+        mock_page.evaluate = AsyncMock(return_value=sample_api_response)
+
+        result = await fetch_job_details(mock_page, "200640732-0836")
+
+        assert result["title"] == "Software Engineer"
+        assert result["job_id"] == "200640732-0836"
+        assert result["location"] == "Cupertino, California, United States"
+        assert len(result["minimum_qualifications"]) == 2
+        mock_page.evaluate.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_fetch_job_details_unexpected_format(self, mock_page):
+        """Returns empty dict for unexpected response format"""
+        mock_page.evaluate = AsyncMock(return_value={"unexpected": "format"})
+
+        result = await fetch_job_details(mock_page, "200640732-0836")
+
+        assert result == {}
+
+    @pytest.mark.asyncio
+    async def test_fetch_job_details_empty_response(self, mock_page):
+        """Returns empty dict for empty response"""
+        mock_page.evaluate = AsyncMock(return_value=None)
+
+        result = await fetch_job_details(mock_page, "200640732-0836")
+
+        assert result == {}
+
+    @pytest.mark.asyncio
+    async def test_fetch_job_details_network_error(self, mock_page):
+        """Raises JobDetailsFetchError on network error"""
+        mock_page.evaluate = AsyncMock(side_effect=Exception("Network timeout"))
+
+        with pytest.raises(JobDetailsFetchError) as exc_info:
+            await fetch_job_details(mock_page, "200640732-0836")
+
+        assert "200640732-0836" in str(exc_info.value)
+        assert "Network timeout" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_fetch_job_details_http_error(self, mock_page):
+        """Raises JobDetailsFetchError on HTTP error from evaluate"""
+        mock_page.evaluate = AsyncMock(side_effect=Exception("HTTP 404"))
+
+        with pytest.raises(JobDetailsFetchError) as exc_info:
+            await fetch_job_details(mock_page, "nonexistent-job")
+
+        assert "nonexistent-job" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_fetch_job_details_rate_limited(self, mock_page):
+        """Raises JobDetailsFetchError on rate limiting"""
+        mock_page.evaluate = AsyncMock(side_effect=Exception("HTTP 429"))
+
+        with pytest.raises(JobDetailsFetchError) as exc_info:
+            await fetch_job_details(mock_page, "200640732-0836")
+
+        assert "429" in str(exc_info.value)
