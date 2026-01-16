@@ -257,3 +257,137 @@ class TestFetchJobDetails:
             await fetch_job_details(mock_page, "200640732-0836")
 
         assert "429" in str(exc_info.value)
+
+
+class TestParseApiResponse:
+    """Tests for _parse_api_response function"""
+
+    def test_parse_api_response_complete(self):
+        """Parses all fields correctly from complete response"""
+        from apple_jobs_scraper.api_client import _parse_api_response
+
+        data = {
+            "postingTitle": "Software Engineer",
+            "jobNumber": "200640732-0836",
+            "positionId": "12345",
+            "description": "Work on cutting-edge ML systems",
+            "jobSummary": "Join our team to build amazing products",
+            "responsibilities": "Design, implement, and maintain software systems",
+            "minimumQualifications": "BS in CS\n5+ years experience\nStrong Python skills",
+            "preferredQualifications": "PhD in related field\nPublished research",
+            "teamNames": ["Machine Learning", "AI Research"],
+            "locations": [
+                {
+                    "city": "Cupertino",
+                    "stateProvince": "California",
+                    "countryName": "United States"
+                }
+            ],
+            "homeOffice": True,
+            "postDateInGMT": "2024-12-15T00:00:00Z",
+            "jobType": "Full-Time",
+            "employmentType": "Individual Contributor",
+            "postingPostLocationData": {
+                "Base Pay Range": "$175,000 - $295,000"
+            },
+        }
+
+        result = _parse_api_response(data)
+
+        assert result["title"] == "Software Engineer"
+        assert result["job_id"] == "200640732-0836"
+        assert result["position_id"] == "12345"
+        assert result["description"] == "Work on cutting-edge ML systems"
+        assert result["job_summary"] == "Join our team to build amazing products"
+        assert result["responsibilities"] == "Design, implement, and maintain software systems"
+        assert result["minimum_qualifications"] == [
+            "BS in CS",
+            "5+ years experience",
+            "Strong Python skills"
+        ]
+        assert result["preferred_qualifications"] == [
+            "PhD in related field",
+            "Published research"
+        ]
+        assert result["team_names"] == ["Machine Learning", "AI Research"]
+        assert result["location"] == "Cupertino, California, United States"
+        assert result["locations"] == data["locations"]
+        assert result["is_remote_eligible"] is True
+        assert result["posted_on"] == "2024-12-15T00:00:00Z"
+        assert result["job_type"] == "Full-Time"
+        assert result["employment_type"] == "Individual Contributor"
+        assert result["salary_range"] == "$175,000 - $295,000"
+        assert "raw_api_response" in result
+
+    def test_parse_api_response_minimal(self):
+        """Handles missing optional fields gracefully"""
+        from apple_jobs_scraper.api_client import _parse_api_response
+
+        data = {
+            "postingTitle": "Software Engineer",
+            "jobNumber": "123456",
+        }
+
+        result = _parse_api_response(data)
+
+        assert result["title"] == "Software Engineer"
+        assert result["job_id"] == "123456"
+        assert result["position_id"] == ""
+        assert result["description"] == ""
+        assert result["job_summary"] == ""
+        assert result["responsibilities"] == ""
+        assert result["minimum_qualifications"] == []
+        assert result["preferred_qualifications"] == []
+        assert result["team_names"] == []
+        assert result["location"] == ""
+        assert result["locations"] == []
+        assert result["salary_range"] is None
+        assert result["is_remote_eligible"] is False
+        assert result["posted_on"] is None
+        assert result["job_type"] == ""
+        assert result["employment_type"] == ""
+
+    def test_parse_api_response_empty(self):
+        """Returns structured dict with defaults for empty response"""
+        from apple_jobs_scraper.api_client import _parse_api_response
+
+        result = _parse_api_response({})
+
+        assert result["title"] == ""
+        assert result["job_id"] == ""
+        assert result["minimum_qualifications"] == []
+        assert result["preferred_qualifications"] == []
+        assert result["location"] == ""
+        assert result["salary_range"] is None
+
+    def test_parse_api_response_salary_from_description(self):
+        """Extracts salary from description when not in postingPostLocationData"""
+        from apple_jobs_scraper.api_client import _parse_api_response
+
+        data = {
+            "postingTitle": "Software Engineer",
+            "description": "Great role! The base pay range is $150,000 - $200,000 annually.",
+        }
+
+        result = _parse_api_response(data)
+
+        assert result["salary_range"] is not None
+        assert "$150,000" in result["salary_range"]
+
+    def test_parse_api_response_multiple_locations(self):
+        """Uses first location when multiple provided"""
+        from apple_jobs_scraper.api_client import _parse_api_response
+
+        data = {
+            "postingTitle": "Software Engineer",
+            "locations": [
+                {"city": "Cupertino", "stateProvince": "California", "countryName": "United States"},
+                {"city": "Seattle", "stateProvince": "Washington", "countryName": "United States"},
+            ],
+        }
+
+        result = _parse_api_response(data)
+
+        assert result["location"] == "Cupertino, California, United States"
+        # But all locations preserved in locations array
+        assert len(result["locations"]) == 2
