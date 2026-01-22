@@ -19,6 +19,7 @@ from microsoft_jobs_scraper.api_client import (
     JobSearchError,
     _parse_position_from_search,
     _parse_details_response,
+    _format_location,
 )
 
 
@@ -381,3 +382,81 @@ class TestFetchJobDetails:
             await fetch_job_details(mock_playwright_page, "1234567890")
 
         assert "429" in str(exc_info.value)
+
+
+class TestFormatLocation:
+    """Tests for _format_location function"""
+
+    def test_format_location_string_passthrough(self):
+        """String location returned as-is"""
+        result = _format_location("Seattle, WA, USA")
+
+        assert result == "Seattle, WA, USA"
+
+    def test_format_location_dict_full(self):
+        """Dict with city, state, country formatted correctly"""
+        loc = {"city": "Redmond", "state": "WA", "country": "USA"}
+
+        result = _format_location(loc)
+
+        assert "Redmond" in result
+        assert "WA" in result
+        assert "USA" in result
+        assert result == "Redmond, WA, USA"
+
+    def test_format_location_dict_partial(self):
+        """Dict with city and country (no state)"""
+        loc = {"city": "London", "country": "UK"}
+
+        result = _format_location(loc)
+
+        assert "London" in result
+        assert "UK" in result
+        assert result == "London, UK"
+
+    def test_format_location_dict_city_only(self):
+        """Dict with only city"""
+        loc = {"city": "Seattle"}
+
+        result = _format_location(loc)
+
+        assert result == "Seattle"
+
+    def test_format_location_list_single(self):
+        """List with single location uses first item"""
+        loc = [{"city": "Austin", "state": "TX", "country": "USA"}]
+
+        result = _format_location(loc)
+
+        assert "Austin" in result
+        assert "TX" in result
+
+    def test_format_location_list_multiple(self):
+        """List with multiple locations uses first item"""
+        loc = [
+            {"city": "Seattle", "state": "WA", "country": "USA"},
+            {"city": "Redmond", "state": "WA", "country": "USA"},
+        ]
+
+        result = _format_location(loc)
+
+        # Should use first location
+        assert "Seattle" in result
+
+    def test_format_location_empty_none(self):
+        """None returns empty string"""
+        result = _format_location(None)
+
+        assert result == ""
+
+    def test_format_location_empty_string(self):
+        """Empty string returns empty string"""
+        result = _format_location("")
+
+        assert result == ""
+
+    def test_format_location_empty_dict(self):
+        """Empty dict returns empty string"""
+        result = _format_location({})
+
+        assert result == ""
