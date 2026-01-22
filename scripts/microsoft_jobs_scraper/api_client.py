@@ -7,7 +7,7 @@ for job search and details. This module handles all API interactions.
 
 import re
 import logging
-from typing import Dict, Any, Optional, List, Union
+from typing import Dict, Any, Optional, List
 from playwright.async_api import Page
 
 from .config import BASE_URL, API_BASE, DOMAIN, LOCATION_FILTER
@@ -99,21 +99,9 @@ async def fetch_search_results(
         raise JobSearchError(f"Failed to fetch search results: {e}") from e
 
 
-def _parse_search_response(data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Parse search API response into standardized format
-
-    Args:
-        data: Raw API response
-
-    Returns:
-        Parsed response with jobs list and pagination info
-    """
-    # Debug: log the response structure
-    logger.debug(f"API response keys: {list(data.keys()) if isinstance(data, dict) else type(data)}")
-
-    # Eightfold API typically returns positions in a 'positions' or 'data' array
-    # But might also be in 'results', 'jobs', or 'hits'
+def _extract_positions_array(data: Dict[str, Any]) -> List[Any]:
+    """Extract positions array from various API response formats."""
+    # Eightfold API returns positions in various keys
     positions = (
         data.get("positions") or
         data.get("data") or
@@ -123,23 +111,40 @@ def _parse_search_response(data: Dict[str, Any]) -> Dict[str, Any]:
         []
     )
 
-    # Handle nested structure (e.g., data.positions or data.results)
+    # Handle nested structure (e.g., data.positions)
     if isinstance(positions, dict):
-        positions = positions.get("positions") or positions.get("results") or positions.get("jobs") or []
+        positions = (
+            positions.get("positions") or
+            positions.get("results") or
+            positions.get("jobs") or
+            []
+        )
 
-    logger.debug(f"Found {len(positions) if isinstance(positions, list) else 'non-list'} positions")
-    if positions and len(positions) > 0:
+    return positions if isinstance(positions, list) else []
+
+
+def _parse_search_response(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Parse search API response into standardized format.
+
+    Args:
+        data: Raw API response
+
+    Returns:
+        Parsed response with jobs list and pagination info
+    """
+    positions = _extract_positions_array(data)
+
+    logger.debug(f"API response keys: {list(data.keys()) if isinstance(data, dict) else type(data)}")
+    logger.debug(f"Found {len(positions)} positions")
+
+    if positions:
         logger.debug(f"First position type: {type(positions[0])}")
         if isinstance(positions[0], dict):
             logger.debug(f"First position keys: {list(positions[0].keys())[:10]}")
 
-    total_count = data.get("totalCount", data.get("total", data.get("count", len(positions) if isinstance(positions, list) else 0)))
-
-    jobs = []
-    for pos in positions:
-        job = _parse_position_from_search(pos)
-        if job:
-            jobs.append(job)
+    total_count = data.get("totalCount") or data.get("total") or data.get("count") or len(positions)
+    jobs = [job for pos in positions if (job := _parse_position_from_search(pos))]
 
     return {
         "jobs": jobs,
@@ -148,17 +153,21 @@ def _parse_search_response(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _get_first_of(data: Dict[str, Any], *keys: str, default: Any = "") -> Any:
+    """Return the first non-None value from the given keys, or default."""
+    for key in keys:
+        value = data.get(key)
+        if value is not None:
+            return value
+    return default
+
+
 def _parse_position_from_search(pos: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """
-    Parse a single position from search results
+    Parse a single position from search results.
 
-    Microsoft Eightfold API returns positions with these fields:
-    - id: position ID
-    - displayJobId: job number (e.g., "1234567")
-    - name: job title
-    - locations: list of location objects with city/state/country
-    - postedTs: timestamp when posted
-    - department: department name
+    Microsoft Eightfold API returns positions with fields like:
+    id, displayJobId, name, locations, postedTs, department.
 
     Args:
         pos: Position data from search API
@@ -166,44 +175,28 @@ def _parse_position_from_search(pos: Dict[str, Any]) -> Optional[Dict[str, Any]]
     Returns:
         Standardized job dictionary or None
     """
+    if not isinstance(pos, dict):
+        logger.warning(f"Position is not a dict: {type(pos)}")
+        return None
+
+    position_id = str(pos.get("id", ""))
+    if not position_id:
+        logger.warning(f"Position missing 'id' field. Available keys: {list(pos.keys())[:5]}")
+        return None
+
     try:
-        # Handle string positions (shouldn't happen but be safe)
-        if not isinstance(pos, dict):
-            logger.warning(f"Position is not a dict: {type(pos)}")
-            return None
-
-        # Get position ID - Microsoft uses 'id' field
-        position_id = str(pos.get("id", ""))
-        if not position_id:
-            return None
-
-        # Get title - Microsoft uses 'name' field
-        title = pos.get("name", pos.get("title", ""))
-
-        # Get job number - Microsoft uses 'displayJobId'
-        job_number = pos.get("displayJobId", pos.get("jobNumber", pos.get("requisitionId", "")))
-
-        # Extract location (prefer 'locations' array, fallback to 'location')
-        location = _format_location(pos.get("locations") or pos.get("location"))
-
-        # Get posted date - Microsoft uses 'postedTs' (timestamp)
-        posted_date = pos.get("postedTs", pos.get("postedDate", pos.get("createdTs")))
-
-        # Get department
-        department = pos.get("department", "")
-
         return {
             "id": position_id,
-            "job_number": job_number,
-            "title": title,
-            "location": location,
-            "posted_date": posted_date,
-            "department": department,
+            "job_number": _get_first_of(pos, "displayJobId", "jobNumber", "requisitionId"),
+            "title": _get_first_of(pos, "name", "title"),
+            "location": _format_location(pos.get("locations") or pos.get("location")),
+            "posted_date": _get_first_of(pos, "postedTs", "postedDate", "createdTs"),
+            "department": pos.get("department", ""),
             "job_url": f"{BASE_URL}/careers/apply?pid={position_id}",
             "company": "microsoft",
         }
     except Exception as e:
-        logger.warning(f"Error parsing position: {e}")
+        logger.warning(f"Error parsing position {position_id}: {e}")
         return None
 
 
@@ -255,7 +248,7 @@ async def fetch_job_details(page: Page, position_id: str) -> Dict[str, Any]:
 
 def _parse_details_response(data: Dict[str, Any], position_id: str) -> Dict[str, Any]:
     """
-    Parse position details API response
+    Parse position details API response.
 
     Args:
         data: Raw API response
@@ -267,51 +260,32 @@ def _parse_details_response(data: Dict[str, Any], position_id: str) -> Dict[str,
     # Handle nested response structure - API wraps response in "data" or "position"
     pos = data.get("data") or data.get("position") or data
 
-    # Extract qualifications (may be in different formats)
-    min_quals = parse_qualifications(pos.get("minimumQualifications", pos.get("minQualifications", "")))
-    pref_quals = parse_qualifications(pos.get("preferredQualifications", pos.get("prefQualifications", "")))
+    # Extract qualifications
+    min_quals = parse_qualifications(_get_first_of(pos, "minimumQualifications", "minQualifications"))
+    pref_quals = parse_qualifications(_get_first_of(pos, "preferredQualifications", "prefQualifications"))
 
-    # Extract requirements/qualifications from list format
+    # Fallback to requirements field for minimum qualifications
     if not min_quals and "requirements" in pos:
-        min_quals = pos.get("requirements", [])
-        if isinstance(min_quals, str):
-            min_quals = parse_qualifications(min_quals)
-
-    # Extract salary information
-    salary_range = extract_salary(pos)
-
-    # Extract description and responsibilities
-    description = pos.get("description", pos.get("jobDescription", ""))
-    responsibilities = pos.get("responsibilities", pos.get("jobResponsibilities", ""))
-
-    # Extract additional metadata
-    work_site = pos.get("workSite", pos.get("workLocation", pos.get("remoteType", "")))
-    travel = pos.get("travel", pos.get("travelPercentage", ""))
-    profession = pos.get("profession", pos.get("category", pos.get("jobFamily", "")))
-    discipline = pos.get("discipline", pos.get("subCategory", ""))
-    role_type = pos.get("roleType", pos.get("employmentType", ""))
-    employment_type = pos.get("employmentType", pos.get("jobType", ""))
-
-    # Location handling
-    location = _format_location(pos.get("location"))
+        requirements = pos["requirements"]
+        min_quals = parse_qualifications(requirements) if isinstance(requirements, str) else requirements
 
     return {
-        "title": pos.get("title", pos.get("name", "")),
+        "title": _get_first_of(pos, "title", "name"),
         "position_id": position_id,
-        "job_number": pos.get("jobNumber", pos.get("requisitionId", "")),
-        "description": description,
-        "responsibilities": responsibilities,
+        "job_number": _get_first_of(pos, "jobNumber", "requisitionId"),
+        "description": _get_first_of(pos, "description", "jobDescription"),
+        "responsibilities": _get_first_of(pos, "responsibilities", "jobResponsibilities"),
         "minimum_qualifications": min_quals,
         "preferred_qualifications": pref_quals,
-        "location": location,
-        "salary_range": salary_range,
-        "work_site": work_site,
-        "travel": travel,
-        "profession": profession,
-        "discipline": discipline,
-        "role_type": role_type,
-        "employment_type": employment_type,
-        "posted_on": pos.get("postedDate", pos.get("datePosted")),
+        "location": _format_location(pos.get("location")),
+        "salary_range": extract_salary(pos),
+        "work_site": _get_first_of(pos, "workSite", "workLocation", "remoteType"),
+        "travel": _get_first_of(pos, "travel", "travelPercentage"),
+        "profession": _get_first_of(pos, "profession", "category", "jobFamily"),
+        "discipline": _get_first_of(pos, "discipline", "subCategory"),
+        "role_type": _get_first_of(pos, "roleType", "employmentType"),
+        "employment_type": _get_first_of(pos, "employmentType", "jobType"),
+        "posted_on": _get_first_of(pos, "postedDate", "datePosted"),
         "raw_api_response": data,
     }
 

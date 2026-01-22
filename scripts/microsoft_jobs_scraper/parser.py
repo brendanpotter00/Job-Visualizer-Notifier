@@ -21,9 +21,36 @@ class JobCardExtractionError(Exception):
     pass
 
 
+# Job card selectors to try (Eightfold uses various patterns)
+JOB_CARD_SELECTORS = [
+    '[data-testid="job-card"]',
+    '.job-card',
+    '.position-card',
+    '[role="listitem"]',
+    '.search-result-item',
+]
+
+
+async def _find_job_selector(page: Page) -> Optional[str]:
+    """Find the first matching job card selector on the page."""
+    from playwright.async_api import TimeoutError as PlaywrightTimeout
+
+    for selector in JOB_CARD_SELECTORS:
+        try:
+            await page.wait_for_selector(selector, timeout=5000)
+            return selector
+        except PlaywrightTimeout:
+            logger.debug(f"Selector not found within timeout: {selector}")
+            continue
+        except Exception as e:
+            logger.warning(f"Unexpected error checking selector '{selector}': {e}")
+            continue
+    return None
+
+
 async def extract_job_cards_from_list(page: Page) -> List[Dict[str, Any]]:
     """
-    Extract job listings from Microsoft search results page via HTML
+    Extract job listings from Microsoft search results page via HTML.
 
     This is a fallback method when the JSON API is unavailable.
 
@@ -36,61 +63,44 @@ async def extract_job_cards_from_list(page: Page) -> List[Dict[str, Any]]:
     Raises:
         JobCardExtractionError: If the job list cannot be found or parsed
     """
-    job_cards = []
-    parse_errors = 0
-
     try:
-        # Wait for job listings to load - Eightfold uses various selectors
-        selectors = [
-            '[data-testid="job-card"]',
-            '.job-card',
-            '.position-card',
-            '[role="listitem"]',
-            '.search-result-item',
-        ]
-
-        found_selector = None
-        for selector in selectors:
-            try:
-                await page.wait_for_selector(selector, timeout=5000)
-                found_selector = selector
-                break
-            except Exception:
-                continue
-
-        if not found_selector:
+        selector = await _find_job_selector(page)
+        if not selector:
             logger.warning("No standard job card selector found")
-            return job_cards
+            return []
 
-        job_elements = await page.query_selector_all(found_selector)
-
+        job_elements = await page.query_selector_all(selector)
         if not job_elements:
             logger.warning("No job elements found in job list")
-            return job_cards
+            return []
+
+        job_cards = []
+        parse_errors = 0
 
         for element in job_elements:
             try:
                 job_card = await _parse_job_element(element)
                 if job_card:
                     job_cards.append(job_card)
+                else:
+                    parse_errors += 1
+                    logger.debug(f"Job element {parse_errors} failed to parse (returned None)")
             except Exception as e:
                 parse_errors += 1
                 logger.warning(f"Error parsing job element: {e}")
-                continue
 
-        # If all elements failed to parse, likely a systematic issue
-        if parse_errors > 0 and len(job_cards) == 0:
+        if parse_errors > 0 and not job_cards:
             raise JobCardExtractionError(
                 f"All {parse_errors} job elements failed to parse - page structure may have changed"
             )
+
+        return job_cards
 
     except JobCardExtractionError:
         raise
     except Exception as e:
         logger.error(f"Error extracting job cards: {e}")
         raise JobCardExtractionError(f"Failed to extract job cards: {e}") from e
-
-    return job_cards
 
 
 async def _parse_job_element(element) -> Optional[Dict[str, Any]]:
@@ -223,34 +233,38 @@ def extract_position_id_from_url(url: str) -> Optional[str]:
         return None
 
 
+NEXT_PAGE_SELECTORS = [
+    'button[aria-label="Next page"]',
+    'button:has-text("Next")',
+    '[data-testid="next-page"]',
+    '.pagination-next',
+    'a[rel="next"]',
+]
+
+
+async def _is_button_enabled(button) -> bool:
+    """Check if a button element is enabled (not disabled)."""
+    is_disabled = await button.get_attribute("disabled")
+    aria_disabled = await button.get_attribute("aria-disabled")
+    return is_disabled is None and aria_disabled != "true"
+
+
 async def check_has_next_page(page: Page) -> Optional[bool]:
     """
-    Check if there's a next page of results
+    Check if there's a next page of results.
 
     Args:
         page: Playwright page object
 
     Returns:
-        True if next page exists and is enabled
-        False if no next page
-        None if check failed
+        True if next page exists and is enabled, False if no next page, None if check failed
     """
     try:
-        # Look for next page button with various selectors
-        next_selectors = [
-            'button[aria-label="Next page"]',
-            'button:has-text("Next")',
-            '[data-testid="next-page"]',
-            '.pagination-next',
-            'a[rel="next"]',
-        ]
-
-        for selector in next_selectors:
-            next_button = await page.query_selector(selector)
-            if next_button:
-                is_disabled = await next_button.get_attribute("disabled")
-                aria_disabled = await next_button.get_attribute("aria-disabled")
-                return is_disabled is None and aria_disabled != "true"
+        # Check standard next page buttons
+        for selector in NEXT_PAGE_SELECTORS:
+            button = await page.query_selector(selector)
+            if button:
+                return await _is_button_enabled(button)
 
         # Check for "Load More" pattern
         load_more = await page.query_selector('button:has-text("Load More"), button:has-text("Show More")')

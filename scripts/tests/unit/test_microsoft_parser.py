@@ -171,11 +171,10 @@ class TestExtractJobCardsFromList:
         assert result[0]["id"] == "9876543210"
 
     @pytest.mark.asyncio
-    async def test_extract_job_cards_returns_empty_when_all_fail_internally(self):
-        """Returns empty list when all elements fail to parse internally
+    async def test_extract_job_cards_raises_when_all_fail(self):
+        """Raises JobCardExtractionError when all elements fail to parse.
 
-        Note: _parse_job_element catches exceptions internally and returns None,
-        so JobCardExtractionError is not raised for internal parse failures.
+        This indicates a systematic issue (e.g., page structure changed).
         """
         mock_page = AsyncMock()
         mock_page.wait_for_selector.return_value = True
@@ -188,9 +187,10 @@ class TestExtractJobCardsFromList:
 
         mock_page.query_selector_all.return_value = [mock_element1, mock_element2]
 
-        result = await extract_job_cards_from_list(mock_page)
+        with pytest.raises(JobCardExtractionError) as exc_info:
+            await extract_job_cards_from_list(mock_page)
 
-        assert result == []
+        assert "All 2 job elements failed to parse" in str(exc_info.value)
 
 
 class TestCheckHasNextPage:

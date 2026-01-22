@@ -12,7 +12,7 @@ import asyncio
 import random
 import sys
 from pathlib import Path
-from typing import List, Dict, Any, Optional, AsyncIterator
+from typing import Any, AsyncIterator, Dict, List, Optional
 from playwright.async_api import Page
 
 # Add shared module to path
@@ -136,11 +136,34 @@ class MicrosoftJobsScraper(BaseScraper):
         # Check for inclusion keywords
         return any(kw.lower() in title_lower for kw in INCLUDE_TITLE_KEYWORDS)
 
+    async def _fetch_page_jobs(
+        self, page: Page, search_query: str, page_num: int
+    ) -> tuple[List[Dict[str, Any]], bool, str]:
+        """
+        Fetch jobs for a single page, trying API first then HTML fallback.
+
+        Returns:
+            Tuple of (job_cards, has_more, source)
+        """
+        start = (page_num - 1) * JOBS_PER_PAGE
+
+        try:
+            result = await fetch_search_results(page, search_query, start, LOCATION_FILTER)
+            return result.get("jobs", []), result.get("has_more", False), "API"
+        except JobSearchError as e:
+            logger.warning(f"API failed, using HTML fallback: {e}")
+            url = self.build_search_url(search_query, page_num)
+            await self.navigate_to_page(page, url, PAGE_LOAD_TIMEOUT)
+            await asyncio.sleep(1)
+            job_cards = await self.extract_job_cards(page)
+            has_more = await check_has_next_page(page) or False
+            return job_cards, has_more, "HTML"
+
     async def scrape_query(
         self, search_query: str, max_jobs: Optional[int] = None
     ) -> List[Dict[str, Any]]:
         """
-        Scrape jobs for a specific search query with pagination
+        Scrape jobs for a specific search query with pagination.
 
         Args:
             search_query: Search keyword (e.g., "software engineer")
@@ -150,7 +173,7 @@ class MicrosoftJobsScraper(BaseScraper):
             List of job dictionaries
         """
         logger.info(f"Scraping Microsoft jobs for query: '{search_query}'")
-        all_jobs = []
+        all_jobs: List[Dict[str, Any]] = []
         page_num = 1
         consecutive_errors = 0
 
@@ -161,33 +184,12 @@ class MicrosoftJobsScraper(BaseScraper):
 
             while page_num <= MAX_PAGES:
                 logger.info(f"Scraping page {page_num}")
-                start = (page_num - 1) * JOBS_PER_PAGE
 
                 try:
-                    # Try API first, fall back to HTML if it fails
-                    try:
-                        result = await fetch_search_results(
-                            page, search_query, start, LOCATION_FILTER
-                        )
-                        job_cards = result.get("jobs", [])
-                        has_more = result.get("has_more", False)
-                        source = "API"
-                    except JobSearchError as e:
-                        logger.warning(f"API failed, using HTML fallback: {e}")
-                        url = self.build_search_url(search_query, page_num)
-                        await self.navigate_to_page(page, url, PAGE_LOAD_TIMEOUT)
-                        await asyncio.sleep(1)
-                        job_cards = await self.extract_job_cards(page)
-                        has_more = await check_has_next_page(page) or False
-                        source = "HTML"
-
-                    if not job_cards:
-                        logger.info(f"No more jobs found from {source}")
-                        break
-
-                    logger.info(f"Found {len(job_cards)} jobs from {source} on page {page_num}")
+                    job_cards, has_more, source = await self._fetch_page_jobs(
+                        page, search_query, page_num
+                    )
                     consecutive_errors = 0
-
                 except Exception as e:
                     consecutive_errors += 1
                     logger.warning(f"Error on page {page_num} ({consecutive_errors}/3): {e}")
@@ -197,6 +199,12 @@ class MicrosoftJobsScraper(BaseScraper):
                     page_num += 1
                     await self._random_delay()
                     continue
+
+                if not job_cards:
+                    logger.info(f"No more jobs found from {source}")
+                    break
+
+                logger.info(f"Found {len(job_cards)} jobs from {source} on page {page_num}")
 
                 # Filter and collect jobs
                 filtered_jobs = [j for j in job_cards if self.filter_job(j.get("title", ""))]
@@ -244,24 +252,24 @@ class MicrosoftJobsScraper(BaseScraper):
         """
         return [job async for job in self.scrape_job_details_streaming(job_cards)]
 
+    def _normalize_posted_date(self, posted_on: Any) -> Optional[str]:
+        """Convert posted date to ISO string format."""
+        if posted_on is None:
+            return None
+        if isinstance(posted_on, (int, float)):
+            from datetime import datetime, timezone
+            return datetime.fromtimestamp(posted_on, tz=timezone.utc).isoformat()
+        return str(posted_on)
+
     def transform_to_job_model(self, job_data: Dict[str, Any]) -> JobListing:
-        """Transform scraped data to JobListing model (database schema)"""
+        """Transform scraped data to JobListing model (database schema)."""
         job_url = job_data.get("job_url", "")
         position_id = job_data.get("id") or extract_position_id_from_url(job_url) or "unknown"
-
         created_at = get_iso_timestamp()
+        posted_on = self._normalize_posted_date(
+            job_data.get("posted_on") or job_data.get("posted_date")
+        )
 
-        # Get posted date from API response
-        # Microsoft's postedTs is a Unix timestamp (integer), convert to ISO string
-        posted_on = job_data.get("posted_on") or job_data.get("posted_date")
-        if posted_on is not None:
-            if isinstance(posted_on, (int, float)):
-                from datetime import datetime, timezone
-                posted_on = datetime.fromtimestamp(posted_on, tz=timezone.utc).isoformat()
-            else:
-                posted_on = str(posted_on)
-
-        # Build details JSONB with all extended job information
         details = {
             "minimum_qualifications": job_data.get("minimum_qualifications", []),
             "preferred_qualifications": job_data.get("preferred_qualifications", []),
@@ -279,7 +287,7 @@ class MicrosoftJobsScraper(BaseScraper):
             "raw": job_data,
         }
 
-        job = JobListing(
+        return JobListing(
             id=position_id,
             title=job_data.get("title", ""),
             company="microsoft",
@@ -298,7 +306,6 @@ class MicrosoftJobsScraper(BaseScraper):
             consecutive_misses=0,
             details_scraped=False,
         )
-        return job
 
     def deduplicate_jobs(self, jobs: List[Dict[str, Any]]) -> List[JobListing]:
         """
