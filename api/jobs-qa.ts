@@ -1,6 +1,11 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
-const BACKEND_URL = process.env.BACKEND_API_URL || 'http://localhost:5000';
+// Use localhost for local development, env var for production
+const getBackendUrl = (req: VercelRequest): string => {
+  const host = req.headers.host || '';
+  const isLocalDev = host.includes('localhost') || host.includes('127.0.0.1');
+  return isLocalDev ? 'http://localhost:5000' : (process.env.BACKEND_API_URL || 'http://localhost:5000');
+};
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const { path, ...queryParams } = req.query;
@@ -18,7 +23,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
   const queryString = params.toString() ? `?${params.toString()}` : '';
 
-  const targetUrl = `${BACKEND_URL}/api/jobs-qa/${targetPath}${queryString}`;
+  const backendUrl = getBackendUrl(req);
+  const targetUrl = `${backendUrl}/api/jobs-qa/${targetPath}${queryString}`;
 
   try {
     const response = await fetch(targetUrl, {

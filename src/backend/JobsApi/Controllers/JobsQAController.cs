@@ -64,24 +64,30 @@ public class JobsQAController(
     {
         logger.LogInformation("Manual scrape triggered for {Company}", company);
 
-        // Run scraper in background - not tied to HTTP request lifecycle
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                var result = await processRunner.RunScraperAsync(company, CancellationToken.None);
-                if (result.ExitCode == 0)
-                    logger.LogInformation("Manual scrape completed for {Company}: exit={ExitCode}", company, result.ExitCode);
-                else
-                    logger.LogWarning("Manual scrape finished with exit code {ExitCode} for {Company}: {Error}",
-                        result.ExitCode, company, result.Error);
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "Manual scrape failed for {Company}", company);
-            }
-        });
+        _ = RunScraperInBackgroundAsync(company);
 
         return Accepted(new { message = $"Scrape started for {company}", company });
+    }
+
+    private async Task RunScraperInBackgroundAsync(string company)
+    {
+        try
+        {
+            var result = await processRunner.RunScraperAsync(company, CancellationToken.None);
+
+            if (result.ExitCode == 0)
+            {
+                logger.LogInformation("Manual scrape completed for {Company}: exit={ExitCode}", company, result.ExitCode);
+            }
+            else
+            {
+                logger.LogWarning("Manual scrape finished with exit code {ExitCode} for {Company}: {Error}",
+                    result.ExitCode, company, result.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Manual scrape failed for {Company}", company);
+        }
     }
 }

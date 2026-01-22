@@ -24,6 +24,7 @@ sys.path.insert(0, str(project_root))
 # Import scraper modules
 from scripts.google_jobs_scraper.scraper import GoogleJobsScraper
 from scripts.apple_jobs_scraper.scraper import AppleJobsScraper
+from scripts.microsoft_jobs_scraper.scraper import MicrosoftJobsScraper
 from scripts.google_jobs_scraper.config import (
     DEFAULT_OUTPUT_DIR,
     DEFAULT_OUTPUT_FILE,
@@ -47,6 +48,13 @@ from scripts.shared.batch_writer import BatchWriter
 console = Console()
 logger = logging.getLogger(__name__)
 
+# Scraper factory - maps company names to scraper classes
+SCRAPER_CLASSES = {
+    "google": GoogleJobsScraper,
+    "apple": AppleJobsScraper,
+    "microsoft": MicrosoftJobsScraper,
+}
+
 
 def should_use_database_mode(args) -> bool:
     """Determine if scraper should run in database mode based on CLI args."""
@@ -54,12 +62,89 @@ def should_use_database_mode(args) -> bool:
 
 
 async def run_json_mode(args):
-    """Run scraper in JSON output mode (original behavior)"""
-    # Import the original main module for JSON mode
-    from scripts.google_jobs_scraper.main import run_scraper as run_original_scraper
+    """Run scraper in JSON output mode with multi-company support"""
+    company = args.company
 
-    # Call original scraper logic
-    await run_original_scraper(args)
+    # For backwards compatibility, Google uses the original main module
+    if company == "google":
+        from scripts.google_jobs_scraper.main import run_scraper as run_original_scraper
+        await run_original_scraper(args)
+        return
+
+    # Handle --company all by running all scrapers sequentially
+    if company == "all":
+        console.print(f"\n[bold cyan]Running all scrapers (JSON mode): {', '.join(SCRAPER_CLASSES.keys())}[/bold cyan]\n")
+        for comp in SCRAPER_CLASSES:
+            args.company = comp
+            await run_json_mode(args)
+        args.company = "all"
+        return
+
+    # Get output file path
+    output_dir = Path(DEFAULT_OUTPUT_DIR)
+    output_file = args.output or str(output_dir / f"{company}_jobs.json")
+    ensure_output_directory(output_file)
+
+    scraper_class = SCRAPER_CLASSES.get(company)
+    if not scraper_class:
+        console.print(f"[bold red]Unsupported company: {company}[/bold red]")
+        sys.exit(1)
+
+    console.print(f"\n[bold cyan]{company.title()} Jobs Scraper (JSON mode)[/bold cyan]")
+    console.print(f"Detail scrape: {'Yes' if args.detail_scrape else 'No'}")
+    console.print(f"Output file: {output_file}")
+    if args.max_jobs:
+        console.print(f"Max jobs: {args.max_jobs}")
+    console.print()
+
+    scraper = scraper_class(headless=args.headless, detail_scrape=args.detail_scrape)
+
+    try:
+        async with scraper:
+            # Scrape all queries
+            job_cards = await scraper.scrape_all_queries(args.max_jobs)
+            console.print(f"Found {len(job_cards)} jobs")
+
+            # Optionally scrape details
+            if args.detail_scrape:
+                console.print("Fetching job details...")
+                enriched_jobs = []
+                async for job in scraper.scrape_job_details_streaming(job_cards):
+                    enriched_jobs.append(job)
+                job_cards = enriched_jobs
+
+            # Deduplicate and transform
+            unique_jobs = scraper.deduplicate_jobs(job_cards)
+
+            # Build output - convert JobListing models to dicts for compatibility
+            # ScraperOutput expects google_jobs_scraper.models.JobListing
+            # but Microsoft uses shared.models.JobListing
+            from scripts.google_jobs_scraper.models import JobListing as GoogleJobListing
+            jobs_for_output = []
+            for job in unique_jobs:
+                job_dict = job.model_dump()
+                jobs_for_output.append(GoogleJobListing(**job_dict))
+
+            output = ScraperOutput(
+                scraped_at=get_iso_timestamp(),
+                total_jobs=len(job_cards),
+                filtered_jobs=len(unique_jobs),
+                metadata={"search_queries": scraper.get_search_queries()},
+                jobs=jobs_for_output,
+            )
+
+            # Write to file
+            with open(output_file, "w") as f:
+                json.dump(output.model_dump(), f, indent=2)
+
+            console.print(f"\n[bold green]✓ Scraping completed successfully![/bold green]")
+            console.print(f"Total jobs: {len(unique_jobs)}")
+            console.print(f"Output file: {output_file}")
+
+    except Exception as e:
+        console.print(f"[bold red]Error: {e}[/bold red]")
+        logger.exception("Scraper failed")
+        sys.exit(1)
 
 
 async def run_database_mode(args):
@@ -68,20 +153,13 @@ async def run_database_mode(args):
     env = args.env
     db_url = args.db_url
 
-    # Map of supported companies and their scraper classes
-    scraper_classes = {
-        "google": GoogleJobsScraper,
-        "apple": AppleJobsScraper,
-    }
-
     # Handle --company all by running all scrapers sequentially
     if company == "all":
-        companies_to_run = list(scraper_classes.keys())
-        console.print(f"\n[bold cyan]Running all scrapers: {', '.join(companies_to_run)}[/bold cyan]\n")
-        for comp in companies_to_run:
+        console.print(f"\n[bold cyan]Running all scrapers: {', '.join(SCRAPER_CLASSES.keys())}[/bold cyan]\n")
+        for comp in SCRAPER_CLASSES:
             args.company = comp
             await run_database_mode(args)
-        args.company = "all"  # Restore original value
+        args.company = "all"
         return
 
     logger.info(f"Running scraper in database mode: company={company}, env={env}")
@@ -94,7 +172,7 @@ async def run_database_mode(args):
         console.print(f"[bold red]Database connection failed: {e}[/bold red]")
         sys.exit(2)
 
-    scraper_class = scraper_classes.get(company)
+    scraper_class = SCRAPER_CLASSES.get(company)
     if not scraper_class:
         console.print(f"[bold red]Unsupported company: {company}[/bold red]")
         sys.exit(1)
@@ -262,7 +340,7 @@ Examples:
     # New flags for database mode
     parser.add_argument(
         "--company",
-        choices=["google", "apple", "all"],
+        choices=["google", "apple", "microsoft", "all"],
         default="google",
         help="Which company scraper to run (default: google)",
     )

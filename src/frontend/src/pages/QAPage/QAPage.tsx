@@ -9,6 +9,7 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  TableSortLabel,
   Paper,
   CircularProgress,
   Alert,
@@ -30,6 +31,8 @@ import { COMPANIES } from '../../config/companies';
 const BACKEND_SCRAPER_COMPANIES = COMPANIES.filter((c) => c.ats === 'backend-scraper');
 
 type QACompanySelection = 'all' | string;
+
+type SortableJobField = 'title' | 'company' | 'location' | 'status' | 'firstSeenAt' | 'lastSeenAt' | 'postedOn';
 
 interface ScrapeRun {
   runId: string;
@@ -82,8 +85,25 @@ export function QAPage() {
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
 
+  // Jobs table pagination state
+  const [jobsPage, setJobsPage] = useState(0);
+  const [jobsRowsPerPage, setJobsRowsPerPage] = useState(25);
+
   // Company filter state
   const [selectedCompany, setSelectedCompany] = useState<QACompanySelection>('all');
+
+  // Jobs sort state
+  const [sortBy, setSortBy] = useState<SortableJobField>('lastSeenAt');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+
+  const handleSort = (field: SortableJobField) => {
+    if (sortBy === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortBy(field);
+      setSortDirection('asc');
+    }
+  };
 
   useEffect(() => {
     const fetchJobs = async () => {
@@ -234,6 +254,41 @@ export function QAPage() {
       return true;
     });
   }, [jobs, statusFilter, searchTags]);
+
+  // Sort filtered jobs
+  const sortedJobs = useMemo(() => {
+    return [...filteredJobs].sort((a, b) => {
+      const aVal = a[sortBy];
+      const bVal = b[sortBy];
+
+      // Handle null values (push to end)
+      if (aVal == null && bVal == null) return 0;
+      if (aVal == null) return 1;
+      if (bVal == null) return -1;
+
+      // Handle date fields
+      if (sortBy === 'firstSeenAt' || sortBy === 'lastSeenAt' || sortBy === 'postedOn') {
+        const aTime = new Date(aVal as string).getTime();
+        const bTime = new Date(bVal as string).getTime();
+        return sortDirection === 'asc' ? aTime - bTime : bTime - aTime;
+      }
+
+      // Handle string fields
+      const comparison = String(aVal).localeCompare(String(bVal));
+      return sortDirection === 'asc' ? comparison : -comparison;
+    });
+  }, [filteredJobs, sortBy, sortDirection]);
+
+  // Paginate jobs table
+  const paginatedJobs = useMemo(() => {
+    const start = jobsPage * jobsRowsPerPage;
+    return sortedJobs.slice(start, start + jobsRowsPerPage);
+  }, [sortedJobs, jobsPage, jobsRowsPerPage]);
+
+  // Reset jobs page when filters change
+  useEffect(() => {
+    setJobsPage(0);
+  }, [searchTags, statusFilter, selectedCompany]);
 
   // Paginate scrape runs
   const paginatedRuns = useMemo(() => {
@@ -443,16 +498,73 @@ export function QAPage() {
             <Table size="small">
               <TableHead>
                 <TableRow>
-                  <TableCell>Title</TableCell>
-                  <TableCell>Company</TableCell>
-                  <TableCell>Location</TableCell>
-                  <TableCell>Status</TableCell>
-                  <TableCell>First Seen</TableCell>
-                  <TableCell>Last Seen</TableCell>
+                  <TableCell>
+                    <TableSortLabel
+                      active={sortBy === 'title'}
+                      direction={sortBy === 'title' ? sortDirection : 'asc'}
+                      onClick={() => handleSort('title')}
+                    >
+                      Title
+                    </TableSortLabel>
+                  </TableCell>
+                  <TableCell>
+                    <TableSortLabel
+                      active={sortBy === 'company'}
+                      direction={sortBy === 'company' ? sortDirection : 'asc'}
+                      onClick={() => handleSort('company')}
+                    >
+                      Company
+                    </TableSortLabel>
+                  </TableCell>
+                  <TableCell>
+                    <TableSortLabel
+                      active={sortBy === 'location'}
+                      direction={sortBy === 'location' ? sortDirection : 'asc'}
+                      onClick={() => handleSort('location')}
+                    >
+                      Location
+                    </TableSortLabel>
+                  </TableCell>
+                  <TableCell>
+                    <TableSortLabel
+                      active={sortBy === 'status'}
+                      direction={sortBy === 'status' ? sortDirection : 'asc'}
+                      onClick={() => handleSort('status')}
+                    >
+                      Status
+                    </TableSortLabel>
+                  </TableCell>
+                  <TableCell>
+                    <TableSortLabel
+                      active={sortBy === 'firstSeenAt'}
+                      direction={sortBy === 'firstSeenAt' ? sortDirection : 'asc'}
+                      onClick={() => handleSort('firstSeenAt')}
+                    >
+                      First Seen
+                    </TableSortLabel>
+                  </TableCell>
+                  <TableCell>
+                    <TableSortLabel
+                      active={sortBy === 'lastSeenAt'}
+                      direction={sortBy === 'lastSeenAt' ? sortDirection : 'asc'}
+                      onClick={() => handleSort('lastSeenAt')}
+                    >
+                      Last Seen
+                    </TableSortLabel>
+                  </TableCell>
+                  <TableCell>
+                    <TableSortLabel
+                      active={sortBy === 'postedOn'}
+                      direction={sortBy === 'postedOn' ? sortDirection : 'asc'}
+                      onClick={() => handleSort('postedOn')}
+                    >
+                      Posted On
+                    </TableSortLabel>
+                  </TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
-                {filteredJobs.map((job) => (
+                {paginatedJobs.map((job) => (
                   <TableRow key={job.id}>
                     <TableCell>
                       <Link href={job.url} target="_blank" rel="noopener">
@@ -464,10 +576,25 @@ export function QAPage() {
                     <TableCell>{job.status}</TableCell>
                     <TableCell>{new Date(job.firstSeenAt).toLocaleDateString()}</TableCell>
                     <TableCell>{new Date(job.lastSeenAt).toLocaleDateString()}</TableCell>
+                    <TableCell>
+                      {job.postedOn ? new Date(job.postedOn).toLocaleDateString() : '-'}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
+              <TablePagination
+                component="div"
+                count={sortedJobs.length}
+                page={jobsPage}
+                onPageChange={(_, newPage) => setJobsPage(newPage)}
+                rowsPerPage={jobsRowsPerPage}
+                onRowsPerPageChange={(e) => {
+                  setJobsRowsPerPage(parseInt(e.target.value, 10));
+                  setJobsPage(0);
+                }}
+                rowsPerPageOptions={[25, 50, 100, 250]}
+              />
           </TableContainer>
         )}
       </Box>

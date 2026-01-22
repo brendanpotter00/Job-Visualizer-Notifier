@@ -318,6 +318,10 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?authorCompany=%5B%22162479%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%22date_posted%22',
   }),
+  createBackendScraperCompany('microsoft', 'Microsoft', 'https://careers.microsoft.com/', {
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%221035%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%22date_posted%22',
+  }),
 ];
 
 export const enum COMPANY_IDS {
@@ -354,6 +358,7 @@ export const enum COMPANY_IDS {
   ElevenLabs = 'elevenlabs',
   Google = 'google',
   Apple = 'apple',
+  Microsoft = 'microsoft',
 }
 
 /**

@@ -13,7 +13,7 @@ public class JobsController(JobsDbContext dbContext) : ControllerBase
     public async Task<ActionResult<IEnumerable<JobListing>>> GetJobs(
         [FromQuery] string? company = null,
         [FromQuery] string? status = "OPEN",
-        [FromQuery] int limit = 1000,
+        [FromQuery] int limit = 5000,
         [FromQuery] int offset = 0)
     {
         var query = dbContext.JobListings.AsQueryable();
