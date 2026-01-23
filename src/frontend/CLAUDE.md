@@ -91,6 +91,10 @@ Edit `config/companies.ts` and use the appropriate factory function:
 4. **Factory Patterns**: When modifying API or filter logic, update the factory functions, not individual implementations
 5. **Zero TypeScript Errors Required**: Run `npm run type-check` before committing
 6. **Test Coverage**: Maintain >85% coverage (768+ tests passing)
+7. **Memory Management**: Large job datasets require careful handling:
+   - **Tables**: Always paginate tables with 100+ rows - unpaginated tables with thousands of rows cause severe browser memory issues (50+ GB)
+   - **Selectors**: `selectAllJobsFromQuery` flattens all jobs - use filtered selectors when possible
+   - **Pattern**: See QAPage jobs table for pagination pattern (useMemo for slice + TablePagination component)
 
 ## Key Files
 

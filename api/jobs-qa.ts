@@ -1,6 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-
-const BACKEND_URL = process.env.BACKEND_API_URL || 'http://localhost:5000';
+import { getBackendUrl } from './utils/backendUrl';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const { path, ...queryParams } = req.query;
@@ -18,7 +17,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
   const queryString = params.toString() ? `?${params.toString()}` : '';
 
-  const targetUrl = `${BACKEND_URL}/api/jobs-qa/${targetPath}${queryString}`;
+  const backendUrl = getBackendUrl(req);
+  const targetUrl = `${backendUrl}/api/jobs-qa/${targetPath}${queryString}`;
 
   try {
     const response = await fetch(targetUrl, {

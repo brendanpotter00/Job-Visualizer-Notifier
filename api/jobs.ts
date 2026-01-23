@@ -1,6 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-
-const BACKEND_URL = process.env.BACKEND_API_URL || 'http://localhost:5000';
+import { getBackendUrl } from './utils/backendUrl';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const { status, company, limit, offset } = req.query;
@@ -11,8 +10,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (limit) params.set('limit', String(limit));
   if (offset) params.set('offset', String(offset));
 
+  const backendUrl = getBackendUrl(req);
+  const url = `${backendUrl}/api/jobs?${params}`;
+
   try {
-    const response = await fetch(`${BACKEND_URL}/api/jobs?${params}`);
+    const response = await fetch(url);
     const data = await response.json();
     res.status(response.status).json(data);
   } catch (error) {

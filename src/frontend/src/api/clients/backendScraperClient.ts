@@ -31,7 +31,7 @@ export const backendScraperClient: JobAPIClient = {
     const params = new URLSearchParams({
       company: backendConfig.companyId,
       status: 'OPEN',
-      limit: (options.limit ?? 1000).toString(),
+      limit: (options.limit ?? 5000).toString(),
     });
     const url = `${apiBase}?${params}`;
 
@@ -66,6 +66,13 @@ export const backendScraperClient: JobAPIClient = {
       // 5. Parse JSON response
       const data: BackendJobListing[] = await response.json();
       logger.debug('[Backend Scraper Client] Received jobs:', data.length);
+
+      // Enhanced diagnostic logging for debugging zero-results issues
+      if (data.length === 0) {
+        logger.warn(
+          `[Backend Scraper Client] Zero jobs returned for ${backendConfig.companyId} from ${url}`
+        );
+      }
 
       // 6. Transform to internal model (passing companyId for dynamic source)
       const jobs = data.map((job) => transformBackendJob(job, backendConfig.companyId));

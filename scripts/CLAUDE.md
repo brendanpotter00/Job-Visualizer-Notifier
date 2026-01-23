@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Multi-Company Job Scraper - A Python-based web scraping framework that extracts job listings from multiple company career sites. Currently supports **Google Careers** (Playwright browser automation) and **Apple Jobs** (hybrid HTML + API approach). Designed to feed structured job data into the Job Visualizer application with support for incremental scraping, database persistence, and comprehensive error handling.
+Multi-Company Job Scraper - A Python-based web scraping framework that extracts job listings from multiple company career sites. Currently supports **Google Careers** (Playwright browser automation), **Apple Jobs** (hybrid HTML + API approach), and **Microsoft Careers** (Eightfold ATS JSON APIs). Designed to feed structured job data into the Job Visualizer application with support for incremental scraping, database persistence, and comprehensive error handling.
 
 ## Commands
 
@@ -13,6 +13,11 @@ python scripts/run_scraper.py --resume           # Resume interrupted scrape fro
 # Apple Scraper
 python scripts/run_scraper.py --company apple                           # Apple scrape (list data only)
 python scripts/run_scraper.py --company apple --detail-scrape           # Apple with job details
+
+# Microsoft Scraper
+python scripts/run_scraper.py --company microsoft                       # Microsoft scrape (list data only)
+python scripts/run_scraper.py --company microsoft --detail-scrape       # Microsoft with job details
+
 python scripts/run_scraper.py --company all                             # Run all scrapers
 
 # Database Mode (PostgreSQL)
@@ -40,7 +45,7 @@ pip install -r scripts/requirements-dev.txt      # Install dev dependencies (tes
 ## CLI Options
 
 ```
---company {google,apple,all}  # Which scraper to run (default: google)
+--company {google,apple,microsoft,all}  # Which scraper to run (default: google)
 --env {local,qa,prod}         # Environment for table naming (default: local)
 --db-url URL                  # PostgreSQL connection URL
 --incremental                 # Run incremental mode (requires --db-url)
@@ -120,6 +125,29 @@ The Apple scraper uses a **hybrid approach**:
 - `LOCATION_FILTER` - Target location (default: "United States")
 - `INCLUDE_TITLE_KEYWORDS` / `EXCLUDE_TITLE_KEYWORDS` - Job title filters
 - `MAX_PAGES` - Maximum pages to scrape
+- Rate limits and timeouts
+
+## Microsoft Scraper Details
+
+The Microsoft scraper uses **Eightfold ATS JSON APIs**:
+
+1. **API-First Approach:** Uses `/api/pcsx/search` for job listings and `/api/pcsx/position_details` for job details
+2. **HTML Fallback:** Falls back to HTML parsing if API is unavailable
+3. **Keyword Search:** Microsoft's site supports keyword search (e.g., "software engineer")
+
+**Key Differences from Other Scrapers:**
+- **Eightfold Platform:** Microsoft uses Eightfold ATS (like many enterprise companies)
+- **Position IDs:** Large numeric IDs (e.g., `1970393556642428`)
+- **Job Numbers:** Internal reference numbers (e.g., `200016306`)
+- **Pagination:** Uses `start` parameter (0, 10, 20...) with 10 jobs per page
+
+**Microsoft Configuration (`microsoft_jobs_scraper/config.py`):**
+- `DOMAIN` - Microsoft domain for API calls (`microsoft.com`)
+- `LOCATION_FILTER` - Target location (default: "United States")
+- `SEARCH_QUERIES` - Search keywords (default: `["software engineer"]`)
+- `INCLUDE_TITLE_KEYWORDS` / `EXCLUDE_TITLE_KEYWORDS` - Job title filters
+- `JOBS_PER_PAGE` - 10 (Microsoft's pagination size)
+- `MAX_PAGES` - Maximum pages to scrape (500)
 - Rate limits and timeouts
 
 ## Common Tasks
@@ -202,6 +230,8 @@ Edit company-specific `config.py`:
 10. **Environment Flag Affects Tables**: `--env` flag determines table names (`job_listings_local`, `job_listings_prod`) - use consistent env for same database
 11. **Incremental Mode Needs Initial Full Scrape**: First run should be without `--incremental` to populate database, subsequent runs use `--incremental`
 12. **Apple Job IDs Include Location**: Apple job IDs have location suffix for uniqueness - this is intentional to distinguish same role in different locations
+13. **Microsoft Uses Eightfold APIs**: Microsoft scraper primarily uses JSON APIs (`/api/pcsx/*`) with HTML fallback - if APIs change, check Eightfold documentation
+14. **Microsoft Position IDs are Large Numbers**: Microsoft uses 16-digit numeric position IDs - ensure database columns can handle large integers or store as strings
 
 ## Key Files
 
@@ -222,6 +252,12 @@ Edit company-specific `config.py`:
 - API Client: `scripts/apple_jobs_scraper/api_client.py` (~201 lines)
 - Configuration: `scripts/apple_jobs_scraper/config.py` (~77 lines)
 
+**Microsoft-Specific:**
+- Main Logic: `scripts/microsoft_jobs_scraper/scraper.py` (~370 lines, extends BaseScraper)
+- HTML Parsing: `scripts/microsoft_jobs_scraper/parser.py` (~215 lines)
+- API Client: `scripts/microsoft_jobs_scraper/api_client.py` (~300 lines)
+- Configuration: `scripts/microsoft_jobs_scraper/config.py` (~77 lines)
+
 **Shared Modules:**
 - Abstract Base: `scripts/shared/base_scraper.py` (~267 lines)
 - Database Layer: `scripts/shared/database.py` (~571 lines)
@@ -233,7 +269,7 @@ Edit company-specific `config.py`:
 **Testing:**
 - Test Config: `scripts/pytest.ini`
 - Fixtures: `scripts/tests/conftest.py`
-- Unit Tests (7 files):
+- Unit Tests (9 files):
   - `tests/unit/test_models.py`
   - `tests/unit/test_utils.py`
   - `tests/unit/test_parser_helpers.py`
@@ -241,10 +277,13 @@ Edit company-specific `config.py`:
   - `tests/unit/test_batch_writer.py`
   - `tests/unit/test_apple_parser.py`
   - `tests/unit/test_apple_api_client.py`
-- Integration Tests (4 files):
+  - `tests/unit/test_microsoft_parser.py`
+  - `tests/unit/test_microsoft_api_client.py`
+- Integration Tests (5 files):
   - `tests/integration/test_database.py`
   - `tests/integration/test_incremental.py`
   - `tests/integration/test_apple_scraper.py`
+  - `tests/integration/test_microsoft_scraper.py`
   - `tests/integration/test_scraper_transform.py`
 
 **Output:**

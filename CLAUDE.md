@@ -98,6 +98,10 @@ Edit `src/frontend/src/config/companies.ts` and add company config with ATS type
 4. **Factory Patterns**: When modifying API or filter logic, update the factory functions, not individual implementations
 5. **Zero TypeScript Errors Required**: Run `npm run type-check` before committing
 6. **Test Coverage**: Maintain >85% coverage (746+ tests passing)
+7. **Memory Management with Large Datasets**: When rendering large job lists:
+   - Always use pagination for tables with 100+ rows (see QAPage pattern)
+   - Use `useMemo` for derived data and avoid creating large arrays in render methods
+   - Never render unbounded lists - Chrome can consume 50+ GB memory with large unpaginated tables
 
 ## Key Files (Frontend)
 
