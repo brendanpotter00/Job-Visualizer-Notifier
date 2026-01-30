@@ -231,6 +231,9 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?authorCompany=%5B%22265314%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=JwA&sortBy=%22date_posted%22',
   }),
+  createGreenhouseCompany('clear', 'Clear'),
+  createGreenhouseCompany('affirm', 'Affirm'),
+  createGreenhouseCompany('crunchyroll', 'Crunchyroll'),
 
   // Lever companies
   createLeverCompany('palantir', 'Palantir', {
@@ -268,6 +271,9 @@ export const COMPANIES: Company[] = [
       'https://www.linkedin.com/search/results/content/?authorCompany=%5B%223653845%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=4o9&sortBy=%22date_posted%22',
   }),
   createAshbyCompany('elevenlabs', 'ElevenLabs'),
+  createAshbyCompany('browserbase', 'Browserbase'),
+  createAshbyCompany('base-power', 'Base Power Company'),
+  createAshbyCompany('clickup', 'ClickUp'),
 
   // Workday companies
   createWorkdayCompany(
@@ -325,6 +331,7 @@ export const COMPANIES: Company[] = [
 ];
 
 export const enum COMPANY_IDS {
+  Affirm = 'affirm',
   Spacex = 'spacex',
   AndurilIndustries = 'andurilindustries',
   Airbnb = 'airbnb',
@@ -351,7 +358,12 @@ export const enum COMPANY_IDS {
   Plaid = 'plaid',
   AppliedIntuition = 'appliedintuition',
   Discord = 'discord',
+  BasePower = 'base-power',
   Brex = 'brex',
+  Browserbase = 'browserbase',
+  Clear = 'clear',
+  ClickUp = 'clickup',
+  Crunchyroll = 'crunchyroll',
   Squarespace = 'squarespace',
   Nvidia = 'nvidia',
   Adobe = 'adobe',
