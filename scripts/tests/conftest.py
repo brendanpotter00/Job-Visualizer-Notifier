@@ -281,3 +281,48 @@ def microsoft_details_response() -> Dict[str, Any]:
             "postedDate": "2024-12-15",
         }
     }
+
+
+# ============================================================================
+# TikTok Scraper Fixtures
+# ============================================================================
+
+@pytest.fixture
+def tiktok_scraper():
+    """TikTokJobsScraper instance for transformation tests"""
+    from scripts.tiktok_jobs_scraper.scraper import TikTokJobsScraper
+    return TikTokJobsScraper(headless=True, detail_scrape=False)
+
+
+@pytest.fixture
+def sample_tiktok_job_data() -> Dict[str, Any]:
+    """Sample job data from TikTok scraper"""
+    return {
+        "id": "7579201004205164805",
+        "title": "Software Engineer - USDS",
+        "job_url": "https://lifeattiktok.com/search/7579201004205164805",
+        "location": "San Jose",
+        "category": "Technology",
+        "employment_type": "Regular",
+        "company": "tiktok",
+        "responsibilities": "Our team of US Tech Services...",
+        "minimum_qualifications": ["BS/MS degree in Computer Science", "3+ years experience"],
+        "preferred_qualifications": ["Deep knowledge of distributed systems", "Published research"],
+        "salary_range": "$118657 - $259200",
+        "job_code": "A16898B",
+        "about": "TikTok is the leading platform for short-form video...",
+        "why_join": "Join us to make an impact...",
+    }
+
+
+@pytest.fixture
+def tiktok_job_card_data() -> Dict[str, Any]:
+    """Sample job card data from TikTok search results"""
+    return {
+        "id": "7579201004205164805",
+        "title": "Software Engineer - USDS",
+        "location": "San Jose",
+        "category": "Technology",
+        "employment_type": "Regular",
+        "href": "/search/7579201004205164805",
+    }

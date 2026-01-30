@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Multi-Company Job Scraper - A Python-based web scraping framework that extracts job listings from multiple company career sites. Currently supports **Google Careers** (Playwright browser automation), **Apple Jobs** (hybrid HTML + API approach), and **Microsoft Careers** (Eightfold ATS JSON APIs). Designed to feed structured job data into the Job Visualizer application with support for incremental scraping, database persistence, and comprehensive error handling.
+Multi-Company Job Scraper - A Python-based web scraping framework that extracts job listings from multiple company career sites. Currently supports **Google Careers** (Playwright browser automation), **Apple Jobs** (hybrid HTML + API approach), **Microsoft Careers** (Eightfold ATS JSON APIs), and **TikTok** (Playwright HTML scraping). Designed to feed structured job data into the Job Visualizer application with support for incremental scraping, database persistence, and comprehensive error handling.
 
 ## Commands
 
@@ -17,6 +17,10 @@ python scripts/run_scraper.py --company apple --detail-scrape           # Apple 
 # Microsoft Scraper
 python scripts/run_scraper.py --company microsoft                       # Microsoft scrape (list data only)
 python scripts/run_scraper.py --company microsoft --detail-scrape       # Microsoft with job details
+
+# TikTok Scraper
+python scripts/run_scraper.py --company tiktok                          # TikTok scrape (list data only)
+python scripts/run_scraper.py --company tiktok --detail-scrape          # TikTok with job details
 
 python scripts/run_scraper.py --company all                             # Run all scrapers
 
@@ -45,7 +49,7 @@ pip install -r scripts/requirements-dev.txt      # Install dev dependencies (tes
 ## CLI Options
 
 ```
---company {google,apple,microsoft,all}  # Which scraper to run (default: google)
+--company {google,apple,microsoft,tiktok,all}  # Which scraper to run (default: google)
 --env {local,qa,prod}         # Environment for table naming (default: local)
 --db-url URL                  # PostgreSQL connection URL
 --incremental                 # Run incremental mode (requires --db-url)
@@ -75,6 +79,11 @@ pip install -r scripts/requirements-dev.txt      # Install dev dependencies (tes
 - `apple_jobs_scraper/parser.py` - HTML parsing for list/search result pages
 - `apple_jobs_scraper/api_client.py` - JSON API client for job details
 - `apple_jobs_scraper/config.py` - Apple-specific configuration (locations, keywords)
+
+**TikTok-Specific:**
+- `tiktok_jobs_scraper/scraper.py` - Playwright HTML scraper (extends BaseScraper)
+- `tiktok_jobs_scraper/parser.py` - HTML parsing for search result and detail pages
+- `tiktok_jobs_scraper/config.py` - TikTok-specific configuration (keywords, rate limits)
 
 **Shared Modules:**
 - `shared/base_scraper.py` - Abstract base class for all company scrapers (~267 lines)
@@ -148,6 +157,29 @@ The Microsoft scraper uses **Eightfold ATS JSON APIs**:
 - `INCLUDE_TITLE_KEYWORDS` / `EXCLUDE_TITLE_KEYWORDS` - Job title filters
 - `JOBS_PER_PAGE` - 10 (Microsoft's pagination size)
 - `MAX_PAGES` - Maximum pages to scrape (500)
+- Rate limits and timeouts
+
+## TikTok Scraper Details
+
+The TikTok scraper uses **Playwright HTML scraping**:
+
+1. **HTML Parsing Approach:** Navigates search results and detail pages using Playwright, extracts job data via JavaScript evaluation
+2. **Keyword Search:** TikTok's site supports keyword search (e.g., "software engineer")
+3. **Pagination:** Uses `offset` parameter (0, 12, 24...) with 12 jobs per page
+
+**Key Differences from Other Scrapers:**
+- **Website URL:** Uses `lifeattiktok.com` (redirects from careers.tiktok.com)
+- **Job IDs:** Large numeric IDs (e.g., `7579201004205164805`)
+- **Job Code:** Internal reference codes (e.g., `A16898B`)
+- **Apply URL:** Application via `careers.tiktok.com/resume/{job_id}/apply`
+- **USDS Roles:** Many "United States Data Security" (USDS) specific positions
+
+**TikTok Configuration (`tiktok_jobs_scraper/config.py`):**
+- `BASE_URL` - `https://lifeattiktok.com`
+- `SEARCH_QUERIES` - Search keywords (default: `["software engineer"]`)
+- `INCLUDE_TITLE_KEYWORDS` / `EXCLUDE_TITLE_KEYWORDS` - Job title filters
+- `JOBS_PER_PAGE` - 12 (TikTok's pagination size)
+- `MAX_PAGES` - Maximum pages to scrape (75)
 - Rate limits and timeouts
 
 ## Common Tasks
@@ -232,6 +264,9 @@ Edit company-specific `config.py`:
 12. **Apple Job IDs Include Location**: Apple job IDs have location suffix for uniqueness - this is intentional to distinguish same role in different locations
 13. **Microsoft Uses Eightfold APIs**: Microsoft scraper primarily uses JSON APIs (`/api/pcsx/*`) with HTML fallback - if APIs change, check Eightfold documentation
 14. **Microsoft Position IDs are Large Numbers**: Microsoft uses 16-digit numeric position IDs - ensure database columns can handle large integers or store as strings
+15. **TikTok Uses lifeattiktok.com**: TikTok's careers site is at `lifeattiktok.com` not `careers.tiktok.com` - applications redirect to careers.tiktok.com
+16. **TikTok Job IDs are Large Numbers**: TikTok uses 19-digit numeric position IDs - ensure database columns can handle large integers or store as strings
+17. **TikTok USDS Roles**: Many TikTok roles are "USDS" (United States Data Security) specific - these are legitimate software engineering positions
 
 ## Key Files
 
@@ -258,6 +293,11 @@ Edit company-specific `config.py`:
 - API Client: `scripts/microsoft_jobs_scraper/api_client.py` (~300 lines)
 - Configuration: `scripts/microsoft_jobs_scraper/config.py` (~77 lines)
 
+**TikTok-Specific:**
+- Main Logic: `scripts/tiktok_jobs_scraper/scraper.py` (~320 lines, extends BaseScraper)
+- HTML Parsing: `scripts/tiktok_jobs_scraper/parser.py` (~280 lines)
+- Configuration: `scripts/tiktok_jobs_scraper/config.py` (~70 lines)
+
 **Shared Modules:**
 - Abstract Base: `scripts/shared/base_scraper.py` (~267 lines)
 - Database Layer: `scripts/shared/database.py` (~571 lines)
@@ -269,7 +309,7 @@ Edit company-specific `config.py`:
 **Testing:**
 - Test Config: `scripts/pytest.ini`
 - Fixtures: `scripts/tests/conftest.py`
-- Unit Tests (9 files):
+- Unit Tests (10 files):
   - `tests/unit/test_models.py`
   - `tests/unit/test_utils.py`
   - `tests/unit/test_parser_helpers.py`
@@ -279,11 +319,13 @@ Edit company-specific `config.py`:
   - `tests/unit/test_apple_api_client.py`
   - `tests/unit/test_microsoft_parser.py`
   - `tests/unit/test_microsoft_api_client.py`
-- Integration Tests (5 files):
+  - `tests/unit/test_tiktok_parser.py`
+- Integration Tests (6 files):
   - `tests/integration/test_database.py`
   - `tests/integration/test_incremental.py`
   - `tests/integration/test_apple_scraper.py`
   - `tests/integration/test_microsoft_scraper.py`
+  - `tests/integration/test_tiktok_scraper.py`
   - `tests/integration/test_scraper_transform.py`
 
 **Output:**
