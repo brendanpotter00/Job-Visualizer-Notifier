@@ -233,6 +233,7 @@ export const COMPANIES: Company[] = [
   }),
   createGreenhouseCompany('clear', 'Clear'),
   createGreenhouseCompany('affirm', 'Affirm'),
+  createGreenhouseCompany('crunchyroll', 'Crunchyroll'),
 
   // Lever companies
   createLeverCompany('palantir', 'Palantir', {
@@ -362,6 +363,7 @@ export const enum COMPANY_IDS {
   Browserbase = 'browserbase',
   Clear = 'clear',
   ClickUp = 'clickup',
+  Crunchyroll = 'crunchyroll',
   Squarespace = 'squarespace',
   Nvidia = 'nvidia',
   Adobe = 'adobe',
