@@ -324,6 +324,11 @@ export const COMPANIES: Company[] = [
     tenantSlug: 'netflix',
     careerSiteSlug: 'Netflix',
   }),
+  createWorkdayCompany('turo', 'Turo', {
+    baseUrl: 'https://turo.wd12.myworkdayjobs.com',
+    tenantSlug: 'turo',
+    careerSiteSlug: 'Turo_careers',
+  }),
 
   // Backend scraper companies
   createBackendScraperCompany('google', 'Google', 'https://careers.google.com/', {
@@ -379,6 +384,7 @@ export const enum COMPANY_IDS {
   Adobe = 'adobe',
   Expedia = 'expedia',
   Netflix = 'netflix',
+  Turo = 'turo',
   ElevenLabs = 'elevenlabs',
   Google = 'google',
   Apple = 'apple',
