@@ -516,6 +516,7 @@ describe('workdayClient', () => {
       expect(capturedInit?.headers).toEqual({
         Accept: 'application/json',
         'Content-Type': 'application/json',
+        'X-Workday-Base-Url': 'https://test.wd5.myworkdayjobs.com',
       });
     });
 

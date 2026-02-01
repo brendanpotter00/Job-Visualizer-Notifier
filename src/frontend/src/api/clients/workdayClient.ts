@@ -75,6 +75,7 @@ export const workdayClient: JobAPIClient = {
           headers: {
             Accept: 'application/json',
             'Content-Type': 'application/json',
+            'X-Workday-Base-Url': workdayConfig.baseUrl,
           },
           body: JSON.stringify(requestBody),
         });

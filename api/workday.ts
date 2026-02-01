@@ -16,7 +16,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'OPTIONS') {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Workday-Base-Url');
     return res.status(200).end();
   }
 
@@ -39,10 +39,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const tenant = pathMatch[1]; // e.g., "nvidia"
 
-  // Map tenant to Workday base URL
-  // TODO: This is hardcoded for NVIDIA - for multi-company support,
-  // would need to pass baseUrl as query param or header
-  const workdayBaseUrl = `https://${tenant}.wd5.myworkdayjobs.com`;
+  // Get base URL from header or fallback to wd5
+  const baseUrlHeader = req.headers['x-workday-base-url'];
+  let workdayBaseUrl: string;
+
+  if (typeof baseUrlHeader === 'string') {
+    // Validate format: https://{tenant}.wd{N}.myworkdayjobs.com
+    const isValidWorkdayUrl = /^https:\/\/[a-z0-9-]+\.wd\d+\.myworkdayjobs\.com$/i.test(
+      baseUrlHeader
+    );
+    if (!isValidWorkdayUrl) {
+      return res.status(400).json({ error: 'Invalid Workday base URL format' });
+    }
+    workdayBaseUrl = baseUrlHeader;
+  } else {
+    // Backwards compatibility: default to wd5
+    workdayBaseUrl = `https://${tenant}.wd5.myworkdayjobs.com`;
+  }
 
   // Build the full Workday API URL
   const targetUrl = `${workdayBaseUrl}/${targetPath}`;
@@ -73,7 +86,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Set CORS headers to allow browser requests
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Workday-Base-Url');
 
     // Forward the status code and data
     return res.status(response.status).json(data);

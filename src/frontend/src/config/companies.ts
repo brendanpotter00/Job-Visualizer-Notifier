@@ -314,6 +314,16 @@ export const COMPANIES: Company[] = [
         'https://www.linkedin.com/search/results/content/?authorCompany=%5B%221480%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=!%3BQ&sortBy=%22date_posted%22',
     }
   ),
+  createWorkdayCompany('expedia', 'Expedia', {
+    baseUrl: 'https://expedia.wd108.myworkdayjobs.com',
+    tenantSlug: 'expedia',
+    careerSiteSlug: 'search',
+  }),
+  createWorkdayCompany('netflix', 'Netflix', {
+    baseUrl: 'https://netflix.wd1.myworkdayjobs.com',
+    tenantSlug: 'netflix',
+    careerSiteSlug: 'Netflix',
+  }),
 
   // Backend scraper companies
   createBackendScraperCompany('google', 'Google', 'https://careers.google.com/', {
@@ -367,6 +377,8 @@ export const enum COMPANY_IDS {
   Squarespace = 'squarespace',
   Nvidia = 'nvidia',
   Adobe = 'adobe',
+  Expedia = 'expedia',
+  Netflix = 'netflix',
   ElevenLabs = 'elevenlabs',
   Google = 'google',
   Apple = 'apple',
@@ -383,6 +395,4 @@ export function getCompanyById(id: string): Company | undefined {
 /**
  * Coming soon companies for custom scrapers section
  */
-export const COMING_SOON_SCRAPERS = [
-  { name: 'Netflix', jobsUrl: 'https://jobs.netflix.com/' },
-] as const;
+export const COMING_SOON_SCRAPERS: readonly { name: string; jobsUrl: string }[] = [];
