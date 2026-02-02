@@ -516,6 +516,7 @@ describe('workdayClient', () => {
       expect(capturedInit?.headers).toEqual({
         Accept: 'application/json',
         'Content-Type': 'application/json',
+        'X-Workday-Base-Url': 'https://test.wd5.myworkdayjobs.com',
       });
     });
 
@@ -553,6 +554,166 @@ describe('workdayClient', () => {
       expect(requestBody.offset).toBe(0);
       expect(requestBody.searchText).toBe('');
       expect(requestBody.appliedFacets).toEqual({ test: ['value'] });
+    });
+  });
+
+  describe('X-Workday-Base-Url Header', () => {
+    it('should send correct header for wd108 instance (Expedia)', async () => {
+      const config: WorkdayConfig = {
+        type: 'workday',
+        baseUrl: 'https://expedia.wd108.myworkdayjobs.com',
+        tenantSlug: 'expedia',
+        careerSiteSlug: 'ExpediaCareers',
+      };
+
+      let capturedHeaders: Record<string, string> | undefined;
+      (globalThis.fetch as any).mockImplementation(async (_url: string, init: RequestInit) => {
+        capturedHeaders = init.headers as Record<string, string>;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            total: 0,
+            jobPostings: [],
+            facets: [],
+            userAuthenticated: false,
+          }),
+        };
+      });
+
+      await workdayClient.fetchJobs(config);
+
+      expect(capturedHeaders?.['X-Workday-Base-Url']).toBe(
+        'https://expedia.wd108.myworkdayjobs.com'
+      );
+    });
+
+    it('should send correct header for wd1 instance (Netflix)', async () => {
+      const config: WorkdayConfig = {
+        type: 'workday',
+        baseUrl: 'https://netflix.wd1.myworkdayjobs.com',
+        tenantSlug: 'netflix',
+        careerSiteSlug: 'NetflixCareers',
+      };
+
+      let capturedHeaders: Record<string, string> | undefined;
+      (globalThis.fetch as any).mockImplementation(async (_url: string, init: RequestInit) => {
+        capturedHeaders = init.headers as Record<string, string>;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            total: 0,
+            jobPostings: [],
+            facets: [],
+            userAuthenticated: false,
+          }),
+        };
+      });
+
+      await workdayClient.fetchJobs(config);
+
+      expect(capturedHeaders?.['X-Workday-Base-Url']).toBe(
+        'https://netflix.wd1.myworkdayjobs.com'
+      );
+    });
+
+    it('should preserve trailing slash in header (passed as-is)', async () => {
+      const config: WorkdayConfig = {
+        type: 'workday',
+        baseUrl: 'https://test.wd5.myworkdayjobs.com/',
+        tenantSlug: 'test',
+        careerSiteSlug: 'TestSite',
+      };
+
+      let capturedHeaders: Record<string, string> | undefined;
+      let capturedUrl: string = '';
+      (globalThis.fetch as any).mockImplementation(async (url: string, init: RequestInit) => {
+        capturedUrl = url;
+        capturedHeaders = init.headers as Record<string, string>;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            total: 0,
+            jobPostings: [],
+            facets: [],
+            userAuthenticated: false,
+          }),
+        };
+      });
+
+      await workdayClient.fetchJobs(config);
+
+      // Header preserves the trailing slash as-is from config
+      expect(capturedHeaders?.['X-Workday-Base-Url']).toBe(
+        'https://test.wd5.myworkdayjobs.com/'
+      );
+
+      // URL path construction removes trailing slash to avoid double slashes
+      expect(capturedUrl).not.toContain('//wday');
+      expect(capturedUrl).toContain('/wday/cxs/test/TestSite/jobs');
+    });
+
+    it('should send baseUrl header on every pagination request', async () => {
+      const config: WorkdayConfig = {
+        type: 'workday',
+        baseUrl: 'https://test.wd108.myworkdayjobs.com',
+        tenantSlug: 'test',
+        careerSiteSlug: 'TestSite',
+      };
+
+      const capturedHeaders: Array<Record<string, string>> = [];
+      let callCount = 0;
+      (globalThis.fetch as any).mockImplementation(async (_url: string, init: RequestInit) => {
+        callCount++;
+        capturedHeaders.push(init.headers as Record<string, string>);
+        const body = JSON.parse(init.body as string);
+
+        // Return 30 total jobs, 20 per page = 2 pages
+        if (body.offset === 0) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              total: 30,
+              jobPostings: Array.from({ length: 20 }, (_, i) => ({
+                title: `Job ${i}`,
+                externalPath: `/job/JR${i}`,
+                bulletFields: [`JR${i}`],
+              })),
+              facets: [],
+              userAuthenticated: false,
+            }),
+          };
+        }
+
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            total: 0,
+            jobPostings: Array.from({ length: 10 }, (_, i) => ({
+              title: `Job ${20 + i}`,
+              externalPath: `/job/JR${20 + i}`,
+              bulletFields: [`JR${20 + i}`],
+            })),
+            facets: [],
+            userAuthenticated: false,
+          }),
+        };
+      });
+
+      await workdayClient.fetchJobs(config);
+
+      expect(callCount).toBe(2);
+      expect(capturedHeaders).toHaveLength(2);
+      expect(capturedHeaders[0]['X-Workday-Base-Url']).toBe(
+        'https://test.wd108.myworkdayjobs.com'
+      );
+      expect(capturedHeaders[1]['X-Workday-Base-Url']).toBe(
+        'https://test.wd108.myworkdayjobs.com'
+      );
     });
   });
 

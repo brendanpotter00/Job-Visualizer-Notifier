@@ -62,7 +62,7 @@ describe('/api/workday serverless function', () => {
       );
       expect(mockRes.setHeader).toHaveBeenCalledWith(
         'Access-Control-Allow-Headers',
-        'Content-Type'
+        'Content-Type, X-Workday-Base-Url'
       );
       expect(mockRes.end).toHaveBeenCalled();
     });
@@ -306,7 +306,7 @@ describe('/api/workday serverless function', () => {
       );
       expect(mockRes.setHeader).toHaveBeenCalledWith(
         'Access-Control-Allow-Headers',
-        'Content-Type'
+        'Content-Type, X-Workday-Base-Url'
       );
     });
 
@@ -484,6 +484,137 @@ describe('/api/workday serverless function', () => {
         'https://nvidia.wd5.myworkdayjobs.com/wday/cxs/nvidia/UniversityCareers/jobs',
         expect.any(Object)
       );
+    });
+  });
+
+  describe('Header-Based Routing', () => {
+    it('should use X-Workday-Base-Url header when provided', async () => {
+      mockReq.method = 'POST';
+      mockReq.query = { path: ['wday', 'cxs', 'expedia', 'search', 'jobs'] };
+      mockReq.headers = {
+        'x-workday-base-url': 'https://expedia.wd108.myworkdayjobs.com',
+      };
+
+      fetchMock.mockResolvedValueOnce({
+        status: 200,
+        json: async () => ({ total: 0, jobPostings: [] }),
+      });
+
+      await handler(mockReq as VercelRequest, mockRes as VercelResponse);
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://expedia.wd108.myworkdayjobs.com/wday/cxs/expedia/search/jobs',
+        expect.any(Object)
+      );
+    });
+
+    it('should fallback to wd5 when no header is provided (backwards compatibility)', async () => {
+      mockReq.method = 'POST';
+      mockReq.query = { path: ['wday', 'cxs', 'nvidia', 'NVIDIAExternalCareerSite', 'jobs'] };
+      mockReq.headers = {}; // No header
+
+      fetchMock.mockResolvedValueOnce({
+        status: 200,
+        json: async () => ({ total: 0, jobPostings: [] }),
+      });
+
+      await handler(mockReq as VercelRequest, mockRes as VercelResponse);
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://nvidia.wd5.myworkdayjobs.com/wday/cxs/nvidia/NVIDIAExternalCareerSite/jobs',
+        expect.any(Object)
+      );
+    });
+
+    it('should reject invalid Workday base URL format (missing https)', async () => {
+      mockReq.method = 'POST';
+      mockReq.query = { path: ['wday', 'cxs', 'test', 'careers', 'jobs'] };
+      mockReq.headers = {
+        'x-workday-base-url': 'http://test.wd5.myworkdayjobs.com', // http instead of https
+      };
+
+      await handler(mockReq as VercelRequest, mockRes as VercelResponse);
+
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(mockRes.json).toHaveBeenCalledWith({ error: 'Invalid Workday base URL format' });
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('should reject invalid Workday base URL format (wrong domain)', async () => {
+      mockReq.method = 'POST';
+      mockReq.query = { path: ['wday', 'cxs', 'test', 'careers', 'jobs'] };
+      mockReq.headers = {
+        'x-workday-base-url': 'https://evil.com',
+      };
+
+      await handler(mockReq as VercelRequest, mockRes as VercelResponse);
+
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(mockRes.json).toHaveBeenCalledWith({ error: 'Invalid Workday base URL format' });
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('should reject invalid Workday base URL format (missing wd number)', async () => {
+      mockReq.method = 'POST';
+      mockReq.query = { path: ['wday', 'cxs', 'test', 'careers', 'jobs'] };
+      mockReq.headers = {
+        'x-workday-base-url': 'https://test.myworkdayjobs.com',
+      };
+
+      await handler(mockReq as VercelRequest, mockRes as VercelResponse);
+
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(mockRes.json).toHaveBeenCalledWith({ error: 'Invalid Workday base URL format' });
+    });
+
+    it('should accept valid wd108 URL', async () => {
+      mockReq.method = 'POST';
+      mockReq.query = { path: ['wday', 'cxs', 'expedia', 'search', 'jobs'] };
+      mockReq.headers = {
+        'x-workday-base-url': 'https://expedia.wd108.myworkdayjobs.com',
+      };
+
+      fetchMock.mockResolvedValueOnce({
+        status: 200,
+        json: async () => ({ total: 0, jobPostings: [] }),
+      });
+
+      await handler(mockReq as VercelRequest, mockRes as VercelResponse);
+
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+    });
+
+    it('should accept valid wd1 URL (case insensitive)', async () => {
+      mockReq.method = 'POST';
+      mockReq.query = { path: ['wday', 'cxs', 'test', 'careers', 'jobs'] };
+      mockReq.headers = {
+        'x-workday-base-url': 'https://TEST.WD1.MYWORKDAYJOBS.COM',
+      };
+
+      fetchMock.mockResolvedValueOnce({
+        status: 200,
+        json: async () => ({ total: 0, jobPostings: [] }),
+      });
+
+      await handler(mockReq as VercelRequest, mockRes as VercelResponse);
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://TEST.WD1.MYWORKDAYJOBS.COM/wday/cxs/test/careers/jobs',
+        expect.any(Object)
+      );
+    });
+
+    it('should reject URL with path after domain', async () => {
+      mockReq.method = 'POST';
+      mockReq.query = { path: ['wday', 'cxs', 'test', 'careers', 'jobs'] };
+      mockReq.headers = {
+        'x-workday-base-url': 'https://test.wd5.myworkdayjobs.com/extra/path',
+      };
+
+      await handler(mockReq as VercelRequest, mockRes as VercelResponse);
+
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(mockRes.json).toHaveBeenCalledWith({ error: 'Invalid Workday base URL format' });
     });
   });
 

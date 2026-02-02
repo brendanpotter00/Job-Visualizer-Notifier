@@ -234,6 +234,7 @@ export const COMPANIES: Company[] = [
   createGreenhouseCompany('clear', 'Clear'),
   createGreenhouseCompany('affirm', 'Affirm'),
   createGreenhouseCompany('crunchyroll', 'Crunchyroll'),
+  createGreenhouseCompany('nuro', 'Nuro'),
 
   // Lever companies
   createLeverCompany('palantir', 'Palantir', {
@@ -314,6 +315,21 @@ export const COMPANIES: Company[] = [
         'https://www.linkedin.com/search/results/content/?authorCompany=%5B%221480%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=!%3BQ&sortBy=%22date_posted%22',
     }
   ),
+  createWorkdayCompany('expedia', 'Expedia', {
+    baseUrl: 'https://expedia.wd108.myworkdayjobs.com',
+    tenantSlug: 'expedia',
+    careerSiteSlug: 'search',
+  }),
+  createWorkdayCompany('netflix', 'Netflix', {
+    baseUrl: 'https://netflix.wd1.myworkdayjobs.com',
+    tenantSlug: 'netflix',
+    careerSiteSlug: 'Netflix',
+  }),
+  createWorkdayCompany('turo', 'Turo', {
+    baseUrl: 'https://turo.wd12.myworkdayjobs.com',
+    tenantSlug: 'turo',
+    careerSiteSlug: 'Turo_careers',
+  }),
 
   // Backend scraper companies
   createBackendScraperCompany('google', 'Google', 'https://careers.google.com/', {
@@ -342,6 +358,7 @@ export const enum COMPANY_IDS {
   Palantir = 'palantir',
   Saronic = 'saronic',
   Nominal = 'nominal',
+  Nuro = 'nuro',
   Coinbase = 'coinbase',
   Robinhood = 'robinhood',
   Spotify = 'spotify',
@@ -367,6 +384,9 @@ export const enum COMPANY_IDS {
   Squarespace = 'squarespace',
   Nvidia = 'nvidia',
   Adobe = 'adobe',
+  Expedia = 'expedia',
+  Netflix = 'netflix',
+  Turo = 'turo',
   ElevenLabs = 'elevenlabs',
   Google = 'google',
   Apple = 'apple',
@@ -383,6 +403,4 @@ export function getCompanyById(id: string): Company | undefined {
 /**
  * Coming soon companies for custom scrapers section
  */
-export const COMING_SOON_SCRAPERS = [
-  { name: 'Netflix', jobsUrl: 'https://jobs.netflix.com/' },
-] as const;
+export const COMING_SOON_SCRAPERS: readonly { name: string; jobsUrl: string }[] = [];
