@@ -234,6 +234,7 @@ export const COMPANIES: Company[] = [
   createGreenhouseCompany('clear', 'Clear'),
   createGreenhouseCompany('affirm', 'Affirm'),
   createGreenhouseCompany('crunchyroll', 'Crunchyroll'),
+  createGreenhouseCompany('nuro', 'Nuro'),
 
   // Lever companies
   createLeverCompany('palantir', 'Palantir', {
@@ -357,6 +358,7 @@ export const enum COMPANY_IDS {
   Palantir = 'palantir',
   Saronic = 'saronic',
   Nominal = 'nominal',
+  Nuro = 'nuro',
   Coinbase = 'coinbase',
   Robinhood = 'robinhood',
   Spotify = 'spotify',
