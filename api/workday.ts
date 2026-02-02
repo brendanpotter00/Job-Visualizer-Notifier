@@ -1,5 +1,19 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, X-Workday-Base-Url',
+} as const;
+
+const WORKDAY_URL_PATTERN = /^https:\/\/[a-z0-9-]+\.wd\d+\.myworkdayjobs\.com$/i;
+
+function setCorsHeaders(res: VercelResponse): void {
+  Object.entries(CORS_HEADERS).forEach(([key, value]) => {
+    res.setHeader(key, value);
+  });
+}
+
 /**
  * Vercel serverless function to proxy Workday API requests
  * Routes: /api/workday/* -> https://{dynamic-workday-host}/*
@@ -14,9 +28,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Workday-Base-Url');
+    setCorsHeaders(res);
     return res.status(200).end();
   }
 
@@ -44,11 +56,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   let workdayBaseUrl: string;
 
   if (typeof baseUrlHeader === 'string') {
-    // Validate format: https://{tenant}.wd{N}.myworkdayjobs.com
-    const isValidWorkdayUrl = /^https:\/\/[a-z0-9-]+\.wd\d+\.myworkdayjobs\.com$/i.test(
-      baseUrlHeader
-    );
-    if (!isValidWorkdayUrl) {
+    if (!WORKDAY_URL_PATTERN.test(baseUrlHeader)) {
       return res.status(400).json({ error: 'Invalid Workday base URL format' });
     }
     workdayBaseUrl = baseUrlHeader;
@@ -83,17 +91,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Get response data
     const data = await response.json();
 
-    // Set CORS headers to allow browser requests
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Workday-Base-Url');
+    setCorsHeaders(res);
 
     // Forward the status code and data
     return res.status(response.status).json(data);
   } catch (error) {
     console.error('[Workday Proxy] Error:', error);
 
-    res.setHeader('Access-Control-Allow-Origin', '*');
+    setCorsHeaders(res);
     return res.status(500).json({
       error: 'Proxy error',
       message: error instanceof Error ? error.message : 'Unknown error',
