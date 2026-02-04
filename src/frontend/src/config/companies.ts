@@ -245,10 +245,6 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?authorCompany=%5B%2289680213%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=aOp&sortBy=%22date_posted%22',
   }),
-  createLeverCompany('nominal', 'Nominal', {
-    recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%2292924343%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=a5Q&sortBy=%22date_posted%22',
-  }),
   createLeverCompany('spotify', 'Spotify', {
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?authorCompany=%5B%22207470%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=%4072&sortBy=%22date_posted%22',
@@ -276,6 +272,7 @@ export const COMPANIES: Company[] = [
   createAshbyCompany('base-power', 'Base Power Company'),
   createAshbyCompany('clickup', 'ClickUp'),
   createAshbyCompany('apex-technology-inc', 'Apex Technology Inc'),
+  createAshbyCompany('light', 'Light'),
 
   // Workday companies
   createWorkdayCompany(
@@ -331,6 +328,16 @@ export const COMPANIES: Company[] = [
     tenantSlug: 'turo',
     careerSiteSlug: 'Turo_careers',
   }),
+  createWorkdayCompany('blueorigin', 'Blue Origin', {
+    baseUrl: 'https://blueorigin.wd5.myworkdayjobs.com',
+    tenantSlug: 'blueorigin',
+    careerSiteSlug: 'BlueOrigin',
+  }),
+  createWorkdayCompany('snap', 'Snap', {
+    baseUrl: 'https://snapchat.wd1.myworkdayjobs.com',
+    tenantSlug: 'snapchat',
+    careerSiteSlug: 'snap',
+  }),
 
   // Backend scraper companies
   createBackendScraperCompany('google', 'Google', 'https://careers.google.com/', {
@@ -350,6 +357,7 @@ export const COMPANIES: Company[] = [
 export const enum COMPANY_IDS {
   Affirm = 'affirm',
   ApexTechnologyInc = 'apex-technology-inc',
+  BlueOrigin = 'blueorigin',
   Spacex = 'spacex',
   AndurilIndustries = 'andurilindustries',
   Airbnb = 'airbnb',
@@ -359,7 +367,6 @@ export const enum COMPANY_IDS {
   Neuralink = 'neuralink',
   Palantir = 'palantir',
   Saronic = 'saronic',
-  Nominal = 'nominal',
   Nuro = 'nuro',
   Coinbase = 'coinbase',
   Robinhood = 'robinhood',
@@ -373,6 +380,7 @@ export const enum COMPANY_IDS {
   Doordashusa = 'doordashusa',
   Stripe = 'stripe',
   Ramp = 'ramp',
+  Snap = 'snap',
   Snowflake = 'snowflake',
   Plaid = 'plaid',
   AppliedIntuition = 'appliedintuition',
@@ -387,6 +395,7 @@ export const enum COMPANY_IDS {
   Nvidia = 'nvidia',
   Adobe = 'adobe',
   Expedia = 'expedia',
+  Light = 'light',
   Netflix = 'netflix',
   Turo = 'turo',
   ElevenLabs = 'elevenlabs',
