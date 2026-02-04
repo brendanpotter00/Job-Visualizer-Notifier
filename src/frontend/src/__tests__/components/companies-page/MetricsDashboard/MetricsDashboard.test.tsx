@@ -395,8 +395,8 @@ describe('MetricsDashboard', () => {
 
   it('displays correct company name in context', () => {
     const store = createMockStore({
-      jobs: [{ ...jobPosted6HoursAgo, company: 'nominal' }],
-      companyId: 'nominal',
+      jobs: [{ ...jobPosted6HoursAgo, company: 'anthropic' }],
+      companyId: 'anthropic',
       metadata: {
         totalCount: 15,
         softwareCount: 12,
@@ -411,7 +411,7 @@ describe('MetricsDashboard', () => {
       </Provider>
     );
 
-    // Should display total jobs for Nominal
+    // Should display total jobs for Anthropic
     expect(screen.getByText('15')).toBeInTheDocument();
   });
 });

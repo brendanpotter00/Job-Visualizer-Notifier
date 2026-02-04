@@ -274,6 +274,7 @@ export const COMPANIES: Company[] = [
   createAshbyCompany('clickup', 'ClickUp'),
   createAshbyCompany('apex-technology-inc', 'Apex Technology Inc'),
   createAshbyCompany('light', 'Light'),
+  createAshbyCompany('Linear', 'Linear'),
 
   // Workday companies
   createWorkdayCompany(
@@ -403,6 +404,7 @@ export const enum COMPANY_IDS {
   Adobe = 'adobe',
   Expedia = 'expedia',
   Light = 'light',
+  Linear = 'Linear',
   Netflix = 'netflix',
   Turo = 'turo',
   TrueAnomaly = 'trueanomalyinc',
