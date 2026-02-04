@@ -345,6 +345,11 @@ export const COMPANIES: Company[] = [
     tenantSlug: 'generalmotors',
     careerSiteSlug: 'Careers_GM',
   }),
+  createWorkdayCompany('disney', 'Disney', {
+    baseUrl: 'https://disney.wd5.myworkdayjobs.com',
+    tenantSlug: 'disney',
+    careerSiteSlug: 'disneycareer',
+  }),
 
   // Backend scraper companies
   createBackendScraperCompany('google', 'Google', 'https://careers.google.com/', {
@@ -365,6 +370,7 @@ export const enum COMPANY_IDS {
   Affirm = 'affirm',
   ApexTechnologyInc = 'apex-technology-inc',
   BlueOrigin = 'blueorigin',
+  Disney = 'disney',
   GeneralMotors = 'gm',
   Spacex = 'spacex',
   AndurilIndustries = 'andurilindustries',

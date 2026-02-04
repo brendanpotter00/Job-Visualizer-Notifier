@@ -41,9 +41,14 @@ describe('QAPage', () => {
     const dropdown = screen.getByRole('combobox', { name: /company/i });
     await user.click(dropdown);
 
-    // Select the company from the menu
+    // Wait for menu to be open and option to be available
     const option = await screen.findByRole('option', { name: companyName });
     await user.click(option);
+
+    // Wait for the menu to close and state to update
+    await waitFor(() => {
+      expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    });
   }
 
   afterEach(() => {
