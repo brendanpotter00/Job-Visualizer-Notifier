@@ -235,6 +235,7 @@ export const COMPANIES: Company[] = [
   createGreenhouseCompany('affirm', 'Affirm'),
   createGreenhouseCompany('crunchyroll', 'Crunchyroll'),
   createGreenhouseCompany('nuro', 'Nuro'),
+  createGreenhouseCompany('trueanomalyinc', 'True Anomaly'),
 
   // Lever companies
   createLeverCompany('palantir', 'Palantir', {
@@ -338,6 +339,11 @@ export const COMPANIES: Company[] = [
     tenantSlug: 'snapchat',
     careerSiteSlug: 'snap',
   }),
+  createWorkdayCompany('gm', 'General Motors', {
+    baseUrl: 'https://generalmotors.wd5.myworkdayjobs.com',
+    tenantSlug: 'generalmotors',
+    careerSiteSlug: 'Careers_GM',
+  }),
 
   // Backend scraper companies
   createBackendScraperCompany('google', 'Google', 'https://careers.google.com/', {
@@ -358,6 +364,7 @@ export const enum COMPANY_IDS {
   Affirm = 'affirm',
   ApexTechnologyInc = 'apex-technology-inc',
   BlueOrigin = 'blueorigin',
+  GeneralMotors = 'gm',
   Spacex = 'spacex',
   AndurilIndustries = 'andurilindustries',
   Airbnb = 'airbnb',
@@ -398,6 +405,7 @@ export const enum COMPANY_IDS {
   Light = 'light',
   Netflix = 'netflix',
   Turo = 'turo',
+  TrueAnomaly = 'trueanomalyinc',
   ElevenLabs = 'elevenlabs',
   Google = 'google',
   Apple = 'apple',
