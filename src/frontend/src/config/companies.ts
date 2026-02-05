@@ -236,6 +236,7 @@ export const COMPANIES: Company[] = [
   createGreenhouseCompany('crunchyroll', 'Crunchyroll'),
   createGreenhouseCompany('nuro', 'Nuro'),
   createGreenhouseCompany('trueanomalyinc', 'True Anomaly'),
+  createGreenhouseCompany('pinterest', 'Pinterest'),
 
   // Lever companies
   createLeverCompany('palantir', 'Palantir', {
@@ -350,6 +351,11 @@ export const COMPANIES: Company[] = [
     tenantSlug: 'disney',
     careerSiteSlug: 'disneycareer',
   }),
+  createWorkdayCompany('slack', 'Slack', {
+    baseUrl: 'https://salesforce.wd12.myworkdayjobs.com',
+    tenantSlug: 'salesforce',
+    careerSiteSlug: 'Slack',
+  }),
 
   // Backend scraper companies
   createBackendScraperCompany('google', 'Google', 'https://careers.google.com/', {
@@ -394,8 +400,10 @@ export const enum COMPANY_IDS {
   Doordashusa = 'doordashusa',
   Stripe = 'stripe',
   Ramp = 'ramp',
+  Slack = 'slack',
   Snap = 'snap',
   Snowflake = 'snowflake',
+  Pinterest = 'pinterest',
   Plaid = 'plaid',
   AppliedIntuition = 'appliedintuition',
   Discord = 'discord',
