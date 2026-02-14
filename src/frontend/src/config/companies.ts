@@ -358,6 +358,11 @@ export const COMPANIES: Company[] = [
     tenantSlug: 'salesforce',
     careerSiteSlug: 'Slack',
   }),
+  createWorkdayCompany('capitalone', 'Capital One', {
+    baseUrl: 'https://capitalone.wd12.myworkdayjobs.com',
+    tenantSlug: 'capitalone',
+    careerSiteSlug: 'Capital_One',
+  }),
 
   // Backend scraper companies
   createBackendScraperCompany('google', 'Google', 'https://careers.google.com/', {
@@ -430,6 +435,7 @@ export const enum COMPANY_IDS {
   Microsoft = 'microsoft',
   SiftStack = 'siftstack',
   Astranis = 'astranis',
+  CapitalOne = 'capitalone',
 }
 
 /**
