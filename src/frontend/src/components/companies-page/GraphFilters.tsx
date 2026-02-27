@@ -10,10 +10,13 @@ import {
   addGraphDepartment,
   removeGraphDepartment,
   toggleGraphSoftwareOnly,
+  toggleGraphRoleGroup,
+  clearGraphRoleGroups,
 } from '../../features/filters/slices/graphFiltersSlice.ts';
 import {
   selectGraphFilters,
   selectGraphSoftwareOnlyState,
+  selectGraphActiveRoleGroups,
 } from '../../features/filters/selectors/graphFiltersSelectors.ts';
 import {
   selectAvailableLocations,
@@ -25,6 +28,7 @@ import { TimeWindowSelect } from '../shared/filters/TimeWindowSelect.tsx';
 import { MultiSelectAutocomplete } from '../shared/filters/MultiSelectAutocomplete.tsx';
 import { SyncFiltersButton } from '../shared/filters/SyncFiltersButton.tsx';
 import { SoftwareOnlyToggle } from '../shared/filters/SoftwareOnlyToggle.tsx';
+import { RoleTagGroupFilter } from '../shared/filters/RoleTagGroupFilter.tsx';
 
 /**
  * Filter controls for the graph visualization
@@ -33,6 +37,7 @@ export function GraphFilters() {
   const dispatch = useAppDispatch();
   const filters = useAppSelector(selectGraphFilters);
   const softwareOnlyChecked = useAppSelector(selectGraphSoftwareOnlyState);
+  const activeRoleGroups = useAppSelector(selectGraphActiveRoleGroups);
   const availableLocations = useAppSelector(selectAvailableLocations);
   const availableDepartments = useAppSelector(selectAvailableDepartments);
 
@@ -46,7 +51,7 @@ export function GraphFilters() {
           onToggleMode={(text) => dispatch(toggleGraphSearchTagMode(text))}
         />
 
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} flexWrap="wrap">
           <TimeWindowSelect
             value={filters.timeWindow}
             onChange={(tw) => dispatch(setGraphTimeWindow(tw))}
@@ -70,6 +75,11 @@ export function GraphFilters() {
               onRemove={(dept) => dispatch(removeGraphDepartment(dept))}
             />
           )}
+          <RoleTagGroupFilter
+            activeGroups={activeRoleGroups}
+            onToggle={(groupId) => dispatch(toggleGraphRoleGroup(groupId))}
+            onClear={() => dispatch(clearGraphRoleGroups())}
+          />
           <SoftwareOnlyToggle
             checked={softwareOnlyChecked}
             onChange={() => dispatch(toggleGraphSoftwareOnly())}

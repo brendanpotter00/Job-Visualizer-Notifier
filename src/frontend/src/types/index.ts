@@ -206,6 +206,8 @@ export interface GraphFilters {
   department?: string[];
   employmentType?: string;
   softwareOnly: boolean;
+  /** IDs of active role tag groups */
+  activeRoleGroups?: string[];
 }
 
 /**
@@ -218,6 +220,8 @@ export interface ListFilters {
   department?: string[];
   employmentType?: string;
   softwareOnly: boolean;
+  /** IDs of active role tag groups */
+  activeRoleGroups?: string[];
 }
 
 /**
@@ -231,6 +235,8 @@ export interface RecentJobsFilters {
   employmentType?: string;
   softwareOnly: boolean;
   company?: string[];
+  /** IDs of active role tag groups */
+  activeRoleGroups?: string[];
 }
 
 /**

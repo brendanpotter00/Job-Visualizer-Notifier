@@ -19,6 +19,13 @@ export const selectGraphSoftwareOnlyState = createSelector([selectGraphFilters],
 });
 
 /**
+ * Select active role groups for graph filters
+ */
+export const selectGraphActiveRoleGroups = createSelector([selectGraphFilters], (filters) => {
+  return filters.activeRoleGroups || [];
+});
+
+/**
  * Filter jobs based on graph filters
  */
 export const selectGraphFilteredJobs = createSelector(

@@ -50,6 +50,9 @@ export const {
   setGraphEmploymentType,
   toggleGraphSoftwareOnly,
   setGraphSoftwareOnly,
+  toggleGraphRoleGroup,
+  setGraphRoleGroup,
+  clearGraphRoleGroups,
   resetGraphFilters,
   syncGraphFromList,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

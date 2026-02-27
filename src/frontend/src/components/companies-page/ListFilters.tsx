@@ -10,10 +10,13 @@ import {
   removeListSearchTag,
   toggleListSearchTagMode,
   toggleListSoftwareOnly,
+  toggleListRoleGroup,
+  clearListRoleGroups,
 } from '../../features/filters/slices/listFiltersSlice.ts';
 import {
   selectListFilters,
   selectListSoftwareOnlyState,
+  selectListActiveRoleGroups,
 } from '../../features/filters/selectors/listFiltersSelectors.ts';
 import {
   selectAvailableLocations,
@@ -25,6 +28,7 @@ import { TimeWindowSelect } from '../shared/filters/TimeWindowSelect.tsx';
 import { MultiSelectAutocomplete } from '../shared/filters/MultiSelectAutocomplete.tsx';
 import { SyncFiltersButton } from '../shared/filters/SyncFiltersButton.tsx';
 import { SoftwareOnlyToggle } from '../shared/filters/SoftwareOnlyToggle.tsx';
+import { RoleTagGroupFilter } from '../shared/filters/RoleTagGroupFilter.tsx';
 
 /**
  * Filter controls for the job list
@@ -33,6 +37,7 @@ export function ListFilters() {
   const dispatch = useAppDispatch();
   const filters = useAppSelector(selectListFilters);
   const softwareOnlyChecked = useAppSelector(selectListSoftwareOnlyState);
+  const activeRoleGroups = useAppSelector(selectListActiveRoleGroups);
   const availableLocations = useAppSelector(selectAvailableLocations);
   const availableDepartments = useAppSelector(selectAvailableDepartments);
 
@@ -46,7 +51,7 @@ export function ListFilters() {
           onToggleMode={(text) => dispatch(toggleListSearchTagMode(text))}
         />
 
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} flexWrap="wrap">
           <TimeWindowSelect
             value={filters.timeWindow}
             onChange={(tw) => dispatch(setListTimeWindow(tw))}
@@ -71,6 +76,11 @@ export function ListFilters() {
               onRemove={(dept) => dispatch(removeListDepartment(dept))}
             />
           )}
+          <RoleTagGroupFilter
+            activeGroups={activeRoleGroups}
+            onToggle={(groupId) => dispatch(toggleListRoleGroup(groupId))}
+            onClear={() => dispatch(clearListRoleGroups())}
+          />
           <SoftwareOnlyToggle
             checked={softwareOnlyChecked}
             onChange={() => dispatch(toggleListSoftwareOnly())}
