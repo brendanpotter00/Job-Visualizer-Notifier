@@ -42,7 +42,7 @@ describe('CompanySelector', () => {
     // Check for both companies
     await waitFor(() => {
       expect(screen.getByRole('option', { name: 'SpaceX' })).toBeInTheDocument();
-      expect(screen.getByRole('option', { name: 'Nominal' })).toBeInTheDocument();
+      expect(screen.getByRole('option', { name: 'Anduril' })).toBeInTheDocument();
     });
   });
 
@@ -59,13 +59,13 @@ describe('CompanySelector', () => {
     const selector = screen.getByRole('combobox');
     await user.click(selector);
 
-    // Select Nominal
-    const nominalOption = await screen.findByRole('option', { name: 'Nominal' });
-    await user.click(nominalOption);
+    // Select Anduril
+    const andurilOption = await screen.findByRole('option', { name: 'Anduril' });
+    await user.click(andurilOption);
 
     // Verify state changed
     await waitFor(() => {
-      expect(store.getState().app.selectedCompanyId).toBe('nominal');
+      expect(store.getState().app.selectedCompanyId).toBe('andurilindustries');
     });
   });
 

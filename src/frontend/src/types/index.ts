@@ -18,7 +18,7 @@ export interface Job {
   /** ATS source system */
   source: ATSProvider;
 
-  /** Company identifier (e.g., 'spacex', 'nominal') */
+  /** Company identifier (e.g., 'spacex', 'anthropic') */
   company: string;
 
   /** Job title */

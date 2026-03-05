@@ -17,7 +17,7 @@ describe('JobList', () => {
     {
       id: '2',
       source: 'lever',
-      company: 'nominal',
+      company: 'spotify',
       title: 'Backend Engineer',
       createdAt: new Date().toISOString(),
       url: 'https://example.com/job/2',

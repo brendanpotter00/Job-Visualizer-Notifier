@@ -71,6 +71,10 @@ function createLeverCompany(
   };
 }
 
+interface AshbyOptions extends FactoryOptions {
+  jobBoardName?: string;
+}
+
 /**
  * Factory function for Ashby companies.
  * Defaults jobBoardName to the company id.
@@ -78,18 +82,19 @@ function createLeverCompany(
 function createAshbyCompany(
   id: string,
   name: string,
-  options: FactoryOptions = {}
+  options: AshbyOptions = {}
 ): Company {
+  const jobBoardName = options.jobBoardName ?? id;
   const config: AshbyConfig = {
     type: 'ashby',
-    jobBoardName: id,
+    jobBoardName,
   };
   return {
     id,
     name,
     ats: 'ashby',
     config,
-    jobsUrl: `https://careers.ashbyhq.com/${id}`,
+    jobsUrl: `https://careers.ashbyhq.com/${jobBoardName}`,
     recruiterLinkedInUrl: options.recruiterLinkedInUrl,
   };
 }
@@ -235,6 +240,10 @@ export const COMPANIES: Company[] = [
   createGreenhouseCompany('affirm', 'Affirm'),
   createGreenhouseCompany('crunchyroll', 'Crunchyroll'),
   createGreenhouseCompany('nuro', 'Nuro'),
+  createGreenhouseCompany('trueanomalyinc', 'True Anomaly'),
+  createGreenhouseCompany('pinterest', 'Pinterest'),
+  createGreenhouseCompany('astranis', 'Astranis'),
+  createGreenhouseCompany('chalkinc', 'Chalk'),
 
   // Lever companies
   createLeverCompany('palantir', 'Palantir', {
@@ -244,10 +253,6 @@ export const COMPANIES: Company[] = [
   createLeverCompany('saronic', 'Saronic', {
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?authorCompany=%5B%2289680213%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=aOp&sortBy=%22date_posted%22',
-  }),
-  createLeverCompany('nominal', 'Nominal', {
-    recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%2292924343%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=a5Q&sortBy=%22date_posted%22',
   }),
   createLeverCompany('spotify', 'Spotify', {
     recruiterLinkedInUrl:
@@ -275,6 +280,13 @@ export const COMPANIES: Company[] = [
   createAshbyCompany('browserbase', 'Browserbase'),
   createAshbyCompany('base-power', 'Base Power Company'),
   createAshbyCompany('clickup', 'ClickUp'),
+  createAshbyCompany('apex-technology-inc', 'Apex Technology Inc'),
+  createAshbyCompany('light', 'Light'),
+  createAshbyCompany('linear', 'Linear', { jobBoardName: 'Linear' }),
+  createAshbyCompany('siftstack', 'Sift Stack'),
+  createAshbyCompany('stainlessapi', 'Stainless API'),
+  createAshbyCompany('gigaml', 'GigaML', { jobBoardName: 'GigaML' }),
+  createAshbyCompany('sesame', 'Sesame'),
 
   // Workday companies
   createWorkdayCompany(
@@ -330,6 +342,36 @@ export const COMPANIES: Company[] = [
     tenantSlug: 'turo',
     careerSiteSlug: 'Turo_careers',
   }),
+  createWorkdayCompany('blueorigin', 'Blue Origin', {
+    baseUrl: 'https://blueorigin.wd5.myworkdayjobs.com',
+    tenantSlug: 'blueorigin',
+    careerSiteSlug: 'BlueOrigin',
+  }),
+  createWorkdayCompany('snap', 'Snap', {
+    baseUrl: 'https://snapchat.wd1.myworkdayjobs.com',
+    tenantSlug: 'snapchat',
+    careerSiteSlug: 'snap',
+  }),
+  createWorkdayCompany('gm', 'General Motors', {
+    baseUrl: 'https://generalmotors.wd5.myworkdayjobs.com',
+    tenantSlug: 'generalmotors',
+    careerSiteSlug: 'Careers_GM',
+  }),
+  createWorkdayCompany('disney', 'Disney', {
+    baseUrl: 'https://disney.wd5.myworkdayjobs.com',
+    tenantSlug: 'disney',
+    careerSiteSlug: 'disneycareer',
+  }),
+  createWorkdayCompany('slack', 'Slack', {
+    baseUrl: 'https://salesforce.wd12.myworkdayjobs.com',
+    tenantSlug: 'salesforce',
+    careerSiteSlug: 'Slack',
+  }),
+  createWorkdayCompany('capitalone', 'Capital One', {
+    baseUrl: 'https://capitalone.wd12.myworkdayjobs.com',
+    tenantSlug: 'capitalone',
+    careerSiteSlug: 'Capital_One',
+  }),
 
   // Backend scraper companies
   createBackendScraperCompany('google', 'Google', 'https://careers.google.com/', {
@@ -347,50 +389,66 @@ export const COMPANIES: Company[] = [
 ];
 
 export const enum COMPANY_IDS {
+  Adobe = 'adobe',
   Affirm = 'affirm',
-  Spacex = 'spacex',
-  AndurilIndustries = 'andurilindustries',
   Airbnb = 'airbnb',
-  Figma = 'figma',
-  Notion = 'notion',
-  Twitch = 'twitch',
-  Neuralink = 'neuralink',
-  Palantir = 'palantir',
-  Saronic = 'saronic',
-  Nominal = 'nominal',
-  Nuro = 'nuro',
-  Coinbase = 'coinbase',
-  Robinhood = 'robinhood',
-  Spotify = 'spotify',
-  Xai = 'xai',
+  AndurilIndustries = 'andurilindustries',
   Anthropic = 'anthropic',
-  Reddit = 'reddit',
-  Cloudflare = 'cloudflare',
-  Scaleai = 'scaleai',
-  Lyft = 'lyft',
-  Doordashusa = 'doordashusa',
-  Stripe = 'stripe',
-  Ramp = 'ramp',
-  Snowflake = 'snowflake',
-  Plaid = 'plaid',
+  ApexTechnologyInc = 'apex-technology-inc',
+  Apple = 'apple',
   AppliedIntuition = 'appliedintuition',
-  Discord = 'discord',
+  Astranis = 'astranis',
   BasePower = 'base-power',
+  BlueOrigin = 'blueorigin',
   Brex = 'brex',
   Browserbase = 'browserbase',
+  CapitalOne = 'capitalone',
+  Chalk = 'chalkinc',
   Clear = 'clear',
   ClickUp = 'clickup',
+  Cloudflare = 'cloudflare',
+  Coinbase = 'coinbase',
   Crunchyroll = 'crunchyroll',
-  Squarespace = 'squarespace',
-  Nvidia = 'nvidia',
-  Adobe = 'adobe',
-  Expedia = 'expedia',
-  Netflix = 'netflix',
-  Turo = 'turo',
+  Discord = 'discord',
+  Disney = 'disney',
+  Doordashusa = 'doordashusa',
   ElevenLabs = 'elevenlabs',
+  Expedia = 'expedia',
+  Figma = 'figma',
+  GeneralMotors = 'gm',
+  GigaML = 'gigaml',
   Google = 'google',
-  Apple = 'apple',
+  Light = 'light',
+  Linear = 'linear',
+  Lyft = 'lyft',
   Microsoft = 'microsoft',
+  Netflix = 'netflix',
+  Neuralink = 'neuralink',
+  Notion = 'notion',
+  Nuro = 'nuro',
+  Nvidia = 'nvidia',
+  Palantir = 'palantir',
+  Pinterest = 'pinterest',
+  Plaid = 'plaid',
+  Ramp = 'ramp',
+  Reddit = 'reddit',
+  Robinhood = 'robinhood',
+  Saronic = 'saronic',
+  Scaleai = 'scaleai',
+  Sesame = 'sesame',
+  SiftStack = 'siftstack',
+  Slack = 'slack',
+  Snap = 'snap',
+  Snowflake = 'snowflake',
+  Spacex = 'spacex',
+  Spotify = 'spotify',
+  Squarespace = 'squarespace',
+  StainlessApi = 'stainlessapi',
+  Stripe = 'stripe',
+  TrueAnomaly = 'trueanomalyinc',
+  Turo = 'turo',
+  Twitch = 'twitch',
+  Xai = 'xai',
 }
 
 /**
