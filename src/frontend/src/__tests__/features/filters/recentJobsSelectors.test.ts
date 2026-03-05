@@ -178,7 +178,7 @@ describe('recentJobsSelectors', () => {
         }),
         createMockJob({
           id: '2',
-          company: 'nominal',
+          company: 'spotify',
           createdAt: new Date(now - 1 * 24 * 60 * 60 * 1000).toISOString(),
         }),
       ];
@@ -325,7 +325,7 @@ describe('recentJobsSelectors', () => {
         createMockJob({
           id: '2',
           location: 'New York, NY',
-          company: 'nominal',
+          company: 'spotify',
           createdAt: new Date(now - 1 * 24 * 60 * 60 * 1000).toISOString(),
         }),
         createMockJob({
@@ -458,7 +458,7 @@ describe('recentJobsSelectors', () => {
         }),
         createMockJob({
           id: '2',
-          company: 'nominal',
+          company: 'spotify',
           location: 'New York, NY',
           createdAt: new Date(now - 1 * 24 * 60 * 60 * 1000).toISOString(),
         }),
@@ -532,7 +532,7 @@ describe('recentJobsSelectors', () => {
         }),
         createMockJob({
           id: '2',
-          company: 'nominal',
+          company: 'spotify',
           location: 'New York, NY',
           createdAt: new Date(now - 1 * 24 * 60 * 60 * 1000).toISOString(),
         }),

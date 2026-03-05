@@ -71,6 +71,10 @@ function createLeverCompany(
   };
 }
 
+interface AshbyOptions extends FactoryOptions {
+  jobBoardName?: string;
+}
+
 /**
  * Factory function for Ashby companies.
  * Defaults jobBoardName to the company id.
@@ -78,18 +82,19 @@ function createLeverCompany(
 function createAshbyCompany(
   id: string,
   name: string,
-  options: FactoryOptions = {}
+  options: AshbyOptions = {}
 ): Company {
+  const jobBoardName = options.jobBoardName ?? id;
   const config: AshbyConfig = {
     type: 'ashby',
-    jobBoardName: id,
+    jobBoardName,
   };
   return {
     id,
     name,
     ats: 'ashby',
     config,
-    jobsUrl: `https://careers.ashbyhq.com/${id}`,
+    jobsUrl: `https://careers.ashbyhq.com/${jobBoardName}`,
     recruiterLinkedInUrl: options.recruiterLinkedInUrl,
   };
 }
@@ -277,10 +282,11 @@ export const COMPANIES: Company[] = [
   createAshbyCompany('clickup', 'ClickUp'),
   createAshbyCompany('apex-technology-inc', 'Apex Technology Inc'),
   createAshbyCompany('light', 'Light'),
-  createAshbyCompany('Linear', 'Linear'),
+  createAshbyCompany('linear', 'Linear', { jobBoardName: 'Linear' }),
   createAshbyCompany('siftstack', 'Sift Stack'),
   createAshbyCompany('stainlessapi', 'Stainless API'),
-  createAshbyCompany('GigaML', 'GigaML'),
+  createAshbyCompany('gigaml', 'GigaML', { jobBoardName: 'GigaML' }),
+  createAshbyCompany('sesame', 'Sesame'),
 
   // Workday companies
   createWorkdayCompany(
@@ -383,65 +389,66 @@ export const COMPANIES: Company[] = [
 ];
 
 export const enum COMPANY_IDS {
+  Adobe = 'adobe',
   Affirm = 'affirm',
-  ApexTechnologyInc = 'apex-technology-inc',
-  BlueOrigin = 'blueorigin',
-  Disney = 'disney',
-  GeneralMotors = 'gm',
-  Spacex = 'spacex',
-  AndurilIndustries = 'andurilindustries',
   Airbnb = 'airbnb',
-  Figma = 'figma',
-  Notion = 'notion',
-  Twitch = 'twitch',
-  Neuralink = 'neuralink',
-  Palantir = 'palantir',
-  Saronic = 'saronic',
-  Nuro = 'nuro',
-  Coinbase = 'coinbase',
-  Robinhood = 'robinhood',
-  Spotify = 'spotify',
-  Xai = 'xai',
+  AndurilIndustries = 'andurilindustries',
   Anthropic = 'anthropic',
-  Reddit = 'reddit',
+  ApexTechnologyInc = 'apex-technology-inc',
+  Apple = 'apple',
+  AppliedIntuition = 'appliedintuition',
+  Astranis = 'astranis',
+  BasePower = 'base-power',
+  BlueOrigin = 'blueorigin',
+  Brex = 'brex',
+  Browserbase = 'browserbase',
+  CapitalOne = 'capitalone',
+  Chalk = 'chalkinc',
+  Clear = 'clear',
+  ClickUp = 'clickup',
   Cloudflare = 'cloudflare',
-  Scaleai = 'scaleai',
-  Lyft = 'lyft',
+  Coinbase = 'coinbase',
+  Crunchyroll = 'crunchyroll',
+  Discord = 'discord',
+  Disney = 'disney',
   Doordashusa = 'doordashusa',
-  Stripe = 'stripe',
+  ElevenLabs = 'elevenlabs',
+  Expedia = 'expedia',
+  Figma = 'figma',
+  GeneralMotors = 'gm',
+  GigaML = 'gigaml',
+  Google = 'google',
+  Light = 'light',
+  Linear = 'linear',
+  Lyft = 'lyft',
+  Microsoft = 'microsoft',
+  Netflix = 'netflix',
+  Neuralink = 'neuralink',
+  Notion = 'notion',
+  Nuro = 'nuro',
+  Nvidia = 'nvidia',
+  Palantir = 'palantir',
+  Pinterest = 'pinterest',
+  Plaid = 'plaid',
   Ramp = 'ramp',
+  Reddit = 'reddit',
+  Robinhood = 'robinhood',
+  Saronic = 'saronic',
+  Scaleai = 'scaleai',
+  Sesame = 'sesame',
+  SiftStack = 'siftstack',
   Slack = 'slack',
   Snap = 'snap',
   Snowflake = 'snowflake',
-  Pinterest = 'pinterest',
-  Plaid = 'plaid',
-  AppliedIntuition = 'appliedintuition',
-  Discord = 'discord',
-  BasePower = 'base-power',
-  Brex = 'brex',
-  Browserbase = 'browserbase',
-  Clear = 'clear',
-  ClickUp = 'clickup',
-  Crunchyroll = 'crunchyroll',
+  Spacex = 'spacex',
+  Spotify = 'spotify',
   Squarespace = 'squarespace',
-  Nvidia = 'nvidia',
-  Adobe = 'adobe',
-  Expedia = 'expedia',
-  Light = 'light',
-  Linear = 'Linear',
-  Netflix = 'netflix',
-  Turo = 'turo',
-  TrueAnomaly = 'trueanomalyinc',
-  ElevenLabs = 'elevenlabs',
-  Google = 'google',
-  Apple = 'apple',
-  Microsoft = 'microsoft',
-  SiftStack = 'siftstack',
   StainlessApi = 'stainlessapi',
-  GigaML = 'GigaML',
-  Chalk = 'chalkinc',
-  Astranis = 'astranis',
-  CapitalOne = 'capitalone',
+  Stripe = 'stripe',
+  TrueAnomaly = 'trueanomalyinc',
+  Turo = 'turo',
+  Twitch = 'twitch',
+  Xai = 'xai',
 }
 
 /**

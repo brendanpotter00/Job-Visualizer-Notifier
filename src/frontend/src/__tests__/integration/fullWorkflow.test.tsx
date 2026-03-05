@@ -39,9 +39,9 @@ const mockGreenhouseJobs = {
 
 const mockLeverJobs = [
   {
-    id: 'nominal-1',
+    id: 'spotify-1',
     text: 'Backend Engineer',
-    hostedUrl: 'https://jobs.lever.co/nominal/1',
+    hostedUrl: 'https://jobs.lever.co/spotify/1',
     categories: {
       commitment: 'Full-time',
       department: 'Engineering',
@@ -65,7 +65,7 @@ const server = setupServer(
     // Return minimal response without content parameter
     return HttpResponse.json({ jobs: [] });
   }),
-  http.get('/api/lever/v0/postings/nominal', () => {
+  http.get('/api/lever/v0/postings/spotify', () => {
     return HttpResponse.json(mockLeverJobs);
   })
 );

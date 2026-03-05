@@ -6,7 +6,7 @@ describe('transformLeverJob', () => {
   const mockLeverResponse: LeverJobResponse = {
     id: 'abc-123',
     text: 'Backend Engineer',
-    hostedUrl: 'https://jobs.lever.co/nominal/abc-123',
+    hostedUrl: 'https://jobs.lever.co/spotify/abc-123',
     categories: {
       commitment: 'Full-time',
       department: 'Engineering',
@@ -19,35 +19,35 @@ describe('transformLeverJob', () => {
   };
 
   it('should transform Lever job correctly', () => {
-    const job = transformLeverJob(mockLeverResponse, 'nominal');
+    const job = transformLeverJob(mockLeverResponse, 'spotify');
 
     expect(job).toMatchObject({
       id: 'abc-123',
       source: 'lever',
-      company: 'nominal',
+      company: 'spotify',
       title: 'Backend Engineer',
       department: 'Engineering',
       team: 'Platform',
       location: 'Los Angeles, CA',
       isRemote: false,
       employmentType: 'Full-time',
-      url: 'https://jobs.lever.co/nominal/abc-123',
+      url: 'https://jobs.lever.co/spotify/abc-123',
       tags: ['python', 'backend'],
     });
   });
 
   it('should convert Unix timestamp to ISO string', () => {
-    const job = transformLeverJob(mockLeverResponse, 'nominal');
+    const job = transformLeverJob(mockLeverResponse, 'spotify');
 
     expect(job.createdAt).toBe('2023-11-14T22:13:20.000Z');
   });
 
   it('should transform job properties correctly', () => {
-    const job = transformLeverJob(mockLeverResponse, 'nominal');
+    const job = transformLeverJob(mockLeverResponse, 'spotify');
 
     expect(job.id).toBe('abc-123');
     expect(job.title).toBe('Backend Engineer');
-    expect(job.company).toBe('nominal');
+    expect(job.company).toBe('spotify');
   });
 
   it('should handle remote jobs', () => {
@@ -56,7 +56,7 @@ describe('transformLeverJob', () => {
       workplaceType: 'remote',
     };
 
-    const job = transformLeverJob(remoteResponse, 'nominal');
+    const job = transformLeverJob(remoteResponse, 'spotify');
 
     expect(job.isRemote).toBe(true);
   });
@@ -67,13 +67,13 @@ describe('transformLeverJob', () => {
       workplaceType: 'unspecified',
     };
 
-    const job = transformLeverJob(unspecifiedResponse, 'nominal');
+    const job = transformLeverJob(unspecifiedResponse, 'spotify');
 
     expect(job.isRemote).toBe(false);
   });
 
   it('should preserve raw response data', () => {
-    const job = transformLeverJob(mockLeverResponse, 'nominal');
+    const job = transformLeverJob(mockLeverResponse, 'spotify');
 
     expect(job.raw).toEqual(mockLeverResponse);
   });
@@ -106,7 +106,7 @@ describe('transformLeverJob', () => {
       tags: ['react', 'javascript', 'typescript'],
     };
 
-    const job = transformLeverJob(frontendResponse, 'nominal');
+    const job = transformLeverJob(frontendResponse, 'spotify');
 
     expect(job.tags).toEqual(['react', 'javascript', 'typescript']);
   });
@@ -117,7 +117,7 @@ describe('transformLeverJob', () => {
       tags: ['Regular', 'Production', null, 'Valid'] as any,
     };
 
-    const job = transformLeverJob(responseWithNullTags, 'nominal');
+    const job = transformLeverJob(responseWithNullTags, 'spotify');
 
     expect(job.tags).toEqual(['Regular', 'Production', 'Valid']);
     expect(job.tags).not.toContain(null);
@@ -129,7 +129,7 @@ describe('transformLeverJob', () => {
       tags: ['Regular', ['Starlink', 'Dragon'], 'Production'] as any,
     };
 
-    const job = transformLeverJob(responseWithNestedTags, 'nominal');
+    const job = transformLeverJob(responseWithNestedTags, 'spotify');
 
     expect(job.tags).toEqual(['Regular', 'Starlink', 'Dragon', 'Production']);
   });
@@ -140,7 +140,7 @@ describe('transformLeverJob', () => {
       tags: ['Valid', '', 'AlsoValid'] as any,
     };
 
-    const job = transformLeverJob(responseWithEmptyTags, 'nominal');
+    const job = transformLeverJob(responseWithEmptyTags, 'spotify');
 
     expect(job.tags).toEqual(['Valid', 'AlsoValid']);
     expect(job.tags).not.toContain('');
@@ -152,7 +152,7 @@ describe('transformLeverJob', () => {
       tags: ['Regular', 'Production', ['Starlink'], null, '', 'Valid'] as any,
     };
 
-    const job = transformLeverJob(responseWithMixedTags, 'nominal');
+    const job = transformLeverJob(responseWithMixedTags, 'spotify');
 
     expect(job.tags).toEqual(['Regular', 'Production', 'Starlink', 'Valid']);
     expect(job.tags).toHaveLength(4);
