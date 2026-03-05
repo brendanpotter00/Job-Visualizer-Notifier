@@ -238,6 +238,7 @@ export const COMPANIES: Company[] = [
   createGreenhouseCompany('trueanomalyinc', 'True Anomaly'),
   createGreenhouseCompany('pinterest', 'Pinterest'),
   createGreenhouseCompany('astranis', 'Astranis'),
+  createGreenhouseCompany('chalkinc', 'Chalk'),
 
   // Lever companies
   createLeverCompany('palantir', 'Palantir', {
@@ -278,6 +279,8 @@ export const COMPANIES: Company[] = [
   createAshbyCompany('light', 'Light'),
   createAshbyCompany('Linear', 'Linear'),
   createAshbyCompany('siftstack', 'Sift Stack'),
+  createAshbyCompany('stainlessapi', 'Stainless API'),
+  createAshbyCompany('GigaML', 'GigaML'),
 
   // Workday companies
   createWorkdayCompany(
@@ -434,6 +437,9 @@ export const enum COMPANY_IDS {
   Apple = 'apple',
   Microsoft = 'microsoft',
   SiftStack = 'siftstack',
+  StainlessApi = 'stainlessapi',
+  GigaML = 'GigaML',
+  Chalk = 'chalkinc',
   Astranis = 'astranis',
   CapitalOne = 'capitalone',
 }
