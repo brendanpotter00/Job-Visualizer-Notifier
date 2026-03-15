@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { FetchProgressBar } from '../../../../components/companies-page/FetchProgressBar/FetchProgressBar';
 import * as useAllJobsProgressHook from '../../../../features/jobs/hooks/useAllJobsProgress';
 
@@ -92,7 +93,7 @@ describe('FetchProgressBar', () => {
     expect(errorChip).toHaveAttribute('title', 'Failed to fetch');
   });
 
-  it('should hide when loading is complete', () => {
+  it('should collapse accordion when loading is complete', () => {
     vi.mocked(useAllJobsProgressHook.useAllJobsProgress).mockReturnValue({
       isLoading: false,
       isError: false,
@@ -107,6 +108,34 @@ describe('FetchProgressBar', () => {
           status: 'success' as const,
           jobCount: i * 5,
         })),
+        completedCompanies: [],
+        failedCompanies: [],
+        pendingCompanies: [],
+      },
+    });
+
+    render(<FetchProgressBar />);
+
+    // Accordion should still be rendered but collapsed
+    const totalJobs = Array.from({ length: 10 }, (_, i) => i * 5).reduce((a, b) => a + b, 0);
+    expect(screen.getByText(`Loaded 10 companies (${totalJobs.toLocaleString()} jobs)`)).toBeInTheDocument();
+
+    // Details should not be visible (accordion collapsed)
+    const accordion = screen.getByRole('button', { expanded: false });
+    expect(accordion).toBeInTheDocument();
+  });
+
+  it('should hide when there are no companies', () => {
+    vi.mocked(useAllJobsProgressHook.useAllJobsProgress).mockReturnValue({
+      isLoading: false,
+      isError: false,
+      error: undefined,
+      data: { byCompanyId: {}, metadata: {}, errors: {} },
+      progress: {
+        completed: 0,
+        total: 0,
+        percentComplete: 0,
+        companies: [],
         completedCompanies: [],
         failedCompanies: [],
         pendingCompanies: [],
@@ -265,5 +294,95 @@ describe('FetchProgressBar', () => {
     // Progress bar should be visible during streaming
     expect(screen.getByText('Loading jobs from 7/30 companies')).toBeInTheDocument();
     expect(screen.getByText('23%')).toBeInTheDocument();
+  });
+
+  it('should show completed summary with error count when some companies failed', () => {
+    vi.mocked(useAllJobsProgressHook.useAllJobsProgress).mockReturnValue({
+      isLoading: false,
+      isError: false,
+      error: undefined,
+      data: { byCompanyId: {}, metadata: {}, errors: {} },
+      progress: {
+        completed: 3,
+        total: 3,
+        percentComplete: 100,
+        companies: [
+          { companyId: 'spacex', status: 'success' as const, jobCount: 100 },
+          { companyId: 'anduril', status: 'success' as const, jobCount: 50 },
+          { companyId: 'notion', status: 'error' as const, error: 'Network error' },
+        ],
+        completedCompanies: ['spacex', 'anduril'],
+        failedCompanies: ['notion'],
+        pendingCompanies: [],
+      },
+    });
+
+    render(<FetchProgressBar />);
+
+    expect(screen.getByText('Loaded 2 companies (150 jobs), 1 failed')).toBeInTheDocument();
+  });
+
+  it('should allow manual toggle of accordion', async () => {
+    const user = userEvent.setup();
+
+    vi.mocked(useAllJobsProgressHook.useAllJobsProgress).mockReturnValue({
+      isLoading: false,
+      isError: false,
+      error: undefined,
+      data: { byCompanyId: {}, metadata: {}, errors: {} },
+      progress: {
+        completed: 2,
+        total: 2,
+        percentComplete: 100,
+        companies: [
+          { companyId: 'spacex', status: 'success' as const, jobCount: 25 },
+          { companyId: 'anduril', status: 'success' as const, jobCount: 15 },
+        ],
+        completedCompanies: ['spacex', 'anduril'],
+        failedCompanies: [],
+        pendingCompanies: [],
+      },
+    });
+
+    render(<FetchProgressBar />);
+
+    // Initially collapsed (loading complete)
+    const accordionButton = screen.getByRole('button', { expanded: false });
+    expect(accordionButton).toBeInTheDocument();
+
+    // Click to expand
+    await user.click(accordionButton);
+
+    // Should now be expanded
+    expect(screen.getByRole('button', { expanded: true })).toBeInTheDocument();
+    expect(screen.getByText('spacex (25)')).toBeInTheDocument();
+    expect(screen.getByText('anduril (15)')).toBeInTheDocument();
+  });
+
+  it('should be expanded while loading', () => {
+    vi.mocked(useAllJobsProgressHook.useAllJobsProgress).mockReturnValue({
+      isLoading: true,
+      isError: false,
+      error: undefined,
+      data: { byCompanyId: {}, metadata: {}, errors: {} },
+      progress: {
+        completed: 1,
+        total: 3,
+        percentComplete: 33.33,
+        companies: [
+          { companyId: 'spacex', status: 'success' as const, jobCount: 25 },
+          { companyId: 'anduril', status: 'pending' as const },
+          { companyId: 'notion', status: 'pending' as const },
+        ],
+        completedCompanies: ['spacex'],
+        failedCompanies: [],
+        pendingCompanies: ['anduril', 'notion'],
+      },
+    });
+
+    render(<FetchProgressBar />);
+
+    // Accordion should be expanded while loading
+    expect(screen.getByRole('button', { expanded: true })).toBeInTheDocument();
   });
 });
