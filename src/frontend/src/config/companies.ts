@@ -244,6 +244,7 @@ export const COMPANIES: Company[] = [
   createGreenhouseCompany('pinterest', 'Pinterest'),
   createGreenhouseCompany('astranis', 'Astranis'),
   createGreenhouseCompany('chalkinc', 'Chalk'),
+  createGreenhouseCompany('waymo', 'Waymo'),
 
   // Lever companies
   createLeverCompany('palantir', 'Palantir', {
@@ -451,6 +452,7 @@ export const enum COMPANY_IDS {
   TrueAnomaly = 'trueanomalyinc',
   Turo = 'turo',
   Twitch = 'twitch',
+  Waymo = 'waymo',
   Xai = 'xai',
   Zoox = 'zoox',
 }
