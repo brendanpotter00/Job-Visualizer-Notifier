@@ -245,6 +245,7 @@ export const COMPANIES: Company[] = [
   createGreenhouseCompany('astranis', 'Astranis'),
   createGreenhouseCompany('chalkinc', 'Chalk'),
   createGreenhouseCompany('waymo', 'Waymo'),
+  createGreenhouseCompany('figureai', 'Figure AI'),
 
   // Lever companies
   createLeverCompany('palantir', 'Palantir', {
@@ -418,6 +419,7 @@ export const enum COMPANY_IDS {
   ElevenLabs = 'elevenlabs',
   Expedia = 'expedia',
   Figma = 'figma',
+  FigureAI = 'figureai',
   FlowEngineering = 'flowengineering',
   GeneralMotors = 'gm',
   GigaML = 'gigaml',
