@@ -1,7 +1,7 @@
 """Tests for the background auto-scraper loop."""
 
 import asyncio
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -15,7 +15,7 @@ def config():
     """Minimal Settings for auto-scraper tests."""
     return Settings(
         database_url="postgresql://test:test@localhost/test",
-        scraper_environment="test",
+        scraper_environment="local",
         scraper_companies="google,apple",
         scraper_interval_hours=1,
         scraper_timeout_minutes=5,
@@ -147,9 +147,9 @@ class TestBackoff:
     async def test_backoff_increases_on_repeated_failure(self, config):
         """Outer-loop errors should trigger exponential backoff.
 
-        The outer except is triggered by making the interval sleep raise a
-        RuntimeError (simulating an unexpected failure outside the per-company
-        inner try/except). Backoff sleeps are distinguished by value (>=60).
+        An error in the for-loop body (outside the inner try/except) prevents
+        the loop from completing, so consecutive_failures is never reset and
+        backoff escalates: 60 → 120 → 240.
         """
         sleep_args = []
         backoff_count = 0
@@ -158,29 +158,31 @@ class TestBackoff:
             nonlocal backoff_count
             sleep_args.append(seconds)
             if seconds == 10:
-                # Startup delay -- let it pass
                 return
-            if seconds == config.scraper_interval_hours * 3600:
-                # The post-cycle interval sleep -- make it fail to trigger outer except
-                raise RuntimeError("simulated interval sleep failure")
             if seconds >= 60:
-                # This is a backoff sleep
                 backoff_count += 1
                 if backoff_count >= 3:
                     raise asyncio.CancelledError
 
-        async def mock_run(cfg, company):
-            return ScraperResult(
-                exit_code=0, output="ok", error="", company=company,
-                completed_at="2025-01-15T00:00:00Z",
-            )
-
-        with patch("api.services.auto_scraper.run_scraper", side_effect=mock_run), \
+        # Patch the logger so the "Starting scrape for" log raises before
+        # entering the inner try/except — this triggers the outer except.
+        with patch("api.services.auto_scraper.run_scraper") as mock_run, \
+             patch("api.services.auto_scraper.logger") as mock_logger, \
              patch("asyncio.sleep", side_effect=mock_sleep):
+
+            def info_side_effect(msg, *args):
+                if "Starting scrape for" in str(msg):
+                    raise RuntimeError("simulated outer-loop error")
+
+            mock_logger.info = MagicMock(side_effect=info_side_effect)
+            mock_logger.exception = MagicMock()
+
             with pytest.raises(asyncio.CancelledError):
                 await auto_scraper_loop(config)
 
-        backoff_sleeps = [s for s in sleep_args if s >= 60 and s != config.scraper_interval_hours * 3600]
+            mock_run.assert_not_called()
+
+        backoff_sleeps = [s for s in sleep_args if s >= 60]
         assert len(backoff_sleeps) >= 3
         assert backoff_sleeps[0] == 60
         assert backoff_sleeps[1] == 120

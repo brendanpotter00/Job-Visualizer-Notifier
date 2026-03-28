@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from ..config import Settings
@@ -9,13 +10,13 @@ from ..config import Settings
 logger = logging.getLogger(__name__)
 
 
+@dataclass
 class ScraperResult:
-    def __init__(self, exit_code: int, output: str, error: str, company: str, completed_at: str):
-        self.exit_code = exit_code
-        self.output = output
-        self.error = error
-        self.company = company
-        self.completed_at = completed_at
+    exit_code: int
+    output: str
+    error: str
+    company: str
+    completed_at: str
 
 
 async def run_scraper(config: Settings, company: str) -> ScraperResult:

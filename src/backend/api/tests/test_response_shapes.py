@@ -97,3 +97,40 @@ def test_trigger_scrape_response_shape(client):
     assert resp.status_code == 202
     body = resp.json()
     assert set(body.keys()) == {"message", "company"}
+
+
+# --- Input validation ---
+
+def test_jobs_rejects_negative_limit(client):
+    resp = client.get("/api/jobs", params={"limit": -1})
+    assert resp.status_code == 422
+
+
+def test_jobs_rejects_limit_above_max(client):
+    resp = client.get("/api/jobs", params={"limit": 99999})
+    assert resp.status_code == 422
+
+
+def test_jobs_rejects_negative_offset(client):
+    resp = client.get("/api/jobs", params={"offset": -1})
+    assert resp.status_code == 422
+
+
+def test_jobs_rejects_invalid_company_pattern(client):
+    resp = client.get("/api/jobs", params={"company": "; DROP TABLE"})
+    assert resp.status_code == 422
+
+
+def test_jobs_rejects_invalid_status(client):
+    resp = client.get("/api/jobs", params={"status": "INVALID"})
+    assert resp.status_code == 422
+
+
+def test_scrape_runs_rejects_invalid_limit(client):
+    resp = client.get("/api/jobs-qa/scrape-runs", params={"limit": 0})
+    assert resp.status_code == 422
+
+
+def test_trigger_scrape_rejects_invalid_company(client):
+    resp = client.post("/api/jobs-qa/trigger-scrape", params={"company": "a;b"})
+    assert resp.status_code == 422

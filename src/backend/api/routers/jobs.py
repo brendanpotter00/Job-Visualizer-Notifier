@@ -15,13 +15,13 @@ def list_jobs(
     request: Request,
     conn: Connection = Depends(get_db),
     company: str | None = Query(default=None, pattern=r"^[a-zA-Z0-9_-]+$"),
-    status: str = "OPEN",
+    status: str | None = Query(default=None, pattern=r"^(OPEN|CLOSED)$"),
     limit: int = Query(default=5000, ge=1, le=10000),
     offset: int = Query(default=0, ge=0),
 ):
-    """List jobs with optional filtering. Status param accepted for API compatibility but not applied."""
+    """List jobs with optional filtering by company and status."""
     env = request.app.state.env
-    jobs = get_jobs(conn, env, company=company, limit=limit, offset=offset)
+    jobs = get_jobs(conn, env, company=company, status=status, limit=limit, offset=offset)
     return [JobListingResponse(**job) for job in jobs]
 
 

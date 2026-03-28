@@ -48,9 +48,9 @@ async def auto_scraper_loop(config: Settings) -> None:
                 except Exception:
                     logger.exception("Unexpected error scraping %s", company)
 
+            consecutive_failures = 0
             logger.info("Scrape cycle complete, waiting %dh before next run", config.scraper_interval_hours)
             await asyncio.sleep(interval_seconds)
-            consecutive_failures = 0
         except asyncio.CancelledError:
             raise
         except Exception:

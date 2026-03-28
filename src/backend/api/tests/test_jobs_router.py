@@ -110,3 +110,28 @@ def test_get_jobs_combines_company_and_pagination(client, db_conn, test_env):
     jobs = resp.json()
     assert len(jobs) == 1
     assert jobs[0]["company"] == "apple"
+
+
+def test_get_jobs_filters_by_status_open(client, db_conn, test_env):
+    _seed_default_jobs(db_conn, test_env)
+    resp = client.get("/api/jobs", params={"status": "OPEN"})
+    jobs = resp.json()
+    assert len(jobs) == 3
+    assert all(j["status"] == "OPEN" for j in jobs)
+
+
+def test_get_jobs_filters_by_status_closed(client, db_conn, test_env):
+    _seed_default_jobs(db_conn, test_env)
+    resp = client.get("/api/jobs", params={"status": "CLOSED"})
+    jobs = resp.json()
+    assert len(jobs) == 1
+    assert jobs[0]["status"] == "CLOSED"
+
+
+def test_get_jobs_combines_company_and_status(client, db_conn, test_env):
+    _seed_default_jobs(db_conn, test_env)
+    resp = client.get("/api/jobs", params={"company": "google", "status": "OPEN"})
+    jobs = resp.json()
+    assert len(jobs) == 1
+    assert jobs[0]["company"] == "google"
+    assert jobs[0]["status"] == "OPEN"

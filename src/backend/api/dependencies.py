@@ -56,15 +56,9 @@ def get_db() -> Generator[psycopg2.extensions.connection, None, None]:
             logger.warning("Pool returned a closed connection, replacing")
             _pool.putconn(conn, close=True)
             conn = _pool.getconn()
-        else:
-            try:
-                with conn.cursor() as cur:
-                    cur.execute("SELECT 1")
-                conn.rollback()
-            except Exception:
-                logger.warning("Stale connection detected, replacing")
-                _pool.putconn(conn, close=True)
-                conn = _pool.getconn()
+        elif conn.info.transaction_status != psycopg2.extensions.TRANSACTION_STATUS_IDLE:
+            logger.warning("Connection in unexpected transaction state, resetting")
+            conn.rollback()
         yield conn
     except Exception:
         conn.rollback()

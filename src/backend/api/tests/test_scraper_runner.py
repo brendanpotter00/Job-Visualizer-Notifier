@@ -15,7 +15,7 @@ def config():
     """Minimal Settings for scraper tests."""
     return Settings(
         database_url="postgresql://test:test@localhost/test",
-        scraper_environment="test",
+        scraper_environment="local",
         scraper_scripts_path="/fake/scripts",
         scraper_python_path="/usr/bin/python3",
         scraper_timeout_minutes=5,
@@ -58,7 +58,7 @@ class TestCommandConstruction:
     async def test_detail_scrape_flag_included(self, config):
         config_detail = Settings(
             database_url="postgresql://test:test@localhost/test",
-            scraper_environment="test",
+            scraper_environment="local",
             scraper_scripts_path="/fake/scripts",
             scraper_python_path="/usr/bin/python3",
             scraper_timeout_minutes=5,

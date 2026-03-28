@@ -146,11 +146,12 @@ def test_app(db_conn, test_env):
     app.dependency_overrides[get_db] = override_get_db
 
     app.state.env = test_env
-    # Provide a minimal config for trigger-scrape
+    # Provide a minimal config for trigger-scrape (use "local" for validation;
+    # routes use app.state.env for table selection, not config.scraper_environment)
     from api.config import Settings
     app.state.config = Settings(
         database_url=TEST_DB_URL,
-        scraper_environment=test_env,
+        scraper_environment="local",
     )
 
     return app

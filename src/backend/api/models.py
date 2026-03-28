@@ -1,6 +1,6 @@
 """Pydantic response models with camelCase serialization for frontend compatibility."""
 
-from typing import Literal, Optional
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
@@ -14,13 +14,13 @@ class JobListingResponse(BaseModel):
     id: str
     title: str
     company: str
-    location: Optional[str] = None
+    location: str | None = None
     url: str
     source_id: str
     details: str  # JSON string, not parsed object
     created_at: str
-    posted_on: Optional[str] = None
-    closed_on: Optional[str] = None
+    posted_on: str | None = None
+    closed_on: str | None = None
     status: Literal["OPEN", "CLOSED"]
     has_matched: bool
     ai_metadata: str  # JSON string, not parsed object
@@ -38,7 +38,7 @@ class ScrapeRunResponse(BaseModel):
     run_id: str
     company: str
     started_at: str
-    completed_at: Optional[str] = None
+    completed_at: str | None = None
     mode: Literal["incremental", "full"]
     jobs_seen: int = Field(ge=0)
     new_jobs: int = Field(ge=0)
