@@ -72,11 +72,10 @@ jobs:
                   \"ImageConfiguration\": {
                     \"Port\": \"8080\",
                     \"RuntimeEnvironmentVariables\": {
-                      \"ASPNETCORE_ENVIRONMENT\": \"Production\",
-                      \"Scraper__Environment\": \"prod\"
+                      \"SCRAPER_ENVIRONMENT\": \"prod\"
                     },
                     \"RuntimeEnvironmentSecrets\": {
-                      \"ConnectionStrings__DefaultConnection\": \"arn:aws:secretsmanager:us-east-1:500140837569:secret:job-notifier-db-connection-VdnR40\"
+                      \"DATABASE_URL\": \"arn:aws:secretsmanager:us-east-1:500140837569:secret:job-notifier-db-connection-VdnR40\"
                     }
                   },
                   \"ImageRepositoryType\": \"ECR\"

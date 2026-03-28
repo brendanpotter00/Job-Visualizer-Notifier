@@ -1,12 +1,12 @@
 # CLAUDE.md
 
-Job Posting Analytics - A monorepo containing a TypeScript + React frontend, .NET backend API, and Python scraping scripts. The frontend visualizes job posting activity over time for multiple companies using external ATS APIs (Greenhouse, Lever, Ashby, Workday). Built with Redux Toolkit, Recharts, and Material-UI.
+Job Posting Analytics - A monorepo containing a TypeScript + React frontend, Python FastAPI backend, and Python scraping scripts. The frontend visualizes job posting activity over time for multiple companies using external ATS APIs (Greenhouse, Lever, Ashby, Workday). Built with Redux Toolkit, Recharts, and Material-UI.
 
 ## Project Structure
 
 ```
 ├── src/frontend/          # React SPA (see src/frontend/CLAUDE.md)
-├── src/backend/JobsApi/   # .NET 8 API (see src/backend/CLAUDE.md)
+├── src/backend/api/       # FastAPI backend (see src/backend/CLAUDE.md)
 ├── scripts/               # Python scrapers (see scripts/CLAUDE.md)
 ├── api/                   # Vercel serverless functions (ATS proxies)
 └── docs/                  # Architecture documentation
@@ -37,10 +37,11 @@ npm run format           # Prettier formatting
 docker compose up -d postgres
 
 # Run backend API (from project root)
-cd src/backend/JobsApi && dotnet run
+source .venv/bin/activate
+PYTHONPATH=. uvicorn src.backend.api.main:app --host 0.0.0.0 --port 8000 --reload
 
-# Backend runs on http://localhost:5000
-# Swagger UI: http://localhost:5000/swagger
+# Backend runs on http://localhost:8000
+# API docs: http://localhost:8000/docs
 ```
 
 ## Architecture Quick Reference
