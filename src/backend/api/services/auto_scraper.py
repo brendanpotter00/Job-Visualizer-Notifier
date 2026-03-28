@@ -9,6 +9,7 @@ import asyncio
 import logging
 
 from ..config import Settings
+from .scraper_lock import scraper_lock
 from .scraper_runner import run_scraper
 
 logger = logging.getLogger(__name__)
@@ -35,7 +36,8 @@ async def auto_scraper_loop(config: Settings) -> None:
             for company in companies:
                 logger.info("Starting scrape for %s", company)
                 try:
-                    result = await run_scraper(config, company)
+                    async with scraper_lock:
+                        result = await run_scraper(config, company)
                     if result.exit_code == 0:
                         logger.info("Scrape completed successfully for %s", company)
                     else:

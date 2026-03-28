@@ -50,14 +50,15 @@ def get_db() -> Generator[psycopg2.extensions.connection, None, None]:
     """
     if _pool is None:
         raise RuntimeError("Connection pool not initialized")
-    conn = _pool.getconn()
+    pool = _pool  # Capture reference before yield to avoid shutdown race
+    conn = pool.getconn()
     try:
         if conn.closed:
             logger.warning("Pool returned a closed connection, replacing")
-            _pool.putconn(conn, close=True)
-            conn = _pool.getconn()
+            pool.putconn(conn, close=True)
+            conn = pool.getconn()
             if conn.closed:
-                _pool.putconn(conn, close=True)
+                pool.putconn(conn, close=True)
                 raise RuntimeError("Pool unable to provide a healthy connection")
         elif conn.info.transaction_status != psycopg2.extensions.TRANSACTION_STATUS_IDLE:
             logger.warning("Connection in unexpected transaction state, resetting")
@@ -69,4 +70,4 @@ def get_db() -> Generator[psycopg2.extensions.connection, None, None]:
         raise
     finally:
         if not conn.closed:
-            _pool.putconn(conn)
+            pool.putconn(conn)

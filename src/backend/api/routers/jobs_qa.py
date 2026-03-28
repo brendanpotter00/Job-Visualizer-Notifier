@@ -9,6 +9,7 @@ from psycopg2.extensions import connection as Connection
 from ..dependencies import get_db
 from ..models import JobsStatsResponse, CompanyCountResponse, ScrapeRunResponse
 from ..services.database import get_stats, get_scrape_runs
+from ..services.scraper_lock import scraper_lock
 
 logger = logging.getLogger(__name__)
 
@@ -54,20 +55,27 @@ async def trigger_scrape(
     """Trigger a scrape run in the background. Returns 202 immediately."""
     from ..services.scraper_runner import run_scraper
 
+    if scraper_lock.locked():
+        return JSONResponse(
+            status_code=409,
+            content={"detail": "A scrape is already in progress"},
+        )
+
     config = request.app.state.config
 
     async def _run_scraper_logged():
-        try:
-            result = await run_scraper(config, company)
-            if result.exit_code != 0:
-                logger.warning(
-                    "Triggered scrape for %s finished with exit code %d: %s",
-                    company, result.exit_code, result.error,
-                )
-            else:
-                logger.info("Triggered scrape for %s completed successfully", company)
-        except Exception:
-            logger.exception("Triggered scrape for %s failed", company)
+        async with scraper_lock:
+            try:
+                result = await run_scraper(config, company)
+                if result.exit_code != 0:
+                    logger.warning(
+                        "Triggered scrape for %s finished with exit code %d: %s",
+                        company, result.exit_code, result.error,
+                    )
+                else:
+                    logger.info("Triggered scrape for %s completed successfully", company)
+            except Exception:
+                logger.exception("Triggered scrape for %s failed", company)
 
     background_tasks.add_task(_run_scraper_logged)
 

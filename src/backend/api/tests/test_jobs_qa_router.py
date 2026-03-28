@@ -38,6 +38,20 @@ def test_trigger_scrape_accepts_apple(client):
     assert resp.json()["company"] == "apple"
 
 
+def test_trigger_scrape_returns_409_when_scrape_in_progress(client):
+    from api.services.scraper_lock import scraper_lock
+    import asyncio
+
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(scraper_lock.acquire())
+    try:
+        resp = client.post("/api/jobs-qa/trigger-scrape", params={"company": "google"})
+        assert resp.status_code == 409
+        assert "already in progress" in resp.json()["detail"]
+    finally:
+        scraper_lock.release()
+
+
 # --- stats ---
 
 def test_stats_returns_counts_for_all_companies(client, db_conn, test_env):

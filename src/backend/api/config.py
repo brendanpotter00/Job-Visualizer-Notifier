@@ -21,6 +21,7 @@ class Settings(BaseSettings):
                 f"Invalid scraper_environment: {v!r}. Must be one of {sorted(ALLOWED_ENVIRONMENTS)}"
             )
         return v
+
     scraper_interval_hours: int = Field(default=1, gt=0)
     scraper_companies: str = "apple,google,microsoft"
     scraper_detail_scrape: bool = True
@@ -30,10 +31,15 @@ class Settings(BaseSettings):
 
     # Server
     port: int = 8080
+    cors_origins: str = "http://localhost:3000,http://localhost:5173,http://localhost:8000"
 
     @property
     def companies_list(self) -> list[str]:
         return [c.strip() for c in self.scraper_companies.split(",") if c.strip()]
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

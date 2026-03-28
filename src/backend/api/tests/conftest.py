@@ -80,10 +80,11 @@ def _make_job(overrides: dict | None = None) -> dict:
 def _insert_job(conn, env: str, job: dict) -> None:
     """Insert a job row into the test table."""
     cursor = conn.cursor()
-    table = _get_table_name(env, "jobs")
-    cols = ", ".join(job.keys())
-    placeholders = ", ".join(["%s"] * len(job))
-    cursor.execute(f"INSERT INTO {table} ({cols}) VALUES ({placeholders})", list(job.values()))
+    table = sql.Identifier(_get_table_name(env, "jobs"))
+    cols = sql.SQL(", ").join(sql.Identifier(k) for k in job.keys())
+    placeholders = sql.SQL(", ").join(sql.Placeholder() for _ in job)
+    query = sql.SQL("INSERT INTO {} ({}) VALUES ({})").format(table, cols, placeholders)
+    cursor.execute(query, list(job.values()))
     conn.commit()
 
 
@@ -103,10 +104,11 @@ def _insert_scrape_run(conn, env: str, run: dict) -> None:
     }
     defaults.update(run)
     cursor = conn.cursor()
-    table = _get_table_name(env, "runs")
-    cols = ", ".join(defaults.keys())
-    placeholders = ", ".join(["%s"] * len(defaults))
-    cursor.execute(f"INSERT INTO {table} ({cols}) VALUES ({placeholders})", list(defaults.values()))
+    table = sql.Identifier(_get_table_name(env, "runs"))
+    cols = sql.SQL(", ").join(sql.Identifier(k) for k in defaults.keys())
+    placeholders = sql.SQL(", ").join(sql.Placeholder() for _ in defaults)
+    query = sql.SQL("INSERT INTO {} ({}) VALUES ({})").format(table, cols, placeholders)
+    cursor.execute(query, list(defaults.values()))
     conn.commit()
 
 

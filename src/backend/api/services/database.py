@@ -116,13 +116,13 @@ def get_stats(conn: Connection, env: str, company: str | None = None) -> dict:
                 COUNT(*) FILTER (WHERE status = 'CLOSED') AS closed_jobs
             FROM {} {}
             """).format(table, where),
-            params or None,
+            params if params else None,
         )
         stats_row = cursor.fetchone()
 
         cursor.execute(
             sql.SQL("SELECT company, COUNT(*) AS count FROM {} {} GROUP BY company ORDER BY company").format(table, where),
-            params or None,
+            params if params else None,
         )
         company_counts = [dict(row) for row in cursor.fetchall()]
 
