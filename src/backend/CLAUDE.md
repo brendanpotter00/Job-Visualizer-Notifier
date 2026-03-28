@@ -1,77 +1,102 @@
-# Backend API (JobsApi)
+# Backend API (FastAPI)
 
-.NET 8 Web API that serves job data from PostgreSQL and runs automated scrapers.
+Python FastAPI web API that serves job data from PostgreSQL and runs automated scrapers.
 
 ## Commands
 
 ```bash
-# From src/backend/JobsApi directory
-dotnet run                    # Start API (Development mode, port 5000)
-dotnet build                  # Build project
-dotnet restore                # Restore NuGet packages
+# From project root
+docker compose up -d postgres                    # Start PostgreSQL
+source .venv/bin/activate
+PYTHONPATH=. uvicorn src.backend.api.main:app --host 0.0.0.0 --port 8000 --reload  # Start API (dev)
 
-# From src/backend/JobsApi.Tests directory
-dotnet test                   # Run all tests
-dotnet test --verbosity normal  # Run with detailed output
+# Dependencies
+pip install -r src/backend/api/requirements.txt  # Install API dependencies
 ```
 
 ## Prerequisites
 
 - PostgreSQL running on localhost:5432 (use `docker compose up -d postgres` from project root)
 - Database: `jobscraper` with tables `job_listings_local` and `scrape_runs_local`
+- Python 3.13+ with dependencies from `src/backend/api/requirements.txt`
 
-## Key Configuration
+## Configuration
+
+All configuration via environment variables:
+
+| Env Var | Description | Default |
+|---------|-------------|---------|
+| `DATABASE_URL` | PostgreSQL connection URL | `postgresql://postgres:postgres@localhost:5432/jobscraper` |
+| `SCRAPER_ENVIRONMENT` | Table name suffix (local/qa/prod) | `local` |
+| `SCRAPER_INTERVAL_HOURS` | Hours between auto-scrape cycles | `1` |
+| `SCRAPER_COMPANIES` | Comma-separated company list | `apple,google,microsoft` |
+| `SCRAPER_DETAIL_SCRAPE` | Fetch job detail pages | `true` |
+| `SCRAPER_TIMEOUT_MINUTES` | Max time per scrape | `90` |
+| `SCRAPER_SCRIPTS_PATH` | Path to Python scripts | `../../scripts` (local) / `/app/scripts` (Docker) |
+| `SCRAPER_PYTHON_PATH` | Python interpreter path | `python3` |
+| `PORT` | Server port | `8080` |
+| `CORS_ORIGINS` | Comma-separated allowed origins | `http://localhost:3000,http://localhost:5173,http://localhost:8000` |
 
 **Environment-based table naming:**
-- `Scraper:Environment` in appsettings controls table suffixes
-- Development: `job_listings_local`, `scrape_runs_local`
-- Production: `job_listings_prod`, `scrape_runs_prod`
-
-**Scraper settings (appsettings.json):**
-- `Scraper:IntervalHours` - Hours between automatic scrape cycles (default: 1)
-- `Scraper:Companies` - Array of companies to scrape (e.g., ["google", "apple"])
-- `Scraper:DetailScrape` - Whether to fetch job details (default: true)
-- `Scraper:TimeoutMinutes` - Max time per scrape before killing (default: 60)
-- `Scraper:ScriptsPath` - Path to Python scripts directory
-- `Scraper:PythonPath` - Path to Python interpreter
+- `SCRAPER_ENVIRONMENT=local` → `job_listings_local`, `scrape_runs_local`
+- `SCRAPER_ENVIRONMENT=prod` → `job_listings_prod`, `scrape_runs_prod`
 
 ## API Endpoints
 
-**Jobs Controller (`/api/jobs`):**
+**Jobs Router (`/api/jobs`):**
 - `GET /api/jobs` - List jobs (params: company, status, limit, offset)
 - `GET /api/jobs/{id}` - Get single job by ID
 
-**QA Controller (`/api/jobs-qa`):**
+**QA Router (`/api/jobs-qa`):**
 - `GET /api/jobs-qa/stats` - Job statistics (params: company; returns total, open, closed, by company)
 - `GET /api/jobs-qa/scrape-runs` - Scrape run history (params: company, limit)
 - `POST /api/jobs-qa/trigger-scrape` - Manually trigger scraper (params: company; default: google)
 
 **Health:**
-- `GET /health` - Health check
+- `GET /health` - Health check (returns "OK" 200, or "UNAVAILABLE" 503 if pool is down)
 
 ## Key Files
 
-**Controllers:**
-- `Controllers/JobsController.cs` - Main jobs API
-- `Controllers/JobsQAController.cs` - QA/debugging endpoints
+```
+src/backend/api/
+├── main.py              # FastAPI app, lifespan, health check
+├── config.py            # Pydantic BaseSettings (env vars)
+├── dependencies.py      # Connection pool + get_db FastAPI dependency
+├── models.py            # Response models with camelCase aliases
+├── requirements.txt     # Python dependencies
+├── routers/
+│   ├── jobs.py          # Jobs list and detail endpoints
+│   └── jobs_qa.py       # Stats, scrape runs, trigger scrape
+└── services/
+    ├── database.py      # API query functions (reuses scripts/shared/database.py)
+    ├── scraper_runner.py # Async subprocess runner for scrapers
+    └── auto_scraper.py  # Background scheduled scraping
+```
 
-**Data/Entities:**
-- `Data/Entities/JobsDbContext.cs` - EF Core context with dynamic table naming
-- `Data/Entities/JobListing.cs` - Job entity model
-- `Data/Entities/ScrapeRun.cs` - Scrape run entity model
-- `Data/Entities/JobsStats.cs` - Stats response DTO (includes CompanyCount)
+## Architecture
 
-**Services:**
-- `Services/ScraperProcessRunner.cs` - Python scraper integration (includes ScraperResult, ConnectionStringHelper)
-- `Services/AutoScraperService.cs` - Background service for scheduled scraping
+- **Database**: Connection pool managed by `dependencies.py`; table naming reused from `scripts/shared/database.py`
+- **Response serialization**: Pydantic models with `alias_generator=to_camel` produce camelCase JSON matching frontend expectations
+- **Background scraper**: asyncio task launched in FastAPI lifespan context
+- **Scraper subprocess**: Runs `scripts/run_scraper.py` via `asyncio.create_subprocess_exec`
 
-**Config:**
-- `Program.cs` - App configuration and middleware
-- `appsettings.json` - Default configuration
-- `appsettings.Development.json` - Development overrides
+## Deployment
 
-## Tests
+Production backend is deployed on **Railway** (auto-deploys from GitHub). Railway uses the Dockerfile at `src/backend/Dockerfile`.
 
-The `JobsApi.Tests` project contains xUnit tests with Moq for mocking:
-- `Controllers/JobsQAControllerTests.cs` - QA endpoint tests
-- `Services/ScraperProcessRunnerTests.cs` - Scraper service tests
+Key production env vars to set in Railway:
+- `DATABASE_URL` — PostgreSQL connection string (provided by Railway if using their Postgres plugin)
+- `SCRAPER_ENVIRONMENT=prod`
+- `CORS_ORIGINS` — must include the production frontend domain
+
+## Docker
+
+```bash
+# Build (from project root)
+docker build -f src/backend/Dockerfile -t jobs-api .
+
+# Run
+docker run -p 8080:8080 -e DATABASE_URL=postgresql://... jobs-api
+```
+
+Single-stage Python 3.13-slim image with Playwright browser dependencies.
