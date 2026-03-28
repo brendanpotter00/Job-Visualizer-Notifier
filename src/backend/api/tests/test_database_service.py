@@ -26,11 +26,17 @@ class TestEnsureJsonString:
         s = '{"already": "json"}'
         assert _ensure_json_string(s) == s
 
-    def test_unexpected_type_returns_str_and_warns(self, caplog):
+    def test_unexpected_type_returns_json_and_warns(self, caplog):
         with caplog.at_level(logging.WARNING):
             result = _ensure_json_string(42)
         assert result == "42"
         assert "Unexpected type int" in caplog.text
+
+    def test_bool_returns_json_string(self, caplog):
+        with caplog.at_level(logging.WARNING):
+            result = _ensure_json_string(True)
+        assert result == "true"
+        assert "Unexpected type bool" in caplog.text
 
 
 # --- get_jobs with status filter (integration) ---

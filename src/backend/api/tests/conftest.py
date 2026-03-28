@@ -152,6 +152,7 @@ def test_app(db_conn, test_env):
     app.state.config = Settings(
         database_url=TEST_DB_URL,
         scraper_environment="local",
+        scraper_scripts_path="/nonexistent/scripts",
     )
 
     return app

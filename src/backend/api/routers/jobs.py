@@ -1,6 +1,6 @@
 """Jobs API endpoints - GET /api/jobs, GET /api/jobs/{id}."""
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from psycopg2.extensions import connection as Connection
 
 from ..dependencies import get_db
@@ -28,7 +28,7 @@ def list_jobs(
 @router.get("/{job_id}", response_model=JobListingResponse)
 def get_job(
     request: Request,
-    job_id: str,
+    job_id: str = Path(max_length=200),
     conn: Connection = Depends(get_db),
 ):
     """Get a single job by ID."""

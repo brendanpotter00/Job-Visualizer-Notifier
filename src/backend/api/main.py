@@ -27,8 +27,10 @@ async def lifespan(app: FastAPI):
     try:
         # Ensure schema exists using a temporary connection
         temp_conn = get_connection(settings.database_url, settings.scraper_environment)
-        init_schema(temp_conn, settings.scraper_environment)
-        temp_conn.close()
+        try:
+            init_schema(temp_conn, settings.scraper_environment)
+        finally:
+            temp_conn.close()
         # Create the connection pool for request handling
         init_pool(settings.database_url)
     except Exception:

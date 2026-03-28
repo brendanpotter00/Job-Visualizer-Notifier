@@ -64,6 +64,8 @@ async def trigger_scrape(
                     "Triggered scrape for %s finished with exit code %d: %s",
                     company, result.exit_code, result.error,
                 )
+            else:
+                logger.info("Triggered scrape for %s completed successfully", company)
         except Exception:
             logger.exception("Triggered scrape for %s failed", company)
 
