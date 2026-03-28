@@ -184,7 +184,7 @@ export interface BackendJobDetails {
 
 /**
  * Backend JobListing entity structure
- * Matches the C# JobListing class from the .NET backend
+ * Matches the FastAPI JobListingResponse model (src/backend/api/models.py)
  * Used for all scraped companies (Google, Apple, etc.)
  */
 export interface BackendJobListing {

@@ -1,8 +1,6 @@
 import type { VercelRequest } from '@vercel/node';
 
-// Use localhost for local development, env var for production
+// Returns BACKEND_API_URL env var, falling back to localhost:8000 for local development
 export const getBackendUrl = (req: VercelRequest): string => {
-  const host = req.headers.host || '';
-  const isLocalDev = host.includes('localhost') || host.includes('127.0.0.1');
   return process.env.BACKEND_API_URL || 'http://localhost:8000';
 };

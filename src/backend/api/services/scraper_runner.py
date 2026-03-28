@@ -21,10 +21,8 @@ class ScraperResult:
 async def run_scraper(config: Settings, company: str) -> ScraperResult:
     """Run a scraper as an async subprocess.
 
-    Mirrors C# ScraperProcessRunner behavior:
-    - Builds command: python run_scraper.py --company X --env Y --db-url Z --incremental --headless
-    - Timeout handling with process kill
-    - Captures stdout/stderr
+    Builds command: python run_scraper.py --company X --env Y --db-url Z --incremental --headless [--detail-scrape]
+    Manages timeout with process kill and captures stdout/stderr.
     """
     detail_flag = ["--detail-scrape"] if config.scraper_detail_scrape else []
     args = [
@@ -38,7 +36,19 @@ async def run_scraper(config: Settings, company: str) -> ScraperResult:
         *detail_flag,
     ]
 
-    logger.info("Running scraper: %s", " ".join(args))
+    # Redact --db-url value to avoid logging credentials
+    safe_args = []
+    skip_next = False
+    for arg in args:
+        if skip_next:
+            safe_args.append("***REDACTED***")
+            skip_next = False
+        elif arg == "--db-url":
+            safe_args.append(arg)
+            skip_next = True
+        else:
+            safe_args.append(arg)
+    logger.info("Running scraper: %s", " ".join(safe_args))
 
     try:
         process = await asyncio.create_subprocess_exec(
@@ -64,7 +74,7 @@ async def run_scraper(config: Settings, company: str) -> ScraperResult:
                 completed_at=datetime.now(timezone.utc).isoformat(),
             )
 
-        exit_code = process.returncode or 0
+        exit_code = process.returncode if process.returncode is not None else -3
         logger.info("Scraper exited with code %d", exit_code)
 
         return ScraperResult(
@@ -75,8 +85,20 @@ async def run_scraper(config: Settings, company: str) -> ScraperResult:
             completed_at=datetime.now(timezone.utc).isoformat(),
         )
 
+    except (FileNotFoundError, PermissionError) as ex:
+        logger.error(
+            "Scraper configuration error for %s: %s: %s",
+            company, type(ex).__name__, ex,
+        )
+        return ScraperResult(
+            exit_code=-1,
+            output="",
+            error=f"{type(ex).__name__}: {ex}",
+            company=company,
+            completed_at=datetime.now(timezone.utc).isoformat(),
+        )
     except Exception as ex:
-        logger.error("Failed to run scraper for %s: %s", company, ex)
+        logger.error("Unexpected failure running scraper for %s: %s", company, ex, exc_info=True)
         return ScraperResult(
             exit_code=-1,
             output="",

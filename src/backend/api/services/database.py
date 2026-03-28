@@ -9,7 +9,6 @@ import logging
 from typing import Optional
 
 from scripts.shared.database import (
-    get_connection,
     _get_table_name,
     Connection,
 )
@@ -21,12 +20,18 @@ def _ensure_json_string(value) -> str:
     """Ensure a value is a JSON string (not a parsed dict/list).
 
     psycopg2 with RealDictCursor auto-parses JSONB columns into Python dicts.
-    The frontend expects these as JSON strings to match the C# behavior.
+    The frontend expects these as JSON strings, not parsed objects.
     """
     if isinstance(value, (dict, list)):
         return json.dumps(value)
     if value is None:
         return "{}"
+    if isinstance(value, str):
+        return value
+    logger.warning(
+        "Unexpected type %s in _ensure_json_string, falling back to str()",
+        type(value).__name__,
+    )
     return str(value)
 
 

@@ -7,7 +7,7 @@ import json
 
 from .conftest import _make_job, _insert_job, _insert_scrape_run
 
-# Expected camelCase keys from BackendJobListing (src/frontend/src/api/types.ts:190-208)
+# Expected camelCase keys from BackendJobListing (src/frontend/src/api/types.ts)
 EXPECTED_JOB_KEYS = {
     "id", "title", "company", "location", "url",
     "sourceId", "details", "createdAt", "postedOn", "closedOn",
@@ -15,7 +15,7 @@ EXPECTED_JOB_KEYS = {
     "consecutiveMisses", "detailsScraped",
 }
 
-# Expected camelCase keys from ScrapeRun (src/frontend/src/pages/QAPage/QAPage.tsx:37-48)
+# Expected camelCase keys from ScrapeRun (src/frontend/src/pages/QAPage/QAPage.tsx)
 EXPECTED_SCRAPE_RUN_KEYS = {
     "runId", "company", "startedAt", "completedAt", "mode",
     "jobsSeen", "newJobs", "closedJobs", "detailsFetched", "errorCount",

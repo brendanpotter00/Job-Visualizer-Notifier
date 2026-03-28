@@ -1,18 +1,27 @@
 """QA API endpoints - stats, scrape runs, trigger scrape."""
 
-from fastapi import APIRouter, BackgroundTasks, Query, Request
-from fastapi.responses import JSONResponse
+import logging
 
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request
+from fastapi.responses import JSONResponse
+from psycopg2.extensions import connection as Connection
+
+from ..dependencies import get_db
 from ..models import JobsStatsResponse, CompanyCountResponse, ScrapeRunResponse
 from ..services.database import get_stats, get_scrape_runs
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 
 @router.get("/stats", response_model=JobsStatsResponse)
-def stats(request: Request, company: str | None = None):
+def stats(
+    request: Request,
+    conn: Connection = Depends(get_db),
+    company: str | None = Query(default=None, pattern=r"^[a-zA-Z0-9_-]+$"),
+):
     """Get job statistics with optional company filter."""
-    conn = request.app.state.db_conn
     env = request.app.state.env
     data = get_stats(conn, env, company=company)
     return JobsStatsResponse(
@@ -26,11 +35,11 @@ def stats(request: Request, company: str | None = None):
 @router.get("/scrape-runs", response_model=list[ScrapeRunResponse])
 def scrape_runs(
     request: Request,
-    company: str | None = None,
-    limit: int = Query(default=20, ge=1),
+    conn: Connection = Depends(get_db),
+    company: str | None = Query(default=None, pattern=r"^[a-zA-Z0-9_-]+$"),
+    limit: int = Query(default=20, ge=1, le=1000),
 ):
     """Get scrape run history."""
-    conn = request.app.state.db_conn
     env = request.app.state.env
     runs = get_scrape_runs(conn, env, company=company, limit=limit)
     return [ScrapeRunResponse(**r) for r in runs]
@@ -40,13 +49,25 @@ def scrape_runs(
 async def trigger_scrape(
     request: Request,
     background_tasks: BackgroundTasks,
-    company: str = Query(default="google"),
+    company: str = Query(default="google", pattern=r"^[a-zA-Z0-9_-]+$"),
 ):
     """Trigger a scrape run in the background. Returns 202 immediately."""
     from ..services.scraper_runner import run_scraper
 
     config = request.app.state.config
-    background_tasks.add_task(run_scraper, config, company)
+
+    async def _run_scraper_logged():
+        try:
+            result = await run_scraper(config, company)
+            if result.exit_code != 0:
+                logger.warning(
+                    "Triggered scrape for %s finished with exit code %d: %s",
+                    company, result.exit_code, result.error,
+                )
+        except Exception:
+            logger.exception("Triggered scrape for %s failed", company)
+
+    background_tasks.add_task(_run_scraper_logged)
 
     return JSONResponse(
         status_code=202,

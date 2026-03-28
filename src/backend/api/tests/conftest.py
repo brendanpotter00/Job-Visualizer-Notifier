@@ -128,6 +128,7 @@ def clean_tables(db_conn, test_env):
 def test_app(db_conn, test_env):
     """FastAPI test app with database connection wired up (no auto-scraper)."""
     from api.routers import jobs, jobs_qa
+    from api.dependencies import get_db
 
     app = FastAPI()
     app.include_router(jobs.router, prefix="/api/jobs")
@@ -138,8 +139,12 @@ def test_app(db_conn, test_env):
         from fastapi.responses import PlainTextResponse
         return PlainTextResponse("OK")
 
-    # Wire up app state (same as main.py lifespan, but without auto-scraper)
-    app.state.db_conn = db_conn
+    # Override the get_db dependency to use the test connection
+    def override_get_db():
+        yield db_conn
+
+    app.dependency_overrides[get_db] = override_get_db
+
     app.state.env = test_env
     # Provide a minimal config for trigger-scrape
     from api.config import Settings

@@ -55,7 +55,6 @@ python scripts/run_scraper.py --company google --max-jobs 10
 | Python | 3.13+ | https://python.org or `pyenv install 3.13` |
 | Docker | Any recent | https://docker.com/get-started |
 | Vercel CLI | Latest | `npm i -g vercel` |
-| .NET 8 SDK | *(optional -- legacy backend only)* | https://dot.net/download |
 
 ---
 
@@ -247,16 +246,6 @@ Tables are created automatically on first connection by `scripts/shared/database
 - `scrape_runs_local` -- scrape execution history
 
 The `_local` suffix comes from the `SCRAPER_ENVIRONMENT` setting. Data persists in a Docker volume (`postgres_data`).
-
-### .NET Backend (Legacy)
-
-| | |
-|---|---|
-| Location | `src/backend/JobsApi/` |
-| Framework | .NET 8.0 |
-| Run | `cd src/backend/JobsApi && dotnet run` |
-
-The project is migrating to FastAPI. The .NET backend exposes identical endpoints and can be used as a drop-in alternative. Configuration lives in `appsettings.json`.
 
 ---
 

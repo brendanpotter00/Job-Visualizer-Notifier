@@ -1,4 +1,4 @@
-"""Tests for /api/jobs-qa endpoints — mirrors C# JobsQAControllerTests."""
+"""Tests for /api/jobs-qa endpoints (stats, scrape runs, trigger scrape)."""
 
 from .conftest import _make_job, _insert_job, _insert_scrape_run
 

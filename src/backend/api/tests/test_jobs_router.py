@@ -1,4 +1,4 @@
-"""Tests for GET /api/jobs and GET /api/jobs/{id} — mirrors C# JobsControllerTests."""
+"""Tests for GET /api/jobs and GET /api/jobs/{id} endpoints."""
 
 from .conftest import _make_job, _insert_job
 
