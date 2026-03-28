@@ -84,7 +84,9 @@ class TestGetDb:
             gen = get_db()
             yielded = next(gen)
             assert yielded is conn
-            conn.rollback.assert_called_once()
+            # rollback called twice: once to reset bad transaction state,
+            # once by the SELECT 1 stale-connection probe
+            assert conn.rollback.call_count == 2
             try:
                 next(gen)
             except StopIteration:
@@ -103,7 +105,9 @@ class TestGetDb:
             next(gen)
             with pytest.raises(ValueError):
                 gen.throw(ValueError("test error"))
-            conn.rollback.assert_called_once()
+            # rollback called twice: once by the SELECT 1 probe, once
+            # by the exception handler
+            assert conn.rollback.call_count == 2
 
     def test_returns_connection_to_pool(self):
         conn = MagicMock()
@@ -134,6 +138,9 @@ class TestGetDb:
         with patch("api.dependencies._pool", mock_pool):
             gen = get_db()
             next(gen)
+            # The SELECT 1 probe calls rollback once before yield
+            assert conn.rollback.call_count == 1
+            conn.rollback.reset_mock()
             # Simulate the connection being closed (e.g. server dropped it)
             conn.closed = True
             with pytest.raises(ValueError):

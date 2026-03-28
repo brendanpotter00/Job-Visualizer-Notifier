@@ -12,6 +12,11 @@ PYTHONPATH=. uvicorn src.backend.api.main:app --host 0.0.0.0 --port 8000 --reloa
 
 # Dependencies
 pip install -r src/backend/api/requirements.txt  # Install API dependencies
+
+# Testing (from src/backend/)
+cd src/backend && pytest                                 # Run all backend tests
+cd src/backend && pytest -v                              # Verbose output
+cd src/backend && pytest api/tests/test_jobs_router.py   # Single file
 ```
 
 ## Prerequisites

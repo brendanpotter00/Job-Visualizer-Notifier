@@ -61,21 +61,28 @@ async def trigger_scrape(
             content={"detail": "A scrape is already in progress"},
         )
 
+    # Acquire lock now to eliminate TOCTOU race between the check above and
+    # background task execution.  asyncio.Lock.acquire() returns immediately
+    # when unlocked (no event-loop yield), so no concurrent coroutine can
+    # sneak in between the locked() check and here.
+    await scraper_lock.acquire()
+
     config = request.app.state.config
 
     async def _run_scraper_logged():
-        async with scraper_lock:
-            try:
-                result = await run_scraper(config, company)
-                if result.exit_code != 0:
-                    logger.warning(
-                        "Triggered scrape for %s finished with exit code %d: %s",
-                        company, result.exit_code, result.error,
-                    )
-                else:
-                    logger.info("Triggered scrape for %s completed successfully", company)
-            except Exception:
-                logger.exception("Triggered scrape for %s failed", company)
+        try:
+            result = await run_scraper(config, company)
+            if result.exit_code != 0:
+                logger.warning(
+                    "Triggered scrape for %s finished with exit code %d: %s",
+                    company, result.exit_code, result.error,
+                )
+            else:
+                logger.info("Triggered scrape for %s completed successfully", company)
+        except Exception:
+            logger.exception("Triggered scrape for %s failed", company)
+        finally:
+            scraper_lock.release()
 
     background_tasks.add_task(_run_scraper_logged)
 

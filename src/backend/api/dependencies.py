@@ -63,6 +63,19 @@ def get_db() -> Generator[psycopg2.extensions.connection, None, None]:
         elif conn.info.transaction_status != psycopg2.extensions.TRANSACTION_STATUS_IDLE:
             logger.warning("Connection in unexpected transaction state, resetting")
             conn.rollback()
+        # Probe for stale connections whose TCP socket is broken but
+        # conn.closed still reads as 0 (e.g. after a database restart).
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+            conn.rollback()
+        except Exception:
+            logger.warning("Stale connection detected, replacing")
+            pool.putconn(conn, close=True)
+            conn = pool.getconn()
+            if conn.closed:
+                pool.putconn(conn, close=True)
+                raise RuntimeError("Pool unable to provide a healthy connection")
         yield conn
     except Exception:
         if not conn.closed:
