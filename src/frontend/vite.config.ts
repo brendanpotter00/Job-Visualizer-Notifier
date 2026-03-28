@@ -7,9 +7,9 @@ export default defineConfig({
     port: 3000,
     open: true,
     proxy: {
-      // Proxy to local .NET backend for QA page
+      // Proxy to local FastAPI backend
       '/api/jobs': {
-        target: 'http://localhost:5000',
+        target: 'http://localhost:8000',
         changeOrigin: true,
         secure: false,
       },

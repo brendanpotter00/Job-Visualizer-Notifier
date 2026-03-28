@@ -30,9 +30,6 @@ lerna-debug.log*
 !.vscode/extensions.json
 .idea/
 *.suo
-*.ntvs*
-*.njsproj
-*.sln
 *.sw?
 .DS_Store
 
@@ -43,15 +40,10 @@ lerna-debug.log*
 Thumbs.db
 .vercel
 
-# Data files (root level only, not src/backend/JobsApi/Data/)
+# Data files
 /data/
 *.db
 scripts/output/
-
-# .NET
-bin/
-obj/
-*.DotSettings.user
 
 # Python
 __pycache__/
