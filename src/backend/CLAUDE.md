@@ -80,6 +80,15 @@ src/backend/api/
 - **Background scraper**: asyncio task launched in FastAPI lifespan context
 - **Scraper subprocess**: Runs `scripts/run_scraper.py` via `asyncio.create_subprocess_exec`
 
+## Deployment
+
+Production backend is deployed on **Railway** (auto-deploys from GitHub). Railway uses the Dockerfile at `src/backend/Dockerfile`.
+
+Key production env vars to set in Railway:
+- `DATABASE_URL` — PostgreSQL connection string (provided by Railway if using their Postgres plugin)
+- `SCRAPER_ENVIRONMENT=prod`
+- `CORS_ORIGINS` — must include the production frontend domain
+
 ## Docker
 
 ```bash

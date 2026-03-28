@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from psycopg2.extensions import connection as Connection
 
 from ..dependencies import get_db
-from ..models import JobListingResponse
+from ..models import COMPANY_PATTERN, JobListingResponse
 from ..services.database import get_jobs, get_job_by_id
 
 router = APIRouter()
@@ -14,7 +14,7 @@ router = APIRouter()
 def list_jobs(
     request: Request,
     conn: Connection = Depends(get_db),
-    company: str | None = Query(default=None, pattern=r"^[a-zA-Z0-9_-]+$"),
+    company: str | None = Query(default=None, pattern=COMPANY_PATTERN),
     status: str | None = Query(default=None, pattern=r"^(OPEN|CLOSED)$"),
     limit: int = Query(default=5000, ge=1, le=10000),
     offset: int = Query(default=0, ge=0),

@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 from psycopg2.extensions import connection as Connection
 
 from ..dependencies import get_db
-from ..models import JobsStatsResponse, CompanyCountResponse, ScrapeRunResponse
+from ..models import COMPANY_PATTERN, JobsStatsResponse, CompanyCountResponse, ScrapeRunResponse
 from ..services.database import get_stats, get_scrape_runs
 from ..services.scraper_lock import scraper_lock
 
@@ -20,7 +20,7 @@ router = APIRouter()
 def stats(
     request: Request,
     conn: Connection = Depends(get_db),
-    company: str | None = Query(default=None, pattern=r"^[a-zA-Z0-9_-]+$"),
+    company: str | None = Query(default=None, pattern=COMPANY_PATTERN),
 ):
     """Get job statistics with optional company filter."""
     env = request.app.state.env
@@ -37,7 +37,7 @@ def stats(
 def scrape_runs(
     request: Request,
     conn: Connection = Depends(get_db),
-    company: str | None = Query(default=None, pattern=r"^[a-zA-Z0-9_-]+$"),
+    company: str | None = Query(default=None, pattern=COMPANY_PATTERN),
     limit: int = Query(default=20, ge=1, le=1000),
 ):
     """Get scrape run history."""
@@ -50,7 +50,7 @@ def scrape_runs(
 async def trigger_scrape(
     request: Request,
     background_tasks: BackgroundTasks,
-    company: str = Query(default="google", pattern=r"^[a-zA-Z0-9_-]+$"),
+    company: str = Query(default="google", pattern=COMPANY_PATTERN),
 ):
     """Trigger a scrape run in the background. Returns 202 immediately."""
     from ..services.scraper_runner import run_scraper

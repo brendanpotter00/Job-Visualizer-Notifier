@@ -5,6 +5,9 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
+# Shared validation pattern for company name query parameters
+COMPANY_PATTERN = r"^[a-zA-Z0-9_-]+$"
+
 
 class JobListingResponse(BaseModel):
     """Matches the frontend BackendJobListing TypeScript interface."""

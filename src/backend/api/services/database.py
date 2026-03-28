@@ -49,6 +49,22 @@ def _table_id(env: str, table_type: str = "jobs") -> sql.Identifier:
     return sql.Identifier(_get_table_name(env, table_type))
 
 
+def _build_where(
+    company: str | None = None, status: str | None = None,
+) -> tuple[sql.Composable, list]:
+    """Build a WHERE clause and parameter list from optional filters."""
+    conditions: list[sql.Composable] = []
+    params: list = []
+    if company:
+        conditions.append(sql.SQL("company = %s"))
+        params.append(company)
+    if status:
+        conditions.append(sql.SQL("status = %s"))
+        params.append(status)
+    where = sql.SQL(" WHERE ") + sql.SQL(" AND ").join(conditions) if conditions else sql.SQL("")
+    return where, params
+
+
 def get_jobs(
     conn: Connection,
     env: str,
@@ -60,17 +76,8 @@ def get_jobs(
     """List jobs with optional filters, ordered by last_seen_at DESC."""
     with conn.cursor() as cursor:
         table = _table_id(env)
+        where, params = _build_where(company=company, status=status)
 
-        conditions: list[sql.Composable] = []
-        params: list = []
-        if company:
-            conditions.append(sql.SQL("company = %s"))
-            params.append(company)
-        if status:
-            conditions.append(sql.SQL("status = %s"))
-            params.append(status)
-
-        where = sql.SQL(" WHERE ") + sql.SQL(" AND ").join(conditions) if conditions else sql.SQL("")
         query = sql.SQL("SELECT * FROM {} {} ORDER BY last_seen_at DESC LIMIT %s OFFSET %s").format(
             table, where
         )
@@ -100,37 +107,38 @@ def get_stats(conn: Connection, env: str, company: str | None = None) -> dict:
     """Get job statistics with optional company filter."""
     with conn.cursor() as cursor:
         table = _table_id(env)
+        where, params = _build_where(company=company)
 
-        conditions: list[sql.Composable] = []
-        params: list = []
-        if company:
-            conditions.append(sql.SQL("company = %s"))
-            params.append(company)
-        where = sql.SQL(" WHERE ") + sql.SQL(" AND ").join(conditions) if conditions else sql.SQL("")
-
+        # Single query: per-company counts plus totals via window functions
         cursor.execute(
             sql.SQL("""
             SELECT
-                COUNT(*) AS total_jobs,
-                COUNT(*) FILTER (WHERE status = 'OPEN') AS open_jobs,
-                COUNT(*) FILTER (WHERE status = 'CLOSED') AS closed_jobs
+                company,
+                COUNT(*) AS count,
+                SUM(COUNT(*)) OVER () AS total_jobs,
+                SUM(COUNT(*) FILTER (WHERE status = 'OPEN')) OVER () AS open_jobs,
+                SUM(COUNT(*) FILTER (WHERE status = 'CLOSED')) OVER () AS closed_jobs
             FROM {} {}
+            GROUP BY company
+            ORDER BY company
             """).format(table, where),
             params if params else None,
         )
-        stats_row = cursor.fetchone()
+        rows = cursor.fetchall()
 
-        cursor.execute(
-            sql.SQL("SELECT company, COUNT(*) AS count FROM {} {} GROUP BY company ORDER BY company").format(table, where),
-            params if params else None,
-        )
-        company_counts = [dict(row) for row in cursor.fetchall()]
+        if rows:
+            first = rows[0]
+            total_jobs = first["total_jobs"]
+            open_jobs = first["open_jobs"]
+            closed_jobs = first["closed_jobs"]
+        else:
+            total_jobs = open_jobs = closed_jobs = 0
 
         return {
-            "total_jobs": stats_row["total_jobs"],
-            "open_jobs": stats_row["open_jobs"],
-            "closed_jobs": stats_row["closed_jobs"],
-            "company_counts": company_counts,
+            "total_jobs": total_jobs,
+            "open_jobs": open_jobs,
+            "closed_jobs": closed_jobs,
+            "company_counts": [{"company": r["company"], "count": r["count"]} for r in rows],
         }
 
 
@@ -143,13 +151,7 @@ def get_scrape_runs(
     """Get scrape run history, ordered by started_at DESC."""
     with conn.cursor() as cursor:
         table = _table_id(env, "runs")
-
-        conditions: list[sql.Composable] = []
-        params: list = []
-        if company:
-            conditions.append(sql.SQL("company = %s"))
-            params.append(company)
-        where = sql.SQL(" WHERE ") + sql.SQL(" AND ").join(conditions) if conditions else sql.SQL("")
+        where, params = _build_where(company=company)
 
         params.append(limit)
         cursor.execute(
