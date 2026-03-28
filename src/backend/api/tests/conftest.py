@@ -12,6 +12,7 @@ import psycopg2
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from psycopg2 import sql
 from psycopg2.extras import RealDictCursor
 
 from scripts.shared.database import init_schema, _get_table_name
@@ -44,8 +45,8 @@ def db_conn(test_env):
     cursor = conn.cursor()
     jobs_table = _get_table_name(test_env, "jobs")
     runs_table = _get_table_name(test_env, "runs")
-    cursor.execute(f"DROP TABLE IF EXISTS {jobs_table}")
-    cursor.execute(f"DROP TABLE IF EXISTS {runs_table}")
+    cursor.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(jobs_table)))
+    cursor.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(runs_table)))
     conn.commit()
     conn.close()
 
@@ -114,7 +115,7 @@ def _clear_tables(conn, env: str) -> None:
     cursor = conn.cursor()
     jobs_table = _get_table_name(env, "jobs")
     runs_table = _get_table_name(env, "runs")
-    cursor.execute(f"TRUNCATE {jobs_table}, {runs_table}")
+    cursor.execute(sql.SQL("TRUNCATE {}, {}").format(sql.Identifier(jobs_table), sql.Identifier(runs_table)))
     conn.commit()
 
 

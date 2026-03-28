@@ -101,42 +101,29 @@ def get_stats(conn: Connection, env: str, company: str | None = None) -> dict:
     with conn.cursor() as cursor:
         table = _table_id(env)
 
+        conditions: list[sql.Composable] = []
+        params: list = []
         if company:
-            cursor.execute(
-                sql.SQL("""
-                SELECT
-                    COUNT(*) AS total_jobs,
-                    COUNT(*) FILTER (WHERE status = 'OPEN') AS open_jobs,
-                    COUNT(*) FILTER (WHERE status = 'CLOSED') AS closed_jobs
-                FROM {}
-                WHERE company = %s
-                """).format(table),
-                (company,),
-            )
-        else:
-            cursor.execute(
-                sql.SQL("""
-                SELECT
-                    COUNT(*) AS total_jobs,
-                    COUNT(*) FILTER (WHERE status = 'OPEN') AS open_jobs,
-                    COUNT(*) FILTER (WHERE status = 'CLOSED') AS closed_jobs
-                FROM {}
-                """).format(table),
-            )
+            conditions.append(sql.SQL("company = %s"))
+            params.append(company)
+        where = sql.SQL(" WHERE ") + sql.SQL(" AND ").join(conditions) if conditions else sql.SQL("")
 
+        cursor.execute(
+            sql.SQL("""
+            SELECT
+                COUNT(*) AS total_jobs,
+                COUNT(*) FILTER (WHERE status = 'OPEN') AS open_jobs,
+                COUNT(*) FILTER (WHERE status = 'CLOSED') AS closed_jobs
+            FROM {} {}
+            """).format(table, where),
+            params or None,
+        )
         stats_row = cursor.fetchone()
 
-        # Get per-company counts
-        if company:
-            cursor.execute(
-                sql.SQL("SELECT company, COUNT(*) AS count FROM {} WHERE company = %s GROUP BY company ORDER BY company").format(table),
-                (company,),
-            )
-        else:
-            cursor.execute(
-                sql.SQL("SELECT company, COUNT(*) AS count FROM {} GROUP BY company ORDER BY company").format(table),
-            )
-
+        cursor.execute(
+            sql.SQL("SELECT company, COUNT(*) AS count FROM {} {} GROUP BY company ORDER BY company").format(table, where),
+            params or None,
+        )
         company_counts = [dict(row) for row in cursor.fetchall()]
 
         return {
@@ -157,15 +144,17 @@ def get_scrape_runs(
     with conn.cursor() as cursor:
         table = _table_id(env, "runs")
 
+        conditions: list[sql.Composable] = []
+        params: list = []
         if company:
-            cursor.execute(
-                sql.SQL("SELECT * FROM {} WHERE company = %s ORDER BY started_at DESC LIMIT %s").format(table),
-                (company, limit),
-            )
-        else:
-            cursor.execute(
-                sql.SQL("SELECT * FROM {} ORDER BY started_at DESC LIMIT %s").format(table),
-                (limit,),
-            )
+            conditions.append(sql.SQL("company = %s"))
+            params.append(company)
+        where = sql.SQL(" WHERE ") + sql.SQL(" AND ").join(conditions) if conditions else sql.SQL("")
+
+        params.append(limit)
+        cursor.execute(
+            sql.SQL("SELECT * FROM {} {} ORDER BY started_at DESC LIMIT %s").format(table, where),
+            params,
+        )
 
         return [dict(row) for row in cursor.fetchall()]
