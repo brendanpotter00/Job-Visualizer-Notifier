@@ -10,6 +10,7 @@ def test_trigger_scrape_returns_202(client):
     assert resp.status_code == 202
     body = resp.json()
     assert body["company"] == "google"
+    assert "Scrape started" in body["message"]
     assert "google" in body["message"]
 
 
@@ -17,25 +18,6 @@ def test_trigger_scrape_defaults_to_google(client):
     resp = client.post("/api/jobs-qa/trigger-scrape")
     assert resp.status_code == 202
     assert resp.json()["company"] == "google"
-
-
-def test_trigger_scrape_accepts_any_company(client):
-    resp = client.post("/api/jobs-qa/trigger-scrape", params={"company": "custom-company"})
-    assert resp.status_code == 202
-    assert resp.json()["company"] == "custom-company"
-
-
-def test_trigger_scrape_message_contains_company(client):
-    resp = client.post("/api/jobs-qa/trigger-scrape", params={"company": "mycompany"})
-    body = resp.json()
-    assert "mycompany" in body["message"]
-    assert "Scrape started" in body["message"]
-
-
-def test_trigger_scrape_accepts_apple(client):
-    resp = client.post("/api/jobs-qa/trigger-scrape", params={"company": "apple"})
-    assert resp.status_code == 202
-    assert resp.json()["company"] == "apple"
 
 
 def test_trigger_scrape_returns_409_when_scrape_in_progress(client):

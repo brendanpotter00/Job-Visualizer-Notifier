@@ -145,12 +145,7 @@ class TestStartupDelay:
 class TestBackoff:
     @pytest.mark.asyncio
     async def test_backoff_increases_on_repeated_failure(self, config):
-        """Outer-loop errors should trigger exponential backoff.
-
-        An error in the for-loop body (outside the inner try/except) prevents
-        the loop from completing, so consecutive_failures is never reset and
-        backoff escalates: 60 → 120 → 240.
-        """
+        """Outer-loop errors trigger exponential backoff: 60 -> 120 -> 240."""
         sleep_args = []
         backoff_count = 0
 
@@ -164,17 +159,20 @@ class TestBackoff:
                 if backoff_count >= 3:
                     raise asyncio.CancelledError
 
-        # Patch the logger so the "Starting scrape for" log raises before
-        # entering the inner try/except — this triggers the outer except.
+        # Force an error in the outer try block (outside inner per-company
+        # try/except) by raising on logger.info calls inside the while loop.
+        info_calls = 0
+
+        def info_raises_in_loop(*args, **kwargs):
+            nonlocal info_calls
+            info_calls += 1
+            if info_calls > 1:  # first call is startup log
+                raise RuntimeError("simulated error")
+
         with patch("api.services.auto_scraper.run_scraper") as mock_run, \
              patch("api.services.auto_scraper.logger") as mock_logger, \
              patch("asyncio.sleep", side_effect=mock_sleep):
-
-            def info_side_effect(msg, *args):
-                if "Starting scrape for" in str(msg):
-                    raise RuntimeError("simulated outer-loop error")
-
-            mock_logger.info = MagicMock(side_effect=info_side_effect)
+            mock_logger.info = MagicMock(side_effect=info_raises_in_loop)
             mock_logger.exception = MagicMock()
 
             with pytest.raises(asyncio.CancelledError):
@@ -183,7 +181,4 @@ class TestBackoff:
             mock_run.assert_not_called()
 
         backoff_sleeps = [s for s in sleep_args if s >= 60]
-        assert len(backoff_sleeps) >= 3
-        assert backoff_sleeps[0] == 60
-        assert backoff_sleeps[1] == 120
-        assert backoff_sleeps[2] == 240
+        assert backoff_sleeps[:3] == [60, 120, 240]

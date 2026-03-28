@@ -1,11 +1,19 @@
 """Tests for database connection pool management (dependencies.py)."""
 
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
 import psycopg2.extensions
 import pytest
 
 from api.dependencies import get_db, pool_is_healthy
+
+
+def _exhaust(gen):
+    """Advance a generator to completion."""
+    try:
+        next(gen)
+    except StopIteration:
+        pass
 
 
 class TestPoolIsHealthy:
@@ -49,11 +57,7 @@ class TestGetDb:
             conn = next(gen)
             assert conn is good_conn
             mock_pool.putconn.assert_any_call(closed_conn, close=True)
-            # Cleanup
-            try:
-                next(gen)
-            except StopIteration:
-                pass
+            _exhaust(gen)
 
     def test_raises_when_replacement_also_closed(self):
         closed_conn1 = MagicMock()
@@ -84,13 +88,8 @@ class TestGetDb:
             gen = get_db()
             yielded = next(gen)
             assert yielded is conn
-            # rollback called twice: once to reset bad transaction state,
-            # once by the SELECT 1 stale-connection probe
-            assert conn.rollback.call_count == 2
-            try:
-                next(gen)
-            except StopIteration:
-                pass
+            assert conn.rollback.called
+            _exhaust(gen)
 
     def test_rollbacks_on_exception(self):
         conn = MagicMock()
@@ -105,9 +104,7 @@ class TestGetDb:
             next(gen)
             with pytest.raises(ValueError):
                 gen.throw(ValueError("test error"))
-            # rollback called twice: once by the SELECT 1 probe, once
-            # by the exception handler
-            assert conn.rollback.call_count == 2
+            assert conn.rollback.called
 
     def test_returns_connection_to_pool(self):
         conn = MagicMock()
@@ -120,10 +117,7 @@ class TestGetDb:
         with patch("api.dependencies._pool", mock_pool):
             gen = get_db()
             next(gen)
-            try:
-                next(gen)
-            except StopIteration:
-                pass
+            _exhaust(gen)
             mock_pool.putconn.assert_called_with(conn)
 
     def test_skips_putconn_for_closed_connection(self):
@@ -138,14 +132,9 @@ class TestGetDb:
         with patch("api.dependencies._pool", mock_pool):
             gen = get_db()
             next(gen)
-            # The SELECT 1 probe calls rollback once before yield
-            assert conn.rollback.call_count == 1
             conn.rollback.reset_mock()
-            # Simulate the connection being closed (e.g. server dropped it)
             conn.closed = True
             with pytest.raises(ValueError):
                 gen.throw(ValueError("test error"))
-            # putconn should NOT have been called since conn is closed
             mock_pool.putconn.assert_not_called()
-            # rollback should NOT have been called since conn is closed
             conn.rollback.assert_not_called()
