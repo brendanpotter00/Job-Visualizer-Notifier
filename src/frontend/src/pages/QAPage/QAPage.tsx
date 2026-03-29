@@ -111,8 +111,9 @@ export function QAPage() {
         setLoading(true);
         setError(null);
         // Build URL with company filter if selected
-        const companyParam = selectedCompany !== 'all' ? `&company=${selectedCompany}` : '';
-        const response = await fetch(`/api/jobs?status=${companyParam}`);
+        const params = new URLSearchParams();
+        if (selectedCompany !== 'all') params.set('company', selectedCompany);
+        const response = await fetch(`/api/jobs?${params}`);
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
