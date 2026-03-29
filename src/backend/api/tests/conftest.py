@@ -16,6 +16,7 @@ from psycopg2 import sql
 from psycopg2.extras import RealDictCursor
 
 from scripts.shared.database import init_schema, _get_table_name
+from api.services.users import init_users_schema
 
 # Default test database URL (same as docker-compose)
 TEST_DB_URL = os.environ.get(
@@ -40,6 +41,7 @@ def db_conn(test_env):
     """PostgreSQL connection with test tables created and cleaned up after."""
     conn = psycopg2.connect(TEST_DB_URL, cursor_factory=RealDictCursor)
     init_schema(conn, test_env)
+    init_users_schema(conn)
     yield conn
     # Cleanup: drop test tables
     cursor = conn.cursor()
@@ -47,6 +49,7 @@ def db_conn(test_env):
     runs_table = _get_table_name(test_env, "runs")
     cursor.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(jobs_table)))
     cursor.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(runs_table)))
+    cursor.execute("DROP TABLE IF EXISTS users")
     conn.commit()
     conn.close()
 
@@ -118,6 +121,7 @@ def _clear_tables(conn, env: str) -> None:
     jobs_table = _get_table_name(env, "jobs")
     runs_table = _get_table_name(env, "runs")
     cursor.execute(sql.SQL("TRUNCATE {}, {}").format(sql.Identifier(jobs_table), sql.Identifier(runs_table)))
+    cursor.execute("TRUNCATE users RESTART IDENTITY CASCADE")
     conn.commit()
 
 
@@ -130,12 +134,13 @@ def clean_tables(db_conn, test_env):
 @pytest.fixture(scope="module")
 def test_app(db_conn, test_env):
     """FastAPI test app with database connection wired up (no auto-scraper)."""
-    from api.routers import jobs, jobs_qa
+    from api.routers import jobs, jobs_qa, auth
     from api.dependencies import get_db
 
     app = FastAPI()
     app.include_router(jobs.router, prefix="/api/jobs")
     app.include_router(jobs_qa.router, prefix="/api/jobs-qa")
+    app.include_router(auth.router, prefix="/api/auth")
 
     @app.get("/health")
     def health():
@@ -156,6 +161,8 @@ def test_app(db_conn, test_env):
         database_url=TEST_DB_URL,
         scraper_environment="local",
         scraper_scripts_path="/nonexistent/scripts",
+        google_client_id="test-google-client-id",
+        jwt_secret="test-jwt-secret",
     )
 
     return app

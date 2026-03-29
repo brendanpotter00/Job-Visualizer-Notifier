@@ -64,3 +64,30 @@ class JobsStatsResponse(BaseModel):
     open_jobs: int
     closed_jobs: int
     company_counts: list[CompanyCountResponse]
+
+
+class GoogleAuthRequest(BaseModel):
+    """Request body for POST /api/auth/google."""
+
+    credential: str
+
+
+class UserResponse(BaseModel):
+    """User profile data returned from auth endpoints."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    id: int
+    email: str
+    name: str
+    picture: str | None = None
+    is_admin: bool
+
+
+class AuthResponse(BaseModel):
+    """JWT token + user profile returned from login."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    token: str
+    user: UserResponse

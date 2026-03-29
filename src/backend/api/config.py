@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     port: int = 8080
     cors_origins: str = "http://localhost:3000,http://localhost:5173,http://localhost:8000"
 
+    # Auth
+    google_client_id: str = ""
+    jwt_secret: str = "dev-secret-change-me"
+
     @property
     def companies_list(self) -> list[str]:
         return [c.strip() for c in self.scraper_companies.split(",") if c.strip()]

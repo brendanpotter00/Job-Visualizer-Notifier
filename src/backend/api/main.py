@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 
 from .config import settings
 from .dependencies import init_pool, close_pool, pool_is_healthy
-from .routers import jobs, jobs_qa
+from .routers import jobs, jobs_qa, auth
 from .services.users import init_users_schema
 from scripts.shared.database import init_schema, get_connection
 
@@ -82,6 +82,7 @@ app.add_middleware(
 
 app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])
 app.include_router(jobs_qa.router, prefix="/api/jobs-qa", tags=["jobs-qa"])
+app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 
 
 @app.exception_handler(Exception)
