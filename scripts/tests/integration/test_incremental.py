@@ -274,9 +274,9 @@ class TestRunIncrementalScrape:
         assert dict(row)["mode"] == "incremental"
 
     @pytest.mark.asyncio
-    async def test_run_incremental_scrape_closes_missing_jobs(self, in_memory_db, test_env, mock_scraper):
-        """Jobs missing for 2 consecutive runs get closed"""
-        # Insert job that will be missing
+    async def test_run_incremental_scrape_empty_scrape_skips_closure(self, in_memory_db, test_env, mock_scraper):
+        """Empty scrape with active jobs in DB triggers safety guard - jobs NOT closed"""
+        # Insert job that would normally be closed on 2nd miss
         existing_job = JobListing(
             id="will-be-closed",
             title="Closing Job",
@@ -290,17 +290,76 @@ class TestRunIncrementalScrape:
         )
         db.insert_job(in_memory_db, existing_job, env=test_env)
 
-        # Mock scraper returns empty (job is missing)
+        # Mock scraper returns empty (simulates scraper failure)
         mock_scraper.scrape_all_queries = AsyncMock(return_value=[])
 
         result = await run_incremental_scrape(
             mock_scraper, in_memory_db, env=test_env, company="google", detail_scrape=False
         )
 
-        # Job should be closed (2nd miss)
+        # Safety guard should prevent closure
+        job = db.get_job_by_id(in_memory_db, "will-be-closed", env=test_env)
+        assert job["status"] == "OPEN"
+        assert job["consecutive_misses"] == 1  # Unchanged
+        assert result.closed_jobs == 0
+        assert result.skipped_update is True
+
+    @pytest.mark.asyncio
+    async def test_run_incremental_scrape_nonempty_scrape_closes_missing(self, in_memory_db, test_env, mock_scraper):
+        """Non-empty scrape with missing jobs still closes them normally"""
+        # Insert two jobs: one will be seen, one will be missing
+        seen_job = JobListing(
+            id="still-active",
+            title="Active Job",
+            company="google",
+            url="https://example.com/active",
+            source_id="google_scraper",
+            created_at="2024-01-10T10:00:00Z",
+            first_seen_at="2024-01-10T10:00:00Z",
+            last_seen_at="2024-01-10T10:00:00Z",
+        )
+        missing_job = JobListing(
+            id="will-be-closed",
+            title="Closing Job",
+            company="google",
+            url="https://example.com/closing",
+            source_id="google_scraper",
+            created_at="2024-01-10T10:00:00Z",
+            first_seen_at="2024-01-10T10:00:00Z",
+            last_seen_at="2024-01-10T10:00:00Z",
+            consecutive_misses=1  # Already missed once
+        )
+        db.insert_job(in_memory_db, seen_job, env=test_env)
+        db.insert_job(in_memory_db, missing_job, env=test_env)
+
+        # Scraper returns only the active job (missing_job is absent)
+        mock_scraper.scrape_all_queries = AsyncMock(return_value=[
+            {"id": "still-active", "title": "Active Job", "job_url": "https://example.com/active"},
+        ])
+
+        result = await run_incremental_scrape(
+            mock_scraper, in_memory_db, env=test_env, company="google", detail_scrape=False
+        )
+
+        # Missing job should be closed (non-empty scrape, normal behavior)
         job = db.get_job_by_id(in_memory_db, "will-be-closed", env=test_env)
         assert job["status"] == "CLOSED"
         assert result.closed_jobs == 1
+        assert result.skipped_update is False
+
+    @pytest.mark.asyncio
+    async def test_run_incremental_scrape_empty_scrape_empty_db(self, in_memory_db, test_env, mock_scraper):
+        """Empty scrape with empty DB does not trigger safety guard"""
+        # No jobs in database
+        mock_scraper.scrape_all_queries = AsyncMock(return_value=[])
+
+        result = await run_incremental_scrape(
+            mock_scraper, in_memory_db, env=test_env, company="google", detail_scrape=False
+        )
+
+        assert result.jobs_seen == 0
+        assert result.skipped_update is False
+        assert result.closed_jobs == 0
 
 
 class TestScrapeResult:
@@ -316,6 +375,7 @@ class TestScrapeResult:
         assert result.details_fetched == 0
         assert result.error_count == 0
         assert result.run_id is not None  # Auto-generated
+        assert result.skipped_update is False
 
     def test_scrape_result_with_values(self):
         """ScrapeResult accepts custom values"""
@@ -334,3 +394,9 @@ class TestScrapeResult:
         assert result.details_fetched == 10
         assert result.error_count == 2
         assert result.run_id == "custom-run-id"
+        assert result.skipped_update is False
+
+    def test_scrape_result_skipped_update(self):
+        """ScrapeResult accepts skipped_update flag"""
+        result = ScrapeResult(skipped_update=True)
+        assert result.skipped_update is True

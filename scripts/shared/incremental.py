@@ -38,6 +38,7 @@ class ScrapeResult:
         details_fetched: int = 0,
         error_count: int = 0,
         run_id: str = None,
+        skipped_update: bool = False,
     ):
         self.jobs_seen = jobs_seen
         self.new_jobs = new_jobs
@@ -45,6 +46,7 @@ class ScrapeResult:
         self.details_fetched = details_fetched
         self.error_count = error_count
         self.run_id = run_id or str(uuid.uuid4())
+        self.skipped_update = skipped_update
 
 
 def calculate_job_diff(
@@ -224,19 +226,31 @@ async def run_incremental_scrape(
         active_known_ids = db.get_active_job_ids(db_conn, company, env)
         new_ids, still_active_ids, missing_ids = calculate_job_diff(current_ids, active_known_ids)
 
-        # Phase 3: Fetch details ONLY for new jobs
-        logger.info("Phase 3: Fetching details for new jobs...")
-        new_job_cards = [job for job in job_cards if job['id'] in new_ids]
-        result.details_fetched = await process_new_jobs(
-            scraper, db_conn, new_job_cards, env, detail_scrape
-        )
-        result.new_jobs = len(new_ids)
+        # Safety guard: skip update/close phases if scraper returned 0 jobs
+        # but database has active jobs. Prevents mass closure from scraper
+        # failures (anti-bot blocking, Playwright crash, network issues, etc.)
+        if result.jobs_seen == 0 and active_known_ids:
+            logger.warning(
+                "EMPTY SCRAPE DETECTED for %s: scraper returned 0 jobs but %d active "
+                "jobs exist in database. Skipping update/close phases to prevent mass "
+                "closure. Investigate scraper health.",
+                company, len(active_known_ids),
+            )
+            result.skipped_update = True
+        else:
+            # Phase 3: Fetch details ONLY for new jobs
+            logger.info("Phase 3: Fetching details for new jobs...")
+            new_job_cards = [job for job in job_cards if job['id'] in new_ids]
+            result.details_fetched = await process_new_jobs(
+                scraper, db_conn, new_job_cards, env, detail_scrape
+            )
+            result.new_jobs = len(new_ids)
 
-        # Phase 4 & 5: Update existing jobs and mark closed
-        logger.info("Phase 4 & 5: Updating job status...")
-        result.closed_jobs = update_existing_jobs(
-            db_conn, still_active_ids, missing_ids, env
-        )
+            # Phase 4 & 5: Update existing jobs and mark closed
+            logger.info("Phase 4 & 5: Updating job status...")
+            result.closed_jobs = update_existing_jobs(
+                db_conn, still_active_ids, missing_ids, env
+            )
 
     except Exception as e:
         logger.error(f"Incremental scrape failed for {company}: {e}")
@@ -273,6 +287,7 @@ async def run_incremental_scrape(
         f"Incremental scrape complete - "
         f"Seen: {result.jobs_seen}, New: {result.new_jobs}, "
         f"Closed: {result.closed_jobs}, Details: {result.details_fetched}"
+        f"{', SKIPPED UPDATE (empty scrape guard)' if result.skipped_update else ''}"
     )
 
     return result
