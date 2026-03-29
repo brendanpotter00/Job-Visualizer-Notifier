@@ -5,7 +5,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const { status, company, limit, offset } = req.query;
 
   const params = new URLSearchParams();
-  if (status !== undefined) params.set('status', String(status));
+  if (status) params.set('status', String(status));
   if (company) params.set('company', String(company));
   if (limit) params.set('limit', String(limit));
   if (offset) params.set('offset', String(offset));
