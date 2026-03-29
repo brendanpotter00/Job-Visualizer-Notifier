@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from .config import settings
 from .dependencies import init_pool, close_pool, pool_is_healthy
 from .routers import jobs, jobs_qa
+from .services.users import init_users_schema
 from scripts.shared.database import init_schema, get_connection
 
 logging.basicConfig(
@@ -29,6 +30,7 @@ async def lifespan(app: FastAPI):
         temp_conn = get_connection(settings.database_url, settings.scraper_environment)
         try:
             init_schema(temp_conn, settings.scraper_environment)
+            init_users_schema(temp_conn)
         finally:
             temp_conn.close()
         # Create the connection pool for request handling
