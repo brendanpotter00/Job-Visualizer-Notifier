@@ -93,6 +93,24 @@ def test_post_google_login_returns_same_user_on_re_login(mock_verify, client):
     assert resp1.json()["user"]["id"] == resp2.json()["user"]["id"]
 
 
+MOCK_GOOGLE_USER_UPDATED = {
+    **MOCK_GOOGLE_USER,
+    "name": "Alice Updated",
+    "picture": "https://example.com/alice-new.jpg",
+}
+
+
+def test_post_google_login_updates_profile_on_re_login(client):
+    with patch("api.routers.auth.verify_google_token", return_value=MOCK_GOOGLE_USER):
+        resp1 = client.post("/api/auth/google", json={"credential": "fake-token"})
+    with patch("api.routers.auth.verify_google_token", return_value=MOCK_GOOGLE_USER_UPDATED):
+        resp2 = client.post("/api/auth/google", json={"credential": "fake-token"})
+
+    assert resp1.json()["user"]["id"] == resp2.json()["user"]["id"]
+    assert resp2.json()["user"]["name"] == "Alice Updated"
+    assert resp2.json()["user"]["picture"] == "https://example.com/alice-new.jpg"
+
+
 @patch("api.routers.auth.verify_google_token", side_effect=ValueError("bad token"))
 def test_post_google_login_invalid_token(mock_verify, client):
     resp = client.post("/api/auth/google", json={"credential": "bad-token"})
@@ -144,7 +162,7 @@ def test_get_me_user_deleted(client, db_conn):
 
     resp = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 401
-    assert resp.json()["detail"] == "User not found"
+    assert resp.json()["detail"] == "Not authenticated"
 
 
 def test_post_google_login_no_client_id_configured(client, test_app):

@@ -30,8 +30,8 @@ def get_current_user(
 
     try:
         payload = decode_jwt(token, config.jwt_secret)
+        user_id = int(payload["sub"])
     except Exception:
         return None
 
-    user_id = int(payload["sub"])
     return get_user_by_id(conn, user_id)

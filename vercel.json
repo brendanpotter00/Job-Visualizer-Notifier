@@ -25,6 +25,10 @@
       "destination": "/api/jobs-qa?path=:path"
     },
     {
+      "source": "/api/auth/:path(.*)",
+      "destination": "/api/auth?path=:path"
+    },
+    {
       "source": "/recent-jobs",
       "destination": "/index.html"
     },
@@ -51,7 +55,7 @@
         },
         {
           "key": "Access-Control-Allow-Headers",
-          "value": "Content-Type, X-Workday-Base-Url"
+          "value": "Content-Type, X-Workday-Base-Url, Authorization"
         }
       ]
     }

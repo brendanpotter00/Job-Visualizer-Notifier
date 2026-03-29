@@ -6,9 +6,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from psycopg2.extensions import connection as Connection
 
 from ..dependencies import get_db
+from ..middleware.auth import get_current_user
 from ..models import AuthResponse, GoogleAuthRequest, UserResponse
-from ..services.auth import create_jwt, decode_jwt, verify_google_token
-from ..services.users import find_or_create_user, get_user_by_id
+from ..services.auth import create_jwt, verify_google_token
+from ..services.users import find_or_create_user
 
 logger = logging.getLogger(__name__)
 
@@ -52,26 +53,10 @@ def google_login(
 
 @router.get("/me", response_model=UserResponse)
 def get_me(
-    request: Request,
-    conn: Connection = Depends(get_db),
+    user: dict | None = Depends(get_current_user),
 ):
     """Return the current user from JWT in Authorization header."""
-    config = request.app.state.config
-
-    auth_header = request.headers.get("authorization", "")
-    if not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
-
-    token = auth_header[7:]
-
-    try:
-        payload = decode_jwt(token, config.jwt_secret)
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
-
-    user_id = int(payload["sub"])
-    user = get_user_by_id(conn, user_id)
     if user is None:
-        raise HTTPException(status_code=401, detail="User not found")
+        raise HTTPException(status_code=401, detail="Not authenticated")
 
     return UserResponse(**user)
