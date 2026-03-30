@@ -240,6 +240,40 @@ class TestOutputLogging:
         assert any("last 20 lines" in s for s in info_calls)
 
     @pytest.mark.asyncio
+    async def test_logs_stderr_on_success(self, config):
+        """On exit_code 0, stderr is also logged at INFO when non-empty."""
+
+        async def mock_run(cfg, company):
+            return ScraperResult(
+                exit_code=0,
+                output="ok",
+                error="WARNING: some diagnostic info",
+                company=company,
+                completed_at="2025-01-15T00:00:00Z",
+            )
+
+        call_count = 0
+
+        async def mock_sleep(seconds):
+            nonlocal call_count
+            call_count += 1
+            if call_count >= 2:
+                raise asyncio.CancelledError
+
+        with patch("api.services.auto_scraper.run_scraper", side_effect=mock_run), \
+             patch("asyncio.sleep", side_effect=mock_sleep), \
+             patch("api.services.auto_scraper.logger") as mock_logger:
+            mock_logger.info = MagicMock()
+            mock_logger.warning = MagicMock()
+            mock_logger.exception = MagicMock()
+
+            with pytest.raises(asyncio.CancelledError):
+                await auto_scraper_loop(config)
+
+        info_calls = [str(c) for c in mock_logger.info.call_args_list]
+        assert any("last 30 lines" in s for s in info_calls)
+
+    @pytest.mark.asyncio
     async def test_logs_stdout_on_failure(self, config):
         """On non-zero exit code, stdout is logged at WARNING."""
 
