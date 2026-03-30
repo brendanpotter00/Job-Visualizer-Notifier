@@ -15,6 +15,12 @@ from .scraper_runner import run_scraper
 logger = logging.getLogger(__name__)
 
 
+def _tail(text: str, n: int) -> str:
+    """Return the last *n* lines of *text*, or all of it if shorter."""
+    lines = text.rstrip("\n").splitlines()
+    return "\n".join(lines[-n:]) if lines else ""
+
+
 async def auto_scraper_loop(config: Settings) -> None:
     """Run scrapers in a loop. Intended to be launched as an asyncio task."""
     companies = config.companies_list
@@ -40,6 +46,11 @@ async def auto_scraper_loop(config: Settings) -> None:
                         result = await run_scraper(config, company)
                     if result.exit_code == 0:
                         logger.info("Scrape completed successfully for %s", company)
+                        if result.output:
+                            logger.info(
+                                "Scraper output for %s (last 20 lines):\n%s",
+                                company, _tail(result.output, 20),
+                            )
                     else:
                         logger.warning(
                             "Scrape finished with exit code %d for %s: %s",
@@ -47,6 +58,11 @@ async def auto_scraper_loop(config: Settings) -> None:
                             company,
                             result.error,
                         )
+                        if result.output:
+                            logger.warning(
+                                "Scraper stdout for %s (last 50 lines):\n%s",
+                                company, _tail(result.output, 50),
+                            )
                 except Exception:
                     logger.exception("Unexpected error scraping %s", company)
 
