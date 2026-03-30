@@ -51,9 +51,9 @@ async def extract_jobs_from_hydration_data(page: Page) -> tuple[List[Dict[str, A
         job_cards = []
 
         for item in data["searchResults"]:
-            raw_id = str(item.get("id", item.get("positionId", "")))
+            raw_id = item.get("id") or item.get("positionId") or ""
             # Strip PIPE- prefix that Apple adds to hydration IDs
-            job_id = raw_id.removeprefix("PIPE-") if raw_id else ""
+            job_id = str(raw_id).removeprefix("PIPE-") if raw_id else ""
             if not job_id:
                 continue
 

@@ -163,6 +163,24 @@ class TestExtractJobsFromHydrationData:
         assert cards == []
         assert total == 1
 
+    @pytest.mark.asyncio
+    async def test_skips_entries_with_null_id(self):
+        """Entries with explicit None id and positionId are skipped"""
+        from unittest.mock import AsyncMock
+
+        page = AsyncMock()
+        page.evaluate.return_value = {
+            "totalRecords": 1,
+            "searchResults": [
+                {"id": None, "positionId": None, "postingTitle": "Null ID Job", "team": {}, "locations": []},
+            ],
+        }
+
+        cards, total = await extract_jobs_from_hydration_data(page)
+
+        assert cards == []
+        assert total == 1
+
 
 class TestJobIdLocationVariants:
     """Tests for handling same job with different locations"""

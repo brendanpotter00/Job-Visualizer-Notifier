@@ -195,6 +195,7 @@ async def run_database_mode(args):
                 console.print(f"Details fetched: {result.details_fetched}")
                 if result.skipped_update:
                     console.print("[bold yellow]⚠ Update skipped: scraper returned 0 jobs with active jobs in DB[/bold yellow]")
+                    # Exit code 3 = safety guard triggered. Note: short-circuits --company all.
                     sys.exit(3)
 
             else:
