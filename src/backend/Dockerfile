@@ -1,12 +1,5 @@
 FROM python:3.13-slim
 
-# Playwright browser dependencies
-RUN apt-get update && apt-get install -y \
-    libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 \
-    libcups2 libdrm2 libxkbcommon0 libxcomposite1 \
-    libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 \
-    && rm -rf /var/lib/apt/lists/*
-
 WORKDIR /app
 
 # Install API dependencies
@@ -17,8 +10,10 @@ RUN pip install --no-cache-dir -r api-requirements.txt
 COPY scripts/requirements.txt ./scripts-requirements.txt
 RUN pip install --no-cache-dir -r scripts-requirements.txt
 
-# Install Playwright chromium
-RUN playwright install chromium
+# Install Playwright chromium with ALL system dependencies.
+# The --with-deps flag is required on slim base images (python:3.13-slim)
+# which lack the system libraries Chromium needs for rendering heavy pages.
+RUN playwright install --with-deps chromium
 
 # Copy API code
 COPY src/backend/api/ ./api/

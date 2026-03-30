@@ -158,7 +158,9 @@ class AppleJobsScraper(BaseScraper):
                             f"Collected {len(all_jobs)} jobs before failure."
                         )
                         break
-                    # Try next page
+                    # Create a fresh page — crashed pages can't be reused
+                    await page.close()
+                    page = await self.context.new_page()
                     page_num += 1
                     await self._random_delay()
                     continue
