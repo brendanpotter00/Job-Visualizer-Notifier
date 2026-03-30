@@ -18,7 +18,8 @@ from shared.incremental import (
     update_existing_jobs,
     run_incremental_scrape,
     ScrapeResult,
-    MISSED_RUN_THRESHOLD
+    MISSED_RUN_THRESHOLD,
+    SAFETY_GUARD_RATIO,
 )
 
 
@@ -360,6 +361,67 @@ class TestRunIncrementalScrape:
         assert result.jobs_seen == 0
         assert result.skipped_update is False
         assert result.closed_jobs == 0
+
+    @pytest.mark.asyncio
+    async def test_partial_scrape_triggers_safety_guard(self, in_memory_db, test_env, mock_scraper):
+        """Scraper returning fewer jobs than SAFETY_GUARD_RATIO triggers guard"""
+        # Insert 100 jobs in DB
+        for i in range(100):
+            job = JobListing(
+                id=f"job-{i}",
+                title=f"Job {i}",
+                company="google",
+                url=f"https://example.com/job-{i}",
+                source_id="google_scraper",
+                created_at="2024-01-10T10:00:00Z",
+                first_seen_at="2024-01-10T10:00:00Z",
+                last_seen_at="2024-01-10T10:00:00Z",
+                consecutive_misses=1,
+            )
+            db.insert_job(in_memory_db, job, env=test_env)
+
+        # Return 5 jobs (5% < 10% threshold) — simulates crash after first page
+        mock_scraper.scrape_all_queries = AsyncMock(return_value=[
+            {"id": f"job-{i}", "title": f"Job {i}", "job_url": f"https://example.com/job-{i}"}
+            for i in range(5)
+        ])
+
+        result = await run_incremental_scrape(
+            mock_scraper, in_memory_db, env=test_env, company="google", detail_scrape=False
+        )
+
+        assert result.skipped_update is True
+        assert result.closed_jobs == 0
+
+    @pytest.mark.asyncio
+    async def test_scrape_at_threshold_does_not_trigger_guard(self, in_memory_db, test_env, mock_scraper):
+        """Scraper returning exactly at SAFETY_GUARD_RATIO does NOT trigger guard"""
+        # Insert 100 jobs in DB
+        for i in range(100):
+            job = JobListing(
+                id=f"job-{i}",
+                title=f"Job {i}",
+                company="google",
+                url=f"https://example.com/job-{i}",
+                source_id="google_scraper",
+                created_at="2024-01-10T10:00:00Z",
+                first_seen_at="2024-01-10T10:00:00Z",
+                last_seen_at="2024-01-10T10:00:00Z",
+                consecutive_misses=1,
+            )
+            db.insert_job(in_memory_db, job, env=test_env)
+
+        # Return 10 jobs (10% = threshold, not below) — normal operation proceeds
+        mock_scraper.scrape_all_queries = AsyncMock(return_value=[
+            {"id": f"job-{i}", "title": f"Job {i}", "job_url": f"https://example.com/job-{i}"}
+            for i in range(10)
+        ])
+
+        result = await run_incremental_scrape(
+            mock_scraper, in_memory_db, env=test_env, company="google", detail_scrape=False
+        )
+
+        assert result.skipped_update is False
 
 
 class TestScrapeResult:
