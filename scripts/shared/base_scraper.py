@@ -156,6 +156,7 @@ class BaseScraper(ABC):
                 "--disable-blink-features=AutomationControlled",
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
             ],
         )
 
