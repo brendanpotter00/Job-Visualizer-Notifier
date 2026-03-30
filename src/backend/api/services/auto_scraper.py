@@ -51,6 +51,11 @@ async def auto_scraper_loop(config: Settings) -> None:
                                 "Scraper output for %s (last 20 lines):\n%s",
                                 company, _tail(result.output, 20),
                             )
+                        if result.error:
+                            logger.info(
+                                "Scraper stderr for %s (last 30 lines):\n%s",
+                                company, _tail(result.error, 30),
+                            )
                     else:
                         logger.warning(
                             "Scrape finished with exit code %d for %s: %s",
