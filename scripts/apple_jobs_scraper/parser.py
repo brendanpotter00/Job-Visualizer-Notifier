@@ -18,76 +18,6 @@ class JobCardExtractionError(Exception):
     pass
 
 
-async def extract_jobs_from_hydration_data(page: Page) -> tuple[List[Dict[str, Any]], int]:
-    """
-    Extract job listings from React Router hydration data embedded in the page.
-
-    Apple's job site (React Router v7 SSR) embeds structured job data in
-    window.__staticRouterHydrationData.  When the page is served to bots with
-    an empty DOM, this data may still be present and is more reliable than
-    DOM scraping.
-
-    Returns:
-        Tuple of (job_cards, total_records).
-        job_cards is an empty list if hydration data is unavailable.
-    """
-    try:
-        data = await page.evaluate("""
-            () => {
-                const hydration = window.__staticRouterHydrationData;
-                if (!hydration?.loaderData?.search) return null;
-                const search = hydration.loaderData.search;
-                return {
-                    totalRecords: search.totalRecords || 0,
-                    searchResults: search.searchResults || [],
-                };
-            }
-        """)
-
-        if not data or not data.get("searchResults"):
-            return [], 0
-
-        total_records = data.get("totalRecords", 0)
-        job_cards = []
-
-        for item in data["searchResults"]:
-            raw_id = item.get("id") or item.get("positionId") or ""
-            # Strip PIPE- prefix that Apple adds to hydration IDs
-            job_id = str(raw_id).removeprefix("PIPE-") if raw_id else ""
-            if not job_id:
-                continue
-
-            title = item.get("postingTitle", item.get("title", ""))
-            team = item.get("team", {})
-            team_name = team.get("teamName", "") if isinstance(team, dict) else str(team)
-            locations = item.get("locations", [])
-            location = ", ".join(
-                loc.get("name", str(loc)) if isinstance(loc, dict) else str(loc)
-                for loc in locations
-            ) if locations else None
-            posted_date = item.get("postDateInGMT")
-
-            job_cards.append({
-                "id": job_id,
-                "title": title,
-                "job_url": f"https://jobs.apple.com/en-us/details/{job_id}",
-                "team": team_name or None,
-                "location": location,
-                "posted_date": posted_date,
-                "company": "apple",
-            })
-
-        logger.info(
-            "Hydration data: %d jobs extracted (totalRecords=%d)",
-            len(job_cards), total_records,
-        )
-        return job_cards, total_records
-
-    except Exception as e:
-        logger.debug("Hydration data extraction failed: %s", e)
-        return [], 0
-
-
 async def extract_job_cards_from_list(page: Page) -> List[Dict[str, Any]]:
     """
     Extract job listings from Apple search results page
@@ -101,13 +31,6 @@ async def extract_job_cards_from_list(page: Page) -> List[Dict[str, Any]]:
     Raises:
         JobCardExtractionError: If the job list cannot be found or parsed
     """
-    # Try hydration data first — more reliable when DOM is empty due to bot detection
-    hydration_cards, _total = await extract_jobs_from_hydration_data(page)
-    if hydration_cards:
-        logger.info("Using hydration data path (%d jobs)", len(hydration_cards))
-        return hydration_cards
-
-    # Fall back to DOM extraction
     job_cards = []
     parse_errors = 0
 

@@ -177,35 +177,6 @@ class AppleJobsScraper(BaseScraper):
                     break
 
                 if not job_cards:
-                    if page_num == 1:
-                        # First page returned nothing — collect diagnostics
-                        try:
-                            diag = await page.evaluate("""
-                                () => {
-                                    const hydration = window.__staticRouterHydrationData;
-                                    const search = hydration?.loaderData?.search;
-                                    const ul = document.querySelector('ul[aria-label="Job Opportunities"]');
-                                    const body = document.body?.innerText || '';
-                                    return {
-                                        hasHydration: !!hydration,
-                                        totalRecords: search?.totalRecords ?? null,
-                                        searchResultsLen: search?.searchResults?.length ?? null,
-                                        ulChildrenCount: ul ? ul.children.length : null,
-                                        pageTitle: document.title,
-                                        url: location.href,
-                                        bodyLength: body.length,
-                                        hasCaptcha: /captcha|robot|blocked|verify/i.test(body),
-                                    };
-                                }
-                            """)
-                            logger.error(
-                                "EMPTY PAGE 1 for Apple — diagnostics: %s", diag,
-                            )
-                        except Exception as diag_err:
-                            logger.error(
-                                "EMPTY PAGE 1 for Apple — diagnostics collection failed: %s",
-                                diag_err,
-                            )
                     logger.info("No more jobs found")
                     break
 

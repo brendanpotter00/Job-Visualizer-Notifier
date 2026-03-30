@@ -26,6 +26,12 @@ logger = logging.getLogger(__name__)
 # Threshold for marking jobs as closed (number of consecutive misses)
 MISSED_RUN_THRESHOLD = 2
 
+# Safety guard: if scraped jobs fall below this ratio of active DB jobs,
+# skip update/close phases. Catches full failures (0 jobs) and partial
+# failures (e.g., scraper crashed after first page). With 0.1, a company
+# with 5000 active jobs must return at least 500 to proceed.
+SAFETY_GUARD_RATIO = 0.1
+
 
 class ScrapeResult:
     """Result object returned by incremental scrape"""
@@ -226,15 +232,17 @@ async def run_incremental_scrape(
         active_known_ids = db.get_active_job_ids(db_conn, company, env)
         new_ids, still_active_ids, missing_ids = calculate_job_diff(current_ids, active_known_ids)
 
-        # Safety guard: skip update/close phases if scraper returned 0 jobs
-        # but database has active jobs. Prevents mass closure from scraper
-        # failures (anti-bot blocking, Playwright crash, network issues, etc.)
-        if result.jobs_seen == 0 and active_known_ids:
+        # Safety guard: skip update/close phases if scraper returned
+        # suspiciously few jobs relative to active DB count. Catches full
+        # failures (0 jobs) and partial failures (e.g., crash after page 1).
+        min_expected = len(active_known_ids) * SAFETY_GUARD_RATIO
+        if active_known_ids and result.jobs_seen < min_expected:
             logger.warning(
-                "EMPTY SCRAPE DETECTED for %s: scraper returned 0 jobs but %d active "
-                "jobs exist in database. Skipping update/close phases to prevent mass "
-                "closure. Investigate scraper health.",
-                company, len(active_known_ids),
+                "SAFETY GUARD for %s: scraper returned %d jobs but %d active "
+                "jobs in database (threshold %.0f%% = %d). Skipping update/close "
+                "phases to prevent mass closure. Investigate scraper health.",
+                company, result.jobs_seen, len(active_known_ids),
+                SAFETY_GUARD_RATIO * 100, int(min_expected),
             )
             result.skipped_update = True
         else:
