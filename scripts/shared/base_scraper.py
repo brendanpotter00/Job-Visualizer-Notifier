@@ -20,9 +20,14 @@ BROWSER_CONFIG = {
     "user_agent": (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
+        "Chrome/133.0.0.0 Safari/537.36"
     ),
     "locale": "en-US",
+    "extra_http_headers": {
+        "Sec-Ch-Ua": '"Chromium";v="133", "Not(A:Brand";v="99", "Google Chrome";v="133"',
+        "Sec-Ch-Ua-Mobile": "?0",
+        "Sec-Ch-Ua-Platform": '"macOS"',
+    },
 }
 
 
@@ -158,6 +163,12 @@ class BaseScraper(ABC):
             viewport=BROWSER_CONFIG["viewport"],
             user_agent=BROWSER_CONFIG["user_agent"],
             locale=BROWSER_CONFIG["locale"],
+            extra_http_headers=BROWSER_CONFIG["extra_http_headers"],
+        )
+
+        # Override navigator.webdriver to avoid bot detection
+        await self.context.add_init_script(
+            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
         )
 
         logger.info("Browser initialized successfully")

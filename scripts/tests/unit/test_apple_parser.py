@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from apple_jobs_scraper.parser import extract_job_id_from_url
+from apple_jobs_scraper.parser import extract_job_id_from_url, extract_jobs_from_hydration_data
 
 
 class TestExtractJobIdFromUrl:
@@ -54,6 +54,114 @@ class TestExtractJobIdFromUrl:
         """Returns None for malformed URL"""
         assert extract_job_id_from_url("not-a-url") is None
         assert extract_job_id_from_url("/en-us/details/") is None  # No ID after /details/
+
+
+class TestExtractJobsFromHydrationData:
+    """Tests for extract_jobs_from_hydration_data function"""
+
+    @pytest.mark.asyncio
+    async def test_extracts_jobs_from_valid_hydration(self):
+        """Extracts job cards from well-formed hydration data"""
+        from unittest.mock import AsyncMock
+
+        page = AsyncMock()
+        page.evaluate.return_value = {
+            "totalRecords": 2,
+            "searchResults": [
+                {
+                    "id": "PIPE-114438158",
+                    "postingTitle": "Software Engineer",
+                    "team": {"teamName": "Engineering"},
+                    "locations": [{"name": "Cupertino, CA"}],
+                    "postDateInGMT": "2026-03-01T00:00:00Z",
+                },
+                {
+                    "positionId": "200640732",
+                    "postingTitle": "Data Scientist",
+                    "team": "ML/AI",
+                    "locations": [],
+                    "postDateInGMT": "2026-03-15T00:00:00Z",
+                },
+            ],
+        }
+
+        cards, total = await extract_jobs_from_hydration_data(page)
+
+        assert total == 2
+        assert len(cards) == 2
+
+        # First card: PIPE- prefix stripped
+        assert cards[0]["id"] == "114438158"
+        assert cards[0]["title"] == "Software Engineer"
+        assert cards[0]["team"] == "Engineering"
+        assert cards[0]["location"] == "Cupertino, CA"
+        assert cards[0]["company"] == "apple"
+        assert "details/114438158" in cards[0]["job_url"]
+
+        # Second card: positionId fallback, string team
+        assert cards[1]["id"] == "200640732"
+        assert cards[1]["team"] == "ML/AI"
+        assert cards[1]["location"] is None
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_when_no_hydration(self):
+        """Returns empty list when hydration data is missing"""
+        from unittest.mock import AsyncMock
+
+        page = AsyncMock()
+        page.evaluate.return_value = None
+
+        cards, total = await extract_jobs_from_hydration_data(page)
+
+        assert cards == []
+        assert total == 0
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_when_search_results_empty(self):
+        """Returns empty list when searchResults is empty"""
+        from unittest.mock import AsyncMock
+
+        page = AsyncMock()
+        page.evaluate.return_value = {
+            "totalRecords": 0,
+            "searchResults": [],
+        }
+
+        cards, total = await extract_jobs_from_hydration_data(page)
+
+        assert cards == []
+        assert total == 0
+
+    @pytest.mark.asyncio
+    async def test_handles_evaluate_exception(self):
+        """Returns empty list if page.evaluate() raises"""
+        from unittest.mock import AsyncMock
+
+        page = AsyncMock()
+        page.evaluate.side_effect = Exception("page crashed")
+
+        cards, total = await extract_jobs_from_hydration_data(page)
+
+        assert cards == []
+        assert total == 0
+
+    @pytest.mark.asyncio
+    async def test_skips_entries_without_id(self):
+        """Entries with no id or positionId are skipped"""
+        from unittest.mock import AsyncMock
+
+        page = AsyncMock()
+        page.evaluate.return_value = {
+            "totalRecords": 1,
+            "searchResults": [
+                {"postingTitle": "No ID Job", "team": {}, "locations": []},
+            ],
+        }
+
+        cards, total = await extract_jobs_from_hydration_data(page)
+
+        assert cards == []
+        assert total == 1
 
 
 class TestJobIdLocationVariants:

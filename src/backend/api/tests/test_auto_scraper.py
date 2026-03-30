@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from api.config import Settings
-from api.services.auto_scraper import auto_scraper_loop
+from api.services.auto_scraper import auto_scraper_loop, _tail
 from api.services.scraper_runner import ScraperResult
 
 
@@ -182,3 +182,93 @@ class TestBackoff:
 
         backoff_sleeps = [s for s in sleep_args if s >= 60]
         assert backoff_sleeps[:3] == [60, 120, 240]
+
+
+# -- _tail helper --
+
+
+class TestTail:
+    def test_last_n_lines(self):
+        assert _tail("a\nb\nc\nd\ne", 3) == "c\nd\ne"
+
+    def test_fewer_lines_than_n(self):
+        assert _tail("a\nb", 5) == "a\nb"
+
+    def test_empty_string(self):
+        assert _tail("", 5) == ""
+
+    def test_trailing_newlines_stripped(self):
+        assert _tail("a\nb\nc\n", 2) == "b\nc"
+
+
+# -- Subprocess output logging --
+
+
+class TestOutputLogging:
+    @pytest.mark.asyncio
+    async def test_logs_stdout_on_success(self, config):
+        """On exit_code 0, last 20 lines of stdout are logged at INFO."""
+
+        async def mock_run(cfg, company):
+            return ScraperResult(
+                exit_code=0,
+                output="line1\nline2\nline3",
+                error="",
+                company=company,
+                completed_at="2025-01-15T00:00:00Z",
+            )
+
+        call_count = 0
+
+        async def mock_sleep(seconds):
+            nonlocal call_count
+            call_count += 1
+            if call_count >= 2:
+                raise asyncio.CancelledError
+
+        with patch("api.services.auto_scraper.run_scraper", side_effect=mock_run), \
+             patch("asyncio.sleep", side_effect=mock_sleep), \
+             patch("api.services.auto_scraper.logger") as mock_logger:
+            mock_logger.info = MagicMock()
+            mock_logger.warning = MagicMock()
+            mock_logger.exception = MagicMock()
+
+            with pytest.raises(asyncio.CancelledError):
+                await auto_scraper_loop(config)
+
+        info_calls = [str(c) for c in mock_logger.info.call_args_list]
+        assert any("last 20 lines" in s for s in info_calls)
+
+    @pytest.mark.asyncio
+    async def test_logs_stdout_on_failure(self, config):
+        """On non-zero exit code, stdout is logged at WARNING."""
+
+        async def mock_run(cfg, company):
+            return ScraperResult(
+                exit_code=1,
+                output="scraper output here",
+                error="some error",
+                company=company,
+                completed_at="2025-01-15T00:00:00Z",
+            )
+
+        call_count = 0
+
+        async def mock_sleep(seconds):
+            nonlocal call_count
+            call_count += 1
+            if call_count >= 2:
+                raise asyncio.CancelledError
+
+        with patch("api.services.auto_scraper.run_scraper", side_effect=mock_run), \
+             patch("asyncio.sleep", side_effect=mock_sleep), \
+             patch("api.services.auto_scraper.logger") as mock_logger:
+            mock_logger.info = MagicMock()
+            mock_logger.warning = MagicMock()
+            mock_logger.exception = MagicMock()
+
+            with pytest.raises(asyncio.CancelledError):
+                await auto_scraper_loop(config)
+
+        warning_calls = [str(c) for c in mock_logger.warning.call_args_list]
+        assert any("last 50 lines" in s for s in warning_calls)
