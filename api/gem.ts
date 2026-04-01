@@ -5,14 +5,6 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
  * Routes: /api/gem/* -> https://api.gem.com/*
  */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // Handle CORS preflight requests
-  if (req.method === 'OPTIONS') {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-    return res.status(200).end();
-  }
-
   // Extract the path after /api/gem
   const { query } = req;
   const pathParts = Array.isArray(query.path) ? query.path : [query.path].filter(Boolean);
@@ -25,6 +17,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   console.log('[Gem Proxy] Request:', {
     method: req.method,
     targetUrl,
+    headers: req.headers,
   });
 
   try {

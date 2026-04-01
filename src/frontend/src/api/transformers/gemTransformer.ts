@@ -28,7 +28,7 @@ export function transformGemJob(raw: GemJobResponse, companyId: string): Job {
     company: companyId,
     title: raw.title,
     department: raw.departments?.[0]?.name,
-    location: raw.offices?.[0]?.name ?? raw.location?.name,
+    location: raw.offices?.[0]?.name || raw.location?.name,
     isRemote: raw.location_type === 'remote',
     employmentType: normalizeEmploymentType(raw.employment_type),
     createdAt: raw.first_published_at || raw.created_at,

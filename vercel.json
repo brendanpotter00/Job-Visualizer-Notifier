@@ -5,6 +5,14 @@
   "outputDirectory": "src/frontend/dist",
   "rewrites": [
     {
+      "source": "/api/ashby/:path(.*)",
+      "destination": "/api/ashby?path=:path"
+    },
+    {
+      "source": "/api/gem/:path(.*)",
+      "destination": "/api/gem?path=:path"
+    },
+    {
       "source": "/api/greenhouse/:path(.*)",
       "destination": "/api/greenhouse?path=:path"
     },
@@ -13,16 +21,8 @@
       "destination": "/api/lever?path=:path"
     },
     {
-      "source": "/api/ashby/:path(.*)",
-      "destination": "/api/ashby?path=:path"
-    },
-    {
       "source": "/api/workday/:path(.*)",
       "destination": "/api/workday?path=:path"
-    },
-    {
-      "source": "/api/gem/:path(.*)",
-      "destination": "/api/gem?path=:path"
     },
     {
       "source": "/api/jobs-qa/:path(.*)",

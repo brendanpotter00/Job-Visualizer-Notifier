@@ -12,7 +12,7 @@ export const gemClient = createAPIClient<GemJobResponse[], GemConfig>({
 
   buildUrl: (config) => {
     const baseUrl = config.apiBaseUrl || '/api/gem';
-    return `${baseUrl}/job_board/v0/${config.vanityUrlPath}/job_posts/`;
+    return `${baseUrl}/job_board/v0/${config.vanityUrlPath}/job_posts`;
   },
 
   extractJobs: (response) => response,

@@ -51,6 +51,21 @@ describe('transformGemJob', () => {
     expect(result.location).toBe('New York, NY');
   });
 
+  it('should fall back to location.name when office name is empty string', () => {
+    const jobWithEmptyOfficeName: GemJobResponse = {
+      ...mockGemJob,
+      offices: [
+        {
+          id: 'office-1',
+          name: '',
+          location: { name: '' },
+        },
+      ],
+    };
+    const result = transformGemJob(jobWithEmptyOfficeName, 'nominal');
+    expect(result.location).toBe('New York, United States');
+  });
+
   it('should fall back to location.name when offices array is empty', () => {
     const jobWithNoOffices: GemJobResponse = {
       ...mockGemJob,
