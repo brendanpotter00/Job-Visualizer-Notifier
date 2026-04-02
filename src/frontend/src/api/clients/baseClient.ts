@@ -3,6 +3,7 @@ import type {
   GreenhouseConfig,
   LeverConfig,
   AshbyConfig,
+  GemConfig,
   WorkdayConfig,
   BackendScraperConfig,
 } from '../../types';
@@ -15,6 +16,7 @@ export type ATSCompanyConfig =
   | GreenhouseConfig
   | LeverConfig
   | AshbyConfig
+  | GemConfig
   | WorkdayConfig
   | BackendScraperConfig;
 

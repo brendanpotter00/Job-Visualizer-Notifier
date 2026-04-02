@@ -2,6 +2,7 @@ import type {
   AshbyConfig,
   BackendScraperConfig,
   Company,
+  GemConfig,
   GreenhouseConfig,
   LeverConfig,
   WorkdayConfig,
@@ -73,6 +74,34 @@ function createLeverCompany(
 
 interface AshbyOptions extends FactoryOptions {
   jobBoardName?: string;
+}
+
+interface GemOptions extends FactoryOptions {
+  vanityUrlPath?: string;
+}
+
+/**
+ * Factory function for Gem companies.
+ * Defaults vanityUrlPath to the company id.
+ */
+function createGemCompany(
+  id: string,
+  name: string,
+  options: GemOptions = {}
+): Company {
+  const vanityUrlPath = options.vanityUrlPath ?? id;
+  const config: GemConfig = {
+    type: 'gem',
+    vanityUrlPath,
+  };
+  return {
+    id,
+    name,
+    ats: 'gem',
+    config,
+    jobsUrl: `https://jobs.gem.com/${vanityUrlPath}`,
+    recruiterLinkedInUrl: options.recruiterLinkedInUrl,
+  };
 }
 
 /**
@@ -292,6 +321,9 @@ export const COMPANIES: Company[] = [
   createAshbyCompany('gigaml', 'GigaML', { jobBoardName: 'GigaML' }),
   createAshbyCompany('sesame', 'Sesame'),
 
+  // Gem companies
+  createGemCompany('nominal', 'Nominal'),
+
   // Workday companies
   createWorkdayCompany(
     'nvidia',
@@ -430,6 +462,7 @@ export const enum COMPANY_IDS {
   Microsoft = 'microsoft',
   Netflix = 'netflix',
   Neuralink = 'neuralink',
+  Nominal = 'nominal',
   Notion = 'notion',
   Nuro = 'nuro',
   Nvidia = 'nvidia',

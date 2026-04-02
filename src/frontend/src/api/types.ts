@@ -3,6 +3,7 @@ import type {
   GreenhouseConfig,
   LeverConfig,
   AshbyConfig,
+  GemConfig,
   WorkdayConfig,
   BackendScraperConfig,
 } from '../types';
@@ -106,6 +107,28 @@ export interface AshbyJobResponse {
 export interface AshbyAPIResponse {
   apiVersion?: string;
   jobs: AshbyJobResponse[];
+}
+
+/**
+ * Gem job board API response
+ * @see https://api.gem.com/job_board/v0/reference
+ */
+export interface GemJobResponse {
+  id: string;
+  title: string;
+  absolute_url: string;
+  content: string;
+  content_plain: string;
+  created_at: string;
+  updated_at: string;
+  first_published_at: string | null;
+  employment_type: string | null;
+  location_type: string | null;
+  location: { name: string } | null;
+  departments: Array<{ id: string; name: string }>;
+  offices: Array<{ id: string; name: string; location?: { name: string } }>;
+  internal_job_id: string;
+  requisition_id: string;
 }
 
 /**
@@ -219,7 +242,7 @@ export interface JobAPIClient {
    * @returns Normalized jobs array
    */
   fetchJobs(
-    config: GreenhouseConfig | LeverConfig | AshbyConfig | WorkdayConfig | BackendScraperConfig,
+    config: GreenhouseConfig | LeverConfig | AshbyConfig | GemConfig | WorkdayConfig | BackendScraperConfig,
     options?: FetchJobsOptions
   ): Promise<FetchJobsResult>;
 }
@@ -250,7 +273,7 @@ export class APIError extends Error {
   constructor(
     message: string,
     public statusCode?: number,
-    public atsProvider?: 'greenhouse' | 'lever' | 'ashby' | 'workday' | 'backend-scraper',
+    public atsProvider?: 'greenhouse' | 'lever' | 'ashby' | 'gem' | 'workday' | 'backend-scraper',
     public retryable: boolean = false
   ) {
     super(message);
@@ -262,6 +285,7 @@ export enum ATSConstants {
   Greenhouse = 'greenhouse',
   Workday = 'workday',
   Ashby = 'ashby',
+  Gem = 'gem',
   Lever = 'lever',
   BackendScraper = 'backend-scraper',
 }
