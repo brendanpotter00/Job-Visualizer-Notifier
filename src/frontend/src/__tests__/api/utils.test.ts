@@ -3,7 +3,6 @@ import { getClientForATS } from '../../api/utils';
 import { greenhouseClient } from '../../api/clients/greenhouseClient';
 import { leverClient } from '../../api/clients/leverClient';
 import { ashbyClient } from '../../api/clients/ashbyClient';
-import { gemClient } from '../../api/clients/gemClient';
 import { workdayClient } from '../../api/clients/workdayClient';
 
 describe('getClientForATS', () => {
@@ -20,11 +19,6 @@ describe('getClientForATS', () => {
   it('returns ashbyClient for ashby ATS type', () => {
     const client = getClientForATS('ashby');
     expect(client).toBe(ashbyClient);
-  });
-
-  it('returns gemClient for gem ATS type', () => {
-    const client = getClientForATS('gem');
-    expect(client).toBe(gemClient);
   });
 
   it('returns workdayClient for workday ATS type', () => {

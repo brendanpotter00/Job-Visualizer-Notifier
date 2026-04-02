@@ -5,7 +5,7 @@
 /**
  * ATS provider type
  */
-export type ATSProvider = 'greenhouse' | 'lever' | 'ashby' | 'workday' | 'gem' | 'backend-scraper';
+export type ATSProvider = 'greenhouse' | 'lever' | 'ashby' | 'workday' | 'backend-scraper';
 
 /**
  * Normalized job posting model.
@@ -134,17 +134,6 @@ export interface AshbyConfig {
 }
 
 /**
- * Gem-specific configuration
- */
-export interface GemConfig {
-  type: 'gem';
-  /** Vanity URL path (company slug on jobs.gem.com) */
-  vanityUrlPath: string;
-  /** Optional custom API base URL */
-  apiBaseUrl?: string;
-}
-
-/**
  * Workday-specific configuration
  */
 export interface WorkdayConfig {
@@ -190,7 +179,7 @@ export interface Company {
   ats: ATSProvider;
 
   /** ATS-specific configuration */
-  config: GreenhouseConfig | LeverConfig | AshbyConfig | GemConfig | WorkdayConfig | BackendScraperConfig;
+  config: GreenhouseConfig | LeverConfig | AshbyConfig | WorkdayConfig | BackendScraperConfig;
 
   /** Optional URL to company's job postings website */
   jobsUrl?: string;
