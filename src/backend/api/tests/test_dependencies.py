@@ -1,6 +1,6 @@
 """Tests for database connection pool management (dependencies.py)."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import psycopg2.extensions
 import pytest
@@ -56,7 +56,7 @@ class TestGetDb:
             gen = get_db()
             conn = next(gen)
             assert conn is good_conn
-            mock_pool.putconn.assert_any_call(closed_conn, close=True)
+            mock_pool.putconn.assert_any_call(closed_conn, key=ANY, close=True)
             _exhaust(gen)
 
     def test_raises_when_replacement_also_closed(self):
@@ -73,8 +73,8 @@ class TestGetDb:
             gen = get_db()
             with pytest.raises(RuntimeError, match="Pool unable to provide a healthy connection"):
                 next(gen)
-            mock_pool.putconn.assert_any_call(closed_conn1, close=True)
-            mock_pool.putconn.assert_any_call(closed_conn2, close=True)
+            mock_pool.putconn.assert_any_call(closed_conn1, key=ANY, close=True)
+            mock_pool.putconn.assert_any_call(closed_conn2, key=ANY, close=True)
 
     def test_resets_bad_transaction_state(self):
         conn = MagicMock()
@@ -118,7 +118,7 @@ class TestGetDb:
             gen = get_db()
             next(gen)
             _exhaust(gen)
-            mock_pool.putconn.assert_called_with(conn)
+            mock_pool.putconn.assert_called_with(conn, key=ANY)
 
     def test_skips_putconn_for_closed_connection(self):
         """If the connection is closed after an error, don't try to return it."""

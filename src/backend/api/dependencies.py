@@ -1,6 +1,7 @@
 """FastAPI dependencies for database connection management."""
 
 import logging
+import uuid
 from typing import Generator
 
 import psycopg2.extensions
@@ -51,14 +52,18 @@ def get_db() -> Generator[psycopg2.extensions.connection, None, None]:
     if _pool is None:
         raise RuntimeError("Connection pool not initialized")
     pool = _pool  # Capture reference before yield to avoid shutdown race
-    conn = pool.getconn()
+    # Use an explicit key instead of the default thread-id key.
+    # FastAPI runs __enter__ and __exit__ of sync generators in different
+    # threads via run_in_threadpool, so thread-based keying leaks connections.
+    key = str(uuid.uuid4())
+    conn = pool.getconn(key=key)
     try:
         if conn.closed:
             logger.warning("Pool returned a closed connection, replacing")
-            pool.putconn(conn, close=True)
-            conn = pool.getconn()
+            pool.putconn(conn, key=key, close=True)
+            conn = pool.getconn(key=key)
             if conn.closed:
-                pool.putconn(conn, close=True)
+                pool.putconn(conn, key=key, close=True)
                 raise RuntimeError("Pool unable to provide a healthy connection")
         elif conn.info.transaction_status != psycopg2.extensions.TRANSACTION_STATUS_IDLE:
             logger.warning("Connection in unexpected transaction state, resetting")
@@ -71,10 +76,10 @@ def get_db() -> Generator[psycopg2.extensions.connection, None, None]:
             conn.rollback()
         except Exception:
             logger.warning("Stale connection detected, replacing")
-            pool.putconn(conn, close=True)
-            conn = pool.getconn()
+            pool.putconn(conn, key=key, close=True)
+            conn = pool.getconn(key=key)
             if conn.closed:
-                pool.putconn(conn, close=True)
+                pool.putconn(conn, key=key, close=True)
                 raise RuntimeError("Pool unable to provide a healthy connection")
         yield conn
     except Exception:
@@ -83,4 +88,4 @@ def get_db() -> Generator[psycopg2.extensions.connection, None, None]:
         raise
     finally:
         if not conn.closed:
-            pool.putconn(conn)
+            pool.putconn(conn, key=key)
