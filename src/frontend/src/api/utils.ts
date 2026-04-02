@@ -2,6 +2,7 @@ import type { JobAPIClient } from './types';
 import { greenhouseClient } from './clients/greenhouseClient';
 import { leverClient } from './clients/leverClient';
 import { ashbyClient } from './clients/ashbyClient';
+import { gemClient } from './clients/gemClient';
 import { workdayClient } from './clients/workdayClient';
 import { backendScraperClient } from './clients/backendScraperClient';
 
@@ -26,6 +27,8 @@ export function getClientForATS(atsType: string): JobAPIClient {
       return leverClient;
     case 'ashby':
       return ashbyClient;
+    case 'gem':
+      return gemClient;
     case 'workday':
       return workdayClient;
     case 'backend-scraper':
