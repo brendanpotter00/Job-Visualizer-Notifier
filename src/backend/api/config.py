@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     scraper_scripts_path: str = "../../scripts"
     scraper_python_path: str = "python3"
 
+    # Database pool
+    db_pool_min: int = Field(default=1, ge=1, le=20)
+    db_pool_max: int = Field(default=5, ge=1, le=50)
+
     # Server
     port: int = 8080
     cors_origins: str = "http://localhost:3000,http://localhost:5173,http://localhost:8000"
