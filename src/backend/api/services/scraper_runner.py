@@ -9,6 +9,8 @@ from ..config import Settings
 
 logger = logging.getLogger(__name__)
 
+MAX_STDERR_BYTES = 10 * 1024
+
 
 @dataclass
 class ScraperResult:
@@ -54,13 +56,13 @@ async def run_scraper(config: Settings, company: str) -> ScraperResult:
     try:
         process = await asyncio.create_subprocess_exec(
             *args,
-            stdout=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.PIPE,
         )
 
         timeout_seconds = config.scraper_timeout_minutes * 60
         try:
-            stdout, stderr = await asyncio.wait_for(
+            _, stderr = await asyncio.wait_for(
                 process.communicate(), timeout=timeout_seconds
             )
         except asyncio.TimeoutError:
@@ -76,12 +78,13 @@ async def run_scraper(config: Settings, company: str) -> ScraperResult:
             )
 
         exit_code = process.returncode if process.returncode is not None else -3
+        stderr_text = stderr[-MAX_STDERR_BYTES:].decode("utf-8", errors="replace") if stderr else ""
         logger.info("Scraper exited with code %d", exit_code)
 
         return ScraperResult(
             exit_code=exit_code,
-            output=stdout.decode("utf-8", errors="replace"),
-            error=stderr.decode("utf-8", errors="replace"),
+            output="",
+            error=stderr_text,
             company=company,
             completed_at=datetime.now(timezone.utc).isoformat(),
         )

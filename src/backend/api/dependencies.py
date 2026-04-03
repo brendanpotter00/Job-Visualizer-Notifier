@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 _pool: ThreadedConnectionPool | None = None
 
 
-def init_pool(dsn: str, minconn: int = 2, maxconn: int = 10) -> None:
+def init_pool(dsn: str, minconn: int = 1, maxconn: int = 5) -> None:
     """Create the connection pool. Called once during app lifespan startup."""
     global _pool
     _pool = ThreadedConnectionPool(
