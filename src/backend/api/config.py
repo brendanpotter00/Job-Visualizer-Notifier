@@ -1,6 +1,6 @@
 """Application configuration via environment variables."""
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings
 
 ALLOWED_ENVIRONMENTS = {"local", "qa", "prod"}
@@ -32,6 +32,14 @@ class Settings(BaseSettings):
     # Database pool
     db_pool_min: int = Field(default=1, ge=1, le=20)
     db_pool_max: int = Field(default=5, ge=1, le=50)
+
+    @model_validator(mode="after")
+    def validate_pool_bounds(self) -> "Settings":
+        if self.db_pool_min > self.db_pool_max:
+            raise ValueError(
+                f"db_pool_min ({self.db_pool_min}) must not exceed db_pool_max ({self.db_pool_max})"
+            )
+        return self
 
     # Server
     port: int = 8080

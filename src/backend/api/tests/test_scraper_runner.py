@@ -111,6 +111,14 @@ class TestSuccessfulExecution:
         assert result.completed_at
 
     @pytest.mark.asyncio
+    async def test_stderr_truncated_to_10kb(self, config):
+        big_stderr = b"x" * 20_000
+        mock_proc = _make_mock_process(returncode=1, stderr=big_stderr)
+        with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_proc):
+            result = await run_scraper(config, "google")
+        assert len(result.error) == 10 * 1024
+
+    @pytest.mark.asyncio
     async def test_nonzero_exit_code(self, config):
         mock_proc = _make_mock_process(returncode=1, stderr=b"crash\n")
         with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_proc):
