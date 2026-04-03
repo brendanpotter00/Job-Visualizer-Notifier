@@ -9,6 +9,8 @@ from ..config import Settings
 
 logger = logging.getLogger(__name__)
 
+MAX_STDERR_BYTES = 10 * 1024
+
 
 @dataclass
 class ScraperResult:
@@ -76,8 +78,7 @@ async def run_scraper(config: Settings, company: str) -> ScraperResult:
             )
 
         exit_code = process.returncode if process.returncode is not None else -3
-        max_stderr = 10 * 1024
-        stderr_text = stderr[-max_stderr:].decode("utf-8", errors="replace") if stderr else ""
+        stderr_text = stderr[-MAX_STDERR_BYTES:].decode("utf-8", errors="replace") if stderr else ""
         logger.info("Scraper exited with code %d", exit_code)
 
         return ScraperResult(

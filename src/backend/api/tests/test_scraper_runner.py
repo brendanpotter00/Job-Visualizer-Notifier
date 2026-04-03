@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from api.config import Settings
-from api.services.scraper_runner import run_scraper
+from api.services.scraper_runner import MAX_STDERR_BYTES, run_scraper
 
 
 @pytest.fixture
@@ -116,7 +116,7 @@ class TestSuccessfulExecution:
         mock_proc = _make_mock_process(returncode=1, stderr=big_stderr)
         with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_proc):
             result = await run_scraper(config, "google")
-        assert len(result.error) == 10 * 1024
+        assert len(result.error) == MAX_STDERR_BYTES
 
     @pytest.mark.asyncio
     async def test_nonzero_exit_code(self, config):
