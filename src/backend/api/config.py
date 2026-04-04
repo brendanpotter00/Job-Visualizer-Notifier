@@ -31,7 +31,7 @@ class Settings(BaseSettings):
 
     # Database pool
     db_pool_min: int = Field(default=1, ge=1, le=20)
-    db_pool_max: int = Field(default=5, ge=1, le=50)
+    db_pool_max: int = Field(default=8, ge=1, le=50)
 
     @model_validator(mode="after")
     def validate_pool_bounds(self) -> "Settings":
