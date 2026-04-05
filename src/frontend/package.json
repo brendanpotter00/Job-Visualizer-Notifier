@@ -14,7 +14,7 @@
     "test:coverage": "vitest --coverage",
     "test:ui": "vitest --ui",
     "type-check": "tsc --noEmit",
-    "lint": "eslint src --ext ts,tsx",
+    "lint": "eslint src",
     "format": "prettier --write \"src/**/*.{ts,tsx,json,css,md}\""
   },
   "repository": {

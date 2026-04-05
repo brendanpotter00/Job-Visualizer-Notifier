@@ -43,6 +43,18 @@ export function JobPostingsChart({
   isLoading = false,
   height = 400,
 }: JobPostingsChartProps) {
+  // Transform TimeBucket[] to Recharts format (memoized to prevent unnecessary recalculations)
+  const chartData = useMemo(
+    () =>
+      data.map((bucket) => ({
+        time: new Date(bucket.bucketStart).getTime(),
+        count: bucket.count,
+        label: format(new Date(bucket.bucketStart), 'MMM d HH:mm'),
+        bucket, // Store original for click handler
+      })),
+    [data]
+  );
+
   if (isLoading) {
     return (
       <Box sx={{ height }}>
@@ -65,18 +77,6 @@ export function JobPostingsChart({
       </Box>
     );
   }
-
-  // Transform TimeBucket[] to Recharts format (memoized to prevent unnecessary recalculations)
-  const chartData = useMemo(
-    () =>
-      data.map((bucket) => ({
-        time: new Date(bucket.bucketStart).getTime(),
-        count: bucket.count,
-        label: format(new Date(bucket.bucketStart), 'MMM d HH:mm'),
-        bucket, // Store original for click handler
-      })),
-    [data]
-  );
 
   return (
     <ResponsiveContainer width="100%" height={height}>
