@@ -47,7 +47,7 @@ export function RootLayout() {
 
   // Auto-sync drawer state when viewport size changes
   useEffect(() => {
-    setDrawerOpen(!isMobile);
+    setDrawerOpen(!isMobile); // eslint-disable-line react-hooks/set-state-in-effect -- syncing drawer state with viewport size
   }, [isMobile]);
 
   const handleDrawerToggle = () => {

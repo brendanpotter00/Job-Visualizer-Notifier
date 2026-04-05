@@ -26,9 +26,6 @@ export default [
       // Disable rules that TypeScript handles natively
       "no-undef": "off",
       "no-unused-vars": "off",
-      // Disable React Compiler rules that flag valid pre-existing patterns
-      "react-hooks/set-state-in-effect": "off",
-      "react-hooks/purity": "off",
       "react-refresh/only-export-components": [
         "warn",
         { allowConstantExport: true },
