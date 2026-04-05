@@ -23,7 +23,7 @@ jobs:
 
       - run: npm ci
 
-      - run: npm run lint -- --max-warnings 149
+      - run: npx -w src/frontend eslint src --max-warnings 149
 
       - run: npm run type-check
 
