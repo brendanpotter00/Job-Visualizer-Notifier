@@ -14,7 +14,7 @@
     "test:coverage": "vitest --coverage",
     "test:ui": "vitest --ui",
     "type-check": "tsc --noEmit",
-    "lint": "eslint src --ext ts,tsx",
+    "lint": "eslint src",
     "format": "prettier --write \"src/**/*.{ts,tsx,json,css,md}\""
   },
   "repository": {
@@ -63,6 +63,7 @@
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
+    "globals": "^14.0.0",
     "jsdom": "^27.2.0",
     "msw": "^2.12.2",
     "playwright": "^1.57.0",
