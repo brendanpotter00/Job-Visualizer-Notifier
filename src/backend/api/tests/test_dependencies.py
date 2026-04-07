@@ -1,5 +1,6 @@
 """Tests for database connection pool management (dependencies.py)."""
 
+import threading
 from unittest.mock import ANY, MagicMock, patch
 
 import psycopg2.extensions
@@ -35,6 +36,11 @@ class TestPoolIsHealthy:
 
 
 class TestGetDb:
+    @pytest.fixture(autouse=True)
+    def _patch_semaphore(self):
+        with patch("api.dependencies._pool_semaphore", threading.Semaphore(100)):
+            yield
+
     def test_raises_when_pool_not_initialized(self):
         with patch("api.dependencies._pool", None):
             gen = get_db()
