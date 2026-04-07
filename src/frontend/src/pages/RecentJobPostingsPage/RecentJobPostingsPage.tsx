@@ -35,10 +35,6 @@ export function RecentJobPostingsPage() {
         <Typography variant="h3" component="h1" gutterBottom>
           Recent Job Postings
         </Typography>
-        <Typography variant="body1" color="text.secondary" gutterBottom>
-          View the latest job postings across all companies
-        </Typography>
-
         {error ? (
           <Alert severity="error" sx={{ mb: 2 }}>
             {ERROR_MESSAGES.LOAD_JOBS_FAILED}
