@@ -6,6 +6,7 @@ import { http, HttpResponse } from 'msw';
 import userEvent from '@testing-library/user-event';
 import App from '../../app/App';
 import { createTestStore } from '../../test/testUtils';
+import { APP_TITLE } from '../../config/constants';
 
 // Mock API responses
 const mockGreenhouseJobs = {
@@ -104,7 +105,7 @@ describe('App', () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByText('onehourswe')).toBeInTheDocument();
+        expect(screen.getByText(APP_TITLE)).toBeInTheDocument();
       });
     });
   });

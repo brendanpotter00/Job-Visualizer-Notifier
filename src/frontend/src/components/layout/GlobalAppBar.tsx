@@ -1,3 +1,4 @@
+import { APP_TITLE } from '../../config/constants';
 import { styled } from '@mui/material/styles';
 import MuiAppBar, { AppBarProps as MuiAppBarProps } from '@mui/material/AppBar';
 import Toolbar from '@mui/material/Toolbar';
@@ -51,7 +52,7 @@ const AppBar = styled(MuiAppBar, {
  * Global application header with app name and drawer toggle
  *
  * Features:
- * - Displays "1 Hour Jobs" title
+ * - Displays app title
  * - Hamburger menu button to toggle drawer
  * - Desktop: Shifts right when drawer opens (persistent drawer)
  * - Mobile: Stays fixed (drawer is temporary overlay)
@@ -80,7 +81,7 @@ export function GlobalAppBar({ open, onDrawerToggle, drawerWidth, isMobile }: Gl
           <MenuIcon />
         </IconButton>
         <Typography variant="h6" noWrap component="div">
-          onehourswe
+          {APP_TITLE}
         </Typography>
       </Toolbar>
     </AppBar>

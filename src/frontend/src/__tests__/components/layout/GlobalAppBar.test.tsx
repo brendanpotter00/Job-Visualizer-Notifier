@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { GlobalAppBar } from '../../../components/layout/GlobalAppBar.tsx';
+import { APP_TITLE } from '../../../config/constants';
 
 describe('GlobalAppBar', () => {
   const mockProps = {
@@ -12,9 +13,9 @@ describe('GlobalAppBar', () => {
   };
 
   describe('Rendering', () => {
-    it('renders app title "onehourswe"', () => {
+    it(`renders app title "${APP_TITLE}"`, () => {
       render(<GlobalAppBar {...mockProps} />);
-      expect(screen.getByText('onehourswe')).toBeInTheDocument();
+      expect(screen.getByText(APP_TITLE)).toBeInTheDocument();
     });
 
     it('renders hamburger menu button with MenuIcon', () => {
