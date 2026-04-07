@@ -335,7 +335,7 @@ describe('MetricsDashboard', () => {
     expect(linkedInLink).toBeInTheDocument();
     expect(linkedInLink.closest('a')).toHaveAttribute(
       'href',
-      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%2220708%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=%40ld&sortBy=%22date_posted%22'
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2220708%22%5D'
     );
     expect(linkedInLink.closest('a')).toHaveAttribute('target', '_blank');
     expect(linkedInLink.closest('a')).toHaveAttribute('rel', 'noopener noreferrer');
