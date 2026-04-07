@@ -4,6 +4,7 @@ import { Provider } from 'react-redux';
 import { MetricsDashboard } from '../../../../components/companies-page/MetricsDashboard/MetricsDashboard';
 import { createTestStore } from '../../../../test/testUtils';
 import type { Job } from '../../../../types';
+import { getCompanyById } from '../../../../config/companies';
 
 // Mock Date.now() to have consistent time for tests
 const MOCK_NOW = new Date('2025-11-23T12:00:00Z').getTime();
@@ -335,7 +336,7 @@ describe('MetricsDashboard', () => {
     expect(linkedInLink).toBeInTheDocument();
     expect(linkedInLink.closest('a')).toHaveAttribute(
       'href',
-      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2220708%22%5D'
+      getCompanyById('palantir')!.recruiterLinkedInUrl
     );
     expect(linkedInLink.closest('a')).toHaveAttribute('target', '_blank');
     expect(linkedInLink.closest('a')).toHaveAttribute('rel', 'noopener noreferrer');
