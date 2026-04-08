@@ -47,6 +47,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
+    // Cache on Vercel CDN for 20 min, serve stale up to 40 min while revalidating
+    res.setHeader('Vercel-CDN-Cache-Control', 'public, s-maxage=1200, stale-while-revalidate=2400');
+    res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
+
     // Forward the status code and data
     res.status(response.status).json(data);
   } catch (error) {

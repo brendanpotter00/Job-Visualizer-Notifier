@@ -16,6 +16,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const response = await fetch(url);
     const data = await response.json();
+
+    // Cache on Vercel CDN for 5 min, serve stale up to 10 min while revalidating
+    res.setHeader('Vercel-CDN-Cache-Control', 'public, s-maxage=300, stale-while-revalidate=600');
+    res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
+
     res.status(response.status).json(data);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch from backend' });
