@@ -58,19 +58,6 @@
           "value": "Content-Type, X-Workday-Base-Url"
         }
       ]
-    },
-    {
-      "source": "/api/(greenhouse|lever|ashby|gem)/:path*",
-      "headers": [
-        {
-          "key": "Vercel-CDN-Cache-Control",
-          "value": "public, s-maxage=1200, stale-while-revalidate=2400"
-        },
-        {
-          "key": "Cache-Control",
-          "value": "public, max-age=0, must-revalidate"
-        }
-      ]
     }
   ]
 }
