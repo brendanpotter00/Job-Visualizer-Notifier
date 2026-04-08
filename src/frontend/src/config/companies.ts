@@ -199,10 +199,12 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2218293159%22%5D',
   }),
+  createGreenhouseCompany('airtable', 'Airtable'),
   createGreenhouseCompany('airbnb', 'Airbnb', {
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22309694%22%5D',
   }),
+  createGreenhouseCompany('fireworksai', 'Fireworks AI'),
   createGreenhouseCompany('figma', 'Figma', {
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%223650502%22%5D',
@@ -270,6 +272,7 @@ export const COMPANIES: Company[] = [
   createGreenhouseCompany('crunchyroll', 'Crunchyroll'),
   createGreenhouseCompany('nuro', 'Nuro'),
   createGreenhouseCompany('trueanomalyinc', 'True Anomaly'),
+  createGreenhouseCompany('pallet', 'Pallet'),
   createGreenhouseCompany('pinterest', 'Pinterest', {
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%221124131%22%5D',
@@ -287,6 +290,18 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2285645770%22%5D',
   }),
+  createGreenhouseCompany('gleanwork', 'Glean'),
+  createGreenhouseCompany('merge', 'Merge'),
+  createGreenhouseCompany('databricks', 'Databricks'),
+  createGreenhouseCompany('datadog', 'Datadog'),
+  createGreenhouseCompany('dropbox', 'Dropbox'),
+  createGreenhouseCompany('instacart', 'Instacart'),
+  createGreenhouseCompany('mongodb', 'MongoDB'),
+  createGreenhouseCompany('twilio', 'Twilio'),
+  createGreenhouseCompany('block', 'Block'),
+  createGreenhouseCompany('gitlab', 'GitLab'),
+  createGreenhouseCompany('unity3d', 'Unity'),
+  createGreenhouseCompany('vercel', 'Vercel'),
 
   // Lever companies
   createLeverCompany('palantir', 'Palantir', {
@@ -309,7 +324,6 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring+software+engineer&origin=FACETED_SEARCH',
   }),
-
   // Ashby companies
   createAshbyCompany('notion', 'Notion', {
     recruiterLinkedInUrl:
@@ -323,6 +337,8 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%223653845%22%5D',
   }),
+  createAshbyCompany('decagon', 'Decagon'),
+  createAshbyCompany('distyl', 'Distyl', { jobBoardName: 'Distyl' }),
   createAshbyCompany('elevenlabs', 'ElevenLabs', {
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2286583130%22%5D',
@@ -331,6 +347,7 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2218030570%22%5D',
   }),
+  createAshbyCompany('baseten', 'Baseten'),
   createAshbyCompany('browserbase', 'Browserbase', {
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22100530625%22%5D',
@@ -361,6 +378,15 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22105311076%22%5D',
   }),
+  createAshbyCompany('happyrobot.ai', 'Happyrobot', { jobBoardName: 'happyrobot.ai' }),
+  createAshbyCompany('granola', 'Granola'),
+  createAshbyCompany('sunday', 'Sunday'),
+  createAshbyCompany('openai', 'OpenAI'),
+  createAshbyCompany('perplexity', 'Perplexity'),
+  createAshbyCompany('pylon-labs', 'Pylon', { jobBoardName: 'pylon-labs' }),
+  createAshbyCompany('cohere', 'Cohere'),
+  createAshbyCompany('traversal', 'Traversal'),
+  createAshbyCompany('harvey', 'Harvey'),
 
   // Gem companies
   createGemCompany('nominal', 'Nominal'),
@@ -477,13 +503,16 @@ export const enum COMPANY_IDS {
   Adobe = 'adobe',
   Affirm = 'affirm',
   Airbnb = 'airbnb',
+  Airtable = 'airtable',
   AndurilIndustries = 'andurilindustries',
   Anthropic = 'anthropic',
   ApexTechnologyInc = 'apex-technology-inc',
   Apple = 'apple',
   AppliedIntuition = 'appliedintuition',
   Astranis = 'astranis',
+  Baseten = 'baseten',
   BasePower = 'base-power',
+  Block = 'block',
   BlueOrigin = 'blueorigin',
   Brex = 'brex',
   Browserbase = 'browserbase',
@@ -492,30 +521,49 @@ export const enum COMPANY_IDS {
   Clear = 'clear',
   ClickUp = 'clickup',
   Cloudflare = 'cloudflare',
+  Cohere = 'cohere',
   Coinbase = 'coinbase',
   Crunchyroll = 'crunchyroll',
+  Databricks = 'databricks',
+  Decagon = 'decagon',
+  Datadog = 'datadog',
   Discord = 'discord',
+  Distyl = 'distyl',
+  Dropbox = 'dropbox',
   Disney = 'disney',
   Doordashusa = 'doordashusa',
   ElevenLabs = 'elevenlabs',
   Expedia = 'expedia',
   Figma = 'figma',
   FigureAI = 'figureai',
+  FireworksAI = 'fireworksai',
   FlowEngineering = 'flowengineering',
   GeneralMotors = 'gm',
   GigaML = 'gigaml',
+  GitLab = 'gitlab',
+  Glean = 'gleanwork',
   Google = 'google',
+  Granola = 'granola',
+  Harvey = 'harvey',
+  Happyrobot = 'happyrobot.ai',
+  Instacart = 'instacart',
   Light = 'light',
   Linear = 'linear',
   Lyft = 'lyft',
+  Merge = 'merge',
   Microsoft = 'microsoft',
+  MongoDB = 'mongodb',
   Netflix = 'netflix',
   Neuralink = 'neuralink',
   Nominal = 'nominal',
   Notion = 'notion',
   Nuro = 'nuro',
   Nvidia = 'nvidia',
+  OpenAI = 'openai',
+  Pallet = 'pallet',
   Palantir = 'palantir',
+  Perplexity = 'perplexity',
+  Pylon = 'pylon-labs',
   Pinterest = 'pinterest',
   Plaid = 'plaid',
   Ramp = 'ramp',
@@ -533,9 +581,14 @@ export const enum COMPANY_IDS {
   Squarespace = 'squarespace',
   StainlessApi = 'stainlessapi',
   Stripe = 'stripe',
+  Sunday = 'sunday',
+  Traversal = 'traversal',
   TrueAnomaly = 'trueanomalyinc',
+  Twilio = 'twilio',
   Turo = 'turo',
   Twitch = 'twitch',
+  Unity = 'unity3d',
+  Vercel = 'vercel',
   Waymo = 'waymo',
   Xai = 'xai',
   Zoox = 'zoox',
