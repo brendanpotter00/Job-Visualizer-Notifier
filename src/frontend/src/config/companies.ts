@@ -199,6 +199,7 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2218293159%22%5D',
   }),
+  createGreenhouseCompany('airtable', 'Airtable'),
   createGreenhouseCompany('airbnb', 'Airbnb', {
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22309694%22%5D',
@@ -270,6 +271,7 @@ export const COMPANIES: Company[] = [
   createGreenhouseCompany('crunchyroll', 'Crunchyroll'),
   createGreenhouseCompany('nuro', 'Nuro'),
   createGreenhouseCompany('trueanomalyinc', 'True Anomaly'),
+  createGreenhouseCompany('pallet', 'Pallet'),
   createGreenhouseCompany('pinterest', 'Pinterest', {
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%221124131%22%5D',
@@ -321,7 +323,6 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring+software+engineer&origin=FACETED_SEARCH',
   }),
-  createLeverCompany('mistral', 'Mistral'),
   // Ashby companies
   createAshbyCompany('notion', 'Notion', {
     recruiterLinkedInUrl:
@@ -335,6 +336,7 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%223653845%22%5D',
   }),
+  createAshbyCompany('decagon', 'Decagon'),
   createAshbyCompany('elevenlabs', 'ElevenLabs', {
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2286583130%22%5D',
@@ -343,6 +345,7 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2218030570%22%5D',
   }),
+  createAshbyCompany('baseten', 'Baseten'),
   createAshbyCompany('browserbase', 'Browserbase', {
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22100530625%22%5D',
@@ -378,8 +381,10 @@ export const COMPANIES: Company[] = [
   createAshbyCompany('sunday', 'Sunday'),
   createAshbyCompany('openai', 'OpenAI'),
   createAshbyCompany('perplexity', 'Perplexity'),
+  createAshbyCompany('pylon-labs', 'Pylon', { jobBoardName: 'pylon-labs' }),
   createAshbyCompany('cohere', 'Cohere'),
   createAshbyCompany('traversal', 'Traversal'),
+  createAshbyCompany('harvey', 'Harvey'),
 
   // Gem companies
   createGemCompany('nominal', 'Nominal'),
@@ -496,12 +501,14 @@ export const enum COMPANY_IDS {
   Adobe = 'adobe',
   Affirm = 'affirm',
   Airbnb = 'airbnb',
+  Airtable = 'airtable',
   AndurilIndustries = 'andurilindustries',
   Anthropic = 'anthropic',
   ApexTechnologyInc = 'apex-technology-inc',
   Apple = 'apple',
   AppliedIntuition = 'appliedintuition',
   Astranis = 'astranis',
+  Baseten = 'baseten',
   BasePower = 'base-power',
   Block = 'block',
   BlueOrigin = 'blueorigin',
@@ -516,6 +523,7 @@ export const enum COMPANY_IDS {
   Coinbase = 'coinbase',
   Crunchyroll = 'crunchyroll',
   Databricks = 'databricks',
+  Decagon = 'decagon',
   Datadog = 'datadog',
   Discord = 'discord',
   Dropbox = 'dropbox',
@@ -532,12 +540,12 @@ export const enum COMPANY_IDS {
   Glean = 'gleanwork',
   Google = 'google',
   Granola = 'granola',
+  Harvey = 'harvey',
   Happyrobot = 'happyrobot.ai',
   Instacart = 'instacart',
   Light = 'light',
   Linear = 'linear',
   Lyft = 'lyft',
-  Mistral = 'mistral',
   Merge = 'merge',
   Microsoft = 'microsoft',
   MongoDB = 'mongodb',
@@ -548,8 +556,10 @@ export const enum COMPANY_IDS {
   Nuro = 'nuro',
   Nvidia = 'nvidia',
   OpenAI = 'openai',
+  Pallet = 'pallet',
   Palantir = 'palantir',
   Perplexity = 'perplexity',
+  Pylon = 'pylon-labs',
   Pinterest = 'pinterest',
   Plaid = 'plaid',
   Ramp = 'ramp',
