@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { setAtsCacheHeaders } from './utils/cacheHeaders';
 
 /**
  * Vercel serverless function to proxy Ashby API requests
@@ -40,10 +41,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-    // Cache successful responses on Vercel CDN for 20 min, serve stale for up to 40 additional min while revalidating
     if (response.ok) {
-      res.setHeader('Vercel-CDN-Cache-Control', 'public, s-maxage=1200, stale-while-revalidate=2400');
-      res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
+      setAtsCacheHeaders(res);
     }
 
     // Forward the status code and data
