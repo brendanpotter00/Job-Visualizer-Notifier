@@ -298,8 +298,7 @@ export const COMPANIES: Company[] = [
   createGreenhouseCompany('block', 'Block'),
   createGreenhouseCompany('gitlab', 'GitLab'),
   createGreenhouseCompany('unity3d', 'Unity'),
-  createGreenhouseCompany('cruise', 'Cruise'),
-  createGreenhouseCompany('rippling', 'Rippling'),
+  createGreenhouseCompany('vercel', 'Vercel'),
 
   // Lever companies
   createLeverCompany('palantir', 'Palantir', {
@@ -322,8 +321,7 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring+software+engineer&origin=FACETED_SEARCH',
   }),
-  createLeverCompany('netlify', 'Netlify'),
-
+  createLeverCompany('mistral', 'Mistral'),
   // Ashby companies
   createAshbyCompany('notion', 'Notion', {
     recruiterLinkedInUrl:
@@ -379,10 +377,9 @@ export const COMPANIES: Company[] = [
   createAshbyCompany('granola', 'Granola'),
   createAshbyCompany('sunday', 'Sunday'),
   createAshbyCompany('openai', 'OpenAI'),
-  createAshbyCompany('vercel', 'Vercel'),
   createAshbyCompany('perplexity', 'Perplexity'),
   createAshbyCompany('cohere', 'Cohere'),
-  createAshbyCompany('mistralai', 'Mistral'),
+  createAshbyCompany('traversal', 'Traversal'),
 
   // Gem companies
   createGemCompany('nominal', 'Nominal'),
@@ -517,7 +514,6 @@ export const enum COMPANY_IDS {
   Cloudflare = 'cloudflare',
   Cohere = 'cohere',
   Coinbase = 'coinbase',
-  Cruise = 'cruise',
   Crunchyroll = 'crunchyroll',
   Databricks = 'databricks',
   Datadog = 'datadog',
@@ -541,12 +537,11 @@ export const enum COMPANY_IDS {
   Light = 'light',
   Linear = 'linear',
   Lyft = 'lyft',
-  Mistral = 'mistralai',
+  Mistral = 'mistral',
   Merge = 'merge',
   Microsoft = 'microsoft',
   MongoDB = 'mongodb',
   Netflix = 'netflix',
-  Netlify = 'netlify',
   Neuralink = 'neuralink',
   Nominal = 'nominal',
   Notion = 'notion',
@@ -559,7 +554,6 @@ export const enum COMPANY_IDS {
   Plaid = 'plaid',
   Ramp = 'ramp',
   Reddit = 'reddit',
-  Rippling = 'rippling',
   Robinhood = 'robinhood',
   Saronic = 'saronic',
   Scaleai = 'scaleai',
@@ -574,6 +568,7 @@ export const enum COMPANY_IDS {
   StainlessApi = 'stainlessapi',
   Stripe = 'stripe',
   Sunday = 'sunday',
+  Traversal = 'traversal',
   TrueAnomaly = 'trueanomalyinc',
   Twilio = 'twilio',
   Turo = 'turo',
