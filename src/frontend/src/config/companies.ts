@@ -204,6 +204,7 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22309694%22%5D',
   }),
+  createGreenhouseCompany('fireworksai', 'Fireworks AI'),
   createGreenhouseCompany('figma', 'Figma', {
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%223650502%22%5D',
@@ -337,6 +338,7 @@ export const COMPANIES: Company[] = [
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%223653845%22%5D',
   }),
   createAshbyCompany('decagon', 'Decagon'),
+  createAshbyCompany('distyl', 'Distyl', { jobBoardName: 'Distyl' }),
   createAshbyCompany('elevenlabs', 'ElevenLabs', {
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2286583130%22%5D',
@@ -526,6 +528,7 @@ export const enum COMPANY_IDS {
   Decagon = 'decagon',
   Datadog = 'datadog',
   Discord = 'discord',
+  Distyl = 'distyl',
   Dropbox = 'dropbox',
   Disney = 'disney',
   Doordashusa = 'doordashusa',
@@ -533,6 +536,7 @@ export const enum COMPANY_IDS {
   Expedia = 'expedia',
   Figma = 'figma',
   FigureAI = 'figureai',
+  FireworksAI = 'fireworksai',
   FlowEngineering = 'flowengineering',
   GeneralMotors = 'gm',
   GigaML = 'gigaml',
