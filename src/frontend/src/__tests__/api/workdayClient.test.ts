@@ -759,9 +759,7 @@ describe('workdayClient', () => {
         careerSiteSlug: 'TestSite',
       };
 
-      let callCount = 0;
       (globalThis.fetch as any).mockImplementation(async (_url: string, init: RequestInit) => {
-        callCount++;
         const body = JSON.parse(init.body as string);
 
         if (body.offset === 0) {

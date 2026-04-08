@@ -2,6 +2,7 @@ import type {
   AshbyConfig,
   BackendScraperConfig,
   Company,
+  GemConfig,
   GreenhouseConfig,
   LeverConfig,
   WorkdayConfig,
@@ -73,6 +74,34 @@ function createLeverCompany(
 
 interface AshbyOptions extends FactoryOptions {
   jobBoardName?: string;
+}
+
+interface GemOptions extends FactoryOptions {
+  vanityUrlPath?: string;
+}
+
+/**
+ * Factory function for Gem companies.
+ * Defaults vanityUrlPath to the company id.
+ */
+function createGemCompany(
+  id: string,
+  name: string,
+  options: GemOptions = {}
+): Company {
+  const vanityUrlPath = options.vanityUrlPath ?? id;
+  const config: GemConfig = {
+    type: 'gem',
+    vanityUrlPath,
+  };
+  return {
+    id,
+    name,
+    ats: 'gem',
+    config,
+    jobsUrl: `https://jobs.gem.com/${vanityUrlPath}`,
+    recruiterLinkedInUrl: options.recruiterLinkedInUrl,
+  };
 }
 
 /**
@@ -164,88 +193,100 @@ export const COMPANIES: Company[] = [
   // Greenhouse companies
   createGreenhouseCompany('spacex', 'SpaceX', {
     recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%2230846%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=Gp2&sortBy=%22date_posted%22',
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2230846%22%5D',
   }),
   createGreenhouseCompany('andurilindustries', 'Anduril', {
     recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%2218293159%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=vst&sortBy=%22date_posted%22',
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2218293159%22%5D',
   }),
   createGreenhouseCompany('airbnb', 'Airbnb', {
     recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%22309694%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=Am6&sortBy=%22date_posted%22',
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22309694%22%5D',
   }),
   createGreenhouseCompany('figma', 'Figma', {
     recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%223650502%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=Hnn&sortBy=%22date_posted%22',
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%223650502%22%5D',
   }),
   createGreenhouseCompany('twitch', 'Twitch', {
     recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%222320329%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=W!P&sortBy=%22date_posted%22',
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%222320329%22%5D',
   }),
   createGreenhouseCompany('neuralink', 'Neuralink', {
     recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%2219002862%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=6Ij&sortBy=%22date_posted%22',
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2219002862%22%5D',
   }),
   createGreenhouseCompany('coinbase', 'Coinbase', {
     recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%222857634%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=65F&sortBy=%22date_posted%22',
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%222857634%22%5D',
   }),
   createGreenhouseCompany('robinhood', 'Robinhood', {
     recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%223254263%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=AsA&sortBy=%22date_posted%22',
+      'https://www.linkedin.com/search/results/content/?keywords=hiring+software+engineer&origin=FACETED_SEARCH',
   }),
   createGreenhouseCompany('xai', 'XAI', {
     recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%2296151950%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=bYM&sortBy=%22date_posted%22',
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2296151950%22%5D',
   }),
   createGreenhouseCompany('anthropic', 'Anthropic', {
     recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%2274126343%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=L2U&sortBy=%22date_posted%22',
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2274126343%22%5D',
   }),
   createGreenhouseCompany('reddit', 'Reddit', {
     recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%22150573%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=4ar&sortBy=%22date_posted%22',
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22150573%22%5D',
   }),
   createGreenhouseCompany('cloudflare', 'Cloudflare'),
   createGreenhouseCompany('scaleai', 'ScaleAI'),
   createGreenhouseCompany('lyft', 'Lyft', {
     recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%222620735%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=hp!&sortBy=%22date_posted%22',
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%222620735%22%5D',
   }),
   createGreenhouseCompany('doordashusa', 'Doordash', {
     recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%223205573%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=DT%3A&sortBy=%22date_posted%22',
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%223205573%22%5D',
   }),
   createGreenhouseCompany('stripe', 'Stripe', {
     recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%222135371%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=z(2&sortBy=%22date_posted%22',
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%222135371%22%5D',
   }),
   createGreenhouseCompany('appliedintuition', 'Applied Intuition', {
     recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%2218808325%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=Pz-&sortBy=%22date_posted%22',
+      'https://www.linkedin.com/search/results/content/?keywords=hiring+software+engineer&origin=FACETED_SEARCH',
   }),
   createGreenhouseCompany('discord', 'Discord', {
     recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%223765675%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=P0b&sortBy=%22date_posted%22',
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%223765675%22%5D',
   }),
   createGreenhouseCompany('brex', 'Brex', {
     recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%2218505670%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=o-E&sortBy=%22date_posted%22',
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2218505670%22%5D',
   }),
   createGreenhouseCompany('squarespace', 'Squarespace', {
     recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%22265314%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=JwA&sortBy=%22date_posted%22',
+      'https://www.linkedin.com/search/results/content/?keywords=hiring+software+engineer&origin=FACETED_SEARCH',
   }),
   createGreenhouseCompany('clear', 'Clear'),
   createGreenhouseCompany('affirm', 'Affirm'),
   createGreenhouseCompany('crunchyroll', 'Crunchyroll'),
   createGreenhouseCompany('nuro', 'Nuro'),
   createGreenhouseCompany('trueanomalyinc', 'True Anomaly'),
-  createGreenhouseCompany('pinterest', 'Pinterest'),
+  createGreenhouseCompany('pinterest', 'Pinterest', {
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%221124131%22%5D',
+  }),
   createGreenhouseCompany('astranis', 'Astranis'),
-  createGreenhouseCompany('chalkinc', 'Chalk'),
-  createGreenhouseCompany('waymo', 'Waymo'),
-  createGreenhouseCompany('figureai', 'Figure AI'),
+  createGreenhouseCompany('chalkinc', 'Chalk', {
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2278829224%22%5D',
+  }),
+  createGreenhouseCompany('waymo', 'Waymo', {
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2217900793%22%5D',
+  }),
+  createGreenhouseCompany('figureai', 'Figure AI', {
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2285645770%22%5D',
+  }),
   createGreenhouseCompany('gleanwork', 'Glean'),
   createGreenhouseCompany('merge', 'Merge'),
   createGreenhouseCompany('databricks', 'Databricks'),
@@ -263,48 +304,77 @@ export const COMPANIES: Company[] = [
   // Lever companies
   createLeverCompany('palantir', 'Palantir', {
     recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%2220708%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=%40ld&sortBy=%22date_posted%22',
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2220708%22%5D',
   }),
   createLeverCompany('saronic', 'Saronic', {
     recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%2289680213%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=aOp&sortBy=%22date_posted%22',
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2289680213%22%5D',
   }),
   createLeverCompany('spotify', 'Spotify', {
     recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%22207470%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=%4072&sortBy=%22date_posted%22',
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22207470%22%5D',
   }),
   createLeverCompany('plaid', 'Plaid', {
     recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%222684737%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=8n%3B&sortBy=%22date_posted%22',
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%222684737%22%5D',
   }),
-  createLeverCompany('zoox', 'Zoox'),
+  createLeverCompany('zoox', 'Zoox', {
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring+software+engineer&origin=FACETED_SEARCH',
+  }),
   createLeverCompany('netlify', 'Netlify'),
 
   // Ashby companies
   createAshbyCompany('notion', 'Notion', {
     recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%2230898036%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=_GL&sortBy=%22date_posted%22',
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2230898036%22%5D',
   }),
   createAshbyCompany('ramp', 'Ramp', {
     recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%221406226%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=e%3Ab&sortBy=%22date_posted%22',
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%221406226%22%5D',
   }),
   createAshbyCompany('snowflake', 'Snowflake', {
     recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%223653845%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=4o9&sortBy=%22date_posted%22',
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%223653845%22%5D',
   }),
-  createAshbyCompany('elevenlabs', 'ElevenLabs'),
-  createAshbyCompany('flowengineering', 'Flow Engineering'),
-  createAshbyCompany('browserbase', 'Browserbase'),
-  createAshbyCompany('base-power', 'Base Power Company'),
+  createAshbyCompany('elevenlabs', 'ElevenLabs', {
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2286583130%22%5D',
+  }),
+  createAshbyCompany('flowengineering', 'Flow Engineering', {
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2218030570%22%5D',
+  }),
+  createAshbyCompany('browserbase', 'Browserbase', {
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22100530625%22%5D',
+  }),
+  createAshbyCompany('base-power', 'Base Power Company', {
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring+software+engineer&origin=FACETED_SEARCH',
+  }),
   createAshbyCompany('clickup', 'ClickUp'),
   createAshbyCompany('apex-technology-inc', 'Apex Technology Inc'),
   createAshbyCompany('light', 'Light'),
-  createAshbyCompany('linear', 'Linear', { jobBoardName: 'Linear' }),
-  createAshbyCompany('siftstack', 'Sift Stack'),
+  createAshbyCompany('linear', 'Linear', {
+    jobBoardName: 'Linear',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2229309454%22%5D',
+  }),
+  createAshbyCompany('siftstack', 'Sift Stack', {
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2297188584%22%5D',
+  }),
   createAshbyCompany('stainlessapi', 'Stainless API'),
-  createAshbyCompany('gigaml', 'GigaML', { jobBoardName: 'GigaML' }),
-  createAshbyCompany('sesame', 'Sesame'),
+  createAshbyCompany('gigaml', 'GigaML', {
+    jobBoardName: 'GigaML',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2287441542%22%5D',
+  }),
+  createAshbyCompany('sesame', 'Sesame', {
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22105311076%22%5D',
+  }),
   createAshbyCompany('happyrobot.ai', 'Happyrobot', { jobBoardName: 'happyrobot.ai' }),
   createAshbyCompany('granola', 'Granola'),
   createAshbyCompany('sunday', 'Sunday'),
@@ -313,6 +383,9 @@ export const COMPANIES: Company[] = [
   createAshbyCompany('perplexity', 'Perplexity'),
   createAshbyCompany('cohere', 'Cohere'),
   createAshbyCompany('mistralai', 'Mistral'),
+
+  // Gem companies
+  createGemCompany('nominal', 'Nominal'),
 
   // Workday companies
   createWorkdayCompany(
@@ -330,7 +403,7 @@ export const COMPANIES: Company[] = [
         timeType: ['5509c0b5959810ac0029943377d47364'], // Full time
       },
       recruiterLinkedInUrl:
-        'https://www.linkedin.com/search/results/content/?authorCompany=%5B%223608%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=YU9&sortBy=%22date_posted%22',
+        'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%223608%22%5D',
     }
   ),
   createWorkdayCompany(
@@ -350,7 +423,7 @@ export const COMPANIES: Company[] = [
         ], // Engineering, University
       },
       recruiterLinkedInUrl:
-        'https://www.linkedin.com/search/results/content/?authorCompany=%5B%221480%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sid=!%3BQ&sortBy=%22date_posted%22',
+        'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%221480%22%5D',
     }
   ),
   createWorkdayCompany('expedia', 'Expedia', {
@@ -358,11 +431,19 @@ export const COMPANIES: Company[] = [
     tenantSlug: 'expedia',
     careerSiteSlug: 'search',
   }),
-  createWorkdayCompany('netflix', 'Netflix', {
-    baseUrl: 'https://netflix.wd1.myworkdayjobs.com',
-    tenantSlug: 'netflix',
-    careerSiteSlug: 'Netflix',
-  }),
+  createWorkdayCompany(
+    'netflix',
+    'Netflix',
+    {
+      baseUrl: 'https://netflix.wd1.myworkdayjobs.com',
+      tenantSlug: 'netflix',
+      careerSiteSlug: 'Netflix',
+    },
+    {
+      recruiterLinkedInUrl:
+        'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22165158%22%5D',
+    }
+  ),
   createWorkdayCompany('turo', 'Turo', {
     baseUrl: 'https://turo.wd12.myworkdayjobs.com',
     tenantSlug: 'turo',
@@ -402,15 +483,15 @@ export const COMPANIES: Company[] = [
   // Backend scraper companies
   createBackendScraperCompany('google', 'Google', 'https://careers.google.com/', {
     recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%221441%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%22date_posted%22',
+      'https://www.linkedin.com/search/results/content/?keywords=hiring+software+engineer&origin=FACETED_SEARCH',
   }),
   createBackendScraperCompany('apple', 'Apple', 'https://jobs.apple.com/', {
     recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%22162479%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%22date_posted%22',
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22162479%22%5D',
   }),
   createBackendScraperCompany('microsoft', 'Microsoft', 'https://careers.microsoft.com/', {
     recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?authorCompany=%5B%221035%22%5D&keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%22date_posted%22',
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%221035%22%5D',
   }),
 ];
 
@@ -467,6 +548,7 @@ export const enum COMPANY_IDS {
   Netflix = 'netflix',
   Netlify = 'netlify',
   Neuralink = 'neuralink',
+  Nominal = 'nominal',
   Notion = 'notion',
   Nuro = 'nuro',
   Nvidia = 'nvidia',

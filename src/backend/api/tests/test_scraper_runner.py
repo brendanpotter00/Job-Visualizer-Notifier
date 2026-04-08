@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from api.config import Settings
-from api.services.scraper_runner import run_scraper
+from api.services.scraper_runner import MAX_STDERR_BYTES, run_scraper
 
 
 @pytest.fixture
@@ -24,9 +24,9 @@ def config():
     )
 
 
-def _make_mock_process(returncode=0, stdout=b"ok\n", stderr=b""):
+def _make_mock_process(returncode=0, stderr=b""):
     proc = AsyncMock()
-    proc.communicate = AsyncMock(return_value=(stdout, stderr))
+    proc.communicate = AsyncMock(return_value=(None, stderr))
     proc.returncode = returncode
     proc.kill = MagicMock()
     proc.wait = AsyncMock()
@@ -101,18 +101,26 @@ class TestCredentialRedaction:
 class TestSuccessfulExecution:
     @pytest.mark.asyncio
     async def test_success_result(self, config):
-        mock_proc = _make_mock_process(returncode=0, stdout=b"scraped 10 jobs\n", stderr=b"")
+        mock_proc = _make_mock_process(returncode=0, stderr=b"")
         with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_proc):
             result = await run_scraper(config, "google")
         assert result.exit_code == 0
         assert result.company == "google"
-        assert "scraped 10 jobs" in result.output
+        assert result.output == ""
         assert result.error == ""
         assert result.completed_at
 
     @pytest.mark.asyncio
+    async def test_stderr_truncated_to_10kb(self, config):
+        big_stderr = b"x" * 20_000
+        mock_proc = _make_mock_process(returncode=1, stderr=big_stderr)
+        with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_proc):
+            result = await run_scraper(config, "google")
+        assert len(result.error) == MAX_STDERR_BYTES
+
+    @pytest.mark.asyncio
     async def test_nonzero_exit_code(self, config):
-        mock_proc = _make_mock_process(returncode=1, stdout=b"", stderr=b"crash\n")
+        mock_proc = _make_mock_process(returncode=1, stderr=b"crash\n")
         with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_proc):
             result = await run_scraper(config, "google")
         assert result.exit_code == 1

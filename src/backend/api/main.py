@@ -32,7 +32,12 @@ async def lifespan(app: FastAPI):
         finally:
             temp_conn.close()
         # Create the connection pool for request handling
-        init_pool(settings.database_url)
+        init_pool(
+            settings.database_url,
+            minconn=settings.db_pool_min,
+            maxconn=settings.db_pool_max,
+            timeout=settings.db_pool_timeout,
+        )
     except Exception:
         logger.exception("Failed to connect to database")
         raise

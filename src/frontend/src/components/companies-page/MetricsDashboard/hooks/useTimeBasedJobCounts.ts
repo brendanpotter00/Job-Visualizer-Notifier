@@ -16,7 +16,7 @@ interface TimeBasedCounts {
  */
 export function useTimeBasedJobCounts(allJobs: Job[]): TimeBasedCounts {
   return useMemo(() => {
-    const now = Date.now();
+    const now = Date.now(); // eslint-disable-line react-hooks/purity -- Date.now() is intentionally used for time-window calculations
     const last3Days = now - 3 * TIME_UNITS.DAY;
     const last24Hours = now - 24 * TIME_UNITS.HOUR;
     const last12Hours = now - 12 * TIME_UNITS.HOUR;

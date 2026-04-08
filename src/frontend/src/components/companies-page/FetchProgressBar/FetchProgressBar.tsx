@@ -36,7 +36,7 @@ export function FetchProgressBar() {
   useEffect(() => {
     if (isLoading) {
       wasLoadingRef.current = true;
-      setExpanded(true);
+      setExpanded(true); // eslint-disable-line react-hooks/set-state-in-effect -- syncing derived state from isLoading prop
     } else if (wasLoadingRef.current) {
       setExpanded(false);
       wasLoadingRef.current = false;
