@@ -6,6 +6,8 @@
 """
 
 import asyncio
+import ctypes
+import gc
 import logging
 
 from ..config import Settings
@@ -51,6 +53,14 @@ async def auto_scraper_loop(config: Settings) -> None:
                     logger.exception("Unexpected error scraping %s", company)
 
             consecutive_failures = 0
+            # Force CPython to release fragmented memory back to the OS.
+            # pymalloc retains freed arenas; gc.collect() breaks reference
+            # cycles, and malloc_trim() returns free heap pages to the OS.
+            gc.collect()
+            try:
+                ctypes.CDLL("libc.so.6").malloc_trim(0)
+            except (OSError, AttributeError):
+                pass  # Not on Linux/glibc (e.g. macOS dev)
             logger.info("Scrape cycle complete, waiting %dh before next run", config.scraper_interval_hours)
             await asyncio.sleep(interval_seconds)
         except asyncio.CancelledError:

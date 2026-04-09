@@ -12,6 +12,23 @@ logger = logging.getLogger(__name__)
 MAX_STDERR_BYTES = 10 * 1024
 
 
+async def _read_stderr_tail(stream: asyncio.StreamReader, max_bytes: int) -> bytes:
+    """Read all of *stream*, keeping only the last *max_bytes*.
+
+    This avoids buffering unbounded stderr from long-running scrapers
+    (e.g. 23-minute Apple/Playwright runs) in memory.
+    """
+    tail = bytearray()
+    while True:
+        chunk = await stream.read(4096)
+        if not chunk:
+            break
+        tail.extend(chunk)
+        if len(tail) > max_bytes * 2:
+            tail = tail[-max_bytes:]
+    return bytes(tail[-max_bytes:]) if tail else b""
+
+
 @dataclass
 class ScraperResult:
     exit_code: int
@@ -62,9 +79,11 @@ async def run_scraper(config: Settings, company: str) -> ScraperResult:
 
         timeout_seconds = config.scraper_timeout_minutes * 60
         try:
-            _, stderr = await asyncio.wait_for(
-                process.communicate(), timeout=timeout_seconds
+            stderr = await asyncio.wait_for(
+                _read_stderr_tail(process.stderr, MAX_STDERR_BYTES),
+                timeout=timeout_seconds,
             )
+            await process.wait()
         except asyncio.TimeoutError:
             logger.warning("Scraper timed out after %d minutes, killing process", config.scraper_timeout_minutes)
             process.kill()
@@ -78,7 +97,7 @@ async def run_scraper(config: Settings, company: str) -> ScraperResult:
             )
 
         exit_code = process.returncode if process.returncode is not None else -3
-        stderr_text = stderr[-MAX_STDERR_BYTES:].decode("utf-8", errors="replace") if stderr else ""
+        stderr_text = stderr.decode("utf-8", errors="replace") if stderr else ""
         logger.info("Scraper exited with code %d", exit_code)
 
         return ScraperResult(
