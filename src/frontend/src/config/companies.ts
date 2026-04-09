@@ -390,6 +390,7 @@ export const COMPANIES: Company[] = [
 
   // Gem companies
   createGemCompany('nominal', 'Nominal'),
+  createGemCompany('retool', 'Retool'),
 
   // Workday companies
   createWorkdayCompany(
