@@ -1,5 +1,7 @@
 """Tests for GET /api/jobs and GET /api/jobs/{id} endpoints."""
 
+import json
+
 import pytest
 
 from .conftest import _make_job, _insert_job
@@ -101,3 +103,45 @@ def test_get_jobs_combines_company_and_status(client):
     assert len(jobs) == 1
     assert jobs[0]["company"] == "google"
     assert jobs[0]["status"] == "OPEN"
+
+
+# -- List endpoint returns trimmed details --
+
+
+def test_list_endpoint_returns_trimmed_details(client, db_conn, test_env):
+    """List endpoint strips large JSONB blobs, keeping only frontend-needed fields."""
+    _insert_job(db_conn, test_env, _make_job({
+        "id": "trim-test",
+        "details": json.dumps({
+            "experience_level": "Senior",
+            "is_remote_eligible": True,
+            "about_the_job": "A" * 5000,
+            "minimum_qualifications": "B" * 5000,
+        }),
+        "ai_metadata": json.dumps({"scores": [1, 2, 3]}),
+    }))
+    resp = client.get("/api/jobs", params={"company": "google"})
+    # Find our specific job (seed_jobs also inserts google jobs)
+    job = next(j for j in resp.json() if j["id"] == "trim-test")
+    details = json.loads(job["details"])
+    assert details["experience_level"] == "Senior"
+    assert details["is_remote_eligible"] is True
+    assert "about_the_job" not in details
+    assert "minimum_qualifications" not in details
+    assert json.loads(job["aiMetadata"]) == {}
+
+
+def test_detail_endpoint_returns_full_details(client, db_conn, test_env):
+    """Detail endpoint still returns the full JSONB blobs."""
+    full_details = {
+        "experience_level": "Senior",
+        "about_the_job": "Full description here",
+    }
+    _insert_job(db_conn, test_env, _make_job({
+        "id": "detail-full-test",
+        "details": json.dumps(full_details),
+    }))
+    resp = client.get("/api/jobs/detail-full-test")
+    details = json.loads(resp.json()["details"])
+    assert details["experience_level"] == "Senior"
+    assert details["about_the_job"] == "Full description here"

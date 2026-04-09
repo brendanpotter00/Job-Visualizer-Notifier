@@ -24,9 +24,25 @@ def config():
     )
 
 
+def _make_mock_stderr(data: bytes):
+    """Create a mock StreamReader that yields *data* in one chunk then EOF."""
+    stream = AsyncMock()
+    returned = False
+
+    async def _read(n):
+        nonlocal returned
+        if not returned:
+            returned = True
+            return data
+        return b""
+
+    stream.read = _read
+    return stream
+
+
 def _make_mock_process(returncode=0, stderr=b""):
     proc = AsyncMock()
-    proc.communicate = AsyncMock(return_value=(None, stderr))
+    proc.stderr = _make_mock_stderr(stderr)
     proc.returncode = returncode
     proc.kill = MagicMock()
     proc.wait = AsyncMock()
@@ -134,11 +150,19 @@ class TestTimeoutHandling:
     @pytest.mark.asyncio
     async def test_timeout_returns_exit_code_minus_2(self, config):
         mock_proc = AsyncMock()
-        mock_proc.communicate = AsyncMock(side_effect=asyncio.TimeoutError)
+        mock_proc.stderr = _make_mock_stderr(b"")
         mock_proc.kill = MagicMock()
         mock_proc.wait = AsyncMock()
 
-        with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_proc):
+        # Make asyncio.wait_for raise TimeoutError immediately
+        original_wait_for = asyncio.wait_for
+
+        async def mock_wait_for(coro, *, timeout):
+            coro.close()  # Clean up the unawaited coroutine
+            raise asyncio.TimeoutError
+
+        with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_proc), \
+             patch("api.services.scraper_runner.asyncio.wait_for", side_effect=mock_wait_for):
             result = await run_scraper(config, "google")
 
         assert result.exit_code == -2

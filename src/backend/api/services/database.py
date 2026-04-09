@@ -65,6 +65,23 @@ def _build_where(
     return where, params
 
 
+# Lightweight column list for the list endpoint.  Returns only the
+# two ``details`` sub-fields the frontend transformer actually uses
+# (experience_level, is_remote_eligible) and an empty ai_metadata,
+# cutting per-row size from ~10 KB to ~500 bytes.
+# Must be updated if the schema changes.
+_LIST_COLUMNS = sql.SQL(
+    "id, title, company, location, url, source_id,"
+    " jsonb_build_object("
+    "   'experience_level', details->'experience_level',"
+    "   'is_remote_eligible', details->'is_remote_eligible'"
+    " ) AS details,"
+    " created_at, posted_on, closed_on, status,"
+    " has_matched, jsonb_build_object() AS ai_metadata,"
+    " first_seen_at, last_seen_at, consecutive_misses, details_scraped"
+)
+
+
 def get_jobs(
     conn: Connection,
     env: str,
@@ -78,8 +95,8 @@ def get_jobs(
         table = _table_id(env)
         where, params = _build_where(company=company, status=status)
 
-        query = sql.SQL("SELECT * FROM {} {} ORDER BY last_seen_at DESC LIMIT %s OFFSET %s").format(
-            table, where
+        query = sql.SQL("SELECT {} FROM {} {} ORDER BY last_seen_at DESC LIMIT %s OFFSET %s").format(
+            _LIST_COLUMNS, table, where
         )
         params.extend([limit, offset])
         cursor.execute(query, params)

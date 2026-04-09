@@ -6,6 +6,8 @@
 """
 
 import asyncio
+import ctypes
+import gc
 import logging
 
 from ..config import Settings
@@ -13,6 +15,11 @@ from .scraper_lock import scraper_lock
 from .scraper_runner import run_scraper
 
 logger = logging.getLogger(__name__)
+
+try:
+    _libc = ctypes.CDLL("libc.so.6")
+except OSError:
+    _libc = None
 
 
 async def auto_scraper_loop(config: Settings) -> None:
@@ -51,6 +58,12 @@ async def auto_scraper_loop(config: Settings) -> None:
                     logger.exception("Unexpected error scraping %s", company)
 
             consecutive_failures = 0
+            # Force CPython to release fragmented memory back to the OS.
+            # pymalloc retains freed arenas; gc.collect() breaks reference
+            # cycles, and malloc_trim() returns free heap pages to the OS.
+            gc.collect()
+            if _libc is not None:
+                _libc.malloc_trim(0)
             logger.info("Scrape cycle complete, waiting %dh before next run", config.scraper_interval_hours)
             await asyncio.sleep(interval_seconds)
         except asyncio.CancelledError:
