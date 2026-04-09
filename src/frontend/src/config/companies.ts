@@ -387,6 +387,7 @@ export const COMPANIES: Company[] = [
   createAshbyCompany('cohere', 'Cohere'),
   createAshbyCompany('traversal', 'Traversal'),
   createAshbyCompany('harvey', 'Harvey'),
+  createAshbyCompany('sentry', 'Sentry'),
 
   // Gem companies
   createGemCompany('nominal', 'Nominal'),
@@ -574,6 +575,7 @@ export const enum COMPANY_IDS {
   Saronic = 'saronic',
   Scaleai = 'scaleai',
   Sesame = 'sesame',
+  Sentry = 'sentry',
   SiftStack = 'siftstack',
   Slack = 'slack',
   Snap = 'snap',
