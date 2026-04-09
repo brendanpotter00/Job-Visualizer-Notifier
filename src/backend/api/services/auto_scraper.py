@@ -16,6 +16,11 @@ from .scraper_runner import run_scraper
 
 logger = logging.getLogger(__name__)
 
+try:
+    _libc = ctypes.CDLL("libc.so.6")
+except OSError:
+    _libc = None
+
 
 async def auto_scraper_loop(config: Settings) -> None:
     """Run scrapers in a loop. Intended to be launched as an asyncio task."""
@@ -57,10 +62,8 @@ async def auto_scraper_loop(config: Settings) -> None:
             # pymalloc retains freed arenas; gc.collect() breaks reference
             # cycles, and malloc_trim() returns free heap pages to the OS.
             gc.collect()
-            try:
-                ctypes.CDLL("libc.so.6").malloc_trim(0)
-            except (OSError, AttributeError):
-                pass  # Not on Linux/glibc (e.g. macOS dev)
+            if _libc is not None:
+                _libc.malloc_trim(0)
             logger.info("Scrape cycle complete, waiting %dh before next run", config.scraper_interval_hours)
             await asyncio.sleep(interval_seconds)
         except asyncio.CancelledError:

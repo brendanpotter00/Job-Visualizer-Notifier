@@ -65,10 +65,11 @@ def _build_where(
     return where, params
 
 
-    # Lightweight column list for the list endpoint.  Returns only the
-    # two ``details`` sub-fields the frontend transformer actually uses
-    # (experience_level, is_remote_eligible) and an empty ai_metadata,
-    # cutting per-row size from ~10 KB to ~500 bytes.
+# Lightweight column list for the list endpoint.  Returns only the
+# two ``details`` sub-fields the frontend transformer actually uses
+# (experience_level, is_remote_eligible) and an empty ai_metadata,
+# cutting per-row size from ~10 KB to ~500 bytes.
+# Must be updated if the schema changes.
 _LIST_COLUMNS = sql.SQL(
     "id, title, company, location, url, source_id,"
     " jsonb_build_object("

@@ -83,7 +83,7 @@ async def run_scraper(config: Settings, company: str) -> ScraperResult:
                 _read_stderr_tail(process.stderr, MAX_STDERR_BYTES),
                 timeout=timeout_seconds,
             )
-            await process.wait()
+            await asyncio.wait_for(process.wait(), timeout=30)
         except asyncio.TimeoutError:
             logger.warning("Scraper timed out after %d minutes, killing process", config.scraper_timeout_minutes)
             process.kill()
