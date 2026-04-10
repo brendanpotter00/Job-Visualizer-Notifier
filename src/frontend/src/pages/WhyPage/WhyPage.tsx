@@ -143,7 +143,7 @@ export function WhyPage() {
         {/* Group companies by ATS */}
         <Grid container spacing={3}>
           {Object.entries(companiesByATS).map(([ats, companies]) => {
-            const displayName = ats === 'backend-scraper' ? 'Custom Scrapers' : ats;
+            const displayName = ats === 'backend-scraper' ? 'Custom Web Scrapers' : ats;
             const shouldCapitalize = ats !== 'backend-scraper';
 
             return (
