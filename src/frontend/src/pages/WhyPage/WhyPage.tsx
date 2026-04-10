@@ -110,6 +110,9 @@ export function WhyPage() {
               Normalizing Locations with NLP
             </Typography>
             <Typography component="li" variant="body1" sx={{ mb: 1 }}>
+              Historical Data
+            </Typography>
+            <Typography component="li" variant="body1" sx={{ mb: 1 }}>
               Notification System
             </Typography>
             <Typography component="li" variant="body1" sx={{ mb: 1 }}>
@@ -117,9 +120,6 @@ export function WhyPage() {
             </Typography>
             <Typography component="li" variant="body1" sx={{ mb: 1 }}>
               AI Powered Resume To Job Listing Matching
-            </Typography>
-            <Typography component="li" variant="body1" sx={{ mb: 1 }}>
-              Historical Data
             </Typography>
           </Box>
         </Paper>
