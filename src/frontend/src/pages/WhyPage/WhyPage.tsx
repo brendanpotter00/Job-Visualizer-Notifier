@@ -107,7 +107,7 @@ export function WhyPage() {
               Company-Website Web Scrapers (Meta, Roblox, etc)
             </Typography>
             <Typography component="li" variant="body1" sx={{ mb: 1 }}>
-              AI Powered Resume to Job Listing Matching
+              AI Powered Resume To Job Listing Matching
             </Typography>
             <Typography component="li" variant="body1" sx={{ mb: 1 }}>
               Accounts
