@@ -107,6 +107,9 @@ export function WhyPage() {
               Saved Filter Settings
             </Typography>
             <Typography component="li" variant="body1" sx={{ mb: 1 }}>
+              Normalizing Locations with NLP
+            </Typography>
+            <Typography component="li" variant="body1" sx={{ mb: 1 }}>
               Notification System
             </Typography>
             <Typography component="li" variant="body1" sx={{ mb: 1 }}>
