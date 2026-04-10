@@ -388,6 +388,8 @@ export const COMPANIES: Company[] = [
   createAshbyCompany('traversal', 'Traversal'),
   createAshbyCompany('harvey', 'Harvey'),
   createAshbyCompany('sentry', 'Sentry'),
+  createAshbyCompany('braintrust', 'Braintrust', { jobBoardName: 'Braintrust' }),
+  createAshbyCompany('eliseai', 'EliseAI'),
   createAshbyCompany('resolve-ai', 'Resolve AI', { jobBoardName: 'Resolve AI' }),
 
   // Gem companies
@@ -519,6 +521,7 @@ export const enum COMPANY_IDS {
   Block = 'block',
   BlueOrigin = 'blueorigin',
   Brex = 'brex',
+  Braintrust = 'braintrust',
   Browserbase = 'browserbase',
   CapitalOne = 'capitalone',
   Chalk = 'chalkinc',
@@ -537,6 +540,7 @@ export const enum COMPANY_IDS {
   Disney = 'disney',
   Doordashusa = 'doordashusa',
   ElevenLabs = 'elevenlabs',
+  EliseAI = 'eliseai',
   Expedia = 'expedia',
   Figma = 'figma',
   FigureAI = 'figureai',
