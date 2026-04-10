@@ -31,6 +31,12 @@ export function WhyPage() {
     return grouped;
   }, []);
 
+  // Each custom scraper is its own platform; other ATS types count once per type
+  const atsPlatformCount = Object.entries(companiesByATS).reduce(
+    (total, [ats, companies]) => total + (ats === 'backend-scraper' ? companies.length : 1),
+    0
+  );
+
   return (
     <Container maxWidth={false} sx={{ px: { xs: 2, sm: 3, md: 4 } }}>
       <Box sx={{ my: 4 }}>
@@ -130,8 +136,8 @@ export function WhyPage() {
         </Typography>
 
         <Typography variant="body2" component="p" color="text.secondary" sx={{ mb: 2 }}>
-          We currently track {COMPANIES.length} companies across{' '}
-          {Object.keys(companiesByATS).length} different ATS platforms.
+          We currently track {COMPANIES.length} companies across {atsPlatformCount} different ATS
+          platforms.
         </Typography>
 
         {/* Group companies by ATS */}
