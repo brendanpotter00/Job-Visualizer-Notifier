@@ -46,9 +46,8 @@ export function WhyPage() {
             posted weeks ago.
           </Typography>
           <Typography variant="body1" component="p" sx={{ mb: 2 }}>
-            So I created this platform. It pulls directly from the company's job postings and top
-            companies. No more shifting through no-name companies or wondering if the job listing is
-            actually new.
+            So I created this platform. It pulls directly from top companies' job postings. No more
+            shifting through no-name companies or wondering if the job listing is actually new.
           </Typography>
           <Typography variant="body1" component="p" sx={{ mb: 2 }}>
             The best way to get interviews is to either apply earlier or reach out to the hiring
@@ -65,10 +64,10 @@ export function WhyPage() {
               <strong>Check the website frequently</strong>
             </Typography>
             <Typography component="li" variant="body1" sx={{ mb: 1 }}>
-              <strong>Reach out to recruiters and hiring managers via the LinkedIn links</strong>
+              <strong>Apply early</strong>
             </Typography>
             <Typography component="li" variant="body1">
-              <strong>Apply early</strong>
+              <strong>Reach out to recruiters and hiring managers via the LinkedIn links</strong>
             </Typography>
           </Box>
           <Typography variant="body1" component="p" sx={{ mb: 2 }}>
