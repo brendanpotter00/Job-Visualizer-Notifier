@@ -101,6 +101,12 @@ export function WhyPage() {
           </Typography>
           <Box component="ul" sx={{ mt: 0, mb: 0, pl: 3 }}>
             <Typography component="li" variant="body1" sx={{ mb: 1 }}>
+              Accounts
+            </Typography>
+            <Typography component="li" variant="body1" sx={{ mb: 1 }}>
+              Saved Filter Settings
+            </Typography>
+            <Typography component="li" variant="body1" sx={{ mb: 1 }}>
               Notification System
             </Typography>
             <Typography component="li" variant="body1" sx={{ mb: 1 }}>
@@ -108,12 +114,6 @@ export function WhyPage() {
             </Typography>
             <Typography component="li" variant="body1" sx={{ mb: 1 }}>
               AI Powered Resume To Job Listing Matching
-            </Typography>
-            <Typography component="li" variant="body1" sx={{ mb: 1 }}>
-              Accounts
-            </Typography>
-            <Typography component="li" variant="body1" sx={{ mb: 1 }}>
-              Saved Filter Settings
             </Typography>
             <Typography component="li" variant="body1" sx={{ mb: 1 }}>
               Historical Data
