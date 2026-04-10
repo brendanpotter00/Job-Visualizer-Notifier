@@ -116,10 +116,10 @@ export function WhyPage() {
               Notification System
             </Typography>
             <Typography component="li" variant="body1" sx={{ mb: 1 }}>
-              Company-Website Web Scrapers (Meta, Roblox, etc)
+              AI Powered Resume To Job Listing Matching
             </Typography>
             <Typography component="li" variant="body1" sx={{ mb: 1 }}>
-              AI Powered Resume To Job Listing Matching
+              Company-Website Web Scrapers (Meta, Roblox, etc)
             </Typography>
           </Box>
         </Paper>
