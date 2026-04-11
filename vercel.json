@@ -39,6 +39,10 @@
     {
       "source": "/why",
       "destination": "/index.html"
+    },
+    {
+      "source": "/companies",
+      "destination": "/index.html"
     }
   ],
   "headers": [
