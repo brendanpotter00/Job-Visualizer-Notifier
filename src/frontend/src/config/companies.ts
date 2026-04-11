@@ -390,6 +390,8 @@ export const COMPANIES: Company[] = [
   createAshbyCompany('sentry', 'Sentry'),
   createAshbyCompany('braintrust', 'Braintrust', { jobBoardName: 'Braintrust' }),
   createAshbyCompany('eliseai', 'EliseAI'),
+  createAshbyCompany('resolve-ai', 'Resolve AI', { jobBoardName: 'Resolve AI' }),
+  createAshbyCompany('supabase', 'Supabase'),
 
   // Gem companies
   createGemCompany('nominal', 'Nominal'),
@@ -575,6 +577,7 @@ export const enum COMPANY_IDS {
   Plaid = 'plaid',
   Ramp = 'ramp',
   Reddit = 'reddit',
+  ResolveAI = 'resolve-ai',
   Robinhood = 'robinhood',
   Saronic = 'saronic',
   Scaleai = 'scaleai',
@@ -590,6 +593,7 @@ export const enum COMPANY_IDS {
   StainlessApi = 'stainlessapi',
   Stripe = 'stripe',
   Sunday = 'sunday',
+  Supabase = 'supabase',
   Traversal = 'traversal',
   TrueAnomaly = 'trueanomalyinc',
   Twilio = 'twilio',
