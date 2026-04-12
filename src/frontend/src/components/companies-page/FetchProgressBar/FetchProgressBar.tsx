@@ -64,6 +64,8 @@ export function FetchProgressBar() {
         borderBottom: '1px solid',
         borderColor: 'divider',
         boxShadow: 'none',
+        borderRadius: 1,
+        overflow: 'hidden',
         mb: 2,
         '&:before': { display: 'none' },
       }}
