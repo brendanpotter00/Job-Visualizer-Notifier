@@ -9,27 +9,44 @@ export const ROUTES = {
   COMPANIES: '/companies',
   WHY: '/why',
   QA: '/qa',
+  DESIGN_SYSTEM: '/design-system',
 } as const;
 
-export const NAV_ITEMS = [
+export type NavIconName = 'Business' | 'Schedule' | 'Info' | 'BugReport' | 'Palette';
+
+export interface NavItem {
+  path: string;
+  label: string;
+  icon: NavIconName;
+  devOnly?: boolean;
+}
+
+export const NAV_ITEMS: readonly NavItem[] = [
   {
     path: ROUTES.RECENT_JOBS,
     label: 'Recent Job Postings',
-    icon: 'Schedule', // MUI Schedule icon
+    icon: 'Schedule',
   },
   {
     path: ROUTES.COMPANIES,
     label: 'Company Job Postings',
-    icon: 'Business', // MUI Business icon
+    icon: 'Business',
   },
   {
     path: ROUTES.WHY,
     label: 'Why This Was Built',
-    icon: 'Info', // MUI Info icon
+    icon: 'Info',
   },
   {
     path: ROUTES.QA,
     label: 'QA',
     icon: 'BugReport',
+    devOnly: true,
   },
-] as const;
+  {
+    path: ROUTES.DESIGN_SYSTEM,
+    label: 'Design System',
+    icon: 'Palette',
+    devOnly: true,
+  },
+];
