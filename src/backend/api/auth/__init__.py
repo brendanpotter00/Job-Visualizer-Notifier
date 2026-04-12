@@ -1,1 +1,1 @@
-"""Kinde JWT authentication."""
+"""Auth0 JWT authentication."""

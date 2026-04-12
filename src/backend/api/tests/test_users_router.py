@@ -9,7 +9,7 @@ class TestGetMe:
         resp = client.get("/api/users")
         assert resp.status_code == 200
         data = resp.json()
-        assert data["kindeId"] == "kp_test_user_123"
+        assert data["auth0Id"] == "auth0|test_user_123"
         assert data["email"] == "test@example.com"
         assert data["givenName"] == "Test"
         assert data["familyName"] == "User"
@@ -20,7 +20,7 @@ class TestGetMe:
 
     def test_returns_existing_user(self, client, db_conn, test_env):
         """GET /api/users returns existing user without overwriting display_name."""
-        user = _make_user({"kinde_id": "kp_test_user_123", "display_name": "Custom Name"})
+        user = _make_user({"auth0_id": "auth0|test_user_123", "display_name": "Custom Name"})
         _insert_user(db_conn, test_env, user)
         resp = client.get("/api/users")
         assert resp.status_code == 200
@@ -34,7 +34,7 @@ class TestGetMe:
         assert resp.status_code == 200
         data = resp.json()
         expected_keys = {
-            "id", "kindeId", "email", "displayName", "givenName",
+            "id", "auth0Id", "email", "displayName", "givenName",
             "familyName", "pictureUrl", "createdAt", "updatedAt",
         }
         assert set(data.keys()) == expected_keys
@@ -42,7 +42,7 @@ class TestGetMe:
     def test_no_snake_case_keys(self, client):
         """No snake_case keys should leak into the response."""
         resp = client.get("/api/users")
-        snake_keys = {"kinde_id", "display_name", "given_name", "family_name",
+        snake_keys = {"auth0_id", "display_name", "given_name", "family_name",
                       "picture_url", "created_at", "updated_at"}
         assert not snake_keys.intersection(resp.json().keys())
 

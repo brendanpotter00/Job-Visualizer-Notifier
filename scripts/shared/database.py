@@ -204,7 +204,7 @@ def init_schema(conn: Connection, env: str = "local") -> None:
     cursor.execute(f"""
         CREATE TABLE IF NOT EXISTS {users_table} (
             id TEXT PRIMARY KEY,
-            kinde_id TEXT UNIQUE NOT NULL,
+            auth0_id TEXT UNIQUE NOT NULL,
             email TEXT NOT NULL,
             display_name TEXT,
             given_name TEXT,
@@ -217,8 +217,8 @@ def init_schema(conn: Connection, env: str = "local") -> None:
 
     # Create indexes for users
     cursor.execute(f"""
-        CREATE INDEX IF NOT EXISTS idx_{users_table}_kinde_id
-        ON {users_table}(kinde_id)
+        CREATE INDEX IF NOT EXISTS idx_{users_table}_auth0_id
+        ON {users_table}(auth0_id)
     """)
     cursor.execute(f"""
         CREATE INDEX IF NOT EXISTS idx_{users_table}_email

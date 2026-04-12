@@ -118,7 +118,7 @@ def _make_user(overrides: dict | None = None) -> dict:
     """Build a complete user row dict with sensible defaults."""
     base = {
         "id": uuid.uuid4().hex,
-        "kinde_id": f"kp_{uuid.uuid4().hex[:12]}",
+        "auth0_id": f"auth0|{uuid.uuid4().hex[:12]}",
         "email": "test@example.com",
         "display_name": None,
         "given_name": "Test",
@@ -183,7 +183,7 @@ def test_app(db_conn, test_env):
 
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_current_user] = lambda: {
-        "sub": "kp_test_user_123",
+        "sub": "auth0|test_user_123",
         "email": "test@example.com",
         "given_name": "Test",
         "family_name": "User",

@@ -42,9 +42,9 @@ class Settings(BaseSettings):
             )
         return self
 
-    # Kinde authentication
-    kinde_domain: str | None = None
-    kinde_audience: str | None = None
+    # Auth0 authentication
+    auth0_domain: str | None = None
+    auth0_audience: str | None = None
 
     # Server
     port: int = 8080

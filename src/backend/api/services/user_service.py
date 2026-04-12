@@ -12,7 +12,7 @@ from scripts.shared.database import _get_table_name
 def get_or_create_user(
     conn: Connection,
     env: str,
-    kinde_id: str,
+    auth0_id: str,
     email: str,
     given_name: str | None = None,
     family_name: str | None = None,
@@ -25,26 +25,26 @@ def get_or_create_user(
     cursor = conn.cursor()
     cursor.execute(
         sql.SQL(
-            "INSERT INTO {} (id, kinde_id, email, given_name, family_name, picture_url, created_at, updated_at)"
+            "INSERT INTO {} (id, auth0_id, email, given_name, family_name, picture_url, created_at, updated_at)"
             " VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"
-            " ON CONFLICT (kinde_id) DO UPDATE SET"
+            " ON CONFLICT (auth0_id) DO UPDATE SET"
             "   email = EXCLUDED.email, given_name = EXCLUDED.given_name,"
             "   family_name = EXCLUDED.family_name, picture_url = EXCLUDED.picture_url,"
             "   updated_at = EXCLUDED.updated_at"
             " RETURNING *"
         ).format(table),
-        (user_id, kinde_id, email, given_name, family_name, picture_url, now, now),
+        (user_id, auth0_id, email, given_name, family_name, picture_url, now, now),
     )
     conn.commit()
     return dict(cursor.fetchone())
 
 
-def get_user_by_kinde_id(conn: Connection, env: str, kinde_id: str) -> dict | None:
-    """Look up a user by their Kinde ID."""
+def get_user_by_auth0_id(conn: Connection, env: str, auth0_id: str) -> dict | None:
+    """Look up a user by their Auth0 ID."""
     table = sql.Identifier(_get_table_name(env, "users"))
     cursor = conn.cursor()
     cursor.execute(
-        sql.SQL("SELECT * FROM {} WHERE kinde_id = %s").format(table), (kinde_id,)
+        sql.SQL("SELECT * FROM {} WHERE auth0_id = %s").format(table), (auth0_id,)
     )
     row = cursor.fetchone()
     return dict(row) if row else None
@@ -53,7 +53,7 @@ def get_user_by_kinde_id(conn: Connection, env: str, kinde_id: str) -> dict | No
 def update_user(
     conn: Connection,
     env: str,
-    kinde_id: str,
+    auth0_id: str,
     display_name: str | None = None,
 ) -> dict | None:
     """Update a user's display name."""
@@ -62,9 +62,9 @@ def update_user(
     cursor = conn.cursor()
     cursor.execute(
         sql.SQL(
-            "UPDATE {} SET display_name = %s, updated_at = %s WHERE kinde_id = %s RETURNING *"
+            "UPDATE {} SET display_name = %s, updated_at = %s WHERE auth0_id = %s RETURNING *"
         ).format(table),
-        (display_name, now, kinde_id),
+        (display_name, now, auth0_id),
     )
     conn.commit()
     row = cursor.fetchone()

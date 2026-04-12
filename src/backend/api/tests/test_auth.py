@@ -11,9 +11,9 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 _private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 _public_key = _private_key.public_key()
 
-TEST_DOMAIN = "test.kinde.com"
+TEST_DOMAIN = "test.us.auth0.com"
 TEST_AUDIENCE = "test-api"
-TEST_ISSUER = f"https://{TEST_DOMAIN}"
+TEST_ISSUER = f"https://{TEST_DOMAIN}/"
 
 
 def _encode_token(payload: dict) -> str:
@@ -25,7 +25,7 @@ def _valid_payload(**overrides) -> dict:
     """Build a valid JWT payload with sensible defaults."""
     now = int(time.time())
     base = {
-        "sub": "kp_abc123",
+        "sub": "auth0|abc123",
         "iss": TEST_ISSUER,
         "aud": TEST_AUDIENCE,
         "iat": now,
@@ -38,10 +38,10 @@ def _valid_payload(**overrides) -> dict:
 
 @pytest.fixture(autouse=True)
 def _patch_settings():
-    """Patch Kinde settings for all tests."""
+    """Patch Auth0 settings for all tests."""
     with patch("api.auth.jwt.settings") as mock_settings:
-        mock_settings.kinde_domain = TEST_DOMAIN
-        mock_settings.kinde_audience = TEST_AUDIENCE
+        mock_settings.auth0_domain = TEST_DOMAIN
+        mock_settings.auth0_audience = TEST_AUDIENCE
         yield mock_settings
 
 
@@ -80,7 +80,7 @@ class TestValidateToken:
 
         result = validate_token(token)
 
-        assert result["sub"] == "kp_abc123"
+        assert result["sub"] == "auth0|abc123"
         assert result["email"] == "user@example.com"
         assert result["iss"] == TEST_ISSUER
         assert result["aud"] == TEST_AUDIENCE
@@ -109,7 +109,7 @@ class TestValidateToken:
         """A token with the wrong issuer raises InvalidIssuerError."""
         from api.auth.jwt import validate_token
 
-        payload = _valid_payload(iss="https://evil.example.com")
+        payload = _valid_payload(iss="https://evil.example.com/")
         token = _encode_token(payload)
 
         with pytest.raises(pyjwt.InvalidIssuerError):

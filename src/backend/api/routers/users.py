@@ -21,7 +21,7 @@ async def get_current_user_profile(
     result = get_or_create_user(
         conn,
         env,
-        kinde_id=user["sub"],
+        auth0_id=user["sub"],
         email=user.get("email", ""),
         given_name=user.get("given_name"),
         family_name=user.get("family_name"),
@@ -39,7 +39,7 @@ async def update_current_user_profile(
 ):
     """Update the authenticated user's display name."""
     env = request.app.state.env
-    result = update_user(conn, env, kinde_id=user["sub"], display_name=body.display_name)
+    result = update_user(conn, env, auth0_id=user["sub"], display_name=body.display_name)
     if result is None:
         raise HTTPException(status_code=404, detail="User not found")
     return UserResponse(**result)

@@ -70,7 +70,7 @@ class UserResponse(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
     id: str
-    kinde_id: str
+    auth0_id: str
     email: str
     display_name: str | None = None
     given_name: str | None = None
