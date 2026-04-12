@@ -64,3 +64,23 @@ class JobsStatsResponse(BaseModel):
     open_jobs: int
     closed_jobs: int
     company_counts: list[CompanyCountResponse]
+
+
+class UserResponse(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    id: str
+    kinde_id: str
+    email: str
+    display_name: str | None = None
+    given_name: str | None = None
+    family_name: str | None = None
+    picture_url: str | None = None
+    created_at: str
+    updated_at: str
+
+
+class UserUpdateRequest(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    display_name: str | None = Field(default=None, max_length=100)
