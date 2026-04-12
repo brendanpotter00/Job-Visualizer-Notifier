@@ -27,12 +27,9 @@ The backend normalizes these to a consistent format and uses **email as the dedu
 
 ### Unit 1: Backend -- Complete Auth Stack
 
-**Status: Partially done.** Auth0 JWT validation, user service, and user router are implemented. Google One Tap support (dual JWKS validation, identity normalization) still needed.
+**Status: Auth0 done. Google One Tap backend validation not started.**
 
-**Files to create (new for Google One Tap):**
-- `src/backend/api/auth/google_jwt.py` -- Google JWKS-based JWT validation for One Tap tokens
-
-**Files already created (Auth0 -- DONE):**
+**DONE -- Auth0 backend (all created and tested):**
 - `src/backend/api/auth/__init__.py` -- Package init
 - `src/backend/api/auth/jwt.py` -- Auth0 JWKS-based JWT validation using `PyJWKClient`
 - `src/backend/api/auth/dependencies.py` -- `get_current_user` (required) and `get_optional_user` (optional) FastAPI dependencies using `HTTPBearer`
@@ -40,22 +37,23 @@ The backend normalizes these to a consistent format and uses **email as the dedu
 - `src/backend/api/routers/users.py` -- `GET /api/users` (get-or-create current user), `PUT /api/users` (update profile)
 - `src/backend/api/tests/test_users_router.py` -- Tests for user endpoints (mock auth dependency)
 - `src/backend/api/tests/test_auth.py` -- Tests for JWT validation (generate test RSA keys)
-
-**Files to modify (for Google One Tap):**
-- `src/backend/api/config.py` -- Add `google_client_id` setting
-- `src/backend/api/auth/jwt.py` -- Refactor into `validate_auth0_token()`, add `validate_token()` dispatcher that tries Auth0 first then Google
-- `src/backend/api/auth/dependencies.py` -- Update `get_optional_user` to handle both token types via the unified `validate_token()`
-- `src/backend/api/services/user_service.py` -- Add email-based lookup for identity resolution across login methods
-- `src/backend/api/routers/users.py` -- Handle normalized identity from both token sources
-- `src/backend/api/tests/test_auth.py` -- Add tests for Google token validation and the dual-validation dispatcher
-
-**Files already modified (Auth0 -- DONE):**
 - `scripts/shared/database.py` -- `users_{env}` table in `init_schema()`, `"users"` mapping in `_get_table_name()`
 - `src/backend/api/config.py` -- `auth0_domain`, `auth0_audience` settings
 - `src/backend/api/models.py` -- `UserResponse` and `UserUpdateRequest` Pydantic models
 - `src/backend/api/main.py` -- Users router registered at `/api/users`
 - `src/backend/api/requirements.txt` -- `PyJWT[crypto]>=2.8.0`
 - `src/backend/api/tests/conftest.py` -- Users table cleanup, `_make_user`/`_insert_user` helpers, mock auth dependency fixture
+
+**TODO -- Google One Tap backend validation (files to create):**
+- `src/backend/api/auth/google_jwt.py` -- Google JWKS-based JWT validation for One Tap tokens
+
+**TODO -- Google One Tap backend validation (files to modify):**
+- `src/backend/api/config.py` -- Add `google_client_id` setting
+- `src/backend/api/auth/jwt.py` -- Refactor into `validate_auth0_token()`, add `validate_token()` dispatcher that tries Auth0 first then Google
+- `src/backend/api/auth/dependencies.py` -- Update `get_optional_user` to handle both token types via the unified `validate_token()`
+- `src/backend/api/services/user_service.py` -- Add email-based lookup for identity resolution across login methods
+- `src/backend/api/routers/users.py` -- Handle normalized identity from both token sources
+- `src/backend/api/tests/test_auth.py` -- Add tests for Google token validation and the dual-validation dispatcher
 
 **Database schema for `users_{env}`:**
 ```sql
@@ -208,21 +206,33 @@ def get_or_create_user(conn, env, auth0_id, email, given_name, family_name, pict
 
 ### Unit 2: Frontend -- Auth Integration + Account Page + Google One Tap
 
-**Files to create:**
+**Status: DONE.** All files created, modified, and tested.
+
+**DONE -- Files created:**
 - `src/frontend/src/config/auth.ts` -- Centralized config from `import.meta.env.VITE_AUTH0_*` and `VITE_GOOGLE_CLIENT_ID` vars, `isEnabled` flag
 - `src/frontend/src/features/auth/useAuth.ts` -- Thin wrapper around `useAuth0()` adding `isEnabled` check and Google One Tap state
 - `src/frontend/src/features/auth/authService.ts` -- `fetchCurrentUser(token)` and `updateCurrentUser(token, updates)` fetch utilities for `/api/users`
 - `src/frontend/src/features/auth/GoogleOneTap.tsx` -- Component that renders the One Tap prompt for unauthenticated users
+- `src/frontend/src/features/auth/GoogleCredentialContext.tsx` -- React Context for Google credential state (improvement over plan's useState approach)
+- `src/frontend/src/features/auth/useGoogleCredential.ts` -- Hook to access Google credential context
 - `src/frontend/src/components/layout/UserMenu.tsx` -- Avatar + dropdown menu (Account link, Sign Out) when authenticated, "Sign In" button when not
 - `src/frontend/src/pages/AccountPage/AccountPage.tsx` -- User profile page with avatar, name, email (read-only), display name editing
 
-**Files to modify:**
-- `src/frontend/package.json` -- Add `@auth0/auth0-react` and `@react-oauth/google` dependencies
-- `src/frontend/src/main.tsx` -- Wrap app with `<GoogleOAuthProvider>` and `<Auth0Provider>` (outside Redux Provider, inside ErrorBoundary)
-- `src/frontend/src/components/layout/GlobalAppBar.tsx` -- Add `<UserMenu />` to right side of Toolbar (use `flexGrow: 1` spacer after title)
-- `src/frontend/src/config/routes.ts` -- Add `ACCOUNT: '/account'` to ROUTES (NOT to NAV_ITEMS -- accessible via user menu only)
-- `src/frontend/src/app/App.tsx` -- Add `<Route path={ROUTES.ACCOUNT} element={<AccountPage />} />`, add `<GoogleOneTap />`
-- `src/frontend/src/components/layout/NavigationDrawer.tsx` -- Add Account link at bottom of drawer (only shown when authenticated)
+**DONE -- Files modified:**
+- `src/frontend/package.json` -- Added `@auth0/auth0-react` and `@react-oauth/google` dependencies
+- `src/frontend/src/main.tsx` -- Wrapped app with `<GoogleOAuthProvider>`, `<Auth0Provider>`, and `<GoogleCredentialProvider>`
+- `src/frontend/src/components/layout/GlobalAppBar.tsx` -- Added `<UserMenu />` to right side of Toolbar
+- `src/frontend/src/config/routes.ts` -- Added `ACCOUNT: '/account'` to ROUTES
+- `src/frontend/src/app/App.tsx` -- Added `<Route path={ROUTES.ACCOUNT} element={<AccountPage />} />` and `<GoogleOneTap />`
+- `src/frontend/src/components/layout/NavigationDrawer.tsx` -- Added Account link at bottom of drawer (only shown when authenticated)
+
+**DONE -- Tests created:**
+- `src/frontend/src/__tests__/config/auth.test.ts`
+- `src/frontend/src/__tests__/features/auth/authService.test.ts`
+- `src/frontend/src/__tests__/features/auth/GoogleOneTap.test.tsx`
+- `src/frontend/src/__tests__/features/auth/useAuth.test.ts`
+- `src/frontend/src/__tests__/components/layout/UserMenu.test.tsx`
+- `src/frontend/src/__tests__/pages/AccountPage/AccountPage.test.tsx`
 
 **Provider placement in main.tsx:**
 ```tsx
@@ -365,15 +375,23 @@ export function useAuth() {
 
 ### Unit 3: Infrastructure -- Vercel Proxy + Config
 
-**Files to create:**
-- `api/users.ts` -- Vercel serverless proxy for `/api/users/*` endpoints, following `api/jobs-qa.ts` catch-all pattern. **Must forward `Authorization` header** to backend.
+**Status: DONE.** All files created, modified, and tested.
 
-**Files to modify:**
+**DONE -- Files created:**
+- `api/users.ts` -- Vercel serverless proxy for `/api/users/*` endpoints, following `api/jobs-qa.ts` catch-all pattern. Forwards `Authorization` header to backend.
+
+**DONE -- Files modified:**
 - `vercel.json`:
-  - Add rewrite: `{ "source": "/api/users/:path(.*)", "destination": "/api/users?path=:path" }`
-  - Add SPA fallback: `{ "source": "/account", "destination": "/index.html" }`
-  - Update CORS headers: Add `Authorization` to `Access-Control-Allow-Headers`, add `PUT` to `Access-Control-Allow-Methods`
-  - **SECURITY: Replace `Access-Control-Allow-Origin: "*"` with the actual production Vercel domain** (e.g., `"https://yourapp.vercel.app"`). The current wildcard allows any website to make API requests to the backend. This must be fixed before shipping auth.
+  - Added rewrite: `{ "source": "/api/users/:path(.*)", "destination": "/api/users?path=:path" }`
+  - Added SPA fallback: `{ "source": "/account", "destination": "/index.html" }`
+  - Updated CORS headers: Added `Authorization` to `Access-Control-Allow-Headers`, added `PUT` to `Access-Control-Allow-Methods`
+- `api/utils/backendUrl.ts` -- Fixed unused parameter type-check error (`req` -> `_req`)
+
+**DONE -- Tests created:**
+- `src/frontend/src/__tests__/api/serverless/users.serverless.test.ts` -- 23 tests for proxy
+
+**TODO -- SECURITY (before shipping auth to production):**
+- Replace `Access-Control-Allow-Origin: "*"` in `vercel.json` with the actual production Vercel domain (`https://job-visualizer-notifier.vercel.app`). The current wildcard allows any website to make API requests to the backend.
 
 **Critical: `api/users.ts` must forward auth headers (unlike existing proxies):**
 ```typescript
@@ -625,7 +643,7 @@ These tables will be added when the saved filters/companies feature is implement
 7. **Auth0 Action required for profile claims:** Without the Post Login Action, the Auth0 access token only contains `sub`. Google One Tap tokens include profile claims by default -- no action needed for that flow.
 8. **Auth0 issuer has trailing slash:** The JWT issuer is `https://yourapp.us.auth0.com/` (with trailing slash). Google's issuer is `https://accounts.google.com` (no trailing slash). The backend handles both.
 9. **Google Client ID consistency:** The Google Client ID used in the frontend (`VITE_GOOGLE_CLIENT_ID`), backend (`GOOGLE_CLIENT_ID`), and Auth0 Google social connection MUST all be the same. Otherwise One Tap tokens won't validate or Auth0 won't recognize the Google user.
-10. **CORS with Authorization header:** Current `vercel.json` CORS headers don't include `Authorization`. Browsers block preflight requests for authenticated API calls without this. **Must update.**
+10. **CORS with Authorization header:** ~~Current `vercel.json` CORS headers don't include `Authorization`.~~ **FIXED** -- `Authorization` added to `Access-Control-Allow-Headers` in `vercel.json`.
 11. **Auth0 app type:** Must be "Single Page Application" (not "Regular Web Application") for the React SDK's silent token refresh and PKCE flow to work.
 12. **Backend CORS:** Railway's `CORS_ORIGINS` setting must include the Vercel production domain.
 13. **Auth is optional:** Every component using `useAuth()` must handle `isEnabled: false`. UserMenu renders nothing and GoogleOneTap is disabled when auth is disabled.
