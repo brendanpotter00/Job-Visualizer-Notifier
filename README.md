@@ -40,6 +40,38 @@ npm run dev:vercel
 
 Backend API docs: `http://localhost:8000/docs`
 
+## Running Scrapers
+
+Scrapers pull job listings from company career sites into JSON or a database. Requires the Python environment from "Full Stack" setup above.
+
+```bash
+# Google (default)
+python scripts/run_scraper.py
+
+# Apple or Microsoft
+python scripts/run_scraper.py --company apple
+python scripts/run_scraper.py --company microsoft
+
+# All companies at once
+python scripts/run_scraper.py --company all
+
+# Include full job details (slower — scrapes each job page)
+python scripts/run_scraper.py --company google --detail-scrape
+
+# Quick test (5 jobs, visible browser, verbose)
+python scripts/run_scraper.py --max-jobs 5 --no-headless -v
+
+# Database mode (PostgreSQL)
+python scripts/run_scraper.py --company google --env local \
+  --db-url postgresql://user:pass@localhost:5432/jobscraper
+
+# Incremental update (only new jobs — requires prior full scrape)
+python scripts/run_scraper.py --company google --env local \
+  --db-url postgresql://user:pass@localhost:5432/jobscraper --incremental
+```
+
+See `scripts/README.md` for the full list of CLI options, output format, and troubleshooting.
+
 ## Commands
 
 | Command | Description |
