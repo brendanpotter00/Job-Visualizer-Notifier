@@ -1,11 +1,12 @@
-import { createContext, useContext, useState, type ReactNode } from 'react';
+import { createContext, useState, type ReactNode } from 'react';
 
-interface GoogleCredentialState {
+export interface GoogleCredentialState {
   googleCredential: string | null;
   setGoogleCredential: (credential: string | null) => void;
 }
 
-const GoogleCredentialContext = createContext<GoogleCredentialState>({
+// eslint-disable-next-line react-refresh/only-export-components
+export const GoogleCredentialContext = createContext<GoogleCredentialState>({
   googleCredential: null,
   setGoogleCredential: () => {},
 });
@@ -17,8 +18,4 @@ export function GoogleCredentialProvider({ children }: { children: ReactNode }) 
       {children}
     </GoogleCredentialContext.Provider>
   );
-}
-
-export function useGoogleCredential() {
-  return useContext(GoogleCredentialContext);
 }

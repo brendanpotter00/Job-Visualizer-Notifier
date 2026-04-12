@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import type { ReactNode } from 'react';
+
 
 const mockLoginWithRedirect = vi.fn();
 const mockLogout = vi.fn();
@@ -35,14 +35,13 @@ const mockSetGoogleCredential = vi.fn((val: string | null) => {
   mockGoogleCredential = val;
 });
 
-vi.mock('../../../features/auth/GoogleCredentialContext', () => ({
+vi.mock('../../../features/auth/useGoogleCredential', () => ({
   useGoogleCredential: () => ({
     get googleCredential() {
       return mockGoogleCredential;
     },
     setGoogleCredential: mockSetGoogleCredential,
   }),
-  GoogleCredentialProvider: ({ children }: { children: ReactNode }) => children,
 }));
 
 let mockAuth0State = {

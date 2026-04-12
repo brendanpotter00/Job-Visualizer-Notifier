@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import { useAuth0 } from '@auth0/auth0-react';
 import { AUTH_CONFIG } from '../../config/auth';
-import { useGoogleCredential } from './GoogleCredentialContext';
+import { useGoogleCredential } from './useGoogleCredential';
 
 export function useAuth() {
   const {
