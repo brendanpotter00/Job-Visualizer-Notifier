@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     port: int = 8080
     cors_origins: str = "http://localhost:3000,http://localhost:5173,http://localhost:8000"
 
+    # Auth (Kinde)
+    kinde_domain: str | None = None
+    kinde_audience: str | None = None
+
     @property
     def companies_list(self) -> list[str]:
         return [c.strip() for c in self.scraper_companies.split(",") if c.strip()]
