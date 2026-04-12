@@ -475,6 +475,97 @@ Auth requires real credentials, so full e2e flow can't be automated in CI. Per-u
 
 ---
 
+## Deployment Configuration
+
+Steps to configure external services before deploying auth to production. Each step is labeled with whether it can be done via MCP server or requires manual action.
+
+### Step 1: Auth0 -- Create SPA Application (MCP: `auth0_create_application`)
+
+Create a Single Page Application in the Auth0 tenant (`dev-mbnkjr1sc4ccwlup.us.auth0.com`):
+
+- **Type:** `spa`
+- **Allowed Callback URLs:** `http://localhost:3000, https://job-visualizer-notifier.vercel.app`
+- **Allowed Logout URLs:** `http://localhost:3000, https://job-visualizer-notifier.vercel.app`
+- **Allowed Web Origins:** `http://localhost:3000, https://job-visualizer-notifier.vercel.app` (required for silent token renewal)
+
+Save the **Client ID** from the response -- needed for frontend env vars.
+
+### Step 2: Auth0 -- Create Custom API (MCP: `auth0_create_resource_server`)
+
+Create an API resource server:
+
+- **Name:** `Job Visualizer API`
+- **Identifier (audience):** `https://job-visualizer-notifier.vercel.app/api`
+- **Signing Algorithm:** RS256
+
+The identifier becomes the `AUTH0_AUDIENCE` / `VITE_AUTH0_AUDIENCE` env var.
+
+### Step 3: Auth0 -- Create Post Login Action (MCP: `auth0_create_action` + `auth0_deploy_action`)
+
+Auth0 access tokens for custom APIs don't include profile claims by default. Create and deploy an action:
+
+- **Trigger:** `post-login`
+- **Code:**
+```javascript
+exports.onExecutePostLogin = async (event, api) => {
+  api.accessToken.setCustomClaim('email', event.user.email);
+  api.accessToken.setCustomClaim('given_name', event.user.given_name);
+  api.accessToken.setCustomClaim('family_name', event.user.family_name);
+  api.accessToken.setCustomClaim('picture', event.user.picture);
+};
+```
+
+**After deploying via MCP, you must manually add it to the Login Flow:**
+Auth0 Dashboard > Actions > Flows > Login > drag the action into the flow.
+MCP cannot bind actions to flows -- this is a manual step.
+
+### Step 4: Auth0 -- Enable Google Social Connection (Manual)
+
+Auth0 Dashboard > Authentication > Social > enable **Google / Gmail**.
+- Use the **same Google Client ID** as `VITE_GOOGLE_CLIENT_ID`
+- This ensures Auth0's Google social login and Google One Tap share the same identity
+
+### Step 5: Railway -- Set Backend Env Vars (MCP: `railway_set-variables`)
+
+Set three new variables on the `Job-Visualizer-Notifier` service:
+
+| Variable | Value |
+|----------|-------|
+| `AUTH0_DOMAIN` | `dev-mbnkjr1sc4ccwlup.us.auth0.com` |
+| `AUTH0_AUDIENCE` | `https://job-visualizer-notifier.vercel.app/api` (from Step 2) |
+| `GOOGLE_CLIENT_ID` | Same value as `VITE_GOOGLE_CLIENT_ID` from `.env.local` |
+
+Existing `CORS_ORIGINS=https://job-visualizer-notifier.vercel.app` is already correct.
+
+### Step 6: Vercel -- Set Frontend Env Vars (Manual -- Vercel Dashboard)
+
+No Vercel MCP server available. Set these in Vercel Dashboard > Project Settings > Environment Variables:
+
+| Variable | Value |
+|----------|-------|
+| `VITE_AUTH0_CLIENT_ID` | Client ID from Step 1 |
+| `VITE_AUTH0_DOMAIN` | `dev-mbnkjr1sc4ccwlup.us.auth0.com` |
+| `VITE_AUTH0_REDIRECT_URI` | `https://job-visualizer-notifier.vercel.app` |
+| `VITE_AUTH0_AUDIENCE` | `https://job-visualizer-notifier.vercel.app/api` (from Step 2) |
+| `VITE_GOOGLE_CLIENT_ID` | Same Google Client ID as `.env.local` |
+
+### Step 7: Google Cloud Console (Manual)
+
+Ensure the Google Cloud OAuth client is configured for production:
+
+1. Add `https://job-visualizer-notifier.vercel.app` to **Authorized JavaScript origins**
+2. Verify OAuth consent screen is configured
+3. OAuth client type must be **Web application**
+
+### Step 8: Security -- Restrict CORS Origin (Code Change)
+
+`vercel.json` currently has `Access-Control-Allow-Origin: "*"`. Before shipping auth, restrict to:
+```json
+{ "key": "Access-Control-Allow-Origin", "value": "https://job-visualizer-notifier.vercel.app" }
+```
+
+---
+
 ## Environment Variables
 
 ### Frontend (Vercel + .env.local)

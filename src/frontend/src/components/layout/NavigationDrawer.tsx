@@ -147,10 +147,36 @@ export function NavigationDrawer({
   //   (item) => item.path !== ROUTES.QA || import.meta.env.DEV
   // );
 
-  /**
-   * Renders the drawer content (header, divider, nav items)
-   * Extracted to avoid duplication between mobile and desktop drawers
-   */
+  function renderNavItem(path: string, label: string, icon: IconName) {
+    const Icon = iconMap[icon];
+    const isActive = location.pathname === path;
+
+    return (
+      <ListItem key={path} disablePadding sx={{ display: 'block' }}>
+        <ListItemButton
+          onClick={() => handleNavigate(path)}
+          sx={[
+            { minHeight: 48, px: 2.5 },
+            open ? { justifyContent: 'initial' } : { justifyContent: 'center' },
+            isActive && { bgcolor: 'action.selected' },
+          ]}
+        >
+          <Tooltip title={label} placement="right" arrow disableHoverListener={open}>
+            <ListItemIcon
+              sx={[
+                { minWidth: 0, justifyContent: 'center' },
+                open ? { mr: 3 } : { mr: 'auto' },
+              ]}
+            >
+              <Icon />
+            </ListItemIcon>
+          </Tooltip>
+          <ListItemText primary={label} sx={[open ? { opacity: 1 } : { opacity: 0 }]} />
+        </ListItemButton>
+      </ListItem>
+    );
+  }
+
   const renderDrawerContent = () => (
     <>
       <DrawerHeader>
@@ -160,125 +186,12 @@ export function NavigationDrawer({
       </DrawerHeader>
       <Divider />
       <List>
-        {NAV_ITEMS.map((item) => {
-          const Icon = iconMap[item.icon as IconName];
-          const isActive = location.pathname === item.path;
-
-          return (
-            <ListItem key={item.path} disablePadding sx={{ display: 'block' }}>
-              <ListItemButton
-                onClick={() => handleNavigate(item.path)}
-                sx={[
-                  {
-                    minHeight: 48,
-                    px: 2.5,
-                  },
-                  open
-                    ? {
-                        justifyContent: 'initial',
-                      }
-                    : {
-                        justifyContent: 'center',
-                      },
-                  isActive && {
-                    bgcolor: 'action.selected',
-                  },
-                ]}
-              >
-                <Tooltip title={item.label} placement="right" arrow disableHoverListener={open}>
-                  <ListItemIcon
-                    sx={[
-                      {
-                        minWidth: 0,
-                        justifyContent: 'center',
-                      },
-                      open
-                        ? {
-                            mr: 3,
-                          }
-                        : {
-                            mr: 'auto',
-                          },
-                    ]}
-                  >
-                    <Icon />
-                  </ListItemIcon>
-                </Tooltip>
-                <ListItemText
-                  primary={item.label}
-                  sx={[
-                    open
-                      ? {
-                          opacity: 1,
-                        }
-                      : {
-                          opacity: 0,
-                        },
-                  ]}
-                />
-              </ListItemButton>
-            </ListItem>
-          );
-        })}
+        {NAV_ITEMS.map((item) => renderNavItem(item.path, item.label, item.icon as IconName))}
       </List>
       {isAuthenticated && (
         <>
           <Divider sx={{ mt: 'auto' }} />
-          <List>
-            <ListItem disablePadding sx={{ display: 'block' }}>
-              <ListItemButton
-                onClick={() => handleNavigate(ROUTES.ACCOUNT)}
-                sx={[
-                  {
-                    minHeight: 48,
-                    px: 2.5,
-                  },
-                  open
-                    ? {
-                        justifyContent: 'initial',
-                      }
-                    : {
-                        justifyContent: 'center',
-                      },
-                  location.pathname === ROUTES.ACCOUNT && {
-                    bgcolor: 'action.selected',
-                  },
-                ]}
-              >
-                <Tooltip title="Account" placement="right" arrow disableHoverListener={open}>
-                  <ListItemIcon
-                    sx={[
-                      {
-                        minWidth: 0,
-                        justifyContent: 'center',
-                      },
-                      open
-                        ? {
-                            mr: 3,
-                          }
-                        : {
-                            mr: 'auto',
-                          },
-                    ]}
-                  >
-                    <AccountCircleIcon />
-                  </ListItemIcon>
-                </Tooltip>
-                <ListItemText
-                  primary="Account"
-                  sx={[
-                    open
-                      ? {
-                          opacity: 1,
-                        }
-                      : {
-                          opacity: 0,
-                        },
-                  ]}
-                />
-              </ListItemButton>
-            </ListItem>
-          </List>
+          <List>{renderNavItem(ROUTES.ACCOUNT, 'Account', 'AccountCircle')}</List>
         </>
       )}
     </>
