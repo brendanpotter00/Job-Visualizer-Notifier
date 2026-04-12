@@ -1,4 +1,4 @@
-# Google Jobs Scraper
+from # Google Jobs Scraper
 
 A Python-based web scraper for Google Careers that extracts software engineering, developer, and data science job listings in the United States.
 
@@ -60,8 +60,7 @@ python scripts/run_scraper.py -v
 python scripts/run_scraper.py -q "machine learning" "AI engineer"
 ```
 
-### Database Mode (NEW)
-
+### Database Mode
 ```bash
 # SQLite database (local development)
 python scripts/run_scraper.py --db-url sqlite:///jobs.db
@@ -271,18 +270,14 @@ scripts/
 │   ├── models.py                 # Pydantic data models
 │   ├── config.py                 # Configuration constants
 │   └── utils.py                  # Helper functions
-├── shared/                       # Multi-scraper framework (NEW)
-│   ├── base_scraper.py           # Abstract base class for scrapers
+├── shared/                       # Multi-scraper framework│   ├── base_scraper.py           # Abstract base class for scrapers
 │   ├── database.py               # SQLite/PostgreSQL abstraction
 │   ├── incremental.py            # 5-phase incremental algorithm
 │   └── models.py                 # Database-aligned models
-├── tests/                        # Test suite (NEW)
-│   ├── conftest.py               # Shared fixtures
+├── tests/                        # Test suite│   ├── conftest.py               # Shared fixtures
 │   ├── unit/                     # Unit tests
 │   └── integration/              # Integration tests
-├── pytest.ini                    # Test configuration (NEW)
-└── requirements-dev.txt          # Dev dependencies (NEW)
-```
+├── pytest.ini                    # Test configuration└── requirements-dev.txt          # Dev dependencies```
 
 ## Notes
 
@@ -311,8 +306,7 @@ python scripts/run_scraper.py --detail-scrape -o data/google_jobs_full.json
 python scripts/run_scraper.py -q "machine learning" "ML engineer" "AI" -o data/ml_jobs.json
 ```
 
-### Database Mode Examples (NEW)
-
+### Database Mode Examples
 #### Initial Full Scrape to Database
 ```bash
 python scripts/run_scraper.py --db-url sqlite:///jobs.db --detail-scrape
