@@ -8,6 +8,36 @@ import { createTestStore } from '../../test/testUtils';
 import App from '../../app/App';
 import { theme } from '../../config/theme';
 
+// Mock auth providers and hooks
+vi.mock('@auth0/auth0-react', () => ({
+  useAuth0: () => ({
+    isAuthenticated: false,
+    isLoading: false,
+    user: null,
+    loginWithRedirect: vi.fn(),
+    logout: vi.fn(),
+    getAccessTokenSilently: vi.fn(),
+  }),
+}));
+
+vi.mock('@react-oauth/google', () => ({
+  useGoogleOneTapLogin: vi.fn(),
+}));
+
+vi.mock('../../features/auth/useAuth', () => ({
+  useAuth: () => ({
+    isEnabled: false,
+    isAuthenticated: false,
+    isLoading: false,
+    user: null,
+    login: vi.fn(),
+    logout: vi.fn(),
+    getToken: vi.fn(),
+    googleCredential: null,
+    setGoogleCredential: vi.fn(),
+  }),
+}));
+
 /**
  * Integration tests for the full application workflow.
  * Tests end-to-end user interactions and data flow.

@@ -29,6 +29,10 @@
       "destination": "/api/jobs-qa?path=:path"
     },
     {
+      "source": "/api/users/:path(.*)",
+      "destination": "/api/users?path=:path"
+    },
+    {
       "source": "/recent-jobs",
       "destination": "/index.html"
     },
@@ -43,6 +47,10 @@
     {
       "source": "/companies",
       "destination": "/index.html"
+    },
+    {
+      "source": "/account",
+      "destination": "/index.html"
     }
   ],
   "headers": [
@@ -55,11 +63,11 @@
         },
         {
           "key": "Access-Control-Allow-Methods",
-          "value": "GET, POST, OPTIONS"
+          "value": "GET, POST, PUT, OPTIONS"
         },
         {
           "key": "Access-Control-Allow-Headers",
-          "value": "Content-Type, X-Workday-Base-Url"
+          "value": "Content-Type, X-Workday-Base-Url, Authorization"
         }
       ]
     }

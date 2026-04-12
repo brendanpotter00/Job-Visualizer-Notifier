@@ -1,10 +1,12 @@
 import { APP_TITLE } from '../../config/constants';
 import { styled } from '@mui/material/styles';
 import MuiAppBar, { AppBarProps as MuiAppBarProps } from '@mui/material/AppBar';
+import Box from '@mui/material/Box';
 import Toolbar from '@mui/material/Toolbar';
 import Typography from '@mui/material/Typography';
 import IconButton from '@mui/material/IconButton';
 import MenuIcon from '@mui/icons-material/Menu';
+import { UserMenu } from './UserMenu';
 
 /**
  * Props for the GlobalAppBar component
@@ -83,6 +85,8 @@ export function GlobalAppBar({ open, onDrawerToggle, drawerWidth, isMobile }: Gl
         <Typography variant="h6" noWrap component="div">
           {APP_TITLE}
         </Typography>
+        <Box sx={{ flexGrow: 1 }} />
+        <UserMenu />
       </Toolbar>
     </AppBar>
   );

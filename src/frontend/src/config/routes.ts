@@ -9,6 +9,7 @@ export const ROUTES = {
   COMPANIES: '/companies',
   WHY: '/why',
   QA: '/qa',
+  ACCOUNT: '/account',
 } as const;
 
 export const NAV_ITEMS = [

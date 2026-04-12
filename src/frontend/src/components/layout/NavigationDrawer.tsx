@@ -14,8 +14,10 @@ import BusinessIcon from '@mui/icons-material/Business';
 import ScheduleIcon from '@mui/icons-material/Schedule';
 import InfoIcon from '@mui/icons-material/Info';
 import BugReportIcon from '@mui/icons-material/BugReport';
+import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { NAV_ITEMS } from '../../config/routes.ts';
+import { NAV_ITEMS, ROUTES } from '../../config/routes.ts';
+import { useAuth } from '../../features/auth/useAuth';
 
 /**
  * Props for the NavigationDrawer component
@@ -94,12 +96,13 @@ const PermanentDrawer = styled(MuiDrawer, {
 /**
  * Map icon names to MUI icon components
  */
-type IconName = 'Business' | 'Schedule' | 'Info' | 'BugReport';
+type IconName = 'Business' | 'Schedule' | 'Info' | 'BugReport' | 'AccountCircle';
 const iconMap: Record<IconName, React.ComponentType> = {
   Business: BusinessIcon,
   Schedule: ScheduleIcon,
   Info: InfoIcon,
   BugReport: BugReportIcon,
+  AccountCircle: AccountCircleIcon,
 };
 
 /**
@@ -129,6 +132,7 @@ export function NavigationDrawer({
   const theme = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
+  const { isAuthenticated } = useAuth();
 
   const handleNavigate = (path: string) => {
     navigate(path);
@@ -217,6 +221,66 @@ export function NavigationDrawer({
           );
         })}
       </List>
+      {isAuthenticated && (
+        <>
+          <Divider sx={{ mt: 'auto' }} />
+          <List>
+            <ListItem disablePadding sx={{ display: 'block' }}>
+              <ListItemButton
+                onClick={() => handleNavigate(ROUTES.ACCOUNT)}
+                sx={[
+                  {
+                    minHeight: 48,
+                    px: 2.5,
+                  },
+                  open
+                    ? {
+                        justifyContent: 'initial',
+                      }
+                    : {
+                        justifyContent: 'center',
+                      },
+                  location.pathname === ROUTES.ACCOUNT && {
+                    bgcolor: 'action.selected',
+                  },
+                ]}
+              >
+                <Tooltip title="Account" placement="right" arrow disableHoverListener={open}>
+                  <ListItemIcon
+                    sx={[
+                      {
+                        minWidth: 0,
+                        justifyContent: 'center',
+                      },
+                      open
+                        ? {
+                            mr: 3,
+                          }
+                        : {
+                            mr: 'auto',
+                          },
+                    ]}
+                  >
+                    <AccountCircleIcon />
+                  </ListItemIcon>
+                </Tooltip>
+                <ListItemText
+                  primary="Account"
+                  sx={[
+                    open
+                      ? {
+                          opacity: 1,
+                        }
+                      : {
+                          opacity: 0,
+                        },
+                  ]}
+                />
+              </ListItemButton>
+            </ListItem>
+          </List>
+        </>
+      )}
     </>
   );
 

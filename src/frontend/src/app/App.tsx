@@ -4,8 +4,10 @@ import { RootLayout } from '../components/layout/RootLayout.tsx';
 import { CompaniesPage } from '../pages/CompaniesPage/CompaniesPage';
 import { RecentJobPostingsPage } from '../pages/RecentJobPostingsPage/RecentJobPostingsPage';
 import { WhyPage } from '../pages/WhyPage/WhyPage.tsx';
+import { AccountPage } from '../pages/AccountPage/AccountPage.tsx';
 import { ROUTES } from '../config/routes';
 import { QAPage } from '../pages/QAPage/QAPage.tsx';
+import { GoogleOneTap } from '../features/auth/GoogleOneTap';
 
 /**
  * App content component with routing and hooks
@@ -19,14 +21,18 @@ function AppContent() {
   useBrowserNavigation();
 
   return (
-    <Routes>
-      <Route path="/" element={<RootLayout />}>
-        <Route index element={<RecentJobPostingsPage />} />
-        <Route path={ROUTES.COMPANIES} element={<CompaniesPage />} />
-        <Route path={ROUTES.WHY} element={<WhyPage />} />
-        <Route path={ROUTES.QA} element={<QAPage />} />
-      </Route>
-    </Routes>
+    <>
+      <GoogleOneTap />
+      <Routes>
+        <Route path="/" element={<RootLayout />}>
+          <Route index element={<RecentJobPostingsPage />} />
+          <Route path={ROUTES.COMPANIES} element={<CompaniesPage />} />
+          <Route path={ROUTES.WHY} element={<WhyPage />} />
+          <Route path={ROUTES.QA} element={<QAPage />} />
+          <Route path={ROUTES.ACCOUNT} element={<AccountPage />} />
+        </Route>
+      </Routes>
+    </>
   );
 }
 
