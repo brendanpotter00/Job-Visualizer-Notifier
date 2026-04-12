@@ -42,6 +42,10 @@ class Settings(BaseSettings):
             )
         return self
 
+    # Kinde authentication
+    kinde_domain: str | None = None
+    kinde_audience: str | None = None
+
     # Server
     port: int = 8080
     cors_origins: str = "http://localhost:3000,http://localhost:5173,http://localhost:8000"

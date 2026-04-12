@@ -73,6 +73,8 @@ def _get_table_name(env: str, table_type: str = "jobs") -> str:
         raise ValueError(f"Invalid environment: {env}. Must be one of {ALLOWED_ENVS} or test_<hex>")
     if table_type == "runs":
         return f"scrape_runs_{env}"
+    elif table_type == "users":
+        return f"users_{env}"
     return f"job_listings_{env}"
 
 
@@ -195,6 +197,32 @@ def init_schema(conn: Connection, env: str = "local") -> None:
             details_fetched INTEGER DEFAULT 0,
             error_count INTEGER DEFAULT 0
         )
+    """)
+
+    # Create users table
+    users_table = _get_table_name(env, "users")
+    cursor.execute(f"""
+        CREATE TABLE IF NOT EXISTS {users_table} (
+            id TEXT PRIMARY KEY,
+            kinde_id TEXT UNIQUE NOT NULL,
+            email TEXT NOT NULL,
+            display_name TEXT,
+            given_name TEXT,
+            family_name TEXT,
+            picture_url TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+    """)
+
+    # Create indexes for users
+    cursor.execute(f"""
+        CREATE INDEX IF NOT EXISTS idx_{users_table}_kinde_id
+        ON {users_table}(kinde_id)
+    """)
+    cursor.execute(f"""
+        CREATE INDEX IF NOT EXISTS idx_{users_table}_email
+        ON {users_table}(email)
     """)
 
     conn.commit()
