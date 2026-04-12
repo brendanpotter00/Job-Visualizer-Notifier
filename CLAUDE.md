@@ -123,6 +123,7 @@ Edit `src/frontend/src/config/companies.ts` and add company config with ATS type
 - `api/workday.ts` - Workday API proxy
 - `api/jobs.ts` - Backend jobs API proxy
 - `api/jobs-qa.ts` - Backend QA endpoints proxy
+- `api/users.ts` - Backend users API proxy (forwards Authorization header)
 
 ## See Also
 

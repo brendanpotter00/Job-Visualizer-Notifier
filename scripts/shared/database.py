@@ -205,7 +205,7 @@ def init_schema(conn: Connection, env: str = "local") -> None:
         CREATE TABLE IF NOT EXISTS {users_table} (
             id TEXT PRIMARY KEY,
             auth0_id TEXT UNIQUE NOT NULL,
-            email TEXT NOT NULL,
+            email TEXT NOT NULL UNIQUE,
             display_name TEXT,
             given_name TEXT,
             family_name TEXT,

@@ -122,6 +122,7 @@ Located in project root `api/` directory (proxies to avoid CORS):
 - `workday.ts` - Workday API proxy
 - `jobs.ts` - Backend jobs API proxy (for scraped companies)
 - `jobs-qa.ts` - Backend QA endpoints proxy (scraper triggers, run history)
+- `users.ts` - Backend users API proxy (forwards Authorization header)
 
 ## See Also
 
