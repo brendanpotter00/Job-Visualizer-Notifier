@@ -392,6 +392,7 @@ export const COMPANIES: Company[] = [
   createAshbyCompany('eliseai', 'EliseAI'),
   createAshbyCompany('resolve-ai', 'Resolve AI', { jobBoardName: 'Resolve AI' }),
   createAshbyCompany('supabase', 'Supabase'),
+  createAshbyCompany('flint', 'Flint'),
 
   // Gem companies
   createGemCompany('nominal', 'Nominal'),
@@ -545,6 +546,7 @@ export const enum COMPANY_IDS {
   Expedia = 'expedia',
   Figma = 'figma',
   FigureAI = 'figureai',
+  Flint = 'flint',
   FireworksAI = 'fireworksai',
   FlowEngineering = 'flowengineering',
   GeneralMotors = 'gm',
