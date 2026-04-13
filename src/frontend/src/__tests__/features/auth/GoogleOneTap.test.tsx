@@ -102,7 +102,9 @@ describe('GoogleOneTap', () => {
 
     const config = mockUseGoogleOneTapLogin.mock.calls[0][0];
     expect(() => config.onError()).not.toThrow();
-    expect(warnSpy).toHaveBeenCalledWith('Google One Tap failed');
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[GoogleOneTap] Login failed — user may have dismissed the prompt or cookies are blocked'
+    );
 
     warnSpy.mockRestore();
   });

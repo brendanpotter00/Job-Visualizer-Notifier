@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { getBackendUrl } from './utils/backendUrl';
+import { forwardResponse } from './utils/forwardResponse';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const { path, ...queryParams } = req.query;
@@ -38,14 +39,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const response = await fetch(targetUrl, fetchOptions);
-    const contentType = response.headers.get('content-type') || '';
-    if (contentType.includes('application/json')) {
-      const data = await response.json();
-      res.status(response.status).json(data);
-    } else {
-      const text = await response.text();
-      res.status(response.status).json({ error: text || response.statusText });
-    }
+    await forwardResponse(response, res);
   } catch (error) {
     res.status(500).json({
       error: 'Failed to fetch from backend',

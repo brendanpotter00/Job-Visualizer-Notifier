@@ -61,7 +61,7 @@ def _get_table_name(env: str, table_type: str = "jobs") -> str:
 
     Args:
         env: Environment name (local, qa, prod, or test_<hex> for tests)
-        table_type: Type of table ("jobs" or "runs")
+        table_type: Type of table ("jobs", "runs", or "users")
 
     Returns:
         Full table name with environment suffix

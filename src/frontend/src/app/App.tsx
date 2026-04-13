@@ -47,6 +47,8 @@ function AppContent() {
  * - / - Recent job postings page (all jobs across companies)
  * - /companies - Companies page (job analytics for selected company)
  * - /why - Why This Was Built page (about and supported companies)
+ * - /qa - QA page (scraper triggers, run history, debugging)
+ * - /account - Account page (user profile management)
  */
 function App() {
   return (

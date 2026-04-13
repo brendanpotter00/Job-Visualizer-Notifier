@@ -1,6 +1,7 @@
 """FastAPI authentication dependencies."""
 
 import logging
+from typing import TypedDict
 
 import jwt
 from jwt import PyJWKClientError
@@ -14,9 +15,17 @@ logger = logging.getLogger(__name__)
 _bearer_scheme = HTTPBearer(auto_error=False)
 
 
+class TokenClaims(TypedDict, total=False):
+    sub: str
+    email: str
+    given_name: str | None
+    family_name: str | None
+    picture: str | None
+
+
 async def get_optional_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
-) -> dict | None:
+) -> TokenClaims | None:
     """Extract and validate a JWT token if present, returning claims or None."""
     if credentials is None:
         return None
@@ -31,8 +40,8 @@ async def get_optional_user(
 
 
 async def get_current_user(
-    user: dict | None = Depends(get_optional_user),
-) -> dict:
+    user: TokenClaims | None = Depends(get_optional_user),
+) -> TokenClaims:
     """Require a valid authenticated user, raising 401 if absent."""
     if user is None:
         raise HTTPException(status_code=401, detail="Authentication required")

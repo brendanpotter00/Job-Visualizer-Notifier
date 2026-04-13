@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Avatar from '@mui/material/Avatar';
 import Box from '@mui/material/Box';
@@ -11,40 +11,15 @@ import MenuItem from '@mui/material/MenuItem';
 import Typography from '@mui/material/Typography';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import { useAuth } from '../../features/auth/useAuth';
-import { fetchCurrentUser, type User } from '../../features/auth/authService';
+import { useCurrentUser } from '../../features/auth/useCurrentUser';
 import { ROUTES } from '../../config/routes';
 
 export function UserMenu() {
-  const { isEnabled, isAuthenticated, isLoading, login, logout, getToken } = useAuth();
+  const { isEnabled, isAuthenticated, isLoading, login, logout } = useAuth();
+  const { user, loading: userLoading, error: userError } = useCurrentUser();
   const navigate = useNavigate();
 
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
-  const [user, setUser] = useState<User | null>(null);
-  const [userLoading, setUserLoading] = useState(false);
-  const [userError, setUserError] = useState(false);
-
-  const loadUser = useCallback(async () => {
-    setUserLoading(true);
-    setUserError(false);
-    try {
-      const token = await getToken();
-      const fetchedUser = await fetchCurrentUser(token);
-      setUser(fetchedUser);
-    } catch (err) {
-      console.error('[UserMenu] Failed to load user profile:', err);
-      setUserError(true);
-    } finally {
-      setUserLoading(false);
-    }
-  }, [getToken]);
-
-  useEffect(() => {
-    if (isAuthenticated) {
-      loadUser();
-    } else {
-      setUser(null);
-    }
-  }, [isAuthenticated, loadUser]);
 
   if (!isEnabled) return null;
 
@@ -92,6 +67,42 @@ export function UserMenu() {
     return <AccountCircleIcon sx={{ ...avatarSize, color: 'inherit' }} />;
   }
 
+  function renderMenuContent() {
+    if (userLoading) {
+      return (
+        <MenuItem disabled>
+          <CircularProgress size={16} sx={{ mr: 1 }} />
+          Loading...
+        </MenuItem>
+      );
+    }
+    if (userError && !user) {
+      return (
+        <MenuItem disabled>
+          <Typography variant="caption" color="error">
+            {userError}
+          </Typography>
+        </MenuItem>
+      );
+    }
+    return (
+      <MenuItem disabled>
+        <Box>
+          {displayName && (
+            <Typography variant="body2" fontWeight={600}>
+              {displayName}
+            </Typography>
+          )}
+          {user?.email && (
+            <Typography variant="caption" color="text.secondary">
+              {user.email}
+            </Typography>
+          )}
+        </Box>
+      </MenuItem>
+    );
+  }
+
   return (
     <>
       <IconButton
@@ -112,33 +123,7 @@ export function UserMenu() {
         anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
         transformOrigin={{ vertical: 'top', horizontal: 'right' }}
       >
-        {userLoading ? (
-          <MenuItem disabled>
-            <CircularProgress size={16} sx={{ mr: 1 }} />
-            Loading...
-          </MenuItem>
-        ) : userError && !user ? (
-          <MenuItem disabled>
-            <Typography variant="caption" color="error">
-              Failed to load profile
-            </Typography>
-          </MenuItem>
-        ) : (
-          <MenuItem disabled>
-            <Box>
-              {displayName && (
-                <Typography variant="body2" fontWeight={600}>
-                  {displayName}
-                </Typography>
-              )}
-              {user?.email && (
-                <Typography variant="caption" color="text.secondary">
-                  {user.email}
-                </Typography>
-              )}
-            </Box>
-          </MenuItem>
-        )}
+        {renderMenuContent()}
         <Divider />
         <MenuItem
           onClick={() => {

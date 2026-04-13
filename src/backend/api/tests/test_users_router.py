@@ -71,13 +71,11 @@ class TestPutMe:
         assert resp.status_code == 200
         assert resp.json()["displayName"] is None
 
-    def test_does_not_accept_picture_url(self, client):
-        """PUT /api/users should not accept pictureUrl field."""
+    def test_rejects_extra_fields(self, client):
+        """PUT /api/users should reject extra fields like pictureUrl."""
         client.get("/api/users")
         resp = client.put("/api/users", json={"displayName": "Name", "pictureUrl": "https://evil.com/pic.jpg"})
-        assert resp.status_code == 200
-        # pictureUrl should be from token, not from PUT body
-        assert resp.json()["pictureUrl"] == "https://example.com/photo.jpg"
+        assert resp.status_code == 422
 
 
 class TestAuthRequired:

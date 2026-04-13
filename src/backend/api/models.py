@@ -81,6 +81,6 @@ class UserResponse(BaseModel):
 
 
 class UserUpdateRequest(BaseModel):
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, extra="forbid")
 
     display_name: str | None = Field(default=None, max_length=100)

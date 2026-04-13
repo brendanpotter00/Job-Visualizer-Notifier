@@ -43,6 +43,9 @@ All configuration via environment variables:
 | `DB_POOL_MAX` | Maximum database connections in pool | `15` |
 | `PORT` | Server port | `8080` |
 | `CORS_ORIGINS` | Comma-separated allowed origins | `http://localhost:3000,http://localhost:5173,http://localhost:8000` |
+| `AUTH0_DOMAIN` | Auth0 tenant domain (e.g., `myapp.us.auth0.com`) | *(required for auth)* |
+| `AUTH0_AUDIENCE` | Auth0 API audience identifier | *(required for auth)* |
+| `GOOGLE_CLIENT_ID` | Google OAuth client ID for One Tap validation | *(optional)* |
 
 **Environment-based table naming:**
 - `SCRAPER_ENVIRONMENT=local` → `job_listings_local`, `scrape_runs_local`
@@ -59,6 +62,10 @@ All configuration via environment variables:
 - `GET /api/jobs-qa/scrape-runs` - Scrape run history (params: company, limit)
 - `POST /api/jobs-qa/trigger-scrape` - Manually trigger scraper (params: company; default: google)
 
+**Users Router (`/api/users`):**
+- `GET /api/users` - Get or create authenticated user's profile (requires Bearer token)
+- `PUT /api/users` - Update display name (requires Bearer token)
+
 **Health:**
 - `GET /health` - Health check (returns "OK" 200, or "UNAVAILABLE" 503 if pool is down)
 
@@ -71,11 +78,17 @@ src/backend/api/
 ├── dependencies.py      # Connection pool + get_db FastAPI dependency
 ├── models.py            # Response models with camelCase aliases
 ├── requirements.txt     # Python dependencies
+├── auth/
+│   ├── dependencies.py  # FastAPI auth dependencies (get_current_user, get_optional_user)
+│   ├── jwt.py           # JWT validation dispatcher (Auth0 + Google issuer routing)
+│   └── google_jwt.py    # Google One Tap token validation via Google JWKS
 ├── routers/
 │   ├── jobs.py          # Jobs list and detail endpoints
-│   └── jobs_qa.py       # Stats, scrape runs, trigger scrape
+│   ├── jobs_qa.py       # Stats, scrape runs, trigger scrape
+│   └── users.py         # User profile endpoints (auth required)
 └── services/
     ├── database.py      # API query functions (reuses scripts/shared/database.py)
+    ├── user_service.py  # User CRUD operations (get_or_create, update)
     ├── scraper_runner.py # Async subprocess runner for scrapers
     └── auto_scraper.py  # Background scheduled scraping
 ```

@@ -20,7 +20,17 @@ export function useAuth() {
 
   const getToken = useCallback(async () => {
     if (isAuth0Authenticated) {
-      return getAccessTokenSilently();
+      try {
+        return await getAccessTokenSilently();
+      } catch (error: unknown) {
+        if (error instanceof Error && 'error' in error) {
+          const auth0Error = error as { error: string };
+          if (auth0Error.error === 'login_required' || auth0Error.error === 'consent_required') {
+            throw new Error('Your session has expired. Please sign in again.');
+          }
+        }
+        throw error;
+      }
     }
     if (googleCredential) {
       return googleCredential;
@@ -28,8 +38,12 @@ export function useAuth() {
     throw new Error('Not authenticated');
   }, [isAuth0Authenticated, googleCredential, getAccessTokenSilently]);
 
-  const login = useCallback(() => {
-    void loginWithRedirect();
+  const login = useCallback(async () => {
+    try {
+      await loginWithRedirect();
+    } catch (error) {
+      console.error('[useAuth] Login redirect failed:', error);
+    }
   }, [loginWithRedirect]);
 
   const logout = useCallback(() => {

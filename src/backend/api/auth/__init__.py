@@ -1,1 +1,1 @@
-"""Auth0 JWT authentication."""
+"""JWT authentication (Auth0 + Google One Tap)."""

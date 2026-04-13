@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     auth0_domain: str | None = None
     auth0_audience: str | None = None
 
+    # Google One Tap authentication
+    google_client_id: str | None = None
+
     # Server
     port: int = 8080
     cors_origins: str = "http://localhost:3000,http://localhost:5173,http://localhost:8000"

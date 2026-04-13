@@ -8,10 +8,12 @@ export function GoogleOneTap() {
     onSuccess: (credentialResponse) => {
       if (credentialResponse.credential) {
         setGoogleCredential(credentialResponse.credential);
+      } else {
+        console.warn('[GoogleOneTap] Success callback received no credential');
       }
     },
     onError: () => {
-      console.warn('Google One Tap failed');
+      console.warn('[GoogleOneTap] Login failed — user may have dismissed the prompt or cookies are blocked');
     },
     disabled: !isEnabled || isAuthenticated || isLoading,
   });

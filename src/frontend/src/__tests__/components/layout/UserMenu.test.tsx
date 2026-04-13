@@ -172,7 +172,7 @@ describe('UserMenu', () => {
       await user.click(screen.getByLabelText('user menu'));
 
       await waitFor(() => {
-        expect(screen.getByText('Failed to load profile')).toBeInTheDocument();
+        expect(screen.getByText('Network error')).toBeInTheDocument();
       });
     });
   });

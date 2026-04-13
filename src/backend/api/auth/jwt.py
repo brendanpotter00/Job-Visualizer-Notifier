@@ -1,6 +1,7 @@
-"""JWT token validation against Auth0 JWKS endpoint."""
+"""JWT token validation against Auth0 and Google JWKS endpoints."""
 
 import logging
+import threading
 
 import jwt
 from jwt import PyJWKClient, PyJWTError
@@ -10,28 +11,33 @@ from ..config import settings
 logger = logging.getLogger(__name__)
 
 _jwks_client: PyJWKClient | None = None
+_jwks_lock = threading.Lock()
+
+_GOOGLE_ISSUERS = frozenset({"https://accounts.google.com", "accounts.google.com"})
 
 
 def _get_jwks_client() -> PyJWKClient:
     global _jwks_client
     if _jwks_client is None:
-        if not settings.auth0_domain:
-            raise RuntimeError(
-                "AUTH0_DOMAIN environment variable is not set. "
-                "JWT validation requires Auth0 configuration."
-            )
-        if not settings.auth0_audience:
-            raise RuntimeError(
-                "AUTH0_AUDIENCE environment variable is not set. "
-                "JWT validation requires Auth0 configuration."
-            )
-        jwks_url = f"https://{settings.auth0_domain}/.well-known/jwks.json"
-        logger.info("Initializing JWKS client with URL: %s", jwks_url)
-        _jwks_client = PyJWKClient(jwks_url, cache_keys=True, lifespan=3600)
+        with _jwks_lock:
+            if _jwks_client is None:
+                if not settings.auth0_domain:
+                    raise RuntimeError(
+                        "AUTH0_DOMAIN environment variable is not set. "
+                        "JWT validation requires Auth0 configuration."
+                    )
+                if not settings.auth0_audience:
+                    raise RuntimeError(
+                        "AUTH0_AUDIENCE environment variable is not set. "
+                        "JWT validation requires Auth0 configuration."
+                    )
+                jwks_url = f"https://{settings.auth0_domain}/.well-known/jwks.json"
+                logger.info("Initializing JWKS client with URL: %s", jwks_url)
+                _jwks_client = PyJWKClient(jwks_url, cache_keys=True, lifespan=3600)
     return _jwks_client
 
 
-def validate_token(token: str) -> dict:
+def _validate_auth0_token(token: str) -> dict:
     """Validate a JWT token against the Auth0 JWKS endpoint."""
     client = _get_jwks_client()
     try:
@@ -39,12 +45,34 @@ def validate_token(token: str) -> dict:
     except PyJWTError:
         logger.warning("Failed to get signing key from JWT", exc_info=True)
         raise
-    claims = jwt.decode(
-        token,
-        signing_key.key,
-        algorithms=["RS256"],
-        audience=settings.auth0_audience,
-        issuer=f"https://{settings.auth0_domain}/",
-    )
-    logger.debug("Token validated for sub=%s", claims.get("sub"))
+    try:
+        claims = jwt.decode(
+            token,
+            signing_key.key,
+            algorithms=["RS256"],
+            audience=settings.auth0_audience,
+            issuer=f"https://{settings.auth0_domain}/",
+        )
+    except jwt.InvalidTokenError:
+        logger.warning("Auth0 token decode failed", exc_info=True)
+        raise
+    logger.debug("Auth0 token validated for sub=%s", claims.get("sub"))
     return claims
+
+
+def validate_token(token: str) -> dict:
+    """Validate a JWT against Auth0 or Google JWKS based on the token issuer."""
+    try:
+        unverified = jwt.decode(
+            token, algorithms=["RS256"], options={"verify_signature": False}
+        )
+    except jwt.DecodeError:
+        logger.warning("Failed to decode JWT for issuer routing", exc_info=True)
+        raise
+
+    issuer = unverified.get("iss", "")
+    if issuer in _GOOGLE_ISSUERS and settings.google_client_id:
+        from .google_jwt import validate_google_token
+
+        return validate_google_token(token)
+    return _validate_auth0_token(token)

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState } from 'react';
 import Container from '@mui/material/Container';
 import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
@@ -9,39 +9,24 @@ import Avatar from '@mui/material/Avatar';
 import Alert from '@mui/material/Alert';
 import CircularProgress from '@mui/material/CircularProgress';
 import { useAuth } from '../../features/auth/useAuth';
-import { fetchCurrentUser, updateCurrentUser, type User } from '../../features/auth/authService';
+import { useCurrentUser } from '../../features/auth/useCurrentUser';
+import { updateCurrentUser } from '../../features/auth/authService';
 
 export function AccountPage() {
   const { isAuthenticated, isLoading: authLoading, login, getToken } = useAuth();
+  const { user, setUser, loading, error, reload: loadProfile } = useCurrentUser();
 
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState('');
+  const [isDirtyOverride, setIsDirtyOverride] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  const loadProfile = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const token = await getToken();
-      const fetchedUser = await fetchCurrentUser(token);
-      setUser(fetchedUser);
-      setDisplayName(fetchedUser.displayName ?? '');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load profile');
-    } finally {
-      setLoading(false);
-    }
-  }, [getToken]);
-
-  useEffect(() => {
-    if (isAuthenticated) {
-      loadProfile();
-    }
-  }, [isAuthenticated, loadProfile]);
+  // Sync displayName when user changes
+  const currentDisplayName = user?.displayName ?? '';
+  if (!isDirtyOverride && displayName !== currentDisplayName && user) {
+    setDisplayName(currentDisplayName);
+  }
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -54,6 +39,7 @@ export function AccountPage() {
       });
       setUser(updatedUser);
       setDisplayName(updatedUser.displayName ?? '');
+      setIsDirtyOverride(false);
       setSaveSuccess(true);
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Failed to save changes');
@@ -150,6 +136,7 @@ export function AccountPage() {
           value={displayName}
           onChange={(e) => {
             setDisplayName(e.target.value);
+            setIsDirtyOverride(true);
             setSaveSuccess(false);
           }}
           fullWidth

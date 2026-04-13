@@ -10,6 +10,13 @@ export interface User {
   updatedAt: string;
 }
 
+async function extractErrorDetail(response: Response): Promise<string | null> {
+  return response
+    .json()
+    .then((b) => b.detail || b.message || b.error)
+    .catch(() => null);
+}
+
 export async function fetchCurrentUser(token: string): Promise<User> {
   const response = await fetch('/api/users', {
     headers: {
@@ -19,10 +26,7 @@ export async function fetchCurrentUser(token: string): Promise<User> {
   });
 
   if (!response.ok) {
-    const detail = await response
-      .json()
-      .then((b) => b.detail || b.message || b.error)
-      .catch(() => null);
+    const detail = await extractErrorDetail(response);
     throw new Error(detail || `Failed to fetch user (${response.status})`);
   }
 
@@ -44,10 +48,7 @@ export async function updateCurrentUser(
   });
 
   if (!response.ok) {
-    const detail = await response
-      .json()
-      .then((b) => b.detail || b.message || b.error)
-      .catch(() => null);
+    const detail = await extractErrorDetail(response);
     throw new Error(detail || `Failed to update user (${response.status})`);
   }
 

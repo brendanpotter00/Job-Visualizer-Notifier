@@ -157,11 +157,37 @@ describe('useAuth', () => {
   });
 
   it('login calls loginWithRedirect', async () => {
+    mockLoginWithRedirect.mockResolvedValue(undefined);
     const { useAuth } = await import('../../../features/auth/useAuth');
     const { result } = renderHook(() => useAuth());
 
-    result.current.login();
+    await act(async () => {
+      await result.current.login();
+    });
     expect(mockLoginWithRedirect).toHaveBeenCalled();
+  });
+
+  it('login handles redirect failure gracefully', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockLoginWithRedirect.mockRejectedValue(new Error('Network error'));
+    const { useAuth } = await import('../../../features/auth/useAuth');
+    const { result } = renderHook(() => useAuth());
+
+    await act(async () => {
+      await result.current.login();
+    });
+    expect(consoleSpy).toHaveBeenCalledWith('[useAuth] Login redirect failed:', expect.any(Error));
+    consoleSpy.mockRestore();
+  });
+
+  it('getToken throws session expired for login_required Auth0 error', async () => {
+    mockAuth0State.isAuthenticated = true;
+    const auth0Error = Object.assign(new Error('login_required'), { error: 'login_required' });
+    mockGetAccessTokenSilently.mockRejectedValue(auth0Error);
+    const { useAuth } = await import('../../../features/auth/useAuth');
+    const { result } = renderHook(() => useAuth());
+
+    await expect(result.current.getToken()).rejects.toThrow('Your session has expired');
   });
 
   it('logout clears googleCredential and calls Auth0 logout', async () => {

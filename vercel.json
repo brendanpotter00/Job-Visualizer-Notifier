@@ -67,7 +67,7 @@
       "headers": [
         {
           "key": "Access-Control-Allow-Origin",
-          "value": "*"
+          "value": "https://job-visualizer-notifier.vercel.app"
         },
         {
           "key": "Access-Control-Allow-Methods",
