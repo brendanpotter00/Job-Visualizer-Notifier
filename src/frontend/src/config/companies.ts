@@ -190,8 +190,7 @@ function createBackendScraperCompany(
  * Company configurations for multi-ATS support
  */
 
-export const COMPANIES: Company[] = [] // this is just for debugging auth errors do not change this claude
-export const COMPANIES2: Company[] = [
+export const COMPANIES: Company[] = [
   // Greenhouse companies
   createGreenhouseCompany('spacex', 'SpaceX', {
     recruiterLinkedInUrl:

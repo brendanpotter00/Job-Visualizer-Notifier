@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Container from '@mui/material/Container';
 import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
@@ -17,16 +17,15 @@ export function AccountPage() {
   const { user, setUser, loading, error, reload: loadProfile } = useCurrentUser();
 
   const [displayName, setDisplayName] = useState('');
-  const [isDirtyOverride, setIsDirtyOverride] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  // Sync displayName when user changes
-  const currentDisplayName = user?.displayName ?? '';
-  if (!isDirtyOverride && displayName !== currentDisplayName && user) {
-    setDisplayName(currentDisplayName);
-  }
+  useEffect(() => {
+    if (user) {
+      setDisplayName(user.displayName ?? '');
+    }
+  }, [user?.displayName]);
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -38,8 +37,6 @@ export function AccountPage() {
         displayName: displayName.trim() || null,
       });
       setUser(updatedUser);
-      setDisplayName(updatedUser.displayName ?? '');
-      setIsDirtyOverride(false);
       setSaveSuccess(true);
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Failed to save changes');
@@ -136,7 +133,6 @@ export function AccountPage() {
           value={displayName}
           onChange={(e) => {
             setDisplayName(e.target.value);
-            setIsDirtyOverride(true);
             setSaveSuccess(false);
           }}
           fullWidth

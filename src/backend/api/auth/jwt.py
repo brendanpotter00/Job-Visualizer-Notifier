@@ -7,13 +7,12 @@ import jwt
 from jwt import PyJWKClient, PyJWTError
 
 from ..config import settings
+from .google_jwt import GOOGLE_ISSUERS
 
 logger = logging.getLogger(__name__)
 
 _jwks_client: PyJWKClient | None = None
 _jwks_lock = threading.Lock()
-
-_GOOGLE_ISSUERS = frozenset({"https://accounts.google.com", "accounts.google.com"})
 
 
 def _get_jwks_client() -> PyJWKClient:
@@ -71,7 +70,7 @@ def validate_token(token: str) -> dict:
         raise
 
     issuer = unverified.get("iss", "")
-    if issuer in _GOOGLE_ISSUERS and settings.google_client_id:
+    if issuer in GOOGLE_ISSUERS and settings.google_client_id:
         from .google_jwt import validate_google_token
 
         return validate_google_token(token)

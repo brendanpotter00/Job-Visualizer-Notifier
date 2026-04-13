@@ -1,4 +1,4 @@
-import { createContext, useState, type ReactNode } from 'react';
+import { createContext, useState, useMemo, type ReactNode } from 'react';
 
 export interface GoogleCredentialState {
   googleCredential: string | null;
@@ -13,8 +13,12 @@ export const GoogleCredentialContext = createContext<GoogleCredentialState>({
 
 export function GoogleCredentialProvider({ children }: { children: ReactNode }) {
   const [googleCredential, setGoogleCredential] = useState<string | null>(null);
+  const value = useMemo(
+    () => ({ googleCredential, setGoogleCredential }),
+    [googleCredential]
+  );
   return (
-    <GoogleCredentialContext.Provider value={{ googleCredential, setGoogleCredential }}>
+    <GoogleCredentialContext.Provider value={value}>
       {children}
     </GoogleCredentialContext.Provider>
   );

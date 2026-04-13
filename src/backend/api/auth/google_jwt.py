@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 _google_jwks_client: PyJWKClient | None = None
 _google_jwks_lock = threading.Lock()
 _GOOGLE_JWKS_URL = "https://www.googleapis.com/oauth2/v3/certs"
-_GOOGLE_ISSUERS = ["https://accounts.google.com", "accounts.google.com"]
+GOOGLE_ISSUERS = frozenset({"https://accounts.google.com", "accounts.google.com"})
 
 
 def _get_google_jwks_client() -> PyJWKClient:
@@ -43,12 +43,16 @@ def validate_google_token(token: str) -> dict:
     except PyJWTError:
         logger.warning("Failed to get signing key from Google JWT", exc_info=True)
         raise
-    claims = jwt.decode(
-        token,
-        signing_key.key,
-        algorithms=["RS256"],
-        audience=settings.google_client_id,
-        issuer=_GOOGLE_ISSUERS,
-    )
+    try:
+        claims = jwt.decode(
+            token,
+            signing_key.key,
+            algorithms=["RS256"],
+            audience=settings.google_client_id,
+            issuer=GOOGLE_ISSUERS,
+        )
+    except jwt.InvalidTokenError:
+        logger.warning("Google token decode failed", exc_info=True)
+        raise
     logger.debug("Google token validated for sub=%s", claims.get("sub"))
     return claims

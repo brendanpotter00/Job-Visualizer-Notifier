@@ -142,11 +142,6 @@ export function NavigationDrawer({
     }
   };
 
-  // Filter nav items to hide QA page in production
-  // const visibleNavItems = NAV_ITEMS.filter(
-  //   (item) => item.path !== ROUTES.QA || import.meta.env.DEV
-  // );
-
   function renderNavItem(path: string, label: string, icon: IconName) {
     const Icon = iconMap[icon];
     const isActive = location.pathname === path;

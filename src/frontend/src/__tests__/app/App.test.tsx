@@ -65,8 +65,6 @@ vi.mock('../../features/auth/useAuth', () => ({
     login: vi.fn(),
     logout: vi.fn(),
     getToken: vi.fn(),
-    googleCredential: null,
-    setGoogleCredential: vi.fn(),
   }),
 }));
 

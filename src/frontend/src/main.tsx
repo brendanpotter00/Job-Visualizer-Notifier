@@ -13,7 +13,7 @@ import { GoogleCredentialProvider } from './features/auth/GoogleCredentialContex
 
 function AuthProviders({ children }: { children: React.ReactNode }) {
   if (!AUTH_CONFIG.isEnabled) {
-    return <GoogleCredentialProvider>{children}</GoogleCredentialProvider>;
+    return <>{children}</>;
   }
   return (
     <GoogleOAuthProvider clientId={AUTH_CONFIG.googleClientId}>

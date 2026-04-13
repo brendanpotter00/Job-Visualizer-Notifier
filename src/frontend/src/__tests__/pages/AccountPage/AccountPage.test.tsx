@@ -15,8 +15,6 @@ let mockAuthState = {
   logout: vi.fn(),
   getToken: mockGetToken,
   user: null,
-  googleCredential: null,
-  setGoogleCredential: vi.fn(),
 };
 
 vi.mock('../../../features/auth/useAuth', () => ({
@@ -62,8 +60,6 @@ describe('AccountPage', () => {
       logout: vi.fn(),
       getToken: mockGetToken,
       user: null,
-      googleCredential: null,
-      setGoogleCredential: vi.fn(),
     };
     mockGetToken.mockResolvedValue('test-token');
     mockFetchCurrentUser.mockResolvedValue(mockUser);

@@ -61,7 +61,5 @@ export function useAuth() {
     login,
     logout,
     getToken,
-    googleCredential,
-    setGoogleCredential,
   };
 }

@@ -12,11 +12,17 @@ let mockAuthState = {
   isEnabled: true,
   isAuthenticated: false,
   isLoading: false,
-  setGoogleCredential: mockSetGoogleCredential,
 };
 
 vi.mock('../../../features/auth/useAuth', () => ({
   useAuth: () => mockAuthState,
+}));
+
+vi.mock('../../../features/auth/useGoogleCredential', () => ({
+  useGoogleCredential: () => ({
+    googleCredential: null,
+    setGoogleCredential: mockSetGoogleCredential,
+  }),
 }));
 
 describe('GoogleOneTap', () => {
@@ -26,7 +32,6 @@ describe('GoogleOneTap', () => {
       isEnabled: true,
       isAuthenticated: false,
       isLoading: false,
-      setGoogleCredential: mockSetGoogleCredential,
     };
   });
 

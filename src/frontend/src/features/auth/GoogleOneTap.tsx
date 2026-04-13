@@ -1,8 +1,10 @@
 import { useGoogleOneTapLogin } from '@react-oauth/google';
 import { useAuth } from './useAuth';
+import { useGoogleCredential } from './useGoogleCredential';
 
 export function GoogleOneTap() {
-  const { isEnabled, isAuthenticated, isLoading, setGoogleCredential } = useAuth();
+  const { isEnabled, isAuthenticated, isLoading } = useAuth();
+  const { setGoogleCredential } = useGoogleCredential();
 
   useGoogleOneTapLogin({
     onSuccess: (credentialResponse) => {
