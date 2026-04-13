@@ -1,11 +1,15 @@
 """FastAPI authentication dependencies."""
 
+import logging
+
 import jwt
 from jwt import PyJWKClientError
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from .jwt import validate_token
+
+logger = logging.getLogger(__name__)
 
 _bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -19,8 +23,10 @@ async def get_optional_user(
     try:
         return validate_token(credentials.credentials)
     except jwt.ExpiredSignatureError:
+        logger.warning("JWT token expired")
         raise HTTPException(status_code=401, detail="Token expired")
-    except (jwt.InvalidTokenError, PyJWKClientError):
+    except (jwt.InvalidTokenError, PyJWKClientError) as exc:
+        logger.warning("Invalid JWT token: %s", exc)
         raise HTTPException(status_code=401, detail="Invalid token")
 
 

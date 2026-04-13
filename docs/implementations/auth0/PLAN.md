@@ -385,10 +385,10 @@ export function useAuth() {
   - Added rewrite: `{ "source": "/api/users/:path(.*)", "destination": "/api/users?path=:path" }`
   - Added SPA fallback: `{ "source": "/account", "destination": "/index.html" }`
   - Updated CORS headers: Added `Authorization` to `Access-Control-Allow-Headers`, added `PUT` to `Access-Control-Allow-Methods`
-- `api/utils/backendUrl.ts` -- Fixed unused parameter type-check error (`req` -> `_req`)
+- `api/utils/backendUrl.ts` -- Added Host header detection for local dev to avoid Vercel Dev cloud env var override (see Gotcha #3 and incident doc)
 
 **DONE -- Tests created:**
-- `src/frontend/src/__tests__/api/serverless/users.serverless.test.ts` -- 23 tests for proxy
+- `src/frontend/src/__tests__/api/serverless/users.serverless.test.ts` -- 20+ tests for proxy
 
 **TODO -- SECURITY (before shipping auth to production):**
 - Replace `Access-Control-Allow-Origin: "*"` in `vercel.json` with the actual production Vercel domain (`https://job-visualizer-notifier.vercel.app`). The current wildcard allows any website to make API requests to the backend.
@@ -497,7 +497,7 @@ Auth requires real credentials, so full e2e flow can't be automated in CI. Per-u
 
 Steps to configure external services before deploying auth to production. Each step is labeled with whether it can be done via MCP server or requires manual action.
 
-### Step 1: Auth0 -- Create SPA Application (MCP: `auth0_create_application`)
+### Step 1: Auth0 -- Create SPA Application (MCP: `auth0_create_application`) ✅ DONE
 
 Create a Single Page Application in the Auth0 tenant (`dev-mbnkjr1sc4ccwlup.us.auth0.com`):
 
@@ -508,7 +508,7 @@ Create a Single Page Application in the Auth0 tenant (`dev-mbnkjr1sc4ccwlup.us.a
 
 Save the **Client ID** from the response -- needed for frontend env vars.
 
-### Step 2: Auth0 -- Create Custom API (MCP: `auth0_create_resource_server`)
+### Step 2: Auth0 -- Create Custom API (MCP: `auth0_create_resource_server`) ✅ DONE
 
 Create an API resource server:
 
@@ -518,7 +518,7 @@ Create an API resource server:
 
 The identifier becomes the `AUTH0_AUDIENCE` / `VITE_AUTH0_AUDIENCE` env var.
 
-### Step 3: Auth0 -- Create Post Login Action (MCP: `auth0_create_action` + `auth0_deploy_action`)
+### Step 3: Auth0 -- Create Post Login Action (MCP: `auth0_create_action` + `auth0_deploy_action`) ✅ DONE
 
 Auth0 access tokens for custom APIs don't include profile claims by default. Create and deploy an action:
 
@@ -537,7 +537,7 @@ exports.onExecutePostLogin = async (event, api) => {
 Auth0 Dashboard > Actions > Flows > Login > drag the action into the flow.
 MCP cannot bind actions to flows -- this is a manual step.
 
-### Step 4: Auth0 -- Enable Google Social Connection (Manual)
+### Step 4: Auth0 -- Enable Google Social Connection (Manual) ✅ DONE
 
 Auth0 Dashboard > Authentication > Social > enable **Google / Gmail**.
 - Use the **same Google Client ID** as `VITE_GOOGLE_CLIENT_ID`

@@ -18,7 +18,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const queryString = params.toString() ? `?${params.toString()}` : '';
 
   const backendUrl = getBackendUrl(req);
-  const targetUrl = `${backendUrl}/api/jobs-qa/${targetPath}${queryString}`;
+  const targetUrl = `${backendUrl}/api/jobs-qa${targetPath ? `/${targetPath}` : ''}${queryString}`;
 
   try {
     const response = await fetch(targetUrl, {
@@ -28,8 +28,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         'Content-Type': 'application/json',
       },
     });
-    const data = await response.json();
-    res.status(response.status).json(data);
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      const data = await response.json();
+      res.status(response.status).json(data);
+    } else {
+      const text = await response.text();
+      res.status(response.status).json({ error: text || response.statusText });
+    }
   } catch (error) {
     res.status(500).json({
       error: 'Failed to fetch from backend',

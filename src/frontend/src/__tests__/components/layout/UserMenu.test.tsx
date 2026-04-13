@@ -70,10 +70,11 @@ describe('UserMenu', () => {
   });
 
   describe('when auth is loading', () => {
-    it('shows a loading spinner', () => {
+    it('shows a disabled Sign In button', () => {
       mockAuthState.isLoading = true;
       renderWithRouter(<UserMenu />);
-      expect(screen.getByRole('progressbar')).toBeInTheDocument();
+      const button = screen.getByRole('button', { name: /sign in/i });
+      expect(button).toBeDisabled();
     });
   });
 
@@ -154,6 +155,24 @@ describe('UserMenu', () => {
         const avatar = screen.getByAltText('Test User');
         expect(avatar).toBeInTheDocument();
         expect(avatar).toHaveAttribute('src', 'https://example.com/photo.jpg');
+      });
+    });
+
+    it('shows error message when profile load fails', async () => {
+      const { fetchCurrentUser } = await import('../../../features/auth/authService');
+      vi.mocked(fetchCurrentUser).mockRejectedValueOnce(new Error('Network error'));
+
+      const user = userEvent.setup();
+      renderWithRouter(<UserMenu />);
+
+      await waitFor(() => {
+        expect(screen.getByLabelText('user menu')).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByLabelText('user menu'));
+
+      await waitFor(() => {
+        expect(screen.getByText('Failed to load profile')).toBeInTheDocument();
       });
     });
   });

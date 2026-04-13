@@ -3,12 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import Avatar from '@mui/material/Avatar';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
+import CircularProgress from '@mui/material/CircularProgress';
 import Divider from '@mui/material/Divider';
 import IconButton from '@mui/material/IconButton';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
 import Typography from '@mui/material/Typography';
-import CircularProgress from '@mui/material/CircularProgress';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import { useAuth } from '../../features/auth/useAuth';
 import { fetchCurrentUser, type User } from '../../features/auth/authService';
@@ -21,15 +21,18 @@ export function UserMenu() {
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [user, setUser] = useState<User | null>(null);
   const [userLoading, setUserLoading] = useState(false);
+  const [userError, setUserError] = useState(false);
 
   const loadUser = useCallback(async () => {
     setUserLoading(true);
+    setUserError(false);
     try {
       const token = await getToken();
       const fetchedUser = await fetchCurrentUser(token);
       setUser(fetchedUser);
     } catch (err) {
       console.error('[UserMenu] Failed to load user profile:', err);
+      setUserError(true);
     } finally {
       setUserLoading(false);
     }
@@ -47,15 +50,27 @@ export function UserMenu() {
 
   if (isLoading) {
     return (
-      <Box sx={{ display: 'flex', alignItems: 'center', px: 1 }}>
-        <CircularProgress size={24} color="inherit" />
-      </Box>
+      <Button variant="outlined" color="inherit" size="small" disabled>
+        Sign In
+      </Button>
     );
   }
 
   if (!isAuthenticated) {
     return (
-      <Button variant="outlined" color="inherit" onClick={login} size="small">
+      <Button
+        variant="outlined"
+        color="inherit"
+        onClick={login}
+        size="small"
+        sx={{
+          transition: 'background-color 0.2s, border-color 0.2s',
+          '&:hover': {
+            backgroundColor: 'rgba(255, 255, 255, 0.25)',
+            borderColor: '#fff',
+          },
+        }}
+      >
         Sign In
       </Button>
     );
@@ -101,6 +116,12 @@ export function UserMenu() {
           <MenuItem disabled>
             <CircularProgress size={16} sx={{ mr: 1 }} />
             Loading...
+          </MenuItem>
+        ) : userError && !user ? (
+          <MenuItem disabled>
+            <Typography variant="caption" color="error">
+              Failed to load profile
+            </Typography>
           </MenuItem>
         ) : (
           <MenuItem disabled>

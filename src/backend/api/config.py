@@ -58,7 +58,7 @@ class Settings(BaseSettings):
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
-    model_config = {"env_file": ".env", "extra": "ignore"}
+    model_config = {"env_file": (".env", ".env.local"), "extra": "ignore"}
 
 
 settings = Settings()

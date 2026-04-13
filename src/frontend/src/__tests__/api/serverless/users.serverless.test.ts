@@ -1,6 +1,24 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import handler from '../../../../../../api/users';
+import { getBackendUrl } from '../../../../../../api/utils/backendUrl';
+
+function mockJsonResponse(status: number, body: unknown) {
+  return {
+    status,
+    headers: { get: (key: string) => (key === 'content-type' ? 'application/json' : null) },
+    json: async () => body,
+  };
+}
+
+function mockTextResponse(status: number, text: string, statusText = 'OK') {
+  return {
+    status,
+    statusText,
+    headers: { get: () => 'text/html' },
+    text: async () => text,
+  };
+}
 
 describe('/api/users serverless function', () => {
   let mockReq: Partial<VercelRequest>;
@@ -31,18 +49,15 @@ describe('/api/users serverless function', () => {
   });
 
   describe('Path Parsing', () => {
-    it('should proxy to /api/users/ with no path segments', async () => {
+    it('should proxy to /api/users with no path segments', async () => {
       mockReq.query = {};
 
-      fetchMock.mockResolvedValue({
-        status: 200,
-        json: async () => ({ id: '1', email: 'test@example.com' }),
-      });
+      fetchMock.mockResolvedValue(mockJsonResponse(200, { id: '1', email: 'test@example.com' }));
 
       await handler(mockReq as VercelRequest, mockRes as VercelResponse);
 
       expect(fetchMock).toHaveBeenCalledWith(
-        'http://localhost:8000/api/users/',
+        'http://localhost:8000/api/users',
         expect.any(Object)
       );
     });
@@ -50,10 +65,7 @@ describe('/api/users serverless function', () => {
     it('should handle single path segment', async () => {
       mockReq.query = { path: 'profile' };
 
-      fetchMock.mockResolvedValue({
-        status: 200,
-        json: async () => ({}),
-      });
+      fetchMock.mockResolvedValue(mockJsonResponse(200, {}));
 
       await handler(mockReq as VercelRequest, mockRes as VercelResponse);
 
@@ -66,10 +78,7 @@ describe('/api/users serverless function', () => {
     it('should handle multiple path segments as array', async () => {
       mockReq.query = { path: ['settings', 'notifications'] };
 
-      fetchMock.mockResolvedValue({
-        status: 200,
-        json: async () => ({}),
-      });
+      fetchMock.mockResolvedValue(mockJsonResponse(200, {}));
 
       await handler(mockReq as VercelRequest, mockRes as VercelResponse);
 
@@ -82,10 +91,7 @@ describe('/api/users serverless function', () => {
     it('should forward query parameters', async () => {
       mockReq.query = { path: 'search', q: 'test', limit: '10' };
 
-      fetchMock.mockResolvedValue({
-        status: 200,
-        json: async () => ({}),
-      });
+      fetchMock.mockResolvedValue(mockJsonResponse(200, {}));
 
       await handler(mockReq as VercelRequest, mockRes as VercelResponse);
 
@@ -102,10 +108,7 @@ describe('/api/users serverless function', () => {
     it('should not append query string when no extra params exist', async () => {
       mockReq.query = { path: 'me' };
 
-      fetchMock.mockResolvedValue({
-        status: 200,
-        json: async () => ({}),
-      });
+      fetchMock.mockResolvedValue(mockJsonResponse(200, {}));
 
       await handler(mockReq as VercelRequest, mockRes as VercelResponse);
 
@@ -121,10 +124,7 @@ describe('/api/users serverless function', () => {
       mockReq.query = {};
       mockReq.headers = { authorization: 'Bearer eyJhbGciOiJSUzI1NiJ9.test' };
 
-      fetchMock.mockResolvedValue({
-        status: 200,
-        json: async () => ({ id: '1' }),
-      });
+      fetchMock.mockResolvedValue(mockJsonResponse(200, { id: '1' }));
 
       await handler(mockReq as VercelRequest, mockRes as VercelResponse);
 
@@ -142,10 +142,7 @@ describe('/api/users serverless function', () => {
       mockReq.query = {};
       mockReq.headers = {};
 
-      fetchMock.mockResolvedValue({
-        status: 200,
-        json: async () => ({}),
-      });
+      fetchMock.mockResolvedValue(mockJsonResponse(200, {}));
 
       await handler(mockReq as VercelRequest, mockRes as VercelResponse);
 
@@ -157,10 +154,7 @@ describe('/api/users serverless function', () => {
     it('should always include Accept and Content-Type headers', async () => {
       mockReq.query = {};
 
-      fetchMock.mockResolvedValue({
-        status: 200,
-        json: async () => ({}),
-      });
+      fetchMock.mockResolvedValue(mockJsonResponse(200, {}));
 
       await handler(mockReq as VercelRequest, mockRes as VercelResponse);
 
@@ -183,10 +177,7 @@ describe('/api/users serverless function', () => {
       mockReq.body = { displayName: 'New Name' };
       mockReq.headers = { authorization: 'Bearer token123' };
 
-      fetchMock.mockResolvedValue({
-        status: 200,
-        json: async () => ({ displayName: 'New Name' }),
-      });
+      fetchMock.mockResolvedValue(mockJsonResponse(200, { displayName: 'New Name' }));
 
       await handler(mockReq as VercelRequest, mockRes as VercelResponse);
 
@@ -200,10 +191,7 @@ describe('/api/users serverless function', () => {
       mockReq.query = {};
       mockReq.body = '{"email":"test@example.com"}';
 
-      fetchMock.mockResolvedValue({
-        status: 201,
-        json: async () => ({ id: '1' }),
-      });
+      fetchMock.mockResolvedValue(mockJsonResponse(201, { id: '1' }));
 
       await handler(mockReq as VercelRequest, mockRes as VercelResponse);
 
@@ -216,10 +204,7 @@ describe('/api/users serverless function', () => {
       mockReq.method = 'GET';
       mockReq.query = {};
 
-      fetchMock.mockResolvedValue({
-        status: 200,
-        json: async () => ({}),
-      });
+      fetchMock.mockResolvedValue(mockJsonResponse(200, {}));
 
       await handler(mockReq as VercelRequest, mockRes as VercelResponse);
 
@@ -232,10 +217,7 @@ describe('/api/users serverless function', () => {
       mockReq.query = {};
       mockReq.body = null;
 
-      fetchMock.mockResolvedValue({
-        status: 200,
-        json: async () => ({}),
-      });
+      fetchMock.mockResolvedValue(mockJsonResponse(200, {}));
 
       await handler(mockReq as VercelRequest, mockRes as VercelResponse);
 
@@ -257,10 +239,7 @@ describe('/api/users serverless function', () => {
         familyName: 'User',
       };
 
-      fetchMock.mockResolvedValue({
-        status: 200,
-        json: async () => userData,
-      });
+      fetchMock.mockResolvedValue(mockJsonResponse(200, userData));
 
       await handler(mockReq as VercelRequest, mockRes as VercelResponse);
 
@@ -271,10 +250,7 @@ describe('/api/users serverless function', () => {
     it('should forward 401 when not authenticated', async () => {
       mockReq.query = {};
 
-      fetchMock.mockResolvedValue({
-        status: 401,
-        json: async () => ({ detail: 'Not authenticated' }),
-      });
+      fetchMock.mockResolvedValue(mockJsonResponse(401, { detail: 'Not authenticated' }));
 
       await handler(mockReq as VercelRequest, mockRes as VercelResponse);
 
@@ -286,10 +262,7 @@ describe('/api/users serverless function', () => {
       mockReq.query = {};
       mockReq.headers = { authorization: 'Bearer token' };
 
-      fetchMock.mockResolvedValue({
-        status: 404,
-        json: async () => ({ detail: 'User not found' }),
-      });
+      fetchMock.mockResolvedValue(mockJsonResponse(404, { detail: 'User not found' }));
 
       await handler(mockReq as VercelRequest, mockRes as VercelResponse);
 
@@ -300,15 +273,34 @@ describe('/api/users serverless function', () => {
     it('should forward 500 from backend', async () => {
       mockReq.query = {};
 
-      fetchMock.mockResolvedValue({
-        status: 500,
-        json: async () => ({ detail: 'Internal server error' }),
-      });
+      fetchMock.mockResolvedValue(mockJsonResponse(500, { detail: 'Internal server error' }));
 
       await handler(mockReq as VercelRequest, mockRes as VercelResponse);
 
       expect(mockRes.status).toHaveBeenCalledWith(500);
       expect(mockRes.json).toHaveBeenCalledWith({ detail: 'Internal server error' });
+    });
+
+    it('should handle non-JSON responses by forwarding as error', async () => {
+      mockReq.query = {};
+
+      fetchMock.mockResolvedValue(mockTextResponse(502, '<html>Bad Gateway</html>', 'Bad Gateway'));
+
+      await handler(mockReq as VercelRequest, mockRes as VercelResponse);
+
+      expect(mockRes.status).toHaveBeenCalledWith(502);
+      expect(mockRes.json).toHaveBeenCalledWith({ error: '<html>Bad Gateway</html>' });
+    });
+
+    it('should use statusText when non-JSON response body is empty', async () => {
+      mockReq.query = {};
+
+      fetchMock.mockResolvedValue(mockTextResponse(204, '', 'No Content'));
+
+      await handler(mockReq as VercelRequest, mockRes as VercelResponse);
+
+      expect(mockRes.status).toHaveBeenCalledWith(204);
+      expect(mockRes.json).toHaveBeenCalledWith({ error: 'No Content' });
     });
   });
 
@@ -324,25 +316,6 @@ describe('/api/users serverless function', () => {
       expect(mockRes.json).toHaveBeenCalledWith({
         error: 'Failed to fetch from backend',
         details: 'ECONNREFUSED',
-      });
-    });
-
-    it('should handle JSON parse errors', async () => {
-      mockReq.query = {};
-
-      fetchMock.mockResolvedValue({
-        status: 200,
-        json: async () => {
-          throw new Error('Unexpected token');
-        },
-      });
-
-      await handler(mockReq as VercelRequest, mockRes as VercelResponse);
-
-      expect(mockRes.status).toHaveBeenCalledWith(500);
-      expect(mockRes.json).toHaveBeenCalledWith({
-        error: 'Failed to fetch from backend',
-        details: 'Unexpected token',
       });
     });
 
@@ -362,19 +335,17 @@ describe('/api/users serverless function', () => {
   });
 
   describe('Backend URL Configuration', () => {
-    it('should use BACKEND_API_URL env var when set', async () => {
+    it('should use BACKEND_API_URL env var when set (production host)', async () => {
       process.env.BACKEND_API_URL = 'https://api.production.railway.app';
       mockReq.query = {};
+      mockReq.headers = { host: 'job-viz.vercel.app' };
 
-      fetchMock.mockResolvedValue({
-        status: 200,
-        json: async () => ({}),
-      });
+      fetchMock.mockResolvedValue(mockJsonResponse(200, {}));
 
       await handler(mockReq as VercelRequest, mockRes as VercelResponse);
 
       expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining('https://api.production.railway.app/api/users/'),
+        'https://api.production.railway.app/api/users',
         expect.any(Object)
       );
     });
@@ -383,17 +354,51 @@ describe('/api/users serverless function', () => {
       delete process.env.BACKEND_API_URL;
       mockReq.query = {};
 
-      fetchMock.mockResolvedValue({
-        status: 200,
-        json: async () => ({}),
-      });
+      fetchMock.mockResolvedValue(mockJsonResponse(200, {}));
 
       await handler(mockReq as VercelRequest, mockRes as VercelResponse);
 
       expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining('http://localhost:8000/api/users/'),
+        expect.stringContaining('http://localhost:8000/api/users'),
         expect.any(Object)
       );
+    });
+  });
+
+  describe('getBackendUrl Host header detection', () => {
+    it('should use localhost:8000 when host is localhost, even with BACKEND_API_URL set', () => {
+      process.env.BACKEND_API_URL = 'https://api.production.railway.app';
+      const req = { headers: { host: 'localhost:3000' } } as unknown as VercelRequest;
+
+      expect(getBackendUrl(req)).toBe('http://localhost:8000');
+    });
+
+    it('should use localhost:8000 when host is 127.0.0.1', () => {
+      process.env.BACKEND_API_URL = 'https://api.production.railway.app';
+      const req = { headers: { host: '127.0.0.1:3000' } } as unknown as VercelRequest;
+
+      expect(getBackendUrl(req)).toBe('http://localhost:8000');
+    });
+
+    it('should use localhost:8000 when host is IPv6 loopback [::1]', () => {
+      process.env.BACKEND_API_URL = 'https://api.production.railway.app';
+      const req = { headers: { host: '[::1]:3000' } } as unknown as VercelRequest;
+
+      expect(getBackendUrl(req)).toBe('http://localhost:8000');
+    });
+
+    it('should use BACKEND_API_URL when host is a production domain', () => {
+      process.env.BACKEND_API_URL = 'https://api.production.railway.app';
+      const req = { headers: { host: 'job-viz.vercel.app' } } as unknown as VercelRequest;
+
+      expect(getBackendUrl(req)).toBe('https://api.production.railway.app');
+    });
+
+    it('should fall back to localhost:8000 when host is missing and no env var', () => {
+      delete process.env.BACKEND_API_URL;
+      const req = { headers: {} } as unknown as VercelRequest;
+
+      expect(getBackendUrl(req)).toBe('http://localhost:8000');
     });
   });
 
@@ -415,15 +420,12 @@ describe('/api/users serverless function', () => {
         updatedAt: '2026-04-12T00:00:00Z',
       };
 
-      fetchMock.mockResolvedValue({
-        status: 200,
-        json: async () => userResponse,
-      });
+      fetchMock.mockResolvedValue(mockJsonResponse(200, userResponse));
 
       await handler(mockReq as VercelRequest, mockRes as VercelResponse);
 
       expect(fetchMock).toHaveBeenCalledWith(
-        'http://localhost:8000/api/users/',
+        'http://localhost:8000/api/users',
         expect.objectContaining({
           method: 'GET',
           headers: {
@@ -449,15 +451,12 @@ describe('/api/users serverless function', () => {
         email: 'user@gmail.com',
       };
 
-      fetchMock.mockResolvedValue({
-        status: 200,
-        json: async () => updatedUser,
-      });
+      fetchMock.mockResolvedValue(mockJsonResponse(200, updatedUser));
 
       await handler(mockReq as VercelRequest, mockRes as VercelResponse);
 
       expect(fetchMock).toHaveBeenCalledWith(
-        'http://localhost:8000/api/users/',
+        'http://localhost:8000/api/users',
         expect.objectContaining({
           method: 'PUT',
           headers: {

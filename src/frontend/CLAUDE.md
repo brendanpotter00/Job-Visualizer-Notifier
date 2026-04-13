@@ -86,12 +86,15 @@ Edit `config/companies.ts` and use the appropriate factory function:
 ## Critical Gotchas
 
 1. **Use Vercel Dev**: Must run `npm run dev:vercel` (not `npm run dev`) - Vercel serverless functions in `api/` directory proxy ATS API calls to avoid CORS issues
-2. **Graph/List Filter Independence**: Separate by design - changing graph filters doesn't affect list
-3. **Empty Buckets Matter**: Time bucketing creates empty buckets for full range - don't filter them out
-4. **Factory Patterns**: When modifying API or filter logic, update the factory functions, not individual implementations
-5. **Zero TypeScript Errors Required**: Run `npm run type-check` before committing
-6. **Test Coverage**: Maintain >85% coverage (768+ tests passing)
-7. **Memory Management**: Large job datasets require careful handling:
+2. **Vite env files must live in `src/frontend/`, NOT the project root**: The root `vite.config.ts` sets `root: 'src/frontend'`. Vite resolves `.env` files relative to its `root`, so it reads `src/frontend/.env.local`, NOT `<project-root>/.env.local`. **DO NOT add `envDir` to `vite.config.ts` to point at the project root** — this breaks Vercel Dev's API proxy routing, causing all `/api/*` requests to fail. Instead, frontend `VITE_*` env vars go in `src/frontend/.env.local` and backend/Vercel env vars go in `<project-root>/.env.local`.
+3. **Vercel Dev cloud env vars override ALL local `.env` files for serverless functions (`api/*.ts`)**: `vercel dev` pulls env vars from the linked Vercel project and they take absolute precedence — `.env.local`, `.env.development.local`, and even shell env vars are all ignored. The `api/utils/backendUrl.ts` helper works around this by detecting `localhost` in the request Host header to use `http://localhost:8000` for local dev. **Do NOT rely on `process.env` in serverless functions for local dev config.** See `docs/incidents/2026-04-12-vercel-dev-env-var-override.md` for full details.
+4. **macOS port 5000 is AirPlay**: Never configure backend services on port 5000 — macOS Monterey+ runs AirPlay Receiver there via ControlCenter. It silently accepts HTTP connections and returns 403, masking "connection refused" errors. The backend runs on port 8000.
+5. **Graph/List Filter Independence**: Separate by design - changing graph filters doesn't affect list
+6. **Empty Buckets Matter**: Time bucketing creates empty buckets for full range - don't filter them out
+7. **Factory Patterns**: When modifying API or filter logic, update the factory functions, not individual implementations
+8. **Zero TypeScript Errors Required**: Run `npm run type-check` before committing
+9. **Test Coverage**: Maintain >85% coverage (768+ tests passing)
+10. **Memory Management**: Large job datasets require careful handling:
    - **Tables**: Always paginate tables with 100+ rows - unpaginated tables with thousands of rows cause severe browser memory issues (50+ GB)
    - **Selectors**: `selectAllJobsFromQuery` flattens all jobs - use filtered selectors when possible
    - **Pattern**: See QAPage jobs table for pagination pattern (useMemo for slice + TablePagination component)
