@@ -26,9 +26,9 @@ async def lifespan(app: FastAPI):
     logger.info("Connecting to database...")
     try:
         # Ensure schema exists using a temporary connection
-        temp_conn = get_connection(settings.database_url, settings.scraper_environment)
+        temp_conn = get_connection(settings.database_url)
         try:
-            init_schema(temp_conn, settings.scraper_environment)
+            init_schema(temp_conn)
         finally:
             temp_conn.close()
         # Create the connection pool for request handling
@@ -41,7 +41,6 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("Failed to connect to database")
         raise
-    app.state.env = settings.scraper_environment
     app.state.config = settings
 
     # Start background auto-scraper

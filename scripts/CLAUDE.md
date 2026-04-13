@@ -21,9 +21,9 @@ python scripts/run_scraper.py --company microsoft --detail-scrape       # Micros
 python scripts/run_scraper.py --company all                             # Run all scrapers
 
 # Database Mode (PostgreSQL)
-python scripts/run_scraper.py --company google --env local --db-url postgresql://user:pass@host/db
-python scripts/run_scraper.py --company apple --env local --db-url postgresql://user:pass@host/db
-python scripts/run_scraper.py --company google --env local --db-url postgresql://user:pass@host/db --incremental
+python scripts/run_scraper.py --company google --db-url postgresql://user:pass@host/db
+python scripts/run_scraper.py --company apple --db-url postgresql://user:pass@host/db
+python scripts/run_scraper.py --company google --db-url postgresql://user:pass@host/db --incremental
 
 # Testing & Development
 python scripts/run_scraper.py --max-jobs 10 -v   # Test scrape with verbose logging
@@ -46,7 +46,6 @@ pip install -r scripts/requirements-dev.txt      # Install dev dependencies (tes
 
 ```
 --company {google,apple,microsoft,all}  # Which scraper to run (default: google)
---env {local,qa,prod}         # Environment for table naming (default: local)
 --db-url URL                  # PostgreSQL connection URL
 --incremental                 # Run incremental mode (requires --db-url)
 --detail-scrape               # Scrape individual job detail pages
@@ -95,7 +94,7 @@ User runs script → Parse CLI args → Select company scraper → Choose mode (
 
 **Output Format:**
 - **JSON Mode:** Scraped jobs written to `scripts/output/google_jobs.json` with metadata. Schema matches TypeScript `Job` interface from main app (id, source, company, title, location, createdAt, url + 15 extended fields). Compatible with Redux store ingestion.
-- **Database Mode:** Jobs stored in `job_listings_{env}` table with incremental tracking fields (first_seen_at, last_seen_at, consecutive_misses, details_scraped). Scrape metadata in `scrape_runs_{env}` table.
+- **Database Mode:** Jobs stored in `job_listings` table with incremental tracking fields (first_seen_at, last_seen_at, consecutive_misses, details_scraped). Scrape metadata in `scrape_runs` table.
 
 **Key Design Patterns:**
 - Async context manager for browser lifecycle
@@ -159,24 +158,24 @@ python scripts/run_scraper.py --detail-scrape -o output/google_jobs.json
 
 **Running Apple Scraper (Database Mode):**
 ```bash
-python scripts/run_scraper.py --company apple --env local \
+python scripts/run_scraper.py --company apple \
   --db-url "postgresql://postgres:postgres@localhost:5432/jobscraper"
 ```
 
 **Running All Scrapers:**
 ```bash
-python scripts/run_scraper.py --company all --env local \
+python scripts/run_scraper.py --company all \
   --db-url "postgresql://postgres:postgres@localhost:5432/jobscraper" --incremental
 ```
 
 **Running Incremental Database Scrape (PostgreSQL):**
 ```bash
 # First run: Full scrape to populate database
-python scripts/run_scraper.py --company google --env local \
+python scripts/run_scraper.py --company google \
   --db-url "postgresql://user:pass@host/db" --detail-scrape
 
 # Subsequent runs: Fast incremental updates (only new jobs)
-python scripts/run_scraper.py --company google --env local \
+python scripts/run_scraper.py --company google \
   --db-url "postgresql://user:pass@host/db" --incremental
 ```
 
@@ -227,7 +226,7 @@ Edit company-specific `config.py`:
 7. **Rate Limiting is Conservative**: 2-5s delays prevent rate limiting but slow scraping - adjust `config.py` at your own risk
 8. **Run from Project Root**: Always execute as `python scripts/run_scraper.py` not `cd scripts && python run_scraper.py` - path setup depends on project root
 9. **Database Mode Requires --db-url**: Incremental mode requires database connection - use `--db-url postgresql://user:pass@host/db`
-10. **Environment Flag Affects Tables**: `--env` flag determines table names (`job_listings_local`, `job_listings_prod`) - use consistent env for same database
+10. **Environment Isolation via DATABASE_URL**: Use separate database URLs for different environments (local, staging, prod). Tables have fixed names (`job_listings`, `scrape_runs`)
 11. **Incremental Mode Needs Initial Full Scrape**: First run should be without `--incremental` to populate database, subsequent runs use `--incremental`
 12. **Apple Job IDs Include Location**: Apple job IDs have location suffix for uniqueness - this is intentional to distinguish same role in different locations
 13. **Microsoft Uses Eightfold APIs**: Microsoft scraper primarily uses JSON APIs (`/api/pcsx/*`) with HTML fallback - if APIs change, check Eightfold documentation

@@ -277,18 +277,17 @@ The `shared/` directory contains reusable components for multi-company scraper s
 **Purpose:** Database abstraction layer supporting SQLite (local) and PostgreSQL (production).
 
 **Connection Management:**
-- `get_connection(db_url, env) -> Connection` - Create DB connection from URL
-  - SQLite: `sqlite:///path/to/file.db`
+- `get_connection(db_url) -> Connection` - Create DB connection from URL
   - PostgreSQL: `postgresql://user:pass@host:port/dbname`
-- `init_schema(conn, env)` - Create tables with environment-based naming
+- `init_schema(conn)` - Create tables
 
 **Schema:**
-- `job_listings_{env}` table:
+- `job_listings` table:
   - Primary: id, title, company, location, url, source_id
   - Details: details (JSONB), posted_on, created_at, closed_on
   - Status: status, has_matched, ai_metadata (JSONB)
   - Incremental: first_seen_at, last_seen_at, consecutive_misses, details_scraped
-- `scrape_runs_{env}` table:
+- `scrape_runs` table:
   - Metadata: run_id, company, started_at, completed_at, mode
   - Statistics: jobs_seen, new_jobs, closed_jobs, details_fetched, error_count
 
@@ -412,7 +411,7 @@ The scraper supports dual-mode operation: JSON output (legacy) and database pers
 
 ### Database Schema
 
-**job_listings_{env} Table:**
+**job_listings Table:**
 | Column | Type | Description |
 |--------|------|-------------|
 | id | TEXT PRIMARY KEY | Job ID from URL |
@@ -433,7 +432,7 @@ The scraper supports dual-mode operation: JSON output (legacy) and database pers
 | consecutive_misses | INTEGER | Counter for disappearances |
 | details_scraped | BOOLEAN | Whether detail page fetched |
 
-**scrape_runs_{env} Table:**
+**scrape_runs Table:**
 | Column | Type | Description |
 |--------|------|-------------|
 | run_id | TEXT PRIMARY KEY | Unique run identifier |

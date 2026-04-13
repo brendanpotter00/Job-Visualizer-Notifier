@@ -1,7 +1,7 @@
 """Test fixtures for FastAPI backend tests.
 
-Uses a real PostgreSQL database with test-isolated tables (test_<hex> env pattern)
-that are created before each test module and dropped after.
+Uses a real PostgreSQL database with fixed table names (job_listings, scrape_runs).
+Tables are created once per module and truncated between tests for isolation.
 """
 
 import json
@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 from psycopg2 import sql
 from psycopg2.extras import RealDictCursor
 
-from scripts.shared.database import init_schema, _get_table_name
+from scripts.shared.database import init_schema, JOBS_TABLE, RUNS_TABLE
 
 # Default test database URL (same as docker-compose)
 TEST_DB_URL = os.environ.get(
@@ -24,29 +24,17 @@ TEST_DB_URL = os.environ.get(
 )
 
 
-def _make_test_env() -> str:
-    """Generate a unique test environment name matching _TEST_ENV_PATTERN."""
-    return f"test_{uuid.uuid4().hex[:8]}"
-
-
 @pytest.fixture(scope="module")
-def test_env():
-    """Unique environment name for this test module's tables."""
-    return _make_test_env()
-
-
-@pytest.fixture(scope="module")
-def db_conn(test_env):
+def db_conn():
     """PostgreSQL connection with test tables created and cleaned up after."""
     conn = psycopg2.connect(TEST_DB_URL, cursor_factory=RealDictCursor)
-    init_schema(conn, test_env)
+    init_schema(conn)
     yield conn
-    # Cleanup: drop test tables
+    # Cleanup: truncate tables
     cursor = conn.cursor()
-    jobs_table = _get_table_name(test_env, "jobs")
-    runs_table = _get_table_name(test_env, "runs")
-    cursor.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(jobs_table)))
-    cursor.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(runs_table)))
+    cursor.execute(sql.SQL("TRUNCATE {}, {}").format(
+        sql.Identifier(JOBS_TABLE), sql.Identifier(RUNS_TABLE)
+    ))
     conn.commit()
     conn.close()
 
@@ -77,10 +65,10 @@ def _make_job(overrides: dict | None = None) -> dict:
     return base
 
 
-def _insert_job(conn, env: str, job: dict) -> None:
+def _insert_job(conn, job: dict) -> None:
     """Insert a job row into the test table."""
     cursor = conn.cursor()
-    table = sql.Identifier(_get_table_name(env, "jobs"))
+    table = sql.Identifier(JOBS_TABLE)
     cols = sql.SQL(", ").join(sql.Identifier(k) for k in job.keys())
     placeholders = sql.SQL(", ").join(sql.Placeholder() for _ in job)
     query = sql.SQL("INSERT INTO {} ({}) VALUES ({})").format(table, cols, placeholders)
@@ -88,7 +76,7 @@ def _insert_job(conn, env: str, job: dict) -> None:
     conn.commit()
 
 
-def _insert_scrape_run(conn, env: str, run: dict) -> None:
+def _insert_scrape_run(conn, run: dict) -> None:
     """Insert a scrape run row into the test table."""
     defaults = {
         "run_id": f"run-{uuid.uuid4().hex[:8]}",
@@ -104,7 +92,7 @@ def _insert_scrape_run(conn, env: str, run: dict) -> None:
     }
     defaults.update(run)
     cursor = conn.cursor()
-    table = sql.Identifier(_get_table_name(env, "runs"))
+    table = sql.Identifier(RUNS_TABLE)
     cols = sql.SQL(", ").join(sql.Identifier(k) for k in defaults.keys())
     placeholders = sql.SQL(", ").join(sql.Placeholder() for _ in defaults)
     query = sql.SQL("INSERT INTO {} ({}) VALUES ({})").format(table, cols, placeholders)
@@ -112,23 +100,23 @@ def _insert_scrape_run(conn, env: str, run: dict) -> None:
     conn.commit()
 
 
-def _clear_tables(conn, env: str) -> None:
+def _clear_tables(conn) -> None:
     """Truncate test tables between tests."""
     cursor = conn.cursor()
-    jobs_table = _get_table_name(env, "jobs")
-    runs_table = _get_table_name(env, "runs")
-    cursor.execute(sql.SQL("TRUNCATE {}, {}").format(sql.Identifier(jobs_table), sql.Identifier(runs_table)))
+    cursor.execute(sql.SQL("TRUNCATE {}, {}").format(
+        sql.Identifier(JOBS_TABLE), sql.Identifier(RUNS_TABLE)
+    ))
     conn.commit()
 
 
 @pytest.fixture(autouse=True)
-def clean_tables(db_conn, test_env):
+def clean_tables(db_conn):
     """Truncate tables before each test for isolation."""
-    _clear_tables(db_conn, test_env)
+    _clear_tables(db_conn)
 
 
 @pytest.fixture(scope="module")
-def test_app(db_conn, test_env):
+def test_app(db_conn):
     """FastAPI test app with database connection wired up (no auto-scraper)."""
     from api.routers import jobs, jobs_qa
     from api.dependencies import get_db
@@ -148,13 +136,10 @@ def test_app(db_conn, test_env):
 
     app.dependency_overrides[get_db] = override_get_db
 
-    app.state.env = test_env
-    # Provide a minimal config for trigger-scrape (use "local" for validation;
-    # routes use app.state.env for table selection, not config.scraper_environment)
+    # Provide a minimal config for trigger-scrape
     from api.config import Settings
     app.state.config = Settings(
         database_url=TEST_DB_URL,
-        scraper_environment="local",
         scraper_scripts_path="/nonexistent/scripts",
     )
 

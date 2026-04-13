@@ -150,7 +150,6 @@ async def run_json_mode(args):
 async def run_database_mode(args):
     """Run scraper in database mode with incremental support"""
     company = args.company
-    env = args.env
     db_url = args.db_url
 
     # Handle --company all by running all scrapers sequentially
@@ -162,12 +161,12 @@ async def run_database_mode(args):
         args.company = "all"
         return
 
-    logger.info(f"Running scraper in database mode: company={company}, env={env}")
+    logger.info(f"Running scraper in database mode: company={company}")
 
     # Connect to database
     try:
-        conn = db.get_connection(db_url, env)
-        db.init_schema(conn, env)
+        conn = db.get_connection(db_url)
+        db.init_schema(conn)
     except Exception as e:
         console.print(f"[bold red]Database connection failed: {e}[/bold red]")
         sys.exit(2)
@@ -185,7 +184,7 @@ async def run_database_mode(args):
                 # Run 5-phase incremental scrape
                 console.print(f"\n[bold cyan]Running incremental scrape for {company}[/bold cyan]\n")
                 result = await incremental.run_incremental_scrape(
-                    scraper, conn, env, company, args.detail_scrape
+                    scraper, conn, company, args.detail_scrape
                 )
 
                 console.print(f"\n[bold green]✓ Incremental scrape completed![/bold green]")
@@ -208,7 +207,6 @@ async def run_database_mode(args):
                 timestamp = get_iso_timestamp()
                 writer = BatchWriter(
                     db_conn=conn,
-                    env=env,
                     scraper=scraper,
                     batch_size=50,
                     detail_scrape=args.detail_scrape,
@@ -262,7 +260,7 @@ async def run_database_mode(args):
                     details_fetched=details_count if args.detail_scrape else 0,
                     error_count=writer.stats.errors,
                 )
-                db.record_scrape_run(conn, run_record, env)
+                db.record_scrape_run(conn, run_record)
                 console.print(f"Scrape run recorded: {run_record.run_id}")
 
     finally:
@@ -280,15 +278,15 @@ Examples:
   python scripts/run_scraper.py --detail-scrape
 
   # Database mode with PostgreSQL (local development via Docker)
-  python scripts/run_scraper.py --company google --env local \\
+  python scripts/run_scraper.py --company google \\
     --db-url "postgresql://postgres:postgres@localhost:5432/jobscraper"
 
   # Incremental mode (requires database)
-  python scripts/run_scraper.py --company google --env local \\
+  python scripts/run_scraper.py --company google \\
     --db-url "postgresql://postgres:postgres@localhost:5432/jobscraper" --incremental
 
-  # PostgreSQL production mode
-  python scripts/run_scraper.py --company google --env prod \\
+  # PostgreSQL production mode (use a separate DATABASE_URL per environment)
+  python scripts/run_scraper.py --company google \\
     --db-url "postgresql://user:pass@host:5432/jobscraper" --incremental
         """,
     )
@@ -345,12 +343,6 @@ Examples:
         choices=["google", "apple", "microsoft", "all"],
         default="google",
         help="Which company scraper to run (default: google)",
-    )
-    parser.add_argument(
-        "--env",
-        choices=["local", "qa", "prod"],
-        default="local",
-        help="Environment (affects table naming: job_listings_ENV) (default: local)",
     )
     parser.add_argument(
         "--db-url",

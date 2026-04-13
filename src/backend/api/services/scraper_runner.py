@@ -49,7 +49,6 @@ async def run_scraper(config: Settings, company: str) -> ScraperResult:
         config.scraper_python_path,
         f"{config.scraper_scripts_path}/run_scraper.py",
         "--company", company,
-        "--env", config.scraper_environment,
         "--db-url", config.database_url,
         "--incremental",
         "--headless",

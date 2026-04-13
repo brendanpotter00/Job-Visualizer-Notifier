@@ -200,7 +200,7 @@ python scripts/run_scraper.py --company all --max-jobs 10
 **Database mode** (writes to PostgreSQL):
 
 ```bash
-python scripts/run_scraper.py --company google --env local \
+python scripts/run_scraper.py --company google \
   --db-url "postgresql://postgres:postgres@localhost:5432/jobscraper"
 ```
 
@@ -242,10 +242,10 @@ Backend URL resolution (`api/utils/backendUrl.ts`): uses `http://localhost:8000`
 | Connection URL | `postgresql://postgres:postgres@localhost:5432/jobscraper` |
 
 Tables are created automatically on first connection by `scripts/shared/database.py`:
-- `job_listings_local` -- job postings
-- `scrape_runs_local` -- scrape execution history
+- `job_listings` -- job postings
+- `scrape_runs` -- scrape execution history
 
-The `_local` suffix comes from the `SCRAPER_ENVIRONMENT` setting. Data persists in a Docker volume (`postgres_data`).
+Data persists in a Docker volume (`postgres_data`). Environment isolation is handled via separate `DATABASE_URL` values, not table name suffixes.
 
 ---
 
@@ -258,7 +258,6 @@ All variables have defaults that work for local development. Override via `.env`
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DATABASE_URL` | `postgresql://postgres:postgres@localhost:5432/jobscraper` | PostgreSQL connection URL |
-| `SCRAPER_ENVIRONMENT` | `local` | Table name suffix (local / qa / prod) |
 | `SCRAPER_INTERVAL_HOURS` | `1` | Hours between auto-scrape cycles |
 | `SCRAPER_COMPANIES` | `apple,google,microsoft` | Comma-separated company list |
 | `SCRAPER_DETAIL_SCRAPE` | `true` | Fetch job detail pages |
@@ -317,7 +316,7 @@ These instructions work for IntelliJ IDEA Ultimate, PyCharm, and WebStorm. Open 
 
 For database mode, change Parameters to:
 ```
---company google --env local --db-url "postgresql://postgres:postgres@localhost:5432/jobscraper"
+--company google --db-url "postgresql://postgres:postgres@localhost:5432/jobscraper"
 ```
 
 ### Run Configuration: Frontend Tests (Vitest)
@@ -353,7 +352,7 @@ For database mode, change Parameters to:
    - **Database:** `jobscraper`
 4. Click **Test Connection**, then **Apply**
 
-After running the backend or a scraper at least once, the tables `job_listings_local` and `scrape_runs_local` will appear.
+After running the backend or a scraper at least once, the tables `job_listings` and `scrape_runs` will appear.
 
 ---
 

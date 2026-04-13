@@ -4,7 +4,6 @@ Shared pytest fixtures for the scraper test suite
 
 import os
 import sys
-import uuid
 from pathlib import Path
 from typing import Dict, Any
 from unittest.mock import AsyncMock, MagicMock
@@ -107,29 +106,19 @@ def sample_scrape_run() -> ScrapeRun:
 
 
 @pytest.fixture
-def test_env():
+def postgres_db():
     """
-    Generate unique test environment name to isolate test tables
-    """
-    return f"test_{uuid.uuid4().hex[:8]}"
-
-
-@pytest.fixture
-def postgres_db(test_env):
-    """
-    PostgreSQL database connection with schema initialized
-    Uses unique table names per test to allow parallel execution
-    Yields the connection and cleans up tables after test
+    PostgreSQL database connection with schema initialized.
+    Tables are truncated after each test for isolation.
     """
     conn = psycopg2.connect(TEST_DB_URL, cursor_factory=RealDictCursor)
-    db.init_schema(conn, env=test_env)
+    db.init_schema(conn)
     yield conn
 
-    # Cleanup: drop test tables
+    # Cleanup: truncate tables after test
     cursor = conn.cursor()
     try:
-        cursor.execute(f"DROP TABLE IF EXISTS job_listings_{test_env} CASCADE")
-        cursor.execute(f"DROP TABLE IF EXISTS scrape_runs_{test_env} CASCADE")
+        cursor.execute(f"TRUNCATE {db.JOBS_TABLE}, {db.RUNS_TABLE}")
         conn.commit()
     except Exception:
         conn.rollback()

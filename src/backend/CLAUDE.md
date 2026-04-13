@@ -22,7 +22,7 @@ cd src/backend && pytest api/tests/test_jobs_router.py   # Single file
 ## Prerequisites
 
 - PostgreSQL running on localhost:5432 (use `docker compose up -d postgres` from project root)
-- Database: `jobscraper` with tables `job_listings_local` and `scrape_runs_local`
+- Database: `jobscraper` with tables `job_listings` and `scrape_runs`
 - Python 3.13+ with dependencies from `src/backend/api/requirements.txt`
 
 ## Configuration
@@ -32,7 +32,6 @@ All configuration via environment variables:
 | Env Var | Description | Default |
 |---------|-------------|---------|
 | `DATABASE_URL` | PostgreSQL connection URL | `postgresql://postgres:postgres@localhost:5432/jobscraper` |
-| `SCRAPER_ENVIRONMENT` | Table name suffix (local/qa/prod) | `local` |
 | `SCRAPER_INTERVAL_HOURS` | Hours between auto-scrape cycles | `1` |
 | `SCRAPER_COMPANIES` | Comma-separated company list | `apple,google,microsoft` |
 | `SCRAPER_DETAIL_SCRAPE` | Fetch job detail pages | `true` |
@@ -43,10 +42,6 @@ All configuration via environment variables:
 | `DB_POOL_MAX` | Maximum database connections in pool | `8` |
 | `PORT` | Server port | `8080` |
 | `CORS_ORIGINS` | Comma-separated allowed origins | `http://localhost:3000,http://localhost:5173,http://localhost:8000` |
-
-**Environment-based table naming:**
-- `SCRAPER_ENVIRONMENT=local` → `job_listings_local`, `scrape_runs_local`
-- `SCRAPER_ENVIRONMENT=prod` → `job_listings_prod`, `scrape_runs_prod`
 
 ## API Endpoints
 
@@ -82,7 +77,7 @@ src/backend/api/
 
 ## Architecture
 
-- **Database**: Connection pool managed by `dependencies.py`; table naming reused from `scripts/shared/database.py`
+- **Database**: Connection pool managed by `dependencies.py`; schema defined in `scripts/shared/database.py`
 - **Response serialization**: Pydantic models with `alias_generator=to_camel` produce camelCase JSON matching frontend expectations
 - **Background scraper**: asyncio task launched in FastAPI lifespan context
 - **Scraper subprocess**: Runs `scripts/run_scraper.py` via `asyncio.create_subprocess_exec`
@@ -93,7 +88,6 @@ Production backend is deployed on **Railway** (auto-deploys from GitHub). Railwa
 
 Key production env vars to set in Railway:
 - `DATABASE_URL` — PostgreSQL connection string (provided by Railway if using their Postgres plugin)
-- `SCRAPER_ENVIRONMENT=prod`
 - `CORS_ORIGINS` — must include the production frontend domain
 
 ## Docker

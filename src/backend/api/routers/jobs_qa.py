@@ -18,13 +18,11 @@ router = APIRouter()
 
 @router.get("/stats", response_model=JobsStatsResponse)
 def stats(
-    request: Request,
     conn: Connection = Depends(get_db),
     company: str | None = Query(default=None, pattern=COMPANY_PATTERN),
 ):
     """Get job statistics with optional company filter."""
-    env = request.app.state.env
-    data = get_stats(conn, env, company=company)
+    data = get_stats(conn, company=company)
     return JobsStatsResponse(
         total_jobs=data["total_jobs"],
         open_jobs=data["open_jobs"],
@@ -35,14 +33,12 @@ def stats(
 
 @router.get("/scrape-runs", response_model=list[ScrapeRunResponse])
 def scrape_runs(
-    request: Request,
     conn: Connection = Depends(get_db),
     company: str | None = Query(default=None, pattern=COMPANY_PATTERN),
     limit: int = Query(default=20, ge=1, le=1000),
 ):
     """Get scrape run history."""
-    env = request.app.state.env
-    runs = get_scrape_runs(conn, env, company=company, limit=limit)
+    runs = get_scrape_runs(conn, company=company, limit=limit)
     return [ScrapeRunResponse(**r) for r in runs]
 
 

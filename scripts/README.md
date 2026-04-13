@@ -74,8 +74,8 @@ python scripts/run_scraper.py --db-url sqlite:///jobs.db --incremental
 # Full scrape with details to database
 python scripts/run_scraper.py --db-url sqlite:///jobs.db --detail-scrape
 
-# Specify environment (affects table naming)
-python scripts/run_scraper.py --db-url sqlite:///jobs.db --env prod
+# Production uses a separate database URL for environment isolation
+python scripts/run_scraper.py --db-url postgresql://user:pass@prod-host/jobscraper
 ```
 
 ### Command Line Arguments
@@ -91,7 +91,7 @@ python scripts/run_scraper.py --db-url sqlite:///jobs.db --env prod
 | `--no-headless` | Show browser window for debugging |
 | `--verbose, -v` | Enable verbose logging |
 | `--company` | Which company to scrape (choices: google, all; default: google) |
-| `--env` | Environment for table naming (choices: local, qa, prod; default: local) |
+| `--db-url` | PostgreSQL connection URL (use separate URLs per environment) |
 | `--db-url` | Database connection URL (enables database mode) |
 | `--incremental` | Run incremental scrape (requires --db-url) |
 
@@ -287,7 +287,7 @@ scripts/
 - **Deduplication**: Jobs appearing in multiple search queries are automatically deduplicated by URL
 - **Database mode** (NEW): Stores jobs in SQLite or PostgreSQL with incremental tracking
 - **Incremental scraping** (NEW): 5-phase algorithm only fetches details for new jobs, dramatically reducing scrape time
-- **Environment-based tables** (NEW): `--env` flag creates separate tables (e.g., `job_listings_local`, `job_listings_prod`)
+- **Environment isolation**: Use separate `DATABASE_URL` values for different environments (local, staging, prod)
 
 ## Examples
 
@@ -322,7 +322,6 @@ python scripts/run_scraper.py --db-url sqlite:///jobs.db --incremental
 ```bash
 python scripts/run_scraper.py \
   --db-url postgresql://user:pass@db.example.com:5432/jobs \
-  --env prod \
   --incremental
 ```
 
