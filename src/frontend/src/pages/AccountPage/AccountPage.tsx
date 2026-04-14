@@ -21,11 +21,10 @@ export function AccountPage() {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  const userDisplayName = user?.displayName;
   useEffect(() => {
-    if (user) {
-      setDisplayName(user.displayName ?? '');
-    }
-  }, [user?.displayName]);
+    setDisplayName(userDisplayName ?? '');
+  }, [userDisplayName]);
 
   const handleSave = async () => {
     setIsSaving(true);
