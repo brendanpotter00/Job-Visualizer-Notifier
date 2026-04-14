@@ -116,6 +116,23 @@ class TestAuthRequired:
             if saved_override is not None:
                 test_app.dependency_overrides[get_current_user] = saved_override
 
+    def test_put_me_without_email_claim_returns_401(self, test_app):
+        """PUT /api/users requires the token email claim too — update_user is
+        keyed by email, so an emailless token can't resolve a user."""
+        from fastapi.testclient import TestClient
+        from api.auth.dependencies import get_current_user
+
+        saved_override = test_app.dependency_overrides.get(get_current_user)
+        test_app.dependency_overrides[get_current_user] = lambda: {"sub": "auth0|no_email"}
+        try:
+            client = TestClient(test_app)
+            resp = client.put("/api/users", json={"displayName": "X"})
+            assert resp.status_code == 401
+            assert "email" in resp.json()["detail"].lower()
+        finally:
+            if saved_override is not None:
+                test_app.dependency_overrides[get_current_user] = saved_override
+
 
 class TestGoogleOneTap:
     """GET /api/users for tokens routed through Google One Tap validation."""

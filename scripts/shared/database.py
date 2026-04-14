@@ -201,10 +201,16 @@ def init_schema(conn: Connection, env: str = "local") -> None:
 
     # Create users table
     users_table = _get_table_name(env, "users")
+    # Both auth0_id and email are UNIQUE — see
+    # docs/implementations/auth0/REVIEW_AUDIT.md "2026-04-14 — Design reversal".
+    # The upsert in api/services/user_service.py uses a two-key SELECT lookup
+    # (match by auth0_id OR email) to handle both cross-provider merge
+    # (same email, different auth0_id) and IdP email change (same auth0_id,
+    # different email) without violating either constraint.
     cursor.execute(f"""
         CREATE TABLE IF NOT EXISTS {users_table} (
             id TEXT PRIMARY KEY,
-            auth0_id TEXT NOT NULL,
+            auth0_id TEXT NOT NULL UNIQUE,
             email TEXT NOT NULL UNIQUE,
             display_name TEXT,
             given_name TEXT,

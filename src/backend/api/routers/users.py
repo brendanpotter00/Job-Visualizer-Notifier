@@ -52,15 +52,22 @@ async def update_current_user_profile(
     conn=Depends(get_db),
     user: TokenClaims = Depends(get_current_user),
 ):
-    """Update the authenticated user's display name."""
+    """Update the authenticated user's display name.
+
+    Keyed by ``email`` (the stable identifier) rather than ``auth0_id`` — a
+    user's ``auth0_id`` can legitimately change when they switch providers,
+    while their verified email is stable per row.
+    """
     env = request.app.state.env
-    auth0_id = get_normalized_subject(user)
-    if not auth0_id:
-        raise HTTPException(status_code=401, detail="Token missing required 'sub' claim")
+    email = user.get("email")
+    if not email:
+        raise HTTPException(
+            status_code=401, detail="Token missing required 'email' claim"
+        )
     try:
-        result = update_user(conn, env, auth0_id=auth0_id, display_name=body.display_name)
+        result = update_user(conn, env, email=email, display_name=body.display_name)
     except Exception:
-        logger.exception("Failed to update user profile for sub=%s", auth0_id)
+        logger.exception("Failed to update user profile for email=%s", email)
         raise HTTPException(status_code=500, detail="Failed to update user profile")
     if result is None:
         raise HTTPException(status_code=404, detail="User not found")
