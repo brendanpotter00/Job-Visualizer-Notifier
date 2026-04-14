@@ -116,6 +116,48 @@ class TestAuthRequired:
             if saved_override is not None:
                 test_app.dependency_overrides[get_current_user] = saved_override
 
+    def test_get_me_with_ambiguous_identity_returns_500(
+        self, test_app, db_conn, test_env
+    ):
+        """If two existing rows ambiguously match a token (one by auth0_id, one
+        by email), the router must surface the service's ``RuntimeError`` as a
+        500 rather than silently catching it and returning stale user data.
+
+        This locks in the narrowed ``except psycopg2.Error`` in the router —
+        see REVIEW_AUDIT.md "2026-04-14 — Third review pass".
+        """
+        from fastapi.testclient import TestClient
+        from api.auth.dependencies import get_current_user
+
+        row_a = _make_user({
+            "auth0_id": "auth0|person_a",
+            "email": "a@example.com",
+            "id": "row_a_id",
+        })
+        row_b = _make_user({
+            "auth0_id": "auth0|person_b",
+            "email": "b@example.com",
+            "id": "row_b_id",
+        })
+        _insert_user(db_conn, test_env, row_a)
+        _insert_user(db_conn, test_env, row_b)
+
+        saved_override = test_app.dependency_overrides.get(get_current_user)
+        # Token claims: auth0_id matches row A, email matches row B — ambiguous
+        test_app.dependency_overrides[get_current_user] = lambda: {
+            "sub": "auth0|person_a",
+            "email": "b@example.com",
+        }
+        try:
+            # raise_server_exceptions=False so the TestClient mirrors uvicorn's
+            # "unhandled exception → 500" behavior instead of re-raising.
+            client = TestClient(test_app, raise_server_exceptions=False)
+            resp = client.get("/api/users")
+            assert resp.status_code == 500
+        finally:
+            if saved_override is not None:
+                test_app.dependency_overrides[get_current_user] = saved_override
+
     def test_put_me_without_email_claim_returns_401(self, test_app):
         """PUT /api/users requires the token email claim too — update_user is
         keyed by email, so an emailless token can't resolve a user."""

@@ -17,12 +17,16 @@ async function extractErrorDetail(response: Response): Promise<string | null> {
     .catch(() => null);
 }
 
-export async function fetchCurrentUser(token: string): Promise<User> {
+export async function fetchCurrentUser(
+  token: string,
+  signal?: AbortSignal
+): Promise<User> {
   const response = await fetch('/api/users', {
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: 'application/json',
     },
+    signal,
   });
 
   if (!response.ok) {

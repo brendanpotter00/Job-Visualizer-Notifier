@@ -34,7 +34,16 @@ async def get_optional_user(
     except jwt.ExpiredSignatureError:
         logger.warning("JWT token expired")
         raise HTTPException(status_code=401, detail="Token expired")
-    except (jwt.InvalidTokenError, PyJWKClientError) as exc:
+    except PyJWKClientError:
+        # JWKS endpoint unreachable (IdP outage, DNS failure, cache miss
+        # coinciding with network blip). Not a credential problem — return
+        # 503 so callers and monitoring don't mistake this for a bad token.
+        logger.exception("JWKS fetch failed while validating JWT")
+        raise HTTPException(
+            status_code=503,
+            detail="Authorization service temporarily unavailable",
+        )
+    except jwt.InvalidTokenError as exc:
         logger.warning("Invalid JWT token: %s", exc)
         raise HTTPException(status_code=401, detail="Invalid token")
 

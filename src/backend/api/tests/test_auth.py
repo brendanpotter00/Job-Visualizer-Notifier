@@ -167,6 +167,26 @@ class TestValidateAuth0Token:
         with pytest.raises((pyjwt.InvalidTokenError, pyjwt.DecodeError)):
             validate_token("not.a.jwt")
 
+    def test_token_signed_by_wrong_keypair_is_rejected(self):
+        """A token signed with a different RSA keypair is rejected.
+
+        The load-bearing security invariant: the validator MUST reject tokens
+        whose signature was produced by a key the JWKS endpoint does not vend.
+        Without this test, a regression that accidentally skipped signature
+        verification (e.g. dropping ``algorithms`` or passing the wrong key)
+        could slip through all other tests since they share one keypair.
+        """
+        from api.auth.jwt import validate_token
+
+        other_private_key = rsa.generate_private_key(
+            public_exponent=65537, key_size=2048
+        )
+        payload = _valid_payload()
+        token = pyjwt.encode(payload, other_private_key, algorithm="RS256")
+
+        with pytest.raises(pyjwt.InvalidSignatureError):
+            validate_token(token)
+
 
 class TestValidateGoogleToken:
     """Tests for Google One Tap token validation."""
@@ -249,18 +269,22 @@ class TestTokenDispatch:
 
         assert result["sub"] == "google_user_12345"
 
-    def test_google_token_falls_back_to_auth0_when_google_not_configured(
+    def test_google_token_raises_runtime_error_when_google_not_configured(
         self, _patch_settings
     ):
-        """Google-issued token falls back to Auth0 when google_client_id is unset."""
+        """Google-issued token surfaces a config error, not a silent fallthrough.
+
+        Prior behavior fell through to Auth0 validation and produced a confusing
+        InvalidIssuerError. The dispatcher now splits the Google branch so a
+        missing GOOGLE_CLIENT_ID fails loudly as a config problem.
+        """
         _patch_settings.google_client_id = None
         from api.auth.jwt import validate_token
 
         payload = _google_payload()
         token = _encode_token(payload)
 
-        # Should try Auth0 validation and fail on issuer mismatch
-        with pytest.raises(pyjwt.InvalidIssuerError):
+        with pytest.raises(RuntimeError, match="GOOGLE_CLIENT_ID"):
             validate_token(token)
 
 
@@ -355,8 +379,13 @@ class TestAuthDependencies:
         assert exc_info.value.status_code == 401
         assert "invalid" in exc_info.value.detail.lower()
 
-    def test_optional_user_raises_401_on_jwks_client_error(self):
-        """get_optional_user raises 401 HTTPException on PyJWKClientError."""
+    def test_optional_user_raises_503_on_jwks_client_error(self):
+        """PyJWKClientError (IdP/JWKS outage) surfaces as 503, not 401.
+
+        JWKS failures are infrastructure problems, not credential problems —
+        returning 401 misroutes monitoring and confuses users. See the
+        2026-04-14 third review pass in REVIEW_AUDIT.md.
+        """
         from api.auth.dependencies import get_optional_user
 
         creds = MagicMock()
@@ -367,7 +396,8 @@ class TestAuthDependencies:
         ):
             with pytest.raises(HTTPException) as exc_info:
                 self._run(get_optional_user(creds))
-            assert exc_info.value.status_code == 401
+            assert exc_info.value.status_code == 503
+            assert "unavailable" in exc_info.value.detail.lower()
 
     def test_current_user_raises_401_when_none(self):
         """get_current_user raises 401 when user is None (no auth)."""

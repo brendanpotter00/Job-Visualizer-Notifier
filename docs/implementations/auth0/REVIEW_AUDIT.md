@@ -199,14 +199,85 @@ The two-key SELECT-then-UPDATE/INSERT is not atomic. Under concurrent first-logi
 
 ---
 
+## 2026-04-14 — Third review pass (post-design-reversal)
+
+Ran after commit `1ca03a3` using a code-reviewer + explore agent against the state produced by the two-key lookup. Focus: verify the design reversal landed cleanly, catch regressions the reversal itself introduced, and promote long-deferred items that were blocking merge. Full plan file: `~/.claude/plans/swift-prancing-moler.md`.
+
+### Regression introduced by the design reversal
+
+- `routers/users.py:42-44` (and `:69-71`) — broad `except Exception` swallows the load-bearing `RuntimeError("Ambiguous identity: ...")` that `_lookup_and_upsert` raises (`user_service.py:106-109`). The 2026-04-14 reversal entry added the raise AND the rule "Do not catch `RuntimeError` from `get_or_create_user`" in the same commit, but the router was not updated to honor it. An ambiguous-identity event would have been converted into a generic 500 + log, and the user would have been served... nothing, silently. The corruption of the identity model would not have surfaced.
+
+  **Fix:** narrowed both endpoints to `except psycopg2.Error`. `RuntimeError` and `HTTPException` now propagate. FastAPI converts unhandled `RuntimeError` to 500 in production (uvicorn catches), so the user still gets 500 — but the service's `logger.exception` emits the diagnostic and future soft-catches are blocked by the narrowed `except`.
+
+  **Test added:** `test_users_router.py::TestAuthRequired::test_get_me_with_ambiguous_identity_returns_500` — seeds two rows that ambiguously match and asserts the request returns 500 rather than silently merging.
+
+### Promoted from 2026-04-14 deferred list
+
+- `auth/jwt.py:73` — Google issuer + empty `GOOGLE_CLIENT_ID` → silent fallthrough to Auth0 validator → confusing `InvalidIssuerError` 401. Config problem masquerades as auth problem.
+  **Fix:** split the condition. On Google issuer with missing `google_client_id`, raise `RuntimeError("Received a Google-issued token but GOOGLE_CLIENT_ID is not configured...")`. Updated `test_google_token_falls_back_to_auth0_when_google_not_configured` → `test_google_token_raises_runtime_error_when_google_not_configured` to assert the new contract.
+
+- `auth/dependencies.py:37-39` — `PyJWKClientError` (JWKS endpoint outage) wrapped as 401 "Invalid token". Misroutes monitoring.
+  **Fix:** separate the catch. `PyJWKClientError` now returns 503 "Authorization service temporarily unavailable" + `logger.exception`. `jwt.InvalidTokenError` still 401. Test renamed `test_optional_user_raises_401_on_jwks_client_error` → `test_optional_user_raises_503_on_jwks_client_error`.
+
+- `useCurrentUser.ts` — no `AbortController`; fetch started pre-logout could resolve post-logout and repopulate signed-out session. Two prior audits flagged this.
+  **Fix:** added per-call `AbortController`, threaded `signal?: AbortSignal` into `fetchCurrentUser`, effect cleanup aborts, `loadUser` aborts prior inflight on re-entry. Aborted errors are swallowed so they don't surface as "Failed to load profile".
+
+- `useAuth.ts:42-47` — `login()` swallowed `loginWithRedirect` failures with `console.error`. Pop-up blockers, CSP, bad redirect_uri all invisible to callers.
+  **Fix:** rethrow after logging. Updated `useAuth.test.ts` login-error test to assert the rethrow (previously asserted silent success, which was the bug).
+
+- `config/auth.ts:13` — `window.location.origin` evaluated at module import. Crashes any non-jsdom test import or SSR path.
+  **Fix:** hoisted to a `defaultRedirectUri` const guarded by `typeof window !== 'undefined'`.
+
+### Tests added / updated
+
+- `test_auth.py::TestValidateAuth0Token::test_token_signed_by_wrong_keypair_is_rejected` — generates a second `rsa.generate_private_key`, signs a valid payload, asserts `InvalidSignatureError`. The load-bearing security invariant now has explicit coverage; previously all tests shared one keypair and a regression that silently skipped signature verification would have passed.
+- `test_auth.py::TestTokenDispatch::test_google_token_raises_runtime_error_when_google_not_configured` — replaces the fallthrough test.
+- `test_auth.py::TestAuthDependencies::test_optional_user_raises_503_on_jwks_client_error` — replaces the 401 test.
+- `test_users_router.py::TestAuthRequired::test_get_me_with_ambiguous_identity_returns_500` — new, locks the narrowed exception handler in.
+- `useAuth.test.ts` — `login handles redirect failure gracefully` → `login rethrows redirect failures after logging`; asserts both the console log AND the rethrow.
+
+**Backend tests passing: 127** (was 125; +2 net new, 2 renamed). **Frontend tests passing: 898** (was 873+). **Type-check + lint: clean** (149 warnings, all pre-existing).
+
+### Still deferred (unchanged from 2026-04-14)
+
+- `vercel.json` CORS hardcoded to prod / missing `Allow-Credentials` — needs product decision about preview-deploy auth.
+- `api/utils/forwardResponse.ts` `.json()` on empty body.
+- `api/utils/backendUrl.ts:8` `host.startsWith('localhost')` too loose.
+- `api/users.ts:40-48` fetch rejection → 500 (should be 502/503 with server log).
+- `_jwks_client` singleton not reset on settings change (test-only).
+- Type-design refactors: `UserResponse.auth0_id` → `provider_subject` rename, discriminated union for `useAuth()`, `UserResponse` name-field nullability.
+- Dispatcher routing test using `patch` as spy (covered indirectly by the `RuntimeError` test now, but a direct spy would be clearer).
+
+### Do not revert (new in this pass)
+
+- Do not re-broaden `routers/users.py` exception handlers back to `except Exception` — the narrow `except psycopg2.Error` is what makes the ambiguous-identity raise observable.
+- Do not collapse the `validate_token` Google dispatcher branches back into a single `and` condition — silent fallthrough on missing `GOOGLE_CLIENT_ID` was documented to cost real debug time.
+- Do not catch `PyJWKClientError` with `InvalidTokenError` in `auth/dependencies.py` — JWKS outages are 503, not 401; monitoring and users both depend on the distinction.
+- Do not remove the `AbortController` wiring in `useCurrentUser` or strip the optional `signal` from `fetchCurrentUser` — the stale-fetch-after-logout race is real and was deferred twice before this pass.
+
+### Still do not revert (from 2026-04-13 / 2026-04-14)
+
+- `UNIQUE(email)` AND `UNIQUE(auth0_id)` both stay.
+- `get_or_create_user` stays on the two-key SELECT lookup (not `ON CONFLICT`).
+- `get_normalized_subject` stays (Google One Tap needs `google|` prefix).
+- Missing-email 401 in `routers/users.py` stays.
+- Ambiguous-identity `RuntimeError` stays — now observable thanks to the router fix above.
+
+---
+
 ## Guidance for subsequent review agents
 
-**Authoritative state (as of 2026-04-14 design reversal):**
+**Authoritative state (as of 2026-04-14 third pass):**
 - `UNIQUE(email)` and `UNIQUE(auth0_id)` are BOTH enforced.
 - `get_or_create_user` uses a two-key SELECT lookup (match by `auth0_id` OR `email`), then UPDATE-or-INSERT. Not `ON CONFLICT`.
 - `get_normalized_subject` prefixes Google One Tap subs with `google|` — required; don't remove.
 - `routers/users.py` 401s on missing `sub` or `email` claims — don't default to `""`.
-- Ambiguous identity (two rows match the lookup) raises `RuntimeError` — don't catch-and-ignore.
+- `routers/users.py` catches ONLY `psycopg2.Error` — don't widen to `Exception`. Ambiguous identity (two rows match the lookup) raises `RuntimeError` and must propagate to become a 500.
+- `auth/jwt.py::validate_token` raises `RuntimeError` (not `InvalidIssuerError`) when a Google-issued token arrives and `GOOGLE_CLIENT_ID` isn't configured.
+- `auth/dependencies.py::get_optional_user` returns 503 on `PyJWKClientError`, 401 on `jwt.InvalidTokenError`.
+- `useCurrentUser.ts` aborts in-flight fetches on unmount / auth-state change / re-entry.
+- `useAuth.ts::login()` rethrows `loginWithRedirect` errors.
+- `config/auth.ts` guards `window.location.origin` with `typeof window`.
 
 **Behavior:**
 - Do not switch the upsert to `ON CONFLICT (email)` or `ON CONFLICT (auth0_id)` — both single-key paths miss one of the legitimate cases (cross-provider merge vs IdP email change). The two-key lookup handles both.

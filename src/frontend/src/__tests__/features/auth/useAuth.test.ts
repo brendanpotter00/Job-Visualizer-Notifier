@@ -167,16 +167,22 @@ describe('useAuth', () => {
     expect(mockLoginWithRedirect).toHaveBeenCalled();
   });
 
-  it('login handles redirect failure gracefully', async () => {
+  it('login rethrows redirect failures after logging', async () => {
+    // Pop-up blockers, CSP, and Auth0 misconfig all surface via loginWithRedirect
+    // rejection; callers need the error to render user-visible feedback instead
+    // of silently succeeding.
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    mockLoginWithRedirect.mockRejectedValue(new Error('Network error'));
+    const redirectError = new Error('Network error');
+    mockLoginWithRedirect.mockRejectedValue(redirectError);
     const { useAuth } = await import('../../../features/auth/useAuth');
     const { result } = renderHook(() => useAuth());
 
-    await act(async () => {
-      await result.current.login();
-    });
-    expect(consoleSpy).toHaveBeenCalledWith('[useAuth] Login redirect failed:', expect.any(Error));
+    await expect(
+      act(async () => {
+        await result.current.login();
+      })
+    ).rejects.toThrow('Network error');
+    expect(consoleSpy).toHaveBeenCalledWith('[useAuth] Login redirect failed:', redirectError);
     consoleSpy.mockRestore();
   });
 

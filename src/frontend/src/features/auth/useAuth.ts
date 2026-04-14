@@ -42,7 +42,10 @@ export function useAuth() {
     try {
       await loginWithRedirect();
     } catch (error) {
+      // Rethrow so callers (e.g. sign-in buttons) can surface pop-up blocker,
+      // CSP, or Auth0 misconfig errors instead of silently failing.
       console.error('[useAuth] Login redirect failed:', error);
+      throw error;
     }
   }, [loginWithRedirect]);
 

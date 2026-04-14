@@ -70,7 +70,17 @@ def validate_token(token: str) -> dict:
         raise
 
     issuer = unverified.get("iss", "")
-    if issuer in GOOGLE_ISSUERS and settings.google_client_id:
+    if issuer in GOOGLE_ISSUERS:
+        # Split from the Auth0 branch so that a Google-issued token with
+        # misconfigured GOOGLE_CLIENT_ID surfaces as a config error rather than
+        # silently falling through to the Auth0 validator (which would produce
+        # a confusing InvalidIssuer → 401).
+        if not settings.google_client_id:
+            raise RuntimeError(
+                "Received a Google-issued token but GOOGLE_CLIENT_ID is not "
+                "configured. Set the environment variable to enable Google "
+                "One Tap validation."
+            )
         from .google_jwt import validate_google_token
 
         return validate_google_token(token)

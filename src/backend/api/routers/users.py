@@ -2,6 +2,7 @@
 
 import logging
 
+import psycopg2
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from ..auth.dependencies import TokenClaims, get_current_user
@@ -21,7 +22,14 @@ async def get_current_user_profile(
     conn=Depends(get_db),
     user: TokenClaims = Depends(get_current_user),
 ):
-    """Get or create the authenticated user's profile."""
+    """Get or create the authenticated user's profile.
+
+    Catches only ``psycopg2.Error`` — ``RuntimeError`` (raised by
+    ``get_or_create_user`` on ambiguous identity) and ``HTTPException`` must
+    propagate. The ambiguous-identity raise is load-bearing per
+    ``docs/implementations/auth0/REVIEW_AUDIT.md``; swallowing it behind a
+    generic 500 would hide a corrupted identity model.
+    """
     env = request.app.state.env
     auth0_id = get_normalized_subject(user)
     if not auth0_id:
@@ -39,7 +47,7 @@ async def get_current_user_profile(
             family_name=user.get("family_name"),
             picture_url=user.get("picture"),
         )
-    except Exception:
+    except psycopg2.Error:
         logger.exception("Failed to get/create user profile for sub=%s", auth0_id)
         raise HTTPException(status_code=500, detail="Failed to load user profile")
     return UserResponse(**result)
@@ -66,7 +74,7 @@ async def update_current_user_profile(
         )
     try:
         result = update_user(conn, env, email=email, display_name=body.display_name)
-    except Exception:
+    except psycopg2.Error:
         logger.exception("Failed to update user profile for email=%s", email)
         raise HTTPException(status_code=500, detail="Failed to update user profile")
     if result is None:
