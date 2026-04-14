@@ -22,7 +22,14 @@ def get_or_create_user(
     family_name: str | None = None,
     picture_url: str | None = None,
 ) -> dict:
-    """Insert a new user or update token-sourced fields on auth0_id conflict."""
+    """Insert a new user or update token-sourced fields on email conflict.
+
+    Email (verified by the identity provider) is the stable human identifier;
+    ``auth0_id`` tracks the most recent login provider's subject. This lets a
+    single human log in via Auth0 and Google One Tap without creating duplicate
+    rows. ``display_name`` is intentionally excluded from the SET clause so
+    user customizations persist across provider switches.
+    """
     table = sql.Identifier(_get_table_name(env, "users"))
     now = datetime.now(timezone.utc).isoformat()
     user_id = uuid.uuid4().hex
@@ -32,8 +39,8 @@ def get_or_create_user(
             sql.SQL(
                 "INSERT INTO {} (id, auth0_id, email, given_name, family_name, picture_url, created_at, updated_at)"
                 " VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"
-                " ON CONFLICT (auth0_id) DO UPDATE SET"
-                "   email = EXCLUDED.email, given_name = EXCLUDED.given_name,"
+                " ON CONFLICT (email) DO UPDATE SET"
+                "   auth0_id = EXCLUDED.auth0_id, given_name = EXCLUDED.given_name,"
                 "   family_name = EXCLUDED.family_name, picture_url = EXCLUDED.picture_url,"
                 "   updated_at = EXCLUDED.updated_at"
                 " RETURNING *"

@@ -34,10 +34,10 @@ class TestGetOrCreateUser:
         assert result["id"] is not None
 
     def test_upsert_updates_token_fields_on_conflict(self, db_conn, test_env):
-        """On auth0_id conflict, upsert updates email/name/picture but NOT display_name."""
+        """On email conflict, upsert updates auth0_id/name/picture but NOT display_name."""
         user = _make_user({
             "auth0_id": "auth0|upsert_test",
-            "email": "old@example.com",
+            "email": "shared@example.com",
             "display_name": "Custom Name",
             "given_name": "Old",
             "family_name": "Name",
@@ -47,13 +47,14 @@ class TestGetOrCreateUser:
         result = get_or_create_user(
             db_conn,
             test_env,
-            auth0_id="auth0|upsert_test",
-            email="new@example.com",
+            auth0_id="google|upsert_test",  # different provider, same human
+            email="shared@example.com",
             given_name="New",
             family_name="Person",
             picture_url="https://example.com/new.jpg",
         )
-        assert result["email"] == "new@example.com"
+        # auth0_id IS updated — tracks the most recent login provider
+        assert result["auth0_id"] == "google|upsert_test"
         assert result["given_name"] == "New"
         assert result["family_name"] == "Person"
         assert result["picture_url"] == "https://example.com/new.jpg"
@@ -61,17 +62,69 @@ class TestGetOrCreateUser:
         assert result["display_name"] == "Custom Name"
 
     def test_upsert_preserves_original_id(self, db_conn, test_env):
-        """On conflict, the original row ID is preserved (not replaced)."""
-        user = _make_user({"auth0_id": "auth0|id_test"})
+        """On email conflict, the original row ID is preserved (not replaced)."""
+        user = _make_user({"auth0_id": "auth0|id_test", "email": "id_test@example.com"})
         _insert_user(db_conn, test_env, user)
 
         result = get_or_create_user(
             db_conn,
             test_env,
             auth0_id="auth0|id_test",
-            email="updated@example.com",
+            email="id_test@example.com",
         )
         assert result["id"] == user["id"]
+
+    def test_cross_provider_login_merges_to_one_row(self, db_conn, test_env):
+        """Two different auth0_ids sharing an email resolve to ONE row (email is identity)."""
+        first = get_or_create_user(
+            db_conn,
+            test_env,
+            auth0_id="auth0|alice",
+            email="alice@example.com",
+        )
+        second = get_or_create_user(
+            db_conn,
+            test_env,
+            auth0_id="google|alice",
+            email="alice@example.com",
+        )
+        assert second["id"] == first["id"]
+        assert second["auth0_id"] == "google|alice"
+
+        # Exactly one row in DB for this email
+        cursor = db_conn.cursor()
+        cursor.execute(
+            sql.SQL("SELECT COUNT(*) AS n FROM {} WHERE email = %s").format(
+                sql.Identifier(_get_table_name(test_env, "users"))
+            ),
+            ("alice@example.com",),
+        )
+        assert cursor.fetchone()["n"] == 1
+
+    def test_concurrent_first_login_is_idempotent(self, db_conn, test_env):
+        """Two rapid upserts for the same user produce one row and return the same id."""
+        first = get_or_create_user(
+            db_conn,
+            test_env,
+            auth0_id="auth0|rapid",
+            email="rapid@example.com",
+        )
+        second = get_or_create_user(
+            db_conn,
+            test_env,
+            auth0_id="auth0|rapid",
+            email="rapid@example.com",
+        )
+        assert second["id"] == first["id"]
+
+        cursor = db_conn.cursor()
+        cursor.execute(
+            sql.SQL("SELECT COUNT(*) AS n FROM {} WHERE email = %s").format(
+                sql.Identifier(_get_table_name(test_env, "users"))
+            ),
+            ("rapid@example.com",),
+        )
+        assert cursor.fetchone()["n"] == 1
 
     def test_handles_null_optional_fields(self, db_conn, test_env):
         """get_or_create_user works when optional fields are None."""

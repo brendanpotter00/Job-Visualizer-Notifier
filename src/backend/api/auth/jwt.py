@@ -75,3 +75,21 @@ def validate_token(token: str) -> dict:
 
         return validate_google_token(token)
     return _validate_auth0_token(token)
+
+
+def get_normalized_subject(claims: dict) -> str | None:
+    """Return a provider-prefixed stable user identifier from JWT claims.
+
+    Auth0 tokens already embed the provider (e.g. ``auth0|…``, ``google-oauth2|…``)
+    in ``sub``, so we pass them through unchanged. Google One Tap tokens carry a
+    bare numeric ``sub``; we prefix with ``google|`` to match the identity scheme
+    in docs/implementations/auth0/PLAN.md and to prevent collisions across
+    providers that happen to mint numeric subjects.
+    """
+    sub = claims.get("sub")
+    if not sub:
+        return None
+    issuer = claims.get("iss", "")
+    if issuer in GOOGLE_ISSUERS:
+        return f"google|{sub}"
+    return sub

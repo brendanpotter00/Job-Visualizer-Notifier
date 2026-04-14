@@ -385,3 +385,43 @@ class TestAuthDependencies:
         claims = {"sub": "auth0|123", "email": "test@example.com"}
         result = self._run(get_current_user(claims))
         assert result == claims
+
+
+class TestGetNormalizedSubject:
+    """Unit tests for provider-aware subject normalization."""
+
+    def test_auth0_sub_passes_through_unchanged(self):
+        """Auth0 already prefixes ``sub`` (e.g. ``auth0|…``), so it should not be rewritten."""
+        from api.auth.jwt import get_normalized_subject
+
+        claims = {"sub": "auth0|abc", "iss": TEST_ISSUER}
+        assert get_normalized_subject(claims) == "auth0|abc"
+
+    def test_google_one_tap_sub_is_prefixed_https_issuer(self):
+        """Google One Tap tokens with the https issuer get a ``google|`` prefix."""
+        from api.auth.jwt import get_normalized_subject
+
+        claims = {"sub": "12345", "iss": "https://accounts.google.com"}
+        assert get_normalized_subject(claims) == "google|12345"
+
+    def test_google_one_tap_sub_is_prefixed_bare_issuer(self):
+        """Google One Tap also emits ``accounts.google.com`` (no scheme); still prefix."""
+        from api.auth.jwt import get_normalized_subject
+
+        claims = {"sub": "12345", "iss": "accounts.google.com"}
+        assert get_normalized_subject(claims) == "google|12345"
+
+    def test_missing_sub_returns_none(self):
+        """A claims dict without ``sub`` returns None so callers can 401."""
+        from api.auth.jwt import get_normalized_subject
+
+        assert get_normalized_subject({"iss": TEST_ISSUER}) is None
+        assert get_normalized_subject({"sub": "", "iss": TEST_ISSUER}) is None
+
+    def test_auth0_federated_google_oauth2_passes_through(self):
+        """Auth0 federated Google logins produce ``google-oauth2|…`` subs under the Auth0 issuer;
+        those are distinct from One Tap and must pass through unchanged."""
+        from api.auth.jwt import get_normalized_subject
+
+        claims = {"sub": "google-oauth2|xyz", "iss": TEST_ISSUER}
+        assert get_normalized_subject(claims) == "google-oauth2|xyz"

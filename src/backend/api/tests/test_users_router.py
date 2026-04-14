@@ -94,3 +94,97 @@ class TestAuthRequired:
         finally:
             if saved_override is not None:
                 no_auth_app.dependency_overrides[get_current_user] = saved_override
+
+    def test_get_me_without_email_claim_returns_401(self, test_app):
+        """GET /api/users with a valid sub but no email claim should return 401.
+
+        Email is the stable human identifier; inserting a row with empty email
+        would collide on the UNIQUE(email) constraint, so the router rejects
+        early with 401 rather than letting the DB choose.
+        """
+        from fastapi.testclient import TestClient
+        from api.auth.dependencies import get_current_user
+
+        saved_override = test_app.dependency_overrides.get(get_current_user)
+        test_app.dependency_overrides[get_current_user] = lambda: {"sub": "auth0|no_email"}
+        try:
+            client = TestClient(test_app)
+            resp = client.get("/api/users")
+            assert resp.status_code == 401
+            assert "email" in resp.json()["detail"].lower()
+        finally:
+            if saved_override is not None:
+                test_app.dependency_overrides[get_current_user] = saved_override
+
+
+class TestGoogleOneTap:
+    """GET /api/users for tokens routed through Google One Tap validation."""
+
+    def test_google_one_tap_sub_is_prefixed(self, test_app):
+        """A Google-shaped claims dict (bare numeric sub + google issuer) should
+        produce auth0Id == "google|{sub}" in the response and DB."""
+        from fastapi.testclient import TestClient
+        from api.auth.dependencies import get_current_user
+
+        saved_override = test_app.dependency_overrides.get(get_current_user)
+        test_app.dependency_overrides[get_current_user] = lambda: {
+            "sub": "12345",
+            "iss": "https://accounts.google.com",
+            "email": "onetap@example.com",
+            "given_name": "OneTap",
+            "family_name": "User",
+            "picture": "https://example.com/onetap.jpg",
+        }
+        try:
+            client = TestClient(test_app)
+            resp = client.get("/api/users")
+            assert resp.status_code == 200
+            assert resp.json()["auth0Id"] == "google|12345"
+            assert resp.json()["email"] == "onetap@example.com"
+        finally:
+            if saved_override is not None:
+                test_app.dependency_overrides[get_current_user] = saved_override
+
+    def test_second_provider_login_merges_into_one_row(self, test_app, db_conn, test_env):
+        """Auth0 login followed by Google One Tap login with the same email
+        should produce ONE row whose auth0_id reflects the latest provider."""
+        from fastapi.testclient import TestClient
+        from psycopg2 import sql
+        from api.auth.dependencies import get_current_user
+        from scripts.shared.database import _get_table_name
+
+        saved_override = test_app.dependency_overrides.get(get_current_user)
+        shared_email = "alice@example.com"
+
+        # First login: Auth0
+        test_app.dependency_overrides[get_current_user] = lambda: {
+            "sub": "auth0|alice",
+            "email": shared_email,
+        }
+        try:
+            client = TestClient(test_app)
+            first = client.get("/api/users").json()
+            assert first["auth0Id"] == "auth0|alice"
+
+            # Second login: Google One Tap, same email
+            test_app.dependency_overrides[get_current_user] = lambda: {
+                "sub": "67890",
+                "iss": "https://accounts.google.com",
+                "email": shared_email,
+            }
+            second = client.get("/api/users").json()
+            assert second["auth0Id"] == "google|67890"
+            assert second["id"] == first["id"], "should be same row (merged by email)"
+
+            # Confirm DB has exactly one row for this email
+            cursor = db_conn.cursor()
+            cursor.execute(
+                sql.SQL("SELECT COUNT(*) AS n FROM {} WHERE email = %s").format(
+                    sql.Identifier(_get_table_name(test_env, "users"))
+                ),
+                (shared_email,),
+            )
+            assert cursor.fetchone()["n"] == 1
+        finally:
+            if saved_override is not None:
+                test_app.dependency_overrides[get_current_user] = saved_override
