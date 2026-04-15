@@ -14,8 +14,9 @@ import BusinessIcon from '@mui/icons-material/Business';
 import ScheduleIcon from '@mui/icons-material/Schedule';
 import InfoIcon from '@mui/icons-material/Info';
 import BugReportIcon from '@mui/icons-material/BugReport';
+import PaletteIcon from '@mui/icons-material/Palette';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { NAV_ITEMS } from '../../config/routes.ts';
+import { NAV_ITEMS, type NavIconName } from '../../config/routes.ts';
 
 /**
  * Props for the NavigationDrawer component
@@ -94,12 +95,12 @@ const PermanentDrawer = styled(MuiDrawer, {
 /**
  * Map icon names to MUI icon components
  */
-type IconName = 'Business' | 'Schedule' | 'Info' | 'BugReport';
-const iconMap: Record<IconName, React.ComponentType> = {
+const iconMap: Record<NavIconName, React.ComponentType> = {
   Business: BusinessIcon,
   Schedule: ScheduleIcon,
   Info: InfoIcon,
   BugReport: BugReportIcon,
+  Palette: PaletteIcon,
 };
 
 /**
@@ -138,10 +139,9 @@ export function NavigationDrawer({
     }
   };
 
-  // Filter nav items to hide QA page in production
-  // const visibleNavItems = NAV_ITEMS.filter(
-  //   (item) => item.path !== ROUTES.QA || import.meta.env.DEV
-  // );
+  const visibleNavItems = NAV_ITEMS.filter(
+    (item) => !item.devOnly || import.meta.env.DEV
+  );
 
   /**
    * Renders the drawer content (header, divider, nav items)
@@ -156,8 +156,8 @@ export function NavigationDrawer({
       </DrawerHeader>
       <Divider />
       <List>
-        {NAV_ITEMS.map((item) => {
-          const Icon = iconMap[item.icon as IconName];
+        {visibleNavItems.map((item) => {
+          const Icon = iconMap[item.icon];
           const isActive = location.pathname === item.path;
 
           return (

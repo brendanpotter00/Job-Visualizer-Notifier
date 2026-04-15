@@ -1,4 +1,7 @@
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import CircularProgress from '@mui/material/CircularProgress';
+import Box from '@mui/material/Box';
 import { useURLSync, useBrowserNavigation } from './hooks';
 import { RootLayout } from '../components/layout/RootLayout.tsx';
 import { CompaniesPage } from '../pages/CompaniesPage/CompaniesPage';
@@ -6,6 +9,12 @@ import { RecentJobPostingsPage } from '../pages/RecentJobPostingsPage/RecentJobP
 import { WhyPage } from '../pages/WhyPage/WhyPage.tsx';
 import { ROUTES } from '../config/routes';
 import { QAPage } from '../pages/QAPage/QAPage.tsx';
+
+const DesignSystemPage = lazy(() =>
+  import('../pages/DesignSystemPage/DesignSystemPage').then((m) => ({
+    default: m.DesignSystemPage,
+  }))
+);
 
 /**
  * App content component with routing and hooks
@@ -25,6 +34,22 @@ function AppContent() {
         <Route path={ROUTES.COMPANIES} element={<CompaniesPage />} />
         <Route path={ROUTES.WHY} element={<WhyPage />} />
         <Route path={ROUTES.QA} element={<QAPage />} />
+        {import.meta.env.DEV && (
+          <Route
+            path={ROUTES.DESIGN_SYSTEM}
+            element={
+              <Suspense
+                fallback={
+                  <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
+                    <CircularProgress />
+                  </Box>
+                }
+              >
+                <DesignSystemPage />
+              </Suspense>
+            }
+          />
+        )}
       </Route>
     </Routes>
   );
