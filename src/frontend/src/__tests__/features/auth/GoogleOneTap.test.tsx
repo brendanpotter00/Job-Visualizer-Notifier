@@ -46,7 +46,7 @@ describe('GoogleOneTap', () => {
     render(<GoogleOneTap />);
 
     expect(mockUseGoogleOneTapLogin).toHaveBeenCalledWith(
-      expect.objectContaining({ disabled: false })
+      expect.objectContaining({ disabled: false, auto_select: true })
     );
   });
 
