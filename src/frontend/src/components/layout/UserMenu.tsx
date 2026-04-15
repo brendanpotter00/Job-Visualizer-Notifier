@@ -17,7 +17,7 @@ import { useCurrentUser } from '../../features/auth/useCurrentUser';
 import { ROUTES } from '../../config/routes';
 
 export function UserMenu() {
-  const { isEnabled, isAuthenticated, isLoading, login, logout } = useAuth();
+  const { isEnabled, isAuthenticated, isLoading, login, logout, user: auth0User } = useAuth();
   const { user, loading: userLoading, error: userError } = useCurrentUser();
   const navigate = useNavigate();
 
@@ -78,15 +78,22 @@ export function UserMenu() {
     );
   }
 
+  // Prefer backend profile; fall back to Auth0 ID-token claims so the avatar
+  // still renders if the Post Login Action hasn't enriched the access token.
+  const pictureUrl = user?.pictureUrl || auth0User?.picture || null;
+  const givenName = user?.givenName || auth0User?.given_name || null;
+  const familyName = user?.familyName || auth0User?.family_name || null;
+  const email = user?.email || auth0User?.email || '';
+
   const displayName =
-    user?.displayName || [user?.givenName, user?.familyName].filter(Boolean).join(' ') || '';
-  const initials = [user?.givenName?.[0], user?.familyName?.[0]].filter(Boolean).join('');
+    user?.displayName || [givenName, familyName].filter(Boolean).join(' ') || '';
+  const initials = [givenName?.[0], familyName?.[0]].filter(Boolean).join('');
 
   const avatarSize = { width: 32, height: 32 };
 
   function renderAvatar() {
-    if (user?.pictureUrl) {
-      return <Avatar src={user.pictureUrl} sx={avatarSize} alt={displayName} />;
+    if (pictureUrl) {
+      return <Avatar src={pictureUrl} sx={avatarSize} alt={displayName} />;
     }
     if (initials) {
       return <Avatar sx={{ ...avatarSize, fontSize: '0.875rem' }}>{initials}</Avatar>;
@@ -120,9 +127,9 @@ export function UserMenu() {
               {displayName}
             </Typography>
           )}
-          {user?.email && (
+          {email && (
             <Typography variant="caption" color="text.secondary">
-              {user.email}
+              {email}
             </Typography>
           )}
         </Box>

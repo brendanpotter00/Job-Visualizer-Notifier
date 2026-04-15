@@ -354,3 +354,45 @@ Added "Preview deploy limitation" subsection to `docs/implementations/auth0/PLAN
 **Process:**
 - If you want to revert any decision here, write a new entry in this file explaining why the original reasoning no longer holds. Don't silently flip it.
 - When adding a new review pass, append a new dated section rather than editing prior entries; this is an audit log.
+
+---
+
+## 2026-04-14 — Session persistence + avatar fallback fix
+
+User reported two bugs in local dev after a successful Auth0 sign-in: (a) page reload returned them to a signed-out state, and (b) the `UserMenu` avatar never rendered despite the Auth0 dashboard showing the login and a row being created in `users_local`.
+
+### Fix 1 — `Auth0Provider` lacked session persistence
+
+`AuthProviders.tsx` constructed `<Auth0Provider>` with no `cacheLocation` or `useRefreshTokens`. `@auth0/auth0-spa-js` defaults `cacheLocation` to `'memory'` (session evaporates on reload) and `useRefreshTokens` to `false` (restore relies on the silent-auth iframe + third-party cookies, which Safari ITP blocks outright and Chrome is phasing out). Every reload = fresh login required.
+
+Added three props and one scope:
+- `cacheLocation="localstorage"` — session survives page reloads.
+- `useRefreshTokens` — `getAccessTokenSilently()` uses a refresh token instead of an iframe.
+- `useRefreshTokensFallback` — falls back to the iframe if the refresh token call fails (revoked/rotated), preventing surprise `login_required` errors.
+- `scope: 'openid profile email offline_access'` — `offline_access` is required for Auth0 to actually issue a refresh token.
+
+**Do not revert to `cacheLocation: 'memory'`** — it silently breaks reload persistence in modern browsers. The tradeoff (tokens in localStorage, XSS-readable) is accepted for this app: optional auth, low-sensitivity data, no stored-XSS surface today.
+
+**Manual dashboard step that goes with this change:** Auth0 APIs → `Job Visualizer API` → "Allow Offline Access" must be ON, otherwise `offline_access` in scope is ignored and no refresh token is issued.
+
+### Fix 2 — `UserMenu` had no ID-token fallback when backend profile is incomplete
+
+Root cause: the Auth0 Post Login Action that sets `email` / `given_name` / `family_name` / `picture` custom claims on the **access token** was deployed but not bound to the Login flow (PLAN.md Step 3 flags this — `auth0_deploy_action` via MCP cannot bind to a flow). So the access token reached the backend with `sub` + `email` only; `user_service.get_or_create_user` stored `picture_url = NULL` (and null given/family names). `UserMenu.renderAvatar()` then fell through picture → initials → `AccountCircleIcon`, which the user reads as "no avatar."
+
+`UserMenu.tsx` now prefers the backend profile but falls back to `auth0User.picture` / `given_name` / `family_name` / `email` from the Auth0 ID token (populated reliably by the `profile` scope — no action required). Fallback variables are used for the avatar, initials, and the menu-header email. The backend DB row is still the source of truth; the ID token is only used when a field is null.
+
+Scope note: this fallback is a safety net specifically for the Auth0-redirect path when the Post Login Action is misconfigured. The Google One Tap path does not populate `auth0User` (it's null for One Tap users in our `useAuth` wrapper), but One Tap ID tokens contain `picture` by default, so the backend's `picture_url` is already populated for that flow.
+
+**Do not remove the ID-token fallback** just because a correctly-bound Post Login Action makes the backend profile complete — the fallback also covers the moments between sign-in redirect and the first `GET /api/users` returning, and the case where the backend briefly 5xxs.
+
+### Files touched
+
+- `src/frontend/src/components/shared/AuthProviders.tsx` — added `cacheLocation`, `useRefreshTokens`, `useRefreshTokensFallback`, `offline_access` scope.
+- `src/frontend/src/components/layout/UserMenu.tsx` — pull `auth0User` from `useAuth()`, compute `pictureUrl` / `givenName` / `familyName` / `email` with backend → ID-token fallback, use in `renderAvatar()` and menu header.
+
+### Verified
+
+- `npm run type-check` clean.
+- `npm run lint` clean (no new warnings).
+- All 116 auth-related tests pass (`src/__tests__/features/auth`, `components/layout`, `pages/AccountPage`, `config/auth.test.ts`).
+- User confirmed local-dev session persistence and avatar rendering both work.

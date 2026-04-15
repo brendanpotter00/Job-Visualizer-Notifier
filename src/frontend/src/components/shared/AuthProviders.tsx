@@ -13,10 +13,13 @@ export function AuthProviders({ children }: { children: React.ReactNode }) {
       <Auth0Provider
         domain={AUTH_CONFIG.domain}
         clientId={AUTH_CONFIG.clientId}
+        cacheLocation="localstorage"
+        useRefreshTokens
+        useRefreshTokensFallback
         authorizationParams={{
           redirect_uri: AUTH_CONFIG.redirectUri,
           audience: AUTH_CONFIG.audience,
-          scope: 'openid profile email',
+          scope: 'openid profile email offline_access',
         }}
       >
         <GoogleCredentialProvider>{children}</GoogleCredentialProvider>
