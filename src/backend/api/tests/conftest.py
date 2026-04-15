@@ -46,9 +46,11 @@ def db_conn(test_env):
     jobs_table = _get_table_name(test_env, "jobs")
     runs_table = _get_table_name(test_env, "runs")
     users_table = _get_table_name(test_env, "users")
+    migrations_table = f"schema_migrations_{test_env}"
     cursor.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(jobs_table)))
     cursor.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(runs_table)))
     cursor.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(users_table)))
+    cursor.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(migrations_table)))
     conn.commit()
     conn.close()
 

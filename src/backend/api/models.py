@@ -1,5 +1,6 @@
 """Pydantic response models with camelCase serialization for frontend compatibility."""
 
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -21,14 +22,14 @@ class JobListingResponse(BaseModel):
     url: str
     source_id: str
     details: str  # JSON string, not parsed object
-    created_at: str
-    posted_on: str | None = None
-    closed_on: str | None = None
+    created_at: datetime
+    posted_on: datetime | None = None
+    closed_on: datetime | None = None
     status: Literal["OPEN", "CLOSED"]
     has_matched: bool
     ai_metadata: str  # JSON string, not parsed object
-    first_seen_at: str
-    last_seen_at: str
+    first_seen_at: datetime
+    last_seen_at: datetime
     consecutive_misses: int = Field(ge=0)
     details_scraped: bool
 

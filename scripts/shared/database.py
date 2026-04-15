@@ -135,104 +135,25 @@ def get_connection(db_url: str, env: str = "local") -> Connection:
 
 def init_schema(conn: Connection, env: str = "local") -> None:
     """
-    Initialize database schema with environment-specific table names
+    Ensure the database schema is up to date by applying any pending migrations.
+
+    Schema is managed via numbered migration files in scripts/shared/migrations/.
+    Applied versions are tracked in schema_migrations_{env}. See that package
+    for the migration runner and individual migration files.
 
     Args:
         conn: Database connection
         env: Environment name (used for table suffix)
     """
-    cursor = conn.cursor()
+    from .migrations.runner import migrate_up
 
-    jobs_table = _get_table_name(env, "jobs")
-    runs_table = _get_table_name(env, "runs")
-
-    # Create job_listings table
-    cursor.execute(f"""
-        CREATE TABLE IF NOT EXISTS {jobs_table} (
-            id TEXT PRIMARY KEY,
-            title TEXT NOT NULL,
-            company TEXT NOT NULL,
-            location TEXT,
-            url TEXT NOT NULL,
-            source_id TEXT NOT NULL,
-            details JSONB DEFAULT '{{}}'::jsonb,
-            posted_on TEXT,
-            created_at TEXT NOT NULL,
-            closed_on TEXT,
-            status TEXT NOT NULL DEFAULT 'OPEN',
-            has_matched BOOLEAN DEFAULT FALSE,
-            ai_metadata JSONB DEFAULT '{{}}'::jsonb,
-            first_seen_at TEXT NOT NULL,
-            last_seen_at TEXT NOT NULL,
-            consecutive_misses INTEGER DEFAULT 0,
-            details_scraped BOOLEAN DEFAULT FALSE
+    applied = migrate_up(conn, env)
+    if applied:
+        logger.info(
+            f"Applied {len(applied)} migration(s) for env={env}: {applied}"
         )
-    """)
-
-    # Create indexes for job_listings
-    cursor.execute(f"""
-        CREATE INDEX IF NOT EXISTS idx_{jobs_table}_status
-        ON {jobs_table}(status)
-    """)
-    cursor.execute(f"""
-        CREATE INDEX IF NOT EXISTS idx_{jobs_table}_company
-        ON {jobs_table}(company)
-    """)
-    cursor.execute(f"""
-        CREATE INDEX IF NOT EXISTS idx_{jobs_table}_last_seen
-        ON {jobs_table}(last_seen_at)
-    """)
-
-    # Create scrape_runs table
-    cursor.execute(f"""
-        CREATE TABLE IF NOT EXISTS {runs_table} (
-            run_id TEXT PRIMARY KEY,
-            company TEXT NOT NULL,
-            started_at TEXT NOT NULL,
-            completed_at TEXT,
-            mode TEXT NOT NULL,
-            jobs_seen INTEGER DEFAULT 0,
-            new_jobs INTEGER DEFAULT 0,
-            closed_jobs INTEGER DEFAULT 0,
-            details_fetched INTEGER DEFAULT 0,
-            error_count INTEGER DEFAULT 0
-        )
-    """)
-
-    # Create users table
-    users_table = _get_table_name(env, "users")
-    # Both auth0_id and email are UNIQUE — see
-    # docs/implementations/auth0/REVIEW_AUDIT.md "2026-04-14 — Design reversal".
-    # The upsert in api/services/user_service.py uses a two-key SELECT lookup
-    # (match by auth0_id OR email) to handle both cross-provider merge
-    # (same email, different auth0_id) and IdP email change (same auth0_id,
-    # different email) without violating either constraint.
-    cursor.execute(f"""
-        CREATE TABLE IF NOT EXISTS {users_table} (
-            id TEXT PRIMARY KEY,
-            auth0_id TEXT NOT NULL UNIQUE,
-            email TEXT NOT NULL UNIQUE,
-            display_name TEXT,
-            given_name TEXT,
-            family_name TEXT,
-            picture_url TEXT,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        )
-    """)
-
-    # Create indexes for users
-    cursor.execute(f"""
-        CREATE INDEX IF NOT EXISTS idx_{users_table}_auth0_id
-        ON {users_table}(auth0_id)
-    """)
-    cursor.execute(f"""
-        CREATE INDEX IF NOT EXISTS idx_{users_table}_email
-        ON {users_table}(email)
-    """)
-
-    conn.commit()
-    logger.info(f"Database schema initialized for environment: {env}")
+    else:
+        logger.info(f"Database schema up to date for env={env}")
 
 
 def get_active_job_ids(conn: Connection, company: str, env: str = "local") -> Set[str]:
