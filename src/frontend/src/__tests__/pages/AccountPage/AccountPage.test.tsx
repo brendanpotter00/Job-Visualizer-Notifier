@@ -23,7 +23,7 @@ vi.mock('../../../features/auth/useAuth', () => ({
 
 const mockUser = {
   id: 'abc123',
-  auth0Id: 'auth0|test',
+  providerSubject: 'auth0|test',
   email: 'test@example.com',
   displayName: 'Test Display',
   givenName: 'Test',

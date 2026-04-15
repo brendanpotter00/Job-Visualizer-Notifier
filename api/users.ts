@@ -41,8 +41,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const response = await fetch(targetUrl, fetchOptions);
     await forwardResponse(response, res);
   } catch (error) {
-    res.status(500).json({
-      error: 'Failed to fetch from backend',
+    // Network-level failure (DNS, connection refused, upstream down).
+    // 502 signals "upstream is unavailable" rather than "we have a bug."
+    console.error('[api/users] Upstream fetch failed:', error);
+    res.status(502).json({
+      error: 'Upstream backend unavailable',
       details: error instanceof Error ? error.message : String(error),
     });
   }

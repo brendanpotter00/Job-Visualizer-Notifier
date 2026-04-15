@@ -9,7 +9,7 @@ class TestGetMe:
         resp = client.get("/api/users")
         assert resp.status_code == 200
         data = resp.json()
-        assert data["auth0Id"] == "auth0|test_user_123"
+        assert data["providerSubject"] == "auth0|test_user_123"
         assert data["email"] == "test@example.com"
         assert data["givenName"] == "Test"
         assert data["familyName"] == "User"
@@ -34,7 +34,7 @@ class TestGetMe:
         assert resp.status_code == 200
         data = resp.json()
         expected_keys = {
-            "id", "auth0Id", "email", "displayName", "givenName",
+            "id", "providerSubject", "email", "displayName", "givenName",
             "familyName", "pictureUrl", "createdAt", "updatedAt",
         }
         assert set(data.keys()) == expected_keys
@@ -42,8 +42,8 @@ class TestGetMe:
     def test_no_snake_case_keys(self, client):
         """No snake_case keys should leak into the response."""
         resp = client.get("/api/users")
-        snake_keys = {"auth0_id", "display_name", "given_name", "family_name",
-                      "picture_url", "created_at", "updated_at"}
+        snake_keys = {"provider_subject", "auth0_id", "display_name", "given_name",
+                      "family_name", "picture_url", "created_at", "updated_at"}
         assert not snake_keys.intersection(resp.json().keys())
 
 
@@ -181,7 +181,7 @@ class TestGoogleOneTap:
 
     def test_google_one_tap_sub_is_prefixed(self, test_app):
         """A Google-shaped claims dict (bare numeric sub + google issuer) should
-        produce auth0Id == "google|{sub}" in the response and DB."""
+        produce providerSubject == "google|{sub}" in the response and DB."""
         from fastapi.testclient import TestClient
         from api.auth.dependencies import get_current_user
 
@@ -198,7 +198,7 @@ class TestGoogleOneTap:
             client = TestClient(test_app)
             resp = client.get("/api/users")
             assert resp.status_code == 200
-            assert resp.json()["auth0Id"] == "google|12345"
+            assert resp.json()["providerSubject"] == "google|12345"
             assert resp.json()["email"] == "onetap@example.com"
         finally:
             if saved_override is not None:
@@ -206,7 +206,7 @@ class TestGoogleOneTap:
 
     def test_second_provider_login_merges_into_one_row(self, test_app, db_conn, test_env):
         """Auth0 login followed by Google One Tap login with the same email
-        should produce ONE row whose auth0_id reflects the latest provider."""
+        should produce ONE row whose provider_subject reflects the latest provider."""
         from fastapi.testclient import TestClient
         from psycopg2 import sql
         from api.auth.dependencies import get_current_user
@@ -223,7 +223,7 @@ class TestGoogleOneTap:
         try:
             client = TestClient(test_app)
             first = client.get("/api/users").json()
-            assert first["auth0Id"] == "auth0|alice"
+            assert first["providerSubject"] == "auth0|alice"
 
             # Second login: Google One Tap, same email
             test_app.dependency_overrides[get_current_user] = lambda: {
@@ -232,7 +232,7 @@ class TestGoogleOneTap:
                 "email": shared_email,
             }
             second = client.get("/api/users").json()
-            assert second["auth0Id"] == "google|67890"
+            assert second["providerSubject"] == "google|67890"
             assert second["id"] == first["id"], "should be same row (merged by email)"
 
             # Confirm DB has exactly one row for this email

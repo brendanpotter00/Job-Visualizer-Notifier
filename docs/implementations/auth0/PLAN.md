@@ -582,6 +582,10 @@ Ensure the Google Cloud OAuth client is configured for production:
 { "key": "Access-Control-Allow-Origin", "value": "https://job-visualizer-notifier.vercel.app" }
 ```
 
+#### Preview deploy limitation
+
+Production CORS is pinned in `vercel.json` to `https://job-visualizer-notifier.vercel.app`. Vercel preview deploys at `*-git-*.vercel.app` will fail CORS on `/api/*` routes. Preview deploys are therefore not usable for full end-to-end auth testing; verify auth flows locally (`npm run dev:vercel`) or in production. Revisit if preview-deploy auth becomes a requirement (reflective-origin header generation would be the fix). `Access-Control-Allow-Credentials` is deliberately omitted -- nothing currently uses `credentials: 'include'`.
+
 ---
 
 ## Environment Variables

@@ -4,9 +4,12 @@ import handler from '../../../../../../api/users';
 import { getBackendUrl } from '../../../../../../api/utils/backendUrl';
 
 function mockJsonResponse(status: number, body: unknown) {
+  const serialized = JSON.stringify(body);
   return {
     status,
     headers: { get: (key: string) => (key === 'content-type' ? 'application/json' : null) },
+    // forwardResponse reads text first and JSON.parses, so provide both.
+    text: async () => serialized,
     json: async () => body,
   };
 }
@@ -17,6 +20,22 @@ function mockTextResponse(status: number, text: string, statusText = 'OK') {
     statusText,
     headers: { get: () => 'text/html' },
     text: async () => text,
+  };
+}
+
+// Models a Response whose body-reading methods behave like a real empty body:
+// `.json()` would throw on empty body (the bug before forwardResponse read
+// text first), so we stub both and let forwardResponse pick the safe path.
+function mockJsonResponseWithBody(status: number, body: string, statusText = 'No Content') {
+  return {
+    status,
+    statusText,
+    headers: { get: (key: string) => (key === 'content-type' ? 'application/json' : null) },
+    text: async () => body,
+    json: async () => {
+      if (!body) throw new SyntaxError('Unexpected end of JSON input');
+      return JSON.parse(body);
+    },
   };
 }
 
@@ -36,6 +55,7 @@ describe('/api/users serverless function', () => {
     mockRes = {
       status: vi.fn().mockReturnThis(),
       json: vi.fn().mockReturnThis(),
+      end: vi.fn().mockReturnThis(),
     };
 
     fetchMock = vi.fn();
@@ -305,32 +325,52 @@ describe('/api/users serverless function', () => {
   });
 
   describe('Error Handling', () => {
-    it('should return 500 with error details on network error', async () => {
+    it('should return 502 with error details on network error', async () => {
       mockReq.query = {};
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
       fetchMock.mockRejectedValue(new Error('ECONNREFUSED'));
 
       await handler(mockReq as VercelRequest, mockRes as VercelResponse);
 
-      expect(mockRes.status).toHaveBeenCalledWith(500);
+      expect(mockRes.status).toHaveBeenCalledWith(502);
       expect(mockRes.json).toHaveBeenCalledWith({
-        error: 'Failed to fetch from backend',
+        error: 'Upstream backend unavailable',
         details: 'ECONNREFUSED',
       });
+      expect(errorSpy).toHaveBeenCalledWith(
+        '[api/users] Upstream fetch failed:',
+        expect.any(Error)
+      );
+      errorSpy.mockRestore();
     });
 
     it('should handle non-Error exceptions', async () => {
       mockReq.query = {};
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
       fetchMock.mockRejectedValue('string error');
 
       await handler(mockReq as VercelRequest, mockRes as VercelResponse);
 
-      expect(mockRes.status).toHaveBeenCalledWith(500);
+      expect(mockRes.status).toHaveBeenCalledWith(502);
       expect(mockRes.json).toHaveBeenCalledWith({
-        error: 'Failed to fetch from backend',
+        error: 'Upstream backend unavailable',
         details: 'string error',
       });
+      errorSpy.mockRestore();
+    });
+
+    it('should forward upstream status with no body when JSON response body is empty (e.g. 204)', async () => {
+      mockReq.query = {};
+
+      fetchMock.mockResolvedValue(mockJsonResponseWithBody(204, ''));
+
+      await handler(mockReq as VercelRequest, mockRes as VercelResponse);
+
+      expect(mockRes.status).toHaveBeenCalledWith(204);
+      expect(mockRes.end).toHaveBeenCalled();
+      expect(mockRes.json).not.toHaveBeenCalled();
     });
   });
 
@@ -400,6 +440,17 @@ describe('/api/users serverless function', () => {
 
       expect(getBackendUrl(req)).toBe('http://localhost:8000');
     });
+
+    it('should NOT treat localhost.evil.com as localhost', () => {
+      // Regression: previously used host.startsWith('localhost') which matched
+      // localhost.evil.com. Now requires exact hostname match.
+      process.env.BACKEND_API_URL = 'https://api.production.railway.app';
+      const req = {
+        headers: { host: 'localhost.evil.com:443' },
+      } as unknown as VercelRequest;
+
+      expect(getBackendUrl(req)).toBe('https://api.production.railway.app');
+    });
   });
 
   describe('Integration Scenarios', () => {
@@ -410,7 +461,7 @@ describe('/api/users serverless function', () => {
 
       const userResponse = {
         id: 'abc-123',
-        auth0Id: 'google-oauth2|12345',
+        providerSubject: 'google-oauth2|12345',
         email: 'user@gmail.com',
         displayName: null,
         givenName: 'Test',

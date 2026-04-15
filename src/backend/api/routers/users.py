@@ -16,6 +16,25 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _row_to_user_response(row: dict) -> UserResponse:
+    """Map a DB row to the API response model.
+
+    The DB column is ``auth0_id`` (legacy name) but the boundary field is
+    ``provider_subject`` — see ``UserResponse`` docstring.
+    """
+    return UserResponse(
+        id=row["id"],
+        provider_subject=row["auth0_id"],
+        email=row["email"],
+        display_name=row.get("display_name"),
+        given_name=row.get("given_name"),
+        family_name=row.get("family_name"),
+        picture_url=row.get("picture_url"),
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+    )
+
+
 @router.get("", response_model=UserResponse)
 async def get_current_user_profile(
     request: Request,
@@ -50,7 +69,7 @@ async def get_current_user_profile(
     except psycopg2.Error:
         logger.exception("Failed to get/create user profile for sub=%s", auth0_id)
         raise HTTPException(status_code=500, detail="Failed to load user profile")
-    return UserResponse(**result)
+    return _row_to_user_response(result)
 
 
 @router.put("", response_model=UserResponse)
@@ -79,4 +98,4 @@ async def update_current_user_profile(
         raise HTTPException(status_code=500, detail="Failed to update user profile")
     if result is None:
         raise HTTPException(status_code=404, detail="User not found")
-    return UserResponse(**result)
+    return _row_to_user_response(result)

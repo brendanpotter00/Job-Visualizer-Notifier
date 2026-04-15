@@ -265,19 +265,86 @@ Ran after commit `1ca03a3` using a code-reviewer + explore agent against the sta
 
 ---
 
+## 2026-04-14 — Fourth review pass (deferred-list cleanup)
+
+Ran after commit `1832e61` ("Third review pass: fix regression + promote deferred auth items"). Scope confirmed with user via AskUserQuestion: close out the remaining deferred-list items that are small correctness fixes or boundary-type clarifications, plus document the preview-deploy CORS limitation. Excluded from this pass: `_jwks_client` settings-reset (test-only, no product impact) and preview-deploy reflective CORS (product decision, see Section 3 below). Full plan file: `~/.claude/plans/dapper-painting-turing.md`.
+
+### Fixes applied this pass
+
+**Section 1 — small correctness fixes:**
+
+- **1.1 `UserMenu` surfaces `login()` rejection via Snackbar** — The 3rd-pass fix rethrew `loginWithRedirect` failures, but `UserMenu` passed `login` directly to `onClick` → unhandled promise rejection on pop-up-blocker / CSP / bad `redirect_uri`. Added local `loginError` state + MUI `Snackbar`/`Alert` in the unauthenticated branch. `handleLogin` wraps `login()` in try/catch and populates the snackbar on failure. No global snackbar provider added (none exists in the codebase). Test: `UserMenu.test.tsx::when not authenticated::surfaces login rejection in a Snackbar` mocks `login` to reject and asserts the snackbar renders the error.
+
+- **1.2 `forwardResponse.ts` tolerant parse on empty body** — `await fetchResponse.json()` threw on 204 / empty body with `content-type: application/json`, which the outer catch in `api/users.ts` mislabeled as "Failed to fetch from backend." Rewrote to read text first: empty body → forward upstream status via `res.status(status).end()` with no body; non-empty JSON body → try `JSON.parse`, fall back to `{ error: text }` if malformed. Non-JSON branch preserved. Test: new `forwards upstream status with no body when JSON response body is empty` in `users.serverless.test.ts`.
+
+- **1.3 `api/users.ts` fetch rejection → 502 + server log** — Network failure (Railway down, DNS) returned 500 "Failed to fetch from backend" with no server log. Now `console.error('[api/users] Upstream fetch failed:', error)` + `res.status(502).json({ error: 'Upstream backend unavailable', details: ... })`. 500 implied our bug; 502 correctly attributes the outage upstream and is visible to Vercel observability. Test updated: the pre-existing fetch-rejection test now asserts 502 and that `console.error` was called.
+
+- **1.4 `backendUrl.ts` exact host match** — `host.startsWith('localhost')` would have matched `localhost.evil.com`. Not an active exploit vector (helper only chooses between two URLs) but sloppy and flagged on the deferred list since the first audit pass. Strips the `:port` suffix and `[]` IPv6 brackets, then exact-matches against `new Set(['localhost', '127.0.0.1', '::1'])`. Test: new "should NOT treat `localhost.evil.com` as localhost" in `users.serverless.test.ts`.
+
+- **1.5 Drop inert `algorithms=["RS256"]` on unverified decode** — `jwt.py:65-67` passed `algorithms=["RS256"]` to `jwt.decode(..., options={"verify_signature": False})`. PyJWT ignores `algorithms` when signature verification is off. Removed the arg and added a one-line comment explaining the decode is used only to extract the issuer for dispatcher routing (the real validation happens in `_validate_auth0_token` / `_validate_google_token` after dispatch). No behavior change, no test change.
+
+**Section 2 — `UserResponse.auth0_id` → `provider_subject` boundary rename:**
+
+- **2.1 Backend model + router** — Renamed Pydantic field `auth0_id: str` → `provider_subject: str` on `UserResponse` (`models.py`); the `to_camel` alias generator makes it serialize as `providerSubject`. `routers/users.py` `UserResponse(**result)` would break because `result` (from `RETURNING *`) still has key `auth0_id` — replaced both call sites with an explicit `_row_to_user_response(row)` helper that maps `row["auth0_id"]` → `provider_subject=`. **DB column stays `auth0_id`** — no migration, no `user_service.py` signature changes (functions still take `auth0_id=`). This is a boundary-only rename to stop the field name from misleading readers about what it tracks (most recent provider's sub, not specifically Auth0).
+
+- **2.2 Backend tests** — `test_users_router.py::test_returns_camel_case_keys` / `test_no_snake_case_keys` updated to expect `providerSubject` in the `expected_keys` set and assert `auth0Id` is absent. `TestGoogleOneTap::test_google_one_tap_sub_is_prefixed` and `test_second_provider_login_merges_into_one_row` response-body key reads changed from `data["auth0Id"]` → `data["providerSubject"]`.
+
+- **2.3 Frontend `User` interface + test mocks** — `authService.ts`: `auth0Id: string` → `providerSubject: string` with a JSDoc comment explaining the DB column is still `auth0_id`. Updated mock `User` objects in `AccountPage.test.tsx`, `UserMenu.test.tsx`, `authService.test.ts`, and `users.serverless.test.ts` to use `providerSubject`. No UI code references the field name — it's read only by tests and type-checking.
+
+**Section 3 — document preview-deploy CORS limitation** (no code change):
+
+Added "Preview deploy limitation" subsection to `docs/implementations/auth0/PLAN.md` under Step 8. Records that `vercel.json` pins production CORS to `https://job-visualizer-notifier.vercel.app` and preview deploys at `*-git-*.vercel.app` will fail CORS on `/api/*` — auth flows must be verified locally (`npm run dev:vercel`) or in production. Notes `Access-Control-Allow-Credentials` is deliberately omitted (nothing uses `credentials: 'include'`). Revisit if preview-deploy auth becomes a requirement (reflective-origin header generation would be the fix).
+
+### Still deferred
+
+- **`_jwks_client` singleton reset on settings change** — test-only concern (production `settings` don't mutate post-boot). No product impact; revisit only if a future test needs to swap JWKS URLs within one process.
+- **Preview-deploy reflective CORS** — documented per Section 3 above as a product decision. Not a correctness bug.
+- **Type-design refactors** — `useAuth()` discriminated union (currently runtime-guarded), `UserResponse` name-field nullability tightening. Both nice-to-have, both out of scope for an auth-merge PR.
+- **Dispatcher routing test using `patch` as spy** — covered indirectly by `test_google_token_raises_runtime_error_when_google_not_configured` (3rd pass); a direct spy would be clearer but isn't load-bearing.
+
+### Do not revert (new in this pass)
+
+- Do not remove the `UserMenu` snackbar wrapper around `login()` — unhandled promise rejection on redirect failure was invisible to the user; the 3rd-pass `login.throw()` only matters if a caller catches it.
+- Do not revert `forwardResponse.ts` to `await fetchResponse.json()` directly — 204 / empty-body responses throw on `.json()` and the outer catch mislabels them. Read text first, tolerant-parse.
+- Do not change `api/users.ts` fetch-rejection status back to 500 — upstream outages are 502 by convention, and the `console.error` is what makes them visible to monitoring.
+- Do not revert `backendUrl.ts` to `host.startsWith('localhost')` — the exact-match Set prevents `localhost.evil.com` / subdomain tricks and is part of the "verify before trust" posture of the local-dev helper.
+- Do not rename `UserResponse.provider_subject` back to `auth0_id` — the DB column keeps the legacy name, but the boundary type now reflects what the field actually tracks (most recent provider's subject). Keep the `_row_to_user_response` helper mapping explicit; don't reach for Pydantic `Field(alias=...)` as a shortcut.
+
+### Still do not revert (from 2026-04-13 / 2026-04-14 earlier passes)
+
+- `UNIQUE(email)` AND `UNIQUE(auth0_id)` both stay.
+- `get_or_create_user` stays on the two-key SELECT lookup (not `ON CONFLICT`).
+- `get_normalized_subject` stays (Google One Tap needs `google|` prefix).
+- Missing-email 401 in `routers/users.py` stays.
+- Narrow `except psycopg2.Error` in `routers/users.py` stays — ambiguous-identity `RuntimeError` must propagate.
+- `validate_token` raises `RuntimeError` on Google issuer + missing `GOOGLE_CLIENT_ID` — don't re-collapse the condition.
+- `PyJWKClientError` → 503 (not 401) in `get_optional_user` stays.
+- `useCurrentUser`'s `AbortController` wiring stays.
+- `useAuth.login()` rethrow stays.
+- `config/auth.ts` `typeof window` guard stays.
+
+---
+
 ## Guidance for subsequent review agents
 
-**Authoritative state (as of 2026-04-14 third pass):**
+**Authoritative state (as of 2026-04-14 fourth pass):**
 - `UNIQUE(email)` and `UNIQUE(auth0_id)` are BOTH enforced.
 - `get_or_create_user` uses a two-key SELECT lookup (match by `auth0_id` OR `email`), then UPDATE-or-INSERT. Not `ON CONFLICT`.
 - `get_normalized_subject` prefixes Google One Tap subs with `google|` — required; don't remove.
 - `routers/users.py` 401s on missing `sub` or `email` claims — don't default to `""`.
 - `routers/users.py` catches ONLY `psycopg2.Error` — don't widen to `Exception`. Ambiguous identity (two rows match the lookup) raises `RuntimeError` and must propagate to become a 500.
+- `routers/users.py` maps DB rows to `UserResponse` via an explicit `_row_to_user_response(row)` helper — `row["auth0_id"]` maps to `provider_subject=` on the model. Don't switch to `UserResponse(**row)` — the key names diverge intentionally.
+- `UserResponse.provider_subject` (camelCase: `providerSubject`) is the boundary field; DB column stays `auth0_id`; `user_service.py` function params stay `auth0_id=`. Three-layer naming is deliberate.
 - `auth/jwt.py::validate_token` raises `RuntimeError` (not `InvalidIssuerError`) when a Google-issued token arrives and `GOOGLE_CLIENT_ID` isn't configured.
+- `auth/jwt.py` unverified dispatch-decode does not pass `algorithms=` (PyJWT ignores it when `verify_signature=False`).
 - `auth/dependencies.py::get_optional_user` returns 503 on `PyJWKClientError`, 401 on `jwt.InvalidTokenError`.
 - `useCurrentUser.ts` aborts in-flight fetches on unmount / auth-state change / re-entry.
 - `useAuth.ts::login()` rethrows `loginWithRedirect` errors.
+- `UserMenu` wraps the `login()` call in `handleLogin` and surfaces rejections in a local MUI `Snackbar`.
 - `config/auth.ts` guards `window.location.origin` with `typeof window`.
+- `api/utils/forwardResponse.ts` reads the body as text first and tolerates empty bodies (204) without throwing.
+- `api/users.ts` returns 502 (not 500) with `console.error` on upstream fetch rejection.
+- `api/utils/backendUrl.ts` uses exact-match `Set` for the localhost short-circuit (not `startsWith`).
 
 **Behavior:**
 - Do not switch the upsert to `ON CONFLICT (email)` or `ON CONFLICT (auth0_id)` — both single-key paths miss one of the legitimate cases (cross-provider merge vs IdP email change). The two-key lookup handles both.

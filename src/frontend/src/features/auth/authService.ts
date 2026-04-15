@@ -1,6 +1,11 @@
 export interface User {
   id: string;
-  auth0Id: string;
+  /**
+   * Provider subject: Auth0 `sub` or Google-prefixed One Tap `sub`.
+   * Backend DB column is still named `auth0_id` for historical reasons;
+   * this field tracks the most recent identity provider's subject.
+   */
+  providerSubject: string;
   email: string;
   displayName: string | null;
   givenName: string | null;

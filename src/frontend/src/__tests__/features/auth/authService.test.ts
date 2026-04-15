@@ -3,7 +3,7 @@ import { fetchCurrentUser, updateCurrentUser } from '../../../features/auth/auth
 
 const mockUser = {
   id: 'abc123',
-  auth0Id: 'auth0|test',
+  providerSubject: 'auth0|test',
   email: 'test@example.com',
   displayName: 'Test User',
   givenName: 'Test',

@@ -24,7 +24,7 @@ vi.mock('../../../features/auth/useAuth', () => ({
 
 const mockUser = {
   id: 'abc123',
-  auth0Id: 'auth0|test',
+  providerSubject: 'auth0|test',
   email: 'test@example.com',
   displayName: null,
   givenName: 'Test',
@@ -86,6 +86,19 @@ describe('UserMenu', () => {
 
       await user.click(screen.getByRole('button', { name: /sign in/i }));
       expect(mockLogin).toHaveBeenCalledTimes(1);
+    });
+
+    it('surfaces login rejection in a Snackbar', async () => {
+      mockLogin.mockRejectedValueOnce(new Error('Popup blocked by browser'));
+
+      const user = userEvent.setup();
+      renderWithRouter(<UserMenu />);
+
+      await user.click(screen.getByRole('button', { name: /sign in/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole('alert')).toHaveTextContent('Popup blocked by browser');
+      });
     });
   });
 

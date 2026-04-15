@@ -62,9 +62,9 @@ def _validate_auth0_token(token: str) -> dict:
 def validate_token(token: str) -> dict:
     """Validate a JWT against Auth0 or Google JWKS based on the token issuer."""
     try:
-        unverified = jwt.decode(
-            token, algorithms=["RS256"], options={"verify_signature": False}
-        )
+        # Unverified decode — only used to extract the issuer for dispatcher
+        # routing. The dispatched validator re-decodes with signature checking.
+        unverified = jwt.decode(token, options={"verify_signature": False})
     except jwt.DecodeError:
         logger.warning("Failed to decode JWT for issuer routing", exc_info=True)
         raise

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import Alert from '@mui/material/Alert';
 import Avatar from '@mui/material/Avatar';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -8,6 +9,7 @@ import Divider from '@mui/material/Divider';
 import IconButton from '@mui/material/IconButton';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
+import Snackbar from '@mui/material/Snackbar';
 import Typography from '@mui/material/Typography';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import { useAuth } from '../../features/auth/useAuth';
@@ -20,6 +22,19 @@ export function UserMenu() {
   const navigate = useNavigate();
 
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+  // `login()` now rethrows Auth0 redirect failures (pop-up blocker, CSP,
+  // misconfigured redirect URI). Surface those to the user instead of
+  // letting them become unhandled promise rejections.
+  const [loginError, setLoginError] = useState<string | null>(null);
+
+  async function handleLogin() {
+    try {
+      setLoginError(null);
+      await login();
+    } catch (err) {
+      setLoginError(err instanceof Error ? err.message : 'Sign-in failed');
+    }
+  }
 
   if (!isEnabled) return null;
 
@@ -33,21 +48,33 @@ export function UserMenu() {
 
   if (!isAuthenticated) {
     return (
-      <Button
-        variant="outlined"
-        color="inherit"
-        onClick={login}
-        size="small"
-        sx={{
-          transition: 'background-color 0.2s, border-color 0.2s',
-          '&:hover': {
-            backgroundColor: 'rgba(255, 255, 255, 0.25)',
-            borderColor: '#fff',
-          },
-        }}
-      >
-        Sign In
-      </Button>
+      <>
+        <Button
+          variant="outlined"
+          color="inherit"
+          onClick={handleLogin}
+          size="small"
+          sx={{
+            transition: 'background-color 0.2s, border-color 0.2s',
+            '&:hover': {
+              backgroundColor: 'rgba(255, 255, 255, 0.25)',
+              borderColor: '#fff',
+            },
+          }}
+        >
+          Sign In
+        </Button>
+        <Snackbar
+          open={!!loginError}
+          autoHideDuration={6000}
+          onClose={() => setLoginError(null)}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        >
+          <Alert onClose={() => setLoginError(null)} severity="error" sx={{ width: '100%' }}>
+            {loginError}
+          </Alert>
+        </Snackbar>
+      </>
     );
   }
 
