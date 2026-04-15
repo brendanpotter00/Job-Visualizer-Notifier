@@ -4,6 +4,7 @@ import react from '@vitejs/plugin-react';
 export default defineConfig({
   plugins: [react()],
   server: {
+    host: '127.0.0.1',
     port: 3000,
     open: true,
     proxy: {
@@ -29,6 +30,11 @@ export default defineConfig({
         target: 'https://api.ashbyhq.com',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/ashby/, ''),
+        secure: false,
+      },
+      '/api/users': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
         secure: false,
       },
       // Workday proxy removed - use `vercel dev` for local Workday testing

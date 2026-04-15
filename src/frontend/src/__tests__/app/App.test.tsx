@@ -40,6 +40,34 @@ beforeAll(() => server.listen({ onUnhandledRequest: 'warn' }));
 afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 
+// Mock auth providers and hooks
+vi.mock('@auth0/auth0-react', () => ({
+  useAuth0: () => ({
+    isAuthenticated: false,
+    isLoading: false,
+    user: null,
+    loginWithRedirect: vi.fn(),
+    logout: vi.fn(),
+    getAccessTokenSilently: vi.fn(),
+  }),
+}));
+
+vi.mock('@react-oauth/google', () => ({
+  useGoogleOneTapLogin: vi.fn(),
+}));
+
+vi.mock('../../features/auth/useAuth', () => ({
+  useAuth: () => ({
+    isEnabled: false,
+    isAuthenticated: false,
+    isLoading: false,
+    user: null,
+    login: vi.fn(),
+    logout: vi.fn(),
+    getToken: vi.fn(),
+  }),
+}));
+
 // Mock Recharts to avoid rendering issues in tests
 vi.mock('recharts', () => ({
   LineChart: () => null,

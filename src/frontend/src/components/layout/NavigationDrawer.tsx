@@ -14,8 +14,10 @@ import BusinessIcon from '@mui/icons-material/Business';
 import ScheduleIcon from '@mui/icons-material/Schedule';
 import InfoIcon from '@mui/icons-material/Info';
 import BugReportIcon from '@mui/icons-material/BugReport';
+import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { NAV_ITEMS } from '../../config/routes.ts';
+import { NAV_ITEMS, ROUTES } from '../../config/routes.ts';
+import { useAuth } from '../../features/auth/useAuth';
 
 /**
  * Props for the NavigationDrawer component
@@ -94,12 +96,13 @@ const PermanentDrawer = styled(MuiDrawer, {
 /**
  * Map icon names to MUI icon components
  */
-type IconName = 'Business' | 'Schedule' | 'Info' | 'BugReport';
+type IconName = 'Business' | 'Schedule' | 'Info' | 'BugReport' | 'AccountCircle';
 const iconMap: Record<IconName, React.ComponentType> = {
   Business: BusinessIcon,
   Schedule: ScheduleIcon,
   Info: InfoIcon,
   BugReport: BugReportIcon,
+  AccountCircle: AccountCircleIcon,
 };
 
 /**
@@ -129,6 +132,7 @@ export function NavigationDrawer({
   const theme = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
+  const { isAuthenticated } = useAuth();
 
   const handleNavigate = (path: string) => {
     navigate(path);
@@ -138,15 +142,36 @@ export function NavigationDrawer({
     }
   };
 
-  // Filter nav items to hide QA page in production
-  // const visibleNavItems = NAV_ITEMS.filter(
-  //   (item) => item.path !== ROUTES.QA || import.meta.env.DEV
-  // );
+  function renderNavItem(path: string, label: string, icon: IconName) {
+    const Icon = iconMap[icon];
+    const isActive = location.pathname === path;
 
-  /**
-   * Renders the drawer content (header, divider, nav items)
-   * Extracted to avoid duplication between mobile and desktop drawers
-   */
+    return (
+      <ListItem key={path} disablePadding sx={{ display: 'block' }}>
+        <ListItemButton
+          onClick={() => handleNavigate(path)}
+          sx={[
+            { minHeight: 48, px: 2.5 },
+            open ? { justifyContent: 'initial' } : { justifyContent: 'center' },
+            isActive && { bgcolor: 'action.selected' },
+          ]}
+        >
+          <Tooltip title={label} placement="right" arrow disableHoverListener={open}>
+            <ListItemIcon
+              sx={[
+                { minWidth: 0, justifyContent: 'center' },
+                open ? { mr: 3 } : { mr: 'auto' },
+              ]}
+            >
+              <Icon />
+            </ListItemIcon>
+          </Tooltip>
+          <ListItemText primary={label} sx={[open ? { opacity: 1 } : { opacity: 0 }]} />
+        </ListItemButton>
+      </ListItem>
+    );
+  }
+
   const renderDrawerContent = () => (
     <>
       <DrawerHeader>
@@ -156,67 +181,14 @@ export function NavigationDrawer({
       </DrawerHeader>
       <Divider />
       <List>
-        {NAV_ITEMS.map((item) => {
-          const Icon = iconMap[item.icon as IconName];
-          const isActive = location.pathname === item.path;
-
-          return (
-            <ListItem key={item.path} disablePadding sx={{ display: 'block' }}>
-              <ListItemButton
-                onClick={() => handleNavigate(item.path)}
-                sx={[
-                  {
-                    minHeight: 48,
-                    px: 2.5,
-                  },
-                  open
-                    ? {
-                        justifyContent: 'initial',
-                      }
-                    : {
-                        justifyContent: 'center',
-                      },
-                  isActive && {
-                    bgcolor: 'action.selected',
-                  },
-                ]}
-              >
-                <Tooltip title={item.label} placement="right" arrow disableHoverListener={open}>
-                  <ListItemIcon
-                    sx={[
-                      {
-                        minWidth: 0,
-                        justifyContent: 'center',
-                      },
-                      open
-                        ? {
-                            mr: 3,
-                          }
-                        : {
-                            mr: 'auto',
-                          },
-                    ]}
-                  >
-                    <Icon />
-                  </ListItemIcon>
-                </Tooltip>
-                <ListItemText
-                  primary={item.label}
-                  sx={[
-                    open
-                      ? {
-                          opacity: 1,
-                        }
-                      : {
-                          opacity: 0,
-                        },
-                  ]}
-                />
-              </ListItemButton>
-            </ListItem>
-          );
-        })}
+        {NAV_ITEMS.map((item) => renderNavItem(item.path, item.label, item.icon as IconName))}
       </List>
+      {isAuthenticated && (
+        <>
+          <Divider sx={{ mt: 'auto' }} />
+          <List>{renderNavItem(ROUTES.ACCOUNT, 'Account', 'AccountCircle')}</List>
+        </>
+      )}
     </>
   );
 

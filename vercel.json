@@ -25,8 +25,20 @@
       "destination": "/api/gem?path=:path"
     },
     {
+      "source": "/api/jobs-qa",
+      "destination": "/api/jobs-qa"
+    },
+    {
       "source": "/api/jobs-qa/:path(.*)",
       "destination": "/api/jobs-qa?path=:path"
+    },
+    {
+      "source": "/api/users",
+      "destination": "/api/users"
+    },
+    {
+      "source": "/api/users/:path(.*)",
+      "destination": "/api/users?path=:path"
     },
     {
       "source": "/recent-jobs",
@@ -43,6 +55,10 @@
     {
       "source": "/companies",
       "destination": "/index.html"
+    },
+    {
+      "source": "/account",
+      "destination": "/index.html"
     }
   ],
   "headers": [
@@ -51,15 +67,15 @@
       "headers": [
         {
           "key": "Access-Control-Allow-Origin",
-          "value": "*"
+          "value": "https://job-visualizer-notifier.vercel.app"
         },
         {
           "key": "Access-Control-Allow-Methods",
-          "value": "GET, POST, OPTIONS"
+          "value": "GET, POST, PUT, OPTIONS"
         },
         {
           "key": "Access-Control-Allow-Headers",
-          "value": "Content-Type, X-Workday-Base-Url"
+          "value": "Content-Type, X-Workday-Base-Url, Authorization"
         }
       ]
     }

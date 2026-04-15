@@ -189,6 +189,7 @@ function createBackendScraperCompany(
 /**
  * Company configurations for multi-ATS support
  */
+
 export const COMPANIES: Company[] = [
   // Greenhouse companies
   createGreenhouseCompany('spacex', 'SpaceX', {

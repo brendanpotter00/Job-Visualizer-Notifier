@@ -45,8 +45,10 @@ def db_conn(test_env):
     cursor = conn.cursor()
     jobs_table = _get_table_name(test_env, "jobs")
     runs_table = _get_table_name(test_env, "runs")
+    users_table = _get_table_name(test_env, "users")
     cursor.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(jobs_table)))
     cursor.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(runs_table)))
+    cursor.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(users_table)))
     conn.commit()
     conn.close()
 
@@ -112,12 +114,43 @@ def _insert_scrape_run(conn, env: str, run: dict) -> None:
     conn.commit()
 
 
+def _make_user(overrides: dict | None = None) -> dict:
+    """Build a complete user row dict with sensible defaults."""
+    base = {
+        "id": uuid.uuid4().hex,
+        "auth0_id": f"auth0|{uuid.uuid4().hex[:12]}",
+        "email": "test@example.com",
+        "display_name": None,
+        "given_name": "Test",
+        "family_name": "User",
+        "picture_url": None,
+        "created_at": "2025-01-10T10:00:00Z",
+        "updated_at": "2025-01-10T10:00:00Z",
+    }
+    if overrides:
+        base.update(overrides)
+    return base
+
+
+def _insert_user(conn, env: str, user: dict) -> None:
+    """Insert a user row into the test table."""
+    cursor = conn.cursor()
+    table = sql.Identifier(_get_table_name(env, "users"))
+    cols = sql.SQL(", ").join(sql.Identifier(k) for k in user.keys())
+    placeholders = sql.SQL(", ").join(sql.Placeholder() for _ in user)
+    query = sql.SQL("INSERT INTO {} ({}) VALUES ({})").format(table, cols, placeholders)
+    cursor.execute(query, list(user.values()))
+    conn.commit()
+
+
 def _clear_tables(conn, env: str) -> None:
     """Truncate test tables between tests."""
     cursor = conn.cursor()
     jobs_table = _get_table_name(env, "jobs")
     runs_table = _get_table_name(env, "runs")
-    cursor.execute(sql.SQL("TRUNCATE {}, {}").format(sql.Identifier(jobs_table), sql.Identifier(runs_table)))
+    users_table = _get_table_name(env, "users")
+    cursor.execute(sql.SQL("TRUNCATE {}, {}, {}").format(
+        sql.Identifier(jobs_table), sql.Identifier(runs_table), sql.Identifier(users_table)))
     conn.commit()
 
 
@@ -130,12 +163,14 @@ def clean_tables(db_conn, test_env):
 @pytest.fixture(scope="module")
 def test_app(db_conn, test_env):
     """FastAPI test app with database connection wired up (no auto-scraper)."""
-    from api.routers import jobs, jobs_qa
+    from api.routers import jobs, jobs_qa, users
     from api.dependencies import get_db
+    from api.auth.dependencies import get_current_user
 
     app = FastAPI()
     app.include_router(jobs.router, prefix="/api/jobs")
     app.include_router(jobs_qa.router, prefix="/api/jobs-qa")
+    app.include_router(users.router, prefix="/api/users")
 
     @app.get("/health")
     def health():
@@ -147,6 +182,13 @@ def test_app(db_conn, test_env):
         yield db_conn
 
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = lambda: {
+        "sub": "auth0|test_user_123",
+        "email": "test@example.com",
+        "given_name": "Test",
+        "family_name": "User",
+        "picture": "https://example.com/photo.jpg",
+    }
 
     app.state.env = test_env
     # Provide a minimal config for trigger-scrape (use "local" for validation;

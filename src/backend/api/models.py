@@ -64,3 +64,32 @@ class JobsStatsResponse(BaseModel):
     open_jobs: int
     closed_jobs: int
     company_counts: list[CompanyCountResponse]
+
+
+class UserResponse(BaseModel):
+    """User profile at the API boundary.
+
+    The ``provider_subject`` field tracks the *most recent* identity provider's
+    subject (Auth0 ``sub`` or Google-prefixed One Tap ``sub``). It maps to the
+    DB column ``auth0_id`` for historical reasons — the column predates Google
+    One Tap support — but the model name reflects that the value is no longer
+    Auth0-specific. See ``docs/implementations/auth0/REVIEW_AUDIT.md``.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    id: str
+    provider_subject: str
+    email: str
+    display_name: str | None = None
+    given_name: str | None = None
+    family_name: str | None = None
+    picture_url: str | None = None
+    created_at: str
+    updated_at: str
+
+
+class UserUpdateRequest(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, extra="forbid")
+
+    display_name: str | None = Field(default=None, max_length=100)

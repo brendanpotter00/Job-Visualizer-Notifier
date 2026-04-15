@@ -8,6 +8,18 @@ import { APP_TITLE } from '../../../config/constants';
 // Mock useMediaQuery to control mobile/desktop state
 vi.mock('@mui/material/useMediaQuery');
 
+vi.mock('../../../features/auth/useAuth', () => ({
+  useAuth: () => ({
+    isEnabled: false,
+    isAuthenticated: false,
+    isLoading: false,
+    user: null,
+    login: vi.fn(),
+    logout: vi.fn(),
+    getToken: vi.fn(),
+  }),
+}));
+
 describe('RootLayout', () => {
   beforeEach(() => {
     vi.clearAllMocks();

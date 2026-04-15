@@ -4,6 +4,18 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { NavigationDrawer } from '../../../components/layout/NavigationDrawer.tsx';
 
+vi.mock('../../../features/auth/useAuth', () => ({
+  useAuth: () => ({
+    isEnabled: false,
+    isAuthenticated: false,
+    isLoading: false,
+    user: null,
+    login: vi.fn(),
+    logout: vi.fn(),
+    getToken: vi.fn(),
+  }),
+}));
+
 const mockProps = {
   open: true,
   onClose: vi.fn(),

@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { getBackendUrl } from './utils/backendUrl';
+import { forwardResponse } from './utils/forwardResponse';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const { status, company, limit, offset } = req.query;
@@ -15,8 +16,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const response = await fetch(url);
-    const data = await response.json();
-    res.status(response.status).json(data);
+    await forwardResponse(response, res);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch from backend' });
   }

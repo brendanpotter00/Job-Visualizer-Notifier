@@ -42,6 +42,13 @@ class Settings(BaseSettings):
             )
         return self
 
+    # Auth0 authentication
+    auth0_domain: str | None = None
+    auth0_audience: str | None = None
+
+    # Google One Tap authentication
+    google_client_id: str | None = None
+
     # Server
     port: int = 8080
     cors_origins: str = "http://localhost:3000,http://localhost:5173,http://localhost:8000"
@@ -54,7 +61,7 @@ class Settings(BaseSettings):
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
-    model_config = {"env_file": ".env", "extra": "ignore"}
+    model_config = {"env_file": (".env", ".env.local"), "extra": "ignore"}
 
 
 settings = Settings()

@@ -1,0 +1,398 @@
+# Auth0 PR Review Audit Log
+
+**Purpose:** Running log of review findings on PR #56 (Auth0 + Google One Tap) and the fixes applied. **Read this before proposing changes to the identity model, upsert logic, or JWT routing.** Several decisions here overrode the original PLAN.md design — do not revert them unless you have a concrete new reason. Update this file when you apply a review fix so the next reviewer has context.
+
+---
+
+## 2026-04-13 — Initial review (PR #56)
+
+### Finding 1 — Google One Tap `sub` collided with Auth0 `sub`
+
+**Problem:** `routers/users.py` stored the raw JWT `sub` claim in the DB's `auth0_id` column. Auth0 already prefixes `sub` (`auth0|…`, `google-oauth2|…`), but Google One Tap emits a bare numeric `sub` like `"12345"`. PLAN.md §"Identity resolution challenge" calls for normalizing these to `google|{sub}`, but the implementation didn't do it — so Google One Tap users got bare numeric `auth0_id`s that could collide across providers.
+
+**Fix:** Added `get_normalized_subject(claims)` helper in `src/backend/api/auth/jwt.py`. Router uses it instead of raw `claims["sub"]`. Auth0 subs pass through unchanged; Google One Tap subs (detected by `iss in GOOGLE_ISSUERS`) get a `google|` prefix.
+
+**Do not revert to raw `sub`** — the PLAN's identity-normalization contract depends on this.
+
+### Finding 2 — `email UNIQUE` would 500 on legitimate cross-provider login
+
+**Problem:** `scripts/shared/database.py` declared `auth0_id UNIQUE` and `email UNIQUE`. `user_service.get_or_create_user` only handled `ON CONFLICT (auth0_id)`. A user who first logged in via Auth0 (`sub=auth0|a`) then via Google One Tap (`sub=google|x`) with the same verified email would hit `psycopg2.errors.UniqueViolation` on email → 500.
+
+**Initial bad fix proposed and rejected:** Drop `UNIQUE(email)` so both rows could coexist. **Rejected** because it silently fragments one human across rows — hides a real identity-model bug behind "no crash." See memory: `feedback_correctness_over_dont_crash.md`.
+
+**Final fix (correctness-first):**
+- `email` stays `UNIQUE NOT NULL`. Email (verified by the identity provider) is the stable human identifier. One row per human.
+- `auth0_id` **loses `UNIQUE`**. It now tracks the most-recent login provider's subject — which legitimately changes when a user switches providers or updates their email in their provider account. The `idx_users_{env}_auth0_id` index remains (non-unique) for `update_user` lookups.
+- `get_or_create_user` upsert key changed from `ON CONFLICT (auth0_id)` → `ON CONFLICT (email)`. SET clause now updates `auth0_id`, `given_name`, `family_name`, `picture_url`, `updated_at`. `display_name` is still excluded — user customizations survive provider switches.
+- Router (`GET /api/users`) now returns **401 if the token is missing `email`** (in addition to missing `sub`). Previously defaulted to `""`, which would collide on the UNIQUE constraint for every tokenless user.
+
+**Consequence — intentional:** The DB only records the *most recent* provider. There is no per-row history of "this user has both Auth0 and Google identities." If that history is ever needed (e.g., "sign in with the method you used last time" UX), add a `user_identities` join table; do **not** re-introduce `UNIQUE(auth0_id)` or duplicate rows per provider.
+
+**Do not revert** any of: `ON CONFLICT (email)`, dropped `UNIQUE(auth0_id)`, or the missing-email 401, without a concrete replacement design.
+
+### Schema delta vs PLAN.md
+
+PLAN.md §"Database schema" (line ~60) shows `auth0_id TEXT NOT NULL UNIQUE`. **Current code drops the UNIQUE.** PLAN.md is out of date on this point. Either update the PLAN or treat this audit log as the source of truth for the schema decision.
+
+### Tests added
+
+- `test_auth.py::TestGetNormalizedSubject` — 5 cases (Auth0 pass-through, Google HTTPS issuer, Google bare issuer, missing sub, Auth0-federated `google-oauth2|…` pass-through).
+- `test_users_router.py::TestAuthRequired::test_get_me_without_email_claim_returns_401`
+- `test_users_router.py::TestGoogleOneTap::test_google_one_tap_sub_is_prefixed`
+- `test_users_router.py::TestGoogleOneTap::test_second_provider_login_merges_into_one_row`
+- `test_user_service.py::TestGetOrCreateUser::test_cross_provider_login_merges_to_one_row`
+- `test_user_service.py::TestGetOrCreateUser::test_concurrent_first_login_is_idempotent`
+- Rewrote `test_upsert_updates_token_fields_on_conflict` to reflect the email-keyed conflict and `auth0_id` update semantics.
+
+**121 backend tests passing.**
+
+### Medium/Low review findings deferred (follow-up)
+
+Intentionally out of scope for the fix commit — track here so later reviewers know they were seen:
+- `_jwks_client` singleton never reset on settings change (test-only concern).
+- `api/utils/backendUrl.ts` — tighten `host.startsWith('localhost')` to exact match.
+- `auth/dependencies.py` — `logger.warning("Invalid JWT token: %s", exc)` could echo PyJWT exception strings; prefer `type(exc).__name__`.
+- `auth/jwt.py` / `google_jwt.py` — drop `exc_info=True` on per-request token-invalid warnings (log noise).
+- `auth/jwt.py:65-67` — `algorithms=["RS256"]` on the unverified decode is cosmetic; simplify or comment.
+- `useCurrentUser.ts` — add abort/cancel on sign-out mid-fetch.
+
+---
+
+## 2026-04-14 — Second review pass (PR #56, post-identity-fix)
+
+Ran four review agents in parallel (code-reviewer, silent-failure-hunter, pr-test-analyzer, type-design-analyzer) against the state after commit `aa701b5` ("Fix identity model: email-keyed upsert, prefix Google One Tap sub"). All agents were briefed with PLAN.md and the 2026-04-13 audit entry above and told to honor the "do not revert" list. Full plan file: `~/.claude/plans/memoized-sleeping-journal.md`.
+
+### New findings (not in prior audit)
+
+**Critical — to fix before merge:**
+- `useCurrentUser.ts:12-33` — `loadUser` has no `AbortController`. A fetch started before sign-out can resolve after and call `setUser(fetchedUser)`, repopulating stale profile onto a signed-out session. UserMenu + AccountPage both read this hook → real UX/security bug. (Previously deferred; promoted to critical by two agents independently.)
+- `api/users.ts:40-48` — `fetch` rejection (Railway down, DNS) reports `500 "Failed to fetch from backend"` with no `console.error`. Should be 502/503 + server-side log.
+- `vercel.json:64-82` — CORS origin is hardcoded to prod (good, not wildcard), but (a) `Access-Control-Allow-Credentials` is absent (silently breaks any future `credentials: 'include'` fetch) and (b) `*-git-*.vercel.app` previews will fail CORS. Document decision or add reflective origin.
+
+**Important:**
+- `routers/users.py:42-44, 62-64` — `except Exception` catches `HTTPException` too; will convert a future 403 into a generic 500. Narrow to `(psycopg2.Error, RuntimeError)`.
+- `auth/jwt.py:72-77` — `validate_token` dispatcher: if `issuer in GOOGLE_ISSUERS` but `settings.google_client_id` is empty, silently falls through to `_validate_auth0_token` and produces a confusing `InvalidIssuer` — config error masquerades as auth error. Split the condition; fail loudly on misconfig.
+- `auth/dependencies.py:37-39` — `PyJWKClientError` (IdP outage, JWKS fetch fail) wrapped as `401 "Invalid token"`. Should be 503 with `logger.exception`.
+- `services/user_service.py` — `update_user` is keyed by `auth0_id`, which is now mutable/non-unique per the first audit. Works today because `GET /api/users` resyncs it first, but a client that only calls `PUT` after a cross-device provider switch will silently 404. Change key to `email` (the stable identifier per audit decision).
+- `useAuth.ts:42-47` — `login()` swallows `loginWithRedirect` failure with `console.error` and resolves; caller can't surface pop-up-blocker / CSP / misconfig errors. Rethrow.
+- `forwardResponse.ts:9-11` — `.json()` on an empty body with `content-type: application/json` (e.g. a 204) throws; gets mislabeled as "Failed to fetch from backend" by the outer catch in `users.ts`. Read text first, tolerant parse, preserve upstream status.
+- `config/auth.ts:13` — `redirectUri: ... || window.location.origin` evaluated at module import. Non-jsdom test imports or any SSR path crashes during bundle eval. Guard or compute lazily in `AuthProviders`.
+
+**Test gaps:**
+- `test_auth.py` — No test signs a token with a *different* RSA keypair and asserts rejection. This is the load-bearing security invariant of the entire auth stack. Add one.
+- `test_auth.py::TestTokenDispatch` — Both validators use the same mocked JWKS client; a bug where `validate_token` wrongly routed an issuer would still pass. Use `patch` as a spy to assert which validator was called.
+
+**Type-design suggestions (structural, not blocking):**
+- `UserResponse.auth0_id` is misleading post-audit — it tracks the *most recent* provider subject, not specifically Auth0. Consider renaming to `provider_subject` / `providerSubject` at the model/boundary (DB column can stay as `auth0_id` to avoid migration).
+- `useAuth()` return type doesn't express "if `isAuthenticated` then `getToken` succeeds" — currently enforced via runtime `throw new Error('Not authenticated')`. A discriminated union `{ status: 'loading' | 'anonymous' | 'authenticated', ... }` would remove the runtime guard.
+- `AUTH_CONFIG.isEnabled` is a peer field to `domain`/`clientId` — doesn't narrow them to non-empty for downstream callers.
+- `UserResponse` name fields typed `str | None` — leaks DB nullability. `given_name`/`family_name`/`picture_url` are effectively always present from IdPs; only `display_name` being nullable is domain-meaningful.
+
+### Confirmations (explicitly re-reviewed, still OK)
+
+- Missing-email 401 path in `routers/users.py:30-31` — correct, do not relax.
+- `ON CONFLICT (email)` in `get_or_create_user` — correct, do not revert.
+- `get_normalized_subject` — correct, Google One Tap still requires the `google|` prefix.
+- `GoogleOneTap.tsx` `onError: console.warn` — intentional per PLAN.md §293.
+- `get_optional_user` raising 401 on invalid token (not anonymizing) — correct: a bad token is not an anonymous user.
+- JWKS singleton with double-checked locking in `jwt.py:18-36` and `google_jwt.py:19-35` — thread-safe, correct.
+- Provider nesting in `main.tsx` (GoogleOAuthProvider → Auth0Provider → GoogleCredentialProvider) — correct.
+- `ConfigDict(alias_generator=to_camel)` on both `UserResponse` and `UserUpdateRequest` — consistent with backend CLAUDE.md convention.
+- All identity-resolution tests added in the first audit pass verified present and asserting the right invariants (`test_cross_provider_login_merges_to_one_row`, `test_concurrent_first_login_is_idempotent`, `test_get_me_without_email_claim_returns_401`, `TestGetNormalizedSubject` 5 cases).
+
+### Already-deferred items re-surfaced (not re-adding to plan)
+
+- `backendUrl.ts:8` `host.startsWith('localhost')` too loose — still in deferred list.
+- Log noise (`exc_info=True` on per-request token-invalid, `type(exc).__name__` for PyJWT exception string echo) — still in deferred list.
+- JWKS singleton reset on settings change (test-only concern) — still in deferred list.
+
+---
+
+## 2026-04-14 — Design reversal: restore `UNIQUE(auth0_id)`, replace email-only upsert with two-key lookup
+
+**This entry overrides the 2026-04-13 Finding 2 decision to drop `UNIQUE(auth0_id)`.** Per the audit's own guidance ("If you want to revert any decision here, write a new entry in this file explaining why the original reasoning no longer holds"), here is that entry.
+
+### Why the 2026-04-13 reasoning doesn't hold
+
+The 2026-04-13 audit dropped `UNIQUE(auth0_id)` to avoid a `UniqueViolation` when a user's email changes at the IdP:
+- Existing row: `auth0_id = "auth0|aaa"`, `email = a@example.com`
+- Login with new email: token has `sub = auth0|aaa`, `email = b@example.com`
+- `INSERT ... ON CONFLICT (email)` → no `b@example.com` conflict → `INSERT` attempts a new row with `auth0_id = auth0|aaa` → **crash** (old row owns that auth0_id).
+
+The prior audit chose to drop `UNIQUE(auth0_id)` so the `INSERT` would succeed and a duplicate row would be created. **That trades a loud crash for a silent duplicate**, which directly contradicts the repo's "Correctness over don't crash" principle (see `feedback_correctness_over_dont_crash.md`). One human now spans two rows and we have no signal that the model is broken.
+
+### Replacement design
+
+The real problem was the upsert logic, not the `UNIQUE` constraint. The email-only `ON CONFLICT` can't express "match by either stable identifier." Replace it with an explicit lookup-then-update/insert:
+
+```python
+def get_or_create_user(conn, env, auth0_id, email, given_name, family_name, picture_url):
+    # Look up by EITHER stable identifier — handles both cross-provider merge
+    # (same email, different auth0_id) and IdP email change (same auth0_id,
+    # different email). If both match the same row, great. If they match
+    # different rows, that's a real ambiguity — raise; don't silently merge.
+    existing = SELECT id, auth0_id, email FROM users
+               WHERE auth0_id = %s OR email = %s
+    if len(existing) > 1:
+        raise RuntimeError(f"Ambiguous identity: auth0_id={auth0_id} and email={email} map to different rows")
+    if existing:
+        UPDATE users SET auth0_id = %s, email = %s, given_name = %s, ...
+        WHERE id = %s
+        return that row
+    # No match → INSERT new row
+```
+
+With this logic:
+- **Cross-provider merge** (Auth0 → Google One Tap, same email): lookup matches by email → `UPDATE` sets new `auth0_id`. One row. Both UNIQUEs hold.
+- **IdP email change** (same auth0_id, new email): lookup matches by auth0_id → `UPDATE` sets new `email`. One row. Both UNIQUEs hold.
+- **Truly new user**: no match → `INSERT`. Both UNIQUEs hold.
+- **Genuinely ambiguous** (two separate humans whose identities got tangled by a prior bug): `RuntimeError` — loud, diagnosable, doesn't fragment further.
+
+### Schema changes
+
+1. Restore `auth0_id TEXT NOT NULL UNIQUE` in `scripts/shared/database.py::init_schema`. Keep `email TEXT NOT NULL UNIQUE`.
+2. Keep the non-unique `idx_users_{env}_auth0_id` index — redundant with `UNIQUE` but harmless; can drop later.
+3. **Migration note for existing deployments:** If any environment has already run with the 2026-04-13 schema (no `UNIQUE(auth0_id)`), duplicate rows may exist. Before applying the `UNIQUE(auth0_id)` constraint, run a dedupe query: keep the row with the most-recent `updated_at` for each `auth0_id`, delete the rest. No production deployment yet, so local/CI can just drop-and-recreate the table.
+
+### Upsert semantics delta vs 2026-04-13
+
+| Concern | 2026-04-13 decision | 2026-04-14 decision |
+|---|---|---|
+| `UNIQUE(auth0_id)` | Dropped | **Restored** |
+| `UNIQUE(email)` | Kept | Kept (unchanged) |
+| Upsert key | `ON CONFLICT (email)` | Two-key SELECT lookup, then UPDATE or INSERT |
+| Email change at IdP | Silent duplicate row (bug) | `UPDATE` existing row's email (correct) |
+| Cross-provider merge | `UPDATE` via email conflict | `UPDATE` via email match in lookup |
+| Ambiguous identity | N/A (wouldn't be detected) | `RuntimeError` — surface the bug |
+
+### Concurrency note
+
+The two-key SELECT-then-UPDATE/INSERT is not atomic. Under concurrent first-login from two processes, both could SELECT empty, both could INSERT, and the second INSERT would fail on `UNIQUE(email)` or `UNIQUE(auth0_id)`. Handle by wrapping in a transaction with `SERIALIZABLE` isolation, **or** catch `psycopg2.errors.UniqueViolation` and retry the SELECT+UPDATE once. The existing `test_concurrent_first_login_is_idempotent` must be updated to assert the retry path.
+
+### Tests to add/update
+
+- Update `test_user_service.py::test_upsert_updates_token_fields_on_conflict` — now traverses the two-key lookup branch.
+- New: `test_idp_email_change_updates_existing_row` — same `auth0_id`, new `email` → one row, new email.
+- New: `test_ambiguous_identity_raises` — seed two rows, one matches by `auth0_id`, other by `email` → `RuntimeError`.
+- Update `test_concurrent_first_login_is_idempotent` — assert the `UniqueViolation`-retry path produces one row.
+- Backend integration: `test_users_router.py::test_second_provider_login_merges_into_one_row` should still pass (cross-provider merge still produces one row).
+
+### Implementation applied (2026-04-14)
+
+- `scripts/shared/database.py` — restored `auth0_id TEXT NOT NULL UNIQUE`.
+- `src/backend/api/services/user_service.py` — rewrote `get_or_create_user` to use two-key SELECT lookup, UPDATE-or-INSERT, ambiguous-match `RuntimeError`, and one-retry `UniqueViolation` handler. Extracted `_lookup_and_upsert` helper for the retry loop.
+- `src/backend/api/services/user_service.py` — changed `update_user` signature from `auth0_id` to `email`.
+- `src/backend/api/routers/users.py` — `PUT /api/users` now passes `email` to `update_user` and 401s when the token lacks an `email` claim.
+- Tests: renamed `test_upsert_updates_token_fields_on_conflict` → `test_upsert_updates_token_fields_on_email_match`; added `test_idp_email_change_updates_existing_row`, `test_ambiguous_identity_raises`, `test_unique_violation_retries_once`, `test_put_me_without_email_claim_returns_401`. Updated `TestUpdateUser` to use `email=` keyword. **125 backend tests passing** (was 121).
+
+### Do not revert (new)
+
+- Do not re-drop `UNIQUE(auth0_id)` — the email-change edge case is correctly handled by the two-key lookup, not by relaxing constraints.
+- Do not switch back to `ON CONFLICT (email)` as the primary upsert path — it can't express the IdP-email-change case.
+- Do not catch `RuntimeError` from `get_or_create_user` to paper over ambiguous-identity cases — the raise is load-bearing.
+
+### Still do not revert (from 2026-04-13)
+
+- `UNIQUE(email)` stays.
+- `get_normalized_subject` stays — Google One Tap tokens still need the `google|` prefix.
+- Missing-email 401 in `routers/users.py` stays.
+
+---
+
+## 2026-04-14 — Third review pass (post-design-reversal)
+
+Ran after commit `1ca03a3` using a code-reviewer + explore agent against the state produced by the two-key lookup. Focus: verify the design reversal landed cleanly, catch regressions the reversal itself introduced, and promote long-deferred items that were blocking merge. Full plan file: `~/.claude/plans/swift-prancing-moler.md`.
+
+### Regression introduced by the design reversal
+
+- `routers/users.py:42-44` (and `:69-71`) — broad `except Exception` swallows the load-bearing `RuntimeError("Ambiguous identity: ...")` that `_lookup_and_upsert` raises (`user_service.py:106-109`). The 2026-04-14 reversal entry added the raise AND the rule "Do not catch `RuntimeError` from `get_or_create_user`" in the same commit, but the router was not updated to honor it. An ambiguous-identity event would have been converted into a generic 500 + log, and the user would have been served... nothing, silently. The corruption of the identity model would not have surfaced.
+
+  **Fix:** narrowed both endpoints to `except psycopg2.Error`. `RuntimeError` and `HTTPException` now propagate. FastAPI converts unhandled `RuntimeError` to 500 in production (uvicorn catches), so the user still gets 500 — but the service's `logger.exception` emits the diagnostic and future soft-catches are blocked by the narrowed `except`.
+
+  **Test added:** `test_users_router.py::TestAuthRequired::test_get_me_with_ambiguous_identity_returns_500` — seeds two rows that ambiguously match and asserts the request returns 500 rather than silently merging.
+
+### Promoted from 2026-04-14 deferred list
+
+- `auth/jwt.py:73` — Google issuer + empty `GOOGLE_CLIENT_ID` → silent fallthrough to Auth0 validator → confusing `InvalidIssuerError` 401. Config problem masquerades as auth problem.
+  **Fix:** split the condition. On Google issuer with missing `google_client_id`, raise `RuntimeError("Received a Google-issued token but GOOGLE_CLIENT_ID is not configured...")`. Updated `test_google_token_falls_back_to_auth0_when_google_not_configured` → `test_google_token_raises_runtime_error_when_google_not_configured` to assert the new contract.
+
+- `auth/dependencies.py:37-39` — `PyJWKClientError` (JWKS endpoint outage) wrapped as 401 "Invalid token". Misroutes monitoring.
+  **Fix:** separate the catch. `PyJWKClientError` now returns 503 "Authorization service temporarily unavailable" + `logger.exception`. `jwt.InvalidTokenError` still 401. Test renamed `test_optional_user_raises_401_on_jwks_client_error` → `test_optional_user_raises_503_on_jwks_client_error`.
+
+- `useCurrentUser.ts` — no `AbortController`; fetch started pre-logout could resolve post-logout and repopulate signed-out session. Two prior audits flagged this.
+  **Fix:** added per-call `AbortController`, threaded `signal?: AbortSignal` into `fetchCurrentUser`, effect cleanup aborts, `loadUser` aborts prior inflight on re-entry. Aborted errors are swallowed so they don't surface as "Failed to load profile".
+
+- `useAuth.ts:42-47` — `login()` swallowed `loginWithRedirect` failures with `console.error`. Pop-up blockers, CSP, bad redirect_uri all invisible to callers.
+  **Fix:** rethrow after logging. Updated `useAuth.test.ts` login-error test to assert the rethrow (previously asserted silent success, which was the bug).
+
+- `config/auth.ts:13` — `window.location.origin` evaluated at module import. Crashes any non-jsdom test import or SSR path.
+  **Fix:** hoisted to a `defaultRedirectUri` const guarded by `typeof window !== 'undefined'`.
+
+### Tests added / updated
+
+- `test_auth.py::TestValidateAuth0Token::test_token_signed_by_wrong_keypair_is_rejected` — generates a second `rsa.generate_private_key`, signs a valid payload, asserts `InvalidSignatureError`. The load-bearing security invariant now has explicit coverage; previously all tests shared one keypair and a regression that silently skipped signature verification would have passed.
+- `test_auth.py::TestTokenDispatch::test_google_token_raises_runtime_error_when_google_not_configured` — replaces the fallthrough test.
+- `test_auth.py::TestAuthDependencies::test_optional_user_raises_503_on_jwks_client_error` — replaces the 401 test.
+- `test_users_router.py::TestAuthRequired::test_get_me_with_ambiguous_identity_returns_500` — new, locks the narrowed exception handler in.
+- `useAuth.test.ts` — `login handles redirect failure gracefully` → `login rethrows redirect failures after logging`; asserts both the console log AND the rethrow.
+
+**Backend tests passing: 127** (was 125; +2 net new, 2 renamed). **Frontend tests passing: 898** (was 873+). **Type-check + lint: clean** (149 warnings, all pre-existing).
+
+### Still deferred (unchanged from 2026-04-14)
+
+- `vercel.json` CORS hardcoded to prod / missing `Allow-Credentials` — needs product decision about preview-deploy auth.
+- `api/utils/forwardResponse.ts` `.json()` on empty body.
+- `api/utils/backendUrl.ts:8` `host.startsWith('localhost')` too loose.
+- `api/users.ts:40-48` fetch rejection → 500 (should be 502/503 with server log).
+- `_jwks_client` singleton not reset on settings change (test-only).
+- Type-design refactors: `UserResponse.auth0_id` → `provider_subject` rename, discriminated union for `useAuth()`, `UserResponse` name-field nullability.
+- Dispatcher routing test using `patch` as spy (covered indirectly by the `RuntimeError` test now, but a direct spy would be clearer).
+
+### Do not revert (new in this pass)
+
+- Do not re-broaden `routers/users.py` exception handlers back to `except Exception` — the narrow `except psycopg2.Error` is what makes the ambiguous-identity raise observable.
+- Do not collapse the `validate_token` Google dispatcher branches back into a single `and` condition — silent fallthrough on missing `GOOGLE_CLIENT_ID` was documented to cost real debug time.
+- Do not catch `PyJWKClientError` with `InvalidTokenError` in `auth/dependencies.py` — JWKS outages are 503, not 401; monitoring and users both depend on the distinction.
+- Do not remove the `AbortController` wiring in `useCurrentUser` or strip the optional `signal` from `fetchCurrentUser` — the stale-fetch-after-logout race is real and was deferred twice before this pass.
+
+### Still do not revert (from 2026-04-13 / 2026-04-14)
+
+- `UNIQUE(email)` AND `UNIQUE(auth0_id)` both stay.
+- `get_or_create_user` stays on the two-key SELECT lookup (not `ON CONFLICT`).
+- `get_normalized_subject` stays (Google One Tap needs `google|` prefix).
+- Missing-email 401 in `routers/users.py` stays.
+- Ambiguous-identity `RuntimeError` stays — now observable thanks to the router fix above.
+
+---
+
+## 2026-04-14 — Fourth review pass (deferred-list cleanup)
+
+Ran after commit `1832e61` ("Third review pass: fix regression + promote deferred auth items"). Scope confirmed with user via AskUserQuestion: close out the remaining deferred-list items that are small correctness fixes or boundary-type clarifications, plus document the preview-deploy CORS limitation. Excluded from this pass: `_jwks_client` settings-reset (test-only, no product impact) and preview-deploy reflective CORS (product decision, see Section 3 below). Full plan file: `~/.claude/plans/dapper-painting-turing.md`.
+
+### Fixes applied this pass
+
+**Section 1 — small correctness fixes:**
+
+- **1.1 `UserMenu` surfaces `login()` rejection via Snackbar** — The 3rd-pass fix rethrew `loginWithRedirect` failures, but `UserMenu` passed `login` directly to `onClick` → unhandled promise rejection on pop-up-blocker / CSP / bad `redirect_uri`. Added local `loginError` state + MUI `Snackbar`/`Alert` in the unauthenticated branch. `handleLogin` wraps `login()` in try/catch and populates the snackbar on failure. No global snackbar provider added (none exists in the codebase). Test: `UserMenu.test.tsx::when not authenticated::surfaces login rejection in a Snackbar` mocks `login` to reject and asserts the snackbar renders the error.
+
+- **1.2 `forwardResponse.ts` tolerant parse on empty body** — `await fetchResponse.json()` threw on 204 / empty body with `content-type: application/json`, which the outer catch in `api/users.ts` mislabeled as "Failed to fetch from backend." Rewrote to read text first: empty body → forward upstream status via `res.status(status).end()` with no body; non-empty JSON body → try `JSON.parse`, fall back to `{ error: text }` if malformed. Non-JSON branch preserved. Test: new `forwards upstream status with no body when JSON response body is empty` in `users.serverless.test.ts`.
+
+- **1.3 `api/users.ts` fetch rejection → 502 + server log** — Network failure (Railway down, DNS) returned 500 "Failed to fetch from backend" with no server log. Now `console.error('[api/users] Upstream fetch failed:', error)` + `res.status(502).json({ error: 'Upstream backend unavailable', details: ... })`. 500 implied our bug; 502 correctly attributes the outage upstream and is visible to Vercel observability. Test updated: the pre-existing fetch-rejection test now asserts 502 and that `console.error` was called.
+
+- **1.4 `backendUrl.ts` exact host match** — `host.startsWith('localhost')` would have matched `localhost.evil.com`. Not an active exploit vector (helper only chooses between two URLs) but sloppy and flagged on the deferred list since the first audit pass. Strips the `:port` suffix and `[]` IPv6 brackets, then exact-matches against `new Set(['localhost', '127.0.0.1', '::1'])`. Test: new "should NOT treat `localhost.evil.com` as localhost" in `users.serverless.test.ts`.
+
+- **1.5 Drop inert `algorithms=["RS256"]` on unverified decode** — `jwt.py:65-67` passed `algorithms=["RS256"]` to `jwt.decode(..., options={"verify_signature": False})`. PyJWT ignores `algorithms` when signature verification is off. Removed the arg and added a one-line comment explaining the decode is used only to extract the issuer for dispatcher routing (the real validation happens in `_validate_auth0_token` / `_validate_google_token` after dispatch). No behavior change, no test change.
+
+**Section 2 — `UserResponse.auth0_id` → `provider_subject` boundary rename:**
+
+- **2.1 Backend model + router** — Renamed Pydantic field `auth0_id: str` → `provider_subject: str` on `UserResponse` (`models.py`); the `to_camel` alias generator makes it serialize as `providerSubject`. `routers/users.py` `UserResponse(**result)` would break because `result` (from `RETURNING *`) still has key `auth0_id` — replaced both call sites with an explicit `_row_to_user_response(row)` helper that maps `row["auth0_id"]` → `provider_subject=`. **DB column stays `auth0_id`** — no migration, no `user_service.py` signature changes (functions still take `auth0_id=`). This is a boundary-only rename to stop the field name from misleading readers about what it tracks (most recent provider's sub, not specifically Auth0).
+
+- **2.2 Backend tests** — `test_users_router.py::test_returns_camel_case_keys` / `test_no_snake_case_keys` updated to expect `providerSubject` in the `expected_keys` set and assert `auth0Id` is absent. `TestGoogleOneTap::test_google_one_tap_sub_is_prefixed` and `test_second_provider_login_merges_into_one_row` response-body key reads changed from `data["auth0Id"]` → `data["providerSubject"]`.
+
+- **2.3 Frontend `User` interface + test mocks** — `authService.ts`: `auth0Id: string` → `providerSubject: string` with a JSDoc comment explaining the DB column is still `auth0_id`. Updated mock `User` objects in `AccountPage.test.tsx`, `UserMenu.test.tsx`, `authService.test.ts`, and `users.serverless.test.ts` to use `providerSubject`. No UI code references the field name — it's read only by tests and type-checking.
+
+**Section 3 — document preview-deploy CORS limitation** (no code change):
+
+Added "Preview deploy limitation" subsection to `docs/implementations/auth0/PLAN.md` under Step 8. Records that `vercel.json` pins production CORS to `https://job-visualizer-notifier.vercel.app` and preview deploys at `*-git-*.vercel.app` will fail CORS on `/api/*` — auth flows must be verified locally (`npm run dev:vercel`) or in production. Notes `Access-Control-Allow-Credentials` is deliberately omitted (nothing uses `credentials: 'include'`). Revisit if preview-deploy auth becomes a requirement (reflective-origin header generation would be the fix).
+
+### Still deferred
+
+- **`_jwks_client` singleton reset on settings change** — test-only concern (production `settings` don't mutate post-boot). No product impact; revisit only if a future test needs to swap JWKS URLs within one process.
+- **Preview-deploy reflective CORS** — documented per Section 3 above as a product decision. Not a correctness bug.
+- **Type-design refactors** — `useAuth()` discriminated union (currently runtime-guarded), `UserResponse` name-field nullability tightening. Both nice-to-have, both out of scope for an auth-merge PR.
+- **Dispatcher routing test using `patch` as spy** — covered indirectly by `test_google_token_raises_runtime_error_when_google_not_configured` (3rd pass); a direct spy would be clearer but isn't load-bearing.
+
+### Do not revert (new in this pass)
+
+- Do not remove the `UserMenu` snackbar wrapper around `login()` — unhandled promise rejection on redirect failure was invisible to the user; the 3rd-pass `login.throw()` only matters if a caller catches it.
+- Do not revert `forwardResponse.ts` to `await fetchResponse.json()` directly — 204 / empty-body responses throw on `.json()` and the outer catch mislabels them. Read text first, tolerant-parse.
+- Do not change `api/users.ts` fetch-rejection status back to 500 — upstream outages are 502 by convention, and the `console.error` is what makes them visible to monitoring.
+- Do not revert `backendUrl.ts` to `host.startsWith('localhost')` — the exact-match Set prevents `localhost.evil.com` / subdomain tricks and is part of the "verify before trust" posture of the local-dev helper.
+- Do not rename `UserResponse.provider_subject` back to `auth0_id` — the DB column keeps the legacy name, but the boundary type now reflects what the field actually tracks (most recent provider's subject). Keep the `_row_to_user_response` helper mapping explicit; don't reach for Pydantic `Field(alias=...)` as a shortcut.
+
+### Still do not revert (from 2026-04-13 / 2026-04-14 earlier passes)
+
+- `UNIQUE(email)` AND `UNIQUE(auth0_id)` both stay.
+- `get_or_create_user` stays on the two-key SELECT lookup (not `ON CONFLICT`).
+- `get_normalized_subject` stays (Google One Tap needs `google|` prefix).
+- Missing-email 401 in `routers/users.py` stays.
+- Narrow `except psycopg2.Error` in `routers/users.py` stays — ambiguous-identity `RuntimeError` must propagate.
+- `validate_token` raises `RuntimeError` on Google issuer + missing `GOOGLE_CLIENT_ID` — don't re-collapse the condition.
+- `PyJWKClientError` → 503 (not 401) in `get_optional_user` stays.
+- `useCurrentUser`'s `AbortController` wiring stays.
+- `useAuth.login()` rethrow stays.
+- `config/auth.ts` `typeof window` guard stays.
+
+---
+
+## Guidance for subsequent review agents
+
+**Authoritative state (as of 2026-04-14 fourth pass):**
+- `UNIQUE(email)` and `UNIQUE(auth0_id)` are BOTH enforced.
+- `get_or_create_user` uses a two-key SELECT lookup (match by `auth0_id` OR `email`), then UPDATE-or-INSERT. Not `ON CONFLICT`.
+- `get_normalized_subject` prefixes Google One Tap subs with `google|` — required; don't remove.
+- `routers/users.py` 401s on missing `sub` or `email` claims — don't default to `""`.
+- `routers/users.py` catches ONLY `psycopg2.Error` — don't widen to `Exception`. Ambiguous identity (two rows match the lookup) raises `RuntimeError` and must propagate to become a 500.
+- `routers/users.py` maps DB rows to `UserResponse` via an explicit `_row_to_user_response(row)` helper — `row["auth0_id"]` maps to `provider_subject=` on the model. Don't switch to `UserResponse(**row)` — the key names diverge intentionally.
+- `UserResponse.provider_subject` (camelCase: `providerSubject`) is the boundary field; DB column stays `auth0_id`; `user_service.py` function params stay `auth0_id=`. Three-layer naming is deliberate.
+- `auth/jwt.py::validate_token` raises `RuntimeError` (not `InvalidIssuerError`) when a Google-issued token arrives and `GOOGLE_CLIENT_ID` isn't configured.
+- `auth/jwt.py` unverified dispatch-decode does not pass `algorithms=` (PyJWT ignores it when `verify_signature=False`).
+- `auth/dependencies.py::get_optional_user` returns 503 on `PyJWKClientError`, 401 on `jwt.InvalidTokenError`.
+- `useCurrentUser.ts` aborts in-flight fetches on unmount / auth-state change / re-entry.
+- `useAuth.ts::login()` rethrows `loginWithRedirect` errors.
+- `UserMenu` wraps the `login()` call in `handleLogin` and surfaces rejections in a local MUI `Snackbar`.
+- `config/auth.ts` guards `window.location.origin` with `typeof window`.
+- `api/utils/forwardResponse.ts` reads the body as text first and tolerates empty bodies (204) without throwing.
+- `api/users.ts` returns 502 (not 500) with `console.error` on upstream fetch rejection.
+- `api/utils/backendUrl.ts` uses exact-match `Set` for the localhost short-circuit (not `startsWith`).
+
+**Behavior:**
+- Do not switch the upsert to `ON CONFLICT (email)` or `ON CONFLICT (auth0_id)` — both single-key paths miss one of the legitimate cases (cross-provider merge vs IdP email change). The two-key lookup handles both.
+- Do not drop either `UNIQUE` constraint. If you hit an unexpected `UniqueViolation` in concurrent first-login, fix it by retry-on-conflict inside `get_or_create_user`, not by relaxing the schema.
+- Do not drop the `get_normalized_subject` indirection just because Auth0 tokens work without it — Google One Tap tokens need it.
+
+**Process:**
+- If you want to revert any decision here, write a new entry in this file explaining why the original reasoning no longer holds. Don't silently flip it.
+- When adding a new review pass, append a new dated section rather than editing prior entries; this is an audit log.
+
+---
+
+## 2026-04-14 — Session persistence + avatar fallback fix
+
+User reported two bugs in local dev after a successful Auth0 sign-in: (a) page reload returned them to a signed-out state, and (b) the `UserMenu` avatar never rendered despite the Auth0 dashboard showing the login and a row being created in `users_local`.
+
+### Fix 1 — `Auth0Provider` lacked session persistence
+
+`AuthProviders.tsx` constructed `<Auth0Provider>` with no `cacheLocation` or `useRefreshTokens`. `@auth0/auth0-spa-js` defaults `cacheLocation` to `'memory'` (session evaporates on reload) and `useRefreshTokens` to `false` (restore relies on the silent-auth iframe + third-party cookies, which Safari ITP blocks outright and Chrome is phasing out). Every reload = fresh login required.
+
+Added three props and one scope:
+- `cacheLocation="localstorage"` — session survives page reloads.
+- `useRefreshTokens` — `getAccessTokenSilently()` uses a refresh token instead of an iframe.
+- `useRefreshTokensFallback` — falls back to the iframe if the refresh token call fails (revoked/rotated), preventing surprise `login_required` errors.
+- `scope: 'openid profile email offline_access'` — `offline_access` is required for Auth0 to actually issue a refresh token.
+
+**Do not revert to `cacheLocation: 'memory'`** — it silently breaks reload persistence in modern browsers. The tradeoff (tokens in localStorage, XSS-readable) is accepted for this app: optional auth, low-sensitivity data, no stored-XSS surface today.
+
+**Manual dashboard step that goes with this change:** Auth0 APIs → `Job Visualizer API` → "Allow Offline Access" must be ON, otherwise `offline_access` in scope is ignored and no refresh token is issued.
+
+### Fix 2 — `UserMenu` had no ID-token fallback when backend profile is incomplete
+
+Root cause: the Auth0 Post Login Action that sets `email` / `given_name` / `family_name` / `picture` custom claims on the **access token** was deployed but not bound to the Login flow (PLAN.md Step 3 flags this — `auth0_deploy_action` via MCP cannot bind to a flow). So the access token reached the backend with `sub` + `email` only; `user_service.get_or_create_user` stored `picture_url = NULL` (and null given/family names). `UserMenu.renderAvatar()` then fell through picture → initials → `AccountCircleIcon`, which the user reads as "no avatar."
+
+`UserMenu.tsx` now prefers the backend profile but falls back to `auth0User.picture` / `given_name` / `family_name` / `email` from the Auth0 ID token (populated reliably by the `profile` scope — no action required). Fallback variables are used for the avatar, initials, and the menu-header email. The backend DB row is still the source of truth; the ID token is only used when a field is null.
+
+Scope note: this fallback is a safety net specifically for the Auth0-redirect path when the Post Login Action is misconfigured. The Google One Tap path does not populate `auth0User` (it's null for One Tap users in our `useAuth` wrapper), but One Tap ID tokens contain `picture` by default, so the backend's `picture_url` is already populated for that flow.
+
+**Do not remove the ID-token fallback** just because a correctly-bound Post Login Action makes the backend profile complete — the fallback also covers the moments between sign-in redirect and the first `GET /api/users` returning, and the case where the backend briefly 5xxs.
+
+### Files touched
+
+- `src/frontend/src/components/shared/AuthProviders.tsx` — added `cacheLocation`, `useRefreshTokens`, `useRefreshTokensFallback`, `offline_access` scope.
+- `src/frontend/src/components/layout/UserMenu.tsx` — pull `auth0User` from `useAuth()`, compute `pictureUrl` / `givenName` / `familyName` / `email` with backend → ID-token fallback, use in `renderAvatar()` and menu header.
+
+### Verified
+
+- `npm run type-check` clean.
+- `npm run lint` clean (no new warnings).
+- All 116 auth-related tests pass (`src/__tests__/features/auth`, `components/layout`, `pages/AccountPage`, `config/auth.test.ts`).
+- User confirmed local-dev session persistence and avatar rendering both work.

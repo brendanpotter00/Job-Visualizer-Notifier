@@ -1,8 +1,35 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import { GlobalAppBar } from '../../../components/layout/GlobalAppBar.tsx';
 import { APP_TITLE } from '../../../config/constants';
+
+vi.mock('../../../features/auth/useAuth', () => ({
+  useAuth: () => ({
+    isEnabled: false,
+    isAuthenticated: false,
+    isLoading: false,
+    user: null,
+    login: vi.fn(),
+    logout: vi.fn(),
+    getToken: vi.fn(),
+  }),
+}));
+
+function renderAppBar(props = {}) {
+  const defaultProps = {
+    open: false,
+    onDrawerToggle: vi.fn(),
+    drawerWidth: 240,
+    isMobile: false,
+  };
+  return render(
+    <MemoryRouter>
+      <GlobalAppBar {...defaultProps} {...props} />
+    </MemoryRouter>
+  );
+}
 
 describe('GlobalAppBar', () => {
   const mockProps = {
@@ -14,18 +41,18 @@ describe('GlobalAppBar', () => {
 
   describe('Rendering', () => {
     it(`renders app title "${APP_TITLE}"`, () => {
-      render(<GlobalAppBar {...mockProps} />);
+      renderAppBar(mockProps);
       expect(screen.getByText(APP_TITLE)).toBeInTheDocument();
     });
 
     it('renders hamburger menu button with MenuIcon', () => {
-      render(<GlobalAppBar {...mockProps} />);
+      renderAppBar(mockProps);
       const button = screen.getByLabelText('open drawer');
       expect(button).toBeInTheDocument();
     });
 
     it('AppBar has fixed positioning', () => {
-      const { container } = render(<GlobalAppBar {...mockProps} />);
+      const { container } = renderAppBar(mockProps);
       const appBar = container.querySelector('header');
       expect(appBar).toHaveClass('MuiAppBar-positionFixed');
     });
@@ -33,31 +60,31 @@ describe('GlobalAppBar', () => {
 
   describe('Button Visibility', () => {
     it('menu button visible when drawer closed (desktop)', () => {
-      render(<GlobalAppBar {...mockProps} open={false} isMobile={false} />);
+      renderAppBar({ ...mockProps, open: false, isMobile: false });
       const button = screen.getByLabelText('open drawer');
       expect(button).toBeVisible();
     });
 
     it('menu button hidden when drawer open (desktop)', () => {
-      render(<GlobalAppBar {...mockProps} open={true} isMobile={false} />);
+      renderAppBar({ ...mockProps, open: true, isMobile: false });
       const button = screen.getByLabelText('open drawer');
       expect(button).not.toBeVisible();
     });
 
     it('menu button always visible on mobile (drawer closed)', () => {
-      render(<GlobalAppBar {...mockProps} open={false} isMobile={true} />);
+      renderAppBar({ ...mockProps, open: false, isMobile: true });
       const button = screen.getByLabelText('open drawer');
       expect(button).toBeVisible();
     });
 
     it('menu button always visible on mobile (drawer open)', () => {
-      render(<GlobalAppBar {...mockProps} open={true} isMobile={true} />);
+      renderAppBar({ ...mockProps, open: true, isMobile: true });
       const button = screen.getByLabelText('open drawer');
       expect(button).toBeVisible();
     });
 
     it('button has correct aria-label', () => {
-      render(<GlobalAppBar {...mockProps} />);
+      renderAppBar(mockProps);
       expect(screen.getByLabelText('open drawer')).toBeInTheDocument();
     });
   });
@@ -67,7 +94,7 @@ describe('GlobalAppBar', () => {
       const onDrawerToggle = vi.fn();
       const user = userEvent.setup();
 
-      render(<GlobalAppBar {...mockProps} onDrawerToggle={onDrawerToggle} />);
+      renderAppBar({ ...mockProps, onDrawerToggle });
 
       const button = screen.getByLabelText('open drawer');
       await user.click(button);
@@ -79,7 +106,7 @@ describe('GlobalAppBar', () => {
       const onDrawerToggle = vi.fn();
       const user = userEvent.setup();
 
-      render(<GlobalAppBar {...mockProps} onDrawerToggle={onDrawerToggle} />);
+      renderAppBar({ ...mockProps, onDrawerToggle });
 
       const button = screen.getByLabelText('open drawer');
       button.focus();
@@ -93,22 +120,24 @@ describe('GlobalAppBar', () => {
 
   describe('Responsive Behavior', () => {
     it('AppBar full width when drawer closed', () => {
-      const { container } = render(<GlobalAppBar {...mockProps} open={false} />);
+      const { container } = renderAppBar({ ...mockProps, open: false });
       const appBar = container.querySelector('header');
       expect(appBar).not.toHaveStyle({ marginLeft: '240px' });
     });
 
     it('AppBar shifts right when drawer open', () => {
-      const { container } = render(<GlobalAppBar {...mockProps} open={true} drawerWidth={240} />);
+      const { container } = renderAppBar({ ...mockProps, open: true, drawerWidth: 240 });
       const appBar = container.querySelector('header');
       expect(appBar).toHaveStyle({ marginLeft: '240px' });
     });
 
     it('props handling works correctly', () => {
       const customDrawerWidth = 300;
-      const { container } = render(
-        <GlobalAppBar {...mockProps} open={true} drawerWidth={customDrawerWidth} />
-      );
+      const { container } = renderAppBar({
+        ...mockProps,
+        open: true,
+        drawerWidth: customDrawerWidth,
+      });
       const appBar = container.querySelector('header');
       expect(appBar).toHaveStyle({ marginLeft: `${customDrawerWidth}px` });
     });
