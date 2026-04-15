@@ -40,7 +40,7 @@ All configuration via environment variables:
 | `SCRAPER_SCRIPTS_PATH` | Path to Python scripts | `../../scripts` (local) / `/app/scripts` (Docker) |
 | `SCRAPER_PYTHON_PATH` | Python interpreter path | `python3` |
 | `DB_POOL_MIN` | Minimum database connections in pool | `1` |
-| `DB_POOL_MAX` | Maximum database connections in pool | `8` |
+| `DB_POOL_MAX` | Maximum database connections in pool | `15` |
 | `PORT` | Server port | `8080` |
 | `CORS_ORIGINS` | Comma-separated allowed origins | `http://localhost:3000,http://localhost:5173,http://localhost:8000` |
 

@@ -57,7 +57,7 @@ PYTHONPATH=. uvicorn src.backend.api.main:app --host 0.0.0.0 --port 8000 --reloa
 User selects company → `getJobsForCompany` RTK Query endpoint (src/frontend/src/features/jobs/jobsApi.ts) → Factory selects API client → Transform to normalized Job model → RTK Query cache update → Memoized selectors filter data → Components render
 
 **API Clients:**
-All four ATS providers (Greenhouse, Lever, Ashby, Workday) use `createAPIClient` factory (src/frontend/src/api/clients/baseClient.ts). Factory handles: validation, fetch, error handling, filtering, transformation, metadata calculation. Only URL building and response extraction differ per provider.
+All five ATS providers (Greenhouse, Lever, Ashby, Workday, Gem) use `createAPIClient` factory (src/frontend/src/api/clients/baseClient.ts). Factory handles: validation, fetch, error handling, filtering, transformation, metadata calculation. Only URL building and response extraction differ per provider.
 
 **Key Selectors:**
 - `selectCurrentCompanyJobs` (src/frontend/src/features/jobs/jobsSelectors.ts) - Jobs for selected company
@@ -121,6 +121,7 @@ Edit `src/frontend/src/config/companies.ts` and add company config with ATS type
 - `api/lever.ts` - Lever API proxy
 - `api/ashby.ts` - Ashby API proxy
 - `api/workday.ts` - Workday API proxy
+- `api/gem.ts` - Gem API proxy
 - `api/jobs.ts` - Backend jobs API proxy
 - `api/jobs-qa.ts` - Backend QA endpoints proxy
 
