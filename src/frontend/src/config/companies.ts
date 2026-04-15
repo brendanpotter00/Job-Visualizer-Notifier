@@ -392,6 +392,7 @@ export const COMPANIES: Company[] = [
   createAshbyCompany('braintrust', 'Braintrust', { jobBoardName: 'Braintrust' }),
   createAshbyCompany('eliseai', 'EliseAI'),
   createAshbyCompany('resolve-ai', 'Resolve AI', { jobBoardName: 'Resolve AI' }),
+  createAshbyCompany('roadrunner', 'Roadrunner', { jobBoardName: 'Roadrunner' }),
   createAshbyCompany('supabase', 'Supabase'),
   createAshbyCompany('flint', 'Flint'),
 
@@ -581,6 +582,7 @@ export const enum COMPANY_IDS {
   Ramp = 'ramp',
   Reddit = 'reddit',
   ResolveAI = 'resolve-ai',
+  Roadrunner = 'roadrunner',
   Robinhood = 'robinhood',
   Saronic = 'saronic',
   Scaleai = 'scaleai',
