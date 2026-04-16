@@ -395,6 +395,7 @@ export const COMPANIES: Company[] = [
   createAshbyCompany('mintlify', 'Mintlify', { jobBoardName: 'Mintlify' }),
   createAshbyCompany('roadrunner', 'Roadrunner', { jobBoardName: 'Roadrunner' }),
   createAshbyCompany('supabase', 'Supabase'),
+  createAshbyCompany('wispr-flow', 'Wispr Flow', { jobBoardName: 'wispr-flow' }),
   createAshbyCompany('flint', 'Flint'),
 
   // Gem companies
@@ -609,6 +610,7 @@ export const enum COMPANY_IDS {
   Unity = 'unity3d',
   Vercel = 'vercel',
   Waymo = 'waymo',
+  WisprFlow = 'wispr-flow',
   Xai = 'xai',
   Zoox = 'zoox',
 }
