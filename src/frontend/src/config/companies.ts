@@ -392,7 +392,10 @@ export const COMPANIES: Company[] = [
   createAshbyCompany('braintrust', 'Braintrust', { jobBoardName: 'Braintrust' }),
   createAshbyCompany('eliseai', 'EliseAI'),
   createAshbyCompany('resolve-ai', 'Resolve AI', { jobBoardName: 'Resolve AI' }),
+  createAshbyCompany('mintlify', 'Mintlify', { jobBoardName: 'Mintlify' }),
+  createAshbyCompany('roadrunner', 'Roadrunner', { jobBoardName: 'Roadrunner' }),
   createAshbyCompany('supabase', 'Supabase'),
+  createAshbyCompany('wispr-flow', 'Wispr Flow', { jobBoardName: 'wispr-flow' }),
   createAshbyCompany('flint', 'Flint'),
 
   // Gem companies
@@ -564,6 +567,7 @@ export const enum COMPANY_IDS {
   Lyft = 'lyft',
   Merge = 'merge',
   Microsoft = 'microsoft',
+  Mintlify = 'mintlify',
   MongoDB = 'mongodb',
   Netflix = 'netflix',
   Neuralink = 'neuralink',
@@ -581,6 +585,7 @@ export const enum COMPANY_IDS {
   Ramp = 'ramp',
   Reddit = 'reddit',
   ResolveAI = 'resolve-ai',
+  Roadrunner = 'roadrunner',
   Robinhood = 'robinhood',
   Saronic = 'saronic',
   Scaleai = 'scaleai',
@@ -605,6 +610,7 @@ export const enum COMPANY_IDS {
   Unity = 'unity3d',
   Vercel = 'vercel',
   Waymo = 'waymo',
+  WisprFlow = 'wispr-flow',
   Xai = 'xai',
   Zoox = 'zoox',
 }
