@@ -91,7 +91,9 @@ const BYPASS_USER: User = {
 function useAuthBypass(): AuthResult {
   return {
     isEnabled: true,
-    isAuthenticated: true,
+    // TEMP: flipped to `false` so Preview deploys render the signed-out UI
+    // (including the SignInOverlay on job lists). Revert to `true` before merge.
+    isAuthenticated: false,
     isLoading: false,
     user: BYPASS_USER,
     login: async () => {
