@@ -79,15 +79,15 @@ pip install -r scripts/requirements-dev.txt      # Install dev dependencies (tes
 **Shared Modules:**
 - `shared/base_scraper.py` - Abstract base class for all company scrapers (~267 lines)
 - `shared/database.py` - PostgreSQL database layer with CRUD operations (~571 lines)
-- `shared/incremental.py` - 5-phase incremental scraping algorithm (~275 lines)
+- `shared/incremental.py` - 5-phase incremental scraping algorithm (~301 lines)
 - `shared/models.py` - Database-aligned Pydantic models (JobListing, ScrapeRun) (~62 lines)
 - `shared/batch_writer.py` - Buffered batch writing utility (~157 lines)
 - `shared/utils.py` - Shared utilities (timestamps) (~13 lines)
 
 **Testing:**
 - `tests/conftest.py` - Shared pytest fixtures
-- `tests/unit/` - Unit tests (7 files)
-- `tests/integration/` - Integration tests (4 files)
+- `tests/unit/` - Unit tests (11 files)
+- `tests/integration/` - Integration tests (9 files)
 - `pytest.ini` - Test configuration
 
 **Data Flow:**
@@ -239,8 +239,8 @@ Edit company-specific `config.py`:
 - `scripts/run_scraper.py` - Multi-company CLI (JSON/Database modes)
 
 **Google-Specific:**
-- Main Logic: `scripts/google_jobs_scraper/scraper.py` (~350 lines, extends BaseScraper)
-- HTML Parsing: `scripts/google_jobs_scraper/parser.py` (~400 lines)
+- Main Logic: `scripts/google_jobs_scraper/scraper.py` (~260 lines, extends BaseScraper)
+- HTML Parsing: `scripts/google_jobs_scraper/parser.py` (~324 lines)
 - Data Models: `scripts/google_jobs_scraper/models.py`
 - Configuration: `scripts/google_jobs_scraper/config.py`
 - CLI Orchestration: `scripts/google_jobs_scraper/main.py` (JSON mode)
@@ -254,14 +254,14 @@ Edit company-specific `config.py`:
 
 **Microsoft-Specific:**
 - Main Logic: `scripts/microsoft_jobs_scraper/scraper.py` (~370 lines, extends BaseScraper)
-- HTML Parsing: `scripts/microsoft_jobs_scraper/parser.py` (~215 lines)
-- API Client: `scripts/microsoft_jobs_scraper/api_client.py` (~300 lines)
+- HTML Parsing: `scripts/microsoft_jobs_scraper/parser.py` (~279 lines)
+- API Client: `scripts/microsoft_jobs_scraper/api_client.py` (~358 lines)
 - Configuration: `scripts/microsoft_jobs_scraper/config.py` (~77 lines)
 
 **Shared Modules:**
 - Abstract Base: `scripts/shared/base_scraper.py` (~267 lines)
 - Database Layer: `scripts/shared/database.py` (~571 lines)
-- Incremental Algorithm: `scripts/shared/incremental.py` (~275 lines)
+- Incremental Algorithm: `scripts/shared/incremental.py` (~301 lines)
 - Data Models: `scripts/shared/models.py` (~62 lines)
 - Batch Writer: `scripts/shared/batch_writer.py` (~157 lines)
 - Utilities: `scripts/shared/utils.py` (~13 lines)
@@ -269,21 +269,27 @@ Edit company-specific `config.py`:
 **Testing:**
 - Test Config: `scripts/pytest.ini`
 - Fixtures: `scripts/tests/conftest.py`
-- Unit Tests (9 files):
+- Unit Tests (11 files):
   - `tests/unit/test_models.py`
   - `tests/unit/test_utils.py`
   - `tests/unit/test_parser_helpers.py`
   - `tests/unit/test_incremental_diff.py`
   - `tests/unit/test_batch_writer.py`
   - `tests/unit/test_apple_parser.py`
+  - `tests/unit/test_apple_parser_mocked.py`
   - `tests/unit/test_apple_api_client.py`
   - `tests/unit/test_microsoft_parser.py`
   - `tests/unit/test_microsoft_api_client.py`
-- Integration Tests (5 files):
+  - `tests/unit/test_microsoft_scraper_methods.py`
+- Integration Tests (9 files):
   - `tests/integration/test_database.py`
   - `tests/integration/test_incremental.py`
   - `tests/integration/test_apple_scraper.py`
+  - `tests/integration/test_apple_scraper_async.py`
+  - `tests/integration/test_apple_detail_fetch.py`
   - `tests/integration/test_microsoft_scraper.py`
+  - `tests/integration/test_microsoft_scraper_async.py`
+  - `tests/integration/test_microsoft_detail_fetch.py`
   - `tests/integration/test_scraper_transform.py`
 
 **Output:**
