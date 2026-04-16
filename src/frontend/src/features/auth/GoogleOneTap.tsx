@@ -1,4 +1,5 @@
 import { useGoogleOneTapLogin } from '@react-oauth/google';
+import { AUTH_CONFIG } from '../../config/auth';
 import { useAuth } from './useAuth';
 import { useGoogleCredential } from './useGoogleCredential';
 
@@ -21,7 +22,7 @@ export function GoogleOneTap() {
     // with localStorage persistence in GoogleCredentialContext, this keeps
     // users logged in well beyond the ~1h Google ID token lifetime.
     auto_select: true,
-    disabled: !isEnabled || isAuthenticated || isLoading,
+    disabled: !isEnabled || !AUTH_CONFIG.googleClientId || isAuthenticated || isLoading,
   });
 
   return null;

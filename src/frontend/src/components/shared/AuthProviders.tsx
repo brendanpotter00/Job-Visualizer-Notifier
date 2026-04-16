@@ -3,8 +3,15 @@ import { GoogleOAuthProvider } from '@react-oauth/google';
 import { Auth0Provider } from '@auth0/auth0-react';
 import { AUTH_CONFIG } from '../../config/auth';
 import { GoogleCredentialProvider } from '../../features/auth/GoogleCredentialContext';
+import { GoogleOneTap } from '../../features/auth/GoogleOneTap';
 
 export function AuthProviders({ children }: { children: React.ReactNode }) {
+  // Bypass short-circuits above real providers: dynamic preview URLs can't
+  // complete real OAuth callbacks, and mounting Auth0Provider / GoogleOAuthProvider
+  // with empty clientIds throws. useAuth module-dispatches to a fake impl.
+  if (AUTH_CONFIG.bypassEnabled) {
+    return <>{children}</>;
+  }
   if (!AUTH_CONFIG.isEnabled) {
     return <>{children}</>;
   }
@@ -22,7 +29,10 @@ export function AuthProviders({ children }: { children: React.ReactNode }) {
           scope: 'openid profile email offline_access',
         }}
       >
-        <GoogleCredentialProvider>{children}</GoogleCredentialProvider>
+        <GoogleCredentialProvider>
+          <GoogleOneTap />
+          {children}
+        </GoogleCredentialProvider>
       </Auth0Provider>
     </GoogleOAuthProvider>
   );

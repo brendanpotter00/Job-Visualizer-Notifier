@@ -7,7 +7,6 @@ import { WhyPage } from '../pages/WhyPage/WhyPage.tsx';
 import { AccountPage } from '../pages/AccountPage/AccountPage.tsx';
 import { ROUTES } from '../config/routes';
 import { QAPage } from '../pages/QAPage/QAPage.tsx';
-import { GoogleOneTap } from '../features/auth/GoogleOneTap';
 
 /**
  * App content component with routing and hooks
@@ -22,7 +21,6 @@ function AppContent() {
 
   return (
     <>
-      <GoogleOneTap />
       <Routes>
         <Route path="/" element={<RootLayout />}>
           <Route index element={<RecentJobPostingsPage />} />
