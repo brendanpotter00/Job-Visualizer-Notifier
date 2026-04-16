@@ -10,6 +10,7 @@ let mockAuthConfig = {
   audience: 'test-audience',
   googleClientId: 'test-google-client-id',
   isEnabled: true,
+  bypassEnabled: false,
 };
 
 vi.mock('../../../config/auth', () => ({
@@ -52,6 +53,7 @@ describe('AuthProviders', () => {
       audience: 'test-audience',
       googleClientId: 'test-google-client-id',
       isEnabled: true,
+      bypassEnabled: false,
     };
   });
 
@@ -68,6 +70,26 @@ describe('AuthProviders', () => {
     // Key invariant: GoogleOneTap must NOT mount outside its GoogleOAuthProvider.
     expect(screen.queryByTestId('google-one-tap-rendered')).not.toBeInTheDocument();
     expect(screen.queryByTestId('google-oauth-provider')).not.toBeInTheDocument();
+    expect(screen.getByText('child')).toBeInTheDocument();
+  });
+
+  it('short-circuits above real providers in bypass mode (no GoogleOneTap, no Auth0)', async () => {
+    mockAuthConfig.bypassEnabled = true;
+    // isEnabled could be either value in bypass — bypass takes precedence.
+    mockAuthConfig.isEnabled = true;
+    const { AuthProviders } = await import('../../../components/shared/AuthProviders');
+
+    render(
+      <AuthProviders>
+        <div>child</div>
+      </AuthProviders>
+    );
+
+    // In bypass mode, real providers must NOT mount — preview URLs can't
+    // complete OAuth and empty clientIds would throw.
+    expect(screen.queryByTestId('google-oauth-provider')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('auth0-provider')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('google-one-tap-rendered')).not.toBeInTheDocument();
     expect(screen.getByText('child')).toBeInTheDocument();
   });
 

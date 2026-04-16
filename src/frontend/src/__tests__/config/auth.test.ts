@@ -65,4 +65,28 @@ describe('AUTH_CONFIG', () => {
     expect(AUTH_CONFIG.redirectUri).toBe('http://localhost:3000');
     vi.unstubAllEnvs();
   });
+
+  it('bypassEnabled is true when VITE_AUTH_BYPASS is "true"', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.stubEnv('VITE_AUTH_BYPASS', 'true');
+    const { AUTH_CONFIG } = await import('../../config/auth');
+    expect(AUTH_CONFIG.bypassEnabled).toBe(true);
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('VITE_AUTH_BYPASS is ON'));
+    vi.unstubAllEnvs();
+    warnSpy.mockRestore();
+  });
+
+  it('bypassEnabled is false when VITE_AUTH_BYPASS is unset', async () => {
+    vi.stubEnv('VITE_AUTH_BYPASS', '');
+    const { AUTH_CONFIG } = await import('../../config/auth');
+    expect(AUTH_CONFIG.bypassEnabled).toBe(false);
+    vi.unstubAllEnvs();
+  });
+
+  it('bypassEnabled only accepts "true" exactly (not "1", "yes", etc.)', async () => {
+    vi.stubEnv('VITE_AUTH_BYPASS', '1');
+    const { AUTH_CONFIG } = await import('../../config/auth');
+    expect(AUTH_CONFIG.bypassEnabled).toBe(false);
+    vi.unstubAllEnvs();
+  });
 });

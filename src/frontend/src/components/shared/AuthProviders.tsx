@@ -6,6 +6,12 @@ import { GoogleCredentialProvider } from '../../features/auth/GoogleCredentialCo
 import { GoogleOneTap } from '../../features/auth/GoogleOneTap';
 
 export function AuthProviders({ children }: { children: React.ReactNode }) {
+  // Bypass short-circuits above real providers: dynamic preview URLs can't
+  // complete real OAuth callbacks, and mounting Auth0Provider / GoogleOAuthProvider
+  // with empty clientIds throws. useAuth module-dispatches to a fake impl.
+  if (AUTH_CONFIG.bypassEnabled) {
+    return <>{children}</>;
+  }
   if (!AUTH_CONFIG.isEnabled) {
     return <>{children}</>;
   }
