@@ -42,3 +42,23 @@ export const INFINITE_SCROLL_CONFIG = {
    */
   SCROLL_DEBOUNCE_MS: 100,
 } as const;
+
+/**
+ * Configuration for the SignInOverlay shown on job lists when signed out.
+ * Purpose: limit visible jobs to encourage sign-up while still providing a preview.
+ */
+export const SIGN_IN_OVERLAY_CONFIG = {
+  /**
+   * Number of jobs to show on the companies page list when the user is signed out.
+   * The recent jobs page reuses INFINITE_SCROLL_CONFIG.INITIAL_BATCH_SIZE (50) as its
+   * signed-out limit since that is already the initial render size.
+   */
+  COMPANIES_PAGE_SIGNED_OUT_LIMIT: 10,
+
+  /**
+   * Height (in pixels) of the gradient fade that sits above the CTA.
+   * The gradient transitions from transparent to the container background color
+   * so the last visible jobs appear to fade into the page.
+   */
+  GRADIENT_HEIGHT: 120,
+} as const;
