@@ -3,6 +3,7 @@ import { GoogleOAuthProvider } from '@react-oauth/google';
 import { Auth0Provider } from '@auth0/auth0-react';
 import { AUTH_CONFIG } from '../../config/auth';
 import { GoogleCredentialProvider } from '../../features/auth/GoogleCredentialContext';
+import { GoogleOneTap } from '../../features/auth/GoogleOneTap';
 
 export function AuthProviders({ children }: { children: React.ReactNode }) {
   if (!AUTH_CONFIG.isEnabled) {
@@ -22,7 +23,10 @@ export function AuthProviders({ children }: { children: React.ReactNode }) {
           scope: 'openid profile email offline_access',
         }}
       >
-        <GoogleCredentialProvider>{children}</GoogleCredentialProvider>
+        <GoogleCredentialProvider>
+          <GoogleOneTap />
+          {children}
+        </GoogleCredentialProvider>
       </Auth0Provider>
     </GoogleOAuthProvider>
   );
