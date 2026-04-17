@@ -9,7 +9,7 @@ import { BackToTopButton } from './BackToTopButton';
 import { EmptyJobListState } from '../../shared/EmptyJobListState.tsx';
 import { SignInOverlay } from '../../shared/SignInOverlay.tsx';
 import { useInfiniteScroll } from '../../../hooks/useInfiniteScroll.ts';
-import { INFINITE_SCROLL_CONFIG } from '../../../constants/ui.ts';
+import { INFINITE_SCROLL_CONFIG, SIGN_IN_OVERLAY_CONFIG } from '../../../constants/ui.ts';
 import { EMPTY_STATE_MESSAGES } from '../../../constants/messages.ts';
 import { useAuth } from '../../../features/auth/useAuth.ts';
 
@@ -18,9 +18,9 @@ import { useAuth } from '../../../features/auth/useAuth.ts';
  * Features infinite scrolling to improve performance with large job lists
  * Shows empty state when no jobs match filters
  *
- * When the user is signed out, infinite scroll is disabled: only the initial
- * batch (INITIAL_BATCH_SIZE) is rendered and a SignInOverlay is shown below
- * to prompt sign-up.
+ * When the user is signed out the list is capped at
+ * SIGN_IN_OVERLAY_CONFIG.SIGNED_OUT_JOB_LIMIT and infinite scroll is disabled;
+ * a SignInOverlay is shown below to prompt sign-up.
  */
 export function RecentJobsList() {
   const jobs = useAppSelector(selectRecentJobsSorted);
@@ -31,11 +31,15 @@ export function RecentJobsList() {
   );
   const [isLoadingMore, setIsLoadingMore] = useState(false);
 
-  // When signed out, gate infinite scroll so users can't load beyond the initial batch.
-  // Since displayedCount starts at INITIAL_BATCH_SIZE and hasMore is forced false, the
-  // IntersectionObserver sentinel never renders and loadMore is never triggered.
+  // When signed out, cap visible jobs at SIGNED_OUT_JOB_LIMIT regardless of
+  // displayedCount; hasMore is forced false so the IntersectionObserver
+  // sentinel never renders and loadMore is never triggered.
+  const effectiveCount = isSignedOut
+    ? SIGN_IN_OVERLAY_CONFIG.SIGNED_OUT_JOB_LIMIT
+    : displayedCount;
   const hasMore = !isSignedOut && displayedCount < jobs.length;
-  const showSignInOverlay = isSignedOut && jobs.length > INFINITE_SCROLL_CONFIG.INITIAL_BATCH_SIZE;
+  const showSignInOverlay =
+    isSignedOut && jobs.length > SIGN_IN_OVERLAY_CONFIG.SIGNED_OUT_JOB_LIMIT;
 
   // Load more jobs callback
   const loadMore = useCallback(() => {
@@ -67,7 +71,7 @@ export function RecentJobsList() {
   }, [jobs.length]);
 
   // Memoize displayed jobs slice
-  const displayedJobs = useMemo(() => jobs.slice(0, displayedCount), [jobs, displayedCount]);
+  const displayedJobs = useMemo(() => jobs.slice(0, effectiveCount), [jobs, effectiveCount]);
 
   // Empty state
   if (jobs.length === 0) {

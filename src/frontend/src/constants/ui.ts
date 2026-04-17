@@ -49,11 +49,11 @@ export const INFINITE_SCROLL_CONFIG = {
  */
 export const SIGN_IN_OVERLAY_CONFIG = {
   /**
-   * Number of jobs to show on the companies page list when the user is signed out.
-   * The recent jobs page reuses INFINITE_SCROLL_CONFIG.INITIAL_BATCH_SIZE (50) as its
-   * signed-out limit since that is already the initial render size.
+   * Maximum number of jobs a signed-out visitor can see on any list before the
+   * SignInOverlay takes over. Applies uniformly to the recent jobs page, the
+   * companies page list, and the graph-bucket modal.
    */
-  COMPANIES_PAGE_SIGNED_OUT_LIMIT: 10,
+  SIGNED_OUT_JOB_LIMIT: 3,
 
   /**
    * Height (in pixels) of the gradient fade that sits above the CTA.

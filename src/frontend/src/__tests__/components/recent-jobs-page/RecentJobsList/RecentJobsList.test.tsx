@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { configureStore } from '@reduxjs/toolkit';
 import { RecentJobsList } from '../../../../components/recent-jobs-page/RecentJobsList/RecentJobsList';
-import { INFINITE_SCROLL_CONFIG } from '../../../../constants/ui';
+import { INFINITE_SCROLL_CONFIG, SIGN_IN_OVERLAY_CONFIG } from '../../../../constants/ui';
 import { SIGN_IN_OVERLAY_MESSAGES } from '../../../../constants/messages';
 import type { Job } from '../../../../types';
 import * as recentJobsSelectors from '../../../../features/filters/selectors/recentJobsSelectors';
@@ -289,8 +289,8 @@ describe('RecentJobsList', () => {
       ).toBeInTheDocument();
     });
 
-    it('does not show the SignInOverlay when all jobs fit in the initial batch', () => {
-      const jobs = createMockJobs(INFINITE_SCROLL_CONFIG.INITIAL_BATCH_SIZE);
+    it('does not show the SignInOverlay when all jobs fit under the signed-out cap', () => {
+      const jobs = createMockJobs(SIGN_IN_OVERLAY_CONFIG.SIGNED_OUT_JOB_LIMIT);
       vi.mocked(recentJobsSelectors.selectRecentJobsSorted).mockReturnValue(jobs);
 
       const store = createMockStore();
@@ -324,7 +324,7 @@ describe('RecentJobsList', () => {
       expect(sentinelInStack).not.toBeInTheDocument();
     });
 
-    it('caps rendered jobs at the initial batch size when signed out', () => {
+    it('caps rendered jobs at the signed-out job limit when signed out', () => {
       const jobs = createMockJobs(200);
       vi.mocked(recentJobsSelectors.selectRecentJobsSorted).mockReturnValue(jobs);
 
@@ -337,7 +337,7 @@ describe('RecentJobsList', () => {
       );
 
       const jobCards = screen.getAllByText(/Software Engineer/);
-      expect(jobCards.length).toBe(INFINITE_SCROLL_CONFIG.INITIAL_BATCH_SIZE);
+      expect(jobCards.length).toBe(SIGN_IN_OVERLAY_CONFIG.SIGNED_OUT_JOB_LIMIT);
     });
 
     it('does not show the SignInOverlay when auth is disabled', () => {
