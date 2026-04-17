@@ -12,10 +12,10 @@ import { SIGN_IN_OVERLAY_CONFIG } from '../../../constants/ui.ts';
  * Job list section with filters.
  *
  * When the user is signed out, the list is capped at
- * SIGN_IN_OVERLAY_CONFIG.COMPANIES_PAGE_SIGNED_OUT_LIMIT and a SignInOverlay is
- * shown to prompt sign-up. Because this section lives inside a `<Paper>`, the
- * overlay uses the `'paper'` background variant so its gradient fades to the
- * same color as the surrounding container.
+ * SIGN_IN_OVERLAY_CONFIG.SIGNED_OUT_JOB_LIMIT and a SignInOverlay is shown to
+ * prompt sign-up. Because this section lives inside a `<Paper>`, the overlay
+ * uses the `'paper'` background variant so its gradient fades to the same
+ * color as the surrounding container.
  */
 export function ListSection() {
   const jobs = useAppSelector(selectListFilteredJobs);
@@ -24,10 +24,10 @@ export function ListSection() {
 
   const isSignedOut = isEnabled && !isAuthenticated;
   const visibleJobs = isSignedOut
-    ? jobs.slice(0, SIGN_IN_OVERLAY_CONFIG.COMPANIES_PAGE_SIGNED_OUT_LIMIT)
+    ? jobs.slice(0, SIGN_IN_OVERLAY_CONFIG.SIGNED_OUT_JOB_LIMIT)
     : jobs;
   const showSignInOverlay =
-    isSignedOut && jobs.length > SIGN_IN_OVERLAY_CONFIG.COMPANIES_PAGE_SIGNED_OUT_LIMIT;
+    isSignedOut && jobs.length > SIGN_IN_OVERLAY_CONFIG.SIGNED_OUT_JOB_LIMIT;
 
   return (
     <Paper sx={{ p: { xs: 2, sm: 3 } }}>

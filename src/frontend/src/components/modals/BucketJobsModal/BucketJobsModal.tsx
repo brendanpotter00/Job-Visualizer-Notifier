@@ -14,10 +14,18 @@ import { useMemo } from 'react';
 import { useAppDispatch, useAppSelector } from '../../../app/hooks';
 import { closeGraphModal } from '../../../features/ui/uiSlice';
 import { JobList } from '../../companies-page/JobList/JobList.tsx';
+import { SignInOverlay } from '../../shared/SignInOverlay.tsx';
 import { selectCurrentCompanyJobsRtk } from '../../../features/jobs/jobsSelectors';
+import { useAuth } from '../../../features/auth/useAuth.ts';
+import { SIGN_IN_OVERLAY_CONFIG } from '../../../constants/ui.ts';
 
 /**
- * Modal displaying jobs from a clicked time bucket
+ * Modal displaying jobs from a clicked time bucket.
+ *
+ * When the user is signed out, the list is capped at
+ * SIGN_IN_OVERLAY_CONFIG.SIGNED_OUT_JOB_LIMIT and a SignInOverlay is rendered
+ * inside the dialog. MUI Dialog uses a `Paper` surface, so the overlay uses
+ * the `'paper'` background variant to match.
  */
 export function BucketJobsModal() {
   const dispatch = useAppDispatch();
@@ -28,6 +36,7 @@ export function BucketJobsModal() {
     (state) => state.ui.graphModal
   );
   const allJobs = useAppSelector(selectCurrentCompanyJobsRtk);
+  const { isAuthenticated, isEnabled } = useAuth();
 
   const handleClose = () => {
     dispatch(closeGraphModal());
@@ -38,6 +47,13 @@ export function BucketJobsModal() {
     () => allJobs.filter((job) => filteredJobIds?.includes(job.id)),
     [allJobs, filteredJobIds]
   );
+
+  const isSignedOut = isEnabled && !isAuthenticated;
+  const visibleJobs = isSignedOut
+    ? bucketJobs.slice(0, SIGN_IN_OVERLAY_CONFIG.SIGNED_OUT_JOB_LIMIT)
+    : bucketJobs;
+  const showSignInOverlay =
+    isSignedOut && bucketJobs.length > SIGN_IN_OVERLAY_CONFIG.SIGNED_OUT_JOB_LIMIT;
 
   // Don't render if modal is not open or data is missing
   if (!open || !bucketStart || !bucketEnd) {
@@ -72,7 +88,15 @@ export function BucketJobsModal() {
         </Box>
       </DialogTitle>
       <DialogContent>
-        <JobList jobs={bucketJobs} isLoading={false} />
+        <Box
+          sx={{
+            position: 'relative',
+            ...(showSignInOverlay && { overflow: 'hidden' }),
+          }}
+        >
+          <JobList jobs={visibleJobs} isLoading={false} />
+          {showSignInOverlay && <SignInOverlay background="paper" />}
+        </Box>
       </DialogContent>
     </Dialog>
   );
