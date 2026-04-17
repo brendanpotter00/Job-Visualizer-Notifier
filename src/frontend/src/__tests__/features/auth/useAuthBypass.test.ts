@@ -35,9 +35,7 @@ describe('useAuth (bypass mode)', () => {
     const { result } = renderHook(() => useAuth());
 
     expect(result.current.isEnabled).toBe(true);
-    // TEMP: bypass isAuthenticated flipped to `false` for Preview screenshots
-    // of the signed-out UI. Revert along with the useAuth.ts change.
-    expect(result.current.isAuthenticated).toBe(false);
+    expect(result.current.isAuthenticated).toBe(true);
     expect(result.current.isLoading).toBe(false);
     expect(result.current.user).toEqual(
       expect.objectContaining({
