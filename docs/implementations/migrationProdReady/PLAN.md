@@ -171,7 +171,7 @@ This unit is a gate, not a code change. Run the commands, read the consumers of 
 
 ### Unit 5 — Deploy runbook, rollback doc, and PR description
 
-**Status:** TODO
+**Status:** DONE
 
 **Prerequisites:** Unit 4
 
