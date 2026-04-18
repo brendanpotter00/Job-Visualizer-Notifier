@@ -58,7 +58,7 @@ Frozen for all units below. Do not edit these in one unit and change them in ano
 
 ### Unit 1 — Harden the migration runner for production deploys
 
-**Status:** TODO
+**Status:** DONE
 
 **Prerequisites:** none
 

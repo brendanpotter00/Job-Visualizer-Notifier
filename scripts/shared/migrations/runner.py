@@ -52,17 +52,35 @@ def _advisory_lock_key(env: str) -> int:
     return int.from_bytes(digest[:8], "big", signed=True)
 
 
+# Bound the advisory-lock acquire so a stuck peer can't freeze a Railway deploy
+# indefinitely. 30s is enough to wait out a slow peer migration, short enough
+# that a genuine deadlock surfaces as a pod crashloop that operators can see.
+_ADVISORY_LOCK_TIMEOUT = "30s"
+
+# Per-migration ceiling. ALTER COLUMN TYPE rewrites tables and can be slow on
+# large tables, but should never take 5 minutes on our scale. Timing out here
+# yields a named migration in the traceback instead of a silent hang.
+_MIGRATION_STATEMENT_TIMEOUT = "300s"
+
+
 @contextmanager
 def _advisory_lock(conn: Connection, env: str):
     """Serialize migration runs across processes/instances for this env."""
     key = _advisory_lock_key(env)
     cursor = conn.cursor()
+    # SET LOCAL requires an active transaction; psycopg2 starts one implicitly
+    # on first statement. Scoped to this transaction so we don't poison other
+    # connections sharing the pool.
+    cursor.execute(f"SET LOCAL lock_timeout = '{_ADVISORY_LOCK_TIMEOUT}'")
+    logger.info("Waiting for migration advisory lock env=%s key=%s", env, key)
     cursor.execute("SELECT pg_advisory_lock(%s)", (key,))
+    logger.info("Acquired migration advisory lock env=%s key=%s", env, key)
     try:
         yield
     finally:
         cursor.execute("SELECT pg_advisory_unlock(%s)", (key,))
         conn.commit()
+        logger.info("Released migration advisory lock env=%s", env)
 
 
 @dataclass(frozen=True)
@@ -149,6 +167,9 @@ def migrate_up(conn: Connection, env: str) -> List[int]:
     with _advisory_lock(conn, env):
         applied = get_applied_versions(conn, env)
         migrations = discover_migrations()
+        pending = [m.version for m in migrations if m.version not in applied]
+        if pending:
+            logger.info("Pending migrations env=%s: %s", env, pending)
         newly_applied: List[int] = []
 
         for migration in migrations:
@@ -156,8 +177,13 @@ def migrate_up(conn: Connection, env: str) -> List[int]:
                 continue
             logger.info(f"Applying migration {migration.label} (env={env})")
             try:
-                migration.upgrade(conn, env)
                 cursor = conn.cursor()
+                # Bound each migration's own work. SET LOCAL scopes to the
+                # implicit transaction, cleared by the commit below.
+                cursor.execute(
+                    f"SET LOCAL statement_timeout = '{_MIGRATION_STATEMENT_TIMEOUT}'"
+                )
+                migration.upgrade(conn, env)
                 cursor.execute(
                     f"INSERT INTO {table} (version, name) VALUES (%s, %s)",
                     (migration.version, migration.name),

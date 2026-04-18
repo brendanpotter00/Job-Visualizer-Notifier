@@ -7,6 +7,7 @@ to mock — keeping the test close to production behavior is worth the extra
 setup.
 """
 
+import logging
 import sys
 from pathlib import Path
 
@@ -93,3 +94,22 @@ class TestMigrateDown:
         runner.migrate_down(postgres_db, test_env, target_version=0)
         applied = runner.get_applied_versions(postgres_db, test_env)
         assert applied == set()
+
+
+class TestAdvisoryLockLogging:
+    """Confirm operators can see lock acquire/release in Railway logs."""
+
+    def test_acquire_and_release_are_logged(self, postgres_db, test_env, caplog):
+        # The fixture has already applied migrations, so calling migrate_up
+        # again wouldn't emit a pending-plan line. Roll back one and reapply
+        # so we exercise the full locked path with work to do.
+        runner.migrate_down(postgres_db, test_env, target_version=1)
+        caplog.clear()
+
+        with caplog.at_level(logging.INFO, logger="scripts.shared.migrations.runner"):
+            runner.migrate_up(postgres_db, test_env)
+
+        messages = [record.getMessage() for record in caplog.records]
+        assert any("Acquired migration advisory lock" in m for m in messages), messages
+        assert any("Released migration advisory lock" in m for m in messages), messages
+        assert any(f"Pending migrations env={test_env}" in m for m in messages), messages
