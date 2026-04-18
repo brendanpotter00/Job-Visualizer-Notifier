@@ -5,15 +5,18 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from pydantic.alias_generators import to_camel
 
-# Shared validation pattern for company name query parameters
+# Shared validation pattern for company name query parameters.
+# Backend-scraped companies only (google, apple, microsoft) — no dots needed.
 COMPANY_PATTERN = r"^[a-zA-Z0-9_-]+$"
 
-# Reusable constrained company-id type: same alphabet as COMPANY_PATTERN,
-# 1-64 chars. Rejects empty strings, path traversal, and runaway sizes at
-# the Pydantic boundary before requests reach the DB layer.
+# Pattern for frontend company IDs stored in user preferences. Allows interior
+# dots so IDs like ``happyrobot.ai`` round-trip, but still rejects leading/
+# trailing dots and ``..`` — no path-traversal shapes reach the DB layer.
+ENABLED_COMPANY_ID_PATTERN = r"^[a-zA-Z0-9_-]+(\.[a-zA-Z0-9_-]+)*$"
+
 CompanyId = Annotated[
     str,
-    StringConstraints(pattern=COMPANY_PATTERN, min_length=1, max_length=64),
+    StringConstraints(pattern=ENABLED_COMPANY_ID_PATTERN, min_length=1, max_length=64),
 ]
 
 
