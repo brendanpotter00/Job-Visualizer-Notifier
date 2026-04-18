@@ -78,7 +78,7 @@ pip install -r scripts/requirements-dev.txt      # Install dev dependencies (tes
 
 **Shared Modules:**
 - `shared/base_scraper.py` - Abstract base class for all company scrapers (~267 lines)
-- `shared/database.py` - PostgreSQL database layer with CRUD operations (~571 lines)
+- `shared/database.py` - PostgreSQL database layer with CRUD operations (~605 lines)
 - `shared/incremental.py` - 5-phase incremental scraping algorithm (~301 lines)
 - `shared/models.py` - Database-aligned Pydantic models (JobListing, ScrapeRun) (~62 lines)
 - `shared/batch_writer.py` - Buffered batch writing utility (~157 lines)
@@ -247,20 +247,20 @@ Edit company-specific `config.py`:
 - Utilities: `scripts/google_jobs_scraper/utils.py`
 
 **Apple-Specific:**
-- Main Logic: `scripts/apple_jobs_scraper/scraper.py` (~372 lines, extends BaseScraper)
-- HTML Parsing: `scripts/apple_jobs_scraper/parser.py` (~215 lines)
+- Main Logic: `scripts/apple_jobs_scraper/scraper.py` (~378 lines, extends BaseScraper)
+- HTML Parsing: `scripts/apple_jobs_scraper/parser.py` (~217 lines)
 - API Client: `scripts/apple_jobs_scraper/api_client.py` (~201 lines)
 - Configuration: `scripts/apple_jobs_scraper/config.py` (~77 lines)
 
 **Microsoft-Specific:**
-- Main Logic: `scripts/microsoft_jobs_scraper/scraper.py` (~370 lines, extends BaseScraper)
+- Main Logic: `scripts/microsoft_jobs_scraper/scraper.py` (~376 lines, extends BaseScraper)
 - HTML Parsing: `scripts/microsoft_jobs_scraper/parser.py` (~279 lines)
 - API Client: `scripts/microsoft_jobs_scraper/api_client.py` (~358 lines)
-- Configuration: `scripts/microsoft_jobs_scraper/config.py` (~77 lines)
+- Configuration: `scripts/microsoft_jobs_scraper/config.py` (~68 lines)
 
 **Shared Modules:**
 - Abstract Base: `scripts/shared/base_scraper.py` (~267 lines)
-- Database Layer: `scripts/shared/database.py` (~571 lines)
+- Database Layer: `scripts/shared/database.py` (~605 lines)
 - Incremental Algorithm: `scripts/shared/incremental.py` (~301 lines)
 - Data Models: `scripts/shared/models.py` (~62 lines)
 - Batch Writer: `scripts/shared/batch_writer.py` (~157 lines)

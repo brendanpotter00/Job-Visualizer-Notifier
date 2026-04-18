@@ -51,6 +51,7 @@ Six ATS providers (Greenhouse, Lever, Ashby, Workday, Gem, Backend-Scraper) are 
 - `/companies` - Company Job Postings (pages/CompaniesPage/CompaniesPage.tsx) - Per-company job visualization with graph
 - `/why` - Why This Was Built (pages/WhyPage/WhyPage.tsx) - About page
 - `/qa` - QA (pages/QAPage/QAPage.tsx) - Admin page for triggering scrapers, viewing scrape runs, and debugging
+- `/account` - Account (pages/AccountPage/AccountPage.tsx)
 
 **Key Algorithms:**
 - Time Bucketing: lib/timeBucketing.ts (dynamic bucket sizing for graph visualization)
@@ -87,7 +88,7 @@ Edit `config/companies.ts` and use the appropriate factory function:
 
 1. **Use Vercel Dev**: Must run `npm run dev:vercel` (not `npm run dev`) - Vercel serverless functions in `api/` directory proxy ATS API calls to avoid CORS issues
 2. **Vite env files must live in `src/frontend/`, NOT the project root**: The root `vite.config.ts` sets `root: 'src/frontend'`. Vite resolves `.env` files relative to its `root`, so it reads `src/frontend/.env.local`, NOT `<project-root>/.env.local`. **DO NOT add `envDir` to `vite.config.ts` to point at the project root** — this breaks Vercel Dev's API proxy routing, causing all `/api/*` requests to fail. Instead, frontend `VITE_*` env vars go in `src/frontend/.env.local` and backend/Vercel env vars go in `<project-root>/.env.local`.
-3. **Vercel Dev cloud env vars override ALL local `.env` files for serverless functions (`api/*.ts`)**: `vercel dev` pulls env vars from the linked Vercel project and they take absolute precedence — `.env.local`, `.env.development.local`, and even shell env vars are all ignored. The `api/utils/backendUrl.ts` helper works around this by detecting `localhost` in the request Host header to use `http://localhost:8000` for local dev. **Do NOT rely on `process.env` in serverless functions for local dev config.** See `docs/incidents/2026-04-12-vercel-dev-env-var-override.md` for full details.
+3. **Vercel Dev cloud env vars override ALL local `.env` files for serverless functions (`api/*.ts`)**: `vercel dev` pulls env vars from the linked Vercel project and they take absolute precedence — `.env.local`, `.env.development.local`, and even shell env vars are all ignored. The `api/utils/backendUrl.ts` helper works around this by detecting `localhost` in the request Host header to use `http://localhost:8000` for local dev. **Do NOT rely on `process.env` in serverless functions for local dev config.**
 4. **macOS port 5000 is AirPlay**: Never configure backend services on port 5000 — macOS Monterey+ runs AirPlay Receiver there via ControlCenter. It silently accepts HTTP connections and returns 403, masking "connection refused" errors. The backend runs on port 8000.
 5. **Graph/List Filter Independence**: Separate by design - changing graph filters doesn't affect list
 6. **Empty Buckets Matter**: Time bucketing creates empty buckets for full range - don't filter them out
@@ -131,6 +132,6 @@ Located in project root `api/` directory (proxies to avoid CORS):
 ## See Also
 
 - **Root CLAUDE.md** - Full project documentation including backend and scripts
-- **docs/architecture.md** - Comprehensive Mermaid diagrams for data flow, state shape, factory patterns
+- **docs/architecture.md** - Comprehensive Mermaid diagrams for data flow, state shape, factory patterns (located at `src/frontend/docs/architecture.md`)
 - **Greenhouse API**: https://developers.greenhouse.io/job-board.html
 - **Lever API**: https://github.com/lever/postings-api
