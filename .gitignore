@@ -18,6 +18,9 @@ build/
 .env.test.local
 .env.production.local
 
+# Local MCP server config (may contain credentials)
+.mcp.json
+
 # Logs
 npm-debug.log*
 yarn-debug.log*
