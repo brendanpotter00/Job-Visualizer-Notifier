@@ -91,7 +91,7 @@ Do NOT change public function signatures. Do NOT introduce async. Do NOT change 
 
 ### Unit 2 — Guarantee 0003/0004 idempotency and add a pre-flight row scan
 
-**Status:** TODO
+**Status:** DONE
 
 **Prerequisites:** Unit 1
 

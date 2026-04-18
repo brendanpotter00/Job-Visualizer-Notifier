@@ -160,3 +160,80 @@ class TestJobTimestampColumns:
         runner.migrate_up(in_memory_db, test_env)
         for col in self.COLUMNS:
             assert _column_type(in_memory_db, table, col) == "timestamp with time zone", col
+
+
+def _load_migration(version):
+    """Import a specific migration module by version number for direct invocation."""
+    import importlib.util
+    from pathlib import Path
+
+    path = (
+        Path(__file__).parent.parent.parent / "shared" / "migrations"
+    )
+    match = next(p for p in path.iterdir() if p.name.startswith(f"{version:04d}_"))
+    spec = importlib.util.spec_from_file_location(f"_mig_{version}", match)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class TestPostedOnIdempotent:
+    """Re-running 0003 against an already-converted column must be a no-op."""
+
+    def test_upgrade_noops_when_already_timestamptz(self, in_memory_db, test_env):
+        mig = _load_migration(3)
+        # Column is already timestamptz after the fixture's init_schema; calling
+        # upgrade again must not raise.
+        mig.upgrade(in_memory_db, test_env)
+        assert _posted_on_type(in_memory_db, f"job_listings_{test_env}") == "timestamp with time zone"
+
+
+class TestJobTimestampIdempotent:
+    """Re-running 0004 against already-converted columns must be a no-op."""
+
+    COLUMNS = ("created_at", "closed_on", "first_seen_at", "last_seen_at")
+
+    def test_upgrade_noops_when_already_timestamptz(self, in_memory_db, test_env):
+        mig = _load_migration(4)
+        mig.upgrade(in_memory_db, test_env)
+        table = f"job_listings_{test_env}"
+        for col in self.COLUMNS:
+            assert _column_type(in_memory_db, table, col) == "timestamp with time zone", col
+
+
+class TestPostedOnMalformedRowGuard:
+    """If a row has a non-ISO 8601 posted_on, 0003 must fail fast with a clear error."""
+
+    def test_malformed_row_blocks_upgrade(self, in_memory_db, test_env):
+        # Roll back to baseline where posted_on is still TEXT, so we can insert
+        # the bad value without postgres rejecting it at INSERT time.
+        runner.migrate_down(in_memory_db, test_env, target_version=2)
+        table = f"job_listings_{test_env}"
+        assert _posted_on_type(in_memory_db, table) == "text"
+
+        cursor = in_memory_db.cursor()
+        cursor.execute(
+            f"INSERT INTO {table} (id, title, company, url, source_id, posted_on, "
+            f"created_at, first_seen_at, last_seen_at) "
+            f"VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            (
+                "bad-1", "SWE", "apple", "https://example/1", "src",
+                "not-a-date",
+                "2026-04-15T00:00:00Z", "2026-04-15T00:00:00Z", "2026-04-15T00:00:00Z",
+            ),
+        )
+        in_memory_db.commit()
+
+        with pytest.raises(RuntimeError, match="non-ISO-8601"):
+            runner.migrate_up(in_memory_db, test_env)
+
+        # 0003 did not complete: column is still text, tracking table lacks v3.
+        assert _posted_on_type(in_memory_db, table) == "text"
+        applied = runner.get_applied_versions(in_memory_db, test_env)
+        assert 3 not in applied
+        assert {1, 2}.issubset(applied)
+
+        # Clean up so later tests in this module's session see a valid state.
+        cursor.execute(f"DELETE FROM {table} WHERE id = 'bad-1'")
+        in_memory_db.commit()
+        runner.migrate_up(in_memory_db, test_env)

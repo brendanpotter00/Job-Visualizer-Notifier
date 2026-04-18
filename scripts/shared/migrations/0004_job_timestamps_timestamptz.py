@@ -11,15 +11,56 @@ Columns:
 All existing values are ISO 8601 strings written by scraper code paths via
 shared.database, so the USING posted_on::timestamptz pattern parses them in
 place. The index on last_seen_at is rebuilt automatically by ALTER COLUMN TYPE.
+
+Per-column pre-flight scan (see 0003) catches malformed rows before ALTER so
+deploy logs show actionable row ids instead of psycopg2's opaque cast error.
 """
 
 _COLUMNS = ("created_at", "closed_on", "first_seen_at", "last_seen_at")
+_ISO_PREFIX_REGEX = r"^\d{4}-\d{2}-\d{2}T"
+
+
+def _column_type(conn, table, column):
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT data_type FROM information_schema.columns "
+        "WHERE table_name = %s AND column_name = %s",
+        (table, column),
+    )
+    row = cursor.fetchone()
+    if not row:
+        return None
+    return row["data_type"] if isinstance(row, dict) else row[0]
+
+
+def _scan_malformed(conn, table, column):
+    cursor = conn.cursor()
+    cursor.execute(
+        f"SELECT id, {column} FROM {table} "
+        f"WHERE {column} IS NOT NULL AND {column}::text !~ %s "
+        f"LIMIT 10",
+        (_ISO_PREFIX_REGEX,),
+    )
+    return cursor.fetchall()
 
 
 def upgrade(conn, env):
     cursor = conn.cursor()
     table = f"job_listings_{env}"
     for col in _COLUMNS:
+        # Re-run safety: skip columns already converted.
+        if _column_type(conn, table, col) == "timestamp with time zone":
+            continue
+
+        malformed = _scan_malformed(conn, table, col)
+        if malformed:
+            samples = [m[0] if not isinstance(m, dict) else m["id"] for m in malformed]
+            raise RuntimeError(
+                f"Cannot convert {table}.{col} to TIMESTAMPTZ: "
+                f"{len(malformed)} row(s) have non-ISO-8601 values. "
+                f"Sample ids: {samples}"
+            )
+
         cursor.execute(
             f"ALTER TABLE {table} "
             f"ALTER COLUMN {col} TYPE TIMESTAMPTZ "
