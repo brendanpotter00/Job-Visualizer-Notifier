@@ -9,7 +9,7 @@ Columns:
   - last_seen_at    (NOT NULL, indexed by idx_job_listings_*_last_seen)
 
 All existing values are ISO 8601 strings written by scraper code paths via
-shared.database, so the USING posted_on::timestamptz pattern parses them in
+shared.database, so the USING <col>::timestamptz pattern parses them in
 place. The index on last_seen_at is rebuilt automatically by ALTER COLUMN TYPE.
 
 Per-column pre-flight scan (see 0003) catches malformed rows before ALTER so
@@ -48,9 +48,17 @@ def upgrade(conn, env):
     cursor = conn.cursor()
     table = f"job_listings_{env}"
     for col in _COLUMNS:
+        col_type = _column_type(conn, table, col)
         # Re-run safety: skip columns already converted.
-        if _column_type(conn, table, col) == "timestamp with time zone":
+        if col_type == "timestamp with time zone":
             continue
+
+        if col_type is None:
+            raise RuntimeError(
+                f"Migration 0004_job_timestamps_timestamptz: column {col} "
+                f"not found on {table} (env={env}). Schema drift detected; "
+                f"0001_initial_schema is expected to have created this column."
+            )
 
         malformed = _scan_malformed(conn, table, col)
         if malformed:

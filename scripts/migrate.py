@@ -33,9 +33,33 @@ from scripts.shared.migrations.runner import (
 DEFAULT_DB_URL = "postgresql://postgres:postgres@localhost:5432/jobscraper"
 
 
+def _mask_db_url(db_url: str) -> str:
+    """Strip username/password from a postgres URL for safe logging."""
+    try:
+        from urllib.parse import urlparse, urlunparse
+
+        parsed = urlparse(db_url)
+        if parsed.hostname:
+            netloc = parsed.hostname
+            if parsed.port:
+                netloc = f"{netloc}:{parsed.port}"
+            return urlunparse(parsed._replace(netloc=netloc))
+    except Exception:
+        pass
+    return "<unparseable-url>"
+
+
 def _connect(args):
     db_url = args.db_url or os.environ.get("DATABASE_URL") or DEFAULT_DB_URL
-    return get_connection(db_url, args.env)
+    try:
+        return get_connection(db_url, args.env)
+    except Exception as exc:
+        print(
+            f"error: failed to connect to database (env={args.env}, "
+            f"url={_mask_db_url(db_url)}): {exc}",
+            file=sys.stderr,
+        )
+        sys.exit(2)
 
 
 def cmd_status(args) -> int:
@@ -111,7 +135,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--to",
         type=int,
         required=True,
-        help="Target version (inclusive). Use 0 to roll back everything.",
+        help=(
+            "Keep migrations 1..N applied; roll back everything above N. "
+            "Use 0 to roll back all."
+        ),
     )
 
     return parser

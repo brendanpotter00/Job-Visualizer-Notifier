@@ -7,6 +7,7 @@ PostgreSQL only. Uses environment-based table naming (e.g., job_listings_local, 
 import json
 import logging
 import re
+from datetime import datetime
 from typing import Set, List, Optional, Dict, Any, Tuple
 from urllib.parse import urlparse
 
@@ -520,13 +521,28 @@ def get_all_active_jobs(conn: Connection, company: str, env: str = "local") -> L
         for json_col in ('details', 'ai_metadata'):
             if isinstance(row_dict.get(json_col), str):
                 row_dict[json_col] = json.loads(row_dict[json_col])
-        # Timestamptz columns come back as tz-aware datetime objects, but
+        # Timestamptz columns come back as tz-aware `datetime` objects, but
         # JobListing models these as ISO 8601 strings (scraper-side contract).
-        # Normalize before constructing the Pydantic model.
+        # Normalize to `datetime.isoformat()` — note this emits `+00:00` (not
+        # `Z`) as the UTC offset; all current callers accept both since they
+        # pass through `datetime.fromisoformat(v.replace("Z", "+00:00"))`.
+        # We intentionally restrict the branch to `datetime` so unexpected
+        # types (bytes, Decimal, malformed strings) surface loudly rather
+        # than silently no-op past this conversion.
         for ts_col in ('posted_on', 'created_at', 'closed_on', 'first_seen_at', 'last_seen_at'):
             value = row_dict.get(ts_col)
-            if hasattr(value, 'isoformat'):
+            if value is None:
+                continue
+            if isinstance(value, datetime):
                 row_dict[ts_col] = value.isoformat()
+            elif isinstance(value, str):
+                # Legacy rows (TEXT column pre-0003/0004) pass through as-is.
+                continue
+            else:
+                raise TypeError(
+                    f"Unexpected type for {jobs_table}.{ts_col}: "
+                    f"{type(value).__name__} (expected datetime, str, or None)"
+                )
         jobs.append(JobListing(**row_dict))
 
     return jobs

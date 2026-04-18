@@ -14,21 +14,27 @@ Before merging, confirm the pending migration list against prod:
 python scripts/migrate.py status --env prod --db-url "$DATABASE_URL"
 ```
 
-Expect:
+Expect (on the first deploy of this PR):
 
 ```
 Environment: prod
-Applied: 2 / 4
+Applied: 0 / 4
 
-  [x] 0001_initial_schema
-  [x] 0002_add_users_email_unique
+  [ ] 0001_initial_schema
+  [ ] 0002_add_users_email_unique
   [ ] 0003_posted_on_timestamptz
   [ ] 0004_job_timestamps_timestamptz
 ```
 
-If `Applied` is already 4/4, migrations ran on a prior deploy and this PR is a
-no-op for the DB. If it is less than 2/2, stop — the baseline is out of sync
-and needs investigation before this PR ships.
+This PR introduces the `schema_migrations_prod` tracking table, so the first
+run reports `0/4` — the runner creates the tracking table during the advisory-
+lock dance and then applies every migration. The baseline migrations are safe
+to replay against the existing prod schema: `0001` uses `CREATE TABLE IF NOT
+EXISTS` for every object it owns, and `0002` probes `pg_constraint` before
+adding the unique constraint.
+
+On subsequent deploys expect `Applied: 4 / 4` — the tracking table is
+populated and `migrate_up` is a no-op.
 
 ## Deploy sequence
 
@@ -61,8 +67,11 @@ If either migration lands cleanly but a downstream consumer breaks:
    python scripts/migrate.py down --to 2 --env prod --db-url "$DATABASE_URL"
    ```
 
-   Use `--to 3` if only `0004` is at fault. Use `--to 0` only in an
-   emergency — it drops everything and will require re-seeding.
+   `--to N` keeps migrations 1..N applied and rolls back everything above N
+   (i.e., N is kept, anything greater than N is reverted). So `--to 2` leaves
+   `0001` and `0002` applied and reverts `0003` and `0004`. Use `--to 3` if
+   only `0004` is at fault. Use `--to 0` only in an emergency — it drops
+   everything and will require re-seeding.
 
 2. Redeploy a git commit from before this PR so the running backend code
    matches the rolled-back schema. Revert this PR via `gh pr revert` or
@@ -76,7 +85,10 @@ via `USING col::text`. Data is preserved; the column type flips back.
 ### Hung advisory lock
 
 **Symptom:** No `Acquired migration advisory lock` log line within ~30s of pod
-boot. Instead, the pod exits with a psycopg2 `LockNotAvailable` error.
+boot. Instead, the pod exits with `psycopg2.errors.LockNotAvailable` (SQLSTATE
+`55P03`). In the Railway deploy log, grep for the underlying Postgres message
+`canceling statement due to lock timeout` — that's the string the operator
+will actually see once the exception is formatted.
 
 **Cause:** Another process is holding `pg_advisory_lock(<key>)` for this env.
 Usually a prior pod that was killed before releasing, or a concurrent deploy.

@@ -41,6 +41,28 @@ def upgrade(conn, env):
     if current_type == "timestamp with time zone":
         return
 
+    if current_type is None:
+        # Either the column is missing or the table doesn't exist. Probe for
+        # any columns on the table so we can give the operator a sharper
+        # error than psycopg2's opaque UndefinedTable/UndefinedColumn.
+        cursor.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = %s LIMIT 1",
+            (table,),
+        )
+        any_col = cursor.fetchone()
+        if any_col is None:
+            raise RuntimeError(
+                f"Migration 0003_posted_on_timestamptz: table {table} "
+                f"not found (env={env}). Migration 0001_initial_schema may "
+                f"not be applied, or schema drift has removed the table."
+            )
+        raise RuntimeError(
+            f"Migration 0003_posted_on_timestamptz: column posted_on "
+            f"not found on {table} (env={env}). Schema drift detected; "
+            f"0001_initial_schema is expected to have created this column."
+        )
+
     malformed = _scan_malformed(conn, table, "posted_on")
     if malformed:
         samples = [m[0] if not isinstance(m, dict) else m["id"] for m in malformed]

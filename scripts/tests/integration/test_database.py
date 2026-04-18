@@ -89,9 +89,11 @@ class TestInitSchema:
         assert cursor.fetchone() is not None
 
         # Cleanup — drop everything init_schema/migrations created, including
-        # the migration tracking table. Otherwise the next run of this test
-        # sees versions 1-2 marked applied and tries to run 0003 against a
-        # table that no longer exists.
+        # the migration tracking table. If we only drop jobs/runs/users but
+        # leave schema_migrations_{env} behind, the next run of this test
+        # sees migrations 1..N still marked as applied and skips re-creating
+        # job_listings_{env}, so the `table exists` assertion at the top of
+        # the test fails.
         for env in (env1, env2):
             for t in ("job_listings", "scrape_runs", "users", "schema_migrations"):
                 cursor.execute(f"DROP TABLE IF EXISTS {t}_{env} CASCADE")
@@ -458,3 +460,26 @@ class TestTimestamptzColumns:
             assert value.tzinfo is not None, f"{col} should be tz-aware"
 
         assert row["created_type"] == "timestamp with time zone"
+
+    def test_get_all_active_jobs_returns_iso_string_timestamps(
+        self, in_memory_db, test_env, sample_job_listing
+    ):
+        """get_all_active_jobs normalizes tz-aware datetimes from psycopg2
+        back into ISO 8601 strings so the shared JobListing model (which
+        types these fields as str) keeps validating. Without this test a
+        refactor could regress the endpoint to emit datetime-repr strings
+        that would still type-check as str but fail frontend parsing.
+        """
+        from datetime import datetime
+
+        db.upsert_job(in_memory_db, sample_job_listing, env=test_env)
+
+        jobs = db.get_all_active_jobs(in_memory_db, sample_job_listing.company, env=test_env)
+        assert len(jobs) == 1
+        job = jobs[0]
+
+        for field in ("created_at", "first_seen_at", "last_seen_at"):
+            value = getattr(job, field)
+            assert isinstance(value, str), f"{field} must be str, got {type(value)}"
+            parsed = datetime.fromisoformat(value)
+            assert parsed.tzinfo is not None, f"{field} should round-trip as tz-aware"

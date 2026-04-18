@@ -16,6 +16,7 @@ import hashlib
 import importlib.util
 import logging
 import re
+import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -63,14 +64,34 @@ _ADVISORY_LOCK_TIMEOUT = "30s"
 _MIGRATION_STATEMENT_TIMEOUT = "300s"
 
 
+def _require_transactional(conn: Connection) -> None:
+    """Raise if the connection is in autocommit mode.
+
+    `SET LOCAL` only applies for the duration of the current transaction. If
+    the caller has flipped `conn.autocommit = True`, each statement commits
+    immediately, so the lock_timeout / statement_timeout we set here would be
+    reverted before `pg_advisory_lock` or the per-migration DDL ran. Fail
+    loudly rather than silently losing the timeouts.
+    """
+    if conn.autocommit:
+        raise RuntimeError(
+            "Migration runner requires a transactional connection "
+            "(conn.autocommit must be False) so SET LOCAL applies to the "
+            "lock acquire and the per-migration DDL."
+        )
+
+
 @contextmanager
 def _advisory_lock(conn: Connection, env: str):
     """Serialize migration runs across processes/instances for this env."""
+    _require_transactional(conn)
     key = _advisory_lock_key(env)
     cursor = conn.cursor()
     # SET LOCAL requires an active transaction; psycopg2 starts one implicitly
-    # on first statement. Scoped to this transaction so we don't poison other
-    # connections sharing the pool.
+    # on first statement. Scoped to this transaction — without it, the
+    # lock_timeout setting would leak to the next transaction on this same
+    # connection (init_schema uses a dedicated, non-pooled connection, so
+    # cross-caller leakage isn't the concern, but intra-caller leakage is).
     cursor.execute(f"SET LOCAL lock_timeout = '{_ADVISORY_LOCK_TIMEOUT}'")
     logger.info("Waiting for migration advisory lock env=%s key=%s", env, key)
     cursor.execute("SELECT pg_advisory_lock(%s)", (key,))
@@ -78,9 +99,26 @@ def _advisory_lock(conn: Connection, env: str):
     try:
         yield
     finally:
-        cursor.execute("SELECT pg_advisory_unlock(%s)", (key,))
-        conn.commit()
-        logger.info("Released migration advisory lock env=%s", env)
+        try:
+            cursor.execute("SELECT pg_advisory_unlock(%s)", (key,))
+            released_row = cursor.fetchone()
+            released = (
+                released_row[0]
+                if not isinstance(released_row, dict)
+                else released_row["pg_advisory_unlock"]
+            )
+            conn.commit()
+            logger.info(
+                "Released migration advisory lock env=%s key=%s released=%s",
+                env,
+                key,
+                released,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to release migration advisory lock env=%s key=%s", env, key
+            )
+            raise
 
 
 @dataclass(frozen=True)
@@ -175,7 +213,12 @@ def migrate_up(conn: Connection, env: str) -> List[int]:
         for migration in migrations:
             if migration.version in applied:
                 continue
+            # Re-check autocommit per iteration: conn.commit() ran at the end
+            # of the previous migration, and a misbehaving migration could
+            # flip the flag. SET LOCAL below is a no-op under autocommit.
+            _require_transactional(conn)
             logger.info(f"Applying migration {migration.label} (env={env})")
+            started = time.monotonic()
             try:
                 cursor = conn.cursor()
                 # Bound each migration's own work. SET LOCAL scopes to the
@@ -193,13 +236,23 @@ def migrate_up(conn: Connection, env: str) -> List[int]:
                 conn.rollback()
                 logger.exception(f"Migration {migration.label} failed; stopping")
                 raise
+            elapsed = time.monotonic() - started
+            logger.info(
+                "Applied migration %s in %.2fs", migration.label, elapsed
+            )
             newly_applied.append(migration.version)
 
         return newly_applied
 
 
 def migrate_down(conn: Connection, env: str, target_version: int = 0) -> List[int]:
-    """Roll back migrations down to target_version (exclusive). CLI-only."""
+    """Roll back migrations down to target_version (exclusive). CLI-only.
+
+    Semantics: `target_version=N` means keep versions 1..N applied and roll
+    back everything above N. `target_version=0` rolls back all migrations.
+    Example: with 1,2,3,4 applied, `migrate_down(..., target_version=2)`
+    rolls back 4 and 3 and leaves 1,2 applied.
+    """
     table = _tracking_table(env)
     with _advisory_lock(conn, env):
         applied = get_applied_versions(conn, env)

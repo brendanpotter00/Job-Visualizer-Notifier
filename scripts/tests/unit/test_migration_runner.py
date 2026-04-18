@@ -15,9 +15,9 @@ import pytest
 
 # Ensure scripts package is importable as in other test files
 scripts_dir = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(scripts_dir.parent))
+sys.path.insert(0, str(scripts_dir))
 
-from scripts.shared.migrations import runner
+from shared.migrations import runner
 
 
 class TestDiscoverMigrations:
@@ -106,7 +106,7 @@ class TestAdvisoryLockLogging:
         runner.migrate_down(postgres_db, test_env, target_version=1)
         caplog.clear()
 
-        with caplog.at_level(logging.INFO, logger="scripts.shared.migrations.runner"):
+        with caplog.at_level(logging.INFO, logger="shared.migrations.runner"):
             runner.migrate_up(postgres_db, test_env)
 
         messages = [record.getMessage() for record in caplog.records]
