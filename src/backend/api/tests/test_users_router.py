@@ -333,6 +333,43 @@ class TestEnabledCompanies:
         resp = client.put("/api/users/enabled-companies", json={})
         assert resp.status_code == 422
 
+    def test_put_rejects_empty_string_company_id(self, client):
+        """Empty strings must not be accepted — COMPANY_PATTERN requires min_length=1."""
+        client.get("/api/users")
+        resp = client.put(
+            "/api/users/enabled-companies",
+            json={"companyIds": ["airbnb", ""]},
+        )
+        assert resp.status_code == 422
+
+    def test_put_rejects_malformed_company_id(self, client):
+        """Company IDs must match COMPANY_PATTERN (alphanum + - + _)."""
+        client.get("/api/users")
+        for bad_id in ["../../etc/passwd", "has space", "has.dot", "has/slash", "has'quote"]:
+            resp = client.put(
+                "/api/users/enabled-companies",
+                json={"companyIds": [bad_id]},
+            )
+            assert resp.status_code == 422, f"expected rejection for {bad_id!r}"
+
+    def test_put_rejects_oversize_company_id(self, client):
+        """Individual IDs are capped at 64 characters."""
+        client.get("/api/users")
+        resp = client.put(
+            "/api/users/enabled-companies",
+            json={"companyIds": ["a" * 65]},
+        )
+        assert resp.status_code == 422
+
+    def test_put_rejects_oversize_list(self, client):
+        """The list is capped at 200 items to prevent runaway payloads."""
+        client.get("/api/users")
+        resp = client.put(
+            "/api/users/enabled-companies",
+            json={"companyIds": [f"c{i}" for i in range(201)]},
+        )
+        assert resp.status_code == 422
+
     def test_put_without_existing_user_returns_404(self, client):
         resp = client.put(
             "/api/users/enabled-companies",

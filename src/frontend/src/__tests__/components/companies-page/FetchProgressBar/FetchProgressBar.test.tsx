@@ -353,6 +353,104 @@ describe('FetchProgressBar', () => {
     });
   });
 
+  describe('companyIdFilter prop', () => {
+    const companies = [
+      { companyId: 'spacex', status: 'success' as const, jobCount: 100 },
+      { companyId: 'anduril', status: 'success' as const, jobCount: 50 },
+      { companyId: 'notion', status: 'success' as const, jobCount: 30 },
+    ];
+
+    it('treats null/undefined/empty Set as pass-through', () => {
+      mockHook({
+        isLoading: true,
+        progress: {
+          completed: 3,
+          total: 3,
+          percentComplete: 100,
+          companies,
+          completedCompanies: ['spacex', 'anduril', 'notion'],
+          failedCompanies: [],
+          pendingCompanies: [],
+        },
+      });
+
+      const { rerender } = render(<FetchProgressBar companyIdFilter={null} />);
+      expect(screen.getByText('Loading jobs from 3/3 companies')).toBeInTheDocument();
+
+      rerender(<FetchProgressBar companyIdFilter={undefined} />);
+      expect(screen.getByText('Loading jobs from 3/3 companies')).toBeInTheDocument();
+
+      rerender(<FetchProgressBar companyIdFilter={new Set()} />);
+      expect(screen.getByText('Loading jobs from 3/3 companies')).toBeInTheDocument();
+    });
+
+    it('restricts visible counts to the filter intersection', () => {
+      mockHook({
+        isLoading: true,
+        progress: {
+          completed: 3,
+          total: 3,
+          percentComplete: 100,
+          companies,
+          completedCompanies: ['spacex', 'anduril', 'notion'],
+          failedCompanies: [],
+          pendingCompanies: [],
+        },
+      });
+
+      render(
+        <FetchProgressBar companyIdFilter={new Set(['spacex', 'notion'])} />
+      );
+
+      // Only 2 of 3 visible; both already completed → 100% of the subset.
+      expect(screen.getByText('Loading jobs from 2/2 companies')).toBeInTheDocument();
+      expect(screen.getByText('100%')).toBeInTheDocument();
+      expect(screen.getByText('SpaceX (100)')).toBeInTheDocument();
+      expect(screen.getByText('Notion (30)')).toBeInTheDocument();
+      expect(screen.queryByText(/anduril/i)).not.toBeInTheDocument();
+    });
+
+    it('returns null when no fetched company matches the filter', () => {
+      mockHook({
+        isLoading: true,
+        progress: {
+          completed: 3,
+          total: 3,
+          percentComplete: 100,
+          companies,
+          completedCompanies: ['spacex', 'anduril', 'notion'],
+          failedCompanies: [],
+          pendingCompanies: [],
+        },
+      });
+
+      const { container } = render(
+        <FetchProgressBar companyIdFilter={new Set(['ghost-company'])} />
+      );
+      expect(container.firstChild).toBeNull();
+    });
+
+    it('summary totalJobs sums only visible successes', () => {
+      mockHook({
+        isLoading: false,
+        progress: {
+          completed: 3,
+          total: 3,
+          percentComplete: 100,
+          companies,
+          completedCompanies: ['spacex', 'anduril', 'notion'],
+          failedCompanies: [],
+          pendingCompanies: [],
+        },
+      });
+
+      render(<FetchProgressBar companyIdFilter={new Set(['anduril', 'notion'])} />);
+
+      // 50 + 30 from anduril and notion; excludes spacex's 100.
+      expect(screen.getByText('2 loaded (80 jobs)')).toBeInTheDocument();
+    });
+  });
+
   it('should allow user to toggle accordion', async () => {
     const user = userEvent.setup();
 

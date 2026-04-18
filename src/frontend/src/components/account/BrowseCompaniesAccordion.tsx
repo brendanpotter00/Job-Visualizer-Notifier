@@ -11,11 +11,6 @@ export interface BrowseCompaniesAccordionProps {
   children: ReactNode;
 }
 
-/**
- * Collapsed-by-default accordion that reveals the full company chip grid
- * inside. Summary label shows "Browse and select all companies" with a
- * "{selected} of {total} selected" subtitle.
- */
 export function BrowseCompaniesAccordion({
   selectedCount,
   totalCount,

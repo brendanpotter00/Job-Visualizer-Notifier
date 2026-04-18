@@ -108,3 +108,52 @@ All candidate issues surfaced during Round 3 scored below the 80 posting thresho
 **1000 frontend tests passing, type-check clean. No code fixes applied (docs-only audit entry, final round).**
 
 ---
+
+## 2026-04-18 — Round 4 review (PR #67)
+
+Review run via the `/pr-review-toolkit:review-pr` skill at head SHA `8397644` — five parallel reviewers (code-reviewer, pr-test-analyzer, silent-failure-hunter, type-design-analyzer, comment-analyzer). Unlike Rounds 2 and 3, Round 4 surfaced several new findings that warranted code changes. Fixes applied in the same commit as this entry.
+
+### Fixes applied
+
+**1. `useEnabledCompanies.reload()` race + swallowed getToken error (silent-failure-hunter CRITICAL, code-reviewer IMPORTANT).** `reload()` cleared `activePromise.current` then awaited `getToken()` before dispatching. If auth flipped to signed-out while `getToken()` was pending, the cleanup effect ran but had nothing to abort; when the token resolved it still dispatched `loadEnabledCompanies` against a signed-out session, repopulating `ids`. Additionally, a `getToken()` rejection (expired session, Auth0 popup blocked, refresh-token revoked) was silently swallowed in `.catch(() => {})` — violating the "correctness over don't crash" guidance in memory.
+
+Fix: create a local `AbortController` synchronously, wrap it in an `AbortableLoad` and stash it in `activePromise.current` *before* awaiting `getToken()`. After `getToken()` resolves, bail out if the controller is already aborted (cleanup already ran). On `getToken()` rejection for a non-abort reason, dispatch a synthetic `loadEnabledCompanies.rejected` with the error message so the slice's `error` field populates — this surfaces expired-session failures to the UI via the existing `{saveError ?? error}` alert in `EnabledCompaniesSection` and the slice `error` field available to `EditCompanyPreferencesLink`. Files: `src/frontend/src/features/preferences/useEnabledCompanies.ts:25-58`.
+
+**2. Stale load overwrites save (pr-test-analyzer Critical #3, silent-failure-hunter IMPORTANT #5).** `saveEnabledCompanies.fulfilled` unconditionally wrote `payload` into `state.ids`, and `loadEnabledCompanies.fulfilled` did the same. If a load was in flight when a save completed (e.g. user edits then saves immediately after arriving on Account page), the later-resolving load would overwrite the save. The save path also did not abort in-flight loads.
+
+Fix: introduce a monotonically-incrementing `saveVersion` counter on the slice state. `saveEnabledCompanies.pending` increments it; `loadEnabledCompanies.pending` captures a snapshot onto `action.meta.arg` via `prepare` so the `.fulfilled` reducer can detect "a save happened while I was in flight" and skip writing stale ids. The save path also aborts the current load promise via `useEnabledCompanies.save()` before dispatching. Files: `src/frontend/src/features/preferences/enabledCompaniesSlice.ts:4-72`, `src/frontend/src/features/preferences/useEnabledCompanies.ts:60-70`.
+
+**3. `EnabledCompaniesUpdateRequest.company_ids` accepts arbitrary strings (type-design-analyzer, pr-test-analyzer IMPORTANT #5).** The existing `COMPANY_PATTERN = r"^[a-zA-Z0-9_-]+$"` regex in `models.py:9` was defined but never applied to the new PUT endpoint payload. `PUT { companyIds: [""] }`, `PUT { companyIds: ["../../etc"] }`, and `PUT { companyIds: Array(10000).fill("x") }` were all silently accepted and persisted.
+
+Fix: apply `Annotated[str, StringConstraints(pattern=COMPANY_PATTERN, min_length=1, max_length=64)]` per item, and `Field(max_length=200)` on the list. FastAPI now rejects malformed payloads with 422 at the HTTP boundary, before they reach the DB transaction. Files: `src/backend/api/models.py:104-114`.
+
+**4. `saveError` persists across unrelated load errors (silent-failure-hunter IMPORTANT #8, carried from Round 2 at score 35 + new evidence).** Local `saveError` was only cleared on the next Save click. A stale save error could shadow a fresh slice `error` (e.g. an auth-expired reload failure that happens after the save error) because the Alert rendered `saveError ?? error`.
+
+Fix: clear `saveError` via `useEffect` when `ids` or slice `error` change. Files: `src/frontend/src/components/account/EnabledCompaniesSection.tsx:25-31`.
+
+**5. WHAT-style comments removed (comment-analyzer).** Removed comments that restated WHAT code does instead of WHY in: `BrowseCompaniesAccordion.tsx`, `CompanyChipGrid.tsx`, `SelectedCompaniesPanel.tsx`, `recentJobsSelectors.ts`, `App.tsx` (trimmed caller-specific rot), and the `FetchProgressBar.tsx` `companyIdFilter` JSDoc (trimmed "(cache shared with the Companies page)" caller reference). The WHY-only comments on `enabledCompaniesSlice.ts:48-51` and `useEnabledCompanies.ts:11-14` were kept as-is — they explain non-obvious invariants.
+
+### Tests added
+
+- `enabledCompaniesSlice.test.ts` — two new cases: (a) stale `loadEnabledCompanies.fulfilled` after a `saveEnabledCompanies` does **not** overwrite saved ids (locks in the save-version guard); (b) `saveEnabledCompanies.pending` increments `saveVersion`.
+- `useEnabledCompanies.test.ts` — new case: `getToken()` rejection on sign-in surfaces as `state.enabledCompanies.error`, not silent hang. Confirms the "correctness over don't crash" fix.
+- `FetchProgressBar.test.tsx` — three new cases for the previously-uncovered `companyIdFilter` prop: (a) `null`/`undefined`/empty Set = pass-through; (b) non-empty Set restricts visible chips/totals/percent; (c) returns `null` when the intersection is empty.
+- `test_users_router.py` — new case: `PUT /api/users/enabled-companies` with malformed IDs (empty string, regex-violating, >64 chars) returns 422; oversized list (>200 items) returns 422.
+
+### Intentionally deferred
+
+- **`App.tsx` global load has no visible error UI (silent-failure-hunter SUGGESTION #10, score ~40).** A failed global preference load silently falls through to "show all jobs" on pages other than `/account`. Fix would require a global toast/snackbar pattern — out of scope for this PR; revisit if users report confusion about why filter toggles appear inactive.
+- **Double invocation of `useEnabledCompanies()` in App + EnabledCompaniesSection (code-reviewer IMPORTANT #1, score ~60).** Each instance owns its own `activePromise` ref, so visiting `/account` fires two parallel GETs. Deduplication would require either module-level state or splitting the hook into a "read-only" variant. The cost is one extra GET per account visit and it doesn't cause correctness issues — the slice's save-version guard from fix #2 also prevents the two parallel loads from clobbering each other. Deferred.
+- **Tagged-union state shape for `EnabledCompaniesState` (type-design-analyzer).** The current `{ids, loading, error}` boolean-soup has several representable-but-illegal states. A proper discriminated union is the right long-term fix, but it ripples through every consumer (selectors, tests, `useEnabledCompanies`, `EnabledCompaniesSection`, `EditCompanyPreferencesLink`). Deferred to a dedicated refactor PR.
+- **Branded `CompanyId` type across layers (type-design-analyzer).** Same rationale as above — cross-cutting refactor, not a bug.
+- **DB `CHECK` constraint on `company_id` column (type-design-analyzer).** Belt-and-braces with the Pydantic validator added in fix #3. Deferred — touching migrations requires a release plan, and the API validation covers the realistic attack surface.
+- **Env-name interpolation bypass (carried from Round 1, score 50).** No new evidence.
+- **`reload()` race on rapid successive external calls (carried from Round 1, score 25).** Superseded by fix #1 which captures a local AbortController synchronously; rapid `reload()` calls now abort the prior controller before awaiting a fresh token.
+
+### Tests run
+
+- `npm run type-check` — clean.
+- `npm test -- --run` — all frontend tests pass (new count includes 6 new tests).
+- `cd src/backend && pytest api/tests/test_users_router.py api/tests/test_user_preferences_service.py -v` — all backend tests pass (new count includes 2 new validation tests).
+
+---

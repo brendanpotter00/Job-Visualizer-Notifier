@@ -13,11 +13,7 @@ export interface SelectedCompaniesPanelProps {
   onRemove: (id: string) => void;
 }
 
-/**
- * Displays the current draft of selected companies as chips with delete
- * affordances. Shows an empty-state dashed box when nothing is selected.
- * Ordering is the caller's responsibility (we render in the given order).
- */
+// Ordering is the caller's responsibility; this renders in the given order.
 export function SelectedCompaniesPanel({
   selectedCompanies,
   onRemove,

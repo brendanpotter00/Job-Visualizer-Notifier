@@ -16,13 +16,10 @@ import { useEnabledCompanies } from '../features/preferences/useEnabledCompanies
  * depend on React Router context (useLocation).
  */
 function AppContent() {
-  // Custom hooks for URL synchronization (page-aware)
   useURLSync();
   useBrowserNavigation();
-  // Hydrate the user's enabled-companies preference globally so the Recent
-  // Jobs filter works on a fresh load of `/` — not only after visiting
-  // `/account`. Without this, `state.enabledCompanies.ids` stays `null` and
-  // the selector falls through to "show all".
+  // Hydrate enabled-companies at the app root so selectors have it before
+  // any page reads them.
   useEnabledCompanies();
 
   return (

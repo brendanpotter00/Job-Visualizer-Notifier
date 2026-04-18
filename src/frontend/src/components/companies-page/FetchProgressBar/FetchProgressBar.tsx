@@ -16,13 +16,8 @@ import { useAllJobsProgress } from '../../../features/jobs/hooks/useAllJobsProgr
 import { getCompanyById } from '../../../config/companies';
 
 interface FetchProgressBarProps {
-  /**
-   * Optional set of company IDs to constrain the displayed progress to.
-   * When provided, the bar's chips, totals, and percentage reflect only
-   * the intersection of fetched companies with this set — even though
-   * the underlying fetch still hits every company (cache shared with
-   * the Companies page). `null` or `undefined` means "show all".
-   */
+  // When set, restricts displayed chips/totals to this subset; underlying
+  // fetch is unaffected. `null`/`undefined`/empty Set means show all.
   companyIdFilter?: Set<string> | null;
 }
 

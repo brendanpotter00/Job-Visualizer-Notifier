@@ -24,7 +24,14 @@ export function EnabledCompaniesSection() {
 
   useEffect(() => {
     setDraft(ids ?? []);
+    // Clear a stale save error when ids change (successful save or external
+    // reload) so it can't shadow a newer slice-level error in the Alert.
+    setSaveError(null);
   }, [ids]);
+
+  useEffect(() => {
+    if (error) setSaveError(null);
+  }, [error]);
 
   const sortedCompanies = useMemo(
     () => [...COMPANIES].sort((a, b) => a.name.localeCompare(b.name)),

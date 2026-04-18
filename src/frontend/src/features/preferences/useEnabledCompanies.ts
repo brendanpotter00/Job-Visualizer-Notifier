@@ -5,6 +5,7 @@ import {
   loadEnabledCompanies,
   saveEnabledCompanies,
   resetEnabledCompanies,
+  enabledCompaniesLoadFailed,
   selectEnabledCompanyIds,
 } from './enabledCompaniesSlice';
 
@@ -18,7 +19,7 @@ export function useEnabledCompanies() {
   const error = useAppSelector((s) => s.enabledCompanies.error);
   // Tracks the in-flight load so auth-state changes and subsequent reloads
   // can cancel a stale request — otherwise a fetch started while authenticated
-  // could resolve after sign-out and repopulate ids on a signed-out session.
+  // could resolve after cancellation and overwrite current state.
   const activePromise = useRef<AbortableLoad | null>(null);
 
   const reload = useCallback(() => {
@@ -28,13 +29,27 @@ export function useEnabledCompanies() {
       dispatch(resetEnabledCompanies());
       return;
     }
+    // Install a local AbortController BEFORE awaiting getToken so cleanup
+    // triggered during the token await still has something to abort.
+    // Without this, a token resolving after sign-out would dispatch
+    // loadEnabledCompanies against a signed-out session.
+    const controller = new AbortController();
+    const handle: AbortableLoad = {
+      abort: (reason?: string) => controller.abort(reason),
+    };
+    activePromise.current = handle;
+
     getToken()
       .then((token) => {
+        if (controller.signal.aborted || activePromise.current !== handle) return;
         activePromise.current = dispatch(loadEnabledCompanies(token));
       })
-      .catch(() => {
-        // getToken failure (e.g. expired session) surfaces through the slice
-        // on the next successful reload; nothing to do here.
+      .catch((err) => {
+        if (controller.signal.aborted || activePromise.current !== handle) return;
+        activePromise.current = null;
+        const message =
+          err instanceof Error ? err.message : 'Failed to acquire auth token';
+        dispatch(enabledCompaniesLoadFailed(message));
       });
   }, [isAuthenticated, getToken, dispatch]);
 
@@ -54,6 +69,12 @@ export function useEnabledCompanies() {
 
   const save = useCallback(
     async (companyIds: string[]) => {
+      // Abort any in-flight load before saving. The slice's save.pending
+      // reducer also invalidates activeLoadRequestId as a backstop — if
+      // the load's fetch already resolved, its .fulfilled handler will
+      // detect the stale id and skip overwriting saved ids.
+      activePromise.current?.abort();
+      activePromise.current = null;
       const token = await getToken();
       await dispatch(saveEnabledCompanies({ token, companyIds })).unwrap();
     },

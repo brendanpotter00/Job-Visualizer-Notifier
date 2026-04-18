@@ -195,6 +195,24 @@ describe('useEnabledCompanies', () => {
     });
   });
 
+  it('surfaces getToken rejection as slice error instead of hanging silently', async () => {
+    mockAuthState.isAuthenticated = true;
+    mockGetToken.mockRejectedValue(new Error('Login required'));
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const store = createTestStore();
+
+    renderHook(() => useEnabledCompanies(), {
+      wrapper: makeWrapper(store),
+    });
+
+    await waitFor(() => {
+      expect(store.getState().enabledCompanies.error).toBe('Login required');
+    });
+    expect(store.getState().enabledCompanies.loading).toBe(false);
+    // Fetch must NOT have been dispatched because token acquisition failed.
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it('reload dispatches a fresh fetch while signed in', async () => {
     mockAuthState.isAuthenticated = true;
     mockGetToken.mockResolvedValue('tok');

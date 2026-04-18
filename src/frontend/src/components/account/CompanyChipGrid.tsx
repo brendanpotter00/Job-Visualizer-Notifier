@@ -12,11 +12,6 @@ export interface CompanyChipGridProps {
   onToggle: (id: string) => void;
 }
 
-/**
- * Flex-wrapping grid of Chip toggles, one per company. Filled+primary when
- * selected, outlined+default otherwise. Parent decides via `onToggle`
- * whether the click should add or remove.
- */
 export function CompanyChipGrid({
   companies,
   selectedIds,

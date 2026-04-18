@@ -1,12 +1,20 @@
 """Pydantic response models with camelCase serialization for frontend compatibility."""
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from pydantic.alias_generators import to_camel
 
 # Shared validation pattern for company name query parameters
 COMPANY_PATTERN = r"^[a-zA-Z0-9_-]+$"
+
+# Reusable constrained company-id type: same alphabet as COMPANY_PATTERN,
+# 1-64 chars. Rejects empty strings, path traversal, and runaway sizes at
+# the Pydantic boundary before requests reach the DB layer.
+CompanyId = Annotated[
+    str,
+    StringConstraints(pattern=COMPANY_PATTERN, min_length=1, max_length=64),
+]
 
 
 class JobListingResponse(BaseModel):
@@ -104,4 +112,4 @@ class EnabledCompaniesResponse(BaseModel):
 class EnabledCompaniesUpdateRequest(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, extra="forbid")
 
-    company_ids: list[str]
+    company_ids: list[CompanyId] = Field(max_length=200)

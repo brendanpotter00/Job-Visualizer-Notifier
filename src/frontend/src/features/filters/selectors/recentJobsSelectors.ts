@@ -7,13 +7,6 @@ import { getCompanyById } from '../../../config/companies.ts';
 import { filterJobsByHours } from '../../../lib/date.ts';
 import { selectEnabledCompanyIds } from '../../preferences/enabledCompaniesSlice.ts';
 
-/**
- * Selectors for Recent Jobs page filters and data
- */
-
-/**
- * Base selector for recent jobs filters
- */
 export const selectRecentJobsFilters = (state: RootState) => state.recentJobsFilters.filters;
 
 const selectByCompanyIdFromQuery = createSelector(
@@ -34,11 +27,7 @@ const selectEnabledByCompanyId = createSelector(
   }
 );
 
-/**
- * Get all jobs from RTK Query (flatten byCompanyId structure)
- * Deduplicates jobs by ID to handle edge cases
- * Pre-filters by the user's enabled-companies preference (null or [] = all).
- */
+// Pre-filters by the user's enabled-companies preference (null or [] = all).
 export const selectAllJobsFromQuery = createSelector(
   [selectEnabledByCompanyId],
   (byCompanyId) => {
