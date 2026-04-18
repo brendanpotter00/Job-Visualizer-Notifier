@@ -5,6 +5,7 @@ import { filterJobsByFilters } from '../utils/jobFilteringUtils.ts';
 import { isSoftwareOnlyEnabled } from '../../../constants/tags.ts';
 import { getCompanyById } from '../../../config/companies.ts';
 import { filterJobsByHours } from '../../../lib/date.ts';
+import { selectEnabledCompanyIds } from '../../preferences/enabledCompaniesSlice.ts';
 
 /**
  * Selectors for Recent Jobs page filters and data
@@ -15,15 +16,33 @@ import { filterJobsByHours } from '../../../lib/date.ts';
  */
 export const selectRecentJobsFilters = (state: RootState) => state.recentJobsFilters.filters;
 
+const selectByCompanyIdFromQuery = createSelector(
+  [(state: RootState) => jobsApi.endpoints.getAllJobs.select()(state).data],
+  (data) => data?.byCompanyId ?? {}
+);
+
+const selectEnabledByCompanyId = createSelector(
+  [selectByCompanyIdFromQuery, selectEnabledCompanyIds],
+  (byCompanyId, enabledIds) => {
+    if (!enabledIds || enabledIds.length === 0) return byCompanyId;
+    const enabledSet = new Set(enabledIds);
+    const filtered: typeof byCompanyId = {};
+    for (const [companyId, jobs] of Object.entries(byCompanyId)) {
+      if (enabledSet.has(companyId)) filtered[companyId] = jobs;
+    }
+    return filtered;
+  }
+);
+
 /**
  * Get all jobs from RTK Query (flatten byCompanyId structure)
  * Deduplicates jobs by ID to handle edge cases
+ * Pre-filters by the user's enabled-companies preference (null or [] = all).
  */
 export const selectAllJobsFromQuery = createSelector(
-  [(state: RootState) => jobsApi.endpoints.getAllJobs.select()(state).data],
-  (data) => {
-    if (!data?.byCompanyId) return [];
-    const allJobs = Object.values(data.byCompanyId).flat();
+  [selectEnabledByCompanyId],
+  (byCompanyId) => {
+    const allJobs = Object.values(byCompanyId).flat();
 
     // Deduplicate by job ID (in case same job appears multiple times)
     const jobsMap = new Map<string, (typeof allJobs)[0]>();
