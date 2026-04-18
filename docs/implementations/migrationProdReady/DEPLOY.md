@@ -62,8 +62,9 @@ populated and `migrate_up` is a no-op.
    ```
 
    On every deploy after this one, the `Pending migrations` line is absent
-   (or `[]`) and the `Applied N migration(s)` line does not fire — the lock
-   acquire/release lines are the only migration-related output.
+   (the runner only logs it when there is pending work) and the `Applied N
+   migration(s)` line does not fire — the lock acquire/release lines are
+   the only migration-related output.
 
 3. Once the service reports healthy, smoke-test `GET /api/jobs` and confirm
    `createdAt` / `firstSeenAt` / `lastSeenAt` come back as ISO 8601 strings
@@ -98,11 +99,12 @@ via `USING col::text`. Data is preserved; the column type flips back.
 
 ### Hung advisory lock
 
-**Symptom:** No `Acquired migration advisory lock` log line within ~30s of pod
-boot. Instead, the pod exits with `psycopg2.errors.LockNotAvailable` (SQLSTATE
-`55P03`). In the Railway deploy log, grep for the underlying Postgres message
-`canceling statement due to lock timeout` — that's the string the operator
-will actually see once the exception is formatted.
+**Symptom:** The runner logs `Waiting for migration advisory lock env=prod
+key=<int>` but no matching `Acquired migration advisory lock` line follows
+within ~30s. The pod then exits with `psycopg2.errors.LockNotAvailable`
+(SQLSTATE `55P03`). In the Railway deploy log, grep for the underlying
+Postgres message `canceling statement due to lock timeout` — that's the
+string the operator will actually see once the exception is formatted.
 
 **Cause:** Another process is holding `pg_advisory_lock(<key>)` for this env.
 Usually a prior pod that was killed before releasing, or a concurrent deploy.
@@ -126,9 +128,14 @@ after that will succeed.
 **Symptom:** Deploy log shows the pre-flight scanner raising:
 
 ```
-RuntimeError: Cannot convert job_listings_prod.posted_on to TIMESTAMPTZ:
-N row(s) have non-ISO-8601 values. Sample ids: [...]
+RuntimeError: Migration 0003_posted_on_timestamptz: cannot convert
+job_listings_prod.posted_on to TIMESTAMPTZ: N row(s) do not match the
+ISO 8601 prefix '^YYYY-MM-DDT'. Sample ids: [...]
 ```
+
+(The migration name prefix is `0004_job_timestamps_timestamptz` if the
+failure is on one of `created_at` / `closed_on` / `first_seen_at` /
+`last_seen_at` instead of `posted_on`.)
 
 **Cause:** A scraper wrote a non-ISO string into a timestamp column. This is
 expected to be impossible given current scraper code (all writers go through

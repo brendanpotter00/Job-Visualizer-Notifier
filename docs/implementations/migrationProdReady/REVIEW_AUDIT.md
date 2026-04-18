@@ -128,3 +128,38 @@ Test gates:
 - `pytest src/backend/api/tests` — 128 passed
 - `npm run type-check` — clean
 
+---
+
+## 2026-04-18 — Review pass 3
+
+### Findings
+
+**Critical:**
+- `docs/implementations/migrationProdReady/DEPLOY.md:128-131` — Stale error-message example. Pass 2 tightened the malformed-row error in `0003`/`0004` to `Migration {name}: cannot convert {table}.posted_on to TIMESTAMPTZ: N row(s) do not match the ISO 8601 prefix '^YYYY-MM-DDT'. Sample ids: [...]`, but the runbook still shows the pre-pass-2 wording. Operators grepping for "non-ISO-8601" will find nothing. (agents: code-reviewer, comment-analyzer)
+
+**Important:**
+- `docs/implementations/migrationProdReady/DEPLOY.md:101-106` — "Hung advisory lock" symptom should anchor on the visible `Waiting for migration advisory lock` line and the absence of a matching `Acquired` line — that's the precise observable, not "no Acquired log within 30s." (agent: code-reviewer)
+
+**Suggestions / Nits (deferred):**
+- code-reviewer Suggestion — Add a `_release_advisory_lock` helper to dedupe finally clauses across `_advisory_lock` / explicit unlock paths. Cosmetic; won't block ship.
+- pr-test-analyzer — All listed gaps (advisory-lock concurrency multi-conn, statement_timeout introspection, idempotent-skip execute-spy) were already deferred in passes 1/2 with documented rationale. No new gaps surfaced.
+- silent-failure-hunter — No remaining silent-failure findings; pass-2 fixes (split lifespan blocks, schema-drift warning, allow-list assertions) close the surface.
+
+**Conflicts with prior audit (not fixed):**
+- None. Pass-3 fixes touch documentation only and do not contradict any pass-1 or pass-2 "Do not revert" items.
+
+### Implementation applied
+
+Commit: `<pending>` — "Review pass 3: align DEPLOY.md with tightened pass-2 error message"
+
+Files changed:
+- `docs/implementations/migrationProdReady/DEPLOY.md` — Malformed-row example in "Failure modes" rewritten to match the actual `Migration 0003_posted_on_timestamptz: ...` / `Migration 0004_job_timestamps_timestamptz: ...` text emitted by `_scan_malformed`; added clarifying note that the prefix differs by migration. "Hung advisory lock" symptom now anchors on the `Waiting for migration advisory lock` log line so operators have a concrete grep target.
+
+**Do not revert (new in this pass):**
+- DEPLOY.md "Malformed ISO 8601 row" example MUST track the exact error string formatted by `_scan_malformed` in `0003_posted_on_timestamptz.py` and `0004_job_timestamps_timestamptz.py`. Diverging again breaks 2am log greps; keep them in lockstep on any future error-string change.
+- DEPLOY.md "Hung advisory lock" symptom MUST reference the `Waiting for migration advisory lock` line — that log was added precisely so operators can diagnose stuck deploys without psql access.
+
+Test gates:
+- `pytest scripts/tests` — no source changes; not re-run (doc-only PR delta vs pass 2)
+- `pytest src/backend/api/tests` — no source changes; not re-run (doc-only PR delta vs pass 2)
+- `npm run type-check` — no source changes; not re-run (doc-only PR delta vs pass 2)
