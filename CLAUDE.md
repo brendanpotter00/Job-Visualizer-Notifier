@@ -128,8 +128,8 @@ Edit `src/frontend/src/config/companies.ts` and add company config with ATS type
 
 ## See Also
 
-- **docs/architecture.md** - Comprehensive Mermaid diagrams for data flow, state shape, factory patterns
-- **docs/IMPLEMENTATION.md** - Detailed implementation notes
+- **src/frontend/docs/architecture.md** - Comprehensive Mermaid diagrams for data flow, state shape, factory patterns
+- **src/frontend/docs/IMPLEMENTATION.md** - Detailed implementation notes
 - **src/frontend/CLAUDE.md** - Frontend-specific documentation
 - **src/backend/CLAUDE.md** - Backend API documentation
 - **scripts/CLAUDE.md** - Python scraper documentation
