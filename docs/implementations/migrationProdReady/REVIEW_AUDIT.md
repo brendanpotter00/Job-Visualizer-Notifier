@@ -150,7 +150,7 @@ Test gates:
 
 ### Implementation applied
 
-Commit: `<pending>` — "Review pass 3: align DEPLOY.md with tightened pass-2 error message"
+Commit: `b2b142c` — "Review pass 3: align DEPLOY.md with tightened pass-2 error message"
 
 Files changed:
 - `docs/implementations/migrationProdReady/DEPLOY.md` — Malformed-row example in "Failure modes" rewritten to match the actual `Migration 0003_posted_on_timestamptz: ...` / `Migration 0004_job_timestamps_timestamptz: ...` text emitted by `_scan_malformed`; added clarifying note that the prefix differs by migration. "Hung advisory lock" symptom now anchors on the `Waiting for migration advisory lock` log line so operators have a concrete grep target.
