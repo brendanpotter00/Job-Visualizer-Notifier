@@ -247,3 +247,205 @@ class TestGoogleOneTap:
         finally:
             if saved_override is not None:
                 test_app.dependency_overrides[get_current_user] = saved_override
+
+
+class TestEnabledCompanies:
+    """GET/PUT /api/users/enabled-companies endpoints."""
+
+    def test_get_returns_empty_list_before_user_exists(self, client):
+        """Before any GET /api/users (which creates the user row), the endpoint
+        returns an empty list rather than 404."""
+        resp = client.get("/api/users/enabled-companies")
+        assert resp.status_code == 200
+        assert resp.json() == {"companyIds": []}
+
+    def test_get_returns_empty_list_after_user_created(self, client):
+        client.get("/api/users")
+        resp = client.get("/api/users/enabled-companies")
+        assert resp.status_code == 200
+        assert resp.json() == {"companyIds": []}
+
+    def test_put_then_get_round_trip(self, client):
+        client.get("/api/users")
+        put_resp = client.put(
+            "/api/users/enabled-companies",
+            json={"companyIds": ["airbnb", "stripe"]},
+        )
+        assert put_resp.status_code == 200
+        assert put_resp.json() == {"companyIds": ["airbnb", "stripe"]}
+
+        get_resp = client.get("/api/users/enabled-companies")
+        assert get_resp.status_code == 200
+        assert get_resp.json() == {"companyIds": ["airbnb", "stripe"]}
+
+    def test_put_dedupes_and_sorts(self, client):
+        client.get("/api/users")
+        resp = client.put(
+            "/api/users/enabled-companies",
+            json={"companyIds": ["stripe", "airbnb", "stripe", "airbnb"]},
+        )
+        assert resp.status_code == 200
+        assert resp.json() == {"companyIds": ["airbnb", "stripe"]}
+
+    def test_put_empty_list_clears(self, client):
+        client.get("/api/users")
+        client.put(
+            "/api/users/enabled-companies",
+            json={"companyIds": ["airbnb", "stripe"]},
+        )
+        resp = client.put("/api/users/enabled-companies", json={"companyIds": []})
+        assert resp.status_code == 200
+        assert resp.json() == {"companyIds": []}
+        get_resp = client.get("/api/users/enabled-companies")
+        assert get_resp.json() == {"companyIds": []}
+
+    def test_put_replaces_previous_set(self, client):
+        client.get("/api/users")
+        client.put(
+            "/api/users/enabled-companies",
+            json={"companyIds": ["a", "b", "c"]},
+        )
+        resp = client.put(
+            "/api/users/enabled-companies",
+            json={"companyIds": ["x", "y"]},
+        )
+        assert resp.status_code == 200
+        assert resp.json() == {"companyIds": ["x", "y"]}
+
+    def test_put_rejects_non_list_body(self, client):
+        client.get("/api/users")
+        resp = client.put(
+            "/api/users/enabled-companies",
+            json={"companyIds": "not-a-list"},
+        )
+        assert resp.status_code == 422
+
+    def test_put_rejects_extra_fields(self, client):
+        client.get("/api/users")
+        resp = client.put(
+            "/api/users/enabled-companies",
+            json={"companyIds": ["a"], "sneaky": "field"},
+        )
+        assert resp.status_code == 422
+
+    def test_put_rejects_missing_body(self, client):
+        client.get("/api/users")
+        resp = client.put("/api/users/enabled-companies", json={})
+        assert resp.status_code == 422
+
+    def test_put_rejects_empty_string_company_id(self, client):
+        """Empty strings must not be accepted — COMPANY_PATTERN requires min_length=1."""
+        client.get("/api/users")
+        resp = client.put(
+            "/api/users/enabled-companies",
+            json={"companyIds": ["airbnb", ""]},
+        )
+        assert resp.status_code == 422
+
+    def test_put_rejects_malformed_company_id(self, client):
+        """Company IDs must match COMPANY_PATTERN (alphanum + - + _)."""
+        client.get("/api/users")
+        for bad_id in ["../../etc/passwd", "has space", "has.dot", "has/slash", "has'quote"]:
+            resp = client.put(
+                "/api/users/enabled-companies",
+                json={"companyIds": [bad_id]},
+            )
+            assert resp.status_code == 422, f"expected rejection for {bad_id!r}"
+
+    def test_put_rejects_oversize_company_id(self, client):
+        """Individual IDs are capped at 64 characters."""
+        client.get("/api/users")
+        resp = client.put(
+            "/api/users/enabled-companies",
+            json={"companyIds": ["a" * 65]},
+        )
+        assert resp.status_code == 422
+
+    def test_put_rejects_oversize_list(self, client):
+        """The list is capped at 200 items to prevent runaway payloads."""
+        client.get("/api/users")
+        resp = client.put(
+            "/api/users/enabled-companies",
+            json={"companyIds": [f"c{i}" for i in range(201)]},
+        )
+        assert resp.status_code == 422
+
+    def test_put_without_existing_user_returns_404(self, client):
+        resp = client.put(
+            "/api/users/enabled-companies",
+            json={"companyIds": ["a"]},
+        )
+        assert resp.status_code == 404
+
+    def test_response_uses_camel_case_key(self, client):
+        """Serialized key must literally be 'companyIds', not 'company_ids'."""
+        client.get("/api/users")
+        resp = client.put(
+            "/api/users/enabled-companies",
+            json={"companyIds": ["a"]},
+        )
+        assert resp.status_code == 200
+        assert "companyIds" in resp.json()
+        assert "company_ids" not in resp.json()
+
+    def test_get_without_auth_returns_401(self, test_app):
+        from fastapi.testclient import TestClient
+        from api.auth.dependencies import get_current_user
+
+        saved_override = test_app.dependency_overrides.pop(get_current_user, None)
+        try:
+            no_auth_client = TestClient(test_app)
+            resp = no_auth_client.get("/api/users/enabled-companies")
+            assert resp.status_code == 401
+        finally:
+            if saved_override is not None:
+                test_app.dependency_overrides[get_current_user] = saved_override
+
+    def test_put_without_auth_returns_401(self, test_app):
+        from fastapi.testclient import TestClient
+        from api.auth.dependencies import get_current_user
+
+        saved_override = test_app.dependency_overrides.pop(get_current_user, None)
+        try:
+            no_auth_client = TestClient(test_app)
+            resp = no_auth_client.put(
+                "/api/users/enabled-companies",
+                json={"companyIds": []},
+            )
+            assert resp.status_code == 401
+        finally:
+            if saved_override is not None:
+                test_app.dependency_overrides[get_current_user] = saved_override
+
+    def test_get_without_email_claim_returns_401(self, test_app):
+        from fastapi.testclient import TestClient
+        from api.auth.dependencies import get_current_user
+
+        saved_override = test_app.dependency_overrides.get(get_current_user)
+        test_app.dependency_overrides[get_current_user] = lambda: {"sub": "auth0|no_email"}
+        try:
+            client = TestClient(test_app)
+            resp = client.get("/api/users/enabled-companies")
+            assert resp.status_code == 401
+            assert "email" in resp.json()["detail"].lower()
+        finally:
+            if saved_override is not None:
+                test_app.dependency_overrides[get_current_user] = saved_override
+
+    def test_put_without_email_claim_returns_401(self, test_app):
+        from fastapi.testclient import TestClient
+        from api.auth.dependencies import get_current_user
+
+        saved_override = test_app.dependency_overrides.get(get_current_user)
+        test_app.dependency_overrides[get_current_user] = lambda: {"sub": "auth0|no_email"}
+        try:
+            client = TestClient(test_app)
+            resp = client.put(
+                "/api/users/enabled-companies",
+                json={"companyIds": []},
+            )
+            assert resp.status_code == 401
+            assert "email" in resp.json()["detail"].lower()
+        finally:
+            if saved_override is not None:
+                test_app.dependency_overrides[get_current_user] = saved_override

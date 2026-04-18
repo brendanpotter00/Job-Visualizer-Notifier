@@ -7,6 +7,7 @@ import { WhyPage } from '../pages/WhyPage/WhyPage.tsx';
 import { AccountPage } from '../pages/AccountPage/AccountPage.tsx';
 import { ROUTES } from '../config/routes';
 import { QAPage } from '../pages/QAPage/QAPage.tsx';
+import { useEnabledCompanies } from '../features/preferences/useEnabledCompanies';
 
 /**
  * App content component with routing and hooks
@@ -15,9 +16,11 @@ import { QAPage } from '../pages/QAPage/QAPage.tsx';
  * depend on React Router context (useLocation).
  */
 function AppContent() {
-  // Custom hooks for URL synchronization (page-aware)
   useURLSync();
   useBrowserNavigation();
+  // Hydrate enabled-companies at the app root so selectors have it before
+  // any page reads them.
+  useEnabledCompanies();
 
   return (
     <>

@@ -8,10 +8,14 @@ import appReducer from '../../../features/app/appSlice';
 import graphFiltersReducer from '../../../features/filters/slices/graphFiltersSlice';
 import listFiltersReducer from '../../../features/filters/slices/listFiltersSlice';
 import uiReducer from '../../../features/ui/uiSlice';
+import enabledCompaniesReducer from '../../../features/preferences/enabledCompaniesSlice';
 import {
+  selectAllJobsFromQuery,
   selectRecentJobsFilteredWithoutLocation,
   selectRecentAvailableLocations,
   selectRecentAvailableCompanies,
+  selectRecentJobsMetadata,
+  selectRecentJobsTimeBasedCounts,
 } from '../../../features/filters/selectors/recentJobsSelectors';
 
 // Helper to create mock jobs
@@ -31,7 +35,11 @@ const createMockJob = (overrides: Partial<Job> = {}): Job => ({
 });
 
 // Helper to create a mock store with jobs
-const createMockStoreWithJobs = (jobs: Job[], filters: RecentJobsFilters) => {
+const createMockStoreWithJobs = (
+  jobs: Job[],
+  filters: RecentJobsFilters,
+  enabledIds: string[] | null = null
+) => {
   const store = configureStore({
     reducer: {
       app: appReducer,
@@ -39,6 +47,7 @@ const createMockStoreWithJobs = (jobs: Job[], filters: RecentJobsFilters) => {
       listFilters: listFiltersReducer,
       recentJobsFilters: recentJobsFiltersReducer,
       ui: uiReducer,
+      enabledCompanies: enabledCompaniesReducer,
       [jobsApi.reducerPath]: jobsApi.reducer,
     },
     middleware: (getDefaultMiddleware) => getDefaultMiddleware().concat(jobsApi.middleware),
@@ -60,6 +69,11 @@ const createMockStoreWithJobs = (jobs: Job[], filters: RecentJobsFilters) => {
     ...state,
     recentJobsFilters: {
       filters,
+    },
+    enabledCompanies: {
+      ids: enabledIds,
+      loading: false,
+      error: null,
     },
     [jobsApi.reducerPath]: {
       ...state[jobsApi.reducerPath],
@@ -556,6 +570,91 @@ describe('recentJobsSelectors', () => {
       const companies = selectRecentAvailableCompanies(state);
       expect(companies).toHaveLength(1);
       expect(companies[0].id).toBe('spacex');
+    });
+  });
+
+  describe('enabled-companies prefilter', () => {
+    const now = Date.now();
+    const makeJobs = (): Job[] => [
+      createMockJob({
+        id: '1',
+        company: 'spacex',
+        createdAt: new Date(now - 1 * 60 * 60 * 1000).toISOString(), // 1h ago
+      }),
+      createMockJob({
+        id: '2',
+        company: 'spotify',
+        createdAt: new Date(now - 2 * 60 * 60 * 1000).toISOString(), // 2h ago
+      }),
+      createMockJob({
+        id: '3',
+        company: 'airbnb',
+        createdAt: new Date(now - 3 * 60 * 60 * 1000).toISOString(), // 3h ago
+      }),
+    ];
+
+    const baseFilters: RecentJobsFilters = {
+      timeWindow: '7d',
+      softwareOnly: false,
+    };
+
+    it('returns all jobs unchanged when ids === null', () => {
+      const state = createMockStoreWithJobs(makeJobs(), baseFilters, null);
+      const result = selectAllJobsFromQuery(state);
+
+      expect(result).toHaveLength(3);
+      expect(result.map((j) => j.company).sort()).toEqual(['airbnb', 'spacex', 'spotify']);
+    });
+
+    it('returns all jobs unchanged when ids === [] (empty = opt-out)', () => {
+      const state = createMockStoreWithJobs(makeJobs(), baseFilters, []);
+      const result = selectAllJobsFromQuery(state);
+
+      expect(result).toHaveLength(3);
+      expect(result.map((j) => j.company).sort()).toEqual(['airbnb', 'spacex', 'spotify']);
+    });
+
+    it('returns only jobs for enabled company ids', () => {
+      const state = createMockStoreWithJobs(makeJobs(), baseFilters, ['spacex', 'spotify']);
+      const result = selectAllJobsFromQuery(state);
+
+      expect(result).toHaveLength(2);
+      const companies = result.map((j) => j.company).sort();
+      expect(companies).toEqual(['spacex', 'spotify']);
+      expect(companies).not.toContain('airbnb');
+    });
+
+    it('returns empty and drops metadata to zero when ids reference no real companies', () => {
+      const state = createMockStoreWithJobs(makeJobs(), baseFilters, ['nonexistent-id']);
+
+      expect(selectAllJobsFromQuery(state)).toHaveLength(0);
+
+      const metadata = selectRecentJobsMetadata(state);
+      expect(metadata.totalJobs).toBe(0);
+      expect(metadata.filteredCount).toBe(0);
+      expect(metadata.companiesRepresented).toBe(0);
+    });
+
+    it('propagates filter to selectRecentJobsMetadata and selectRecentJobsTimeBasedCounts', () => {
+      const state = createMockStoreWithJobs(makeJobs(), baseFilters, ['spacex']);
+
+      const metadata = selectRecentJobsMetadata(state);
+      expect(metadata.totalJobs).toBe(1);
+      expect(metadata.filteredCount).toBe(1);
+      expect(metadata.companiesRepresented).toBe(1);
+
+      const counts = selectRecentJobsTimeBasedCounts(state);
+      expect(counts.jobsLast24Hours).toBe(1);
+      expect(counts.jobsLast3Hours).toBe(1);
+    });
+
+    it('memoizes when enabledCompanies.ids is unchanged', () => {
+      const state = createMockStoreWithJobs(makeJobs(), baseFilters, ['spacex', 'spotify']);
+
+      const r1 = selectAllJobsFromQuery(state);
+      const r2 = selectAllJobsFromQuery(state);
+
+      expect(r1).toBe(r2);
     });
   });
 
