@@ -527,6 +527,10 @@ export const COMPANIES: Company[] = [
         'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22165158%22%5D',
     }
   ),
+  createEightfoldCompany('paypal', 'PayPal', {
+    tenantHost: 'paypal.eightfold.ai',
+    domain: 'paypal.com',
+  }),
 
   // Backend scraper companies
   createBackendScraperCompany('google', 'Google', 'https://careers.google.com/', {
@@ -610,6 +614,7 @@ export const enum COMPANY_IDS {
   OpenAI = 'openai',
   Pallet = 'pallet',
   Palantir = 'palantir',
+  PayPal = 'paypal',
   Perplexity = 'perplexity',
   Pylon = 'pylon-labs',
   Pinterest = 'pinterest',
