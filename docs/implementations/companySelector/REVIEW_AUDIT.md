@@ -71,3 +71,40 @@ All candidate issues surfaced during Round 2 scored below the 80 posting thresho
 **1000 frontend tests passing, type-check clean. No code fixes applied (docs-only audit entry).**
 
 ---
+
+## 2026-04-18 — Round 3 review (PR #67, final)
+
+Review run via the `/code-review` skill reviewer pattern (manual, 5 parallel perspectives: CLAUDE.md compliance, shallow bug scan, git-history context, past-PR comments, code-comment compliance) at head SHA `6626cb4377d7b367fac383e0cfed46a83e79ad51`. No findings scored ≥80 — **no review comment posted** (per skill step 6, skip posting when the filtered set is empty). This Round 3 entry documents what was re-checked and confirms the Round 1 + Round 2 invariants still hold on the current tip.
+
+Note: the only code commits in this PR since Round 2 are docs-only (`6626cb4` appended the Round 2 entry). The on-disk frontend and backend source is the same as the Round 2 tip (`a836d20`), so no new code surface materialized between rounds. Round 3 re-ran the reviewer pattern against the same source to confirm stability before the user merges.
+
+### No findings above threshold
+
+All candidate issues surfaced during Round 3 scored below the 80 posting threshold and duplicate items already recorded in Round 1 or Round 2 without new supporting evidence.
+
+### Scored but below threshold (carried from Round 1 + Round 2 — no new evidence in Round 3)
+
+- **`EditCompanyPreferencesLink` invisible on failed load (scored 55, from Round 2).** `src/frontend/src/components/recent-jobs-page/EditCompanyPreferencesLink.tsx:15` still gates the CTA on `isLoading || (isAuthenticated && enabledIds === null)`; a non-abort rejection of `loadEnabledCompanies` leaves `enabledIds === null` and the caption silently never appears for the signed-in user. The Account menu still works; Recent Jobs still renders with "show all" behavior. Not a blocker; revisit if users report the spacer state.
+- **Dead abort check in `saveEnabledCompanies.rejected` (scored 25, from Round 2).** Harmless; future-proofs for a later abort-on-unmount addition.
+- **Stale-token risk in `useEnabledCompanies.save()` (scored 30, from Round 2).** Auth0 SDK returns cached-valid tokens; 401 surfaces via the slice's save rejection.
+- **`saveError` persistence across edits (scored 35, from Round 2).** Minor UX polish.
+- **Silent `getToken()` rejection in `useEnabledCompanies` (scored 30, from Round 2).** Acceptable given the upstream `isAuthenticated` gate.
+- **Env-name interpolation bypass (scored 50, from Round 1 + Round 2).** `scripts/shared/database.py:235` and `src/backend/api/services/user_preferences_service.py:13` still build `user_enabled_companies_{env}` via raw f-string instead of `_get_table_name()`. `env` is Pydantic-validated at startup, so the injection risk remains theoretical. Unify only if this file is touched again.
+- **`reload()` race on rapid successive calls (scored 25, from Round 1 + Round 2).** No external `reload()` callers exist; the only internal caller is the `useEffect` that fires once per auth-state change.
+
+### Confirmations (Round 1 + Round 2 invariants re-verified)
+
+- **`loading=false` always clears on abort** — still true at `src/frontend/src/features/preferences/enabledCompaniesSlice.ts:51`. The reducer unconditionally assigns `state.loading = false` before the early-return that guards the error write. The two aborted-rejection tests in `__tests__/features/preferences/enabledCompaniesSlice.test.ts` still assert `loading === false`, `error === null`, `ids === null` after abort.
+- **Abort path does not clobber `state.error`** — the early-return still skips the `state.error` write, so a stale aborted load does not replace a real prior error with abort-noise.
+- **`useEnabledCompanies` abort semantics** — the hook still aborts the in-flight load on sign-out via `activePromise.current?.abort()` and on unmount via the `useEffect` cleanup. The "aborts in-flight load when isAuthenticated flips to false" test in `__tests__/features/preferences/useEnabledCompanies.test.ts` still passes, confirming the end-to-end abort plumbing.
+- **Round 1 + Round 2 deferrals remain deferred** — none of the seven sub-threshold items have accrued new supporting evidence. Re-flagging any of them in a future review requires a fresh concrete example (user report, bug ticket, or a new caller that changes the assumption).
+
+### Tests run
+
+- `npm run type-check` — clean.
+- `npm test -- --run` — 1000 frontend tests pass (66 files).
+- Backend tests not run — `src/backend` untouched since Round 2 (no code changes between rounds).
+
+**1000 frontend tests passing, type-check clean. No code fixes applied (docs-only audit entry, final round).**
+
+---
