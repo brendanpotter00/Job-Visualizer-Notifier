@@ -303,7 +303,6 @@ export const COMPANIES: Company[] = [
   createGreenhouseCompany('affirm', 'Affirm'),
   createGreenhouseCompany('crunchyroll', 'Crunchyroll'),
   createGreenhouseCompany('nuro', 'Nuro'),
-  createGreenhouseCompany('trueanomalyinc', 'True Anomaly'),
   createGreenhouseCompany('pallet', 'Pallet'),
   createGreenhouseCompany('pinterest', 'Pinterest', {
     recruiterLinkedInUrl:
@@ -635,7 +634,6 @@ export const enum COMPANY_IDS {
   Sunday = 'sunday',
   Supabase = 'supabase',
   Traversal = 'traversal',
-  TrueAnomaly = 'trueanomalyinc',
   Twilio = 'twilio',
   Turo = 'turo',
   Twitch = 'twitch',
