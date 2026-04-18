@@ -517,10 +517,16 @@ def get_all_active_jobs(conn: Connection, company: str, env: str = "local") -> L
     jobs = []
     for row in cursor.fetchall():
         row_dict = dict(row)
-        # Parse JSONB columns if returned as strings (depends on psycopg2 config)
         for json_col in ('details', 'ai_metadata'):
             if isinstance(row_dict.get(json_col), str):
                 row_dict[json_col] = json.loads(row_dict[json_col])
+        # Timestamptz columns come back as tz-aware datetime objects, but
+        # JobListing models these as ISO 8601 strings (scraper-side contract).
+        # Normalize before constructing the Pydantic model.
+        for ts_col in ('posted_on', 'created_at', 'closed_on', 'first_seen_at', 'last_seen_at'):
+            value = row_dict.get(ts_col)
+            if hasattr(value, 'isoformat'):
+                row_dict[ts_col] = value.isoformat()
         jobs.append(JobListing(**row_dict))
 
     return jobs

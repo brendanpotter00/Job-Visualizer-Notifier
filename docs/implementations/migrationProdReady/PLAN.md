@@ -123,7 +123,7 @@ Keep `downgrade` untouched.
 
 ### Unit 3 — Exercise the full scraper-write-through-API path end-to-end against timestamptz
 
-**Status:** TODO
+**Status:** DONE
 
 **Prerequisites:** Unit 2
 

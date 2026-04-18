@@ -145,3 +145,31 @@ def test_detail_endpoint_returns_full_details(client, db_conn, test_env):
     details = json.loads(resp.json()["details"])
     assert details["experience_level"] == "Senior"
     assert details["about_the_job"] == "Full description here"
+
+
+def test_get_jobs_returns_iso8601_datetime_strings(client):
+    """After migrations 0003/0004, DB columns are timestamptz; Pydantic must
+    serialize them as ISO 8601 strings matching the frontend BackendJobListing
+    contract.
+    """
+    import re
+    from datetime import datetime
+
+    resp = client.get("/api/jobs")
+    assert resp.status_code == 200
+    jobs = resp.json()
+    assert len(jobs) > 0
+
+    # Conservative ISO 8601 regex: YYYY-MM-DDTHH:MM:SS with optional
+    # microseconds and either a named offset or 'Z'.
+    iso_re = re.compile(
+        r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?([+-]\d{2}:\d{2}|Z)$"
+    )
+
+    for job in jobs:
+        for field in ("createdAt", "firstSeenAt", "lastSeenAt"):
+            value = job[field]
+            assert isinstance(value, str), f"{field} must be str, got {type(value)}"
+            assert iso_re.match(value), f"{field}={value!r} is not ISO 8601"
+            # And it must round-trip via fromisoformat.
+            datetime.fromisoformat(value)
