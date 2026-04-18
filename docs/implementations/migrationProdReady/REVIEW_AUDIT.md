@@ -39,3 +39,29 @@
 - Silent-failure I5 — Widen the pre-flight regex to full ISO 8601 timestamp shape. PLAN deliberately calls this a conservative filter; safer to keep as-is and soften the module docstring wording only.
 - Suggestion #8 — `TestPostedOnMalformedRowGuard` cleanup block is dead code; harmless.
 
+### Implementation applied
+
+Commit: `fd363b4` — "Review pass 1: fix silent failures, doc inaccuracies, and coverage gaps"
+
+Files changed:
+- `docs/implementations/migrationProdReady/DEPLOY.md` — first-run 0/4 expectation, LockNotAvailable class + log string, unified `--to` semantics
+- `scripts/migrate.py` — `_connect` error handling with masked DB URL, `--to` help text
+- `scripts/shared/database.py` — narrowed `isinstance(datetime)` normalization in `get_all_active_jobs` with `TypeError` on unexpected types, comment note on `Z` → `+00:00` shift
+- `scripts/shared/migrations/runner.py` — `_require_transactional`, advisory-lock release try/except with explicit `released=<bool>` log, per-migration elapsed wall time, `migrate_down` docstring expanded
+- `scripts/shared/migrations/0003_posted_on_timestamptz.py` — named `RuntimeError` on missing table/column
+- `scripts/shared/migrations/0004_job_timestamps_timestamptz.py` — named `RuntimeError` on missing column, docstring `USING <col>::timestamptz` fix
+- `scripts/tests/integration/test_database.py` — accurate cleanup comment, new `test_get_all_active_jobs_returns_iso_string_timestamps`
+- `scripts/tests/unit/test_migration_runner.py` — import convention aligned with sibling tests
+- `src/backend/api/tests/test_jobs_router.py` — ISO regex loop extended to `postedOn`/`closedOn` with a seeded job
+
+**Do not revert (new in this pass):**
+- `get_all_active_jobs` MUST keep converting tz-aware `datetime` → ISO string. The shared `JobListing` Pydantic model types these as `str`; returning `datetime` directly breaks `JobListing(**row)` construction.
+- `_advisory_lock` release path MUST log `released=True/False` and re-raise on unlock failure, not swallow. Silent release failure will mask stuck locks on subsequent boots.
+- DEPLOY.md first-deploy expectation stays at `0/4` — the tracking table is introduced by this PR.
+- `--to N` semantics: **N is kept, anything >N is reverted** (inclusive keep). Runner, CLI help, and runbook must stay aligned.
+
+Test gates:
+- `pytest scripts/tests` — 391 passed
+- `pytest src/backend/api/tests` — 128 passed
+- `npm run type-check` — clean
+
