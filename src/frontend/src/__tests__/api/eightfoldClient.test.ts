@@ -36,8 +36,11 @@ function makePosition(
 }
 
 describe('eightfoldClient', () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
   beforeEach(() => {
-    globalThis.fetch = vi.fn();
+    fetchMock = vi.fn();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
   });
 
   afterEach(() => {
@@ -58,7 +61,7 @@ describe('eightfoldClient', () => {
     });
 
     it('accepts a valid Eightfold config', async () => {
-      (globalThis.fetch as any).mockResolvedValue({
+      fetchMock.mockResolvedValue({
         ok: true,
         status: 200,
         json: async () => ({ positions: [], count: 0 }),
@@ -73,7 +76,7 @@ describe('eightfoldClient', () => {
   describe('Single Page Results', () => {
     it('returns a single page when count fits within pageSize', async () => {
       const positions = Array.from({ length: 5 }, (_, i) => makePosition(i + 1));
-      (globalThis.fetch as any).mockResolvedValueOnce({
+      fetchMock.mockResolvedValueOnce({
         ok: true,
         status: 200,
         json: async () => ({ positions, count: 5 }),
@@ -81,7 +84,7 @@ describe('eightfoldClient', () => {
 
       const result = await eightfoldClient.fetchJobs(makeConfig());
 
-      expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(result.jobs).toHaveLength(5);
       expect(result.jobs[0].source).toBe('eightfold');
       expect(result.jobs[0].company).toBe('netflix');
@@ -91,7 +94,7 @@ describe('eightfoldClient', () => {
   describe('Pagination', () => {
     it('fetches multiple pages with correct start offsets (0, 10, 20)', async () => {
       const seenStarts: number[] = [];
-      (globalThis.fetch as any).mockImplementation(async (url: string) => {
+      fetchMock.mockImplementation(async (url: string) => {
         const u = new URL(url, 'http://localhost');
         const start = Number(u.searchParams.get('start'));
         seenStarts.push(start);
@@ -115,7 +118,7 @@ describe('eightfoldClient', () => {
     it('stops when a partial final page is returned (Eightfold under-reports count)', async () => {
       // Simulate a tenant where count=100 is reported but only 23 positions exist.
       const seenStarts: number[] = [];
-      (globalThis.fetch as any).mockImplementation(async (url: string) => {
+      fetchMock.mockImplementation(async (url: string) => {
         const u = new URL(url, 'http://localhost');
         const start = Number(u.searchParams.get('start'));
         seenStarts.push(start);
@@ -144,7 +147,7 @@ describe('eightfoldClient', () => {
 
     it('handles an empty page defensively', async () => {
       let call = 0;
-      (globalThis.fetch as any).mockImplementation(async () => {
+      fetchMock.mockImplementation(async () => {
         call++;
         if (call === 1) {
           const page = Array.from({ length: 10 }, (_, i) => makePosition(i + 1));
@@ -167,7 +170,7 @@ describe('eightfoldClient', () => {
     });
 
     it('stops when options.limit is satisfied', async () => {
-      (globalThis.fetch as any).mockImplementation(async () => {
+      fetchMock.mockImplementation(async () => {
         const page = Array.from({ length: 10 }, (_, i) => makePosition(i + 1));
         return {
           ok: true,
@@ -178,13 +181,13 @@ describe('eightfoldClient', () => {
 
       const result = await eightfoldClient.fetchJobs(makeConfig(), { limit: 15 });
       // Two pages fetched (20 positions), but response is sliced to 15.
-      expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
       expect(result.jobs).toHaveLength(15);
     });
 
     it('throws a non-retryable APIError when MAX_ITERATIONS is reached', async () => {
       // Configure the mock to always return a full page with high count and no partial.
-      (globalThis.fetch as any).mockImplementation(async () => {
+      fetchMock.mockImplementation(async () => {
         const page = Array.from({ length: 10 }, (_, i) => makePosition(i + 1));
         return {
           ok: true,
@@ -199,7 +202,7 @@ describe('eightfoldClient', () => {
         retryable: false,
       });
       // MAX_ITERATIONS=200 → 200 fetches were issued before the throw
-      expect(globalThis.fetch).toHaveBeenCalledTimes(200);
+      expect(fetchMock).toHaveBeenCalledTimes(200);
     });
   });
 
@@ -210,7 +213,7 @@ describe('eightfoldClient', () => {
         makePosition(2, { isPrivate: true }),
         makePosition(3),
       ];
-      (globalThis.fetch as any).mockResolvedValueOnce({
+      fetchMock.mockResolvedValueOnce({
         ok: true,
         status: 200,
         json: async () => ({ positions, count: 3 }),
@@ -226,7 +229,7 @@ describe('eightfoldClient', () => {
         makePosition(1),
         makePosition(2, { canonicalPositionUrl: undefined }),
       ];
-      (globalThis.fetch as any).mockResolvedValueOnce({
+      fetchMock.mockResolvedValueOnce({
         ok: true,
         status: 200,
         json: async () => ({ positions, count: 2 }),
@@ -241,7 +244,7 @@ describe('eightfoldClient', () => {
       // t_create of 1700000000 → 2023-11-14T22:13:20Z
       const oldJob = makePosition(1, { t_create: 1600000000 }); // 2020-09-13
       const newJob = makePosition(2, { t_create: 1700000000 }); // 2023-11-14
-      (globalThis.fetch as any).mockResolvedValueOnce({
+      fetchMock.mockResolvedValueOnce({
         ok: true,
         status: 200,
         json: async () => ({ positions: [oldJob, newJob], count: 2 }),
@@ -259,7 +262,7 @@ describe('eightfoldClient', () => {
     it('sends X-Eightfold-Tenant-Host header on every page', async () => {
       const seenHeaders: Array<Record<string, string>> = [];
       let call = 0;
-      (globalThis.fetch as any).mockImplementation(
+      fetchMock.mockImplementation(
         async (_url: string, init: RequestInit) => {
           call++;
           seenHeaders.push(init.headers as Record<string, string>);
@@ -293,7 +296,7 @@ describe('eightfoldClient', () => {
 
     it('builds the URL with correct query params', async () => {
       let capturedUrl = '';
-      (globalThis.fetch as any).mockImplementation(async (url: string) => {
+      fetchMock.mockImplementation(async (url: string) => {
         capturedUrl = url;
         return {
           ok: true,
@@ -311,7 +314,7 @@ describe('eightfoldClient', () => {
 
     it('URL-encodes the domain param', async () => {
       let capturedUrl = '';
-      (globalThis.fetch as any).mockImplementation(async (url: string) => {
+      fetchMock.mockImplementation(async (url: string) => {
         capturedUrl = url;
         return {
           ok: true,
@@ -326,7 +329,7 @@ describe('eightfoldClient', () => {
 
     it('clamps defaultPageSize to 10 (server cap)', async () => {
       let capturedUrl = '';
-      (globalThis.fetch as any).mockImplementation(async (url: string) => {
+      fetchMock.mockImplementation(async (url: string) => {
         capturedUrl = url;
         return {
           ok: true,
@@ -342,7 +345,7 @@ describe('eightfoldClient', () => {
 
   describe('Error Handling', () => {
     it('marks 500 as retryable', async () => {
-      (globalThis.fetch as any).mockResolvedValue({
+      fetchMock.mockResolvedValue({
         ok: false,
         status: 500,
         statusText: 'Internal Server Error',
@@ -357,7 +360,7 @@ describe('eightfoldClient', () => {
     });
 
     it('marks 429 as retryable', async () => {
-      (globalThis.fetch as any).mockResolvedValue({
+      fetchMock.mockResolvedValue({
         ok: false,
         status: 429,
         statusText: 'Too Many Requests',
@@ -370,7 +373,7 @@ describe('eightfoldClient', () => {
     });
 
     it('marks 404 as non-retryable', async () => {
-      (globalThis.fetch as any).mockResolvedValue({
+      fetchMock.mockResolvedValue({
         ok: false,
         status: 404,
         statusText: 'Not Found',
@@ -383,7 +386,7 @@ describe('eightfoldClient', () => {
     });
 
     it('marks 401 as non-retryable', async () => {
-      (globalThis.fetch as any).mockResolvedValue({
+      fetchMock.mockResolvedValue({
         ok: false,
         status: 401,
         statusText: 'Unauthorized',
@@ -396,7 +399,7 @@ describe('eightfoldClient', () => {
     });
 
     it('wraps network errors as retryable APIError', async () => {
-      (globalThis.fetch as any).mockRejectedValue(new Error('Network down'));
+      fetchMock.mockRejectedValue(new Error('Network down'));
 
       try {
         await eightfoldClient.fetchJobs(makeConfig());
@@ -409,7 +412,7 @@ describe('eightfoldClient', () => {
     });
 
     it('wraps JSON parse errors as retryable APIError', async () => {
-      (globalThis.fetch as any).mockResolvedValue({
+      fetchMock.mockResolvedValue({
         ok: true,
         status: 200,
         json: async () => {
@@ -431,7 +434,7 @@ describe('eightfoldClient', () => {
     it('passes the signal into fetch', async () => {
       const controller = new AbortController();
       let capturedSignal: AbortSignal | undefined;
-      (globalThis.fetch as any).mockImplementation(
+      fetchMock.mockImplementation(
         async (_url: string, init: RequestInit) => {
           capturedSignal = init.signal as AbortSignal;
           return {
@@ -449,7 +452,7 @@ describe('eightfoldClient', () => {
     it('throws AbortError instead of returning partial results when aborted between pages', async () => {
       const controller = new AbortController();
       let call = 0;
-      (globalThis.fetch as any).mockImplementation(async () => {
+      fetchMock.mockImplementation(async () => {
         call++;
         if (call === 1) {
           controller.abort();
@@ -473,7 +476,7 @@ describe('eightfoldClient', () => {
   describe('Company Id', () => {
     it('uses the explicit companyId from config, not the domain slug', async () => {
       const positions = [makePosition(1)];
-      (globalThis.fetch as any).mockResolvedValueOnce({
+      fetchMock.mockResolvedValueOnce({
         ok: true,
         status: 200,
         json: async () => ({ positions, count: 1 }),
