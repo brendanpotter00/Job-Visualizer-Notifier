@@ -34,6 +34,10 @@ def _column_type(conn, table, column):
 
 
 def _scan_malformed(conn, table, column):
+    # f-string-substituting `column` is safe today because every call site
+    # passes a value from `_COLUMNS`, but the assertion stops a future copy-
+    # paste from inheriting an injection primitive.
+    assert column in _COLUMNS, f"_scan_malformed column not allow-listed: {column!r}"
     cursor = conn.cursor()
     cursor.execute(
         f"SELECT id, {column} FROM {table} "
@@ -64,8 +68,9 @@ def upgrade(conn, env):
         if malformed:
             samples = [m[0] if not isinstance(m, dict) else m["id"] for m in malformed]
             raise RuntimeError(
-                f"Cannot convert {table}.{col} to TIMESTAMPTZ: "
-                f"{len(malformed)} row(s) have non-ISO-8601 values. "
+                f"Migration 0004_job_timestamps_timestamptz: cannot convert "
+                f"{table}.{col} to TIMESTAMPTZ: {len(malformed)} row(s) "
+                f"do not match the ISO 8601 prefix '^YYYY-MM-DDT'. "
                 f"Sample ids: {samples}"
             )
 

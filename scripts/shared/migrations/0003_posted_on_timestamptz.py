@@ -6,16 +6,26 @@ the Apple and Microsoft scrapers. Google leaves posted_on NULL. PostgreSQL's
 USING clause parses these strings directly into timestamptz.
 
 Pre-flight scan: before the ALTER, confirm every non-null value starts with an
-ISO 8601 date prefix. If any row fails the scan, raise with a sample so the
-deploy log shows which rows need fixing — otherwise ALTER fails with the
-opaque "invalid input syntax for type timestamp" message.
+ISO 8601 date+time prefix (`YYYY-MM-DDT`). The check is conservative — it
+catches the common scraper bug (writing a date-only or non-timestamp string)
+but doesn't validate month/day/hour ranges, so malformed-but-prefix-shaped
+values still surface as opaque psycopg2 errors during the ALTER. If any row
+fails the prefix scan, raise with a sample so the deploy log shows which rows
+need fixing.
 """
 
 
 _ISO_PREFIX_REGEX = r"^\d{4}-\d{2}-\d{2}T"
 
+# Allow-list for `column` in _scan_malformed. The helper f-string-substitutes
+# the column name into SQL, which is safe today because every call site passes
+# this constant — but the assertion stops a future copy-paste from inheriting
+# an injection primitive.
+_ALLOWED_COLUMNS = frozenset({"posted_on"})
+
 
 def _scan_malformed(conn, table, column):
+    assert column in _ALLOWED_COLUMNS, f"_scan_malformed column not allow-listed: {column!r}"
     cursor = conn.cursor()
     cursor.execute(
         f"SELECT id, {column} FROM {table} "
@@ -67,8 +77,9 @@ def upgrade(conn, env):
     if malformed:
         samples = [m[0] if not isinstance(m, dict) else m["id"] for m in malformed]
         raise RuntimeError(
-            f"Cannot convert {table}.posted_on to TIMESTAMPTZ: "
-            f"{len(malformed)} row(s) have non-ISO-8601 values. "
+            f"Migration 0003_posted_on_timestamptz: cannot convert "
+            f"{table}.posted_on to TIMESTAMPTZ: {len(malformed)} row(s) "
+            f"do not match the ISO 8601 prefix '^YYYY-MM-DDT'. "
             f"Sample ids: {samples}"
         )
 

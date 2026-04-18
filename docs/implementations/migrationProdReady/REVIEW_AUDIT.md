@@ -65,3 +65,39 @@ Test gates:
 - `pytest src/backend/api/tests` — 128 passed
 - `npm run type-check` — clean
 
+---
+
+## 2026-04-18 — Review pass 2
+
+### Findings
+
+**Critical:**
+- `docs/implementations/migrationProdReady/DEPLOY.md:47-51` — Deploy-sequence log example still reads `Pending migrations env=prod: [3, 4]` / `Applied 2 migration(s) ... [3, 4]`. After pass 1's `0/4` fix, first-run pending is actually `[1, 2, 3, 4]`. The same runbook now contradicts itself across the Pre-deploy and Deploy-sequence sections. (agent: comment-analyzer)
+- `docs/implementations/migrationProdReady/DEPLOY.md:5-7` — Intro still says migrations 0001/0002 are "already applied in prod" which implies they're skipped; after the pass-1 clarification they're _replayed_ as no-ops (0001 via `IF NOT EXISTS`, 0002 via pg_constraint probe). Align intro with lines 29-34. (agent: comment-analyzer)
+
+**Important:**
+- `scripts/shared/migrations/0003_posted_on_timestamptz.py:18-26`, `scripts/shared/migrations/0004_job_timestamps_timestamptz.py:36-44` — `_scan_malformed` f-string-injects the column name. Today's callers pass module-local constants, but the helper should enforce the allow-list with an `assert col in _COLUMNS` so a future migration copy-pasting this helper doesn't inherit an injection primitive. (agent: code-reviewer)
+- `scripts/tests/integration/test_migrations.py:215-239` — `TestPostedOnMalformedRowGuard` cleanup lives outside a `try/finally`, so if the error-message regex ever drifts and `pytest.raises` misses, the rollback+delete never runs and downstream tests see a partial schema. (agent: code-reviewer)
+- `src/backend/api/main.py:27-43` — Lifespan try/except logs "Failed to connect to database" whether the failure is `get_connection()` or a migration error. A RuntimeError from the pre-flight scanner ends up nested under a message that _lies_ about what failed. Split the try/except into connect vs migrate, or rephrase the log. (agent: silent-failure-hunter)
+- `scripts/shared/database.py:538-540` — `get_all_active_jobs` has `elif isinstance(value, str): continue` flagged as "legacy" post-migration. In prod this branch should never fire; silently skipping hides schema drift. Log a warning the first time it hits so it surfaces. (agent: silent-failure-hunter)
+- `scripts/shared/migrations/0003_posted_on_timestamptz.py:69-73`, `0004_job_timestamps_timestamptz.py:63-67` — Pre-flight error message says "non-ISO-8601 values" but the regex only catches bad prefixes. An ISO-shaped but invalid value like `2026-13-45T99:99:99` passes pre-flight and the ALTER then raises opaque psycopg2 cast errors. Tighten the message (or strengthen the regex — widening is deferred per pass 1; tighten wording here). (agent: silent-failure-hunter)
+- `scripts/shared/migrations/runner.py:249` — `migrate_down` docstring one-liner "(exclusive)" contradicts the body that follows (inclusive-keep). Drop "exclusive". Also the "CLI-only" claim is aspirational — replace with explicit "no per-migration statement_timeout" note so the asymmetry with `migrate_up` is documented rather than implied. (agent: comment-analyzer)
+- `scripts/shared/migrations/runner.py:216-218` — Comment "conn.commit() ran at the end of the previous migration" is mis-cause; commit does not flip autocommit. Trim to the accurate "a misbehaving migration could flip the flag" rationale. (agent: comment-analyzer)
+- `docs/implementations/migrationProdReady/DEPLOY.md:50` — Expected log line `Released migration advisory lock env=prod` is stale; pass 1 changed the release log to include `key=<int> released=<bool>`. Update the example so operator-grep patterns match actual output. (agent: comment-analyzer)
+- `scripts/tests/unit/test_migration_runner.py` — Missing `TestRequireTransactional` coverage; the autocommit guard added in pass 1 would silently regress if removed. (agent: pr-test-analyzer)
+- `scripts/tests/integration/test_migrations.py` — Missing assertion that the 0003/0004 missing-table/column RuntimeError paths fire with the contextual message. Without it, pass 1's named-error work can silently regress to opaque psycopg2 errors. (agent: pr-test-analyzer)
+- `scripts/tests/unit/test_migrate_cli.py` (new file) — Missing coverage for `_connect` failure path and `_mask_db_url` masking invariant. Pass 1 added these specifically for the 2am runbook; no test pins the behavior. (agent: pr-test-analyzer)
+- `scripts/tests/unit/test_migration_runner.py::TestAdvisoryLockLogging` — Missing regex assertion on the `Applied migration X in Y.YYs` log format. DEPLOY.md tells operators to grep it; monitoring can silently break on format drift. (agent: pr-test-analyzer)
+
+**Deferred (not fixing this pass):**
+- silent-failure #2 — chained-exception context on unlock-after-failure. Real but low-probability; Python's standard `__context__` chain + pass-1's release-failure `logger.exception` is enough for ops.
+- silent-failure #4 — `applied` set staleness in the migrate_up loop. Today's INSERT+commit per-iteration prevents double-apply; no live bug.
+- silent-failure #5 — wrap migrate_up/down psycopg2 errors at CLI level. `_connect` already covers the most common 2am path; migration errors produce contextual exceptions. Low ROI.
+- silent-failure #7 — document crashloop semantics in DEPLOY.md. Railway runbook territory, not this PR.
+- code-reviewer #3 — `init_schema` docstring note about advisory lock. Covered sufficiently by `migrate_up` docstring; grep reaches it.
+- code-reviewer #4 — `_row_value` helper for dict-vs-tuple polymorphism. Refactor; no regression risk.
+- code-reviewer #5 — inline `datetime`/`re` imports in tests. Style; not worth a commit.
+- code-reviewer Nit #6 — DEPLOY.md 300s coordination procedure. Runbook could be longer; current text is adequate.
+- pr-test-analyzer #3 — `_advisory_lock` failed-release log-line test. Requires cursor-level mocking for a single-line log invariant; ROI low given `released=<bool>` is already asserted in the happy path.
+- pr-test-analyzer #6, #7 — idempotent-skip execute() spy and `_mask_db_url` unparseable-input branch. Nice-to-haves; core paths are covered.
+

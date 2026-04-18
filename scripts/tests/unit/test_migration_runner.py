@@ -8,6 +8,7 @@ setup.
 """
 
 import logging
+import re
 import sys
 from pathlib import Path
 
@@ -111,5 +112,48 @@ class TestAdvisoryLockLogging:
 
         messages = [record.getMessage() for record in caplog.records]
         assert any("Acquired migration advisory lock" in m for m in messages), messages
-        assert any("Released migration advisory lock" in m for m in messages), messages
+        # The release line must include `released=True` so operators grepping
+        # per DEPLOY.md see the pass/fail signal, not just the verb.
+        assert any(
+            "Released migration advisory lock" in m and "released=True" in m
+            for m in messages
+        ), messages
         assert any(f"Pending migrations env={test_env}" in m for m in messages), messages
+        # Per-migration elapsed-time format is called out in DEPLOY.md; a
+        # format drift would silently break monitoring greps.
+        elapsed_re = re.compile(r"^Applied migration \d{4}_.+ in \d+\.\d{2}s$")
+        assert any(elapsed_re.match(m) for m in messages), messages
+
+
+class TestRequireTransactional:
+    """Ensures the autocommit guard fires before SET LOCAL would silently
+    no-op. Without this guard, a caller flipping conn.autocommit = True would
+    freeze deploys on a stuck advisory lock (lock_timeout wouldn't apply).
+    """
+
+    def test_migrate_up_raises_under_autocommit(self, postgres_db, test_env):
+        postgres_db.autocommit = True
+        try:
+            with pytest.raises(RuntimeError, match="autocommit must be False"):
+                runner.migrate_up(postgres_db, test_env)
+        finally:
+            postgres_db.autocommit = False
+
+    def test_migrate_down_raises_under_autocommit(self, postgres_db, test_env):
+        postgres_db.autocommit = True
+        try:
+            with pytest.raises(RuntimeError, match="autocommit must be False"):
+                runner.migrate_down(postgres_db, test_env, target_version=0)
+        finally:
+            postgres_db.autocommit = False
+
+    def test_advisory_lock_context_manager_raises_under_autocommit(
+        self, postgres_db, test_env
+    ):
+        postgres_db.autocommit = True
+        try:
+            with pytest.raises(RuntimeError, match="autocommit must be False"):
+                with runner._advisory_lock(postgres_db, test_env):
+                    pass
+        finally:
+            postgres_db.autocommit = False

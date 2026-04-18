@@ -59,8 +59,9 @@ def _advisory_lock_key(env: str) -> int:
 _ADVISORY_LOCK_TIMEOUT = "30s"
 
 # Per-migration ceiling. ALTER COLUMN TYPE rewrites tables and can be slow on
-# large tables, but should never take 5 minutes on our scale. Timing out here
-# yields a named migration in the traceback instead of a silent hang.
+# large tables. 300s is comfortable headroom at current `job_listings_prod`
+# row counts; revisit if the table grows ~100x. Timing out here yields a named
+# migration in the traceback instead of a silent hang.
 _MIGRATION_STATEMENT_TIMEOUT = "300s"
 
 
@@ -83,15 +84,20 @@ def _require_transactional(conn: Connection) -> None:
 
 @contextmanager
 def _advisory_lock(conn: Connection, env: str):
-    """Serialize migration runs across processes/instances for this env."""
+    """Serialize migration runs across processes/instances for this env.
+
+    Acquire is bounded by `_ADVISORY_LOCK_TIMEOUT` (30s); a stuck peer surfaces
+    as `psycopg2.errors.LockNotAvailable` (SQLSTATE 55P03) rather than an
+    indefinite hang.
+    """
     _require_transactional(conn)
     key = _advisory_lock_key(env)
     cursor = conn.cursor()
     # SET LOCAL requires an active transaction; psycopg2 starts one implicitly
-    # on first statement. Scoped to this transaction — without it, the
-    # lock_timeout setting would leak to the next transaction on this same
-    # connection (init_schema uses a dedicated, non-pooled connection, so
-    # cross-caller leakage isn't the concern, but intra-caller leakage is).
+    # on first statement. Scoped to this transaction so the lock_timeout
+    # doesn't leak to the next transaction on this connection. All current
+    # callers open a dedicated connection, so this is defense-in-depth for
+    # future callers that might reuse one.
     cursor.execute(f"SET LOCAL lock_timeout = '{_ADVISORY_LOCK_TIMEOUT}'")
     logger.info("Waiting for migration advisory lock env=%s key=%s", env, key)
     cursor.execute("SELECT pg_advisory_lock(%s)", (key,))
@@ -213,9 +219,9 @@ def migrate_up(conn: Connection, env: str) -> List[int]:
         for migration in migrations:
             if migration.version in applied:
                 continue
-            # Re-check autocommit per iteration: conn.commit() ran at the end
-            # of the previous migration, and a misbehaving migration could
-            # flip the flag. SET LOCAL below is a no-op under autocommit.
+            # Re-check autocommit per iteration: a misbehaving migration body
+            # could flip the flag, which would silently turn the SET LOCAL
+            # statement_timeout below into a no-op for subsequent migrations.
             _require_transactional(conn)
             logger.info(f"Applying migration {migration.label} (env={env})")
             started = time.monotonic()
@@ -246,12 +252,16 @@ def migrate_up(conn: Connection, env: str) -> List[int]:
 
 
 def migrate_down(conn: Connection, env: str, target_version: int = 0) -> List[int]:
-    """Roll back migrations down to target_version (exclusive). CLI-only.
+    """Roll back migrations, keeping versions 1..target_version applied.
 
-    Semantics: `target_version=N` means keep versions 1..N applied and roll
-    back everything above N. `target_version=0` rolls back all migrations.
-    Example: with 1,2,3,4 applied, `migrate_down(..., target_version=2)`
-    rolls back 4 and 3 and leaves 1,2 applied.
+    Semantics: `target_version=N` keeps versions 1..N applied and rolls back
+    everything above N (target is kept). `target_version=0` rolls back all
+    migrations. Example: with 1,2,3,4 applied, `migrate_down(..., 2)` rolls
+    back 4 and 3 and leaves 1,2 applied.
+
+    Unlike `migrate_up`, no per-migration `statement_timeout` is set: rollback
+    is intended to run from the operator CLI (`scripts/migrate.py down`) where
+    a long-running revert is preferable to a partial rollback.
     """
     table = _tracking_table(env)
     with _advisory_lock(conn, env):

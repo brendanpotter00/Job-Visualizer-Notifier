@@ -524,8 +524,9 @@ def get_all_active_jobs(conn: Connection, company: str, env: str = "local") -> L
         # Timestamptz columns come back as tz-aware `datetime` objects, but
         # JobListing models these as ISO 8601 strings (scraper-side contract).
         # Normalize to `datetime.isoformat()` — note this emits `+00:00` (not
-        # `Z`) as the UTC offset; all current callers accept both since they
-        # pass through `datetime.fromisoformat(v.replace("Z", "+00:00"))`.
+        # `Z`) as the UTC offset, a one-way wire-format shift once data flows
+        # through this path. All current callers accept both since they pass
+        # through `datetime.fromisoformat(v.replace("Z", "+00:00"))`.
         # We intentionally restrict the branch to `datetime` so unexpected
         # types (bytes, Decimal, malformed strings) surface loudly rather
         # than silently no-op past this conversion.
@@ -536,7 +537,15 @@ def get_all_active_jobs(conn: Connection, company: str, env: str = "local") -> L
             if isinstance(value, datetime):
                 row_dict[ts_col] = value.isoformat()
             elif isinstance(value, str):
-                # Legacy rows (TEXT column pre-0003/0004) pass through as-is.
+                # Post-0003/0004 every row is `datetime`. A `str` here means
+                # schema drift (column reverted to TEXT, or a new TEXT column
+                # was added) — log so the regression is grep-able rather than
+                # silently passing strings through.
+                logger.warning(
+                    "Schema drift suspected: %s.%s is str (expected tz-aware "
+                    "datetime post-0003/0004)",
+                    jobs_table, ts_col,
+                )
                 continue
             else:
                 raise TypeError(

@@ -224,16 +224,74 @@ class TestPostedOnMalformedRowGuard:
         )
         in_memory_db.commit()
 
-        with pytest.raises(RuntimeError, match="non-ISO-8601"):
+        try:
+            with pytest.raises(RuntimeError, match="ISO 8601 prefix"):
+                runner.migrate_up(in_memory_db, test_env)
+
+            # 0003 did not complete: column is still text, tracking table lacks v3.
+            assert _posted_on_type(in_memory_db, table) == "text"
+            applied = runner.get_applied_versions(in_memory_db, test_env)
+            assert 3 not in applied
+            assert {1, 2}.issubset(applied)
+        finally:
+            # Clean up so later tests in this module's session see a valid
+            # state, even if the assertion/match above fails. Without this,
+            # a message-string drift would cascade to every downstream test.
+            try:
+                cursor.execute(f"DELETE FROM {table} WHERE id = 'bad-1'")
+                in_memory_db.commit()
+            except Exception:
+                in_memory_db.rollback()
             runner.migrate_up(in_memory_db, test_env)
 
-        # 0003 did not complete: column is still text, tracking table lacks v3.
-        assert _posted_on_type(in_memory_db, table) == "text"
-        applied = runner.get_applied_versions(in_memory_db, test_env)
-        assert 3 not in applied
-        assert {1, 2}.issubset(applied)
 
-        # Clean up so later tests in this module's session see a valid state.
-        cursor.execute(f"DELETE FROM {table} WHERE id = 'bad-1'")
+class TestSchemaDriftGuards:
+    """0003 and 0004 must raise a contextual RuntimeError — not an opaque
+    psycopg2 UndefinedTable/UndefinedColumn — when the table or column they
+    depend on has disappeared. Pass 1 added these guards; this test locks
+    them in so a future refactor can't silently regress.
+    """
+
+    def test_0003_raises_when_table_missing(self, in_memory_db, test_env):
+        # Roll back to v2 so posted_on is TEXT, then drop the whole table to
+        # simulate severe drift (we need to DROP, not just alter, to hit the
+        # missing-table branch).
+        runner.migrate_down(in_memory_db, test_env, target_version=2)
+        cursor = in_memory_db.cursor()
+        cursor.execute(f"DROP TABLE job_listings_{test_env} CASCADE")
         in_memory_db.commit()
-        runner.migrate_up(in_memory_db, test_env)
+
+        mig = _load_migration(3)
+        try:
+            with pytest.raises(RuntimeError, match=f"table job_listings_{test_env} not found"):
+                mig.upgrade(in_memory_db, test_env)
+        finally:
+            in_memory_db.rollback()
+
+    def test_0003_raises_when_posted_on_column_missing(self, in_memory_db, test_env):
+        runner.migrate_down(in_memory_db, test_env, target_version=2)
+        cursor = in_memory_db.cursor()
+        cursor.execute(f"ALTER TABLE job_listings_{test_env} DROP COLUMN posted_on")
+        in_memory_db.commit()
+
+        mig = _load_migration(3)
+        try:
+            with pytest.raises(RuntimeError, match="column posted_on"):
+                mig.upgrade(in_memory_db, test_env)
+        finally:
+            in_memory_db.rollback()
+
+    def test_0004_raises_when_column_missing(self, in_memory_db, test_env):
+        runner.migrate_down(in_memory_db, test_env, target_version=3)
+        cursor = in_memory_db.cursor()
+        # Drop one of 0004's target columns. 'closed_on' is nullable so the
+        # DROP succeeds without needing to clear data first.
+        cursor.execute(f"ALTER TABLE job_listings_{test_env} DROP COLUMN closed_on")
+        in_memory_db.commit()
+
+        mig = _load_migration(4)
+        try:
+            with pytest.raises(RuntimeError, match="column closed_on"):
+                mig.upgrade(in_memory_db, test_env)
+        finally:
+            in_memory_db.rollback()

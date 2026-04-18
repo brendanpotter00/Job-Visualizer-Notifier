@@ -2,9 +2,13 @@
 
 This PR converts five `job_listings_{env}` columns from `TEXT` to `TIMESTAMPTZ`:
 `posted_on`, `created_at`, `closed_on`, `first_seen_at`, `last_seen_at`. Migrations
-`0003` and `0004` apply the ALTER; migrations `0001`/`0002` are baseline and
-already applied in prod. The backend auto-applies migrations during FastAPI
-lifespan on each Railway boot.
+`0003` and `0004` apply the ALTER; migrations `0001`/`0002` capture the existing
+baseline schema. Because this PR also introduces the `schema_migrations_{env}`
+tracking table, the first deploy replays `0001` and `0002` as no-ops against
+the live prod schema (0001 uses `CREATE TABLE IF NOT EXISTS`; 0002 probes
+`pg_constraint` before adding the unique constraint) before applying the two
+new ALTERs. The backend auto-applies migrations during FastAPI lifespan on
+each Railway boot.
 
 ## Pre-deploy check
 
@@ -44,12 +48,22 @@ populated and `migrate_up` is a no-op.
    ```
    Waiting for migration advisory lock env=prod key=<int>
    Acquired migration advisory lock env=prod key=<int>
-   Pending migrations env=prod: [3, 4]
+   Pending migrations env=prod: [1, 2, 3, 4]
+   Applying migration 0001_initial_schema (env=prod)
+   Applied migration 0001_initial_schema in 0.0Xs
+   Applying migration 0002_add_users_email_unique (env=prod)
+   Applied migration 0002_add_users_email_unique in 0.0Xs
    Applying migration 0003_posted_on_timestamptz (env=prod)
+   Applied migration 0003_posted_on_timestamptz in <Y>s
    Applying migration 0004_job_timestamps_timestamptz (env=prod)
-   Released migration advisory lock env=prod
-   Applied 2 migration(s) for env=prod: [3, 4]
+   Applied migration 0004_job_timestamps_timestamptz in <Y>s
+   Released migration advisory lock env=prod key=<int> released=True
+   Applied 4 migration(s) for env=prod: [1, 2, 3, 4]
    ```
+
+   On every deploy after this one, the `Pending migrations` line is absent
+   (or `[]`) and the `Applied N migration(s)` line does not fire — the lock
+   acquire/release lines are the only migration-related output.
 
 3. Once the service reports healthy, smoke-test `GET /api/jobs` and confirm
    `createdAt` / `firstSeenAt` / `lastSeenAt` come back as ISO 8601 strings
