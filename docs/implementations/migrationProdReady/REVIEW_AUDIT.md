@@ -101,3 +101,30 @@ Test gates:
 - pr-test-analyzer #3 — `_advisory_lock` failed-release log-line test. Requires cursor-level mocking for a single-line log invariant; ROI low given `released=<bool>` is already asserted in the happy path.
 - pr-test-analyzer #6, #7 — idempotent-skip execute() spy and `_mask_db_url` unparseable-input branch. Nice-to-haves; core paths are covered.
 
+### Implementation applied
+
+Commit: `352f524` — "Review pass 2: runbook accuracy, drift warnings, and test lockdown"
+
+Files changed:
+- `docs/implementations/migrationProdReady/DEPLOY.md` — intro rephrased (0001/0002 replayed as no-ops), deploy-sequence log example corrected to `[1,2,3,4]` with per-migration elapsed lines and `released=True` in the release log
+- `scripts/shared/migrations/runner.py` — `_advisory_lock` docstring notes 30s timeout + LockNotAvailable; leakage comment softened; `migrate_down` docstring rewritten ("target kept", statement_timeout asymmetry explicit); mis-cause "conn.commit() ran" comment trimmed; `_MIGRATION_STATEMENT_TIMEOUT` comment rephrased from "our scale" to the current-table-size language
+- `scripts/shared/migrations/0003_posted_on_timestamptz.py` — `_ALLOWED_COLUMNS` frozenset + assertion in `_scan_malformed`, tightened malformed-row error message, module docstring clarifies prefix-scan conservatism
+- `scripts/shared/migrations/0004_job_timestamps_timestamptz.py` — assertion in `_scan_malformed`, tightened malformed-row error message
+- `scripts/shared/database.py` — `get_all_active_jobs` logs a warning when the str-branch fires post-migration, wire-format `+00:00` shift documented as one-way
+- `src/backend/api/main.py` — lifespan startup split into three labeled try-blocks (connect / migrate / pool-init) so a migration failure no longer logs under a "Failed to connect" header
+- `scripts/tests/unit/test_migration_runner.py` — `TestRequireTransactional` (3 tests), elapsed-time log regex assertion, `released=True` assertion
+- `scripts/tests/integration/test_migrations.py` — `TestSchemaDriftGuards` (3 tests), `TestPostedOnMalformedRowGuard` cleanup wrapped in `try/finally`, match string updated to "ISO 8601 prefix"
+- `scripts/tests/unit/test_migrate_cli.py` — new file; covers `_mask_db_url` masking and `_connect` failure exit(2) + stderr contract
+
+**Do not revert (new in this pass):**
+- DEPLOY.md deploy-sequence log example shows `[1,2,3,4]` and `released=True`; operator grep patterns key off this exact shape.
+- `_scan_malformed` allow-list assertion in 0003/0004 is defense-in-depth for future copy-paste; removing it reopens the injection surface.
+- `get_all_active_jobs` schema-drift warning MUST fire on the str-branch post-migration — silent passthrough was the original bug.
+- Backend lifespan MUST keep connect / migrate / pool-init as separate try-blocks; collapsing them restores the misleading "Failed to connect" header on migration errors.
+- `TestRequireTransactional`, `TestSchemaDriftGuards`, and the elapsed-time log regex assertion are the executable form of pass-1 "do not revert" items — removing them lets those regress silently.
+
+Test gates:
+- `pytest scripts/tests` — 401 passed (10 new)
+- `pytest src/backend/api/tests` — 128 passed
+- `npm run type-check` — clean
+
