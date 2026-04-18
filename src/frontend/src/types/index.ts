@@ -5,7 +5,14 @@
 /**
  * ATS provider type
  */
-export type ATSProvider = 'greenhouse' | 'lever' | 'ashby' | 'workday' | 'gem' | 'backend-scraper';
+export type ATSProvider =
+  | 'greenhouse'
+  | 'lever'
+  | 'ashby'
+  | 'workday'
+  | 'gem'
+  | 'eightfold'
+  | 'backend-scraper';
 
 /**
  * Normalized job posting model.
@@ -166,6 +173,31 @@ export interface WorkdayConfig {
 }
 
 /**
+ * Eightfold AI-specific configuration
+ *
+ * Eightfold's public job board API requires:
+ * - A tenant host (e.g., "explore.jobs.netflix.net")
+ * - A domain scope (e.g., "netflix.com")
+ * - Paginated requests (server caps page size at 10)
+ */
+export interface EightfoldConfig {
+  type: 'eightfold';
+  /**
+   * Internal company identifier (matches `Company.id`). Used as the `company`
+   * field on transformed `Job` objects so the `byCompany` cache key lines up.
+   */
+  companyId: string;
+  /** Eightfold tenant host, e.g. "explore.jobs.netflix.net" (no protocol) */
+  tenantHost: string;
+  /** Domain query parameter Eightfold uses to scope jobs, e.g. "netflix.com" */
+  domain: string;
+  /** Optional override for pagination page size (server caps at 10) */
+  defaultPageSize?: number;
+  /** Optional custom API base URL (defaults to /api/eightfold) */
+  apiBaseUrl?: string;
+}
+
+/**
  * Backend scraper configuration - for companies scraped via Python scripts
  */
 export interface BackendScraperConfig {
@@ -190,7 +222,14 @@ export interface Company {
   ats: ATSProvider;
 
   /** ATS-specific configuration */
-  config: GreenhouseConfig | LeverConfig | AshbyConfig | GemConfig | WorkdayConfig | BackendScraperConfig;
+  config:
+    | GreenhouseConfig
+    | LeverConfig
+    | AshbyConfig
+    | GemConfig
+    | WorkdayConfig
+    | EightfoldConfig
+    | BackendScraperConfig;
 
   /** Optional URL to company's job postings website */
   jobsUrl?: string;

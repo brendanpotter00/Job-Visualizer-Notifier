@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Job Posting Analytics - A monorepo containing a TypeScript + React frontend, Python FastAPI backend, and Python scraping scripts. The frontend visualizes job posting activity over time for multiple companies using external ATS APIs (Greenhouse, Lever, Ashby, Workday). Built with Redux Toolkit, Recharts, and Material-UI.
+Job Posting Analytics - A monorepo containing a TypeScript + React frontend, Python FastAPI backend, and Python scraping scripts. The frontend visualizes job posting activity over time for multiple companies using external ATS APIs (Greenhouse, Lever, Ashby, Workday, Gem, Eightfold). Built with Redux Toolkit, Recharts, and Material-UI.
 
 ## Project Structure
 
@@ -57,7 +57,7 @@ PYTHONPATH=. uvicorn src.backend.api.main:app --host 0.0.0.0 --port 8000 --reloa
 User selects company → `getJobsForCompany` RTK Query endpoint (src/frontend/src/features/jobs/jobsApi.ts) → Factory selects API client → Transform to normalized Job model → RTK Query cache update → Memoized selectors filter data → Components render
 
 **API Clients:**
-All five ATS providers (Greenhouse, Lever, Ashby, Workday, Gem) use `createAPIClient` factory (src/frontend/src/api/clients/baseClient.ts). Factory handles: validation, fetch, error handling, filtering, transformation, metadata calculation. Only URL building and response extraction differ per provider.
+Five ATS providers (Greenhouse, Lever, Ashby, Workday, Gem) use `createAPIClient` factory (src/frontend/src/api/clients/baseClient.ts). Factory handles: validation, fetch, error handling, filtering, transformation, metadata calculation. Only URL building and response extraction differ per provider. Eightfold (src/frontend/src/api/clients/eightfoldClient.ts) uses a dedicated client because it requires sequential pagination with a hard 10-item page cap.
 
 **Key Selectors:**
 - `selectCurrentCompanyJobs` (src/frontend/src/features/jobs/jobsSelectors.ts) - Jobs for selected company
@@ -71,7 +71,7 @@ All five ATS providers (Greenhouse, Lever, Ashby, Workday, Gem) use `createAPICl
 ## Common Tasks
 
 **Adding a Company:**
-Edit `src/frontend/src/config/companies.ts` and add company config with ATS type (greenhouse/lever/ashby/workday). System automatically uses correct client via factory pattern.
+Edit `src/frontend/src/config/companies.ts` and add company config with ATS type (greenhouse/lever/ashby/workday/gem/eightfold). System automatically uses correct client via factory pattern.
 
 **Adding ATS Provider:**
 1. Create transformer in `src/frontend/src/api/transformers/[provider]Transformer.ts`
@@ -122,6 +122,7 @@ Edit `src/frontend/src/config/companies.ts` and add company config with ATS type
 - `api/ashby.ts` - Ashby API proxy
 - `api/workday.ts` - Workday API proxy
 - `api/gem.ts` - Gem API proxy
+- `api/eightfold.ts` - Eightfold AI proxy (catch-all route at `/api/eightfold/:path(.*)`; requires `X-Eightfold-Tenant-Host` header, SSRF-allowlisted to `*.eightfold.ai` + known vanity hosts)
 - `api/jobs.ts` - Backend jobs API proxy
 - `api/jobs-qa.ts` - Backend QA endpoints proxy
 - `api/users.ts` - Backend users API proxy (forwards Authorization header)

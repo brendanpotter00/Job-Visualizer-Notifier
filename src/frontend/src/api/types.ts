@@ -5,6 +5,7 @@ import type {
   AshbyConfig,
   GemConfig,
   WorkdayConfig,
+  EightfoldConfig,
   BackendScraperConfig,
 } from '../types';
 
@@ -190,6 +191,62 @@ export interface WorkdayJobsResponse {
 }
 
 /**
+ * Eightfold AI public jobs API — single position entry
+ *
+ * Observed live on 2026-04-18 from GET https://explore.jobs.netflix.net/api/apply/v2/jobs
+ * Endpoint is undocumented; schema intentionally permissive via index signature.
+ */
+export interface EightfoldJobPosition {
+  /** Numeric position id */
+  id: number;
+  /** Job title */
+  name: string;
+  /** Comma-delimited location (e.g., "Los Angeles,California,United States of America") */
+  location?: string;
+  /** Array of locations (rarely multiple) */
+  locations?: string[];
+  /** Department (nullable) */
+  department?: string | null;
+  /** Business unit (nullable) */
+  business_unit?: string | null;
+  /** Unix epoch seconds — last update time */
+  t_update?: number;
+  /** Unix epoch seconds — original posting creation time */
+  t_create?: number;
+  /** ATS requisition id (e.g., "JR40083") */
+  ats_job_id?: string;
+  /** Display requisition id (usually equal to ats_job_id) */
+  display_job_id?: string;
+  /** Always "ATS" for standard positions */
+  type?: string;
+  /** Job description HTML (often empty on list endpoint) */
+  job_description?: string;
+  /** "onsite" | "remote" | "hybrid" | null */
+  work_location_option?: 'onsite' | 'remote' | 'hybrid' | null;
+  /** Canonical URL to the job posting */
+  canonicalPositionUrl?: string;
+  /** If true, position is not publicly listed and should be filtered out */
+  isPrivate?: boolean;
+  /** Allow other undocumented fields */
+  [key: string]: unknown;
+}
+
+/**
+ * Eightfold AI public jobs API response
+ * @see https://explore.jobs.netflix.net/api/apply/v2/jobs
+ */
+export interface EightfoldAPIResponse {
+  /** Domain scope (echo of request param) */
+  domain?: string;
+  /** Positions page */
+  positions: EightfoldJobPosition[];
+  /** Total matching positions across all pages */
+  count?: number;
+  /** Allow other top-level fields (branding, facets, etc.) */
+  [key: string]: unknown;
+}
+
+/**
  * Backend job details stored in JobListing.details JSON field
  * Contains structured data extracted from scraped job detail pages
  * Works for any backend-scraped company (Google, Apple, etc.)
@@ -242,7 +299,14 @@ export interface JobAPIClient {
    * @returns Normalized jobs array
    */
   fetchJobs(
-    config: GreenhouseConfig | LeverConfig | AshbyConfig | GemConfig | WorkdayConfig | BackendScraperConfig,
+    config:
+      | GreenhouseConfig
+      | LeverConfig
+      | AshbyConfig
+      | GemConfig
+      | WorkdayConfig
+      | EightfoldConfig
+      | BackendScraperConfig,
     options?: FetchJobsOptions
   ): Promise<FetchJobsResult>;
 }
@@ -273,7 +337,14 @@ export class APIError extends Error {
   constructor(
     message: string,
     public statusCode?: number,
-    public atsProvider?: 'greenhouse' | 'lever' | 'ashby' | 'gem' | 'workday' | 'backend-scraper',
+    public atsProvider?:
+      | 'greenhouse'
+      | 'lever'
+      | 'ashby'
+      | 'gem'
+      | 'workday'
+      | 'eightfold'
+      | 'backend-scraper',
     public retryable: boolean = false
   ) {
     super(message);
@@ -287,5 +358,6 @@ export enum ATSConstants {
   Ashby = 'ashby',
   Gem = 'gem',
   Lever = 'lever',
+  Eightfold = 'eightfold',
   BackendScraper = 'backend-scraper',
 }

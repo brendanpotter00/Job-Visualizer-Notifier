@@ -2,6 +2,7 @@ import type {
   AshbyConfig,
   BackendScraperConfig,
   Company,
+  EightfoldConfig,
   GemConfig,
   GreenhouseConfig,
   LeverConfig,
@@ -155,6 +156,36 @@ function createWorkdayCompany(
     id,
     name,
     ats: 'workday',
+    config,
+    jobsUrl,
+    recruiterLinkedInUrl: options.recruiterLinkedInUrl,
+  };
+}
+
+/**
+ * Factory function for Eightfold AI companies.
+ * Requires explicit configuration for tenantHost and domain.
+ */
+function createEightfoldCompany(
+  id: string,
+  name: string,
+  eightfoldConfig: {
+    tenantHost: string;
+    domain: string;
+  },
+  options: FactoryOptions = {}
+): Company {
+  const config: EightfoldConfig = {
+    type: 'eightfold',
+    companyId: id,
+    tenantHost: eightfoldConfig.tenantHost,
+    domain: eightfoldConfig.domain,
+  };
+  const jobsUrl = `https://${eightfoldConfig.tenantHost}/careers`;
+  return {
+    id,
+    name,
+    ats: 'eightfold',
     config,
     jobsUrl,
     recruiterLinkedInUrl: options.recruiterLinkedInUrl,
@@ -447,19 +478,6 @@ export const COMPANIES: Company[] = [
     tenantSlug: 'expedia',
     careerSiteSlug: 'search',
   }),
-  createWorkdayCompany(
-    'netflix',
-    'Netflix',
-    {
-      baseUrl: 'https://netflix.wd1.myworkdayjobs.com',
-      tenantSlug: 'netflix',
-      careerSiteSlug: 'Netflix',
-    },
-    {
-      recruiterLinkedInUrl:
-        'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22165158%22%5D',
-    }
-  ),
   createWorkdayCompany('turo', 'Turo', {
     baseUrl: 'https://turo.wd12.myworkdayjobs.com',
     tenantSlug: 'turo',
@@ -495,6 +513,20 @@ export const COMPANIES: Company[] = [
     tenantSlug: 'capitalone',
     careerSiteSlug: 'Capital_One',
   }),
+
+  // Eightfold companies
+  createEightfoldCompany(
+    'netflix',
+    'Netflix',
+    {
+      tenantHost: 'explore.jobs.netflix.net',
+      domain: 'netflix.com',
+    },
+    {
+      recruiterLinkedInUrl:
+        'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22165158%22%5D',
+    }
+  ),
 
   // Backend scraper companies
   createBackendScraperCompany('google', 'Google', 'https://careers.google.com/', {

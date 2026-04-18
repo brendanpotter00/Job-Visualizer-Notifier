@@ -1,6 +1,6 @@
 # Frontend CLAUDE.md
 
-React SPA for job posting analytics. Visualizes job posting activity over time for multiple companies using external ATS APIs (Greenhouse, Lever, Ashby, Workday) and backend-scraped data (Google, Apple). Built with Redux Toolkit, Recharts, and Material-UI.
+React SPA for job posting analytics. Visualizes job posting activity over time for multiple companies using external ATS APIs (Greenhouse, Lever, Ashby, Workday, Gem, Eightfold) and backend-scraped data (Google, Apple). Built with Redux Toolkit, Recharts, and Material-UI.
 
 **Note:** Commands should be run from project root (not this directory). See root CLAUDE.md for full project context.
 
@@ -37,7 +37,7 @@ All paths below are relative to `src/frontend/src/`.
 User selects company → `getJobsForCompany` RTK Query endpoint (features/jobs/jobsApi.ts) → Factory selects API client → Transform to normalized Job model → RTK Query cache update → Memoized selectors filter data → Components render
 
 **API Clients:**
-Six ATS providers (Greenhouse, Lever, Ashby, Workday, Gem, Backend-Scraper) are supported. The first five use `createAPIClient` factory (api/clients/baseClient.ts) which handles validation, fetch, error handling, filtering, transformation, and metadata calculation. Backend-Scraper uses a dedicated client (api/clients/backendScraperClient.ts) for companies scraped via Python scripts and served from the backend API (Google, Apple).
+Seven ATS providers (Greenhouse, Lever, Ashby, Workday, Gem, Eightfold, Backend-Scraper) are supported. Greenhouse/Lever/Ashby/Workday/Gem use `createAPIClient` factory (api/clients/baseClient.ts) which handles validation, fetch, error handling, filtering, transformation, and metadata calculation. Eightfold (api/clients/eightfoldClient.ts) uses a dedicated client because its API requires sequential pagination with a hard 10-item page cap (used by Netflix). Backend-Scraper uses a dedicated client (api/clients/backendScraperClient.ts) for companies scraped via Python scripts and served from the backend API (Google, Apple).
 
 **Key Selectors:**
 - `selectCurrentCompanyJobs` (features/jobs/jobsSelectors.ts) - Jobs for selected company
@@ -64,6 +64,7 @@ Edit `config/companies.ts` and use the appropriate factory function:
 - `createLeverCompany()` - Lever ATS
 - `createAshbyCompany()` - Ashby ATS
 - `createWorkdayCompany()` - Workday ATS
+- `createEightfoldCompany()` - Eightfold AI (pass `{ tenantHost, domain }`; Netflix uses `explore.jobs.netflix.net` / `netflix.com`)
 - `createBackendScraperCompany()` - Companies scraped via Python scripts (requires backend setup)
 
 **Adding ATS Provider:**
@@ -125,6 +126,7 @@ Located in project root `api/` directory (proxies to avoid CORS):
 - `ashby.ts` - Ashby API proxy
 - `workday.ts` - Workday API proxy
 - `gem.ts` - Gem API proxy
+- `eightfold.ts` - Eightfold AI proxy (catch-all route at `/api/eightfold/:path(.*)`; requires `X-Eightfold-Tenant-Host` header, SSRF-allowlisted to `*.eightfold.ai` + known vanity hosts like `explore.jobs.netflix.net`)
 - `jobs.ts` - Backend jobs API proxy (for scraped companies)
 - `jobs-qa.ts` - Backend QA endpoints proxy (scraper triggers, run history)
 - `users.ts` - Backend users API proxy (forwards Authorization header)

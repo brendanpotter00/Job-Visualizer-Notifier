@@ -25,6 +25,10 @@
       "destination": "/api/gem?path=:path"
     },
     {
+      "source": "/api/eightfold/:path(.*)",
+      "destination": "/api/eightfold?path=:path"
+    },
+    {
       "source": "/api/jobs-qa",
       "destination": "/api/jobs-qa"
     },
@@ -75,7 +79,7 @@
         },
         {
           "key": "Access-Control-Allow-Headers",
-          "value": "Content-Type, X-Workday-Base-Url, Authorization"
+          "value": "Content-Type, X-Workday-Base-Url, X-Eightfold-Tenant-Host, Authorization"
         }
       ]
     }
