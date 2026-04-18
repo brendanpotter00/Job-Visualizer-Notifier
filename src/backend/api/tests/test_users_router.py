@@ -343,14 +343,37 @@ class TestEnabledCompanies:
         assert resp.status_code == 422
 
     def test_put_rejects_malformed_company_id(self, client):
-        """Company IDs must match COMPANY_PATTERN (alphanum + - + _)."""
+        """Company IDs must match ENABLED_COMPANY_ID_PATTERN.
+
+        Interior dots are allowed (e.g. ``happyrobot.ai``) but leading/
+        trailing dots, consecutive dots, and other non-alphanumeric chars
+        are still rejected.
+        """
         client.get("/api/users")
-        for bad_id in ["../../etc/passwd", "has space", "has.dot", "has/slash", "has'quote"]:
+        for bad_id in [
+            "../../etc/passwd",
+            "has space",
+            "has/slash",
+            "has'quote",
+            ".leading",
+            "trailing.",
+            "double..dot",
+        ]:
             resp = client.put(
                 "/api/users/enabled-companies",
                 json={"companyIds": [bad_id]},
             )
             assert resp.status_code == 422, f"expected rejection for {bad_id!r}"
+
+    def test_put_accepts_dotted_company_id(self, client, db_conn, test_env):
+        """Interior-dot IDs (e.g. ``happyrobot.ai``) must round-trip."""
+        client.get("/api/users")
+        resp = client.put(
+            "/api/users/enabled-companies",
+            json={"companyIds": ["happyrobot.ai", "airbnb"]},
+        )
+        assert resp.status_code == 200, resp.text
+        assert set(resp.json()["companyIds"]) == {"happyrobot.ai", "airbnb"}
 
     def test_put_rejects_oversize_company_id(self, client):
         """Individual IDs are capped at 64 characters."""
