@@ -45,10 +45,11 @@ const slice = createSlice({
       state.ids = action.payload;
     });
     builder.addCase(loadEnabledCompanies.rejected, (state, action) => {
-      // Ignore aborted loads so a stale fetch (e.g. sign-out mid-flight) does
-      // not flip loading off or clobber error state.
-      if (action.meta.aborted || action.error.name === 'AbortError') return;
+      // Always clear the pending spinner; skip writing error state on abort so a
+      // stale fetch (e.g. sign-out mid-flight) doesn't clobber the real reason
+      // the load ended.
       state.loading = false;
+      if (action.meta.aborted || action.error.name === 'AbortError') return;
       state.error = action.error.message ?? 'Failed to load enabled companies';
     });
     builder.addCase(saveEnabledCompanies.fulfilled, (state, action) => {

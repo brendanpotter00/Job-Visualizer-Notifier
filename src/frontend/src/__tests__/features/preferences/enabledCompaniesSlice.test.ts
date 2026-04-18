@@ -70,28 +70,34 @@ describe('enabledCompaniesSlice', () => {
       });
     });
 
-    it('rejected with aborted meta is ignored', () => {
+    it('rejected with aborted meta clears loading without writing an error', () => {
       const store = makeStore();
       store.dispatch({ type: loadEnabledCompanies.pending.type });
-      const before = store.getState().enabledCompanies;
+      expect(store.getState().enabledCompanies.loading).toBe(true);
       store.dispatch({
         type: loadEnabledCompanies.rejected.type,
         error: { message: 'aborted' },
         meta: { aborted: true },
       });
-      expect(store.getState().enabledCompanies).toEqual(before);
+      const after = store.getState().enabledCompanies;
+      expect(after.loading).toBe(false);
+      expect(after.error).toBeNull();
+      expect(after.ids).toBeNull();
     });
 
-    it('rejected with AbortError name is ignored', () => {
+    it('rejected with AbortError name clears loading without writing an error', () => {
       const store = makeStore();
       store.dispatch({ type: loadEnabledCompanies.pending.type });
-      const before = store.getState().enabledCompanies;
+      expect(store.getState().enabledCompanies.loading).toBe(true);
       store.dispatch({
         type: loadEnabledCompanies.rejected.type,
         error: { name: 'AbortError', message: 'aborted' },
         meta: { aborted: false },
       });
-      expect(store.getState().enabledCompanies).toEqual(before);
+      const after = store.getState().enabledCompanies;
+      expect(after.loading).toBe(false);
+      expect(after.error).toBeNull();
+      expect(after.ids).toBeNull();
     });
 
     it('uses default message when error.message is missing', () => {
