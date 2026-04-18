@@ -147,7 +147,7 @@ Today the ISO-string cast is tested via raw SQL (`test_inserting_iso_string_work
 
 ### Unit 4 — Frontend regression verification pass
 
-**Status:** TODO
+**Status:** DONE
 
 **Prerequisites:** Unit 3
 
