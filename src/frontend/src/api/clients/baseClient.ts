@@ -5,6 +5,7 @@ import type {
   AshbyConfig,
   GemConfig,
   WorkdayConfig,
+  EightfoldConfig,
   BackendScraperConfig,
 } from '../../types';
 import type { JobAPIClient, FetchJobsOptions, FetchJobsResult } from '../types';
@@ -18,6 +19,7 @@ export type ATSCompanyConfig =
   | AshbyConfig
   | GemConfig
   | WorkdayConfig
+  | EightfoldConfig
   | BackendScraperConfig;
 
 /**
@@ -155,7 +157,13 @@ export function createAPIClient<TResponse, TConfig extends ATSCompanyConfig>(
           throw new APIError(
             `${clientConfig.name} API error: ${response.statusText}`,
             response.status,
-            config.type as 'greenhouse' | 'lever' | 'ashby' | 'workday' | 'backend-scraper',
+            config.type as
+              | 'greenhouse'
+              | 'lever'
+              | 'ashby'
+              | 'workday'
+              | 'eightfold'
+              | 'backend-scraper',
             response.status >= 500 || response.status === 429
           );
         }
@@ -199,7 +207,13 @@ export function createAPIClient<TResponse, TConfig extends ATSCompanyConfig>(
         throw new APIError(
           `Failed to fetch ${clientConfig.name} jobs: ${(error as Error).message}`,
           undefined,
-          config.type as 'greenhouse' | 'lever' | 'ashby' | 'workday' | 'backend-scraper',
+          config.type as
+            | 'greenhouse'
+            | 'lever'
+            | 'ashby'
+            | 'workday'
+            | 'eightfold'
+            | 'backend-scraper',
           true // Assume retryable for network/unknown errors
         );
       }
