@@ -41,11 +41,13 @@ def db_conn(test_env):
     conn = psycopg2.connect(TEST_DB_URL, cursor_factory=RealDictCursor)
     init_schema(conn, test_env)
     yield conn
-    # Cleanup: drop test tables
+    # Cleanup: drop test tables (children before parents to satisfy FK dependencies)
     cursor = conn.cursor()
     jobs_table = _get_table_name(test_env, "jobs")
     runs_table = _get_table_name(test_env, "runs")
     users_table = _get_table_name(test_env, "users")
+    enabled_companies_table = f"user_enabled_companies_{test_env}"
+    cursor.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(enabled_companies_table)))
     cursor.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(jobs_table)))
     cursor.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(runs_table)))
     cursor.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(users_table)))
@@ -149,8 +151,13 @@ def _clear_tables(conn, env: str) -> None:
     jobs_table = _get_table_name(env, "jobs")
     runs_table = _get_table_name(env, "runs")
     users_table = _get_table_name(env, "users")
-    cursor.execute(sql.SQL("TRUNCATE {}, {}, {}").format(
-        sql.Identifier(jobs_table), sql.Identifier(runs_table), sql.Identifier(users_table)))
+    enabled_companies_table = f"user_enabled_companies_{env}"
+    cursor.execute(sql.SQL("TRUNCATE {}, {}, {}, {} CASCADE").format(
+        sql.Identifier(jobs_table),
+        sql.Identifier(runs_table),
+        sql.Identifier(users_table),
+        sql.Identifier(enabled_companies_table),
+    ))
     conn.commit()
 
 

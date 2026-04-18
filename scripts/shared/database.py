@@ -231,6 +231,21 @@ def init_schema(conn: Connection, env: str = "local") -> None:
         ON {users_table}(email)
     """)
 
+    # Create user_enabled_companies table
+    enabled_companies_table = f"user_enabled_companies_{env}"
+    cursor.execute(f"""
+        CREATE TABLE IF NOT EXISTS {enabled_companies_table} (
+            user_id TEXT NOT NULL REFERENCES {users_table}(id) ON DELETE CASCADE,
+            company_id TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (user_id, company_id)
+        )
+    """)
+    cursor.execute(f"""
+        CREATE INDEX IF NOT EXISTS idx_{enabled_companies_table}_user_id
+        ON {enabled_companies_table}(user_id)
+    """)
+
     conn.commit()
     logger.info(f"Database schema initialized for environment: {env}")
 

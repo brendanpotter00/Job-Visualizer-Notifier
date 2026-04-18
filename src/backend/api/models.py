@@ -93,3 +93,15 @@ class UserUpdateRequest(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, extra="forbid")
 
     display_name: str | None = Field(default=None, max_length=100)
+
+
+class EnabledCompaniesResponse(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    company_ids: list[str]
+
+
+class EnabledCompaniesUpdateRequest(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, extra="forbid")
+
+    company_ids: list[str]
