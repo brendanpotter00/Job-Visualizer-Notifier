@@ -7,6 +7,7 @@ import { WhyPage } from '../pages/WhyPage/WhyPage.tsx';
 import { AccountPage } from '../pages/AccountPage/AccountPage.tsx';
 import { ROUTES } from '../config/routes';
 import { QAPage } from '../pages/QAPage/QAPage.tsx';
+import { useEnabledCompanies } from '../features/preferences/useEnabledCompanies';
 
 /**
  * App content component with routing and hooks
@@ -18,6 +19,11 @@ function AppContent() {
   // Custom hooks for URL synchronization (page-aware)
   useURLSync();
   useBrowserNavigation();
+  // Hydrate the user's enabled-companies preference globally so the Recent
+  // Jobs filter works on a fresh load of `/` — not only after visiting
+  // `/account`. Without this, `state.enabledCompanies.ids` stays `null` and
+  // the selector falls through to "show all".
+  useEnabledCompanies();
 
   return (
     <>

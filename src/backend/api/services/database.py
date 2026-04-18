@@ -6,6 +6,7 @@ Adds read-only query functions needed by the API endpoints.
 
 import json
 import logging
+from datetime import datetime
 
 from psycopg2 import sql
 
@@ -36,11 +37,24 @@ def _ensure_json_string(value) -> str:
     return json.dumps(value)
 
 
+_JOB_TIMESTAMP_FIELDS = (
+    "created_at",
+    "posted_on",
+    "closed_on",
+    "first_seen_at",
+    "last_seen_at",
+)
+
+
 def _row_to_job_dict(row: dict) -> dict:
-    """Convert a database row to a dict with JSON string fields."""
+    """Convert a database row to a dict with JSON string and ISO timestamp fields."""
     d = dict(row)
     d["details"] = _ensure_json_string(d.get("details"))
     d["ai_metadata"] = _ensure_json_string(d.get("ai_metadata"))
+    for field in _JOB_TIMESTAMP_FIELDS:
+        value = d.get(field)
+        if isinstance(value, datetime):
+            d[field] = value.isoformat()
     return d
 
 

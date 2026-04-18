@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Accordion,
   AccordionSummary,
@@ -13,6 +13,18 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
 import { useAllJobsProgress } from '../../../features/jobs/hooks/useAllJobsProgress';
+import { getCompanyById } from '../../../config/companies';
+
+interface FetchProgressBarProps {
+  /**
+   * Optional set of company IDs to constrain the displayed progress to.
+   * When provided, the bar's chips, totals, and percentage reflect only
+   * the intersection of fetched companies with this set — even though
+   * the underlying fetch still hits every company (cache shared with
+   * the Companies page). `null` or `undefined` means "show all".
+   */
+  companyIdFilter?: Set<string> | null;
+}
 
 /**
  * Progress bar component for displaying incremental loading status
@@ -27,8 +39,27 @@ import { useAllJobsProgress } from '../../../features/jobs/hooks/useAllJobsProgr
  * Collapses to a summary accordion when loading is complete.
  * Users can expand to see per-company details.
  */
-export function FetchProgressBar() {
+export function FetchProgressBar({ companyIdFilter }: FetchProgressBarProps = {}) {
   const { progress, isLoading } = useAllJobsProgress();
+
+  const visibleCompanies = useMemo(() => {
+    const filtered =
+      !companyIdFilter || companyIdFilter.size === 0
+        ? progress.companies
+        : progress.companies.filter((c) => companyIdFilter.has(c.companyId));
+    return [...filtered].sort((a, b) => {
+      const nameA = getCompanyById(a.companyId)?.name ?? a.companyId;
+      const nameB = getCompanyById(b.companyId)?.name ?? b.companyId;
+      return nameA.localeCompare(nameB);
+    });
+  }, [progress.companies, companyIdFilter]);
+
+  const visibleTotal = visibleCompanies.length;
+  const visibleCompleted = visibleCompanies.filter(
+    (c) => c.status === 'success' || c.status === 'error'
+  ).length;
+  const visiblePercentComplete =
+    visibleTotal > 0 ? (visibleCompleted / visibleTotal) * 100 : 0;
 
   const [expanded, setExpanded] = useState(isLoading);
   const wasLoadingRef = useRef(false);
@@ -43,13 +74,13 @@ export function FetchProgressBar() {
     }
   }, [isLoading]);
 
-  if (progress.total === 0) {
+  if (progress.total === 0 || visibleTotal === 0) {
     return null;
   }
 
-  const successCount = progress.companies.filter((c) => c.status === 'success').length;
-  const errorCount = progress.companies.filter((c) => c.status === 'error').length;
-  const totalJobs = progress.companies
+  const successCount = visibleCompanies.filter((c) => c.status === 'success').length;
+  const errorCount = visibleCompanies.filter((c) => c.status === 'error').length;
+  const totalJobs = visibleCompanies
     .filter((c) => c.status === 'success')
     .reduce((sum, c) => sum + (c.jobCount ?? 0), 0);
 
@@ -75,22 +106,22 @@ export function FetchProgressBar() {
           <Box sx={{ width: '100%', pr: 2 }}>
             <Box display="flex" justifyContent="space-between" alignItems="center">
               <Typography variant="subtitle2">
-                Loading jobs from {progress.completed}/{progress.total} companies
+                Loading jobs from {visibleCompleted}/{visibleTotal} companies
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                {progress.percentComplete.toFixed(0)}%
+                {visiblePercentComplete.toFixed(0)}%
               </Typography>
             </Box>
             <LinearProgress
               variant="determinate"
-              value={progress.percentComplete}
+              value={visiblePercentComplete}
               sx={{ height: 8, borderRadius: 4, mt: 1 }}
             />
           </Box>
         ) : (
           <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
             <Typography variant="subtitle2">
-              Loaded {progress.completed}/{progress.total} companies
+              Loaded {visibleCompleted}/{visibleTotal} companies
             </Typography>
             {successCount > 0 && (
               <Chip
@@ -115,13 +146,15 @@ export function FetchProgressBar() {
       </AccordionSummary>
       <AccordionDetails>
         <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
-          {progress.companies.map((company) => {
+          {visibleCompanies.map((company) => {
+            const displayName = getCompanyById(company.companyId)?.name ?? company.companyId;
+
             if (company.status === 'success') {
               return (
                 <Chip
                   key={company.companyId}
                   icon={<CheckCircleIcon />}
-                  label={`${company.companyId}${company.jobCount !== undefined ? ` (${company.jobCount})` : ''}`}
+                  label={`${displayName}${company.jobCount !== undefined ? ` (${company.jobCount})` : ''}`}
                   size="small"
                   color="success"
                   variant="outlined"
@@ -134,7 +167,7 @@ export function FetchProgressBar() {
                 <Chip
                   key={company.companyId}
                   icon={<ErrorIcon />}
-                  label={company.companyId}
+                  label={displayName}
                   size="small"
                   color="error"
                   variant="outlined"
@@ -146,7 +179,7 @@ export function FetchProgressBar() {
             return (
               <Chip
                 key={company.companyId}
-                label={company.companyId}
+                label={displayName}
                 size="small"
                 variant="outlined"
               />

@@ -82,9 +82,9 @@ describe('FetchProgressBar', () => {
 
     render(<FetchProgressBar />);
 
-    expect(screen.getByText('spacex (25)')).toBeInTheDocument();
+    expect(screen.getByText('SpaceX (25)')).toBeInTheDocument();
     expect(screen.getByText('anduril (15)')).toBeInTheDocument();
-    expect(screen.getByText('notion')).toBeInTheDocument();
+    expect(screen.getByText('Notion')).toBeInTheDocument();
   });
 
   it('should render error chips with error indicator', () => {
@@ -267,11 +267,11 @@ describe('FetchProgressBar', () => {
 
     expect(screen.getByText('Loading jobs from 3/5 companies')).toBeInTheDocument();
     expect(screen.getByText('60%')).toBeInTheDocument();
-    expect(screen.getByText('spacex (100)')).toBeInTheDocument();
+    expect(screen.getByText('SpaceX (100)')).toBeInTheDocument();
     expect(screen.getByText('anduril (50)')).toBeInTheDocument();
-    expect(screen.getByText('notion')).toBeInTheDocument();
-    expect(screen.getByText('palantir')).toBeInTheDocument();
-    expect(screen.getByText('stripe')).toBeInTheDocument();
+    expect(screen.getByText('Notion')).toBeInTheDocument();
+    expect(screen.getByText('Palantir')).toBeInTheDocument();
+    expect(screen.getByText('Stripe')).toBeInTheDocument();
   });
 
   it('should show during streaming phase (isLoading=true via isStreaming)', () => {
@@ -325,7 +325,7 @@ describe('FetchProgressBar', () => {
 
     // Should be expanded - detail chips visible
     expect(screen.getByText('Loading jobs from 1/2 companies')).toBeInTheDocument();
-    expect(screen.getByText('spacex (100)')).toBeInTheDocument();
+    expect(screen.getByText('SpaceX (100)')).toBeInTheDocument();
 
     // Loading finishes
     mockHook({
@@ -349,7 +349,7 @@ describe('FetchProgressBar', () => {
 
     // Detail chips should not be in DOM (unmountOnExit) - wait for transition
     await waitFor(() => {
-      expect(screen.queryByText('spacex (100)')).not.toBeInTheDocument();
+      expect(screen.queryByText('SpaceX (100)')).not.toBeInTheDocument();
     });
   });
 
@@ -375,20 +375,20 @@ describe('FetchProgressBar', () => {
     render(<FetchProgressBar />);
 
     // Starts collapsed (isLoading is false on mount)
-    expect(screen.queryByText('spacex (100)')).not.toBeInTheDocument();
+    expect(screen.queryByText('SpaceX (100)')).not.toBeInTheDocument();
 
     // Click to expand
     const summary = screen.getByText('Loaded 2/2 companies');
     await user.click(summary);
 
     // Detail chips should now be visible
-    expect(screen.getByText('spacex (100)')).toBeInTheDocument();
+    expect(screen.getByText('SpaceX (100)')).toBeInTheDocument();
     expect(screen.getByText('anduril (50)')).toBeInTheDocument();
 
     // Click to collapse again
     await user.click(summary);
 
     // Detail chips should be gone (unmountOnExit)
-    expect(screen.queryByText('spacex (100)')).not.toBeInTheDocument();
+    expect(screen.queryByText('SpaceX (100)')).not.toBeInTheDocument();
   });
 });
