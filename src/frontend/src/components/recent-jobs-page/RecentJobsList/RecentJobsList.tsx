@@ -7,24 +7,39 @@ import { RecentJobCard } from '../RecentJobCard/RecentJobCard';
 import { LoadingSkeletons } from './LoadingSkeletons';
 import { BackToTopButton } from './BackToTopButton';
 import { EmptyJobListState } from '../../shared/EmptyJobListState.tsx';
+import { SignInOverlay } from '../../shared/SignInOverlay.tsx';
 import { useInfiniteScroll } from '../../../hooks/useInfiniteScroll.ts';
-import { INFINITE_SCROLL_CONFIG } from '../../../constants/ui.ts';
+import { INFINITE_SCROLL_CONFIG, SIGN_IN_OVERLAY_CONFIG } from '../../../constants/ui.ts';
 import { EMPTY_STATE_MESSAGES } from '../../../constants/messages.ts';
+import { useAuth } from '../../../features/auth/useAuth.ts';
 
 /**
  * List of jobs from all companies sorted chronologically
  * Features infinite scrolling to improve performance with large job lists
  * Shows empty state when no jobs match filters
+ *
+ * When the user is signed out the list is capped at
+ * SIGN_IN_OVERLAY_CONFIG.SIGNED_OUT_JOB_LIMIT and infinite scroll is disabled;
+ * a SignInOverlay is shown below to prompt sign-up.
  */
 export function RecentJobsList() {
   const jobs = useAppSelector(selectRecentJobsSorted);
+  const { isAuthenticated, isEnabled } = useAuth();
+  const isSignedOut = isEnabled && !isAuthenticated;
   const [displayedCount, setDisplayedCount] = useState<number>(
     INFINITE_SCROLL_CONFIG.INITIAL_BATCH_SIZE
   );
   const [isLoadingMore, setIsLoadingMore] = useState(false);
 
-  // Calculate if there are more jobs to load
-  const hasMore = displayedCount < jobs.length;
+  // When signed out, cap visible jobs at SIGNED_OUT_JOB_LIMIT regardless of
+  // displayedCount; hasMore is forced false so the IntersectionObserver
+  // sentinel never renders and loadMore is never triggered.
+  const effectiveCount = isSignedOut
+    ? SIGN_IN_OVERLAY_CONFIG.SIGNED_OUT_JOB_LIMIT
+    : displayedCount;
+  const hasMore = !isSignedOut && displayedCount < jobs.length;
+  const showSignInOverlay =
+    isSignedOut && jobs.length > SIGN_IN_OVERLAY_CONFIG.SIGNED_OUT_JOB_LIMIT;
 
   // Load more jobs callback
   const loadMore = useCallback(() => {
@@ -56,7 +71,7 @@ export function RecentJobsList() {
   }, [jobs.length]);
 
   // Memoize displayed jobs slice
-  const displayedJobs = useMemo(() => jobs.slice(0, displayedCount), [jobs, displayedCount]);
+  const displayedJobs = useMemo(() => jobs.slice(0, effectiveCount), [jobs, effectiveCount]);
 
   // Empty state
   if (jobs.length === 0) {
@@ -65,36 +80,46 @@ export function RecentJobsList() {
 
   return (
     <>
-      <Stack spacing={0}>
-        {displayedJobs.map((job) => {
-          const company = getCompanyById(job.company);
-          return (
-            <RecentJobCard
-              key={job.id}
-              job={job}
-              companyName={company?.name || job.company}
-              recruiterLinkedInUrl={company?.recruiterLinkedInUrl}
-            />
-          );
-        })}
+      <Box
+        sx={{
+          position: 'relative',
+          ...(showSignInOverlay && { overflow: 'hidden' }),
+        }}
+      >
+        <Stack spacing={0}>
+          {displayedJobs.map((job) => {
+            const company = getCompanyById(job.company);
+            return (
+              <RecentJobCard
+                key={job.id}
+                job={job}
+                companyName={company?.name || job.company}
+                recruiterLinkedInUrl={company?.recruiterLinkedInUrl}
+              />
+            );
+          })}
 
-        {/* Loading skeletons */}
-        {isLoadingMore && <LoadingSkeletons count={INFINITE_SCROLL_CONFIG.SKELETON_COUNT} />}
+          {/* Loading skeletons */}
+          {isLoadingMore && <LoadingSkeletons count={INFINITE_SCROLL_CONFIG.SKELETON_COUNT} />}
 
-        {/* Sentinel element for infinite scroll trigger */}
-        {hasMore && !isLoadingMore && (
-          <div ref={sentinelRef} aria-hidden="true" style={{ height: '1px', width: '100%' }} />
-        )}
+          {/* Sentinel element for infinite scroll trigger */}
+          {hasMore && !isLoadingMore && (
+            <div ref={sentinelRef} aria-hidden="true" style={{ height: '1px', width: '100%' }} />
+          )}
 
-        {/* All jobs loaded message */}
-        {!hasMore && jobs.length > INFINITE_SCROLL_CONFIG.INITIAL_BATCH_SIZE && (
-          <Box sx={{ textAlign: 'center', py: 4 }} role="status">
-            <Typography variant="body2" color="text.secondary">
-              {EMPTY_STATE_MESSAGES.ALL_LOADED(jobs.length)}
-            </Typography>
-          </Box>
-        )}
-      </Stack>
+          {/* All jobs loaded message */}
+          {!hasMore && jobs.length > INFINITE_SCROLL_CONFIG.INITIAL_BATCH_SIZE && (
+            <Box sx={{ textAlign: 'center', py: 4 }} role="status">
+              <Typography variant="body2" color="text.secondary">
+                {EMPTY_STATE_MESSAGES.ALL_LOADED(jobs.length)}
+              </Typography>
+            </Box>
+          )}
+        </Stack>
+
+        {/* Sign-in prompt for signed-out users with more jobs available */}
+        {showSignInOverlay && <SignInOverlay />}
+      </Box>
 
       {/* Back to top button */}
       <BackToTopButton />

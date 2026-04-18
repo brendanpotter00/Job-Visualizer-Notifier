@@ -11,6 +11,7 @@ import CircularProgress from '@mui/material/CircularProgress';
 import { useAuth } from '../../features/auth/useAuth';
 import { useCurrentUser } from '../../features/auth/useCurrentUser';
 import { updateCurrentUser } from '../../features/auth/authService';
+import { EnabledCompaniesSection } from '../../components/account/EnabledCompaniesSection';
 
 export function AccountPage() {
   const { isAuthenticated, isLoading: authLoading, login, getToken } = useAuth();
@@ -161,6 +162,8 @@ export function AccountPage() {
           {isSaving ? 'Saving...' : 'Save Changes'}
         </Button>
       </Paper>
+
+      <EnabledCompaniesSection />
     </Container>
   );
 }

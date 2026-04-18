@@ -7,7 +7,7 @@ import { WhyPage } from '../pages/WhyPage/WhyPage.tsx';
 import { AccountPage } from '../pages/AccountPage/AccountPage.tsx';
 import { ROUTES } from '../config/routes';
 import { QAPage } from '../pages/QAPage/QAPage.tsx';
-import { GoogleOneTap } from '../features/auth/GoogleOneTap';
+import { useEnabledCompanies } from '../features/preferences/useEnabledCompanies';
 
 /**
  * App content component with routing and hooks
@@ -16,13 +16,14 @@ import { GoogleOneTap } from '../features/auth/GoogleOneTap';
  * depend on React Router context (useLocation).
  */
 function AppContent() {
-  // Custom hooks for URL synchronization (page-aware)
   useURLSync();
   useBrowserNavigation();
+  // Hydrate enabled-companies at the app root so selectors have it before
+  // any page reads them.
+  useEnabledCompanies();
 
   return (
     <>
-      <GoogleOneTap />
       <Routes>
         <Route path="/" element={<RootLayout />}>
           <Route index element={<RecentJobPostingsPage />} />

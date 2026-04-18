@@ -5,6 +5,7 @@ import { leverClient } from '../../api/clients/leverClient';
 import { ashbyClient } from '../../api/clients/ashbyClient';
 import { gemClient } from '../../api/clients/gemClient';
 import { workdayClient } from '../../api/clients/workdayClient';
+import { eightfoldClient } from '../../api/clients/eightfoldClient';
 
 describe('getClientForATS', () => {
   it('returns greenhouseClient for greenhouse ATS type', () => {
@@ -30,6 +31,11 @@ describe('getClientForATS', () => {
   it('returns workdayClient for workday ATS type', () => {
     const client = getClientForATS('workday');
     expect(client).toBe(workdayClient);
+  });
+
+  it('returns eightfoldClient for eightfold ATS type', () => {
+    const client = getClientForATS('eightfold');
+    expect(client).toBe(eightfoldClient);
   });
 
   it('throws error for unknown ATS type', () => {

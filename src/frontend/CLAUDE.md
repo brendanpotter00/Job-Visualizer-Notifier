@@ -1,6 +1,6 @@
 # Frontend CLAUDE.md
 
-React SPA for job posting analytics. Visualizes job posting activity over time for multiple companies using external ATS APIs (Greenhouse, Lever, Ashby, Workday) and backend-scraped data (Google, Apple). Built with Redux Toolkit, Recharts, and Material-UI.
+React SPA for job posting analytics. Visualizes job posting activity over time for multiple companies using external ATS APIs (Greenhouse, Lever, Ashby, Workday, Gem, Eightfold) and backend-scraped data (Google, Apple). Built with Redux Toolkit, Recharts, and Material-UI.
 
 **Note:** Commands should be run from project root (not this directory). See root CLAUDE.md for full project context.
 
@@ -37,7 +37,7 @@ All paths below are relative to `src/frontend/src/`.
 User selects company → `getJobsForCompany` RTK Query endpoint (features/jobs/jobsApi.ts) → Factory selects API client → Transform to normalized Job model → RTK Query cache update → Memoized selectors filter data → Components render
 
 **API Clients:**
-Five ATS providers (Greenhouse, Lever, Ashby, Workday, Backend-Scraper) are supported. The first four use `createAPIClient` factory (api/clients/baseClient.ts) which handles validation, fetch, error handling, filtering, transformation, and metadata calculation. Backend-Scraper uses a dedicated client (api/clients/backendScraperClient.ts) for companies scraped via Python scripts and served from the backend API (Google, Apple).
+Seven ATS providers (Greenhouse, Lever, Ashby, Workday, Gem, Eightfold, Backend-Scraper) are supported. Greenhouse/Lever/Ashby/Workday/Gem use `createAPIClient` factory (api/clients/baseClient.ts) which handles validation, fetch, error handling, filtering, transformation, and metadata calculation. Eightfold (api/clients/eightfoldClient.ts) uses a dedicated client because its API requires sequential pagination with a hard 10-item page cap (used by Netflix). Backend-Scraper uses a dedicated client (api/clients/backendScraperClient.ts) for companies scraped via Python scripts and served from the backend API (Google, Apple).
 
 **Key Selectors:**
 - `selectCurrentCompanyJobs` (features/jobs/jobsSelectors.ts) - Jobs for selected company
@@ -51,6 +51,7 @@ Five ATS providers (Greenhouse, Lever, Ashby, Workday, Backend-Scraper) are supp
 - `/companies` - Company Job Postings (pages/CompaniesPage/CompaniesPage.tsx) - Per-company job visualization with graph
 - `/why` - Why This Was Built (pages/WhyPage/WhyPage.tsx) - About page
 - `/qa` - QA (pages/QAPage/QAPage.tsx) - Admin page for triggering scrapers, viewing scrape runs, and debugging
+- `/account` - Account (pages/AccountPage/AccountPage.tsx)
 
 **Key Algorithms:**
 - Time Bucketing: lib/timeBucketing.ts (dynamic bucket sizing for graph visualization)
@@ -63,6 +64,7 @@ Edit `config/companies.ts` and use the appropriate factory function:
 - `createLeverCompany()` - Lever ATS
 - `createAshbyCompany()` - Ashby ATS
 - `createWorkdayCompany()` - Workday ATS
+- `createEightfoldCompany()` - Eightfold AI (pass `{ tenantHost, domain }`; Netflix uses `explore.jobs.netflix.net` / `netflix.com`)
 - `createBackendScraperCompany()` - Companies scraped via Python scripts (requires backend setup)
 
 **Adding ATS Provider:**
@@ -87,7 +89,7 @@ Edit `config/companies.ts` and use the appropriate factory function:
 
 1. **Use Vercel Dev**: Must run `npm run dev:vercel` (not `npm run dev`) - Vercel serverless functions in `api/` directory proxy ATS API calls to avoid CORS issues
 2. **Vite env files must live in `src/frontend/`, NOT the project root**: The root `vite.config.ts` sets `root: 'src/frontend'`. Vite resolves `.env` files relative to its `root`, so it reads `src/frontend/.env.local`, NOT `<project-root>/.env.local`. **DO NOT add `envDir` to `vite.config.ts` to point at the project root** — this breaks Vercel Dev's API proxy routing, causing all `/api/*` requests to fail. Instead, frontend `VITE_*` env vars go in `src/frontend/.env.local` and backend/Vercel env vars go in `<project-root>/.env.local`.
-3. **Vercel Dev cloud env vars override ALL local `.env` files for serverless functions (`api/*.ts`)**: `vercel dev` pulls env vars from the linked Vercel project and they take absolute precedence — `.env.local`, `.env.development.local`, and even shell env vars are all ignored. The `api/utils/backendUrl.ts` helper works around this by detecting `localhost` in the request Host header to use `http://localhost:8000` for local dev. **Do NOT rely on `process.env` in serverless functions for local dev config.** See `docs/incidents/2026-04-12-vercel-dev-env-var-override.md` for full details.
+3. **Vercel Dev cloud env vars override ALL local `.env` files for serverless functions (`api/*.ts`)**: `vercel dev` pulls env vars from the linked Vercel project and they take absolute precedence — `.env.local`, `.env.development.local`, and even shell env vars are all ignored. The `api/utils/backendUrl.ts` helper works around this by detecting `localhost` in the request Host header to use `http://localhost:8000` for local dev. **Do NOT rely on `process.env` in serverless functions for local dev config.**
 4. **macOS port 5000 is AirPlay**: Never configure backend services on port 5000 — macOS Monterey+ runs AirPlay Receiver there via ControlCenter. It silently accepts HTTP connections and returns 403, masking "connection refused" errors. The backend runs on port 8000.
 5. **Graph/List Filter Independence**: Separate by design - changing graph filters doesn't affect list
 6. **Empty Buckets Matter**: Time bucketing creates empty buckets for full range - don't filter them out
@@ -123,6 +125,8 @@ Located in project root `api/` directory (proxies to avoid CORS):
 - `lever.ts` - Lever API proxy
 - `ashby.ts` - Ashby API proxy
 - `workday.ts` - Workday API proxy
+- `gem.ts` - Gem API proxy
+- `eightfold.ts` - Eightfold AI proxy (catch-all route at `/api/eightfold/:path(.*)`; requires `X-Eightfold-Tenant-Host` header, SSRF-allowlisted to `*.eightfold.ai` + known vanity hosts like `explore.jobs.netflix.net`)
 - `jobs.ts` - Backend jobs API proxy (for scraped companies)
 - `jobs-qa.ts` - Backend QA endpoints proxy (scraper triggers, run history)
 - `users.ts` - Backend users API proxy (forwards Authorization header)
@@ -130,6 +134,6 @@ Located in project root `api/` directory (proxies to avoid CORS):
 ## See Also
 
 - **Root CLAUDE.md** - Full project documentation including backend and scripts
-- **docs/architecture.md** - Comprehensive Mermaid diagrams for data flow, state shape, factory patterns
+- **docs/architecture.md** - Comprehensive Mermaid diagrams for data flow, state shape, factory patterns (located at `src/frontend/docs/architecture.md`)
 - **Greenhouse API**: https://developers.greenhouse.io/job-board.html
 - **Lever API**: https://github.com/lever/postings-api

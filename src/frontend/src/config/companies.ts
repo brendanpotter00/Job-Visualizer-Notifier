@@ -2,6 +2,7 @@ import type {
   AshbyConfig,
   BackendScraperConfig,
   Company,
+  EightfoldConfig,
   GemConfig,
   GreenhouseConfig,
   LeverConfig,
@@ -162,6 +163,36 @@ function createWorkdayCompany(
 }
 
 /**
+ * Factory function for Eightfold AI companies.
+ * Requires explicit configuration for tenantHost and domain.
+ */
+function createEightfoldCompany(
+  id: string,
+  name: string,
+  eightfoldConfig: {
+    tenantHost: string;
+    domain: string;
+  },
+  options: FactoryOptions = {}
+): Company {
+  const config: EightfoldConfig = {
+    type: 'eightfold',
+    companyId: id,
+    tenantHost: eightfoldConfig.tenantHost,
+    domain: eightfoldConfig.domain,
+  };
+  const jobsUrl = `https://${eightfoldConfig.tenantHost}/careers`;
+  return {
+    id,
+    name,
+    ats: 'eightfold',
+    config,
+    jobsUrl,
+    recruiterLinkedInUrl: options.recruiterLinkedInUrl,
+  };
+}
+
+/**
  * Factory function for backend-scraper companies.
  * These are companies scraped via Python scripts and served from our backend.
  */
@@ -272,7 +303,6 @@ export const COMPANIES: Company[] = [
   createGreenhouseCompany('affirm', 'Affirm'),
   createGreenhouseCompany('crunchyroll', 'Crunchyroll'),
   createGreenhouseCompany('nuro', 'Nuro'),
-  createGreenhouseCompany('trueanomalyinc', 'True Anomaly'),
   createGreenhouseCompany('pallet', 'Pallet'),
   createGreenhouseCompany('pinterest', 'Pinterest', {
     recruiterLinkedInUrl:
@@ -392,7 +422,10 @@ export const COMPANIES: Company[] = [
   createAshbyCompany('braintrust', 'Braintrust', { jobBoardName: 'Braintrust' }),
   createAshbyCompany('eliseai', 'EliseAI'),
   createAshbyCompany('resolve-ai', 'Resolve AI', { jobBoardName: 'Resolve AI' }),
+  createAshbyCompany('mintlify', 'Mintlify', { jobBoardName: 'Mintlify' }),
+  createAshbyCompany('roadrunner', 'Roadrunner', { jobBoardName: 'Roadrunner' }),
   createAshbyCompany('supabase', 'Supabase'),
+  createAshbyCompany('wispr-flow', 'Wispr Flow', { jobBoardName: 'wispr-flow' }),
   createAshbyCompany('flint', 'Flint'),
 
   // Gem companies
@@ -444,19 +477,6 @@ export const COMPANIES: Company[] = [
     tenantSlug: 'expedia',
     careerSiteSlug: 'search',
   }),
-  createWorkdayCompany(
-    'netflix',
-    'Netflix',
-    {
-      baseUrl: 'https://netflix.wd1.myworkdayjobs.com',
-      tenantSlug: 'netflix',
-      careerSiteSlug: 'Netflix',
-    },
-    {
-      recruiterLinkedInUrl:
-        'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22165158%22%5D',
-    }
-  ),
   createWorkdayCompany('turo', 'Turo', {
     baseUrl: 'https://turo.wd12.myworkdayjobs.com',
     tenantSlug: 'turo',
@@ -492,6 +512,20 @@ export const COMPANIES: Company[] = [
     tenantSlug: 'capitalone',
     careerSiteSlug: 'Capital_One',
   }),
+
+  // Eightfold companies
+  createEightfoldCompany(
+    'netflix',
+    'Netflix',
+    {
+      tenantHost: 'explore.jobs.netflix.net',
+      domain: 'netflix.com',
+    },
+    {
+      recruiterLinkedInUrl:
+        'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22165158%22%5D',
+    }
+  ),
 
   // Backend scraper companies
   createBackendScraperCompany('google', 'Google', 'https://careers.google.com/', {
@@ -564,6 +598,7 @@ export const enum COMPANY_IDS {
   Lyft = 'lyft',
   Merge = 'merge',
   Microsoft = 'microsoft',
+  Mintlify = 'mintlify',
   MongoDB = 'mongodb',
   Netflix = 'netflix',
   Neuralink = 'neuralink',
@@ -581,6 +616,7 @@ export const enum COMPANY_IDS {
   Ramp = 'ramp',
   Reddit = 'reddit',
   ResolveAI = 'resolve-ai',
+  Roadrunner = 'roadrunner',
   Robinhood = 'robinhood',
   Saronic = 'saronic',
   Scaleai = 'scaleai',
@@ -598,13 +634,13 @@ export const enum COMPANY_IDS {
   Sunday = 'sunday',
   Supabase = 'supabase',
   Traversal = 'traversal',
-  TrueAnomaly = 'trueanomalyinc',
   Twilio = 'twilio',
   Turo = 'turo',
   Twitch = 'twitch',
   Unity = 'unity3d',
   Vercel = 'vercel',
   Waymo = 'waymo',
+  WisprFlow = 'wispr-flow',
   Xai = 'xai',
   Zoox = 'zoox',
 }

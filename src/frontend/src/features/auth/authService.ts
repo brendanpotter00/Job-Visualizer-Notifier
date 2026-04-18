@@ -63,3 +63,47 @@ export async function updateCurrentUser(
 
   return response.json();
 }
+
+export async function fetchEnabledCompanies(
+  token: string,
+  signal?: AbortSignal
+): Promise<string[]> {
+  const response = await fetch('/api/users/enabled-companies', {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/json',
+    },
+    signal,
+  });
+
+  if (!response.ok) {
+    const detail = await extractErrorDetail(response);
+    throw new Error(detail || `Failed to fetch enabled companies (${response.status})`);
+  }
+
+  const body = await response.json();
+  return body.companyIds as string[];
+}
+
+export async function updateEnabledCompanies(
+  token: string,
+  companyIds: string[]
+): Promise<string[]> {
+  const response = await fetch('/api/users/enabled-companies', {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify({ companyIds }),
+  });
+
+  if (!response.ok) {
+    const detail = await extractErrorDetail(response);
+    throw new Error(detail || `Failed to save enabled companies (${response.status})`);
+  }
+
+  const body = await response.json();
+  return body.companyIds as string[];
+}

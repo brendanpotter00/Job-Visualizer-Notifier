@@ -3,7 +3,8 @@ import { render, screen } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { configureStore } from '@reduxjs/toolkit';
 import { RecentJobsList } from '../../../../components/recent-jobs-page/RecentJobsList/RecentJobsList';
-import { INFINITE_SCROLL_CONFIG } from '../../../../constants/ui';
+import { INFINITE_SCROLL_CONFIG, SIGN_IN_OVERLAY_CONFIG } from '../../../../constants/ui';
+import { SIGN_IN_OVERLAY_MESSAGES } from '../../../../constants/messages';
 import type { Job } from '../../../../types';
 import * as recentJobsSelectors from '../../../../features/filters/selectors/recentJobsSelectors';
 
@@ -17,9 +18,38 @@ vi.mock('../../../../hooks/useInfiniteScroll', () => ({
 // Mock the selector
 vi.mock('../../../../features/filters/selectors/recentJobsSelectors');
 
-// Mock window.scrollTo
+// Mock useAuth - default to authenticated so existing tests pass unchanged.
+// Signed-out tests below override mockAuthState before rendering.
+type MockAuthState = {
+  isEnabled: boolean;
+  isAuthenticated: boolean;
+  isLoading: boolean;
+  login: ReturnType<typeof vi.fn>;
+  logout: ReturnType<typeof vi.fn>;
+  getToken: ReturnType<typeof vi.fn>;
+  user: null;
+};
+
+const mockAuthState: MockAuthState = {
+  isEnabled: true,
+  isAuthenticated: true,
+  isLoading: false,
+  login: vi.fn(),
+  logout: vi.fn(),
+  getToken: vi.fn(),
+  user: null,
+};
+
+vi.mock('../../../../features/auth/useAuth', () => ({
+  useAuth: () => mockAuthState,
+}));
+
+// Reset auth mock and window.scrollTo before each test
 beforeEach(() => {
   window.scrollTo = vi.fn();
+  mockAuthState.isEnabled = true;
+  mockAuthState.isAuthenticated = true;
+  mockAuthState.isLoading = false;
 });
 
 // Helper to create mock jobs
@@ -234,5 +264,96 @@ describe('RecentJobsList', () => {
 
     // This would trigger the useEffect that resets displayedCount
     // In a real scenario, this would be handled by Redux state change
+  });
+
+  describe('signed-out behavior', () => {
+    beforeEach(() => {
+      mockAuthState.isAuthenticated = false;
+    });
+
+    it('shows the SignInOverlay when signed out and more jobs are available', () => {
+      const jobs = createMockJobs(100);
+      vi.mocked(recentJobsSelectors.selectRecentJobsSorted).mockReturnValue(jobs);
+
+      const store = createMockStore();
+
+      render(
+        <Provider store={store}>
+          <RecentJobsList />
+        </Provider>
+      );
+
+      expect(screen.getByText(SIGN_IN_OVERLAY_MESSAGES.TITLE)).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: SIGN_IN_OVERLAY_MESSAGES.BUTTON_TEXT })
+      ).toBeInTheDocument();
+    });
+
+    it('does not show the SignInOverlay when all jobs fit under the signed-out cap', () => {
+      const jobs = createMockJobs(SIGN_IN_OVERLAY_CONFIG.SIGNED_OUT_JOB_LIMIT);
+      vi.mocked(recentJobsSelectors.selectRecentJobsSorted).mockReturnValue(jobs);
+
+      const store = createMockStore();
+
+      render(
+        <Provider store={store}>
+          <RecentJobsList />
+        </Provider>
+      );
+
+      expect(screen.queryByText(SIGN_IN_OVERLAY_MESSAGES.TITLE)).not.toBeInTheDocument();
+    });
+
+    it('does not render the infinite-scroll sentinel when signed out', () => {
+      const jobs = createMockJobs(100);
+      vi.mocked(recentJobsSelectors.selectRecentJobsSorted).mockReturnValue(jobs);
+
+      const store = createMockStore();
+
+      const { container } = render(
+        <Provider store={store}>
+          <RecentJobsList />
+        </Provider>
+      );
+
+      // Sentinel is a 1px div inside the Stack with aria-hidden="true".
+      // Filter out any overlay elements that also use aria-hidden.
+      const sentinelInStack = container.querySelector(
+        '.MuiStack-root > div[aria-hidden="true"][style*="height: 1px"]'
+      );
+      expect(sentinelInStack).not.toBeInTheDocument();
+    });
+
+    it('caps rendered jobs at the signed-out job limit when signed out', () => {
+      const jobs = createMockJobs(200);
+      vi.mocked(recentJobsSelectors.selectRecentJobsSorted).mockReturnValue(jobs);
+
+      const store = createMockStore();
+
+      render(
+        <Provider store={store}>
+          <RecentJobsList />
+        </Provider>
+      );
+
+      const jobCards = screen.getAllByText(/Software Engineer/);
+      expect(jobCards.length).toBe(SIGN_IN_OVERLAY_CONFIG.SIGNED_OUT_JOB_LIMIT);
+    });
+
+    it('does not show the SignInOverlay when auth is disabled', () => {
+      mockAuthState.isEnabled = false;
+      const jobs = createMockJobs(100);
+      vi.mocked(recentJobsSelectors.selectRecentJobsSorted).mockReturnValue(jobs);
+
+      const store = createMockStore();
+
+      render(
+        <Provider store={store}>
+          <RecentJobsList />
+        </Provider>
+      );
+
+      expect(screen.queryByText(SIGN_IN_OVERLAY_MESSAGES.TITLE)).not.toBeInTheDocument();
+    });
   });
 });

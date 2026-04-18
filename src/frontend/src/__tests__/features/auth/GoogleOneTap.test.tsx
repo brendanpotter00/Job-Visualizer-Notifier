@@ -13,6 +13,20 @@ let mockAuthState = {
   isAuthenticated: false,
   isLoading: false,
 };
+let mockAuthConfig = {
+  domain: 'test.auth0.com',
+  clientId: 'auth0-client',
+  redirectUri: 'http://localhost:3000',
+  audience: 'test-audience',
+  googleClientId: 'test-google-client-id',
+  isEnabled: true,
+};
+
+vi.mock('../../../config/auth', () => ({
+  get AUTH_CONFIG() {
+    return mockAuthConfig;
+  },
+}));
 
 vi.mock('../../../features/auth/useAuth', () => ({
   useAuth: () => mockAuthState,
@@ -33,6 +47,14 @@ describe('GoogleOneTap', () => {
       isAuthenticated: false,
       isLoading: false,
     };
+    mockAuthConfig = {
+      domain: 'test.auth0.com',
+      clientId: 'auth0-client',
+      redirectUri: 'http://localhost:3000',
+      audience: 'test-audience',
+      googleClientId: 'test-google-client-id',
+      isEnabled: true,
+    };
   });
 
   it('renders nothing', async () => {
@@ -46,7 +68,7 @@ describe('GoogleOneTap', () => {
     render(<GoogleOneTap />);
 
     expect(mockUseGoogleOneTapLogin).toHaveBeenCalledWith(
-      expect.objectContaining({ disabled: false })
+      expect.objectContaining({ disabled: false, auto_select: true })
     );
   });
 
@@ -62,6 +84,16 @@ describe('GoogleOneTap', () => {
 
   it('calls useGoogleOneTapLogin with disabled=true when authenticated', async () => {
     mockAuthState.isAuthenticated = true;
+    const { GoogleOneTap } = await import('../../../features/auth/GoogleOneTap');
+    render(<GoogleOneTap />);
+
+    expect(mockUseGoogleOneTapLogin).toHaveBeenCalledWith(
+      expect.objectContaining({ disabled: true })
+    );
+  });
+
+  it('calls useGoogleOneTapLogin with disabled=true when googleClientId is empty', async () => {
+    mockAuthConfig.googleClientId = '';
     const { GoogleOneTap } = await import('../../../features/auth/GoogleOneTap');
     render(<GoogleOneTap />);
 

@@ -41,6 +41,16 @@ vi.mock('../../../features/auth/authService', () => ({
   updateCurrentUser: (...args: unknown[]) => mockUpdateCurrentUser(...args),
 }));
 
+vi.mock('../../../features/preferences/useEnabledCompanies', () => ({
+  useEnabledCompanies: () => ({
+    ids: null,
+    loading: false,
+    error: null,
+    save: vi.fn().mockResolvedValue(undefined),
+    reload: vi.fn(),
+  }),
+}));
+
 function renderPage() {
   return render(
     <MemoryRouter>
@@ -130,7 +140,7 @@ describe('AccountPage', () => {
       renderPage();
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /save changes/i })).toBeDisabled();
+        expect(screen.getAllByRole('button', { name: /save changes/i })[0]).toBeDisabled();
       });
     });
 
@@ -146,7 +156,7 @@ describe('AccountPage', () => {
       await user.clear(input);
       await user.type(input, 'New Name');
 
-      expect(screen.getByRole('button', { name: /save changes/i })).toBeEnabled();
+      expect(screen.getAllByRole('button', { name: /save changes/i })[0]).toBeEnabled();
     });
 
     it('calls updateCurrentUser on save', async () => {
@@ -162,7 +172,7 @@ describe('AccountPage', () => {
       const input = screen.getByLabelText('Display Name');
       await user.clear(input);
       await user.type(input, 'New Name');
-      await user.click(screen.getByRole('button', { name: /save changes/i }));
+      await user.click(screen.getAllByRole('button', { name: /save changes/i })[0]);
 
       await waitFor(() => {
         expect(mockUpdateCurrentUser).toHaveBeenCalledWith('test-token', {
@@ -184,7 +194,7 @@ describe('AccountPage', () => {
       const input = screen.getByLabelText('Display Name');
       await user.clear(input);
       await user.type(input, 'New Name');
-      await user.click(screen.getByRole('button', { name: /save changes/i }));
+      await user.click(screen.getAllByRole('button', { name: /save changes/i })[0]);
 
       await waitFor(() => {
         expect(screen.getByText('Changes saved.')).toBeInTheDocument();
@@ -212,7 +222,7 @@ describe('AccountPage', () => {
       const input = screen.getByLabelText('Display Name');
       await user.clear(input);
       await user.type(input, 'New Name');
-      await user.click(screen.getByRole('button', { name: /save changes/i }));
+      await user.click(screen.getAllByRole('button', { name: /save changes/i })[0]);
 
       await waitFor(() => {
         expect(screen.getByText('Failed to update user (500)')).toBeInTheDocument();

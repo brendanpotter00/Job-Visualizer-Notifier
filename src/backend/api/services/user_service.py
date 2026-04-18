@@ -180,3 +180,19 @@ def update_user(
         raise
     row = cursor.fetchone()
     return dict(row) if row else None
+
+
+def get_user_by_email(
+    conn: Connection,
+    env: str,
+    email: str,
+) -> dict | None:
+    """Fetch a user row by email. Returns ``None`` if not found."""
+    table = sql.Identifier(_get_table_name(env, "users"))
+    cursor = conn.cursor()
+    cursor.execute(
+        sql.SQL("SELECT * FROM {} WHERE email = %s").format(table),
+        (email,),
+    )
+    row = cursor.fetchone()
+    return dict(row) if row else None

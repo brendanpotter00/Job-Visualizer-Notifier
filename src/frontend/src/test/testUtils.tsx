@@ -9,6 +9,7 @@ import graphFiltersReducer from '../features/filters/slices/graphFiltersSlice';
 import listFiltersReducer from '../features/filters/slices/listFiltersSlice';
 import recentJobsFiltersReducer from '../features/filters/slices/recentJobsFiltersSlice';
 import uiReducer from '../features/ui/uiSlice';
+import enabledCompaniesReducer from '../features/preferences/enabledCompaniesSlice';
 import { jobsApi } from '../features/jobs/jobsApi';
 
 /**
@@ -25,6 +26,7 @@ export function createTestStore(preloadedState: Partial<RootState> | Record<stri
       listFilters: listFiltersReducer,
       recentJobsFilters: recentJobsFiltersReducer,
       ui: uiReducer,
+      enabledCompanies: enabledCompaniesReducer,
       [jobsApi.reducerPath]: jobsApi.reducer,
     },
     middleware: (getDefaultMiddleware) => getDefaultMiddleware().concat(jobsApi.middleware),

@@ -50,3 +50,29 @@ export const ERROR_MESSAGES = {
    */
   LOAD_JOBS_FAILED: 'Failed to load job postings. Please try again later.',
 } as const;
+
+/**
+ * Sign-in prompt overlay messages
+ * Shown to signed-out users on job list views to encourage sign-up
+ */
+export const SIGN_IN_OVERLAY_MESSAGES = {
+  /**
+   * Primary CTA headline
+   */
+  TITLE: 'Sign in to view more jobs.',
+
+  /**
+   * Supporting subtitle emphasizing zero cost
+   */
+  SUBTITLE: 'For free.',
+
+  /**
+   * Sign-in button label
+   */
+  BUTTON_TEXT: 'Sign In',
+
+  /**
+   * ARIA label for the overlay region
+   */
+  ARIA_LABEL: 'Sign in prompt',
+} as const;

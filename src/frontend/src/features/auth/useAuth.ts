@@ -1,9 +1,19 @@
 import { useCallback } from 'react';
-import { useAuth0 } from '@auth0/auth0-react';
+import { useAuth0, type User } from '@auth0/auth0-react';
 import { AUTH_CONFIG } from '../../config/auth';
 import { useGoogleCredential } from './useGoogleCredential';
 
-export function useAuth() {
+interface AuthResult {
+  isEnabled: boolean;
+  isAuthenticated: boolean;
+  isLoading: boolean;
+  user: User | undefined;
+  login: () => Promise<void>;
+  logout: () => void;
+  getToken: () => Promise<string>;
+}
+
+function useAuthReal(): AuthResult {
   const {
     isAuthenticated: isAuth0Authenticated,
     isLoading: isAuth0Loading,
@@ -66,3 +76,38 @@ export function useAuth() {
     getToken,
   };
 }
+
+const BYPASS_USER: User = {
+  sub: 'bypass|qa-dev-user',
+  email: 'qa-dev@bypass.local',
+  name: 'QA Dev User',
+  given_name: 'QA',
+  family_name: 'Dev',
+  picture: '',
+};
+
+// Intentionally does NOT call any hooks that require Auth0/Google context, so
+// it can run without AuthProviders mounting its real providers.
+function useAuthBypass(): AuthResult {
+  return {
+    isEnabled: true,
+    isAuthenticated: true,
+    isLoading: false,
+    user: BYPASS_USER,
+    login: async () => {
+      // No-op — already "signed in" as the bypass user.
+    },
+    logout: () => {
+      // No-op — bypass is controlled by the env var, not runtime state.
+      console.info('[useAuth] Logout ignored: bypass mode is active.');
+    },
+    getToken: async () => 'bypass-frontend-only-token',
+  };
+}
+
+// Module-level dispatch: the env var is inlined at build time, so exactly one
+// implementation is bound for the life of the bundle. This keeps hook rules
+// satisfied (no runtime conditional hook calls) and guarantees useAuth0() /
+// useGoogleCredential() are never invoked in bypass builds where their
+// providers are not mounted.
+export const useAuth = AUTH_CONFIG.bypassEnabled ? useAuthBypass : useAuthReal;
