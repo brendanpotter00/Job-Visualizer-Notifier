@@ -36,3 +36,38 @@ These are tracked so the next reviewer doesn't re-flag them without new evidence
 **1000 frontend tests passing, type-check clean.**
 
 ---
+
+## 2026-04-18 — Round 2 review (PR #67)
+
+Review run via the `/code-review` skill reviewer pattern (manual, 5 parallel perspectives: CLAUDE.md compliance, shallow bug scan, git-history context, past-PR comments, code-comment compliance) at head SHA `a836d20200d96f45eb57df66cc33a7b7c450381c`. No findings scored ≥80 — **no review comment posted** (per skill step 6, skip posting when the filtered set is empty). This Round 2 entry documents the sub-threshold candidates so Round 3 does not re-flag them without new evidence.
+
+### No findings above threshold
+
+All candidate issues surfaced during Round 2 scored below the 80 posting threshold. The slice, hook, selector, router, and service code are all consistent with the Round 1 fixes and the design docs in `docs/implementations/companySelector/`.
+
+### Scored but below threshold (intentionally deferred from Round 2)
+
+- **`EditCompanyPreferencesLink` invisible on failed load (scored 55).** The CTA renders a 20px spacer while `isLoading || (isAuthenticated && enabledIds === null)`. If `loadEnabledCompanies` rejects for a non-abort reason (API 500, network down), `enabledIds` stays `null` and the link silently never appears for the signed-in user. The slice sets `state.error` in that path, but `EditCompanyPreferencesLink` does not surface it. Users can still navigate via the account menu, and the Recent Jobs page itself degrades gracefully (full company list shows when `enabledIds === null`). Worth adding an error-state affordance if this file is touched again, but not a Round 2 blocker.
+- **Dead abort check in `saveEnabledCompanies.rejected` (scored 25).** The reducer checks `action.meta.aborted || action.error.name === 'AbortError'` but no caller threads an `AbortSignal` into the save thunk (`useEnabledCompanies.save()` does not abort in-flight saves). The check is harmless and future-proofs against a later abort-on-unmount addition. Leave as-is.
+- **Stale-token risk in `useEnabledCompanies.save()` (scored 30).** `save()` calls `getToken()` once and dispatches `saveEnabledCompanies(ids, token)`. On very slow networks the token could expire mid-flight; on 401 the backend returns an error and the user sees a save failure. Auth0 SDK typically returns a cached-valid token, so the realistic window is small. No retry/refresh today by design.
+- **`saveError` persistence across edits (scored 35).** `EnabledCompaniesSection` shows `saveError` after a failed save. Subsequent draft edits don't clear it until another save attempt. Minor UX polish; not blocking.
+- **Silent `getToken()` rejection in `useEnabledCompanies` (scored 30).** The hook's `useEffect` calls `getToken().then(dispatch).catch(() => {})`. If token acquisition fails (Auth0 popup blocked, refresh-token revoked), the load silently never happens and `loading` stays `false`. Acceptable because the Auth0 `isAuthenticated` gate upstream ensures we only reach this path when a token should exist.
+- **Env-name interpolation bypass (scored 50, carried from Round 1).** No new evidence — same defense-in-depth consideration as Round 1. `env` is Pydantic-validated at startup. Unify with `_get_table_name()` only if the file is touched again.
+- **`reload()` race on rapid successive calls (scored 25, carried from Round 1).** No new evidence — no external `reload()` callers exist.
+
+### Confirmations (Round 1 invariants re-verified)
+
+- **`loading=false` always clears on abort** — verified at `src/frontend/src/features/preferences/enabledCompaniesSlice.ts:51`. The reducer still assigns `state.loading = false` unconditionally before the `if (action.meta.aborted || action.error.name === 'AbortError') return;` early-return. The two aborted-rejection tests in `__tests__/features/preferences/enabledCompaniesSlice.test.ts` still assert `loading === false` post-abort.
+- **Abort path does not clobber `state.error`** — the early-return still skips the error write, so an aborted load does not replace a legitimate prior error with `"aborted"` noise.
+- **Round 1 deferrals remain deferred** — env-interpolation and `reload()` race have not accrued new evidence.
+
+### Tests run
+
+- `npm test -- --run` — 1000 frontend tests pass.
+- `npm run type-check` — clean.
+- Focused subsets re-verified: slice + hook (21 tests), `EnabledCompaniesSection` + `EditCompanyPreferencesLink` + `recentJobsSelectors` (57 tests), `AppEnabledCompaniesGlobalLoad` (2 tests).
+- Backend tests not run — `src/backend` untouched in Round 2 (docs-only change).
+
+**1000 frontend tests passing, type-check clean. No code fixes applied (docs-only audit entry).**
+
+---
