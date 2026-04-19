@@ -1,4 +1,5 @@
-import { Box, CircularProgress, Stack, Typography } from '@mui/material';
+import { Stack } from '@mui/material';
+import { LoadingState } from '../../components/shared/LoadingIndicator';
 import { GraphSection } from '../../components/companies-page/JobPostingsChart/GraphSection';
 import { ListSection } from '../../components/companies-page/JobList/ListSection';
 import { useAppSelector } from '../../app/hooks';
@@ -25,23 +26,15 @@ export function CompaniesPageContent({ isLoading }: CompaniesPageContentProps) {
   const selectedATS = useAppSelector((state) => state.app.selectedATS);
   if (isLoading) {
     return (
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          minHeight: '400px',
-        }}
-      >
-        <Stack direction="column" spacing={2} sx={{ alignItems: 'center', textAlign: 'center' }}>
-          <CircularProgress size={60} />
-          {selectedATS === ATSConstants.Workday && (
-            <Typography variant="body1" color="text.disabled">
-              Workday source requires more loading time to fetch all paginated jobs...
-            </Typography>
-          )}
-        </Stack>
-      </Box>
+      <LoadingState
+        size={60}
+        minHeight={400}
+        caption={
+          selectedATS === ATSConstants.Workday
+            ? 'Workday source requires more loading time to fetch all paginated jobs...'
+            : undefined
+        }
+      />
     );
   }
 

@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Container, Typography, Box, Alert } from '@mui/material';
+import { Container, Typography, Box } from '@mui/material';
 import { useGetAllJobsQuery } from '../../features/jobs/jobsApi';
 import { useAppSelector } from '../../app/hooks';
 import {
@@ -15,6 +15,7 @@ import { EditCompanyPreferencesRow } from '../../components/recent-jobs-page/Edi
 import { FetchProgressBar } from '../../components/companies-page/FetchProgressBar/FetchProgressBar';
 import { FetchProgressBarSkeleton } from '../../components/companies-page/FetchProgressBar/FetchProgressBarSkeleton';
 import { ERROR_MESSAGES } from '../../constants/messages';
+import { ErrorState } from '../../components/shared/ErrorDisplay';
 
 /**
  * Recent Job Postings page component
@@ -54,9 +55,9 @@ export function RecentJobPostingsPage() {
         </Typography>
         <EditCompanyPreferencesRow />
         {error ? (
-          <Alert severity="error" sx={{ mb: 2 }}>
-            {ERROR_MESSAGES.LOAD_JOBS_FAILED}
-          </Alert>
+          <Box sx={{ mb: 2 }}>
+            <ErrorState inline message={ERROR_MESSAGES.LOAD_JOBS_FAILED} />
+          </Box>
         ) : null}
 
         {!error && data && (
