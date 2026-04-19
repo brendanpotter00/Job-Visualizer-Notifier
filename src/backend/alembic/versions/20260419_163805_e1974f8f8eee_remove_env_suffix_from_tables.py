@@ -140,12 +140,15 @@ def downgrade() -> None:
 
     # Reverse UNIQUE-constraint rename. Wrap in DO/EXCEPTION so an absent
     # constraint (e.g. pre-rename state, or a previous partial downgrade)
-    # no-ops instead of aborting the transaction.
+    # no-ops instead of aborting the transaction. `env` is validated against
+    # {"local","prod"} above, but we still wrap identifiers in double quotes
+    # to match the rest of the migration's style and keep defense-in-depth
+    # against future edits that relax the validation.
     op.execute(
-        "DO $$ BEGIN "
-        f"ALTER TABLE users RENAME CONSTRAINT users_email_key TO users_{env}_email_key; "
-        "EXCEPTION WHEN undefined_object OR undefined_table THEN NULL; "
-        "END $$"
+        'DO $$ BEGIN '
+        f'ALTER TABLE "users" RENAME CONSTRAINT "users_email_key" TO "users_{env}_email_key"; '
+        'EXCEPTION WHEN undefined_object OR undefined_table THEN NULL; '
+        'END $$'
     )
 
     # Reverse index renames.

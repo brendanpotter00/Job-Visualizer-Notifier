@@ -11,6 +11,8 @@ compare_type and compare_server_default are enabled so the parity test
 
 from __future__ import annotations
 
+import os
+import re
 import sys
 from logging.config import fileConfig
 from pathlib import Path
@@ -59,11 +61,8 @@ if not config.get_main_option("sqlalchemy.url"):
 # untouched and behavior is identical to not having the feature.
 # Validated with a strict regex so a malicious/buggy env var can't inject
 # DDL through the quoted identifier.
-import os as _os
-import re as _re
-
-_PYTEST_SCHEMA = _os.environ.get("PYTEST_SCHEMA")
-_PYTEST_SCHEMA_RE = _re.compile(r"^(?:public|test_[a-f0-9]{8,})$")
+_PYTEST_SCHEMA = os.environ.get("PYTEST_SCHEMA")
+_PYTEST_SCHEMA_RE = re.compile(r"^(?:public|test_[a-f0-9]{8,})$")
 if _PYTEST_SCHEMA is not None and not _PYTEST_SCHEMA_RE.match(_PYTEST_SCHEMA):
     raise ValueError(
         f"PYTEST_SCHEMA={_PYTEST_SCHEMA!r} does not match expected pattern "

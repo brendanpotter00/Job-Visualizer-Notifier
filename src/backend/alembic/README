@@ -1,15 +1,21 @@
 Alembic migration scripts for the Job Visualizer backend.
 
-env.py wires DATABASE_URL and SCRAPER_ENVIRONMENT (via
-src/backend/api/config.Settings) into Alembic and uses
-version_table=alembic_version_{env} so local/qa/prod tracking rows do not
-collide in a shared database. target_metadata points at
-src/backend/api/db_models.Base.
+env.py wires DATABASE_URL (via src/backend/api/config.Settings) into Alembic
+and targets the default alembic_version tracker. target_metadata points at
+src/backend/api/db_models.Base. Table names are env-agnostic: every
+environment uses bare names (job_listings, scrape_runs, users,
+user_enabled_companies).
 
-The baseline revision (upgrade/downgrade are no-ops) exists so prod can be
-`alembic stamp <baseline>` before the first Alembic-era deploy. After stamp,
-`alembic upgrade head` is a no-op against prod. See
-docs/implementations/alembicMigration/DEPLOY.md for the full runbook.
+env.py also honors the PYTEST_SCHEMA env var: when set, it runs
+CREATE SCHEMA IF NOT EXISTS "<schema>" + SET search_path TO "<schema>",
+public on the Alembic connection so migrations land inside a per-worker
+test schema instead of public. Production leaves PYTEST_SCHEMA unset.
+
+The baseline revision 91337142414f (upgrade/downgrade are no-ops) exists
+so prod can be `alembic stamp <baseline>` before the first Alembic-era
+deploy. Revision e1974f8f8eee renames the pre-existing _{env}-suffixed
+tables and indexes to their bare forms in a single RENAME-only migration;
+see docs/implementations/envAgnosticTables/DEPLOY.md for the runbook.
 
 Add a schema change:
   1. Edit src/backend/api/db_models.py

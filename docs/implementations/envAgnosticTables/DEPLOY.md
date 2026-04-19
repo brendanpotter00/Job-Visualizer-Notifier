@@ -32,22 +32,26 @@ Copy the four counts somewhere you can compare against after the rename.
 
 ### 1.3. Run the rename migration against prod
 
-From an operator workstation (not Railway, not CI) with prod credentials exported:
+From an operator workstation (not Railway, not CI) with the envAgnosticTables branch checked out locally and prod credentials exported:
 
 ```
 export DATABASE_URL=<prod Postgres URL from Railway>
-export SCRAPER_ENVIRONMENT=prod   # read by the PRE-rename env.py only
 cd src/backend
 alembic upgrade head
 ```
 
-Expected sequence inside the migration:
+Do NOT set `SCRAPER_ENVIRONMENT` — the branch's `env.py` no longer reads it. Setting it has no effect (Pydantic `Settings` is `extra="ignore"`), just make sure the deploy checklist doesn't carry it over from the old runbook.
 
-- Drops the pre-Alembic `schema_migrations_local` and `schema_migrations_prod` trackers (idempotent; `schema_migrations_local` no-ops on prod).
-- Renames the four `*_prod` tables to their bare names. Postgres auto-renames the implicit PK index and sequence with the table.
-- Renames six named indexes (`idx_job_listings_prod_*`, `idx_users_prod_*`, `idx_user_enabled_companies_prod_*`) to their bare forms.
-- Renames the `users_prod_email_key` UNIQUE constraint to `users_email_key` inside a `DO $$ … EXCEPTION WHEN undefined_object OR undefined_table THEN NULL; END $$` guard so the absent-variant no-ops.
-- Renames `alembic_version_prod` → `alembic_version` inside a `to_regclass` guard so re-runs are idempotent.
+Expected sequence:
+
+- Alembic opens the DB, sees no `alembic_version` table (only the legacy `alembic_version_prod`), and creates a fresh `alembic_version` under Alembic's default name. Applies the empty baseline `91337142414f` (no-op), then applies `e1974f8f8eee`.
+- Inside `e1974f8f8eee`:
+  - Narrows `search_path` to the current schema so `ALTER TABLE IF EXISTS` cannot fall through to `public.*` under any future test-schema invocation.
+  - Drops the pre-Alembic `schema_migrations_local` and `schema_migrations_prod` trackers (idempotent; `schema_migrations_local` no-ops on prod).
+  - Renames the four `*_prod` tables to their bare names. Postgres auto-renames the implicit PK index and sequence with the table.
+  - Renames six named indexes (`idx_job_listings_prod_*`, `idx_users_prod_*`, `idx_user_enabled_companies_prod_*`) to their bare forms via `ALTER INDEX IF EXISTS`.
+  - Renames the `users_prod_email_key` UNIQUE constraint to `users_email_key` inside a `DO $$ … EXCEPTION WHEN undefined_object OR undefined_table THEN NULL; END $$` guard so the absent-variant no-ops.
+  - Drops the legacy `alembic_version_local` and `alembic_version_prod` trackers. The new `alembic_version` (created by Alembic at the start of the run) holds the active head revision.
 
 Expected output ends with `INFO  [alembic.runtime.migration] Running upgrade … -> e1974f8f8eee, remove env suffix from tables`.
 

@@ -161,7 +161,7 @@ def postgres_db():
             cur.close()
 
     # checkfirst=False is critical: SQLAlchemy's default existence probe
-    # sees `public.job_listings_local` in shared dev DBs and skips creation,
+    # sees `public.job_listings` in shared dev DBs and skips creation,
     # leaving the test schema empty. search_path pins where DDL LANDS, but
     # the probe query looks across all schemas.
     _db_models.Base.metadata.create_all(engine, checkfirst=False)
