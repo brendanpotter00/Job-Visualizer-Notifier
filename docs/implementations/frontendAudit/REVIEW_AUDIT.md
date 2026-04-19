@@ -79,3 +79,65 @@ Vercel verifier confirmed: zero env-var drift, zero serverless-function edits, z
 - `TimeWindowSelect` wires a `useId` `labelId` between `InputLabel` and `Select` so the combobox exposes its accessible name. Tests resolve it via `getByRole('combobox', { name: 'Time Window' })`. Do not drop the `labelId` — the filter tests will regress to textContent scraping.
 - `RecentJobPostingsPage` error text is now the decoded backend message (with `ERROR_MESSAGES.LOAD_JOBS_FAILED` as the fallback). Tests assert both branches.
 
+---
+
+## 2026-04-19 — Review pass 2
+
+Dispatched agents: code-reviewer, silent-failure-hunter, pr-test-analyzer, type-design-analyzer, comment-analyzer, vercel-prod-verifier. Postgres / Railway still not dispatched — diff remains frontend-only.
+
+Also cleaned up one stray artifact before pass 2: commit `6693acc` removed `docs/implementations/frontendAudit/.unit-9-steps.md` that had been accidentally committed with Unit 9's work.
+
+### Code-review findings
+
+**Critical:** None.
+
+**Important:**
+
+- `src/frontend/src/hooks/useFetchWithStatus.ts:131-137` — name-only AbortError check is too broad. The guard treats any thrown object whose `name === 'AbortError'` as an abort **independent of `controller.signal.aborted`**. A backend surface returning `{ name: 'AbortError', detail: '…' }` or a custom-fetcher `class AbortError extends Error` would be swallowed and the hook would stay `loading=true` forever. Gate the shape check on `controller.signal.aborted` being true, or drop the orphan shape path. (silent-failure-hunter)
+- `src/frontend/src/components/layout/RootLayout.tsx:53` — still says "See PLAN.md Non-goals and Unit 5 decision log." Residual task-scoped reference that pass 1 missed. Replace with a pointer to CLAUDE.md's Frontend Foundations or drop the sentence. (comment-analyzer)
+- `src/frontend/src/components/companies-page/FetchProgressBar/FetchProgressBar.tsx:66-68` — comment enumerates lint rule names ("not flagged by `react-hooks/set-state-in-effect` or `react-hooks/refs`") and one of those rules (`react-hooks/refs`) doesn't even apply. Rule-name enumerations rot. Simplify to explain the pattern, not the absent lint errors. (comment-analyzer)
+- `src/frontend/src/hooks/useCompanyLoader.ts:38` — "`dispatch` has stable identity (react-redux guarantee)" is orphaned after pass 1's rewrite. Tie the sentence to its adjacent code by prefixing "Adding `dispatch` to deps is safe because…" (comment-analyzer)
+- `src/frontend/src/__tests__/components/companies-page/GraphFilters.test.tsx:301-303` and `src/frontend/src/__tests__/components/recent-jobs-page/RecentJobsFilters.test.tsx:276-278` — still use `.find(el => el.textContent === '30 days')` instead of `getByRole('combobox', { name: 'Time Window' })`. Pass 1 addressed the other TimeWindow lookups but missed these two stragglers in the filter-independence test cases. (pr-test-analyzer)
+
+**Suggestion:**
+
+- `src/frontend/src/features/filters/slices/createFilterSlice.ts:50-66` — JSDoc still references "prior unchecked-cast runtime behavior." History-relative. Rewrite to describe the current invariant only.
+- `src/frontend/src/components/companies-page/MetricsDashboard/hooks/useTimeBasedJobCounts.ts:22` — "every caller in MetricsDashboard/*" overstates; there is exactly one caller. Singular.
+- `src/frontend/src/lib/errors.ts:13` — "that previously lived inline at call sites" is history-relative. Rephrase to describe current consolidation only.
+- `src/frontend/src/components/shared/ErrorDisplay.tsx` — `NetworkErrorDisplay` compiles against the `inline?: false` branch implicitly; adding explicit `inline={false}` would freeze the intent against future union changes. **Deferred** — current wrapper is unambiguous.
+- `createFilterSlice` name↔shape pairing via overloads — marked Deferred in pass 1, type-design-analyzer re-flagged as cheap-but-marginal. Remains Deferred.
+- `useFetchWithStatus` `skip: false → true` transition — single test would close the gap. **Deferred** — no current caller toggles skip.
+- Direct selector test for `selectCurrentCompanyError` and a dedicated `useCurrentUser.test.ts` — currently covered transitively via page/hook tests with narrow branches. **Deferred** — existing behavioral coverage is sufficient; add if a regression surfaces.
+
+**Nit:** skipped per protocol.
+
+### Production-environment findings
+
+**Critical:** None. **Important:** None. **Suggestion:** None above noise.
+
+**Could not verify:**
+- `postgres-prod-verifier` — not dispatched (no matching diff signal).
+- `railway-prod-verifier` — not dispatched (no matching diff signal).
+
+Vercel verifier confirmed: pass-1 fix commits introduce zero new `process.env` / `import.meta.env` reads, zero serverless-function edits, zero build-config touches; bundle impact from `StrictMode`/`ReactNode`/`useId` imports is negligible (already in the React bundle); prod deployment base unchanged.
+
+### Deferred (not fixing this pass)
+
+- `createFilterSlice` name↔shape overloads.
+- `useFetchWithStatus` skip-transition dedicated test.
+- Dedicated `selectCurrentCompanyError` selector test and `useCurrentUser.test.ts`.
+- `NetworkErrorDisplay` explicit `inline={false}`.
+- All pass-1 Deferred items still Deferred.
+
+### Implementation applied — pass 2
+
+**Commits:**
+- cc8cea3 — Tighten useFetchWithStatus abort detection to signal-gated only
+- ec1be3e — Strip residual task-scoped language from comments
+- dbde280 — Migrate straggler filter tests to accessible-name TimeWindow selector
+
+**Do not revert (new in this pass):**
+- `useFetchWithStatus` AbortError detection is now gated on `controller.signal.aborted` only — the orphan name-only shape check was intentionally removed because it could swallow legitimate errors whose `name` happens to be `'AbortError'` (backend surface, custom error class) thrown while the signal is still live. Do not reintroduce a name-only branch; if the signal is not aborted, the thrown value must surface to the caller.
+- The two new tests (`surfaces a name-only AbortError…` and `surfaces a bare { name: "AbortError" } object…`) encode the signal-gated invariant. The pre-existing `treats a bare { name: "AbortError" } throw as an abort (not Error instance)` test remains because it aborts via the `unmount()` path, so `controller.signal.aborted === true` at catch time — that case is still correctly swallowed.
+- `GraphFilters.test.tsx` and `RecentJobsFilters.test.tsx` filter-independence cases now use `getByRole('combobox', { name: 'Time Window' })`. Do not regress to `getAllByRole(...).find(el => el.textContent === '30 days')` — that pattern breaks the instant the default time window changes.
+
