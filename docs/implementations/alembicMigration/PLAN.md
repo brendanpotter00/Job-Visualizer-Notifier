@@ -329,7 +329,7 @@ The old CLI's three subcommands map 1:1 to Alembic commands, so the CLI has no u
 
 ### Unit 6 — Delete the old runner and its migrations
 
-**Status:** IN PROGRESS
+**Status:** DONE
 
 **Prerequisites:** Unit 5
 
@@ -360,7 +360,7 @@ Why delete (not archive): the user explicitly requested deletion. The incident p
 
 ### Unit 7 — Docs and prod-stamp runbook
 
-**Status:** TODO
+**Status:** IN PROGRESS
 
 **Prerequisites:** Unit 6
 
