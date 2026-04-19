@@ -491,4 +491,6 @@ This architecture provides clear separation of concerns, code reuse via factory 
 - Memoized selectors for performance
 - Four ATS provider integrations (Greenhouse, Lever, Ashby, Workday)
 
+**Shared frontend foundations.** Every page consumes the same building blocks: `LoadingState` / `ErrorState` / `EmptyState` from `components/shared/` for loading, error, and empty views; `extractErrorMessage` from `lib/errors.ts` for decoding unknown errors (RTK Query shape, `Error` instances, strings, generic `{ message }` objects); and `useFetchWithStatus` from `hooks/useFetchWithStatus.ts` for abortable page-level fetch lifecycles that don't belong in RTK Query. The typed Redux hooks in `app/hooks.ts` (`useAppDispatch`, `useAppSelector`) are the only supported entry points into the store. See the **Frontend Foundations** section of `src/frontend/CLAUDE.md` for the full rules and the remaining `eslint-disable` inventory.
+
 For implementation details, see `CLAUDE.md`. For migration guidance, see `docs/MIGRATION.md`.

@@ -1,5 +1,5 @@
-import { Box, Container, Alert, Button } from '@mui/material';
-import { Refresh } from '@mui/icons-material';
+import { Box, Container } from '@mui/material';
+import { ErrorState } from '../../components/shared/ErrorDisplay';
 import { useAppSelector, useCompanyLoader } from '../../app/hooks';
 import { CompaniesPageHeader } from './CompaniesPageHeader';
 import { CompaniesPageContent } from './CompaniesPageContent';
@@ -30,23 +30,13 @@ export function CompaniesPage() {
           <CompaniesPageHeader />
 
           {error && (
-            <Alert
-              severity="error"
-              sx={{ mb: 3 }}
-              action={
-                <Button
-                  color="inherit"
-                  size="small"
-                  onClick={handleRetry}
-                  startIcon={<Refresh />}
-                  disabled={isLoading}
-                >
-                  Retry
-                </Button>
-              }
-            >
-              Failed to load job data: {error}
-            </Alert>
+            <Box sx={{ mb: 3 }}>
+              <ErrorState
+                inline
+                message={`Failed to load job data: ${error}`}
+                onRetry={handleRetry}
+              />
+            </Box>
           )}
 
           <CompaniesPageContent isLoading={showLoading} />

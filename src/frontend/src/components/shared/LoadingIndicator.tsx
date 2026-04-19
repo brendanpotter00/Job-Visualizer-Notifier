@@ -1,30 +1,66 @@
-import { Box, CircularProgress, Skeleton, Stack, Card, CardContent } from '@mui/material';
-
-interface LoadingIndicatorProps {
-  /** Size of the spinner */
-  size?: number;
-
-  /** Minimum height for the container */
-  minHeight?: number | string;
-}
+import { Box, CircularProgress, Skeleton, Stack, Card, CardContent, Typography } from '@mui/material';
 
 /**
- * Centered loading spinner
+ * Props for {@link LoadingIndicator}. Modeled as a discriminated union so
+ * `fullPage: true` cannot be combined with an explicit `minHeight` — the
+ * full-page variant always fills the viewport. TypeScript rejects the
+ * invalid combination at the call site.
  */
-export function LoadingIndicator({ size = 40, minHeight = 200 }: LoadingIndicatorProps) {
+export type LoadingIndicatorProps =
+  | {
+      /** Fill the viewport (minHeight: 100vh) for page-level initial loads. */
+      fullPage: true;
+      /** Size of the spinner. */
+      size?: number;
+      /** Optional caption rendered under the spinner. */
+      caption?: string;
+      /** Not allowed when `fullPage: true`. */
+      minHeight?: never;
+    }
+  | {
+      /** In-layout variant. Accepts an explicit `minHeight`. */
+      fullPage?: false;
+      /** Size of the spinner. */
+      size?: number;
+      /** Minimum height for the container (defaults to 200). */
+      minHeight?: number | string;
+      /** Optional caption rendered under the spinner. */
+      caption?: string;
+    };
+
+/**
+ * Centered loading spinner with optional caption and full-viewport mode.
+ */
+export function LoadingIndicator(props: LoadingIndicatorProps) {
+  const { size = 40, caption } = props;
+  const resolvedMinHeight = props.fullPage ? '100vh' : (props.minHeight ?? 200);
+
   return (
     <Box
       sx={{
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        minHeight,
+        minHeight: resolvedMinHeight,
       }}
     >
-      <CircularProgress size={size} />
+      <Stack direction="column" spacing={2} sx={{ alignItems: 'center', textAlign: 'center' }}>
+        <CircularProgress size={size} />
+        {caption && (
+          <Typography variant="body1" color="text.disabled">
+            {caption}
+          </Typography>
+        )}
+      </Stack>
     </Box>
   );
 }
+
+/**
+ * Named alias of {@link LoadingIndicator}. Prefer `LoadingState` at call sites for
+ * symmetry with `ErrorState` / `EmptyState`.
+ */
+export { LoadingIndicator as LoadingState };
 
 /**
  * Loading skeleton for the chart/graph component

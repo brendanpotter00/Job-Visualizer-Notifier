@@ -8,6 +8,7 @@ import {
   enabledCompaniesLoadFailed,
   selectEnabledCompanyIds,
 } from './enabledCompaniesSlice';
+import { extractErrorMessage } from '../../lib/errors';
 
 type AbortableLoad = { abort: (reason?: string) => void };
 
@@ -47,8 +48,7 @@ export function useEnabledCompanies() {
       .catch((err) => {
         if (controller.signal.aborted || activePromise.current !== handle) return;
         activePromise.current = null;
-        const message =
-          err instanceof Error ? err.message : 'Failed to acquire auth token';
+        const message = extractErrorMessage(err, 'Failed to acquire auth token');
         dispatch(enabledCompaniesLoadFailed(message));
       });
   }, [isAuthenticated, getToken, dispatch]);
