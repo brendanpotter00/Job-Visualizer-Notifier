@@ -141,7 +141,7 @@ describe('GoogleOneTap', () => {
     render(<GoogleOneTap />);
 
     const config = mockUseGoogleOneTapLogin.mock.calls[0][0];
-    await config.onSuccess({});
+    await expect(config.onSuccess({})).resolves.toBeUndefined();
 
     expect(mockSetGoogleCredential).not.toHaveBeenCalled();
     expect(mockExchangeGoogleToken).not.toHaveBeenCalled();

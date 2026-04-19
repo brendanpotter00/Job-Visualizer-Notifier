@@ -114,9 +114,54 @@ describe('exchangeGoogleToken', () => {
     );
   });
 
+  it('throws with the Auth0 returned 5xx prefix when Auth0 returns 503 (outage)', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: 'service_unavailable',
+          error_description: 'Upstream temporarily unavailable',
+        }),
+        { status: 503 }
+      )
+    );
+
+    await expect(exchangeGoogleToken('google-id-token', baseConfig)).rejects.toThrow(
+      /503/
+    );
+    await expect(exchangeGoogleToken('google-id-token', baseConfig)).rejects.toThrow(
+      /Auth0 returned 503: /
+    );
+  });
+
   it('throws when Auth0 returns 200 but no access_token', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({ id_token: 'whatever' }), { status: 200 })
+    );
+
+    await expect(exchangeGoogleToken('google-id-token', baseConfig)).rejects.toThrow(
+      /missing access_token/
+    );
+  });
+
+  it('throws when Auth0 returns 200 with access_token: null (locks typeof guard)', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({ access_token: null, id_token: 'whatever' }),
+        { status: 200 }
+      )
+    );
+
+    await expect(exchangeGoogleToken('google-id-token', baseConfig)).rejects.toThrow(
+      /missing access_token/
+    );
+  });
+
+  it('throws when Auth0 returns 200 with access_token as a number (locks typeof guard)', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({ access_token: 123, id_token: 'whatever' }),
+        { status: 200 }
+      )
     );
 
     await expect(exchangeGoogleToken('google-id-token', baseConfig)).rejects.toThrow(
@@ -159,6 +204,16 @@ describe('exchangeGoogleToken', () => {
 
     await expect(exchangeGoogleToken('google-id-token', baseConfig)).rejects.toThrow(
       /boom/
+    );
+  });
+
+  it('throws with the Network error: prefix when fetch rejects with TypeError (DNS/CORS/offline)', async () => {
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(
+      new TypeError('Failed to fetch')
+    );
+
+    await expect(exchangeGoogleToken('google-id-token', baseConfig)).rejects.toThrow(
+      /Network error:.*Failed to fetch/
     );
   });
 
