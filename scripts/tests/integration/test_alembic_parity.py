@@ -51,14 +51,6 @@ def _is_prod_like(url: str) -> bool:
     return ".railway." in lowered or "prod" in lowered
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "envAgnosticTables Unit 2: db_models.py is unsuffixed but live tables "
-        "are still _local-suffixed until Unit 3's rename migration applies. "
-        "Unit 3 removes this xfail."
-    ),
-)
 @pytest.mark.skipif(
     _is_prod_like(TEST_DB_URL),
     reason="refusing to run parity test against a prod-like TEST_DATABASE_URL",

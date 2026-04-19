@@ -105,7 +105,7 @@ src/backend/api/
 Schema is managed by **Alembic** (not the old `scripts/shared/migrations/` runner, which was removed in the Alembic migration PR). Source of truth is `src/backend/api/db_models.py` (SQLAlchemy declarative models). Revision files live in `src/backend/alembic/versions/`, one per schema change, anchored by the empty baseline revision `91337142414f`.
 
 - FastAPI's lifespan hook runs `apply_alembic_migrations(...)` from `src/backend/api/migrations.py` on every startup. Dev and prod use the same code path.
-- `SCRAPER_ENVIRONMENT` (`local`/`qa`/`prod`) drives table suffix resolution in `db_models.py` and the Alembic tracker name (`alembic_version_<env>`) via `src/backend/alembic/env.py`.
+- `SCRAPER_ENVIRONMENT` is still read by scraper/app config but no longer drives table names — tables are bare across all envs (see `docs/implementations/envAgnosticTables/PLAN.md`). The Alembic tracker is the default `alembic_version`; `src/backend/alembic/env.py` no longer sets `version_table=`.
 - To add a schema change: edit `db_models.py`, then `alembic revision --autogenerate`, then review the generated file per the combined-ALTER-TABLE rule in `docs/implementations/alembicMigration/DEPLOY.md`. Never hand-write a revision file — always autogenerate.
 - Tests bootstrap the schema via `Base.metadata.create_all` + `apply_alembic_migrations` (to populate `alembic_version_<env>`); see `src/backend/api/tests/conftest.py::db_conn` and `scripts/tests/conftest.py::postgres_db`.
 
