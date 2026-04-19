@@ -45,7 +45,7 @@ The fix must preserve every behavior locked in by PR #75 and by the existing Rec
 
 ### Unit 1 — Render the signed-out caption immediately when auth resolution is pending
 
-**Status:** TODO
+**Status:** DONE
 **Prerequisites:** none
 
 **Owned files (modify):**
