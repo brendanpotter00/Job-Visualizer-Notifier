@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import ast
 import importlib
+import logging
 import os
 import sys
 import uuid
@@ -169,7 +170,10 @@ def test_autogen_against_create_all_is_empty(
         for stray in _VERSIONS_DIR.glob("*_parity_check.py"):
             stray.unlink()
 
-        # Drop the parity DB from the maintenance DB.
+        # Drop the parity DB from the maintenance DB. Teardown must keep
+        # going past a failure (so db_models reload below still runs), but
+        # the failure must NOT be silent — leaked databases compound across
+        # CI runs and the 2026-04-19 volume incident is the consequence.
         try:
             maint = psycopg2.connect(maintenance_url, cursor_factory=RealDictCursor)
             maint.autocommit = True
@@ -183,8 +187,12 @@ def test_autogen_against_create_all_is_empty(
             )
             maint_cur.execute(f'DROP DATABASE IF EXISTS "{parity_db}"')
             maint.close()
-        except Exception:
-            pass
+        except Exception as drop_exc:
+            logging.getLogger(__name__).error(
+                "Failed to drop parity test database %s during teardown: %s",
+                parity_db,
+                drop_exc,
+            )
 
         # Restore db_models to its original env so sibling tests aren't surprised.
         os.environ["SCRAPER_ENVIRONMENT"] = "local"

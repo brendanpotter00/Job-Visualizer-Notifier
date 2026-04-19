@@ -49,10 +49,18 @@ def db_conn(test_env):
     # with the test env so env.py sees it. Mirrors the workaround in
     # scripts/tests/integration/test_alembic_parity.py — entirely in-process,
     # does not modify api/config.py on disk.
+    #
+    # Capture prev values BEFORE mutating anything so teardown can restore.
+    # Otherwise the singleton + env vars leak across test modules.
+    prev_database_url = os.environ.get("DATABASE_URL")
+    prev_env_var = os.environ.get("SCRAPER_ENVIRONMENT")
+
     os.environ["DATABASE_URL"] = TEST_DB_URL
     os.environ["SCRAPER_ENVIRONMENT"] = "local"  # valid, temporary
 
     import api.config as _api_config
+    prev_allowed = set(_api_config.ALLOWED_ENVIRONMENTS)
+    prev_settings = _api_config.settings
     _api_config.ALLOWED_ENVIRONMENTS = _api_config.ALLOWED_ENVIRONMENTS | {test_env}
     os.environ["SCRAPER_ENVIRONMENT"] = test_env
     _api_config.settings = _api_config.Settings()
@@ -108,6 +116,31 @@ def db_conn(test_env):
     cursor.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(alembic_version_table)))
     conn.commit()
     conn.close()
+
+    # Restore env vars and api.config singleton so sibling test modules don't
+    # inherit our test_<hex> env. _api_config is the same module the rest of
+    # the process imports — leaking ALLOWED_ENVIRONMENTS or `settings` from
+    # one test module into another is exactly the cross-module contamination
+    # pr-test-analyzer flagged.
+    if prev_env_var is None:
+        os.environ.pop("SCRAPER_ENVIRONMENT", None)
+    else:
+        os.environ["SCRAPER_ENVIRONMENT"] = prev_env_var
+    if prev_database_url is None:
+        os.environ.pop("DATABASE_URL", None)
+    else:
+        os.environ["DATABASE_URL"] = prev_database_url
+    _api_config.ALLOWED_ENVIRONMENTS = prev_allowed
+    # Rebuild the singleton from the restored env so it reflects pre-fixture
+    # state (rather than the test_<hex> Settings we constructed above).
+    try:
+        _api_config.settings = _api_config.Settings()
+    except Exception:
+        # If the restored env can't construct a Settings (e.g. SCRAPER_ENVIRONMENT
+        # was unset and the default 'local' is no longer in ALLOWED_ENVIRONMENTS,
+        # which shouldn't happen but guard anyway), fall back to the captured
+        # singleton so we don't leave _api_config.settings broken.
+        _api_config.settings = prev_settings
 
 
 def _make_job(overrides: dict | None = None) -> dict:
