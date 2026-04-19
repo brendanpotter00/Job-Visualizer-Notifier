@@ -23,14 +23,13 @@ import psycopg2
 from psycopg2 import sql
 from psycopg2.extensions import connection as Connection
 
-from scripts.shared.database import _get_table_name
-
 logger = logging.getLogger(__name__)
+
+_USERS_TABLE = sql.Identifier("users")
 
 
 def get_or_create_user(
     conn: Connection,
-    env: str,
     auth0_id: str,
     email: str,
     given_name: str | None = None,
@@ -46,7 +45,7 @@ def get_or_create_user(
     identity). Retries once on ``UniqueViolation`` to tolerate concurrent
     first-login races.
     """
-    table = sql.Identifier(_get_table_name(env, "users"))
+    table = _USERS_TABLE
 
     for attempt in range(2):
         try:
@@ -149,7 +148,6 @@ def _lookup_and_upsert(
 
 def update_user(
     conn: Connection,
-    env: str,
     email: str,
     display_name: str | None = None,
 ) -> dict | None:
@@ -157,7 +155,7 @@ def update_user(
 
     Returns ``None`` if no user matches the email.
     """
-    table = sql.Identifier(_get_table_name(env, "users"))
+    table = _USERS_TABLE
     now = datetime.now(timezone.utc).isoformat()
     cursor = conn.cursor()
     try:
@@ -184,11 +182,10 @@ def update_user(
 
 def get_user_by_email(
     conn: Connection,
-    env: str,
     email: str,
 ) -> dict | None:
     """Fetch a user row by email. Returns ``None`` if not found."""
-    table = sql.Identifier(_get_table_name(env, "users"))
+    table = _USERS_TABLE
     cursor = conn.cursor()
     cursor.execute(
         sql.SQL("SELECT * FROM {} WHERE email = %s").format(table),

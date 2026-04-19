@@ -1,6 +1,6 @@
 """Test fixtures for FastAPI backend tests.
 
-Uses a real PostgreSQL database with test-isolated tables (test_<hex> env pattern)
+Uses a real PostgreSQL database with test-isolated schemas (test_<hex>)
 that are created before each test module and dropped after.
 """
 
@@ -16,7 +16,6 @@ from fastapi.testclient import TestClient
 from psycopg2 import sql
 from psycopg2.extras import RealDictCursor
 
-from scripts.shared.database import _get_table_name
 from api.migrations import apply_alembic_migrations
 
 logger = logging.getLogger(__name__)
@@ -29,34 +28,23 @@ TEST_DB_URL = os.environ.get(
 
 
 @pytest.fixture(scope="module")
-def test_env():
-    """Logical env used for table-name suffixing. Stays 'local' this unit —
-    tables are still `job_listings_local`, `users_local`, etc. Unit 2 strips
-    these suffixes, at which point this fixture goes away entirely.
-    """
-    return "local"
-
-
-@pytest.fixture(scope="module")
-def db_conn(test_env):
+def db_conn():
     """PostgreSQL connection with per-module schema isolation.
 
     Creates `test_<hex>` schema, points `search_path` at it via
-    `PYTEST_SCHEMA`, runs Alembic (which populates the schema with
-    `_local`-suffixed tables + `alembic_version_local`), yields a
-    psycopg2 connection already pinned to the schema. Teardown drops
-    the whole schema CASCADE — no per-table loop.
+    `PYTEST_SCHEMA`, runs Alembic (which populates the schema with the
+    bare-named tables + `alembic_version`), yields a psycopg2 connection
+    already pinned to the schema. Teardown drops the whole schema CASCADE —
+    no per-table loop.
     """
     import secrets
 
     schema = "test_" + secrets.token_hex(4)
 
     prev_database_url = os.environ.get("DATABASE_URL")
-    prev_env_var = os.environ.get("SCRAPER_ENVIRONMENT")
     prev_pytest_schema = os.environ.get("PYTEST_SCHEMA")
 
     os.environ["DATABASE_URL"] = TEST_DB_URL
-    os.environ["SCRAPER_ENVIRONMENT"] = "local"
     os.environ["PYTEST_SCHEMA"] = schema
 
     # Create the schema on a one-off connection BEFORE Alembic runs.
@@ -73,10 +61,10 @@ def db_conn(test_env):
 
     # The Alembic baseline revision is empty (PLAN.md / DEPLOY.md context —
     # prod was stamped, not applied). A fresh test schema therefore needs
-    # `Base.metadata.create_all` to materialize the `_local`-suffixed
-    # user tables; after that, `apply_alembic_migrations` lands the
-    # `alembic_version_local` tracker row. Both must run with search_path
-    # pinned to our schema so the DDL lands there, not in public.
+    # `Base.metadata.create_all` to materialize the user tables; after that,
+    # `apply_alembic_migrations` lands the `alembic_version` tracker row. Both
+    # must run with search_path pinned to our schema so the DDL lands there,
+    # not in public.
     from sqlalchemy import create_engine, event
     import api.db_models as _db_models
 
@@ -91,7 +79,7 @@ def db_conn(test_env):
             cur.close()
 
     # checkfirst=False is critical: SQLAlchemy's default existence probe
-    # sees `public.job_listings_local` in shared dev DBs and skips creation,
+    # sees `public.job_listings` in shared dev DBs and skips creation,
     # leaving the test schema empty. search_path pins where DDL LANDS, but
     # the probe query looks across all schemas. Skipping the probe forces
     # CREATE TABLE into the first schema in search_path — our test schema.
@@ -99,8 +87,8 @@ def db_conn(test_env):
     engine.dispose()
 
     # Run migrations. env.py reads PYTEST_SCHEMA and pins search_path
-    # before any DDL so `alembic_version_local` lands INSIDE the schema.
-    apply_alembic_migrations(TEST_DB_URL, "local")
+    # before any DDL so `alembic_version` lands INSIDE the schema.
+    apply_alembic_migrations(TEST_DB_URL)
 
     # The connection returned here is what tests use. PYTEST_SCHEMA is
     # set, so our connection helpers pin search_path on open.
@@ -138,10 +126,6 @@ def db_conn(test_env):
                     os.environ.pop("PYTEST_SCHEMA", None)
                 else:
                     os.environ["PYTEST_SCHEMA"] = prev_pytest_schema
-                if prev_env_var is None:
-                    os.environ.pop("SCRAPER_ENVIRONMENT", None)
-                else:
-                    os.environ["SCRAPER_ENVIRONMENT"] = prev_env_var
                 if prev_database_url is None:
                     os.environ.pop("DATABASE_URL", None)
                 else:
@@ -174,10 +158,10 @@ def _make_job(overrides: dict | None = None) -> dict:
     return base
 
 
-def _insert_job(conn, env: str, job: dict) -> None:
+def _insert_job(conn, job: dict) -> None:
     """Insert a job row into the test table."""
     cursor = conn.cursor()
-    table = sql.Identifier(_get_table_name(env, "jobs"))
+    table = sql.Identifier("job_listings")
     cols = sql.SQL(", ").join(sql.Identifier(k) for k in job.keys())
     placeholders = sql.SQL(", ").join(sql.Placeholder() for _ in job)
     query = sql.SQL("INSERT INTO {} ({}) VALUES ({})").format(table, cols, placeholders)
@@ -185,7 +169,7 @@ def _insert_job(conn, env: str, job: dict) -> None:
     conn.commit()
 
 
-def _insert_scrape_run(conn, env: str, run: dict) -> None:
+def _insert_scrape_run(conn, run: dict) -> None:
     """Insert a scrape run row into the test table."""
     defaults = {
         "run_id": f"run-{uuid.uuid4().hex[:8]}",
@@ -201,7 +185,7 @@ def _insert_scrape_run(conn, env: str, run: dict) -> None:
     }
     defaults.update(run)
     cursor = conn.cursor()
-    table = sql.Identifier(_get_table_name(env, "runs"))
+    table = sql.Identifier("scrape_runs")
     cols = sql.SQL(", ").join(sql.Identifier(k) for k in defaults.keys())
     placeholders = sql.SQL(", ").join(sql.Placeholder() for _ in defaults)
     query = sql.SQL("INSERT INTO {} ({}) VALUES ({})").format(table, cols, placeholders)
@@ -227,10 +211,10 @@ def _make_user(overrides: dict | None = None) -> dict:
     return base
 
 
-def _insert_user(conn, env: str, user: dict) -> None:
+def _insert_user(conn, user: dict) -> None:
     """Insert a user row into the test table."""
     cursor = conn.cursor()
-    table = sql.Identifier(_get_table_name(env, "users"))
+    table = sql.Identifier("users")
     cols = sql.SQL(", ").join(sql.Identifier(k) for k in user.keys())
     placeholders = sql.SQL(", ").join(sql.Placeholder() for _ in user)
     query = sql.SQL("INSERT INTO {} ({}) VALUES ({})").format(table, cols, placeholders)
@@ -238,32 +222,26 @@ def _insert_user(conn, env: str, user: dict) -> None:
     conn.commit()
 
 
-def _clear_tables(conn, env: str) -> None:
+def _clear_tables(conn) -> None:
     """Truncate test tables between tests."""
     cursor = conn.cursor()
-    jobs_table = _get_table_name(env, "jobs")
-    runs_table = _get_table_name(env, "runs")
-    users_table = _get_table_name(env, "users")
-    # user_enabled_companies has no table_type in _get_table_name; hardcode
-    # the bare name (Unit 4 will hardcode all four).
-    enabled_companies_table = "user_enabled_companies"
     cursor.execute(sql.SQL("TRUNCATE {}, {}, {}, {} CASCADE").format(
-        sql.Identifier(jobs_table),
-        sql.Identifier(runs_table),
-        sql.Identifier(users_table),
-        sql.Identifier(enabled_companies_table),
+        sql.Identifier("job_listings"),
+        sql.Identifier("scrape_runs"),
+        sql.Identifier("users"),
+        sql.Identifier("user_enabled_companies"),
     ))
     conn.commit()
 
 
 @pytest.fixture(autouse=True)
-def clean_tables(db_conn, test_env):
+def clean_tables(db_conn):
     """Truncate tables before each test for isolation."""
-    _clear_tables(db_conn, test_env)
+    _clear_tables(db_conn)
 
 
 @pytest.fixture(scope="module")
-def test_app(db_conn, test_env):
+def test_app(db_conn):
     """FastAPI test app with database connection wired up (no auto-scraper)."""
     from api.routers import jobs, jobs_qa, users
     from api.dependencies import get_db
@@ -292,13 +270,10 @@ def test_app(db_conn, test_env):
         "picture": "https://example.com/photo.jpg",
     }
 
-    app.state.env = test_env
-    # Provide a minimal config for trigger-scrape (use "local" for validation;
-    # routes use app.state.env for table selection, not config.scraper_environment)
+    # Provide a minimal config for trigger-scrape
     from api.config import Settings
     app.state.config = Settings(
         database_url=TEST_DB_URL,
-        scraper_environment="local",
         scraper_scripts_path="/nonexistent/scripts",
     )
 

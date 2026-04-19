@@ -25,12 +25,9 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Applying database migrations...")
     try:
-        apply_alembic_migrations(settings.database_url, settings.scraper_environment)
+        apply_alembic_migrations(settings.database_url)
     except Exception:
-        logger.exception(
-            "Failed to apply migrations during startup (env=%s)",
-            settings.scraper_environment,
-        )
+        logger.exception("Failed to apply migrations during startup")
         raise
     try:
         init_pool(
@@ -42,7 +39,6 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("Failed to initialize database connection pool")
         raise
-    app.state.env = settings.scraper_environment
     app.state.config = settings
 
     # Start background auto-scraper

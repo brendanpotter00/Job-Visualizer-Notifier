@@ -50,7 +50,6 @@ class BatchWriter:
     def __init__(
         self,
         db_conn: Connection,
-        env: str,
         scraper: ScraperProtocol,
         batch_size: int = 50,
         detail_scrape: bool = True,
@@ -61,7 +60,6 @@ class BatchWriter:
 
         Args:
             db_conn: Database connection
-            env: Environment name (local/qa/prod)
             scraper: Scraper instance with transform_to_job_model method
             batch_size: Number of jobs per batch write (default 50, must be > 0)
             detail_scrape: Whether details were scraped (sets details_scraped flag)
@@ -74,7 +72,6 @@ class BatchWriter:
             raise ValueError(f"batch_size must be positive, got {batch_size}")
 
         self.db_conn = db_conn
-        self.env = env
         self.scraper = scraper
         self.batch_size = batch_size
         self.detail_scrape = detail_scrape
@@ -121,7 +118,7 @@ class BatchWriter:
         count = 0
 
         try:
-            count = batch_fn(self.db_conn, self._buffer, self.env)
+            count = batch_fn(self.db_conn, self._buffer)
             self.stats.batches_written += 1
         except Exception as e:
             logger.error(f"Error writing batch: {e}")
@@ -145,7 +142,7 @@ class BatchWriter:
         count = 0
         for job in self._buffer:
             try:
-                write_fn(self.db_conn, job, self.env)
+                write_fn(self.db_conn, job)
                 count += 1
             except Exception as e:
                 logger.error(f"Fallback insert failed for {job.id}: {e}")

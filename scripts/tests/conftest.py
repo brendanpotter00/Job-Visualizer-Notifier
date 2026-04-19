@@ -117,32 +117,22 @@ def sample_scrape_run() -> ScrapeRun:
 
 
 @pytest.fixture
-def test_env():
-    """Logical env used for table-name suffixing. Stays 'local' this unit —
-    tables are still `_local`-suffixed. Unit 2 strips these suffixes.
-    """
-    return "local"
-
-
-@pytest.fixture
-def postgres_db(test_env):
+def postgres_db():
     """PostgreSQL database connection with per-test schema isolation.
 
     Creates `test_<hex>` schema, points `search_path` via `PYTEST_SCHEMA`,
-    runs Alembic (populates `_local`-suffixed tables + alembic_version_local
-    inside the schema). Yields the psycopg2 connection tests use. Teardown
-    DROP SCHEMA CASCADE — no per-table loop.
+    runs Alembic (populates bare-named tables + alembic_version inside the
+    schema). Yields the psycopg2 connection tests use. Teardown DROP SCHEMA
+    CASCADE — no per-table loop.
     """
     import secrets
 
     schema = "test_" + secrets.token_hex(4)
 
     prev_database_url = os.environ.get("DATABASE_URL")
-    prev_env_var = os.environ.get("SCRAPER_ENVIRONMENT")
     prev_pytest_schema = os.environ.get("PYTEST_SCHEMA")
 
     os.environ["DATABASE_URL"] = TEST_DB_URL
-    os.environ["SCRAPER_ENVIRONMENT"] = "local"
     os.environ["PYTEST_SCHEMA"] = schema
 
     # Create the schema on a one-off connection before Alembic runs.
@@ -178,7 +168,7 @@ def postgres_db(test_env):
     engine.dispose()
 
     from api.migrations import apply_alembic_migrations
-    apply_alembic_migrations(TEST_DB_URL, "local")
+    apply_alembic_migrations(TEST_DB_URL)
 
     conn = psycopg2.connect(TEST_DB_URL, cursor_factory=RealDictCursor)
     with conn.cursor() as cur:
@@ -212,10 +202,6 @@ def postgres_db(test_env):
                     os.environ.pop("PYTEST_SCHEMA", None)
                 else:
                     os.environ["PYTEST_SCHEMA"] = prev_pytest_schema
-                if prev_env_var is None:
-                    os.environ.pop("SCRAPER_ENVIRONMENT", None)
-                else:
-                    os.environ["SCRAPER_ENVIRONMENT"] = prev_env_var
                 if prev_database_url is None:
                     os.environ.pop("DATABASE_URL", None)
                 else:

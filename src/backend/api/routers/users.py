@@ -3,7 +3,7 @@
 import logging
 
 import psycopg2
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 
 from ..auth.dependencies import TokenClaims, get_current_user
 from ..auth.jwt import get_normalized_subject
@@ -46,7 +46,6 @@ def _row_to_user_response(row: dict) -> UserResponse:
 
 @router.get("", response_model=UserResponse)
 async def get_current_user_profile(
-    request: Request,
     conn=Depends(get_db),
     user: TokenClaims = Depends(get_current_user),
 ):
@@ -58,7 +57,6 @@ async def get_current_user_profile(
     ``docs/implementations/auth0/REVIEW_AUDIT.md``; swallowing it behind a
     generic 500 would hide a corrupted identity model.
     """
-    env = request.app.state.env
     auth0_id = get_normalized_subject(user)
     if not auth0_id:
         raise HTTPException(status_code=401, detail="Token missing required 'sub' claim")
@@ -68,7 +66,6 @@ async def get_current_user_profile(
     try:
         result = get_or_create_user(
             conn,
-            env,
             auth0_id=auth0_id,
             email=email,
             given_name=user.get("given_name"),
@@ -83,7 +80,6 @@ async def get_current_user_profile(
 
 @router.put("", response_model=UserResponse)
 async def update_current_user_profile(
-    request: Request,
     body: UserUpdateRequest,
     conn=Depends(get_db),
     user: TokenClaims = Depends(get_current_user),
@@ -94,14 +90,13 @@ async def update_current_user_profile(
     user's ``auth0_id`` can legitimately change when they switch providers,
     while their verified email is stable per row.
     """
-    env = request.app.state.env
     email = user.get("email")
     if not email:
         raise HTTPException(
             status_code=401, detail="Token missing required 'email' claim"
         )
     try:
-        result = update_user(conn, env, email=email, display_name=body.display_name)
+        result = update_user(conn, email=email, display_name=body.display_name)
     except psycopg2.Error:
         logger.exception("Failed to update user profile for email=%s", email)
         raise HTTPException(status_code=500, detail="Failed to update user profile")
@@ -112,22 +107,20 @@ async def update_current_user_profile(
 
 @router.get("/enabled-companies", response_model=EnabledCompaniesResponse)
 async def get_enabled_companies(
-    request: Request,
     conn=Depends(get_db),
     user: TokenClaims = Depends(get_current_user),
 ):
     """Return the company IDs the authenticated user has enabled."""
-    env = request.app.state.env
     email = user.get("email")
     if not email:
         raise HTTPException(
             status_code=401, detail="Token missing required 'email' claim"
         )
-    row = get_user_by_email(conn, env, email)
+    row = get_user_by_email(conn, email)
     if row is None:
         return EnabledCompaniesResponse(company_ids=[])
     try:
-        ids = list_enabled_companies(conn, env, row["id"])
+        ids = list_enabled_companies(conn, row["id"])
     except psycopg2.Error:
         logger.exception("Failed to list enabled companies for user=%s", row["id"])
         raise HTTPException(
@@ -138,23 +131,21 @@ async def get_enabled_companies(
 
 @router.put("/enabled-companies", response_model=EnabledCompaniesResponse)
 async def update_enabled_companies(
-    request: Request,
     body: EnabledCompaniesUpdateRequest,
     conn=Depends(get_db),
     user: TokenClaims = Depends(get_current_user),
 ):
     """Replace the authenticated user's enabled-companies set."""
-    env = request.app.state.env
     email = user.get("email")
     if not email:
         raise HTTPException(
             status_code=401, detail="Token missing required 'email' claim"
         )
-    row = get_user_by_email(conn, env, email)
+    row = get_user_by_email(conn, email)
     if row is None:
         raise HTTPException(status_code=404, detail="User not found")
     try:
-        saved = set_enabled_companies(conn, env, row["id"], body.company_ids)
+        saved = set_enabled_companies(conn, row["id"], body.company_ids)
     except psycopg2.Error:
         logger.exception("Failed to save enabled companies for user=%s", row["id"])
         raise HTTPException(

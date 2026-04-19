@@ -85,7 +85,6 @@ async def process_new_jobs(
     scraper,
     db_conn,
     new_job_cards: List[Dict[str, Any]],
-    env: str,
     detail_scrape: bool = True,
     batch_size: int = 50
 ) -> int:
@@ -99,7 +98,6 @@ async def process_new_jobs(
         scraper: Scraper instance with scrape_job_details_streaming method
         db_conn: Database connection
         new_job_cards: List of job card dicts (basic info from list page)
-        env: Environment name
         detail_scrape: Whether to fetch detail pages
         batch_size: Number of jobs per database batch
 
@@ -114,7 +112,6 @@ async def process_new_jobs(
     timestamp = get_iso_timestamp()
     writer = BatchWriter(
         db_conn=db_conn,
-        env=env,
         scraper=scraper,
         batch_size=batch_size,
         detail_scrape=detail_scrape,
@@ -150,7 +147,6 @@ def update_existing_jobs(
     db_conn,
     still_active_ids: Set[str],
     missing_ids: Set[str],
-    env: str,
     threshold: int = MISSED_RUN_THRESHOLD
 ) -> int:
     """
@@ -160,7 +156,6 @@ def update_existing_jobs(
         db_conn: Database connection
         still_active_ids: Job IDs that are still in search results
         missing_ids: Job IDs that are missing from search results
-        env: Environment name
         threshold: Number of consecutive misses before marking as closed
 
     Returns:
@@ -170,22 +165,22 @@ def update_existing_jobs(
 
     # Update last_seen for still active jobs
     if still_active_ids:
-        db.update_last_seen(db_conn, list(still_active_ids), timestamp, env)
+        db.update_last_seen(db_conn, list(still_active_ids), timestamp)
 
     if not missing_ids:
         return 0
 
     # Increment consecutive_misses for missing jobs
-    db.increment_consecutive_misses(db_conn, list(missing_ids), env)
+    db.increment_consecutive_misses(db_conn, list(missing_ids))
 
     # Check which jobs have exceeded threshold and mark as closed (single query)
     # Note: consecutive_misses was already incremented above, so we check >= threshold
     jobs_to_close = db.get_jobs_exceeding_miss_threshold(
-        db_conn, list(missing_ids), threshold, env
+        db_conn, list(missing_ids), threshold
     )
 
     if jobs_to_close:
-        db.mark_jobs_closed(db_conn, list(jobs_to_close), timestamp, env)
+        db.mark_jobs_closed(db_conn, list(jobs_to_close), timestamp)
         return len(jobs_to_close)
 
     return 0
@@ -194,7 +189,6 @@ def update_existing_jobs(
 async def run_incremental_scrape(
     scraper,
     db_conn,
-    env: str,
     company: str,
     detail_scrape: bool = True
 ) -> ScrapeResult:
@@ -204,14 +198,13 @@ async def run_incremental_scrape(
     Args:
         scraper: Scraper instance (must have scrape_all_queries and scrape_job_details_streaming methods)
         db_conn: Database connection
-        env: Environment name
         company: Company name (e.g., "google", "apple")
         detail_scrape: Whether to fetch detail pages for new jobs
 
     Returns:
         ScrapeResult with statistics
     """
-    logger.info(f"Starting incremental scrape for {company} (env: {env})")
+    logger.info(f"Starting incremental scrape for {company}")
 
     result = ScrapeResult()
     timestamp = get_iso_timestamp()
@@ -229,7 +222,7 @@ async def run_incremental_scrape(
 
         # Phase 2: Compare against database
         logger.info("Phase 2: Comparing against database...")
-        active_known_ids = db.get_active_job_ids(db_conn, company, env)
+        active_known_ids = db.get_active_job_ids(db_conn, company)
         new_ids, still_active_ids, missing_ids = calculate_job_diff(current_ids, active_known_ids)
 
         # Safety guard: skip update/close phases if scraper returned
@@ -250,14 +243,14 @@ async def run_incremental_scrape(
             logger.info("Phase 3: Fetching details for new jobs...")
             new_job_cards = [job for job in job_cards if job['id'] in new_ids]
             result.details_fetched = await process_new_jobs(
-                scraper, db_conn, new_job_cards, env, detail_scrape
+                scraper, db_conn, new_job_cards, detail_scrape
             )
             result.new_jobs = len(new_ids)
 
             # Phase 4 & 5: Update existing jobs and mark closed
             logger.info("Phase 4 & 5: Updating job status...")
             result.closed_jobs = update_existing_jobs(
-                db_conn, still_active_ids, missing_ids, env
+                db_conn, still_active_ids, missing_ids
             )
 
     except Exception as e:
@@ -279,7 +272,7 @@ async def run_incremental_scrape(
             error_count=result.error_count,
         )
         try:
-            db.record_scrape_run(db_conn, run_record, env)
+            db.record_scrape_run(db_conn, run_record)
         except Exception as db_err:
             logger.error(f"Failed to record scrape run: {db_err}")
 

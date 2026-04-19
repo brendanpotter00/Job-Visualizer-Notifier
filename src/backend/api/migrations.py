@@ -75,15 +75,8 @@ logger.info(
 )
 
 
-def apply_alembic_migrations(database_url: str, env: str) -> None:
-    """Run `alembic upgrade head` against the given database URL.
-
-    The `env` argument is retained for backwards compatibility with existing
-    callers — after envAgnosticTables Unit 2, env.py no longer interpolates
-    the env into the version-table name (Alembic uses the default
-    `alembic_version` tracker), so the previous scraper_environment mismatch
-    guard is obsolete. Unit 4 will drop the `env` parameter entirely.
-    """
+def apply_alembic_migrations(database_url: str) -> None:
+    """Run `alembic upgrade head` against the given database URL."""
     cfg = Config(str(_ALEMBIC_INI))
     cfg.set_main_option("sqlalchemy.url", database_url)
     # alembic.ini's script_location is relative ("src/backend/alembic"); when
@@ -101,5 +94,5 @@ def apply_alembic_migrations(database_url: str, env: str) -> None:
     try:
         command.upgrade(cfg, "head")
     except Exception:
-        logger.exception("Failed to apply Alembic migrations (env=%s)", env)
+        logger.exception("Failed to apply Alembic migrations")
         raise

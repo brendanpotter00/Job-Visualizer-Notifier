@@ -1,7 +1,8 @@
 """
 Database abstraction layer for job scrapers
 
-PostgreSQL only. Uses environment-based table naming (e.g., job_listings_local, job_listings_prod).
+PostgreSQL only. Uses bare table names (job_listings, scrape_runs, users)
+across all environments after envAgnosticTables.
 """
 
 import json
@@ -22,16 +23,14 @@ logger = logging.getLogger(__name__)
 # Type alias for database connections
 Connection = psycopg2.extensions.connection
 
-# Allowed environment values (prevents SQL injection via table name construction)
-ALLOWED_ENVS = frozenset({"local", "qa", "prod"})
-
-# Pattern for test environments (test_<hex_chars> for test isolation)
-_TEST_ENV_PATTERN = re.compile(r"^test_[a-f0-9]{8}$")
-
 # Pattern matching Shared Contracts §Test schema isolation.
 # Tight regex: prevents SQL injection via a crafted PYTEST_SCHEMA env var
 # since the name is interpolated into a quoted identifier below.
 _PYTEST_SCHEMA_RE = re.compile(r"^(?:public|test_[a-f0-9]{8,})$")
+
+# Bare table names (post envAgnosticTables).
+_JOBS_TABLE = "job_listings"
+_RUNS_TABLE = "scrape_runs"
 
 # Column list for job_listings table (used in INSERT statements)
 _JOB_COLUMNS = """
@@ -55,43 +54,6 @@ _UPSERT_ON_CONFLICT = """
         consecutive_misses = 0,
         details_scraped = EXCLUDED.details_scraped
 """.strip()
-
-
-def _is_valid_env(env: str) -> bool:
-    """Check if environment name is valid (prevents SQL injection)."""
-    return env in ALLOWED_ENVS or bool(_TEST_ENV_PATTERN.match(env))
-
-
-def _get_table_name(env: str, table_type: str = "jobs") -> str:
-    """
-    Get the bare table name. The `env` argument is accepted for backwards
-    compatibility with callers — it is validated but no longer interpolated.
-    Unit 4 of envAgnosticTables removes the `env` parameter entirely.
-
-    Args:
-        env: Environment name (local, qa, prod, or test_<hex> for tests).
-            Validated but unused for name construction.
-        table_type: Type of table ("jobs", "runs", or "users")
-
-    Returns:
-        Bare table name (no env suffix).
-
-    Raises:
-        ValueError: If env is not valid or table_type is unknown.
-    """
-    if not _is_valid_env(env):
-        raise ValueError(
-            f"Invalid environment: {env}. Must be one of {ALLOWED_ENVS} or test_<hex>"
-        )
-
-    if table_type == "jobs":
-        return "job_listings"
-    elif table_type == "runs":
-        return "scrape_runs"
-    elif table_type == "users":
-        return "users"
-    else:
-        raise ValueError(f"Unknown table_type: {table_type}")
 
 
 def _build_job_values(job: JobListing) -> Tuple:
@@ -125,13 +87,12 @@ def _build_id_placeholders(ids: List[str]) -> str:
     return ','.join(['%s' for _ in ids])
 
 
-def get_connection(db_url: str, env: str = "local") -> Connection:
+def get_connection(db_url: str) -> Connection:
     """
     Create a PostgreSQL database connection from a URL
 
     Args:
         db_url: Database URL (postgresql://user:pass@host:port/dbname)
-        env: Environment name (local, qa, prod) - used for table naming
 
     Returns:
         PostgreSQL connection object
@@ -174,23 +135,21 @@ def get_connection(db_url: str, env: str = "local") -> Connection:
     return conn
 
 
-def get_active_job_ids(conn: Connection, company: str, env: str = "local") -> Set[str]:
+def get_active_job_ids(conn: Connection, company: str) -> Set[str]:
     """
     Get set of all active (OPEN) job IDs for a company
 
     Args:
         conn: Database connection
         company: Company name (e.g., "google")
-        env: Environment name
 
     Returns:
         Set of job IDs that are currently marked as OPEN
     """
     cursor = conn.cursor()
-    jobs_table = _get_table_name(env)
 
     cursor.execute(
-        f"SELECT id FROM {jobs_table} WHERE company = %s AND status = 'OPEN'",
+        f"SELECT id FROM {_JOBS_TABLE} WHERE company = %s AND status = 'OPEN'",
         (company,)
     )
 
@@ -198,22 +157,20 @@ def get_active_job_ids(conn: Connection, company: str, env: str = "local") -> Se
     return {row['id'] for row in rows}
 
 
-def get_job_by_id(conn: Connection, job_id: str, env: str = "local") -> Optional[Dict[str, Any]]:
+def get_job_by_id(conn: Connection, job_id: str) -> Optional[Dict[str, Any]]:
     """
     Retrieve a job by ID
 
     Args:
         conn: Database connection
         job_id: Job ID
-        env: Environment name
 
     Returns:
         Job data as dict, or None if not found
     """
     cursor = conn.cursor()
-    jobs_table = _get_table_name(env)
 
-    cursor.execute(f"SELECT * FROM {jobs_table} WHERE id = %s", (job_id,))
+    cursor.execute(f"SELECT * FROM {_JOBS_TABLE} WHERE id = %s", (job_id,))
     row = cursor.fetchone()
 
     if row:
@@ -221,20 +178,18 @@ def get_job_by_id(conn: Connection, job_id: str, env: str = "local") -> Optional
     return None
 
 
-def insert_job(conn: Connection, job: JobListing, env: str = "local") -> None:
+def insert_job(conn: Connection, job: JobListing) -> None:
     """
     Insert a new job into the database
 
     Args:
         conn: Database connection
         job: JobListing model
-        env: Environment name
     """
     cursor = conn.cursor()
-    jobs_table = _get_table_name(env)
 
     cursor.execute(
-        f"INSERT INTO {jobs_table} ({_JOB_COLUMNS}) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        f"INSERT INTO {_JOBS_TABLE} ({_JOB_COLUMNS}) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
         _build_job_values(job)
     )
 
@@ -242,7 +197,7 @@ def insert_job(conn: Connection, job: JobListing, env: str = "local") -> None:
     logger.debug(f"Inserted job: {job.id} - {job.title}")
 
 
-def upsert_job(conn: Connection, job: JobListing, env: str = "local") -> bool:
+def upsert_job(conn: Connection, job: JobListing) -> bool:
     """
     Insert a new job or update an existing one (e.g., reactivate a closed job)
 
@@ -253,17 +208,15 @@ def upsert_job(conn: Connection, job: JobListing, env: str = "local") -> bool:
     Args:
         conn: Database connection
         job: JobListing model
-        env: Environment name
 
     Returns:
         True if a new job was inserted, False if an existing job was updated
     """
     cursor = conn.cursor()
-    jobs_table = _get_table_name(env)
 
     cursor.execute(
         f"""
-        INSERT INTO {jobs_table} ({_JOB_COLUMNS})
+        INSERT INTO {_JOBS_TABLE} ({_JOB_COLUMNS})
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         {_UPSERT_ON_CONFLICT}
         RETURNING (xmax = 0) AS inserted
@@ -284,7 +237,7 @@ def upsert_job(conn: Connection, job: JobListing, env: str = "local") -> bool:
     return was_inserted
 
 
-def upsert_jobs_batch(conn: Connection, jobs: List[JobListing], env: str = "local") -> int:
+def upsert_jobs_batch(conn: Connection, jobs: List[JobListing]) -> int:
     """
     Batch upsert multiple jobs in a single transaction.
 
@@ -294,7 +247,6 @@ def upsert_jobs_batch(conn: Connection, jobs: List[JobListing], env: str = "loca
     Args:
         conn: Database connection
         jobs: List of JobListing models
-        env: Environment name
 
     Returns:
         Number of jobs in the batch (all are upserted)
@@ -303,12 +255,11 @@ def upsert_jobs_batch(conn: Connection, jobs: List[JobListing], env: str = "loca
         return 0
 
     cursor = conn.cursor()
-    jobs_table = _get_table_name(env)
     values = [_build_job_values(job) for job in jobs]
 
     execute_values(
         cursor,
-        f"INSERT INTO {jobs_table} ({_JOB_COLUMNS}) VALUES %s {_UPSERT_ON_CONFLICT}",
+        f"INSERT INTO {_JOBS_TABLE} ({_JOB_COLUMNS}) VALUES %s {_UPSERT_ON_CONFLICT}",
         values,
         page_size=100
     )
@@ -318,7 +269,7 @@ def upsert_jobs_batch(conn: Connection, jobs: List[JobListing], env: str = "loca
     return len(jobs)
 
 
-def insert_jobs_batch(conn: Connection, jobs: List[JobListing], env: str = "local") -> int:
+def insert_jobs_batch(conn: Connection, jobs: List[JobListing]) -> int:
     """
     Batch insert multiple jobs in a single transaction.
 
@@ -328,7 +279,6 @@ def insert_jobs_batch(conn: Connection, jobs: List[JobListing], env: str = "loca
     Args:
         conn: Database connection
         jobs: List of JobListing models
-        env: Environment name
 
     Returns:
         Number of jobs actually inserted (excludes duplicates skipped by ON CONFLICT)
@@ -337,12 +287,11 @@ def insert_jobs_batch(conn: Connection, jobs: List[JobListing], env: str = "loca
         return 0
 
     cursor = conn.cursor()
-    jobs_table = _get_table_name(env)
     values = [_build_job_values(job) for job in jobs]
 
     execute_values(
         cursor,
-        f"INSERT INTO {jobs_table} ({_JOB_COLUMNS}) VALUES %s ON CONFLICT (id) DO NOTHING",
+        f"INSERT INTO {_JOBS_TABLE} ({_JOB_COLUMNS}) VALUES %s ON CONFLICT (id) DO NOTHING",
         values,
         page_size=100
     )
@@ -353,7 +302,7 @@ def insert_jobs_batch(conn: Connection, jobs: List[JobListing], env: str = "loca
     return actual_inserted
 
 
-def update_last_seen(conn: Connection, job_ids: List[str], timestamp: str, env: str = "local") -> None:
+def update_last_seen(conn: Connection, job_ids: List[str], timestamp: str) -> None:
     """
     Update last_seen_at timestamp for jobs and reset consecutive_misses to 0
 
@@ -361,17 +310,15 @@ def update_last_seen(conn: Connection, job_ids: List[str], timestamp: str, env: 
         conn: Database connection
         job_ids: List of job IDs to update
         timestamp: ISO 8601 timestamp
-        env: Environment name
     """
     if not job_ids:
         return
 
     cursor = conn.cursor()
-    jobs_table = _get_table_name(env)
     placeholders = _build_id_placeholders(job_ids)
 
     cursor.execute(
-        f"UPDATE {jobs_table} SET last_seen_at = %s, consecutive_misses = 0 WHERE id IN ({placeholders})",
+        f"UPDATE {_JOBS_TABLE} SET last_seen_at = %s, consecutive_misses = 0 WHERE id IN ({placeholders})",
         [timestamp] + job_ids
     )
 
@@ -379,24 +326,22 @@ def update_last_seen(conn: Connection, job_ids: List[str], timestamp: str, env: 
     logger.info(f"Updated last_seen for {len(job_ids)} jobs")
 
 
-def increment_consecutive_misses(conn: Connection, job_ids: List[str], env: str = "local") -> None:
+def increment_consecutive_misses(conn: Connection, job_ids: List[str]) -> None:
     """
     Increment consecutive_misses counter for jobs
 
     Args:
         conn: Database connection
         job_ids: List of job IDs to update
-        env: Environment name
     """
     if not job_ids:
         return
 
     cursor = conn.cursor()
-    jobs_table = _get_table_name(env)
     placeholders = _build_id_placeholders(job_ids)
 
     cursor.execute(
-        f"UPDATE {jobs_table} SET consecutive_misses = consecutive_misses + 1 WHERE id IN ({placeholders})",
+        f"UPDATE {_JOBS_TABLE} SET consecutive_misses = consecutive_misses + 1 WHERE id IN ({placeholders})",
         job_ids
     )
 
@@ -404,7 +349,7 @@ def increment_consecutive_misses(conn: Connection, job_ids: List[str], env: str 
     logger.info(f"Incremented misses for {len(job_ids)} jobs")
 
 
-def mark_jobs_closed(conn: Connection, job_ids: List[str], timestamp: str, env: str = "local") -> None:
+def mark_jobs_closed(conn: Connection, job_ids: List[str], timestamp: str) -> None:
     """
     Mark jobs as CLOSED with closed_on timestamp
 
@@ -412,17 +357,15 @@ def mark_jobs_closed(conn: Connection, job_ids: List[str], timestamp: str, env: 
         conn: Database connection
         job_ids: List of job IDs to mark as closed
         timestamp: ISO 8601 timestamp
-        env: Environment name
     """
     if not job_ids:
         return
 
     cursor = conn.cursor()
-    jobs_table = _get_table_name(env)
     placeholders = _build_id_placeholders(job_ids)
 
     cursor.execute(
-        f"UPDATE {jobs_table} SET status = 'CLOSED', closed_on = %s WHERE id IN ({placeholders})",
+        f"UPDATE {_JOBS_TABLE} SET status = 'CLOSED', closed_on = %s WHERE id IN ({placeholders})",
         [timestamp] + job_ids
     )
 
@@ -431,7 +374,7 @@ def mark_jobs_closed(conn: Connection, job_ids: List[str], timestamp: str, env: 
 
 
 def get_jobs_exceeding_miss_threshold(
-    conn: Connection, job_ids: List[str], threshold: int, env: str = "local"
+    conn: Connection, job_ids: List[str], threshold: int
 ) -> Set[str]:
     """
     Get job IDs where consecutive_misses >= threshold in a single query.
@@ -440,7 +383,6 @@ def get_jobs_exceeding_miss_threshold(
         conn: Database connection
         job_ids: List of job IDs to check
         threshold: Minimum consecutive_misses value
-        env: Environment name
 
     Returns:
         Set of job IDs that have consecutive_misses >= threshold
@@ -449,18 +391,17 @@ def get_jobs_exceeding_miss_threshold(
         return set()
 
     cursor = conn.cursor()
-    jobs_table = _get_table_name(env)
     placeholders = _build_id_placeholders(job_ids)
 
     cursor.execute(
-        f"SELECT id FROM {jobs_table} WHERE id IN ({placeholders}) AND consecutive_misses >= %s",
+        f"SELECT id FROM {_JOBS_TABLE} WHERE id IN ({placeholders}) AND consecutive_misses >= %s",
         job_ids + [threshold]
     )
 
     return {row['id'] for row in cursor.fetchall()}
 
 
-def reactivate_job(conn: Connection, job_id: str, timestamp: str, env: str = "local") -> None:
+def reactivate_job(conn: Connection, job_id: str, timestamp: str) -> None:
     """
     Reactivate a closed job (if it reappears in search results)
 
@@ -468,13 +409,11 @@ def reactivate_job(conn: Connection, job_id: str, timestamp: str, env: str = "lo
         conn: Database connection
         job_id: Job ID to reactivate
         timestamp: ISO 8601 timestamp
-        env: Environment name
     """
     cursor = conn.cursor()
-    jobs_table = _get_table_name(env)
 
     cursor.execute(
-        f"UPDATE {jobs_table} SET status = 'OPEN', closed_on = NULL, last_seen_at = %s, consecutive_misses = 0 WHERE id = %s",
+        f"UPDATE {_JOBS_TABLE} SET status = 'OPEN', closed_on = NULL, last_seen_at = %s, consecutive_misses = 0 WHERE id = %s",
         (timestamp, job_id)
     )
 
@@ -482,21 +421,19 @@ def reactivate_job(conn: Connection, job_id: str, timestamp: str, env: str = "lo
     logger.info(f"Reactivated job: {job_id}")
 
 
-def record_scrape_run(conn: Connection, run_data: ScrapeRun, env: str = "local") -> None:
+def record_scrape_run(conn: Connection, run_data: ScrapeRun) -> None:
     """
     Record metadata about a scrape run
 
     Args:
         conn: Database connection
         run_data: ScrapeRun model
-        env: Environment name
     """
     cursor = conn.cursor()
-    runs_table = _get_table_name(env, "runs")
 
     cursor.execute(
         f"""
-        INSERT INTO {runs_table} (
+        INSERT INTO {_RUNS_TABLE} (
             run_id, company, started_at, completed_at, mode,
             jobs_seen, new_jobs, closed_jobs, details_fetched, error_count
         ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
@@ -512,23 +449,21 @@ def record_scrape_run(conn: Connection, run_data: ScrapeRun, env: str = "local")
     logger.info(f"Recorded scrape run: {run_data.run_id}")
 
 
-def get_all_active_jobs(conn: Connection, company: str, env: str = "local") -> List[JobListing]:
+def get_all_active_jobs(conn: Connection, company: str) -> List[JobListing]:
     """
     Get all active jobs for a company
 
     Args:
         conn: Database connection
         company: Company name
-        env: Environment name
 
     Returns:
         List of JobListing objects
     """
     cursor = conn.cursor()
-    jobs_table = _get_table_name(env)
 
     cursor.execute(
-        f"SELECT * FROM {jobs_table} WHERE company = %s AND status = 'OPEN'",
+        f"SELECT * FROM {_JOBS_TABLE} WHERE company = %s AND status = 'OPEN'",
         (company,)
     )
 
@@ -561,12 +496,12 @@ def get_all_active_jobs(conn: Connection, company: str, env: str = "local") -> L
                 logger.warning(
                     "Schema drift suspected: %s.%s is str (expected tz-aware "
                     "datetime post-0003/0004)",
-                    jobs_table, ts_col,
+                    _JOBS_TABLE, ts_col,
                 )
                 continue
             else:
                 raise TypeError(
-                    f"Unexpected type for {jobs_table}.{ts_col}: "
+                    f"Unexpected type for {_JOBS_TABLE}.{ts_col}: "
                     f"{type(value).__name__} (expected datetime, str, or None)"
                 )
         jobs.append(JobListing(**row_dict))

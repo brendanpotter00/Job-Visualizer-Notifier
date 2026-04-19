@@ -41,7 +41,7 @@ class ScraperResult:
 async def run_scraper(config: Settings, company: str) -> ScraperResult:
     """Run a scraper as an async subprocess.
 
-    Builds command: python run_scraper.py --company X --env Y --db-url Z --incremental --headless [--detail-scrape]
+    Builds command: python run_scraper.py --company X --db-url Z --incremental --headless [--detail-scrape]
     Manages timeout with process kill and captures stdout/stderr.
     """
     detail_flag = ["--detail-scrape"] if config.scraper_detail_scrape else []
@@ -49,7 +49,6 @@ async def run_scraper(config: Settings, company: str) -> ScraperResult:
         config.scraper_python_path,
         f"{config.scraper_scripts_path}/run_scraper.py",
         "--company", company,
-        "--env", config.scraper_environment,
         "--db-url", config.database_url,
         "--incremental",
         "--headless",

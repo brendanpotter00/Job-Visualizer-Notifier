@@ -8,19 +8,15 @@ from psycopg2.extensions import connection as Connection
 
 logger = logging.getLogger(__name__)
 
-
-def _table(env: str) -> str:
-    # `env` is accepted for backwards compatibility with callers — it is
-    # ignored. envAgnosticTables Unit 4 will drop the parameter entirely.
-    return "user_enabled_companies"
+_TABLE = sql.Identifier("user_enabled_companies")
 
 
-def list_enabled_companies(conn: Connection, env: str, user_id: str) -> list[str]:
+def list_enabled_companies(conn: Connection, user_id: str) -> list[str]:
     """Return the company IDs this user has enabled, sorted alphabetically."""
     cursor = conn.cursor()
     cursor.execute(
         sql.SQL("SELECT company_id FROM {} WHERE user_id = %s ORDER BY company_id").format(
-            sql.Identifier(_table(env))
+            _TABLE
         ),
         (user_id,),
     )
@@ -28,7 +24,7 @@ def list_enabled_companies(conn: Connection, env: str, user_id: str) -> list[str
 
 
 def set_enabled_companies(
-    conn: Connection, env: str, user_id: str, company_ids: list[str]
+    conn: Connection, user_id: str, company_ids: list[str]
 ) -> list[str]:
     """Replace a user's enabled-companies set. Returns the canonicalized list.
 
@@ -37,7 +33,7 @@ def set_enabled_companies(
     """
     canonical = sorted(set(company_ids))
     cursor = conn.cursor()
-    table = sql.Identifier(_table(env))
+    table = _TABLE
     try:
         cursor.execute(
             sql.SQL("DELETE FROM {} WHERE user_id = %s").format(table),

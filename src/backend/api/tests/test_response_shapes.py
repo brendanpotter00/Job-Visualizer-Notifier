@@ -26,22 +26,22 @@ EXPECTED_STATS_KEYS = {"totalJobs", "openJobs", "closedJobs", "companyCounts"}
 EXPECTED_COMPANY_COUNT_KEYS = {"company", "count"}
 
 
-def test_job_response_has_camel_case_keys(client, db_conn, test_env):
-    _insert_job(db_conn, test_env, _make_job({"id": "shape-test-1"}))
+def test_job_response_has_camel_case_keys(client, db_conn):
+    _insert_job(db_conn, _make_job({"id": "shape-test-1"}))
     resp = client.get("/api/jobs")
     jobs = resp.json()
     assert len(jobs) == 1
     assert set(jobs[0].keys()) == EXPECTED_JOB_KEYS
 
 
-def test_job_detail_response_has_camel_case_keys(client, db_conn, test_env):
-    _insert_job(db_conn, test_env, _make_job({"id": "shape-test-2"}))
+def test_job_detail_response_has_camel_case_keys(client, db_conn):
+    _insert_job(db_conn, _make_job({"id": "shape-test-2"}))
     resp = client.get("/api/jobs/shape-test-2")
     assert set(resp.json().keys()) == EXPECTED_JOB_KEYS
 
 
-def test_job_response_has_no_snake_case_keys(client, db_conn, test_env):
-    _insert_job(db_conn, test_env, _make_job({"id": "shape-test-3"}))
+def test_job_response_has_no_snake_case_keys(client, db_conn):
+    _insert_job(db_conn, _make_job({"id": "shape-test-3"}))
     resp = client.get("/api/jobs")
     job = resp.json()[0]
     snake_case_keys = {"source_id", "created_at", "posted_on", "closed_on",
@@ -50,9 +50,9 @@ def test_job_response_has_no_snake_case_keys(client, db_conn, test_env):
     assert not snake_case_keys.intersection(job.keys()), f"Found snake_case keys: {snake_case_keys.intersection(job.keys())}"
 
 
-def test_details_and_ai_metadata_are_strings(client, db_conn, test_env):
+def test_details_and_ai_metadata_are_strings(client, db_conn):
     """Frontend expects details and aiMetadata as JSON strings, not parsed objects."""
-    _insert_job(db_conn, test_env, _make_job({
+    _insert_job(db_conn, _make_job({
         "id": "shape-test-4",
         "details": json.dumps({"salary_range": "$100k"}),
         "ai_metadata": json.dumps({"matched": True}),
@@ -68,16 +68,16 @@ def test_details_and_ai_metadata_are_strings(client, db_conn, test_env):
     assert parsed_meta["matched"] is True
 
 
-def test_scrape_run_response_has_camel_case_keys(client, db_conn, test_env):
-    _insert_scrape_run(db_conn, test_env, {"run_id": "shape-run-1"})
+def test_scrape_run_response_has_camel_case_keys(client, db_conn):
+    _insert_scrape_run(db_conn, {"run_id": "shape-run-1"})
     resp = client.get("/api/jobs-qa/scrape-runs")
     runs = resp.json()
     assert len(runs) == 1
     assert set(runs[0].keys()) == EXPECTED_SCRAPE_RUN_KEYS
 
 
-def test_stats_response_has_camel_case_keys(client, db_conn, test_env):
-    _insert_job(db_conn, test_env, _make_job({"id": "shape-stat-1"}))
+def test_stats_response_has_camel_case_keys(client, db_conn):
+    _insert_job(db_conn, _make_job({"id": "shape-stat-1"}))
     resp = client.get("/api/jobs-qa/stats")
     stats = resp.json()
     assert set(stats.keys()) == EXPECTED_STATS_KEYS
