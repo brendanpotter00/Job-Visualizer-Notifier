@@ -157,10 +157,10 @@ describe('EditCompanyPreferencesLink', () => {
 
   describe('when auth is loading', () => {
     it('renders the Sign-in prompt when loading and not yet authenticated', () => {
-      // Regression for the bug fixed in Unit 1: useAuth reports
-      // isAuthenticated=false while isLoading=true, so the signed-out branch
-      // must run — otherwise the sibling NewFeatureCallout pill renders with
-      // no adjacent caption on first paint.
+      // useAuth reports isAuthenticated=false while isLoading=true. The
+      // signed-out branch must run during that window — otherwise the
+      // NewFeatureCallout pill renders with no adjacent caption on first
+      // paint.
       mockAuthState.isLoading = true;
       mockAuthState.isAuthenticated = false;
       renderWithRouter();
@@ -173,10 +173,10 @@ describe('EditCompanyPreferencesLink', () => {
     });
 
     it('still renders a spacer when loading AND authenticated but enabledIds have not arrived', () => {
-      // Contract 2 from PLAN.md: a user who *is* signed in must not see a
-      // "Sign in" flash. While auth is loading and the session turns out to
-      // be authenticated, the signed-in branch is waiting on enabledIds, so
-      // the placeholder must still render.
+      // A user who *is* signed in must not see a "Sign in" flash. While
+      // auth is loading and the session turns out to be authenticated, the
+      // signed-in branch is waiting on enabledIds, so the placeholder must
+      // still render.
       mockAuthState.isLoading = true;
       mockAuthState.isAuthenticated = true;
       mockEnabledIds = null;
@@ -185,6 +185,41 @@ describe('EditCompanyPreferencesLink', () => {
       expect(screen.queryByTestId('edit-company-preferences-link')).not.toBeInTheDocument();
       expect(screen.queryByTestId('sign-in-to-edit-preferences-link')).not.toBeInTheDocument();
       expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    });
+
+    it('swaps from Sign-in prompt to spacer, then to the signed-in caption as auth resolves', () => {
+      mockAuthState.isLoading = true;
+      mockAuthState.isAuthenticated = false;
+      mockEnabledIds = null;
+      const { rerender } = renderWithRouter();
+
+      // 1) Loading + unauthenticated: Sign-in prompt present.
+      expect(screen.getByTestId('sign-in-to-edit-preferences-link')).toBeInTheDocument();
+
+      // 2) Auth resolved to signed-in but enabledIds still loading: spacer.
+      mockAuthState.isLoading = false;
+      mockAuthState.isAuthenticated = true;
+      mockEnabledIds = null;
+      rerender(
+        <MemoryRouter>
+          <EditCompanyPreferencesLink />
+        </MemoryRouter>
+      );
+
+      expect(screen.queryByTestId('sign-in-to-edit-preferences-link')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('edit-company-preferences-link')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button')).not.toBeInTheDocument();
+
+      // 3) enabledIds arrive: signed-in "Customize" caption renders.
+      mockEnabledIds = ['apple'];
+      rerender(
+        <MemoryRouter>
+          <EditCompanyPreferencesLink />
+        </MemoryRouter>
+      );
+
+      expect(screen.getByTestId('edit-company-preferences-link')).toBeInTheDocument();
+      expect(screen.getByTestId('edit-company-preferences-link')).toHaveTextContent('Customize');
     });
   });
 });

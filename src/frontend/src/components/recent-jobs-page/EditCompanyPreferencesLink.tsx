@@ -14,8 +14,9 @@ export function EditCompanyPreferencesLink() {
   // data (enabledIds). While auth itself is loading, fall through to the
   // signed-out caption: useAuth reports isAuthenticated=false during loading,
   // so the correct branch runs. If auth later resolves to signed-in we
-  // re-render into the "Showing jobs from…" caption — a one-time caption swap,
-  // strictly better than the callout rendering with no adjacent caption.
+  // re-render into the "Showing jobs from…" caption — a one-time caption
+  // swap, strictly better than the sibling NewFeatureCallout pill rendering
+  // with no adjacent caption.
   if (isAuthenticated && enabledIds === null) {
     return <Box sx={{ height: 20 }} aria-hidden />;
   }
