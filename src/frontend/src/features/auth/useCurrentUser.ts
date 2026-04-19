@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from './useAuth';
 import { fetchCurrentUser, type User } from './authService';
+import { extractErrorMessage } from '../../lib/errors';
 
 export function useCurrentUser() {
   const { isAuthenticated, getToken } = useAuth();
@@ -27,7 +28,7 @@ export function useCurrentUser() {
       }
     } catch (err) {
       if (controller.signal.aborted) return;
-      setError(err instanceof Error ? err.message : 'Failed to load profile');
+      setError(extractErrorMessage(err, 'Failed to load profile'));
     } finally {
       if (!controller.signal.aborted) {
         setLoading(false);

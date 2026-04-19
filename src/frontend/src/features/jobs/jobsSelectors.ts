@@ -1,6 +1,7 @@
 import { createSelector } from '@reduxjs/toolkit';
 import type { RootState } from '../../app/store';
 import { jobsApi } from './jobsApi';
+import { extractErrorMessage } from '../../lib/errors';
 
 /**
  * Select jobs for currently selected company from RTK Query cache
@@ -32,13 +33,7 @@ export const selectCurrentCompanyError = createSelector(
   (companyId, state) => {
     const result = jobsApi.endpoints.getJobsForCompany.select({ companyId })(state);
     if (!result.error) return undefined;
-    if (typeof result.error === 'string') {
-      return result.error;
-    }
-    if (typeof result.error === 'object' && 'data' in result.error) {
-      return String(result.error.data);
-    }
-    return 'Unknown error';
+    return extractErrorMessage(result.error, 'Unknown error');
   }
 );
 

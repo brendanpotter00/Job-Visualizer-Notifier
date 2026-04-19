@@ -5,6 +5,7 @@ import { setSelectedCompanyId } from '../features/app/appSlice';
 import { useGetJobsForCompanyQuery } from '../features/jobs/jobsApi';
 import { getInitialCompanyId } from '../lib/url';
 import { ROUTES } from '../config/routes';
+import { extractErrorMessage } from '../lib/errors';
 
 /**
  * Custom hook for managing company selection initialization and job loading
@@ -55,13 +56,7 @@ export function useCompanyLoader() {
 
   return {
     isLoading,
-    error: error
-      ? typeof error === 'string'
-        ? error
-        : typeof error === 'object' && error !== null && 'data' in error
-          ? String(error.data)
-          : 'Unknown error'
-      : undefined,
+    error: error ? extractErrorMessage(error, 'Unknown error') : undefined,
     handleRetry,
     jobs: data?.jobs || [],
     metadata: data?.metadata,

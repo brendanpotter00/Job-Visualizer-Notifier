@@ -16,6 +16,7 @@ import { FetchProgressBar } from '../../components/companies-page/FetchProgressB
 import { FetchProgressBarSkeleton } from '../../components/companies-page/FetchProgressBar/FetchProgressBarSkeleton';
 import { ERROR_MESSAGES } from '../../constants/messages';
 import { ErrorState } from '../../components/shared/ErrorDisplay';
+import { extractErrorMessage } from '../../lib/errors';
 
 /**
  * Recent Job Postings page component
@@ -56,7 +57,10 @@ export function RecentJobPostingsPage() {
         <EditCompanyPreferencesRow />
         {error ? (
           <Box sx={{ mb: 2 }}>
-            <ErrorState inline message={ERROR_MESSAGES.LOAD_JOBS_FAILED} />
+            <ErrorState
+              inline
+              message={extractErrorMessage(error, ERROR_MESSAGES.LOAD_JOBS_FAILED)}
+            />
           </Box>
         ) : null}
 
