@@ -24,7 +24,7 @@ export function NewFeatureCallout({
   label,
   onClick,
   placement: _placement = 'desktop-right-mobile-below',
-  ...rest
+  'data-testid': testId,
 }: NewFeatureCalloutProps) {
   const expiryMs = parseExpiry(expiresAt);
   const alreadyExpired =
@@ -46,8 +46,6 @@ export function NewFeatureCallout({
     markDismissed(storageKey);
     setDismissed(true);
   };
-
-  const testId = rest['data-testid'];
 
   const body = (
     <Typography variant="caption" component="span" sx={{ lineHeight: 1, whiteSpace: 'nowrap' }}>

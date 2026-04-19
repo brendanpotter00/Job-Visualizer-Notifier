@@ -98,4 +98,22 @@ describe('EditCompanyPreferencesRow', () => {
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
     expect(screen.queryByText('New! Pick your companies')).not.toBeInTheDocument();
   });
+
+  it('stays dismissed across unmount + remount (localStorage-backed)', () => {
+    const { unmount } = renderRow();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+
+    unmount();
+
+    render(
+      <MemoryRouter>
+        <EditCompanyPreferencesRow />
+      </MemoryRouter>
+    );
+
+    expect(screen.queryByRole('status')).toBeNull();
+    expect(screen.queryByText('New! Pick your companies')).toBeNull();
+  });
 });
