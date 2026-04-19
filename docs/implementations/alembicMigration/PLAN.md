@@ -99,7 +99,7 @@ Frozen for all units below. Do not edit these in one unit and change them in ano
 
 ### Unit 1 — Install Alembic + scaffold SQLAlchemy models mirroring post-0005 schema
 
-**Status:** TODO
+**Status:** DONE
 
 **Prerequisites:** none
 
@@ -152,7 +152,7 @@ Unit test asserts:
 
 ### Unit 2 — Initialize Alembic skeleton and commit an empty baseline revision
 
-**Status:** TODO
+**Status:** IN PROGRESS
 
 **Prerequisites:** Unit 1
 
