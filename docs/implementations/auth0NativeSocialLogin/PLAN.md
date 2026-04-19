@@ -21,6 +21,7 @@ The app currently authenticates users two ways and the second one is invisible t
 - **Enable Native Social Login on the tenant.** Auth0 Dashboard → Authentication → Social → Google → Settings → enable "Allow Native Social Login" (controls whether Auth0 accepts the Google subject token type for that connection).
 - **Enable the token-exchange grant on the SPA application.** Auth0 Dashboard → Applications → (the SPA from `docs/implementations/auth0/PLAN.md` Deployment Step 1) → Settings → Advanced → Grant Types → enable `urn:ietf:params:oauth:grant-type:token-exchange`. Without this, `/oauth/token` returns `unauthorized_client`.
 - **Confirm the Google social connection is enabled and uses the same Google Client ID as `VITE_GOOGLE_CLIENT_ID`.** Already done in `docs/implementations/auth0/PLAN.md` Deployment Step 4 — re-verify before cutover.
+- **Set the API access-token lifetime to 7 days.** Auth0 Dashboard → APIs → (the audience matching `AUTH0_AUDIENCE`) → Settings → "Token Expiration (Seconds)" = `604800`. The cached One Tap token's apparent session length comes from this `exp`; the existing `GoogleCredentialContext.readStoredCredential()` honors it as-is, so no code change is needed beyond Unit 1.
 
 **Why this plan splits cleanly into sequential units.** Backend changes (none, beyond reading) precede frontend exchange wiring; frontend exchange wiring lands behind a feature decision (always exchange in `GoogleOneTap.tsx`); test updates ride with the cutover unit; manual E2E is its own unit so an interactive verification step can be reviewed and signed off; the JWKS removal is the final independently-mergeable unit.
 
@@ -101,7 +102,7 @@ No DB schema change. No data migration script. The only behavioral guarantee tha
 
 ### Unit 1 — Frontend: Auth0 token exchange in GoogleOneTap (cutover, with tests)
 
-**Status:** TODO
+**Status:** IN PROGRESS
 **Prerequisites:** Auth0 dashboard configuration completed (Native Social enabled on the Google connection; token-exchange grant enabled on the SPA application). See Context section.
 
 **Owned files (create):**
