@@ -133,6 +133,7 @@ describe('GoogleOneTap', () => {
     );
     expect(mockSetGoogleCredential).toHaveBeenCalledTimes(1);
     expect(mockSetGoogleCredential).toHaveBeenCalledWith('auth0-access-token');
+    expect(mockSetGoogleCredential).not.toHaveBeenCalledWith('google-jwt-token');
   });
 
   it('onSuccess does not call setGoogleCredential when credential is missing', async () => {
@@ -155,7 +156,9 @@ describe('GoogleOneTap', () => {
     render(<GoogleOneTap />);
 
     const config = mockUseGoogleOneTapLogin.mock.calls[0][0];
-    await config.onSuccess({ credential: 'google-jwt-token' });
+    await expect(
+      config.onSuccess({ credential: 'google-jwt-token' })
+    ).resolves.toBeUndefined();
 
     expect(mockSetGoogleCredential).not.toHaveBeenCalled();
     expect(warnSpy).toHaveBeenCalledWith(

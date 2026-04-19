@@ -144,7 +144,8 @@ No DB schema change. No data migration script. The only behavioral guarantee tha
 5. Inspect Application → LocalStorage → `jvn.googleCredential.v1` now contains an Auth0-issued JWT (decode at jwt.io; `iss` should be `https://<dev-auth0-domain>/`, `sub` should start with `google-oauth2|`).
 6. Confirm `/api/users` request to the backend uses that Auth0 token as the Bearer and returns the user row. For a previously-One-Tap user, query the DB: `SELECT auth0_id FROM users_local WHERE email = '<that_email>'` and confirm it has flipped from `google|<numeric>` to `google-oauth2|<numeric>` while `id` is unchanged.
 7. Auth0 Dashboard → User Management → Users → confirm the user is now listed (this is the whole point of the change).
-8. Sign out, sign back in via the Auth0 redirect flow ("Sign In" button) — confirm same `id`, no duplicate row.
+8. **Verify the failure-path UX.** Temporarily break the exchange (open DevTools → Network → block `*/oauth/token` requests, OR set the Auth0 SPA app's `audience` in dashboard to a wrong value briefly). Trigger One Tap. Confirm: (a) DevTools console shows the `[GoogleOneTap] Auth0 token exchange failed:` warning, (b) no credential is stored in localStorage, (c) the user can still sign in via the Auth0 redirect button as a fallback. The reviewer flagged that without an in-UI signal a real user has no clue what's wrong; this task verifies the fallback path exists. Restore the original audience/network state after.
+9. Sign out, sign back in via the Auth0 redirect flow ("Sign In" button) — confirm same `id`, no duplicate row.
 
 **Done when:**
 - DevTools shows the exchange POST succeeding.

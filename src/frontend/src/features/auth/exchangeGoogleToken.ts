@@ -68,7 +68,13 @@ export async function exchangeGoogleToken(
     );
   }
 
-  const json = (await response.json()) as Auth0TokenExchangeSuccess;
+  let json: Auth0TokenExchangeSuccess;
+  try {
+    json = (await response.json()) as Auth0TokenExchangeSuccess;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`[exchangeGoogleToken] Auth0 returned 200 but body was not valid JSON: ${msg}`);
+  }
   if (!json.access_token || typeof json.access_token !== 'string') {
     throw new Error('[exchangeGoogleToken] Auth0 response missing access_token');
   }

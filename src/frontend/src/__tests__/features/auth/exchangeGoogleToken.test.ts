@@ -124,6 +124,36 @@ describe('exchangeGoogleToken', () => {
     );
   });
 
+  it('throws when Auth0 returns 200 with non-JSON body', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('not json', { status: 200 })
+    );
+
+    await expect(exchangeGoogleToken('google-id-token', baseConfig)).rejects.toThrow(
+      /200.*not valid JSON/
+    );
+  });
+
+  it('throws when Auth0 returns 4xx with only error field (no error_description)', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ error: 'invalid_request' }), { status: 400 })
+    );
+
+    await expect(exchangeGoogleToken('google-id-token', baseConfig)).rejects.toThrow(
+      /400.*invalid_request|invalid_request.*400/
+    );
+  });
+
+  it('throws when Auth0 returns 4xx with empty JSON body', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({}), { status: 401 })
+    );
+
+    await expect(exchangeGoogleToken('google-id-token', baseConfig)).rejects.toThrow(
+      /401.*\(no body\)|\(no body\).*401/
+    );
+  });
+
   it('throws when fetch itself rejects (network error)', async () => {
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('boom'));
 
