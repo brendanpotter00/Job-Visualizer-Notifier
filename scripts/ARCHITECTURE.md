@@ -280,7 +280,7 @@ The `shared/` directory contains reusable components for multi-company scraper s
 - `get_connection(db_url, env) -> Connection` - Create DB connection from URL
   - SQLite: `sqlite:///path/to/file.db`
   - PostgreSQL: `postgresql://user:pass@host:port/dbname`
-- `init_schema(conn, env)` - Create tables with environment-based naming
+- Schema is managed by Alembic (see `src/backend/alembic/` and `docs/implementations/alembicMigration/DEPLOY.md`); this module no longer creates tables.
 
 **Schema:**
 - `job_listings_{env}` table:

@@ -134,29 +134,6 @@ def get_connection(db_url: str, env: str = "local") -> Connection:
     return conn
 
 
-def init_schema(conn: Connection, env: str = "local") -> None:
-    """
-    Ensure the database schema is up to date by applying any pending migrations.
-
-    Schema is managed via numbered migration files in scripts/shared/migrations/.
-    Applied versions are tracked in schema_migrations_{env}. See that package
-    for the migration runner and individual migration files.
-
-    Args:
-        conn: Database connection
-        env: Environment name (used for table suffix)
-    """
-    from .migrations.runner import migrate_up
-
-    applied = migrate_up(conn, env)
-    if applied:
-        logger.info(
-            f"Applied {len(applied)} migration(s) for env={env}: {applied}"
-        )
-    else:
-        logger.info(f"Database schema up to date for env={env}")
-
-
 def get_active_job_ids(conn: Connection, company: str, env: str = "local") -> Set[str]:
     """
     Get set of all active (OPEN) job IDs for a company

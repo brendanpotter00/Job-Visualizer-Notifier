@@ -1,0 +1,22 @@
+Alembic migration scripts for the Job Visualizer backend.
+
+env.py wires DATABASE_URL and SCRAPER_ENVIRONMENT (via
+src/backend/api/config.Settings) into Alembic and uses
+version_table=alembic_version_{env} so local/qa/prod tracking rows do not
+collide in a shared database. target_metadata points at
+src/backend/api/db_models.Base.
+
+The baseline revision (upgrade/downgrade are no-ops) exists so prod can be
+`alembic stamp <baseline>` before the first Alembic-era deploy. After stamp,
+`alembic upgrade head` is a no-op against prod. See
+docs/implementations/alembicMigration/DEPLOY.md for the full runbook.
+
+Add a schema change:
+  1. Edit src/backend/api/db_models.py
+  2. cd src/backend && alembic revision --autogenerate -m "short message"
+  3. Review the generated file — any multi-column ALTER on the same table
+     must be one op.batch_alter_table(...) block, not N op.alter_column calls
+     (per docs/incidents/2026-04-18-migration-filled-postgres-volume/volume-
+     downgrade-playbook.md Rule 3).
+  4. cd src/backend && alembic upgrade head
+  5. Commit the revision file.

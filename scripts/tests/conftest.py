@@ -2,6 +2,7 @@
 Shared pytest fixtures for the scraper test suite
 """
 
+import logging
 import os
 import sys
 import uuid
@@ -13,9 +14,18 @@ import pytest
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
+logger = logging.getLogger(__name__)
+
 # Add scripts directory to path for imports
 scripts_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(scripts_dir))
+
+# Also add src/backend so we can import api.db_models.Base and api.migrations.
+# Used only by the postgres_db fixture for schema bootstrap (mirrors the
+# Unit 4 backend conftest pattern).
+_repo_root = Path(__file__).parent.parent.parent
+src_backend = _repo_root / "src" / "backend"
+sys.path.insert(0, str(src_backend))
 
 from shared.models import JobListing, ScrapeRun
 from shared import database as db
@@ -117,26 +127,105 @@ def test_env():
 @pytest.fixture
 def postgres_db(test_env):
     """
-    PostgreSQL database connection with schema initialized
-    Uses unique table names per test to allow parallel execution
-    Yields the connection and cleans up tables after test
+    PostgreSQL database connection with schema bootstrapped via Base.metadata.create_all.
+
+    The Alembic baseline revision is empty (prod was stamped, not applied), so
+    fresh test databases need create_all to materialize tables. After create_all
+    we run apply_alembic_migrations so alembic_version_{env} is populated and
+    subsequent upgrade()s are no-ops.
+
+    Mirrors the Unit 4 backend conftest pattern. Yields the psycopg2 connection
+    the tests actually use (the engine is bootstrap-only).
     """
+    import importlib
+
+    # 1) Set env vars before importing api.config / Alembic. Capture prev
+    #    values so teardown can restore them (avoid leaking test state across
+    #    modules).
+    prev_database_url = os.environ.get("DATABASE_URL")
+    prev_env_var = os.environ.get("SCRAPER_ENVIRONMENT")
+    os.environ["DATABASE_URL"] = TEST_DB_URL
+    os.environ["SCRAPER_ENVIRONMENT"] = "local"  # valid, temporary
+
+    # 2) api.config rejects test_<hex> by default; widen ALLOWED_ENVIRONMENTS
+    #    in-process before the singleton is rebuilt. Mirrors src/backend/api/tests/conftest.py.
+    import api.config as _api_config
+    prev_allowed = set(_api_config.ALLOWED_ENVIRONMENTS)
+    prev_settings = _api_config.settings
+    _api_config.ALLOWED_ENVIRONMENTS = _api_config.ALLOWED_ENVIRONMENTS | {test_env}
+    os.environ["SCRAPER_ENVIRONMENT"] = test_env
+    _api_config.settings = _api_config.Settings()
+
+    # 3) Import Base AFTER env vars are set so table names resolve to {tbl}_{test_env}.
+    #    db_models captures _ENV at import time; reload to pick up the new env.
+    import api.db_models as _db_models
+    importlib.reload(_db_models)
+
+    # 4) Bootstrap schema via create_all, then run Alembic so alembic_version is populated.
+    from sqlalchemy import create_engine
+    engine = create_engine(TEST_DB_URL)
+    _db_models.Base.metadata.create_all(engine)
+    engine.dispose()
+
+    from api.migrations import apply_alembic_migrations
+    apply_alembic_migrations(TEST_DB_URL, test_env)
+
+    # 5) Open the psycopg2 connection the tests actually use.
     conn = psycopg2.connect(TEST_DB_URL, cursor_factory=RealDictCursor)
-    db.init_schema(conn, env=test_env)
     yield conn
 
-    # Cleanup: drop test tables
+    # 6) Teardown: drop env-suffixed tables (children-before-parents for FK).
+    #    Each DROP is independent and idempotent; wrap them individually so a
+    #    single failure doesn't cascade and leak the rest. Failures are
+    #    logged AND raised — silent leaks are exactly the 2026-04-19 volume
+    #    incident pattern (see docs/incidents/...). The whole teardown still
+    #    runs to completion before raising.
     cursor = conn.cursor()
+    drop_errors: list[tuple[str, Exception]] = []
     try:
-        cursor.execute(f"DROP TABLE IF EXISTS job_listings_{test_env} CASCADE")
-        cursor.execute(f"DROP TABLE IF EXISTS scrape_runs_{test_env} CASCADE")
-        cursor.execute(f"DROP TABLE IF EXISTS users_{test_env} CASCADE")
-        cursor.execute(f"DROP TABLE IF EXISTS schema_migrations_{test_env} CASCADE")
-        conn.commit()
-    except Exception:
-        conn.rollback()
+        for tbl in (
+            f"user_enabled_companies_{test_env}",
+            f"scrape_runs_{test_env}",
+            f"job_listings_{test_env}",
+            f"users_{test_env}",
+            f"alembic_version_{test_env}",
+        ):
+            try:
+                cursor.execute(f'DROP TABLE IF EXISTS "{tbl}" CASCADE')
+                conn.commit()
+            except Exception as drop_exc:
+                conn.rollback()
+                drop_errors.append((tbl, drop_exc))
     finally:
         conn.close()
+
+    # 7) Restore api.db_models, env vars, and api.config singleton to their
+    #    pre-fixture state so sibling tests (e.g. test_db_models.py asserting
+    #    against `_local` table names) see the global modules untouched.
+    if prev_env_var is None:
+        os.environ.pop("SCRAPER_ENVIRONMENT", None)
+        # importlib.reload reads SCRAPER_ENVIRONMENT; set a valid placeholder
+        # so the reload doesn't fail, then pop it again afterwards.
+        os.environ["SCRAPER_ENVIRONMENT"] = "local"
+        importlib.reload(_db_models)
+        os.environ.pop("SCRAPER_ENVIRONMENT", None)
+    else:
+        os.environ["SCRAPER_ENVIRONMENT"] = prev_env_var
+        importlib.reload(_db_models)
+    if prev_database_url is None:
+        os.environ.pop("DATABASE_URL", None)
+    else:
+        os.environ["DATABASE_URL"] = prev_database_url
+    _api_config.ALLOWED_ENVIRONMENTS = prev_allowed
+    _api_config.settings = prev_settings
+
+    if drop_errors:
+        for tbl, exc in drop_errors:
+            logger.error("Failed to drop test table %s during teardown: %s", tbl, exc)
+        raise RuntimeError(
+            "postgres_db teardown leaked tables: "
+            + ", ".join(tbl for tbl, _ in drop_errors)
+        )
 
 
 # Alias for backwards compatibility
