@@ -125,16 +125,10 @@ export function useFetchWithStatus<T>(
         // Treat anything thrown while the controller is aborted as an abort —
         // covers native `DOMException` (not an `Error` subclass on older
         // engines) as well as bare `{ name: 'AbortError' }` objects thrown by
-        // custom fetchers. Falls back to a name-only shape check so aborts
-        // thrown without an aborted signal (uncommon but legal) still exit
-        // silently.
-        const isAbortError =
-          controller.signal.aborted ||
-          (err != null &&
-            typeof err === 'object' &&
-            'name' in err &&
-            (err as { name?: unknown }).name === 'AbortError');
-        if (isAbortError) return;
+        // custom fetchers. We intentionally do NOT match on `name === 'AbortError'`
+        // independent of the signal: a backend surface or custom error whose
+        // name happens to be `'AbortError'` must still surface to the caller.
+        if (controller.signal.aborted) return;
         setError(extractErrorMessage(err, 'Request failed'));
         setLoading(false);
       });

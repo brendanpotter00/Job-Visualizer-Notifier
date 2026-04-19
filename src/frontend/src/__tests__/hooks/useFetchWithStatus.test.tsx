@@ -169,7 +169,12 @@ describe('useFetchWithStatus', () => {
     expect(firstCallArg).toBeInstanceOf(AbortSignal);
   });
 
-  it('does not surface an AbortError as user-facing error state', async () => {
+  it('surfaces a name-only AbortError thrown without an aborted signal (not swallowed)', async () => {
+    // The hook gates abort detection on `controller.signal.aborted`. An Error
+    // whose `name` happens to be `'AbortError'` but that is thrown without the
+    // signal being aborted is a legitimate error (e.g. a backend surface or a
+    // custom-fetcher class whose name collides with the DOM AbortError). It
+    // must NOT be silently swallowed.
     const fetcher = vi.fn(async () => {
       const err = new Error('aborted');
       err.name = 'AbortError';
@@ -180,11 +185,30 @@ describe('useFetchWithStatus', () => {
       useFetchWithStatus<number>({ fetcher, deps: [] })
     );
 
-    // Give the microtask queue a chance to drain.
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
 
-    expect(result.current.error).toBeNull();
+    expect(result.current.error).toBe('aborted');
+  });
+
+  it('surfaces a bare { name: "AbortError" } object thrown without an aborted signal', async () => {
+    // Companion to the Error-instance case above: a plain object shaped like
+    // `{ name: 'AbortError' }` thrown while the signal is still live must also
+    // surface, rather than being swallowed by a name-only shape check.
+    const fetcher = vi.fn(async () => {
+      throw { name: 'AbortError', message: 'backend-reported abort' };
+    });
+
+    const { result } = renderHook(() =>
+      useFetchWithStatus<number>({ fetcher, deps: [] })
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(result.current.error).toBe('backend-reported abort');
   });
 
   it('treats a bare { name: "AbortError" } throw as an abort (not Error instance)', async () => {
