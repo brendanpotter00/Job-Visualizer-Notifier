@@ -67,27 +67,32 @@ logger.info(
 def apply_alembic_migrations(database_url: str, env: str) -> None:
     """Run `alembic upgrade head` against the given database URL.
 
-    The caller MUST set the process-level SCRAPER_ENVIRONMENT to match the
-    `env` argument before invoking this. Alembic's env.py reads
-    SCRAPER_ENVIRONMENT (via api.config.settings) to compute the
-    `alembic_version_<env>` table name; if the process env says "local" but
-    the caller passes env="prod", Alembic would silently target
-    alembic_version_local against a prod database — exactly the kind of
-    mismatch that's invisible at deploy time and catastrophic later.
+    The caller MUST ensure `env` matches what Alembic's env.py will compute
+    as the version-table suffix. env.py reads `api.config.settings.scraper_environment`,
+    which is a pydantic module-level singleton bound at import time from
+    SCRAPER_ENVIRONMENT (default "local" if unset). If the caller passes
+    env="prod" while settings.scraper_environment is "local" (because
+    SCRAPER_ENVIRONMENT was unset), Alembic would silently target
+    alembic_version_local against a prod database — invisible at deploy
+    time, catastrophic later. Comparing against the settings singleton (not
+    os.environ) catches the "unset env var → default local" case that a
+    plain env-var check misses.
 
-    To prevent that, this function asserts the two agree and raises
-    RuntimeError on mismatch. If SCRAPER_ENVIRONMENT is unset, current
-    behavior is preserved (env.py / Settings() will raise downstream with a
-    clearer message). This function does NOT mutate process env — the
-    caller owns it.
+    Raises RuntimeError on mismatch. Does NOT mutate settings or process env —
+    the caller owns those.
     """
-    current_env = os.environ.get("SCRAPER_ENVIRONMENT")
-    if current_env is not None and current_env != env:
+    # Import inside the function to avoid a hard dependency on Settings() at
+    # module import time (some test paths reload api.config between imports).
+    from .config import settings as _settings
+
+    if _settings.scraper_environment != env:
         raise RuntimeError(
-            f"SCRAPER_ENVIRONMENT mismatch: process env={current_env!r} but "
-            f"migration target env={env!r}. Alembic env.py would target "
-            f"alembic_version_{current_env} against a DB intended for {env}. "
-            f"Set SCRAPER_ENVIRONMENT={env} before invoking apply_alembic_migrations."
+            f"scraper_environment mismatch: api.config.settings.scraper_environment="
+            f"{_settings.scraper_environment!r} but migration target env={env!r}. "
+            f"Alembic env.py would target alembic_version_{_settings.scraper_environment} "
+            f"against a DB intended for {env}. Set SCRAPER_ENVIRONMENT={env} (and "
+            f"ensure api.config.settings is rebuilt if it was imported earlier) before "
+            f"invoking apply_alembic_migrations."
         )
 
     cfg = Config(str(_ALEMBIC_INI))
