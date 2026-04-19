@@ -11,7 +11,7 @@
  *
  * This utility consolidates the `err instanceof Error ? err.message : '...'`
  * boilerplate and the RTK Query `'data' in err` decode that previously lived
- * inline across ~12 call sites.
+ * inline at call sites.
  *
  * @param err - The unknown error value to decode
  * @param fallback - Message returned when no branch matches. Defaults to `'Unknown error'`.

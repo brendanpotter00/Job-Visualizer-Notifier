@@ -60,7 +60,7 @@ Seven ATS providers (Greenhouse, Lever, Ashby, Workday, Gem, Eightfold, Backend-
 
 All paths below are relative to `src/frontend/src/`.
 
-This section documents the shared primitives and cross-cutting rules every page and feature must follow. These foundations landed across Units 1–9 of the frontend audit and are now the canonical building blocks — new code consumes them rather than re-inventing loading spinners, error alerts, or fetch lifecycles.
+This section documents the shared primitives and cross-cutting rules every page and feature must follow. These are the canonical building blocks — new code consumes them rather than re-inventing loading spinners, error alerts, or fetch lifecycles.
 
 ### Shared primitives
 
@@ -79,15 +79,15 @@ This section documents the shared primitives and cross-cutting rules every page 
 
 ### Remaining `eslint-disable` comments (authoritative list)
 
-The codebase has exactly **seven** remaining `eslint-disable` directives as of Unit 10. Of these, **three** are in the `react-hooks/*` family; the other four cover computed-property-name typing and a React-Refresh export-shape constraint. Each is documented here with the justification pulled from the code.
+The following `eslint-disable` directives are allowed; all others must be justified in review. Each is documented here with the justification pulled from the code.
 
-**`react-hooks/*` family (3):**
+**`react-hooks/*` family:**
 
 - `hooks/useFetchWithStatus.ts:139` — `react-hooks/exhaustive-deps`. The hook spreads the caller-provided `deps` array into its internal `useEffect` dep list. ESLint's exhaustive-deps rule cannot prove the spread is stable-by-convention across renders. The hook contract requires callers to pass a stable `fetcher` (via `useCallback`) and a deps array, mirroring `useEffect` semantics. The disable is localized to the single `useEffect` line.
-- `components/layout/RootLayout.tsx:55` — `react-hooks/set-state-in-effect`. Auto-syncs `drawerOpen` local state with the `isMobile` MUI `useMediaQuery` breakpoint. `isMobile` is an external subscription (MUI wraps `matchMedia`), so mirroring it into local state via an effect is the React-recommended pattern. A `useSyncExternalStore` rewrite against `matchMedia` would be net-neutral for behavior and adds visual-regression risk around drawer-width transitions. Decision finalized in Unit 5.
+- `components/layout/RootLayout.tsx:55` — `react-hooks/set-state-in-effect`. Auto-syncs `drawerOpen` local state with the `isMobile` MUI `useMediaQuery` breakpoint. `isMobile` is an external subscription (MUI wraps `matchMedia`), so mirroring it into local state via an effect is the React-recommended pattern. A `useSyncExternalStore` rewrite against `matchMedia` would be net-neutral for behavior and adds visual-regression risk around drawer-width transitions.
 - `components/companies-page/MetricsDashboard/hooks/useTimeBasedJobCounts.ts:24` — `react-hooks/purity`. Samples `Date.now()` inside `useMemo` to compute rolling time-window counts (last 12h / 24h / 3d). Injecting `now` as an argument would relocate the `Date.now()` call into every caller in `MetricsDashboard/*`. Keeping the disable localizes the impurity to one line.
 
-**Other disables (4):**
+**Other disables:**
 
 - `features/filters/slices/graphFiltersSlice.ts:55` — `@typescript-eslint/no-explicit-any`. `createFilterSlice` generates action creators via computed property names (`[set${CapitalizedName}TimeWindow]`), which TypeScript cannot infer through. The `as any` cast on `slice.actions` is the documented TS limitation (see https://github.com/reduxjs/redux-toolkit/issues/368). Types are still enforced at dispatch sites.
 - `features/filters/slices/listFiltersSlice.ts:55` — `@typescript-eslint/no-explicit-any`. Same rationale as `graphFiltersSlice.ts`.

@@ -61,12 +61,11 @@ export function FetchProgressBar({ companyIdFilter }: FetchProgressBarProps = {}
 
   // Adjust `expanded` during render when the `isLoading` prop transitions.
   // This is React's documented "storing information from previous renders"
-  // pattern (https://react.dev/reference/react/useState#storing-information-from-previous-renders) —
-  // equivalent to the previous useEffect + wasLoadingRef bookkeeping but in
-  // render phase, so it is not flagged by react-hooks/set-state-in-effect
-  // or react-hooks/refs, and no disable comment is needed. React detects the
-  // render-phase setState on the currently-rendering component and restarts
-  // the render with the new state before committing.
+  // pattern (https://react.dev/reference/react/useState#storing-information-from-previous-renders).
+  // React detects the render-phase setState on the currently-rendering
+  // component and restarts the render with the new state before committing,
+  // so this is not flagged by react-hooks/set-state-in-effect or
+  // react-hooks/refs and no disable comment is needed.
   if (prevIsLoading !== isLoading) {
     setPrevIsLoading(isLoading);
     setExpanded(isLoading);

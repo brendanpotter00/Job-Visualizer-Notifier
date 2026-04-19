@@ -57,12 +57,10 @@ export interface FetchWithStatusResult<T> {
 /**
  * Generic abortable fetch-lifecycle hook for page-level data loads.
  *
- * Mirrors the proven AbortController + mountedRef pattern used in
- * `features/auth/useCurrentUser.ts` and `features/preferences/useEnabledCompanies.ts`.
- * Unit 3's scope is narrow: replace QAPage's two hand-rolled `useState` +
- * `useEffect(fetch)` blocks. RTK Query endpoints and the two auth-aware hooks
- * above are intentionally NOT migrated to this hook — they have specialized
- * behavior worth keeping separate (see PLAN.md "Non-goals").
+ * Uses the AbortController + mountedRef pattern to prevent stale responses
+ * from overwriting state after the component unmounts or the deps change.
+ * When deps change mid-flight, the prior request is aborted so "last fetch
+ * wins" — the user never sees a late response clobber the current one.
  *
  * @example
  * const { data, loading, error, reload } = useFetchWithStatus<Job[]>({
