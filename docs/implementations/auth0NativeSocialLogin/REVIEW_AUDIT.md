@@ -97,3 +97,46 @@ Verification: `npm run type-check` ✓, `npm test -- exchangeGoogleToken` (19/19
 - The `TypeError`-specific network-error test sits alongside (not replacing) the generic-`Error('boom')` test. Both shapes are intentionally covered. Removing either narrows the contract.
 - The `access_token: null` and `access_token: 123` tests lock the production `typeof json.access_token !== 'string'` guard at `exchangeGoogleToken.ts:78`. Deleting the guard will fail these tests — that's the point.
 - The missing-credential `resolves.toBeUndefined()` assertion is the same load-bearing One Tap re-prompt contract as the pass-1 fix on the exchange-failure path. Both must remain.
+
+---
+
+## 2026-04-18 — Review pass 3
+
+Four reviewers ran in parallel: code-reviewer, silent-failure-hunter, pr-test-analyzer, comment-analyzer. (type-design-analyzer skipped — no new types since pass 1.) Diff scope: `git diff origin/main...HEAD`.
+
+### Findings
+
+**Critical:**
+- (none across any reviewer)
+
+**Important:**
+- (none across any reviewer)
+
+All four pass-3 reviewers explicitly verified that pass-1 and pass-2 "Do not revert" items remain in place and reached the same verdict: the PR is clean.
+
+Cross-cutting verifications performed (all pass):
+- `useAuth.getToken()` (`src/frontend/src/features/auth/useAuth.ts`) prefers `getAccessTokenSilently()` when `isAuth0Authenticated`, consulting `googleCredential` only as fallback — Auth0 token stored in `googleCredential` is safe coexistence.
+- `GoogleOneTap`'s `disabled` predicate already includes `isAuthenticated`, so a Universal-Login user won't trigger an unnecessary exchange.
+- `GoogleCredentialContext.readStoredCredential()` parses `exp` from a JWT payload; Auth0 access tokens carry `exp`, so rehydration semantics are unchanged.
+- `useAuth.logout()` clears `googleCredential` regardless of source.
+- All `getToken()` consumers (`AccountPage`, `useEnabledCompanies`, `useCurrentUser`) treat the token as opaque Bearer; transition-window backend accepts both issuers per PLAN.
+- Branch coverage walk: every reachable branch in `exchangeGoogleToken.ts` (15) and `GoogleOneTap.tsx`'s `onSuccess` (3) has at least one test. Pass-2 tests verified to exercise what their names claim.
+
+**Deferred (not fixing this pass — repeats from earlier passes):**
+- Same-tab logout race during in-flight exchange: theoretical, no cross-tab `storage` listener exists today either, so the PR doesn't introduce a new silent failure. Worth noting for a future "add storage listener" PR. (agent: silent-failure-hunter)
+- `String(err)` non-`Error` fallback branches in both files are practically unreachable. (agent: pr-test-analyzer)
+- Test name "does not call setGoogleCredential when credential is missing" undersells the broader contract the test now locks (resolves cleanly + exchange not called). Cosmetic. (agents: pr-test-analyzer, comment-analyzer)
+- 5xx test description says "5xx prefix" but the matcher is literal `/Auth0 returned 503: /`. Slightly imprecise; harmless. (agent: comment-analyzer)
+- Trim `exchangeGoogleToken` JSDoc / delete `// body wasn't JSON` comment — re-deferred for the third time. (agent: comment-analyzer)
+
+### Conflicts with prior audit
+
+(none — both pass-1 and pass-2 "Do not revert" lists confirmed intact)
+
+### Implementation applied
+
+No code changes required. All four reviewers reached "no Critical, no Important" independently. The test suite is now load-bearing for the Shared Contract. Pass 3 is a clean exit.
+
+### Do not revert (new in this pass)
+
+- (none — pass 3 added no code or tests)
