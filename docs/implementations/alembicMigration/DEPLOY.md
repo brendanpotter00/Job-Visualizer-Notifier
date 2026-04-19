@@ -58,13 +58,15 @@ Railway auto-deploys from `main` via the Dockerfile at `src/backend/Dockerfile`.
 3. Alembic loads `/app/alembic.ini`, resolves `script_location` to `/app/alembic/`, reads `SCRAPER_ENVIRONMENT=prod` via `env.py`, targets `alembic_version_prod`.
 4. Runs `upgrade head`. On a deploy with no new revisions, Alembic logs `Context impl PostgresqlImpl.` → `Will assume transactional DDL.` and exits immediately. Expect one line in the Railway logs: `Applying database migrations...` followed by a no-op.
 
-No operator action required per deploy. If the lifespan raises, the container fails health checks and Railway retains the prior deployment.
+No operator action required per deploy.
+
+> **Rollout safety caveat — read this before relying on automatic rollback.** The Railway service currently has `healthcheckPath: null`. That means Railway does **not** evaluate a health check before promoting a new deployment, and it does **not** automatically retain the prior deployment on lifespan failure. Instead, the `ON_FAILURE` restart policy retries the broken container up to 10 times and then leaves the service degraded. **Recovery from a lifespan failure today requires a manual re-pin via Railway's UI** to the previous image (see Rollback below). If the service later configures a `healthcheckPath`, this language can be relaxed.
 
 ## Rollback
 
 Two independent levers:
 
-1. **Container rollback:** pin the backend image to the pre-Alembic tag in Railway's UI. The old image runs the legacy migration runner, which is idempotent against the post-5 schema (it reads `schema_migrations_prod`, sees 1–5 already applied, does nothing). This is the safe rollback for any Alembic-related startup failure.
+1. **Container rollback (manual, single-image-back only):** pin the backend image to the pre-Alembic tag in Railway's UI. This is the recommended response to any Alembic-related lifespan failure on prod. **Important constraint:** this is only safe if the rollback target image **already had migrations 1–5 applied during its own production lifetime** — i.e., it runs against a database that the legacy runner has already advanced past version 5. The legacy runner reads `schema_migrations_prod`, sees 1–5 already applied, and does nothing in that case. Do **not** rollback to a pre-migration-5 image (or any image that predates the schema's current state) without operator review and a manual schema check first; the legacy runner there might attempt to apply migrations 1–5 against a schema that already has them, with unpredictable results.
 2. **Revision downgrade:** `alembic downgrade base` is a no-op against the empty baseline (the baseline's `downgrade()` is `pass`). For a future non-empty revision that needs to be reverted: from an operator workstation, `cd src/backend && alembic downgrade -1`. Always take a Railway manual backup first and confirm the `downgrade()` body actually inverts the `upgrade()` body — autogenerate does not guarantee a symmetric downgrade.
 
 ## Adding a schema change
@@ -107,7 +109,7 @@ The steady-state workflow for future changes:
 
 ## Failure modes
 
-- **`alembic upgrade head` fails during lifespan:** container fails health check; Railway keeps the prior deployment running. Read the Railway logs for the specific revision failure, fix the revision file, commit, redeploy. **Fail-forward by default** — don't chase a broken deploy with manual SQL on prod.
+- **`alembic upgrade head` fails during lifespan:** the lifespan exception propagates and the container exits. Because the Railway service currently has `healthcheckPath: null` and an `ON_FAILURE` restart policy, Railway will retry the broken container up to 10 times before leaving the service in a degraded state — **it will not automatically retain the prior deployment**. Read the Railway logs for the specific revision failure, fix the revision file, commit, redeploy. If the service is hard-down and a fix isn't ready, manually re-pin the previous image in Railway's UI per the Rollback section. **Fail-forward by default** — don't chase a broken deploy with manual SQL on prod.
 - **Long-running migration blocks lifespan:** Alembic has no built-in lock-timeout analog to the old runner's `SET LOCAL lock_timeout`. A revision that rewrites a large table can hold the FastAPI startup open until Postgres finishes. Railway's default health-check timeout will eventually kill the container. Mitigate at the revision level: use `op.batch_alter_table` to combine ALTERs (Rule 2), avoid `ALTER TABLE ... SET NOT NULL` on unbacked columns, and size the volume for the rewrite temp copy.
 - **Two Railway replicas deploy simultaneously:** the current Railway rollout is single-pod, so two replicas running `alembic upgrade head` against the same DB is not a failure mode today. If the service scales to multiple replicas, Alembic's `alembic_version` row-level lock provides basic mutual exclusion — one replica wins, the others see head and exit. This is weaker than the old runner's `pg_advisory_lock` and should be revisited if we move to multi-instance hot deploy.
 - **`alembic_version_prod` drift:** if the row goes missing (e.g. a DB restore from before the stamp), re-run step 2 of the prod stamp sequence. Do not run `alembic upgrade head` first — upgrade from `base` will try to apply every revision including future non-empty ones.
