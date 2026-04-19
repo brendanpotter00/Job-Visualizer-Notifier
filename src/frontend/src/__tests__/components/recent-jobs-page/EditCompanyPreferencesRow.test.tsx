@@ -90,6 +90,23 @@ describe('EditCompanyPreferencesRow', () => {
     expect(screen.getByText('New! Pick your companies')).toBeInTheDocument();
   });
 
+  it('renders both the signed-out caption and the callout while auth is still loading', () => {
+    // End-to-end regression for Unit 1: on `main` the caption would be
+    // replaced by a height-reservation Box while isLoading=true, leaving
+    // the NewFeatureCallout pill next to an invisible placeholder on first
+    // paint. After the fix, both render together.
+    mockAuthState.isLoading = true;
+    mockAuthState.isAuthenticated = false;
+    mockEnabledIds = null;
+    renderRow();
+
+    expect(screen.getByTestId('edit-company-preferences-row')).toBeInTheDocument();
+    expect(screen.getByTestId('sign-in-to-edit-preferences-link')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toBeInTheDocument();
+    expect(screen.getByText('New! Pick your companies')).toBeInTheDocument();
+    expect(screen.queryByTestId('edit-company-preferences-link')).not.toBeInTheDocument();
+  });
+
   it('hides the callout after the Dismiss button is clicked', () => {
     renderRow();
 

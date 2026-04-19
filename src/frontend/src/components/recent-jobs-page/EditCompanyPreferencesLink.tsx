@@ -6,13 +6,17 @@ import { selectEnabledCompanyIds } from '../../features/preferences/enabledCompa
 import { ROUTES } from '../../config/routes';
 
 export function EditCompanyPreferencesLink() {
-  const { isAuthenticated, isLoading, login } = useAuth();
+  const { isAuthenticated, login } = useAuth();
   const enabledIds = useAppSelector(selectEnabledCompanyIds);
   const navigate = useNavigate();
 
-  // Reserve caption height while auth or signed-in preferences resolve to
-  // avoid a layout shift when the text appears.
-  if (isLoading || (isAuthenticated && enabledIds === null)) {
+  // Only hold a placeholder while the signed-in branch is waiting on its own
+  // data (enabledIds). While auth itself is loading, fall through to the
+  // signed-out caption: useAuth reports isAuthenticated=false during loading,
+  // so the correct branch runs. If auth later resolves to signed-in we
+  // re-render into the "Showing jobs from…" caption — a one-time caption swap,
+  // strictly better than the callout rendering with no adjacent caption.
+  if (isAuthenticated && enabledIds === null) {
     return <Box sx={{ height: 20 }} aria-hidden />;
   }
 

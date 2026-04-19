@@ -156,8 +156,30 @@ describe('EditCompanyPreferencesLink', () => {
   });
 
   describe('when auth is loading', () => {
-    it('renders a non-interactive spacer', () => {
+    it('renders the Sign-in prompt when loading and not yet authenticated', () => {
+      // Regression for the bug fixed in Unit 1: useAuth reports
+      // isAuthenticated=false while isLoading=true, so the signed-out branch
+      // must run — otherwise the sibling NewFeatureCallout pill renders with
+      // no adjacent caption on first paint.
       mockAuthState.isLoading = true;
+      mockAuthState.isAuthenticated = false;
+      renderWithRouter();
+
+      expect(getCaption('sign-in-to-edit-preferences-link')).toHaveTextContent(
+        'Sign in to customize this feed to the companies you care about'
+      );
+      expect(screen.getByTestId('sign-in-to-edit-preferences-link')).toHaveTextContent('Sign in');
+      expect(screen.queryByTestId('edit-company-preferences-link')).not.toBeInTheDocument();
+    });
+
+    it('still renders a spacer when loading AND authenticated but enabledIds have not arrived', () => {
+      // Contract 2 from PLAN.md: a user who *is* signed in must not see a
+      // "Sign in" flash. While auth is loading and the session turns out to
+      // be authenticated, the signed-in branch is waiting on enabledIds, so
+      // the placeholder must still render.
+      mockAuthState.isLoading = true;
+      mockAuthState.isAuthenticated = true;
+      mockEnabledIds = null;
       renderWithRouter();
 
       expect(screen.queryByTestId('edit-company-preferences-link')).not.toBeInTheDocument();
