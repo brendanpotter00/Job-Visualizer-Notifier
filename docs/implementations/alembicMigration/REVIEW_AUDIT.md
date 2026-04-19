@@ -96,3 +96,44 @@ Fix agent landed all Critical + Important findings from this pass (Suggestion/Ni
 
 **Manual action required before merge:**
 - Operator must run `alembic stamp 91337142414f` against prod per `DEPLOY.md` §1–3 **before** merging. This is the one-time stamp that anchors prod at the empty baseline. If merged without the stamp, the first deploy will harmlessly apply the baseline (empty `upgrade()`) and write the version row itself — which works today but the runbook's invariant is "stamp first, upgrade is always no-op."
+
+---
+
+## 2026-04-18 — Review pass 2
+
+Dispatched in parallel: `pr-review-toolkit:code-reviewer`, `pr-review-toolkit:silent-failure-hunter`, `pr-review-toolkit:pr-test-analyzer`, `postgres-prod-verifier`, `railway-prod-verifier`. Vercel verifier not dispatched (no Vercel-relevant files in diff, same as Pass 1).
+
+**All five agents stalled at the 600s watchdog** (no progress for 600s → agent-runtime kill). One partial finding was recoverable from the code-reviewer agent's in-flight output before it stalled; salvaged and fixed manually rather than re-burning subagent budget on potential re-stalls. Pass 3 will retry with tighter prompts.
+
+### Code-review findings
+
+**Critical:**
+- `src/backend/api/migrations.py:88` — Pass 1's env-mismatch guard compared `os.environ["SCRAPER_ENVIRONMENT"]` to the `env` argument, but `api.config.settings.scraper_environment` defaults to `"local"` when the env var is unset. Caller passing `env="prod"` with `SCRAPER_ENVIRONMENT` unset would silently fall through: `os.environ.get("SCRAPER_ENVIRONMENT") is None` → guard saw `None != "prod"` OR didn't trip at all depending on code path, while `env.py` still computed the version-table suffix from `settings.scraper_environment == "local"`. Net result: Alembic targets `alembic_version_local` on a prod DB — the exact bug Pass 1's guard was added to prevent. Fix: compare to `settings.scraper_environment` directly (the same source of truth env.py uses). (code-reviewer, partial output before stall)
+
+### Production-environment findings
+
+**Could not verify:**
+- `postgres-prod-verifier` — agent stalled at 600s watchdog with no output. Pass 1's postgres verdict (full schema parity, safe to merge after operator stamp) still stands and was not invalidated by any Pass 2 code change (Pass 2 touched only `migrations.py` and a new test file — no schema, no queries).
+- `railway-prod-verifier` — agent stalled at 600s watchdog with no output. Pass 1's railway findings (`healthcheckPath: null`, manual re-pin on rollback) still stand and are documented in DEPLOY.md.
+
+### Deferred (not fixing this pass)
+
+- Same deferred items from Pass 1 carry forward; none resurfaced in Pass 2.
+
+### Implementation applied
+
+Fix applied manually (not via fix-agent) because only a single finding was recoverable from the stalled agents' partial output. Both test suites green: `cd src/backend && pytest -q` → **178 passed** (173 + 5 new); `cd scripts && pytest -q` → **366 passed**.
+
+**Commits:**
+
+1. `d065fe7` — Review pass 2: tighten env-mismatch guard to compare against settings singleton
+   - `src/backend/api/migrations.py` — replaced `os.environ["SCRAPER_ENVIRONMENT"]` check with direct `_settings.scraper_environment != env` comparison; updated docstring with rationale citing the Pass-1/Pass-2 chain so the next reviewer understands why both comparisons were tried.
+   - `src/backend/api/tests/test_migrations_env_guard.py` **new** — 5 branch-coverage tests: settings-differs-from-arg raises; env-var-unset-but-arg-is-prod raises (the specific footgun); env-var-unset-but-arg-is-qa raises; settings-matches-arg does not raise the mismatch error (tolerates other downstream failures from the fake DB URL); error message cites both sides + the `alembic_version_local` table name so operators can diagnose the mismatch direction.
+
+**Do not revert (new in this pass):**
+
+- `apply_alembic_migrations` MUST compare against `api.config.settings.scraper_environment`, not `os.environ["SCRAPER_ENVIRONMENT"]`. The env var can be unset while settings still carries the `"local"` default — Pass 1 missed this. A future PR that "simplifies" the guard back to an env-var check would re-introduce the exact silent-target-mismatch class of bug documented in `test_migrations_env_guard.py::test_raises_when_env_var_unset_but_arg_is_prod`.
+- The function-local `from .config import settings as _settings` import is intentional: some test paths reload `api.config` between imports and a module-level import would capture a stale binding. Don't hoist it to module scope.
+
+**Manual action required before merge:**
+- (Unchanged from Pass 1: operator must run `alembic stamp 91337142414f` against prod before merging.)
