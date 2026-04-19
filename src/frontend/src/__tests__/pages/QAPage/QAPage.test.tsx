@@ -470,10 +470,10 @@ describe('QAPage', () => {
 
       // Every fetch call made by the two useFetchWithStatus hooks should
       // receive an { signal } options object.
-      const fetchLifecycleCalls = mockFetch.mock.calls.filter(
-        ([url]: [string]) =>
-          url.includes('/api/jobs?') || url.includes('/api/jobs-qa/scrape-runs')
-      );
+      const fetchLifecycleCalls = mockFetch.mock.calls.filter((call) => {
+        const url = call[0] as string;
+        return url.includes('/api/jobs?') || url.includes('/api/jobs-qa/scrape-runs');
+      });
       expect(fetchLifecycleCalls.length).toBeGreaterThan(0);
       for (const [, options] of fetchLifecycleCalls) {
         expect(options).toBeDefined();
