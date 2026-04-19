@@ -127,7 +127,7 @@ The callout itself does **not** use `position: absolute`. It is a normal inline-
 
 ### Unit 1 — Build the reusable `NewFeatureCallout` component and wire it into the Recent Jobs page
 
-**Status:** TODO
+**Status:** DONE
 **Prerequisites:** None.
 
 **Owned files (create):**
