@@ -1,6 +1,7 @@
 """Runs Alembic migrations in-process during backend startup.
 
-Replaces the old hand-rolled migration runner (`scripts.shared.database.init_schema`).
+Replaces the old hand-rolled migration runner that lived in `scripts/shared/migrations/`
+(deleted in the Alembic migration PR).
 See `docs/implementations/alembicMigration/PLAN.md` for the migration story and
 `docs/incidents/2026-04-18-migration-filled-postgres-volume/` for why each new
 schema change MUST be an Alembic autogenerate revision (frozen after the 2026-04-19
