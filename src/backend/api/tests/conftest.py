@@ -5,6 +5,7 @@ that are created before each test module and dropped after.
 """
 
 import json
+import logging
 import os
 import uuid
 
@@ -17,6 +18,8 @@ from psycopg2.extras import RealDictCursor
 
 from scripts.shared.database import _get_table_name
 from api.migrations import apply_alembic_migrations
+
+logger = logging.getLogger(__name__)
 
 # Default test database URL (same as docker-compose)
 TEST_DB_URL = os.environ.get(
@@ -101,46 +104,76 @@ def db_conn(test_env):
     conn = psycopg2.connect(TEST_DB_URL, cursor_factory=RealDictCursor)
     apply_alembic_migrations(TEST_DB_URL, test_env)
     yield conn
-    # Cleanup: drop test tables (children before parents to satisfy FK dependencies)
-    cursor = conn.cursor()
+
+    # Cleanup: drop test tables (children before parents to satisfy FK dependencies).
+    # Each DROP is wrapped individually so a single failure doesn't cascade and
+    # leak the rest, and env-var/settings restore is in a `finally` so it runs
+    # even if every drop fails. Mirrors the pattern in scripts/tests/conftest.py
+    # — the asymmetric version of this file was flagged in Pass 3 review as the
+    # same silent-leak class the 2026-04-19 volume incident taught us to avoid.
     jobs_table = _get_table_name(test_env, "jobs")
     runs_table = _get_table_name(test_env, "runs")
     users_table = _get_table_name(test_env, "users")
     enabled_companies_table = f"user_enabled_companies_{test_env}"
     alembic_version_table = f"alembic_version_{test_env}"
-    # Drop user_enabled_companies before users to satisfy the FK on user_id.
-    cursor.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(enabled_companies_table)))
-    cursor.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(jobs_table)))
-    cursor.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(runs_table)))
-    cursor.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(users_table)))
-    cursor.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(alembic_version_table)))
-    conn.commit()
-    conn.close()
-
-    # Restore env vars and api.config singleton so sibling test modules don't
-    # inherit our test_<hex> env. _api_config is the same module the rest of
-    # the process imports — leaking ALLOWED_ENVIRONMENTS or `settings` from
-    # one test module into another is exactly the cross-module contamination
-    # pr-test-analyzer flagged.
-    if prev_env_var is None:
-        os.environ.pop("SCRAPER_ENVIRONMENT", None)
-    else:
-        os.environ["SCRAPER_ENVIRONMENT"] = prev_env_var
-    if prev_database_url is None:
-        os.environ.pop("DATABASE_URL", None)
-    else:
-        os.environ["DATABASE_URL"] = prev_database_url
-    _api_config.ALLOWED_ENVIRONMENTS = prev_allowed
-    # Rebuild the singleton from the restored env so it reflects pre-fixture
-    # state (rather than the test_<hex> Settings we constructed above).
+    drop_errors: list[tuple[str, Exception]] = []
     try:
-        _api_config.settings = _api_config.Settings()
-    except Exception:
-        # If the restored env can't construct a Settings (e.g. SCRAPER_ENVIRONMENT
-        # was unset and the default 'local' is no longer in ALLOWED_ENVIRONMENTS,
-        # which shouldn't happen but guard anyway), fall back to the captured
-        # singleton so we don't leave _api_config.settings broken.
-        _api_config.settings = prev_settings
+        cursor = conn.cursor()
+        for tbl in (
+            enabled_companies_table,
+            jobs_table,
+            runs_table,
+            users_table,
+            alembic_version_table,
+        ):
+            try:
+                cursor.execute(
+                    sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(tbl))
+                )
+                conn.commit()
+            except Exception as drop_exc:
+                conn.rollback()
+                drop_errors.append((tbl, drop_exc))
+    finally:
+        conn.close()
+
+        # Restore env vars and api.config singleton so sibling test modules don't
+        # inherit our test_<hex> env. _api_config is the same module the rest of
+        # the process imports — leaking ALLOWED_ENVIRONMENTS or `settings` from
+        # one test module into another is exactly the cross-module contamination
+        # pr-test-analyzer flagged. Must run even if every drop above failed,
+        # else a DROP exception would also leak env state to sibling modules.
+        if prev_env_var is None:
+            os.environ.pop("SCRAPER_ENVIRONMENT", None)
+        else:
+            os.environ["SCRAPER_ENVIRONMENT"] = prev_env_var
+        if prev_database_url is None:
+            os.environ.pop("DATABASE_URL", None)
+        else:
+            os.environ["DATABASE_URL"] = prev_database_url
+        _api_config.ALLOWED_ENVIRONMENTS = prev_allowed
+        # Rebuild the singleton from the restored env so it reflects pre-fixture
+        # state (rather than the test_<hex> Settings we constructed above).
+        try:
+            _api_config.settings = _api_config.Settings()
+        except Exception:
+            # If the restored env can't construct a Settings (e.g. SCRAPER_ENVIRONMENT
+            # was unset and the default 'local' is no longer in ALLOWED_ENVIRONMENTS,
+            # which shouldn't happen but guard anyway), log and fall back to the
+            # captured singleton so we don't leave _api_config.settings broken.
+            logger.exception(
+                "Failed to rebuild api.config.settings after db_conn teardown; "
+                "falling back to captured singleton"
+            )
+            _api_config.settings = prev_settings
+
+    if drop_errors:
+        for tbl, exc in drop_errors:
+            logger.error("Failed to drop test table %s during teardown: %s", tbl, exc)
+        raise RuntimeError(
+            "db_conn teardown leaked tables: "
+            + ", ".join(tbl for tbl, _ in drop_errors)
+        )
 
 
 def _make_job(overrides: dict | None = None) -> dict:

@@ -43,24 +43,32 @@ class TestEnvOverride:
         assert resolved_ini == ini
         assert resolved_scripts == scripts
 
-    def test_partial_override_falls_through_to_layout_detection(
+    def test_partial_override_raises_value_error(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
-        # Setting only ALEMBIC_INI_PATH (without SCRIPT_LOCATION) must NOT
-        # short-circuit — the function requires both. This pins the
-        # `if ini_override and script_override` contract.
+        # Setting only ALEMBIC_INI_PATH (without SCRIPT_LOCATION) is a typo /
+        # half-completed deploy config class of bug. The original contract
+        # silently fell through to dev/docker auto-discovery — the operator
+        # saw "it worked" and never learned their override was ignored.
+        # Pass 3 review tightened this to raise ValueError instead.
         monkeypatch.setenv("ALEMBIC_INI_PATH", str(tmp_path / "foo.ini"))
         monkeypatch.delenv("ALEMBIC_SCRIPT_LOCATION", raising=False)
 
-        # Point _HERE at a tmp dir with no real files so dev/docker
-        # detection falls through to FileNotFoundError. This proves the
-        # half-set override didn't take effect.
-        fake_here = tmp_path / "nothing" / "api" / "migrations.py"
-        fake_here.parent.mkdir(parents=True)
-        monkeypatch.setattr(migrations_module, "_HERE", fake_here.resolve())
-
-        with pytest.raises(FileNotFoundError):
+        with pytest.raises(ValueError, match="Partial Alembic path override"):
             _resolve_alembic_paths()
+
+    def test_partial_override_names_missing_var_in_message(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        # Error message must point the operator at the specific missing var
+        # so they can diagnose which side they forgot.
+        monkeypatch.setenv("ALEMBIC_SCRIPT_LOCATION", str(tmp_path / "scripts"))
+        monkeypatch.delenv("ALEMBIC_INI_PATH", raising=False)
+
+        with pytest.raises(ValueError) as excinfo:
+            _resolve_alembic_paths()
+        assert "ALEMBIC_INI_PATH" in str(excinfo.value)
+        assert "ALEMBIC_SCRIPT_LOCATION" in str(excinfo.value)
 
 
 class TestDevLayout:

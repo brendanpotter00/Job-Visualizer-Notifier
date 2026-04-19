@@ -25,18 +25,31 @@ class TestLifespanHappyPath:
         def _fake_init(*args, **kwargs):
             call_order.append("init")
 
+        async def _tracking_scraper(*args, **kwargs):
+            # Record that the auto-scraper task actually started, so the
+            # ordering assertion below can pin "scraper launches AFTER
+            # init_pool" — a future regression that moves create_task above
+            # apply_alembic_migrations would background-start the scraper
+            # while the DB pool is uninitialized, which this pins down.
+            call_order.append("scraper")
+            import asyncio as _asyncio
+            try:
+                await _asyncio.Event().wait()
+            except _asyncio.CancelledError:
+                raise
+
         # apply_alembic_migrations / init_pool / close_pool are imported at
         # api.main module top, so patch on api.main. auto_scraper_loop is
         # imported inside lifespan() (`from .services.auto_scraper import
         # auto_scraper_loop`), so it must be patched at its source module.
-        # Use `new=_noop_coro` (the async function itself) rather than
+        # Use `new=_tracking_scraper` (the async function itself) rather than
         # side_effect — MagicMock with a coroutine-returning side_effect
         # confuses asyncio.create_task and emits "coroutine was never
         # awaited" warnings.
         with patch.object(api_main, "apply_alembic_migrations", side_effect=_fake_apply) as mock_apply, \
              patch.object(api_main, "init_pool", side_effect=_fake_init) as mock_init, \
              patch.object(api_main, "close_pool") as mock_close, \
-             patch("api.services.auto_scraper.auto_scraper_loop", new=_noop_coro):
+             patch("api.services.auto_scraper.auto_scraper_loop", new=_tracking_scraper):
             with TestClient(api_main.app) as client:
                 # Lifespan startup completed without raising. The body of
                 # the test isn't important; we care about call ordering.
@@ -50,9 +63,14 @@ class TestLifespanHappyPath:
             settings.database_url, settings.scraper_environment
         )
         mock_init.assert_called_once()
-        # apply must precede init.
-        assert call_order.index("apply") < call_order.index("init"), (
-            f"apply_alembic_migrations must run before init_pool; got order={call_order}"
+        # apply must precede init, and init must precede the auto-scraper
+        # background task. Any reordering is a regression that could
+        # background-start the scraper before the pool exists.
+        assert "apply" in call_order and "init" in call_order and "scraper" in call_order, (
+            f"missing lifecycle steps in call_order={call_order}"
+        )
+        assert call_order.index("apply") < call_order.index("init") < call_order.index("scraper"), (
+            f"lifecycle must be apply → init → scraper; got order={call_order}"
         )
         # close_pool runs once at shutdown.
         mock_close.assert_called_once()

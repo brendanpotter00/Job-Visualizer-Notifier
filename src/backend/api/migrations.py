@@ -33,6 +33,17 @@ def _resolve_alembic_paths() -> tuple[Path, Path]:
     script_override = os.environ.get("ALEMBIC_SCRIPT_LOCATION")
     if ini_override and script_override:
         return Path(ini_override), Path(script_override)
+    # Both overrides must be set together. A single one (typo on the other
+    # name, half-completed deploy config) previously fell through to dev/docker
+    # auto-discovery silently — the operator would see "it worked" and never
+    # learn their override was ignored. Raise so the misconfig surfaces loudly.
+    if ini_override or script_override:
+        missing = "ALEMBIC_SCRIPT_LOCATION" if ini_override else "ALEMBIC_INI_PATH"
+        set_var = "ALEMBIC_INI_PATH" if ini_override else "ALEMBIC_SCRIPT_LOCATION"
+        raise ValueError(
+            f"Partial Alembic path override: {set_var} is set but {missing} is not. "
+            f"Both must be set together, or neither (to use layout auto-discovery)."
+        )
 
     dev_root = _HERE.parents[3] if len(_HERE.parents) > 3 else None
     if dev_root is not None:
