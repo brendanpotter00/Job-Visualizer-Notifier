@@ -17,6 +17,13 @@ from psycopg2.extras import RealDictCursor
 scripts_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(scripts_dir))
 
+# Also add src/backend so we can import api.db_models.Base and api.migrations.
+# Used only by the postgres_db fixture for schema bootstrap (mirrors the
+# Unit 4 backend conftest pattern).
+_repo_root = Path(__file__).parent.parent.parent
+src_backend = _repo_root / "src" / "backend"
+sys.path.insert(0, str(src_backend))
+
 from shared.models import JobListing, ScrapeRun
 from shared import database as db
 
@@ -117,26 +124,68 @@ def test_env():
 @pytest.fixture
 def postgres_db(test_env):
     """
-    PostgreSQL database connection with schema initialized
-    Uses unique table names per test to allow parallel execution
-    Yields the connection and cleans up tables after test
+    PostgreSQL database connection with schema bootstrapped via Base.metadata.create_all.
+
+    The Alembic baseline revision is empty (prod was stamped, not applied), so
+    fresh test databases need create_all to materialize tables. After create_all
+    we run apply_alembic_migrations so alembic_version_{env} is populated and
+    subsequent upgrade()s are no-ops.
+
+    Mirrors the Unit 4 backend conftest pattern. Yields the psycopg2 connection
+    the tests actually use (the engine is bootstrap-only).
     """
+    import importlib
+
+    # 1) Set env vars before importing api.config / Alembic.
+    os.environ["DATABASE_URL"] = TEST_DB_URL
+    os.environ["SCRAPER_ENVIRONMENT"] = "local"  # valid, temporary
+
+    # 2) api.config rejects test_<hex> by default; widen ALLOWED_ENVIRONMENTS
+    #    in-process before the singleton is rebuilt. Mirrors src/backend/api/tests/conftest.py.
+    import api.config as _api_config
+    _api_config.ALLOWED_ENVIRONMENTS = _api_config.ALLOWED_ENVIRONMENTS | {test_env}
+    os.environ["SCRAPER_ENVIRONMENT"] = test_env
+    _api_config.settings = _api_config.Settings()
+
+    # 3) Import Base AFTER env vars are set so table names resolve to {tbl}_{test_env}.
+    #    db_models captures _ENV at import time; reload to pick up the new env.
+    import api.db_models as _db_models
+    importlib.reload(_db_models)
+
+    # 4) Bootstrap schema via create_all, then run Alembic so alembic_version is populated.
+    from sqlalchemy import create_engine
+    engine = create_engine(TEST_DB_URL)
+    _db_models.Base.metadata.create_all(engine)
+    engine.dispose()
+
+    from api.migrations import apply_alembic_migrations
+    apply_alembic_migrations(TEST_DB_URL, test_env)
+
+    # 5) Open the psycopg2 connection the tests actually use.
     conn = psycopg2.connect(TEST_DB_URL, cursor_factory=RealDictCursor)
-    db.init_schema(conn, env=test_env)
     yield conn
 
-    # Cleanup: drop test tables
+    # 6) Teardown: drop env-suffixed tables (children-before-parents for FK).
     cursor = conn.cursor()
     try:
-        cursor.execute(f"DROP TABLE IF EXISTS job_listings_{test_env} CASCADE")
-        cursor.execute(f"DROP TABLE IF EXISTS scrape_runs_{test_env} CASCADE")
-        cursor.execute(f"DROP TABLE IF EXISTS users_{test_env} CASCADE")
-        cursor.execute(f"DROP TABLE IF EXISTS schema_migrations_{test_env} CASCADE")
+        for tbl in (
+            f"user_enabled_companies_{test_env}",
+            f"scrape_runs_{test_env}",
+            f"job_listings_{test_env}",
+            f"users_{test_env}",
+            f"alembic_version_{test_env}",
+        ):
+            cursor.execute(f'DROP TABLE IF EXISTS "{tbl}" CASCADE')
         conn.commit()
     except Exception:
         conn.rollback()
     finally:
         conn.close()
+
+    # 7) Restore api.db_models to its original env so sibling tests (e.g.
+    #    test_db_models.py asserting against `_local` table names) still work.
+    os.environ["SCRAPER_ENVIRONMENT"] = "local"
+    importlib.reload(_db_models)
 
 
 # Alias for backwards compatibility
