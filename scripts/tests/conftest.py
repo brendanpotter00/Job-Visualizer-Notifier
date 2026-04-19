@@ -118,114 +118,108 @@ def sample_scrape_run() -> ScrapeRun:
 
 @pytest.fixture
 def test_env():
+    """Logical env used for table-name suffixing. Stays 'local' this unit —
+    tables are still `_local`-suffixed. Unit 2 strips these suffixes.
     """
-    Generate unique test environment name to isolate test tables
-    """
-    return f"test_{uuid.uuid4().hex[:8]}"
+    return "local"
 
 
 @pytest.fixture
 def postgres_db(test_env):
+    """PostgreSQL database connection with per-test schema isolation.
+
+    Creates `test_<hex>` schema, points `search_path` via `PYTEST_SCHEMA`,
+    runs Alembic (populates `_local`-suffixed tables + alembic_version_local
+    inside the schema). Yields the psycopg2 connection tests use. Teardown
+    DROP SCHEMA CASCADE — no per-table loop.
     """
-    PostgreSQL database connection with schema bootstrapped via Base.metadata.create_all.
+    import secrets
 
-    The Alembic baseline revision is empty (prod was stamped, not applied), so
-    fresh test databases need create_all to materialize tables. After create_all
-    we run apply_alembic_migrations so alembic_version_{env} is populated and
-    subsequent upgrade()s are no-ops.
+    schema = "test_" + secrets.token_hex(4)
 
-    Mirrors the Unit 4 backend conftest pattern. Yields the psycopg2 connection
-    the tests actually use (the engine is bootstrap-only).
-    """
-    import importlib
-
-    # 1) Set env vars before importing api.config / Alembic. Capture prev
-    #    values so teardown can restore them (avoid leaking test state across
-    #    modules).
     prev_database_url = os.environ.get("DATABASE_URL")
     prev_env_var = os.environ.get("SCRAPER_ENVIRONMENT")
+    prev_pytest_schema = os.environ.get("PYTEST_SCHEMA")
+
     os.environ["DATABASE_URL"] = TEST_DB_URL
-    os.environ["SCRAPER_ENVIRONMENT"] = "local"  # valid, temporary
+    os.environ["SCRAPER_ENVIRONMENT"] = "local"
+    os.environ["PYTEST_SCHEMA"] = schema
 
-    # 2) api.config rejects test_<hex> by default; widen ALLOWED_ENVIRONMENTS
-    #    in-process before the singleton is rebuilt. Mirrors src/backend/api/tests/conftest.py.
-    import api.config as _api_config
-    prev_allowed = set(_api_config.ALLOWED_ENVIRONMENTS)
-    prev_settings = _api_config.settings
-    _api_config.ALLOWED_ENVIRONMENTS = _api_config.ALLOWED_ENVIRONMENTS | {test_env}
-    os.environ["SCRAPER_ENVIRONMENT"] = test_env
-    _api_config.settings = _api_config.Settings()
+    # Create the schema on a one-off connection before Alembic runs.
+    bootstrap_conn = psycopg2.connect(TEST_DB_URL)
+    try:
+        bootstrap_conn.autocommit = True
+        with bootstrap_conn.cursor() as cur:
+            cur.execute(f'CREATE SCHEMA IF NOT EXISTS "{schema}"')
+    finally:
+        bootstrap_conn.close()
 
-    # 3) Import Base AFTER env vars are set so table names resolve to {tbl}_{test_env}.
-    #    db_models captures _ENV at import time; reload to pick up the new env.
+    # The Alembic baseline revision is empty; the user tables must be
+    # materialized via Base.metadata.create_all. Pin search_path on each
+    # engine connection so the DDL lands inside the test schema, not public.
+    from sqlalchemy import create_engine, event
     import api.db_models as _db_models
-    importlib.reload(_db_models)
 
-    # 4) Bootstrap schema via create_all, then run Alembic so alembic_version is populated.
-    from sqlalchemy import create_engine
     engine = create_engine(TEST_DB_URL)
-    _db_models.Base.metadata.create_all(engine)
+
+    @event.listens_for(engine, "connect")
+    def _set_search_path(dbapi_conn, _conn_record):
+        cur = dbapi_conn.cursor()
+        try:
+            cur.execute(f'SET search_path TO "{schema}", public')
+        finally:
+            cur.close()
+
+    # checkfirst=False is critical: SQLAlchemy's default existence probe
+    # sees `public.job_listings_local` in shared dev DBs and skips creation,
+    # leaving the test schema empty. search_path pins where DDL LANDS, but
+    # the probe query looks across all schemas.
+    _db_models.Base.metadata.create_all(engine, checkfirst=False)
     engine.dispose()
 
     from api.migrations import apply_alembic_migrations
-    apply_alembic_migrations(TEST_DB_URL, test_env)
+    apply_alembic_migrations(TEST_DB_URL, "local")
 
-    # 5) Open the psycopg2 connection the tests actually use.
     conn = psycopg2.connect(TEST_DB_URL, cursor_factory=RealDictCursor)
-    yield conn
+    with conn.cursor() as cur:
+        cur.execute(f'SET search_path TO "{schema}", public')
+    conn.commit()
 
-    # 6) Teardown: drop env-suffixed tables (children-before-parents for FK).
-    #    Each DROP is independent and idempotent; wrap them individually so a
-    #    single failure doesn't cascade and leak the rest. Failures are
-    #    logged AND raised — silent leaks are exactly the 2026-04-19 volume
-    #    incident pattern (see docs/incidents/...). The whole teardown still
-    #    runs to completion before raising.
-    cursor = conn.cursor()
-    drop_errors: list[tuple[str, Exception]] = []
     try:
-        for tbl in (
-            f"user_enabled_companies_{test_env}",
-            f"scrape_runs_{test_env}",
-            f"job_listings_{test_env}",
-            f"users_{test_env}",
-            f"alembic_version_{test_env}",
-        ):
-            try:
-                cursor.execute(f'DROP TABLE IF EXISTS "{tbl}" CASCADE')
-                conn.commit()
-            except Exception as drop_exc:
-                conn.rollback()
-                drop_errors.append((tbl, drop_exc))
+        yield conn
     finally:
-        conn.close()
-
-    # 7) Restore api.db_models, env vars, and api.config singleton to their
-    #    pre-fixture state so sibling tests (e.g. test_db_models.py asserting
-    #    against `_local` table names) see the global modules untouched.
-    if prev_env_var is None:
-        os.environ.pop("SCRAPER_ENVIRONMENT", None)
-        # importlib.reload reads SCRAPER_ENVIRONMENT; set a valid placeholder
-        # so the reload doesn't fail, then pop it again afterwards.
-        os.environ["SCRAPER_ENVIRONMENT"] = "local"
-        importlib.reload(_db_models)
-        os.environ.pop("SCRAPER_ENVIRONMENT", None)
-    else:
-        os.environ["SCRAPER_ENVIRONMENT"] = prev_env_var
-        importlib.reload(_db_models)
-    if prev_database_url is None:
-        os.environ.pop("DATABASE_URL", None)
-    else:
-        os.environ["DATABASE_URL"] = prev_database_url
-    _api_config.ALLOWED_ENVIRONMENTS = prev_allowed
-    _api_config.settings = prev_settings
-
-    if drop_errors:
-        for tbl, exc in drop_errors:
-            logger.error("Failed to drop test table %s during teardown: %s", tbl, exc)
-        raise RuntimeError(
-            "postgres_db teardown leaked tables: "
-            + ", ".join(tbl for tbl, _ in drop_errors)
-        )
+        # Close the test connection BEFORE DROP SCHEMA — otherwise the DROP
+        # blocks on this session's reference to the schema (search_path +
+        # any open transactions). A leaked open conn → teardown deadlock.
+        try:
+            if not conn.closed:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+                conn.close()
+        finally:
+            try:
+                drop_conn = psycopg2.connect(TEST_DB_URL)
+                drop_conn.autocommit = True
+                try:
+                    with drop_conn.cursor() as cur:
+                        cur.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
+                finally:
+                    drop_conn.close()
+            finally:
+                if prev_pytest_schema is None:
+                    os.environ.pop("PYTEST_SCHEMA", None)
+                else:
+                    os.environ["PYTEST_SCHEMA"] = prev_pytest_schema
+                if prev_env_var is None:
+                    os.environ.pop("SCRAPER_ENVIRONMENT", None)
+                else:
+                    os.environ["SCRAPER_ENVIRONMENT"] = prev_env_var
+                if prev_database_url is None:
+                    os.environ.pop("DATABASE_URL", None)
+                else:
+                    os.environ["DATABASE_URL"] = prev_database_url
 
 
 # Alias for backwards compatibility

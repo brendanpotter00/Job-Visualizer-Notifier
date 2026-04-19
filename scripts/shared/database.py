@@ -6,6 +6,7 @@ PostgreSQL only. Uses environment-based table naming (e.g., job_listings_local, 
 
 import json
 import logging
+import os
 import re
 from datetime import datetime
 from typing import Set, List, Optional, Dict, Any, Tuple
@@ -26,6 +27,11 @@ ALLOWED_ENVS = frozenset({"local", "qa", "prod"})
 
 # Pattern for test environments (test_<hex_chars> for test isolation)
 _TEST_ENV_PATTERN = re.compile(r"^test_[a-f0-9]{8}$")
+
+# Pattern matching Shared Contracts §Test schema isolation.
+# Tight regex: prevents SQL injection via a crafted PYTEST_SCHEMA env var
+# since the name is interpolated into a quoted identifier below.
+_PYTEST_SCHEMA_RE = re.compile(r"^(?:public|test_[a-f0-9]{8,})$")
 
 # Column list for job_listings table (used in INSERT statements)
 _JOB_COLUMNS = """
@@ -120,6 +126,13 @@ def get_connection(db_url: str, env: str = "local") -> Connection:
 
     Returns:
         PostgreSQL connection object
+
+    Notes:
+        If PYTEST_SCHEMA is set (pytest-driven isolation), the returned
+        connection has search_path pinned to that schema. Unset in prod
+        and normal local dev — behavior is identical to not having the
+        feature then. Per-connection, not session-global — each call to
+        get_connection gets a fresh SET.
     """
     parsed = urlparse(db_url)
 
@@ -131,6 +144,24 @@ def get_connection(db_url: str, env: str = "local") -> Connection:
 
     logger.info(f"Connecting to PostgreSQL database: {parsed.hostname}")
     conn = psycopg2.connect(db_url, cursor_factory=RealDictCursor)
+
+    pytest_schema = os.environ.get("PYTEST_SCHEMA")
+    if pytest_schema is not None:
+        if not _PYTEST_SCHEMA_RE.match(pytest_schema):
+            conn.close()
+            raise ValueError(
+                f"PYTEST_SCHEMA={pytest_schema!r} does not match expected "
+                f"pattern 'test_<hex>' or 'public'. Refusing to interpolate "
+                f"into SQL."
+            )
+        cursor = conn.cursor()
+        try:
+            cursor.execute(f'CREATE SCHEMA IF NOT EXISTS "{pytest_schema}"')
+            cursor.execute(f'SET search_path TO "{pytest_schema}", public')
+            conn.commit()
+        finally:
+            cursor.close()
+
     return conn
 
 

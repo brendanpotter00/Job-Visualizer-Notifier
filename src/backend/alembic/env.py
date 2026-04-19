@@ -15,7 +15,7 @@ from logging.config import fileConfig
 from pathlib import Path
 
 from alembic import context
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import engine_from_config, pool, text
 
 # Make `api.*` imports resolve regardless of how Alembic was invoked.
 #
@@ -55,11 +55,33 @@ if not config.get_main_option("sqlalchemy.url"):
 _env_suffix = settings.scraper_environment
 _version_table = f"alembic_version_{_env_suffix}"
 
+# PYTEST_SCHEMA carves out a per-pytest-worker Postgres schema so parallel
+# test runs (and interrupted runs) don't collide in the shared `public`
+# schema. When unset (prod, local dev, scraper runs), search_path is
+# untouched and behavior is identical to not having the feature.
+# Validated with a strict regex so a malicious/buggy env var can't inject
+# DDL through the quoted identifier.
+import os as _os
+import re as _re
+
+_PYTEST_SCHEMA = _os.environ.get("PYTEST_SCHEMA")
+_PYTEST_SCHEMA_RE = _re.compile(r"^(?:public|test_[a-f0-9]{8,})$")
+if _PYTEST_SCHEMA is not None and not _PYTEST_SCHEMA_RE.match(_PYTEST_SCHEMA):
+    raise ValueError(
+        f"PYTEST_SCHEMA={_PYTEST_SCHEMA!r} does not match expected pattern "
+        f"'test_<hex>' or 'public'. Refusing to interpolate into SQL."
+    )
+
 target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
-    """Run migrations in 'offline' mode (emit SQL to stdout)."""
+    """Run migrations in 'offline' mode (emit SQL to stdout).
+
+    PYTEST_SCHEMA is NOT honored here — offline mode is not used by this
+    repo's operators or CI. If that changes, emit `SET search_path` as the
+    first statement via context.execute.
+    """
     url = config.get_main_option("sqlalchemy.url")
     context.configure(
         url=url,
@@ -84,6 +106,19 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
+        # Schema-per-worker test isolation. Must run BEFORE context.configure
+        # so the version table + all DDL land inside the test schema, not
+        # in public. Regex above already validated the schema name.
+        #
+        # SQLAlchemy 2.x connections use explicit transactions by default, so
+        # the CREATE SCHEMA would roll back when the `with` block exits if we
+        # didn't commit it ourselves. SET search_path is session-local and
+        # doesn't need a commit, but we commit here so both statements land.
+        if _PYTEST_SCHEMA:
+            connection.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{_PYTEST_SCHEMA}"'))
+            connection.execute(text(f'SET search_path TO "{_PYTEST_SCHEMA}", public'))
+            connection.commit()
+
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
