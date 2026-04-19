@@ -17,16 +17,26 @@ from pathlib import Path
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-# Ensure the repo root is on sys.path so `src.backend.api.*` imports resolve
-# when Alembic is invoked from any cwd (Railway container, operator laptop).
-_REPO_ROOT = Path(__file__).resolve().parents[3]
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
-# Also add src/backend so `from api.db_models import Base` works when invoked
-# with cwd=src/backend (the documented operator workflow).
-_BACKEND_ROOT = _REPO_ROOT / "src" / "backend"
-if str(_BACKEND_ROOT) not in sys.path:
-    sys.path.insert(0, str(_BACKEND_ROOT))
+# Make `api.*` imports resolve regardless of how Alembic was invoked.
+#
+# Dev layout: src/backend/alembic/env.py — parents[3] is the repo root; add it
+# and src/backend so both `src.backend.api.*` and `api.*` forms work from any
+# cwd (operator laptop, pytest from repo root or from src/backend).
+#
+# Docker layout: /app/alembic/env.py — only 3 parents (/app/alembic, /app, /),
+# so parents[3] raises IndexError. The Dockerfile already sets PYTHONPATH=/app
+# and COPYs api/ to /app/api/, so `from api.config import settings` resolves
+# without any sys.path munging. Skip the dev-only block when the chain is too
+# shallow instead of crashing on the IndexError (root cause of the 2026-04-19
+# post-merge crashloop on Railway).
+_HERE = Path(__file__).resolve()
+if len(_HERE.parents) > 3:
+    _REPO_ROOT = _HERE.parents[3]
+    if str(_REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(_REPO_ROOT))
+    _BACKEND_ROOT = _REPO_ROOT / "src" / "backend"
+    if str(_BACKEND_ROOT) not in sys.path:
+        sys.path.insert(0, str(_BACKEND_ROOT))
 
 from api.config import settings  # noqa: E402  (path prepended above)
 from api.db_models import Base  # noqa: E402
