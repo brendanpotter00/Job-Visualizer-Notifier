@@ -26,25 +26,26 @@ export function NewFeatureCallout({
   placement: _placement = 'desktop-right-mobile-below',
   'data-testid': testId,
 }: NewFeatureCalloutProps) {
-  const expiryMs = parseExpiry(expiresAt);
-  const alreadyExpired =
-    typeof window === 'undefined' || expiryMs === null || Date.now() >= expiryMs;
+  // All "should I render" checks live inside the useState initializer so the
+  // render body stays pure (React's `react-hooks/purity` rule flags `Date.now()`
+  // called during render). The initializer runs once per mount, which is the
+  // right granularity: `expiresAt` is stable per mount and the expiry check
+  // does not need to refresh on every re-render.
+  const [hidden, setHidden] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    const expiryMs = parseExpiry(expiresAt);
+    if (expiryMs === null || Date.now() >= expiryMs) return true;
+    return isDismissed(storageKey);
+  });
 
-  // Seed from storage lazily so the very first render already reflects the
-  // persisted dismissal. When the callout is already expired we skip the
-  // storage read entirely (the expired-path test spies on getItem).
-  const [dismissed, setDismissed] = useState<boolean>(() =>
-    alreadyExpired ? false : isDismissed(storageKey)
-  );
-
-  if (alreadyExpired || dismissed) {
+  if (hidden) {
     return null;
   }
 
   const handleDismiss = (e: MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
     markDismissed(storageKey);
-    setDismissed(true);
+    setHidden(true);
   };
 
   const body = (
