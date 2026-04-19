@@ -118,3 +118,15 @@ export function EmptyStateDisplay({
     </Box>
   );
 }
+
+/**
+ * Named alias of {@link ErrorDisplay}. Prefer `ErrorState` at call sites for
+ * symmetry with `LoadingState` / `EmptyState`.
+ */
+export { ErrorDisplay as ErrorState };
+
+/**
+ * Named alias of {@link EmptyStateDisplay}. Prefer `EmptyState` at call sites for
+ * symmetry with `LoadingState` / `ErrorState`.
+ */
+export { EmptyStateDisplay as EmptyState };

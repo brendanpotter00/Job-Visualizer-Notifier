@@ -103,7 +103,7 @@ Run from the worktree root `/Users/brendanpotter/Documents/develop/Job-Visualize
 
 ### Unit 1 — Foundation: error utility, test helper polish, ESLint tightening
 
-**Status:** IN PROGRESS
+**Status:** DONE
 **Prerequisites:** none
 **Owned files (create):**
 - `src/frontend/src/lib/errors.ts`
@@ -138,7 +138,7 @@ Tests cover all five branches plus `null`/`undefined`.
 
 ### Unit 2 — Consolidate LoadingState / ErrorState / EmptyState primitives
 
-**Status:** TODO
+**Status:** DONE
 **Prerequisites:** Unit 1
 **Owned files (modify):**
 - `src/frontend/src/components/shared/LoadingIndicator.tsx` — add `caption` and `fullPage` props to `LoadingIndicator`; add named export `LoadingState` (alias of `LoadingIndicator`).

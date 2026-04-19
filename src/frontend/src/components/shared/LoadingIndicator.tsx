@@ -1,30 +1,61 @@
-import { Box, CircularProgress, Skeleton, Stack, Card, CardContent } from '@mui/material';
+import { Box, CircularProgress, Skeleton, Stack, Card, CardContent, Typography } from '@mui/material';
 
 interface LoadingIndicatorProps {
   /** Size of the spinner */
   size?: number;
 
-  /** Minimum height for the container */
+  /**
+   * Minimum height for the container. Overrides the `fullPage` default if both are set.
+   */
   minHeight?: number | string;
+
+  /**
+   * Optional caption rendered under the spinner.
+   *
+   * Matches `CompaniesPageContent`'s inline markup (Typography body1 / text.disabled)
+   * so the Unit 7 swap is a pixel-equivalent drop-in.
+   */
+  caption?: string;
+
+  /**
+   * When true, the container fills the viewport (minHeight: 100vh) for
+   * page-level initial loads. Ignored if `minHeight` is passed explicitly.
+   */
+  fullPage?: boolean;
 }
 
 /**
- * Centered loading spinner
+ * Centered loading spinner with optional caption and full-viewport mode.
  */
-export function LoadingIndicator({ size = 40, minHeight = 200 }: LoadingIndicatorProps) {
+export function LoadingIndicator({ size = 40, minHeight, caption, fullPage = false }: LoadingIndicatorProps) {
+  const resolvedMinHeight = minHeight ?? (fullPage ? '100vh' : 200);
+
   return (
     <Box
       sx={{
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        minHeight,
+        minHeight: resolvedMinHeight,
       }}
     >
-      <CircularProgress size={size} />
+      <Stack direction="column" spacing={2} sx={{ alignItems: 'center', textAlign: 'center' }}>
+        <CircularProgress size={size} />
+        {caption && (
+          <Typography variant="body1" color="text.disabled">
+            {caption}
+          </Typography>
+        )}
+      </Stack>
     </Box>
   );
 }
+
+/**
+ * Named alias of {@link LoadingIndicator}. Prefer `LoadingState` at call sites for
+ * symmetry with `ErrorState` / `EmptyState`.
+ */
+export { LoadingIndicator as LoadingState };
 
 /**
  * Loading skeleton for the chart/graph component
