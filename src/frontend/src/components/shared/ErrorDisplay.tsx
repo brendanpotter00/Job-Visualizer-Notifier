@@ -1,35 +1,41 @@
 import { Box, Typography, Button, Paper, Alert } from '@mui/material';
 import { ErrorOutline, Refresh } from '@mui/icons-material';
 
-interface ErrorDisplayProps {
-  /** Error message to display */
-  message: string;
-
-  /** Optional title (defaults to "Error") */
-  title?: string;
-
-  /** Optional retry callback */
-  onRetry?: () => void;
-
-  /** Show as inline alert instead of full card */
-  inline?: boolean;
-
-  /** Optional subtitle/description */
-  description?: string;
-}
+/**
+ * Props for {@link ErrorDisplay}. Modeled as a discriminated union so the
+ * `inline` variant (renders an MUI `Alert`) cannot receive `title` or
+ * `description` — those props would be silently dropped by the inline render
+ * path. TypeScript rejects the invalid combination at the call site.
+ */
+export type ErrorDisplayProps =
+  | {
+      /** Render as an inline `Alert` (no title, no description). */
+      inline: true;
+      /** Error message to display. */
+      message: string;
+      /** Optional retry callback. */
+      onRetry?: () => void;
+    }
+  | {
+      /** Render as the full-card variant. `inline` may be omitted or `false`. */
+      inline?: false;
+      /** Error message to display. */
+      message: string;
+      /** Optional title (defaults to "Error"). Card variant only. */
+      title?: string;
+      /** Optional subtitle/description. Card variant only. */
+      description?: string;
+      /** Optional retry callback. */
+      onRetry?: () => void;
+    };
 
 /**
  * Reusable error display component.
  * Shows error messages with optional retry functionality.
  */
-export function ErrorDisplay({
-  message,
-  title = 'Error',
-  onRetry,
-  inline = false,
-  description,
-}: ErrorDisplayProps) {
-  if (inline) {
+export function ErrorDisplay(props: ErrorDisplayProps) {
+  if (props.inline) {
+    const { message, onRetry } = props;
     return (
       <Alert
         severity="error"
@@ -45,6 +51,8 @@ export function ErrorDisplay({
       </Alert>
     );
   }
+
+  const { message, title = 'Error', description, onRetry } = props;
 
   return (
     <Paper

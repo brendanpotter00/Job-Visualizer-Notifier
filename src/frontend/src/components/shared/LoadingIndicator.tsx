@@ -1,34 +1,39 @@
 import { Box, CircularProgress, Skeleton, Stack, Card, CardContent, Typography } from '@mui/material';
 
-interface LoadingIndicatorProps {
-  /** Size of the spinner */
-  size?: number;
-
-  /**
-   * Minimum height for the container. Overrides the `fullPage` default if both are set.
-   */
-  minHeight?: number | string;
-
-  /**
-   * Optional caption rendered under the spinner.
-   *
-   * Matches `CompaniesPageContent`'s inline markup (Typography body1 / text.disabled)
-   * so the Unit 7 swap is a pixel-equivalent drop-in.
-   */
-  caption?: string;
-
-  /**
-   * When true, the container fills the viewport (minHeight: 100vh) for
-   * page-level initial loads. Ignored if `minHeight` is passed explicitly.
-   */
-  fullPage?: boolean;
-}
+/**
+ * Props for {@link LoadingIndicator}. Modeled as a discriminated union so
+ * `fullPage: true` cannot be combined with an explicit `minHeight` — the
+ * full-page variant always fills the viewport. TypeScript rejects the
+ * invalid combination at the call site.
+ */
+export type LoadingIndicatorProps =
+  | {
+      /** Fill the viewport (minHeight: 100vh) for page-level initial loads. */
+      fullPage: true;
+      /** Size of the spinner. */
+      size?: number;
+      /** Optional caption rendered under the spinner. */
+      caption?: string;
+      /** Not allowed when `fullPage: true`. */
+      minHeight?: never;
+    }
+  | {
+      /** In-layout variant. Accepts an explicit `minHeight`. */
+      fullPage?: false;
+      /** Size of the spinner. */
+      size?: number;
+      /** Minimum height for the container (defaults to 200). */
+      minHeight?: number | string;
+      /** Optional caption rendered under the spinner. */
+      caption?: string;
+    };
 
 /**
  * Centered loading spinner with optional caption and full-viewport mode.
  */
-export function LoadingIndicator({ size = 40, minHeight, caption, fullPage = false }: LoadingIndicatorProps) {
-  const resolvedMinHeight = minHeight ?? (fullPage ? '100vh' : 200);
+export function LoadingIndicator(props: LoadingIndicatorProps) {
+  const { size = 40, caption } = props;
+  const resolvedMinHeight = props.fullPage ? '100vh' : (props.minHeight ?? 200);
 
   return (
     <Box

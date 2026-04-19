@@ -50,11 +50,8 @@ describe('LoadingIndicator', () => {
       expect(box).toHaveStyle({ minHeight: '100vh' });
     });
 
-    it('explicit minHeight overrides fullPage default', () => {
-      const { container } = render(<LoadingIndicator fullPage minHeight={300} />);
-      const box = container.firstChild as HTMLElement;
-      expect(box).toHaveStyle({ minHeight: '300px' });
-    });
+    // The discriminated-union prop type forbids passing `minHeight` alongside
+    // `fullPage: true`, so there is no runtime precedence case to cover here.
   });
 
   describe('minHeight prop', () => {
