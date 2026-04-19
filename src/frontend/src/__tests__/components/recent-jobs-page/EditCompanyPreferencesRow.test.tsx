@@ -91,10 +91,11 @@ describe('EditCompanyPreferencesRow', () => {
   });
 
   it('renders both the signed-out caption and the callout while auth is still loading', () => {
-    // Regression: while auth is still loading and the user turns out to
-    // be signed-out, the row must render the caption + callout together.
-    // A prior version reserved a blank placeholder instead, leaving the
-    // callout pill next to empty space on first paint.
+    // While auth is still loading and the session turns out to be
+    // signed-out, the row must render the sign-in caption beside the
+    // NewFeatureCallout. If the link component reserves a blank spacer
+    // in this state instead, the callout pill appears next to empty
+    // space on first paint.
     mockAuthState.isLoading = true;
     mockAuthState.isAuthenticated = false;
     mockEnabledIds = null;
@@ -105,8 +106,8 @@ describe('EditCompanyPreferencesRow', () => {
     expect(screen.getByRole('status')).toBeInTheDocument();
     expect(screen.getByText('New! Pick your companies')).toBeInTheDocument();
     expect(
-      screen.getByTestId('sign-in-to-edit-preferences-link').closest('p')
-    ).toHaveTextContent('Sign in to customize this feed to the companies you care about');
+      screen.getByTestId('sign-in-to-edit-preferences-link').closest('p')?.textContent
+    ).toBe('Sign in to customize this feed to the companies you care about');
     expect(screen.queryByTestId('edit-company-preferences-link')).not.toBeInTheDocument();
   });
 

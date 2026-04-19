@@ -10,13 +10,15 @@ export function EditCompanyPreferencesLink() {
   const enabledIds = useAppSelector(selectEnabledCompanyIds);
   const navigate = useNavigate();
 
-  // Only hold a placeholder while the signed-in branch is waiting on its own
-  // data (enabledIds). While auth itself is loading, fall through to the
-  // signed-out caption: useAuth reports isAuthenticated=false during loading,
-  // so the correct branch runs. If auth later resolves to signed-in we
-  // re-render into the "Showing jobs from…" caption — a one-time caption
-  // swap, strictly better than the sibling NewFeatureCallout pill rendering
-  // with no adjacent caption.
+  // Placeholder only when the signed-in branch is mid-fetch (enabledIds is null).
+  // During auth loading we fall through by design: unauthenticated visitors see
+  // the sign-in caption immediately; authenticated users (including a returning
+  // Google user whose credential rehydrates synchronously) still hit this
+  // placeholder because enabledIds stays null until the preferences query
+  // resolves. If auth later resolves from unauthenticated to signed-in, the
+  // component re-renders into the "Showing jobs from…" caption — a one-time
+  // caption swap, strictly better than the sibling NewFeatureCallout pill
+  // rendering with no adjacent caption.
   if (isAuthenticated && enabledIds === null) {
     return <Box sx={{ height: 20 }} aria-hidden />;
   }

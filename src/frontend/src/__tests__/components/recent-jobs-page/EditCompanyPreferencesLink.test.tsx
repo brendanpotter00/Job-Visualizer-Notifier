@@ -165,7 +165,7 @@ describe('EditCompanyPreferencesLink', () => {
       mockAuthState.isAuthenticated = false;
       renderWithRouter();
 
-      expect(getCaption('sign-in-to-edit-preferences-link')).toHaveTextContent(
+      expect(getCaption('sign-in-to-edit-preferences-link').textContent).toBe(
         'Sign in to customize this feed to the companies you care about'
       );
       expect(screen.getByTestId('sign-in-to-edit-preferences-link')).toHaveTextContent('Sign in');
@@ -220,6 +220,7 @@ describe('EditCompanyPreferencesLink', () => {
 
       expect(screen.getByTestId('edit-company-preferences-link')).toBeInTheDocument();
       expect(screen.getByTestId('edit-company-preferences-link')).toHaveTextContent('Customize');
+      expect(screen.queryByTestId('sign-in-to-edit-preferences-link')).not.toBeInTheDocument();
     });
   });
 });
