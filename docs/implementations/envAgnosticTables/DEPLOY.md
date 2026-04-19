@@ -44,7 +44,7 @@ Do NOT set `SCRAPER_ENVIRONMENT` — the branch's `env.py` no longer reads it. S
 
 Expected sequence:
 
-- Alembic opens the DB, sees no `alembic_version` table (only the legacy `alembic_version_prod`), and creates a fresh `alembic_version` under Alembic's default name. Applies the empty baseline `91337142414f` (no-op), then applies `e1974f8f8eee`.
+- Alembic opens the DB, sees no `alembic_version` table (only the legacy `alembic_version_prod`), and creates a fresh `alembic_version` under Alembic's default name. Applies the empty baseline `91337142414f` (no-op), then applies `e1974f8f8eee`, then `f4008c4fb790`.
 - Inside `e1974f8f8eee`:
   - Narrows `search_path` to the current schema so `ALTER TABLE IF EXISTS` cannot fall through to `public.*` under any future test-schema invocation.
   - Drops the pre-Alembic `schema_migrations_local` and `schema_migrations_prod` trackers (idempotent; `schema_migrations_local` no-ops on prod).
@@ -52,8 +52,11 @@ Expected sequence:
   - Renames six named indexes (`idx_job_listings_prod_*`, `idx_users_prod_*`, `idx_user_enabled_companies_prod_*`) to their bare forms via `ALTER INDEX IF EXISTS`.
   - Renames the `users_prod_email_key` UNIQUE constraint to `users_email_key` inside a `DO $$ … EXCEPTION WHEN undefined_object OR undefined_table THEN NULL; END $$` guard so the absent-variant no-ops.
   - Drops the legacy `alembic_version_local` and `alembic_version_prod` trackers. The new `alembic_version` (created by Alembic at the start of the run) holds the active head revision.
+- Inside `f4008c4fb790` (constraint-name cleanup):
+  - Same `search_path` narrowing.
+  - Renames six auto-generated constraint names from `_{env}`-suffixed forms to bare names (both `_local` and `_prod` variants via `IF EXISTS`-style DO/EXCEPTION guards): `job_listings_pkey`, `scrape_runs_pkey`, `users_pkey`, `users_auth0_id_key`, `user_enabled_companies_pkey`, `user_enabled_companies_user_id_fkey`. Catalog-only — no index rebuilds.
 
-Expected output ends with `INFO  [alembic.runtime.migration] Running upgrade … -> e1974f8f8eee, remove env suffix from tables`.
+Expected output ends with `INFO  [alembic.runtime.migration] Running upgrade … -> f4008c4fb790, rename env-suffixed pk/fk constraints`.
 
 ### 1.4. Verify post-rename state
 
@@ -81,7 +84,21 @@ Also confirm the tracker row:
 mcp__postgres-prod__query "SELECT version_num FROM alembic_version"
 ```
 
-Expect one row: `e1974f8f8eee`.
+Expect one row: `f4008c4fb790` (the constraint-cleanup revision that chains from `e1974f8f8eee`).
+
+And confirm no `_prod`-suffixed constraint names remain on the bare tables:
+
+```
+mcp__postgres-prod__query "
+  SELECT conname FROM pg_constraint
+  WHERE connamespace = 'public'::regnamespace
+    AND conname LIKE '%_prod_%'
+    AND conrelid::regclass::text IN
+        ('job_listings','scrape_runs','users','user_enabled_companies')
+  ORDER BY conname"
+```
+
+Expect zero rows.
 
 ### 1.5. Merge the PR
 

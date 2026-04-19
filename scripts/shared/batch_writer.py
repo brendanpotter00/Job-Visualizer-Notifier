@@ -41,7 +41,7 @@ class BatchWriter:
     batch_size is reached or flush() is called.
 
     Usage:
-        writer = BatchWriter(conn, env, scraper, batch_size=50)
+        writer = BatchWriter(conn, scraper, batch_size=50)
         async for job in scraper.scrape_job_details_streaming(job_cards):
             writer.add_job(job, timestamp)
         writer.flush()  # Write remaining jobs
