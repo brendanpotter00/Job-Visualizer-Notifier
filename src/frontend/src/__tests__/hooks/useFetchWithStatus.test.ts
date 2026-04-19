@@ -185,6 +185,33 @@ describe('useFetchWithStatus', () => {
     expect(result.current.error).toBeNull();
   });
 
+  it('treats a bare { name: "AbortError" } throw as an abort (not Error instance)', async () => {
+    // Covers the older-engine case where `DOMException` is not an `Error`
+    // subclass and custom fetchers throwing plain objects with name='AbortError'.
+    const fetcher = vi.fn(
+      (signal: AbortSignal) =>
+        new Promise<number>((_resolve, reject) => {
+          signal.addEventListener('abort', () => {
+            // Bare object — intentionally not an Error instance.
+            reject({ name: 'AbortError', message: 'aborted' });
+          });
+        })
+    );
+
+    const { result, unmount } = renderHook(() =>
+      useFetchWithStatus<number>({ fetcher, deps: [] })
+    );
+
+    // Abort the in-flight request.
+    unmount();
+
+    // Drain microtasks so the catch handler runs.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(result.current.error).toBeNull();
+  });
+
   it('aborts the prior request when deps change mid-flight (last fetch wins)', async () => {
     const signals: AbortSignal[] = [];
     let resolveFirst: ((value: string) => void) | null = null;
