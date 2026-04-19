@@ -13,12 +13,12 @@ export function EditCompanyPreferencesLink() {
   // Reserve caption height while auth or signed-in preferences resolve to
   // avoid a layout shift when the text appears.
   if (isLoading || (isAuthenticated && enabledIds === null)) {
-    return <Box sx={{ height: 20, mb: 2 }} aria-hidden />;
+    return <Box sx={{ height: 20 }} aria-hidden />;
   }
 
   if (!isAuthenticated) {
     return (
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+      <Typography variant="body2" color="text.secondary">
         <Link
           component="button"
           type="button"
@@ -44,7 +44,7 @@ export function EditCompanyPreferencesLink() {
   const linkLabel = count === 0 ? 'Choose your companies' : 'Customize';
 
   return (
-    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+    <Typography variant="body2" color="text.secondary">
       Showing jobs from {descriptor}
       {' · '}
       <Link

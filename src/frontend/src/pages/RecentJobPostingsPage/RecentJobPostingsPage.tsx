@@ -11,7 +11,7 @@ import { useAuth } from '../../features/auth/useAuth';
 import { RecentJobsMetrics } from '../../components/recent-jobs-page/RecentJobsMetrics/RecentJobsMetrics';
 import { RecentJobsFilters } from '../../components/recent-jobs-page/RecentJobsFilters';
 import { RecentJobsList } from '../../components/recent-jobs-page/RecentJobsList/RecentJobsList';
-import { EditCompanyPreferencesLink } from '../../components/recent-jobs-page/EditCompanyPreferencesLink';
+import { EditCompanyPreferencesRow } from '../../components/recent-jobs-page/EditCompanyPreferencesRow';
 import { FetchProgressBar } from '../../components/companies-page/FetchProgressBar/FetchProgressBar';
 import { FetchProgressBarSkeleton } from '../../components/companies-page/FetchProgressBar/FetchProgressBarSkeleton';
 import { ERROR_MESSAGES } from '../../constants/messages';
@@ -52,7 +52,7 @@ export function RecentJobPostingsPage() {
         <Typography variant="h3" component="h1" gutterBottom>
           Recent Job Postings
         </Typography>
-        <EditCompanyPreferencesLink />
+        <EditCompanyPreferencesRow />
         {error ? (
           <Alert severity="error" sx={{ mb: 2 }}>
             {ERROR_MESSAGES.LOAD_JOBS_FAILED}
