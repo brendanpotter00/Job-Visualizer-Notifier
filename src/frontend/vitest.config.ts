@@ -7,6 +7,11 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: './src/test/setup.ts',
+    // Default Vitest timeout is 5s, which is too tight for userEvent-heavy
+    // tests (e.g. EnabledCompaniesSection) that routinely run 4-5s and flake
+    // out under parallel CPU contention. 15s is comfortably above the real
+    // runtime for every test in the suite while still catching genuine hangs.
+    testTimeout: 15000,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],

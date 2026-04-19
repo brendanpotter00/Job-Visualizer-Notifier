@@ -160,7 +160,7 @@ Tests cover all five branches plus `null`/`undefined`.
 
 ### Unit 3 — useFetchWithStatus hook + QAPage migration
 
-**Status:** TODO
+**Status:** DONE
 **Prerequisites:** Unit 1, Unit 2
 **Owned files (create):**
 - `src/frontend/src/hooks/useFetchWithStatus.ts`
@@ -185,7 +185,7 @@ Tests cover all five branches plus `null`/`undefined`.
 
 ### Unit 4 — createFilterSlice type hygiene (remove `as any` without behavior change)
 
-**Status:** TODO
+**Status:** DONE
 **Prerequisites:** none (orthogonal to Units 1–3, but ordered here so it runs after primitives are stable)
 **Owned files (modify):**
 - `src/frontend/src/features/filters/slices/createFilterSlice.ts` — replace the 10 `as any` casts on `state.filters` with a conditional type / type-guard approach:
@@ -211,7 +211,7 @@ Tests cover all five branches plus `null`/`undefined`.
 
 ### Unit 5 — Eliminate the react-hooks ESLint disables
 
-**Status:** TODO
+**Status:** DONE
 **Prerequisites:** Unit 1 (exhaustive-deps escalated to error)
 **Owned files (modify):**
 - `src/frontend/src/hooks/useCompanyLoader.ts` — the `// eslint-disable-next-line react-hooks/exhaustive-deps` on line 39 papers over an intentional "only re-run on page change, not selectedCompanyId change" choice. Refactor: split the effect into two: (a) an `isCompaniesPage` transition effect that reads URL once, (b) RTK Query's `{ skip }` already handles the fetch lifecycle. Remove the disable.
@@ -232,7 +232,7 @@ Tests cover all five branches plus `null`/`undefined`.
 
 ### Unit 6 — AccountPage + EnabledCompaniesSection: adopt shared primitives
 
-**Status:** TODO
+**Status:** DONE
 **Prerequisites:** Unit 2, Unit 1
 **Owned files (modify):**
 - `src/frontend/src/pages/AccountPage/AccountPage.tsx` — replace the inline `<Container ...><CircularProgress /></Container>` loading blocks with `<LoadingState fullPage />`. Replace the `<Alert severity="error">` + retry `<Button>` block with `<ErrorState inline message={error} onRetry={loadProfile} />`. Replace the `err instanceof Error ? err.message : 'Failed...'` in `handleSave` with `extractErrorMessage(err, 'Failed to save changes')`.
@@ -254,7 +254,7 @@ Tests cover all five branches plus `null`/`undefined`.
 
 ### Unit 7 — RecentJobPostingsPage + CompaniesPage: shared primitives, page tests
 
-**Status:** TODO
+**Status:** DONE
 **Prerequisites:** Unit 2, Unit 1
 **Owned files (modify):**
 - `src/frontend/src/pages/RecentJobPostingsPage/RecentJobPostingsPage.tsx` — replace the inline `<Alert severity="error" sx={{ mb: 2 }}>{ERROR_MESSAGES.LOAD_JOBS_FAILED}</Alert>` with `<ErrorState inline message={ERROR_MESSAGES.LOAD_JOBS_FAILED} />`. No behavior change.
@@ -280,7 +280,7 @@ Tests cover all five branches plus `null`/`undefined`.
 
 ### Unit 8 — WhyPage test backfill
 
-**Status:** TODO
+**Status:** DONE
 **Prerequisites:** Unit 2
 **Owned files (modify):**
 - `src/frontend/src/pages/WhyPage/WhyPage.tsx` — no refactor to sections (they render unique content). Only `sectionPaperSx` lives there; leave as-is. Purpose of this unit is test backfill.
@@ -300,7 +300,7 @@ Tests cover all five branches plus `null`/`undefined`.
 
 ### Unit 9 — Filter-component test backfill (Graph / List / RecentJobs filter bars and shared controls)
 
-**Status:** TODO
+**Status:** DONE
 **Prerequisites:** Unit 2 (test helpers) — Units 3–7 are unrelated, but running this near the end lets it pick up any test-helper improvements and keeps the earlier units bounded.
 **Owned files (create):**
 - `src/frontend/src/__tests__/components/companies-page/GraphFilters.test.tsx`
