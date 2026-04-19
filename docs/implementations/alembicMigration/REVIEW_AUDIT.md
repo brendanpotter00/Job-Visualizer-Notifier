@@ -137,3 +137,72 @@ Fix applied manually (not via fix-agent) because only a single finding was recov
 
 **Manual action required before merge:**
 - (Unchanged from Pass 1: operator must run `alembic stamp 91337142414f` against prod before merging.)
+
+---
+
+## 2026-04-19 — Review pass 3
+
+Dispatched in parallel: `pr-review-toolkit:code-reviewer`, `pr-review-toolkit:silent-failure-hunter`, `pr-review-toolkit:pr-test-analyzer`, `pr-review-toolkit:comment-analyzer`, `postgres-prod-verifier`, `railway-prod-verifier`. All 6 completed successfully (no stalls this pass — shorter / more scoped prompts than Pass 2 worked).
+
+### Code-review findings
+
+**Critical:**
+- `src/backend/api/tests/conftest.py:104-118` — the backend `db_conn` teardown still has the pre-Pass-1 pattern (5 sequential `DROP TABLE IF EXISTS` with no per-drop try/except + env-var/settings restore AFTER the drops). Pass 1 fixed the identical pattern in `scripts/tests/conftest.py` (`postgres_db` fixture) but the fix was applied asymmetrically and missed this file. If any single DROP fails, the remaining 4 DROPs, the `conn.commit()`, the `conn.close()`, AND the entire env-var + settings restore block are skipped — leaking tables AND cross-module env state. Same silent-leak class as the 2026-04-19 volume incident. (silent-failure-hunter)
+
+**Important:**
+- `src/backend/api/migrations.py:32-35` — `_resolve_alembic_paths` only honors env override when BOTH `ALEMBIC_INI_PATH` and `ALEMBIC_SCRIPT_LOCATION` are set. If an operator sets only one (typo on the other var name), the override silently falls through to dev/docker auto-discovery with no log line — operator sees "it worked" and never learns their override was ignored. Should raise ValueError. (silent-failure-hunter; code-reviewer confidence 82)
+- `src/backend/api/tests/test_main_lifespan.py:36-45` — happy-path test asserts apply-precedes-init but not that the auto-scraper `asyncio.create_task` fires AFTER `init_pool`. A future regression moving `create_task` above `apply_alembic_migrations` would background-start the scraper before the DB pool exists, and no test would catch it. (code-reviewer)
+- `src/backend/api/tests/conftest.py:138-143` — teardown fallback `except Exception: settings = prev_settings` swallowed the rebuild failure's reason with only a comment. If `Settings()` ever raised in teardown, no operator would learn why. (silent-failure-hunter)
+
+**Suggestion / Nit:**
+- `scripts/tests/integration/test_alembic_parity.py:14` — the "Created in Unit 3, rewritten in Unit 6" docstring references PLAN.md build-order scaffolding that will rot once the PLAN ages. Drop the unit numbers or reword. (comment-analyzer)
+- `src/backend/api/db_models.py:43-50` — `_resolve_env()` invalid-branch and `_TEST_ENV_PATTERN` acceptance path have no direct assertion; a regression widening the regex would not trip any test. ~20-line fix. (pr-test-analyzer)
+- `scripts/tests/conftest.py:183` — `cursor = conn.cursor()` is outside the try/finally; if cursor creation raises, the drop-loop never runs, `drop_errors` stays empty, no `RuntimeError` raised. (silent-failure-hunter)
+- `src/backend/alembic/env.py:45-46` — `_env_suffix` and `_version_table` computed at module import time; safe because Alembic re-imports per command, but worth a comment. (silent-failure-hunter)
+- `src/backend/api/migrations.py:37` — `len(_HERE.parents) > 3` guard is theoretically dead (repeat of Pass 1 S2). (code-reviewer)
+- Three subtly different `ALLOWED_ENVIRONMENTS` mutation patterns across the three conftests (`|= {test_env}`, `monkeypatch.setattr`) — consolidate into a shared helper. **Out of scope for this PR**, acceptable follow-up. (code-reviewer)
+- Various `alembic.ini` / `env.py` hardening suggestions (explicit `sqlalchemy.url` emptiness check, `fileConfig` behavior when imported outside `command.upgrade`). (code-reviewer)
+
+### Production-environment findings
+
+**Critical:** None.
+
+**Important:** None.
+
+**Suggestion:** None new.
+
+**Could not verify:** Nothing — both `postgres-prod-verifier` and `railway-prod-verifier` ran successfully this pass.
+
+**Postgres verdict:** Schema parity unchanged since Pass 1. `alembic_version_prod` still does not exist (operator stamp still pending, still correctly documented as Manual action). All four prod tables still match `db_models.py` exactly.
+
+**Railway verdict:** Service healthy (deployment `92c46919` SUCCESS; 3 consecutive scrape cycles exit 0; no errors/OOM/pool-exhaustion in logs since Pass 1). `SCRAPER_ENVIRONMENT=prod` is set on the production environment — the Pass-2 tightened guard will not trip on deploy. Plan is now `pro` (upgraded from `hobby` since Pass 1); more headroom, no concern for this PR.
+
+### Deferred (not fixing this pass)
+
+- Consolidate the three conftest `ALLOWED_ENVIRONMENTS` mutation patterns into a shared helper. Scope-expansion, acceptable follow-up. (code-reviewer I1)
+- `db_models._resolve_env()` branch-coverage Suggestion — ~20 lines, but the function is tiny and its behavior is covered behaviourally by every fixture that sets `SCRAPER_ENVIRONMENT`. Follow-up. (pr-test-analyzer)
+- `scripts/tests/conftest.py:183` cursor acquisition outside try/finally. Theoretical; cursor creation failure on a live psycopg2 connection is extremely unlikely and the fixture will fail loudly via the raised exception even without the drop_errors accumulator populating. Follow-up. (silent-failure-hunter)
+- Remaining `alembic.ini` / `env.py` hardening Suggestions. (code-reviewer S4, S5, S6)
+- Parity test unit-number docstring Nit — not blocking. (comment-analyzer)
+- All previously Deferred items from Pass 1 / Pass 2 continue to carry forward.
+
+### Implementation applied
+
+One fix commit for the Critical + three Important items. Both test suites green: backend `pytest -q` → **179 passed** (178 + 1 new partial-override test); scripts `pytest -q` → **366 passed** (unchanged).
+
+**Commit:**
+
+1. `4df8955` — Review pass 3: teardown resilience, partial-override guard, lifespan ordering
+   - `src/backend/api/tests/conftest.py` — per-DROP try/except + `drop_errors` accumulator + finally-guaranteed env-var/settings restore + raise at end. Added `logger.exception` for the Settings-rebuild fallback. Now mirrors `scripts/tests/conftest.py` pattern exactly.
+   - `src/backend/api/migrations.py` — `_resolve_alembic_paths` now raises `ValueError` when exactly one of `ALEMBIC_INI_PATH` / `ALEMBIC_SCRIPT_LOCATION` is set. Error message names the specific missing var.
+   - `src/backend/api/tests/test_migrations_paths.py` — renamed `test_partial_override_falls_through_to_layout_detection` → `test_partial_override_raises_value_error` and added `test_partial_override_names_missing_var_in_message`. Updated test docstring to explain the contract change.
+   - `src/backend/api/tests/test_main_lifespan.py` — happy-path now uses `_tracking_scraper` instead of `_noop_coro`; asserts the full `apply → init → scraper` ordering so a regression that reorders `create_task` can't slip through.
+
+**Do not revert (new in this pass):**
+
+- Backend `db_conn` teardown's `finally` block for env/settings restore is load-bearing. Removing it (e.g. "inline for simplicity") would re-introduce the Pass 3 cross-module env-leak bug on any transient DROP failure.
+- `_resolve_alembic_paths` raises on partial override. A future "convenience" PR that softens this back to a silent fallthrough would re-introduce the typo-swallowing class of bug.
+- The `_tracking_scraper` pattern in `test_main_lifespan.py::TestLifespanHappyPath` is the only check that pins `create_task(auto_scraper_loop)` to run AFTER `init_pool`. Replacing it with the simpler `_noop_coro` would drop that ordering assertion.
+
+**Manual action required before merge:**
+- (Unchanged from Pass 1/2: operator must run `alembic stamp 91337142414f` against prod before merging.)
