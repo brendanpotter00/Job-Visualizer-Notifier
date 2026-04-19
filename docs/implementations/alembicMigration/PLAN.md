@@ -191,7 +191,7 @@ Baseline revision file: generated via `alembic revision -m "baseline"` (NOT `--a
 
 ### Unit 3 — Verify autogen against a fresh DB produces an empty diff
 
-**Status:** IN PROGRESS
+**Status:** DONE
 
 **Prerequisites:** Unit 2
 
@@ -225,7 +225,7 @@ Non-goal: this unit does not edit `db_models.py` or the baseline. It is a fail-l
 
 ### Unit 4 — Swap the FastAPI lifespan hook to Alembic
 
-**Status:** TODO
+**Status:** IN PROGRESS
 
 **Prerequisites:** Unit 3
 
