@@ -53,7 +53,13 @@ Frozen for every unit. Any drift is a blocker.
 
 ### Unit 1 — Schema-aware test isolation foundation
 
-**Status:** TODO
+**Status:** DONE (commit `6d8f216`)
+
+**Findings for downstream units:**
+- Baseline Alembic revision `91337142414f` is empty; user tables come from `Base.metadata.create_all` in fixtures, not from Alembic. Unit 3's rename migration is still correct (it operates on the live `_local`/`_prod` tables that `create_all` or prior hand-rolled DDL produced), but the implementer should NOT expect `alembic upgrade head` on a fresh DB to produce `job_listings_local` — only `alembic_version_local`.
+- `Base.metadata.create_all(checkfirst=False)` is load-bearing inside fixtures: SQLAlchemy's default existence probe sees `public.job_listings_local` on shared dev DBs and skips creation, leaving the test schema empty. Unit 2's conftest edits must preserve this `checkfirst=False`.
+- `connection.commit()` required after `CREATE SCHEMA IF NOT EXISTS` in `alembic/env.py` under SQLAlchemy 2.x; without it the implicit transaction rolls back and the schema vanishes.
+- Teardown order: close the test's psycopg2 connection BEFORE `DROP SCHEMA … CASCADE`, else the open session reference deadlocks the drop.
 
 **Prerequisites:** none
 
@@ -83,7 +89,12 @@ Frozen for every unit. Any drift is a blocker.
 
 ### Unit 2 — Strip env suffix from db_models.py and Alembic env.py defaults
 
-**Status:** TODO
+**Status:** DONE (commit `239eed5`)
+
+**Findings for downstream units:**
+- 4 SQL f-strings bypassed `_get_table_name` and had to be spot-fixed: `src/backend/api/services/user_preferences_service.py::_table`, `src/backend/api/tests/conftest.py::_clear_tables`, and raw SQL in `scripts/tests/integration/test_database.py` + `test_incremental.py`. All are now bare-named.
+- `src/backend/api/tests/test_migrations_env_guard.py` was deleted here (was scheduled for Unit 4). The guard it tested was removed from `migrations.py` and the test file covered the removed guard — couldn't stay.
+- Parity test currently XPASSes (strict=False, still exit 0) — unexpected but benign. It xpasses because the parity DB is seeded from `create_all` (bare names), so there's no drift to detect. Unit 3 removes the xfail once the migration applies.
 
 **Prerequisites:** Unit 1
 
@@ -92,7 +103,8 @@ Frozen for every unit. Any drift is a blocker.
 
 **Shared-file edits:**
 - `src/backend/alembic/env.py` — delete `_env_suffix = settings.scraper_environment` and `_version_table = f"alembic_version_{_env_suffix}"`. Remove `version_table=_version_table` from BOTH `context.configure` calls in `run_migrations_offline` and `run_migrations_online` (Alembic defaults to `alembic_version`). Leave `compare_type=True, compare_server_default=True`. Leave the `PYTEST_SCHEMA` block from Unit 1.
-- `src/backend/api/tests/test_db_models.py` — already updated in Unit 1; verify no stragglers referencing `_local` names. Rename test ids that embed `_local`.
+- `scripts/shared/database.py::_get_table_name` — **scope revision during implementation (2026-04-19):** The helper must return BARE table names (`"job_listings"`, `"scrape_runs"`, `"users"`) regardless of the `env` argument. Without this change, Unit 2 would leave `scripts/shared/database.py` emitting `_local`-suffixed SQL while fixtures create bare-named tables inside the `PYTEST_SCHEMA` — `search_path` would fall back to `public.job_listings_local` and silently corrupt the shared dev DB. Keep the `env: str` parameter (Unit 4 strips it). Keep `_is_valid_env(env)` validation so bogus envs still error. Everything else in `scripts/shared/database.py` (ALLOWED_ENVS, public function signatures) remains untouched for Unit 4.
+- `src/backend/api/tests/test_db_models.py` — update every assertion from `*_local` to bare names (e.g. `idx_users_local_email` → `idx_users_email`, `users_local_email_key` → `users_email_key`). Delete any `db_models_module` reload fixture.
 - `src/backend/api/migrations.py` — remove the `scraper_environment mismatch` guard in `apply_alembic_migrations`. The guard exists because env.py read `settings.scraper_environment`; env.py no longer does that. The function signature remains `apply_alembic_migrations(database_url, env)` for now (Unit 4 deletes the `env` arg entirely), but the body only uses `database_url`.
 
 **What to do:**
@@ -109,7 +121,16 @@ Frozen for every unit. Any drift is a blocker.
 
 ### Unit 3 — Author the rename migration (combined ALTERs, downgrade via -x env=)
 
-**Status:** TODO
+**Status:** DONE (commit `ee5fe7f`)
+
+**Findings for downstream units:**
+- Revision ID `e1974f8f8eee` chains from baseline `91337142414f`. Round-trip verified locally: bare (3781/2/0/0) → downgrade `-x env=local` → `_local` (3781/2/0/0) → upgrade head → bare (3781/2/0/0). Row counts preserved exactly.
+- Three bugs in the original runbook's revision body were caught during implementation:
+  1. `SET LOCAL search_path TO current_schema()` is invalid Postgres syntax — `SET LOCAL` accepts identifiers/string-literals, not function calls. Replaced with `SELECT set_config('search_path', current_schema(), true)` which is the transaction-scoped equivalent.
+  2. `op.get_context().get_x_argument(...)` fails with `AttributeError` — `get_x_argument` lives on `EnvironmentContext` (`alembic.context`), not `MigrationContext` (`op.get_context()`). Downgrade now imports `from alembic import context, op` and calls `context.get_x_argument(as_dictionary=True)`.
+  3. `ALTER TABLE IF EXISTS ... RENAME CONSTRAINT` guards only the TABLE, not the constraint. Under local, the `users_prod_email_key` rename attempt errored with `UndefinedObject`. Wrapped in `DO $$ BEGIN ... EXCEPTION WHEN undefined_object OR undefined_table THEN NULL; END $$` so absent variants no-op.
+- The xfail decorator from `scripts/tests/integration/test_alembic_parity.py` is removed; parity test passes unconditionally.
+- Prod state verified unchanged via read-only `mcp__postgres-prod__query` — all 4 tables still `_prod`-suffixed. Unit 5 owns the prod rename DEPLOY step.
 
 **Prerequisites:** Unit 2
 
@@ -249,7 +270,15 @@ Frozen for every unit. Any drift is a blocker.
 
 ### Unit 4 — Delete SCRAPER_ENVIRONMENT and --env plumbing
 
-**Status:** TODO
+**Status:** DONE (commit `9bf8950`)
+
+**Findings for downstream units:**
+- Grep gates are clean outside `docs/`: `SCRAPER_ENVIRONMENT`, `scraper_environment`, `--env`, `_get_table_name`, `ALLOWED_ENVS`, `_TEST_ENV_PATTERN`, `_is_valid_env` have zero matches in `src/` and `scripts/` (excluding `.claude/worktrees/`, `.venv/`, and historical `docs/` prose). The one remaining `--env` hit inside code (`test_scraper_runner.py:66: assert "--env" not in args`) is a negative assertion pinning the subprocess contract — intentional, not a leak.
+- Backend suite: 176 tests pass. Scripts suite (excluding `test_alembic_parity.py` which needs a fresh Postgres DB) 365 tests pass. Parity still works when run against a local Postgres.
+- `src/backend/api/migrations.py` signature is now `apply_alembic_migrations(database_url: str)` — single-arg. The env-mismatch guard is gone.
+- `BatchWriter(conn, scraper)` no longer takes an `env` positional. Callers throughout `scripts/shared/incremental.py` were updated in lockstep.
+- `app.state.env` is not set or read anywhere — confirmed via grep.
+- Railway `SCRAPER_ENVIRONMENT=prod` variable is still live in the dashboard; deletion is a Unit 5 post-merge manual step because the code no longer reads it (harmless dead config).
 
 **Prerequisites:** Unit 3
 
@@ -293,7 +322,7 @@ Frozen for every unit. Any drift is a blocker.
 
 ### Unit 5 — Docs, DEPLOY runbook, stale-artifact cleanup SQL
 
-**Status:** TODO
+**Status:** DONE
 
 **Prerequisites:** Unit 4
 
