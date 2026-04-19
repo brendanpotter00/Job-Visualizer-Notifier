@@ -25,13 +25,22 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Connecting to database...")
     try:
-        # Ensure schema exists using a temporary connection
         temp_conn = get_connection(settings.database_url, settings.scraper_environment)
+    except Exception:
+        logger.exception("Failed to connect to database during startup")
+        raise
+    try:
         try:
             init_schema(temp_conn, settings.scraper_environment)
-        finally:
-            temp_conn.close()
-        # Create the connection pool for request handling
+        except Exception:
+            logger.exception(
+                "Failed to apply migrations during startup (env=%s)",
+                settings.scraper_environment,
+            )
+            raise
+    finally:
+        temp_conn.close()
+    try:
         init_pool(
             settings.database_url,
             minconn=settings.db_pool_min,
@@ -39,7 +48,7 @@ async def lifespan(app: FastAPI):
             timeout=settings.db_pool_timeout,
         )
     except Exception:
-        logger.exception("Failed to connect to database")
+        logger.exception("Failed to initialize database connection pool")
         raise
     app.state.env = settings.scraper_environment
     app.state.config = settings

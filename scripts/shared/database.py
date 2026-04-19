@@ -7,6 +7,7 @@ PostgreSQL only. Uses environment-based table naming (e.g., job_listings_local, 
 import json
 import logging
 import re
+from datetime import datetime
 from typing import Set, List, Optional, Dict, Any, Tuple
 from urllib.parse import urlparse
 
@@ -135,119 +136,25 @@ def get_connection(db_url: str, env: str = "local") -> Connection:
 
 def init_schema(conn: Connection, env: str = "local") -> None:
     """
-    Initialize database schema with environment-specific table names
+    Ensure the database schema is up to date by applying any pending migrations.
+
+    Schema is managed via numbered migration files in scripts/shared/migrations/.
+    Applied versions are tracked in schema_migrations_{env}. See that package
+    for the migration runner and individual migration files.
 
     Args:
         conn: Database connection
         env: Environment name (used for table suffix)
     """
-    cursor = conn.cursor()
+    from .migrations.runner import migrate_up
 
-    jobs_table = _get_table_name(env, "jobs")
-    runs_table = _get_table_name(env, "runs")
-
-    # Create job_listings table
-    cursor.execute(f"""
-        CREATE TABLE IF NOT EXISTS {jobs_table} (
-            id TEXT PRIMARY KEY,
-            title TEXT NOT NULL,
-            company TEXT NOT NULL,
-            location TEXT,
-            url TEXT NOT NULL,
-            source_id TEXT NOT NULL,
-            details JSONB DEFAULT '{{}}'::jsonb,
-            posted_on TEXT,
-            created_at TEXT NOT NULL,
-            closed_on TEXT,
-            status TEXT NOT NULL DEFAULT 'OPEN',
-            has_matched BOOLEAN DEFAULT FALSE,
-            ai_metadata JSONB DEFAULT '{{}}'::jsonb,
-            first_seen_at TEXT NOT NULL,
-            last_seen_at TEXT NOT NULL,
-            consecutive_misses INTEGER DEFAULT 0,
-            details_scraped BOOLEAN DEFAULT FALSE
+    applied = migrate_up(conn, env)
+    if applied:
+        logger.info(
+            f"Applied {len(applied)} migration(s) for env={env}: {applied}"
         )
-    """)
-
-    # Create indexes for job_listings
-    cursor.execute(f"""
-        CREATE INDEX IF NOT EXISTS idx_{jobs_table}_status
-        ON {jobs_table}(status)
-    """)
-    cursor.execute(f"""
-        CREATE INDEX IF NOT EXISTS idx_{jobs_table}_company
-        ON {jobs_table}(company)
-    """)
-    cursor.execute(f"""
-        CREATE INDEX IF NOT EXISTS idx_{jobs_table}_last_seen
-        ON {jobs_table}(last_seen_at)
-    """)
-
-    # Create scrape_runs table
-    cursor.execute(f"""
-        CREATE TABLE IF NOT EXISTS {runs_table} (
-            run_id TEXT PRIMARY KEY,
-            company TEXT NOT NULL,
-            started_at TEXT NOT NULL,
-            completed_at TEXT,
-            mode TEXT NOT NULL,
-            jobs_seen INTEGER DEFAULT 0,
-            new_jobs INTEGER DEFAULT 0,
-            closed_jobs INTEGER DEFAULT 0,
-            details_fetched INTEGER DEFAULT 0,
-            error_count INTEGER DEFAULT 0
-        )
-    """)
-
-    # Create users table
-    users_table = _get_table_name(env, "users")
-    # Both auth0_id and email are UNIQUE — see
-    # docs/implementations/auth0/REVIEW_AUDIT.md "2026-04-14 — Design reversal".
-    # The upsert in api/services/user_service.py uses a two-key SELECT lookup
-    # (match by auth0_id OR email) to handle both cross-provider merge
-    # (same email, different auth0_id) and IdP email change (same auth0_id,
-    # different email) without violating either constraint.
-    cursor.execute(f"""
-        CREATE TABLE IF NOT EXISTS {users_table} (
-            id TEXT PRIMARY KEY,
-            auth0_id TEXT NOT NULL UNIQUE,
-            email TEXT NOT NULL UNIQUE,
-            display_name TEXT,
-            given_name TEXT,
-            family_name TEXT,
-            picture_url TEXT,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        )
-    """)
-
-    # Create indexes for users
-    cursor.execute(f"""
-        CREATE INDEX IF NOT EXISTS idx_{users_table}_auth0_id
-        ON {users_table}(auth0_id)
-    """)
-    cursor.execute(f"""
-        CREATE INDEX IF NOT EXISTS idx_{users_table}_email
-        ON {users_table}(email)
-    """)
-
-    # Create user_enabled_companies table
-    enabled_companies_table = f"user_enabled_companies_{env}"
-    cursor.execute(f"""
-        CREATE TABLE IF NOT EXISTS {enabled_companies_table} (
-            user_id TEXT NOT NULL REFERENCES {users_table}(id) ON DELETE CASCADE,
-            company_id TEXT NOT NULL,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            PRIMARY KEY (user_id, company_id)
-        )
-    """)
-    cursor.execute(f"""
-        CREATE INDEX IF NOT EXISTS idx_{enabled_companies_table}_user_id
-        ON {enabled_companies_table}(user_id)
-    """)
-
-    conn.commit()
-    logger.info(f"Database schema initialized for environment: {env}")
+    else:
+        logger.info(f"Database schema up to date for env={env}")
 
 
 def get_active_job_ids(conn: Connection, company: str, env: str = "local") -> Set[str]:
@@ -611,10 +518,40 @@ def get_all_active_jobs(conn: Connection, company: str, env: str = "local") -> L
     jobs = []
     for row in cursor.fetchall():
         row_dict = dict(row)
-        # Parse JSONB columns if returned as strings (depends on psycopg2 config)
         for json_col in ('details', 'ai_metadata'):
             if isinstance(row_dict.get(json_col), str):
                 row_dict[json_col] = json.loads(row_dict[json_col])
+        # Timestamptz columns come back as tz-aware `datetime` objects, but
+        # JobListing models these as ISO 8601 strings (scraper-side contract).
+        # Normalize to `datetime.isoformat()` — note this emits `+00:00` (not
+        # `Z`) as the UTC offset, a one-way wire-format shift once data flows
+        # through this path. All current callers accept both since they pass
+        # through `datetime.fromisoformat(v.replace("Z", "+00:00"))`.
+        # We intentionally restrict the branch to `datetime` so unexpected
+        # types (bytes, Decimal, malformed strings) surface loudly rather
+        # than silently no-op past this conversion.
+        for ts_col in ('posted_on', 'created_at', 'closed_on', 'first_seen_at', 'last_seen_at'):
+            value = row_dict.get(ts_col)
+            if value is None:
+                continue
+            if isinstance(value, datetime):
+                row_dict[ts_col] = value.isoformat()
+            elif isinstance(value, str):
+                # Post-0003/0004 every row is `datetime`. A `str` here means
+                # schema drift (column reverted to TEXT, or a new TEXT column
+                # was added) — log so the regression is grep-able rather than
+                # silently passing strings through.
+                logger.warning(
+                    "Schema drift suspected: %s.%s is str (expected tz-aware "
+                    "datetime post-0003/0004)",
+                    jobs_table, ts_col,
+                )
+                continue
+            else:
+                raise TypeError(
+                    f"Unexpected type for {jobs_table}.{ts_col}: "
+                    f"{type(value).__name__} (expected datetime, str, or None)"
+                )
         jobs.append(JobListing(**row_dict))
 
     return jobs

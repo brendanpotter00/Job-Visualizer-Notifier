@@ -6,6 +6,7 @@ Tests run against PostgreSQL (requires docker-compose postgres to be running).
 
 import pytest
 import json
+from datetime import datetime
 
 import sys
 from pathlib import Path
@@ -13,6 +14,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from shared.models import JobListing, ScrapeRun
 from shared import database as db
+
+
+def _parse_ts(value):
+    """Normalize a timestamptz column value (datetime or ISO str) for comparison."""
+    if isinstance(value, datetime):
+        return value
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
 class TestInitSchema:
@@ -80,11 +88,15 @@ class TestInitSchema:
         """)
         assert cursor.fetchone() is not None
 
-        # Cleanup
-        cursor.execute(f"DROP TABLE IF EXISTS job_listings_{env1} CASCADE")
-        cursor.execute(f"DROP TABLE IF EXISTS scrape_runs_{env1} CASCADE")
-        cursor.execute(f"DROP TABLE IF EXISTS job_listings_{env2} CASCADE")
-        cursor.execute(f"DROP TABLE IF EXISTS scrape_runs_{env2} CASCADE")
+        # Cleanup — drop everything init_schema/migrations created, including
+        # the migration tracking table. If we only drop jobs/runs/users but
+        # leave schema_migrations_{env} behind, the next run of this test
+        # sees migrations 1..N still marked as applied and skips re-creating
+        # job_listings_{env}, so the `table exists` assertion at the top of
+        # the test fails.
+        for env in (env1, env2):
+            for t in ("job_listings", "scrape_runs", "users", "schema_migrations"):
+                cursor.execute(f"DROP TABLE IF EXISTS {t}_{env} CASCADE")
         postgres_db.commit()
 
 
@@ -172,7 +184,7 @@ class TestUpdateLastSeen:
         # Verify misses reset and timestamp updated
         job = db.get_job_by_id(in_memory_db, sample_job_listing.id, env=test_env)
         assert job["consecutive_misses"] == 0
-        assert job["last_seen_at"] == new_timestamp
+        assert _parse_ts(job["last_seen_at"]) == _parse_ts(new_timestamp)
 
     def test_update_last_seen_empty_list(self, in_memory_db, test_env):
         """Handles empty job list gracefully"""
@@ -212,7 +224,7 @@ class TestMarkJobsClosed:
 
         job = db.get_job_by_id(in_memory_db, sample_job_listing.id, env=test_env)
         assert job["status"] == "CLOSED"
-        assert job["closed_on"] == close_timestamp
+        assert _parse_ts(job["closed_on"]) == _parse_ts(close_timestamp)
 
     def test_mark_jobs_closed_multiple(self, in_memory_db, test_env, multiple_job_listings):
         """Can close multiple jobs at once"""
@@ -254,7 +266,7 @@ class TestReactivateJob:
         assert job["status"] == "OPEN"
         assert job["closed_on"] is None
         assert job["consecutive_misses"] == 0
-        assert job["last_seen_at"] == reactivate_timestamp
+        assert _parse_ts(job["last_seen_at"]) == _parse_ts(reactivate_timestamp)
 
 
 class TestScrapeRun:
@@ -330,8 +342,8 @@ class TestUpsertJob:
         assert job["title"] == "Updated Title"
         assert job["location"] == "New Location"
         # Original timestamps should be preserved
-        assert job["first_seen_at"] == sample_job_listing.first_seen_at
-        assert job["created_at"] == sample_job_listing.created_at
+        assert _parse_ts(job["first_seen_at"]) == _parse_ts(sample_job_listing.first_seen_at)
+        assert _parse_ts(job["created_at"]) == _parse_ts(sample_job_listing.created_at)
 
     def test_upsert_job_updates_existing_open(self, in_memory_db, test_env, sample_job_listing):
         """Existing open job gets updated (should not happen in practice, but handles edge case)"""
@@ -412,3 +424,62 @@ class TestGetAllActiveJobs:
         apple_jobs = db.get_all_active_jobs(in_memory_db, "apple", env=test_env)
         assert len(apple_jobs) == 1
         assert apple_jobs[0].company == "apple"
+
+
+class TestTimestamptzColumns:
+    """End-to-end: scraper-side ISO 8601 strings must round-trip through
+    timestamptz columns after migrations 0003 and 0004.
+
+    The existing test_inserting_iso_string_works (test_migrations.py) proves
+    psycopg2's implicit cast. This test proves the full upsert_job() path
+    (Pydantic JobListing -> shared.database -> timestamptz column) works
+    without changing the scraper-side str types.
+    """
+
+    def test_upsert_job_writes_iso_strings_to_timestamptz(
+        self, in_memory_db, test_env, sample_job_listing
+    ):
+        from datetime import datetime
+
+        db.upsert_job(in_memory_db, sample_job_listing, env=test_env)
+
+        cursor = in_memory_db.cursor()
+        cursor.execute(
+            f"SELECT created_at, first_seen_at, last_seen_at, "
+            f"pg_typeof(created_at) AS created_type "
+            f"FROM job_listings_{test_env} WHERE id = %s",
+            (sample_job_listing.id,),
+        )
+        row = cursor.fetchone()
+        assert row is not None
+
+        # psycopg2 returns tz-aware datetimes from timestamptz columns.
+        for col in ("created_at", "first_seen_at", "last_seen_at"):
+            value = row[col]
+            assert isinstance(value, datetime), f"{col} should be datetime, got {type(value)}"
+            assert value.tzinfo is not None, f"{col} should be tz-aware"
+
+        assert row["created_type"] == "timestamp with time zone"
+
+    def test_get_all_active_jobs_returns_iso_string_timestamps(
+        self, in_memory_db, test_env, sample_job_listing
+    ):
+        """get_all_active_jobs normalizes tz-aware datetimes from psycopg2
+        back into ISO 8601 strings so the shared JobListing model (which
+        types these fields as str) keeps validating. Without this test a
+        refactor could regress the endpoint to emit datetime-repr strings
+        that would still type-check as str but fail frontend parsing.
+        """
+        from datetime import datetime
+
+        db.upsert_job(in_memory_db, sample_job_listing, env=test_env)
+
+        jobs = db.get_all_active_jobs(in_memory_db, sample_job_listing.company, env=test_env)
+        assert len(jobs) == 1
+        job = jobs[0]
+
+        for field in ("created_at", "first_seen_at", "last_seen_at"):
+            value = getattr(job, field)
+            assert isinstance(value, str), f"{field} must be str, got {type(value)}"
+            parsed = datetime.fromisoformat(value)
+            assert parsed.tzinfo is not None, f"{field} should round-trip as tz-aware"

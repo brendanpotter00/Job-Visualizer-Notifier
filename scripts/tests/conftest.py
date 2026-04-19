@@ -130,6 +130,8 @@ def postgres_db(test_env):
     try:
         cursor.execute(f"DROP TABLE IF EXISTS job_listings_{test_env} CASCADE")
         cursor.execute(f"DROP TABLE IF EXISTS scrape_runs_{test_env} CASCADE")
+        cursor.execute(f"DROP TABLE IF EXISTS users_{test_env} CASCADE")
+        cursor.execute(f"DROP TABLE IF EXISTS schema_migrations_{test_env} CASCADE")
         conn.commit()
     except Exception:
         conn.rollback()

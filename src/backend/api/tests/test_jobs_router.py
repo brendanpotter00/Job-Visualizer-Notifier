@@ -145,3 +145,60 @@ def test_detail_endpoint_returns_full_details(client, db_conn, test_env):
     details = json.loads(resp.json()["details"])
     assert details["experience_level"] == "Senior"
     assert details["about_the_job"] == "Full description here"
+
+
+def test_get_jobs_returns_iso8601_datetime_strings(client, db_conn, test_env):
+    """After migrations 0003/0004, DB columns are timestamptz; Pydantic must
+    serialize them as ISO 8601 strings matching the frontend BackendJobListing
+    contract.
+    """
+    import re
+    from datetime import datetime
+
+    # Seed an extra job that populates the nullable timestamp fields so the
+    # regex loop also exercises postedOn and closedOn (which are NULL on the
+    # default seed fixture's rows).
+    _insert_job(db_conn, test_env, _make_job({
+        "id": "iso-fields-job",
+        "status": "CLOSED",
+        "posted_on": "2025-01-05T12:00:00Z",
+        "closed_on": "2025-01-20T18:30:00Z",
+        "last_seen_at": "2025-01-20T18:30:00Z",
+    }))
+
+    resp = client.get("/api/jobs")
+    assert resp.status_code == 200
+    jobs = resp.json()
+    assert len(jobs) > 0
+
+    # Conservative ISO 8601 regex: YYYY-MM-DDTHH:MM:SS with optional
+    # microseconds and either a named offset or 'Z'.
+    iso_re = re.compile(
+        r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?([+-]\d{2}:\d{2}|Z)$"
+    )
+
+    saw_posted_on = False
+    saw_closed_on = False
+    for job in jobs:
+        for field in ("createdAt", "firstSeenAt", "lastSeenAt"):
+            value = job[field]
+            assert isinstance(value, str), f"{field} must be str, got {type(value)}"
+            assert iso_re.match(value), f"{field}={value!r} is not ISO 8601"
+            # And it must round-trip via fromisoformat.
+            datetime.fromisoformat(value)
+        # postedOn / closedOn are nullable; check shape only when populated.
+        for field in ("postedOn", "closedOn"):
+            value = job.get(field)
+            if value is None:
+                continue
+            assert isinstance(value, str), f"{field} must be str, got {type(value)}"
+            assert iso_re.match(value), f"{field}={value!r} is not ISO 8601"
+            datetime.fromisoformat(value)
+            if field == "postedOn":
+                saw_posted_on = True
+            else:
+                saw_closed_on = True
+
+    # Guardrail: the seeded job above should have exercised both fields.
+    assert saw_posted_on, "expected at least one job with non-null postedOn"
+    assert saw_closed_on, "expected at least one job with non-null closedOn"
