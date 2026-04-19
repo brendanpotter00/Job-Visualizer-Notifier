@@ -16,7 +16,13 @@ interface TimeBasedCounts {
  */
 export function useTimeBasedJobCounts(allJobs: Job[]): TimeBasedCounts {
   return useMemo(() => {
-    const now = Date.now(); // eslint-disable-line react-hooks/purity -- Date.now() is intentionally used for time-window calculations
+    // Intentional impurity: we sample wall-clock time once per `allJobs`
+    // change to compute rolling time-window counts (last 12h / 24h / 3d).
+    // Injecting `now` as an arg would just relocate the Date.now() call into
+    // every caller in MetricsDashboard/*. Keeping the disable here localizes
+    // the impurity to one line.
+    // eslint-disable-next-line react-hooks/purity -- see comment above
+    const now = Date.now();
     const last3Days = now - 3 * TIME_UNITS.DAY;
     const last24Hours = now - 24 * TIME_UNITS.HOUR;
     const last12Hours = now - 12 * TIME_UNITS.HOUR;

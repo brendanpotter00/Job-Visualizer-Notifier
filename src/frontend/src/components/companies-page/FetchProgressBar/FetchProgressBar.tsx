@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Accordion,
   AccordionSummary,
@@ -57,17 +57,20 @@ export function FetchProgressBar({ companyIdFilter }: FetchProgressBarProps = {}
     visibleTotal > 0 ? (visibleCompleted / visibleTotal) * 100 : 0;
 
   const [expanded, setExpanded] = useState(isLoading);
-  const wasLoadingRef = useRef(false);
+  const [prevIsLoading, setPrevIsLoading] = useState(isLoading);
 
-  useEffect(() => {
-    if (isLoading) {
-      wasLoadingRef.current = true;
-      setExpanded(true); // eslint-disable-line react-hooks/set-state-in-effect -- syncing derived state from isLoading prop
-    } else if (wasLoadingRef.current) {
-      setExpanded(false);
-      wasLoadingRef.current = false;
-    }
-  }, [isLoading]);
+  // Adjust `expanded` during render when the `isLoading` prop transitions.
+  // This is React's documented "storing information from previous renders"
+  // pattern (https://react.dev/reference/react/useState#storing-information-from-previous-renders) —
+  // equivalent to the previous useEffect + wasLoadingRef bookkeeping but in
+  // render phase, so it is not flagged by react-hooks/set-state-in-effect
+  // or react-hooks/refs, and no disable comment is needed. React detects the
+  // render-phase setState on the currently-rendering component and restarts
+  // the render with the new state before committing.
+  if (prevIsLoading !== isLoading) {
+    setPrevIsLoading(isLoading);
+    setExpanded(isLoading);
+  }
 
   if (progress.total === 0 || visibleTotal === 0) {
     return null;
