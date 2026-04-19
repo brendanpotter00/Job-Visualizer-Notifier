@@ -21,6 +21,13 @@ COPY src/backend/api/ ./api/
 # Copy scraper scripts
 COPY scripts/ ./scripts/
 
+# Copy Alembic configuration and migration scripts.
+# Must stay reachable at /app/alembic.ini + /app/alembic/ because
+# src/backend/api/migrations.py resolves these via ALEMBIC_INI_PATH /
+# Docker-layout fallback. See docs/implementations/alembicMigration/.
+COPY alembic.ini ./
+COPY src/backend/alembic/ ./alembic/
+
 # Environment defaults
 ENV PORT=8080
 ENV PYTHONPATH=/app

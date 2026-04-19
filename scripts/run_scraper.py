@@ -45,6 +45,14 @@ from scripts.shared import database as db
 from scripts.shared import incremental
 from scripts.shared.batch_writer import BatchWriter
 
+# apply_alembic_migrations lives in the backend api package. Import path
+# differs between local dev (PYTHONPATH=<repo root>) and the Docker image
+# (PYTHONPATH=/app, api/ at root). Try both.
+try:
+    from src.backend.api.migrations import apply_alembic_migrations
+except ImportError:
+    from api.migrations import apply_alembic_migrations
+
 console = Console()
 logger = logging.getLogger(__name__)
 
@@ -164,10 +172,10 @@ async def run_database_mode(args):
 
     logger.info(f"Running scraper in database mode: company={company}, env={env}")
 
-    # Connect to database
+    # Connect to database and ensure schema is at head via Alembic.
     try:
+        apply_alembic_migrations(db_url, env)
         conn = db.get_connection(db_url, env)
-        db.init_schema(conn, env)
     except Exception as e:
         console.print(f"[bold red]Database connection failed: {e}[/bold red]")
         sys.exit(2)

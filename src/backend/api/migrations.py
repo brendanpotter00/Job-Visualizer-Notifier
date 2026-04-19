@@ -10,6 +10,7 @@ production incident).
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 
 from alembic import command
@@ -17,11 +18,44 @@ from alembic.config import Config
 
 logger = logging.getLogger(__name__)
 
-# src/backend/api/migrations.py → parents[3] resolves to the repo/worktree root
-# (where alembic.ini lives).
-_REPO_ROOT = Path(__file__).resolve().parents[3]
-_ALEMBIC_INI = _REPO_ROOT / "alembic.ini"
-_SCRIPT_LOCATION = _REPO_ROOT / "src" / "backend" / "alembic"
+# Path resolution has three modes:
+#   1. ALEMBIC_INI_PATH / ALEMBIC_SCRIPT_LOCATION env vars (explicit override).
+#   2. Dev layout: migrations.py lives at src/backend/api/migrations.py;
+#      parents[3] is the repo root, which holds alembic.ini and src/backend/alembic.
+#   3. Docker layout: migrations.py lives at /app/api/migrations.py; the Dockerfile
+#      COPYs alembic.ini and alembic/ into /app, so parents[1] is the alembic root.
+_HERE = Path(__file__).resolve()
+
+
+def _resolve_alembic_paths() -> tuple[Path, Path]:
+    ini_override = os.environ.get("ALEMBIC_INI_PATH")
+    script_override = os.environ.get("ALEMBIC_SCRIPT_LOCATION")
+    if ini_override and script_override:
+        return Path(ini_override), Path(script_override)
+
+    dev_root = _HERE.parents[3] if len(_HERE.parents) > 3 else None
+    if dev_root is not None:
+        dev_ini = dev_root / "alembic.ini"
+        dev_scripts = dev_root / "src" / "backend" / "alembic"
+        if dev_ini.exists() and dev_scripts.is_dir():
+            return dev_ini, dev_scripts
+
+    # Docker layout: migrations.py is /app/api/migrations.py; /app holds
+    # alembic.ini and alembic/ thanks to Dockerfile COPYs.
+    docker_root = _HERE.parents[1]
+    docker_ini = docker_root / "alembic.ini"
+    docker_scripts = docker_root / "alembic"
+    if docker_ini.exists() and docker_scripts.is_dir():
+        return docker_ini, docker_scripts
+
+    raise FileNotFoundError(
+        f"Could not locate alembic.ini / alembic script directory. "
+        f"Searched: {dev_root / 'alembic.ini' if dev_root else '(no dev root)'}, "
+        f"{docker_ini}. Set ALEMBIC_INI_PATH and ALEMBIC_SCRIPT_LOCATION to override."
+    )
+
+
+_ALEMBIC_INI, _SCRIPT_LOCATION = _resolve_alembic_paths()
 
 
 def apply_alembic_migrations(database_url: str, env: str) -> None:
