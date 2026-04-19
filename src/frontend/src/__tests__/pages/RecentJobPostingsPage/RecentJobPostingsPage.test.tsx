@@ -128,7 +128,8 @@ describe('RecentJobPostingsPage', () => {
   });
 
   describe('error branch', () => {
-    it('renders ErrorState with LOAD_JOBS_FAILED message when query errors', () => {
+    it('renders ErrorState with the decoded error message when query errors', () => {
+      // RTK Query shape: { data: 'boom' } → extractErrorMessage returns 'boom'.
       mockAllJobsQuery({
         data: undefined,
         error: { status: 500, data: 'boom' },
@@ -137,9 +138,23 @@ describe('RecentJobPostingsPage', () => {
       });
       renderWithProviders(<RecentJobPostingsPage />, { initialEntries: ['/'] });
 
-      expect(screen.getByText(ERROR_MESSAGES.LOAD_JOBS_FAILED)).toBeInTheDocument();
+      expect(screen.getByText('boom')).toBeInTheDocument();
       expect(screen.getByRole('alert')).toBeInTheDocument();
       expect(screen.queryByTestId('recent-jobs-metrics')).not.toBeInTheDocument();
+    });
+
+    it('falls back to LOAD_JOBS_FAILED when the error has no decodable message', () => {
+      // Unknown shape (no data, no message) → fallback is used.
+      mockAllJobsQuery({
+        data: undefined,
+        error: { status: 500 },
+        isLoading: false,
+        isFetching: false,
+      });
+      renderWithProviders(<RecentJobPostingsPage />, { initialEntries: ['/'] });
+
+      expect(screen.getByText(ERROR_MESSAGES.LOAD_JOBS_FAILED)).toBeInTheDocument();
+      expect(screen.getByRole('alert')).toBeInTheDocument();
     });
 
     it('does not render metrics/filters/list when error is present', () => {

@@ -118,12 +118,10 @@ describe('GraphFilters', () => {
     const user = userEvent.setup();
     renderWithProviders(<GraphFilters />, { store });
 
-    const comboboxes = screen.getAllByRole('combobox');
-    // TimeWindowSelect is the first non-Autocomplete combobox in the bar.
-    // Find by the visible value "30 days" (default).
-    const timeWindowCombo = comboboxes.find((el) => el.textContent === '30 days');
-    expect(timeWindowCombo).toBeDefined();
-    await user.click(timeWindowCombo as HTMLElement);
+    // Resolve the TimeWindowSelect by its accessible name rather than by
+    // current textContent — the latter flakes the instant the default changes.
+    const timeWindowCombo = screen.getByRole('combobox', { name: 'Time Window' });
+    await user.click(timeWindowCombo);
     const listbox = await screen.findByRole('listbox');
     await user.click(within(listbox).getByRole('option', { name: '7 days' }));
     expect(store.getState().graphFilters.filters.timeWindow).toBe('7d');

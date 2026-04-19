@@ -123,12 +123,10 @@ describe('RecentJobsFilters', () => {
     const user = userEvent.setup();
     renderWithProviders(<RecentJobsFilters />, { store });
 
-    // We preloaded timeWindow='30d' so the visible text is '30 days'.
-    const timeWindowCombo = screen
-      .getAllByRole('combobox')
-      .find((el) => el.textContent === '30 days');
-    expect(timeWindowCombo).toBeDefined();
-    await user.click(timeWindowCombo as HTMLElement);
+    // Resolve the TimeWindowSelect by its accessible name rather than by
+    // current textContent — the latter flakes the instant the default changes.
+    const timeWindowCombo = screen.getByRole('combobox', { name: 'Time Window' });
+    await user.click(timeWindowCombo);
     const listbox = await screen.findByRole('listbox');
     await user.click(within(listbox).getByRole('option', { name: '7 days' }));
     expect(store.getState().recentJobsFilters.filters.timeWindow).toBe('7d');

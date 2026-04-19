@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import { FormControl, InputLabel, Select, MenuItem } from '@mui/material';
 import { TIME_WINDOWS } from '../../../constants/filters.ts';
 import type { TimeWindow } from '../../../types';
@@ -10,7 +11,11 @@ export interface TimeWindowSelectProps {
 }
 
 /**
- * Dropdown selector for time window filter
+ * Dropdown selector for time window filter.
+ *
+ * The `InputLabel` and `Select` share a stable, generated `labelId` so the
+ * combobox exposes its accessible name — tests can find it via
+ * `getByRole('combobox', { name: '<label>' })`.
  */
 export function TimeWindowSelect({
   value,
@@ -18,10 +23,16 @@ export function TimeWindowSelect({
   label = 'Time Window',
   size = 'small',
 }: TimeWindowSelectProps) {
+  const labelId = useId();
   return (
     <FormControl size={size} sx={{ minWidth: 150 }}>
-      <InputLabel>{label}</InputLabel>
-      <Select value={value} label={label} onChange={(e) => onChange(e.target.value as TimeWindow)}>
+      <InputLabel id={labelId}>{label}</InputLabel>
+      <Select
+        labelId={labelId}
+        value={value}
+        label={label}
+        onChange={(e) => onChange(e.target.value as TimeWindow)}
+      >
         {TIME_WINDOWS.map((tw) => (
           <MenuItem key={tw.value} value={tw.value}>
             {tw.label}

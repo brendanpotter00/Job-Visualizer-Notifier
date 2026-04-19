@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { StrictMode } from 'react';
+import type { ReactNode } from 'react';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { useFetchWithStatus } from '../../hooks/useFetchWithStatus';
 
@@ -290,5 +292,83 @@ describe('useFetchWithStatus', () => {
     await waitFor(() => {
       expect(result.current.error).toBe('Request failed');
     });
+  });
+
+  it('converges to a single successful fetch under React StrictMode double-mount', async () => {
+    // StrictMode intentionally mounts-unmounts-remounts on dev. The first
+    // mount's controller is aborted by the unmount, so the second mount's
+    // fetch is the one that lands. We assert the fetcher is invoked (once or
+    // twice — React may call it on each mount) and the final state reflects
+    // a successful fetch.
+    const fetcher = vi.fn(async () => 'ok');
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <StrictMode>{children}</StrictMode>
+    );
+    const { result } = renderHook(
+      () => useFetchWithStatus<string>({ fetcher, deps: [] }),
+      { wrapper }
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(result.current.data).toBe('ok');
+    expect(result.current.error).toBeNull();
+    // Under StrictMode React may call the fetcher on each mount; assert bounded.
+    expect(fetcher.mock.calls.length).toBeGreaterThanOrEqual(1);
+    expect(fetcher.mock.calls.length).toBeLessThanOrEqual(2);
+  });
+
+  it('decodes RTK-Query-shape { data: { detail } } errors via extractErrorMessage', async () => {
+    const fetcher = vi.fn(async () => {
+      throw { data: { detail: 'backend down' } };
+    });
+
+    const { result } = renderHook(() =>
+      useFetchWithStatus<number>({ fetcher, deps: [] })
+    );
+
+    await waitFor(() => {
+      expect(result.current.error).toBe('backend down');
+    });
+  });
+
+  it('aborts the first signal when reload() is called while the first fetch is pending', async () => {
+    const signals: AbortSignal[] = [];
+    let resolveFirst: ((v: string) => void) | null = null;
+    const firstPending = new Promise<string>((res) => {
+      resolveFirst = res;
+    });
+
+    const fetcher = vi.fn((signal: AbortSignal) => {
+      signals.push(signal);
+      if (signals.length === 1) return firstPending;
+      return Promise.resolve('second');
+    });
+
+    const { result } = renderHook(() =>
+      useFetchWithStatus<string>({ fetcher, deps: [] })
+    );
+
+    // First fetch in flight; kick off reload() before it resolves.
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    act(() => {
+      result.current.reload();
+    });
+
+    await waitFor(() => {
+      expect(result.current.data).toBe('second');
+    });
+
+    // The first signal must have been aborted by reload() before the second
+    // fetch resolved. Assert this only after "second" has landed.
+    expect(signals[0].aborted).toBe(true);
+
+    // Belt-and-suspenders: the first promise resolving late must not clobber.
+    resolveFirst!('first');
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(result.current.data).toBe('second');
   });
 });

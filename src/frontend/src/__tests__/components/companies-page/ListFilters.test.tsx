@@ -118,11 +118,10 @@ describe('ListFilters', () => {
     const user = userEvent.setup();
     renderWithProviders(<ListFilters />, { store });
 
-    const comboboxes = screen.getAllByRole('combobox');
-    // ListFilters default timeWindow is '24h' -> '24 hours'
-    const timeWindowCombo = comboboxes.find((el) => el.textContent === '24 hours');
-    expect(timeWindowCombo).toBeDefined();
-    await user.click(timeWindowCombo as HTMLElement);
+    // Resolve the TimeWindowSelect by its accessible name rather than by
+    // current textContent — the latter flakes the instant the default changes.
+    const timeWindowCombo = screen.getByRole('combobox', { name: 'Time Window' });
+    await user.click(timeWindowCombo);
     const listbox = await screen.findByRole('listbox');
     await user.click(within(listbox).getByRole('option', { name: '7 days' }));
     expect(store.getState().listFilters.filters.timeWindow).toBe('7d');

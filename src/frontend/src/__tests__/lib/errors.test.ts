@@ -58,6 +58,11 @@ describe('extractErrorMessage', () => {
       expect(extractErrorMessage({ data: { detail: '', message: 'backup' } })).toBe('backup');
     });
 
+    it('falls through when data.detail is not a string (uses data.message)', () => {
+      // The non-string detail branch must not short-circuit; message should win.
+      expect(extractErrorMessage({ data: { detail: 123, message: 'x' } })).toBe('x');
+    });
+
     it('falls through when data is null', () => {
       expect(extractErrorMessage({ data: null })).toBe('Unknown error');
     });

@@ -8,10 +8,9 @@ describe('TimeWindowSelect', () => {
   it('renders with default label "Time Window"', () => {
     render(<TimeWindowSelect value="30d" onChange={vi.fn()} />);
     // MUI Select renders the label twice (visible label + notched fieldset
-    // legend) and its htmlFor/aria-labelledby wiring is not recognized by
-    // getByLabelText. Assert both occurrences exist and the combobox is present.
+    // legend). The `labelId` wiring exposes the combobox's accessible name.
     expect(screen.getAllByText('Time Window').length).toBeGreaterThan(0);
-    expect(screen.getByRole('combobox')).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Time Window' })).toBeInTheDocument();
   });
 
   it('renders with custom label', () => {
