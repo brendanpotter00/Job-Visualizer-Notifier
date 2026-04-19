@@ -360,7 +360,7 @@ Why delete (not archive): the user explicitly requested deletion. The incident p
 
 ### Unit 7 — Docs and prod-stamp runbook
 
-**Status:** IN PROGRESS
+**Status:** DONE
 
 **Prerequisites:** Unit 6
 
