@@ -47,10 +47,15 @@ from scripts.shared.batch_writer import BatchWriter
 
 # apply_alembic_migrations lives in the backend api package. Import path
 # differs between local dev (PYTHONPATH=<repo root>) and the Docker image
-# (PYTHONPATH=/app, api/ at root). Try both.
+# (PYTHONPATH=/app, api/ at root). Try both — but only fall back when the
+# missing module is actually one of the path-prefix segments. A real bug
+# *inside* migrations.py (e.g. a typo importing alembic) raises a different
+# ModuleNotFoundError that should surface, not be masked by the fallback.
 try:
     from src.backend.api.migrations import apply_alembic_migrations
-except ImportError:
+except ModuleNotFoundError as e:
+    if e.name not in ("src", "src.backend", "src.backend.api"):
+        raise
     from api.migrations import apply_alembic_migrations
 
 console = Console()
@@ -172,12 +177,24 @@ async def run_database_mode(args):
 
     logger.info(f"Running scraper in database mode: company={company}, env={env}")
 
-    # Connect to database and ensure schema is at head via Alembic.
+    # Ensure schema is at head via Alembic, then connect. Separated so an
+    # Alembic failure isn't reported as "Database connection failed" — the
+    # operator needs to know which step actually failed. Distinct exit codes
+    # let the subprocess runner / cron driver distinguish migration errors
+    # (3) from raw connectivity errors (2). The traceback is logged at
+    # exception() so subprocess stderr surfaces the underlying cause.
     try:
         apply_alembic_migrations(db_url, env)
+    except Exception as e:
+        console.print(f"[bold red]Alembic migration failed (env={env}): {e}[/bold red]")
+        logger.exception("Alembic migration failed in scraper startup")
+        sys.exit(3)
+
+    try:
         conn = db.get_connection(db_url, env)
     except Exception as e:
-        console.print(f"[bold red]Database connection failed: {e}[/bold red]")
+        console.print(f"[bold red]Database connection failed (env={env}): {e}[/bold red]")
+        logger.exception("Database connection failed in scraper startup")
         sys.exit(2)
 
     scraper_class = SCRAPER_CLASSES.get(company)
