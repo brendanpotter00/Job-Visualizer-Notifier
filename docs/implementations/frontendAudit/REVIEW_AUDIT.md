@@ -141,3 +141,60 @@ Vercel verifier confirmed: pass-1 fix commits introduce zero new `process.env` /
 - The two new tests (`surfaces a name-only AbortError…` and `surfaces a bare { name: "AbortError" } object…`) encode the signal-gated invariant. The pre-existing `treats a bare { name: "AbortError" } throw as an abort (not Error instance)` test remains because it aborts via the `unmount()` path, so `controller.signal.aborted === true` at catch time — that case is still correctly swallowed.
 - `GraphFilters.test.tsx` and `RecentJobsFilters.test.tsx` filter-independence cases now use `getByRole('combobox', { name: 'Time Window' })`. Do not regress to `getAllByRole(...).find(el => el.textContent === '30 days')` — that pattern breaks the instant the default time window changes.
 
+
+---
+
+## 2026-04-19 — Review pass 3
+
+Dispatched 6 agents in parallel: code-reviewer, silent-failure-hunter, pr-test-analyzer, type-design-analyzer, comment-analyzer, vercel-prod-verifier. Postgres/Railway verifiers not dispatched (frontend-only diff). All agents briefed to read REVIEW_AUDIT.md first and honor "Do not revert" blocks from passes 1 and 2.
+
+### Code-review findings
+
+**Critical:** None.
+
+**Important:**
+
+- `src/frontend/src/__tests__/components/companies-page/ListFilters.test.tsx:299-302` — still uses the brittle `getAllByRole('combobox').find(el => el.textContent === '24 hours')` pattern. Pass 2's "migrate 2 stragglers" commit (`dbde280`) touched only `GraphFilters.test.tsx` and `RecentJobsFilters.test.tsx` — this third instance in the filter-independence test was missed. Regresses the instant the default List time window changes from `'24h'` or the option label is renamed. (pr-test-analyzer)
+
+**Suggestion:**
+
+- `src/frontend/src/features/filters/slices/createFilterSlice.ts:58-77` — `hasDepartmentField` / `hasCompanyField` predicates narrow `T` based only on the closure-captured `name`, ignoring the `filters` runtime argument (`void filters`). Sound for the sole intended caller (`graph` + `GraphFilters`) but unsound as a generic type-guard signature. **Deferred** — requires the name↔shape overload rewrite already on the Deferred list. (type-design-analyzer, code-reviewer)
+- `src/frontend/src/lib/errors.ts:28-30` — thrown empty string `''` yields `''` instead of falling through to `fallback`. `return err || fallback;` would close the gap. No known caller throws `''`. **Deferred** — already listed in pass 1. (silent-failure-hunter, code-reviewer)
+- `src/frontend/src/hooks/useFetchWithStatus.ts:97-106` — `skip: false → true` transition unconditionally resets `setData(null)` / `setError(null)`; a future `skip`-gated caller would lose a previously-successful payload. A one-line JSDoc on `skip` documenting the reset would prevent surprise. **Deferred** — no current caller toggles `skip`. (silent-failure-hunter)
+- `src/frontend/CLAUDE.md:88` — "every caller in `MetricsDashboard/*`" overstates; there is exactly one caller. Pass 2 fixed the parallel phrasing in the `useTimeBasedJobCounts.ts` inline comment but missed this CLAUDE.md doc reference. Low-priority cosmetic. **Deferred** — will not rot until a second caller appears, at which point the justification changes anyway. (comment-analyzer)
+- `src/frontend/src/pages/AccountPage/AccountPage.tsx:139-143` — raw `<Alert severity="error">` for save-error feedback. CLAUDE.md Frontend Foundations rule §4 targets page loading/error UI, so an action-feedback banner is arguably outside scope, but migrating to `<ErrorState inline message={saveError} />` would bring AccountPage's save-error and load-error paths under one component. **Deferred** — low priority, not a regression. (type-design-analyzer)
+
+**Nit:** skipped per protocol.
+
+### Production-environment findings
+
+**Critical:** None. **Important:** None. **Suggestion:** None.
+
+**Could not verify:**
+- `postgres-prod-verifier` — not dispatched (no matching diff signal).
+- `railway-prod-verifier` — not dispatched (no matching diff signal).
+
+Vercel verifier confirmed: pass-2 fix commits (`cc8cea3`, `ec1be3e`, `dbde280`, `ac38a82`) touch only frontend source, tests, audit log, and comment text — zero edits to `api/*`, `vercel.json`, `vite.config.ts`, `tsconfig`, `package.json`. Zero new `process.env` / `import.meta.env` reads. Pass 3 prod-env check: clean. Safe to merge from a production-infrastructure standpoint.
+
+### Deferred (not fixing this pass)
+
+- `createFilterSlice` name↔shape overloads (reaffirmed; low ROI).
+- `useFetchWithStatus` skip-transition JSDoc and dedicated test.
+- `extractErrorMessage` empty-string fallthrough.
+- `CLAUDE.md` singular-caller rephrase for `MetricsDashboard` justification.
+- `AccountPage` save-error migration to `ErrorState inline`.
+- All pass-1 and pass-2 Deferred items still Deferred.
+
+### Implementation applied — pass 3
+
+**Commits:**
+- 432e9c7 — Migrate final straggler TimeWindow selector in ListFilters independence test
+
+**Do not revert (new in this pass):**
+- `ListFilters.test.tsx` filter-independence case uses `getByRole('combobox', { name: 'Time Window' })`. Do not regress to `getAllByRole(...).find(el => el.textContent === '24 hours')` — same flake risk as the GraphFilters/RecentJobsFilters cases already guarded in pass 2.
+
+**Manual action required before merge:** None.
+
+**Gates after fix:** `npm run type-check` → green. `npm test` → 1282/1282 passing. `npm run lint` → 0 errors (141 pre-existing warnings, all in Vercel serverless functions and logger, outside the audit scope).
+
+**Verdict:** 3 review passes complete. No Critical or Important findings remain. All Deferred items are documented and intentionally out of scope for this PR. PR is ready to open.
