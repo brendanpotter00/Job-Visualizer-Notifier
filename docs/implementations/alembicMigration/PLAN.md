@@ -152,7 +152,7 @@ Unit test asserts:
 
 ### Unit 2 — Initialize Alembic skeleton and commit an empty baseline revision
 
-**Status:** IN PROGRESS
+**Status:** DONE
 
 **Prerequisites:** Unit 1
 
@@ -191,7 +191,7 @@ Baseline revision file: generated via `alembic revision -m "baseline"` (NOT `--a
 
 ### Unit 3 — Verify autogen against a fresh DB produces an empty diff
 
-**Status:** TODO
+**Status:** IN PROGRESS
 
 **Prerequisites:** Unit 2
 
