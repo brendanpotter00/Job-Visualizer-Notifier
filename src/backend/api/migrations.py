@@ -78,34 +78,12 @@ logger.info(
 def apply_alembic_migrations(database_url: str, env: str) -> None:
     """Run `alembic upgrade head` against the given database URL.
 
-    The caller MUST ensure `env` matches what Alembic's env.py will compute
-    as the version-table suffix. env.py reads `api.config.settings.scraper_environment`,
-    which is a pydantic module-level singleton bound at import time from
-    SCRAPER_ENVIRONMENT (default "local" if unset). If the caller passes
-    env="prod" while settings.scraper_environment is "local" (because
-    SCRAPER_ENVIRONMENT was unset), Alembic would silently target
-    alembic_version_local against a prod database — invisible at deploy
-    time, catastrophic later. Comparing against the settings singleton (not
-    os.environ) catches the "unset env var → default local" case that a
-    plain env-var check misses.
-
-    Raises RuntimeError on mismatch. Does NOT mutate settings or process env —
-    the caller owns those.
+    The `env` argument is retained for backwards compatibility with existing
+    callers — after envAgnosticTables Unit 2, env.py no longer interpolates
+    the env into the version-table name (Alembic uses the default
+    `alembic_version` tracker), so the previous scraper_environment mismatch
+    guard is obsolete. Unit 4 will drop the `env` parameter entirely.
     """
-    # Import inside the function to avoid a hard dependency on Settings() at
-    # module import time (some test paths reload api.config between imports).
-    from .config import settings as _settings
-
-    if _settings.scraper_environment != env:
-        raise RuntimeError(
-            f"scraper_environment mismatch: api.config.settings.scraper_environment="
-            f"{_settings.scraper_environment!r} but migration target env={env!r}. "
-            f"Alembic env.py would target alembic_version_{_settings.scraper_environment} "
-            f"against a DB intended for {env}. Set SCRAPER_ENVIRONMENT={env} (and "
-            f"ensure api.config.settings is rebuilt if it was imported earlier) before "
-            f"invoking apply_alembic_migrations."
-        )
-
     cfg = Config(str(_ALEMBIC_INI))
     cfg.set_main_option("sqlalchemy.url", database_url)
     # alembic.ini's script_location is relative ("src/backend/alembic"); when

@@ -64,25 +64,34 @@ def _is_valid_env(env: str) -> bool:
 
 def _get_table_name(env: str, table_type: str = "jobs") -> str:
     """
-    Get environment-specific table name.
+    Get the bare table name. The `env` argument is accepted for backwards
+    compatibility with callers — it is validated but no longer interpolated.
+    Unit 4 of envAgnosticTables removes the `env` parameter entirely.
 
     Args:
-        env: Environment name (local, qa, prod, or test_<hex> for tests)
+        env: Environment name (local, qa, prod, or test_<hex> for tests).
+            Validated but unused for name construction.
         table_type: Type of table ("jobs", "runs", or "users")
 
     Returns:
-        Full table name with environment suffix
+        Bare table name (no env suffix).
 
     Raises:
-        ValueError: If env is not valid
+        ValueError: If env is not valid or table_type is unknown.
     """
     if not _is_valid_env(env):
-        raise ValueError(f"Invalid environment: {env}. Must be one of {ALLOWED_ENVS} or test_<hex>")
-    if table_type == "runs":
-        return f"scrape_runs_{env}"
+        raise ValueError(
+            f"Invalid environment: {env}. Must be one of {ALLOWED_ENVS} or test_<hex>"
+        )
+
+    if table_type == "jobs":
+        return "job_listings"
+    elif table_type == "runs":
+        return "scrape_runs"
     elif table_type == "users":
-        return f"users_{env}"
-    return f"job_listings_{env}"
+        return "users"
+    else:
+        raise ValueError(f"Unknown table_type: {table_type}")
 
 
 def _build_job_values(job: JobListing) -> Tuple:

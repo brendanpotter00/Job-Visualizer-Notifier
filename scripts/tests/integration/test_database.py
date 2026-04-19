@@ -202,7 +202,7 @@ class TestScrapeRun:
         # Verify by direct query
         cursor = in_memory_db.cursor()
         cursor.execute(
-            f"SELECT * FROM scrape_runs_{test_env} WHERE run_id = %s",
+            "SELECT * FROM scrape_runs WHERE run_id = %s",
             (sample_scrape_run.run_id,)
         )
         row = cursor.fetchone()
@@ -368,9 +368,9 @@ class TestTimestamptzColumns:
 
         cursor = in_memory_db.cursor()
         cursor.execute(
-            f"SELECT created_at, first_seen_at, last_seen_at, "
-            f"pg_typeof(created_at) AS created_type "
-            f"FROM job_listings_{test_env} WHERE id = %s",
+            "SELECT created_at, first_seen_at, last_seen_at, "
+            "pg_typeof(created_at) AS created_type "
+            "FROM job_listings WHERE id = %s",
             (sample_job_listing.id,),
         )
         row = cursor.fetchone()

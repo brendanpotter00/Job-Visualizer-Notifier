@@ -267,7 +267,7 @@ class TestRunIncrementalScrape:
 
         # Verify scrape run recorded
         cursor = in_memory_db.cursor()
-        cursor.execute(f"SELECT * FROM scrape_runs_{test_env} WHERE run_id = %s", (result.run_id,))
+        cursor.execute("SELECT * FROM scrape_runs WHERE run_id = %s", (result.run_id,))
         row = cursor.fetchone()
 
         assert row is not None

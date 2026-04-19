@@ -244,7 +244,9 @@ def _clear_tables(conn, env: str) -> None:
     jobs_table = _get_table_name(env, "jobs")
     runs_table = _get_table_name(env, "runs")
     users_table = _get_table_name(env, "users")
-    enabled_companies_table = f"user_enabled_companies_{env}"
+    # user_enabled_companies has no table_type in _get_table_name; hardcode
+    # the bare name (Unit 4 will hardcode all four).
+    enabled_companies_table = "user_enabled_companies"
     cursor.execute(sql.SQL("TRUNCATE {}, {}, {}, {} CASCADE").format(
         sql.Identifier(jobs_table),
         sql.Identifier(runs_table),

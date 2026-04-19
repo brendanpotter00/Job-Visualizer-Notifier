@@ -1,10 +1,11 @@
-"""Alembic environment — wires DATABASE_URL + SCRAPER_ENVIRONMENT to Alembic.
+"""Alembic environment — wires DATABASE_URL to Alembic.
 
-Reads both via src.backend.api.config.Settings so the app and Alembic share
-one config surface. Uses version_table=alembic_version_{env} so local/qa/prod
-tracking rows never collide in a shared database.
+Reads via src.backend.api.config.Settings so the app and Alembic share
+one config surface. Uses Alembic's default `alembic_version` tracker —
+envAgnosticTables Unit 2 removed the per-env `alembic_version_{env}`
+variant since tables are now bare-named across all environments.
 
-compare_type and compare_server_default are enabled so the Unit 3 parity test
+compare_type and compare_server_default are enabled so the parity test
 (and all future autogenerate runs) catch column type and default drift.
 """
 
@@ -46,14 +47,11 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Pull DATABASE_URL and SCRAPER_ENVIRONMENT from the same Settings object the
-# app uses. If alembic.ini already set sqlalchemy.url (e.g. from a CLI
-# override), honor that; otherwise inject from settings.
+# Pull DATABASE_URL from the same Settings object the app uses. If
+# alembic.ini already set sqlalchemy.url (e.g. from a CLI override),
+# honor that; otherwise inject from settings.
 if not config.get_main_option("sqlalchemy.url"):
     config.set_main_option("sqlalchemy.url", settings.database_url)
-
-_env_suffix = settings.scraper_environment
-_version_table = f"alembic_version_{_env_suffix}"
 
 # PYTEST_SCHEMA carves out a per-pytest-worker Postgres schema so parallel
 # test runs (and interrupted runs) don't collide in the shared `public`
@@ -88,7 +86,6 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
-        version_table=_version_table,
         compare_type=True,
         compare_server_default=True,
     )
@@ -122,7 +119,6 @@ def run_migrations_online() -> None:
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
-            version_table=_version_table,
             compare_type=True,
             compare_server_default=True,
         )

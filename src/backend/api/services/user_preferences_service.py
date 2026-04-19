@@ -10,7 +10,9 @@ logger = logging.getLogger(__name__)
 
 
 def _table(env: str) -> str:
-    return f"user_enabled_companies_{env}"
+    # `env` is accepted for backwards compatibility with callers — it is
+    # ignored. envAgnosticTables Unit 4 will drop the parameter entirely.
+    return "user_enabled_companies"
 
 
 def list_enabled_companies(conn: Connection, env: str, user_id: str) -> list[str]:
