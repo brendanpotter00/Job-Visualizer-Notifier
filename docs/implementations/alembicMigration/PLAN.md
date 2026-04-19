@@ -293,7 +293,7 @@ The previous `temp_conn = get_connection(...)` block is deleted — Alembic mana
 
 ### Unit 5 — Delete `scripts/migrate.py`, update `scripts/run_scraper.py`, and make Alembic deploy-safe
 
-**Status:** IN PROGRESS
+**Status:** DONE
 
 **Prerequisites:** Unit 4
 
@@ -329,7 +329,7 @@ The old CLI's three subcommands map 1:1 to Alembic commands, so the CLI has no u
 
 ### Unit 6 — Delete the old runner and its migrations
 
-**Status:** TODO
+**Status:** IN PROGRESS
 
 **Prerequisites:** Unit 5
 
