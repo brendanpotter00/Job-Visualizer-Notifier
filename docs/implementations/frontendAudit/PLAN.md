@@ -103,7 +103,7 @@ Run from the worktree root `/Users/brendanpotter/Documents/develop/Job-Visualize
 
 ### Unit 1 — Foundation: error utility, test helper polish, ESLint tightening
 
-**Status:** TODO
+**Status:** IN PROGRESS
 **Prerequisites:** none
 **Owned files (create):**
 - `src/frontend/src/lib/errors.ts`

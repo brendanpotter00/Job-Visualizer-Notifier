@@ -30,6 +30,11 @@ export default [
         "warn",
         { allowConstantExport: true },
       ],
+      // Escalated from the recommended preset's default (warn). Exhaustive
+      // effect deps are a frequent source of stale-closure bugs; CI blocks
+      // new violations. The four existing `// eslint-disable-next-line
+      // react-hooks/*` sites are documented and stay until Unit 5.
+      "react-hooks/exhaustive-deps": "error",
       "@typescript-eslint/no-explicit-any": "warn",
       "@typescript-eslint/no-unused-vars": [
         "error",
