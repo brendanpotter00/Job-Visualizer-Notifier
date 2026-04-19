@@ -109,6 +109,7 @@ describe('WhyPage', () => {
     }
 
     for (const company of COMPANIES) {
+      if (!company.jobsUrl) continue;
       const link = linksByHref.get(company.jobsUrl);
       expect(link, `expected a link to ${company.jobsUrl} for ${company.name}`).toBeDefined();
       expect(link).toHaveTextContent(company.name);

@@ -329,7 +329,7 @@ Tests cover all five branches plus `null`/`undefined`.
 
 ### Unit 10 — Docs + guardrails
 
-**Status:** TODO
+**Status:** DONE
 **Prerequisites:** Units 1–9 merged
 **Owned files (modify):**
 - `src/frontend/CLAUDE.md` — add a **"Frontend Foundations"** section under "Architecture Quick Reference" documenting: the shared primitives (`LoadingState`, `ErrorState`, `EmptyState`, `extractErrorMessage`, `useFetchWithStatus`), the rule that all Redux consumers use typed hooks from `app/hooks.ts`, the rule that page-level fetch lifecycles use `useFetchWithStatus` or RTK Query (never inline `useState`+`useEffect`+`fetch`), and the explicit list of remaining `eslint-disable` comments with justifications.
