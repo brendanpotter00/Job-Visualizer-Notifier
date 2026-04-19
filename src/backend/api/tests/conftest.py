@@ -15,7 +15,8 @@ from fastapi.testclient import TestClient
 from psycopg2 import sql
 from psycopg2.extras import RealDictCursor
 
-from scripts.shared.database import init_schema, _get_table_name
+from scripts.shared.database import _get_table_name
+from api.migrations import apply_alembic_migrations
 
 # Default test database URL (same as docker-compose)
 TEST_DB_URL = os.environ.get(
@@ -38,8 +39,59 @@ def test_env():
 @pytest.fixture(scope="module")
 def db_conn(test_env):
     """PostgreSQL connection with test tables created and cleaned up after."""
+    # Alembic's env.py imports `from api.config import settings` at module load
+    # time and reads settings.scraper_environment to compute the
+    # alembic_version_<env> table name. api.config.Settings restricts
+    # SCRAPER_ENVIRONMENT to {local, qa, prod}, so we (a) set SCRAPER_ENVIRONMENT
+    # to a valid value first so the module-level `settings = Settings()` at
+    # import time succeeds, (b) widen ALLOWED_ENVIRONMENTS in-process to include
+    # this test_<hex> env, and (c) rebuild the module-level settings singleton
+    # with the test env so env.py sees it. Mirrors the workaround in
+    # scripts/tests/integration/test_alembic_parity.py — entirely in-process,
+    # does not modify api/config.py on disk.
+    os.environ["DATABASE_URL"] = TEST_DB_URL
+    os.environ["SCRAPER_ENVIRONMENT"] = "local"  # valid, temporary
+
+    import api.config as _api_config
+    _api_config.ALLOWED_ENVIRONMENTS = _api_config.ALLOWED_ENVIRONMENTS | {test_env}
+    os.environ["SCRAPER_ENVIRONMENT"] = test_env
+    _api_config.settings = _api_config.Settings()
+
+    # The Alembic baseline revision is intentionally empty (prod is already
+    # stamped at this state — see PLAN.md / DEPLOY.md). Running
+    # `alembic upgrade head` against a fresh test DB therefore creates only
+    # `alembic_version_<env>`, not the actual job_listings/users/etc tables.
+    # Bootstrap the schema from db_models.Base.metadata via SQLAlchemy
+    # `create_all` (mirrors the Unit 6 parity test pattern), then call
+    # apply_alembic_migrations so `alembic_version_<env>` is populated.
+    #
+    # _ENV in db_models is captured at import time, so we (1) reload the module
+    # under SCRAPER_ENVIRONMENT=test_<hex> so its tables get the right suffix,
+    # (2) create_all those tables, then (3) reload AGAIN under the original
+    # local env so we don't pollute the global module for sibling fixtures
+    # (test_db_models.py has its own `db_models_module` fixture that asserts
+    # against `_local` table names; an autouse-triggered db_conn must not
+    # leave the global db_models module pointed at a test_<hex> env).
+    import importlib
+    import sys
+    import api.db_models as _db_models
+    importlib.reload(_db_models)
+
+    from sqlalchemy import create_engine
+    engine = create_engine(TEST_DB_URL)
+    _db_models.Base.metadata.create_all(engine)
+    engine.dispose()
+
+    # Restore db_models to the local-env baseline so other tests / fixtures
+    # in this run see the global module the way it was before db_conn ran.
+    os.environ["SCRAPER_ENVIRONMENT"] = "local"
+    importlib.reload(_db_models)
+    # Restore SCRAPER_ENVIRONMENT to the test env for the remainder of the
+    # test module so api.config.settings + Alembic env.py keep targeting it.
+    os.environ["SCRAPER_ENVIRONMENT"] = test_env
+
     conn = psycopg2.connect(TEST_DB_URL, cursor_factory=RealDictCursor)
-    init_schema(conn, test_env)
+    apply_alembic_migrations(TEST_DB_URL, test_env)
     yield conn
     # Cleanup: drop test tables (children before parents to satisfy FK dependencies)
     cursor = conn.cursor()
@@ -47,13 +99,13 @@ def db_conn(test_env):
     runs_table = _get_table_name(test_env, "runs")
     users_table = _get_table_name(test_env, "users")
     enabled_companies_table = f"user_enabled_companies_{test_env}"
-    migrations_table = f"schema_migrations_{test_env}"
+    alembic_version_table = f"alembic_version_{test_env}"
     # Drop user_enabled_companies before users to satisfy the FK on user_id.
     cursor.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(enabled_companies_table)))
     cursor.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(jobs_table)))
     cursor.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(runs_table)))
     cursor.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(users_table)))
-    cursor.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(migrations_table)))
+    cursor.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(alembic_version_table)))
     conn.commit()
     conn.close()
 

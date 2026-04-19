@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from .config import settings
 from .dependencies import init_pool, close_pool, pool_is_healthy
 from .routers import jobs, jobs_qa, users
-from scripts.shared.database import init_schema, get_connection
+from .migrations import apply_alembic_migrations
 
 logging.basicConfig(
     level=logging.INFO,
@@ -23,23 +23,15 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
-    logger.info("Connecting to database...")
+    logger.info("Applying database migrations...")
     try:
-        temp_conn = get_connection(settings.database_url, settings.scraper_environment)
+        apply_alembic_migrations(settings.database_url, settings.scraper_environment)
     except Exception:
-        logger.exception("Failed to connect to database during startup")
+        logger.exception(
+            "Failed to apply migrations during startup (env=%s)",
+            settings.scraper_environment,
+        )
         raise
-    try:
-        try:
-            init_schema(temp_conn, settings.scraper_environment)
-        except Exception:
-            logger.exception(
-                "Failed to apply migrations during startup (env=%s)",
-                settings.scraper_environment,
-            )
-            raise
-    finally:
-        temp_conn.close()
     try:
         init_pool(
             settings.database_url,
