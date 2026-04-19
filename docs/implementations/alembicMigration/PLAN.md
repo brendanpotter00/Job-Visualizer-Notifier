@@ -225,7 +225,7 @@ Non-goal: this unit does not edit `db_models.py` or the baseline. It is a fail-l
 
 ### Unit 4 — Swap the FastAPI lifespan hook to Alembic
 
-**Status:** IN PROGRESS
+**Status:** DONE
 
 **Prerequisites:** Unit 3
 
@@ -291,9 +291,9 @@ The previous `temp_conn = get_connection(...)` block is deleted — Alembic mana
 
 ---
 
-### Unit 5 — Delete `scripts/migrate.py` and update `scripts/run_scraper.py`
+### Unit 5 — Delete `scripts/migrate.py`, update `scripts/run_scraper.py`, and make Alembic deploy-safe
 
-**Status:** TODO
+**Status:** IN PROGRESS
 
 **Prerequisites:** Unit 4
 
