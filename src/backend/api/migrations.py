@@ -57,16 +57,39 @@ def _resolve_alembic_paths() -> tuple[Path, Path]:
 
 
 _ALEMBIC_INI, _SCRIPT_LOCATION = _resolve_alembic_paths()
+logger.info(
+    "Alembic paths resolved: ini=%s script_location=%s",
+    _ALEMBIC_INI,
+    _SCRIPT_LOCATION,
+)
 
 
 def apply_alembic_migrations(database_url: str, env: str) -> None:
     """Run `alembic upgrade head` against the given database URL.
 
-    `env` is forwarded only for the failure log line — Alembic's env.py reads
-    SCRAPER_ENVIRONMENT from the process environment to compute the
-    `alembic_version_<env>` table name, so the caller must have already set
-    SCRAPER_ENVIRONMENT (which FastAPI's Settings() does via pydantic BaseSettings).
+    The caller MUST set the process-level SCRAPER_ENVIRONMENT to match the
+    `env` argument before invoking this. Alembic's env.py reads
+    SCRAPER_ENVIRONMENT (via api.config.settings) to compute the
+    `alembic_version_<env>` table name; if the process env says "local" but
+    the caller passes env="prod", Alembic would silently target
+    alembic_version_local against a prod database — exactly the kind of
+    mismatch that's invisible at deploy time and catastrophic later.
+
+    To prevent that, this function asserts the two agree and raises
+    RuntimeError on mismatch. If SCRAPER_ENVIRONMENT is unset, current
+    behavior is preserved (env.py / Settings() will raise downstream with a
+    clearer message). This function does NOT mutate process env — the
+    caller owns it.
     """
+    current_env = os.environ.get("SCRAPER_ENVIRONMENT")
+    if current_env is not None and current_env != env:
+        raise RuntimeError(
+            f"SCRAPER_ENVIRONMENT mismatch: process env={current_env!r} but "
+            f"migration target env={env!r}. Alembic env.py would target "
+            f"alembic_version_{current_env} against a DB intended for {env}. "
+            f"Set SCRAPER_ENVIRONMENT={env} before invoking apply_alembic_migrations."
+        )
+
     cfg = Config(str(_ALEMBIC_INI))
     cfg.set_main_option("sqlalchemy.url", database_url)
     # alembic.ini's script_location is relative ("src/backend/alembic"); when
