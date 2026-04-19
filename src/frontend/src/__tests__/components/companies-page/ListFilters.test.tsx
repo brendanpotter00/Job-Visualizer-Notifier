@@ -296,9 +296,7 @@ describe('ListFilters', () => {
     const user = userEvent.setup();
     renderWithProviders(<ListFilters />, { store });
 
-    const timeWindowCombo = screen
-      .getAllByRole('combobox')
-      .find((el) => el.textContent === '24 hours') as HTMLElement;
+    const timeWindowCombo = screen.getByRole('combobox', { name: 'Time Window' });
     await user.click(timeWindowCombo);
     const listbox = await screen.findByRole('listbox');
     await user.click(within(listbox).getByRole('option', { name: '7 days' }));
