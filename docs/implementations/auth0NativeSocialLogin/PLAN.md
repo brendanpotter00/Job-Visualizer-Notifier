@@ -102,7 +102,7 @@ No DB schema change. No data migration script. The only behavioral guarantee tha
 
 ### Unit 1 — Frontend: Auth0 token exchange in GoogleOneTap (cutover, with tests)
 
-**Status:** IN PROGRESS
+**Status:** DONE
 **Prerequisites:** Auth0 dashboard configuration completed (Native Social enabled on the Google connection; token-exchange grant enabled on the SPA application). See Context section.
 
 **Owned files (create):**
