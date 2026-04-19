@@ -9,9 +9,8 @@
  *   4. Generic `{ message: string }` objects → `err.message`
  *   5. Anything else (including `null` / `undefined`) → `fallback`
  *
- * This utility consolidates the `err instanceof Error ? err.message : '...'`
- * boilerplate and the RTK Query `'data' in err` decode that previously lived
- * inline at call sites.
+ * Centralizes `err instanceof Error` / RTK Query `'data' in err` decoding in
+ * one place so call sites can stay a single expression.
  *
  * @param err - The unknown error value to decode
  * @param fallback - Message returned when no branch matches. Defaults to `'Unknown error'`.

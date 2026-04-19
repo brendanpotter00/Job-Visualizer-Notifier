@@ -35,7 +35,8 @@ export function useCompanyLoader() {
   // idempotent for subscribers (useAppSelector returns the same string, so no
   // component re-renders), and reading `selectedCompanyId` would force the
   // effect to re-run on every company change and undo the user's selection.
-  // `dispatch` has stable identity (react-redux guarantee).
+  // Adding `dispatch` to deps is safe because `dispatch` has stable identity
+  // (react-redux guarantee).
   useEffect(() => {
     if (!isCompaniesPage) return;
     dispatch(setSelectedCompanyId(getInitialCompanyId()));

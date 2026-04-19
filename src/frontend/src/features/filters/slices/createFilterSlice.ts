@@ -51,11 +51,9 @@ type FiltersWithCompany = RecentJobsFilters;
  * variant that carries a `department` field. The runtime decision is based
  * on the slice's `name` (captured in closure at factory-instantiation
  * time), which maps 1:1 to the concrete filter shape: `graph` and `list`
- * own `department`, `recentJobs` does not. This matches the prior
- * unchecked-cast runtime behavior where the department reducers were
- * dispatched only on graph/list slices in practice, and avoids a
- * structural `'department' in filters` check that could false-negative on
- * literal initial-state objects that omit the optional key.
+ * own `department`, `recentJobs` does not. The structural alternative
+ * (`'department' in filters`) would false-negative on literal initial-state
+ * objects that omit the optional key, so we key off `name` instead.
  */
 function hasDepartmentField<T extends Filters>(
   name: FilterSliceName,
@@ -68,7 +66,7 @@ function hasDepartmentField<T extends Filters>(
 /**
  * Slice-name-based guard: narrows a `Filters` (or draft thereof) to a
  * variant that carries a `company` field. Only `recentJobs` slices own
- * `company`. Used by the recent-jobs reducers.
+ * `company`; `graph` and `list` do not. Used by the recent-jobs reducers.
  */
 function hasCompanyField<T extends Filters>(
   name: FilterSliceName,

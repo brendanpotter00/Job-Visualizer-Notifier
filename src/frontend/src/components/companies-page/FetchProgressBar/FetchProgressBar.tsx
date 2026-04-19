@@ -63,9 +63,7 @@ export function FetchProgressBar({ companyIdFilter }: FetchProgressBarProps = {}
   // This is React's documented "storing information from previous renders"
   // pattern (https://react.dev/reference/react/useState#storing-information-from-previous-renders).
   // React detects the render-phase setState on the currently-rendering
-  // component and restarts the render with the new state before committing,
-  // so this is not flagged by react-hooks/set-state-in-effect or
-  // react-hooks/refs and no disable comment is needed.
+  // component and restarts the render with the new state before committing.
   if (prevIsLoading !== isLoading) {
     setPrevIsLoading(isLoading);
     setExpanded(isLoading);

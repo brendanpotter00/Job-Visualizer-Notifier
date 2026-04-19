@@ -50,7 +50,8 @@ export function RootLayout() {
   // it into local state via an effect is the recommended pattern here. A
   // useSyncExternalStore rewrite against matchMedia would be net-neutral for
   // behavior and adds visual-regression risk around drawer-width transitions,
-  // so we keep the disable. See PLAN.md Non-goals and Unit 5 decision log.
+  // so we keep the disable. See src/frontend/CLAUDE.md "Frontend Foundations"
+  // for the authoritative eslint-disable justification list.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external-sync pattern; see block comment above
     setDrawerOpen(!isMobile);
