@@ -12,6 +12,14 @@ All existing values are ISO 8601 strings written by scraper code paths via
 shared.database, so the USING <col>::timestamptz pattern parses them in
 place. The index on last_seen_at is rebuilt automatically by ALTER COLUMN TYPE.
 
+Memory/disk: a single ALTER TABLE with multiple ALTER COLUMN clauses is one
+table rewrite and one WAL stream, not N. Original implementation issued four
+separate ALTERs in a Python loop, which on 2026-04-19 pushed job_listings_prod
+through four full-table rewrites + four WAL streams and filled the 5 GB Hobby
+volume mid-migration (see docs/incidents/2026-04-18-migration-filled-postgres-volume.md).
+The combined statement is what Alembic's batch_alter_table emits by default and
+is required for future re-runs (e.g. restore-to-new-env) to fit in the volume.
+
 Per-column pre-flight scan (see 0003) catches malformed rows before ALTER so
 deploy logs show actionable row ids instead of psycopg2's opaque cast error.
 """
@@ -51,6 +59,8 @@ def _scan_malformed(conn, table, column):
 def upgrade(conn, env):
     cursor = conn.cursor()
     table = f"job_listings_{env}"
+
+    pending = []
     for col in _COLUMNS:
         col_type = _column_type(conn, table, col)
         # Re-run safety: skip columns already converted.
@@ -74,19 +84,23 @@ def upgrade(conn, env):
                 f"Sample ids: {samples}"
             )
 
-        cursor.execute(
-            f"ALTER TABLE {table} "
-            f"ALTER COLUMN {col} TYPE TIMESTAMPTZ "
-            f"USING {col}::timestamptz"
-        )
+        pending.append(col)
+
+    if not pending:
+        return
+
+    # One ALTER TABLE, one full rewrite, one WAL stream for all pending columns.
+    clauses = ", ".join(
+        f"ALTER COLUMN {col} TYPE TIMESTAMPTZ USING {col}::timestamptz"
+        for col in pending
+    )
+    cursor.execute(f"ALTER TABLE {table} {clauses}")
 
 
 def downgrade(conn, env):
     cursor = conn.cursor()
     table = f"job_listings_{env}"
-    for col in _COLUMNS:
-        cursor.execute(
-            f"ALTER TABLE {table} "
-            f"ALTER COLUMN {col} TYPE TEXT "
-            f"USING {col}::text"
-        )
+    clauses = ", ".join(
+        f"ALTER COLUMN {col} TYPE TEXT USING {col}::text" for col in _COLUMNS
+    )
+    cursor.execute(f"ALTER TABLE {table} {clauses}")
