@@ -7,11 +7,13 @@ import TextField from '@mui/material/TextField';
 import Button from '@mui/material/Button';
 import Avatar from '@mui/material/Avatar';
 import Alert from '@mui/material/Alert';
-import CircularProgress from '@mui/material/CircularProgress';
 import { useAuth } from '../../features/auth/useAuth';
 import { useCurrentUser } from '../../features/auth/useCurrentUser';
 import { updateCurrentUser } from '../../features/auth/authService';
 import { EnabledCompaniesSection } from '../../components/account/EnabledCompaniesSection';
+import { LoadingState } from '../../components/shared/LoadingIndicator';
+import { ErrorState } from '../../components/shared/ErrorDisplay';
+import { extractErrorMessage } from '../../lib/errors';
 
 export function AccountPage() {
   const { isAuthenticated, isLoading: authLoading, login, getToken } = useAuth();
@@ -39,18 +41,14 @@ export function AccountPage() {
       setUser(updatedUser);
       setSaveSuccess(true);
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : 'Failed to save changes');
+      setSaveError(extractErrorMessage(err, 'Failed to save changes'));
     } finally {
       setIsSaving(false);
     }
   };
 
   if (authLoading) {
-    return (
-      <Container maxWidth="sm" sx={{ py: 4, textAlign: 'center' }}>
-        <CircularProgress />
-      </Container>
-    );
+    return <LoadingState fullPage />;
   }
 
   if (!isAuthenticated) {
@@ -72,22 +70,13 @@ export function AccountPage() {
   }
 
   if (loading) {
-    return (
-      <Container maxWidth="sm" sx={{ py: 4, textAlign: 'center' }}>
-        <CircularProgress />
-      </Container>
-    );
+    return <LoadingState fullPage />;
   }
 
   if (error) {
     return (
       <Container maxWidth="sm" sx={{ py: 4 }}>
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
-        </Alert>
-        <Button variant="outlined" onClick={loadProfile}>
-          Retry
-        </Button>
+        <ErrorState inline message={error} onRetry={loadProfile} />
       </Container>
     );
   }
