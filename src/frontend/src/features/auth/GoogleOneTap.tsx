@@ -2,17 +2,27 @@ import { useGoogleOneTapLogin } from '@react-oauth/google';
 import { AUTH_CONFIG } from '../../config/auth';
 import { useAuth } from './useAuth';
 import { useGoogleCredential } from './useGoogleCredential';
+import { exchangeGoogleToken } from './exchangeGoogleToken';
 
 export function GoogleOneTap() {
   const { isEnabled, isAuthenticated, isLoading } = useAuth();
   const { setGoogleCredential } = useGoogleCredential();
 
   useGoogleOneTapLogin({
-    onSuccess: (credentialResponse) => {
-      if (credentialResponse.credential) {
-        setGoogleCredential(credentialResponse.credential);
-      } else {
+    onSuccess: async (credentialResponse) => {
+      if (!credentialResponse.credential) {
         console.warn('[GoogleOneTap] Success callback received no credential');
+        return;
+      }
+      try {
+        const auth0AccessToken = await exchangeGoogleToken(
+          credentialResponse.credential,
+          AUTH_CONFIG,
+        );
+        setGoogleCredential(auth0AccessToken);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn('[GoogleOneTap] Auth0 token exchange failed:', msg);
       }
     },
     onError: () => {
