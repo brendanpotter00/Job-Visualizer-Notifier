@@ -8,6 +8,7 @@ import { AccountPage } from '../pages/AccountPage/AccountPage.tsx';
 import { ROUTES } from '../config/routes';
 import { QAPage } from '../pages/QAPage/QAPage.tsx';
 import { useEnabledCompanies } from '../features/preferences/useEnabledCompanies';
+import { useFeaturesAuthBridge } from '../features/features/useFeaturesAuthBridge';
 
 /**
  * App content component with routing and hooks
@@ -21,6 +22,7 @@ function AppContent() {
   // Hydrate enabled-companies at the app root so selectors have it before
   // any page reads them.
   useEnabledCompanies();
+  useFeaturesAuthBridge();
 
   return (
     <>

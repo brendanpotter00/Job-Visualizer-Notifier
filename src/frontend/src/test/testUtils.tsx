@@ -11,6 +11,8 @@ import recentJobsFiltersReducer from '../features/filters/slices/recentJobsFilte
 import uiReducer from '../features/ui/uiSlice';
 import enabledCompaniesReducer from '../features/preferences/enabledCompaniesSlice';
 import { jobsApi } from '../features/jobs/jobsApi';
+import { featuresApi } from '../features/features/featuresApi';
+import { getTokenOrNull } from '../features/features/getTokenOrNull';
 
 /**
  * Creates a test Redux store with optional preloaded state
@@ -28,8 +30,14 @@ export function createTestStore(preloadedState: Partial<RootState> | Record<stri
       ui: uiReducer,
       enabledCompanies: enabledCompaniesReducer,
       [jobsApi.reducerPath]: jobsApi.reducer,
+      [featuresApi.reducerPath]: featuresApi.reducer,
     },
-    middleware: (getDefaultMiddleware) => getDefaultMiddleware().concat(jobsApi.middleware),
+    middleware: (getDefaultMiddleware) =>
+      getDefaultMiddleware({
+        thunk: { extraArgument: { getTokenOrNull } },
+      })
+        .concat(jobsApi.middleware)
+        .concat(featuresApi.middleware),
     preloadedState: preloadedState as RootState,
   });
 }
