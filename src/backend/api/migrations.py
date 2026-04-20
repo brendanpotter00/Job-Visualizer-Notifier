@@ -125,3 +125,38 @@ def apply_alembic_migrations(database_url: str, env: str) -> None:
     except Exception:
         logger.exception("Failed to apply Alembic migrations (env=%s)", env)
         raise
+
+
+def stamp_alembic_head(database_url: str, env: str) -> None:
+    """Mark `alembic_version_<env>` at head without running any upgrade body.
+
+    For test fixtures that bootstrap the schema via `Base.metadata.create_all`:
+    the ORM metadata already produces the target schema, so running Alembic
+    upgrade on top would re-execute every `op.create_table` and fail with a
+    DuplicateTable error. Stamping writes only to the version tracker, leaving
+    the already-materialized tables alone. Mirrors the pattern in
+    scripts/tests/integration/test_alembic_parity.py.
+
+    Caller-env invariant matches apply_alembic_migrations — if
+    api.config.settings.scraper_environment disagrees with `env`, Alembic would
+    target the wrong version table.
+    """
+    from .config import settings as _settings
+
+    if _settings.scraper_environment != env:
+        raise RuntimeError(
+            f"scraper_environment mismatch: api.config.settings.scraper_environment="
+            f"{_settings.scraper_environment!r} but stamp target env={env!r}. "
+            f"Alembic env.py would target alembic_version_{_settings.scraper_environment} "
+            f"against a DB intended for {env}."
+        )
+
+    cfg = Config(str(_ALEMBIC_INI))
+    cfg.set_main_option("sqlalchemy.url", database_url)
+    cfg.set_main_option("script_location", str(_SCRIPT_LOCATION))
+    cfg.config_file_name = None
+    try:
+        command.stamp(cfg, "head")
+    except Exception:
+        logger.exception("Failed to stamp Alembic head (env=%s)", env)
+        raise

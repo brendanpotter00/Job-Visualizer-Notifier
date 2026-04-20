@@ -167,8 +167,10 @@ def postgres_db(test_env):
     _db_models.Base.metadata.create_all(engine)
     engine.dispose()
 
-    from api.migrations import apply_alembic_migrations
-    apply_alembic_migrations(TEST_DB_URL, test_env)
+    from api.migrations import stamp_alembic_head
+    # create_all already materialized every ORM table; stamp (not upgrade)
+    # avoids re-running each migration body against tables that already exist.
+    stamp_alembic_head(TEST_DB_URL, test_env)
 
     # 5) Open the psycopg2 connection the tests actually use.
     conn = psycopg2.connect(TEST_DB_URL, cursor_factory=RealDictCursor)
@@ -184,6 +186,8 @@ def postgres_db(test_env):
     drop_errors: list[tuple[str, Exception]] = []
     try:
         for tbl in (
+            f"feature_upvotes_{test_env}",
+            f"features_{test_env}",
             f"user_enabled_companies_{test_env}",
             f"scrape_runs_{test_env}",
             f"job_listings_{test_env}",

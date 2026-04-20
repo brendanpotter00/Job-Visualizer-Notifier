@@ -61,26 +61,26 @@ DELETE /api/features/{feature_id}/upvote
 ### Database schema (ORM-defined in `db_models.py`)
 
 ```sql
--- features: catalog of candidate features users vote on
-CREATE TABLE features (
-    id           TEXT PRIMARY KEY,                          -- slug, e.g. "resume-match-ai"
+-- features_{env}: catalog of candidate features users vote on
+CREATE TABLE features_{env} (
+    id           TEXT PRIMARY KEY,                                  -- slug, e.g. "resume-match-ai"
     title        TEXT NOT NULL,
     description  TEXT NOT NULL,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- feature_upvotes: one row per (feature, user) upvote
-CREATE TABLE feature_upvotes (
-    feature_id  TEXT NOT NULL REFERENCES features(id) ON DELETE CASCADE,
-    user_id     TEXT NOT NULL REFERENCES users(id)    ON DELETE CASCADE,
+-- feature_upvotes_{env}: one row per (feature, user) upvote
+CREATE TABLE feature_upvotes_{env} (
+    feature_id  TEXT NOT NULL REFERENCES features_{env}(id) ON DELETE CASCADE,
+    user_id     TEXT NOT NULL REFERENCES users_{env}(id)    ON DELETE CASCADE,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (feature_id, user_id)
 );
-CREATE INDEX idx_feature_upvotes_feature_id ON feature_upvotes(feature_id);
-CREATE INDEX idx_feature_upvotes_user_id    ON feature_upvotes(user_id);
+CREATE INDEX idx_feature_upvotes_{env}_feature_id ON feature_upvotes_{env}(feature_id);
+CREATE INDEX idx_feature_upvotes_{env}_user_id    ON feature_upvotes_{env}(user_id);
 ```
 
-- Table names are bare (no `_{env}` suffix) — follows the post-`envAgnosticTables` convention on main.
+- Table names carry the existing `_{env}` suffix — the post-`envAgnosticTables` convention has **not** landed on main, so new tables must match the current suffix pattern used by every other class in `db_models.py` (`job_listings_{_ENV}`, `users_{_ENV}`, etc.). When `envAgnosticTables` eventually lands, it will rename these two tables alongside the existing set in one sweep.
 - `features.id` is a short human-readable slug (TEXT), not a UUID — stable, deep-linkable, and referenceable in SQL reviews.
 - Seed data (starter candidate features) is inserted from a FastAPI lifespan startup routine using `INSERT ... ON CONFLICT (id) DO NOTHING`. **Do not hand-edit the Alembic revision to add seeds** (Rule 1).
 - Starter features seeded in `features_seed.py` (Unit 2):
@@ -208,15 +208,15 @@ Two-tag set for v1. Adding a tag is a deliberate code change in `src/frontend/sr
 
 ### Unit 1 — Backend: `features` + `feature_upvotes` schema (ORM + Alembic autogen)
 
-**Status:** TODO
+**Status:** DONE
 **Prerequisites:** none
 **Owned files (create):**
 - `src/backend/alembic/versions/<autogen>_add_features_and_upvotes.py` — **generated only**, via `alembic revision --autogenerate -m "add features and upvotes"`. Reviewable as-is; do not hand-modify structural ops.
 
 **Shared-file edits:**
 - `src/backend/api/db_models.py` — append two ORM classes `Feature` and `FeatureUpvote`:
-  - `Feature.__tablename__ = "features"`, columns per schema above.
-  - `FeatureUpvote.__tablename__ = "feature_upvotes"`, `PrimaryKeyConstraint("feature_id", "user_id")`, FKs to `features.id` and `users.id` with `ondelete="CASCADE"`, indexes on both FK columns.
+  - `Feature.__tablename__ = f"features_{_ENV}"`, columns per schema above.
+  - `FeatureUpvote.__tablename__ = f"feature_upvotes_{_ENV}"`, `PrimaryKeyConstraint("feature_id", "user_id")`, FKs to `features_{_ENV}.id` and `users_{_ENV}.id` with `ondelete="CASCADE"`, indexes on both FK columns named `idx_feature_upvotes_{_ENV}_feature_id` / `idx_feature_upvotes_{_ENV}_user_id`.
 
 **Done when:**
 - `python -c "from src.backend.api.db_models import Feature, FeatureUpvote"` imports cleanly.

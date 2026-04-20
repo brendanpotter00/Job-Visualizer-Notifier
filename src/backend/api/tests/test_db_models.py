@@ -35,6 +35,8 @@ def test_all_four_tables_present(db_models_module):
         "scrape_runs_local",
         "users_local",
         "user_enabled_companies_local",
+        "features_local",
+        "feature_upvotes_local",
     }, f"Unexpected metadata.tables: {sorted(names)}"
 
 

@@ -17,7 +17,7 @@ from psycopg2 import sql
 from psycopg2.extras import RealDictCursor
 
 from scripts.shared.database import _get_table_name
-from api.migrations import apply_alembic_migrations
+from api.migrations import stamp_alembic_head
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +102,11 @@ def db_conn(test_env):
     os.environ["SCRAPER_ENVIRONMENT"] = test_env
 
     conn = psycopg2.connect(TEST_DB_URL, cursor_factory=RealDictCursor)
-    apply_alembic_migrations(TEST_DB_URL, test_env)
+    # create_all already materialized every ORM table, so run `stamp` instead
+    # of `upgrade head` — upgrade would re-execute each migration's
+    # create_table and fail with DuplicateTable. Migrations are exercised end-
+    # to-end by scripts/tests/integration/test_alembic_parity.py.
+    stamp_alembic_head(TEST_DB_URL, test_env)
     yield conn
 
     # Cleanup: drop test tables (children before parents to satisfy FK dependencies).
@@ -115,11 +119,15 @@ def db_conn(test_env):
     runs_table = _get_table_name(test_env, "runs")
     users_table = _get_table_name(test_env, "users")
     enabled_companies_table = f"user_enabled_companies_{test_env}"
+    features_table = f"features_{test_env}"
+    feature_upvotes_table = f"feature_upvotes_{test_env}"
     alembic_version_table = f"alembic_version_{test_env}"
     drop_errors: list[tuple[str, Exception]] = []
     try:
         cursor = conn.cursor()
         for tbl in (
+            feature_upvotes_table,
+            features_table,
             enabled_companies_table,
             jobs_table,
             runs_table,
