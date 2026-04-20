@@ -76,3 +76,16 @@ export const SIGN_IN_OVERLAY_MESSAGES = {
    */
   ARIA_LABEL: 'Sign in prompt',
 } as const;
+
+/**
+ * Sign-in prompt modal messages
+ * Shown to signed-out users in modal contexts (e.g. feature voting) where
+ * an inline overlay is not appropriate. Kept separate from
+ * SIGN_IN_OVERLAY_MESSAGES so modal copy can differ without coupling.
+ */
+export const SIGN_IN_MODAL_MESSAGES = {
+  TITLE: 'Sign in to vote',
+  SUBTITLE: 'Your upvote helps prioritize what we build next.',
+  BUTTON_TEXT: 'Sign In',
+  ARIA_LABEL: 'Sign in prompt',
+} as const;
