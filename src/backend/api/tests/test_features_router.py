@@ -1,5 +1,8 @@
 """Integration tests for features router (GET/POST/DELETE /api/features)."""
 
+from unittest.mock import patch
+
+import psycopg2
 from fastapi.testclient import TestClient
 from psycopg2 import sql
 
@@ -159,3 +162,89 @@ class TestDeleteUpvote:
         finally:
             if saved is not None:
                 test_app.dependency_overrides[get_current_user] = saved
+
+
+class TestResolveUserIdForMutationErrorBranches:
+    """Covers the 401/500 branches in `_resolve_user_id_for_mutation` that the
+    happy-path tests above do not exercise. The FastAPI `get_current_user`
+    dependency can be overridden to yield TokenClaims missing the required
+    `sub`/`email` fields — the router should 401 rather than crash when it
+    reaches into the claim dict.
+    """
+
+    def test_missing_sub_claim_returns_401(self, test_app, db_conn, test_env):
+        _insert_feature(db_conn, test_env, "f1")
+        saved = test_app.dependency_overrides.get(get_current_user)
+        # Claims without "sub" — simulates a malformed/unsupported issuer
+        # that validate_token didn't normalize before returning.
+        test_app.dependency_overrides[get_current_user] = lambda: {
+            "email": "nosub@example.com",
+        }
+        try:
+            client = TestClient(test_app)
+            resp = client.post("/api/features/f1/upvote")
+            assert resp.status_code == 401
+            assert "sub" in resp.json()["detail"]
+        finally:
+            if saved is not None:
+                test_app.dependency_overrides[get_current_user] = saved
+
+    def test_missing_email_claim_returns_401(self, test_app, db_conn, test_env):
+        _insert_feature(db_conn, test_env, "f1")
+        saved = test_app.dependency_overrides.get(get_current_user)
+        test_app.dependency_overrides[get_current_user] = lambda: {
+            "sub": "auth0|no_email_user",
+        }
+        try:
+            client = TestClient(test_app)
+            resp = client.post("/api/features/f1/upvote")
+            assert resp.status_code == 401
+            assert "email" in resp.json()["detail"]
+        finally:
+            if saved is not None:
+                test_app.dependency_overrides[get_current_user] = saved
+
+    def test_db_error_in_get_or_create_user_returns_500(
+        self, test_app, db_conn, test_env
+    ):
+        _insert_feature(db_conn, test_env, "f1")
+        # Force the user upsert to raise a psycopg2.Error; the router should
+        # log + return 500 instead of leaking the exception.
+        with patch(
+            "api.routers.features.get_or_create_user",
+            side_effect=psycopg2.OperationalError("simulated DB outage"),
+        ):
+            client = TestClient(test_app)
+            resp = client.post("/api/features/f1/upvote")
+        assert resp.status_code == 500
+        assert resp.json()["detail"] == "Failed to resolve user"
+
+
+class TestListFeaturesNoUserRow:
+    """Covers `_resolve_optional_user_id` returning None because a signed-in
+    user has no row in users_<env> yet. The endpoint should succeed and report
+    `hasUpvoted: false` for every feature — treating the caller as anonymous
+    is the best-effort fallback.
+    """
+
+    def test_signed_in_user_without_users_row_sees_has_upvoted_false(
+        self, test_app, db_conn, test_env
+    ):
+        _insert_feature(db_conn, test_env, "f1", "Title", "Desc")
+        # Override get_optional_user with claims for a user whose row we have
+        # NOT inserted into users_<env>. get_user_by_email will return None
+        # and _resolve_optional_user_id should fall back to None silently.
+        test_app.dependency_overrides[get_optional_user] = lambda: {
+            "sub": "auth0|first_visit_user",
+            "email": "first_visit@example.com",
+        }
+        try:
+            client = TestClient(test_app)
+            resp = client.get("/api/features")
+            assert resp.status_code == 200
+            features = resp.json()["features"]
+            assert len(features) == 1
+            assert features[0]["hasUpvoted"] is False
+            assert features[0]["upvoteCount"] == 0
+        finally:
+            test_app.dependency_overrides.pop(get_optional_user, None)

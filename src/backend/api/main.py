@@ -46,28 +46,30 @@ async def lifespan(app: FastAPI):
     app.state.env = settings.scraper_environment
     app.state.config = settings
 
-    # Imports and connection-plumbing live OUTSIDE the guard so any import
-    # failure or unexpected bug surfaces loudly rather than getting swallowed
-    # alongside the seed itself. Only the seed_starter_features() call — which
-    # is idempotent and inherently DB-bound — is allowed to fail soft.
+    # Imports live OUTSIDE the guard so any import failure surfaces loudly
+    # rather than getting swallowed alongside the seed itself. Only the
+    # DB-bound work (get_db + seed call) is allowed to fail soft: a
+    # psycopg2.Error from the seed INSERTs or a RuntimeError from
+    # get_db()/the pool lookup is a data-plane hiccup that should not
+    # prevent the rest of the lifespan from continuing.
     from .services.features_seed import seed_starter_features
     from .dependencies import get_db
 
-    gen = get_db()
-    seed_conn = next(gen)
     try:
+        gen = get_db()
+        seed_conn = next(gen)
         try:
             seed_starter_features(seed_conn, settings.scraper_environment)
-        except (psycopg2.Error, RuntimeError):
-            logger.exception(
-                "Failed to seed starter features during startup (env=%s)",
-                settings.scraper_environment,
-            )
-    finally:
-        try:
-            next(gen)
-        except StopIteration:
-            pass
+        finally:
+            try:
+                next(gen)
+            except StopIteration:
+                pass
+    except (psycopg2.Error, RuntimeError):
+        logger.exception(
+            "Failed to seed starter features during startup (env=%s)",
+            settings.scraper_environment,
+        )
 
     # Start background auto-scraper
     from .services.auto_scraper import auto_scraper_loop

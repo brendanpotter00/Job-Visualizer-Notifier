@@ -312,5 +312,29 @@ describe('featuresApi', () => {
       );
       consoleWarn.mockRestore();
     });
+
+    it('no-ops optimistic patch when hasUpvoted is already false', async () => {
+      // Mirror of `upvoteFeature > no-ops optimistic patch when hasUpvoted is
+      // already true` — DELETE on a feature the user hasn't upvoted must not
+      // mutate the cache before the server responds. The optimistic branch is
+      // guarded by `if (f && f.hasUpvoted)`; removing that guard would cause
+      // negative counts or a flicker to upvoteCount-1.
+      fetchMock
+        .mockResolvedValueOnce(jsonResponse({ features: SAMPLE_FEATURES }))
+        .mockImplementationOnce(() => new Promise<Response>(() => {}));
+      const store = makeStore(async () => 'tok');
+
+      await store.dispatch(featuresApi.endpoints.listFeatures.initiate()).unwrap();
+      // resume-match-ai starts with hasUpvoted=false, upvoteCount=3.
+      store.dispatch(featuresApi.endpoints.removeUpvote.initiate('resume-match-ai'));
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const feature = featuresApi.endpoints.listFeatures
+        .select()(store.getState())
+        .data?.find((f) => f.id === 'resume-match-ai');
+      expect(feature?.hasUpvoted).toBe(false);
+      expect(feature?.upvoteCount).toBe(3);
+    });
   });
 });
