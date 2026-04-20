@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { FeatureVoteCard } from '../../../pages/VoteFeaturesPage/FeatureVoteCard';
 import type { FeatureListItem } from '../../../features/features/featuresApi';
+import { logger } from '../../../lib/logger';
 
 const mockLogin = vi.fn();
 let mockAuthState = {
@@ -110,6 +111,22 @@ describe('FeatureVoteCard', () => {
       expect(mockRemoveTrigger).not.toHaveBeenCalled();
     });
 
+    it('upvotes on keyboard activation (Enter key)', async () => {
+      // Pins keyboard-driven voting — a swap from MUI IconButton to a
+      // <div role="button"> without onKeyDown would silently break it.
+      const user = userEvent.setup();
+      render(<FeatureVoteCard feature={SAMPLE} />);
+      const button = findUpvoteButton();
+      button.focus();
+      await user.keyboard('{Enter}');
+      expect(mockUpvoteTrigger).toHaveBeenCalledWith('resume-match-ai');
+    });
+
+    it('advertises aria-pressed="false" when the feature is not yet upvoted', () => {
+      render(<FeatureVoteCard feature={SAMPLE} />);
+      expect(findUpvoteButton()).toHaveAttribute('aria-pressed', 'false');
+    });
+
     it('does NOT open the sign-in modal', async () => {
       const user = userEvent.setup();
       render(<FeatureVoteCard feature={SAMPLE} />);
@@ -117,6 +134,29 @@ describe('FeatureVoteCard', () => {
       expect(
         screen.queryByRole('dialog', { name: /sign in to vote/i })
       ).not.toBeInTheDocument();
+    });
+
+    it('logs via logger.error when the upvote mutation rejects', async () => {
+      const user = userEvent.setup();
+      const loggerErrorSpy = vi
+        .spyOn(logger, 'error')
+        .mockImplementation(() => {});
+      const mockErr = new Error('boom');
+      mockUpvoteTrigger.mockReturnValue({
+        unwrap: () => Promise.reject(mockErr),
+      });
+      try {
+        render(<FeatureVoteCard feature={SAMPLE} />);
+        await user.click(findUpvoteButton());
+        await waitFor(() => {
+          expect(loggerErrorSpy).toHaveBeenCalledWith(
+            expect.stringContaining('upvote'),
+            mockErr
+          );
+        });
+      } finally {
+        loggerErrorSpy.mockRestore();
+      }
     });
   });
 
@@ -137,6 +177,16 @@ describe('FeatureVoteCard', () => {
       expect(mockRemoveTrigger).toHaveBeenCalledTimes(1);
       expect(mockRemoveTrigger).toHaveBeenCalledWith('resume-match-ai');
       expect(mockUpvoteTrigger).not.toHaveBeenCalled();
+    });
+
+    it('advertises aria-pressed="true" when the feature is already upvoted', () => {
+      const upvoted: FeatureListItem = {
+        ...SAMPLE,
+        hasUpvoted: true,
+        upvoteCount: 4,
+      };
+      render(<FeatureVoteCard feature={upvoted} />);
+      expect(findUpvoteButton()).toHaveAttribute('aria-pressed', 'true');
     });
   });
 
