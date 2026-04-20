@@ -1,8 +1,8 @@
 """Idempotent seed of starter candidate features.
 
 Called from FastAPI lifespan on every boot. Uses ``INSERT ... ON CONFLICT
-(id) DO NOTHING`` so re-runs are harmless. IDs, titles, and descriptions
-are locked by ``docs/implementations/featureVoting/PLAN.md``.
+(id) DO NOTHING`` so re-runs are harmless. IDs are intentionally stable —
+downstream upvote rows reference them via FK.
 """
 
 import logging

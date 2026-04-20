@@ -4,6 +4,7 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 
+import psycopg2
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
@@ -45,24 +46,28 @@ async def lifespan(app: FastAPI):
     app.state.env = settings.scraper_environment
     app.state.config = settings
 
-    try:
-        from .services.features_seed import seed_starter_features
-        from .dependencies import get_db
+    # Imports and connection-plumbing live OUTSIDE the guard so any import
+    # failure or unexpected bug surfaces loudly rather than getting swallowed
+    # alongside the seed itself. Only the seed_starter_features() call — which
+    # is idempotent and inherently DB-bound — is allowed to fail soft.
+    from .services.features_seed import seed_starter_features
+    from .dependencies import get_db
 
-        gen = get_db()
-        seed_conn = next(gen)
+    gen = get_db()
+    seed_conn = next(gen)
+    try:
         try:
             seed_starter_features(seed_conn, settings.scraper_environment)
-        finally:
-            try:
-                next(gen)
-            except StopIteration:
-                pass
-    except Exception:
-        logger.exception(
-            "Failed to seed starter features during startup (env=%s)",
-            settings.scraper_environment,
-        )
+        except (psycopg2.Error, RuntimeError):
+            logger.exception(
+                "Failed to seed starter features during startup (env=%s)",
+                settings.scraper_environment,
+            )
+    finally:
+        try:
+            next(gen)
+        except StopIteration:
+            pass
 
     # Start background auto-scraper
     from .services.auto_scraper import auto_scraper_loop

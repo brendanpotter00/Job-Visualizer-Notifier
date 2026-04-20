@@ -4,12 +4,10 @@ Revision ID: 050b9adc98e1
 Revises: 91337142414f
 Create Date: 2026-04-20 01:44:38.408735+00:00
 
-Table names are parameterized by SCRAPER_ENVIRONMENT so this revision
-produces features_local / features_prod / features_test_<hex> exactly the
-way the rest of the schema is suffixed (see db_models.py _ENV). Alembic
-autogenerate emits a hardcoded suffix based on the env it ran under; we
-swap it for a settings-driven f-string so the same revision upgrades every
-env without hand-maintained per-env variants.
+Table names follow the repo-wide ``{name}_{env}`` convention: the
+``SCRAPER_ENVIRONMENT`` setting drives the suffix so one revision covers
+``features_local`` / ``features_prod`` / ``features_test_<hex>`` (see
+``db_models.py`` ``_ENV`` and the baseline revision for the same pattern).
 """
 from typing import Sequence, Union
 

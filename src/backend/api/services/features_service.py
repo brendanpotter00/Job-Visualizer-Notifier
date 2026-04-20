@@ -1,9 +1,5 @@
-"""Feature voting service: list with upvote state, toggle upvotes.
-
-Uses raw psycopg2 with env-suffixed table names (``features_{env}`` and
-``feature_upvotes_{env}``) matching the repo convention for tables that are
-not in ``scripts.shared.database._get_table_name``'s known set. See
-``user_preferences_service._table`` for the same pattern.
+"""Feature voting service. Table names follow the ``{name}_{env}`` convention
+(see ``user_preferences_service._table`` for the same pattern).
 
 Idempotency:
 - ``add_upvote`` uses ``INSERT ... ON CONFLICT DO NOTHING`` on the composite

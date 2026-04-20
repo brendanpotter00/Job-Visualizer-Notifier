@@ -49,12 +49,24 @@ def _resolve_user_id_for_mutation(conn, env: str, user: TokenClaims) -> str:
 
 
 def _resolve_optional_user_id(conn, env: str, user: TokenClaims | None) -> str | None:
+    # GET is best-effort: a DB hiccup when looking up the caller should not fail
+    # the whole list endpoint. Treat the caller as anonymous (hasUpvoted=false on
+    # every row) and log so the symptom is debuggable.
     if user is None:
         return None
     email = user.get("email")
     if not email:
         return None
-    row = get_user_by_email(conn, env, email)
+    try:
+        row = get_user_by_email(conn, env, email)
+    except psycopg2.Error:
+        conn.rollback()
+        logger.exception(
+            "Failed to resolve optional user for list_features (email=%s); "
+            "falling back to anonymous",
+            email,
+        )
+        return None
     return row["id"] if row else None
 
 
@@ -66,7 +78,15 @@ def list_features(
 ):
     env = request.app.state.env
     user_id = _resolve_optional_user_id(conn, env, user)
-    rows = list_features_with_upvotes(conn, env, user_id)
+    try:
+        rows = list_features_with_upvotes(conn, env, user_id)
+    except psycopg2.Error:
+        # Roll back so the pooled connection isn't returned in an aborted-transaction
+        # state — the next caller of get_db would otherwise see "current transaction
+        # is aborted" on their very first statement.
+        conn.rollback()
+        logger.exception("Failed to list features (env=%s)", env)
+        raise HTTPException(status_code=500, detail="Failed to list features")
     items = [
         FeatureResponse(
             id=r["id"],
