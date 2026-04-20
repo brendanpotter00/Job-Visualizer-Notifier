@@ -11,12 +11,20 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'vote-for-features',
+    title: 'Vote for features',
+    description:
+      'New page with a changelog of recent work and a voting column where signed-in users can upvote candidate features to help prioritize what ships next.',
+    tags: ['feature'],
+    date: '2026-04-20',
+  },
+  {
     id: 'accounts',
     title: 'User accounts',
     description:
-      'Sign in with Google or email to save your company preferences and personalize your view across devices.',
+      'Sign in with Google or email to personalize your view across devices. A stepping stone toward saving preferences like location, companies, and notifications.',
     tags: ['feature'],
-    date: '2026-04-18',
+    date: '2026-04-19',
   },
   {
     id: 'saved-company-preferences',
