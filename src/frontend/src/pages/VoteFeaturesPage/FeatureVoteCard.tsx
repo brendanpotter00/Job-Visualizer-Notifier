@@ -16,6 +16,7 @@ import {
 import { useAuth } from '../../features/auth/useAuth';
 import { SignInPromptModal } from '../../components/shared/SignInPrompt';
 import { SIGN_IN_MODAL_MESSAGES } from '../../constants/messages';
+import { logger } from '../../lib/logger';
 
 export interface FeatureVoteCardProps {
   feature: FeatureListItem;
@@ -43,7 +44,7 @@ export function FeatureVoteCard({ feature }: FeatureVoteCardProps) {
     trigger(feature.id)
       .unwrap()
       .catch((e: unknown) => {
-        console.error(
+        logger.error(
           `[FeatureVoteCard] ${action} failed for feature=${feature.id}:`,
           e
         );
@@ -104,7 +105,6 @@ export function FeatureVoteCard({ feature }: FeatureVoteCardProps) {
         title={SIGN_IN_MODAL_MESSAGES.TITLE}
         subtitle={SIGN_IN_MODAL_MESSAGES.SUBTITLE}
         buttonText={SIGN_IN_MODAL_MESSAGES.BUTTON_TEXT}
-        ariaLabel={SIGN_IN_MODAL_MESSAGES.ARIA_LABEL}
       />
     </>
   );

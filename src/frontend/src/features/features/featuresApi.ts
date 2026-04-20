@@ -1,4 +1,5 @@
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
+import { logger } from '../../lib/logger';
 
 export interface FeatureListItem {
   id: string;
@@ -58,7 +59,7 @@ export const featuresApi = createApi({
           // consumers (e.g. FeatureVoteCard) also log via `.unwrap().catch`,
           // but the mutation layer is the only place that sees the raw
           // rejection before the cache is reverted.
-          console.warn(
+          logger.warn(
             `[featuresApi] upvote failed for feature=${featureId}, reverting:`,
             err
           );
@@ -81,7 +82,7 @@ export const featuresApi = createApi({
         try {
           await queryFulfilled;
         } catch (err) {
-          console.warn(
+          logger.warn(
             `[featuresApi] remove-upvote failed for feature=${featureId}, reverting:`,
             err
           );

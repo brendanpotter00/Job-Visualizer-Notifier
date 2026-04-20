@@ -80,8 +80,10 @@ describe('FeatureVoteCard', () => {
       const user = userEvent.setup();
       render(<FeatureVoteCard feature={SAMPLE} />);
       await user.click(findUpvoteButton());
+      // The modal uses its default `aria-labelledby` wiring (pass-1 a11y
+      // contract), so the accessible name resolves to the rendered title.
       expect(
-        await screen.findByRole('dialog', { name: /sign in prompt/i })
+        await screen.findByRole('dialog', { name: /sign in to vote/i })
       ).toBeInTheDocument();
     });
 
@@ -113,7 +115,7 @@ describe('FeatureVoteCard', () => {
       render(<FeatureVoteCard feature={SAMPLE} />);
       await user.click(findUpvoteButton());
       expect(
-        screen.queryByRole('dialog', { name: /sign in prompt/i })
+        screen.queryByRole('dialog', { name: /sign in to vote/i })
       ).not.toBeInTheDocument();
     });
   });

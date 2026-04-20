@@ -87,5 +87,4 @@ export const SIGN_IN_MODAL_MESSAGES = {
   TITLE: 'Sign in to vote',
   SUBTITLE: 'Your upvote helps prioritize what we build next.',
   BUTTON_TEXT: 'Sign In',
-  ARIA_LABEL: 'Sign in prompt',
 } as const;
