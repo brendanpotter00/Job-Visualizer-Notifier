@@ -65,6 +65,11 @@ def seed_starter_features(conn: Connection, env: str) -> int:
             env, exc, exc_info=True,
         )
         raise
-    if inserted:
-        logger.info("Seeded %d starter features (env=%s)", inserted, env)
+    # Emit unconditionally so cold-start logs always show the seed ran, even
+    # when every feature already existed. A conditional log was silent after
+    # the first successful boot, indistinguishable in Railway logs from a
+    # silent crash of the seed routine (see 2026-04-18 review pass 2).
+    logger.info(
+        "seed_starter_features completed (env=%s, inserted=%d)", env, inserted
+    )
     return inserted

@@ -1,12 +1,14 @@
 """Integration tests for features router (GET/POST/DELETE /api/features)."""
 
-from unittest.mock import patch
+import logging
+from unittest.mock import MagicMock, patch
 
 import psycopg2
 from fastapi.testclient import TestClient
 from psycopg2 import sql
 
 from api.auth.dependencies import get_current_user, get_optional_user
+from api.dependencies import get_db
 
 
 def _insert_feature(db_conn, env, feature_id, title="T", description="D"):
@@ -248,3 +250,145 @@ class TestListFeaturesNoUserRow:
             assert features[0]["upvoteCount"] == 0
         finally:
             test_app.dependency_overrides.pop(get_optional_user, None)
+
+
+class TestListFeaturesDbErrorRollback:
+    """Covers the `list_features_with_upvotes` -> psycopg2.Error rollback
+    branch in `list_features` (routers/features.py:83-89). If the SELECT
+    raises, the pooled connection must be rolled back (else the next caller
+    sees 'current transaction is aborted') and the endpoint must return 500.
+    """
+
+    def test_list_features_with_upvotes_error_returns_500_and_rolls_back(
+        self, test_app, db_conn, test_env
+    ):
+        _insert_feature(db_conn, test_env, "f1")
+        # Replace the connection yielded by get_db with a Mock that records
+        # whether `.rollback()` was called. The rollback branch under test
+        # calls `conn.rollback()` directly on the pooled connection before
+        # raising HTTPException(500). Restore the prior override in finally
+        # (test_app is module-scoped and its conftest-registered override
+        # of get_db must survive past this test, else sibling tests see
+        # `RuntimeError: Connection pool not initialized`).
+        mock_conn = MagicMock()
+
+        def _override_get_db():
+            yield mock_conn
+
+        saved_get_db = test_app.dependency_overrides.get(get_db)
+        test_app.dependency_overrides[get_optional_user] = lambda: None
+        test_app.dependency_overrides[get_db] = _override_get_db
+        try:
+            with patch(
+                "api.routers.features.list_features_with_upvotes",
+                side_effect=psycopg2.OperationalError("boom"),
+            ):
+                client = TestClient(test_app)
+                resp = client.get("/api/features")
+            assert resp.status_code == 500
+            assert resp.json()["detail"] == "Failed to list features"
+            mock_conn.rollback.assert_called_once()
+        finally:
+            test_app.dependency_overrides.pop(get_optional_user, None)
+            if saved_get_db is not None:
+                test_app.dependency_overrides[get_db] = saved_get_db
+            else:
+                test_app.dependency_overrides.pop(get_db, None)
+
+
+class TestResolveOptionalUserIdDbErrorFallback:
+    """Covers the `_resolve_optional_user_id` psycopg2.Error fallback branch
+    (routers/features.py:62-69). When `get_user_by_email` raises, the router
+    must: (a) roll back the connection so the transaction isn't aborted for
+    downstream reads, (b) log at ERROR level, (c) fall back to treating the
+    caller as anonymous — still returning 200 with `has_upvoted: false` on
+    every row (best-effort GET semantics, not a failure).
+    """
+
+    def test_get_user_by_email_db_error_falls_back_to_anonymous(
+        self, test_app, db_conn, test_env, caplog
+    ):
+        _insert_feature(db_conn, test_env, "f1", "Title", "Desc")
+        _insert_feature(db_conn, test_env, "f2", "Another", "Desc2")
+        # test_app's conftest already overrides `get_db` to yield the real
+        # test db_conn, so we don't need to touch it here — just override
+        # get_optional_user so the code path under test (auth-resolution
+        # email lookup) actually runs.
+        test_app.dependency_overrides[get_optional_user] = lambda: {
+            "sub": "auth0|some_user",
+            "email": "anyone@example.com",
+        }
+        try:
+            # Capture log records so we can assert an ERROR-level record was
+            # emitted from the features router (logger.exception logs at
+            # ERROR with exc_info attached).
+            with caplog.at_level(logging.ERROR, logger="api.routers.features"):
+                with patch(
+                    "api.routers.features.get_user_by_email",
+                    side_effect=psycopg2.OperationalError("simulated email lookup outage"),
+                ):
+                    client = TestClient(test_app)
+                    resp = client.get("/api/features")
+            # Endpoint falls back to anonymous path -> 200, every row
+            # hasUpvoted=false (no upvotes seeded anyway, so this also guards
+            # against the fallback accidentally inverting the flag).
+            assert resp.status_code == 200
+            features = resp.json()["features"]
+            assert len(features) == 2
+            for feat in features:
+                assert feat["hasUpvoted"] is False
+            # ERROR-level log record was emitted by the router.
+            error_records = [
+                r for r in caplog.records
+                if r.levelno == logging.ERROR
+                and r.name == "api.routers.features"
+            ]
+            assert error_records, (
+                "Expected at least one ERROR log record from "
+                "api.routers.features when get_user_by_email raises psycopg2.Error"
+            )
+        finally:
+            test_app.dependency_overrides.pop(get_optional_user, None)
+
+    def test_rollback_invoked_on_get_user_by_email_db_error(
+        self, test_app, db_conn, test_env
+    ):
+        """Narrower assertion that isolates the `conn.rollback()` call — we
+        substitute a Mock connection so the rollback invocation is directly
+        observable without having to introspect connection state."""
+        _insert_feature(db_conn, test_env, "f1")
+        mock_conn = MagicMock()
+
+        def _override_get_db():
+            yield mock_conn
+
+        saved_get_db = test_app.dependency_overrides.get(get_db)
+        test_app.dependency_overrides[get_optional_user] = lambda: {
+            "sub": "auth0|some_user",
+            "email": "anyone@example.com",
+        }
+        test_app.dependency_overrides[get_db] = _override_get_db
+        try:
+            # After _resolve_optional_user_id's rollback + fallback to None,
+            # list_features still calls list_features_with_upvotes(conn, ...).
+            # Patch that too so it returns an empty result set (the mock conn
+            # isn't a real cursor-backing connection).
+            with patch(
+                "api.routers.features.get_user_by_email",
+                side_effect=psycopg2.OperationalError("boom"),
+            ), patch(
+                "api.routers.features.list_features_with_upvotes",
+                return_value=[],
+            ):
+                client = TestClient(test_app)
+                resp = client.get("/api/features")
+            assert resp.status_code == 200
+            # rollback() was called exactly once by _resolve_optional_user_id
+            # after the get_user_by_email failure.
+            mock_conn.rollback.assert_called_once()
+        finally:
+            test_app.dependency_overrides.pop(get_optional_user, None)
+            if saved_get_db is not None:
+                test_app.dependency_overrides[get_db] = saved_get_db
+            else:
+                test_app.dependency_overrides.pop(get_db, None)
