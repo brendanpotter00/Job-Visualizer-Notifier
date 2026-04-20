@@ -254,7 +254,7 @@ Two-tag set for v1. Adding a tag is a deliberate code change in `src/frontend/sr
 
 ### Unit 3 — Vercel proxy: `api/features.ts`
 
-**Status:** TODO
+**Status:** DONE
 **Prerequisites:** Unit 2
 **Owned files (create):**
 - `api/features.ts` — copy of `api/users.ts` with the base path switched to `/api/features`. Forwards `Authorization`; forwards the request body for POST; DELETE has none. Uses `getBackendUrl(req)` + `forwardResponse(response, res)` from `api/utils/`.
@@ -277,7 +277,7 @@ Two-tag set for v1. Adding a tag is a deliberate code change in `src/frontend/sr
 
 ### Unit 4 — Frontend changelog config + tag taxonomy
 
-**Status:** TODO
+**Status:** DONE
 **Prerequisites:** none (pure config)
 **Owned files (create):**
 - `src/frontend/src/config/changelog.ts` — `CHANGELOG_TAGS`, `ChangelogTag`, `ChangelogEntry`, `CHANGELOG` per Shared Contracts. Ships with the two real seed entries (accounts, saved-company-preferences).
@@ -293,7 +293,7 @@ Two-tag set for v1. Adding a tag is a deliberate code change in `src/frontend/sr
 
 ### Unit 5 — Frontend data layer: `featuresApi` RTK Query slice + store wiring
 
-**Status:** TODO
+**Status:** DONE
 **Prerequisites:** Unit 3
 **Owned files (create):**
 - `src/frontend/src/features/features/featuresApi.ts` — per Shared Contracts sketch.
@@ -315,7 +315,7 @@ Two-tag set for v1. Adding a tag is a deliberate code change in `src/frontend/sr
 
 ### Unit 6 — Shared `SignInPrompt` primitive + modal mode (refactor `SignInOverlay`)
 
-**Status:** TODO
+**Status:** DONE
 **Prerequisites:** none (independent refactor that Unit 7 consumes)
 **Owned files (create):**
 - `src/frontend/src/components/shared/SignInPrompt/SignInPrompt.tsx` — **shared core**: headline, subtitle, lock icon, and a CTA button that calls `useAuth().login()`. Takes `title`, `subtitle`, `buttonText`, and an optional `onRequestClose` for the modal variant. Renders nothing if `!isEnabled || isLoading || isAuthenticated`.
@@ -337,7 +337,7 @@ Two-tag set for v1. Adding a tag is a deliberate code change in `src/frontend/sr
 
 ### Unit 7 — Page UI: layout, changelog column with tag filter, voting column with upvote cards, sign-in modal hookup
 
-**Status:** TODO
+**Status:** DONE
 **Prerequisites:** Units 4, 5, and 6
 **Owned files (create):**
 - `src/frontend/src/pages/VoteFeaturesPage/VoteFeaturesPage.tsx` — top-level page: `Container` + two-column responsive `Grid` (`md={6}` each, stacks on `xs`). Heading: "Vote for features".
@@ -362,7 +362,7 @@ Two-tag set for v1. Adding a tag is a deliberate code change in `src/frontend/sr
 
 ### Unit 8 — Route registration + side nav entry + end-to-end verification
 
-**Status:** TODO
+**Status:** DONE
 **Prerequisites:** Unit 7
 **Owned files (create):**
 - `src/frontend/src/__tests__/components/layout/NavigationDrawer.test.tsx` (new file if one doesn't already exist; otherwise extend) — asserts the "Vote for features" nav item renders and routes to `/vote-features` on click.
