@@ -30,13 +30,13 @@ export const NAV_ITEMS = [
     icon: 'Info', // MUI Info icon
   },
   {
-    path: ROUTES.QA,
-    label: 'QA',
-    icon: 'BugReport',
-  },
-  {
     path: ROUTES.VOTE_FEATURES,
     label: 'Vote for features',
     icon: 'ThumbUp', // MUI ThumbUp icon
+  },
+  {
+    path: ROUTES.QA,
+    label: 'QA',
+    icon: 'BugReport',
   },
 ] as const;
