@@ -91,19 +91,23 @@ describe('SignInPromptModal', () => {
   });
 
   describe('Accessibility', () => {
-    it('exposes the dialog with the provided aria-label', () => {
+    it('exposes the dialog with the provided aria-label when set', () => {
       render(<SignInPromptModal {...DEFAULT_PROPS} open={true} onClose={vi.fn()} />);
       expect(
         screen.getByRole('dialog', { name: DEFAULT_PROPS.ariaLabel })
       ).toBeInTheDocument();
     });
 
-    it('falls back to the title as the aria-label when ariaLabel is omitted', () => {
+    it('wires aria-labelledby to the rendered title when ariaLabel is omitted', () => {
       const { ariaLabel: _ignored, ...noAria } = DEFAULT_PROPS;
       render(<SignInPromptModal {...noAria} open={true} onClose={vi.fn()} />);
-      expect(
-        screen.getByRole('dialog', { name: DEFAULT_PROPS.title })
-      ).toBeInTheDocument();
+      // The rendered title <Typography> should have an id, the dialog paper
+      // should reference that id via aria-labelledby, and the accessible name
+      // should resolve to the title's text content.
+      const titleEl = screen.getByText(DEFAULT_PROPS.title);
+      expect(titleEl.id).toBeTruthy();
+      const dialog = screen.getByRole('dialog', { name: DEFAULT_PROPS.title });
+      expect(dialog).toHaveAttribute('aria-labelledby', titleEl.id);
     });
   });
 });

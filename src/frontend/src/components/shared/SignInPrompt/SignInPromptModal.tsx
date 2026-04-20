@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import { Box, Dialog, DialogContent, IconButton } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import { SignInPrompt, type SignInPromptMessageProps } from './SignInPrompt';
@@ -5,6 +6,12 @@ import { SignInPrompt, type SignInPromptMessageProps } from './SignInPrompt';
 export interface SignInPromptModalProps extends SignInPromptMessageProps {
   open: boolean;
   onClose: () => void;
+  /**
+   * Optional override for the dialog's accessible name. When omitted, the
+   * modal wires `aria-labelledby` to the rendered title `<Typography>` so
+   * screen readers announce the actual heading (the prior `aria-label`-only
+   * approach let the label drift from the visible title).
+   */
   ariaLabel?: string;
 }
 
@@ -21,7 +28,18 @@ export function SignInPromptModal({
   buttonText,
   ariaLabel,
 }: SignInPromptModalProps) {
-  const resolvedAriaLabel = ariaLabel ?? title;
+  // Generate a stable unique id for the title node so the Dialog paper can
+  // reference it via `aria-labelledby`. Using `useId` keeps the id unique
+  // across multiple concurrent modals on the same page.
+  const generatedTitleId = useId();
+  const titleId = `sign-in-prompt-title-${generatedTitleId}`;
+  // `aria-labelledby` referencing the live title node is preferred over a
+  // static `aria-label` because it cannot drift from the rendered heading.
+  // If the caller insists on a distinct accessible name (e.g. screen-reader
+  // verbosity tuning), `ariaLabel` overrides and we fall back to `aria-label`.
+  const paperAria = ariaLabel
+    ? { 'aria-label': ariaLabel }
+    : { 'aria-labelledby': titleId };
   return (
     <Dialog
       open={open}
@@ -29,9 +47,7 @@ export function SignInPromptModal({
       maxWidth="xs"
       fullWidth
       slotProps={{
-        paper: {
-          'aria-label': resolvedAriaLabel,
-        },
+        paper: paperAria,
       }}
     >
       <Box sx={{ display: 'flex', justifyContent: 'flex-end', p: 1 }}>
@@ -49,6 +65,7 @@ export function SignInPromptModal({
           subtitle={subtitle}
           buttonText={buttonText}
           onRequestClose={onClose}
+          titleId={titleId}
         />
       </DialogContent>
     </Dialog>

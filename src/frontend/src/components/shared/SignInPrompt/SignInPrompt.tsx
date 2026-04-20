@@ -15,6 +15,12 @@ export interface SignInPromptProps extends SignInPromptMessageProps {
    * the CTA.
    */
   onRequestClose?: () => void;
+  /**
+   * Optional DOM id assigned to the title `Typography`. Modal variants pass
+   * this through so they can wire `aria-labelledby` on the Dialog paper for
+   * screen-reader title announcements.
+   */
+  titleId?: string;
 }
 
 /**
@@ -28,6 +34,7 @@ export function SignInPrompt({
   subtitle,
   buttonText,
   onRequestClose,
+  titleId,
 }: SignInPromptProps) {
   const { isAuthenticated, isEnabled, isLoading, login } = useAuth();
 
@@ -49,7 +56,7 @@ export function SignInPrompt({
         sx={{ fontSize: 32, color: 'text.secondary' }}
       />
       <Box>
-        <Typography variant="h6" component="p" gutterBottom>
+        <Typography id={titleId} variant="h6" component="p" gutterBottom>
           {title}
         </Typography>
         <Typography variant="body2" color="text.secondary">
