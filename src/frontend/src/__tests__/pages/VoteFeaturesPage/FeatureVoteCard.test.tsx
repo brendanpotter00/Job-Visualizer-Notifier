@@ -56,8 +56,12 @@ describe('FeatureVoteCard', () => {
     mockLogin.mockReset();
     mockUpvoteTrigger.mockReset();
     mockRemoveTrigger.mockReset();
-    mockUpvoteTrigger.mockResolvedValue(undefined);
-    mockRemoveTrigger.mockResolvedValue(undefined);
+    // FeatureVoteCard calls `.unwrap()` on the mutation trigger result (for
+    // observability — see featuresApi optimistic update). Mirror RTK Query's
+    // trigger contract so the mock returns the `{ unwrap }` shape the real
+    // hook returns.
+    mockUpvoteTrigger.mockReturnValue({ unwrap: () => Promise.resolve(undefined) });
+    mockRemoveTrigger.mockReturnValue({ unwrap: () => Promise.resolve(undefined) });
     upvoteInFlight = false;
     removeInFlight = false;
     mockAuthState = {

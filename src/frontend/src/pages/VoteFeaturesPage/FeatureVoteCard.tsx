@@ -35,14 +35,19 @@ export function FeatureVoteCard({ feature }: FeatureVoteCardProps) {
       setModalOpen(true);
       return;
     }
-    if (feature.hasUpvoted) {
-      // Fire-and-forget: featuresApi handles optimistic update + rollback on
-      // failure. `.unwrap()` would surface errors after the cache has already
-      // reverted, so we intentionally discard the promise.
-      void removeUpvote(feature.id);
-    } else {
-      void upvote(feature.id);
-    }
+    // featuresApi handles the optimistic update + rollback on failure; the
+    // awaited `.unwrap()` call is purely for observability so the rejection
+    // reason is surfaced to the console instead of being swallowed silently.
+    const action = feature.hasUpvoted ? 'remove-upvote' : 'upvote';
+    const trigger = feature.hasUpvoted ? removeUpvote : upvote;
+    trigger(feature.id)
+      .unwrap()
+      .catch((e: unknown) => {
+        console.error(
+          `[FeatureVoteCard] ${action} failed for feature=${feature.id}:`,
+          e
+        );
+      });
   };
 
   const arrowColor = feature.hasUpvoted ? 'primary.main' : 'text.secondary';

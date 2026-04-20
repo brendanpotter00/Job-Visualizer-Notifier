@@ -206,6 +206,7 @@ describe('featuresApi', () => {
     });
 
     it('reverts optimistic patch when mutation fails', async () => {
+      const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
       fetchMock
         .mockResolvedValueOnce(jsonResponse({ features: SAMPLE_FEATURES }))
         .mockResolvedValueOnce(jsonResponse({ detail: 'boom' }, 500));
@@ -230,6 +231,11 @@ describe('featuresApi', () => {
         .data?.find((f) => f.id === 'resume-match-ai');
       expect(afterFailure?.hasUpvoted).toBe(false);
       expect(afterFailure?.upvoteCount).toBe(3);
+      expect(consoleWarn).toHaveBeenCalledWith(
+        expect.stringContaining('upvote failed'),
+        expect.anything()
+      );
+      consoleWarn.mockRestore();
     });
 
     it('no-ops optimistic patch when hasUpvoted is already true', async () => {
@@ -275,6 +281,7 @@ describe('featuresApi', () => {
     });
 
     it('reverts optimistic patch when mutation fails', async () => {
+      const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
       fetchMock
         .mockResolvedValueOnce(jsonResponse({ features: SAMPLE_FEATURES }))
         .mockResolvedValueOnce(jsonResponse({ detail: 'boom' }, 500));
@@ -299,6 +306,11 @@ describe('featuresApi', () => {
         .data?.find((f) => f.id === 'location-normalization');
       expect(afterFailure?.hasUpvoted).toBe(true);
       expect(afterFailure?.upvoteCount).toBe(7);
+      expect(consoleWarn).toHaveBeenCalledWith(
+        expect.stringContaining('remove-upvote failed'),
+        expect.anything()
+      );
+      consoleWarn.mockRestore();
     });
   });
 });

@@ -53,7 +53,15 @@ export const featuresApi = createApi({
         );
         try {
           await queryFulfilled;
-        } catch {
+        } catch (err) {
+          // Log BEFORE undo so the rejection reason is observable; downstream
+          // consumers (e.g. FeatureVoteCard) also log via `.unwrap().catch`,
+          // but the mutation layer is the only place that sees the raw
+          // rejection before the cache is reverted.
+          console.warn(
+            `[featuresApi] upvote failed for feature=${featureId}, reverting:`,
+            err
+          );
           patch.undo();
         }
       },
@@ -72,7 +80,11 @@ export const featuresApi = createApi({
         );
         try {
           await queryFulfilled;
-        } catch {
+        } catch (err) {
+          console.warn(
+            `[featuresApi] remove-upvote failed for feature=${featureId}, reverting:`,
+            err
+          );
           patch.undo();
         }
       },
