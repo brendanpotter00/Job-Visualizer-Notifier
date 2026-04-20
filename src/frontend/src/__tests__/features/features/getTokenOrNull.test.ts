@@ -3,6 +3,7 @@ import {
   getTokenOrNull,
   registerTokenGetter,
 } from '../../../features/features/getTokenOrNull';
+import { NotAuthenticatedError } from '../../../features/auth/useAuth';
 
 describe('getTokenOrNull', () => {
   let warnSpy: ReturnType<typeof vi.spyOn>;
@@ -29,13 +30,15 @@ describe('getTokenOrNull', () => {
     expect(warnSpy).not.toHaveBeenCalled();
   });
 
-  it('returns null silently when the getter throws the "Not authenticated" sentinel (normal signed-out path)', async () => {
+  it('returns null silently when the getter throws the NotAuthenticatedError marker (normal signed-out path)', async () => {
     // Matches `useAuth().getToken()`'s signed-out throw in
     // features/auth/useAuth.ts. This fires on every anonymous page load and
     // must NOT produce a warn log, else the console is spammed for the
-    // expected steady-state anonymous flow.
+    // expected steady-state anonymous flow. The marker class (not a raw
+    // string message) is the shared sentinel — compile-checks the coupling
+    // between useAuth and getTokenOrNull.
     registerTokenGetter(async () => {
-      throw new Error('Not authenticated');
+      throw new NotAuthenticatedError();
     });
     await expect(getTokenOrNull()).resolves.toBeNull();
     expect(warnSpy).not.toHaveBeenCalled();

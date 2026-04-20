@@ -3,6 +3,21 @@ import { useAuth0, type User } from '@auth0/auth0-react';
 import { AUTH_CONFIG } from '../../config/auth';
 import { useGoogleCredential } from './useGoogleCredential';
 
+/**
+ * Marker error thrown by `useAuth().getToken()` on the normal signed-out path
+ * when neither Auth0 nor a Google credential is present. Consumers that need
+ * to distinguish the expected anonymous rejection from real SDK failures
+ * (network errors, token refresh failures, etc.) should check
+ * `err instanceof NotAuthenticatedError`. Avoid string-matching the message —
+ * that coupling silently rots across rephrasings / SDK upgrades.
+ */
+export class NotAuthenticatedError extends Error {
+  constructor(message = 'Not authenticated') {
+    super(message);
+    this.name = 'NotAuthenticatedError';
+  }
+}
+
 interface AuthResult {
   isEnabled: boolean;
   isAuthenticated: boolean;
@@ -45,7 +60,7 @@ function useAuthReal(): AuthResult {
     if (googleCredential) {
       return googleCredential;
     }
-    throw new Error('Not authenticated');
+    throw new NotAuthenticatedError();
   }, [isAuth0Authenticated, googleCredential, getAccessTokenSilently]);
 
   const login = useCallback(async () => {
