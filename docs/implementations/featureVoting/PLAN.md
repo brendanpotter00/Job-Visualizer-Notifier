@@ -228,7 +228,7 @@ Two-tag set for v1. Adding a tag is a deliberate code change in `src/frontend/sr
 
 ### Unit 2 — Backend: service + router + Pydantic models + seed + tests
 
-**Status:** TODO
+**Status:** DONE
 **Prerequisites:** Unit 1
 **Owned files (create):**
 - `src/backend/api/services/features_service.py` — `list_features_with_upvotes(conn, user_id: str | None)`, `add_upvote(conn, feature_id, user_id)`, `remove_upvote(conn, feature_id, user_id)`. All idempotent. `add_upvote` / `remove_upvote` raise `FeatureNotFound` when the `feature_id` doesn't exist.

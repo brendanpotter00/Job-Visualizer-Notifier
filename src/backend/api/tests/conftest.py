@@ -281,11 +281,15 @@ def _clear_tables(conn, env: str) -> None:
     runs_table = _get_table_name(env, "runs")
     users_table = _get_table_name(env, "users")
     enabled_companies_table = f"user_enabled_companies_{env}"
-    cursor.execute(sql.SQL("TRUNCATE {}, {}, {}, {} CASCADE").format(
+    feature_upvotes_table = f"feature_upvotes_{env}"
+    features_table = f"features_{env}"
+    cursor.execute(sql.SQL("TRUNCATE {}, {}, {}, {}, {}, {} CASCADE").format(
+        sql.Identifier(feature_upvotes_table),
+        sql.Identifier(features_table),
+        sql.Identifier(enabled_companies_table),
         sql.Identifier(jobs_table),
         sql.Identifier(runs_table),
         sql.Identifier(users_table),
-        sql.Identifier(enabled_companies_table),
     ))
     conn.commit()
 
@@ -299,14 +303,15 @@ def clean_tables(db_conn, test_env):
 @pytest.fixture(scope="module")
 def test_app(db_conn, test_env):
     """FastAPI test app with database connection wired up (no auto-scraper)."""
-    from api.routers import jobs, jobs_qa, users
+    from api.routers import features, jobs, jobs_qa, users
     from api.dependencies import get_db
-    from api.auth.dependencies import get_current_user
+    from api.auth.dependencies import get_current_user, get_optional_user
 
     app = FastAPI()
     app.include_router(jobs.router, prefix="/api/jobs")
     app.include_router(jobs_qa.router, prefix="/api/jobs-qa")
     app.include_router(users.router, prefix="/api/users")
+    app.include_router(features.router, prefix="/api/features")
 
     @app.get("/health")
     def health():

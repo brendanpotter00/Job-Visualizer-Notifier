@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 
 from .config import settings
 from .dependencies import init_pool, close_pool, pool_is_healthy
-from .routers import jobs, jobs_qa, users
+from .routers import features, jobs, jobs_qa, users
 from .migrations import apply_alembic_migrations
 
 logging.basicConfig(
@@ -44,6 +44,25 @@ async def lifespan(app: FastAPI):
         raise
     app.state.env = settings.scraper_environment
     app.state.config = settings
+
+    try:
+        from .services.features_seed import seed_starter_features
+        from .dependencies import get_db
+
+        gen = get_db()
+        seed_conn = next(gen)
+        try:
+            seed_starter_features(seed_conn, settings.scraper_environment)
+        finally:
+            try:
+                next(gen)
+            except StopIteration:
+                pass
+    except Exception:
+        logger.exception(
+            "Failed to seed starter features during startup (env=%s)",
+            settings.scraper_environment,
+        )
 
     # Start background auto-scraper
     from .services.auto_scraper import auto_scraper_loop
@@ -87,6 +106,7 @@ app.add_middleware(
 app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])
 app.include_router(jobs_qa.router, prefix="/api/jobs-qa", tags=["jobs-qa"])
 app.include_router(users.router, prefix="/api/users", tags=["users"])
+app.include_router(features.router, prefix="/api/features", tags=["features"])
 
 
 @app.exception_handler(Exception)
