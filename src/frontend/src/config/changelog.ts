@@ -1,4 +1,4 @@
-export const CHANGELOG_TAGS = ['feature', 'technical'] as const;
+export const CHANGELOG_TAGS = ['feature', 'improvement', 'technical'] as const;
 export type ChangelogTag = (typeof CHANGELOG_TAGS)[number];
 
 export interface ChangelogEntry {
@@ -10,6 +10,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
+  {
+    id: 'fetch-progress-chip-navigation',
+    title: 'Jump to a company from the fetch progress bar',
+    description:
+      'Clicking a company chip in the Recent Jobs progress accordion now opens that company on the Company Job Postings page.',
+    tags: ['improvement'],
+    date: '2026-04-22',
+  },
   {
     id: 'vote-for-features',
     title: 'Vote for features',
