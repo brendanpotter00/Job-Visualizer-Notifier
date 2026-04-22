@@ -9,9 +9,10 @@ import {
 } from '../../config/changelog';
 import { MultiSelectAutocomplete } from '../../components/shared/filters/MultiSelectAutocomplete';
 
-const TAG_COLOR: Record<ChangelogTag, 'primary' | 'default'> = {
+const TAG_COLOR: Record<ChangelogTag, 'primary' | 'default' | 'success'> = {
   feature: 'primary',
   technical: 'default',
+  'new-companies': 'success',
 };
 
 function isChangelogTag(value: string): value is ChangelogTag {
