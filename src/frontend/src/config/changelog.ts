@@ -11,6 +11,14 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'top-talent-density-companies',
+    title: 'Added top talent-density startups',
+    description:
+      'Added Thinking Machines, Cursor, Modal Labs, LangChain, Together AI, Cognition, and Paraform — top-ranked startups on the Paraform Talent Density Index for concentrated senior engineering talent.',
+    tags: ['feature'],
+    date: '2026-04-22',
+  },
+  {
     id: 'vote-for-features',
     title: 'Vote for features',
     description:
