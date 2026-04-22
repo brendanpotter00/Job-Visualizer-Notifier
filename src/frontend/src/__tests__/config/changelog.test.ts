@@ -50,7 +50,12 @@ describe('CHANGELOG config', () => {
     expect(ids.has('saved-company-preferences')).toBe(true);
   });
 
-  it('CHANGELOG_TAGS is exactly ["feature", "technical", "new-companies"]', () => {
-    expect([...CHANGELOG_TAGS]).toEqual(['feature', 'technical', 'new-companies']);
+  it('CHANGELOG_TAGS is exactly ["feature", "improvement", "technical", "new-companies"]', () => {
+    expect([...CHANGELOG_TAGS]).toEqual([
+      'feature',
+      'improvement',
+      'technical',
+      'new-companies',
+    ]);
   });
 });
