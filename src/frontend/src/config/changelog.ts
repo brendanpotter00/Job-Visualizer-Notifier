@@ -16,7 +16,7 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
     description:
       'New page with a changelog of recent work and a voting column where signed-in users can upvote candidate features to help prioritize what ships next.',
     tags: ['feature'],
-    date: '2026-04-20',
+    date: '2026-04-21',
   },
   {
     id: 'saved-company-preferences',

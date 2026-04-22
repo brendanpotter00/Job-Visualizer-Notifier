@@ -10,10 +10,10 @@ export function VoteFeaturesPage() {
       </Typography>
       <Box sx={{ mt: 3 }}>
         <Grid container spacing={3}>
-          <Grid size={{ xs: 12, md: 6 }}>
+          <Grid size={{ xs: 12, md: 6 }} sx={{ order: { xs: 2, md: 1 } }}>
             <ChangelogColumn />
           </Grid>
-          <Grid size={{ xs: 12, md: 6 }}>
+          <Grid size={{ xs: 12, md: 6 }} sx={{ order: { xs: 1, md: 2 } }}>
             <VotingColumn />
           </Grid>
         </Grid>
