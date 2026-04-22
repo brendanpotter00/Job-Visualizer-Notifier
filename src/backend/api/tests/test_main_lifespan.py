@@ -8,6 +8,7 @@ serve a broken deployment — these tests pin that contract down.
 
 from unittest.mock import patch
 
+import psycopg2
 import pytest
 from fastapi.testclient import TestClient
 
@@ -108,3 +109,86 @@ async def _noop_coro(*args, **kwargs):
         await asyncio.Event().wait()
     except asyncio.CancelledError:
         raise
+
+
+class TestLifespanSeedFailureGuard:
+    """If `seed_starter_features` raises `psycopg2.Error`, the app must
+    still boot — the seed is best-effort lifecycle work, not a hard
+    prerequisite for serving requests. The lifespan guards the seed call
+    with `try/except (psycopg2.Error, RuntimeError)` and logs via
+    `logger.exception`. A regression that dropped the guard would make a
+    transient DB hiccup during seed INSERTs a full boot failure.
+    """
+
+    def _fake_get_db(self):
+        """Stand-in for `get_db()` that yields a Mock connection without
+        needing a real pool. The lifespan only drives the generator via
+        `next(gen)` twice (once to retrieve the conn, once to exhaust it);
+        mirror that contract exactly.
+        """
+        from unittest.mock import MagicMock
+        def _gen():
+            yield MagicMock()
+        return _gen()
+
+    def test_psycopg2_error_during_seed_does_not_prevent_app_boot(self):
+        def _failing_seed(conn, env):
+            raise psycopg2.OperationalError("seed boom")
+
+        # Patch at the source module — main.py imports the function
+        # inside the lifespan body via `from .services.features_seed
+        # import seed_starter_features`, so patching `api.main.<name>`
+        # would miss the import. Same story for `get_db` (imported inline).
+        with patch(
+            "api.services.features_seed.seed_starter_features",
+            side_effect=_failing_seed,
+        ) as mock_seed, \
+             patch(
+                 "api.dependencies.get_db",
+                 side_effect=lambda: self._fake_get_db(),
+             ), \
+             patch.object(api_main, "apply_alembic_migrations") as mock_apply, \
+             patch.object(api_main, "init_pool") as mock_init, \
+             patch.object(api_main, "close_pool"), \
+             patch("api.services.auto_scraper.auto_scraper_loop", new=_noop_coro):
+            # Lifespan startup must complete successfully despite the seed
+            # raising psycopg2.Error. If the guard were removed, entering
+            # the TestClient context would re-raise and this with-block
+            # would throw.
+            with TestClient(api_main.app) as client:
+                resp = client.get("/health")
+                # /health returns 200 when the pool is healthy, 503 when
+                # the patched init_pool didn't create a real pool. Either
+                # is fine here — the point is the app booted (no exception
+                # propagated out of lifespan), which is what the guard is
+                # load-bearing for.
+                assert resp.status_code in (200, 503)
+
+        mock_apply.assert_called_once()
+        mock_init.assert_called_once()
+        mock_seed.assert_called_once()
+
+    def test_runtime_error_during_seed_does_not_prevent_app_boot(self):
+        """Parallel guard arm: the same except clause also catches
+        `RuntimeError` (e.g. from get_db() / pool-not-initialized). Both
+        branches of `(psycopg2.Error, RuntimeError)` must keep the app
+        alive.
+        """
+        def _failing_seed(conn, env):
+            raise RuntimeError("simulated get_db failure")
+
+        with patch(
+            "api.services.features_seed.seed_starter_features",
+            side_effect=_failing_seed,
+        ), \
+             patch(
+                 "api.dependencies.get_db",
+                 side_effect=lambda: self._fake_get_db(),
+             ), \
+             patch.object(api_main, "apply_alembic_migrations"), \
+             patch.object(api_main, "init_pool"), \
+             patch.object(api_main, "close_pool"), \
+             patch("api.services.auto_scraper.auto_scraper_loop", new=_noop_coro):
+            with TestClient(api_main.app) as client:
+                resp = client.get("/health")
+                assert resp.status_code in (200, 503)

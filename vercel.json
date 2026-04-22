@@ -45,6 +45,14 @@
       "destination": "/api/users?path=:path"
     },
     {
+      "source": "/api/features",
+      "destination": "/api/features"
+    },
+    {
+      "source": "/api/features/:path(.*)",
+      "destination": "/api/features?path=:path"
+    },
+    {
       "source": "/recent-jobs",
       "destination": "/index.html"
     },
@@ -63,6 +71,10 @@
     {
       "source": "/account",
       "destination": "/index.html"
+    },
+    {
+      "source": "/vote-features",
+      "destination": "/index.html"
     }
   ],
   "headers": [
@@ -75,7 +87,7 @@
         },
         {
           "key": "Access-Control-Allow-Methods",
-          "value": "GET, POST, PUT, OPTIONS"
+          "value": "GET, POST, PUT, DELETE, OPTIONS"
         },
         {
           "key": "Access-Control-Allow-Headers",

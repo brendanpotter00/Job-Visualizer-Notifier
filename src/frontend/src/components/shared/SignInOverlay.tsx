@@ -1,8 +1,8 @@
-import { Box, Button, Stack, Typography } from '@mui/material';
-import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
+import { Box } from '@mui/material';
 import { useAuth } from '../../features/auth/useAuth';
 import { SIGN_IN_OVERLAY_MESSAGES } from '../../constants/messages';
 import { SIGN_IN_OVERLAY_CONFIG } from '../../constants/ui';
+import { SignInPrompt } from './SignInPrompt';
 
 /**
  * Theme palette backgrounds supported by the overlay.
@@ -50,19 +50,11 @@ export function SignInOverlay({
   gradientHeight = SIGN_IN_OVERLAY_CONFIG.GRADIENT_HEIGHT,
   background = 'default',
 }: SignInOverlayProps = {}) {
-  const { isAuthenticated, isEnabled, isLoading, login } = useAuth();
+  const { isAuthenticated, isEnabled, isLoading } = useAuth();
 
   if (!isEnabled || isLoading || isAuthenticated) {
     return null;
   }
-
-  const handleSignIn = () => {
-    // Surface login errors to the console; users can retry via the button.
-    // UserMenu follows the same error path for the top-bar sign-in.
-    void login().catch((error) => {
-      console.error('[SignInOverlay] Login failed:', error);
-    });
-  };
 
   return (
     <Box
@@ -94,23 +86,11 @@ export function SignInOverlay({
           pointerEvents: 'auto',
         }}
       >
-        <Stack spacing={2} alignItems="center">
-          <LockOutlinedIcon
-            aria-hidden="true"
-            sx={{ fontSize: 32, color: 'text.secondary' }}
-          />
-          <Box>
-            <Typography variant="h6" component="p" gutterBottom>
-              {SIGN_IN_OVERLAY_MESSAGES.TITLE}
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              {SIGN_IN_OVERLAY_MESSAGES.SUBTITLE}
-            </Typography>
-          </Box>
-          <Button variant="contained" size="large" onClick={handleSignIn}>
-            {SIGN_IN_OVERLAY_MESSAGES.BUTTON_TEXT}
-          </Button>
-        </Stack>
+        <SignInPrompt
+          title={SIGN_IN_OVERLAY_MESSAGES.TITLE}
+          subtitle={SIGN_IN_OVERLAY_MESSAGES.SUBTITLE}
+          buttonText={SIGN_IN_OVERLAY_MESSAGES.BUTTON_TEXT}
+        />
       </Box>
     </Box>
   );
