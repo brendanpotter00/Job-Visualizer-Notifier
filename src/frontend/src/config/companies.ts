@@ -75,6 +75,7 @@ function createLeverCompany(
 
 interface AshbyOptions extends FactoryOptions {
   jobBoardName?: string;
+  jobsUrl?: string;
 }
 
 interface GemOptions extends FactoryOptions {
@@ -124,7 +125,7 @@ function createAshbyCompany(
     name,
     ats: 'ashby',
     config,
-    jobsUrl: `https://careers.ashbyhq.com/${jobBoardName}`,
+    jobsUrl: options.jobsUrl ?? `https://careers.ashbyhq.com/${jobBoardName}`,
     recruiterLinkedInUrl: options.recruiterLinkedInUrl,
   };
 }
@@ -429,7 +430,7 @@ export const COMPANIES: Company[] = [
   createAshbyCompany('supabase', 'Supabase'),
   createAshbyCompany('wispr-flow', 'Wispr Flow', { jobBoardName: 'wispr-flow' }),
   createAshbyCompany('flint', 'Flint'),
-  createAshbyCompany('cursor', 'Cursor'),
+  createAshbyCompany('cursor', 'Cursor', { jobsUrl: 'https://cursor.com/careers' }),
   createAshbyCompany('modal', 'Modal Labs'),
   createAshbyCompany('langchain', 'LangChain'),
   createAshbyCompany('cognition', 'Cognition'),
