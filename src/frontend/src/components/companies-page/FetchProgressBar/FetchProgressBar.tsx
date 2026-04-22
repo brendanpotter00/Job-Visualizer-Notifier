@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   Accordion,
   AccordionSummary,
@@ -12,8 +12,11 @@ import {
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
+import { useNavigate } from 'react-router-dom';
 import { useAllJobsProgress } from '../../../features/jobs/hooks/useAllJobsProgress';
 import { getCompanyById } from '../../../config/companies';
+import { ROUTES } from '../../../config/routes';
+import { COMPANY_PARAM } from '../../../lib/url';
 
 interface FetchProgressBarProps {
   // When set, restricts displayed chips/totals to this subset; underlying
@@ -36,6 +39,14 @@ interface FetchProgressBarProps {
  */
 export function FetchProgressBar({ companyIdFilter }: FetchProgressBarProps = {}) {
   const { progress, isLoading } = useAllJobsProgress();
+  const navigate = useNavigate();
+
+  const handleChipClick = useCallback(
+    (companyId: string) => {
+      navigate(`${ROUTES.COMPANIES}?${COMPANY_PARAM}=${encodeURIComponent(companyId)}`);
+    },
+    [navigate]
+  );
 
   const visibleCompanies = useMemo(() => {
     const filtered =
@@ -153,6 +164,8 @@ export function FetchProgressBar({ companyIdFilter }: FetchProgressBarProps = {}
                   size="small"
                   color="success"
                   variant="outlined"
+                  clickable
+                  onClick={() => handleChipClick(company.companyId)}
                 />
               );
             }
@@ -167,6 +180,8 @@ export function FetchProgressBar({ companyIdFilter }: FetchProgressBarProps = {}
                   color="error"
                   variant="outlined"
                   title={company.error || 'Failed to load'}
+                  clickable
+                  onClick={() => handleChipClick(company.companyId)}
                 />
               );
             }
@@ -177,6 +192,8 @@ export function FetchProgressBar({ companyIdFilter }: FetchProgressBarProps = {}
                 label={displayName}
                 size="small"
                 variant="outlined"
+                clickable
+                onClick={() => handleChipClick(company.companyId)}
               />
             );
           })}
