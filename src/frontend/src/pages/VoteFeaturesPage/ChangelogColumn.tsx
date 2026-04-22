@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Box, Card, CardContent, Chip, Stack, Typography } from '@mui/material';
+import type { SxProps, Theme } from '@mui/material';
 import { format, parseISO } from 'date-fns';
 import {
   CHANGELOG,
@@ -9,11 +10,16 @@ import {
 } from '../../config/changelog';
 import { MultiSelectAutocomplete } from '../../components/shared/filters/MultiSelectAutocomplete';
 
-const TAG_COLOR: Record<ChangelogTag, 'primary' | 'success' | 'default'> = {
-  feature: 'primary',
-  improvement: 'success',
-  technical: 'default',
-  'new-companies': 'success',
+const BLACK_CHIP_SX: SxProps<Theme> = {
+  bgcolor: 'common.black',
+  color: 'common.white',
+};
+
+const TAG_SX: Record<ChangelogTag, SxProps<Theme>> = {
+  feature: { bgcolor: 'success.main', color: 'success.contrastText' },
+  improvement: BLACK_CHIP_SX,
+  technical: BLACK_CHIP_SX,
+  'new-companies': BLACK_CHIP_SX,
 };
 
 function isChangelogTag(value: string): value is ChangelogTag {
@@ -96,7 +102,7 @@ export function ChangelogColumn() {
                       key={tag}
                       label={tag}
                       size="small"
-                      color={TAG_COLOR[tag]}
+                      sx={TAG_SX[tag]}
                     />
                   ))}
                 </Box>
