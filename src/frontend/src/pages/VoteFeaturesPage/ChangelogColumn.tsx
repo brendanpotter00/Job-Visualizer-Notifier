@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
-import { Box, Card, CardContent, Chip, Stack, Typography } from '@mui/material';
+import { Box, Card, CardContent, Chip, Link, Stack, Typography } from '@mui/material';
 import type { SxProps, Theme } from '@mui/material';
 import { format, parseISO } from 'date-fns';
+import { Link as RouterLink } from 'react-router-dom';
 import {
   CHANGELOG,
   CHANGELOG_TAGS,
@@ -92,10 +93,17 @@ export function ChangelogColumn() {
                 <Typography
                   variant="body2"
                   color="text.secondary"
-                  sx={{ mb: 2 }}
+                  sx={{ mb: entry.link ? 1 : 2 }}
                 >
                   {entry.description}
                 </Typography>
+                {entry.link && (
+                  <Typography variant="body2" sx={{ mb: 2 }}>
+                    <Link component={RouterLink} to={entry.link.to}>
+                      {entry.link.label}
+                    </Link>
+                  </Typography>
+                )}
                 <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
                   {entry.tags.map((tag) => (
                     <Chip

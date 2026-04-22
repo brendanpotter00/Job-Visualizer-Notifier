@@ -1,3 +1,5 @@
+import { ROUTES } from './routes';
+
 export const CHANGELOG_TAGS = [
   'feature',
   'improvement',
@@ -6,12 +8,18 @@ export const CHANGELOG_TAGS = [
 ] as const;
 export type ChangelogTag = (typeof CHANGELOG_TAGS)[number];
 
+export interface ChangelogLink {
+  to: string;
+  label: string;
+}
+
 export interface ChangelogEntry {
   id: string;
   title: string;
   description: string;
   tags: ChangelogTag[];
   date: string;
+  link?: ChangelogLink;
 }
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
@@ -30,6 +38,10 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
       'Added Thinking Machines, Cursor, Modal Labs, LangChain, Together AI, Cognition, and Paraform — top-ranked startups on the Paraform Talent Density Index for concentrated senior engineering talent.',
     tags: ['new-companies'],
     date: '2026-04-22',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add these to your company preferences',
+    },
   },
   {
     id: 'vote-for-features',
