@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Box, Card, CardContent, Chip, Stack, Typography } from '@mui/material';
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import {
   CHANGELOG,
   CHANGELOG_TAGS,
@@ -9,9 +9,10 @@ import {
 } from '../../config/changelog';
 import { MultiSelectAutocomplete } from '../../components/shared/filters/MultiSelectAutocomplete';
 
-const TAG_COLOR: Record<ChangelogTag, 'primary' | 'default'> = {
+const TAG_COLOR: Record<ChangelogTag, 'primary' | 'default' | 'success'> = {
   feature: 'primary',
   technical: 'default',
+  'new-companies': 'success',
 };
 
 function isChangelogTag(value: string): value is ChangelogTag {
@@ -78,7 +79,7 @@ export function ChangelogColumn() {
                     color="text.secondary"
                     sx={{ whiteSpace: 'nowrap', pt: 0.5 }}
                   >
-                    {format(new Date(entry.date), 'MMM d, yyyy')}
+                    {format(parseISO(entry.date), 'MMM d, yyyy')}
                   </Typography>
                 </Stack>
                 <Typography
