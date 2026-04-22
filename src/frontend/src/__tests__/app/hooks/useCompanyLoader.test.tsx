@@ -206,4 +206,27 @@ describe('useCompanyLoader', () => {
       expect(hasAnthropicQuery).toBe(true);
     });
   });
+
+  it('should call getInitialCompanyId exactly once on first mount to /companies', async () => {
+    const spy = vi.spyOn(urlParams, 'getInitialCompanyId');
+    const store = createTestStore();
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <Provider store={store}>
+        <BrowserRouter>{children}</BrowserRouter>
+      </Provider>
+    );
+
+    const { rerender } = renderHook(() => useCompanyLoader(), { wrapper });
+
+    // Wait for the URL-init effect to have dispatched.
+    await waitFor(() => {
+      expect(store.getState().app.selectedCompanyId).toBeDefined();
+    });
+
+    // Rerender without changing isCompaniesPage — must NOT re-invoke getInitialCompanyId.
+    rerender();
+    rerender();
+
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
 });

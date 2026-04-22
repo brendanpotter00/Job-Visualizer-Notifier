@@ -1,14 +1,15 @@
 """remove env suffix from tables
 
 Revision ID: e1974f8f8eee
-Revises: 91337142414f
+Revises: 050b9adc98e1
 Create Date: 2026-04-19 16:38:05.519972+00:00
 
 envAgnosticTables Unit 3: rename every `_{env}`-suffixed user table, index,
 and named constraint to its bare name. Tables affected: job_listings_{env},
-scrape_runs_{env}, users_{env}, user_enabled_companies_{env}. The same
-revision file runs against local (`_local` tables) and prod (`_prod`
-tables) -- every ALTER is `IF EXISTS`, so only the variant present fires.
+scrape_runs_{env}, users_{env}, user_enabled_companies_{env}, features_{env},
+feature_upvotes_{env}. The same revision file runs against local (`_local`
+tables) and prod (`_prod` tables) -- every ALTER is `IF EXISTS`, so only
+the variant present fires.
 
 Catalog-only DDL: this migration issues ALTER TABLE RENAME / ALTER INDEX
 RENAME / ALTER TABLE RENAME CONSTRAINT plus DROP TABLE IF EXISTS against
@@ -46,7 +47,7 @@ from alembic import context, op
 
 # revision identifiers, used by Alembic.
 revision: str = "e1974f8f8eee"
-down_revision: Union[str, None] = "91337142414f"
+down_revision: Union[str, None] = "050b9adc98e1"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -56,6 +57,8 @@ _USER_TABLE_BASE_NAMES: tuple[str, ...] = (
     # In Postgres this is cosmetic -- ALTER TABLE RENAME is a pg_class
     # catalog update and FK constraints reference table OID, not name, so
     # rename order does not affect FK validity.
+    "feature_upvotes",
+    "features",
     "user_enabled_companies",
     "users",
     "scrape_runs",
@@ -95,6 +98,10 @@ def upgrade() -> None:
     _rename_index_pair("idx_users_prod_email",                   "idx_users_email")
     _rename_index_pair("idx_user_enabled_companies_local_user_id", "idx_user_enabled_companies_user_id")
     _rename_index_pair("idx_user_enabled_companies_prod_user_id",  "idx_user_enabled_companies_user_id")
+    _rename_index_pair("idx_feature_upvotes_local_feature_id",     "idx_feature_upvotes_feature_id")
+    _rename_index_pair("idx_feature_upvotes_local_user_id",        "idx_feature_upvotes_user_id")
+    _rename_index_pair("idx_feature_upvotes_prod_feature_id",      "idx_feature_upvotes_feature_id")
+    _rename_index_pair("idx_feature_upvotes_prod_user_id",         "idx_feature_upvotes_user_id")
 
     # Rename named UNIQUE constraints on users.email. (Postgres auto-renames
     # the backing index to match the constraint, so we don't rename the
@@ -159,6 +166,8 @@ def downgrade() -> None:
     _rename_index_pair("idx_users_email",                   f"idx_users_{env}_email")
     _rename_index_pair("idx_user_enabled_companies_user_id",
                        f"idx_user_enabled_companies_{env}_user_id")
+    _rename_index_pair("idx_feature_upvotes_feature_id",    f"idx_feature_upvotes_{env}_feature_id")
+    _rename_index_pair("idx_feature_upvotes_user_id",       f"idx_feature_upvotes_{env}_user_id")
 
     # Reverse table renames.
     for base in reversed(_USER_TABLE_BASE_NAMES):

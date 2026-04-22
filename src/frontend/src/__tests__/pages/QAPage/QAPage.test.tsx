@@ -459,4 +459,63 @@ describe('QAPage', () => {
       });
     });
   });
+
+  describe('Fetch lifecycle (useFetchWithStatus)', () => {
+    it('passes an AbortSignal to fetch on mount', async () => {
+      render(<QAPage />);
+
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalled();
+      });
+
+      // Every fetch call made by the two useFetchWithStatus hooks should
+      // receive an { signal } options object.
+      const fetchLifecycleCalls = mockFetch.mock.calls.filter((call) => {
+        const url = call[0] as string;
+        return url.includes('/api/jobs?') || url.includes('/api/jobs-qa/scrape-runs');
+      });
+      expect(fetchLifecycleCalls.length).toBeGreaterThan(0);
+      for (const [, options] of fetchLifecycleCalls) {
+        expect(options).toBeDefined();
+        expect(options.signal).toBeInstanceOf(AbortSignal);
+      }
+    });
+
+    it('aborts the prior request when selectedCompany changes', async () => {
+      const user = userEvent.setup();
+      const signalsSeen: AbortSignal[] = [];
+
+      mockFetch.mockImplementation((url: string, options?: RequestInit) => {
+        if (options?.signal instanceof AbortSignal) {
+          signalsSeen.push(options.signal);
+        }
+        if (url.includes('/api/jobs?')) {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+        }
+        if (url.includes('/api/jobs-qa/scrape-runs')) {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+      });
+
+      render(<QAPage />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('combobox', { name: /company/i })).toBeInTheDocument();
+      });
+
+      const initialJobsSignal = signalsSeen.find((_s, i) =>
+        mockFetch.mock.calls[i]?.[0]?.includes('/api/jobs?')
+      );
+      expect(initialJobsSignal).toBeDefined();
+
+      await selectCompany(user, 'Google');
+
+      // Switching the company must kick a new fetch pair AND abort the
+      // initial "all companies" requests.
+      await waitFor(() => {
+        expect(initialJobsSignal!.aborted).toBe(true);
+      });
+    });
+  });
 });

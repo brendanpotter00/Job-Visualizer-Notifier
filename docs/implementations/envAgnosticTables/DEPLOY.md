@@ -4,15 +4,21 @@ Companion to `PLAN.md`. Covers the one-time prod rename, the post-merge Railway 
 
 ## Why this runbook exists
 
-Before this PR, tables carried an `_{env}` suffix (`job_listings_prod`, `users_local`, …) driven by `SCRAPER_ENVIRONMENT`. The suffix is gone after this PR — every environment uses the bare names `job_listings`, `scrape_runs`, `users`, `user_enabled_companies`. Alembic's tracker becomes the default `alembic_version`.
+Before this PR, tables carried an `_{env}` suffix (`job_listings_prod`, `users_local`, …) driven by `SCRAPER_ENVIRONMENT`. The suffix is gone after this PR — every environment uses the bare names `job_listings`, `scrape_runs`, `users`, `user_enabled_companies`, `features`, `feature_upvotes`. Alembic's tracker becomes the default `alembic_version`.
 
 The cutover is `ALTER TABLE … RENAME` only. No rows are rewritten. The 2026-04-18 incident (`docs/incidents/2026-04-18-migration-filled-postgres-volume/`) showed what a full-table rewrite on 138 MB of prod data does to a 5 GB volume; the rename migration avoids it by design.
 
 After this PR merges, the live tracker on prod is `alembic_version` (not `alembic_version_prod`), `SCRAPER_ENVIRONMENT` is dead config, and the Alembic PLAN-era downgrade path requires `-x env=prod` because there's no ambient env var to infer from.
 
-## 1. One-time prod rename (pre-merge, operator)
+## Post-PR-#81 state
 
-Run before merging this PR. The rename migration must land against prod's `_prod`-suffixed tables; merging first would deploy code that expects bare names against a DB that still has suffixed names and break the lifespan startup.
+This PR was originally written against a prod schema whose Alembic tracker (`alembic_version_prod`) sat at the empty baseline `91337142414f`. PR #81 (feature voting) shipped after that and advanced prod to `050b9adc98e1`, adding `features_prod` and `feature_upvotes_prod`. The migration chain in this PR has been re-parented accordingly: the rename migration `e1974f8f8eee` now chains from `050b9adc98e1` and handles the two extra tables (plus their indexes and PK/FK constraints). No additional operator work is required for the feature-voting tables beyond what's listed below.
+
+The legacy tracker is moved to its new name automatically. `src/backend/alembic/env.py` contains a one-time cutover guard that runs before any revision body: if `alembic_version` is absent and `alembic_version_prod` (or `_local`) exists, it issues `ALTER TABLE alembic_version_prod RENAME TO alembic_version` so Alembic can read the current head and skip already-applied revisions. The guard is idempotent (subsequent boots see the default tracker already present and no-op), and it runs inside the current `search_path` so pytest schemas are unaffected.
+
+## 1. One-time prod rename (recommended pre-merge, operator)
+
+Recommended before merging. The rename migration is idempotent and `env.py`'s cutover guard plus `apply_alembic_migrations` during the first Railway lifespan will run the same sequence automatically, but doing it from an operator workstation first gives you a chance to verify row counts against §1.2 before any traffic is served. Railway's `healthcheckPath: null` means a lifespan-time migration failure leaves the service in a degraded state — the manual path makes that failure surface on a laptop instead of on prod.
 
 ### 1.1. Take a Railway manual Postgres backup
 
@@ -25,10 +31,12 @@ mcp__postgres-prod__query "
   SELECT 'job_listings_prod' AS t, COUNT(*) FROM job_listings_prod
   UNION ALL SELECT 'scrape_runs_prod', COUNT(*) FROM scrape_runs_prod
   UNION ALL SELECT 'users_prod', COUNT(*) FROM users_prod
-  UNION ALL SELECT 'user_enabled_companies_prod', COUNT(*) FROM user_enabled_companies_prod"
+  UNION ALL SELECT 'user_enabled_companies_prod', COUNT(*) FROM user_enabled_companies_prod
+  UNION ALL SELECT 'features_prod', COUNT(*) FROM features_prod
+  UNION ALL SELECT 'feature_upvotes_prod', COUNT(*) FROM feature_upvotes_prod"
 ```
 
-Copy the four counts somewhere you can compare against after the rename.
+Copy the six counts somewhere you can compare against after the rename.
 
 ### 1.3. Run the rename migration against prod
 
@@ -44,17 +52,17 @@ Do NOT set `SCRAPER_ENVIRONMENT` — the branch's `env.py` no longer reads it. S
 
 Expected sequence:
 
-- Alembic opens the DB, sees no `alembic_version` table (only the legacy `alembic_version_prod`), and creates a fresh `alembic_version` under Alembic's default name. Applies the empty baseline `91337142414f` (no-op), then applies `e1974f8f8eee`, then `f4008c4fb790`.
+- `env.py`'s cutover guard runs first: it sees `alembic_version_prod` (at `050b9adc98e1` since PR #81 shipped) and renames it in place to `alembic_version`. Alembic then reads the current head from that tracker and decides which revisions are pending — `91337142414f`, `050b9adc98e1` are already applied, so it will only run `e1974f8f8eee` and `f4008c4fb790`.
 - Inside `e1974f8f8eee`:
   - Narrows `search_path` to the current schema so `ALTER TABLE IF EXISTS` cannot fall through to `public.*` under any future test-schema invocation.
   - Drops the pre-Alembic `schema_migrations_local` and `schema_migrations_prod` trackers (idempotent; `schema_migrations_local` no-ops on prod).
-  - Renames the four `*_prod` tables to their bare names. Postgres auto-renames the implicit PK index and sequence with the table.
-  - Renames six named indexes (`idx_job_listings_prod_*`, `idx_users_prod_*`, `idx_user_enabled_companies_prod_*`) to their bare forms via `ALTER INDEX IF EXISTS`.
+  - Renames the six `*_prod` tables (`job_listings`, `scrape_runs`, `users`, `user_enabled_companies`, `features`, `feature_upvotes`) to their bare names. Postgres auto-renames the implicit PK index and sequence with the table.
+  - Renames named indexes (`idx_job_listings_prod_*`, `idx_users_prod_*`, `idx_user_enabled_companies_prod_*`, `idx_feature_upvotes_prod_*`) to their bare forms via `ALTER INDEX IF EXISTS`.
   - Renames the `users_prod_email_key` UNIQUE constraint to `users_email_key` inside a `DO $$ … EXCEPTION WHEN undefined_object OR undefined_table THEN NULL; END $$` guard so the absent-variant no-ops.
-  - Drops the legacy `alembic_version_local` and `alembic_version_prod` trackers. The new `alembic_version` (created by Alembic at the start of the run) holds the active head revision.
+  - Drops the legacy `alembic_version_local` and `alembic_version_prod` trackers. The active `alembic_version` (already renamed from `alembic_version_prod` by `env.py`'s cutover guard) is untouched.
 - Inside `f4008c4fb790` (constraint-name cleanup):
   - Same `search_path` narrowing.
-  - Renames six auto-generated constraint names from `_{env}`-suffixed forms to bare names (both `_local` and `_prod` variants via `IF EXISTS`-style DO/EXCEPTION guards): `job_listings_pkey`, `scrape_runs_pkey`, `users_pkey`, `users_auth0_id_key`, `user_enabled_companies_pkey`, `user_enabled_companies_user_id_fkey`. Catalog-only — no index rebuilds.
+  - Renames auto-generated constraint names from `_{env}`-suffixed forms to bare names (both `_local` and `_prod` variants via `IF EXISTS`-style DO/EXCEPTION guards): `job_listings_pkey`, `scrape_runs_pkey`, `users_pkey`, `users_auth0_id_key`, `user_enabled_companies_pkey`, `user_enabled_companies_user_id_fkey`, `features_pkey`, `feature_upvotes_pkey`, `feature_upvotes_feature_id_fkey`, `feature_upvotes_user_id_fkey`. Catalog-only — no index rebuilds.
 
 Expected output ends with `INFO  [alembic.runtime.migration] Running upgrade … -> f4008c4fb790, rename env-suffixed pk/fk constraints`.
 
@@ -66,17 +74,19 @@ mcp__postgres-prod__query "
   WHERE schemaname = 'public' ORDER BY tablename"
 ```
 
-Expect exactly: `alembic_version`, `job_listings`, `scrape_runs`, `user_enabled_companies`, `users`. No `*_local`, no `*_prod`, no `alembic_version_prod`.
+Expect exactly: `alembic_version`, `job_listings`, `scrape_runs`, `user_enabled_companies`, `users`, `features`, `feature_upvotes`. No `*_local`, no `*_prod`, no `alembic_version_prod`.
 
 ```
 mcp__postgres-prod__query "
   SELECT 'job_listings' AS t, COUNT(*) FROM job_listings
   UNION ALL SELECT 'scrape_runs', COUNT(*) FROM scrape_runs
   UNION ALL SELECT 'users', COUNT(*) FROM users
-  UNION ALL SELECT 'user_enabled_companies', COUNT(*) FROM user_enabled_companies"
+  UNION ALL SELECT 'user_enabled_companies', COUNT(*) FROM user_enabled_companies
+  UNION ALL SELECT 'features', COUNT(*) FROM features
+  UNION ALL SELECT 'feature_upvotes', COUNT(*) FROM feature_upvotes"
 ```
 
-All four counts MUST equal the snapshot from 1.2. A mismatch means the rename lost data — stop, restore from 1.1's backup, investigate before continuing.
+All six counts MUST equal the snapshot from 1.2. A mismatch means the rename lost data — stop, restore from 1.1's backup, investigate before continuing.
 
 Also confirm the tracker row:
 
@@ -94,7 +104,7 @@ mcp__postgres-prod__query "
   WHERE connamespace = 'public'::regnamespace
     AND conname LIKE '%_prod_%'
     AND conrelid::regclass::text IN
-        ('job_listings','scrape_runs','users','user_enabled_companies')
+        ('job_listings','scrape_runs','users','user_enabled_companies','features','feature_upvotes')
   ORDER BY conname"
 ```
 
@@ -103,6 +113,8 @@ Expect zero rows.
 ### 1.5. Merge the PR
 
 Only after 1.4 succeeds. The first Railway deploy's lifespan runs `apply_alembic_migrations(settings.database_url)`, Alembic sees the tracker already at head, and does nothing.
+
+If §1 was skipped, that same first deploy runs the full cutover automatically: `env.py` renames `alembic_version_prod` → `alembic_version`, Alembic detects head at `050b9adc98e1`, and applies `e1974f8f8eee` + `f4008c4fb790` inside the lifespan. Either path lands prod at the same final state (bare table names, tracker at `f4008c4fb790`).
 
 ## 2. Post-merge Railway env-var cleanup (operator)
 

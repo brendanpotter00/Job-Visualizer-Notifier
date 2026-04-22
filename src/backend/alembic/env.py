@@ -115,6 +115,16 @@ def run_migrations_online() -> None:
             connection.execute(text(f'SET search_path TO "{_PYTEST_SCHEMA}", public'))
             connection.commit()
 
+        # One-time cutover for the envAgnosticTables migration: the pre-cutover
+        # world stored Alembic state in `alembic_version_{env}`; this revision
+        # series uses the default `alembic_version`. If a legacy tracker is
+        # present and the default is not, rename it in place so Alembic reads
+        # the correct history and skips already-applied revisions rather than
+        # trying to re-run `050b9adc98e1` against a DB that already has the
+        # `_prod`-suffixed feature tables. Idempotent: a second boot sees the
+        # default tracker already present and skips the rename.
+        _cutover_legacy_alembic_version(connection)
+
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
@@ -124,6 +134,52 @@ def run_migrations_online() -> None:
 
         with context.begin_transaction():
             context.run_migrations()
+
+
+def _cutover_legacy_alembic_version(connection) -> None:
+    """Rename a lingering `alembic_version_{env}` to `alembic_version` if the
+    default tracker is absent. Runs inside the current `search_path` so it is
+    safe under PYTEST_SCHEMA without touching `public` state."""
+    default_exists = connection.execute(
+        text("SELECT to_regclass(current_schema() || '.alembic_version')")
+    ).scalar()
+    if default_exists is not None:
+        return
+
+    # Check the two legacy variants we ever shipped.
+    candidates: list[str] = []
+    for legacy in ("alembic_version_prod", "alembic_version_local"):
+        legacy_exists = connection.execute(
+            text(f"SELECT to_regclass(current_schema() || '.{legacy}')")
+        ).scalar()
+        if legacy_exists is not None:
+            candidates.append(legacy)
+
+    if not candidates:
+        return
+
+    if len(candidates) > 1:
+        raise RuntimeError(
+            "Both legacy Alembic trackers exist: "
+            f"{candidates!r}. Refusing to guess which one reflects the live "
+            "schema. Drop the stale one manually before retrying."
+        )
+
+    legacy = candidates[0]
+    connection.execute(text(f"ALTER TABLE {legacy} RENAME TO alembic_version"))
+    # Alembic names the version-table PK `<table>_pkc`; renaming the table
+    # leaves a stale `<legacy>_pkc` on the now-bare `alembic_version`. Fix it
+    # so `pg_constraint` mirrors what a fresh DB would look like. Wrapped in
+    # DO/EXCEPTION because older versions of Alembic omitted the explicit
+    # constraint name on some tables — the no-op branch keeps the cutover
+    # idempotent.
+    connection.execute(text(
+        f"DO $$ BEGIN "
+        f"ALTER TABLE alembic_version RENAME CONSTRAINT {legacy}_pkc TO alembic_version_pkc; "
+        f"EXCEPTION WHEN undefined_object OR undefined_table THEN NULL; "
+        f"END $$"
+    ))
+    connection.commit()
 
 
 if context.is_offline_mode():

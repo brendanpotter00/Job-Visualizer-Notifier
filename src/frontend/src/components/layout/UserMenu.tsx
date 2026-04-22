@@ -15,6 +15,7 @@ import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import { useAuth } from '../../features/auth/useAuth';
 import { useCurrentUser } from '../../features/auth/useCurrentUser';
 import { ROUTES } from '../../config/routes';
+import { extractErrorMessage } from '../../lib/errors';
 
 export function UserMenu() {
   const { isEnabled, isAuthenticated, isLoading, login, logout, user: auth0User } = useAuth();
@@ -32,7 +33,7 @@ export function UserMenu() {
       setLoginError(null);
       await login();
     } catch (err) {
-      setLoginError(err instanceof Error ? err.message : 'Sign-in failed');
+      setLoginError(extractErrorMessage(err, 'Sign-in failed'));
     }
   }
 

@@ -167,8 +167,10 @@ def postgres_db():
     _db_models.Base.metadata.create_all(engine, checkfirst=False)
     engine.dispose()
 
-    from api.migrations import apply_alembic_migrations
-    apply_alembic_migrations(TEST_DB_URL)
+    # create_all already materialized every ORM table; stamp (not upgrade)
+    # avoids re-running each migration body against tables that already exist.
+    from api.migrations import stamp_alembic_head
+    stamp_alembic_head(TEST_DB_URL)
 
     conn = psycopg2.connect(TEST_DB_URL, cursor_factory=RealDictCursor)
     with conn.cursor() as cur:

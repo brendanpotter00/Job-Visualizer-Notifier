@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Container,
   Box,
@@ -23,6 +23,10 @@ import {
   Stack,
 } from '@mui/material';
 import { SearchTagsInput } from '../../components/shared/filters/SearchTagsInput.tsx';
+import { LoadingState } from '../../components/shared/LoadingIndicator';
+import { ErrorState } from '../../components/shared/ErrorDisplay';
+import { useFetchWithStatus } from '../../hooks/useFetchWithStatus';
+import { extractErrorMessage } from '../../lib/errors';
 import type { SearchTag } from '../../types/index.ts';
 import type { BackendJobListing } from '../../api/types.ts';
 import { COMPANIES } from '../../config/companies';
@@ -66,14 +70,7 @@ interface ScraperResult {
  * @returns QA page component
  */
 export function QAPage() {
-  const [jobs, setJobs] = useState<BackendJobListing[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
   // Scrape-related state
-  const [scrapeRuns, setScrapeRuns] = useState<ScrapeRun[]>([]);
-  const [scrapeRunsLoading, setScrapeRunsLoading] = useState(true);
-  const [scrapeRunsError, setScrapeRunsError] = useState<string | null>(null);
   const [scrapingInProgress, setScrapingInProgress] = useState(false);
   const [scrapeResult, setScrapeResult] = useState<ScraperResult | null>(null);
 
@@ -105,52 +102,52 @@ export function QAPage() {
     }
   };
 
-  useEffect(() => {
-    const fetchJobs = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        // Build URL with company filter if selected
-        const params = new URLSearchParams();
-        if (selectedCompany !== 'all') params.set('company', selectedCompany);
-        const response = await fetch(`/api/jobs?${params}`);
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const data = await response.json();
-        setJobs(data);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to fetch jobs');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchJobs();
-  }, [selectedCompany]);
-
-  const fetchScrapeRuns = useCallback(async () => {
-    try {
-      setScrapeRunsLoading(true);
-      setScrapeRunsError(null);
-      // Build URL with company filter if selected
-      const companyParam = selectedCompany !== 'all' ? `&company=${selectedCompany}` : '';
-      const response = await fetch(`/api/jobs-qa/scrape-runs?limit=100${companyParam}`);
+  const fetchJobsRequest = useCallback(
+    async (signal: AbortSignal): Promise<BackendJobListing[]> => {
+      const params = new URLSearchParams();
+      if (selectedCompany !== 'all') params.set('company', selectedCompany);
+      const response = await fetch(`/api/jobs?${params}`, { signal });
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
-      const data = await response.json();
-      setScrapeRuns(data);
-    } catch (err) {
-      setScrapeRunsError(err instanceof Error ? err.message : 'Failed to fetch scrape runs');
-    } finally {
-      setScrapeRunsLoading(false);
-    }
-  }, [selectedCompany]);
+      return response.json();
+    },
+    [selectedCompany]
+  );
+  const {
+    data: jobsData,
+    loading,
+    error,
+  } = useFetchWithStatus<BackendJobListing[]>({
+    fetcher: fetchJobsRequest,
+    deps: [selectedCompany],
+  });
+  const jobs = useMemo(() => jobsData ?? [], [jobsData]);
 
-  useEffect(() => {
-    fetchScrapeRuns();
-  }, [fetchScrapeRuns]);
+  const fetchScrapeRunsRequest = useCallback(
+    async (signal: AbortSignal): Promise<ScrapeRun[]> => {
+      const companyParam = selectedCompany !== 'all' ? `&company=${selectedCompany}` : '';
+      const response = await fetch(
+        `/api/jobs-qa/scrape-runs?limit=100${companyParam}`,
+        { signal }
+      );
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      return response.json();
+    },
+    [selectedCompany]
+  );
+  const {
+    data: scrapeRunsData,
+    loading: scrapeRunsLoading,
+    error: scrapeRunsError,
+    reload: reloadScrapeRuns,
+  } = useFetchWithStatus<ScrapeRun[]>({
+    fetcher: fetchScrapeRunsRequest,
+    deps: [selectedCompany],
+  });
+  const scrapeRuns = useMemo(() => scrapeRunsData ?? [], [scrapeRunsData]);
 
   const handleTriggerScrape = async () => {
     // Guard: require specific company selection
@@ -203,13 +200,13 @@ export function QAPage() {
         setScrapeResult(data);
       }
 
-      // Refresh scrape runs after triggering
-      await fetchScrapeRuns();
+      // Refresh scrape runs after triggering (via useFetchWithStatus reload).
+      reloadScrapeRuns();
     } catch (err) {
       setScrapeResult({
         exitCode: -1,
         output: '',
-        error: err instanceof Error ? err.message : 'Failed to trigger scrape',
+        error: extractErrorMessage(err, 'Failed to trigger scrape'),
         company: selectedCompany,
         completedAt: new Date().toISOString(),
       });
@@ -378,15 +375,11 @@ export function QAPage() {
               ? 'Scrape Runs'
               : `${BACKEND_SCRAPER_COMPANIES.find((c) => c.id === selectedCompany)?.name} Scrape Runs`}
           </Typography>
-          {scrapeRunsLoading && (
-            <Box sx={{ display: 'flex', justifyContent: 'center', my: 2 }}>
-              <CircularProgress size={24} />
-            </Box>
-          )}
+          {scrapeRunsLoading && <LoadingState size={24} minHeight={48} />}
           {scrapeRunsError && (
-            <Alert severity="error" sx={{ mb: 2 }}>
-              {scrapeRunsError}
-            </Alert>
+            <Box sx={{ mb: 2 }}>
+              <ErrorState inline message={scrapeRunsError} />
+            </Box>
           )}
           {!scrapeRunsLoading && !scrapeRunsError && (
             <TableContainer component={Paper}>
@@ -482,16 +475,12 @@ export function QAPage() {
           </Stack>
         </Box>
 
-        {loading && (
-          <Box sx={{ display: 'flex', justifyContent: 'center', my: 4 }}>
-            <CircularProgress />
-          </Box>
-        )}
+        {loading && <LoadingState minHeight={96} />}
 
         {error && (
-          <Alert severity="error" sx={{ mb: 3 }}>
-            {error}
-          </Alert>
+          <Box sx={{ mb: 3 }}>
+            <ErrorState inline message={error} />
+          </Box>
         )}
 
         {!loading && !error && (

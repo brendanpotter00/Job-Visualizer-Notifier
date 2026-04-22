@@ -15,6 +15,7 @@ import ScheduleIcon from '@mui/icons-material/Schedule';
 import InfoIcon from '@mui/icons-material/Info';
 import BugReportIcon from '@mui/icons-material/BugReport';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
+import ThumbUpIcon from '@mui/icons-material/ThumbUp';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { NAV_ITEMS, ROUTES } from '../../config/routes.ts';
 import { useAuth } from '../../features/auth/useAuth';
@@ -96,13 +97,14 @@ const PermanentDrawer = styled(MuiDrawer, {
 /**
  * Map icon names to MUI icon components
  */
-type IconName = 'Business' | 'Schedule' | 'Info' | 'BugReport' | 'AccountCircle';
+type IconName = 'Business' | 'Schedule' | 'Info' | 'BugReport' | 'AccountCircle' | 'ThumbUp';
 const iconMap: Record<IconName, React.ComponentType> = {
   Business: BusinessIcon,
   Schedule: ScheduleIcon,
   Info: InfoIcon,
   BugReport: BugReportIcon,
   AccountCircle: AccountCircleIcon,
+  ThumbUp: ThumbUpIcon,
 };
 
 /**

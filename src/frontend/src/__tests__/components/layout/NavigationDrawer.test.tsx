@@ -37,6 +37,18 @@ describe('NavigationDrawer', () => {
       expect(screen.getByText('Recent Job Postings')).toBeInTheDocument();
     });
 
+    it('renders the "Vote for features" nav item', () => {
+      render(
+        <MemoryRouter>
+          <NavigationDrawer {...mockProps} />
+        </MemoryRouter>
+      );
+
+      expect(screen.getByText('Vote for features')).toBeInTheDocument();
+      // The ThumbUp icon should be rendered alongside the label
+      expect(screen.getByTestId('ThumbUpIcon')).toBeInTheDocument();
+    });
+
     it('renders chevron button for collapse/expand', () => {
       render(
         <MemoryRouter>
@@ -109,6 +121,26 @@ describe('NavigationDrawer', () => {
 
       // Check that button is still rendered (navigation happened)
       expect(companiesButton).toBeInTheDocument();
+    });
+
+    it('navigates to /vote-features when the Vote for features item is clicked', async () => {
+      const user = userEvent.setup();
+
+      render(
+        <MemoryRouter initialEntries={['/']}>
+          <NavigationDrawer {...mockProps} />
+        </MemoryRouter>
+      );
+
+      const voteButton = screen.getByText('Vote for features').closest('div[role="button"]');
+      expect(voteButton).toBeInTheDocument();
+
+      await user.click(voteButton as Element);
+
+      // After click, the button should acquire the active-route styling (bgcolor: action.selected)
+      // because MemoryRouter updates location.pathname and the drawer re-renders.
+      const styles = window.getComputedStyle(voteButton as Element);
+      expect(styles.backgroundColor).not.toBe('rgba(0, 0, 0, 0)');
     });
   });
 

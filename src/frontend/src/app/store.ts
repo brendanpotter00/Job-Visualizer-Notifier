@@ -6,6 +6,8 @@ import recentJobsFiltersReducer from '../features/filters/slices/recentJobsFilte
 import uiReducer from '../features/ui/uiSlice';
 import enabledCompaniesReducer from '../features/preferences/enabledCompaniesSlice';
 import { jobsApi } from '../features/jobs/jobsApi';
+import { featuresApi } from '../features/features/featuresApi';
+import { getTokenOrNull } from '../features/features/getTokenOrNull';
 
 export const store = configureStore({
   reducer: {
@@ -16,8 +18,14 @@ export const store = configureStore({
     ui: uiReducer,
     enabledCompanies: enabledCompaniesReducer,
     [jobsApi.reducerPath]: jobsApi.reducer,
+    [featuresApi.reducerPath]: featuresApi.reducer,
   },
-  middleware: (getDefaultMiddleware) => getDefaultMiddleware().concat(jobsApi.middleware),
+  middleware: (getDefaultMiddleware) =>
+    getDefaultMiddleware({
+      thunk: { extraArgument: { getTokenOrNull } },
+    })
+      .concat(jobsApi.middleware)
+      .concat(featuresApi.middleware),
 });
 
 /**

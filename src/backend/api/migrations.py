@@ -96,3 +96,23 @@ def apply_alembic_migrations(database_url: str) -> None:
     except Exception:
         logger.exception("Failed to apply Alembic migrations")
         raise
+
+
+def stamp_alembic_head(database_url: str) -> None:
+    """Mark `alembic_version` at head without running any upgrade body.
+
+    For test fixtures that bootstrap the schema via `Base.metadata.create_all`:
+    the ORM metadata already produces the target schema, so running Alembic
+    upgrade on top would re-execute every `op.create_table` and fail with a
+    DuplicateTable error. Stamping writes only to the version tracker, leaving
+    the already-materialized tables alone.
+    """
+    cfg = Config(str(_ALEMBIC_INI))
+    cfg.set_main_option("sqlalchemy.url", database_url)
+    cfg.set_main_option("script_location", str(_SCRIPT_LOCATION))
+    cfg.config_file_name = None
+    try:
+        command.stamp(cfg, "head")
+    except Exception:
+        logger.exception("Failed to stamp Alembic head")
+        raise

@@ -3,7 +3,6 @@ import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
 import Alert from '@mui/material/Alert';
-import CircularProgress from '@mui/material/CircularProgress';
 import Stack from '@mui/material/Stack';
 import Box from '@mui/material/Box';
 import { COMPANIES } from '../../config/companies';
@@ -12,6 +11,8 @@ import { CompanySearchAddInput } from './CompanySearchAddInput';
 import { SelectedCompaniesPanel } from './SelectedCompaniesPanel';
 import { BrowseCompaniesAccordion } from './BrowseCompaniesAccordion';
 import { CompanyChipGrid } from './CompanyChipGrid';
+import { LoadingState } from '../shared/LoadingIndicator';
+import { extractErrorMessage } from '../../lib/errors';
 
 export function EnabledCompaniesSection() {
   const { ids, loading, error, save } = useEnabledCompanies();
@@ -57,7 +58,7 @@ export function EnabledCompaniesSection() {
       await save(canonicalDraft);
       setSaveSuccess(true);
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : 'Failed to save changes');
+      setSaveError(extractErrorMessage(err, 'Failed to save changes'));
     } finally {
       setIsSaving(false);
     }
@@ -90,8 +91,8 @@ export function EnabledCompaniesSection() {
 
   if (loading && ids === null) {
     return (
-      <Paper sx={{ p: 4, mt: 3, textAlign: 'center' }}>
-        <CircularProgress />
+      <Paper sx={{ p: 4, mt: 3 }}>
+        <LoadingState />
       </Paper>
     );
   }

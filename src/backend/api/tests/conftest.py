@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 from psycopg2 import sql
 from psycopg2.extras import RealDictCursor
 
-from api.migrations import apply_alembic_migrations
+from api.migrations import stamp_alembic_head
 
 logger = logging.getLogger(__name__)
 
@@ -32,10 +32,10 @@ def db_conn():
     """PostgreSQL connection with per-module schema isolation.
 
     Creates `test_<hex>` schema, points `search_path` at it via
-    `PYTEST_SCHEMA`, runs Alembic (which populates the schema with the
-    bare-named tables + `alembic_version`), yields a psycopg2 connection
-    already pinned to the schema. Teardown drops the whole schema CASCADE —
-    no per-table loop.
+    `PYTEST_SCHEMA`, materializes the ORM schema with
+    `Base.metadata.create_all`, stamps Alembic at head, and yields a psycopg2
+    connection already pinned to the schema. Teardown drops the whole schema
+    CASCADE — no per-table loop.
     """
     import secrets
 
@@ -59,12 +59,12 @@ def db_conn():
     finally:
         bootstrap_conn.close()
 
-    # The Alembic baseline revision is empty (PLAN.md / DEPLOY.md context —
-    # prod was stamped, not applied). A fresh test schema therefore needs
-    # `Base.metadata.create_all` to materialize the user tables; after that,
-    # `apply_alembic_migrations` lands the `alembic_version` tracker row. Both
-    # must run with search_path pinned to our schema so the DDL lands there,
-    # not in public.
+    # create_all materializes every ORM table inside the per-worker schema;
+    # search_path is pinned on each engine connection so DDL lands there, not
+    # in public. Then stamp (not upgrade) — running upgrade on top of
+    # create_all would re-execute each migration's create_table body and hit
+    # DuplicateTable. Migrations are exercised end-to-end by
+    # scripts/tests/integration/test_alembic_parity.py.
     from sqlalchemy import create_engine, event
     import api.db_models as _db_models
 
@@ -86,9 +86,7 @@ def db_conn():
     _db_models.Base.metadata.create_all(engine, checkfirst=False)
     engine.dispose()
 
-    # Run migrations. env.py reads PYTEST_SCHEMA and pins search_path
-    # before any DDL so `alembic_version` lands INSIDE the schema.
-    apply_alembic_migrations(TEST_DB_URL)
+    stamp_alembic_head(TEST_DB_URL)
 
     # The connection returned here is what tests use. PYTEST_SCHEMA is
     # set, so our connection helpers pin search_path on open.
@@ -225,11 +223,13 @@ def _insert_user(conn, user: dict) -> None:
 def _clear_tables(conn) -> None:
     """Truncate test tables between tests."""
     cursor = conn.cursor()
-    cursor.execute(sql.SQL("TRUNCATE {}, {}, {}, {} CASCADE").format(
+    cursor.execute(sql.SQL("TRUNCATE {}, {}, {}, {}, {}, {} CASCADE").format(
+        sql.Identifier("feature_upvotes"),
+        sql.Identifier("features"),
+        sql.Identifier("user_enabled_companies"),
         sql.Identifier("job_listings"),
         sql.Identifier("scrape_runs"),
         sql.Identifier("users"),
-        sql.Identifier("user_enabled_companies"),
     ))
     conn.commit()
 
@@ -243,14 +243,15 @@ def clean_tables(db_conn):
 @pytest.fixture(scope="module")
 def test_app(db_conn):
     """FastAPI test app with database connection wired up (no auto-scraper)."""
-    from api.routers import jobs, jobs_qa, users
+    from api.routers import features, jobs, jobs_qa, users
     from api.dependencies import get_db
-    from api.auth.dependencies import get_current_user
+    from api.auth.dependencies import get_current_user, get_optional_user
 
     app = FastAPI()
     app.include_router(jobs.router, prefix="/api/jobs")
     app.include_router(jobs_qa.router, prefix="/api/jobs-qa")
     app.include_router(users.router, prefix="/api/users")
+    app.include_router(features.router, prefix="/api/features")
 
     @app.get("/health")
     def health():

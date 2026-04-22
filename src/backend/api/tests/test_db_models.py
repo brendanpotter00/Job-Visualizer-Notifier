@@ -8,13 +8,15 @@ from sqlalchemy.schema import ForeignKeyConstraint, UniqueConstraint
 from api import db_models
 
 
-def test_all_four_tables_present():
+def test_all_tables_present():
     names = set(db_models.Base.metadata.tables.keys())
     assert names == {
         "job_listings",
         "scrape_runs",
         "users",
         "user_enabled_companies",
+        "features",
+        "feature_upvotes",
     }, f"Unexpected metadata.tables: {sorted(names)}"
 
 

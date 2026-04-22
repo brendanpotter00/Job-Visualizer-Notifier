@@ -117,3 +117,28 @@ class EnabledCompaniesUpdateRequest(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, extra="forbid")
 
     company_ids: list[CompanyId] = Field(max_length=200)
+
+
+class FeatureResponse(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    id: str
+    title: str
+    description: str
+    created_at: datetime
+    upvote_count: int = Field(ge=0)
+    has_upvoted: bool
+
+
+class FeatureListResponse(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    features: list[FeatureResponse]
+
+
+class FeatureUpvoteStateResponse(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    feature_id: str
+    upvote_count: int = Field(ge=0)
+    has_upvoted: bool

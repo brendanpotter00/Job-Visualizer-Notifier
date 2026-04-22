@@ -1,7 +1,7 @@
 import { ReactElement, ReactNode } from 'react';
 import { render, RenderOptions } from '@testing-library/react';
 import { Provider } from 'react-redux';
-import { BrowserRouter } from 'react-router-dom';
+import { BrowserRouter, MemoryRouter } from 'react-router-dom';
 import { configureStore } from '@reduxjs/toolkit';
 import type { RootState } from '../app/store';
 import appReducer from '../features/app/appSlice';
@@ -11,6 +11,8 @@ import recentJobsFiltersReducer from '../features/filters/slices/recentJobsFilte
 import uiReducer from '../features/ui/uiSlice';
 import enabledCompaniesReducer from '../features/preferences/enabledCompaniesSlice';
 import { jobsApi } from '../features/jobs/jobsApi';
+import { featuresApi } from '../features/features/featuresApi';
+import { getTokenOrNull } from '../features/features/getTokenOrNull';
 
 /**
  * Creates a test Redux store with optional preloaded state
@@ -28,8 +30,14 @@ export function createTestStore(preloadedState: Partial<RootState> | Record<stri
       ui: uiReducer,
       enabledCompanies: enabledCompaniesReducer,
       [jobsApi.reducerPath]: jobsApi.reducer,
+      [featuresApi.reducerPath]: featuresApi.reducer,
     },
-    middleware: (getDefaultMiddleware) => getDefaultMiddleware().concat(jobsApi.middleware),
+    middleware: (getDefaultMiddleware) =>
+      getDefaultMiddleware({
+        thunk: { extraArgument: { getTokenOrNull } },
+      })
+        .concat(jobsApi.middleware)
+        .concat(featuresApi.middleware),
     preloadedState: preloadedState as RootState,
   });
 }
@@ -37,6 +45,13 @@ export function createTestStore(preloadedState: Partial<RootState> | Record<stri
 interface CustomRenderOptions extends Omit<RenderOptions, 'wrapper'> {
   preloadedState?: Partial<RootState>;
   store?: ReturnType<typeof createTestStore>;
+  /**
+   * When provided, wraps the component tree in a `MemoryRouter` seeded with these entries
+   * instead of the default `BrowserRouter`. Use for route-based rendering in page-level tests.
+   *
+   * Omit to preserve the original `BrowserRouter` behavior (default).
+   */
+  initialEntries?: string[];
 }
 
 /**
@@ -60,15 +75,18 @@ export function renderWithProviders(
   {
     preloadedState,
     store = createTestStore(preloadedState),
+    initialEntries,
     ...renderOptions
   }: CustomRenderOptions = {}
 ) {
   function Wrapper({ children }: { children: ReactNode }) {
-    return (
-      <Provider store={store}>
+    const router =
+      initialEntries !== undefined ? (
+        <MemoryRouter initialEntries={initialEntries}>{children}</MemoryRouter>
+      ) : (
         <BrowserRouter>{children}</BrowserRouter>
-      </Provider>
-    );
+      );
+    return <Provider store={store}>{router}</Provider>;
   }
 
   return { store, ...render(ui, { wrapper: Wrapper, ...renderOptions }) };

@@ -115,3 +115,38 @@ class UserEnabledCompany(Base):
         PrimaryKeyConstraint("user_id", "company_id"),
         Index("idx_user_enabled_companies_user_id", "user_id"),
     )
+
+
+class Feature(Base):
+    __tablename__ = "features"
+
+    id = Column(Text, primary_key=True)
+    title = Column(Text, nullable=False)
+    description = Column(Text, nullable=False)
+    created_at = Column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class FeatureUpvote(Base):
+    __tablename__ = "feature_upvotes"
+
+    feature_id = Column(
+        Text,
+        ForeignKey("features.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    user_id = Column(
+        Text,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    created_at = Column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        PrimaryKeyConstraint("feature_id", "user_id"),
+        Index("idx_feature_upvotes_feature_id", "feature_id"),
+        Index("idx_feature_upvotes_user_id", "user_id"),
+    )

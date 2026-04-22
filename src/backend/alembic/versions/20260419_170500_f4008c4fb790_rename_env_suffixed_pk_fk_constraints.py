@@ -22,6 +22,10 @@ Constraints renamed (both `_local` and `_prod` variants, same pattern as
 - users_{env}_auth0_id_key                   -> users_auth0_id_key
 - user_enabled_companies_{env}_pkey          -> user_enabled_companies_pkey
 - user_enabled_companies_{env}_user_id_fkey  -> user_enabled_companies_user_id_fkey
+- features_{env}_pkey                        -> features_pkey
+- feature_upvotes_{env}_pkey                 -> feature_upvotes_pkey
+- feature_upvotes_{env}_feature_id_fkey      -> feature_upvotes_feature_id_fkey
+- feature_upvotes_{env}_user_id_fkey         -> feature_upvotes_user_id_fkey
 
 Catalog-only DDL: every statement is an `ALTER TABLE RENAME CONSTRAINT`
 wrapped in `DO $$ ... EXCEPTION WHEN undefined_object OR undefined_table
@@ -61,6 +65,10 @@ _CONSTRAINT_RENAMES: tuple[tuple[str, str, str], ...] = (
     ("users",                  "users_{env}_auth0_id_key",                   "users_auth0_id_key"),
     ("user_enabled_companies", "user_enabled_companies_{env}_pkey",          "user_enabled_companies_pkey"),
     ("user_enabled_companies", "user_enabled_companies_{env}_user_id_fkey",  "user_enabled_companies_user_id_fkey"),
+    ("features",               "features_{env}_pkey",                        "features_pkey"),
+    ("feature_upvotes",        "feature_upvotes_{env}_pkey",                 "feature_upvotes_pkey"),
+    ("feature_upvotes",        "feature_upvotes_{env}_feature_id_fkey",      "feature_upvotes_feature_id_fkey"),
+    ("feature_upvotes",        "feature_upvotes_{env}_user_id_fkey",         "feature_upvotes_user_id_fkey"),
 )
 
 

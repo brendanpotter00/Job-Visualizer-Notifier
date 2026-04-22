@@ -30,6 +30,12 @@ export default [
         "warn",
         { allowConstantExport: true },
       ],
+      // Escalated from the recommended preset's default (warn). Exhaustive
+      // effect deps are a frequent source of stale-closure bugs; CI blocks
+      // new violations. See src/frontend/CLAUDE.md "Frontend Foundations"
+      // for the authoritative list of allowed `eslint-disable` sites and
+      // their justifications; new disables must be added to that list.
+      "react-hooks/exhaustive-deps": "error",
       "@typescript-eslint/no-explicit-any": "warn",
       "@typescript-eslint/no-unused-vars": [
         "error",

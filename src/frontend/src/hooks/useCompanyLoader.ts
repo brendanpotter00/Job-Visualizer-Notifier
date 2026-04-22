@@ -5,6 +5,7 @@ import { setSelectedCompanyId } from '../features/app/appSlice';
 import { useGetJobsForCompanyQuery } from '../features/jobs/jobsApi';
 import { getInitialCompanyId } from '../lib/url';
 import { ROUTES } from '../config/routes';
+import { extractErrorMessage } from '../lib/errors';
 
 /**
  * Custom hook for managing company selection initialization and job loading
@@ -28,16 +29,18 @@ export function useCompanyLoader() {
   // Only run on Companies page
   const isCompaniesPage = location.pathname === ROUTES.COMPANIES;
 
-  // Initialize company from URL on mount (only on Companies page)
+  // Initialize selected company from the URL on transition onto the Companies
+  // page. We intentionally do NOT read `selectedCompanyId` inside this effect:
+  // dispatching `setSelectedCompanyId` with the already-selected id is
+  // idempotent for subscribers (useAppSelector returns the same string, so no
+  // component re-renders), and reading `selectedCompanyId` would force the
+  // effect to re-run on every company change and undo the user's selection.
+  // Adding `dispatch` to deps is safe because `dispatch` has stable identity
+  // (react-redux guarantee).
   useEffect(() => {
     if (!isCompaniesPage) return;
-
-    const initialCompanyId = getInitialCompanyId();
-    if (initialCompanyId !== selectedCompanyId) {
-      dispatch(setSelectedCompanyId(initialCompanyId));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isCompaniesPage]); // Only run on mount or when page changes
+    dispatch(setSelectedCompanyId(getInitialCompanyId()));
+  }, [isCompaniesPage, dispatch]);
 
   // RTK Query hook - automatically fetches on mount and when companyId changes
   // Skip fetching if not on Companies page
@@ -53,13 +56,7 @@ export function useCompanyLoader() {
 
   return {
     isLoading,
-    error: error
-      ? typeof error === 'string'
-        ? error
-        : typeof error === 'object' && error !== null && 'data' in error
-          ? String(error.data)
-          : 'Unknown error'
-      : undefined,
+    error: error ? extractErrorMessage(error, 'Unknown error') : undefined,
     handleRetry,
     jobs: data?.jobs || [],
     metadata: data?.metadata,
