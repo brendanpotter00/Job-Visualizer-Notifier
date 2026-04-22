@@ -75,6 +75,7 @@ function createLeverCompany(
 
 interface AshbyOptions extends FactoryOptions {
   jobBoardName?: string;
+  jobsUrl?: string;
 }
 
 interface GemOptions extends FactoryOptions {
@@ -124,7 +125,7 @@ function createAshbyCompany(
     name,
     ats: 'ashby',
     config,
-    jobsUrl: `https://careers.ashbyhq.com/${jobBoardName}`,
+    jobsUrl: options.jobsUrl ?? `https://careers.ashbyhq.com/${jobBoardName}`,
     recruiterLinkedInUrl: options.recruiterLinkedInUrl,
   };
 }
@@ -333,6 +334,8 @@ export const COMPANIES: Company[] = [
   createGreenhouseCompany('gitlab', 'GitLab'),
   createGreenhouseCompany('unity3d', 'Unity'),
   createGreenhouseCompany('vercel', 'Vercel'),
+  createGreenhouseCompany('thinkingmachines', 'Thinking Machines'),
+  createGreenhouseCompany('togetherai', 'Together AI'),
 
   // Lever companies
   createLeverCompany('palantir', 'Palantir', {
@@ -427,6 +430,11 @@ export const COMPANIES: Company[] = [
   createAshbyCompany('supabase', 'Supabase'),
   createAshbyCompany('wispr-flow', 'Wispr Flow', { jobBoardName: 'wispr-flow' }),
   createAshbyCompany('flint', 'Flint'),
+  createAshbyCompany('cursor', 'Cursor', { jobsUrl: 'https://cursor.com/careers' }),
+  createAshbyCompany('modal', 'Modal Labs'),
+  createAshbyCompany('langchain', 'LangChain'),
+  createAshbyCompany('cognition', 'Cognition'),
+  createAshbyCompany('paraform', 'Paraform'),
 
   // Gem companies
   createGemCompany('nominal', 'Nominal'),
@@ -565,9 +573,11 @@ export const enum COMPANY_IDS {
   Clear = 'clear',
   ClickUp = 'clickup',
   Cloudflare = 'cloudflare',
+  Cognition = 'cognition',
   Cohere = 'cohere',
   Coinbase = 'coinbase',
   Crunchyroll = 'crunchyroll',
+  Cursor = 'cursor',
   Databricks = 'databricks',
   Decagon = 'decagon',
   Datadog = 'datadog',
@@ -593,12 +603,14 @@ export const enum COMPANY_IDS {
   Harvey = 'harvey',
   Happyrobot = 'happyrobot.ai',
   Instacart = 'instacart',
+  LangChain = 'langchain',
   Light = 'light',
   Linear = 'linear',
   Lyft = 'lyft',
   Merge = 'merge',
   Microsoft = 'microsoft',
   Mintlify = 'mintlify',
+  ModalLabs = 'modal',
   MongoDB = 'mongodb',
   Netflix = 'netflix',
   Neuralink = 'neuralink',
@@ -609,6 +621,7 @@ export const enum COMPANY_IDS {
   OpenAI = 'openai',
   Pallet = 'pallet',
   Palantir = 'palantir',
+  Paraform = 'paraform',
   Perplexity = 'perplexity',
   Pylon = 'pylon-labs',
   Pinterest = 'pinterest',
@@ -633,6 +646,8 @@ export const enum COMPANY_IDS {
   Stripe = 'stripe',
   Sunday = 'sunday',
   Supabase = 'supabase',
+  ThinkingMachines = 'thinkingmachines',
+  TogetherAI = 'togetherai',
   Traversal = 'traversal',
   Twilio = 'twilio',
   Turo = 'turo',

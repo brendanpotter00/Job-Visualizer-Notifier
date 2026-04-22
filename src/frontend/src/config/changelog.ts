@@ -1,4 +1,9 @@
-export const CHANGELOG_TAGS = ['feature', 'improvement', 'technical'] as const;
+export const CHANGELOG_TAGS = [
+  'feature',
+  'improvement',
+  'technical',
+  'new-companies',
+] as const;
 export type ChangelogTag = (typeof CHANGELOG_TAGS)[number];
 
 export interface ChangelogEntry {
@@ -16,6 +21,14 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
     description:
       'Clicking a company chip in the Recent Jobs progress accordion now opens that company on the Company Job Postings page.',
     tags: ['improvement'],
+    date: '2026-04-22',
+  },
+  {
+    id: 'top-talent-density-companies',
+    title: 'Added top talent-density startups',
+    description:
+      'Added Thinking Machines, Cursor, Modal Labs, LangChain, Together AI, Cognition, and Paraform — top-ranked startups on the Paraform Talent Density Index for concentrated senior engineering talent.',
+    tags: ['new-companies'],
     date: '2026-04-22',
   },
   {
