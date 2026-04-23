@@ -103,7 +103,10 @@ export const jobsApi = createApi({
         };
       },
 
-      async onCacheEntryAdded(_arg, { updateCachedData, cacheDataLoaded, cacheEntryRemoved }) {
+      async onCacheEntryAdded(
+        _arg,
+        { updateCachedData, cacheDataLoaded, cacheEntryRemoved, dispatch }
+      ) {
         try {
           // Wait for initial data to be in cache
           await cacheDataLoaded;
@@ -123,14 +126,22 @@ export const jobsApi = createApi({
 
               // Calculate date range
               const dateRange = calculateJobDateRange(result.jobs);
+              const perCompanyMetadata = { ...result.metadata, ...dateRange };
+
+              // Seed the per-company endpoint's cache so a later visit to
+              // /companies?company=<id> serves this data without refetching.
+              dispatch(
+                jobsApi.util.upsertQueryData(
+                  'getJobsForCompany',
+                  { companyId: company.id },
+                  { jobs: result.jobs, metadata: perCompanyMetadata }
+                )
+              );
 
               // Update cache with successful company fetch
               updateCachedData((draft) => {
                 draft.byCompanyId[company.id] = result.jobs;
-                draft.metadata[company.id] = {
-                  ...result.metadata,
-                  ...dateRange,
-                };
+                draft.metadata[company.id] = perCompanyMetadata;
 
                 updateCompanyProgress(draft.progress, company.id, {
                   status: 'success',
@@ -141,14 +152,26 @@ export const jobsApi = createApi({
               return { companyId: company.id, success: true };
             } catch (error) {
               const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+              const errorMetadata = {
+                totalCount: 0,
+                fetchedAt: new Date().toISOString(),
+              };
+
+              // Seed the per-company cache with an empty result so the
+              // company page doesn't silently re-hit a known-broken ATS when
+              // the user clicks through from the recent page.
+              dispatch(
+                jobsApi.util.upsertQueryData(
+                  'getJobsForCompany',
+                  { companyId: company.id },
+                  { jobs: [], metadata: errorMetadata }
+                )
+              );
 
               // Update cache with error
               updateCachedData((draft) => {
                 draft.byCompanyId[company.id] = [];
-                draft.metadata[company.id] = {
-                  totalCount: 0,
-                  fetchedAt: new Date().toISOString(),
-                };
+                draft.metadata[company.id] = errorMetadata;
                 draft.errors[company.id] = errorMessage;
 
                 updateCompanyProgress(draft.progress, company.id, {
