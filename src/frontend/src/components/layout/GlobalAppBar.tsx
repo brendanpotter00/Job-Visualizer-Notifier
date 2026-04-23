@@ -3,9 +3,9 @@ import { styled } from '@mui/material/styles';
 import MuiAppBar, { AppBarProps as MuiAppBarProps } from '@mui/material/AppBar';
 import Box from '@mui/material/Box';
 import Toolbar from '@mui/material/Toolbar';
-import Typography from '@mui/material/Typography';
 import IconButton from '@mui/material/IconButton';
 import MenuIcon from '@mui/icons-material/Menu';
+import { Link as RouterLink } from 'react-router-dom';
 import { UserMenu } from './UserMenu';
 
 /**
@@ -82,9 +82,38 @@ export function GlobalAppBar({ open, onDrawerToggle, drawerWidth, isMobile }: Gl
         >
           <MenuIcon />
         </IconButton>
-        <Typography variant="h6" noWrap component="div">
-          {APP_TITLE}
-        </Typography>
+        <Box
+          component={RouterLink}
+          to="/"
+          aria-label={APP_TITLE}
+          sx={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            color: '#F2EEE9',
+            textDecoration: 'none',
+            fontFamily:
+              'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+            fontWeight: 700,
+            fontSize: '22px',
+            letterSpacing: '-0.03em',
+            lineHeight: 1,
+          }}
+        >
+          <span>1s</span>
+          <Box
+            component="span"
+            aria-hidden
+            sx={{
+              width: '7px',
+              height: '7px',
+              borderRadius: '50%',
+              background: '#2F8F3F',
+              boxShadow: '0 0 8px rgba(47,143,63,0.6)',
+              display: 'inline-block',
+            }}
+          />
+        </Box>
         <Box sx={{ flexGrow: 1 }} />
         <UserMenu />
       </Toolbar>
