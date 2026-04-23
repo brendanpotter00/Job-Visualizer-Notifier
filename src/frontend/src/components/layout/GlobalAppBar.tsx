@@ -1,5 +1,5 @@
 import { APP_TITLE } from '../../config/constants';
-import { styled } from '@mui/material/styles';
+import { styled, keyframes } from '@mui/material/styles';
 import MuiAppBar, { AppBarProps as MuiAppBarProps } from '@mui/material/AppBar';
 import Box from '@mui/material/Box';
 import Toolbar from '@mui/material/Toolbar';
@@ -7,6 +7,11 @@ import IconButton from '@mui/material/IconButton';
 import MenuIcon from '@mui/icons-material/Menu';
 import { Link as RouterLink } from 'react-router-dom';
 import { UserMenu } from './UserMenu';
+
+const recBlink = keyframes`
+  0%, 55% { opacity: 1; }
+  60%, 100% { opacity: 0.25; }
+`;
 
 /**
  * Props for the GlobalAppBar component
@@ -89,30 +94,37 @@ export function GlobalAppBar({ open, onDrawerToggle, drawerWidth, isMobile }: Gl
           sx={{
             display: 'inline-flex',
             alignItems: 'center',
-            gap: '6px',
+            gap: '14px',
             color: '#F2EEE9',
             textDecoration: 'none',
             fontFamily:
-              'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+              '"Infra Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
             fontWeight: 700,
-            fontSize: '22px',
             letterSpacing: '-0.03em',
             lineHeight: 1,
           }}
         >
-          <span>1s</span>
+          <span style={{ fontSize: '20px' }}>{APP_TITLE}</span>
           <Box
             component="span"
             aria-hidden
-            sx={{
-              width: '7px',
-              height: '7px',
-              borderRadius: '50%',
-              background: '#2F8F3F',
-              boxShadow: '0 0 8px rgba(47,143,63,0.6)',
-              display: 'inline-block',
-            }}
-          />
+            sx={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '22px' }}
+          >
+            <span>1s</span>
+            <Box
+              component="span"
+              sx={{
+                width: '7px',
+                height: '7px',
+                borderRadius: '50%',
+                background: '#2F8F3F',
+                boxShadow: '0 0 8px rgba(47,143,63,0.6)',
+                display: 'inline-block',
+                animation: `${recBlink} 2.2s ease-in-out infinite`,
+                '@media (prefers-reduced-motion: reduce)': { animation: 'none' },
+              }}
+            />
+          </Box>
         </Box>
         <Box sx={{ flexGrow: 1 }} />
         <UserMenu />
