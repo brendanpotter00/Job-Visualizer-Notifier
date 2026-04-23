@@ -104,7 +104,12 @@ export function GlobalAppBar({ open, onDrawerToggle, drawerWidth, isMobile }: Gl
             lineHeight: 1,
           }}
         >
-          <span style={{ fontSize: '20px' }}>{APP_TITLE}</span>
+          <Box
+            component="span"
+            sx={{ fontSize: '20px', display: { xs: 'none', md: 'inline' } }}
+          >
+            {APP_TITLE}
+          </Box>
           <Box
             component="span"
             aria-hidden
