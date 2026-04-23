@@ -24,6 +24,22 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'brand-refresh',
+    title: 'New brand mark in the app bar',
+    description:
+      'The header now shows the onesecondswe wordmark with the 1s logo and a blinking green dot, all set in Infra Mono. Favicon and social preview image were refreshed to match.',
+    tags: ['improvement'],
+    date: '2026-04-22',
+  },
+  {
+    id: 'cross-page-jobs-cache',
+    title: 'Faster navigation between Recent Jobs and Company pages',
+    description:
+      'Jobs loaded on the Recent Jobs page are now shared with the Company Hiring Trends pages, so clicking into a company renders instantly from cache instead of re-fetching.',
+    tags: ['improvement'],
+    date: '2026-04-22',
+  },
+  {
     id: 'fetch-progress-chip-navigation',
     title: 'Jump to a company from the fetch progress bar',
     description:

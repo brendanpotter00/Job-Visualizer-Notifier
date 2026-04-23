@@ -40,9 +40,12 @@ describe('GlobalAppBar', () => {
   };
 
   describe('Rendering', () => {
-    it(`renders app title "${APP_TITLE}"`, () => {
+    it(`renders brand logo with "${APP_TITLE}" accessible label`, () => {
       renderAppBar(mockProps);
-      expect(screen.getByText(APP_TITLE)).toBeInTheDocument();
+      const logo = screen.getByLabelText(APP_TITLE);
+      expect(logo).toBeInTheDocument();
+      expect(logo).toHaveTextContent('1s');
+      expect(logo).toHaveAttribute('href', '/');
     });
 
     it('renders hamburger menu button with MenuIcon', () => {
