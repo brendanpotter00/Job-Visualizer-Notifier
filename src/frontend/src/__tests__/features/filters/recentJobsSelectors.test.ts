@@ -182,6 +182,32 @@ describe('recentJobsSelectors', () => {
       expect(result[0].id).toBe('1');
     });
 
+    it('should include jobs of any age when time window is "all"', () => {
+      const now = Date.now();
+      const jobs: Job[] = [
+        createMockJob({
+          id: 'recent',
+          createdAt: new Date(now - 1 * 24 * 60 * 60 * 1000).toISOString(),
+        }),
+        createMockJob({
+          id: 'ancient',
+          createdAt: new Date(now - 5 * 365 * 24 * 60 * 60 * 1000).toISOString(), // 5 years ago
+        }),
+      ];
+
+      const filters: RecentJobsFilters = {
+        timeWindow: 'all',
+        location: ['San Francisco, CA'],
+        softwareOnly: false,
+      };
+
+      const state = createMockStoreWithJobs(jobs, filters);
+      const result = selectRecentJobsFilteredWithoutLocation(state);
+
+      expect(result).toHaveLength(2);
+      expect(result.map((j) => j.id).sort()).toEqual(['ancient', 'recent']);
+    });
+
     it('should apply company filter', () => {
       const now = Date.now();
       const jobs: Job[] = [

@@ -1,5 +1,22 @@
 import type { Job, TimeBucket, TimeWindow } from '../types';
-import { getBucketSize, getTimeWindowDuration, roundToBucketStart } from './date';
+import {
+  calculateJobDateRange,
+  getBucketSize,
+  getTimeWindowDuration,
+  roundToBucketStart,
+} from './date';
+import { TIME_UNITS } from '../constants/time';
+
+/**
+ * Pick a bucket size for the 'all time' window based on the span covered by the jobs.
+ * Mirrors the granularity ladder used by BUCKET_SIZES for finite windows.
+ */
+function pickAllTimeBucketSize(spanMs: number): number {
+  if (spanMs <= 30 * TIME_UNITS.DAY) return TIME_UNITS.DAY;
+  if (spanMs <= 180 * TIME_UNITS.DAY) return 7 * TIME_UNITS.DAY;
+  if (spanMs <= 2 * 365 * TIME_UNITS.DAY) return 14 * TIME_UNITS.DAY;
+  return 30 * TIME_UNITS.DAY;
+}
 
 /**
  * Groups jobs into time buckets for graph visualization.
@@ -47,10 +64,22 @@ import { getBucketSize, getTimeWindowDuration, roundToBucketStart } from './date
  * @see docs/architecture.md for detailed algorithm flowchart
  */
 export function bucketJobsByTime(jobs: Job[], timeWindow: TimeWindow): TimeBucket[] {
-  const bucketSizeMs = getBucketSize(timeWindow);
-  const windowDurationMs = getTimeWindowDuration(timeWindow);
   const now = new Date();
-  const windowStart = new Date(now.getTime() - windowDurationMs);
+  let bucketSizeMs: number;
+  let windowStart: Date;
+
+  if (timeWindow === 'all') {
+    if (jobs.length === 0) {
+      return [];
+    }
+    const { oldestJobDate } = calculateJobDateRange(jobs);
+    windowStart = new Date(oldestJobDate!);
+    bucketSizeMs = pickAllTimeBucketSize(now.getTime() - windowStart.getTime());
+  } else {
+    bucketSizeMs = getBucketSize(timeWindow);
+    const windowDurationMs = getTimeWindowDuration(timeWindow);
+    windowStart = new Date(now.getTime() - windowDurationMs);
+  }
 
   // Create map to store jobs by bucket
   const bucketMap = new Map<string, { jobIds: string[]; bucketStart: Date }>();

@@ -6,6 +6,10 @@ import { TIME_WINDOW_DURATIONS, BUCKET_SIZES, TIME_UNITS } from '../constants/ti
  * Calculate the 'since' timestamp for a given time window
  */
 export function calculateSinceTimestamp(timeWindow: TimeWindow): string {
+  if (timeWindow === 'all') {
+    return new Date(0).toISOString();
+  }
+
   const now = new Date();
   const durationMs = getTimeWindowDuration(timeWindow);
   const sinceDate = new Date(now.getTime() - durationMs);

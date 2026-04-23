@@ -70,6 +70,18 @@ describe('jobFilteringUtils', () => {
       expect(isJobWithinTimeWindow(recentJob.createdAt, '24h')).toBe(true);
       expect(isJobWithinTimeWindow(oldJob.createdAt, '24h')).toBe(false);
     });
+
+    it('should return true for any job age when time window is "all"', () => {
+      const tenYearsAgo = createMockJob({
+        createdAt: new Date(Date.now() - 10 * 365 * 24 * 60 * 60 * 1000).toISOString(),
+      });
+      const recent = createMockJob({
+        createdAt: new Date(Date.now() - 60 * 1000).toISOString(),
+      });
+
+      expect(isJobWithinTimeWindow(tenYearsAgo.createdAt, 'all')).toBe(true);
+      expect(isJobWithinTimeWindow(recent.createdAt, 'all')).toBe(true);
+    });
   });
 
   describe('matchesSearchTags', () => {
