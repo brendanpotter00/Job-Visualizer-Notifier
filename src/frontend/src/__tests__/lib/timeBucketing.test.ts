@@ -130,6 +130,30 @@ describe('timeBucketing', () => {
       const totalJobs = buckets.reduce((sum, b) => sum + b.count, 0);
       expect(totalJobs).toBe(2);
     });
+
+    it('should return empty array for "all" window with no jobs', () => {
+      expect(bucketJobsByTime([], 'all')).toEqual([]);
+    });
+
+    it('should span from oldest job to now for "all" window', () => {
+      const jobs = [
+        createMockJob('old', '2023-05-10T08:00:00Z'),
+        createMockJob('mid', '2024-08-15T12:00:00Z'),
+        createMockJob('new', '2025-11-19T10:00:00Z'),
+      ];
+
+      const buckets = bucketJobsByTime(jobs, 'all');
+
+      expect(buckets.length).toBeGreaterThan(0);
+
+      const firstBucketStart = new Date(buckets[0].bucketStart).getTime();
+      const lastBucketEnd = new Date(buckets[buckets.length - 1].bucketEnd).getTime();
+      expect(firstBucketStart).toBeLessThanOrEqual(new Date('2023-05-10T08:00:00Z').getTime());
+      expect(lastBucketEnd).toBeGreaterThanOrEqual(new Date('2025-11-19T10:00:00Z').getTime());
+
+      const totalJobs = buckets.reduce((sum, b) => sum + b.count, 0);
+      expect(totalJobs).toBe(3);
+    });
   });
 
   describe('getCumulativeCounts', () => {
