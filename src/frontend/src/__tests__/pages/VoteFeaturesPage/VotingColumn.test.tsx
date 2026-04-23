@@ -41,6 +41,12 @@ vi.mock('../../../pages/VoteFeaturesPage/FeatureVoteCard', () => ({
   ),
 }));
 
+// jsdom has no layout, so auto-animate would measure zero-sized boxes.
+// Stub the hook to a no-op ref pair — the sort order is what we care about.
+vi.mock('@formkit/auto-animate/react', () => ({
+  useAutoAnimate: () => [vi.fn(), vi.fn()],
+}));
+
 // Import AFTER the mocks are registered so VotingColumn picks them up.
 import { VotingColumn } from '../../../pages/VoteFeaturesPage/VotingColumn';
 
@@ -146,6 +152,71 @@ describe('VotingColumn', () => {
       expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
       expect(screen.queryByRole('alert')).not.toBeInTheDocument();
       expect(screen.queryByText(/no features yet/i)).not.toBeInTheDocument();
+    });
+
+    it('orders cards by upvoteCount descending', () => {
+      const features: FeatureListItem[] = [
+        {
+          id: 'low',
+          title: 'Low',
+          description: '',
+          createdAt: '2026-04-01T00:00:00Z',
+          upvoteCount: 3,
+          hasUpvoted: false,
+        },
+        {
+          id: 'high',
+          title: 'High',
+          description: '',
+          createdAt: '2026-04-02T00:00:00Z',
+          upvoteCount: 7,
+          hasUpvoted: false,
+        },
+        {
+          id: 'mid',
+          title: 'Mid',
+          description: '',
+          createdAt: '2026-04-03T00:00:00Z',
+          upvoteCount: 1,
+          hasUpvoted: false,
+        },
+      ];
+      mockQueryResult = { ...mockQueryResult, data: features };
+      render(<VotingColumn />);
+      const rendered = screen.getAllByTestId(/^feature-vote-card-/);
+      expect(rendered.map((el) => el.dataset.testid)).toEqual([
+        'feature-vote-card-high',
+        'feature-vote-card-low',
+        'feature-vote-card-mid',
+      ]);
+    });
+
+    it('breaks upvoteCount ties by older createdAt first', () => {
+      const features: FeatureListItem[] = [
+        {
+          id: 'newer',
+          title: 'Newer',
+          description: '',
+          createdAt: '2026-04-15T00:00:00Z',
+          upvoteCount: 5,
+          hasUpvoted: false,
+        },
+        {
+          id: 'older',
+          title: 'Older',
+          description: '',
+          createdAt: '2026-04-01T00:00:00Z',
+          upvoteCount: 5,
+          hasUpvoted: false,
+        },
+      ];
+      mockQueryResult = { ...mockQueryResult, data: features };
+      render(<VotingColumn />);
+      const rendered = screen.getAllByTestId(/^feature-vote-card-/);
+      expect(rendered.map((el) => el.dataset.testid)).toEqual([
+        'feature-vote-card-older',
+        'feature-vote-card-newer',
+      ]);
     });
   });
 });
