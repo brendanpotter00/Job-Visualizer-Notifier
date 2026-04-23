@@ -10,6 +10,7 @@ export const ROUTES = {
   WHY: '/why',
   QA: '/qa',
   ACCOUNT: '/account',
+  VOTE_FEATURES: '/vote-features',
 } as const;
 
 export const NAV_ITEMS = [
@@ -20,8 +21,13 @@ export const NAV_ITEMS = [
   },
   {
     path: ROUTES.COMPANIES,
-    label: 'Company Job Postings',
-    icon: 'Business', // MUI Business icon
+    label: 'Company Hiring Trends',
+    icon: 'TrendingUp', // MUI TrendingUp icon
+  },
+  {
+    path: ROUTES.VOTE_FEATURES,
+    label: 'Vote for features',
+    icon: 'ThumbUp', // MUI ThumbUp icon
   },
   {
     path: ROUTES.WHY,

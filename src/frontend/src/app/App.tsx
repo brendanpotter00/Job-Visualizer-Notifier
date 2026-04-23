@@ -5,9 +5,11 @@ import { CompaniesPage } from '../pages/CompaniesPage/CompaniesPage';
 import { RecentJobPostingsPage } from '../pages/RecentJobPostingsPage/RecentJobPostingsPage';
 import { WhyPage } from '../pages/WhyPage/WhyPage.tsx';
 import { AccountPage } from '../pages/AccountPage/AccountPage.tsx';
+import { VoteFeaturesPage } from '../pages/VoteFeaturesPage';
 import { ROUTES } from '../config/routes';
 import { QAPage } from '../pages/QAPage/QAPage.tsx';
 import { useEnabledCompanies } from '../features/preferences/useEnabledCompanies';
+import { useFeaturesAuthBridge } from '../features/features/useFeaturesAuthBridge';
 
 /**
  * App content component with routing and hooks
@@ -21,6 +23,7 @@ function AppContent() {
   // Hydrate enabled-companies at the app root so selectors have it before
   // any page reads them.
   useEnabledCompanies();
+  useFeaturesAuthBridge();
 
   return (
     <>
@@ -31,6 +34,7 @@ function AppContent() {
           <Route path={ROUTES.WHY} element={<WhyPage />} />
           <Route path={ROUTES.QA} element={<QAPage />} />
           <Route path={ROUTES.ACCOUNT} element={<AccountPage />} />
+          <Route path={ROUTES.VOTE_FEATURES} element={<VoteFeaturesPage />} />
         </Route>
       </Routes>
     </>
@@ -50,6 +54,7 @@ function AppContent() {
  * - /why - Why This Was Built page (about and supported companies)
  * - /qa - QA page (scraper triggers, run history, debugging)
  * - /account - Account page (user profile management)
+ * - /vote-features - Vote for features page (changelog + feature voting)
  */
 function App() {
   return (

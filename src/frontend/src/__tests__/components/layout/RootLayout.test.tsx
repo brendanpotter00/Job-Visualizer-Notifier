@@ -39,7 +39,7 @@ describe('RootLayout', () => {
       expect(screen.getByLabelText(APP_TITLE)).toBeInTheDocument();
 
       // Check for navigation items from NavigationDrawer
-      expect(screen.getByText('Company Job Postings')).toBeInTheDocument();
+      expect(screen.getByText('Company Hiring Trends')).toBeInTheDocument();
 
       // Check for footer author name from AppFooter
       expect(screen.getByText('Brendan Potter')).toBeInTheDocument();
@@ -188,7 +188,7 @@ describe('RootLayout', () => {
       );
 
       // Navigation items should be present
-      expect(screen.getByText('Company Job Postings')).toBeInTheDocument();
+      expect(screen.getByText('Company Hiring Trends')).toBeInTheDocument();
       expect(screen.getByText('Recent Job Postings')).toBeInTheDocument();
     });
   });
