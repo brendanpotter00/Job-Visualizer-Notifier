@@ -46,7 +46,7 @@ export function formatBucketLabel(bucket: TimeBucket, timeWindow: TimeWindow): s
     return format(start, 'MMM d');
   }
 
-  // For long windows (1y, 2y), show month and year
+  // For the 'all' window, show month and year
   return format(start, 'MMM yyyy');
 }
 

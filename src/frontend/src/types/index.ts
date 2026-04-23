@@ -75,8 +75,6 @@ export type TimeWindow =
   | '30d'
   | '90d'
   | '180d'
-  | '1y'
-  | '2y'
   | 'all';
 
 /**

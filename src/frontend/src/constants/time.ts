@@ -29,8 +29,6 @@ export const TIME_WINDOW_DURATIONS: Record<TimeWindow, number> = {
   '30d': 30 * TIME_UNITS.DAY,
   '90d': 90 * TIME_UNITS.DAY,
   '180d': 180 * TIME_UNITS.DAY,
-  '1y': 365 * TIME_UNITS.DAY,
-  '2y': 2 * 365 * TIME_UNITS.DAY,
   all: Number.POSITIVE_INFINITY,
 };
 
@@ -56,7 +54,5 @@ export const BUCKET_SIZES: Record<TimeWindow, number> = {
   '30d': TIME_UNITS.DAY, // 1 day
   '90d': 3 * TIME_UNITS.DAY, // 3 days
   '180d': 7 * TIME_UNITS.DAY, // 7 days
-  '1y': 14 * TIME_UNITS.DAY, // 14 days
-  '2y': 30 * TIME_UNITS.DAY, // 30 days
   all: TIME_UNITS.DAY, // sentinel; bucketJobsByTime derives the real size from the data span
 };
