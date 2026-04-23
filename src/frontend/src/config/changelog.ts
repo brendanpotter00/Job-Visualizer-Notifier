@@ -32,6 +32,14 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
     date: '2026-04-22',
   },
   {
+    id: 'cross-page-jobs-cache',
+    title: 'Faster navigation between Recent Jobs and Company pages',
+    description:
+      'Jobs loaded on the Recent Jobs page are now shared with the Company Hiring Trends pages, so clicking into a company renders instantly from cache instead of re-fetching.',
+    tags: ['improvement'],
+    date: '2026-04-22',
+  },
+  {
     id: 'fetch-progress-chip-navigation',
     title: 'Jump to a company from the fetch progress bar',
     description:
