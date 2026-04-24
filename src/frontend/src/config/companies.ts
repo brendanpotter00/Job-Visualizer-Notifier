@@ -336,6 +336,7 @@ export const COMPANIES: Company[] = [
   createGreenhouseCompany('vercel', 'Vercel'),
   createGreenhouseCompany('thinkingmachines', 'Thinking Machines'),
   createGreenhouseCompany('togetherai', 'Together AI'),
+  createGreenhouseCompany('hightouch', 'Hightouch'),
 
   // Lever companies
   createLeverCompany('palantir', 'Palantir', {
@@ -602,6 +603,7 @@ export const enum COMPANY_IDS {
   Granola = 'granola',
   Harvey = 'harvey',
   Happyrobot = 'happyrobot.ai',
+  Hightouch = 'hightouch',
   Instacart = 'instacart',
   LangChain = 'langchain',
   Light = 'light',
