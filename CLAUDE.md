@@ -60,7 +60,7 @@ User selects company → `getJobsForCompany` RTK Query endpoint (src/frontend/sr
 Five ATS providers (Greenhouse, Lever, Ashby, Workday, Gem) use `createAPIClient` factory (src/frontend/src/api/clients/baseClient.ts). Factory handles: validation, fetch, error handling, filtering, transformation, metadata calculation. Only URL building and response extraction differ per provider. Eightfold (src/frontend/src/api/clients/eightfoldClient.ts) uses a dedicated client because it requires sequential pagination with a hard 10-item page cap.
 
 **Key Selectors:**
-- `selectCurrentCompanyJobs` (src/frontend/src/features/jobs/jobsSelectors.ts) - Jobs for selected company
+- `selectCurrentCompanyJobsRtk` (src/frontend/src/features/jobs/jobsSelectors.ts) - Jobs for selected company
 - `selectGraphFilteredJobs` (src/frontend/src/features/filters/selectors/graphFiltersSelectors.ts) - Apply graph filters
 - `selectListFilteredJobs` (src/frontend/src/features/filters/selectors/listFiltersSelectors.ts) - Apply list filters + search
 - `selectGraphBucketData` (src/frontend/src/features/filters/selectors/graphFiltersSelectors.ts) - Filtered jobs + time bucketing
