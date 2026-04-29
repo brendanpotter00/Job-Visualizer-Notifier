@@ -310,7 +310,7 @@ export const COMPANIES: Company[] = [
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%221124131%22%5D',
   }),
   createGreenhouseCompany('astranis', 'Astranis'),
-  createGreenhouseCompany('chalkinc', 'Chalk', {
+  createAshbyCompany('chalk', 'Chalk', {
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2278829224%22%5D',
   }),
@@ -570,7 +570,7 @@ export const enum COMPANY_IDS {
   Braintrust = 'braintrust',
   Browserbase = 'browserbase',
   CapitalOne = 'capitalone',
-  Chalk = 'chalkinc',
+  Chalk = 'chalk',
   Clear = 'clear',
   ClickUp = 'clickup',
   Cloudflare = 'cloudflare',
