@@ -8,14 +8,14 @@ React SPA for job posting analytics. Visualizes job posting activity over time f
 
 ```bash
 # Development
-npm run dev:vercel       # Start with Vercel Dev (REQUIRED - includes API proxies)
+npm run dev:vercel -w src/frontend  # Start with Vercel Dev (REQUIRED - includes API proxies)
 npm run dev              # Vite only (no API proxies, limited functionality)
 npm run build            # Production build (runs tsc + vite build)
 npm run type-check       # TypeScript validation only
 
 # Testing
 npm test                 # Run all tests (Vitest - 768+ tests)
-npm run test:coverage    # Generate coverage report
+npm run test:coverage -w src/frontend  # Generate coverage report
 
 # Code Quality
 npm run lint             # ESLint
@@ -52,6 +52,7 @@ Seven ATS providers (Greenhouse, Lever, Ashby, Workday, Gem, Eightfold, Backend-
 - `/why` - Why This Was Built (pages/WhyPage/WhyPage.tsx) - About page
 - `/qa` - QA (pages/QAPage/QAPage.tsx) - Admin page for triggering scrapers, viewing scrape runs, and debugging
 - `/account` - Account (pages/AccountPage/AccountPage.tsx)
+- `/vote-features` - Vote for Features (pages/VoteFeaturesPage/VoteFeaturesPage.tsx) - Feature voting page
 
 **Key Algorithms:**
 - Time Bucketing: lib/timeBucketing.ts (dynamic bucket sizing for graph visualization)
@@ -127,7 +128,7 @@ Edit `config/companies.ts` and use the appropriate factory function:
 
 ## Critical Gotchas
 
-1. **Use Vercel Dev**: Must run `npm run dev:vercel` (not `npm run dev`) - Vercel serverless functions in `api/` directory proxy ATS API calls to avoid CORS issues
+1. **Use Vercel Dev**: Must run `npm run dev:vercel -w src/frontend` (not `npm run dev`) - Vercel serverless functions in `api/` directory proxy ATS API calls to avoid CORS issues
 2. **Vite env files must live in `src/frontend/`, NOT the project root**: The root `vite.config.ts` sets `root: 'src/frontend'`. Vite resolves `.env` files relative to its `root`, so it reads `src/frontend/.env.local`, NOT `<project-root>/.env.local`. **DO NOT add `envDir` to `vite.config.ts` to point at the project root** — this breaks Vercel Dev's API proxy routing, causing all `/api/*` requests to fail. Instead, frontend `VITE_*` env vars go in `src/frontend/.env.local` and backend/Vercel env vars go in `<project-root>/.env.local`.
 3. **Vercel Dev cloud env vars override ALL local `.env` files for serverless functions (`api/*.ts`)**: `vercel dev` pulls env vars from the linked Vercel project and they take absolute precedence — `.env.local`, `.env.development.local`, and even shell env vars are all ignored. The `api/utils/backendUrl.ts` helper works around this by detecting `localhost` in the request Host header to use `http://localhost:8000` for local dev. **Do NOT rely on `process.env` in serverless functions for local dev config.**
 4. **macOS port 5000 is AirPlay**: Never configure backend services on port 5000 — macOS Monterey+ runs AirPlay Receiver there via ControlCenter. It silently accepts HTTP connections and returns 403, masking "connection refused" errors. The backend runs on port 8000.
@@ -170,6 +171,7 @@ Located in project root `api/` directory (proxies to avoid CORS):
 - `jobs.ts` - Backend jobs API proxy (for scraped companies)
 - `jobs-qa.ts` - Backend QA endpoints proxy (scraper triggers, run history)
 - `users.ts` - Backend users API proxy (forwards Authorization header)
+- `features.ts` - Feature voting API proxy (forwards Authorization header)
 
 ## See Also
 
