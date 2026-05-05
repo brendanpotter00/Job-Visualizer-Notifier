@@ -141,24 +141,41 @@ class BaseScraper(ABC):
         await self.close_browser()
 
     async def initialize_browser(self):
-        """Launch headless Chromium browser with anti-detection measures"""
+        """Launch headless Chromium browser with anti-detection measures.
+
+        Each step after playwright.start() is wrapped in a try/except BaseException
+        so that a failure in a later step tears down the partial state from earlier
+        steps. Without this, async-with cannot help us — Python does not call
+        __aexit__ when __aenter__ raises, so any partially-allocated playwright
+        driver / browser would be leaked. We use BaseException (not Exception)
+        so asyncio.CancelledError and KeyboardInterrupt also trigger cleanup.
+        """
         logger.info("Initializing browser...")
 
         self.playwright = await async_playwright().start()
-        self.browser = await self.playwright.chromium.launch(
-            headless=self.headless,
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-            ],
-        )
-
-        self.context = await self.browser.new_context(
-            viewport=BROWSER_CONFIG["viewport"],
-            user_agent=BROWSER_CONFIG["user_agent"],
-            locale=BROWSER_CONFIG["locale"],
-        )
+        try:
+            self.browser = await self.playwright.chromium.launch(
+                headless=self.headless,
+                args=[
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                ],
+            )
+            try:
+                self.context = await self.browser.new_context(
+                    viewport=BROWSER_CONFIG["viewport"],
+                    user_agent=BROWSER_CONFIG["user_agent"],
+                    locale=BROWSER_CONFIG["locale"],
+                )
+            except BaseException:
+                await self.browser.close()
+                self.browser = None
+                raise
+        except BaseException:
+            await self.playwright.stop()
+            self.playwright = None
+            raise
 
         logger.info("Browser initialized successfully")
 
