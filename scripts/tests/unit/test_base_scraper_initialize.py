@@ -153,10 +153,10 @@ class TestInitializeBrowserCleanup:
                 await scraper.initialize_browser()
 
         # The original exception must propagate, not whatever the cleanup did.
-        if isinstance(exc, asyncio.CancelledError):
-            assert isinstance(excinfo.value, asyncio.CancelledError)
-        else:
-            assert str(excinfo.value) == "launch failed"
+        # Pin exception identity so a future regression that catches and
+        # re-raises a fresh instance would fail (matching the rigor of the
+        # cleanup-handler-raises tests).
+        assert excinfo.value is exc
 
         playwright_obj.stop.assert_awaited_once()
         browser_obj.close.assert_not_called()
@@ -189,10 +189,8 @@ class TestInitializeBrowserCleanup:
             with pytest.raises(type(exc)) as excinfo:
                 await scraper.initialize_browser()
 
-        if isinstance(exc, asyncio.CancelledError):
-            assert isinstance(excinfo.value, asyncio.CancelledError)
-        else:
-            assert str(excinfo.value) == "new_context failed"
+        # Pin identity (see Case A above for rationale).
+        assert excinfo.value is exc
 
         browser_obj.close.assert_awaited_once()
         playwright_obj.stop.assert_awaited_once()
@@ -296,11 +294,30 @@ class TestInitializeBrowserCleanupHandlerRaises:
         playwright_obj.stop.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_playwright_stop_hangs_does_not_block_forever(self, caplog):
+    async def test_playwright_stop_hangs_does_not_block_forever(
+        self, caplog, monkeypatch
+    ):
         """If playwright.stop hangs, asyncio.wait_for must time it out. The
         original launch exception still propagates, self.playwright is None,
         and the timeout surfaces in logs. Bound the test itself with
-        asyncio.wait_for so a regression doesn't hang CI."""
+        asyncio.wait_for so a regression doesn't hang CI.
+
+        Pins production wait_for actually firing by:
+          (a) overriding PLAYWRIGHT_STOP_TIMEOUT to 0.5s via monkeypatch
+              (timeout fires almost immediately instead of waiting 15s); and
+          (b) asserting caplog records a TimeoutError, which can only be
+              produced by asyncio.wait_for actually firing — a regression
+              that removes the wait_for would log the underlying hang
+              forever and time out the outer 2s bound instead.
+        """
+        # Override the production timeout so the test exercises the real
+        # wait_for code path on a fast budget. If a future refactor removes
+        # the wait_for, the inner _hang() would block past the 2s outer
+        # bound and fail loudly via TimeoutError on _run().
+        monkeypatch.setattr(
+            "shared.base_scraper.PLAYWRIGHT_STOP_TIMEOUT", 0.5
+        )
+
         original = RuntimeError("launch failed")
 
         async def _hang():
@@ -323,9 +340,12 @@ class TestInitializeBrowserCleanupHandlerRaises:
             assert excinfo.value is original
 
         with caplog.at_level(logging.ERROR, logger="shared.base_scraper"):
-            # Bound the whole test under wait_for so a regression that
-            # actually blocks fails fast instead of hanging CI.
-            await asyncio.wait_for(_run(), timeout=20.0)
+            # Bound the whole test below the would-be-hang sleep (60s) but
+            # well above the patched production timeout (0.5s) so the
+            # production wait_for has time to fire and log before this
+            # outer guard would. A regression that removes the wait_for
+            # would hit this 2s bound and fail with TimeoutError.
+            await asyncio.wait_for(_run(), timeout=2.0)
 
         # finally clause must still null the attribute even though stop hung.
         assert scraper.playwright is None
@@ -335,6 +355,21 @@ class TestInitializeBrowserCleanupHandlerRaises:
             and record.levelno >= logging.ERROR
             for record in caplog.records
         ), f"Expected error log for playwright.stop timeout; got: {caplog.records!r}"
+        # Pin that the production wait_for actually fired (not just that
+        # _some_ cleanup error was logged): the captured cleanup_exc must
+        # be a TimeoutError, which only asyncio.wait_for produces in this
+        # path. A regression that drops wait_for would record the
+        # never-completing hang as a different exception type (or never
+        # log at all).
+        assert any(
+            "TimeoutError" in record.getMessage()
+            and record.levelno >= logging.ERROR
+            for record in caplog.records
+        ), (
+            "Expected TimeoutError reference in cleanup-failure log "
+            "(proves asyncio.wait_for fired); got: "
+            f"{[r.getMessage() for r in caplog.records]!r}"
+        )
 
 
 class TestInitializeBrowserAsyncWithPropagation:
@@ -401,3 +436,227 @@ class TestCloseBrowserAfterPartialInit:
         # Defensive: confirm no double-stop was attempted.
         playwright_obj.stop.assert_awaited_once()  # only the in-init cleanup
         browser_obj.close.assert_not_called()
+
+
+def _populate_scraper_with_mocks(
+    *,
+    context_close_side_effect: BaseException | None = None,
+    browser_close_side_effect: BaseException | None = None,
+    playwright_stop_side_effect: BaseException | None = None,
+):
+    """Build a scraper whose three live handles are AsyncMock-backed so
+    close_browser exercises the real per-step hardening code without
+    needing to run initialize_browser first.
+
+    Returns (scraper, context_mock, browser_mock, playwright_mock)
+    so tests can assert on the underlying close/stop AsyncMocks.
+    """
+    context_mock = MagicMock(name="context")
+    if context_close_side_effect is not None:
+        context_mock.close = AsyncMock(
+            name="context.close", side_effect=context_close_side_effect
+        )
+    else:
+        context_mock.close = AsyncMock(name="context.close")
+
+    browser_mock = MagicMock(name="browser")
+    if browser_close_side_effect is not None:
+        browser_mock.close = AsyncMock(
+            name="browser.close", side_effect=browser_close_side_effect
+        )
+    else:
+        browser_mock.close = AsyncMock(name="browser.close")
+
+    playwright_mock = MagicMock(name="playwright")
+    if playwright_stop_side_effect is not None:
+        playwright_mock.stop = AsyncMock(
+            name="playwright.stop", side_effect=playwright_stop_side_effect
+        )
+    else:
+        playwright_mock.stop = AsyncMock(name="playwright.stop")
+
+    scraper = _DummyScraper(headless=True, detail_scrape=False)
+    scraper.context = context_mock
+    scraper.browser = browser_mock
+    scraper.playwright = playwright_mock
+    return scraper, context_mock, browser_mock, playwright_mock
+
+
+class TestCloseBrowserStepHardening:
+    """
+    Pin the close_browser per-step hardening contract:
+
+      * If any one of (context.close, browser.close, playwright.stop)
+        raises, the subsequent steps STILL run (do-not-revert S1 contract).
+      * The failure is logged at error level.
+      * close_browser does NOT re-raise the failure.
+      * All three attributes are None afterward (Fix 1: per-step finally
+        nulling).
+      * A subsequent close_browser call is a no-op (no awaits attempted on
+        already-None handles), proving Fix 1 prevents stale-handle
+        re-attempts.
+      * Cancellation propagation (Fix 2): CancelledError caught at any
+        step is re-raised AFTER all subsequent steps run.
+      * Conditional success log (Fix 3): INFO "Browser closed" only when
+        no step failed; WARNING otherwise.
+    """
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "failing_step",
+        ["context", "browser", "playwright"],
+    )
+    async def test_step_failure_runs_subsequent_steps(
+        self, failing_step, caplog
+    ):
+        """For each of the three steps, raising RuntimeError must NOT abort
+        the teardown — the remaining close/stop awaits still run, the
+        failure is logged at error, close_browser returns normally (no
+        re-raise), and all three attributes are nulled."""
+        kwargs = {
+            f"{failing_step}_close_side_effect"
+            if failing_step != "playwright"
+            else "playwright_stop_side_effect": RuntimeError(f"{failing_step} failed"),
+        }
+        scraper, ctx, br, pw = _populate_scraper_with_mocks(**kwargs)
+
+        with caplog.at_level(logging.ERROR, logger="shared.base_scraper"):
+            # Must not re-raise; runtime failures are logged and swallowed.
+            await scraper.close_browser()
+
+        # All three steps ran regardless of which one failed.
+        ctx.close.assert_awaited_once()
+        br.close.assert_awaited_once()
+        pw.stop.assert_awaited_once()
+
+        # Per-step finally nulled all three attributes (Fix 1).
+        assert scraper.context is None
+        assert scraper.browser is None
+        assert scraper.playwright is None
+
+        # Failure was logged at error level.
+        method_name = "close" if failing_step != "playwright" else "stop"
+        expected_substr = f"{failing_step}.{method_name}() failed"
+        assert any(
+            expected_substr in record.getMessage()
+            and record.levelno >= logging.ERROR
+            for record in caplog.records
+        ), (
+            f"Expected error log matching {expected_substr!r}; got: "
+            f"{[r.getMessage() for r in caplog.records]!r}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_cancellation_at_first_step_runs_remaining_then_re_raises(self):
+        """If context.close raises CancelledError, browser.close and
+        playwright.stop must still run, and CancelledError must be
+        re-raised after teardown completes (Fix 2)."""
+        scraper, ctx, br, pw = _populate_scraper_with_mocks(
+            context_close_side_effect=asyncio.CancelledError(),
+        )
+
+        with pytest.raises(asyncio.CancelledError):
+            await scraper.close_browser()
+
+        # All three steps still ran despite the early cancellation.
+        ctx.close.assert_awaited_once()
+        br.close.assert_awaited_once()
+        pw.stop.assert_awaited_once()
+
+        # Attributes nulled even with cancellation propagation.
+        assert scraper.context is None
+        assert scraper.browser is None
+        assert scraper.playwright is None
+
+    @pytest.mark.asyncio
+    async def test_double_close_browser_is_no_op(self, caplog):
+        """First call tears down all three handles cleanly. Second call
+        finds all attributes None, runs no awaits, and does not log a
+        spurious error — proving Fix 1's per-step nulling prevents
+        stale-handle re-attempts (the asymmetry that motivated this fix)."""
+        scraper, ctx, br, pw = _populate_scraper_with_mocks()
+
+        await scraper.close_browser()
+
+        ctx.close.assert_awaited_once()
+        br.close.assert_awaited_once()
+        pw.stop.assert_awaited_once()
+        assert scraper.context is None
+        assert scraper.browser is None
+        assert scraper.playwright is None
+
+        # Second call: must be a complete no-op. Reset call counts on the
+        # underlying mocks (still reachable via local refs) so we can
+        # confirm no further awaits are attempted.
+        ctx.close.reset_mock()
+        br.close.reset_mock()
+        pw.stop.reset_mock()
+
+        with caplog.at_level(logging.ERROR, logger="shared.base_scraper"):
+            await scraper.close_browser()
+
+        ctx.close.assert_not_called()
+        br.close.assert_not_called()
+        pw.stop.assert_not_called()
+        # No error logs — null-check short-circuits each branch.
+        assert not [
+            r for r in caplog.records if r.levelno >= logging.ERROR
+        ], f"Expected no error logs on no-op double close; got: {caplog.records!r}"
+
+    @pytest.mark.asyncio
+    async def test_success_logs_info_browser_closed(self, caplog):
+        """Fix 3: when no step fails, INFO 'Browser closed' fires (not
+        the WARNING fallback)."""
+        scraper, ctx, br, pw = _populate_scraper_with_mocks()
+
+        with caplog.at_level(logging.DEBUG, logger="shared.base_scraper"):
+            await scraper.close_browser()
+
+        info_records = [
+            r for r in caplog.records
+            if r.levelno == logging.INFO and "Browser closed" in r.getMessage()
+        ]
+        warning_records = [
+            r for r in caplog.records
+            if r.levelno == logging.WARNING
+            and "teardown finished with errors" in r.getMessage()
+        ]
+        assert info_records, (
+            f"Expected INFO 'Browser closed' log on clean teardown; got: "
+            f"{[(r.levelname, r.getMessage()) for r in caplog.records]!r}"
+        )
+        assert not warning_records, (
+            f"Did NOT expect WARNING fallback log on clean teardown; got: "
+            f"{[(r.levelname, r.getMessage()) for r in caplog.records]!r}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_failure_logs_warning_not_info(self, caplog):
+        """Fix 3: when any step fails, WARNING 'teardown finished with
+        errors above' fires INSTEAD of INFO 'Browser closed' — so
+        operators don't see a misleading clean-shutdown signal."""
+        scraper, ctx, br, pw = _populate_scraper_with_mocks(
+            browser_close_side_effect=RuntimeError("browser failed"),
+        )
+
+        with caplog.at_level(logging.DEBUG, logger="shared.base_scraper"):
+            await scraper.close_browser()
+
+        warning_records = [
+            r for r in caplog.records
+            if r.levelno == logging.WARNING
+            and "teardown finished with errors" in r.getMessage()
+        ]
+        info_records = [
+            r for r in caplog.records
+            if r.levelno == logging.INFO and "Browser closed" in r.getMessage()
+        ]
+        assert warning_records, (
+            f"Expected WARNING fallback log when a step fails; got: "
+            f"{[(r.levelname, r.getMessage()) for r in caplog.records]!r}"
+        )
+        assert not info_records, (
+            f"Did NOT expect INFO 'Browser closed' (lying success log) "
+            f"when a step failed; got: "
+            f"{[(r.levelname, r.getMessage()) for r in caplog.records]!r}"
+        )
