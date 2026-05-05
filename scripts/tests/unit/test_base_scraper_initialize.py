@@ -547,23 +547,53 @@ class TestCloseBrowserStepHardening:
         )
 
     @pytest.mark.asyncio
-    async def test_cancellation_at_first_step_runs_remaining_then_re_raises(self):
-        """If context.close raises CancelledError, browser.close and
-        playwright.stop must still run, and CancelledError must be
-        re-raised after teardown completes (Fix 2)."""
-        scraper, ctx, br, pw = _populate_scraper_with_mocks(
-            context_close_side_effect=asyncio.CancelledError(),
+    @pytest.mark.parametrize(
+        "step_index",
+        [0, 1, 2],
+        ids=["context", "browser", "playwright"],
+    )
+    @pytest.mark.parametrize(
+        "exc_type",
+        [asyncio.CancelledError, KeyboardInterrupt],
+        ids=["CancelledError", "KeyboardInterrupt"],
+    )
+    async def test_cancellation_at_step_runs_remaining_then_re_raises(
+        self, step_index, exc_type, caplog
+    ):
+        """Cancellation × all-three-steps × (CancelledError, KeyboardInterrupt).
+
+        For each combination: the cancellation at the chosen step must
+        NOT abort teardown — every subsequent close/stop AsyncMock still
+        runs (do-not-revert contract: subsequent awaits MUST run even if
+        an earlier one fails), and the cancellation propagates out of
+        close_browser AFTER all three steps have finished. Per-step
+        finally nulling held in all cases.
+
+        pending_cancellation overwrites with the most-recent across the
+        three steps, so when only one step raises we re-raise that one;
+        the parametrize sweep pins propagation regardless of which step
+        is the cancellation source.
+        """
+        kwargs: dict[str, BaseException] = {}
+        side_effect_keys = (
+            "context_close_side_effect",
+            "browser_close_side_effect",
+            "playwright_stop_side_effect",
         )
+        kwargs[side_effect_keys[step_index]] = exc_type()
 
-        with pytest.raises(asyncio.CancelledError):
-            await scraper.close_browser()
+        scraper, ctx, br, pw = _populate_scraper_with_mocks(**kwargs)
 
-        # All three steps still ran despite the early cancellation.
+        with caplog.at_level(logging.ERROR, logger="shared.base_scraper"):
+            with pytest.raises(exc_type):
+                await scraper.close_browser()
+
+        # All three steps still ran despite the cancellation at step_index.
         ctx.close.assert_awaited_once()
         br.close.assert_awaited_once()
         pw.stop.assert_awaited_once()
 
-        # Attributes nulled even with cancellation propagation.
+        # Per-step finally nulled all three attributes.
         assert scraper.context is None
         assert scraper.browser is None
         assert scraper.playwright is None
@@ -602,6 +632,57 @@ class TestCloseBrowserStepHardening:
         assert not [
             r for r in caplog.records if r.levelno >= logging.ERROR
         ], f"Expected no error logs on no-op double close; got: {caplog.records!r}"
+
+    @pytest.mark.asyncio
+    async def test_double_close_browser_emits_no_logs(self, caplog):
+        """Strict tightening of test_double_close_browser_is_no_op: the
+        second call (with all attrs already None from the first call's
+        per-step finally nulling) must emit NO log records at INFO level
+        or higher.
+
+        The existing no-op test only asserted no ERROR-level records;
+        this one pins the new attempted_anything gate from Fix 3 — a
+        regression that re-introduces unconditional INFO 'Browser
+        closed' on no-op double-close would re-introduce the false-
+        positive shutdown signal that misleads operators."""
+        scraper, ctx, br, pw = _populate_scraper_with_mocks()
+
+        # First call with attrs populated → INFO 'Browser closed' fires.
+        with caplog.at_level(logging.INFO, logger="shared.base_scraper"):
+            await scraper.close_browser()
+        first_call_records = list(caplog.records)
+        first_call_info = [
+            r for r in first_call_records
+            if r.levelno == logging.INFO and "Browser closed" in r.getMessage()
+        ]
+        assert first_call_info, (
+            "Expected first close_browser call (with populated handles) "
+            "to emit INFO 'Browser closed'; got: "
+            f"{[(r.levelname, r.getMessage()) for r in first_call_records]!r}"
+        )
+
+        # Reset captured records so we can isolate what the second call emits.
+        caplog.clear()
+
+        # Second call: all three attrs are None, attempted_anything stays
+        # False, so the function returns early before any log line.
+        with caplog.at_level(logging.INFO, logger="shared.base_scraper"):
+            await scraper.close_browser()
+
+        # Second call must emit NO records at INFO or higher.
+        second_call_high_records = [
+            r for r in caplog.records if r.levelno >= logging.INFO
+        ]
+        assert not second_call_high_records, (
+            "No-op double-close must emit no INFO/WARNING/ERROR records "
+            "(attempted_anything gate from Fix 3); got: "
+            f"{[(r.levelname, r.getMessage()) for r in second_call_high_records]!r}"
+        )
+
+        # Sanity: no awaits attempted on already-None handles.
+        ctx.close.assert_awaited_once()  # only the first call
+        br.close.assert_awaited_once()
+        pw.stop.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_success_logs_info_browser_closed(self, caplog):
