@@ -34,6 +34,30 @@ CONTEXT_CLOSE_TIMEOUT = 5.0
 BROWSER_CLOSE_TIMEOUT = 10.0
 PLAYWRIGHT_STOP_TIMEOUT = 15.0
 
+assert (
+    CONTEXT_CLOSE_TIMEOUT > 0
+    and BROWSER_CLOSE_TIMEOUT > 0
+    and PLAYWRIGHT_STOP_TIMEOUT > 0
+), (
+    "Cleanup timeouts must be positive; use a large value to disable, "
+    "not 0 or negative (which causes asyncio.wait_for to fire instantly)"
+)
+
+
+def _safe_log_cleanup_failure(message: str, *args) -> None:
+    """Log a cleanup failure without ever raising back to the caller.
+
+    Cleanup blocks must complete the per-step finally + pending-cancellation
+    re-raise contract even if the logging subsystem itself fails (full disk
+    on a FileHandler, socket dropout on a RemoteHandler, etc.). Swallowing
+    logger errors is the right tradeoff: a missing log line is preferable
+    to a missed cancellation re-raise.
+    """
+    try:
+        logger.error(message, *args)
+    except Exception:
+        pass
+
 
 class BaseScraper(ABC):
     """
@@ -193,7 +217,7 @@ class BaseScraper(ABC):
                             self.browser.close(), timeout=BROWSER_CLOSE_TIMEOUT
                         )
                     except BaseException as cleanup_exc:
-                        logger.error(
+                        _safe_log_cleanup_failure(
                             "browser.close() failed during initialize_browser cleanup; "
                             "original exception will still propagate: %r",
                             cleanup_exc,
@@ -208,7 +232,7 @@ class BaseScraper(ABC):
                         self.playwright.stop(), timeout=PLAYWRIGHT_STOP_TIMEOUT
                     )
                 except BaseException as cleanup_exc:
-                    logger.error(
+                    _safe_log_cleanup_failure(
                         "playwright.stop() failed during initialize_browser cleanup; "
                         "original exception will still propagate: %r",
                         cleanup_exc,
@@ -244,15 +268,21 @@ class BaseScraper(ABC):
         is the live one — earlier cancellations are superseded by virtue of
         us continuing to await past them.
 
-        Success log: `"Browser closed"` at INFO fires only when no step
-        failed. If any step failed/timed out/was cancelled, a WARNING
-        `"Browser teardown finished with errors above"` fires instead so
-        operators don't get a misleading clean-shutdown signal.
+        Success log: `"Browser closed"` at INFO fires only when at least
+        one step actually ran AND no step failed. If any step
+        failed/timed out/was cancelled, a WARNING `"Browser teardown
+        finished with errors above"` fires instead so operators don't get
+        a misleading clean-shutdown signal. A no-op double-close (all
+        three handles already None) emits no log at all — operators
+        relying on `INFO: Browser closed` as a one-per-shutdown marker
+        would otherwise see false positives.
         """
         had_failure = False
+        attempted_anything = False
         pending_cancellation: BaseException | None = None
 
         if self.context:
+            attempted_anything = True
             try:
                 try:
                     await asyncio.wait_for(
@@ -262,13 +292,14 @@ class BaseScraper(ABC):
                     had_failure = True
                     if isinstance(cleanup_exc, (asyncio.CancelledError, KeyboardInterrupt)):
                         pending_cancellation = cleanup_exc
-                    logger.error(
+                    _safe_log_cleanup_failure(
                         "context.close() failed during close_browser; continuing teardown: %r",
                         cleanup_exc,
                     )
             finally:
                 self.context = None
         if self.browser:
+            attempted_anything = True
             try:
                 try:
                     await asyncio.wait_for(
@@ -278,13 +309,14 @@ class BaseScraper(ABC):
                     had_failure = True
                     if isinstance(cleanup_exc, (asyncio.CancelledError, KeyboardInterrupt)):
                         pending_cancellation = cleanup_exc
-                    logger.error(
+                    _safe_log_cleanup_failure(
                         "browser.close() failed during close_browser; continuing teardown: %r",
                         cleanup_exc,
                     )
             finally:
                 self.browser = None
         if self.playwright:
+            attempted_anything = True
             try:
                 try:
                     await asyncio.wait_for(
@@ -294,13 +326,19 @@ class BaseScraper(ABC):
                     had_failure = True
                     if isinstance(cleanup_exc, (asyncio.CancelledError, KeyboardInterrupt)):
                         pending_cancellation = cleanup_exc
-                    logger.error(
+                    _safe_log_cleanup_failure(
                         "playwright.stop() failed during close_browser; continuing teardown: %r",
                         cleanup_exc,
                     )
             finally:
                 self.playwright = None
 
+        if not attempted_anything:
+            # Nothing was open; silent no-op (e.g. double close_browser, or
+            # close_browser called after a partial-init failure that
+            # already nulled all handles). pending_cancellation cannot be
+            # set here because we never entered any of the three branches.
+            return
         if had_failure:
             logger.warning("Browser teardown finished with errors above")
         else:
