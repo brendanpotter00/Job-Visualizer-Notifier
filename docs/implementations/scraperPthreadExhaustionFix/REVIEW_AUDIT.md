@@ -143,6 +143,91 @@ Four commits on `fix/scraper-pthread-exhaustion`:
 - silent-failure-hunter S1 (six near-identical logger calls refactor into helper): cosmetic, defer.
 - All comment-analyzer pass-1 carry-overs: cosmetic, defer.
 
+---
+
+## 2026-05-05 — Review pass 3
+
+**Diff scope:** `git diff origin/main...HEAD` — all pass-1 + pass-2 commits applied.
+
+**Verifier dispatch:**
+- railway-prod-verifier: dispatched (Dockerfile + scraper changes still in scope; verify pass-2 hardening hasn't introduced env/config drift)
+- vercel-prod-verifier: not dispatched (no matching diff signal)
+- postgres-prod-verifier: not dispatched (no matching diff signal)
+
+**Do-not-revert reminders carried from passes 1 & 2:**
+- Cleanup awaits MUST be guarded with try/except + log + `asyncio.wait_for` timeout.
+- Attribute nulling MUST be in `finally`.
+- The same hardening MUST apply to `close_browser`.
+- Dockerfile regression guard tests (`src/backend/api/tests/test_dockerfile_tini_guard.py`) MUST stay.
+- `close_browser` MUST null `self.X` in `finally` per step.
+- `close_browser` MUST re-raise caught `CancelledError` / `KeyboardInterrupt` after running all steps.
+- `close_browser` MUST conditionally log success — INFO when no failure, WARNING otherwise.
+- Cleanup-await timeouts MUST be module-level constants `CONTEXT_CLOSE_TIMEOUT` / `BROWSER_CLOSE_TIMEOUT` / `PLAYWRIGHT_STOP_TIMEOUT`.
+
+### Code-review findings
+
+**Critical:**
+- (none — pass 3 confirmed prior passes closed all C-tier issues; code-reviewer reports "Ready to merge")
+
+**Important:**
+- `scripts/shared/base_scraper.py:255, 271, 287, 304-307` — **Stale "Browser closed" INFO on no-op double-close.** A second `close_browser()` call on a fully-nulled scraper short-circuits all three steps, leaves `had_failure = False`, and emits `INFO: Browser closed` again. Operators relying on that line as a one-per-shutdown marker will get false positives. Gate the success log on `attempted_anything = True` (set inside any non-skipped branch). (silent-failure-hunter Q2)
+- `scripts/shared/base_scraper.py:33-35` — **Unguarded zero/negative timeout constants.** A future maintainer setting `PLAYWRIGHT_STOP_TIMEOUT=0` (mistaking it for the requests-library "0 means infinite" convention) flips every shutdown to instant `TimeoutError`. Add module-load-time `assert` guards. (silent-failure-hunter Q3)
+- `scripts/shared/base_scraper.py:261-268, 277-284, 293-300` — **`logger.error` raising silently bypasses WARNING and `pending_cancellation` re-raise.** If the logging handler itself fails (full disk on FileHandler, socket dropout on RemoteHandler), the function exits via the new logger exception — WARNING never fires AND `pending_cancellation` is silently dropped. Wrap each `logger.error` in a defensive `try/except Exception: pass` so logging failures cannot break the cleanup contract. (silent-failure-hunter Q4)
+- `scripts/tests/unit/test_base_scraper_initialize.py:549-569` — **Cancellation propagation only tested at the first step.** `pending_cancellation` overwrites with the most-recent across all three steps but the test exercises only `context.close` raising. Extend to parametrize over `(context.close, browser.close, playwright.stop) × (CancelledError, KeyboardInterrupt)`. (pr-test-analyzer Important #1, #2)
+
+**Suggestion / Nit:**
+- silent-failure-hunter Q1: chain `__context__` for multiple cancellations — default Python behavior already chains via implicit `__context__` when raising inside an except, so this is redundant. Defer.
+- pr-test-analyzer S1, S2: zero-timeout misuse test, multi-cancellation order test — defer (covered structurally by the assertion-guard fix above).
+- pr-test-analyzer N1, N2: trivial polish — defer.
+
+### Production-environment findings
+
+**Critical:**
+- (none — Railway verifier reports GO)
+
+**Important (RESOLVED-WITH-EVIDENCE):**
+- **Pass-2 carryover RESOLVED:** Container `9c9251cd` (deployed 14:36:53Z, ~35 min uptime at pass-3 verification) has produced **zero** completed scrape rows. `MAX(scrape_runs_prod.started_at) = 2026-05-02T06:49:07Z`. The un-tini'd image is silently hanging scraper subprocesses — exactly the failure mode this PR addresses. This **strengthens** the case for merging: the diagnosis is correct, the live image is exhibiting the silent-hang variant, and merge is now operationally needed. (railway-prod-verifier)
+
+**Suggestion:**
+- After merge, watch the new deployment for: (a) `apt-get install ... tini` line in build output, (b) first scrape cycle producing either "Scrape completed for apple" OR a loud `TimeoutError` / "playwright.stop() failed during close_browser" within the 30s budget. If neither appears within 30 minutes, diagnosis incomplete and rollback. (railway-prod-verifier)
+
+**Could not verify:**
+- railway-prod-verifier: live `pthread_create EAGAIN` evidence on REMOVED `b0b36aa1` (carried from passes 1 & 2).
+
+### Deferred (not fixing this pass)
+
+- silent-failure-hunter Q1 (multi-cancellation `__context__` chaining): redundant with Python default behavior; defer.
+- silent-failure-hunter helper extraction (six near-identical try/except blocks): cosmetic, defer.
+- pr-test-analyzer Important #3 (BaseException-tier non-cancellation failures): impractical scenarios, defer.
+- pr-test-analyzer S2, S3, N1, N2: cosmetic / structural-only, defer.
+- All carry-overs from passes 1 & 2 already deferred remain deferred.
+
+### Implementation applied (pass 3)
+
+Two commits on `fix/scraper-pthread-exhaustion`:
+
+- **`0ddc2da`** — `Review pass 3: harden cleanup-side logging + gate success log`
+  - File: `scripts/shared/base_scraper.py`
+  - Module-load `assert (CONTEXT_CLOSE_TIMEOUT > 0 and BROWSER_CLOSE_TIMEOUT > 0 and PLAYWRIGHT_STOP_TIMEOUT > 0)` so a future maintainer setting any of them to 0/negative (mistaking the constant for the requests-library "0 means infinite" convention) trips at import time instead of silently flipping every shutdown to instant `TimeoutError` (Fix 1, silent-failure-hunter Q3). Tests can still patch the constants down to small positive values via `monkeypatch` — only literal 0/negative values are blocked.
+  - New module-scope `_safe_log_cleanup_failure(message, *args)` helper wrapping `logger.error` in a bare `try/except Exception: pass`. Replaces all six cleanup-side `logger.error(...)` calls (three in `initialize_browser`, three in `close_browser`). Logging-handler failures (full disk on FileHandler, socket dropout on RemoteHandler) can no longer break the cleanup contract: the WARNING fallback log AND the `pending_cancellation` re-raise both still execute even when the logging subsystem itself fails (Fix 2, silent-failure-hunter Q4). Only cleanup-side ERROR calls were swapped — `logger.info` and `logger.warning` calls in success paths remain unchanged.
+  - `close_browser` now tracks `attempted_anything` (set inside each `if self.X:` branch). After the three steps: `if not attempted_anything: return` (silent no-op for double-close / post-partial-init paths), else conditionally emit `WARNING` or `INFO` and finally re-raise `pending_cancellation` if set. Operators relying on `INFO: Browser closed` as a one-per-shutdown marker no longer get false positives on no-op double-close (Fix 3, silent-failure-hunter Q2). Docstring updated to match.
+
+- **`d599660`** — `Review pass 3: parametrize cancellation sweep + pin no-op log silence`
+  - File: `scripts/tests/unit/test_base_scraper_initialize.py`
+  - Replaced `test_cancellation_at_first_step_runs_remaining_then_re_raises` with `test_cancellation_at_step_runs_remaining_then_re_raises`, parametrized over `step_index ∈ {0,1,2} × exc_type ∈ {CancelledError, KeyboardInterrupt}` — 6 parametrize cells covering every (step, cancellation-type) combination. The pre-pass-3 test only exercised step 0 + CancelledError; cancellation propagation at steps 1 and 2 and under KeyboardInterrupt was not pinned. A regression that early-returns on the first per-step cancellation (skipping subsequent close/stop awaits) would now fail in 5 of the 6 parametrize cells (pr-test-analyzer Important #1, #2).
+  - Added `test_double_close_browser_emits_no_logs` — strict tightening of the existing `test_double_close_browser_is_no_op`. Pre-pass-3 only asserted no ERROR-level records on the second call; new test asserts NO records at INFO or higher across the second call, pinning the new `attempted_anything` gate from Fix 3.
+  - `test_success_logs_info_browser_closed` still passes unchanged (Fix 3's INFO-on-attempted_anything-True path is exactly what that test exercises).
+
+**Verification:**
+- `cd scripts && pytest tests/unit -q` — 230 passed (was 224; +6 net from the new parametrize cells minus the one replaced test, plus the new no-logs test).
+- `cd src/backend && pytest -q` — 226 passed (unchanged from pass 2 — no backend files touched in pass 3).
+
+#### Do not revert (new in this pass)
+
+- **`close_browser` MUST gate the success/warning log on `attempted_anything = True`** to avoid false-positive shutdown signals on no-op double-close. A second `close_browser` call on a fully-nulled scraper (after the per-step `finally` nulling drained all three handles on the first call) MUST emit no INFO/WARNING/ERROR log at all — operators relying on `INFO: Browser closed` as a one-per-shutdown marker must not see duplicates. Test `test_double_close_browser_emits_no_logs` pins this contract; reverting the gate to unconditional INFO/WARNING would fail it.
+- **Cleanup logger calls MUST be wrapped in `_safe_log_cleanup_failure`** (or an equivalent helper that swallows `Exception` from the logger). A logging-handler failure (full disk on FileHandler, socket dropout on RemoteHandler) MUST NOT break the cleanup contract: the WARNING fallback AND the `pending_cancellation` re-raise both still execute. Replacing the helper with a bare `logger.error(...)` would re-introduce the silent-cancellation-drop hole (silent-failure-hunter Q4).
+- **Module-level timeout constants MUST be guarded by an `assert`** against zero/negative values. A future maintainer setting `PLAYWRIGHT_STOP_TIMEOUT = 0` (mistaking it for the "0 means infinite" convention from other libraries) would otherwise flip every shutdown to instant `TimeoutError`. The assert catches the misconfiguration at module-load time. Tests can still `monkeypatch.setattr` to small positive values for fast-running tests; only literal 0/negative values trip the assert.
+
 ### Implementation applied (pass 2)
 
 Three commits on `fix/scraper-pthread-exhaustion`:
