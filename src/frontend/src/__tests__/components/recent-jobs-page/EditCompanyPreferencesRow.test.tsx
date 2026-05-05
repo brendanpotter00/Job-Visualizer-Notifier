@@ -42,10 +42,17 @@ function renderRow() {
   );
 }
 
+// Pin Date.now() to a moment before the NewFeatureCallout's expiresAt
+// (2026-05-02T00:00:00Z) so these tests are deterministic regardless of
+// when CI runs. The real-time clock is irrelevant — the row's row of
+// callout/dismiss UI is what's under test.
+const FIXED_NOW_MS = new Date('2026-04-15T00:00:00Z').getTime();
+
 describe('EditCompanyPreferencesRow', () => {
   beforeEach(() => {
     window.localStorage.clear();
     vi.clearAllMocks();
+    vi.spyOn(Date, 'now').mockReturnValue(FIXED_NOW_MS);
     mockAuthState = {
       isEnabled: true,
       isAuthenticated: true,
@@ -60,6 +67,7 @@ describe('EditCompanyPreferencesRow', () => {
 
   afterEach(() => {
     window.localStorage.clear();
+    vi.restoreAllMocks();
   });
 
   it('renders the wrapper, the edit preferences link, and the callout', () => {
