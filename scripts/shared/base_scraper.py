@@ -25,6 +25,15 @@ BROWSER_CONFIG = {
     "locale": "en-US",
 }
 
+# Cleanup-await timeouts (seconds). Module-level so tests can override them
+# without changing function signatures. Production values are picked to be
+# generous enough that a healthy teardown never times out, while still
+# bounded so a hung Playwright driver under PID exhaustion surfaces as
+# TimeoutError instead of blocking the scraper subprocess indefinitely.
+CONTEXT_CLOSE_TIMEOUT = 5.0
+BROWSER_CLOSE_TIMEOUT = 10.0
+PLAYWRIGHT_STOP_TIMEOUT = 15.0
+
 
 class BaseScraper(ABC):
     """
@@ -153,10 +162,11 @@ class BaseScraper(ABC):
         Cleanup awaits (browser.close, playwright.stop) are themselves wrapped
         in try/except BaseException with logging so a secondary failure during
         cleanup does not mask the original exception, and bounded with
-        asyncio.wait_for timeouts (10s for browser.close, 15s for
-        playwright.stop) so a hung cleanup surfaces as TimeoutError instead of
-        blocking the subprocess. Attribute nulling runs in `finally` so
-        partial state is dropped even if cleanup raises or hangs.
+        asyncio.wait_for using the module-level BROWSER_CLOSE_TIMEOUT /
+        PLAYWRIGHT_STOP_TIMEOUT constants so a hung cleanup surfaces as
+        TimeoutError instead of blocking the subprocess. Attribute nulling
+        runs in `finally` so partial state is dropped even if cleanup raises
+        or hangs.
         """
         logger.info("Initializing browser...")
 
@@ -179,7 +189,9 @@ class BaseScraper(ABC):
             except BaseException:
                 try:
                     try:
-                        await asyncio.wait_for(self.browser.close(), timeout=10.0)
+                        await asyncio.wait_for(
+                            self.browser.close(), timeout=BROWSER_CLOSE_TIMEOUT
+                        )
                     except BaseException as cleanup_exc:
                         logger.error(
                             "browser.close() failed during initialize_browser cleanup; "
@@ -192,7 +204,9 @@ class BaseScraper(ABC):
         except BaseException:
             try:
                 try:
-                    await asyncio.wait_for(self.playwright.stop(), timeout=15.0)
+                    await asyncio.wait_for(
+                        self.playwright.stop(), timeout=PLAYWRIGHT_STOP_TIMEOUT
+                    )
                 except BaseException as cleanup_exc:
                     logger.error(
                         "playwright.stop() failed during initialize_browser cleanup; "
@@ -210,35 +224,90 @@ class BaseScraper(ABC):
 
         Each await (context.close, browser.close, playwright.stop) is
         independently guarded with try/except BaseException + logging and
-        bounded with asyncio.wait_for so that a failure or hang in one step
-        does not prevent the subsequent steps from running. Timeouts: 5s for
-        context.close, 10s for browser.close, 15s for playwright.stop.
+        bounded with asyncio.wait_for using the module-level
+        CONTEXT_CLOSE_TIMEOUT / BROWSER_CLOSE_TIMEOUT /
+        PLAYWRIGHT_STOP_TIMEOUT constants, so that a failure or hang in one
+        step does not prevent the subsequent steps from running.
+
+        Each step's attribute (`self.context`, `self.browser`,
+        `self.playwright`) is nulled in `finally` after its await, so that a
+        subsequent call (e.g. wrapper-driven belt-and-suspenders teardown
+        after `__aexit__`) becomes a safe no-op rather than re-attempting
+        cleanup on already-closed handles — which would produce spurious
+        error logs and waste up to PLAYWRIGHT_STOP_TIMEOUT seconds on stale
+        `playwright.stop()` calls.
+
+        Cancellation propagation: if `asyncio.CancelledError` or
+        `KeyboardInterrupt` is caught at any step, we still run the
+        subsequent steps (the do-not-revert contract) and re-raise the
+        cancellation after teardown finishes. The most recent cancellation
+        is the live one — earlier cancellations are superseded by virtue of
+        us continuing to await past them.
+
+        Success log: `"Browser closed"` at INFO fires only when no step
+        failed. If any step failed/timed out/was cancelled, a WARNING
+        `"Browser teardown finished with errors above"` fires instead so
+        operators don't get a misleading clean-shutdown signal.
         """
+        had_failure = False
+        pending_cancellation: BaseException | None = None
+
         if self.context:
             try:
-                await asyncio.wait_for(self.context.close(), timeout=5.0)
-            except BaseException as cleanup_exc:
-                logger.error(
-                    "context.close() failed during close_browser; continuing teardown: %r",
-                    cleanup_exc,
-                )
+                try:
+                    await asyncio.wait_for(
+                        self.context.close(), timeout=CONTEXT_CLOSE_TIMEOUT
+                    )
+                except BaseException as cleanup_exc:
+                    had_failure = True
+                    if isinstance(cleanup_exc, (asyncio.CancelledError, KeyboardInterrupt)):
+                        pending_cancellation = cleanup_exc
+                    logger.error(
+                        "context.close() failed during close_browser; continuing teardown: %r",
+                        cleanup_exc,
+                    )
+            finally:
+                self.context = None
         if self.browser:
             try:
-                await asyncio.wait_for(self.browser.close(), timeout=10.0)
-            except BaseException as cleanup_exc:
-                logger.error(
-                    "browser.close() failed during close_browser; continuing teardown: %r",
-                    cleanup_exc,
-                )
+                try:
+                    await asyncio.wait_for(
+                        self.browser.close(), timeout=BROWSER_CLOSE_TIMEOUT
+                    )
+                except BaseException as cleanup_exc:
+                    had_failure = True
+                    if isinstance(cleanup_exc, (asyncio.CancelledError, KeyboardInterrupt)):
+                        pending_cancellation = cleanup_exc
+                    logger.error(
+                        "browser.close() failed during close_browser; continuing teardown: %r",
+                        cleanup_exc,
+                    )
+            finally:
+                self.browser = None
         if self.playwright:
             try:
-                await asyncio.wait_for(self.playwright.stop(), timeout=15.0)
-            except BaseException as cleanup_exc:
-                logger.error(
-                    "playwright.stop() failed during close_browser; continuing teardown: %r",
-                    cleanup_exc,
-                )
-        logger.info("Browser closed")
+                try:
+                    await asyncio.wait_for(
+                        self.playwright.stop(), timeout=PLAYWRIGHT_STOP_TIMEOUT
+                    )
+                except BaseException as cleanup_exc:
+                    had_failure = True
+                    if isinstance(cleanup_exc, (asyncio.CancelledError, KeyboardInterrupt)):
+                        pending_cancellation = cleanup_exc
+                    logger.error(
+                        "playwright.stop() failed during close_browser; continuing teardown: %r",
+                        cleanup_exc,
+                    )
+            finally:
+                self.playwright = None
+
+        if had_failure:
+            logger.warning("Browser teardown finished with errors above")
+        else:
+            logger.info("Browser closed")
+
+        if pending_cancellation is not None:
+            raise pending_cancellation
 
     async def navigate_to_page(self, page: Page, url: str, timeout: int = 30000):
         """
