@@ -58,7 +58,7 @@ ${SCRAPER_PYTHON_PATH:-python3} ${SCRAPER_SCRIPTS_PATH:-/app/scripts}/run_scrape
 
 ### Unit 1 — Backend container: install tini, set as ENTRYPOINT
 
-**Status:** TODO
+**Status:** DONE
 **Prerequisites:** none — start immediately. This is the load-bearing fix; merging it alone resolves the live outage on next deploy.
 
 **Owned files (edit):**
@@ -93,7 +93,7 @@ The `tini` install layer should sit near the top (alongside or just after the `p
 
 ### Unit 2 — Scraper base class: defensive cleanup in `initialize_browser`
 
-**Status:** TODO
+**Status:** DONE
 **Prerequisites:** Unit 1 merged (tini is the load-bearing fix; this hardens against future leaks). Logically independent of Unit 1, but commit Unit 1 first so the live outage is resolved before this lands.
 
 **Owned files (edit):**
@@ -156,7 +156,7 @@ Use `BaseException` (not `Exception`) so `asyncio.CancelledError` and `KeyboardI
 
 ### Unit 3 — Incident documentation
 
-**Status:** TODO
+**Status:** DONE
 **Prerequisites:** Units 1 and 2 merged (so the doc can reference the actual fix as deployed and link the resolution time).
 
 **Owned files (create):**
