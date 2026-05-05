@@ -1,8 +1,8 @@
 # Incident: Scraper Outage from PID/Thread Exhaustion
 
-**Date:** 2026-05-02 05:49 UTC (first hard failure), 2026-05-05 (root cause identified and fix deployed)
+**Date:** 2026-05-02 05:49 UTC (first hard failure), 2026-05-05 (root cause identified and preventive fixes authored)
 **Severity:** High
-**Impact:** All hourly scrape cycles for apple, google, and microsoft failed for ~3 days. Every `BrowserType.launch` aborted before any URL was requested, so no new jobs were ingested and no jobs were updated. Existing data in `job_listings_prod` was unaffected (the incremental safety guard from the 2026-03-29 incident prevented mass closure on 0-job runs). Outage cleared on the next Railway redeploy because the container restart drained the leaked PIDs.
+**Impact:** All hourly scrape cycles for apple, google, and microsoft failed for ~3 days. Every `BrowserType.launch` aborted before any URL was requested, so no new jobs were ingested and no jobs were updated. Existing data in `job_listings_prod` was unaffected (the incremental safety guard from the 2026-03-29 incident prevented mass closure on 0-job runs). The acute outage cleared on 2026-05-05T14:36:53Z when an unrelated commit (`42b081b2`, PR #95 — `docs(claude): weekly CLAUDE.md audit`) edited `src/backend/CLAUDE.md`, matching the Railway watch pattern `/src/backend/**` and inadvertently triggering a redeploy. The container restart drained the leaked PIDs and restored hourly cycles. This PR's value is therefore strictly preventive — installing the load-bearing init reaper and the defensive cleanup so the next ~13-day buildup cannot recur.
 
 ## Summary
 
@@ -20,7 +20,8 @@ The Railway-hosted backend container ran continuously for ~13 days from deploy `
 | 2026-05-02 — 2026-05-05 | Every hourly cycle fails identically across all three companies. Per-company try/except keeps the loop alive; incremental safety guard (PR #25) prevents mass closure of existing jobs. |
 | 2026-05-05            | Unit 1 (tini ENTRYPOINT) committed (`6ca8e31`). |
 | 2026-05-05            | Unit 2 (defensive `initialize_browser`) committed (`079df2c`). |
-| 2026-05-05            | PR merged to `main`. Railway redeploys. Container restart drains all leaked PIDs; first post-deploy cycle succeeds. Outage cleared. |
+| 2026-05-05 14:36:53Z  | **Outage cleared (incidentally).** Railway deployment `9c9251cd` goes live, built from unrelated commit `42b081b2` (PR #95, `docs(claude): weekly CLAUDE.md audit`). That commit edits `src/backend/CLAUDE.md`, which matches the watch pattern `/src/backend/**` and triggered a redeploy. The container restart drained the leaked PIDs and the next hourly cycle succeeded. The fix in this PR was not yet deployed at that point; recovery was an unrelated side-effect. |
+| 2026-05-05            | This PR (Units 1–3) merges to `main`. Railway redeploys with tini as PID 1 and the defensive `initialize_browser` cleanup, removing both ratcheting axes for future cycles. |
 
 ## Root Cause
 
@@ -69,7 +70,7 @@ This defect was latent for the entire ~13-day window — it only mattered once t
 
 ## Fixes Applied
 
-Three units, one commit each, sequenced so the load-bearing fix lands first.
+Three units, one commit each. Both code fixes are now strictly **preventive** — they install the load-bearing init reaper and the defensive cleanup so the next ~13-day buildup cannot recur. The acute outage was already cleared by the unrelated PR #95 redeploy at 14:36:53Z (see Timeline), so this PR is no longer curative; it removes the underlying ratcheting mechanisms that would otherwise re-exhaust PIDs once the new container has accumulated ~13 days of uptime.
 
 ### Unit 1 — `tini` as PID 1 in the backend container (commit `6ca8e31`)
 
@@ -90,7 +91,7 @@ Installed `tini` via apt and set it as the container's `ENTRYPOINT`, with the ex
  CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8080"]
 ```
 
-This is the load-bearing fix. Merging it triggered the Railway redeploy whose container restart drained the leaked PIDs and cleared the live outage immediately.
+This is the load-bearing fix. The acute outage was already cleared by the unrelated PR #95 redeploy at 14:36:53Z (which restarted the container and drained leaked PIDs as a side-effect), so this fix is preventive — without tini, the next ~13-day uptime window would re-accumulate zombies and reproduce the failure. Merging this PR triggers a fresh redeploy that boots the tini'd image, removing the zombie-accumulation axis going forward.
 
 ### Unit 2 — Defensive cleanup in `initialize_browser` (commit `079df2c`)
 
