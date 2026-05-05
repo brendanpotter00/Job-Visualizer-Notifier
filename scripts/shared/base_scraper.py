@@ -149,6 +149,14 @@ class BaseScraper(ABC):
         __aexit__ when __aenter__ raises, so any partially-allocated playwright
         driver / browser would be leaked. We use BaseException (not Exception)
         so asyncio.CancelledError and KeyboardInterrupt also trigger cleanup.
+
+        Cleanup awaits (browser.close, playwright.stop) are themselves wrapped
+        in try/except BaseException with logging so a secondary failure during
+        cleanup does not mask the original exception, and bounded with
+        asyncio.wait_for timeouts (10s for browser.close, 15s for
+        playwright.stop) so a hung cleanup surfaces as TimeoutError instead of
+        blocking the subprocess. Attribute nulling runs in `finally` so
+        partial state is dropped even if cleanup raises or hangs.
         """
         logger.info("Initializing browser...")
 
@@ -169,24 +177,67 @@ class BaseScraper(ABC):
                     locale=BROWSER_CONFIG["locale"],
                 )
             except BaseException:
-                await self.browser.close()
-                self.browser = None
+                try:
+                    try:
+                        await asyncio.wait_for(self.browser.close(), timeout=10.0)
+                    except BaseException as cleanup_exc:
+                        logger.error(
+                            "browser.close() failed during initialize_browser cleanup; "
+                            "original exception will still propagate: %r",
+                            cleanup_exc,
+                        )
+                finally:
+                    self.browser = None
                 raise
         except BaseException:
-            await self.playwright.stop()
-            self.playwright = None
+            try:
+                try:
+                    await asyncio.wait_for(self.playwright.stop(), timeout=15.0)
+                except BaseException as cleanup_exc:
+                    logger.error(
+                        "playwright.stop() failed during initialize_browser cleanup; "
+                        "original exception will still propagate: %r",
+                        cleanup_exc,
+                    )
+            finally:
+                self.playwright = None
             raise
 
         logger.info("Browser initialized successfully")
 
     async def close_browser(self):
-        """Close browser and cleanup"""
+        """Close browser and cleanup.
+
+        Each await (context.close, browser.close, playwright.stop) is
+        independently guarded with try/except BaseException + logging and
+        bounded with asyncio.wait_for so that a failure or hang in one step
+        does not prevent the subsequent steps from running. Timeouts: 5s for
+        context.close, 10s for browser.close, 15s for playwright.stop.
+        """
         if self.context:
-            await self.context.close()
+            try:
+                await asyncio.wait_for(self.context.close(), timeout=5.0)
+            except BaseException as cleanup_exc:
+                logger.error(
+                    "context.close() failed during close_browser; continuing teardown: %r",
+                    cleanup_exc,
+                )
         if self.browser:
-            await self.browser.close()
+            try:
+                await asyncio.wait_for(self.browser.close(), timeout=10.0)
+            except BaseException as cleanup_exc:
+                logger.error(
+                    "browser.close() failed during close_browser; continuing teardown: %r",
+                    cleanup_exc,
+                )
         if self.playwright:
-            await self.playwright.stop()
+            try:
+                await asyncio.wait_for(self.playwright.stop(), timeout=15.0)
+            except BaseException as cleanup_exc:
+                logger.error(
+                    "playwright.stop() failed during close_browser; continuing teardown: %r",
+                    cleanup_exc,
+                )
         logger.info("Browser closed")
 
     async def navigate_to_page(self, page: Page, url: str, timeout: int = 30000):
