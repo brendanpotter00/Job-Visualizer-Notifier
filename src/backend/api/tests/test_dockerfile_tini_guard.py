@@ -82,3 +82,29 @@ def test_dockerfile_keeps_uvicorn_cmd(dockerfile_text: str) -> None:
         "needs a child command to exec; without CMD, the container would "
         "exit immediately."
     )
+
+
+def test_dockerfile_installs_tini(dockerfile_text: str) -> None:
+    """The `apt-get install ... tini` line must be present. Guards a
+    regression mode the existing tests miss: if a future refactor deletes
+    the install layer but leaves the ENTRYPOINT line dangling, the build
+    would fail at runtime with `exec /usr/bin/tini: no such file or
+    directory`. The other tests (substring 'tini' check, ENTRYPOINT line
+    check) would both still pass — neither distinguishes the install line
+    from the ENTRYPOINT line.
+
+    We whitespace-normalize each line then check for both 'apt-get install'
+    and 'tini' tokens within the same line so a stylistic re-indent or
+    line-continuation rearrangement still matches.
+    """
+    normalized_lines = [" ".join(line.split()) for line in dockerfile_text.splitlines()]
+    matching = [
+        line for line in normalized_lines
+        if "apt-get install" in line and "tini" in line
+    ]
+    assert matching, (
+        "Dockerfile is missing an `apt-get install ... tini` line. The "
+        "ENTRYPOINT references /usr/bin/tini, so without an install layer "
+        "the build would produce an image that crashes immediately on "
+        "exec. See docs/incidents/2026-05-05-scraper-pthread-exhaustion.md."
+    )
