@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -24,15 +25,16 @@ def config():
     )
 
 
-def _make_mock_stderr(data: bytes):
+def _make_mock_stream(data: bytes):
     """Create a mock StreamReader that yields *data* in line-sized chunks then EOF.
 
-    The runner reads stderr line-by-line via `readline()` so it can emit
-    each line to the live logger. To stay realistic, this helper splits
+    The runner reads its captured-output pipe (process.stdout, with
+    stderr merged in) line-by-line via `readline()` so it can emit each
+    line to the live logger. To stay realistic, this helper splits
     *data* on '\\n', returning each line (with its trailing newline if
     present) on successive `readline()` calls, then `b""` for EOF. The
-    legacy `read()` is also mocked to return the full payload-then-EOF in
-    case any future code path falls back to it.
+    legacy `read()` is also mocked to return the full payload-then-EOF
+    in case any future code path falls back to it.
     """
     if data:
         # Preserve trailing newline boundaries when splitting.
@@ -63,9 +65,23 @@ def _make_mock_stderr(data: bytes):
     return stream
 
 
-def _make_mock_process(returncode=0, stderr=b""):
+# Backwards-compat alias — older test names referenced this helper as
+# "_make_mock_stderr" when stderr was the read pipe.
+_make_mock_stderr = _make_mock_stream
+
+
+def _make_mock_process(returncode=0, output=b""):
+    """Build a mock process whose captured-output pipe yields *output*.
+
+    The captured pipe is process.stdout (production code uses
+    `stdout=PIPE, stderr=STDOUT` so stderr is merged into stdout). We
+    attach the mock to .stdout to mirror that.
+    """
     proc = AsyncMock()
-    proc.stderr = _make_mock_stderr(stderr)
+    proc.stdout = _make_mock_stream(output)
+    # Keep .stderr also assigned for any test that touches it directly,
+    # but it's not what production reads from.
+    proc.stderr = _make_mock_stream(b"")
     proc.returncode = returncode
     proc.kill = MagicMock()
     proc.wait = AsyncMock()
@@ -111,10 +127,57 @@ class TestCommandConstruction:
             assert "--detail-scrape" in args
 
     @pytest.mark.asyncio
-    async def test_subprocess_merges_stdout_into_stderr(self, config):
-        """`stdout=STDOUT` is load-bearing: prior code used DEVNULL, which
-        discarded any `print()` or unconfigured-handler output. Pin the
-        merge so a refactor can't silently regress to DEVNULL.
+    async def test_real_subprocess_captures_stdout_and_stderr(self, tmp_path, config):
+        """Regression test for the prod incident introduced by PR #97:
+        the original "merge stdout into stderr" attempt set
+        `stdout=asyncio.subprocess.STDOUT` which raises
+        `ValueError: STDOUT can only be used for stderr` at
+        create_subprocess_exec. The mock-based test
+        `test_subprocess_merges_stderr_into_stdout` only checks the
+        kwargs without exercising asyncio's actual API constraint.
+
+        This test spawns a real Python subprocess that writes to BOTH
+        stdout and stderr, then asserts both lines reach the runner's
+        captured output. It would have failed loudly before the fix.
+        """
+        # Use a tiny one-liner Python script as the "scraper". We still
+        # have to satisfy the run_scraper.py argv shape, but we only
+        # need a script that emits known lines and exits cleanly.
+        fake_script = tmp_path / "run_scraper.py"
+        fake_script.write_text(
+            "import sys\n"
+            "print('STDOUT_LINE_FROM_FAKE_SCRAPER', flush=True)\n"
+            "print('STDERR_LINE_FROM_FAKE_SCRAPER', file=sys.stderr, flush=True)\n"
+            "sys.exit(0)\n"
+        )
+
+        real_config = Settings(
+            database_url="postgresql://test:test@localhost/test",
+            scraper_environment="local",
+            scraper_scripts_path=str(tmp_path),
+            scraper_python_path=sys.executable,
+            scraper_timeout_minutes=1,
+            scraper_detail_scrape=False,
+            scraper_companies="testco",
+        )
+
+        result = await run_scraper(real_config, "smoke")
+
+        assert result.exit_code == 0
+        # Both pipes' content must reach the captured tail (stderr is
+        # merged into stdout via stderr=STDOUT).
+        assert "STDOUT_LINE_FROM_FAKE_SCRAPER" in result.error
+        assert "STDERR_LINE_FROM_FAKE_SCRAPER" in result.error
+
+    @pytest.mark.asyncio
+    async def test_subprocess_merges_stderr_into_stdout(self, config):
+        """The merge direction is load-bearing AND asymmetric:
+        `asyncio.subprocess.STDOUT` is only valid on the `stderr=`
+        argument (it means "redirect stderr into stdout"). Passing it
+        as `stdout=` raises `ValueError: STDOUT can only be used for
+        stderr` at create_subprocess_exec time — which is exactly the
+        regression that hit prod after PR #97. Pin the *correct*
+        direction so a future swap can't silently re-break it.
         """
         mock_proc = _make_mock_process()
         with patch(
@@ -124,8 +187,8 @@ class TestCommandConstruction:
         ) as mock_exec:
             await run_scraper(config, "google")
             kwargs = mock_exec.call_args.kwargs
-            assert kwargs["stdout"] == asyncio.subprocess.STDOUT
-            assert kwargs["stderr"] == asyncio.subprocess.PIPE
+            assert kwargs["stdout"] == asyncio.subprocess.PIPE
+            assert kwargs["stderr"] == asyncio.subprocess.STDOUT
 
 
 # -- Credential redaction --
@@ -157,7 +220,7 @@ class TestCredentialRedaction:
 class TestSuccessfulExecution:
     @pytest.mark.asyncio
     async def test_success_result(self, config):
-        mock_proc = _make_mock_process(returncode=0, stderr=b"")
+        mock_proc = _make_mock_process(returncode=0, output=b"")
         with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_proc):
             result = await run_scraper(config, "google")
         assert result.exit_code == 0
@@ -172,7 +235,7 @@ class TestSuccessfulExecution:
         # tail-trims on the way through. 4096 lines × 6 bytes = 24,576 bytes
         # raw; the bounded tail keeps the last MAX_STDERR_BYTES (10 KB).
         big_stderr = b"line\n" * 5000  # 25 KB of line-shaped data
-        mock_proc = _make_mock_process(returncode=1, stderr=big_stderr)
+        mock_proc = _make_mock_process(returncode=1, output=big_stderr)
         with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_proc):
             result = await run_scraper(config, "google")
         # Tail must be ≤ MAX_STDERR_BYTES; with line-aligned trimming the
@@ -183,7 +246,7 @@ class TestSuccessfulExecution:
 
     @pytest.mark.asyncio
     async def test_nonzero_exit_code(self, config):
-        mock_proc = _make_mock_process(returncode=1, stderr=b"crash\n")
+        mock_proc = _make_mock_process(returncode=1, output=b"crash\n")
         with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_proc):
             result = await run_scraper(config, "google")
         assert result.exit_code == 1
@@ -198,7 +261,7 @@ class TestSuccessfulExecution:
         """
         mock_proc = _make_mock_process(
             returncode=0,
-            stderr=b"Initializing browser\nScraping page 1\nFetching details 1/10: foo\n",
+            output=b"Initializing browser\nScraping page 1\nFetching details 1/10: foo\n",
         )
         with caplog.at_level(logging.INFO, logger="api.services.scraper_runner"):
             with patch(
@@ -236,7 +299,7 @@ class TestTimeoutHandling:
         stream.readline = _hang_forever
 
         mock_proc = AsyncMock()
-        mock_proc.stderr = stream
+        mock_proc.stdout = stream
         mock_proc.returncode = -9
         mock_proc.kill = MagicMock()
         mock_proc.wait = AsyncMock()
@@ -278,7 +341,7 @@ class TestTimeoutHandling:
             await asyncio.sleep(3600)
 
         mock_proc = AsyncMock()
-        mock_proc.stderr = stream
+        mock_proc.stdout = stream
         mock_proc.returncode = -9
         mock_proc.kill = MagicMock()
         mock_proc.wait = AsyncMock(side_effect=_wait_hangs)
@@ -327,7 +390,7 @@ class TestTimeoutHandling:
         stream.readline = _readline
 
         mock_proc = AsyncMock()
-        mock_proc.stderr = stream
+        mock_proc.stdout = stream
         mock_proc.returncode = 0
         mock_proc.kill = MagicMock()
         mock_proc.wait = AsyncMock()
@@ -388,7 +451,7 @@ class TestTimeoutHandling:
         stream.readline = _readline
 
         mock_proc = AsyncMock()
-        mock_proc.stderr = stream
+        mock_proc.stdout = stream
         mock_proc.returncode = -9
         mock_proc.kill = MagicMock()
         mock_proc.wait = AsyncMock()
