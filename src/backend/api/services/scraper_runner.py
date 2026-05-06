@@ -110,11 +110,13 @@ async def run_scraper(config: Settings, company: str) -> ScraperResult:
     try:
         process = await asyncio.create_subprocess_exec(
             *args,
-            # Merge stdout into stderr so any print() output is captured
-            # alongside logger output. Combined with PYTHONUNBUFFERED=1 in
-            # the Dockerfile, this gives us live per-line visibility.
-            stdout=asyncio.subprocess.STDOUT,
-            stderr=asyncio.subprocess.PIPE,
+            # Merge stderr into stdout (asyncio.subprocess.STDOUT is only
+            # valid as the `stderr=` arg, not the `stdout=` arg) so any
+            # print() output is captured alongside logger output. Combined
+            # with PYTHONUNBUFFERED=1 in the Dockerfile, this gives us
+            # live per-line visibility. We read from process.stdout below.
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
         )
 
         tail_buffer = bytearray()
@@ -124,7 +126,7 @@ async def run_scraper(config: Settings, company: str) -> ScraperResult:
 
         reader_task = asyncio.create_task(
             _stream_and_tail_stderr(
-                process.stderr,
+                process.stdout,
                 MAX_STDERR_BYTES,
                 _emit_line,
                 tail_buffer,
