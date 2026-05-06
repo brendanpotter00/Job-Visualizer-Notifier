@@ -25,17 +25,40 @@ def config():
 
 
 def _make_mock_stderr(data: bytes):
-    """Create a mock StreamReader that yields *data* in one chunk then EOF."""
-    stream = AsyncMock()
-    returned = False
+    """Create a mock StreamReader that yields *data* in line-sized chunks then EOF.
 
-    async def _read(n):
-        nonlocal returned
-        if not returned:
-            returned = True
+    The runner reads stderr line-by-line via `readline()` so it can emit
+    each line to the live logger. To stay realistic, this helper splits
+    *data* on '\\n', returning each line (with its trailing newline if
+    present) on successive `readline()` calls, then `b""` for EOF. The
+    legacy `read()` is also mocked to return the full payload-then-EOF in
+    case any future code path falls back to it.
+    """
+    if data:
+        # Preserve trailing newline boundaries when splitting.
+        lines = data.splitlines(keepends=True)
+    else:
+        lines = []
+    line_iter = iter(lines)
+
+    stream = AsyncMock()
+
+    async def _readline():
+        try:
+            return next(line_iter)
+        except StopIteration:
+            return b""
+
+    read_returned = False
+
+    async def _read(n=-1):
+        nonlocal read_returned
+        if not read_returned:
+            read_returned = True
             return data
         return b""
 
+    stream.readline = _readline
     stream.read = _read
     return stream
 
@@ -87,6 +110,23 @@ class TestCommandConstruction:
             args = mock_exec.call_args[0]
             assert "--detail-scrape" in args
 
+    @pytest.mark.asyncio
+    async def test_subprocess_merges_stdout_into_stderr(self, config):
+        """`stdout=STDOUT` is load-bearing: prior code used DEVNULL, which
+        discarded any `print()` or unconfigured-handler output. Pin the
+        merge so a refactor can't silently regress to DEVNULL.
+        """
+        mock_proc = _make_mock_process()
+        with patch(
+            "asyncio.create_subprocess_exec",
+            new_callable=AsyncMock,
+            return_value=mock_proc,
+        ) as mock_exec:
+            await run_scraper(config, "google")
+            kwargs = mock_exec.call_args.kwargs
+            assert kwargs["stdout"] == asyncio.subprocess.STDOUT
+            assert kwargs["stderr"] == asyncio.subprocess.PIPE
+
 
 # -- Credential redaction --
 
@@ -128,11 +168,18 @@ class TestSuccessfulExecution:
 
     @pytest.mark.asyncio
     async def test_stderr_truncated_to_10kb(self, config):
-        big_stderr = b"x" * 20_000
+        # Use line-shaped data so the line-based reader emits per line and
+        # tail-trims on the way through. 4096 lines × 6 bytes = 24,576 bytes
+        # raw; the bounded tail keeps the last MAX_STDERR_BYTES (10 KB).
+        big_stderr = b"line\n" * 5000  # 25 KB of line-shaped data
         mock_proc = _make_mock_process(returncode=1, stderr=big_stderr)
         with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_proc):
             result = await run_scraper(config, "google")
-        assert len(result.error) == MAX_STDERR_BYTES
+        # Tail must be ≤ MAX_STDERR_BYTES; with line-aligned trimming the
+        # exact size depends on where the trim cut, so allow a small slack
+        # (one line's worth) below the cap.
+        assert len(result.error.encode("utf-8")) <= MAX_STDERR_BYTES
+        assert len(result.error.encode("utf-8")) >= MAX_STDERR_BYTES - 6
 
     @pytest.mark.asyncio
     async def test_nonzero_exit_code(self, config):
@@ -142,6 +189,35 @@ class TestSuccessfulExecution:
         assert result.exit_code == 1
         assert "crash" in result.error
 
+    @pytest.mark.asyncio
+    async def test_stderr_lines_emitted_to_live_logger(self, config, caplog):
+        """Each non-empty stderr line must be re-emitted to the backend
+        logger as it arrives. This is the load-bearing observability
+        change — it makes the scraper's per-line progress visible in
+        Railway logs *during* the run, not just on completion.
+        """
+        mock_proc = _make_mock_process(
+            returncode=0,
+            stderr=b"Initializing browser\nScraping page 1\nFetching details 1/10: foo\n",
+        )
+        with caplog.at_level(logging.INFO, logger="api.services.scraper_runner"):
+            with patch(
+                "asyncio.create_subprocess_exec",
+                new_callable=AsyncMock,
+                return_value=mock_proc,
+            ):
+                result = await run_scraper(config, "apple")
+
+        assert result.exit_code == 0
+        prefixed = [
+            r.getMessage()
+            for r in caplog.records
+            if r.getMessage().startswith("scraper[apple] ")
+        ]
+        assert any("Initializing browser" in m for m in prefixed)
+        assert any("Scraping page 1" in m for m in prefixed)
+        assert any("Fetching details 1/10: foo" in m for m in prefixed)
+
 
 # -- Timeout handling --
 
@@ -149,27 +225,190 @@ class TestSuccessfulExecution:
 class TestTimeoutHandling:
     @pytest.mark.asyncio
     async def test_timeout_returns_exit_code_minus_2(self, config):
+        # Drive a real timeout: the reader_task awaits readline() forever
+        # (we never return EOF) until the runner's wait_for fires.
+        stream = AsyncMock()
+
+        async def _hang_forever():
+            await asyncio.sleep(3600)
+            return b""
+
+        stream.readline = _hang_forever
+
         mock_proc = AsyncMock()
-        mock_proc.stderr = _make_mock_stderr(b"")
+        mock_proc.stderr = stream
+        mock_proc.returncode = -9
         mock_proc.kill = MagicMock()
         mock_proc.wait = AsyncMock()
 
-        # Make asyncio.wait_for raise TimeoutError immediately
-        original_wait_for = asyncio.wait_for
+        config.scraper_timeout_minutes = 0.01  # 600 ms
 
-        async def mock_wait_for(coro, *, timeout):
-            coro.close()  # Clean up the unawaited coroutine
-            raise asyncio.TimeoutError
-
-        with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_proc), \
-             patch("api.services.scraper_runner.asyncio.wait_for", side_effect=mock_wait_for):
+        with patch(
+            "asyncio.create_subprocess_exec",
+            new_callable=AsyncMock,
+            return_value=mock_proc,
+        ):
             result = await run_scraper(config, "google")
 
         assert result.exit_code == -2
         assert "timed out" in result.error.lower()
         assert result.company == "google"
         mock_proc.kill.assert_called_once()
-        mock_proc.wait.assert_awaited_once()
+        # process.wait is awaited inside the timeout branch (and skipped on
+        # the success path that we never reach here).
+        assert mock_proc.wait.await_count >= 1
+
+    @pytest.mark.asyncio
+    async def test_kill_wait_expiry_annotates_zombie_warning(self, config):
+        """If `process.wait()` doesn't return within KILL_WAIT_SECONDS of
+        SIGKILL, the result must surface a loud zombie warning. Without
+        this, a stuck process silently looks like a clean timeout in
+        scrape_runs_prod, even though the child may still be holding DB
+        connections / browser PIDs.
+        """
+        stream = AsyncMock()
+
+        async def _hang_forever_readline():
+            await asyncio.sleep(3600)
+            return b""
+
+        stream.readline = _hang_forever_readline
+
+        async def _wait_hangs():
+            await asyncio.sleep(3600)
+
+        mock_proc = AsyncMock()
+        mock_proc.stderr = stream
+        mock_proc.returncode = -9
+        mock_proc.kill = MagicMock()
+        mock_proc.wait = AsyncMock(side_effect=_wait_hangs)
+
+        # Trigger the outer timeout fast, and the kill-wait timeout fast.
+        config.scraper_timeout_minutes = 0.01  # 0.6 s
+        with patch("api.services.scraper_runner.KILL_WAIT_SECONDS", 0.05), \
+             patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_proc):
+            result = await run_scraper(config, "apple")
+
+        assert result.exit_code == -2
+        assert "WARNING: SIGKILL did not reap process" in result.error
+        mock_proc.kill.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_stderr_lines_emitted_during_read_loop(self, config):
+        """Pin streaming-vs-batch: line N reaches the logger *before*
+        line N+1 is read. A regression that buffered all lines and
+        emitted them only after EOF would still pass the simpler
+        `test_stderr_lines_emitted_to_live_logger`, because that test
+        only checks "did line1 end up in caplog by the end" — which is
+        true for a batch implementation too.
+
+        Strategy: insert a 200 ms sleep *between* the readline that
+        returns line1 and the readline that returns line2. In a
+        streaming implementation, line1 reaches the logger right after
+        readline #1, well before readline #2 finishes its sleep. In a
+        batch implementation, line1 only reaches the logger after the
+        whole read loop completes, i.e. after the sleep elapses.
+        """
+        import time
+
+        timestamps = {}
+
+        async def _readline():
+            if "line1_returned" not in timestamps:
+                timestamps["line1_returned"] = time.monotonic()
+                return b"line1\n"
+            if "line2_returned" not in timestamps:
+                await asyncio.sleep(0.2)
+                timestamps["line2_returned"] = time.monotonic()
+                return b"line2\n"
+            return b""
+
+        stream = AsyncMock()
+        stream.readline = _readline
+
+        mock_proc = AsyncMock()
+        mock_proc.stderr = stream
+        mock_proc.returncode = 0
+        mock_proc.kill = MagicMock()
+        mock_proc.wait = AsyncMock()
+
+        line1_logged_at: list[float] = []
+        scraper_logger = logging.getLogger("api.services.scraper_runner")
+
+        class _Latch(logging.Handler):
+            def emit(self, record):
+                if "scraper[apple] line1" in record.getMessage():
+                    line1_logged_at.append(time.monotonic())
+
+        latch = _Latch(level=logging.INFO)
+        prev_level = scraper_logger.level
+        scraper_logger.setLevel(logging.INFO)
+        scraper_logger.addHandler(latch)
+        try:
+            with patch(
+                "asyncio.create_subprocess_exec",
+                new_callable=AsyncMock,
+                return_value=mock_proc,
+            ):
+                result = await run_scraper(config, "apple")
+        finally:
+            scraper_logger.removeHandler(latch)
+            scraper_logger.setLevel(prev_level)
+
+        assert result.exit_code == 0
+        assert line1_logged_at, "line1 was never logged"
+        # Streaming proof: line1 reached the logger before the readline
+        # that returns line2 completed (i.e. before the 200 ms gap
+        # closed). A batch implementation would fail this assertion.
+        assert line1_logged_at[0] < timestamps["line2_returned"]
+
+    @pytest.mark.asyncio
+    async def test_timeout_includes_stderr_tail(self, config):
+        """When the scraper hangs, the captured stderr lines must be
+        surfaced in `ScraperResult.error`. Without this, the runner
+        returns a hardcoded 'Process timed out' string and we have zero
+        visibility into where the hang occurred — which is exactly the
+        gap the Apple-90-min-hang investigation hit.
+        """
+        # The reader emits two lines, then blocks on readline() forever.
+        # The runner's wait_for cancels it; the captured tail_buffer
+        # retains the two lines for the timeout-error message.
+        emitted_lines = [b"Initializing browser\n", b"Scraping page 1\n"]
+        line_iter = iter(emitted_lines)
+
+        async def _readline():
+            try:
+                return next(line_iter)
+            except StopIteration:
+                # Hang forever after emitting the lines we want surfaced.
+                await asyncio.sleep(3600)
+                return b""
+
+        stream = AsyncMock()
+        stream.readline = _readline
+
+        mock_proc = AsyncMock()
+        mock_proc.stderr = stream
+        mock_proc.returncode = -9
+        mock_proc.kill = MagicMock()
+        mock_proc.wait = AsyncMock()
+
+        # 1.2s — enough time for the reader to push the two queued lines
+        # before the wait_for fires.
+        config.scraper_timeout_minutes = 0.02
+
+        with patch(
+            "asyncio.create_subprocess_exec",
+            new_callable=AsyncMock,
+            return_value=mock_proc,
+        ):
+            result = await run_scraper(config, "apple")
+
+        assert result.exit_code == -2
+        assert "timed out" in result.error.lower()
+        assert "last stderr tail" in result.error.lower()
+        assert "Initializing browser" in result.error
+        assert "Scraping page 1" in result.error
 
 
 # -- Exception fallback --

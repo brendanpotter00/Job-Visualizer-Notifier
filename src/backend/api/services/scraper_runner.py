@@ -10,23 +10,58 @@ from ..config import Settings
 logger = logging.getLogger(__name__)
 
 MAX_STDERR_BYTES = 10 * 1024
+# Grace window after process.kill() to let the stderr reader finish draining
+# whatever the subprocess flushed before SIGKILL. 5s is generous; the pipe is
+# closed at kill, so readline() should return EOF essentially immediately.
+DRAIN_GRACE_SECONDS = 5
+# After timeout, give process.wait() this long to complete the kill before
+# falling through. Mirrors the prior runner's 30s post-success wait but keeps
+# the timeout branch from blocking indefinitely if the kill is somehow stuck.
+KILL_WAIT_SECONDS = 30
 
 
-async def _read_stderr_tail(stream: asyncio.StreamReader, max_bytes: int) -> bytes:
-    """Read all of *stream*, keeping only the last *max_bytes*.
+async def _stream_and_tail_stderr(
+    stream: asyncio.StreamReader,
+    max_bytes: int,
+    line_logger,
+    tail_out: bytearray,
+) -> None:
+    """Stream *stream* line-by-line, mutating *tail_out* in place.
 
-    This avoids buffering unbounded stderr from long-running scrapers
-    (e.g. 23-minute Apple/Playwright runs) in memory.
+    For each line read:
+      1. Append to *tail_out* (kept ≤ 2x *max_bytes* to bound memory).
+      2. Decode and pass to *line_logger* — emits live progress to the
+         backend logger so Railway sees per-line scraper output as it
+         happens, not just on completion.
+
+    *tail_out* is the caller-owned bytearray; even if this coroutine is
+    cancelled mid-read by `asyncio.wait_for`, every line that was already
+    accumulated remains in the bytearray for the timeout branch to surface.
+    That's the load-bearing observability invariant — see
+    docs/implementations/appleScraperHangFix/PLAN.md.
     """
-    tail = bytearray()
     while True:
-        chunk = await stream.read(4096)
-        if not chunk:
+        line = await stream.readline()
+        if not line:
             break
-        tail.extend(chunk)
-        if len(tail) > max_bytes * 2:
-            tail = tail[-max_bytes:]
-    return bytes(tail[-max_bytes:]) if tail else b""
+        tail_out.extend(line)
+        if len(tail_out) > max_bytes * 2:
+            del tail_out[:-max_bytes]
+        text = line.decode("utf-8", errors="replace").rstrip()
+        if text:
+            try:
+                line_logger(text)
+            except Exception:
+                # Logger failure must not break the read loop, otherwise
+                # one bad handler turns a healthy run into a silent hang.
+                pass
+
+
+def _bounded_tail_text(tail: bytearray, max_bytes: int) -> str:
+    """Decode the last *max_bytes* of *tail* as utf-8."""
+    if not tail:
+        return ""
+    return bytes(tail[-max_bytes:]).decode("utf-8", errors="replace")
 
 
 @dataclass
@@ -42,7 +77,9 @@ async def run_scraper(config: Settings, company: str) -> ScraperResult:
     """Run a scraper as an async subprocess.
 
     Builds command: python run_scraper.py --company X --env Y --db-url Z --incremental --headless [--detail-scrape]
-    Manages timeout with process kill and captures stdout/stderr.
+    Streams stderr live to the backend logger and surfaces a 10 KB tail
+    of stderr in ScraperResult.error — including the timeout branch, so
+    a scraper that hangs is no longer silent.
     """
     detail_flag = ["--detail-scrape"] if config.scraper_detail_scrape else []
     args = [
@@ -73,31 +110,84 @@ async def run_scraper(config: Settings, company: str) -> ScraperResult:
     try:
         process = await asyncio.create_subprocess_exec(
             *args,
-            stdout=asyncio.subprocess.DEVNULL,
+            # Merge stdout into stderr so any print() output is captured
+            # alongside logger output. Combined with PYTHONUNBUFFERED=1 in
+            # the Dockerfile, this gives us live per-line visibility.
+            stdout=asyncio.subprocess.STDOUT,
             stderr=asyncio.subprocess.PIPE,
+        )
+
+        tail_buffer = bytearray()
+
+        def _emit_line(text: str) -> None:
+            logger.info("scraper[%s] %s", company, text)
+
+        reader_task = asyncio.create_task(
+            _stream_and_tail_stderr(
+                process.stderr,
+                MAX_STDERR_BYTES,
+                _emit_line,
+                tail_buffer,
+            )
         )
 
         timeout_seconds = config.scraper_timeout_minutes * 60
         try:
-            stderr = await asyncio.wait_for(
-                _read_stderr_tail(process.stderr, MAX_STDERR_BYTES),
-                timeout=timeout_seconds,
-            )
+            await asyncio.wait_for(reader_task, timeout=timeout_seconds)
             await asyncio.wait_for(process.wait(), timeout=30)
         except asyncio.TimeoutError:
-            logger.warning("Scraper timed out after %d minutes, killing process", config.scraper_timeout_minutes)
+            logger.warning(
+                "Scraper timed out after %d minutes, killing process",
+                config.scraper_timeout_minutes,
+            )
             process.kill()
-            await process.wait()
+            kill_wait_expired = False
+            try:
+                await asyncio.wait_for(process.wait(), timeout=KILL_WAIT_SECONDS)
+            except asyncio.TimeoutError:
+                kill_wait_expired = True
+                logger.error(
+                    "Scraper process did not exit within %ds of SIGKILL",
+                    KILL_WAIT_SECONDS,
+                )
+            # Drain anything the reader buffered after wait_for cancelled it.
+            # CancelledError + TimeoutError are the two expected outcomes
+            # (reader was cancelled by the outer wait_for; or the 5s grace
+            # expired). Anything else is a real bug we want surfaced — this
+            # is the file we wrote to fix a silent-failure incident, so we
+            # do not silently catch unexpected exceptions here.
+            try:
+                await asyncio.wait_for(reader_task, timeout=DRAIN_GRACE_SECONDS)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                pass
+            except Exception as drain_ex:
+                logger.warning(
+                    "Unexpected error draining reader_task on timeout: %r",
+                    drain_ex,
+                )
+            tail_text = _bounded_tail_text(tail_buffer, MAX_STDERR_BYTES)
+            error_message = (
+                f"Process timed out after {config.scraper_timeout_minutes} minutes"
+            )
+            if kill_wait_expired:
+                # Loud annotation in the persisted ScraperResult.error so the
+                # scrape_runs row makes the zombie risk visible to operators.
+                error_message = (
+                    f"{error_message}\n--- WARNING: SIGKILL did not reap process within "
+                    f"{KILL_WAIT_SECONDS}s; child may still be running ---"
+                )
+            if tail_text:
+                error_message = f"{error_message}\n--- last stderr tail ---\n{tail_text}"
             return ScraperResult(
                 exit_code=-2,
                 output="",
-                error=f"Process timed out after {config.scraper_timeout_minutes} minutes",
+                error=error_message,
                 company=company,
                 completed_at=datetime.now(timezone.utc).isoformat(),
             )
 
         exit_code = process.returncode if process.returncode is not None else -3
-        stderr_text = stderr.decode("utf-8", errors="replace") if stderr else ""
+        stderr_text = _bounded_tail_text(tail_buffer, MAX_STDERR_BYTES)
         logger.info("Scraper exited with code %d", exit_code)
 
         return ScraperResult(

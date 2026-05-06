@@ -108,3 +108,20 @@ def test_dockerfile_installs_tini(dockerfile_text: str) -> None:
         "the build would produce an image that crashes immediately on "
         "exec. See docs/incidents/2026-05-05-scraper-pthread-exhaustion.md."
     )
+
+
+def test_dockerfile_sets_pythonunbuffered(dockerfile_text: str) -> None:
+    """`ENV PYTHONUNBUFFERED=1` must be present so the scraper subprocess
+    flushes stderr/stdout per-write instead of in 4 KB blocks. Without
+    this, a hung scraper subprocess never emits log lines before SIGKILL
+    and Railway logs go silent for 90 minutes — the exact failure mode
+    the appleScraperHangFix observability work was added to fix. See
+    docs/implementations/appleScraperHangFix/PLAN.md.
+    """
+    expected = "ENV PYTHONUNBUFFERED=1"
+    normalized_lines = [" ".join(line.split()) for line in dockerfile_text.splitlines()]
+    assert expected in normalized_lines, (
+        f"Dockerfile is missing the `{expected}` line. Without it Python "
+        "block-buffers stderr when piped to the parent runner, and the "
+        "scraper goes silent in Railway logs whenever it hangs."
+    )
