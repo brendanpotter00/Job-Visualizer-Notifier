@@ -39,6 +39,11 @@ COPY src/backend/alembic/ ./alembic/
 # Environment defaults
 ENV PORT=8080
 ENV PYTHONPATH=/app
+# Disable Python's stdio buffering. Without this, stderr is block-buffered
+# (~4KB) when piped, so a hung scraper subprocess never flushes its log
+# lines before SIGKILL — leaving Railway with a 90-minute silent gap.
+# See docs/implementations/appleScraperHangFix/PLAN.md.
+ENV PYTHONUNBUFFERED=1
 ENV SCRAPER_SCRIPTS_PATH=/app/scripts
 ENV SCRAPER_PYTHON_PATH=python3
 EXPOSE 8080

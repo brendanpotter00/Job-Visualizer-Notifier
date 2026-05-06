@@ -5,6 +5,7 @@ Apple provides a JSON API for job details that returns structured data
 including qualifications, responsibilities, salary, and more.
 """
 
+import asyncio
 import re
 import logging
 from typing import Dict, Any, Optional, List
@@ -13,6 +14,31 @@ from playwright.async_api import Page
 from .config import BASE_URL, API_BASE
 
 logger = logging.getLogger(__name__)
+
+# Bound the in-browser fetch. Without these, a stalled response from Apple
+# (rate limiting, edge holding the connection) hangs page.evaluate forever
+# and the whole scraper subprocess sits idle until SCRAPER_TIMEOUT_MINUTES.
+# See docs/implementations/appleScraperHangFix/PLAN.md.
+_FETCH_BROWSER_TIMEOUT_MS = 15_000
+_FETCH_OUTER_TIMEOUT_S = 20.0
+
+# JS payload that runs inside the page context. AbortController + setTimeout
+# bound the in-page fetch so a never-arriving response surfaces as an error
+# instead of a hang. The Python-side asyncio.wait_for below is the
+# belt-and-suspenders if the JS abort somehow doesn't propagate.
+_FETCH_JS = """
+async ({url, timeoutMs}) => {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+        const r = await fetch(url, { signal: ctrl.signal });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return await r.json();
+    } finally {
+        clearTimeout(t);
+    }
+}
+"""
 
 
 class JobDetailsFetchError(Exception):
@@ -37,19 +63,12 @@ async def fetch_job_details(page: Page, job_id: str) -> Dict[str, Any]:
     api_url = f"{BASE_URL}{API_BASE}/jobDetails/{job_id}?locale=en-us"
 
     try:
-        # Use page.evaluate to fetch from the same origin
-        # (leverages browser's session cookies for authenticated requests)
-        response = await page.evaluate(
-            """
-            async (url) => {
-                const response = await fetch(url);
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`);
-                }
-                return await response.json();
-            }
-            """,
-            api_url,
+        response = await asyncio.wait_for(
+            page.evaluate(
+                _FETCH_JS,
+                {"url": api_url, "timeoutMs": _FETCH_BROWSER_TIMEOUT_MS},
+            ),
+            timeout=_FETCH_OUTER_TIMEOUT_S,
         )
 
         if response and "res" in response:
@@ -58,6 +77,14 @@ async def fetch_job_details(page: Page, job_id: str) -> Dict[str, Any]:
             logger.warning(f"Unexpected API response format for job {job_id}")
             return {}
 
+    except asyncio.TimeoutError as e:
+        logger.error(
+            "Detail fetch outer timeout for job %s after %.0fs",
+            job_id, _FETCH_OUTER_TIMEOUT_S,
+        )
+        raise JobDetailsFetchError(
+            f"Detail fetch timed out for job {job_id} after {_FETCH_OUTER_TIMEOUT_S}s"
+        ) from e
     except Exception as e:
         logger.error(f"Error fetching job details for {job_id}: {e}")
         raise JobDetailsFetchError(f"Failed to fetch details for job {job_id}: {e}") from e
