@@ -98,7 +98,7 @@ Edit `src/frontend/src/config/companies.ts` and add company config with ATS type
 3. **Empty Buckets Matter**: Time bucketing creates empty buckets for full range - don't filter them out
 4. **Factory Patterns**: When modifying API or filter logic, update the factory functions, not individual implementations
 5. **Zero TypeScript Errors Required**: Run `npm run type-check` before committing
-6. **Test Coverage**: Maintain >85% coverage (768+ tests passing)
+6. **Test Coverage**: Maintain >85% coverage (1300+ tests passing)
 7. **Memory Management with Large Datasets**: When rendering large job lists:
    - Always use pagination for tables with 100+ rows (see QAPage pattern)
    - Use `useMemo` for derived data and avoid creating large arrays in render methods
