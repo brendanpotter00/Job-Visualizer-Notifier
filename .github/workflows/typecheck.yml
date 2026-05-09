@@ -1,0 +1,40 @@
+name: Type Check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: typecheck-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  typecheck:
+    name: mypy + pyright
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            src/backend/api/requirements.txt
+            src/backend/api/requirements-dev.txt
+            scripts/requirements.txt
+            scripts/requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          pip install -r src/backend/api/requirements.txt \
+                      -r src/backend/api/requirements-dev.txt \
+                      -r scripts/requirements.txt \
+                      -r scripts/requirements-dev.txt
+
+      - name: Run mypy
+        run: mypy src/backend scripts
+
+      - name: Run pyright
+        run: pyright src/backend scripts

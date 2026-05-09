@@ -1,3 +1,6 @@
 [tool.pytest.ini_options]
 testpaths = ["api/tests"]
 pythonpath = [".", "../.."]
+
+# Type-checker config inherits from the root pyproject.toml. Do not duplicate
+# config here — mypy/pyright auto-discover the nearest pyproject going up.

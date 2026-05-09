@@ -1,0 +1,149 @@
+# Root pyproject.toml — type-checker configuration only.
+# pytest config remains in src/backend/pyproject.toml and scripts/pytest.ini.
+#
+# Module-resolution model:
+#   src/ and src/backend/ have NO __init__.py. With namespace_packages = true
+#   they become namespace packages, so src/backend/api/foo.py resolves as
+#   "src.backend.api.foo". scripts/__init__.py exists, so scripts/foo.py is
+#   "scripts.foo". Override module names below MUST use these canonical names.
+#
+# Progressive-tightening model:
+#   - The strict block (per-module overrides) lists modules that pass strict
+#     type checking. New code lands here.
+#   - The ignore_errors block lists modules with current type debt. Each
+#     subsequent unit MOVES its modules from ignore_errors to strict as it
+#     cleans them. See /root/.claude/plans/audit-progress.md for ownership.
+
+[tool.mypy]
+# Project runs on Python 3.11 (system interpreter at /usr/local/bin/python3,
+# where third-party deps like fastapi/pydantic/alembic are installed). mypy
+# itself runs from a uv-managed tool venv, so we explicitly point it at the
+# project's interpreter for site-packages discovery.
+python_version = "3.11"
+python_executable = "/usr/local/bin/python3"
+explicit_package_bases = true
+namespace_packages = true
+
+# Test files use pytest pythonpath; mypy can't resolve their internal imports
+# the same way. Auto-generated alembic versions and scratch output don't need
+# typecheck. These exclusions remove the files from the module graph entirely.
+exclude = [
+    "scripts/tests/",
+    "src/backend/api/tests/",
+    "src/backend/alembic/",
+    "scripts/output/",
+]
+
+# Default for files NOT covered by an [[overrides]] block: relaxed but useful.
+ignore_missing_imports = false
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_return_any = true
+
+# STRICT block — per-module strict typing. Unit 1 seeds with new utility code.
+[[tool.mypy.overrides]]
+module = [
+    "scripts.shared.utils",
+    "scripts.shared.models",
+    "scripts.shared.logging_config",
+    "scripts.shared.run_summary",
+]
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+disallow_untyped_calls = true
+disallow_untyped_decorators = true
+warn_unused_ignores = true
+warn_return_any = true
+no_implicit_optional = true
+strict_equality = true
+check_untyped_defs = true
+
+# IGNORE_ERRORS block — existing modules with type debt, owned by later units.
+# Each unit removes its modules from this list AND adds them to the strict
+# block above. Reducing this list is the measurable contract of every unit.
+[[tool.mypy.overrides]]
+module = [
+    # scripts/shared (Unit 2)
+    "scripts.shared.database",
+    "scripts.shared.incremental",
+    "scripts.shared.base_scraper",
+    "scripts.shared.batch_writer",
+    # scripts scrapers (Units 3-5)
+    "scripts.apple_jobs_scraper.*",
+    "scripts.google_jobs_scraper.*",
+    "scripts.microsoft_jobs_scraper.*",
+    # scripts entry point (Unit 6)
+    "scripts.run_scraper",
+    # backend api — namespace_packages=True makes src/ and src/backend/ namespace
+    # packages, so modules resolve as "src.backend.api.*".
+    "src.backend.api.config",
+    "src.backend.api.db_models",
+    "src.backend.api.dependencies",
+    "src.backend.api.main",
+    "src.backend.api.migrations",
+    "src.backend.api.models",
+    "src.backend.api.routers.*",
+    "src.backend.api.services.*",
+    "src.backend.api.auth.*",
+]
+ignore_errors = true
+
+# Untyped third-party libraries.
+[[tool.mypy.overrides]]
+module = [
+    "psycopg2",
+    "psycopg2.*",
+    "playwright",
+    "playwright.*",
+    "bs4",
+    "bs4.*",
+    "tenacity",
+    "tenacity.*",
+    "rich",
+    "rich.*",
+]
+ignore_missing_imports = true
+
+[tool.pyright]
+pythonVersion = "3.13"
+include = ["src/backend", "scripts"]
+exclude = [
+    "**/__pycache__",
+    "**/.mypy_cache",
+    "**/node_modules",
+    "scripts/output",
+    "scripts/tests",
+    "src/backend/api/tests",
+    "src/backend/alembic/versions",
+]
+extraPaths = ["src/backend", "."]
+typeCheckingMode = "basic"
+strict = [
+    "scripts/shared/utils.py",
+    "scripts/shared/models.py",
+    "scripts/shared/logging_config.py",
+    "scripts/shared/run_summary.py",
+]
+# Mirror of the mypy ignore_errors block. Pyright takes file-path globs.
+ignore = [
+    "scripts/shared/database.py",
+    "scripts/shared/incremental.py",
+    "scripts/shared/base_scraper.py",
+    "scripts/shared/batch_writer.py",
+    "scripts/apple_jobs_scraper",
+    "scripts/google_jobs_scraper",
+    "scripts/microsoft_jobs_scraper",
+    "scripts/run_scraper.py",
+    "src/backend/api/config.py",
+    "src/backend/api/db_models.py",
+    "src/backend/api/dependencies.py",
+    "src/backend/api/main.py",
+    "src/backend/api/migrations.py",
+    "src/backend/api/models.py",
+    "src/backend/api/routers",
+    "src/backend/api/services",
+    "src/backend/api/auth",
+]
+reportMissingImports = "error"
+reportMissingTypeStubs = "none"
+useLibraryCodeForTypes = true
