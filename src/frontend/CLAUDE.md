@@ -14,7 +14,7 @@ npm run build            # Production build (runs tsc + vite build)
 npm run type-check       # TypeScript validation only
 
 # Testing
-npm test                 # Run all tests (Vitest - 768+ tests)
+npm test                 # Run all tests (Vitest - 1300+ tests)
 npm run test:coverage -w src/frontend  # Generate coverage report
 
 # Code Quality
@@ -136,7 +136,7 @@ Edit `config/companies.ts` and use the appropriate factory function:
 6. **Empty Buckets Matter**: Time bucketing creates empty buckets for full range - don't filter them out
 7. **Factory Patterns**: When modifying API or filter logic, update the factory functions, not individual implementations
 8. **Zero TypeScript Errors Required**: Run `npm run type-check` before committing
-9. **Test Coverage**: Maintain >85% coverage (768+ tests passing)
+9. **Test Coverage**: Maintain >85% coverage (1300+ tests passing)
 10. **Memory Management**: Large job datasets require careful handling:
    - **Tables**: Always paginate tables with 100+ rows - unpaginated tables with thousands of rows cause severe browser memory issues (50+ GB)
    - **Selectors**: `selectAllJobsFromQuery` flattens all jobs - use filtered selectors when possible
