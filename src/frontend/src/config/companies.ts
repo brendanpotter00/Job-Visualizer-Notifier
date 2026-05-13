@@ -436,6 +436,7 @@ export const COMPANIES: Company[] = [
   createAshbyCompany('langchain', 'LangChain'),
   createAshbyCompany('cognition', 'Cognition'),
   createAshbyCompany('paraform', 'Paraform'),
+  createAshbyCompany('judgmentlabs', 'Judgment Labs'),
 
   // Gem companies
   createGemCompany('nominal', 'Nominal'),
@@ -605,6 +606,7 @@ export const enum COMPANY_IDS {
   Happyrobot = 'happyrobot.ai',
   Hightouch = 'hightouch',
   Instacart = 'instacart',
+  JudgmentLabs = 'judgmentlabs',
   LangChain = 'langchain',
   Light = 'light',
   Linear = 'linear',
