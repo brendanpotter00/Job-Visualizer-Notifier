@@ -437,6 +437,7 @@ export const COMPANIES: Company[] = [
   createAshbyCompany('cognition', 'Cognition'),
   createAshbyCompany('paraform', 'Paraform'),
   createAshbyCompany('judgmentlabs', 'Judgment Labs'),
+  createAshbyCompany('generalintelligencecompany', 'General Intelligence Company'),
 
   // Gem companies
   createGemCompany('nominal', 'Nominal'),
@@ -596,6 +597,7 @@ export const enum COMPANY_IDS {
   Flint = 'flint',
   FireworksAI = 'fireworksai',
   FlowEngineering = 'flowengineering',
+  GeneralIntelligenceCompany = 'generalintelligencecompany',
   GeneralMotors = 'gm',
   GigaML = 'gigaml',
   GitLab = 'gitlab',
