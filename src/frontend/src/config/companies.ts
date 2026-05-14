@@ -339,17 +339,9 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2220708%22%5D',
   }),
-  createLeverCompany('saronic', 'Saronic', {
-    recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2289680213%22%5D',
-  }),
   createLeverCompany('spotify', 'Spotify', {
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22207470%22%5D',
-  }),
-  createLeverCompany('plaid', 'Plaid', {
-    recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%222684737%22%5D',
   }),
   createLeverCompany('zoox', 'Zoox', {
     recruiterLinkedInUrl:
@@ -434,6 +426,16 @@ export const COMPANIES: Company[] = [
   createAshbyCompany('paraform', 'Paraform'),
   createAshbyCompany('judgmentlabs', 'Judgment Labs'),
   createAshbyCompany('generalintelligencecompany', 'General Intelligence Company'),
+  createAshbyCompany('saronic', 'Saronic', {
+    jobsUrl: 'https://jobs.ashbyhq.com/saronic',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2289680213%22%5D',
+  }),
+  createAshbyCompany('plaid', 'Plaid', {
+    jobsUrl: 'https://jobs.ashbyhq.com/plaid',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%222684737%22%5D',
+  }),
 
   // Gem companies
   createGemCompany('nominal', 'Nominal'),
