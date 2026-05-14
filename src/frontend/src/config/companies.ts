@@ -250,10 +250,6 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2219002862%22%5D',
   }),
-  createGreenhouseCompany('coinbase', 'Coinbase', {
-    recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%222857634%22%5D',
-  }),
   createGreenhouseCompany('robinhood', 'Robinhood', {
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring+software+engineer&origin=FACETED_SEARCH',
@@ -578,7 +574,6 @@ export const enum COMPANY_IDS {
   Cloudflare = 'cloudflare',
   Cognition = 'cognition',
   Cohere = 'cohere',
-  Coinbase = 'coinbase',
   Crunchyroll = 'crunchyroll',
   Cursor = 'cursor',
   Databricks = 'databricks',
