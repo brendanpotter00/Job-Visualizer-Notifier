@@ -24,6 +24,14 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'add-paypal',
+    title: 'Added PayPal',
+    description:
+      'PayPal is now tracked via its Workday job board, joining the other Workday-hosted companies in Recent Jobs and Company Hiring Trends.',
+    tags: ['new-companies'],
+    date: '2026-05-15',
+  },
+  {
     id: 'brand-refresh',
     title: 'New brand mark in the app bar',
     description:
