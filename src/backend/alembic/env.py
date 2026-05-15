@@ -139,47 +139,59 @@ def run_migrations_online() -> None:
 def _cutover_legacy_alembic_version(connection) -> None:
     """Rename a lingering `alembic_version_{env}` to `alembic_version` if the
     default tracker is absent. Runs inside the current `search_path` so it is
-    safe under PYTEST_SCHEMA without touching `public` state."""
-    default_exists = connection.execute(
-        text("SELECT to_regclass(current_schema() || '.alembic_version')")
-    ).scalar()
-    if default_exists is not None:
-        return
+    safe under PYTEST_SCHEMA without touching `public` state.
 
-    # Check the two legacy variants we ever shipped.
-    candidates: list[str] = []
-    for legacy in ("alembic_version_prod", "alembic_version_local"):
-        legacy_exists = connection.execute(
-            text(f"SELECT to_regclass(current_schema() || '.{legacy}')")
+    Closes the implicit transaction at the end via `connection.commit()` even
+    in the no-work branches. SQLAlchemy 2.x auto-begins a transaction on the
+    first SQL statement, and `context.begin_transaction()` below opens a
+    SAVEPOINT inside any active outer txn — so a SELECT-only probe that
+    leaves the outer txn open causes the subsequent migration COMMIT to be
+    a no-op and the whole batch ROLLBACKs when the `with connect()` block
+    exits. That swallowed both the parity test's stamp and the features
+    migration's create_table calls before this fix.
+    """
+    try:
+        default_exists = connection.execute(
+            text("SELECT to_regclass(current_schema() || '.alembic_version')")
         ).scalar()
-        if legacy_exists is not None:
-            candidates.append(legacy)
+        if default_exists is not None:
+            return
 
-    if not candidates:
-        return
+        candidates: list[str] = []
+        for legacy in ("alembic_version_prod", "alembic_version_local"):
+            legacy_exists = connection.execute(
+                text(f"SELECT to_regclass(current_schema() || '.{legacy}')")
+            ).scalar()
+            if legacy_exists is not None:
+                candidates.append(legacy)
 
-    if len(candidates) > 1:
-        raise RuntimeError(
-            "Both legacy Alembic trackers exist: "
-            f"{candidates!r}. Refusing to guess which one reflects the live "
-            "schema. Drop the stale one manually before retrying."
-        )
+        if not candidates:
+            return
 
-    legacy = candidates[0]
-    connection.execute(text(f"ALTER TABLE {legacy} RENAME TO alembic_version"))
-    # Alembic names the version-table PK `<table>_pkc`; renaming the table
-    # leaves a stale `<legacy>_pkc` on the now-bare `alembic_version`. Fix it
-    # so `pg_constraint` mirrors what a fresh DB would look like. Wrapped in
-    # DO/EXCEPTION because older versions of Alembic omitted the explicit
-    # constraint name on some tables — the no-op branch keeps the cutover
-    # idempotent.
-    connection.execute(text(
-        f"DO $$ BEGIN "
-        f"ALTER TABLE alembic_version RENAME CONSTRAINT {legacy}_pkc TO alembic_version_pkc; "
-        f"EXCEPTION WHEN undefined_object OR undefined_table THEN NULL; "
-        f"END $$"
-    ))
-    connection.commit()
+        if len(candidates) > 1:
+            raise RuntimeError(
+                "Both legacy Alembic trackers exist: "
+                f"{candidates!r}. Refusing to guess which one reflects the live "
+                "schema. Drop the stale one manually before retrying."
+            )
+
+        legacy = candidates[0]
+        connection.execute(text(f"ALTER TABLE {legacy} RENAME TO alembic_version"))
+        # Alembic names the version-table PK `<table>_pkc`; renaming the table
+        # leaves a stale `<legacy>_pkc` on the now-bare `alembic_version`. Fix it
+        # so `pg_constraint` mirrors what a fresh DB would look like. Wrapped in
+        # DO/EXCEPTION because older versions of Alembic omitted the explicit
+        # constraint name on some tables — the no-op branch keeps the cutover
+        # idempotent.
+        connection.execute(text(
+            f"DO $$ BEGIN "
+            f"ALTER TABLE alembic_version RENAME CONSTRAINT {legacy}_pkc TO alembic_version_pkc; "
+            f"EXCEPTION WHEN undefined_object OR undefined_table THEN NULL; "
+            f"END $$"
+        ))
+    finally:
+        if connection.in_transaction():
+            connection.commit()
 
 
 if context.is_offline_mode():

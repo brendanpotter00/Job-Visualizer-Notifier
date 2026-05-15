@@ -70,8 +70,17 @@ def _index_exists(conn, name: str) -> bool:
     _is_prod_like(TEST_DB_URL),
     reason="refusing to run migration roundtrip against a prod-like TEST_DATABASE_URL",
 )
-def test_features_migration_upgrade_and_downgrade() -> None:
+def test_features_migration_upgrade_and_downgrade(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Full upgrade head → downgrade 91337142414f roundtrip on a clean DB."""
+    # conftest's autouse `clean_tables` invokes `db_conn`, which sets
+    # PYTEST_SCHEMA=test_<hex>. env.py honors that and would land this
+    # migration's tables inside that schema in our fresh roundtrip DB,
+    # while we verify against `public`. We isolate via the per-test DB
+    # name, not via PYTEST_SCHEMA — clear it for the duration of this test.
+    monkeypatch.delenv("PYTEST_SCHEMA", raising=False)
+
     suffix = uuid.uuid4().hex[:8]
     roundtrip_db = f"migrate_{suffix}"
 
