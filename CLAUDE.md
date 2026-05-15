@@ -16,14 +16,14 @@ Job Posting Analytics - A monorepo containing a TypeScript + React frontend, Pyt
 
 ```bash
 # Development
-npm run dev:vercel       # Start with Vercel Dev (REQUIRED - includes API proxies)
+npm run dev:vercel -w src/frontend  # Start with Vercel Dev (REQUIRED - includes API proxies)
 npm run dev              # Vite only (no API proxies, limited functionality)
 npm run build            # Production build (runs tsc + vite build)
 npm run type-check       # TypeScript validation only
 
 # Testing
 npm test                 # Run all tests (Vitest)
-npm run test:coverage    # Generate coverage report
+npm run test:coverage -w src/frontend  # Generate coverage report
 
 # Code Quality
 npm run lint             # ESLint
@@ -57,10 +57,10 @@ PYTHONPATH=. uvicorn src.backend.api.main:app --host 0.0.0.0 --port 8000 --reloa
 User selects company → `getJobsForCompany` RTK Query endpoint (src/frontend/src/features/jobs/jobsApi.ts) → Factory selects API client → Transform to normalized Job model → RTK Query cache update → Memoized selectors filter data → Components render
 
 **API Clients:**
-Five ATS providers (Greenhouse, Lever, Ashby, Workday, Gem) use `createAPIClient` factory (src/frontend/src/api/clients/baseClient.ts). Factory handles: validation, fetch, error handling, filtering, transformation, metadata calculation. Only URL building and response extraction differ per provider. Eightfold (src/frontend/src/api/clients/eightfoldClient.ts) uses a dedicated client because it requires sequential pagination with a hard 10-item page cap.
+Five ATS providers (Greenhouse, Lever, Ashby, Workday, Gem) use `createAPIClient` factory (src/frontend/src/api/clients/baseClient.ts). Factory handles: validation, fetch, error handling, filtering, transformation, metadata calculation. Only URL building and response extraction differ per provider. Eightfold (src/frontend/src/api/clients/eightfoldClient.ts) uses a dedicated client because it requires sequential pagination with a hard 10-item page cap. Backend-Scraper (src/frontend/src/api/clients/backendScraperClient.ts) uses a dedicated client for companies scraped via Python scripts and served from the backend API (Google, Apple).
 
 **Key Selectors:**
-- `selectCurrentCompanyJobs` (src/frontend/src/features/jobs/jobsSelectors.ts) - Jobs for selected company
+- `selectCurrentCompanyJobsRtk` (src/frontend/src/features/jobs/jobsSelectors.ts) - Jobs for selected company
 - `selectGraphFilteredJobs` (src/frontend/src/features/filters/selectors/graphFiltersSelectors.ts) - Apply graph filters
 - `selectListFilteredJobs` (src/frontend/src/features/filters/selectors/listFiltersSelectors.ts) - Apply list filters + search
 - `selectGraphBucketData` (src/frontend/src/features/filters/selectors/graphFiltersSelectors.ts) - Filtered jobs + time bucketing
@@ -93,12 +93,12 @@ Edit `src/frontend/src/config/companies.ts` and add company config with ATS type
 
 ## Critical Gotchas
 
-1. **Use Vercel Dev**: Must run `npm run dev:vercel` (not `npm run dev`) - Vercel serverless functions in `api/` directory proxy ATS API calls to avoid CORS issues
+1. **Use Vercel Dev**: Must run `npm run dev:vercel -w src/frontend` (not `npm run dev`) - Vercel serverless functions in `api/` directory proxy ATS API calls to avoid CORS issues
 2. **Graph/List Filter Independence**: Separate by design - changing graph filters doesn't affect list
 3. **Empty Buckets Matter**: Time bucketing creates empty buckets for full range - don't filter them out
 4. **Factory Patterns**: When modifying API or filter logic, update the factory functions, not individual implementations
 5. **Zero TypeScript Errors Required**: Run `npm run type-check` before committing
-6. **Test Coverage**: Maintain >85% coverage (746+ tests passing)
+6. **Test Coverage**: Maintain >85% coverage (1300+ tests passing)
 7. **Memory Management with Large Datasets**: When rendering large job lists:
    - Always use pagination for tables with 100+ rows (see QAPage pattern)
    - Use `useMemo` for derived data and avoid creating large arrays in render methods
@@ -126,6 +126,7 @@ Edit `src/frontend/src/config/companies.ts` and add company config with ATS type
 - `api/jobs.ts` - Backend jobs API proxy
 - `api/jobs-qa.ts` - Backend QA endpoints proxy
 - `api/users.ts` - Backend users API proxy (forwards Authorization header)
+- `api/features.ts` - Feature voting API proxy (forwards Authorization header)
 
 ## See Also
 

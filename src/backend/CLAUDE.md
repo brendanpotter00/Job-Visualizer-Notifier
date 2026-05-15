@@ -63,6 +63,11 @@ All configuration via environment variables:
 - `GET /api/users` - Get or create authenticated user's profile (requires Bearer token)
 - `PUT /api/users` - Update display name (requires Bearer token)
 
+**Features Router (`/api/features`):**
+- `GET /api/features` - List all features with upvote counts and current user's vote state (optional auth)
+- `POST /api/features/{feature_id}/upvote` - Add upvote for a feature (requires Bearer token)
+- `DELETE /api/features/{feature_id}/upvote` - Remove upvote for a feature (requires Bearer token)
+
 **Health:**
 - `GET /health` - Health check (returns "OK" 200, or "UNAVAILABLE" 503 if pool is down)
 
@@ -82,7 +87,8 @@ src/backend/api/
 ├── routers/
 │   ├── jobs.py          # Jobs list and detail endpoints
 │   ├── jobs_qa.py       # Stats, scrape runs, trigger scrape
-│   └── users.py         # User profile endpoints (auth required)
+│   ├── users.py         # User profile endpoints (auth required)
+│   └── features.py      # Feature voting endpoints (list, upvote, remove upvote)
 └── services/
     ├── database.py      # API query functions (reuses scripts/shared/database.py)
     ├── user_service.py  # User CRUD operations (get_or_create, update)

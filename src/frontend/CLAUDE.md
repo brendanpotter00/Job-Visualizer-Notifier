@@ -8,14 +8,14 @@ React SPA for job posting analytics. Visualizes job posting activity over time f
 
 ```bash
 # Development
-npm run dev:vercel       # Start with Vercel Dev (REQUIRED - includes API proxies)
+npm run dev:vercel -w src/frontend  # Start with Vercel Dev (REQUIRED - includes API proxies)
 npm run dev              # Vite only (no API proxies, limited functionality)
 npm run build            # Production build (runs tsc + vite build)
 npm run type-check       # TypeScript validation only
 
 # Testing
-npm test                 # Run all tests (Vitest - 768+ tests)
-npm run test:coverage    # Generate coverage report
+npm test                 # Run all tests (Vitest - 1300+ tests)
+npm run test:coverage -w src/frontend  # Generate coverage report
 
 # Code Quality
 npm run lint             # ESLint
@@ -40,11 +40,11 @@ User selects company → `getJobsForCompany` RTK Query endpoint (features/jobs/j
 Seven ATS providers (Greenhouse, Lever, Ashby, Workday, Gem, Eightfold, Backend-Scraper) are supported. Greenhouse/Lever/Ashby/Workday/Gem use `createAPIClient` factory (api/clients/baseClient.ts) which handles validation, fetch, error handling, filtering, transformation, and metadata calculation. Eightfold (api/clients/eightfoldClient.ts) uses a dedicated client because its API requires sequential pagination with a hard 10-item page cap (used by Netflix). Backend-Scraper uses a dedicated client (api/clients/backendScraperClient.ts) for companies scraped via Python scripts and served from the backend API (Google, Apple).
 
 **Key Selectors:**
-- `selectCurrentCompanyJobs` (features/jobs/jobsSelectors.ts) - Jobs for selected company
+- `selectCurrentCompanyJobsRtk` (features/jobs/jobsSelectors.ts) - Jobs for selected company
 - `selectGraphFilteredJobs` (features/filters/selectors/graphFiltersSelectors.ts) - Apply graph filters
 - `selectListFilteredJobs` (features/filters/selectors/listFiltersSelectors.ts) - Apply list filters + search
 - `selectGraphBucketData` (features/filters/selectors/graphFiltersSelectors.ts) - Filtered jobs + time bucketing
-- `selectRecentJobsFilteredJobs` (features/filters/selectors/recentJobsSelectors.ts) - Apply recent jobs filters
+- `selectRecentFilteredJobs` (features/filters/selectors/recentJobsSelectors.ts) - Apply recent jobs filters
 
 **Routes/Pages:**
 - `/` - Recent Job Postings (pages/RecentJobPostingsPage/RecentJobPostingsPage.tsx) - Aggregated recent jobs across all companies
@@ -52,6 +52,7 @@ Seven ATS providers (Greenhouse, Lever, Ashby, Workday, Gem, Eightfold, Backend-
 - `/why` - Why This Was Built (pages/WhyPage/WhyPage.tsx) - About page
 - `/qa` - QA (pages/QAPage/QAPage.tsx) - Admin page for triggering scrapers, viewing scrape runs, and debugging
 - `/account` - Account (pages/AccountPage/AccountPage.tsx)
+- `/vote-features` - Vote for Features (pages/VoteFeaturesPage/VoteFeaturesPage.tsx) - Feature voting page
 
 **Key Algorithms:**
 - Time Bucketing: lib/timeBucketing.ts (dynamic bucket sizing for graph visualization)
@@ -83,8 +84,8 @@ The following `eslint-disable` directives are allowed; all others must be justif
 
 **`react-hooks/*` family:**
 
-- `hooks/useFetchWithStatus.ts:139` — `react-hooks/exhaustive-deps`. The hook spreads the caller-provided `deps` array into its internal `useEffect` dep list. ESLint's exhaustive-deps rule cannot prove the spread is stable-by-convention across renders. The hook contract requires callers to pass a stable `fetcher` (via `useCallback`) and a deps array, mirroring `useEffect` semantics. The disable is localized to the single `useEffect` line.
-- `components/layout/RootLayout.tsx:55` — `react-hooks/set-state-in-effect`. Auto-syncs `drawerOpen` local state with the `isMobile` MUI `useMediaQuery` breakpoint. `isMobile` is an external subscription (MUI wraps `matchMedia`), so mirroring it into local state via an effect is the React-recommended pattern. A `useSyncExternalStore` rewrite against `matchMedia` would be net-neutral for behavior and adds visual-regression risk around drawer-width transitions.
+- `hooks/useFetchWithStatus.ts:141` — `react-hooks/exhaustive-deps`. The hook spreads the caller-provided `deps` array into its internal `useEffect` dep list. ESLint's exhaustive-deps rule cannot prove the spread is stable-by-convention across renders. The hook contract requires callers to pass a stable `fetcher` (via `useCallback`) and a deps array, mirroring `useEffect` semantics. The disable is localized to the single `useEffect` line.
+- `components/layout/RootLayout.tsx:56` — `react-hooks/set-state-in-effect`. Auto-syncs `drawerOpen` local state with the `isMobile` MUI `useMediaQuery` breakpoint. `isMobile` is an external subscription (MUI wraps `matchMedia`), so mirroring it into local state via an effect is the React-recommended pattern. A `useSyncExternalStore` rewrite against `matchMedia` would be net-neutral for behavior and adds visual-regression risk around drawer-width transitions.
 - `components/companies-page/MetricsDashboard/hooks/useTimeBasedJobCounts.ts:24` — `react-hooks/purity`. Samples `Date.now()` inside `useMemo` to compute rolling time-window counts (last 12h / 24h / 3d). Injecting `now` as an argument would relocate the `Date.now()` call into every caller in `MetricsDashboard/*`. Keeping the disable localizes the impurity to one line.
 
 **Other disables:**
@@ -127,7 +128,7 @@ Edit `config/companies.ts` and use the appropriate factory function:
 
 ## Critical Gotchas
 
-1. **Use Vercel Dev**: Must run `npm run dev:vercel` (not `npm run dev`) - Vercel serverless functions in `api/` directory proxy ATS API calls to avoid CORS issues
+1. **Use Vercel Dev**: Must run `npm run dev:vercel -w src/frontend` (not `npm run dev`) - Vercel serverless functions in `api/` directory proxy ATS API calls to avoid CORS issues
 2. **Vite env files must live in `src/frontend/`, NOT the project root**: The root `vite.config.ts` sets `root: 'src/frontend'`. Vite resolves `.env` files relative to its `root`, so it reads `src/frontend/.env.local`, NOT `<project-root>/.env.local`. **DO NOT add `envDir` to `vite.config.ts` to point at the project root** — this breaks Vercel Dev's API proxy routing, causing all `/api/*` requests to fail. Instead, frontend `VITE_*` env vars go in `src/frontend/.env.local` and backend/Vercel env vars go in `<project-root>/.env.local`.
 3. **Vercel Dev cloud env vars override ALL local `.env` files for serverless functions (`api/*.ts`)**: `vercel dev` pulls env vars from the linked Vercel project and they take absolute precedence — `.env.local`, `.env.development.local`, and even shell env vars are all ignored. The `api/utils/backendUrl.ts` helper works around this by detecting `localhost` in the request Host header to use `http://localhost:8000` for local dev. **Do NOT rely on `process.env` in serverless functions for local dev config.**
 4. **macOS port 5000 is AirPlay**: Never configure backend services on port 5000 — macOS Monterey+ runs AirPlay Receiver there via ControlCenter. It silently accepts HTTP connections and returns 403, masking "connection refused" errors. The backend runs on port 8000.
@@ -135,7 +136,7 @@ Edit `config/companies.ts` and use the appropriate factory function:
 6. **Empty Buckets Matter**: Time bucketing creates empty buckets for full range - don't filter them out
 7. **Factory Patterns**: When modifying API or filter logic, update the factory functions, not individual implementations
 8. **Zero TypeScript Errors Required**: Run `npm run type-check` before committing
-9. **Test Coverage**: Maintain >85% coverage (768+ tests passing)
+9. **Test Coverage**: Maintain >85% coverage (1300+ tests passing)
 10. **Memory Management**: Large job datasets require careful handling:
    - **Tables**: Always paginate tables with 100+ rows - unpaginated tables with thousands of rows cause severe browser memory issues (50+ GB)
    - **Selectors**: `selectAllJobsFromQuery` flattens all jobs - use filtered selectors when possible
@@ -170,6 +171,7 @@ Located in project root `api/` directory (proxies to avoid CORS):
 - `jobs.ts` - Backend jobs API proxy (for scraped companies)
 - `jobs-qa.ts` - Backend QA endpoints proxy (scraper triggers, run history)
 - `users.ts` - Backend users API proxy (forwards Authorization header)
+- `features.ts` - Feature voting API proxy (forwards Authorization header)
 
 ## See Also
 

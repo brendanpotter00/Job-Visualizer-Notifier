@@ -42,6 +42,16 @@ describe('TimeWindowSelect', () => {
     expect(onChange).toHaveBeenCalledWith('7d');
   });
 
+  it('offers an "All time" option that dispatches value "all"', async () => {
+    const onChange = vi.fn();
+    const user = userEvent.setup();
+    render(<TimeWindowSelect value="30d" onChange={onChange} />);
+    await user.click(screen.getByRole('combobox'));
+    const listbox = await screen.findByRole('listbox');
+    await user.click(within(listbox).getByRole('option', { name: 'All time' }));
+    expect(onChange).toHaveBeenCalledWith('all');
+  });
+
   it('applies medium size prop', () => {
     const { container } = render(
       <TimeWindowSelect value="30d" onChange={vi.fn()} size="medium" />

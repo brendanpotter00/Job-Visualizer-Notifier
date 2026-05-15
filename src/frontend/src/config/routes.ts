@@ -21,18 +21,18 @@ export const NAV_ITEMS = [
   },
   {
     path: ROUTES.COMPANIES,
-    label: 'Company Job Postings',
-    icon: 'Business', // MUI Business icon
-  },
-  {
-    path: ROUTES.WHY,
-    label: 'Why This Was Built',
-    icon: 'Info', // MUI Info icon
+    label: 'Company Hiring Trends',
+    icon: 'TrendingUp', // MUI TrendingUp icon
   },
   {
     path: ROUTES.VOTE_FEATURES,
     label: 'Vote for features',
     icon: 'ThumbUp', // MUI ThumbUp icon
+  },
+  {
+    path: ROUTES.WHY,
+    label: 'Why This Was Built',
+    icon: 'Info', // MUI Info icon
   },
   {
     path: ROUTES.QA,

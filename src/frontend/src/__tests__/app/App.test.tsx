@@ -133,7 +133,7 @@ describe('App', () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByText(APP_TITLE)).toBeInTheDocument();
+        expect(screen.getByLabelText(APP_TITLE)).toBeInTheDocument();
       });
     });
   });

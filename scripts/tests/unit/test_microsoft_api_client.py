@@ -2,13 +2,15 @@
 Unit tests for Microsoft Jobs API client functions (microsoft_jobs_scraper/api_client.py)
 """
 
+import asyncio
 import pytest
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+from microsoft_jobs_scraper import api_client as ms_api_client
 from microsoft_jobs_scraper.api_client import (
     parse_qualifications,
     extract_salary,
@@ -382,6 +384,105 @@ class TestFetchJobDetails:
             await fetch_job_details(mock_playwright_page, "1234567890")
 
         assert "429" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_fetch_job_details_passes_headers_into_js(self, mock_playwright_page):
+        """Headers must reach the in-page fetch arg, not just appear in the
+        JS string. A future refactor that drops the `headers` field from
+        the evaluate arg dict would break the JSON content negotiation
+        with Eightfold without any unit-level signal otherwise.
+        """
+        captured = {}
+
+        async def _evaluate(js, arg):
+            captured["arg"] = arg
+            return {"data": {"title": "x"}}
+
+        mock_playwright_page.evaluate = _evaluate
+        await fetch_job_details(mock_playwright_page, "1234567890")
+
+        assert captured["arg"]["headers"] == ms_api_client._JSON_HEADERS
+        assert captured["arg"]["headers"]["Accept"] == "application/json"
+        assert "1234567890" in captured["arg"]["url"]
+
+    @pytest.mark.asyncio
+    async def test_fetch_search_results_passes_headers_into_js(self, mock_playwright_page):
+        """Mirror of detail-fetch headers test for the search path."""
+        captured = {}
+
+        async def _evaluate(js, arg):
+            captured["arg"] = arg
+            return {"positions": []}
+
+        mock_playwright_page.evaluate = _evaluate
+        await fetch_search_results(mock_playwright_page, query="software engineer")
+
+        assert captured["arg"]["headers"] == ms_api_client._JSON_HEADERS
+        assert captured["arg"]["timeoutMs"] == ms_api_client._FETCH_BROWSER_TIMEOUT_MS
+
+    @pytest.mark.asyncio
+    async def test_fetch_job_details_outer_timeout_raises_fetch_error(self, mock_playwright_page):
+        """Mirrors the Apple test — pin that an outer asyncio.wait_for
+        timeout surfaces as JobDetailsFetchError, not raw asyncio.TimeoutError.
+        Without this bound, an Eightfold edge slowdown would hang the
+        scraper subprocess until SCRAPER_TIMEOUT_MINUTES.
+        """
+        async def _hang_forever(*args, **kwargs):
+            await asyncio.sleep(3600)
+
+        mock_playwright_page.evaluate = _hang_forever
+
+        with patch.object(ms_api_client, "_FETCH_OUTER_TIMEOUT_S", 0.05):
+            with pytest.raises(JobDetailsFetchError) as exc_info:
+                await fetch_job_details(mock_playwright_page, "1970393556642428")
+
+        msg = str(exc_info.value).lower()
+        assert "timed out" in msg
+        assert "1970393556642428" in str(exc_info.value)
+
+
+class TestFetchTimeoutSearchPath:
+    """Search-side parallel of the detail-fetch timeout pin."""
+
+    @pytest.fixture
+    def mock_playwright_page(self):
+        return MagicMock()
+
+    @pytest.mark.asyncio
+    async def test_fetch_search_results_outer_timeout_raises_search_error(self, mock_playwright_page):
+        async def _hang_forever(*args, **kwargs):
+            await asyncio.sleep(3600)
+
+        mock_playwright_page.evaluate = _hang_forever
+
+        with patch.object(ms_api_client, "_FETCH_OUTER_TIMEOUT_S", 0.05):
+            with pytest.raises(JobSearchError) as exc_info:
+                await fetch_search_results(mock_playwright_page, query="software engineer")
+
+        assert "timed out" in str(exc_info.value).lower()
+
+
+class TestFetchJsPayload:
+    """Pin the in-page JS contract — protects the AbortController wiring."""
+
+    def test_fetch_js_payload_uses_abort_controller(self):
+        js = ms_api_client._FETCH_JS
+        assert "AbortController" in js
+        assert "ctrl.signal" in js
+        assert "timeoutMs" in js
+        assert "setTimeout" in js
+        assert "clearTimeout" in js
+
+    def test_fetch_js_passes_json_headers(self):
+        """JSON Accept/Content-Type headers must be threaded through the
+        fetch() call — the Eightfold endpoint returns text/html for
+        non-JSON requests in some configurations.
+        """
+        assert "Accept" in ms_api_client._JSON_HEADERS
+        assert ms_api_client._JSON_HEADERS["Accept"] == "application/json"
+        # Ensure the JS reads headers from the argument object so it
+        # actually applies them.
+        assert "headers" in ms_api_client._FETCH_JS
 
 
 class TestFormatLocation:

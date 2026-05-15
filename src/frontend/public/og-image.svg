@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <rect width="1200" height="630" fill="#0D0D0D"/>
+  <g font-family="Menlo, Monaco, Consolas, 'Courier New', monospace" fill="#F2EEE9">
+    <text x="80" y="340" font-weight="700" font-size="110" letter-spacing="-2">onesecondswe</text>
+    <text x="910" y="340" font-weight="700" font-size="110" letter-spacing="-2">1s</text>
+    <circle cx="1072" cy="310" r="20" fill="#2F8F3F"/>
+    <text x="80" y="430" font-weight="400" font-size="34" fill="#9A948B" letter-spacing="-0.5">swe job board from the source</text>
+  </g>
+</svg>

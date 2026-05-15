@@ -16,6 +16,5 @@ export const TIME_WINDOWS: { value: TimeWindow; label: string }[] = [
   { value: '30d', label: '30 days' },
   { value: '90d', label: '90 days' },
   { value: '180d', label: '6 months' },
-  { value: '1y', label: '1 year' },
-  { value: '2y', label: '2 years' },
+  { value: 'all', label: 'All time' },
 ];

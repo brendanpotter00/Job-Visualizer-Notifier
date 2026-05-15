@@ -18,6 +18,10 @@ import { isUnitedStatesLocation } from '../../../lib/location.ts';
  * Check if a job is within a specific time window
  */
 export function isJobWithinTimeWindow(jobCreatedAt: string, timeWindow: TimeWindow): boolean {
+  if (timeWindow === 'all') {
+    return true;
+  }
+
   const now = new Date();
   const jobDate = new Date(jobCreatedAt);
   const durationMs = getTimeWindowDuration(timeWindow);

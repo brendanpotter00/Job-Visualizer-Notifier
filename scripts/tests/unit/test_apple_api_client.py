@@ -2,13 +2,15 @@
 Unit tests for Apple Jobs API client functions (apple_jobs_scraper/api_client.py)
 """
 
+import asyncio
 import pytest
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+from apple_jobs_scraper import api_client as apple_api_client
 from apple_jobs_scraper.api_client import (
     parse_qualifications,
     extract_salary,
@@ -257,6 +259,66 @@ class TestFetchJobDetails:
             await fetch_job_details(mock_page, "200640732-0836")
 
         assert "429" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_fetch_job_details_outer_timeout_raises_fetch_error(self, mock_page):
+        """asyncio.wait_for timeout MUST surface as JobDetailsFetchError so
+        the existing per-job catch in scraper.py:262 yields
+        `_detail_fetch_failed=True` and the loop continues. Letting it
+        surface as raw asyncio.TimeoutError would crash the whole batch.
+        This is the load-bearing change for the appleScraperHangFix —
+        without the bound, a stalled Apple response would hang the whole
+        scraper subprocess for 90 minutes (until SCRAPER_TIMEOUT_MINUTES).
+        """
+        async def _hang_forever(*args, **kwargs):
+            await asyncio.sleep(3600)
+
+        mock_page.evaluate = _hang_forever
+
+        # Patch the module-level timeout to a tiny value so the test runs
+        # fast without changing production behavior.
+        with patch.object(apple_api_client, "_FETCH_OUTER_TIMEOUT_S", 0.05):
+            with pytest.raises(JobDetailsFetchError) as exc_info:
+                await fetch_job_details(mock_page, "200640732-0836")
+
+        msg = str(exc_info.value).lower()
+        assert "timed out" in msg
+        assert "200640732-0836" in str(exc_info.value)
+
+    def test_fetch_js_payload_uses_abort_controller(self):
+        """Pin the in-page JS so a future refactor cannot silently strip
+        the AbortController. Without it, even with the Python-side
+        wait_for, the in-browser fetch could keep running and waste
+        Apple's edge resources (and could prevent page.evaluate from
+        cleaning up cleanly between jobs).
+        """
+        js = apple_api_client._FETCH_JS
+        assert "AbortController" in js
+        assert "ctrl.signal" in js
+        # Browser-side timeout must be passed in (not hardcoded in JS),
+        # so the Python module is the single source of truth.
+        assert "timeoutMs" in js
+        assert "setTimeout" in js
+        assert "clearTimeout" in js
+
+    @pytest.mark.asyncio
+    async def test_fetch_job_details_passes_timeout_into_js(self, mock_page):
+        """The JS payload receives the browser-side timeout from the
+        module-level constant — pin the wiring so a refactor that
+        accidentally drops the constant or hardcodes a value gets caught.
+        """
+        captured = {}
+
+        async def _evaluate(js, arg):
+            captured["js"] = js
+            captured["arg"] = arg
+            return {"res": {}}
+
+        mock_page.evaluate = _evaluate
+        await fetch_job_details(mock_page, "200640732-0836")
+
+        assert captured["arg"]["timeoutMs"] == apple_api_client._FETCH_BROWSER_TIMEOUT_MS
+        assert "200640732-0836" in captured["arg"]["url"]
 
 
 class TestParseApiResponse:

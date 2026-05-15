@@ -45,8 +45,6 @@ describe('dateUtils', () => {
         '30d',
         '90d',
         '180d',
-        '1y',
-        '2y',
       ];
 
       allWindows.forEach((window) => {
@@ -82,8 +80,6 @@ describe('dateUtils', () => {
         '30d',
         '90d',
         '180d',
-        '1y',
-        '2y',
       ];
 
       allWindows.forEach((window) => {
@@ -151,11 +147,10 @@ describe('dateUtils', () => {
       expect(formatBucketLabel(bucket, '90d')).toBe('Nov 26');
     });
 
-    it('should format long time windows with MMM yyyy', () => {
+    it('should format the all-time window with MMM yyyy', () => {
       const bucket = createBucket('2025-11-26T14:30:00Z');
 
-      expect(formatBucketLabel(bucket, '1y')).toBe('Nov 2025');
-      expect(formatBucketLabel(bucket, '2y')).toBe('Nov 2025');
+      expect(formatBucketLabel(bucket, 'all')).toBe('Nov 2025');
     });
   });
 

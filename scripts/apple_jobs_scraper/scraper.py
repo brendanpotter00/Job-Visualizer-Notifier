@@ -14,6 +14,13 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional, AsyncIterator
 from playwright.async_api import Page
 
+# Wait strategy for Apple's careers site. Apple emits continuous analytics
+# polling, so wait_until="networkidle" (the BaseScraper default) reliably
+# burns its 30s timeout before falling back to domcontentloaded. Going
+# straight to domcontentloaded saves ~30s per pagination step. See
+# docs/implementations/appleScraperHangFix/PLAN.md.
+_APPLE_GOTO_WAIT_UNTIL = "domcontentloaded"
+
 # Add shared module to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -54,6 +61,27 @@ class AppleJobsScraper(BaseScraper):
         delay = random.uniform(REQUEST_DELAY_MIN, REQUEST_DELAY_MAX)
         logger.debug(f"Waiting {delay:.2f} seconds before next request")
         await asyncio.sleep(delay)
+
+    async def navigate_to_page(self, page: Page, url: str, timeout: int = 30000):
+        """Apple-specific navigation: skip networkidle waiting.
+
+        Apple's careers site polls analytics endpoints continuously, so the
+        base class's `wait_until="networkidle"` always hits its timeout
+        before falling back. Use `domcontentloaded` directly — it fires as
+        soon as the HTML document is parsed, which is sufficient because
+        the job list `<ul>` is server-rendered.
+
+        Mirrors the base class's single-retry resilience so a transient
+        TLS/connection blip doesn't skip a full pagination step. Without
+        the retry, `scrape_query`'s outer consecutive_errors loop would
+        log the failure and walk to the next page number, silently
+        dropping ~20 jobs.
+        """
+        try:
+            await page.goto(url, wait_until=_APPLE_GOTO_WAIT_UNTIL, timeout=timeout)
+        except Exception as e:
+            logger.warning(f"Error navigating to {url}: {e}, retrying...")
+            await page.goto(url, wait_until=_APPLE_GOTO_WAIT_UNTIL, timeout=timeout)
 
     def get_company_name(self) -> str:
         """Return company identifier"""

@@ -75,6 +75,7 @@ function createLeverCompany(
 
 interface AshbyOptions extends FactoryOptions {
   jobBoardName?: string;
+  jobsUrl?: string;
 }
 
 interface GemOptions extends FactoryOptions {
@@ -124,7 +125,7 @@ function createAshbyCompany(
     name,
     ats: 'ashby',
     config,
-    jobsUrl: `https://careers.ashbyhq.com/${jobBoardName}`,
+    jobsUrl: options.jobsUrl ?? `https://careers.ashbyhq.com/${jobBoardName}`,
     recruiterLinkedInUrl: options.recruiterLinkedInUrl,
   };
 }
@@ -249,10 +250,6 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2219002862%22%5D',
   }),
-  createGreenhouseCompany('coinbase', 'Coinbase', {
-    recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%222857634%22%5D',
-  }),
   createGreenhouseCompany('robinhood', 'Robinhood', {
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring+software+engineer&origin=FACETED_SEARCH',
@@ -309,7 +306,7 @@ export const COMPANIES: Company[] = [
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%221124131%22%5D',
   }),
   createGreenhouseCompany('astranis', 'Astranis'),
-  createGreenhouseCompany('chalkinc', 'Chalk', {
+  createAshbyCompany('chalk', 'Chalk', {
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2278829224%22%5D',
   }),
@@ -333,23 +330,18 @@ export const COMPANIES: Company[] = [
   createGreenhouseCompany('gitlab', 'GitLab'),
   createGreenhouseCompany('unity3d', 'Unity'),
   createGreenhouseCompany('vercel', 'Vercel'),
+  createGreenhouseCompany('thinkingmachines', 'Thinking Machines'),
+  createGreenhouseCompany('togetherai', 'Together AI'),
+  createGreenhouseCompany('hightouch', 'Hightouch'),
 
   // Lever companies
   createLeverCompany('palantir', 'Palantir', {
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2220708%22%5D',
   }),
-  createLeverCompany('saronic', 'Saronic', {
-    recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2289680213%22%5D',
-  }),
   createLeverCompany('spotify', 'Spotify', {
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22207470%22%5D',
-  }),
-  createLeverCompany('plaid', 'Plaid', {
-    recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%222684737%22%5D',
   }),
   createLeverCompany('zoox', 'Zoox', {
     recruiterLinkedInUrl:
@@ -427,6 +419,23 @@ export const COMPANIES: Company[] = [
   createAshbyCompany('supabase', 'Supabase'),
   createAshbyCompany('wispr-flow', 'Wispr Flow', { jobBoardName: 'wispr-flow' }),
   createAshbyCompany('flint', 'Flint'),
+  createAshbyCompany('cursor', 'Cursor', { jobsUrl: 'https://cursor.com/careers' }),
+  createAshbyCompany('modal', 'Modal Labs'),
+  createAshbyCompany('langchain', 'LangChain'),
+  createAshbyCompany('cognition', 'Cognition'),
+  createAshbyCompany('paraform', 'Paraform'),
+  createAshbyCompany('judgmentlabs', 'Judgment Labs'),
+  createAshbyCompany('generalintelligencecompany', 'General Intelligence Company'),
+  createAshbyCompany('saronic', 'Saronic', {
+    jobsUrl: 'https://jobs.ashbyhq.com/saronic',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2289680213%22%5D',
+  }),
+  createAshbyCompany('plaid', 'Plaid', {
+    jobsUrl: 'https://jobs.ashbyhq.com/plaid',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%222684737%22%5D',
+  }),
 
   // Gem companies
   createGemCompany('nominal', 'Nominal'),
@@ -512,6 +521,11 @@ export const COMPANIES: Company[] = [
     tenantSlug: 'capitalone',
     careerSiteSlug: 'Capital_One',
   }),
+  createWorkdayCompany('paypal', 'PayPal', {
+    baseUrl: 'https://paypal.wd1.myworkdayjobs.com',
+    tenantSlug: 'paypal',
+    careerSiteSlug: 'jobs',
+  }),
 
   // Eightfold companies
   createEightfoldCompany(
@@ -561,13 +575,14 @@ export const enum COMPANY_IDS {
   Braintrust = 'braintrust',
   Browserbase = 'browserbase',
   CapitalOne = 'capitalone',
-  Chalk = 'chalkinc',
+  Chalk = 'chalk',
   Clear = 'clear',
   ClickUp = 'clickup',
   Cloudflare = 'cloudflare',
+  Cognition = 'cognition',
   Cohere = 'cohere',
-  Coinbase = 'coinbase',
   Crunchyroll = 'crunchyroll',
+  Cursor = 'cursor',
   Databricks = 'databricks',
   Decagon = 'decagon',
   Datadog = 'datadog',
@@ -584,6 +599,7 @@ export const enum COMPANY_IDS {
   Flint = 'flint',
   FireworksAI = 'fireworksai',
   FlowEngineering = 'flowengineering',
+  GeneralIntelligenceCompany = 'generalintelligencecompany',
   GeneralMotors = 'gm',
   GigaML = 'gigaml',
   GitLab = 'gitlab',
@@ -592,13 +608,17 @@ export const enum COMPANY_IDS {
   Granola = 'granola',
   Harvey = 'harvey',
   Happyrobot = 'happyrobot.ai',
+  Hightouch = 'hightouch',
   Instacart = 'instacart',
+  JudgmentLabs = 'judgmentlabs',
+  LangChain = 'langchain',
   Light = 'light',
   Linear = 'linear',
   Lyft = 'lyft',
   Merge = 'merge',
   Microsoft = 'microsoft',
   Mintlify = 'mintlify',
+  ModalLabs = 'modal',
   MongoDB = 'mongodb',
   Netflix = 'netflix',
   Neuralink = 'neuralink',
@@ -609,6 +629,8 @@ export const enum COMPANY_IDS {
   OpenAI = 'openai',
   Pallet = 'pallet',
   Palantir = 'palantir',
+  Paraform = 'paraform',
+  PayPal = 'paypal',
   Perplexity = 'perplexity',
   Pylon = 'pylon-labs',
   Pinterest = 'pinterest',
@@ -633,6 +655,8 @@ export const enum COMPANY_IDS {
   Stripe = 'stripe',
   Sunday = 'sunday',
   Supabase = 'supabase',
+  ThinkingMachines = 'thinkingmachines',
+  TogetherAI = 'togetherai',
   Traversal = 'traversal',
   Twilio = 'twilio',
   Turo = 'turo',

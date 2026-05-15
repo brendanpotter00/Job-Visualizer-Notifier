@@ -1,11 +1,34 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render as rtlRender, screen, waitFor } from '@testing-library/react';
+import type { ReactElement } from 'react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import { FetchProgressBar } from '../../../../components/companies-page/FetchProgressBar/FetchProgressBar';
 import * as useAllJobsProgressHook from '../../../../features/jobs/hooks/useAllJobsProgress';
 
 // Mock the custom hook
 vi.mock('../../../../features/jobs/hooks/useAllJobsProgress');
+
+const mockNavigate = vi.fn();
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
+  return {
+    ...actual,
+    useNavigate: () => mockNavigate,
+  };
+});
+
+function render(ui: ReactElement) {
+  return rtlRender(<MemoryRouter>{ui}</MemoryRouter>);
+}
+
+function renderAndRerender(ui: ReactElement) {
+  const result = rtlRender(<MemoryRouter>{ui}</MemoryRouter>);
+  return {
+    ...result,
+    rerender: (next: ReactElement) => result.rerender(<MemoryRouter>{next}</MemoryRouter>),
+  };
+}
 
 const mockDefaults = {
   isError: false,
@@ -31,6 +54,10 @@ function mockHook(overrides: Partial<useAllJobsProgressHook.UseAllJobsProgressRe
 }
 
 describe('FetchProgressBar', () => {
+  beforeEach(() => {
+    mockNavigate.mockClear();
+  });
+
   it('should return null when progress.total is 0', () => {
     mockHook({ isLoading: false, progress: { completed: 0, total: 0, percentComplete: 0, companies: [], completedCompanies: [], failedCompanies: [], pendingCompanies: [] } });
 
@@ -321,7 +348,7 @@ describe('FetchProgressBar', () => {
       },
     });
 
-    const { rerender } = render(<FetchProgressBar />);
+    const { rerender } = renderAndRerender(<FetchProgressBar />);
 
     // Should be expanded - detail chips visible
     expect(screen.getByText('Loading jobs from 1/2 companies')).toBeInTheDocument();
@@ -374,7 +401,7 @@ describe('FetchProgressBar', () => {
         },
       });
 
-      const { rerender } = render(<FetchProgressBar companyIdFilter={null} />);
+      const { rerender } = renderAndRerender(<FetchProgressBar companyIdFilter={null} />);
       expect(screen.getByText('Loading jobs from 3/3 companies')).toBeInTheDocument();
 
       rerender(<FetchProgressBar companyIdFilter={undefined} />);
@@ -488,5 +515,39 @@ describe('FetchProgressBar', () => {
 
     // Detail chips should be gone (unmountOnExit)
     expect(screen.queryByText('SpaceX (100)')).not.toBeInTheDocument();
+  });
+
+  describe('chip click navigation', () => {
+    it('navigates to the companies page with the clicked company id', async () => {
+      const user = userEvent.setup();
+
+      mockHook({
+        isLoading: true,
+        progress: {
+          completed: 3,
+          total: 3,
+          percentComplete: 100,
+          companies: [
+            { companyId: 'spacex', status: 'success' as const, jobCount: 100 },
+            { companyId: 'notion', status: 'error' as const, error: 'Failed' },
+            { companyId: 'anduril', status: 'pending' as const },
+          ],
+          completedCompanies: ['spacex'],
+          failedCompanies: ['notion'],
+          pendingCompanies: ['anduril'],
+        },
+      });
+
+      render(<FetchProgressBar />);
+
+      await user.click(screen.getByText('SpaceX (100)'));
+      expect(mockNavigate).toHaveBeenCalledWith('/companies?company=spacex');
+
+      await user.click(screen.getByText('Notion'));
+      expect(mockNavigate).toHaveBeenCalledWith('/companies?company=notion');
+
+      await user.click(screen.getByText('anduril'));
+      expect(mockNavigate).toHaveBeenCalledWith('/companies?company=anduril');
+    });
   });
 });

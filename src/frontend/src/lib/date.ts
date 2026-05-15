@@ -6,6 +6,10 @@ import { TIME_WINDOW_DURATIONS, BUCKET_SIZES, TIME_UNITS } from '../constants/ti
  * Calculate the 'since' timestamp for a given time window
  */
 export function calculateSinceTimestamp(timeWindow: TimeWindow): string {
+  if (timeWindow === 'all') {
+    return new Date(0).toISOString();
+  }
+
   const now = new Date();
   const durationMs = getTimeWindowDuration(timeWindow);
   const sinceDate = new Date(now.getTime() - durationMs);
@@ -42,7 +46,7 @@ export function formatBucketLabel(bucket: TimeBucket, timeWindow: TimeWindow): s
     return format(start, 'MMM d');
   }
 
-  // For long windows (1y, 2y), show month and year
+  // For the 'all' window, show month and year
   return format(start, 'MMM yyyy');
 }
 

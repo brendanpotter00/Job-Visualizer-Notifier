@@ -36,10 +36,10 @@ describe('RootLayout', () => {
       );
 
       // Check for app title from GlobalAppBar
-      expect(screen.getByText(APP_TITLE)).toBeInTheDocument();
+      expect(screen.getByLabelText(APP_TITLE)).toBeInTheDocument();
 
       // Check for navigation items from NavigationDrawer
-      expect(screen.getByText('Company Job Postings')).toBeInTheDocument();
+      expect(screen.getByText('Company Hiring Trends')).toBeInTheDocument();
 
       // Check for footer author name from AppFooter
       expect(screen.getByText('Brendan Potter')).toBeInTheDocument();
@@ -85,7 +85,7 @@ describe('RootLayout', () => {
 
       // On mobile, drawer starts closed - nav items should not be visible (modal is closed)
       // AppBar title should still be visible
-      expect(screen.getByText(APP_TITLE)).toBeInTheDocument();
+      expect(screen.getByLabelText(APP_TITLE)).toBeInTheDocument();
     });
   });
 
@@ -175,7 +175,7 @@ describe('RootLayout', () => {
       );
 
       // AppBar should exist with title
-      expect(screen.getByText(APP_TITLE)).toBeInTheDocument();
+      expect(screen.getByLabelText(APP_TITLE)).toBeInTheDocument();
     });
 
     it('NavigationDrawer receives navigation items', () => {
@@ -188,7 +188,7 @@ describe('RootLayout', () => {
       );
 
       // Navigation items should be present
-      expect(screen.getByText('Company Job Postings')).toBeInTheDocument();
+      expect(screen.getByText('Company Hiring Trends')).toBeInTheDocument();
       expect(screen.getByText('Recent Job Postings')).toBeInTheDocument();
     });
   });

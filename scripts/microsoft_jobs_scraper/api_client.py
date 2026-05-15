@@ -5,6 +5,7 @@ Microsoft's career site uses Eightfold ATS which provides JSON APIs
 for job search and details. This module handles all API interactions.
 """
 
+import asyncio
 import re
 import logging
 from typing import Dict, Any, Optional, List
@@ -13,6 +14,35 @@ from playwright.async_api import Page
 from .config import BASE_URL, API_BASE, DOMAIN, LOCATION_FILTER
 
 logger = logging.getLogger(__name__)
+
+# Bound the in-browser fetch. Mirrors the Apple fix — Microsoft uses the
+# same page.evaluate(fetch) pattern and is currently healthy, but a future
+# Eightfold/edge slowdown would otherwise cause the same silent 90-min
+# hang we saw on Apple. See docs/implementations/appleScraperHangFix/PLAN.md.
+_FETCH_BROWSER_TIMEOUT_MS = 15_000
+_FETCH_OUTER_TIMEOUT_S = 20.0
+
+# JS payload that runs inside the page context. AbortController + setTimeout
+# bound the in-page fetch; the Python-side asyncio.wait_for is the
+# belt-and-suspenders if the JS abort doesn't propagate.
+_FETCH_JS = """
+async ({url, timeoutMs, headers}) => {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+        const r = await fetch(url, { headers, signal: ctrl.signal });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return await r.json();
+    } finally {
+        clearTimeout(t);
+    }
+}
+"""
+
+_JSON_HEADERS = {
+    "Accept": "application/json",
+    "Content-Type": "application/json",
+}
 
 
 class JobSearchError(Exception):
@@ -74,26 +104,28 @@ async def fetch_search_results(
     )
 
     try:
-        response = await page.evaluate(
-            """
-            async (url) => {
-                const response = await fetch(url, {
-                    headers: {
-                        'Accept': 'application/json',
-                        'Content-Type': 'application/json'
-                    }
-                });
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`);
-                }
-                return await response.json();
-            }
-            """,
-            api_url,
+        response = await asyncio.wait_for(
+            page.evaluate(
+                _FETCH_JS,
+                {
+                    "url": api_url,
+                    "timeoutMs": _FETCH_BROWSER_TIMEOUT_MS,
+                    "headers": _JSON_HEADERS,
+                },
+            ),
+            timeout=_FETCH_OUTER_TIMEOUT_S,
         )
 
         return _parse_search_response(response)
 
+    except asyncio.TimeoutError as e:
+        logger.error(
+            "Search outer timeout (start=%d) after %.0fs",
+            start, _FETCH_OUTER_TIMEOUT_S,
+        )
+        raise JobSearchError(
+            f"Search timed out after {_FETCH_OUTER_TIMEOUT_S}s"
+        ) from e
     except Exception as e:
         logger.error(f"Error fetching search results: {e}")
         raise JobSearchError(f"Failed to fetch search results: {e}") from e
@@ -221,26 +253,28 @@ async def fetch_job_details(page: Page, position_id: str) -> Dict[str, Any]:
     )
 
     try:
-        response = await page.evaluate(
-            """
-            async (url) => {
-                const response = await fetch(url, {
-                    headers: {
-                        'Accept': 'application/json',
-                        'Content-Type': 'application/json'
-                    }
-                });
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`);
-                }
-                return await response.json();
-            }
-            """,
-            api_url,
+        response = await asyncio.wait_for(
+            page.evaluate(
+                _FETCH_JS,
+                {
+                    "url": api_url,
+                    "timeoutMs": _FETCH_BROWSER_TIMEOUT_MS,
+                    "headers": _JSON_HEADERS,
+                },
+            ),
+            timeout=_FETCH_OUTER_TIMEOUT_S,
         )
 
         return _parse_details_response(response, position_id)
 
+    except asyncio.TimeoutError as e:
+        logger.error(
+            "Detail fetch outer timeout for job %s after %.0fs",
+            position_id, _FETCH_OUTER_TIMEOUT_S,
+        )
+        raise JobDetailsFetchError(
+            f"Detail fetch timed out for job {position_id} after {_FETCH_OUTER_TIMEOUT_S}s"
+        ) from e
     except Exception as e:
         logger.error(f"Error fetching job details for {position_id}: {e}")
         raise JobDetailsFetchError(f"Failed to fetch details for job {position_id}: {e}") from e
