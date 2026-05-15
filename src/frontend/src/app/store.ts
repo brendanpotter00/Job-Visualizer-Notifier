@@ -7,6 +7,7 @@ import uiReducer from '../features/ui/uiSlice';
 import enabledCompaniesReducer from '../features/preferences/enabledCompaniesSlice';
 import { jobsApi } from '../features/jobs/jobsApi';
 import { featuresApi } from '../features/features/featuresApi';
+import { adminApi } from '../features/admin/adminApi';
 import { getTokenOrNull } from '../features/features/getTokenOrNull';
 
 export const store = configureStore({
@@ -19,13 +20,15 @@ export const store = configureStore({
     enabledCompanies: enabledCompaniesReducer,
     [jobsApi.reducerPath]: jobsApi.reducer,
     [featuresApi.reducerPath]: featuresApi.reducer,
+    [adminApi.reducerPath]: adminApi.reducer,
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({
       thunk: { extraArgument: { getTokenOrNull } },
     })
       .concat(jobsApi.middleware)
-      .concat(featuresApi.middleware),
+      .concat(featuresApi.middleware)
+      .concat(adminApi.middleware),
 });
 
 /**

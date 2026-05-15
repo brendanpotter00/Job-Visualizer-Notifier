@@ -223,14 +223,25 @@ def _insert_user(conn, user: dict) -> None:
 def _clear_tables(conn) -> None:
     """Truncate test tables between tests."""
     cursor = conn.cursor()
-    cursor.execute(sql.SQL("TRUNCATE {}, {}, {}, {}, {}, {} CASCADE").format(
+    cursor.execute(sql.SQL("TRUNCATE {}, {}, {}, {}, {}, {}, {} CASCADE").format(
         sql.Identifier("feature_upvotes"),
         sql.Identifier("features"),
         sql.Identifier("user_enabled_companies"),
         sql.Identifier("job_listings"),
         sql.Identifier("scrape_runs"),
+        sql.Identifier("admins"),
         sql.Identifier("users"),
     ))
+    conn.commit()
+
+
+def _insert_admin(conn, user_id: str) -> None:
+    """Grant admin status to an existing user row."""
+    cursor = conn.cursor()
+    cursor.execute(
+        sql.SQL("INSERT INTO {} (user_id) VALUES (%s)").format(sql.Identifier("admins")),
+        (user_id,),
+    )
     conn.commit()
 
 
@@ -243,15 +254,20 @@ def clean_tables(db_conn):
 @pytest.fixture(scope="module")
 def test_app(db_conn):
     """FastAPI test app with database connection wired up (no auto-scraper)."""
-    from api.routers import features, jobs, jobs_qa, users
+    from api.routers import admin, features, jobs, jobs_qa, users
     from api.dependencies import get_db
-    from api.auth.dependencies import get_current_user, get_optional_user
+    from api.auth.dependencies import (
+        get_current_user,
+        get_optional_user,
+        require_admin,
+    )
 
     app = FastAPI()
     app.include_router(jobs.router, prefix="/api/jobs")
     app.include_router(jobs_qa.router, prefix="/api/jobs-qa")
     app.include_router(users.router, prefix="/api/users")
     app.include_router(features.router, prefix="/api/features")
+    app.include_router(admin.router, prefix="/api/admin")
 
     @app.get("/health")
     def health():
@@ -263,13 +279,18 @@ def test_app(db_conn):
         yield db_conn
 
     app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_current_user] = lambda: {
+    _test_claims = {
         "sub": "auth0|test_user_123",
         "email": "test@example.com",
         "given_name": "Test",
         "family_name": "User",
         "picture": "https://example.com/photo.jpg",
     }
+    app.dependency_overrides[get_current_user] = lambda: _test_claims
+    # Default test user is admin so existing jobs_qa/router tests don't need
+    # to set up an admin grant per test. Tests that exercise the admin gate
+    # (test_admin_router) pop this override and verify 403 / 401 paths.
+    app.dependency_overrides[require_admin] = lambda: _test_claims
 
     # Provide a minimal config for trigger-scrape
     from api.config import Settings

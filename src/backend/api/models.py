@@ -99,6 +99,7 @@ class UserResponse(BaseModel):
     picture_url: str | None = None
     created_at: str
     updated_at: str
+    is_admin: bool = False
 
 
 class UserUpdateRequest(BaseModel):
@@ -142,3 +143,31 @@ class FeatureUpvoteStateResponse(BaseModel):
     feature_id: str
     upvote_count: int = Field(ge=0)
     has_upvoted: bool
+
+
+class AdminUserRow(BaseModel):
+    """One row in the admin Users page roster."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    id: str
+    email: str
+    display_name: str | None = None
+    signup_provider: Literal["google", "email", "other"]
+    created_at: str
+    is_admin: bool
+
+
+class AdminUsersListResponse(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    users: list[AdminUserRow]
+
+
+class AdminUsersStatsResponse(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    total_users: int = Field(ge=0)
+    first_signup_at: str | None = None
+    latest_signup_at: str | None = None
+    by_provider: dict[str, int]

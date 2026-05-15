@@ -35,7 +35,7 @@ class TestGetMe:
         data = resp.json()
         expected_keys = {
             "id", "providerSubject", "email", "displayName", "givenName",
-            "familyName", "pictureUrl", "createdAt", "updatedAt",
+            "familyName", "pictureUrl", "createdAt", "updatedAt", "isAdmin",
         }
         assert set(data.keys()) == expected_keys
 

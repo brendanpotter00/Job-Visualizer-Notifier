@@ -6,6 +6,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request
 from fastapi.responses import JSONResponse
 from psycopg2.extensions import connection as Connection
 
+from ..auth.dependencies import TokenClaims, require_admin
 from ..dependencies import get_db
 from ..models import COMPANY_PATTERN, JobsStatsResponse, CompanyCountResponse, ScrapeRunResponse
 from ..services.database import get_stats, get_scrape_runs
@@ -19,9 +20,10 @@ router = APIRouter()
 @router.get("/stats", response_model=JobsStatsResponse)
 def stats(
     conn: Connection = Depends(get_db),
+    _admin: TokenClaims = Depends(require_admin),
     company: str | None = Query(default=None, pattern=COMPANY_PATTERN),
 ):
-    """Get job statistics with optional company filter."""
+    """Get job statistics with optional company filter. Admin-only."""
     data = get_stats(conn, company=company)
     return JobsStatsResponse(
         total_jobs=data["total_jobs"],
@@ -34,10 +36,11 @@ def stats(
 @router.get("/scrape-runs", response_model=list[ScrapeRunResponse])
 def scrape_runs(
     conn: Connection = Depends(get_db),
+    _admin: TokenClaims = Depends(require_admin),
     company: str | None = Query(default=None, pattern=COMPANY_PATTERN),
     limit: int = Query(default=20, ge=1, le=1000),
 ):
-    """Get scrape run history."""
+    """Get scrape run history. Admin-only."""
     runs = get_scrape_runs(conn, company=company, limit=limit)
     return [ScrapeRunResponse(**r) for r in runs]
 
@@ -46,9 +49,10 @@ def scrape_runs(
 async def trigger_scrape(
     request: Request,
     background_tasks: BackgroundTasks,
+    _admin: TokenClaims = Depends(require_admin),
     company: str = Query(default="google", pattern=COMPANY_PATTERN),
 ):
-    """Trigger a scrape run in the background. Returns 202 immediately."""
+    """Trigger a scrape run in the background. Returns 202 immediately. Admin-only."""
     from ..services.scraper_runner import run_scraper
 
     if scraper_lock.locked():
