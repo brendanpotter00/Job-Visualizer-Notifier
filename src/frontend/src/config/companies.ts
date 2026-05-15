@@ -521,6 +521,11 @@ export const COMPANIES: Company[] = [
     tenantSlug: 'capitalone',
     careerSiteSlug: 'Capital_One',
   }),
+  createWorkdayCompany('paypal', 'PayPal', {
+    baseUrl: 'https://paypal.wd1.myworkdayjobs.com',
+    tenantSlug: 'paypal',
+    careerSiteSlug: 'jobs',
+  }),
 
   // Eightfold companies
   createEightfoldCompany(
@@ -625,6 +630,7 @@ export const enum COMPANY_IDS {
   Pallet = 'pallet',
   Palantir = 'palantir',
   Paraform = 'paraform',
+  PayPal = 'paypal',
   Perplexity = 'perplexity',
   Pylon = 'pylon-labs',
   Pinterest = 'pinterest',
