@@ -20,7 +20,7 @@ class TestLifespanHappyPath:
     def test_apply_migrations_called_with_settings_then_init_pool(self):
         call_order: list[str] = []
 
-        def _fake_apply(database_url, env):
+        def _fake_apply(database_url):
             call_order.append("apply")
 
         def _fake_init(*args, **kwargs):
@@ -60,9 +60,7 @@ class TestLifespanHappyPath:
                 # lifespan succeeded enough for the app to handle a request.
                 assert response.status_code in (200, 503)
 
-        mock_apply.assert_called_once_with(
-            settings.database_url, settings.scraper_environment
-        )
+        mock_apply.assert_called_once_with(settings.database_url)
         mock_init.assert_called_once()
         # apply must precede init, and init must precede the auto-scraper
         # background task. Any reordering is a regression that could
@@ -132,7 +130,7 @@ class TestLifespanSeedFailureGuard:
         return _gen()
 
     def test_psycopg2_error_during_seed_does_not_prevent_app_boot(self):
-        def _failing_seed(conn, env):
+        def _failing_seed(conn):
             raise psycopg2.OperationalError("seed boom")
 
         # Patch at the source module — main.py imports the function
@@ -174,7 +172,7 @@ class TestLifespanSeedFailureGuard:
         branches of `(psycopg2.Error, RuntimeError)` must keep the app
         alive.
         """
-        def _failing_seed(conn, env):
+        def _failing_seed(conn):
             raise RuntimeError("simulated get_db failure")
 
         with patch(

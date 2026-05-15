@@ -1,24 +1,20 @@
-"""SQLAlchemy declarative models mirroring the post-migration-0005 schema.
+"""SQLAlchemy declarative models mirroring the post-envAgnosticTables schema.
 
 This module exists so Alembic's autogenerate can diff the live Postgres schema
 against the model metadata. It is not used for application queries — the app
 continues to use raw psycopg2 via scripts/shared/database.py.
 
-Tables are environment-suffixed (job_listings_{env}, users_{env}, etc.)
-matching the repo's existing naming convention. The env is read at import
-time from SCRAPER_ENVIRONMENT; validation mirrors
-scripts/shared/database._is_valid_env so the same allow-list applies here.
+Tables are bare-named (no `_{env}` suffix). Test isolation is handled by the
+PYTEST_SCHEMA Postgres-schema mechanism in scripts/shared/database.get_connection
+and src/backend/api/dependencies.get_db.
 
-Any schema contract to update here is derived from reading migrations 0001-0005
-under scripts/shared/migrations/. Discrepancies between this file and the real
+Any schema contract to update here is derived from reading migrations under
+src/backend/alembic/versions/. Discrepancies between this file and the real
 schema are caught by the Unit 3 parity test and resolved by editing this file,
-never by editing the frozen migrations.
+never by editing frozen migrations.
 """
 
 from __future__ import annotations
-
-import os
-import re
 
 from sqlalchemy import (
     Boolean,
@@ -36,27 +32,11 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import declarative_base
 
-_ALLOWED_ENVS = frozenset({"local", "qa", "prod"})
-_TEST_ENV_PATTERN = re.compile(r"^test_[a-f0-9]{8}$")
-
-
-def _resolve_env() -> str:
-    env = os.environ.get("SCRAPER_ENVIRONMENT", "local")
-    if env in _ALLOWED_ENVS or _TEST_ENV_PATTERN.match(env):
-        return env
-    raise ValueError(
-        f"Invalid SCRAPER_ENVIRONMENT for db_models: {env!r}. "
-        f"Must be one of {sorted(_ALLOWED_ENVS)} or match ^test_[a-f0-9]{{8}}$."
-    )
-
-
-_ENV = _resolve_env()
-
 Base = declarative_base()
 
 
 class JobListing(Base):
-    __tablename__ = f"job_listings_{_ENV}"
+    __tablename__ = "job_listings"
 
     id = Column(Text, primary_key=True)
     title = Column(Text, nullable=False)
@@ -77,14 +57,14 @@ class JobListing(Base):
     details_scraped = Column(Boolean, server_default=text("false"))
 
     __table_args__ = (
-        Index(f"idx_job_listings_{_ENV}_status", "status"),
-        Index(f"idx_job_listings_{_ENV}_company", "company"),
-        Index(f"idx_job_listings_{_ENV}_last_seen", "last_seen_at"),
+        Index("idx_job_listings_status", "status"),
+        Index("idx_job_listings_company", "company"),
+        Index("idx_job_listings_last_seen", "last_seen_at"),
     )
 
 
 class ScrapeRun(Base):
-    __tablename__ = f"scrape_runs_{_ENV}"
+    __tablename__ = "scrape_runs"
 
     run_id = Column(Text, primary_key=True)
     company = Column(Text, nullable=False)
@@ -99,7 +79,7 @@ class ScrapeRun(Base):
 
 
 class User(Base):
-    __tablename__ = f"users_{_ENV}"
+    __tablename__ = "users"
 
     id = Column(Text, primary_key=True)
     auth0_id = Column(Text, nullable=False, unique=True)
@@ -112,18 +92,18 @@ class User(Base):
     updated_at = Column(Text, nullable=False)
 
     __table_args__ = (
-        UniqueConstraint("email", name=f"users_{_ENV}_email_key"),
-        Index(f"idx_users_{_ENV}_auth0_id", "auth0_id"),
-        Index(f"idx_users_{_ENV}_email", "email"),
+        UniqueConstraint("email", name="users_email_key"),
+        Index("idx_users_auth0_id", "auth0_id"),
+        Index("idx_users_email", "email"),
     )
 
 
 class UserEnabledCompany(Base):
-    __tablename__ = f"user_enabled_companies_{_ENV}"
+    __tablename__ = "user_enabled_companies"
 
     user_id = Column(
         Text,
-        ForeignKey(f"users_{_ENV}.id", ondelete="CASCADE"),
+        ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
     )
     company_id = Column(Text, nullable=False)
@@ -133,12 +113,12 @@ class UserEnabledCompany(Base):
 
     __table_args__ = (
         PrimaryKeyConstraint("user_id", "company_id"),
-        Index(f"idx_user_enabled_companies_{_ENV}_user_id", "user_id"),
+        Index("idx_user_enabled_companies_user_id", "user_id"),
     )
 
 
 class Feature(Base):
-    __tablename__ = f"features_{_ENV}"
+    __tablename__ = "features"
 
     id = Column(Text, primary_key=True)
     title = Column(Text, nullable=False)
@@ -149,16 +129,16 @@ class Feature(Base):
 
 
 class FeatureUpvote(Base):
-    __tablename__ = f"feature_upvotes_{_ENV}"
+    __tablename__ = "feature_upvotes"
 
     feature_id = Column(
         Text,
-        ForeignKey(f"features_{_ENV}.id", ondelete="CASCADE"),
+        ForeignKey("features.id", ondelete="CASCADE"),
         nullable=False,
     )
     user_id = Column(
         Text,
-        ForeignKey(f"users_{_ENV}.id", ondelete="CASCADE"),
+        ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
     )
     created_at = Column(
@@ -167,6 +147,6 @@ class FeatureUpvote(Base):
 
     __table_args__ = (
         PrimaryKeyConstraint("feature_id", "user_id"),
-        Index(f"idx_feature_upvotes_{_ENV}_feature_id", "feature_id"),
-        Index(f"idx_feature_upvotes_{_ENV}_user_id", "user_id"),
+        Index("idx_feature_upvotes_feature_id", "feature_id"),
+        Index("idx_feature_upvotes_user_id", "user_id"),
     )

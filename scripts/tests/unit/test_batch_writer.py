@@ -33,10 +33,9 @@ class TestBatchWriterInit:
         mock_conn = MagicMock()
         mock_scraper = MagicMock()
 
-        writer = BatchWriter(mock_conn, "test", mock_scraper)
+        writer = BatchWriter(mock_conn, mock_scraper)
 
         assert writer.db_conn == mock_conn
-        assert writer.env == "test"
         assert writer.scraper == mock_scraper
         assert writer.batch_size == 50
         assert writer.detail_scrape is True
@@ -49,7 +48,7 @@ class TestBatchWriterInit:
         mock_scraper = MagicMock()
 
         writer = BatchWriter(
-            mock_conn, "prod", mock_scraper,
+            mock_conn, mock_scraper,
             batch_size=100,
             detail_scrape=False,
             use_upsert=False
@@ -65,7 +64,7 @@ class TestBatchWriterInit:
         mock_scraper = MagicMock()
 
         with pytest.raises(ValueError) as exc_info:
-            BatchWriter(mock_conn, "test", mock_scraper, batch_size=0)
+            BatchWriter(mock_conn, mock_scraper, batch_size=0)
 
         assert "batch_size must be positive" in str(exc_info.value)
 
@@ -75,7 +74,7 @@ class TestBatchWriterInit:
         mock_scraper = MagicMock()
 
         with pytest.raises(ValueError) as exc_info:
-            BatchWriter(mock_conn, "test", mock_scraper, batch_size=-5)
+            BatchWriter(mock_conn, mock_scraper, batch_size=-5)
 
         assert "batch_size must be positive" in str(exc_info.value)
 
@@ -105,7 +104,7 @@ class TestBatchWriterAdd:
             details_scraped=False
         )
 
-        writer = BatchWriter(mock_conn, "test", mock_scraper, batch_size=10)
+        writer = BatchWriter(mock_conn, mock_scraper, batch_size=10)
         writer.add_job({"id": "job-001", "title": "Test Job"}, "2024-01-15T10:30:00Z")
 
         assert writer.get_buffer_size() == 1
@@ -134,7 +133,7 @@ class TestBatchWriterAdd:
         )
         mock_scraper.transform_to_job_model.return_value = job
 
-        writer = BatchWriter(mock_conn, "test", mock_scraper, batch_size=10)
+        writer = BatchWriter(mock_conn, mock_scraper, batch_size=10)
         writer.add_job({"id": "job-001"}, "2024-01-20T12:00:00Z")
 
         # Check that timestamps were set
@@ -165,7 +164,7 @@ class TestBatchWriterAdd:
         mock_scraper.transform_to_job_model.return_value = job
 
         # With detail_scrape=True (default)
-        writer = BatchWriter(mock_conn, "test", mock_scraper, batch_size=10, detail_scrape=True)
+        writer = BatchWriter(mock_conn, mock_scraper, batch_size=10, detail_scrape=True)
         writer.add_job({"id": "job-001"}, "2024-01-20T12:00:00Z")
         assert writer._buffer[0].details_scraped is True
 
@@ -175,7 +174,7 @@ class TestBatchWriterAdd:
         mock_scraper = MagicMock()
         mock_scraper.transform_to_job_model.side_effect = ValueError("Transform failed")
 
-        writer = BatchWriter(mock_conn, "test", mock_scraper, batch_size=10)
+        writer = BatchWriter(mock_conn, mock_scraper, batch_size=10)
         writer.add_job({"id": "job-001"}, "2024-01-20T12:00:00Z")
 
         assert writer.get_buffer_size() == 0
@@ -191,7 +190,7 @@ class TestBatchWriterFlush:
         mock_conn = MagicMock()
         mock_scraper = MagicMock()
 
-        writer = BatchWriter(mock_conn, "test", mock_scraper)
+        writer = BatchWriter(mock_conn, mock_scraper)
         result = writer.flush()
 
         assert result == 0
@@ -222,7 +221,7 @@ class TestBatchWriterFlush:
         mock_scraper.transform_to_job_model.return_value = job
         mock_db.upsert_jobs_batch.return_value = 1
 
-        writer = BatchWriter(mock_conn, "test", mock_scraper, batch_size=10, use_upsert=True)
+        writer = BatchWriter(mock_conn, mock_scraper, batch_size=10, use_upsert=True)
         writer.add_job({"id": "job-001"}, "2024-01-15T10:30:00Z")
         result = writer.flush()
 
@@ -256,7 +255,7 @@ class TestBatchWriterFlush:
         mock_scraper.transform_to_job_model.return_value = job
         mock_db.insert_jobs_batch.return_value = 1
 
-        writer = BatchWriter(mock_conn, "test", mock_scraper, batch_size=10, use_upsert=False)
+        writer = BatchWriter(mock_conn, mock_scraper, batch_size=10, use_upsert=False)
         writer.add_job({"id": "job-001"}, "2024-01-15T10:30:00Z")
         result = writer.flush()
 
@@ -288,7 +287,7 @@ class TestBatchWriterFlush:
         mock_scraper.transform_to_job_model.return_value = job
         mock_db.upsert_jobs_batch.return_value = 1
 
-        writer = BatchWriter(mock_conn, "test", mock_scraper, batch_size=10)
+        writer = BatchWriter(mock_conn, mock_scraper, batch_size=10)
         writer.add_job({"id": "job-001"}, "2024-01-15T10:30:00Z")
         assert writer.get_buffer_size() == 1
 
@@ -327,7 +326,7 @@ class TestBatchWriterAutoFlush:
         mock_scraper.transform_to_job_model.side_effect = create_job
         mock_db.upsert_jobs_batch.return_value = 3
 
-        writer = BatchWriter(mock_conn, "test", mock_scraper, batch_size=3)
+        writer = BatchWriter(mock_conn, mock_scraper, batch_size=3)
 
         # Add 3 jobs - should trigger auto-flush
         writer.add_job({"id": "job-001"}, "2024-01-15T10:30:00Z")
@@ -373,7 +372,7 @@ class TestBatchWriterFallback:
         # Individual upsert succeeds
         mock_db.upsert_job.return_value = True
 
-        writer = BatchWriter(mock_conn, "test", mock_scraper, batch_size=10, use_upsert=True)
+        writer = BatchWriter(mock_conn, mock_scraper, batch_size=10, use_upsert=True)
         writer.add_job({"id": "job-001"}, "2024-01-15T10:30:00Z")
         result = writer.flush()
 
@@ -416,7 +415,7 @@ class TestBatchWriterFallback:
         # First individual succeeds, second fails
         mock_db.upsert_job.side_effect = [True, Exception("Individual failed")]
 
-        writer = BatchWriter(mock_conn, "test", mock_scraper, batch_size=10)
+        writer = BatchWriter(mock_conn, mock_scraper, batch_size=10)
         writer.add_job({"id": "job-001"}, "2024-01-15T10:30:00Z")
         writer.add_job({"id": "job-002"}, "2024-01-15T10:30:00Z")
         result = writer.flush()
@@ -434,7 +433,7 @@ class TestBatchWriterBufferSize:
         """Returns 0 for empty buffer"""
         mock_conn = MagicMock()
         mock_scraper = MagicMock()
-        writer = BatchWriter(mock_conn, "test", mock_scraper)
+        writer = BatchWriter(mock_conn, mock_scraper)
         assert writer.get_buffer_size() == 0
 
     def test_get_buffer_size_after_adds(self):
@@ -463,7 +462,7 @@ class TestBatchWriterBufferSize:
 
         mock_scraper.transform_to_job_model.side_effect = create_job
 
-        writer = BatchWriter(mock_conn, "test", mock_scraper, batch_size=100)
+        writer = BatchWriter(mock_conn, mock_scraper, batch_size=100)
         writer.add_job({"id": "job-001"}, "2024-01-15T10:30:00Z")
         writer.add_job({"id": "job-002"}, "2024-01-15T10:30:00Z")
 

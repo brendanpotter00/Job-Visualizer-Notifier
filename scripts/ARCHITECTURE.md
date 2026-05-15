@@ -277,35 +277,35 @@ The `shared/` directory contains reusable components for multi-company scraper s
 **Purpose:** Database abstraction layer supporting SQLite (local) and PostgreSQL (production).
 
 **Connection Management:**
-- `get_connection(db_url, env) -> Connection` - Create DB connection from URL
+- `get_connection(db_url) -> Connection` - Create DB connection from URL
   - SQLite: `sqlite:///path/to/file.db`
   - PostgreSQL: `postgresql://user:pass@host:port/dbname`
-- Schema is managed by Alembic (see `src/backend/alembic/` and `docs/implementations/alembicMigration/DEPLOY.md`); this module no longer creates tables.
+- Schema is managed by Alembic (see `src/backend/alembic/` and `docs/implementations/envAgnosticTables/DEPLOY.md`); this module no longer creates tables. Table names are env-agnostic — bare names across every environment.
 
 **Schema:**
-- `job_listings_{env}` table:
+- `job_listings` table:
   - Primary: id, title, company, location, url, source_id
   - Details: details (JSONB), posted_on, created_at, closed_on
   - Status: status, has_matched, ai_metadata (JSONB)
   - Incremental: first_seen_at, last_seen_at, consecutive_misses, details_scraped
-- `scrape_runs_{env}` table:
+- `scrape_runs` table:
   - Metadata: run_id, company, started_at, completed_at, mode
   - Statistics: jobs_seen, new_jobs, closed_jobs, details_fetched, error_count
 
 **Query Operations:**
-- `get_active_job_ids(conn, company, env) -> Set[str]` - Get all OPEN job IDs
-- `get_job_by_id(conn, job_id, env) -> JobListing` - Retrieve job by ID
-- `get_all_active_jobs(conn, company, env) -> List[JobListing]` - Fetch all OPEN jobs
-- `insert_job(conn, job, env)` - Insert new job (with upsert logic)
+- `get_active_job_ids(conn, company) -> Set[str]` - Get all OPEN job IDs
+- `get_job_by_id(conn, job_id) -> JobListing` - Retrieve job by ID
+- `get_all_active_jobs(conn, company) -> List[JobListing]` - Fetch all OPEN jobs
+- `insert_job(conn, job)` - Insert new job (with upsert logic)
 
 **Status Updates:**
-- `update_last_seen(conn, job_ids, env)` - Update timestamp, reset consecutive_misses
-- `increment_consecutive_misses(conn, job_ids, env)` - Track missing jobs
-- `mark_jobs_closed(conn, job_ids, env)` - Mark jobs as CLOSED
-- `reactivate_job(conn, job_id, env)` - Reopen closed jobs if they reappear
+- `update_last_seen(conn, job_ids)` - Update timestamp, reset consecutive_misses
+- `increment_consecutive_misses(conn, job_ids)` - Track missing jobs
+- `mark_jobs_closed(conn, job_ids)` - Mark jobs as CLOSED
+- `reactivate_job(conn, job_id)` - Reopen closed jobs if they reappear
 
 **Audit Trail:**
-- `record_scrape_run(conn, run_data, env)` - Log scrape execution metadata
+- `record_scrape_run(conn, run_data)` - Log scrape execution metadata
 
 **Features:**
 - JSON serialization/deserialization for JSONB fields
@@ -408,11 +408,11 @@ The scraper supports dual-mode operation: JSON output (legacy) and database pers
 - Stores jobs in relational database (SQLite or PostgreSQL)
 - Supports incremental scraping
 - Tracks job lifecycle (open → missing → closed)
-- Environment-based table naming
+- Env-agnostic table naming (bare names across all environments)
 
 ### Database Schema
 
-**job_listings_{env} Table:**
+**job_listings Table:**
 | Column | Type | Description |
 |--------|------|-------------|
 | id | TEXT PRIMARY KEY | Job ID from URL |
@@ -433,7 +433,7 @@ The scraper supports dual-mode operation: JSON output (legacy) and database pers
 | consecutive_misses | INTEGER | Counter for disappearances |
 | details_scraped | BOOLEAN | Whether detail page fetched |
 
-**scrape_runs_{env} Table:**
+**scrape_runs Table:**
 | Column | Type | Description |
 |--------|------|-------------|
 | run_id | TEXT PRIMARY KEY | Unique run identifier |

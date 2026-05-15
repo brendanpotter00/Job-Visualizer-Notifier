@@ -1,5 +1,5 @@
-"""Feature voting service. Table names follow the ``{name}_{env}`` convention
-(see ``user_preferences_service._table`` for the same pattern).
+"""Feature voting service backed by the bare-named ``features`` and
+``feature_upvotes`` tables.
 
 Idempotency:
 - ``add_upvote`` uses ``INSERT ... ON CONFLICT DO NOTHING`` on the composite
@@ -23,19 +23,13 @@ class FeatureNotFound(Exception):
     """Raised when an upvote mutation targets a feature_id that doesn't exist."""
 
 
-def _features_table(env: str) -> str:
-    return f"features_{env}"
-
-
-def _upvotes_table(env: str) -> str:
-    return f"feature_upvotes_{env}"
+_FEATURES = sql.Identifier("features")
+_UPVOTES = sql.Identifier("feature_upvotes")
 
 
 def list_features_with_upvotes(
-    conn: Connection, env: str, user_id: str | None
+    conn: Connection, user_id: str | None
 ) -> list[dict]:
-    features = sql.Identifier(_features_table(env))
-    upvotes = sql.Identifier(_upvotes_table(env))
     cursor = conn.cursor()
 
     if user_id is None:
@@ -48,7 +42,7 @@ def list_features_with_upvotes(
                 " LEFT JOIN {upvotes} AS u ON u.feature_id = f.id"
                 " GROUP BY f.id"
                 " ORDER BY f.created_at ASC, f.id ASC"
-            ).format(features=features, upvotes=upvotes)
+            ).format(features=_FEATURES, upvotes=_UPVOTES)
         )
     else:
         cursor.execute(
@@ -60,7 +54,7 @@ def list_features_with_upvotes(
                 " LEFT JOIN {upvotes} AS u ON u.feature_id = f.id"
                 " GROUP BY f.id"
                 " ORDER BY f.created_at ASC, f.id ASC"
-            ).format(features=features, upvotes=upvotes),
+            ).format(features=_FEATURES, upvotes=_UPVOTES),
             (user_id,),
         )
     rows = cursor.fetchall()
@@ -77,42 +71,36 @@ def list_features_with_upvotes(
     ]
 
 
-def _feature_exists(cursor, env: str, feature_id: str) -> bool:
+def _feature_exists(cursor, feature_id: str) -> bool:
     cursor.execute(
-        sql.SQL("SELECT 1 FROM {} WHERE id = %s").format(
-            sql.Identifier(_features_table(env))
-        ),
+        sql.SQL("SELECT 1 FROM {} WHERE id = %s").format(_FEATURES),
         (feature_id,),
     )
     return cursor.fetchone() is not None
 
 
-def _count_upvotes(cursor, env: str, feature_id: str) -> int:
+def _count_upvotes(cursor, feature_id: str) -> int:
     cursor.execute(
-        sql.SQL("SELECT COUNT(*) AS n FROM {} WHERE feature_id = %s").format(
-            sql.Identifier(_upvotes_table(env))
-        ),
+        sql.SQL("SELECT COUNT(*) AS n FROM {} WHERE feature_id = %s").format(_UPVOTES),
         (feature_id,),
     )
     return int(cursor.fetchone()["n"])
 
 
-def add_upvote(
-    conn: Connection, env: str, feature_id: str, user_id: str
-) -> dict:
+def add_upvote(conn: Connection, feature_id: str, user_id: str) -> dict:
     cursor = conn.cursor()
     try:
-        if not _feature_exists(cursor, env, feature_id):
+        if not _feature_exists(cursor, feature_id):
             raise FeatureNotFound(feature_id)
         cursor.execute(
             sql.SQL(
                 "INSERT INTO {} (feature_id, user_id)"
                 " VALUES (%s, %s)"
                 " ON CONFLICT (feature_id, user_id) DO NOTHING"
-            ).format(sql.Identifier(_upvotes_table(env))),
+            ).format(_UPVOTES),
             (feature_id, user_id),
         )
-        count = _count_upvotes(cursor, env, feature_id)
+        count = _count_upvotes(cursor, feature_id)
         conn.commit()
     except FeatureNotFound:
         conn.rollback()
@@ -127,20 +115,18 @@ def add_upvote(
     return {"feature_id": feature_id, "upvote_count": count, "has_upvoted": True}
 
 
-def remove_upvote(
-    conn: Connection, env: str, feature_id: str, user_id: str
-) -> dict:
+def remove_upvote(conn: Connection, feature_id: str, user_id: str) -> dict:
     cursor = conn.cursor()
     try:
-        if not _feature_exists(cursor, env, feature_id):
+        if not _feature_exists(cursor, feature_id):
             raise FeatureNotFound(feature_id)
         cursor.execute(
             sql.SQL(
                 "DELETE FROM {} WHERE feature_id = %s AND user_id = %s"
-            ).format(sql.Identifier(_upvotes_table(env))),
+            ).format(_UPVOTES),
             (feature_id, user_id),
         )
-        count = _count_upvotes(cursor, env, feature_id)
+        count = _count_upvotes(cursor, feature_id)
         conn.commit()
     except FeatureNotFound:
         conn.rollback()

@@ -3,7 +3,7 @@
 import logging
 
 import psycopg2
-from fastapi import APIRouter, Depends, HTTPException, Path, Request
+from fastapi import APIRouter, Depends, HTTPException, Path
 
 from ..auth.dependencies import TokenClaims, get_current_user, get_optional_user
 from ..auth.jwt import get_normalized_subject
@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def _resolve_user_id_for_mutation(conn, env: str, user: TokenClaims) -> str:
+def _resolve_user_id_for_mutation(conn, user: TokenClaims) -> str:
     auth0_id = get_normalized_subject(user)
     if not auth0_id:
         raise HTTPException(status_code=401, detail="Token missing required 'sub' claim")
@@ -35,7 +35,7 @@ def _resolve_user_id_for_mutation(conn, env: str, user: TokenClaims) -> str:
         raise HTTPException(status_code=401, detail="Token missing required 'email' claim")
     try:
         row = get_or_create_user(
-            conn, env,
+            conn,
             auth0_id=auth0_id,
             email=email,
             given_name=user.get("given_name"),
@@ -48,7 +48,7 @@ def _resolve_user_id_for_mutation(conn, env: str, user: TokenClaims) -> str:
     return row["id"]
 
 
-def _resolve_optional_user_id(conn, env: str, user: TokenClaims | None) -> str | None:
+def _resolve_optional_user_id(conn, user: TokenClaims | None) -> str | None:
     # GET is best-effort: a DB hiccup when looking up the caller should not fail
     # the whole list endpoint. Treat the caller as anonymous (hasUpvoted=false on
     # every row) and log so the symptom is debuggable.
@@ -58,7 +58,7 @@ def _resolve_optional_user_id(conn, env: str, user: TokenClaims | None) -> str |
     if not email:
         return None
     try:
-        row = get_user_by_email(conn, env, email)
+        row = get_user_by_email(conn, email)
     except psycopg2.Error:
         conn.rollback()
         logger.exception(
@@ -72,20 +72,18 @@ def _resolve_optional_user_id(conn, env: str, user: TokenClaims | None) -> str |
 
 @router.get("", response_model=FeatureListResponse)
 def list_features(
-    request: Request,
     conn=Depends(get_db),
     user: TokenClaims | None = Depends(get_optional_user),
 ):
-    env = request.app.state.env
-    user_id = _resolve_optional_user_id(conn, env, user)
+    user_id = _resolve_optional_user_id(conn, user)
     try:
-        rows = list_features_with_upvotes(conn, env, user_id)
+        rows = list_features_with_upvotes(conn, user_id)
     except psycopg2.Error:
         # Roll back so the pooled connection isn't returned in an aborted-transaction
         # state — the next caller of get_db would otherwise see "current transaction
         # is aborted" on their very first statement.
         conn.rollback()
-        logger.exception("Failed to list features (env=%s)", env)
+        logger.exception("Failed to list features")
         raise HTTPException(status_code=500, detail="Failed to list features")
     items = [
         FeatureResponse(
@@ -103,15 +101,13 @@ def list_features(
 
 @router.post("/{feature_id}/upvote", response_model=FeatureUpvoteStateResponse)
 def post_upvote(
-    request: Request,
     feature_id: str = Path(min_length=1, max_length=64),
     conn=Depends(get_db),
     user: TokenClaims = Depends(get_current_user),
 ):
-    env = request.app.state.env
-    user_id = _resolve_user_id_for_mutation(conn, env, user)
+    user_id = _resolve_user_id_for_mutation(conn, user)
     try:
-        result = add_upvote(conn, env, feature_id, user_id)
+        result = add_upvote(conn, feature_id, user_id)
     except FeatureNotFound:
         raise HTTPException(status_code=404, detail="Feature not found")
     except psycopg2.Error:
@@ -126,15 +122,13 @@ def post_upvote(
 
 @router.delete("/{feature_id}/upvote", response_model=FeatureUpvoteStateResponse)
 def delete_upvote(
-    request: Request,
     feature_id: str = Path(min_length=1, max_length=64),
     conn=Depends(get_db),
     user: TokenClaims = Depends(get_current_user),
 ):
-    env = request.app.state.env
-    user_id = _resolve_user_id_for_mutation(conn, env, user)
+    user_id = _resolve_user_id_for_mutation(conn, user)
     try:
-        result = remove_upvote(conn, env, feature_id, user_id)
+        result = remove_upvote(conn, feature_id, user_id)
     except FeatureNotFound:
         raise HTTPException(status_code=404, detail="Feature not found")
     except psycopg2.Error:

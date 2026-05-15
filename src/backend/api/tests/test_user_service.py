@@ -5,17 +5,15 @@ import pytest
 from psycopg2 import sql
 
 from api.services.user_service import get_or_create_user, update_user
-from scripts.shared.database import _get_table_name
 
 from .conftest import _make_user, _insert_user
 
 
 class TestGetOrCreateUser:
-    def test_creates_new_user(self, db_conn, test_env):
+    def test_creates_new_user(self, db_conn):
         """get_or_create_user inserts a new user when neither key matches."""
         result = get_or_create_user(
             db_conn,
-            test_env,
             auth0_id="auth0|new_user_001",
             email="new@example.com",
             given_name="New",
@@ -30,7 +28,7 @@ class TestGetOrCreateUser:
         assert result["display_name"] is None
         assert result["id"] is not None
 
-    def test_upsert_updates_token_fields_on_email_match(self, db_conn, test_env):
+    def test_upsert_updates_token_fields_on_email_match(self, db_conn):
         """Cross-provider merge: same email, different auth0_id → UPDATE existing row."""
         user = _make_user({
             "auth0_id": "auth0|upsert_test",
@@ -39,11 +37,10 @@ class TestGetOrCreateUser:
             "given_name": "Old",
             "family_name": "Name",
         })
-        _insert_user(db_conn, test_env, user)
+        _insert_user(db_conn, user)
 
         result = get_or_create_user(
             db_conn,
-            test_env,
             auth0_id="google|upsert_test",  # different provider, same human
             email="shared@example.com",
             given_name="New",
@@ -58,30 +55,27 @@ class TestGetOrCreateUser:
         # display_name is NOT in the UPDATE SET clause, so it's preserved
         assert result["display_name"] == "Custom Name"
 
-    def test_upsert_preserves_original_id(self, db_conn, test_env):
+    def test_upsert_preserves_original_id(self, db_conn):
         """Existing row's id is preserved across cross-provider re-login."""
         user = _make_user({"auth0_id": "auth0|id_test", "email": "id_test@example.com"})
-        _insert_user(db_conn, test_env, user)
+        _insert_user(db_conn, user)
 
         result = get_or_create_user(
             db_conn,
-            test_env,
             auth0_id="auth0|id_test",
             email="id_test@example.com",
         )
         assert result["id"] == user["id"]
 
-    def test_cross_provider_login_merges_to_one_row(self, db_conn, test_env):
+    def test_cross_provider_login_merges_to_one_row(self, db_conn):
         """Two different auth0_ids sharing an email resolve to ONE row."""
         first = get_or_create_user(
             db_conn,
-            test_env,
             auth0_id="auth0|alice",
             email="alice@example.com",
         )
         second = get_or_create_user(
             db_conn,
-            test_env,
             auth0_id="google|alice",
             email="alice@example.com",
         )
@@ -91,13 +85,13 @@ class TestGetOrCreateUser:
         cursor = db_conn.cursor()
         cursor.execute(
             sql.SQL("SELECT COUNT(*) AS n FROM {} WHERE email = %s").format(
-                sql.Identifier(_get_table_name(test_env, "users"))
+                sql.Identifier("users")
             ),
             ("alice@example.com",),
         )
         assert cursor.fetchone()["n"] == 1
 
-    def test_idp_email_change_updates_existing_row(self, db_conn, test_env):
+    def test_idp_email_change_updates_existing_row(self, db_conn):
         """Same auth0_id, new email → UPDATE existing row's email. One row, not two.
 
         This is the IdP email-change case. A prior design dropped
@@ -110,11 +104,10 @@ class TestGetOrCreateUser:
             "email": "old@example.com",
             "display_name": "Custom",
         })
-        _insert_user(db_conn, test_env, existing)
+        _insert_user(db_conn, existing)
 
         result = get_or_create_user(
             db_conn,
-            test_env,
             auth0_id="auth0|email_change",
             email="new@example.com",
         )
@@ -127,20 +120,20 @@ class TestGetOrCreateUser:
         cursor = db_conn.cursor()
         cursor.execute(
             sql.SQL("SELECT COUNT(*) AS n FROM {} WHERE auth0_id = %s").format(
-                sql.Identifier(_get_table_name(test_env, "users"))
+                sql.Identifier("users")
             ),
             ("auth0|email_change",),
         )
         assert cursor.fetchone()["n"] == 1
         cursor.execute(
             sql.SQL("SELECT COUNT(*) AS n FROM {} WHERE email = %s").format(
-                sql.Identifier(_get_table_name(test_env, "users"))
+                sql.Identifier("users")
             ),
             ("old@example.com",),
         )
         assert cursor.fetchone()["n"] == 0
 
-    def test_ambiguous_identity_raises(self, db_conn, test_env):
+    def test_ambiguous_identity_raises(self, db_conn):
         """Two pre-existing rows, one matches by auth0_id, the other by email
         → RuntimeError rather than silent merge.
 
@@ -158,29 +151,26 @@ class TestGetOrCreateUser:
             "email": "b@example.com",
             "id": "row_b_id",
         })
-        _insert_user(db_conn, test_env, row_a)
-        _insert_user(db_conn, test_env, row_b)
+        _insert_user(db_conn, row_a)
+        _insert_user(db_conn, row_b)
 
         # Token claims: auth0_id matches row A, email matches row B — ambiguous
         with pytest.raises(RuntimeError, match="Ambiguous identity"):
             get_or_create_user(
                 db_conn,
-                test_env,
                 auth0_id="auth0|person_a",
                 email="b@example.com",
             )
 
-    def test_concurrent_first_login_is_idempotent(self, db_conn, test_env):
+    def test_concurrent_first_login_is_idempotent(self, db_conn):
         """Two sequential upserts for the same user produce one row."""
         first = get_or_create_user(
             db_conn,
-            test_env,
             auth0_id="auth0|rapid",
             email="rapid@example.com",
         )
         second = get_or_create_user(
             db_conn,
-            test_env,
             auth0_id="auth0|rapid",
             email="rapid@example.com",
         )
@@ -189,13 +179,13 @@ class TestGetOrCreateUser:
         cursor = db_conn.cursor()
         cursor.execute(
             sql.SQL("SELECT COUNT(*) AS n FROM {} WHERE email = %s").format(
-                sql.Identifier(_get_table_name(test_env, "users"))
+                sql.Identifier("users")
             ),
             ("rapid@example.com",),
         )
         assert cursor.fetchone()["n"] == 1
 
-    def test_unique_violation_retries_once(self, db_conn, test_env):
+    def test_unique_violation_retries_once(self, db_conn):
         """Simulated UniqueViolation on first attempt retries and succeeds.
 
         Models the concurrent-first-login race: two transactions SELECT empty,
@@ -209,7 +199,7 @@ class TestGetOrCreateUser:
             "auth0_id": "auth0|race",
             "email": "race@example.com",
         })
-        _insert_user(db_conn, test_env, user)
+        _insert_user(db_conn, user)
 
         # Patch _lookup_and_upsert to raise UniqueViolation on first call,
         # then delegate to the real implementation on second call.
@@ -227,7 +217,6 @@ class TestGetOrCreateUser:
         with patch.object(user_service, "_lookup_and_upsert", side_effect=flaky):
             result = get_or_create_user(
                 db_conn,
-                test_env,
                 auth0_id="auth0|race",
                 email="race@example.com",
             )
@@ -235,11 +224,10 @@ class TestGetOrCreateUser:
         assert calls["n"] == 2, "should retry exactly once"
         assert result["id"] == user["id"]
 
-    def test_handles_null_optional_fields(self, db_conn, test_env):
+    def test_handles_null_optional_fields(self, db_conn):
         """get_or_create_user works when optional fields are None."""
         result = get_or_create_user(
             db_conn,
-            test_env,
             auth0_id="auth0|null_test",
             email="null@example.com",
         )
@@ -247,7 +235,7 @@ class TestGetOrCreateUser:
         assert result["family_name"] is None
         assert result["picture_url"] is None
 
-    def test_database_error_triggers_rollback(self, test_env):
+    def test_database_error_triggers_rollback(self):
         """Non-unique DB errors are caught, rolled back, and re-raised."""
         from unittest.mock import MagicMock
 
@@ -258,56 +246,56 @@ class TestGetOrCreateUser:
 
         with pytest.raises(psycopg2.OperationalError, match="connection lost"):
             get_or_create_user(
-                mock_conn, test_env, auth0_id="auth0|err", email="err@example.com"
+                mock_conn, auth0_id="auth0|err", email="err@example.com"
             )
         mock_conn.rollback.assert_called_once()
 
 
 class TestUpdateUser:
-    def test_updates_display_name(self, db_conn, test_env):
+    def test_updates_display_name(self, db_conn):
         """update_user sets the display_name field, keyed by email."""
         user = _make_user({"email": "update@example.com"})
-        _insert_user(db_conn, test_env, user)
+        _insert_user(db_conn, user)
 
         result = update_user(
-            db_conn, test_env, email="update@example.com", display_name="Updated Name"
+            db_conn, email="update@example.com", display_name="Updated Name"
         )
         assert result is not None
         assert result["display_name"] == "Updated Name"
         assert result["email"] == "update@example.com"
 
-    def test_clears_display_name_with_none(self, db_conn, test_env):
+    def test_clears_display_name_with_none(self, db_conn):
         """update_user can clear display_name by passing None."""
         user = _make_user({"email": "clear@example.com", "display_name": "Has Name"})
-        _insert_user(db_conn, test_env, user)
+        _insert_user(db_conn, user)
 
         result = update_user(
-            db_conn, test_env, email="clear@example.com", display_name=None
+            db_conn, email="clear@example.com", display_name=None
         )
         assert result is not None
         assert result["display_name"] is None
 
-    def test_returns_none_for_nonexistent_user(self, db_conn, test_env):
+    def test_returns_none_for_nonexistent_user(self, db_conn):
         """update_user returns None when the email doesn't exist."""
         result = update_user(
-            db_conn, test_env, email="nonexistent@example.com", display_name="Name"
+            db_conn, email="nonexistent@example.com", display_name="Name"
         )
         assert result is None
 
-    def test_updates_updated_at_timestamp(self, db_conn, test_env):
+    def test_updates_updated_at_timestamp(self, db_conn):
         """update_user refreshes the updated_at timestamp."""
         user = _make_user({
             "email": "ts@example.com",
             "updated_at": "2020-01-01T00:00:00Z",
         })
-        _insert_user(db_conn, test_env, user)
+        _insert_user(db_conn, user)
 
         result = update_user(
-            db_conn, test_env, email="ts@example.com", display_name="New"
+            db_conn, email="ts@example.com", display_name="New"
         )
         assert result["updated_at"] != "2020-01-01T00:00:00Z"
 
-    def test_database_error_triggers_rollback(self, test_env):
+    def test_database_error_triggers_rollback(self):
         """Database errors are caught, connection is rolled back, and error is re-raised."""
         from unittest.mock import MagicMock
 
@@ -317,5 +305,5 @@ class TestUpdateUser:
         mock_cursor.execute.side_effect = psycopg2.OperationalError("connection lost")
 
         with pytest.raises(psycopg2.OperationalError, match="connection lost"):
-            update_user(mock_conn, test_env, email="err@example.com", display_name="x")
+            update_user(mock_conn, email="err@example.com", display_name="x")
         mock_conn.rollback.assert_called_once()

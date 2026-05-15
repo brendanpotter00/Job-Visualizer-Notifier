@@ -1,6 +1,8 @@
 """FastAPI dependencies for database connection management."""
 
 import logging
+import os
+import re
 import threading
 import uuid
 from typing import Generator
@@ -14,6 +16,9 @@ logger = logging.getLogger(__name__)
 _pool: ThreadedConnectionPool | None = None
 _pool_semaphore: threading.Semaphore | None = None
 _pool_timeout: float = 5.0
+
+# Identifier safety: interpolated into SET search_path below.
+_PYTEST_SCHEMA_RE = re.compile(r"^(?:public|test_[a-f0-9]{8,})$")
 
 
 def init_pool(dsn: str, minconn: int = 1, maxconn: int = 15, timeout: float = 5.0) -> None:
@@ -55,6 +60,11 @@ def get_db() -> Generator[psycopg2.extensions.connection, None, None]:
     prevent leaving the connection in an aborted transaction state, then
     returns it to the pool.
 
+    When PYTEST_SCHEMA is set, pins the connection's search_path to the
+    test schema before yielding. `SET search_path` persists on the psycopg2
+    connection across putconn/getconn cycles within the same process, so
+    reapplying on each checkout is defensive but cheap (one round-trip).
+
     Note: connections are NOT auto-committed. Callers performing writes
     must call conn.commit() explicitly.
     """
@@ -95,6 +105,21 @@ def get_db() -> Generator[psycopg2.extensions.connection, None, None]:
             if conn.closed:
                 pool.putconn(conn, key=key, close=True)
                 raise RuntimeError("Pool unable to provide a healthy connection")
+
+        # Test-isolation hook: pin search_path per checkout when pytest
+        # owns this process. Unset in prod and normal local dev.
+        pytest_schema = os.environ.get("PYTEST_SCHEMA")
+        if pytest_schema is not None:
+            if not _PYTEST_SCHEMA_RE.match(pytest_schema):
+                pool.putconn(conn, key=key, close=True)
+                raise ValueError(
+                    f"PYTEST_SCHEMA={pytest_schema!r} does not match expected "
+                    f"pattern 'test_<hex>' or 'public'."
+                )
+            with conn.cursor() as cur:
+                cur.execute(f'SET search_path TO "{pytest_schema}", public')
+            conn.rollback()  # SET search_path opens a transaction; reset it.
+
         yield conn
     except Exception:
         if not conn.closed:

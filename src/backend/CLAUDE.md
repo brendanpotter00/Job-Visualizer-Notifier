@@ -22,7 +22,7 @@ cd src/backend && pytest api/tests/test_jobs_router.py   # Single file
 ## Prerequisites
 
 - PostgreSQL running on localhost:5432 (use `docker compose up -d postgres` from project root)
-- Database: `jobscraper` with tables `job_listings_local` and `scrape_runs_local`
+- Database: `jobscraper` with bare-named tables `job_listings`, `scrape_runs`, `users`, `user_enabled_companies` (created on first lifespan/migration run)
 - Python 3.13+ with dependencies from `src/backend/api/requirements.txt`
 
 ## Configuration
@@ -32,7 +32,6 @@ All configuration via environment variables:
 | Env Var | Description | Default |
 |---------|-------------|---------|
 | `DATABASE_URL` | PostgreSQL connection URL | `postgresql://postgres:postgres@localhost:5432/jobscraper` |
-| `SCRAPER_ENVIRONMENT` | Table name suffix (local/qa/prod) | `local` |
 | `SCRAPER_INTERVAL_HOURS` | Hours between auto-scrape cycles | `1` |
 | `SCRAPER_COMPANIES` | Comma-separated company list | `apple,google,microsoft` |
 | `SCRAPER_DETAIL_SCRAPE` | Fetch job detail pages | `true` |
@@ -47,9 +46,7 @@ All configuration via environment variables:
 | `AUTH0_AUDIENCE` | Auth0 API audience identifier | *(required for auth)* |
 | `GOOGLE_CLIENT_ID` | Google OAuth client ID for One Tap validation | *(optional)* |
 
-**Environment-based table naming:**
-- `SCRAPER_ENVIRONMENT=local` → `job_listings_local`, `scrape_runs_local`
-- `SCRAPER_ENVIRONMENT=prod` → `job_listings_prod`, `scrape_runs_prod`
+**Table names are env-agnostic.** All environments share bare names (`job_listings`, `scrape_runs`, `users`, `user_enabled_companies`). Test isolation uses per-worker Postgres **schemas** via `PYTEST_SCHEMA=test_<hex>` + `SET search_path`; inside the schema the table names are the same as prod. See `docs/implementations/envAgnosticTables/PLAN.md`.
 
 ## API Endpoints
 
@@ -110,12 +107,12 @@ src/backend/api/
 
 Schema is managed by **Alembic** (not the old `scripts/shared/migrations/` runner, which was removed in the Alembic migration PR). Source of truth is `src/backend/api/db_models.py` (SQLAlchemy declarative models). Revision files live in `src/backend/alembic/versions/`, one per schema change, anchored by the empty baseline revision `91337142414f`.
 
-- FastAPI's lifespan hook runs `apply_alembic_migrations(...)` from `src/backend/api/migrations.py` on every startup. Dev and prod use the same code path.
-- `SCRAPER_ENVIRONMENT` (`local`/`qa`/`prod`) drives table suffix resolution in `db_models.py` and the Alembic tracker name (`alembic_version_<env>`) via `src/backend/alembic/env.py`.
+- FastAPI's lifespan hook runs `apply_alembic_migrations(settings.database_url)` from `src/backend/api/migrations.py` on every startup. Dev and prod use the same code path. `SCRAPER_ENVIRONMENT` is not read anywhere.
+- Tables are bare across all envs (`job_listings`, `scrape_runs`, `users`, `user_enabled_companies`). The Alembic tracker is the default `alembic_version`; `src/backend/alembic/env.py` does NOT pass `version_table=`.
 - To add a schema change: edit `db_models.py`, then `alembic revision --autogenerate`, then review the generated file per the combined-ALTER-TABLE rule in `docs/implementations/alembicMigration/DEPLOY.md`. Never hand-write a revision file — always autogenerate.
-- Tests bootstrap the schema via `Base.metadata.create_all` + `apply_alembic_migrations` (to populate `alembic_version_<env>`); see `src/backend/api/tests/conftest.py::db_conn` and `scripts/tests/conftest.py::postgres_db`.
+- Tests bootstrap the schema via `Base.metadata.create_all` + `apply_alembic_migrations(db_url)` inside a per-worker Postgres schema (`PYTEST_SCHEMA=test_<hex>` + `SET search_path`). See `src/backend/api/tests/conftest.py::db_conn` and `scripts/tests/conftest.py::postgres_db`. Teardown is `DROP SCHEMA … CASCADE`; no per-table cleanup.
 
-See `docs/implementations/alembicMigration/DEPLOY.md` for the full deploy/rollback/schema-change runbook and `docs/incidents/2026-04-18-migration-filled-postgres-volume/` for why combined ALTER TABLE is load-bearing.
+See `docs/implementations/envAgnosticTables/DEPLOY.md` for the env-suffix removal runbook (rename migration, Railway env-var cleanup, rollback with `-x env=prod`). The prior `docs/implementations/alembicMigration/DEPLOY.md` is historical — its `alembic_version_<env>` and `SCRAPER_ENVIRONMENT` references no longer match the live code. See `docs/incidents/2026-04-18-migration-filled-postgres-volume/` for why combined ALTER TABLE is load-bearing.
 
 ## Deployment
 
@@ -123,7 +120,6 @@ Production backend is deployed on **Railway** (auto-deploys from GitHub). Railwa
 
 Key production env vars to set in Railway:
 - `DATABASE_URL` — PostgreSQL connection string (provided by Railway if using their Postgres plugin)
-- `SCRAPER_ENVIRONMENT=prod`
 - `CORS_ORIGINS` — must include the production frontend domain
 
 ## Docker

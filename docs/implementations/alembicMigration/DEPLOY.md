@@ -1,5 +1,8 @@
 # Alembic Migration Deployment Runbook
 
+> **Superseded in part by `docs/implementations/envAgnosticTables/DEPLOY.md`.**
+> References below to `alembic_version_<env>`, `alembic_version_prod`, and `SCRAPER_ENVIRONMENT` are historical. After the envAgnosticTables PR the live tracker is the default `alembic_version`, Alembic's `env.py` no longer passes `version_table=`, and `apply_alembic_migrations` takes a single `database_url` argument. The body below is preserved unchanged as the historical record of the Alembic introduction; do not follow its stamp/env-var instructions against today's codebase.
+
 Companion to `PLAN.md`. Covers the one-time prod stamp before the first post-Alembic deploy, the ongoing deploy loop, rollback, the schema-change workflow, and failure modes.
 
 ## Why this runbook exists

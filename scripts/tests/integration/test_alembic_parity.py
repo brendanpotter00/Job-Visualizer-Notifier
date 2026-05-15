@@ -19,7 +19,6 @@ Created in Unit 3, rewritten in Unit 6 after the old runner was deleted.
 from __future__ import annotations
 
 import ast
-import importlib
 import logging
 import os
 import sys
@@ -59,28 +58,11 @@ def test_autogen_against_create_all_is_empty(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Autogenerate must produce no `op.*` calls when schema was built via create_all."""
-    test_env = f"test_{uuid.uuid4().hex[:8]}"
-    parity_db = f"parity_{test_env}"
+    parity_db = f"parity_{uuid.uuid4().hex[:8]}"
 
     monkeypatch.setenv("DATABASE_URL", TEST_DB_URL.rsplit("/", 1)[0] + f"/{parity_db}")
-    # Set SCRAPER_ENVIRONMENT to a valid value first so api.config's module-level
-    # `settings = Settings()` succeeds at import time. We then widen
-    # ALLOWED_ENVIRONMENTS in-process, flip the env var to our test value, and
-    # rebuild the singleton so env.py sees the test env.
-    monkeypatch.setenv("SCRAPER_ENVIRONMENT", "local")
 
-    import api.config as _api_config
-    monkeypatch.setattr(
-        _api_config,
-        "ALLOWED_ENVIRONMENTS",
-        _api_config.ALLOWED_ENVIRONMENTS | {test_env},
-    )
-    monkeypatch.setenv("SCRAPER_ENVIRONMENT", test_env)
-    monkeypatch.setattr(_api_config, "settings", _api_config.Settings())
-
-    # Reload db_models so Base's table names resolve to the test env.
     import api.db_models
-    importlib.reload(api.db_models)
     from api.db_models import Base
 
     # Create the parity DB from the `postgres` maintenance DB so we get a
@@ -194,6 +176,3 @@ def test_autogen_against_create_all_is_empty(
                 drop_exc,
             )
 
-        # Restore db_models to its original env so sibling tests aren't surprised.
-        os.environ["SCRAPER_ENVIRONMENT"] = "local"
-        importlib.reload(api.db_models)

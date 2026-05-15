@@ -18,10 +18,10 @@ class TestGetMe:
         assert "createdAt" in data
         assert "updatedAt" in data
 
-    def test_returns_existing_user(self, client, db_conn, test_env):
+    def test_returns_existing_user(self, client, db_conn):
         """GET /api/users returns existing user without overwriting display_name."""
         user = _make_user({"auth0_id": "auth0|test_user_123", "display_name": "Custom Name"})
-        _insert_user(db_conn, test_env, user)
+        _insert_user(db_conn, user)
         resp = client.get("/api/users")
         assert resp.status_code == 200
         # Note: upsert overwrites given_name/family_name/picture_url from token,
@@ -117,7 +117,7 @@ class TestAuthRequired:
                 test_app.dependency_overrides[get_current_user] = saved_override
 
     def test_get_me_with_ambiguous_identity_returns_500(
-        self, test_app, db_conn, test_env
+        self, test_app, db_conn
     ):
         """If two existing rows ambiguously match a token (one by auth0_id, one
         by email), the router must surface the service's ``RuntimeError`` as a
@@ -139,8 +139,8 @@ class TestAuthRequired:
             "email": "b@example.com",
             "id": "row_b_id",
         })
-        _insert_user(db_conn, test_env, row_a)
-        _insert_user(db_conn, test_env, row_b)
+        _insert_user(db_conn, row_a)
+        _insert_user(db_conn, row_b)
 
         saved_override = test_app.dependency_overrides.get(get_current_user)
         # Token claims: auth0_id matches row A, email matches row B — ambiguous
@@ -204,13 +204,12 @@ class TestGoogleOneTap:
             if saved_override is not None:
                 test_app.dependency_overrides[get_current_user] = saved_override
 
-    def test_second_provider_login_merges_into_one_row(self, test_app, db_conn, test_env):
+    def test_second_provider_login_merges_into_one_row(self, test_app, db_conn):
         """Auth0 login followed by Google One Tap login with the same email
         should produce ONE row whose provider_subject reflects the latest provider."""
         from fastapi.testclient import TestClient
         from psycopg2 import sql
         from api.auth.dependencies import get_current_user
-        from scripts.shared.database import _get_table_name
 
         saved_override = test_app.dependency_overrides.get(get_current_user)
         shared_email = "alice@example.com"
@@ -239,7 +238,7 @@ class TestGoogleOneTap:
             cursor = db_conn.cursor()
             cursor.execute(
                 sql.SQL("SELECT COUNT(*) AS n FROM {} WHERE email = %s").format(
-                    sql.Identifier(_get_table_name(test_env, "users"))
+                    sql.Identifier("users")
                 ),
                 (shared_email,),
             )
@@ -365,7 +364,7 @@ class TestEnabledCompanies:
             )
             assert resp.status_code == 422, f"expected rejection for {bad_id!r}"
 
-    def test_put_accepts_dotted_company_id(self, client, db_conn, test_env):
+    def test_put_accepts_dotted_company_id(self, client):
         """Interior-dot IDs (e.g. ``happyrobot.ai``) must round-trip."""
         client.get("/api/users")
         resp = client.put(

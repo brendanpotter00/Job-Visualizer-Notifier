@@ -15,7 +15,6 @@ def config():
     """Minimal Settings for auto-scraper tests."""
     return Settings(
         database_url="postgresql://test:test@localhost/test",
-        scraper_environment="local",
         scraper_companies="google,apple",
         scraper_interval_hours=1,
         scraper_timeout_minutes=5,

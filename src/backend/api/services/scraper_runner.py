@@ -82,7 +82,7 @@ class ScraperResult:
 async def run_scraper(config: Settings, company: str) -> ScraperResult:
     """Run a scraper as an async subprocess.
 
-    Builds command: python run_scraper.py --company X --env Y --db-url Z --incremental --headless [--detail-scrape]
+    Builds command: python run_scraper.py --company X --db-url Z --incremental --headless [--detail-scrape]
     Streams stderr live to the backend logger and surfaces a 10 KB tail
     of stderr in ScraperResult.error — including the timeout branch, so
     a scraper that hangs is no longer silent.
@@ -92,7 +92,6 @@ async def run_scraper(config: Settings, company: str) -> ScraperResult:
         config.scraper_python_path,
         f"{config.scraper_scripts_path}/run_scraper.py",
         "--company", company,
-        "--env", config.scraper_environment,
         "--db-url", config.database_url,
         "--incremental",
         "--headless",

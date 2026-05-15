@@ -16,7 +16,6 @@ def config():
     """Minimal Settings for scraper tests."""
     return Settings(
         database_url="postgresql://test:test@localhost/test",
-        scraper_environment="local",
         scraper_scripts_path="/fake/scripts",
         scraper_python_path="/usr/bin/python3",
         scraper_timeout_minutes=5,
@@ -103,7 +102,7 @@ class TestCommandConstruction:
             assert "--company" in args
             idx = args.index("--company")
             assert args[idx + 1] == "google"
-            assert "--env" in args
+            assert "--env" not in args
             assert "--db-url" in args
             assert "--incremental" in args
             assert "--headless" in args
@@ -113,7 +112,6 @@ class TestCommandConstruction:
     async def test_detail_scrape_flag_included(self, config):
         config_detail = Settings(
             database_url="postgresql://test:test@localhost/test",
-            scraper_environment="local",
             scraper_scripts_path="/fake/scripts",
             scraper_python_path="/usr/bin/python3",
             scraper_timeout_minutes=5,

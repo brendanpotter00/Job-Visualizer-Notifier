@@ -8,7 +8,7 @@ from .conftest import _make_job, _insert_job
 
 
 @pytest.fixture(autouse=True)
-def seed_jobs(db_conn, test_env):
+def seed_jobs(db_conn):
     """Seed the 4 default test jobs used by most tests."""
     jobs = [
         _make_job({"id": "google-123", "title": "Software Engineer", "company": "google",
@@ -25,7 +25,7 @@ def seed_jobs(db_conn, test_env):
                     "last_seen_at": "2025-01-14T10:00:00Z"}),
     ]
     for job in jobs:
-        _insert_job(db_conn, test_env, job)
+        _insert_job(db_conn, job)
 
 
 def test_get_jobs_returns_all_when_no_filters(client):
@@ -108,9 +108,9 @@ def test_get_jobs_combines_company_and_status(client):
 # -- List endpoint returns trimmed details --
 
 
-def test_list_endpoint_returns_trimmed_details(client, db_conn, test_env):
+def test_list_endpoint_returns_trimmed_details(client, db_conn):
     """List endpoint strips large JSONB blobs, keeping only frontend-needed fields."""
-    _insert_job(db_conn, test_env, _make_job({
+    _insert_job(db_conn, _make_job({
         "id": "trim-test",
         "details": json.dumps({
             "experience_level": "Senior",
@@ -131,13 +131,13 @@ def test_list_endpoint_returns_trimmed_details(client, db_conn, test_env):
     assert json.loads(job["aiMetadata"]) == {}
 
 
-def test_detail_endpoint_returns_full_details(client, db_conn, test_env):
+def test_detail_endpoint_returns_full_details(client, db_conn):
     """Detail endpoint still returns the full JSONB blobs."""
     full_details = {
         "experience_level": "Senior",
         "about_the_job": "Full description here",
     }
-    _insert_job(db_conn, test_env, _make_job({
+    _insert_job(db_conn, _make_job({
         "id": "detail-full-test",
         "details": json.dumps(full_details),
     }))
@@ -147,7 +147,7 @@ def test_detail_endpoint_returns_full_details(client, db_conn, test_env):
     assert details["about_the_job"] == "Full description here"
 
 
-def test_get_jobs_returns_iso8601_datetime_strings(client, db_conn, test_env):
+def test_get_jobs_returns_iso8601_datetime_strings(client, db_conn):
     """After migrations 0003/0004, DB columns are timestamptz; Pydantic must
     serialize them as ISO 8601 strings matching the frontend BackendJobListing
     contract.
@@ -158,7 +158,7 @@ def test_get_jobs_returns_iso8601_datetime_strings(client, db_conn, test_env):
     # Seed an extra job that populates the nullable timestamp fields so the
     # regex loop also exercises postedOn and closedOn (which are NULL on the
     # default seed fixture's rows).
-    _insert_job(db_conn, test_env, _make_job({
+    _insert_job(db_conn, _make_job({
         "id": "iso-fields-job",
         "status": "CLOSED",
         "posted_on": "2025-01-05T12:00:00Z",

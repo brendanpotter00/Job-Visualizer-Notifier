@@ -66,12 +66,9 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Applying database migrations...")
     try:
-        apply_alembic_migrations(settings.database_url, settings.scraper_environment)
+        apply_alembic_migrations(settings.database_url)
     except Exception:
-        logger.exception(
-            "Failed to apply migrations during startup (env=%s)",
-            settings.scraper_environment,
-        )
+        logger.exception("Failed to apply migrations during startup")
         raise
     try:
         init_pool(
@@ -83,7 +80,6 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("Failed to initialize database connection pool")
         raise
-    app.state.env = settings.scraper_environment
     app.state.config = settings
 
     # Imports live OUTSIDE the guard so any import failure surfaces loudly
@@ -99,17 +95,14 @@ async def lifespan(app: FastAPI):
         gen = get_db()
         seed_conn = next(gen)
         try:
-            seed_starter_features(seed_conn, settings.scraper_environment)
+            seed_starter_features(seed_conn)
         finally:
             try:
                 next(gen)
             except StopIteration:
                 pass
     except (psycopg2.Error, RuntimeError):
-        logger.exception(
-            "Failed to seed starter features during startup (env=%s)",
-            settings.scraper_environment,
-        )
+        logger.exception("Failed to seed starter features during startup")
 
     # Start background auto-scraper
     from .services.auto_scraper import auto_scraper_loop

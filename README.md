@@ -62,11 +62,11 @@ python scripts/run_scraper.py --company google --detail-scrape
 python scripts/run_scraper.py --max-jobs 5 --no-headless -v
 
 # Database mode (PostgreSQL)
-python scripts/run_scraper.py --company google --env local \
+python scripts/run_scraper.py --company google \
   --db-url postgresql://user:pass@localhost:5432/jobscraper
 
 # Incremental update (only new jobs — requires prior full scrape)
-python scripts/run_scraper.py --company google --env local \
+python scripts/run_scraper.py --company google \
   --db-url postgresql://user:pass@localhost:5432/jobscraper --incremental
 ```
 

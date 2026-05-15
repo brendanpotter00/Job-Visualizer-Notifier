@@ -10,10 +10,7 @@ from datetime import datetime
 
 from psycopg2 import sql
 
-from scripts.shared.database import (
-    _get_table_name,
-    Connection,
-)
+from scripts.shared.database import Connection
 
 logger = logging.getLogger(__name__)
 
@@ -58,9 +55,8 @@ def _row_to_job_dict(row: dict) -> dict:
     return d
 
 
-def _table_id(env: str, table_type: str = "jobs") -> sql.Identifier:
-    """Get a safe SQL identifier for the environment-specific table."""
-    return sql.Identifier(_get_table_name(env, table_type))
+_JOBS_TABLE = sql.Identifier("job_listings")
+_RUNS_TABLE = sql.Identifier("scrape_runs")
 
 
 def _build_where(
@@ -98,7 +94,6 @@ _LIST_COLUMNS = sql.SQL(
 
 def get_jobs(
     conn: Connection,
-    env: str,
     company: str | None = None,
     status: str | None = None,
     limit: int = 5000,
@@ -106,11 +101,10 @@ def get_jobs(
 ) -> list[dict]:
     """List jobs with optional filters, ordered by last_seen_at DESC."""
     with conn.cursor() as cursor:
-        table = _table_id(env)
         where, params = _build_where(company=company, status=status)
 
         query = sql.SQL("SELECT {} FROM {} {} ORDER BY last_seen_at DESC LIMIT %s OFFSET %s").format(
-            _LIST_COLUMNS, table, where
+            _LIST_COLUMNS, _JOBS_TABLE, where
         )
         params.extend([limit, offset])
         cursor.execute(query, params)
@@ -118,13 +112,11 @@ def get_jobs(
         return [_row_to_job_dict(row) for row in cursor.fetchall()]
 
 
-def get_job_by_id(conn: Connection, env: str, job_id: str) -> dict | None:
+def get_job_by_id(conn: Connection, job_id: str) -> dict | None:
     """Get a single job by ID."""
     with conn.cursor() as cursor:
-        table = _table_id(env)
-
         cursor.execute(
-            sql.SQL("SELECT * FROM {} WHERE id = %s").format(table),
+            sql.SQL("SELECT * FROM {} WHERE id = %s").format(_JOBS_TABLE),
             (job_id,),
         )
         row = cursor.fetchone()
@@ -134,10 +126,9 @@ def get_job_by_id(conn: Connection, env: str, job_id: str) -> dict | None:
         return None
 
 
-def get_stats(conn: Connection, env: str, company: str | None = None) -> dict:
+def get_stats(conn: Connection, company: str | None = None) -> dict:
     """Get job statistics with optional company filter."""
     with conn.cursor() as cursor:
-        table = _table_id(env)
         where, params = _build_where(company=company)
 
         # Single query: per-company counts plus totals via window functions
@@ -152,7 +143,7 @@ def get_stats(conn: Connection, env: str, company: str | None = None) -> dict:
             FROM {} {}
             GROUP BY company
             ORDER BY company
-            """).format(table, where),
+            """).format(_JOBS_TABLE, where),
             params if params else None,
         )
         rows = cursor.fetchall()
@@ -175,18 +166,16 @@ def get_stats(conn: Connection, env: str, company: str | None = None) -> dict:
 
 def get_scrape_runs(
     conn: Connection,
-    env: str,
     company: str | None = None,
     limit: int = 20,
 ) -> list[dict]:
     """Get scrape run history, ordered by started_at DESC."""
     with conn.cursor() as cursor:
-        table = _table_id(env, "runs")
         where, params = _build_where(company=company)
 
         params.append(limit)
         cursor.execute(
-            sql.SQL("SELECT * FROM {} {} ORDER BY started_at DESC LIMIT %s").format(table, where),
+            sql.SQL("SELECT * FROM {} {} ORDER BY started_at DESC LIMIT %s").format(_RUNS_TABLE, where),
             params,
         )
 

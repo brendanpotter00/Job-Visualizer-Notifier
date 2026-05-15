@@ -33,16 +33,14 @@ STARTER_FEATURES: tuple[tuple[str, str, str], ...] = (
 )
 
 
-def _features_table(env: str) -> str:
-    return f"features_{env}"
+_FEATURES_TABLE = sql.Identifier("features")
 
 
-def seed_starter_features(conn: Connection, env: str) -> int:
+def seed_starter_features(conn: Connection) -> int:
     """Insert starter features if not already present. Returns rows inserted.
 
     Idempotent; commits on success. Rolls back + re-raises on database error.
     """
-    table = sql.Identifier(_features_table(env))
     cursor = conn.cursor()
     inserted = 0
     try:
@@ -52,7 +50,7 @@ def seed_starter_features(conn: Connection, env: str) -> int:
                     "INSERT INTO {} (id, title, description)"
                     " VALUES (%s, %s, %s)"
                     " ON CONFLICT (id) DO NOTHING"
-                ).format(table),
+                ).format(_FEATURES_TABLE),
                 (feature_id, title, description),
             )
             if cursor.rowcount == 1:
@@ -61,15 +59,12 @@ def seed_starter_features(conn: Connection, env: str) -> int:
     except psycopg2.Error as exc:
         conn.rollback()
         logger.error(
-            "Database error during seed_starter_features (env=%s): %s",
-            env, exc, exc_info=True,
+            "Database error during seed_starter_features: %s", exc, exc_info=True,
         )
         raise
     # Emit unconditionally so cold-start logs always show the seed ran, even
     # when every feature already existed. A conditional log was silent after
     # the first successful boot, indistinguishable in Railway logs from a
     # silent crash of the seed routine (see 2026-04-18 review pass 2).
-    logger.info(
-        "seed_starter_features completed (env=%s, inserted=%d)", env, inserted
-    )
+    logger.info("seed_starter_features completed (inserted=%d)", inserted)
     return inserted

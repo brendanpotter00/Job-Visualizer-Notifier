@@ -75,37 +75,8 @@ logger.info(
 )
 
 
-def apply_alembic_migrations(database_url: str, env: str) -> None:
-    """Run `alembic upgrade head` against the given database URL.
-
-    The caller MUST ensure `env` matches what Alembic's env.py will compute
-    as the version-table suffix. env.py reads `api.config.settings.scraper_environment`,
-    which is a pydantic module-level singleton bound at import time from
-    SCRAPER_ENVIRONMENT (default "local" if unset). If the caller passes
-    env="prod" while settings.scraper_environment is "local" (because
-    SCRAPER_ENVIRONMENT was unset), Alembic would silently target
-    alembic_version_local against a prod database — invisible at deploy
-    time, catastrophic later. Comparing against the settings singleton (not
-    os.environ) catches the "unset env var → default local" case that a
-    plain env-var check misses.
-
-    Raises RuntimeError on mismatch. Does NOT mutate settings or process env —
-    the caller owns those.
-    """
-    # Import inside the function to avoid a hard dependency on Settings() at
-    # module import time (some test paths reload api.config between imports).
-    from .config import settings as _settings
-
-    if _settings.scraper_environment != env:
-        raise RuntimeError(
-            f"scraper_environment mismatch: api.config.settings.scraper_environment="
-            f"{_settings.scraper_environment!r} but migration target env={env!r}. "
-            f"Alembic env.py would target alembic_version_{_settings.scraper_environment} "
-            f"against a DB intended for {env}. Set SCRAPER_ENVIRONMENT={env} (and "
-            f"ensure api.config.settings is rebuilt if it was imported earlier) before "
-            f"invoking apply_alembic_migrations."
-        )
-
+def apply_alembic_migrations(database_url: str) -> None:
+    """Run `alembic upgrade head` against the given database URL."""
     cfg = Config(str(_ALEMBIC_INI))
     cfg.set_main_option("sqlalchemy.url", database_url)
     # alembic.ini's script_location is relative ("src/backend/alembic"); when
@@ -123,34 +94,19 @@ def apply_alembic_migrations(database_url: str, env: str) -> None:
     try:
         command.upgrade(cfg, "head")
     except Exception:
-        logger.exception("Failed to apply Alembic migrations (env=%s)", env)
+        logger.exception("Failed to apply Alembic migrations")
         raise
 
 
-def stamp_alembic_head(database_url: str, env: str) -> None:
-    """Mark `alembic_version_<env>` at head without running any upgrade body.
+def stamp_alembic_head(database_url: str) -> None:
+    """Mark `alembic_version` at head without running any upgrade body.
 
     For test fixtures that bootstrap the schema via `Base.metadata.create_all`:
     the ORM metadata already produces the target schema, so running Alembic
     upgrade on top would re-execute every `op.create_table` and fail with a
     DuplicateTable error. Stamping writes only to the version tracker, leaving
-    the already-materialized tables alone. Mirrors the pattern in
-    scripts/tests/integration/test_alembic_parity.py.
-
-    Caller-env invariant matches apply_alembic_migrations — if
-    api.config.settings.scraper_environment disagrees with `env`, Alembic would
-    target the wrong version table.
+    the already-materialized tables alone.
     """
-    from .config import settings as _settings
-
-    if _settings.scraper_environment != env:
-        raise RuntimeError(
-            f"scraper_environment mismatch: api.config.settings.scraper_environment="
-            f"{_settings.scraper_environment!r} but stamp target env={env!r}. "
-            f"Alembic env.py would target alembic_version_{_settings.scraper_environment} "
-            f"against a DB intended for {env}."
-        )
-
     cfg = Config(str(_ALEMBIC_INI))
     cfg.set_main_option("sqlalchemy.url", database_url)
     cfg.set_main_option("script_location", str(_SCRIPT_LOCATION))
@@ -158,5 +114,5 @@ def stamp_alembic_head(database_url: str, env: str) -> None:
     try:
         command.stamp(cfg, "head")
     except Exception:
-        logger.exception("Failed to stamp Alembic head (env=%s)", env)
+        logger.exception("Failed to stamp Alembic head")
         raise
