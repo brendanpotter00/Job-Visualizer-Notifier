@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -10,6 +11,11 @@ from ..config import Settings
 logger = logging.getLogger(__name__)
 
 MAX_STDERR_BYTES = 10 * 1024
+# Matches the first level token in a child log line. Child scripts use the
+# standard %(levelname)s formatter, so this is the same anchor Python's
+# logging produces. Without this, every forwarded line collapses to INFO
+# and real ERRORs/Tracebacks vanish into the noise floor.
+_CHILD_LEVEL_RE = re.compile(r"\b(DEBUG|INFO|WARNING|ERROR|CRITICAL)\b")
 # Grace window after process.kill() to let the stderr reader finish draining
 # whatever the subprocess flushed before SIGKILL. 5s is generous; the pipe is
 # closed at kill, so readline() should return EOF essentially immediately.
@@ -122,7 +128,14 @@ async def run_scraper(config: Settings, company: str) -> ScraperResult:
         tail_buffer = bytearray()
 
         def _emit_line(text: str) -> None:
-            logger.info("scraper[%s] %s", company, text)
+            match = _CHILD_LEVEL_RE.search(text)
+            if match:
+                level = getattr(logging, match.group(1))
+            elif text.startswith("Traceback") or "Traceback (most recent call last)" in text:
+                level = logging.ERROR
+            else:
+                level = logging.INFO
+            logger.log(level, "scraper[%s] %s", company, text)
 
         reader_task = asyncio.create_task(
             _stream_and_tail_stderr(
