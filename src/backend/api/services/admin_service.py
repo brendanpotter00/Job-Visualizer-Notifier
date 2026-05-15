@@ -18,23 +18,30 @@ _USERS = sql.Identifier("users")
 
 
 def is_admin_by_email(conn: Connection, email: str) -> bool:
-    """Return True iff a user with this email has an admin grant."""
-    cursor = conn.cursor()
-    cursor.execute(
-        sql.SQL(
-            "SELECT EXISTS ("
-            "  SELECT 1 FROM {admins} a"
-            "  JOIN {users} u ON u.id = a.user_id"
-            "  WHERE u.email = %s"
-            ")"
-        ).format(admins=_ADMINS, users=_USERS),
-        (email,),
-    )
-    row = cursor.fetchone()
-    if row is None:
-        return False
-    value = row[0] if not isinstance(row, dict) else next(iter(row.values()))
-    return bool(value)
+    """Return True iff a user with this email has an admin grant.
+
+    ``SELECT EXISTS (...)`` always returns exactly one row containing a single
+    boolean. A ``None`` result would mean the cursor itself misbehaved, which
+    is a driver bug — not a "user is not an admin." We deliberately let that
+    raise rather than silently denying admin to a legitimate caller (per the
+    "correctness over don't crash" rule in the project memory).
+    """
+    with conn.cursor() as cursor:
+        cursor.execute(
+            sql.SQL(
+                "SELECT EXISTS ("
+                "  SELECT 1 FROM {admins} a"
+                "  JOIN {users} u ON u.id = a.user_id"
+                "  WHERE u.email = %s"
+                ")"
+            ).format(admins=_ADMINS, users=_USERS),
+            (email,),
+        )
+        # RealDictCursor (configured in dependencies.init_pool) returns a
+        # ``RealDictRow`` keyed by the column name. The unaliased EXISTS column
+        # is named ``exists`` by Postgres.
+        row = cursor.fetchone()
+    return bool(row["exists"])
 
 
 def _signup_provider_from_auth0_id(auth0_id: str) -> str:
@@ -55,17 +62,17 @@ def _signup_provider_from_auth0_id(auth0_id: str) -> str:
 
 def list_users_with_admin_flag(conn: Connection) -> list[dict]:
     """Return every user with a derived signup_provider and is_admin flag."""
-    cursor = conn.cursor()
-    cursor.execute(
-        sql.SQL(
-            "SELECT u.id, u.email, u.display_name, u.auth0_id, u.created_at,"
-            " (a.user_id IS NOT NULL) AS is_admin"
-            " FROM {users} u"
-            " LEFT JOIN {admins} a ON a.user_id = u.id"
-            " ORDER BY u.created_at DESC"
-        ).format(users=_USERS, admins=_ADMINS),
-    )
-    rows = cursor.fetchall()
+    with conn.cursor() as cursor:
+        cursor.execute(
+            sql.SQL(
+                "SELECT u.id, u.email, u.display_name, u.auth0_id, u.created_at,"
+                " (a.user_id IS NOT NULL) AS is_admin"
+                " FROM {users} u"
+                " LEFT JOIN {admins} a ON a.user_id = u.id"
+                " ORDER BY u.created_at DESC"
+            ).format(users=_USERS, admins=_ADMINS),
+        )
+        rows = cursor.fetchall()
     return [
         {
             "id": r["id"],
@@ -86,26 +93,37 @@ def get_users_stats(conn: Connection) -> dict:
     per-provider counts. ``created_at`` is stored as ISO-8601 ``Text`` so the
     MIN/MAX comparison is lexicographic — safe because ISO-8601 sorts
     chronologically.
-    """
-    cursor = conn.cursor()
-    cursor.execute(
-        sql.SQL(
-            "SELECT COUNT(*) AS total,"
-            " MIN(created_at) AS first_signup,"
-            " MAX(created_at) AS latest_signup"
-            " FROM {users}"
-        ).format(users=_USERS),
-    )
-    agg = cursor.fetchone()
-    total = int(agg["total"]) if agg else 0
-    first_signup = agg["first_signup"] if agg else None
-    latest_signup = agg["latest_signup"] if agg else None
 
-    cursor.execute(
-        sql.SQL("SELECT auth0_id FROM {users}").format(users=_USERS),
-    )
+    ``COUNT(*)`` and ``MIN``/``MAX`` always return exactly one aggregate row,
+    so the ``fetchone()`` result is never ``None``. We index directly into it
+    rather than guarding with ``if agg else 0`` — that branch would swallow a
+    driver-state bug as "zero users" and quietly break the admin dashboard.
+    """
+    with conn.cursor() as cursor:
+        cursor.execute(
+            sql.SQL(
+                "SELECT COUNT(*) AS total,"
+                " MIN(created_at) AS first_signup,"
+                " MAX(created_at) AS latest_signup"
+                " FROM {users}"
+            ).format(users=_USERS),
+        )
+        agg = cursor.fetchone()
+        # Per-provider counts pulled in a separate query because the provider
+        # mapping (auth0|… → "email", google[-oauth2]|… → "google") lives in
+        # ``_signup_provider_from_auth0_id`` and is exercised by tests there.
+        # Pushing it into SQL would duplicate the mapping in two places.
+        cursor.execute(
+            sql.SQL("SELECT auth0_id FROM {users}").format(users=_USERS),
+        )
+        provider_rows = cursor.fetchall()
+
+    total = int(agg["total"])
+    first_signup = agg["first_signup"]
+    latest_signup = agg["latest_signup"]
+
     by_provider: dict[str, int] = {}
-    for row in cursor.fetchall():
+    for row in provider_rows:
         provider = _signup_provider_from_auth0_id(row["auth0_id"])
         by_provider[provider] = by_provider.get(provider, 0) + 1
 

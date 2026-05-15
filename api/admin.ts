@@ -40,10 +40,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const response = await fetch(targetUrl, fetchOptions);
     await forwardResponse(response, res);
   } catch (error) {
+    // Log the full error server-side for debugging, but return a generic
+    // message to the client. Node's fetch errors leak internal hostnames
+    // and ports (e.g. "getaddrinfo ENOTFOUND backend-prod.internal:8080")
+    // which a public 502 response should not expose.
     console.error('[api/admin] Upstream fetch failed:', error);
-    res.status(502).json({
-      error: 'Upstream backend unavailable',
-      details: error instanceof Error ? error.message : String(error),
-    });
+    res.status(502).json({ error: 'Upstream backend unavailable' });
   }
 }

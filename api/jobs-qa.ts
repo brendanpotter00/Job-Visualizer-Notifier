@@ -45,10 +45,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const response = await fetch(targetUrl, fetchOptions);
     await forwardResponse(response, res);
   } catch (error) {
+    // See api/admin.ts: do not leak the upstream URL / DNS error to the
+    // public client — log it server-side instead.
     console.error('[api/jobs-qa] Upstream fetch failed:', error);
-    res.status(502).json({
-      error: 'Upstream backend unavailable',
-      details: error instanceof Error ? error.message : String(error),
-    });
+    res.status(502).json({ error: 'Upstream backend unavailable' });
   }
 }

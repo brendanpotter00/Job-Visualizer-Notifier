@@ -25,8 +25,16 @@ export function SignupSparkline({ createdAts, width = 110, height = 28 }: Signup
       .filter((t) => !Number.isNaN(t));
     if (times.length === 0) return [];
 
-    const min = Math.min(...times);
-    const max = Math.max(...times);
+    // Reducer instead of `Math.min(...times)`: the spread operator hits the
+    // JS argument-count limit (~65k on V8) past a certain user count, and the
+    // admin dashboard is the one place that will see that. Frontend CLAUDE.md
+    // gotcha #10 calls out memory issues for unbounded lists.
+    let min = Infinity;
+    let max = -Infinity;
+    for (const t of times) {
+      if (t < min) min = t;
+      if (t > max) max = t;
+    }
     const span = Math.max(max - min, 1);
     const bucketCount = Math.min(10, Math.max(4, Math.ceil(Math.sqrt(times.length))));
     const counts = new Array(bucketCount).fill(0) as number[];
