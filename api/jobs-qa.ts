@@ -21,18 +21,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const backendUrl = getBackendUrl(req);
   const targetUrl = `${backendUrl}/api/jobs-qa${targetPath ? `/${targetPath}` : ''}${queryString}`;
 
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+  };
+  // /api/jobs-qa is admin-gated on the backend (require_admin). The proxy must
+  // forward the caller's Bearer token or every request comes through anonymous
+  // and the backend returns 401.
+  if (req.headers.authorization) {
+    headers['Authorization'] = req.headers.authorization;
+  }
+
+  const fetchOptions: RequestInit = {
+    method: req.method,
+    headers,
+  };
+
+  if ((req.method === 'PUT' || req.method === 'POST') && req.body != null) {
+    fetchOptions.body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+  }
+
   try {
-    const response = await fetch(targetUrl, {
-      method: req.method,
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-      },
-    });
+    const response = await fetch(targetUrl, fetchOptions);
     await forwardResponse(response, res);
   } catch (error) {
-    res.status(500).json({
-      error: 'Failed to fetch from backend',
+    console.error('[api/jobs-qa] Upstream fetch failed:', error);
+    res.status(502).json({
+      error: 'Upstream backend unavailable',
       details: error instanceof Error ? error.message : String(error),
     });
   }

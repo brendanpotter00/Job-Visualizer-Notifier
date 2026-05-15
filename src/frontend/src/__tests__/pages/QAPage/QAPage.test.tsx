@@ -7,6 +7,22 @@ import { QAPage } from '../../../pages/QAPage/QAPage';
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
 
+// QAPage now calls `useAuth().getToken()` to forward the admin Bearer token
+// to /api/jobs-qa (the endpoint is gated by `require_admin`). The page is
+// already wrapped in AdminRoute in production, so a real token always exists;
+// here we just stub one in.
+vi.mock('../../../features/auth/useAuth', () => ({
+  useAuth: () => ({
+    isEnabled: true,
+    isAuthenticated: true,
+    isLoading: false,
+    login: vi.fn(),
+    logout: vi.fn(),
+    getToken: vi.fn().mockResolvedValue('test-token'),
+    user: { sub: 'auth0|test_admin' },
+  }),
+}));
+
 describe('QAPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -478,6 +494,27 @@ describe('QAPage', () => {
       for (const [, options] of fetchLifecycleCalls) {
         expect(options).toBeDefined();
         expect(options.signal).toBeInstanceOf(AbortSignal);
+      }
+    });
+
+    it('sends Authorization header on /api/jobs-qa fetches', async () => {
+      // /api/jobs-qa is gated by require_admin on the backend. The page must
+      // attach the admin's Bearer token to every fetch — otherwise the proxy
+      // forwards an anonymous request and the backend returns 401.
+      render(<QAPage />);
+
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalled();
+      });
+
+      const scrapeRunsCalls = mockFetch.mock.calls.filter((call) =>
+        (call[0] as string).includes('/api/jobs-qa/scrape-runs')
+      );
+      expect(scrapeRunsCalls.length).toBeGreaterThan(0);
+      for (const [, options] of scrapeRunsCalls) {
+        expect(options?.headers).toMatchObject({
+          Authorization: 'Bearer test-token',
+        });
       }
     });
 

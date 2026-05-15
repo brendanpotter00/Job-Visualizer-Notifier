@@ -27,6 +27,7 @@ import { LoadingState } from '../../components/shared/LoadingIndicator';
 import { ErrorState } from '../../components/shared/ErrorDisplay';
 import { useFetchWithStatus } from '../../hooks/useFetchWithStatus';
 import { extractErrorMessage } from '../../lib/errors';
+import { useAuth } from '../../features/auth/useAuth';
 import type { SearchTag } from '../../types/index.ts';
 import type { BackendJobListing } from '../../api/types.ts';
 import { COMPANIES } from '../../config/companies';
@@ -70,6 +71,11 @@ interface ScraperResult {
  * @returns QA page component
  */
 export function QAPage() {
+  // Bearer token is required for /api/jobs-qa/*: the backend gates those
+  // endpoints behind require_admin, so unauthenticated requests return 401.
+  // AdminRoute already ensures only signed-in admins reach this page.
+  const { getToken } = useAuth();
+
   // Scrape-related state
   const [scrapingInProgress, setScrapingInProgress] = useState(false);
   const [scrapeResult, setScrapeResult] = useState<ScraperResult | null>(null);
@@ -127,16 +133,20 @@ export function QAPage() {
   const fetchScrapeRunsRequest = useCallback(
     async (signal: AbortSignal): Promise<ScrapeRun[]> => {
       const companyParam = selectedCompany !== 'all' ? `&company=${selectedCompany}` : '';
+      const token = await getToken();
       const response = await fetch(
         `/api/jobs-qa/scrape-runs?limit=100${companyParam}`,
-        { signal }
+        {
+          signal,
+          headers: { Authorization: `Bearer ${token}` },
+        }
       );
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       return response.json();
     },
-    [selectedCompany]
+    [selectedCompany, getToken]
   );
   const {
     data: scrapeRunsData,
@@ -158,8 +168,10 @@ export function QAPage() {
     try {
       setScrapingInProgress(true);
       setScrapeResult(null);
+      const token = await getToken();
       const response = await fetch(`/api/jobs-qa/trigger-scrape?company=${selectedCompany}`, {
         method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
       });
 
       // Handle HTTP errors BEFORE attempting to parse JSON (like backendScraperClient)

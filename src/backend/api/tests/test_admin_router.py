@@ -181,7 +181,13 @@ class TestAdminUsersStats:
 
 
 class TestJobsQaGate:
-    """jobs_qa router is now gated behind require_admin."""
+    """jobs_qa router is now gated behind require_admin.
+
+    Each endpoint declares its own ``Depends(require_admin)`` rather than
+    inheriting a router-level dependency, so the gate has to be re-checked
+    per endpoint — a future endpoint added without the dep would silently
+    re-open the hole that motivated this PR.
+    """
 
     def test_jobs_qa_stats_without_admin_returns_403(self, test_app, db_conn):
         from api.auth.dependencies import require_admin
@@ -195,6 +201,40 @@ class TestJobsQaGate:
         try:
             client = TestClient(test_app)
             resp = client.get("/api/jobs-qa/stats")
+            assert resp.status_code == 403
+        finally:
+            if saved_override is not None:
+                test_app.dependency_overrides[require_admin] = saved_override
+
+    def test_jobs_qa_scrape_runs_without_admin_returns_403(self, test_app, db_conn):
+        from api.auth.dependencies import require_admin
+
+        _insert_user(
+            db_conn,
+            _make_user({"auth0_id": "auth0|test_user_123", "email": "test@example.com"}),
+        )
+
+        saved_override = test_app.dependency_overrides.pop(require_admin, None)
+        try:
+            client = TestClient(test_app)
+            resp = client.get("/api/jobs-qa/scrape-runs")
+            assert resp.status_code == 403
+        finally:
+            if saved_override is not None:
+                test_app.dependency_overrides[require_admin] = saved_override
+
+    def test_jobs_qa_trigger_scrape_without_admin_returns_403(self, test_app, db_conn):
+        from api.auth.dependencies import require_admin
+
+        _insert_user(
+            db_conn,
+            _make_user({"auth0_id": "auth0|test_user_123", "email": "test@example.com"}),
+        )
+
+        saved_override = test_app.dependency_overrides.pop(require_admin, None)
+        try:
+            client = TestClient(test_app)
+            resp = client.post("/api/jobs-qa/trigger-scrape", params={"company": "google"})
             assert resp.status_code == 403
         finally:
             if saved_override is not None:
