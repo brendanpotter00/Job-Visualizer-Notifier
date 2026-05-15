@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import sys
 from contextlib import asynccontextmanager
 
 import psycopg2
@@ -14,10 +15,49 @@ from .dependencies import init_pool, close_pool, pool_is_healthy
 from .routers import features, jobs, jobs_qa, users
 from .migrations import apply_alembic_migrations
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-)
+
+# Railway derives its `@level` field from which OS stream a log line came out
+# on: stdout → info, stderr → error. Python's default StreamHandler writes
+# every level to stderr, which makes `@level:error` filters in Railway useless
+# (they surface thousands of harmless INFO lines). Route by Python level so
+# the platform field finally matches reality.
+class _MaxLevelFilter(logging.Filter):
+    def __init__(self, max_level: int) -> None:
+        super().__init__()
+        self.max_level = max_level
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return record.levelno < self.max_level
+
+
+def _configure_logging() -> None:
+    fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+
+    stdout_handler = logging.StreamHandler(sys.stdout)
+    stdout_handler.setLevel(logging.DEBUG)
+    stdout_handler.addFilter(_MaxLevelFilter(logging.ERROR))
+    stdout_handler.setFormatter(fmt)
+
+    stderr_handler = logging.StreamHandler(sys.stderr)
+    stderr_handler.setLevel(logging.ERROR)
+    stderr_handler.setFormatter(fmt)
+
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    # Replace whatever basicConfig (or a prior import in --reload) left behind
+    # so we don't get double-printing.
+    root.handlers = [stdout_handler, stderr_handler]
+
+    # uvicorn installs its own handlers; redirect them through ours so its
+    # startup/info lines also follow the rule. Skip uvicorn.access — it
+    # already writes to stdout and that's correct.
+    for name in ("uvicorn", "uvicorn.error"):
+        lg = logging.getLogger(name)
+        lg.handlers = [stdout_handler, stderr_handler]
+        lg.propagate = False
+
+
+_configure_logging()
 logger = logging.getLogger(__name__)
 
 
