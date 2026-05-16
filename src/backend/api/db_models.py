@@ -168,3 +168,20 @@ class FeatureUpvote(Base):
         Index("idx_feature_upvotes_feature_id", "feature_id"),
         Index("idx_feature_upvotes_user_id", "user_id"),
     )
+
+
+class Company(Base):
+    __tablename__ = "companies"
+
+    id = Column(Text, primary_key=True)
+    display_name = Column(Text, nullable=False)
+    ats = Column(Text, nullable=False)
+    board_token = Column(Text, nullable=False)
+    enabled = Column(Boolean, nullable=False, server_default=text("true"))
+    created_at = Column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        Index("ix_companies_ats_enabled", "ats", "enabled"),
+    )
