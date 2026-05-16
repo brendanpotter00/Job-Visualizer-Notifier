@@ -135,3 +135,124 @@ Fixing in this pass:
 - **DEPLOY.md mitigation still applies**: post-merge, all greenhouse companies show empty for up to 30 min until first cron tick. Operator must POST `/api/jobs-qa/trigger-greenhouse-fan-out` immediately after deploy completes.
 - **Pre-existing test isolation noise**: `test_happy_path_inserts_new_marks_missing` is occasionally flaky when run as part of the full suite (passes in isolation). This is the documented I3 test-isolation noise (Procrastinate `public.procrastinate_jobs` table shared across xdist workers); not introduced by Pass 1 fixes.
 
+
+---
+
+## 2026-05-15 — Review pass 2
+
+Diff: `git diff origin/main...HEAD` (62 files, +3726/-1160 — bigger than Pass 1 because rebase pulled in admin dashboard).
+
+**Pass 1 fixes landed in commits:** `8d6b3ed` (rebase), `61ced76` (backend correctness), `a3de42c` (frontend type cleanup), `a86c34b` (test additions), `d186b63` (audit log update).
+
+
+### Code-review findings
+
+**Critical:**
+- `src/backend/api/routers/jobs_qa.py:98-208` — **Missing admin auth gate** on `trigger_greenhouse_fetch` and `trigger_greenhouse_fan_out`. Every other endpoint in this router (`stats`, `scrape_runs`, `trigger_scrape`) carries `_admin: TokenClaims = Depends(require_admin)` after the rebase pulled in PR #108. Test fixture (`conftest.py:294`) globally overrides `require_admin`, so existing tests cannot detect the missing gate. Originally PLAN said "match existing pattern (likely no auth currently)" — that's stale post-rebase. Anyone can spam-defer Greenhouse fetches against the queue. (agents: code-reviewer, pr-test-analyzer #1, silent-failure-hunter C2)
+- `src/backend/api/tasks/enqueue_greenhouse_fan_out.py:99` — Broad `except Exception` swallows Procrastinate retry signals (`ConnectorException`, `JobAborted`, `JobError`) and programmer errors (AttributeError, TypeError). Pass 1 explicitly applied the symmetric fix to `fetch_greenhouse_company.py` but missed this sibling task. Narrow to `(procrastinate_exceptions.ConnectorException, psycopg2.Error)`. (agent: silent-failure-hunter C1)
+
+**Important:**
+- `src/backend/api/services/greenhouse_client.py:143` — Comment-vs-log-level contradiction. The comment block above the call states "data quality issue is visible in stderr (Railway @level:error)" but the call is `logger.warning(...)`. Inconsistent with Pass 1's safety-guard WARNING→ERROR upgrade. (agents: code-reviewer, silent-failure-hunter S1)
+- `src/backend/api/tasks/fetch_greenhouse_company.py:208-218` — Fallback `record_scrape_run` close-error swallowing. The `fallback_conn.close()` call inside `finally` is unprotected; a close exception overrides the original write failure context, making Sentry traces misleading. (agent: silent-failure-hunter C3)
+- `src/backend/api/routers/jobs_qa.py:78-82` — Subprocess exit-code logging at WARNING level (deferred from Pass 1). `_run_scraper_logged` should use `logger.error` so Railway's `@level:error` filter surfaces scraper failures. (agent: silent-failure-hunter C4)
+- `src/backend/api/tasks/enqueue_greenhouse_fan_out.py:45-48` — Periodic task lacks `RetryStrategy` (deferred from Pass 1). If `db.list_enabled_companies` fails on a transient blip, the entire 30-min tick is lost with no retry. Add `retry=RetryStrategy(max_attempts=3, exponential_wait=2)`. (agent: silent-failure-hunter C5)
+- `src/backend/api/tasks/fetch_greenhouse_company.py:82, 209` — Connection-leak window if task is cancelled between `asyncio.to_thread(db.get_connection)` completing in the thread and the awaiter resuming to bind the result to local `conn`. The thread completes and produces a connection object that's then orphaned. Mitigation: `asyncio.shield` around acquisition or restructure to ensure the bind is uncancellable. (agent: postgres-prod-verifier)
+- `src/backend/api/tasks/fetch_greenhouse_company.py:85` — httpx client lifecycle still per-task (deferred from Pass 1). ~45 connection-pool setup/teardowns per 30 min; defeats per-host keepalive. (agent: railway-prod-verifier)
+
+**Suggestion / Nit:**
+- `src/backend/api/routers/jobs_qa.py:121` — `cur = db.cursor()` not used in `with` block. Doesn't leak (pool handles it) but inconsistent with file's hygiene. (agent: code-reviewer)
+- `src/backend/api/tasks/enqueue_greenhouse_fan_out.py:67-71` — Connection-close error log lacks `timestamp` for Railway correlation. (agent: silent-failure-hunter S5)
+- `src/backend/api/tests/test_migration_companies.py:179-184` — Teardown `except Exception` silently swallows DROP DATABASE failures; orphan databases accumulate over flaky CI runs. Use `pytest.fail` or `warnings.warn`. (agent: silent-failure-hunter S2)
+- `src/backend/api/tests/test_fetch_greenhouse_company.py:160-166` — `_drain` re-raises bare `TimeoutError` without context. (agent: silent-failure-hunter S3)
+- Bundle size 1.34 MB unchanged; pre-existing.
+
+### Production-environment findings
+
+**Critical:** None.
+
+**Important:**
+- Connection-leak window from postgres-prod (listed under code-review section above; mirror finding).
+- httpx client lifecycle from railway-prod (listed under code-review section above).
+
+**Verified resolved from Pass 1:**
+- Migration chain — `down_revision = '2da4b99b39ea'` confirmed; single head; full chain `2da4b99b39ea → 438ad0658e53 → 939331c99a23` will apply cleanly.
+- Seed migration idempotency — `INSERT ... ON CONFLICT (id) DO NOTHING` verified; integration test passes.
+- `Depends(get_db)` for trigger endpoint — pool budget restored.
+- Narrowed exception catch in `fetch_greenhouse_company` — programmer errors propagate.
+- `asyncio.to_thread` wrapping — connection counts unchanged; event loop unblocked.
+- Frontend type cleanup — zero remaining `'greenhouse'` literal references in `src/frontend/src/**`.
+
+**Suggestion:**
+- DEPLOY.md note about `/api/greenhouse/*` route status transition (currently 500 in prod due to stale deployed handler; will be hard-404 after deploy). (agent: vercel-prod-verifier)
+
+**Could not verify:**
+- Live runtime behavior of Pass 1 fixes — branch not yet deployed.
+
+### Test-coverage findings
+
+**Critical:**
+- C2 `record_scrape_run` fallback path — STILL untested (deferred from Pass 1, still important). Monkeypatch primary `record_scrape_run` to raise; assert fallback runs and writes the row. (agent: pr-test-analyzer #2)
+
+**Important:**
+- C1 retry test weakness: `assert attempts >= 2` instead of pinned `== 2`; 75s worst-case timing on slow CI. (agent: pr-test-analyzer #3)
+- C4 worker-side concurrent-task race for the same company still untested. (agent: pr-test-analyzer #5)
+- I3 test isolation under xdist still fragile (admitted Pass 1 implementation note flagged this as flake-prone). (agent: pr-test-analyzer #4)
+- I5 transform_to_job_listings malformed shapes still untested. (agent: pr-test-analyzer #6)
+
+**Quality / Suggestion:**
+- Q1 `test_main_lifespan.py:111-121` brittle ordering still present.
+- Sub-threshold safety guard case `(10, 4, True)` not covered.
+- Q3 `_make_raw_job` fixtures still narrow.
+
+### Deferred (not fixing this pass)
+
+These move to PR follow-up (or Pass 3 if time permits):
+- I3 test isolation refactor (cleanup-by-queue-name centralization, autouse session-scoped fixture).
+- C4 concurrent-task race test (complex multi-worker setup).
+- I5 transformer pathological-input tests (low frequency in real Greenhouse responses).
+- Q1, Q3 test quality nits.
+- httpx client lifecycle refactor (broader than this PR).
+- Test code S2-S5 (test debugging quality).
+
+### To be picked up by fix agent (Pass 2)
+
+1. **CRITICAL: Add `Depends(require_admin)`** to `trigger_greenhouse_fetch` and `trigger_greenhouse_fan_out`. Update DEPLOY.md curl examples to include bearer token. Update tests to verify the gate (pop the dep override in one test per endpoint, assert 401/403).
+2. **CRITICAL: Narrow `except Exception`** in `enqueue_greenhouse_fan_out.py:99` to `(procrastinate_exceptions.ConnectorException, psycopg2.Error)`.
+3. **IMPORTANT: `_normalize_iso8601` log level** — `logger.warning` → `logger.error` for parse failure.
+4. **IMPORTANT: Add `RetryStrategy`** to periodic fan-out task. `max_attempts=3, exponential_wait=2`.
+5. **IMPORTANT: `_run_scraper_logged` log level** — WARNING → ERROR for non-zero exit.
+6. **IMPORTANT: Wrap `fallback_conn.close()`** in its own try/except so it doesn't override the original error context.
+7. **IMPORTANT: `asyncio.shield` around `db.get_connection`** in `fetch_greenhouse_company.py` to close the cancellation race window.
+8. **TEST: Add C2** — `record_scrape_run` fallback path test (monkeypatch primary call to raise).
+9. **TEST: Tighten C1 retry test** — assert `call_count == 2` exactly; tighten timing.
+
+### Implementation applied (Pass 2)
+
+**Commit SHAs (in order):**
+- `8598b6a` — Pass 2 fixes: admin auth gate on greenhouse trigger endpoints (Item 1: `Depends(require_admin)` added to `trigger_greenhouse_fetch` and `trigger_greenhouse_fan_out`; Item 5: `_run_scraper_logged` exit-code log WARNING→ERROR; DEPLOY.md curl examples updated to document bearer-token requirement; new tests `test_trigger_greenhouse_fetch_without_admin_returns_403` + `test_trigger_greenhouse_fan_out_without_admin_returns_403` pop the override per the test_admin_router.py pattern).
+- `d1a516c` — Pass 2 fixes: error handling and robustness refinements (Item 2: per-company `except Exception` narrowed to `(procrastinate_exceptions.ConnectorException, psycopg2.Error)`; Item 3: `_normalize_iso8601` callsite log WARNING→ERROR with "data quality issue" prefix; Item 4: `RetryStrategy(max_attempts=3, exponential_wait=2)` added to periodic fan-out task decorator; Item 6: `fallback_conn.close()` now wrapped in its own try/except so close failure doesn't override write-failure context; Item 7: both `db.get_connection` calls wrapped in `asyncio.shield(...)` to close cancellation-orphan window).
+- `7b6cfd5` — Pass 2 fixes: tests (Item 8: `test_record_scrape_run_fallback_runs_on_primary_failure` monkeypatches first call to raise psycopg2.OperationalError + counting wrapper around `db.get_connection` to prove fresh conn; new `test_per_company_psycopg2_error_does_not_abort_loop` for Item 2 fan-out exception isolation; Item 9: tightened C1 `attempts >= 2` → `attempts == 2` and trimmed polling tail from 75s→50s worst-case; updated `test_posted_on_unparseable_becomes_none` to assert ERROR level and "data quality issue" substring).
+
+**Files changed (Pass 2, summary):**
+- Backend code: `src/backend/api/routers/jobs_qa.py`, `src/backend/api/services/greenhouse_client.py`, `src/backend/api/tasks/enqueue_greenhouse_fan_out.py`, `src/backend/api/tasks/fetch_greenhouse_company.py`.
+- Backend tests: `src/backend/api/tests/test_jobs_qa_router.py`, `src/backend/api/tests/test_enqueue_greenhouse_fan_out.py`, `src/backend/api/tests/test_fetch_greenhouse_company.py`, `src/backend/api/tests/test_greenhouse_client.py`.
+- Docs: `docs/implementations/greenhouseBackendMigration/DEPLOY.md`.
+- No frontend changes this pass.
+
+**Test results:**
+- Backend: 290 passed (was 286 in Pass 1; +4 new tests this pass). Full suite green; no regressions.
+- Frontend: not touched this pass; no re-run needed.
+
+**Do not revert (new in this pass — load-bearing):**
+- `Depends(require_admin)` on `trigger_greenhouse_fetch` and `trigger_greenhouse_fan_out` — every endpoint in `jobs_qa.py` now declares its own admin gate (no router-level dep is used) so a future endpoint added without it would silently re-open the hole. The two new "without admin" tests are the regression net.
+- The narrowed `except (procrastinate_exceptions.ConnectorException, psycopg2.Error)` in `enqueue_greenhouse_fan_out.py` is intentional and mirrors the `fetch_greenhouse_company.py` Pass 1 narrowing — programmer errors must propagate so a deterministic typo doesn't masquerade as a transient blip.
+- `RetryStrategy(max_attempts=3, exponential_wait=2)` on the periodic task is bounded on purpose — three attempts is enough to ride out a transient blip but small enough that a persistently-broken DB doesn't pile up retries within a single 30-min tick.
+- `asyncio.shield(asyncio.to_thread(db.get_connection, ...))` for both the primary and fallback acquisitions — removing the shield reintroduces the cancellation-orphan window flagged by postgres-prod-verifier.
+- The fallback `record_scrape_run` close is wrapped in its own try/except — without it, a close exception masks the original write failure, sending the operator down the wrong debugging path.
+- `_normalize_iso8601` log level is now ERROR (was WARNING in Pass 1, was silent in pre-Pass 1) — Railway's @level:error filter is the alerting boundary.
+
+**Manual action required before merge:**
+- **Force push** the branch — Pass 2 commits (`8598b6a`, `d1a516c`, `7b6cfd5`) sit on top of the Pass 1 force-pushed history. Use `git push --force-with-lease`.
+- **Operator runbook update**: anyone curling `/api/jobs-qa/trigger-greenhouse-fan-out` or `/api/jobs-qa/trigger-greenhouse-fetch` post-deploy must include `Authorization: Bearer ${ADMIN_TOKEN}` per the updated DEPLOY.md curl examples. The post-deploy "fire fan-out manually" mitigation only works if the operator has an admin-grant'd Auth0 token in hand at deploy time — confirm this is available before kicking off the merge.
+- **Verify Railway prod head before deploy**: still `2da4b99b39ea` (admins) per Pass 1 note. Pass 2 added no new migrations.
+- **Pre-existing test isolation flake**: `test_happy_path_inserts_new_marks_missing` is still occasionally flaky in the full suite (passes in isolation) — documented Pass 1 issue I3, not introduced by Pass 2. No new flakes added.
