@@ -3,11 +3,13 @@ import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
+import FormControlLabel from '@mui/material/FormControlLabel';
 import IconButton from '@mui/material/IconButton';
 import InputAdornment from '@mui/material/InputAdornment';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
+import Switch from '@mui/material/Switch';
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
 import TableCell from '@mui/material/TableCell';
@@ -45,6 +47,7 @@ export function UserRosterTable({ users }: UserRosterTableProps) {
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(25);
   const [search, setSearch] = useState('');
+  const [adminsOnly, setAdminsOnly] = useState(false);
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
   const [menuRow, setMenuRow] = useState<AdminUserRow | null>(null);
@@ -60,14 +63,17 @@ export function UserRosterTable({ users }: UserRosterTableProps) {
     null;
 
   const filtered = useMemo(() => {
-    if (!search.trim()) return users;
     const q = search.trim().toLowerCase();
-    return users.filter(
-      (u) =>
+    if (!adminsOnly && !q) return users;
+    return users.filter((u) => {
+      if (adminsOnly && !u.isAdmin) return false;
+      if (!q) return true;
+      return (
         u.email.toLowerCase().includes(q) ||
         (u.displayName?.toLowerCase().includes(q) ?? false)
-    );
-  }, [users, search]);
+      );
+    });
+  }, [users, search, adminsOnly]);
 
   const sorted = useMemo(() => {
     const copy = [...filtered];
@@ -143,26 +149,41 @@ export function UserRosterTable({ users }: UserRosterTableProps) {
             {filtered.length === 1 ? 'user' : 'users'}
           </Typography>
         </Box>
-        <TextField
-          value={search}
-          onChange={(e) => {
-            setSearch(e.target.value);
-            setPage(0);
-          }}
-          placeholder="Search email or name"
-          size="small"
-          variant="outlined"
-          slotProps={{
-            input: {
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon fontSize="small" color="action" />
-                </InputAdornment>
-              ),
-            },
-          }}
-          sx={{ width: { xs: 200, sm: 280 } }}
-        />
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+          <FormControlLabel
+            control={
+              <Switch
+                size="small"
+                checked={adminsOnly}
+                onChange={(e) => {
+                  setAdminsOnly(e.target.checked);
+                  setPage(0);
+                }}
+              />
+            }
+            label="Admins only"
+          />
+          <TextField
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(0);
+            }}
+            placeholder="Search email or name"
+            size="small"
+            variant="outlined"
+            slotProps={{
+              input: {
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" color="action" />
+                  </InputAdornment>
+                ),
+              },
+            }}
+            sx={{ width: { xs: 200, sm: 280 } }}
+          />
+        </Box>
       </Box>
 
       {actionError && (

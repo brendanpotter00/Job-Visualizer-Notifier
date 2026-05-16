@@ -1,7 +1,10 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
+import Box from '@mui/material/Box';
 import Container from '@mui/material/Container';
 import Grid from '@mui/material/Grid';
 import Paper from '@mui/material/Paper';
+import Tab from '@mui/material/Tab';
+import Tabs from '@mui/material/Tabs';
 import Typography from '@mui/material/Typography';
 import { useGetAdminUsersStatsQuery, useListAdminUsersQuery } from '../../features/admin/adminApi';
 import { LoadingState } from '../../components/shared/LoadingIndicator';
@@ -10,11 +13,15 @@ import { extractErrorMessage } from '../../lib/errors';
 import { StatTile } from './components/StatTile';
 import { ProviderBars } from './components/ProviderBars';
 import { SignupTrendChart } from './components/SignupTrendChart';
+import { SignupsPerDayChart } from './components/SignupsPerDayChart';
 import { UserRosterTable } from './components/UserRosterTable';
+
+type SignupChartTab = 'over-time' | 'per-day';
 
 export function AdminUsersPage() {
   const usersQuery = useListAdminUsersQuery();
   const statsQuery = useGetAdminUsersStatsQuery();
+  const [signupChartTab, setSignupChartTab] = useState<SignupChartTab>('over-time');
 
   // Memoize the empty-array fallback so downstream useMemo identities stay
   // stable through the loading phase.
@@ -111,10 +118,33 @@ export function AdminUsersPage() {
           </Grid>
 
           <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
-            <Typography variant="h6" component="h2" gutterBottom>
-              Signups over time
-            </Typography>
-            <SignupTrendChart createdAts={createdAts} />
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: 1,
+                mb: 2,
+              }}
+            >
+              <Typography variant="h6" component="h2">
+                Signups
+              </Typography>
+              <Tabs
+                value={signupChartTab}
+                onChange={(_, value: SignupChartTab) => setSignupChartTab(value)}
+                aria-label="Signups chart view"
+              >
+                <Tab value="over-time" label="Over time" />
+                <Tab value="per-day" label="Per day" />
+              </Tabs>
+            </Box>
+            {signupChartTab === 'over-time' ? (
+              <SignupTrendChart createdAts={createdAts} />
+            ) : (
+              <SignupsPerDayChart createdAts={createdAts} />
+            )}
           </Paper>
 
           <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
