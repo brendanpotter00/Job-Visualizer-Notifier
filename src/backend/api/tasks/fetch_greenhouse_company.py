@@ -29,11 +29,13 @@ exception (Procrastinate needs the original exception to retry).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from typing import Set
 
 import httpx
+import psycopg2
 from procrastinate import RetryStrategy
 
 from scripts.shared import database as db
@@ -73,7 +75,11 @@ async def fetch_greenhouse_company(
     error_count = 0
     scrape_error: BaseException | None = None
 
-    conn = db.get_connection(settings.database_url)
+    # Connection acquisition is itself a sync TCP handshake (psycopg2 has no
+    # async API). Wrap in to_thread so we don't block the worker's event loop
+    # while Postgres is mid-handshake; this matters most under concurrency=5
+    # because the worker shares the FastAPI event loop.
+    conn = await asyncio.to_thread(db.get_connection, settings.database_url)
     try:
         try:
             async with httpx.AsyncClient() as http:
@@ -81,10 +87,15 @@ async def fetch_greenhouse_company(
             jobs = transform_to_job_listings(company_id, board_token, raw_jobs)
             jobs_seen = len(jobs)
 
-            active_count = db.count_active_jobs(conn, company_id)
+            active_count = await asyncio.to_thread(db.count_active_jobs, conn, company_id)
 
             if active_count > 0 and jobs_seen < SAFETY_GUARD_RATIO * active_count:
-                logger.warning(
+                # ERROR (not WARNING) so Railway routes this to stderr — the
+                # platform's @level field is derived from the OS stream
+                # (see _configure_logging in main.py). A persistently-tripping
+                # safety guard would otherwise be invisible in Railway's
+                # @level:error filter.
+                logger.error(
                     "SAFETY GUARD for %s: returned %d jobs but %d active in DB "
                     "(threshold %.0f%% = %.0f). Skipping update/close phases.",
                     company_id, jobs_seen, active_count,
@@ -96,33 +107,77 @@ async def fetch_greenhouse_company(
             timestamp = get_iso_timestamp()
             seen_ids: Set[str] = {j.id for j in jobs}
 
-            pre_upsert_active = db.get_active_job_ids(conn, company_id)
+            pre_upsert_active = await asyncio.to_thread(db.get_active_job_ids, conn, company_id)
+
+            # =================================================================
+            # Per-step auto-commit + retry idempotency (load-bearing comment).
+            #
+            # Each helper below opens its own transaction and commits internally.
+            # That means a mid-task failure (worker crash, Procrastinate kill, etc.)
+            # can leave the DB in a partially-applied state, and the @retry will
+            # re-run the WHOLE handler from the top. The order below is what makes
+            # that safe:
+            #
+            #   1. upsert_jobs_batch       -- INSERT ... ON CONFLICT DO UPDATE.
+            #                                 Idempotent: re-running with the same
+            #                                 input produces the same row state.
+            #   2. update_last_seen        -- Sets last_seen_at AND resets
+            #                                 consecutive_misses=0 for any id we
+            #                                 saw in *this* run. So spurious
+            #                                 increments from a prior partial run
+            #                                 get wiped clean for any job that's
+            #                                 still on the board.
+            #   3. increment_consecutive_misses -- Only run for ids that were
+            #                                 active before this fetch and NOT in
+            #                                 today's seen_ids. If a previous
+            #                                 retry already incremented them and
+            #                                 the job is *still* missing on this
+            #                                 retry, the increment is correct
+            #                                 (the job missed both runs). If the
+            #                                 job came back, step 2 reset the
+            #                                 counter to 0.
+            #   4. mark_jobs_closed        -- Idempotent (status='CLOSED' is a
+            #                                 terminal write). Closing twice has
+            #                                 no extra effect.
+            #
+            # Net: any partial failure that's later retried converges to the
+            # right state. Do NOT reorder these without re-doing the analysis.
+            # =================================================================
 
             if jobs:
-                db.upsert_jobs_batch(conn, jobs)
+                await asyncio.to_thread(db.upsert_jobs_batch, conn, jobs)
 
             if seen_ids:
-                db.update_last_seen(conn, list(seen_ids), timestamp)
+                await asyncio.to_thread(db.update_last_seen, conn, list(seen_ids), timestamp)
 
             new_jobs_count = len(seen_ids - pre_upsert_active)
 
-            post_upsert_active = db.get_active_job_ids(conn, company_id)
+            post_upsert_active = await asyncio.to_thread(db.get_active_job_ids, conn, company_id)
             missing_ids = post_upsert_active - seen_ids
 
             if missing_ids:
-                db.increment_consecutive_misses(conn, list(missing_ids))
-                to_close = db.get_jobs_exceeding_miss_threshold(
-                    conn, list(missing_ids), threshold=MISSED_RUN_THRESHOLD,
+                await asyncio.to_thread(db.increment_consecutive_misses, conn, list(missing_ids))
+                to_close = await asyncio.to_thread(
+                    db.get_jobs_exceeding_miss_threshold,
+                    conn,
+                    list(missing_ids),
+                    MISSED_RUN_THRESHOLD,
                 )
                 if to_close:
-                    db.mark_jobs_closed(conn, list(to_close), timestamp)
+                    await asyncio.to_thread(db.mark_jobs_closed, conn, list(to_close), timestamp)
                     closed_jobs_count = len(to_close)
 
             logger.info(
                 "fetch_greenhouse_company %s: seen=%d new=%d closed=%d",
                 company_id, jobs_seen, new_jobs_count, closed_jobs_count,
             )
-        except Exception as e:
+        except (httpx.HTTPError, ValueError, psycopg2.Error) as e:
+            # Programmer errors (AttributeError, TypeError, NameError, etc.)
+            # should propagate so Procrastinate marks the task failed
+            # immediately rather than burning all 5 retries on a deterministic
+            # bug. Only catch the *expected* failure modes (HTTP transport,
+            # malformed payload, DB error) and convert them into a recorded
+            # error so we still write a scrape_runs row.
             logger.error(
                 "fetch_greenhouse_company failed for %s: %s",
                 company_id, e, exc_info=True,
@@ -143,7 +198,7 @@ async def fetch_greenhouse_company(
             error_count=error_count,
         )
         try:
-            db.record_scrape_run(conn, run_record)
+            await asyncio.to_thread(db.record_scrape_run, conn, run_record)
         except Exception:
             logger.exception(
                 "Failed to record scrape run %s on primary connection; "
@@ -151,11 +206,11 @@ async def fetch_greenhouse_company(
                 run_id,
             )
             try:
-                fallback_conn = db.get_connection(settings.database_url)
+                fallback_conn = await asyncio.to_thread(db.get_connection, settings.database_url)
                 try:
-                    db.record_scrape_run(fallback_conn, run_record)
+                    await asyncio.to_thread(db.record_scrape_run, fallback_conn, run_record)
                 finally:
-                    fallback_conn.close()
+                    await asyncio.to_thread(fallback_conn.close)
             except Exception:
                 logger.exception(
                     "Fallback record_scrape_run also failed for %s",
@@ -163,9 +218,15 @@ async def fetch_greenhouse_company(
                 )
 
         try:
-            conn.close()
+            await asyncio.to_thread(conn.close)
         except Exception:
-            logger.warning("Error closing task connection", exc_info=True)
+            # ERROR (not WARNING): a leaked task connection is direct (not
+            # pooled), so it won't show up in pool metrics. We need this in
+            # Railway's stderr stream so it's visible to @level:error queries.
+            logger.error(
+                "Error closing task connection (potential connection leak)",
+                exc_info=True,
+            )
 
     if scrape_error is not None:
         raise scrape_error

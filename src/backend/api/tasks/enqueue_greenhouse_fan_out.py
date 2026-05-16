@@ -24,6 +24,7 @@ traceability but don't otherwise use it.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from procrastinate import exceptions as procrastinate_exceptions
@@ -52,14 +53,22 @@ async def enqueue_greenhouse_fan_out(timestamp: int) -> int:
     skipped because a prior tick's job is still in the queue with the
     same queueing lock - that is the intended dedupe path).
     """
-    conn = db.get_connection(settings.database_url)
+    # to_thread: psycopg2 has no async API, and this periodic task shares the
+    # FastAPI event loop with the worker. Blocking here would freeze every
+    # in-flight HTTP request for the duration of the connect + query.
+    conn = await asyncio.to_thread(db.get_connection, settings.database_url)
     try:
-        companies = db.list_enabled_companies(conn, ats="greenhouse")
+        companies = await asyncio.to_thread(
+            db.list_enabled_companies, conn, "greenhouse"
+        )
     finally:
         try:
-            conn.close()
+            await asyncio.to_thread(conn.close)
         except Exception:
-            logger.warning("Error closing fan-out connection", exc_info=True)
+            logger.error(
+                "Error closing fan-out connection (potential connection leak)",
+                exc_info=True,
+            )
 
     if not companies:
         logger.info(
@@ -69,6 +78,7 @@ async def enqueue_greenhouse_fan_out(timestamp: int) -> int:
         return 0
 
     deferred = 0
+    failed = 0
     for c in companies:
         company_id = c["id"]
         board_token = c["board_token"]
@@ -86,9 +96,20 @@ async def enqueue_greenhouse_fan_out(timestamp: int) -> int:
                 "skipping this tick",
                 company_id,
             )
+        except Exception:
+            # Per-company isolation: a transient connector blip on company N
+            # must NOT abort the loop and leave alphabetically-later companies
+            # unprocessed for the entire 30-min window. Log and continue.
+            failed += 1
+            logger.exception(
+                "Failed to defer fetch_greenhouse_company for %s; "
+                "continuing with remaining companies",
+                company_id,
+            )
 
     logger.info(
-        "enqueue_greenhouse_fan_out tick %d: deferred %d / %d companies",
-        timestamp, deferred, len(companies),
+        "enqueue_greenhouse_fan_out tick %d: deferred %d / %d companies "
+        "(failed=%d)",
+        timestamp, deferred, len(companies), failed,
     )
     return deferred

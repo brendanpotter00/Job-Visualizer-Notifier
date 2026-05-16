@@ -88,7 +88,20 @@ GREENHOUSE_SEED_ROWS = [
 
 
 def upgrade() -> None:
-    op.bulk_insert(companies_table, GREENHOUSE_SEED_ROWS)
+    # ON CONFLICT (id) DO NOTHING for idempotency: if any of these rows were
+    # backfilled out-of-band (manual repair, partial prior run, prod hotfix),
+    # the seed migration must NOT trip a PK-conflict and brick startup.
+    # The trade-off is that an out-of-band row with a different display_name /
+    # board_token wins over the seed; that's acceptable because operator-driven
+    # rows are intentional, but the migration must remain runnable.
+    bind = op.get_bind()
+    insert_sql = sa.text(
+        "INSERT INTO companies (id, display_name, ats, board_token) "
+        "VALUES (:id, :display_name, :ats, :board_token) "
+        "ON CONFLICT (id) DO NOTHING"
+    )
+    for row in GREENHOUSE_SEED_ROWS:
+        bind.execute(insert_sql, row)
 
 
 def downgrade() -> None:

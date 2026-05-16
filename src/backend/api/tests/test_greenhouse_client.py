@@ -143,13 +143,17 @@ class TestTransformToJobListings:
         assert transform_to_job_listings("stripe", "stripe", []) == []
 
     def test_id_format_uses_board_token(self):
+        # Use distinct values so the assertion actually proves the id is
+        # built from board_token (not company_id). Previously both were
+        # "spacex", which made the test pass even if the wrong field was
+        # used to build the id.
         result = transform_to_job_listings(
             company_id="spacex",
-            board_token="spacex",
+            board_token="rocket",
             raw_jobs=ONE_JOB_FIXTURE["jobs"],
         )
         assert len(result) == 1
-        assert result[0].id == "greenhouse_spacex_7546284"
+        assert result[0].id == "greenhouse_rocket_7546284"
 
     def test_id_format_with_distinct_board_token(self):
         result = transform_to_job_listings(
@@ -202,6 +206,22 @@ class TestTransformToJobListings:
         assert result[1].posted_on is not None
         assert result[1].posted_on.startswith("2026-05-10T10:00:00")
         assert result[1].posted_on.endswith("+00:00")
+
+    def test_posted_on_unparseable_becomes_none(self, caplog):
+        # Per feedback_correctness_over_dont_crash: a malformed timestamp
+        # must surface as a clean missing value, NOT silently passed through
+        # as a corrupt string. Row is preserved (no crash), with a warning.
+        import logging
+
+        raw = dict(ONE_JOB_FIXTURE["jobs"][0])
+        raw["first_published"] = "not-a-real-date"
+        raw["updated_at"] = "also-bogus"
+        with caplog.at_level(logging.WARNING, logger="api.services.greenhouse_client"):
+            result = transform_to_job_listings("stripe", "stripe", [raw])
+        assert result[0].posted_on is None
+        assert any(
+            "unparseable posted_on" in rec.getMessage() for rec in caplog.records
+        ), f"expected unparseable warning, got: {[r.getMessage() for r in caplog.records]}"
 
     def test_details_jsonb_has_field_tolerant_keys(self):
         result = transform_to_job_listings("stripe", "stripe", ONE_JOB_FIXTURE["jobs"])

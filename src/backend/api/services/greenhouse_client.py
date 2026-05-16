@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Optional
 
 import httpx
 
@@ -136,6 +136,17 @@ def _transform_one(
 
     posted_on_raw = raw.get("first_published") or raw.get("updated_at")
     posted_on = _normalize_iso8601(posted_on_raw) if posted_on_raw else None
+    if posted_on_raw and posted_on is None:
+        # Per feedback_correctness_over_dont_crash: don't pass through a corrupt
+        # timestamp string. Surface as a clean missing value (None) and log so the
+        # data quality issue is visible in stderr (Railway @level:error).
+        logger.warning(
+            "Greenhouse job %s for board %s had unparseable posted_on=%r; "
+            "storing as NULL",
+            raw_id,
+            board_token,
+            posted_on_raw,
+        )
 
     details = {
         "department": department_name,
@@ -172,10 +183,12 @@ def _transform_one(
     )
 
 
-def _normalize_iso8601(value: str) -> str:
+def _normalize_iso8601(value: str) -> Optional[str]:
     """Parse an ISO 8601 string and re-emit as UTC ISO 8601.
 
-    Returns the original string unchanged if parsing fails.
+    Returns ``None`` if parsing fails. The caller logs and stores ``None`` so
+    a corrupt source string never silently makes it into ``job_listings``
+    (per feedback_correctness_over_dont_crash). The row itself is preserved.
     """
     try:
         dt = datetime.fromisoformat(value)
@@ -183,5 +196,4 @@ def _normalize_iso8601(value: str) -> str:
             dt = dt.replace(tzinfo=timezone.utc)
         return dt.astimezone(timezone.utc).isoformat()
     except (TypeError, ValueError):
-        logger.warning("Could not parse Greenhouse timestamp %r; passing through", value)
-        return value
+        return None

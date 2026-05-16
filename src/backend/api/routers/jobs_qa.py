@@ -8,15 +8,12 @@ from procrastinate import exceptions as procrastinate_exceptions
 from psycopg2.extensions import connection as Connection
 
 from ..auth.dependencies import TokenClaims, require_admin
-from ..config import settings
 from ..dependencies import get_db
 from ..models import COMPANY_PATTERN, JobsStatsResponse, CompanyCountResponse, ScrapeRunResponse
 from ..services.database import get_stats, get_scrape_runs
 from ..services.scraper_lock import scraper_lock
 from ..tasks.enqueue_greenhouse_fan_out import enqueue_greenhouse_fan_out
 from ..tasks.fetch_greenhouse_company import fetch_greenhouse_company
-
-from scripts.shared import database as scripts_db
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +102,7 @@ async def trigger_greenhouse_fetch(
         pattern=COMPANY_PATTERN,
         description="Company id (e.g. 'stripe'). Must exist in companies table with ats='greenhouse' and enabled=true.",
     ),
+    db: Connection = Depends(get_db),
 ):
     """Manually defer a single fetch_greenhouse_company task.
 
@@ -115,24 +113,18 @@ async def trigger_greenhouse_fetch(
     Returns 202 on successful defer, 202 with already_enqueued=true if
     a prior run for the same company is still pending/running, or 404
     if the company is unknown / disabled / not greenhouse.
+
+    Uses the shared bounded `ThreadedConnectionPool` via `Depends(get_db)`
+    rather than a fresh connection so concurrent QA spam can't blow past
+    `db_pool_max` and exhaust prod `max_connections`.
     """
-    conn = scripts_db.get_connection(settings.database_url)
-    try:
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT id, board_token FROM companies "
-            "WHERE id = %s AND ats = 'greenhouse' AND enabled = true",
-            (company_id,),
-        )
-        row = cur.fetchone()
-    finally:
-        try:
-            conn.close()
-        except Exception:
-            logger.warning(
-                "Error closing trigger-greenhouse-fetch connection",
-                exc_info=True,
-            )
+    cur = db.cursor()
+    cur.execute(
+        "SELECT id, board_token FROM companies "
+        "WHERE id = %s AND ats = 'greenhouse' AND enabled = true",
+        (company_id,),
+    )
+    row = cur.fetchone()
 
     if row is None:
         return JSONResponse(
