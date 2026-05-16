@@ -3,41 +3,14 @@ import Container from '@mui/material/Container';
 import Grid from '@mui/material/Grid';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
-import {
-  useGetAdminUsersStatsQuery,
-  useListAdminUsersQuery,
-} from '../../features/admin/adminApi';
+import { useGetAdminUsersStatsQuery, useListAdminUsersQuery } from '../../features/admin/adminApi';
 import { LoadingState } from '../../components/shared/LoadingIndicator';
 import { ErrorState } from '../../components/shared/ErrorDisplay';
 import { extractErrorMessage } from '../../lib/errors';
 import { StatTile } from './components/StatTile';
 import { ProviderBars } from './components/ProviderBars';
-import { SignupSparkline } from './components/SignupSparkline';
+import { SignupTrendChart } from './components/SignupTrendChart';
 import { UserRosterTable } from './components/UserRosterTable';
-
-function formatJoinedDate(iso: string | null): string {
-  if (!iso) return '—';
-  const idx = iso.indexOf('T');
-  return idx > 0 ? iso.slice(0, idx) : iso;
-}
-
-function relativeDays(iso: string | null): string {
-  if (!iso) return '';
-  const t = new Date(iso).getTime();
-  if (Number.isNaN(t)) return '';
-  const diffMs = Date.now() - t;
-  const days = Math.floor(diffMs / 86_400_000);
-  if (days <= 0) {
-    const hours = Math.max(0, Math.floor(diffMs / 3_600_000));
-    if (hours <= 0) {
-      const mins = Math.max(1, Math.floor(diffMs / 60_000));
-      return `${mins}m ago`;
-    }
-    return `${hours}h ago`;
-  }
-  if (days === 1) return '1 day ago';
-  return `${days} days ago`;
-}
 
 export function AdminUsersPage() {
   const usersQuery = useListAdminUsersQuery();
@@ -63,8 +36,7 @@ export function AdminUsersPage() {
   //     if it has data, it renders normally.
   const usersSlotLoading = usersQuery.isLoading && users.length === 0;
   const statsSlotLoading = statsQuery.isLoading && !stats;
-  const pageLevelLoading =
-    usersSlotLoading && statsSlotLoading && !usersError && !statsError;
+  const pageLevelLoading = usersSlotLoading && statsSlotLoading && !usersError && !statsError;
 
   if (pageLevelLoading) {
     return <LoadingState fullPage caption="Loading admin data…" />;
@@ -80,10 +52,7 @@ export function AdminUsersPage() {
       <Container maxWidth="xl" sx={{ py: 4 }}>
         <ErrorState
           inline
-          message={extractErrorMessage(
-            usersError ?? statsError,
-            'Failed to load admin data'
-          )}
+          message={extractErrorMessage(usersError ?? statsError, 'Failed to load admin data')}
           onRetry={() => {
             usersQuery.refetch();
             statsQuery.refetch();
@@ -101,8 +70,6 @@ export function AdminUsersPage() {
   // a silent fallback that hid a stats outage behind a plausible number).
   const statsUnavailable = Boolean(statsError) && !stats;
   const totalUsers = stats?.totalUsers ?? null;
-  const firstSignup = stats?.firstSignupAt ?? null;
-  const latestSignup = stats?.latestSignupAt ?? null;
 
   return (
     <Container maxWidth="xl" sx={{ py: 4 }}>
@@ -134,29 +101,21 @@ export function AdminUsersPage() {
       ) : (
         <>
           <Grid container spacing={2} sx={{ mb: 3 }}>
-            <Grid size={{ xs: 12, md: 4 }}>
+            <Grid size={{ xs: 12 }}>
               <StatTile
                 label="Total users"
                 value={totalUsers !== null ? totalUsers.toLocaleString() : '—'}
                 meta="Cumulative signups"
-                decoration={<SignupSparkline createdAts={createdAts} />}
-              />
-            </Grid>
-            <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-              <StatTile
-                label="First signup"
-                value={formatJoinedDate(firstSignup)}
-                meta={firstSignup ? relativeDays(firstSignup) : '—'}
-              />
-            </Grid>
-            <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-              <StatTile
-                label="Latest signup"
-                value={formatJoinedDate(latestSignup)}
-                meta={latestSignup ? relativeDays(latestSignup) : '—'}
               />
             </Grid>
           </Grid>
+
+          <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
+            <Typography variant="h6" component="h2" gutterBottom>
+              Signups over time
+            </Typography>
+            <SignupTrendChart createdAts={createdAts} />
+          </Paper>
 
           <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
             <Typography variant="h6" component="h2" gutterBottom>
