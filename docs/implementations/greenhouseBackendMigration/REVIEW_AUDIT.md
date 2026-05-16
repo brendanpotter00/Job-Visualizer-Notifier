@@ -107,4 +107,31 @@ Fixing in this pass:
 16. **TEST: Add I2 (migration test with pre-existing companies row)**.
 17. **TEST: Fix Q2 (test_id_format_uses_board_token uses distinct values)**.
 
+### Implementation applied (Pass 1)
+
+**Commit SHAs (in order):**
+- `8d6b3ed` — Rebase on main: chain companies migration off admins (resolved 3 trivial conflicts by combining both sides; migration `down_revision` updated `f4008c4fb790` -> `2da4b99b39ea`; test_migration_companies.py `PREV_HEAD` updated; REVIEW_AUDIT.md tracked into repo).
+- `61ced76` — Pass 1 fixes: backend correctness (Items 2-12: _normalize_iso8601 returns Optional[str], all blocking psycopg2 wrapped in asyncio.to_thread, narrow `except (httpx.HTTPError, ValueError, psycopg2.Error)`, per-step auto-commit safety pinned with load-bearing comment, per-company defer_async exception isolation, trigger_greenhouse_fetch uses Depends(get_db), `companies` added to _clear_tables, safety guard log level WARNING->ERROR, conn close error WARNING->ERROR, seed migration uses ON CONFLICT DO NOTHING, plus malformed-timestamp test and Q2 fix).
+- `a3de42c` — Pass 1 fixes: drop greenhouse from frontend types (Item 9: ATSProvider, GreenhouseConfig, GreenhouseAPIResponse, ATSConstants.Greenhouse all removed; appSlice default ATS now BackendScraper; baseClient.test.ts stand-in switched to AshbyConfig; 13 test fixture files updated mechanically — substitution-only).
+- `a86c34b` — Pass 1 fixes: tests (Items 13-16: C1 real retry test, C3 safety-guard boundary parametrize, I1 45-company fan-out, I2 migration with pre-existing companies row).
+
+**Files changed (Pass 1, summary):**
+- Backend: `src/backend/api/services/greenhouse_client.py`, `src/backend/api/tasks/fetch_greenhouse_company.py`, `src/backend/api/tasks/enqueue_greenhouse_fan_out.py`, `src/backend/api/routers/jobs_qa.py`, `src/backend/api/main.py`, `src/backend/api/tests/conftest.py`, `src/backend/api/tests/test_db_models.py`, `src/backend/api/tests/test_greenhouse_client.py`, `src/backend/api/tests/test_fetch_greenhouse_company.py`, `src/backend/api/tests/test_enqueue_greenhouse_fan_out.py`, `src/backend/api/tests/test_migration_companies.py`, `src/backend/alembic/versions/20260516_001426_438ad0658e53_add_companies_table.py`, `src/backend/alembic/versions/20260516_001452_939331c99a23_seed_greenhouse_companies.py`.
+- Frontend: `src/frontend/src/types/index.ts`, `src/frontend/src/api/types.ts`, `src/frontend/src/api/clients/baseClient.ts`, `src/frontend/src/features/app/appSlice.ts`, `src/frontend/src/components/companies-page/CompanySelector/CompanySelector.tsx`, plus 17 test files updated to use `'backend-scraper'` / `ATSConstants.BackendScraper` instead of greenhouse references.
+
+**Test results:**
+- Backend: 286 passed (was 278; +8 new tests).
+- Frontend: type-check clean; 1390 frontend tests pass.
+
+**Do not revert (new in this pass — load-bearing):**
+- The order of operations in `fetch_greenhouse_company.py` (upsert -> update_last_seen -> increment_misses -> mark_closed) is documented with a load-bearing comment block. Reordering breaks retry idempotency.
+- Narrowed `except (httpx.HTTPError, ValueError, psycopg2.Error)` is intentional: programmer errors must propagate so Procrastinate marks the task failed without burning all 5 retries.
+- `_normalize_iso8601` returning `None` (not the original string) on parse failure is intentional per `feedback_correctness_over_dont_crash.md`.
+- Seed migration's `ON CONFLICT (id) DO NOTHING` accepts that operator-driven rows win over the seed.
+
+**Manual action required before merge:**
+- **Rebase note**: this branch was rebased onto `66ac047 Add admin dashboard with users page and gated scraper`. Conflicts were minor (combined both sides) in `src/backend/api/main.py` (admin router import + procrastinate imports), `src/backend/api/tests/test_db_models.py` (admins + companies in expected table set), `src/backend/api/routers/jobs_qa.py` (TokenClaims/require_admin + settings imports). All commit hashes upstream of `8d6b3ed` are post-rebase and force-push will be required to update the remote branch.
+- **Companies migration chain**: `438ad0658e53` (companies) now chains off `2da4b99b39ea` (admins) instead of `f4008c4fb790`. Confirm Railway prod head is `2da4b99b39ea` immediately before deploy (PR #108 was merged 2026-05-15).
+- **DEPLOY.md mitigation still applies**: post-merge, all greenhouse companies show empty for up to 30 min until first cron tick. Operator must POST `/api/jobs-qa/trigger-greenhouse-fan-out` immediately after deploy completes.
+- **Pre-existing test isolation noise**: `test_happy_path_inserts_new_marks_missing` is occasionally flaky when run as part of the full suite (passes in isolation). This is the documented I3 test-isolation noise (Procrastinate `public.procrastinate_jobs` table shared across xdist workers); not introduced by Pass 1 fixes.
 
