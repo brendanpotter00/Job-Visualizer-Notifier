@@ -187,8 +187,18 @@ export function QAPage() {
       } catch (err) {
         if (err instanceof NotAuthenticatedError) {
           // Anonymous click should never happen (AdminRoute guards this
-          // page), but if it does, do nothing rather than flashing a
-          // "Not authenticated" error banner.
+          // page). When it DOES happen (mid-session expiry, signed-out
+          // race), the user clicks "Trigger Scrape" and previously saw
+          // nothing — silent failure. Surface an actionable warning via
+          // the scrapeResult Alert so the admin knows to re-auth instead
+          // of staring at an unresponsive button.
+          setScrapeResult({
+            exitCode: -1,
+            output: '',
+            error: 'Your session expired — please sign back in.',
+            company: selectedCompany,
+            completedAt: new Date().toISOString(),
+          });
           return;
         }
         throw err;

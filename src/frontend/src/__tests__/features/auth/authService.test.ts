@@ -59,6 +59,48 @@ describe('authService', () => {
 
       await expect(fetchCurrentUser('token')).rejects.toThrow('Failed to fetch user (500)');
     });
+
+    it('rejects a 2xx body that is missing the isAdmin field', async () => {
+      // Regression guard symmetric to AdminUsersListResponse's runtime
+      // guard. The backend hardening makes isAdmin a required Pydantic
+      // field — but a CDN error page or proxy misroute could still
+      // return a 2xx JSON body without it. If that response were cast
+      // straight to ``User`` (the prior behavior), AdminRoute's
+      // ``!user.isAdmin`` check would silently demote the admin. The
+      // parseUserResponse guard must reject this body at the fetch
+      // boundary so the error surfaces in useCurrentUser instead.
+      const bodyMissingIsAdmin = {
+        id: 'abc123',
+        providerSubject: 'auth0|test',
+        email: 'test@example.com',
+        displayName: null,
+        givenName: null,
+        familyName: null,
+        pictureUrl: null,
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+      };
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(JSON.stringify(bodyMissingIsAdmin), { status: 200 })
+      );
+
+      await expect(fetchCurrentUser('token')).rejects.toThrow(
+        /missing isAdmin field/
+      );
+    });
+
+    it('rejects a 2xx body whose isAdmin is not a boolean', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(
+          JSON.stringify({ ...mockUser, isAdmin: 'true' }),
+          { status: 200 }
+        )
+      );
+
+      await expect(fetchCurrentUser('token')).rejects.toThrow(
+        /missing isAdmin field/
+      );
+    });
   });
 
   describe('updateCurrentUser', () => {

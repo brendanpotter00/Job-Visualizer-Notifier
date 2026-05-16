@@ -70,6 +70,34 @@ export const adminApi = createApi({
     }),
     getAdminUsersStats: builder.query<AdminUsersStats, void>({
       query: () => '/users/stats',
+      transformResponse: (res: unknown) => {
+        // Symmetric runtime guard to ``listAdminUsers`` — catches the
+        // "proxy returns 2xx with the wrong body" case. Without this,
+        // ``stats?.totalUsers ?? users.length`` in AdminUsersPage
+        // silently falls back to the loaded-roster count and shows the
+        // wrong "Total users" number with no error signal.
+        if (!res || typeof res !== 'object') {
+          throw new Error(
+            'Invalid /api/admin/users/stats response: body is not an object'
+          );
+        }
+        const obj = res as Record<string, unknown>;
+        if (typeof obj.totalUsers !== 'number') {
+          throw new Error(
+            'Invalid /api/admin/users/stats response: missing or non-number totalUsers'
+          );
+        }
+        if (
+          obj.byProvider == null ||
+          typeof obj.byProvider !== 'object' ||
+          Array.isArray(obj.byProvider)
+        ) {
+          throw new Error(
+            'Invalid /api/admin/users/stats response: missing or non-object byProvider'
+          );
+        }
+        return obj as unknown as AdminUsersStats;
+      },
       providesTags: ['AdminUsersStats'],
     }),
     grantAdmin: builder.mutation<void, { userId: string }>({

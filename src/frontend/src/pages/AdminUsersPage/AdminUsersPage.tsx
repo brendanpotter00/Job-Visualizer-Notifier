@@ -51,18 +51,29 @@ export function AdminUsersPage() {
   const createdAts = useMemo(() => users.map((u) => u.createdAt), [users]);
 
   const isLoading = usersQuery.isLoading || statsQuery.isLoading;
-  const error = usersQuery.error ?? statsQuery.error;
-
-  if (isLoading && !stats && users.length === 0) {
+  const usersError = usersQuery.error;
+  const statsError = statsQuery.error;
+  // Page-level loading: only spin if BOTH queries are still pending. If
+  // one resolves and the other errors, we'd rather show the partial page
+  // with an error slot than keep the whole surface in loading limbo.
+  if (isLoading && !stats && users.length === 0 && !usersError && !statsError) {
     return <LoadingState fullPage caption="Loading admin data…" />;
   }
 
-  if (error) {
+  // Only fall back to the full-page error state when BOTH queries fail.
+  // Single-query failures render an inline ErrorState in their own slot
+  // so the rest of the page stays useful (audit log "Important" finding:
+  // hiding the roster on a stats-only failure is the exact conflated-
+  // failure pattern this PR is meant to prevent).
+  if (usersError && statsError) {
     return (
       <Container maxWidth="xl" sx={{ py: 4 }}>
         <ErrorState
           inline
-          message={extractErrorMessage(error, 'Failed to load admin data')}
+          message={extractErrorMessage(
+            usersError ?? statsError,
+            'Failed to load admin data'
+          )}
           onRetry={() => {
             usersQuery.refetch();
             statsQuery.refetch();
@@ -85,39 +96,62 @@ export function AdminUsersPage() {
         {totalUsers.toLocaleString()} total
       </Typography>
 
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid size={{ xs: 12, md: 4 }}>
-          <StatTile
-            label="Total users"
-            value={totalUsers.toLocaleString()}
-            meta="Cumulative signups"
-            decoration={<SignupSparkline createdAts={createdAts} />}
-          />
-        </Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-          <StatTile
-            label="First signup"
-            value={formatJoinedDate(firstSignup)}
-            meta={firstSignup ? relativeDays(firstSignup) : '—'}
-          />
-        </Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-          <StatTile
-            label="Latest signup"
-            value={formatJoinedDate(latestSignup)}
-            meta={latestSignup ? relativeDays(latestSignup) : '—'}
-          />
-        </Grid>
-      </Grid>
+      {statsError ? (
+        // Stats failed in isolation — render an inline error in the stat
+        // tile section but keep the roster below. Includes a retry that
+        // only refetches the failed query.
+        <ErrorState
+          inline
+          message={extractErrorMessage(statsError, 'Failed to load admin stats')}
+          onRetry={() => statsQuery.refetch()}
+        />
+      ) : (
+        <>
+          <Grid container spacing={2} sx={{ mb: 3 }}>
+            <Grid size={{ xs: 12, md: 4 }}>
+              <StatTile
+                label="Total users"
+                value={totalUsers.toLocaleString()}
+                meta="Cumulative signups"
+                decoration={<SignupSparkline createdAts={createdAts} />}
+              />
+            </Grid>
+            <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+              <StatTile
+                label="First signup"
+                value={formatJoinedDate(firstSignup)}
+                meta={firstSignup ? relativeDays(firstSignup) : '—'}
+              />
+            </Grid>
+            <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+              <StatTile
+                label="Latest signup"
+                value={formatJoinedDate(latestSignup)}
+                meta={latestSignup ? relativeDays(latestSignup) : '—'}
+              />
+            </Grid>
+          </Grid>
 
-      <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
-        <Typography variant="h6" component="h2" gutterBottom>
-          Signup providers
-        </Typography>
-        <ProviderBars data={stats?.byProvider ?? {}} />
-      </Paper>
+          <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
+            <Typography variant="h6" component="h2" gutterBottom>
+              Signup providers
+            </Typography>
+            <ProviderBars data={stats?.byProvider ?? {}} />
+          </Paper>
+        </>
+      )}
 
-      <UserRosterTable users={users} />
+      {usersError ? (
+        // Roster failed in isolation — render an inline error in the
+        // roster slot. The stat tiles above still render.
+        <ErrorState
+          inline
+          message={extractErrorMessage(usersError, 'Failed to load user roster')}
+          onRetry={() => usersQuery.refetch()}
+        />
+      ) : (
+        <UserRosterTable users={users} />
+      )}
     </Container>
   );
 }

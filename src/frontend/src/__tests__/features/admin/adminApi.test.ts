@@ -178,4 +178,77 @@ describe('adminApi', () => {
     expect(result.data).toBeUndefined();
     expect(result.error).toBeDefined();
   });
+
+  it('surfaces an error when /api/admin/users 2xx body has users: null', async () => {
+    // Companion to the ``{}`` test — explicitly cover the case where
+    // the envelope is present but ``users`` is the wrong type. Without
+    // the ``Array.isArray`` check, ``Array.isArray(null)`` returns
+    // false and the guard still fires, but adding the case pins the
+    // contract so a future ``if (!res.users)`` regression (which would
+    // skip a present-but-falsy value) still trips the test.
+    fetchMock.mockResolvedValue(jsonResponse({ users: null }));
+    const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+    const result = await store.dispatch(
+      adminApi.endpoints.listAdminUsers.initiate()
+    );
+
+    expect(result.data).toBeUndefined();
+    expect(result.error).toBeDefined();
+  });
+
+  it('surfaces an error when /api/admin/users 2xx body has users as a string', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ users: 'oops' }));
+    const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+    const result = await store.dispatch(
+      adminApi.endpoints.listAdminUsers.initiate()
+    );
+
+    expect(result.data).toBeUndefined();
+    expect(result.error).toBeDefined();
+  });
+
+  it('surfaces an error when /api/admin/users/stats 2xx body is missing totalUsers', async () => {
+    // Symmetric to the listAdminUsers runtime guard test above. Without
+    // a transformResponse validator on getAdminUsersStats, a CDN error
+    // page with totalUsers === undefined would cause AdminUsersPage's
+    // ``stats?.totalUsers ?? users.length`` fallback to show the
+    // loaded-roster-count as "Total users" — silently wrong number.
+    fetchMock.mockResolvedValue(jsonResponse({ byProvider: {} }));
+    const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+    const result = await store.dispatch(
+      adminApi.endpoints.getAdminUsersStats.initiate()
+    );
+
+    expect(result.data).toBeUndefined();
+    expect(result.error).toBeDefined();
+  });
+
+  it('surfaces an error when /api/admin/users/stats 2xx body has totalUsers as a string', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ totalUsers: '42', byProvider: {} })
+    );
+    const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+    const result = await store.dispatch(
+      adminApi.endpoints.getAdminUsersStats.initiate()
+    );
+
+    expect(result.data).toBeUndefined();
+    expect(result.error).toBeDefined();
+  });
+
+  it('surfaces an error when /api/admin/users/stats 2xx body is missing byProvider', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ totalUsers: 0 }));
+    const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+    const result = await store.dispatch(
+      adminApi.endpoints.getAdminUsersStats.initiate()
+    );
+
+    expect(result.data).toBeUndefined();
+    expect(result.error).toBeDefined();
+  });
 });

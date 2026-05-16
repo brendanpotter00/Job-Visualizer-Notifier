@@ -28,6 +28,11 @@ export function useCurrentUser() {
       }
     } catch (err) {
       if (controller.signal.aborted) return;
+      // Log the raw error before we flatten it to a string — the stack /
+      // abort / status detail is what ops needs to debug a /api/users
+      // outage, and ``extractErrorMessage`` strips all of that. The
+      // flattened string still goes to state for the UI.
+      console.error('[useCurrentUser] fetch failed', err);
       setError(extractErrorMessage(err, 'Failed to load profile'));
     } finally {
       if (!controller.signal.aborted) {

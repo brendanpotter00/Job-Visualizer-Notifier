@@ -100,6 +100,65 @@ describe('extractErrorMessage', () => {
     });
   });
 
+  describe('RTK Query { error } shape (CUSTOM_ERROR / FETCH_ERROR)', () => {
+    // The runtime guards in ``adminApi.ts`` throw via ``transformResponse``;
+    // RTK Query then wraps the thrown ``Error`` into
+    // ``{ status: 'CUSTOM_ERROR', error: '...message...' }``. Without
+    // reading ``err.error``, the consumer (AdminUsersPage) saw the generic
+    // fallback and never the actionable "Invalid /api/admin/users response:
+    // missing users[]" guard message.
+    it('returns CUSTOM_ERROR message from err.error string', () => {
+      expect(
+        extractErrorMessage({
+          status: 'CUSTOM_ERROR',
+          error: 'Invalid /api/admin/users response: missing users[]',
+        })
+      ).toBe('Invalid /api/admin/users response: missing users[]');
+    });
+
+    it('returns FETCH_ERROR message from err.error string', () => {
+      expect(
+        extractErrorMessage({
+          status: 'FETCH_ERROR',
+          error: 'TypeError: Failed to fetch',
+        })
+      ).toBe('TypeError: Failed to fetch');
+    });
+
+    it('returns nested err.error.message when err.error is an object', () => {
+      // Mirrors SerializedError shape; some RTK Query middlewares nest the
+      // error object rather than flattening to a string.
+      expect(
+        extractErrorMessage({
+          status: 'CUSTOM_ERROR',
+          error: { message: 'guard tripped', name: 'Error' },
+        })
+      ).toBe('guard tripped');
+    });
+
+    it('prefers data.detail over err.error when both present', () => {
+      // The priority order keeps existing call sites' behavior identical.
+      expect(
+        extractErrorMessage({
+          data: { detail: 'detail wins' },
+          error: 'error loses',
+        })
+      ).toBe('detail wins');
+    });
+
+    it('falls through when err.error is an empty string', () => {
+      expect(
+        extractErrorMessage({ status: 'CUSTOM_ERROR', error: '' })
+      ).toBe('Unknown error');
+    });
+
+    it('falls through when err.error is not a string and has no message', () => {
+      expect(
+        extractErrorMessage({ status: 'CUSTOM_ERROR', error: { code: 500 } })
+      ).toBe('Unknown error');
+    });
+  });
+
   describe('custom fallback', () => {
     it('uses the custom fallback when no branch matches', () => {
       expect(extractErrorMessage(null, 'Failed to save changes')).toBe(

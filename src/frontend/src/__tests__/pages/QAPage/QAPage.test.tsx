@@ -568,6 +568,64 @@ describe('QAPage', () => {
       });
     });
 
+    it('surfaces a session-expired warning when handleTriggerScrape catches NotAuthenticatedError', async () => {
+      // Companion to the lifecycle short-circuit test below. The fetch
+      // lifecycle short-circuits silently (no banner) because that flow
+      // runs on every render; a user-initiated trigger-scrape click is
+      // different — silent return there means the admin clicks the
+      // button and sees nothing, with no path forward. Surface an
+      // actionable warning via the scrape result Alert instead.
+      const user = userEvent.setup();
+      const { NotAuthenticatedError } = await import(
+        '../../../features/auth/useAuth'
+      );
+
+      // First two getToken calls (initial mount + selectCompany re-fetch
+      // of scrape-runs) resolve with the default token so the page
+      // renders the dropdown and the trigger button. From the third call
+      // onwards — which is the click handler — reject with
+      // NotAuthenticatedError to simulate a mid-session expiry.
+      let callCount = 0;
+      mockGetToken.mockImplementation(() => {
+        callCount += 1;
+        if (callCount >= 3) {
+          return Promise.reject(new NotAuthenticatedError());
+        }
+        return Promise.resolve('test-token');
+      });
+
+      mockFetch.mockImplementation((url: string) => {
+        if (url.includes('/api/jobs?')) {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+        }
+        if (url.includes('/api/jobs-qa/scrape-runs')) {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+      });
+
+      render(<QAPage />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('combobox', { name: /company/i })).toBeInTheDocument();
+      });
+
+      await selectCompany(user, 'Google');
+
+      const button = await screen.findByRole('button', { name: /trigger scrape.*google/i });
+      await user.click(button);
+
+      // An Alert with the session-expired message must appear. The
+      // existing trigger-scrape Alert renders ``Scrape failed: <error>``
+      // on a non-zero exitCode, so match the human-readable portion.
+      await waitFor(() => {
+        expect(screen.getByRole('alert')).toHaveTextContent(
+          /session expired/i
+        );
+      });
+      expect(screen.getByRole('alert')).toHaveClass('MuiAlert-standardError');
+    });
+
     it('does not surface an error banner when getToken throws NotAuthenticatedError', async () => {
       // Signed-out flash regression: ``useAuth().getToken()`` rejects with
       // ``NotAuthenticatedError`` on the normal anonymous path. Without the

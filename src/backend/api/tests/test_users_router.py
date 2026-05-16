@@ -112,6 +112,57 @@ class TestPutMe:
         assert resp.status_code == 200
         assert resp.json()["displayName"] == "New Name"
 
+    def test_put_me_surfaces_is_admin_by_email_failure_as_500(
+        self, test_app, db_conn, monkeypatch
+    ):
+        """Sibling of ``test_get_me_surfaces_is_admin_by_email_failure_as_500``
+        — the PUT path also calls ``is_admin_by_email`` AFTER update_user, and
+        the call was moved OUTSIDE the ``psycopg2.Error`` catch so a driver
+        failure surfaces as 500 instead of silently demoting the user to
+        ``isAdmin: false`` in the response.
+
+        Without this test, a regression that re-wraps the call inside the
+        ``except psycopg2.Error`` block would re-introduce the swallowed
+        admin lookup on the PUT path only and slip through CI.
+        """
+        import psycopg2
+        from fastapi.testclient import TestClient
+        import api.routers.users as users_router
+
+        # PUT keys by email; ensure a row exists so update_user returns a row
+        # and we actually reach the is_admin_by_email call site.
+        user = _make_user(
+            {"auth0_id": "auth0|test_user_123", "email": "test@example.com"}
+        )
+        _insert_user(db_conn, user)
+
+        def _boom(_conn, _email):
+            # Use psycopg2.Error specifically — this is the exact class that
+            # the catch block above ``is_admin_by_email`` would have caught
+            # if the call were still inside it. If the catch is reintroduced
+            # the test would silently demote (return 200 with isAdmin=false)
+            # rather than 500.
+            raise psycopg2.Error("simulated admin-lookup failure")
+
+        monkeypatch.setattr(users_router, "is_admin_by_email", _boom)
+        client = TestClient(test_app, raise_server_exceptions=False)
+        resp = client.put("/api/users", json={"displayName": "X"})
+
+        # 500 from the unhandled psycopg2.Error — not 200 with a demoted
+        # admin flag.
+        assert resp.status_code == 500
+        # Belt-and-braces: assert we did NOT silently fall through with
+        # ``isAdmin: false``. A 200 response with that body is the exact
+        # regression we're guarding against.
+        try:
+            body = resp.json()
+        except Exception:
+            body = None
+        assert body != {"isAdmin": False}, (
+            "is_admin_by_email failure must surface as 500, not silently "
+            "demote the user to isAdmin: false."
+        )
+
     def test_rejects_long_display_name(self, client):
         """PUT /api/users should reject display_name over 100 chars."""
         client.get("/api/users")

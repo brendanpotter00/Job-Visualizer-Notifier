@@ -312,7 +312,11 @@ describe('/api/users serverless function', () => {
       expect(mockRes.json).toHaveBeenCalledWith({ error: '<html>Bad Gateway</html>' });
     });
 
-    it('should use statusText when non-JSON response body is empty', async () => {
+    it('forwards 204 with an empty body (RFC 9110 §15.3.5)', async () => {
+      // 204 (No Content) MUST NOT carry a body. forwardResponse short-
+      // circuits on 204/304 with ``res.status(...).end()`` — the prior
+      // behavior of wrapping in ``{ error: statusText }`` violated the
+      // RFC and tripped strict HTTP clients.
       mockReq.query = {};
 
       fetchMock.mockResolvedValue(mockTextResponse(204, '', 'No Content'));
@@ -320,7 +324,8 @@ describe('/api/users serverless function', () => {
       await handler(mockReq as VercelRequest, mockRes as VercelResponse);
 
       expect(mockRes.status).toHaveBeenCalledWith(204);
-      expect(mockRes.json).toHaveBeenCalledWith({ error: 'No Content' });
+      expect(mockRes.end).toHaveBeenCalled();
+      expect(mockRes.json).not.toHaveBeenCalled();
     });
   });
 

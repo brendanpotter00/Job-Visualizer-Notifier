@@ -23,6 +23,44 @@ async function extractErrorDetail(response: Response): Promise<string | null> {
     .catch(() => null);
 }
 
+/**
+ * Runtime guard for the ``/api/users`` response body.
+ *
+ * Symmetric to ``AdminUsersListResponse`` runtime validation in
+ * ``adminApi.ts``. The backend hardening (``UserResponse.is_admin`` required,
+ * no default) prevents Pydantic from emitting a body without ``isAdmin`` —
+ * but a CDN error page or a future serializer regression could still land
+ * a 2xx body that's missing the field. Without this guard, ``response.json()``
+ * is cast to ``User`` and ``AdminRoute``'s ``!user.isAdmin`` check silently
+ * demotes the admin (the exact "silently zero admins" failure mode the
+ * companion adminApi guard prevents).
+ *
+ * Validates the minimum surface the rest of the app reads (``id``, ``email``,
+ * ``isAdmin``). Strings and the boolean are checked by ``typeof`` so a
+ * structurally-shaped error envelope (e.g. ``{ detail: '...' }``) is
+ * rejected. Throws a descriptive ``Error`` that bubbles up through the
+ * fetch promise.
+ */
+function parseUserResponse(raw: unknown): User {
+  if (raw == null || typeof raw !== 'object') {
+    throw new Error('Invalid /api/users response: body is not an object');
+  }
+  const obj = raw as Record<string, unknown>;
+  if (typeof obj.id !== 'string' || obj.id.length === 0) {
+    throw new Error('Invalid /api/users response: missing or non-string id');
+  }
+  if (typeof obj.email !== 'string' || obj.email.length === 0) {
+    throw new Error('Invalid /api/users response: missing or non-string email');
+  }
+  if (typeof obj.isAdmin !== 'boolean') {
+    // CRITICAL: a missing isAdmin field would otherwise be coerced to
+    // ``undefined`` and ``!user.isAdmin`` would silently demote the admin
+    // in AdminRoute. Surface as a hard failure instead.
+    throw new Error('Invalid /api/users response: missing isAdmin field');
+  }
+  return obj as unknown as User;
+}
+
 export async function fetchCurrentUser(
   token: string,
   signal?: AbortSignal
@@ -40,7 +78,7 @@ export async function fetchCurrentUser(
     throw new Error(detail || `Failed to fetch user (${response.status})`);
   }
 
-  return response.json();
+  return parseUserResponse(await response.json());
 }
 
 export async function updateCurrentUser(
@@ -62,7 +100,7 @@ export async function updateCurrentUser(
     throw new Error(detail || `Failed to update user (${response.status})`);
   }
 
-  return response.json();
+  return parseUserResponse(await response.json());
 }
 
 export async function fetchEnabledCompanies(

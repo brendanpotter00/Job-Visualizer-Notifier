@@ -142,6 +142,80 @@ describe('AdminUsersPage', () => {
     expect(newCalls.some((u) => /\/api\/admin\/users(?!\/stats)/.test(u))).toBe(true);
   });
 
+  it('renders the roster with an inline stats error when stats fails but users succeeds', async () => {
+    // Partial-failure independence: the page must NOT collapse into a
+    // full-page ErrorState when only one query fails. Roster must render;
+    // the stat tile section gets its own inline ErrorState. This is the
+    // exact conflated-failure pattern this PR exists to prevent.
+    fetchMock.mockImplementation((input: unknown) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.includes('/api/admin/users/stats')) {
+        return Promise.resolve(jsonResponse({ detail: 'stats kaboom' }, 500));
+      }
+      return Promise.resolve(
+        jsonResponse({
+          users: [
+            {
+              id: 'u1',
+              email: 'roster@example.com',
+              displayName: 'Roster User',
+              signupProvider: 'google',
+              createdAt: '2025-01-01T00:00:00Z',
+              isAdmin: false,
+            },
+          ],
+        })
+      );
+    });
+
+    renderPage();
+
+    // Wait for the page header — proves the loading gate cleared.
+    await screen.findByRole('heading', { name: /admin · users/i });
+
+    // Roster row is visible (the email cell renders the user).
+    expect(screen.getByText('roster@example.com')).toBeInTheDocument();
+
+    // The stat tile section is replaced by an inline ErrorState with a
+    // Retry button. The page-level full-card ErrorState (which uses
+    // "Try Again" copy) must NOT fire.
+    expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
+    // The "Total users" stat tile label should NOT be present — the
+    // tile section was swapped for the inline error.
+    expect(screen.queryByText(/total users/i)).not.toBeInTheDocument();
+  });
+
+  it('renders the stat tiles with an inline roster error when users fails but stats succeeds', async () => {
+    // Inverse of the previous test: stats succeeds, users fails. Stat
+    // tiles must render; the roster slot shows an inline error.
+    fetchMock.mockImplementation((input: unknown) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.includes('/api/admin/users/stats')) {
+        return Promise.resolve(
+          jsonResponse({
+            totalUsers: 7,
+            firstSignupAt: '2025-01-01T00:00:00Z',
+            latestSignupAt: '2025-02-01T00:00:00Z',
+            byProvider: { google: 5, email: 2 },
+          })
+        );
+      }
+      return Promise.resolve(jsonResponse({ detail: 'roster kaboom' }, 500));
+    });
+
+    renderPage();
+
+    await screen.findByRole('heading', { name: /admin · users/i });
+
+    // Stat tile section renders — "Total users" label is present.
+    expect(screen.getByText(/total users/i)).toBeInTheDocument();
+    // The 7 from totalUsers is shown somewhere.
+    expect(screen.getAllByText('7').length).toBeGreaterThan(0);
+
+    // Roster slot is replaced by an inline error.
+    expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
+  });
+
   it('renders stat tiles and the user roster on success', async () => {
     fetchMock.mockImplementation((input: unknown) => {
       const url = input instanceof Request ? input.url : String(input);

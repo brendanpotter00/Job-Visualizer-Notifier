@@ -93,9 +93,15 @@ def grant_user_admin(
         conn.rollback()
         constraint = getattr(getattr(exc, "diag", None), "constraint_name", None)
         if constraint == "admins_granted_by_fkey":
+            # Log the granter identity (email + resolved id) so on-call can
+            # tell WHICH admin was deleted mid-grant. The target user_id is
+            # intentionally omitted from this branch's log — including it
+            # would be misleading (the FK violation isn't about the target).
             logger.error(
-                "granted_by FK violation when granting admin to user_id=%s (granter race)",
-                user_id,
+                "granted_by FK violation during grant (granter race): "
+                "granter_email=%s granter_id=%s",
+                admin.get("email"),
+                granter_id,
             )
             raise HTTPException(
                 status_code=500,

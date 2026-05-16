@@ -4,6 +4,8 @@ import { MemoryRouter } from 'react-router-dom';
 import { NavigationDrawer } from '../../../components/layout/NavigationDrawer.tsx';
 
 let mockUser: { isAdmin: boolean } | null = null;
+let mockUserError: string | null = null;
+const mockReload = vi.fn();
 
 vi.mock('../../../features/auth/useAuth', () => ({
   useAuth: () => ({
@@ -22,8 +24,8 @@ vi.mock('../../../features/auth/useCurrentUser', () => ({
     user: mockUser,
     setUser: vi.fn(),
     loading: false,
-    error: null,
-    reload: vi.fn(),
+    error: mockUserError,
+    reload: mockReload,
   }),
 }));
 
@@ -38,6 +40,8 @@ const mockProps = {
 describe('NavigationDrawer admin section', () => {
   beforeEach(() => {
     mockUser = null;
+    mockUserError = null;
+    mockReload.mockReset();
   });
 
   it('hides the Admin section when the current-user profile has not loaded', () => {
@@ -88,6 +92,55 @@ describe('NavigationDrawer admin section', () => {
     expect(screen.getByTestId('PeopleIcon')).toBeInTheDocument();
     expect(screen.getByTestId('BugReportIcon')).toBeInTheDocument();
     expect(screen.queryByText('ADMIN')).not.toBeInTheDocument();
+  });
+
+  it('renders the "admin status unavailable" indicator when /api/users errored with no cached user', async () => {
+    // Auth backend outage: ``useCurrentUser`` returned ``{ user: null,
+    // error: '...' }``. Hiding the Admin section entirely silently
+    // strips admin nav from anyone who refreshes during the outage,
+    // including real admins. The indicator surfaces the unavailability
+    // so the admin retries instead of assuming their access was
+    // revoked.
+    const userEvent = (await import('@testing-library/user-event')).default;
+    mockUser = null;
+    mockUserError = '/api/users failed: 500';
+    render(
+      <MemoryRouter>
+        <NavigationDrawer {...mockProps} />
+      </MemoryRouter>
+    );
+
+    expect(
+      screen.getByTestId('admin-status-unavailable')
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/admin status unavailable/i)
+    ).toBeInTheDocument();
+
+    // Clicking the indicator must call reload() so the admin can retry
+    // without a full page refresh. The button is nested inside the
+    // ListItem testid wrapper; aria-label exposes the affordance.
+    const user = userEvent.setup();
+    await user.click(
+      screen.getByRole('button', { name: /admin status unavailable.*retry/i })
+    );
+    expect(mockReload).toHaveBeenCalled();
+  });
+
+  it('does NOT render the unavailability indicator when userError is null', () => {
+    // Regression guard: the indicator must only fire on the
+    // ``userError && !user`` case, not on every signed-in render with
+    // no admin grant.
+    mockUser = null;
+    mockUserError = null;
+    render(
+      <MemoryRouter>
+        <NavigationDrawer {...mockProps} />
+      </MemoryRouter>
+    );
+    expect(
+      screen.queryByTestId('admin-status-unavailable')
+    ).not.toBeInTheDocument();
   });
 
   it('keeps the Account item anchored to the bottom via a flex spacer', () => {

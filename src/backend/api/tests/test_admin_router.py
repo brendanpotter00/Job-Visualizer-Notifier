@@ -501,6 +501,25 @@ class TestRevokeAdmin:
             row = cur.fetchone()
         assert row is not None
 
+    def test_revoke_admin_uses_for_update_lock(self):
+        """Source-level pin: the FOR UPDATE row lock is the entire contract
+        of the last-admin guardrail. The single-connection test suite cannot
+        reliably reproduce the concurrent revoke race (a true two-connection
+        race would be flaky against TestClient's threading model), so this
+        guard inspects ``inspect.getsource(revoke_admin)`` and fails if
+        ``FOR UPDATE`` is silently removed. Ugly, but it pins the SQL
+        invariant that ``test_revoke_last_admin_returns_409`` only weakly
+        implies through behavior.
+        """
+        import inspect
+        from api.services.admin_service import revoke_admin
+
+        source = inspect.getsource(revoke_admin)
+        assert "FOR UPDATE" in source, (
+            "revoke_admin must hold a SELECT ... FOR UPDATE lock on admins "
+            "to serialize concurrent revokes — see LastAdminError docstring."
+        )
+
     def test_revoke_when_multiple_admins_exist_succeeds(self, client, db_conn):
         """The last-admin guardrail must NOT fire when 2+ admins exist."""
         caller = self._setup_caller_with_grant(db_conn)
@@ -572,6 +591,55 @@ class TestGrantRevokeGate:
         finally:
             if saved is not None:
                 test_app.dependency_overrides[require_admin] = saved
+
+
+class TestSignupProviderHelper:
+    """Direct unit tests for ``_signup_provider_from_auth0_id``.
+
+    The helper is the *producer* of ``SignupProvider`` literals consumed by
+    ``AdminUsersStatsResponse.by_provider: dict[SignupProvider, int]`` —
+    Pydantic v2 validates that dict's keys at runtime, so a producer that
+    silently returns a non-Literal would make ``/api/admin/users/stats``
+    500 for every admin once a new IdP prefix landed in production.
+
+    The previous ``-> str`` return type was permissive enough that a
+    future ``return "github"`` would type-check but blow up at the
+    serialization boundary. With the tightened ``-> SignupProvider``
+    return type these tests pin both the mapping AND the closed-set
+    contract; a regression to ``-> str`` would still pass the tests but
+    fail mypy/pyright in CI.
+    """
+
+    def test_unknown_prefix_returns_other(self):
+        from api.services.admin_service import _signup_provider_from_auth0_id
+
+        # A wholly-new IdP prefix must fall through to "other" — never
+        # raise, never return a raw prefix that would then violate the
+        # AdminUsersStatsResponse Pydantic Literal validation.
+        assert _signup_provider_from_auth0_id("github|abc123") == "other"
+
+    def test_no_pipe_returns_other(self):
+        from api.services.admin_service import _signup_provider_from_auth0_id
+
+        # Malformed auth0_id with no pipe separator still maps to a
+        # closed-set value (the prefix-extraction branch returns the
+        # whole string when there's no pipe).
+        assert _signup_provider_from_auth0_id("bareid") == "other"
+
+    def test_google_prefix(self):
+        from api.services.admin_service import _signup_provider_from_auth0_id
+
+        assert _signup_provider_from_auth0_id("google|123") == "google"
+
+    def test_google_oauth2_prefix(self):
+        from api.services.admin_service import _signup_provider_from_auth0_id
+
+        assert _signup_provider_from_auth0_id("google-oauth2|abc") == "google"
+
+    def test_auth0_prefix_maps_to_email(self):
+        from api.services.admin_service import _signup_provider_from_auth0_id
+
+        assert _signup_provider_from_auth0_id("auth0|abc") == "email"
 
 
 class TestResolveGranterIdBranches:

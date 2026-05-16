@@ -13,6 +13,7 @@ import ListItemButton from '@mui/material/ListItemButton';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import ListItemText from '@mui/material/ListItemText';
 import Tooltip from '@mui/material/Tooltip';
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import ScheduleIcon from '@mui/icons-material/Schedule';
 import InfoIcon from '@mui/icons-material/Info';
 import BugReportIcon from '@mui/icons-material/BugReport';
@@ -121,8 +122,15 @@ export function NavigationDrawer({
   const navigate = useNavigate();
   const location = useLocation();
   const { isAuthenticated } = useAuth();
-  const { user } = useCurrentUser();
+  const { user, error: userError, reload: reloadUser } = useCurrentUser();
   const isAdmin = !!user?.isAdmin;
+  // Show the Admin status indicator only when the /api/users fetch
+  // failed AND we have no cached user. If we have a cached user, the
+  // existing isAdmin branch handles things. If the user just logged out
+  // (isAuthenticated === false), there's no admin nav to surface.
+  // ``userError && !user`` is the "auth backend outage" case where an
+  // admin would otherwise silently lose admin nav.
+  const adminStatusUnavailable = !!userError && !user && isAuthenticated;
 
   // Default the Admin section to expanded for admins so the items are
   // immediately visible after login. `isAdmin` flips from false → true
@@ -184,7 +192,64 @@ export function NavigationDrawer({
   }
 
   const renderAdminGroup = () => {
-    if (!isAdmin) return null;
+    if (!isAdmin) {
+      if (adminStatusUnavailable) {
+        // Auth backend outage: ``useCurrentUser`` returned ``error`` and
+        // ``!user``. We don't know if the user is an admin. Hiding the
+        // section entirely silently strips admin nav during an outage —
+        // an admin who refreshes during a /api/users 500 sees their
+        // surface disappear with no signal. Render a disabled,
+        // inline-error affordance so they know to retry rather than
+        // assuming their access was revoked.
+        return (
+          <>
+            <Divider sx={{ my: 1 }} />
+            <ListItem
+              data-testid="admin-status-unavailable"
+              disablePadding
+              sx={{ display: 'block' }}
+            >
+              <Tooltip
+                title="Admin status unavailable — retry"
+                placement="right"
+                arrow
+              >
+                <ListItemButton
+                  onClick={() => reloadUser()}
+                  sx={[
+                    { minHeight: 48, px: 2.5 },
+                    open ? { justifyContent: 'initial' } : { justifyContent: 'center' },
+                  ]}
+                  aria-label="Admin status unavailable — retry"
+                >
+                  <ListItemIcon
+                    sx={[
+                      { minWidth: 0, justifyContent: 'center' },
+                      open ? { mr: 3 } : { mr: 'auto' },
+                    ]}
+                  >
+                    <ErrorOutlineIcon color="warning" />
+                  </ListItemIcon>
+                  <ListItemText
+                    primary="Admin status unavailable"
+                    sx={[open ? { opacity: 1 } : { opacity: 0 }]}
+                    slotProps={{
+                      primary: {
+                        sx: {
+                          fontSize: 12,
+                          color: 'text.secondary',
+                        },
+                      },
+                    }}
+                  />
+                </ListItemButton>
+              </Tooltip>
+            </ListItem>
+          </>
+        );
+      }
+      return null;
+    }
 
     // Collapsed drawer: render admin items flat (icons only) — the accordion
     // chevron and "ADMIN" caption would be invisible at 56px width, and

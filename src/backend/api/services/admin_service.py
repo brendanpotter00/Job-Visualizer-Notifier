@@ -11,6 +11,8 @@ import logging
 from psycopg2 import sql
 from psycopg2.extensions import connection as Connection
 
+from ..models import SignupProvider
+
 logger = logging.getLogger(__name__)
 
 _ADMINS = sql.Identifier("admins")
@@ -55,13 +57,20 @@ def is_admin_by_email(conn: Connection, email: str) -> bool:
     return bool(row["exists"])
 
 
-def _signup_provider_from_auth0_id(auth0_id: str) -> str:
+def _signup_provider_from_auth0_id(auth0_id: str) -> SignupProvider:
     """Derive the human-readable signup provider from the auth0_id prefix.
 
     Mapping is driven by the JWT issuer routing in ``api/auth/jwt.py``:
     Google One Tap tokens are stored as ``google|*``, Auth0-federated Google
     OAuth tokens as ``google-oauth2|*``, and Auth0 email/password users as
     ``auth0|*``.
+
+    Return type is the ``SignupProvider`` Literal alias (not ``str``) so a
+    future ``return "github"`` is a mypy/pyright error. Pydantic v2 also
+    validates ``dict[SignupProvider, int]`` keys at runtime in
+    ``AdminUsersStatsResponse``; a permissive ``str`` here would have
+    surfaced as "admin stats endpoint 500s for everyone" once a new prefix
+    landed.
     """
     prefix = auth0_id.split("|", 1)[0] if "|" in auth0_id else auth0_id
     if prefix in ("google", "google-oauth2"):
@@ -132,6 +141,11 @@ def revoke_admin(conn: Connection, user_id: str) -> bool:
     otherwise both pass the router-level self-revoke check and leave zero
     admins. Idempotent revoke of a non-admin still returns False (the row
     doesn't exist; nothing to lock against).
+
+    A single ``except Exception: conn.rollback(); raise`` is sufficient —
+    ``LastAdminError`` is a subclass of ``Exception``, so the rollback +
+    re-raise path is identical. The router's ``except LastAdminError``
+    translates the rolled-back exception to a 409.
     """
     try:
         with conn.cursor() as cursor:
@@ -162,11 +176,11 @@ def revoke_admin(conn: Connection, user_id: str) -> bool:
             deleted = cursor.rowcount == 1
         conn.commit()
         return deleted
-    except LastAdminError:
-        # Release the row locks; the transaction holds no other writes.
-        conn.rollback()
-        raise
     except Exception:
+        # Includes LastAdminError — rolls back the row locks then re-raises.
+        # The router's ``except LastAdminError`` translates to a 409;
+        # everything else surfaces as 500 via the router's psycopg2.Error
+        # / fall-through handler.
         conn.rollback()
         raise
 
@@ -207,7 +221,7 @@ def get_users_stats(conn: Connection) -> dict:
     first_signup = agg["first_signup"]
     latest_signup = agg["latest_signup"]
 
-    by_provider: dict[str, int] = {}
+    by_provider: dict[SignupProvider, int] = {}
     for row in provider_rows:
         provider = _signup_provider_from_auth0_id(row["auth0_id"])
         by_provider[provider] = by_provider.get(provider, 0) + 1

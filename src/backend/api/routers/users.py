@@ -19,14 +19,19 @@ from ..services.user_preferences_service import (
     list_enabled_companies,
     set_enabled_companies,
 )
-from ..services.user_service import get_or_create_user, get_user_by_email, update_user
+from ..services.user_service import (
+    UserRow,
+    get_or_create_user,
+    get_user_by_email,
+    update_user,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 
-def _row_to_user_response(row: dict, *, is_admin: bool) -> UserResponse:
+def _row_to_user_response(row: UserRow, *, is_admin: bool) -> UserResponse:
     """Map a DB row to the API response model.
 
     The DB column is ``auth0_id`` (legacy name) but the boundary field is
@@ -35,15 +40,20 @@ def _row_to_user_response(row: dict, *, is_admin: bool) -> UserResponse:
     ``is_admin`` is keyword-only with no default so a caller that forgets to
     compute it gets a TypeError at the helper, not a silent ``False`` that
     demotes an admin in the response.
+
+    ``row`` is the ``UserRow`` TypedDict from ``user_service`` rather than an
+    opaque ``dict`` — so a column rename in ``db_models.User`` becomes a
+    mypy/pyright error at the per-field reads below instead of a runtime
+    ``KeyError`` on the next ``/api/users`` request.
     """
     return UserResponse(
         id=row["id"],
         provider_subject=row["auth0_id"],
         email=row["email"],
-        display_name=row.get("display_name"),
-        given_name=row.get("given_name"),
-        family_name=row.get("family_name"),
-        picture_url=row.get("picture_url"),
+        display_name=row["display_name"],
+        given_name=row["given_name"],
+        family_name=row["family_name"],
+        picture_url=row["picture_url"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
         is_admin=is_admin,
