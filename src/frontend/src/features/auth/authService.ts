@@ -13,6 +13,7 @@ export interface User {
   pictureUrl: string | null;
   createdAt: string;
   updatedAt: string;
+  isAdmin: boolean;
 }
 
 async function extractErrorDetail(response: Response): Promise<string | null> {

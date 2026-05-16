@@ -53,6 +53,14 @@
       "destination": "/api/features?path=:path"
     },
     {
+      "source": "/api/admin",
+      "destination": "/api/admin"
+    },
+    {
+      "source": "/api/admin/:path(.*)",
+      "destination": "/api/admin?path=:path"
+    },
+    {
       "source": "/recent-jobs",
       "destination": "/index.html"
     },
@@ -74,6 +82,10 @@
     },
     {
       "source": "/vote-features",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/admin/:path(.*)",
       "destination": "/index.html"
     }
   ],

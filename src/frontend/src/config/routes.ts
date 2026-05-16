@@ -11,32 +11,48 @@ export const ROUTES = {
   QA: '/qa',
   ACCOUNT: '/account',
   VOTE_FEATURES: '/vote-features',
+  ADMIN_USERS: '/admin/users',
 } as const;
 
-export const NAV_ITEMS = [
+export const USER_NAV_ITEMS = [
   {
     path: ROUTES.RECENT_JOBS,
     label: 'Recent Job Postings',
-    icon: 'Schedule', // MUI Schedule icon
+    icon: 'Schedule',
   },
   {
     path: ROUTES.COMPANIES,
     label: 'Company Hiring Trends',
-    icon: 'TrendingUp', // MUI TrendingUp icon
+    icon: 'TrendingUp',
   },
   {
     path: ROUTES.VOTE_FEATURES,
     label: 'Vote for features',
-    icon: 'ThumbUp', // MUI ThumbUp icon
+    icon: 'ThumbUp',
   },
   {
     path: ROUTES.WHY,
     label: 'Why This Was Built',
-    icon: 'Info', // MUI Info icon
+    icon: 'Info',
+  },
+] as const;
+
+export const ADMIN_NAV_ITEMS = [
+  {
+    path: ROUTES.ADMIN_USERS,
+    label: 'Users',
+    icon: 'People',
   },
   {
     path: ROUTES.QA,
-    label: 'QA',
+    label: 'Scraper',
     icon: 'BugReport',
   },
 ] as const;
+
+/**
+ * Legacy combined export — non-admin items only. Kept for any incidental
+ * consumer that iterates the full sidebar; admin items must come from
+ * ADMIN_NAV_ITEMS and be gated on `user.isAdmin`.
+ */
+export const NAV_ITEMS = USER_NAV_ITEMS;

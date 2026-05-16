@@ -14,6 +14,7 @@ from ..models import (
     UserResponse,
     UserUpdateRequest,
 )
+from ..services.admin_service import is_admin_by_email
 from ..services.user_preferences_service import (
     list_enabled_companies,
     set_enabled_companies,
@@ -25,7 +26,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def _row_to_user_response(row: dict) -> UserResponse:
+def _row_to_user_response(row: dict, is_admin: bool = False) -> UserResponse:
     """Map a DB row to the API response model.
 
     The DB column is ``auth0_id`` (legacy name) but the boundary field is
@@ -41,6 +42,7 @@ def _row_to_user_response(row: dict) -> UserResponse:
         picture_url=row.get("picture_url"),
         created_at=row["created_at"],
         updated_at=row["updated_at"],
+        is_admin=is_admin,
     )
 
 
@@ -72,10 +74,11 @@ async def get_current_user_profile(
             family_name=user.get("family_name"),
             picture_url=user.get("picture"),
         )
+        is_admin = is_admin_by_email(conn, email)
     except psycopg2.Error:
         logger.exception("Failed to get/create user profile for sub=%s", auth0_id)
         raise HTTPException(status_code=500, detail="Failed to load user profile")
-    return _row_to_user_response(result)
+    return _row_to_user_response(result, is_admin=is_admin)
 
 
 @router.put("", response_model=UserResponse)
@@ -97,12 +100,13 @@ async def update_current_user_profile(
         )
     try:
         result = update_user(conn, email=email, display_name=body.display_name)
+        is_admin = is_admin_by_email(conn, email) if result is not None else False
     except psycopg2.Error:
         logger.exception("Failed to update user profile for email=%s", email)
         raise HTTPException(status_code=500, detail="Failed to update user profile")
     if result is None:
         raise HTTPException(status_code=404, detail="User not found")
-    return _row_to_user_response(result)
+    return _row_to_user_response(result, is_admin=is_admin)
 
 
 @router.get("/enabled-companies", response_model=EnabledCompaniesResponse)

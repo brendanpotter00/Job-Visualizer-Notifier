@@ -1,6 +1,8 @@
+import { useEffect, useState } from 'react';
 import { styled, useTheme, Theme, CSSObject } from '@mui/material/styles';
 import MuiDrawer from '@mui/material/Drawer';
 import List from '@mui/material/List';
+import Collapse from '@mui/material/Collapse';
 import Divider from '@mui/material/Divider';
 import IconButton from '@mui/material/IconButton';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
@@ -16,9 +18,14 @@ import BugReportIcon from '@mui/icons-material/BugReport';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import ThumbUpIcon from '@mui/icons-material/ThumbUp';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
+import PeopleIcon from '@mui/icons-material/People';
+import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
+import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { NAV_ITEMS, ROUTES } from '../../config/routes.ts';
+import { ADMIN_NAV_ITEMS, ROUTES, USER_NAV_ITEMS } from '../../config/routes.ts';
 import { useAuth } from '../../features/auth/useAuth';
+import { useCurrentUser } from '../../features/auth/useCurrentUser';
 
 /**
  * Props for the NavigationDrawer component
@@ -36,9 +43,6 @@ interface NavigationDrawerProps {
   isMobile: boolean;
 }
 
-/**
- * Mixin for opened drawer state
- */
 const openedMixin = (theme: Theme, drawerWidth: number): CSSObject => ({
   width: drawerWidth,
   transition: theme.transitions.create('width', {
@@ -48,9 +52,6 @@ const openedMixin = (theme: Theme, drawerWidth: number): CSSObject => ({
   overflowX: 'hidden',
 });
 
-/**
- * Mixin for closed drawer state (collapsed to icons only)
- */
 const closedMixin = (theme: Theme): CSSObject => ({
   transition: theme.transitions.create('width', {
     easing: theme.transitions.easing.sharp,
@@ -63,9 +64,6 @@ const closedMixin = (theme: Theme): CSSObject => ({
   },
 });
 
-/**
- * Drawer header with collapse button
- */
 const DrawerHeader = styled('div')(({ theme }) => ({
   display: 'flex',
   alignItems: 'center',
@@ -74,9 +72,6 @@ const DrawerHeader = styled('div')(({ theme }) => ({
   ...theme.mixins.toolbar,
 }));
 
-/**
- * Styled drawer for permanent (desktop) variant only
- */
 const PermanentDrawer = styled(MuiDrawer, {
   shouldForwardProp: (prop) => prop !== 'open' && prop !== 'drawerWidth',
 })<{ open?: boolean; drawerWidth?: number }>(({ theme, open, drawerWidth = 240 }) => ({
@@ -94,10 +89,15 @@ const PermanentDrawer = styled(MuiDrawer, {
   }),
 }));
 
-/**
- * Map icon names to MUI icon components
- */
-type IconName = 'Schedule' | 'Info' | 'BugReport' | 'AccountCircle' | 'ThumbUp' | 'TrendingUp';
+type IconName =
+  | 'Schedule'
+  | 'Info'
+  | 'BugReport'
+  | 'AccountCircle'
+  | 'ThumbUp'
+  | 'TrendingUp'
+  | 'People'
+  | 'AdminPanelSettings';
 const iconMap: Record<IconName, React.ComponentType> = {
   Schedule: ScheduleIcon,
   Info: InfoIcon,
@@ -105,25 +105,10 @@ const iconMap: Record<IconName, React.ComponentType> = {
   AccountCircle: AccountCircleIcon,
   ThumbUp: ThumbUpIcon,
   TrendingUp: TrendingUpIcon,
+  People: PeopleIcon,
+  AdminPanelSettings: AdminPanelSettingsIcon,
 };
 
-/**
- * Navigation drawer with page links
- *
- * Features:
- * - Desktop (≥900px): Persistent drawer with collapse support
- * - Mobile (<900px): Temporary drawer that closes on navigation
- * - Highlights active route
- * - Icon-only mode when collapsed (desktop only)
- *
- * Implementation:
- * - Uses separate JSX branches for mobile vs desktop for clarity
- * - Mobile: MUI Drawer with temporary variant
- * - Desktop: Custom PermanentDrawer with collapse animations
- *
- * @param props - Component props
- * @returns Navigation drawer component
- */
 export function NavigationDrawer({
   open,
   onClose,
@@ -135,18 +120,40 @@ export function NavigationDrawer({
   const navigate = useNavigate();
   const location = useLocation();
   const { isAuthenticated } = useAuth();
+  const { user } = useCurrentUser();
+  const isAdmin = !!user?.isAdmin;
+
+  // Default the Admin section to expanded for admins so the items are
+  // immediately visible after login. `isAdmin` flips from false → true
+  // asynchronously once `/api/users` resolves, so a `useState(isAdmin)`
+  // initial value alone would lock the section closed for the rest of the
+  // session. The effect mirrors the latest known admin status into local UI
+  // state, but only on the *true* edge — once the admin manually toggles it
+  // shut, later renders leave their choice alone.
+  const [adminOpen, setAdminOpen] = useState(false);
+  useEffect(() => {
+    if (isAdmin) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external-sync pattern; mirrors useCurrentUser's async admin flag into local UI state on the true edge only, so admins land on an expanded section after the /api/users fetch resolves without trapping a manual collapse
+      setAdminOpen(true);
+    }
+  }, [isAdmin]);
 
   const handleNavigate = (path: string) => {
     navigate(path);
-    // Close drawer on mobile after navigation
     if (isMobile) {
       onClose();
     }
   };
 
-  function renderNavItem(path: string, label: string, icon: IconName) {
+  function renderNavItem(
+    path: string,
+    label: string,
+    icon: IconName,
+    options: { indent?: boolean } = {}
+  ) {
     const Icon = iconMap[icon];
     const isActive = location.pathname === path;
+    const { indent } = options;
 
     return (
       <ListItem key={path} disablePadding sx={{ display: 'block' }}>
@@ -155,6 +162,7 @@ export function NavigationDrawer({
           sx={[
             { minHeight: 48, px: 2.5 },
             open ? { justifyContent: 'initial' } : { justifyContent: 'center' },
+            open && indent ? { pl: 4 } : null,
             isActive && { bgcolor: 'action.selected' },
           ]}
         >
@@ -174,6 +182,61 @@ export function NavigationDrawer({
     );
   }
 
+  const renderAdminGroup = () => {
+    if (!isAdmin) return null;
+
+    // Collapsed drawer: render admin items flat (icons only) — the accordion
+    // chevron and "ADMIN" caption would be invisible at 56px width, and
+    // hiding the items entirely would be worse for the admin's daily use.
+    if (!open) {
+      return (
+        <>
+          <Divider sx={{ my: 1 }} />
+          <List>
+            {ADMIN_NAV_ITEMS.map((item) =>
+              renderNavItem(item.path, item.label, item.icon as IconName)
+            )}
+          </List>
+        </>
+      );
+    }
+
+    return (
+      <>
+        <Divider sx={{ my: 1 }} />
+        <ListItemButton
+          onClick={() => setAdminOpen((o) => !o)}
+          sx={{ minHeight: 40, px: 2.5 }}
+        >
+          <ListItemIcon sx={{ minWidth: 0, mr: 3, justifyContent: 'center' }}>
+            <AdminPanelSettingsIcon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText
+            primary="ADMIN"
+            slotProps={{
+              primary: {
+                sx: {
+                  fontSize: 11,
+                  letterSpacing: '0.18em',
+                  fontWeight: 700,
+                  color: 'text.secondary',
+                },
+              },
+            }}
+          />
+          {adminOpen ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+        </ListItemButton>
+        <Collapse in={adminOpen} timeout="auto" unmountOnExit>
+          <List component="div" disablePadding>
+            {ADMIN_NAV_ITEMS.map((item) =>
+              renderNavItem(item.path, item.label, item.icon as IconName, { indent: true })
+            )}
+          </List>
+        </Collapse>
+      </>
+    );
+  };
+
   const renderDrawerContent = () => (
     <>
       <DrawerHeader>
@@ -183,8 +246,11 @@ export function NavigationDrawer({
       </DrawerHeader>
       <Divider />
       <List>
-        {NAV_ITEMS.map((item) => renderNavItem(item.path, item.label, item.icon as IconName))}
+        {USER_NAV_ITEMS.map((item) =>
+          renderNavItem(item.path, item.label, item.icon as IconName)
+        )}
       </List>
+      {renderAdminGroup()}
       {isAuthenticated && (
         <>
           <Divider sx={{ mt: 'auto' }} />
@@ -194,7 +260,6 @@ export function NavigationDrawer({
     </>
   );
 
-  // Mobile: temporary drawer with standard MUI behavior
   if (isMobile) {
     return (
       <MuiDrawer
@@ -202,7 +267,7 @@ export function NavigationDrawer({
         open={open}
         onClose={onClose}
         ModalProps={{
-          keepMounted: true, // Better mobile performance
+          keepMounted: true,
         }}
         sx={{
           '& .MuiDrawer-paper': {
@@ -215,7 +280,6 @@ export function NavigationDrawer({
     );
   }
 
-  // Desktop: permanent drawer with custom collapse behavior
   return (
     <PermanentDrawer variant="permanent" open={open} drawerWidth={drawerWidth}>
       {renderDrawerContent()}

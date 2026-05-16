@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 
 from .config import settings
 from .dependencies import init_pool, close_pool, pool_is_healthy
-from .routers import features, jobs, jobs_qa, users
+from .routers import admin, features, jobs, jobs_qa, users
 from .migrations import apply_alembic_migrations
 
 
@@ -147,6 +147,7 @@ app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])
 app.include_router(jobs_qa.router, prefix="/api/jobs-qa", tags=["jobs-qa"])
 app.include_router(users.router, prefix="/api/users", tags=["users"])
 app.include_router(features.router, prefix="/api/features", tags=["features"])
+app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 
 
 @app.exception_handler(Exception)

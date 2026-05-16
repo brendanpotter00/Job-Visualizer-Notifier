@@ -469,6 +469,7 @@ describe('/api/users serverless function', () => {
         pictureUrl: 'https://lh3.googleusercontent.com/photo.jpg',
         createdAt: '2026-04-12T00:00:00Z',
         updatedAt: '2026-04-12T00:00:00Z',
+        isAdmin: false,
       };
 
       fetchMock.mockResolvedValue(mockJsonResponse(200, userResponse));

@@ -98,6 +98,24 @@ class User(Base):
     )
 
 
+class Admin(Base):
+    __tablename__ = "admins"
+
+    user_id = Column(
+        Text,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    created_at = Column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+    granted_by = Column(
+        Text,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+
 class UserEnabledCompany(Base):
     __tablename__ = "user_enabled_companies"
 

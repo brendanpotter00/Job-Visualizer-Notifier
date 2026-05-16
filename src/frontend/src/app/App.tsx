@@ -8,6 +8,8 @@ import { AccountPage } from '../pages/AccountPage/AccountPage.tsx';
 import { VoteFeaturesPage } from '../pages/VoteFeaturesPage';
 import { ROUTES } from '../config/routes';
 import { QAPage } from '../pages/QAPage/QAPage.tsx';
+import { AdminUsersPage } from '../pages/AdminUsersPage/AdminUsersPage.tsx';
+import { AdminRoute } from '../components/auth/AdminRoute.tsx';
 import { useEnabledCompanies } from '../features/preferences/useEnabledCompanies';
 import { useFeaturesAuthBridge } from '../features/features/useFeaturesAuthBridge';
 
@@ -32,7 +34,22 @@ function AppContent() {
           <Route index element={<RecentJobPostingsPage />} />
           <Route path={ROUTES.COMPANIES} element={<CompaniesPage />} />
           <Route path={ROUTES.WHY} element={<WhyPage />} />
-          <Route path={ROUTES.QA} element={<QAPage />} />
+          <Route
+            path={ROUTES.QA}
+            element={
+              <AdminRoute>
+                <QAPage />
+              </AdminRoute>
+            }
+          />
+          <Route
+            path={ROUTES.ADMIN_USERS}
+            element={
+              <AdminRoute>
+                <AdminUsersPage />
+              </AdminRoute>
+            }
+          />
           <Route path={ROUTES.ACCOUNT} element={<AccountPage />} />
           <Route path={ROUTES.VOTE_FEATURES} element={<VoteFeaturesPage />} />
         </Route>

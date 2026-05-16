@@ -5,29 +5,24 @@ import { forwardResponse } from './utils/forwardResponse';
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const { path, ...queryParams } = req.query;
 
-  // Build the path from the catch-all route
   const pathParts = Array.isArray(path) ? path : [path].filter(Boolean);
   const targetPath = pathParts.join('/');
 
-  // Build query string from remaining params
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(queryParams)) {
     if (value !== undefined) {
       params.set(key, String(value));
     }
   }
-  const queryString = params.toString() ? `?${params.toString()}` : '';
+  const queryString = params.size ? `?${params}` : '';
 
   const backendUrl = getBackendUrl(req);
-  const targetUrl = `${backendUrl}/api/jobs-qa${targetPath ? `/${targetPath}` : ''}${queryString}`;
+  const targetUrl = `${backendUrl}/api/admin${targetPath ? `/${targetPath}` : ''}${queryString}`;
 
   const headers: Record<string, string> = {
     Accept: 'application/json',
     'Content-Type': 'application/json',
   };
-  // /api/jobs-qa is admin-gated on the backend (require_admin). The proxy must
-  // forward the caller's Bearer token or every request comes through anonymous
-  // and the backend returns 401.
   if (req.headers.authorization) {
     headers['Authorization'] = req.headers.authorization;
   }
@@ -45,9 +40,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const response = await fetch(targetUrl, fetchOptions);
     await forwardResponse(response, res);
   } catch (error) {
-    // See api/admin.ts: do not leak the upstream URL / DNS error to the
-    // public client — log it server-side instead.
-    console.error('[api/jobs-qa] Upstream fetch failed:', error);
+    // Log the full error server-side for debugging, but return a generic
+    // message to the client. Node's fetch errors leak internal hostnames
+    // and ports (e.g. "getaddrinfo ENOTFOUND backend-prod.internal:8080")
+    // which a public 502 response should not expose.
+    console.error('[api/admin] Upstream fetch failed:', error);
     res.status(502).json({ error: 'Upstream backend unavailable' });
   }
 }
