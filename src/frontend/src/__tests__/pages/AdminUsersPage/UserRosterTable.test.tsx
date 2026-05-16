@@ -179,6 +179,30 @@ describe('UserRosterTable', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(/user not found|failed/i);
   });
 
+  it('filters the roster to admins only when the toggle is on, and restores when off', async () => {
+    const user = userEvent.setup();
+    renderTable([PLAIN_USER, ADMIN_USER]);
+
+    // Sanity: both rows visible before toggling.
+    expect(screen.getByText('plain@example.com')).toBeInTheDocument();
+    expect(screen.getByText('admin@example.com')).toBeInTheDocument();
+    expect(screen.getByText('2 users')).toBeInTheDocument();
+
+    const toggle = screen.getByRole('switch', { name: /admins only/i });
+    await user.click(toggle);
+
+    // Plain user filtered out; admin remains.
+    expect(screen.queryByText('plain@example.com')).not.toBeInTheDocument();
+    expect(screen.getByText('admin@example.com')).toBeInTheDocument();
+    expect(screen.getByText('1 user')).toBeInTheDocument();
+
+    // Toggle off — full roster restored.
+    await user.click(toggle);
+    expect(screen.getByText('plain@example.com')).toBeInTheDocument();
+    expect(screen.getByText('admin@example.com')).toBeInTheDocument();
+    expect(screen.getByText('2 users')).toBeInTheDocument();
+  });
+
   it('surfaces the 409 last-admin error verbatim in the Alert (cross-layer contract)', async () => {
     // Audit pass-3 finding: the existing 404 test covers a generic
     // server-error path but the 409 "Cannot revoke the last admin —
