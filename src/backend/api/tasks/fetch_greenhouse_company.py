@@ -79,7 +79,15 @@ async def fetch_greenhouse_company(
     # async API). Wrap in to_thread so we don't block the worker's event loop
     # while Postgres is mid-handshake; this matters most under concurrency=5
     # because the worker shares the FastAPI event loop.
-    conn = await asyncio.to_thread(db.get_connection, settings.database_url)
+    #
+    # asyncio.shield: if the task is cancelled between the thread completing
+    # (producing a live psycopg2 connection) and the awaiter resuming to bind
+    # it to `conn`, the connection would be orphaned with no `finally` to
+    # close it. Shielding makes the bind uncancellable so we always end up
+    # with either a `conn` we can close or a propagated exception.
+    conn = await asyncio.shield(
+        asyncio.to_thread(db.get_connection, settings.database_url)
+    )
     try:
         try:
             async with httpx.AsyncClient() as http:
@@ -206,11 +214,29 @@ async def fetch_greenhouse_company(
                 run_id,
             )
             try:
-                fallback_conn = await asyncio.to_thread(db.get_connection, settings.database_url)
+                # Same shield rationale as the primary acquisition above:
+                # don't orphan a live connection if the task is cancelled
+                # between thread completion and bind.
+                fallback_conn = await asyncio.shield(
+                    asyncio.to_thread(db.get_connection, settings.database_url)
+                )
                 try:
                     await asyncio.to_thread(db.record_scrape_run, fallback_conn, run_record)
                 finally:
-                    await asyncio.to_thread(fallback_conn.close)
+                    # Wrap in its own try/except so a close failure does NOT
+                    # mask the original write-failure context (the outer
+                    # `except` here would otherwise swallow the real cause
+                    # and log "close failed" to Sentry, hiding the actual
+                    # write error from the operator).
+                    try:
+                        await asyncio.to_thread(fallback_conn.close)
+                    except Exception:
+                        logger.error(
+                            "Fallback record_scrape_run connection close "
+                            "failed for %s (potential connection leak)",
+                            run_id,
+                            exc_info=True,
+                        )
             except Exception:
                 logger.exception(
                     "Fallback record_scrape_run also failed for %s",

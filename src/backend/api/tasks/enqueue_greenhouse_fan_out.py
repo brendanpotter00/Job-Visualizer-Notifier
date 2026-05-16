@@ -27,6 +27,8 @@ from __future__ import annotations
 import asyncio
 import logging
 
+import psycopg2
+from procrastinate import RetryStrategy
 from procrastinate import exceptions as procrastinate_exceptions
 
 from scripts.shared import database as db
@@ -45,6 +47,12 @@ logger = logging.getLogger(__name__)
 @procrastinate_app.task(
     queue="greenhouse_fetch",
     name="enqueue_greenhouse_fan_out",
+    # If db.list_enabled_companies fails on a transient blip (Railway
+    # network blip, momentary connection refusal), the entire 30-min tick
+    # would otherwise be lost. Three exponential-wait attempts (2s, 4s, 8s)
+    # cover transient connector failures while still bounding the worst
+    # case so a persistently-broken DB doesn't pile up retries.
+    retry=RetryStrategy(max_attempts=3, exponential_wait=2),
 )
 async def enqueue_greenhouse_fan_out(timestamp: int) -> int:
     """Defer one ``fetch_greenhouse_company`` per enabled Greenhouse company.
@@ -96,10 +104,16 @@ async def enqueue_greenhouse_fan_out(timestamp: int) -> int:
                 "skipping this tick",
                 company_id,
             )
-        except Exception:
+        except (procrastinate_exceptions.ConnectorException, psycopg2.Error):
             # Per-company isolation: a transient connector blip on company N
             # must NOT abort the loop and leave alphabetically-later companies
             # unprocessed for the entire 30-min window. Log and continue.
+            #
+            # Narrow on purpose: programmer errors (AttributeError, TypeError,
+            # NameError) must propagate so Procrastinate marks the task failed
+            # and we don't silently lose the entire tick to a deterministic
+            # bug masquerading as a transient blip. Mirrors the same narrowing
+            # in fetch_greenhouse_company.py.
             failed += 1
             logger.exception(
                 "Failed to defer fetch_greenhouse_company for %s; "

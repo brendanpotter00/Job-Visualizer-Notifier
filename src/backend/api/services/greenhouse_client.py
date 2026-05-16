@@ -140,9 +140,11 @@ def _transform_one(
         # Per feedback_correctness_over_dont_crash: don't pass through a corrupt
         # timestamp string. Surface as a clean missing value (None) and log so the
         # data quality issue is visible in stderr (Railway @level:error).
-        logger.warning(
-            "Greenhouse job %s for board %s had unparseable posted_on=%r; "
-            "storing as NULL",
+        # ERROR (not WARNING): the comment block above promises stderr routing,
+        # and Railway derives @level from Python log level.
+        logger.error(
+            "Greenhouse data quality issue: job %s for board %s had "
+            "unparseable posted_on=%r; storing as NULL",
             raw_id,
             board_token,
             posted_on_raw,
