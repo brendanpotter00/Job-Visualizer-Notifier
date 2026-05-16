@@ -27,7 +27,7 @@ import { LoadingState } from '../../components/shared/LoadingIndicator';
 import { ErrorState } from '../../components/shared/ErrorDisplay';
 import { useFetchWithStatus } from '../../hooks/useFetchWithStatus';
 import { extractErrorMessage } from '../../lib/errors';
-import { useAuth } from '../../features/auth/useAuth';
+import { useAuth, NotAuthenticatedError } from '../../features/auth/useAuth';
 import type { SearchTag } from '../../types/index.ts';
 import type { BackendJobListing } from '../../api/types.ts';
 import { COMPANIES } from '../../config/companies';
@@ -133,7 +133,20 @@ export function QAPage() {
   const fetchScrapeRunsRequest = useCallback(
     async (signal: AbortSignal): Promise<ScrapeRun[]> => {
       const companyParam = selectedCompany !== 'all' ? `&company=${selectedCompany}` : '';
-      const token = await getToken();
+      // ``getToken()`` throws ``NotAuthenticatedError`` on signed-out renders
+      // (the normal anonymous path). AdminRoute is what guarantees we never
+      // reach this page anonymously in production, but the brief
+      // signed-out frame on logout / first render would otherwise flash a
+      // "Not authenticated" page error before the redirect lands.
+      // Short-circuit on the marker class and return [] — every other
+      // error (token-refresh failure, network) must still propagate.
+      let token: string;
+      try {
+        token = await getToken();
+      } catch (err) {
+        if (err instanceof NotAuthenticatedError) return [];
+        throw err;
+      }
       const response = await fetch(
         `/api/jobs-qa/scrape-runs?limit=100${companyParam}`,
         {
@@ -168,7 +181,18 @@ export function QAPage() {
     try {
       setScrapingInProgress(true);
       setScrapeResult(null);
-      const token = await getToken();
+      let token: string;
+      try {
+        token = await getToken();
+      } catch (err) {
+        if (err instanceof NotAuthenticatedError) {
+          // Anonymous click should never happen (AdminRoute guards this
+          // page), but if it does, do nothing rather than flashing a
+          // "Not authenticated" error banner.
+          return;
+        }
+        throw err;
+      }
       const response = await fetch(`/api/jobs-qa/trigger-scrape?company=${selectedCompany}`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },

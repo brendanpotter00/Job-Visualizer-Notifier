@@ -1,6 +1,6 @@
 """Integration tests for users router."""
 
-from .conftest import _make_user, _insert_user
+from .conftest import _insert_admin, _make_user, _insert_user
 
 
 class TestGetMe:
@@ -45,6 +45,61 @@ class TestGetMe:
         snake_keys = {"provider_subject", "auth0_id", "display_name", "given_name",
                       "family_name", "picture_url", "created_at", "updated_at"}
         assert not snake_keys.intersection(resp.json().keys())
+
+    def test_is_admin_true_when_user_has_admin_grant(self, client, db_conn):
+        """The frontend admin UI gate (AdminRoute / NavigationDrawer) is
+        driven entirely by the ``isAdmin`` field on this response. If a
+        future refactor hard-codes it to ``False`` (the prior model default)
+        every admin in production silently loses access — guard with a
+        positive-case assertion on the actual value."""
+        # The test caller is auth0|test_user_123 / test@example.com.
+        # GET /api/users will auto-create the row; we then grant admin and
+        # call again to verify the flag flips.
+        first = client.get("/api/users")
+        assert first.status_code == 200
+        assert first.json()["isAdmin"] is False
+
+        # Insert the admin grant for the just-created caller row.
+        caller_id = first.json()["id"]
+        _insert_admin(db_conn, caller_id)
+
+        second = client.get("/api/users")
+        assert second.status_code == 200
+        assert second.json()["isAdmin"] is True
+
+    def test_is_admin_false_when_no_admin_grant(self, client):
+        """Mirror of the previous test — the default-no-grant path must
+        return ``isAdmin: false``, not omit the field or default-fail."""
+        resp = client.get("/api/users")
+        assert resp.status_code == 200
+        assert resp.json()["isAdmin"] is False
+
+    def test_get_me_surfaces_is_admin_by_email_failure_as_500(
+        self, test_app, monkeypatch
+    ):
+        """If ``is_admin_by_email`` raises (driver bug, connection drop),
+        the router must surface that as 500 — NOT silently demote the user
+        to ``isAdmin: false``. Audit log "Important" finding: the call was
+        previously inside the broad ``except psycopg2.Error`` block, so any
+        admin-lookup failure would propagate as a generic error masquerading
+        as a non-admin user.
+        """
+        from fastapi.testclient import TestClient
+        import api.routers.users as users_router
+
+        def _boom(_conn, _email):
+            # Simulate "intentional raise" path described in
+            # ``services.admin_service.is_admin_by_email``: rather than
+            # silently denying admin, the function surfaces the underlying
+            # driver/state error.
+            raise RuntimeError("simulated admin-lookup failure")
+
+        monkeypatch.setattr(users_router, "is_admin_by_email", _boom)
+        client = TestClient(test_app, raise_server_exceptions=False)
+        resp = client.get("/api/users")
+        # 500 (Internal Server Error) — distinguishable from the silent
+        # ``isAdmin: false`` regression we're guarding against.
+        assert resp.status_code == 500
 
 
 class TestPutMe:

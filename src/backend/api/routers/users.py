@@ -26,11 +26,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def _row_to_user_response(row: dict, is_admin: bool = False) -> UserResponse:
+def _row_to_user_response(row: dict, *, is_admin: bool) -> UserResponse:
     """Map a DB row to the API response model.
 
     The DB column is ``auth0_id`` (legacy name) but the boundary field is
     ``provider_subject`` — see ``UserResponse`` docstring.
+
+    ``is_admin`` is keyword-only with no default so a caller that forgets to
+    compute it gets a TypeError at the helper, not a silent ``False`` that
+    demotes an admin in the response.
     """
     return UserResponse(
         id=row["id"],
@@ -53,11 +57,16 @@ async def get_current_user_profile(
 ):
     """Get or create the authenticated user's profile.
 
-    Catches only ``psycopg2.Error`` — ``RuntimeError`` (raised by
-    ``get_or_create_user`` on ambiguous identity) and ``HTTPException`` must
-    propagate. The ambiguous-identity raise is load-bearing per
-    ``docs/implementations/auth0/REVIEW_AUDIT.md``; swallowing it behind a
-    generic 500 would hide a corrupted identity model.
+    Catches only ``psycopg2.Error`` around ``get_or_create_user`` —
+    ``RuntimeError`` (raised by the service on ambiguous identity) and
+    ``HTTPException`` must propagate. The ambiguous-identity raise is
+    load-bearing per ``docs/implementations/auth0/REVIEW_AUDIT.md``;
+    swallowing it would hide a corrupted identity model.
+
+    ``is_admin_by_email`` is intentionally called OUTSIDE the
+    ``psycopg2.Error`` block so a failure surfaces as a 500 (per the
+    service's "raise rather than silently deny" contract) instead of
+    being demoted to ``isAdmin: false`` in the response.
     """
     auth0_id = get_normalized_subject(user)
     if not auth0_id:
@@ -74,10 +83,10 @@ async def get_current_user_profile(
             family_name=user.get("family_name"),
             picture_url=user.get("picture"),
         )
-        is_admin = is_admin_by_email(conn, email)
     except psycopg2.Error:
         logger.exception("Failed to get/create user profile for sub=%s", auth0_id)
         raise HTTPException(status_code=500, detail="Failed to load user profile")
+    is_admin = is_admin_by_email(conn, email)
     return _row_to_user_response(result, is_admin=is_admin)
 
 
@@ -100,12 +109,18 @@ async def update_current_user_profile(
         )
     try:
         result = update_user(conn, email=email, display_name=body.display_name)
-        is_admin = is_admin_by_email(conn, email) if result is not None else False
     except psycopg2.Error:
         logger.exception("Failed to update user profile for email=%s", email)
         raise HTTPException(status_code=500, detail="Failed to update user profile")
     if result is None:
+        # Surface the 404 BEFORE touching ``is_admin_by_email`` so the
+        # admin-lookup failure mode isn't conflated with "no row" and so
+        # the previous dead ``is_admin = False`` branch is removed.
         raise HTTPException(status_code=404, detail="User not found")
+    # ``is_admin_by_email`` deliberately raises rather than silently
+    # returning False on a driver error; let that propagate as 500 instead
+    # of being caught above.
+    is_admin = is_admin_by_email(conn, email)
     return _row_to_user_response(result, is_admin=is_admin)
 
 

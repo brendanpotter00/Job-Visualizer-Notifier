@@ -160,4 +160,22 @@ describe('adminApi', () => {
 
     expect(result.data).toEqual(fakeUsers);
   });
+
+  it('surfaces an error when /api/admin/users 2xx body is missing users[]', async () => {
+    // Regression guard for the "proxy returns 2xx with a bad body" case
+    // — e.g. a CDN error page or a future server wraps the envelope for
+    // pagination. Without the runtime guard the consumer would receive
+    // ``undefined`` and silently render an empty roster (the exact
+    // "silently zero admins" failure mode this PR fixes).
+    fetchMock.mockResolvedValue(jsonResponse({}));
+    const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+    const result = await store.dispatch(
+      adminApi.endpoints.listAdminUsers.initiate()
+    );
+
+    // RTK Query surfaces the thrown error via the ``error`` field.
+    expect(result.data).toBeUndefined();
+    expect(result.error).toBeDefined();
+  });
 });

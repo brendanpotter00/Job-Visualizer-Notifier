@@ -14,6 +14,7 @@ from ..models import (
     AdminUsersStatsResponse,
 )
 from ..services.admin_service import (
+    LastAdminError,
     get_users_stats,
     grant_admin,
     list_users_with_admin_flag,
@@ -83,9 +84,25 @@ def grant_user_admin(
     granter_id = _resolve_granter_id(conn, admin)
     try:
         grant_admin(conn, user_id, granted_by_id=granter_id)
-    except psycopg2.errors.ForeignKeyViolation:
-        # admins.user_id FK to users.id — the user_id path param doesn't exist.
+    except psycopg2.errors.ForeignKeyViolation as exc:
+        # admins has two FKs to users.id:
+        #   - admins_user_id_fkey: the target — translate to 404.
+        #   - admins_granted_by_fkey: the granter's row was deleted between
+        #     resolve and insert (rare race). Translate to 500 so admins
+        #     don't get a misleading 404 pointing at the wrong record.
         conn.rollback()
+        constraint = getattr(getattr(exc, "diag", None), "constraint_name", None)
+        if constraint == "admins_granted_by_fkey":
+            logger.error(
+                "granted_by FK violation when granting admin to user_id=%s (granter race)",
+                user_id,
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Granter user record changed during grant — please retry.",
+            )
+        # Default: target user_id doesn't exist (or constraint name is
+        # unrecognized; safer to surface as the more specific error).
         raise HTTPException(status_code=404, detail="User not found")
     except psycopg2.Error:
         conn.rollback()
@@ -114,6 +131,14 @@ def revoke_user_admin(
         )
     try:
         revoke_admin(conn, user_id)
+    except LastAdminError:
+        # ``revoke_admin`` already rolled back its transaction. Translate
+        # to 409 so the UI can show a distinguishable "promote another
+        # admin first" message instead of a generic 500.
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot revoke the last admin — promote another user first.",
+        )
     except psycopg2.Error:
         conn.rollback()
         logger.exception("Failed to revoke admin from user_id=%s", user_id)

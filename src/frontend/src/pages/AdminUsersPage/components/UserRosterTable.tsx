@@ -24,6 +24,7 @@ import {
   useGrantAdminMutation,
   useRevokeAdminMutation,
   type AdminUserRow,
+  type SignupProvider,
 } from '../../../features/admin/adminApi';
 import { useCurrentUser } from '../../../features/auth/useCurrentUser';
 import { extractErrorMessage } from '../../../lib/errors';
@@ -34,7 +35,10 @@ interface UserRosterTableProps {
 
 type SortDir = 'asc' | 'desc';
 
-const PROVIDER_LABEL: Record<string, string> = {
+// Typed as ``Record<SignupProvider, string>`` (not ``Record<string, string>``)
+// so adding a new provider on the backend forces a compile-time update
+// here rather than rendering a raw key like "github" to admins.
+const PROVIDER_LABEL: Record<SignupProvider, string> = {
   google: 'Google',
   email: 'Email',
   other: 'Other',
@@ -216,7 +220,7 @@ export function UserRosterTable({ users }: UserRosterTableProps) {
                   </TableCell>
                   <TableCell>
                     <Chip
-                      label={PROVIDER_LABEL[u.signupProvider] ?? 'Other'}
+                      label={PROVIDER_LABEL[u.signupProvider]}
                       size="small"
                       variant="outlined"
                     />

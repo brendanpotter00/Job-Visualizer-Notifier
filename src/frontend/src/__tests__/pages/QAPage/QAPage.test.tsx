@@ -11,21 +11,34 @@ global.fetch = mockFetch;
 // to /api/jobs-qa (the endpoint is gated by `require_admin`). The page is
 // already wrapped in AdminRoute in production, so a real token always exists;
 // here we just stub one in.
-vi.mock('../../../features/auth/useAuth', () => ({
-  useAuth: () => ({
-    isEnabled: true,
-    isAuthenticated: true,
-    isLoading: false,
-    login: vi.fn(),
-    logout: vi.fn(),
-    getToken: vi.fn().mockResolvedValue('test-token'),
-    user: { sub: 'auth0|test_admin' },
-  }),
-}));
+//
+// The mock is variable-driven so individual tests (notably the
+// NotAuthenticatedError short-circuit test) can swap the token-getter
+// behavior without re-mocking the whole module.
+const mockGetToken = vi.fn().mockResolvedValue('test-token');
+vi.mock('../../../features/auth/useAuth', async () => {
+  const actual = await vi.importActual<
+    typeof import('../../../features/auth/useAuth')
+  >('../../../features/auth/useAuth');
+  return {
+    ...actual, // preserve real NotAuthenticatedError class for instanceof
+    useAuth: () => ({
+      isEnabled: true,
+      isAuthenticated: true,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+      getToken: mockGetToken,
+      user: { sub: 'auth0|test_admin' },
+    }),
+  };
+});
 
 describe('QAPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Re-assert the default token getter — vi.clearAllMocks resets impl.
+    mockGetToken.mockResolvedValue('test-token');
 
     // Default mock responses
     mockFetch.mockImplementation((url: string) => {
@@ -553,6 +566,52 @@ describe('QAPage', () => {
       await waitFor(() => {
         expect(initialJobsSignal!.aborted).toBe(true);
       });
+    });
+
+    it('does not surface an error banner when getToken throws NotAuthenticatedError', async () => {
+      // Signed-out flash regression: ``useAuth().getToken()`` rejects with
+      // ``NotAuthenticatedError`` on the normal anonymous path. Without the
+      // short-circuit in ``fetchScrapeRunsRequest``, ``useFetchWithStatus``
+      // would surface that as a page-level "Not authenticated" error before
+      // AdminRoute had a chance to redirect — flashing red to the user on
+      // logout or first render.
+      const { NotAuthenticatedError } = await import(
+        '../../../features/auth/useAuth'
+      );
+      mockGetToken.mockRejectedValue(new NotAuthenticatedError());
+
+      // Jobs endpoint still resolves (it doesn't call getToken).
+      mockFetch.mockImplementation((url: string) => {
+        if (url.includes('/api/jobs?')) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve([]),
+          });
+        }
+        // Defensive: scrape-runs should never be called when getToken
+        // short-circuits — but if it is, return a benign empty list so
+        // the test fails on the *real* assertion (no error banner) rather
+        // than an unrelated TypeError.
+        return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      });
+
+      render(<QAPage />);
+
+      // Give the lifecycle a beat to run its abortable fetch.
+      await waitFor(() => {
+        expect(
+          screen.getByRole('combobox', { name: /company/i })
+        ).toBeInTheDocument();
+      });
+
+      // No error banner — the short-circuit returns [] instead of throwing.
+      // The page also has a Scrape Controls section with an "alert" role
+      // that ONLY appears after a scrape trigger; on initial render there
+      // should be zero alerts.
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(
+        screen.queryByText(/not authenticated/i)
+      ).not.toBeInTheDocument();
     });
   });
 });

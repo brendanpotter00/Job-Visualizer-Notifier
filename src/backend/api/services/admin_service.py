@@ -17,6 +17,17 @@ _ADMINS = sql.Identifier("admins")
 _USERS = sql.Identifier("users")
 
 
+class LastAdminError(Exception):
+    """Raised when revoking would leave the platform with zero admins.
+
+    The router translates this to a 409 — distinct from a 400 self-revoke,
+    because two admins acting concurrently could each pass the self-check
+    and try to revoke the other, leaving zero admins with no API-level
+    recovery path. The ``FOR UPDATE`` lock in ``revoke_admin`` serializes
+    these and lets exactly one win.
+    """
+
+
 def is_admin_by_email(conn: Connection, email: str) -> bool:
     """Return True iff a user with this email has an admin grant.
 
@@ -113,15 +124,51 @@ def revoke_admin(conn: Connection, user_id: str) -> bool:
 
     Idempotent — returns False if the user wasn't an admin, True if a row
     was deleted.
+
+    Last-admin guardrail: runs inside an explicit transaction with a
+    ``SELECT ... FOR UPDATE`` lock over ``admins``. If the table holds
+    exactly one row AND that row is the target, raises ``LastAdminError``
+    rather than DELETE — two admins racing to revoke each other would
+    otherwise both pass the router-level self-revoke check and leave zero
+    admins. Idempotent revoke of a non-admin still returns False (the row
+    doesn't exist; nothing to lock against).
     """
-    with conn.cursor() as cursor:
-        cursor.execute(
-            sql.SQL("DELETE FROM {admins} WHERE user_id = %s").format(admins=_ADMINS),
-            (user_id,),
-        )
-        deleted = cursor.rowcount == 1
-    conn.commit()
-    return deleted
+    try:
+        with conn.cursor() as cursor:
+            # Lock the entire ``admins`` table for the duration of this
+            # transaction. ``FOR UPDATE`` on the selected rows blocks any
+            # concurrent revoke from seeing a stale count.
+            cursor.execute(
+                sql.SQL(
+                    "SELECT user_id FROM {admins} FOR UPDATE"
+                ).format(admins=_ADMINS),
+            )
+            rows = cursor.fetchall()
+            admin_ids = [r["user_id"] for r in rows]
+
+            if user_id in admin_ids and len(admin_ids) == 1:
+                # Target IS the last admin — bail out before the DELETE.
+                # The router translates this to a 409.
+                raise LastAdminError(
+                    "Cannot revoke the last admin grant"
+                )
+
+            cursor.execute(
+                sql.SQL("DELETE FROM {admins} WHERE user_id = %s").format(
+                    admins=_ADMINS
+                ),
+                (user_id,),
+            )
+            deleted = cursor.rowcount == 1
+        conn.commit()
+        return deleted
+    except LastAdminError:
+        # Release the row locks; the transaction holds no other writes.
+        conn.rollback()
+        raise
+    except Exception:
+        conn.rollback()
+        raise
 
 
 def get_users_stats(conn: Connection) -> dict:

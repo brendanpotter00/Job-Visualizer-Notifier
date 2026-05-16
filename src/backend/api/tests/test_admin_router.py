@@ -246,6 +246,169 @@ class TestGrantAdmin:
         assert row is not None
         assert row["granted_by"] == caller["id"]
 
+    def test_grant_admin_idempotent_preserves_original_granted_by(
+        self, client, test_app, db_conn
+    ):
+        """``ON CONFLICT DO NOTHING`` must preserve the original granter.
+
+        If admin A grants user X, then admin B calls grant again on X, the
+        ``granted_by`` row must still point to A — the audit anchor is the
+        *first* grant, not the most recent retry. Regression guard for any
+        future switch to ``DO UPDATE``.
+        """
+        from api.auth.dependencies import get_current_user, require_admin
+
+        admin_a = self._setup_caller(db_conn)  # auth0|test_user_123 / test@example.com
+        target = _make_user(
+            {"id": "audit-target", "auth0_id": "auth0|tg", "email": "audit2@example.com"}
+        )
+        _insert_user(db_conn, target)
+
+        # First grant: as admin A (the default test caller).
+        resp_a = client.post(f"/api/admin/users/{target['id']}/admin")
+        assert resp_a.status_code == 204
+
+        # Insert admin B into users and admins, then flip the auth overrides
+        # so the next grant call is "as admin B".
+        admin_b = _make_user(
+            {"id": "admin-b-id", "auth0_id": "auth0|b", "email": "b@example.com"}
+        )
+        _insert_user(db_conn, admin_b)
+        _insert_admin(db_conn, admin_b["id"])
+
+        b_claims = {"sub": "auth0|b", "email": "b@example.com"}
+        saved_cu = test_app.dependency_overrides.get(get_current_user)
+        saved_ra = test_app.dependency_overrides.get(require_admin)
+        test_app.dependency_overrides[get_current_user] = lambda: b_claims
+        test_app.dependency_overrides[require_admin] = lambda: b_claims
+        try:
+            client_b = TestClient(test_app)
+            resp_b = client_b.post(f"/api/admin/users/{target['id']}/admin")
+            assert resp_b.status_code == 204
+        finally:
+            if saved_cu is not None:
+                test_app.dependency_overrides[get_current_user] = saved_cu
+            if saved_ra is not None:
+                test_app.dependency_overrides[require_admin] = saved_ra
+
+        # The audit row must STILL credit admin A.
+        with db_conn.cursor() as cur:
+            cur.execute(
+                "SELECT granted_by FROM admins WHERE user_id = %s", (target["id"],)
+            )
+            row = cur.fetchone()
+        assert row is not None
+        assert row["granted_by"] == admin_a["id"], (
+            "ON CONFLICT DO NOTHING must preserve the original granter row"
+        )
+
+    def test_grant_admin_granter_fk_violation_returns_500_not_404(self):
+        """Granter-row-deleted race: 500, not a misleading 404.
+
+        ``admins`` has two FKs to ``users.id``. If the granter's user row
+        is deleted between ``_resolve_granter_id`` and the INSERT, the
+        ForeignKeyViolation comes from ``admins_granted_by_fkey`` — NOT
+        from the target user FK. The original handler mapped any FK
+        violation to "User not found", which pointed admins at the wrong
+        record. Unit-test the constraint-name branch here because the race
+        is impractical to integration-test.
+
+        psycopg2's real ``ForeignKeyViolation.diag`` is a C-level read-only
+        attribute, so we use a Python subclass that overrides ``diag`` via
+        a class-level descriptor — the router reads it via
+        ``getattr(exc.diag, "constraint_name", None)``, so duck-typing is
+        sufficient.
+        """
+        import psycopg2
+        from fastapi import HTTPException
+        from api.routers.admin import grant_user_admin
+
+        class _Diag:
+            constraint_name = "admins_granted_by_fkey"
+
+        class _FKViolation(psycopg2.errors.ForeignKeyViolation):
+            diag = _Diag()
+
+        exc = _FKViolation()
+
+        class _Conn:
+            def rollback(self):
+                pass
+
+        def _raising_grant(_conn, _user_id, granted_by_id):
+            raise exc
+
+        import api.routers.admin as admin_router
+
+        saved = admin_router.grant_admin
+        admin_router.grant_admin = _raising_grant
+        saved_resolve = admin_router._resolve_granter_id
+        admin_router._resolve_granter_id = lambda _c, _a: "granter-id"
+        try:
+            try:
+                grant_user_admin(
+                    user_id="any-target",
+                    conn=_Conn(),
+                    admin={"sub": "x", "email": "x@x"},
+                )
+            except HTTPException as http_exc:
+                assert http_exc.status_code == 500
+                assert "granter" in http_exc.detail.lower()
+            else:
+                raise AssertionError(
+                    "grant_user_admin should have raised HTTPException(500)"
+                )
+        finally:
+            admin_router.grant_admin = saved
+            admin_router._resolve_granter_id = saved_resolve
+
+    def test_grant_admin_target_fk_violation_returns_404(self):
+        """Sibling assertion to the granter-FK test: when the constraint
+        is ``admins_user_id_fkey`` (target user doesn't exist), the router
+        keeps the existing 404 → "User not found" translation."""
+        import psycopg2
+        from fastapi import HTTPException
+        from api.routers.admin import grant_user_admin
+
+        class _Diag:
+            constraint_name = "admins_user_id_fkey"
+
+        class _FKViolation(psycopg2.errors.ForeignKeyViolation):
+            diag = _Diag()
+
+        exc = _FKViolation()
+
+        class _Conn:
+            def rollback(self):
+                pass
+
+        def _raising_grant(_conn, _user_id, granted_by_id):
+            raise exc
+
+        import api.routers.admin as admin_router
+
+        saved = admin_router.grant_admin
+        admin_router.grant_admin = _raising_grant
+        saved_resolve = admin_router._resolve_granter_id
+        admin_router._resolve_granter_id = lambda _c, _a: "granter-id"
+        try:
+            try:
+                grant_user_admin(
+                    user_id="missing-target",
+                    conn=_Conn(),
+                    admin={"sub": "x", "email": "x@x"},
+                )
+            except HTTPException as http_exc:
+                assert http_exc.status_code == 404
+                assert "not found" in http_exc.detail.lower()
+            else:
+                raise AssertionError(
+                    "grant_user_admin should have raised HTTPException(404)"
+                )
+        finally:
+            admin_router.grant_admin = saved
+            admin_router._resolve_granter_id = saved_resolve
+
 
 class TestRevokeAdmin:
     """DELETE /api/admin/users/{user_id}/admin revokes a user."""
@@ -293,6 +456,71 @@ class TestRevokeAdmin:
         resp = client.delete(f"/api/admin/users/{caller['id']}/admin")
         assert resp.status_code == 400
         assert "own" in resp.json()["detail"].lower()
+
+    def test_revoke_last_admin_returns_409(self, client, db_conn):
+        """Last-admin guardrail: revoking the only admin must 409, not 204.
+
+        The router-level self-revoke 400 only protects against a single
+        admin revoking themselves. Two admins acting concurrently can each
+        pass the self-check and try to revoke the other; the service-level
+        ``FOR UPDATE`` + count guard is what actually prevents zero-admins.
+
+        Setup: caller is a *non-admin* (the require_admin override below is
+        what lets them past the auth gate). The only admin row in the table
+        belongs to a different user — and revoking it would leave zero.
+        """
+        # Caller must exist in users (for granter resolution), but is NOT
+        # the admin in this scenario.
+        caller = _make_user(
+            {
+                "id": "caller-id-not-admin",
+                "auth0_id": "auth0|test_user_123",
+                "email": "test@example.com",
+            }
+        )
+        _insert_user(db_conn, caller)
+        # The single admin in the system is a DIFFERENT user.
+        sole_admin = _make_user(
+            {"id": "sole-admin", "auth0_id": "auth0|sole", "email": "sole@example.com"}
+        )
+        _insert_user(db_conn, sole_admin)
+        _insert_admin(db_conn, sole_admin["id"])
+
+        # The caller passes require_admin via the default test override,
+        # so they reach the revoke handler. Since caller != sole_admin, the
+        # self-revoke 400 doesn't fire; the LastAdminError → 409 does.
+        resp = client.delete(f"/api/admin/users/{sole_admin['id']}/admin")
+        assert resp.status_code == 409, resp.text
+        assert "last admin" in resp.json()["detail"].lower()
+
+        # Row must still be present — guardrail must NOT delete-then-undo.
+        with db_conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM admins WHERE user_id = %s", (sole_admin["id"],)
+            )
+            row = cur.fetchone()
+        assert row is not None
+
+    def test_revoke_when_multiple_admins_exist_succeeds(self, client, db_conn):
+        """The last-admin guardrail must NOT fire when 2+ admins exist."""
+        caller = self._setup_caller_with_grant(db_conn)
+        # caller is an admin (granted in setup helper). Add a SECOND admin.
+        second = _make_user(
+            {"id": "second-admin", "auth0_id": "auth0|second", "email": "second@example.com"}
+        )
+        _insert_user(db_conn, second)
+        _insert_admin(db_conn, second["id"])
+
+        # Revoke the second admin — caller stays admin. Count goes 2 → 1,
+        # so the guardrail must allow it.
+        resp = client.delete(f"/api/admin/users/{second['id']}/admin")
+        assert resp.status_code == 204
+
+        with db_conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) AS n FROM admins")
+            assert cur.fetchone()["n"] == 1
+            cur.execute("SELECT 1 FROM admins WHERE user_id = %s", (caller["id"],))
+            assert cur.fetchone() is not None
 
 
 class TestGrantRevokeGate:
@@ -344,6 +572,40 @@ class TestGrantRevokeGate:
         finally:
             if saved is not None:
                 test_app.dependency_overrides[require_admin] = saved
+
+
+class TestResolveGranterIdBranches:
+    """Edge branches of ``_resolve_granter_id`` that aren't covered by the
+    happy-path grant tests."""
+
+    def test_grant_without_email_claim_returns_401(self, test_app, db_conn):
+        """``require_admin`` would normally 401 first, but if a custom override
+        ever returns claims without ``email`` (e.g. a misconfigured auth
+        bypass), the granter resolver's defensive 401 must still fire."""
+        from api.auth.dependencies import get_current_user, require_admin
+
+        target = _make_user(
+            {"id": "tg-no-email", "auth0_id": "auth0|tge", "email": "tge@example.com"}
+        )
+        _insert_user(db_conn, target)
+
+        no_email_claims = {"sub": "auth0|no_email"}
+        saved_cu = test_app.dependency_overrides.get(get_current_user)
+        saved_ra = test_app.dependency_overrides.get(require_admin)
+        test_app.dependency_overrides[get_current_user] = lambda: no_email_claims
+        # Force past require_admin even though there's no email — the bypass
+        # is what makes the granter-resolver branch reachable.
+        test_app.dependency_overrides[require_admin] = lambda: no_email_claims
+        try:
+            client = TestClient(test_app)
+            resp = client.post(f"/api/admin/users/{target['id']}/admin")
+            assert resp.status_code == 401
+            assert "email" in resp.json()["detail"].lower()
+        finally:
+            if saved_cu is not None:
+                test_app.dependency_overrides[get_current_user] = saved_cu
+            if saved_ra is not None:
+                test_app.dependency_overrides[require_admin] = saved_ra
 
 
 class TestJobsQaGate:
