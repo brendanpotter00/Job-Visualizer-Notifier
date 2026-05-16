@@ -14,7 +14,7 @@ describe('timeBucketing', () => {
 
   const createMockJob = (id: string, createdAt: string): Job => ({
     id,
-    source: 'greenhouse',
+    source: 'backend-scraper',
     company: 'spacex',
     title: 'Software Engineer',
     createdAt,

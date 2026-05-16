@@ -50,7 +50,7 @@ describe('eightfoldClient', () => {
   describe('Configuration Validation', () => {
     it('rejects configs with the wrong type', async () => {
       const invalidConfig = {
-        type: 'greenhouse',
+        type: 'unknown-ats',
         tenantHost: 'explore.jobs.netflix.net',
         domain: 'netflix.com',
       } as unknown as EightfoldConfig;

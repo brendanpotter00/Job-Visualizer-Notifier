@@ -16,7 +16,7 @@ describe('workdayClient', () => {
   describe('Configuration Validation', () => {
     it('should reject config with wrong type', async () => {
       const invalidConfig = {
-        type: 'greenhouse', // Wrong type
+        type: 'unknown-ats', // Wrong type
         baseUrl: 'https://test.com',
         tenantSlug: 'test',
         careerSiteSlug: 'Test',

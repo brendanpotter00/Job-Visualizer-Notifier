@@ -14,7 +14,7 @@ export function CompanySelector() {
   const handleCompanyChange = (event: SelectChangeEvent) => {
     const newCompanyId = event.target.value;
     dispatch(setSelectedCompanyId(newCompanyId));
-    dispatch(setSelectedATS(getCompanyById(newCompanyId)?.ats ?? ATSConstants.Greenhouse));
+    dispatch(setSelectedATS(getCompanyById(newCompanyId)?.ats ?? ATSConstants.BackendScraper));
     // useCompanyLoader hook (in App.tsx) handles loading jobs automatically
   };
 

@@ -35,7 +35,7 @@ beforeEach(() => {
 const mockJobs: Job[] = [
   {
     id: '1',
-    source: 'greenhouse',
+    source: 'backend-scraper',
     company: 'spacex',
     title: 'Frontend Engineer',
     createdAt: '2025-11-21T10:00:00Z',
@@ -44,7 +44,7 @@ const mockJobs: Job[] = [
   },
   {
     id: '2',
-    source: 'greenhouse',
+    source: 'backend-scraper',
     company: 'spacex',
     title: 'Backend Engineer',
     createdAt: '2025-11-21T10:15:00Z',
@@ -53,7 +53,7 @@ const mockJobs: Job[] = [
   },
   {
     id: '3',
-    source: 'greenhouse',
+    source: 'backend-scraper',
     company: 'spacex',
     title: 'DevOps Engineer',
     createdAt: '2025-11-21T11:00:00Z',
@@ -67,7 +67,7 @@ describe('BucketJobsModal', () => {
     const store = createTestStore({
       app: {
         selectedCompanyId: 'spacex',
-        selectedATS: ATSConstants.Greenhouse as const,
+        selectedATS: ATSConstants.BackendScraper as const,
         isInitialized: true,
       },
       ui: {
@@ -100,7 +100,7 @@ describe('BucketJobsModal', () => {
     const store = createTestStore({
       app: {
         selectedCompanyId: 'spacex',
-        selectedATS: ATSConstants.Greenhouse as const,
+        selectedATS: ATSConstants.BackendScraper as const,
         isInitialized: true,
       },
       ui: {
@@ -137,7 +137,7 @@ describe('BucketJobsModal', () => {
     const store = createTestStore({
       app: {
         selectedCompanyId: 'spacex',
-        selectedATS: ATSConstants.Greenhouse as const,
+        selectedATS: ATSConstants.BackendScraper as const,
         isInitialized: true,
       },
       ui: {
@@ -176,7 +176,7 @@ describe('BucketJobsModal', () => {
     const store = createTestStore({
       app: {
         selectedCompanyId: 'spacex',
-        selectedATS: ATSConstants.Greenhouse as const,
+        selectedATS: ATSConstants.BackendScraper as const,
         isInitialized: true,
       },
       ui: {
@@ -220,7 +220,7 @@ describe('BucketJobsModal', () => {
     const store = createTestStore({
       app: {
         selectedCompanyId: 'spacex',
-        selectedATS: ATSConstants.Greenhouse as const,
+        selectedATS: ATSConstants.BackendScraper as const,
         isInitialized: true,
       },
       ui: {
@@ -262,7 +262,7 @@ describe('BucketJobsModal', () => {
     const store = createTestStore({
       app: {
         selectedCompanyId: 'spacex',
-        selectedATS: ATSConstants.Greenhouse as const,
+        selectedATS: ATSConstants.BackendScraper as const,
         isInitialized: true,
       },
       ui: {
@@ -306,7 +306,7 @@ describe('BucketJobsModal', () => {
     const store = createTestStore({
       app: {
         selectedCompanyId: 'spacex',
-        selectedATS: ATSConstants.Greenhouse as const,
+        selectedATS: ATSConstants.BackendScraper as const,
         isInitialized: true,
       },
       ui: {
@@ -343,7 +343,7 @@ describe('BucketJobsModal', () => {
     const store = createTestStore({
       app: {
         selectedCompanyId: 'spacex',
-        selectedATS: ATSConstants.Greenhouse as const,
+        selectedATS: ATSConstants.BackendScraper as const,
         isInitialized: true,
       },
       ui: {
@@ -380,7 +380,7 @@ describe('BucketJobsModal', () => {
     const store = createTestStore({
       app: {
         selectedCompanyId: 'spacex',
-        selectedATS: ATSConstants.Greenhouse as const,
+        selectedATS: ATSConstants.BackendScraper as const,
         isInitialized: true,
       },
       ui: {
@@ -429,7 +429,7 @@ describe('BucketJobsModal', () => {
       { length: SIGN_IN_OVERLAY_CONFIG.SIGNED_OUT_JOB_LIMIT + 2 },
       (_, i) => ({
         id: `bucket-${i}`,
-        source: 'greenhouse' as const,
+        source: 'backend-scraper' as const,
         company: 'spacex',
         title: `Bucket Role ${i}`,
         createdAt: '2025-11-21T10:00:00Z',
@@ -443,7 +443,7 @@ describe('BucketJobsModal', () => {
       const store = createTestStore({
         app: {
           selectedCompanyId: 'spacex',
-          selectedATS: ATSConstants.Greenhouse as const,
+          selectedATS: ATSConstants.BackendScraper as const,
           isInitialized: true,
         },
         ui: {

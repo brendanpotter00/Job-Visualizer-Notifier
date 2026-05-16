@@ -6,7 +6,7 @@ import type { Job } from '../../../../types';
 describe('JobCard', () => {
   const mockJob: Job = {
     id: '1',
-    source: 'greenhouse',
+    source: 'backend-scraper',
     company: 'spacex',
     title: 'Senior Frontend Engineer',
     department: 'Engineering',
