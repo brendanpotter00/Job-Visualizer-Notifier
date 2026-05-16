@@ -1,5 +1,5 @@
 """Integration test: the companies schema + seed migrations upgrade cleanly
-from f4008c4fb790, then reverse cleanly via downgrade -2, then re-upgrade.
+from 2da4b99b39ea (admins), then reverse cleanly via downgrade -2, then re-upgrade.
 
 The existing `conftest.py::db_conn` fixture bootstraps tables via
 ``Base.metadata.create_all`` + ``stamp_alembic_head``, which deliberately
@@ -38,7 +38,7 @@ TEST_DB_URL = os.environ.get(
 
 SCHEMA_REV = "438ad0658e53"
 SEED_REV = "939331c99a23"
-PREV_HEAD = "f4008c4fb790"
+PREV_HEAD = "2da4b99b39ea"
 
 
 def _is_prod_like(url: str) -> bool:
