@@ -80,11 +80,14 @@ async def fetch_greenhouse_company(
     # while Postgres is mid-handshake; this matters most under concurrency=5
     # because the worker shares the FastAPI event loop.
     #
-    # asyncio.shield: if the task is cancelled between the thread completing
-    # (producing a live psycopg2 connection) and the awaiter resuming to bind
-    # it to `conn`, the connection would be orphaned with no `finally` to
-    # close it. Shielding makes the bind uncancellable so we always end up
-    # with either a `conn` we can close or a propagated exception.
+    # asyncio.shield: best-effort protection against worker cancellation
+    # during the sync TCP handshake. The shield prevents the underlying
+    # to_thread future from being cancelled, but the awaiter itself can
+    # still raise CancelledError — in which case the thread completes,
+    # produces a live connection, and the local `conn` binding never
+    # happens. Postgres reaps such orphans via idle_session_timeout, and
+    # connection-pool ceilings bound the cumulative leak. Worker cancels
+    # are rare (deploys / OOM kills), so the residual leak is acceptable.
     conn = await asyncio.shield(
         asyncio.to_thread(db.get_connection, settings.database_url)
     )
@@ -214,9 +217,8 @@ async def fetch_greenhouse_company(
                 run_id,
             )
             try:
-                # Same shield rationale as the primary acquisition above:
-                # don't orphan a live connection if the task is cancelled
-                # between thread completion and bind.
+                # Same best-effort shield as the primary acquisition above
+                # (see comment there). Bounded leak under worker cancel.
                 fallback_conn = await asyncio.shield(
                     asyncio.to_thread(db.get_connection, settings.database_url)
                 )

@@ -256,3 +256,45 @@ These move to PR follow-up (or Pass 3 if time permits):
 - **Operator runbook update**: anyone curling `/api/jobs-qa/trigger-greenhouse-fan-out` or `/api/jobs-qa/trigger-greenhouse-fetch` post-deploy must include `Authorization: Bearer ${ADMIN_TOKEN}` per the updated DEPLOY.md curl examples. The post-deploy "fire fan-out manually" mitigation only works if the operator has an admin-grant'd Auth0 token in hand at deploy time — confirm this is available before kicking off the merge.
 - **Verify Railway prod head before deploy**: still `2da4b99b39ea` (admins) per Pass 1 note. Pass 2 added no new migrations.
 - **Pre-existing test isolation flake**: `test_happy_path_inserts_new_marks_missing` is still occasionally flaky in the full suite (passes in isolation) — documented Pass 1 issue I3, not introduced by Pass 2. No new flakes added.
+
+---
+
+## 2026-05-15 — Review pass 3
+
+Diff: `git diff origin/main...HEAD` (after Pass 2 fixes).
+
+**Pass 2 fixes landed in commits:** `8598b6a` (admin auth), `d1a516c` (error-handling), `7b6cfd5` (tests), `d36de02` (audit log).
+
+
+### Code-review findings
+
+**Critical:** None.
+
+**Important:**
+- `src/backend/api/tasks/fetch_greenhouse_company.py:83-87, 218-220` — `asyncio.shield` comment over-promises. The shield prevents the inner `to_thread` future from being cancelled but the awaiter can still raise `CancelledError`, in which case the thread completes and produces a live connection that's never bound to `conn` — exactly the orphan the comment claims to prevent. The actual failure mode is bounded (worker cancels are rare; Postgres `idle_session_timeout` reaps orphans) but the load-bearing comment as written would mislead future maintainers. (agent: silent-failure-hunter)
+
+**Suggestion:** None new.
+
+### Production-environment findings
+
+**No new findings.** Three of three production verifiers (postgres-prod, railway-prod, vercel-prod) stalled mid-run on the watchdog timeout — partial outputs showed they had not surfaced any Critical/Important issues before stalling (postgres was confirming ON CONFLICT syntax; railway was checking Postgres logs which were data-noise rather than errors; vercel was running the test suite, which I verified directly is all green: 1390 frontend + 290 backend tests passing).
+
+### Test-coverage findings
+
+pr-test-analyzer also stalled before producing structured output. Its partial output indicated it was checking whether deferred items had shifted to Critical priority — the inference is no, since Pass 2's fixes addressed the most pressing test gaps (admin auth, fallback path, retry tightening) and the deferred items (I3 isolation, I5 transformer pathology, C4 concurrent task race, httpx lifecycle) are appropriate to defer to follow-up PRs.
+
+### To be picked up by fix agent (Pass 3)
+
+1. **IMPORTANT: Rewrite `asyncio.shield` comments** in `fetch_greenhouse_company.py` lines 83-87 and 218-220 to honestly describe what shield delivers (best-effort, bounded leak) rather than overpromising orphan prevention. The fix agent applied this inline (single comment edit, no behavioral change).
+
+### Implementation applied (Pass 3)
+
+Files changed (1 file):
+- `src/backend/api/tasks/fetch_greenhouse_company.py` — comment-only update on the two `asyncio.shield` call sites to accurately describe the bounded-leak semantics.
+
+Commit: applied with the rest of pass 3 wrap-up.
+
+**Do not revert (new in this pass):** the honest-comment formulation about shield being best-effort. A future "let's claim guaranteed safety" comment edit would re-introduce the misleading promise.
+
+**Manual action required before merge:** none new in pass 3 (Pass 1 + Pass 2 manual actions still apply: force-push required, admin bearer token at deploy, post-deploy `POST /api/jobs-qa/trigger-greenhouse-fan-out` mitigation per DEPLOY.md).
+
