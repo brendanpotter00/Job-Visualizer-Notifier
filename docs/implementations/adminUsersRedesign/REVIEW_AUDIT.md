@@ -47,7 +47,7 @@
 - `QAPage.ScraperResult.isAuthError` drives `severity="warning"` + prefix `"Session expired:"` when the auth-error catch sets it. Do NOT collapse the auth case back into the generic `"Scrape failed:"` red treatment.
 - `PROVIDER_LABEL` is a single named export from `features/admin/adminApi.ts`. Both `ProviderBars.tsx` and `UserRosterTable.tsx` import it. Do not re-introduce local copies — the previous divergence (`'Email / Auth0'` vs `'Email'`) was a maintenance hazard.
 - The UserRosterTable `"Cannot revoke the last admin — promote another user first."` 409 Alert is pinned by an end-to-end test (not just the backend `assert "last admin" in detail.lower()`). The exact string is contract.
-- Pass 3 commit: see `git log` after the commit lands.
+- Pass 3 commit: `9b1571c`.
 
 ---
 
