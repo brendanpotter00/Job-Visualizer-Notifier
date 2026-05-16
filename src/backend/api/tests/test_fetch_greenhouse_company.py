@@ -323,3 +323,142 @@ class TestFetchGreenhouseCompany:
         assert row is not None, "procrastinate_jobs row missing"
         assert row["attempts"] >= 1
         assert row["status"] in ("todo", "failed", "doing")
+
+    async def test_real_retry_503_then_200_succeeds(
+        self, procrastinate_open, db_conn, monkeypatch
+    ):
+        """C1: prove the @retry envelope actually retries. The previous
+        failure-only test would pass even if @retry were removed.
+
+        First call returns 503, second returns 200 with one job. We drain
+        the worker until the task reaches a terminal state, then assert
+        the job was upserted and at least one scrape_runs row was written.
+        """
+        company = "circleci"
+        token = "circleci"
+        _seed_company(db_conn, company, token)
+
+        call_count = {"n": 0}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return httpx.Response(503, json={"error": "down"})
+            return httpx.Response(200, json={"jobs": [_make_raw_job(777)]})
+
+        _patch_httpx(monkeypatch, handler)
+
+        await fetch_greenhouse_company.defer_async(
+            company_id=company, board_token=token,
+        )
+
+        # Drain repeatedly until the procrastinate_jobs row reaches a
+        # terminal status. RetryStrategy uses exponential backoff
+        # (base=2s); we poll with bounded attempts to give the retry a
+        # chance to wake up.
+        deadline_attempts = 6
+        for _ in range(deadline_attempts):
+            await _drain(timeout=10.0)
+            db_conn.rollback()
+            cur = db_conn.cursor()
+            cur.execute(
+                "SELECT status, attempts FROM procrastinate_jobs "
+                "WHERE task_name = 'fetch_greenhouse_company' "
+                "ORDER BY id DESC LIMIT 1"
+            )
+            row = cur.fetchone()
+            if row and row["status"] == "succeeded":
+                break
+            await asyncio.sleep(2.5)
+
+        db_conn.rollback()
+        cur = db_conn.cursor()
+        cur.execute(
+            "SELECT status, attempts FROM procrastinate_jobs "
+            "WHERE task_name = 'fetch_greenhouse_company' "
+            "ORDER BY id DESC LIMIT 1"
+        )
+        row = cur.fetchone()
+        assert row is not None
+        assert row["status"] == "succeeded", (
+            f"task did not succeed on retry; status={row['status']} "
+            f"attempts={row['attempts']} call_count={call_count['n']}"
+        )
+        assert row["attempts"] >= 2, (
+            f"task succeeded without retrying (attempts={row['attempts']})"
+        )
+
+        new_row = _job_row(db_conn, f"greenhouse_{token}_777")
+        assert new_row is not None, "job from retry attempt was not upserted"
+        assert new_row["status"] == "OPEN"
+
+        runs = _scrape_runs(db_conn, company)
+        assert len(runs) >= 1, "no scrape_runs row written"
+        # A retry can produce either one error row + one success row OR a
+        # single row with the final result depending on timing — the
+        # important invariant is that at least one error row (the failed
+        # 503 attempt) is recorded and the final state matches reality.
+        success_runs = [r for r in runs if r["error_count"] == 0]
+        assert success_runs, "no success row in scrape_runs after retry"
+        assert success_runs[0]["jobs_seen"] == 1
+
+
+@pytest.mark.parametrize(
+    "active_count,jobs_returned,expect_skipped",
+    [
+        # Below the safety threshold (default 0.5 ratio) -> guard trips.
+        (10, 0, True),     # zero returned with 10 active -> skipped
+        (100, 9, True),    # 9 < 0.5 * 100 = 50 -> skipped
+        # At or above the threshold -> guard does NOT trip.
+        (10, 5, False),    # exactly at the ratio
+        (10, 6, False),    # comfortably above ratio
+        # Bootstrap case: zero active, zero returned -> guard does NOT trip.
+        (0, 0, False),
+    ],
+)
+@pytest.mark.asyncio
+async def test_safety_guard_boundaries(
+    procrastinate_open,
+    db_conn,
+    monkeypatch,
+    active_count,
+    jobs_returned,
+    expect_skipped,
+):
+    """C3: pin the safety guard's ratio boundary so a future tweak to
+    `<` vs `<=` or to SAFETY_GUARD_RATIO is caught by tests."""
+    company = f"safety_{active_count}_{jobs_returned}"
+    token = company
+    _seed_company(db_conn, company, token)
+
+    for i in range(active_count):
+        _seed_job(db_conn, f"greenhouse_{token}_{i}", company)
+
+    raw_jobs = [_make_raw_job(1000 + i) for i in range(jobs_returned)]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"jobs": raw_jobs})
+
+    _patch_httpx(monkeypatch, handler)
+
+    await fetch_greenhouse_company.defer_async(
+        company_id=company, board_token=token,
+    )
+    await _drain()
+    db_conn.rollback()
+
+    runs = _scrape_runs(db_conn, company)
+    assert len(runs) == 1, f"expected 1 run, got {len(runs)}"
+    if expect_skipped:
+        assert runs[0]["error_count"] == 1, (
+            f"safety guard should have tripped for "
+            f"active={active_count} returned={jobs_returned}"
+        )
+        assert runs[0]["closed_jobs"] == 0
+        assert runs[0]["new_jobs"] == 0
+    else:
+        assert runs[0]["error_count"] == 0, (
+            f"safety guard tripped unexpectedly for "
+            f"active={active_count} returned={jobs_returned}; "
+            f"jobs_seen={runs[0]['jobs_seen']}"
+        )

@@ -155,3 +155,29 @@ class TestEnqueueGreenhouseFanOut:
         db_conn.rollback()
         assert deferred == 0
         assert _greenhouse_jobs(db_conn) == []
+
+    async def test_full_45_company_fan_out(
+        self, procrastinate_open, db_conn
+    ):
+        """I1: production-scale fan-out. The earlier tests use 3-5
+        companies; this exercises the full 45-company seed size to
+        catch any per-company defer regression that only manifests at
+        scale (e.g. lock-table contention, batched commit failure)."""
+        ids = [f"company_{i:02d}" for i in range(45)]
+        for cid in ids:
+            _seed_company(db_conn, cid)
+
+        deferred = await enqueue_greenhouse_fan_out(timestamp=0)
+        db_conn.rollback()
+
+        assert deferred == 45, (
+            f"expected 45 deferrals, got {deferred} (per-company "
+            f"isolation may have failed silently)"
+        )
+
+        jobs = _greenhouse_jobs(db_conn)
+        assert len(jobs) == 45
+
+        locks = {j["queueing_lock"] for j in jobs}
+        expected_locks = {f"greenhouse:{cid}" for cid in ids}
+        assert locks == expected_locks

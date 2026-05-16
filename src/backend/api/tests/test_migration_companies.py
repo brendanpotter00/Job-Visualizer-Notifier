@@ -182,3 +182,120 @@ def test_companies_migration_roundtrip(
                 roundtrip_db,
                 drop_exc,
             )
+
+
+@pytest.mark.skipif(
+    _is_prod_like(TEST_DB_URL),
+    reason="refusing to run migration roundtrip against a prod-like TEST_DATABASE_URL",
+)
+def test_companies_seed_migration_preserves_pre_existing_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """I2: a non-greenhouse `companies` row written out-of-band (e.g.
+    operator hotfix) must survive both the upgrade-to-seed AND the
+    -1 downgrade. If the downgrade ever regresses to `TRUNCATE
+    companies` it would silently wipe unrelated rows; this test
+    catches that."""
+    monkeypatch.delenv("PYTEST_SCHEMA", raising=False)
+
+    suffix = uuid.uuid4().hex[:8]
+    roundtrip_db = f"migrate_companies_pre_{suffix}"
+
+    maintenance_url = TEST_DB_URL.rsplit("/", 1)[0] + "/postgres"
+    maint = psycopg2.connect(maintenance_url, cursor_factory=RealDictCursor)
+    maint.autocommit = True
+    maint_cur = maint.cursor()
+    maint_cur.execute(
+        "SELECT pg_terminate_backend(pid) "
+        "FROM pg_stat_activity "
+        "WHERE datname = %s AND pid <> pg_backend_pid()",
+        (roundtrip_db,),
+    )
+    maint_cur.execute(f'DROP DATABASE IF EXISTS "{roundtrip_db}"')
+    maint_cur.execute(f'CREATE DATABASE "{roundtrip_db}"')
+    maint.close()
+
+    roundtrip_url = TEST_DB_URL.rsplit("/", 1)[0] + f"/{roundtrip_db}"
+
+    try:
+        from alembic import command
+        from alembic.config import Config
+
+        cfg = Config(str(_ALEMBIC_INI))
+        cfg.set_main_option("sqlalchemy.url", roundtrip_url)
+        cfg.set_main_option("script_location", str(_SCRIPT_LOCATION))
+        cfg.config_file_name = None
+
+        # Upgrade only as far as the schema migration (companies table
+        # exists, no greenhouse seed yet) so we can inject a pre-existing
+        # row that pre-dates the seed migration.
+        command.stamp(cfg, PREV_HEAD)
+        command.upgrade(cfg, SCHEMA_REV)
+
+        seed_conn = psycopg2.connect(roundtrip_url, cursor_factory=RealDictCursor)
+        seed_conn.autocommit = True
+        try:
+            seed_cur = seed_conn.cursor()
+            seed_cur.execute(
+                "INSERT INTO companies (id, display_name, ats, board_token) "
+                "VALUES (%s, %s, %s, %s)",
+                ("preexisting_lever_co", "Pre-Existing", "lever", "preexisting"),
+            )
+        finally:
+            seed_conn.close()
+
+        # Now run the seed migration on top.
+        command.upgrade(cfg, SEED_REV)
+
+        verify = psycopg2.connect(roundtrip_url, cursor_factory=RealDictCursor)
+        try:
+            cur = verify.cursor()
+            cur.execute(
+                "SELECT count(*) AS c FROM companies WHERE id = %s",
+                ("preexisting_lever_co",),
+            )
+            row = cur.fetchone()
+            assert row["c"] == 1, "pre-existing lever row was wiped by seed upgrade"
+            assert _greenhouse_row_count(verify) == 45
+        finally:
+            verify.close()
+
+        # Downgrade -1 (just the seed). The pre-existing lever row must
+        # still be there; the 45 greenhouse rows must be gone.
+        command.downgrade(cfg, SCHEMA_REV)
+
+        verify = psycopg2.connect(roundtrip_url, cursor_factory=RealDictCursor)
+        try:
+            cur = verify.cursor()
+            cur.execute(
+                "SELECT count(*) AS c FROM companies WHERE id = %s",
+                ("preexisting_lever_co",),
+            )
+            row = cur.fetchone()
+            assert row["c"] == 1, (
+                "pre-existing lever row was wiped by seed downgrade — "
+                "downgrade must scope DELETE to ats='greenhouse', not TRUNCATE"
+            )
+            assert _greenhouse_row_count(verify) == 0
+        finally:
+            verify.close()
+
+    finally:
+        try:
+            maint = psycopg2.connect(maintenance_url, cursor_factory=RealDictCursor)
+            maint.autocommit = True
+            maint_cur = maint.cursor()
+            maint_cur.execute(
+                "SELECT pg_terminate_backend(pid) "
+                "FROM pg_stat_activity "
+                "WHERE datname = %s AND pid <> pg_backend_pid()",
+                (roundtrip_db,),
+            )
+            maint_cur.execute(f'DROP DATABASE IF EXISTS "{roundtrip_db}"')
+            maint.close()
+        except Exception as drop_exc:
+            logging.getLogger(__name__).error(
+                "Failed to drop roundtrip test database %s during teardown: %s",
+                roundtrip_db,
+                drop_exc,
+            )
