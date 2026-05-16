@@ -244,6 +244,25 @@ describe('/api/users serverless function', () => {
       const calledOptions = fetchMock.mock.calls[0][1] as RequestInit;
       expect(calledOptions.body).toBeUndefined();
     });
+
+    it('forwards request body for non-PUT/POST methods (PATCH with body)', async () => {
+      // Audit pass-3: the body-forwarding gate was lifted from
+      // ``PUT/POST`` to ``req.body != null`` to match ``api/admin.ts``.
+      // Without this, a future PATCH or DELETE endpoint with a body
+      // would silently drop the body and the backend would receive
+      // an empty request.
+      mockReq.method = 'PATCH';
+      mockReq.query = {};
+      mockReq.body = { displayName: 'Patched' };
+
+      fetchMock.mockResolvedValue(mockJsonResponse(200, {}));
+
+      await handler(mockReq as VercelRequest, mockRes as VercelResponse);
+
+      const [, fetchOptions] = fetchMock.mock.calls[0];
+      expect(fetchOptions.method).toBe('PATCH');
+      expect(fetchOptions.body).toBe(JSON.stringify({ displayName: 'Patched' }));
+    });
   });
 
   describe('Response Handling', () => {
@@ -312,7 +331,11 @@ describe('/api/users serverless function', () => {
       expect(mockRes.json).toHaveBeenCalledWith({ error: '<html>Bad Gateway</html>' });
     });
 
-    it('should use statusText when non-JSON response body is empty', async () => {
+    it('forwards 204 with an empty body (RFC 9110 §15.3.5)', async () => {
+      // 204 (No Content) MUST NOT carry a body. forwardResponse short-
+      // circuits on 204/304 with ``res.status(...).end()`` — the prior
+      // behavior of wrapping in ``{ error: statusText }`` violated the
+      // RFC and tripped strict HTTP clients.
       mockReq.query = {};
 
       fetchMock.mockResolvedValue(mockTextResponse(204, '', 'No Content'));
@@ -320,7 +343,24 @@ describe('/api/users serverless function', () => {
       await handler(mockReq as VercelRequest, mockRes as VercelResponse);
 
       expect(mockRes.status).toHaveBeenCalledWith(204);
-      expect(mockRes.json).toHaveBeenCalledWith({ error: 'No Content' });
+      expect(mockRes.end).toHaveBeenCalled();
+      expect(mockRes.json).not.toHaveBeenCalled();
+    });
+
+    it('forwards 205 with an empty body (RFC 9110 §15.3.6)', async () => {
+      // Audit pass-3: 205 Reset Content "MUST NOT generate content"
+      // (RFC 9110 §15.3.6). forwardResponse's short-circuit was
+      // previously gated to 204/304 only — a 205 would fall through
+      // to the JSON branch and add a body that violates the contract.
+      mockReq.query = {};
+
+      fetchMock.mockResolvedValue(mockTextResponse(205, '', 'Reset Content'));
+
+      await handler(mockReq as VercelRequest, mockRes as VercelResponse);
+
+      expect(mockRes.status).toHaveBeenCalledWith(205);
+      expect(mockRes.end).toHaveBeenCalled();
+      expect(mockRes.json).not.toHaveBeenCalled();
     });
   });
 

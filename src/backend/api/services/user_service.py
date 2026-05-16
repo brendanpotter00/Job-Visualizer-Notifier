@@ -18,6 +18,7 @@ See ``docs/implementations/auth0/REVIEW_AUDIT.md`` "2026-04-14 — Design revers
 import logging
 import uuid
 from datetime import datetime, timezone
+from typing import TypedDict
 
 import psycopg2
 from psycopg2 import sql
@@ -28,6 +29,32 @@ logger = logging.getLogger(__name__)
 _USERS_TABLE = sql.Identifier("users")
 
 
+class UserRow(TypedDict):
+    """Shape of a ``users`` row as returned by the service layer.
+
+    Mirrors the columns declared in ``db_models.User``. The ``auth0_id``
+    column name is historical — it tracks the most recent identity
+    provider's subject (Auth0 ``sub`` or Google-prefixed One Tap ``sub``),
+    not just Auth0 specifically. See ``models.UserResponse`` for the
+    API-boundary rename to ``provider_subject``.
+
+    Threaded through ``_row_to_user_response`` in ``routers/users.py`` so
+    a column rename in ``db_models`` becomes a mypy/pyright error at the
+    router's row-key reads rather than a runtime ``KeyError`` on the
+    next request.
+    """
+
+    id: str
+    auth0_id: str
+    email: str
+    display_name: str | None
+    given_name: str | None
+    family_name: str | None
+    picture_url: str | None
+    created_at: str
+    updated_at: str
+
+
 def get_or_create_user(
     conn: Connection,
     auth0_id: str,
@@ -35,7 +62,7 @@ def get_or_create_user(
     given_name: str | None = None,
     family_name: str | None = None,
     picture_url: str | None = None,
-) -> dict:
+) -> UserRow:
     """Upsert a user via a two-key identity lookup.
 
     Looks up by ``auth0_id OR email``, then UPDATE or INSERT. ``display_name``
@@ -90,7 +117,7 @@ def _lookup_and_upsert(
     given_name: str | None,
     family_name: str | None,
     picture_url: str | None,
-) -> dict:
+) -> UserRow:
     """SELECT by either key, then UPDATE or INSERT. Raises on ambiguous match."""
     now = datetime.now(timezone.utc).isoformat()
     cursor = conn.cursor()
@@ -150,7 +177,7 @@ def update_user(
     conn: Connection,
     email: str,
     display_name: str | None = None,
-) -> dict | None:
+) -> UserRow | None:
     """Update a user's display name, keyed by email (the stable identifier).
 
     Returns ``None`` if no user matches the email.
@@ -183,8 +210,15 @@ def update_user(
 def get_user_by_email(
     conn: Connection,
     email: str,
-) -> dict | None:
-    """Fetch a user row by email. Returns ``None`` if not found."""
+) -> UserRow | None:
+    """Fetch a user row by email. Returns ``None`` if not found.
+
+    Return type is the typed ``UserRow`` (not raw ``dict``) so callers
+    that read ``row["id"]`` / etc. surface a column rename in
+    ``db_models.User`` as a mypy/pyright error at the read site instead
+    of a runtime ``KeyError`` on the next request. Matches the threading
+    done for ``get_or_create_user`` / ``update_user`` in pass 2.
+    """
     table = _USERS_TABLE
     cursor = conn.cursor()
     cursor.execute(

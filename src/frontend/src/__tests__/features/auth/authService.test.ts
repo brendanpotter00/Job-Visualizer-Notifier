@@ -59,6 +59,91 @@ describe('authService', () => {
 
       await expect(fetchCurrentUser('token')).rejects.toThrow('Failed to fetch user (500)');
     });
+
+    it('rejects a 2xx body that is missing the isAdmin field', async () => {
+      // Regression guard symmetric to AdminUsersListResponse's runtime
+      // guard. The backend hardening makes isAdmin a required Pydantic
+      // field — but a CDN error page or proxy misroute could still
+      // return a 2xx JSON body without it. If that response were cast
+      // straight to ``User`` (the prior behavior), AdminRoute's
+      // ``!user.isAdmin`` check would silently demote the admin. The
+      // parseUserResponse guard must reject this body at the fetch
+      // boundary so the error surfaces in useCurrentUser instead.
+      const bodyMissingIsAdmin = {
+        id: 'abc123',
+        providerSubject: 'auth0|test',
+        email: 'test@example.com',
+        displayName: null,
+        givenName: null,
+        familyName: null,
+        pictureUrl: null,
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+      };
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(JSON.stringify(bodyMissingIsAdmin), { status: 200 })
+      );
+
+      await expect(fetchCurrentUser('token')).rejects.toThrow(
+        /missing isAdmin field/
+      );
+    });
+
+    it('rejects a 2xx body whose isAdmin is not a boolean', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(
+          JSON.stringify({ ...mockUser, isAdmin: 'true' }),
+          { status: 200 }
+        )
+      );
+
+      await expect(fetchCurrentUser('token')).rejects.toThrow(
+        /missing isAdmin field/
+      );
+    });
+
+    it('extracts a readable message when the error body has a nested error object', async () => {
+      // Audit pass-3 finding: ``extractErrorDetail`` did
+      // ``b.detail || b.message || b.error`` and returned the value
+      // directly. When ``error`` was an object (e.g. an upstream returns
+      // ``{ "error": { "code": "BACKEND_DOWN", "message": "pool exhausted" } }``),
+      // the object was returned as-is and ``new Error(object)`` coerced
+      // it to the string ``"[object Object]"`` — completely opaque to
+      // the on-call admin.
+      //
+      // Fix: every field is filtered by ``typeof === 'string'``, and the
+      // top-level ``error`` field's nested ``.message`` is read if present.
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            error: { code: 'BACKEND_DOWN', message: 'pool exhausted' },
+          }),
+          { status: 500 }
+        )
+      );
+
+      await expect(fetchCurrentUser('token')).rejects.toThrow(
+        /pool exhausted/
+      );
+    });
+
+    it('falls back through non-string detail/message to the generic message', async () => {
+      // A ``detail`` object should NOT be passed straight to ``new
+      // Error(...)``. The guard requires ``typeof === 'string'`` at
+      // every step, so a non-string detail falls through to the
+      // generic fallback rather than rendering as ``[object Object]``.
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(JSON.stringify({ detail: { nested: 'oops' } }), {
+          status: 500,
+        })
+      );
+
+      const error = await fetchCurrentUser('token').catch((e) => e);
+      // Must not be the coerced object stringification.
+      expect((error as Error).message).not.toBe('[object Object]');
+      // Falls back to the synthesized status message.
+      expect((error as Error).message).toMatch(/Failed to fetch user|500/);
+    });
   });
 
   describe('updateCurrentUser', () => {
@@ -119,6 +204,47 @@ describe('authService', () => {
       await expect(updateCurrentUser('token', { displayName: 'X' })).rejects.toThrow(
         'Failed to update user (500)'
       );
+    });
+
+    it('rejects a 2xx PUT body that is missing the isAdmin field', async () => {
+      // Audit pass-3 finding: parseUserResponse runs at both the GET and
+      // PUT boundaries (``updateCurrentUser`` returns ``User`` and calls
+      // ``parseUserResponse(await response.json())`` per pass 2). The
+      // missing-isAdmin guard was only tested via the GET path; a
+      // future regression that bypassed parsing on the PUT path would
+      // silently demote the admin every time they updated their
+      // display name.
+      const bodyMissingIsAdmin = {
+        id: 'abc123',
+        providerSubject: 'auth0|test',
+        email: 'test@example.com',
+        displayName: 'New Name',
+        givenName: null,
+        familyName: null,
+        pictureUrl: null,
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-02T00:00:00Z',
+      };
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(JSON.stringify(bodyMissingIsAdmin), { status: 200 })
+      );
+
+      await expect(
+        updateCurrentUser('token', { displayName: 'New Name' })
+      ).rejects.toThrow(/missing isAdmin field/);
+    });
+
+    it('rejects a 2xx PUT body whose isAdmin is not a boolean', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(
+          JSON.stringify({ ...mockUser, isAdmin: 1 }),
+          { status: 200 }
+        )
+      );
+
+      await expect(
+        updateCurrentUser('token', { displayName: 'X' })
+      ).rejects.toThrow(/missing isAdmin field/);
     });
   });
 });

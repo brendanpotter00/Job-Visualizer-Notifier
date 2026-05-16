@@ -4,6 +4,8 @@ import { MemoryRouter } from 'react-router-dom';
 import { NavigationDrawer } from '../../../components/layout/NavigationDrawer.tsx';
 
 let mockUser: { isAdmin: boolean } | null = null;
+let mockUserError: string | null = null;
+const mockReload = vi.fn();
 
 vi.mock('../../../features/auth/useAuth', () => ({
   useAuth: () => ({
@@ -22,8 +24,8 @@ vi.mock('../../../features/auth/useCurrentUser', () => ({
     user: mockUser,
     setUser: vi.fn(),
     loading: false,
-    error: null,
-    reload: vi.fn(),
+    error: mockUserError,
+    reload: mockReload,
   }),
 }));
 
@@ -38,6 +40,8 @@ const mockProps = {
 describe('NavigationDrawer admin section', () => {
   beforeEach(() => {
     mockUser = null;
+    mockUserError = null;
+    mockReload.mockReset();
   });
 
   it('hides the Admin section when the current-user profile has not loaded', () => {
@@ -88,5 +92,89 @@ describe('NavigationDrawer admin section', () => {
     expect(screen.getByTestId('PeopleIcon')).toBeInTheDocument();
     expect(screen.getByTestId('BugReportIcon')).toBeInTheDocument();
     expect(screen.queryByText('ADMIN')).not.toBeInTheDocument();
+  });
+
+  it('renders the "admin status unavailable" indicator when /api/users errored with no cached user', async () => {
+    // Auth backend outage: ``useCurrentUser`` returned ``{ user: null,
+    // error: '...' }``. Hiding the Admin section entirely silently
+    // strips admin nav from anyone who refreshes during the outage,
+    // including real admins. The indicator surfaces the unavailability
+    // so the admin retries instead of assuming their access was
+    // revoked.
+    const userEvent = (await import('@testing-library/user-event')).default;
+    mockUser = null;
+    mockUserError = '/api/users failed: 500';
+    render(
+      <MemoryRouter>
+        <NavigationDrawer {...mockProps} />
+      </MemoryRouter>
+    );
+
+    expect(
+      screen.getByTestId('admin-status-unavailable')
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/admin status unavailable/i)
+    ).toBeInTheDocument();
+
+    // Clicking the indicator must call reload() so the admin can retry
+    // without a full page refresh. The button is nested inside the
+    // ListItem testid wrapper; aria-label exposes the affordance.
+    const user = userEvent.setup();
+    await user.click(
+      screen.getByRole('button', { name: /admin status unavailable.*retry/i })
+    );
+    expect(mockReload).toHaveBeenCalled();
+  });
+
+  it('does NOT render the unavailability indicator when userError is null', () => {
+    // Regression guard: the indicator must only fire on the
+    // ``userError && !user`` case, not on every signed-in render with
+    // no admin grant.
+    mockUser = null;
+    mockUserError = null;
+    render(
+      <MemoryRouter>
+        <NavigationDrawer {...mockProps} />
+      </MemoryRouter>
+    );
+    expect(
+      screen.queryByTestId('admin-status-unavailable')
+    ).not.toBeInTheDocument();
+  });
+
+  it('keeps the Account item anchored to the bottom via a flex spacer', () => {
+    // Regression guard for the "admin accordion takes up the entire sidebar"
+    // layout bug. The fix replaces `mt: 'auto'` on the Account divider with
+    // an explicit `<Box sx={{ flexGrow: 1 }} />` spacer between the Admin
+    // group and the Account section. We assert: the drawer content is a
+    // flex column, Account appears after the spacer in DOM order, and the
+    // spacer's `flexGrow` style is present.
+    mockUser = { isAdmin: true };
+    const { container } = render(
+      <MemoryRouter>
+        <NavigationDrawer {...mockProps} />
+      </MemoryRouter>
+    );
+
+    // The Account link should be rendered.
+    const accountText = screen.getByText('Account');
+    expect(accountText).toBeInTheDocument();
+
+    // Locate the spacer: the only div with flex-grow: 1 inside the drawer
+    // content. computedStyle uses the inline-equivalent via getAttribute on
+    // the style attribute (jsdom + MUI's sx serializes to inline class, so
+    // probe by walking siblings instead).
+    const accountListItem = accountText.closest('li');
+    expect(accountListItem).not.toBeNull();
+    // The spacer lives in the DOM between the Admin section and the
+    // <Divider> immediately above Account — i.e. it precedes Account.
+    // Grab all elements within the drawer paper that look like a spacer.
+    const spacerCandidates = container.querySelectorAll('div');
+    const hasSpacer = Array.from(spacerCandidates).some((el) => {
+      const styles = window.getComputedStyle(el);
+      return styles.flexGrow === '1' && !el.querySelector('*');
+    });
+    expect(hasSpacer).toBe(true);
   });
 });

@@ -206,6 +206,21 @@ describe('/api/features serverless function', () => {
       const calledOptions = fetchMock.mock.calls[0][1] as RequestInit;
       expect(calledOptions.body).toBeUndefined();
     });
+
+    it('forwards request body for non-PUT/POST methods (PATCH with body)', async () => {
+      // Audit pass-3: parity with ``api/admin.ts`` — the body-forwarding
+      // gate is lifted from ``PUT/POST`` to ``req.body != null`` so a
+      // future PATCH or DELETE endpoint with a body doesn't silently
+      // drop the body upstream.
+      mockReq.method = 'PATCH';
+      mockReq.query = { path: ['some-feature'] };
+      mockReq.body = { vote: 'up' };
+      fetchMock.mockResolvedValue(mockJsonResponse(200, {}));
+      await handler(mockReq as VercelRequest, mockRes as VercelResponse);
+      const [, fetchOptions] = fetchMock.mock.calls[0];
+      expect(fetchOptions.method).toBe('PATCH');
+      expect(fetchOptions.body).toBe(JSON.stringify({ vote: 'up' }));
+    });
   });
 
   describe('Response Handling', () => {
@@ -264,12 +279,17 @@ describe('/api/features serverless function', () => {
       expect(mockRes.json).toHaveBeenCalledWith({ error: '<html>Bad Gateway</html>' });
     });
 
-    it('should use statusText when non-JSON response body is empty', async () => {
+    it('forwards 204 with an empty body (RFC 9110 §15.3.5)', async () => {
+      // 204 (No Content) MUST NOT carry a body. forwardResponse short-
+      // circuits on 204/304 with ``res.status(...).end()`` — the prior
+      // behavior of wrapping in ``{ error: statusText }`` violated the
+      // RFC and tripped strict HTTP clients.
       mockReq.query = {};
       fetchMock.mockResolvedValue(mockTextResponse(204, '', 'No Content'));
       await handler(mockReq as VercelRequest, mockRes as VercelResponse);
       expect(mockRes.status).toHaveBeenCalledWith(204);
-      expect(mockRes.json).toHaveBeenCalledWith({ error: 'No Content' });
+      expect(mockRes.end).toHaveBeenCalled();
+      expect(mockRes.json).not.toHaveBeenCalled();
     });
   });
 

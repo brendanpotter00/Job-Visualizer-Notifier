@@ -44,6 +44,12 @@ function urlFromInput(input: unknown): string {
   return String(input);
 }
 
+function methodFromCall(call: [unknown, unknown]): string | undefined {
+  const [input, init] = call;
+  if (input instanceof Request) return input.method;
+  return (init as RequestInit | undefined)?.method;
+}
+
 function getAuthHeader(call: [unknown, unknown]): string | null {
   const [input, init] = call;
   if (input instanceof Request) return input.headers.get('Authorization');
@@ -108,6 +114,34 @@ describe('adminApi', () => {
     expect(getAuthHeader(call)).toBeNull();
   });
 
+  it('grantAdmin POSTs to /users/{id}/admin with Authorization', async () => {
+    fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
+    const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+    await store.dispatch(
+      adminApi.endpoints.grantAdmin.initiate({ userId: 'target-1' })
+    );
+
+    const call = fetchMock.mock.calls[0] as [unknown, unknown];
+    expect(urlFromInput(call[0])).toMatch(/\/api\/admin\/users\/target-1\/admin$/);
+    expect(methodFromCall(call)).toBe('POST');
+    expect(getAuthHeader(call)).toBe('Bearer test-admin-token');
+  });
+
+  it('revokeAdmin DELETEs /users/{id}/admin with Authorization', async () => {
+    fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
+    const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+    await store.dispatch(
+      adminApi.endpoints.revokeAdmin.initiate({ userId: 'target-2' })
+    );
+
+    const call = fetchMock.mock.calls[0] as [unknown, unknown];
+    expect(urlFromInput(call[0])).toMatch(/\/api\/admin\/users\/target-2\/admin$/);
+    expect(methodFromCall(call)).toBe('DELETE');
+    expect(getAuthHeader(call)).toBe('Bearer test-admin-token');
+  });
+
   it('unwraps the { users: [...] } envelope via transformResponse', async () => {
     const fakeUsers = [
       {
@@ -125,5 +159,162 @@ describe('adminApi', () => {
     const result = await store.dispatch(adminApi.endpoints.listAdminUsers.initiate());
 
     expect(result.data).toEqual(fakeUsers);
+  });
+
+  it('surfaces an error when /api/admin/users 2xx body is missing users[]', async () => {
+    // Regression guard for the "proxy returns 2xx with a bad body" case
+    // — e.g. a CDN error page or a future server wraps the envelope for
+    // pagination. Without the runtime guard the consumer would receive
+    // ``undefined`` and silently render an empty roster (the exact
+    // "silently zero admins" failure mode this PR fixes).
+    fetchMock.mockResolvedValue(jsonResponse({}));
+    const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+    const result = await store.dispatch(
+      adminApi.endpoints.listAdminUsers.initiate()
+    );
+
+    // RTK Query surfaces the thrown error via the ``error`` field.
+    expect(result.data).toBeUndefined();
+    expect(result.error).toBeDefined();
+  });
+
+  it('surfaces an error when /api/admin/users 2xx body has users: null', async () => {
+    // Companion to the ``{}`` test — explicitly cover the case where
+    // the envelope is present but ``users`` is the wrong type. Without
+    // the ``Array.isArray`` check, ``Array.isArray(null)`` returns
+    // false and the guard still fires, but adding the case pins the
+    // contract so a future ``if (!res.users)`` regression (which would
+    // skip a present-but-falsy value) still trips the test.
+    fetchMock.mockResolvedValue(jsonResponse({ users: null }));
+    const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+    const result = await store.dispatch(
+      adminApi.endpoints.listAdminUsers.initiate()
+    );
+
+    expect(result.data).toBeUndefined();
+    expect(result.error).toBeDefined();
+  });
+
+  it('surfaces an error when /api/admin/users 2xx body has users as a string', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ users: 'oops' }));
+    const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+    const result = await store.dispatch(
+      adminApi.endpoints.listAdminUsers.initiate()
+    );
+
+    expect(result.data).toBeUndefined();
+    expect(result.error).toBeDefined();
+  });
+
+  it('surfaces an error when /api/admin/users/stats 2xx body is missing totalUsers', async () => {
+    // Symmetric to the listAdminUsers runtime guard test above. Without
+    // a transformResponse validator on getAdminUsersStats, a CDN error
+    // page with totalUsers === undefined would cause AdminUsersPage's
+    // ``stats?.totalUsers ?? users.length`` fallback to show the
+    // loaded-roster-count as "Total users" — silently wrong number.
+    fetchMock.mockResolvedValue(jsonResponse({ byProvider: {} }));
+    const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+    const result = await store.dispatch(
+      adminApi.endpoints.getAdminUsersStats.initiate()
+    );
+
+    expect(result.data).toBeUndefined();
+    expect(result.error).toBeDefined();
+  });
+
+  it('surfaces an error when /api/admin/users/stats 2xx body has totalUsers as a string', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ totalUsers: '42', byProvider: {} })
+    );
+    const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+    const result = await store.dispatch(
+      adminApi.endpoints.getAdminUsersStats.initiate()
+    );
+
+    expect(result.data).toBeUndefined();
+    expect(result.error).toBeDefined();
+  });
+
+  it('surfaces an error when /api/admin/users/stats 2xx body is missing byProvider', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ totalUsers: 0 }));
+    const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+    const result = await store.dispatch(
+      adminApi.endpoints.getAdminUsersStats.initiate()
+    );
+
+    expect(result.data).toBeUndefined();
+    expect(result.error).toBeDefined();
+  });
+
+  it('surfaces an error when /api/admin/users/stats byProvider has a non-number value', async () => {
+    // Audit pass-3: the prior guard checked ``byProvider`` was an object
+    // but NOT that its values were numbers. A CDN error page or
+    // serializer regression that returned ``{ google: "5" }`` would
+    // silently render a string as a count downstream. The new guard
+    // iterates the values and rejects if any are non-number.
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        totalUsers: 5,
+        firstSignupAt: null,
+        latestSignupAt: null,
+        byProvider: { google: '5' },
+      })
+    );
+    const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+    const result = await store.dispatch(
+      adminApi.endpoints.getAdminUsersStats.initiate()
+    );
+
+    expect(result.data).toBeUndefined();
+    expect(result.error).toBeDefined();
+  });
+
+  it('surfaces an error when /api/admin/users/stats firstSignupAt is a number instead of string|null', async () => {
+    // Audit pass-3: the timestamp fields contract is ``string | null``.
+    // A numeric value (e.g. 0) must reject — otherwise downstream
+    // ``new Date(iso).getTime()`` would silently produce "1970-01-01"
+    // or NaN without any error signal.
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        totalUsers: 0,
+        firstSignupAt: 0,
+        latestSignupAt: null,
+        byProvider: {},
+      })
+    );
+    const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+    const result = await store.dispatch(
+      adminApi.endpoints.getAdminUsersStats.initiate()
+    );
+
+    expect(result.data).toBeUndefined();
+    expect(result.error).toBeDefined();
+  });
+
+  it('surfaces an error when /api/admin/users/stats latestSignupAt is a number instead of string|null', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        totalUsers: 0,
+        firstSignupAt: null,
+        latestSignupAt: 1234567890,
+        byProvider: {},
+      })
+    );
+    const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+    const result = await store.dispatch(
+      adminApi.endpoints.getAdminUsersStats.initiate()
+    );
+
+    expect(result.data).toBeUndefined();
+    expect(result.error).toBeDefined();
   });
 });

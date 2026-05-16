@@ -1,7 +1,8 @@
 import { useMemo } from 'react';
-import Box from '@mui/material/Box';
+import Container from '@mui/material/Container';
 import Grid from '@mui/material/Grid';
-import { keyframes } from '@mui/system';
+import Paper from '@mui/material/Paper';
+import Typography from '@mui/material/Typography';
 import {
   useGetAdminUsersStatsQuery,
   useListAdminUsersQuery,
@@ -13,12 +14,6 @@ import { StatTile } from './components/StatTile';
 import { ProviderBars } from './components/ProviderBars';
 import { SignupSparkline } from './components/SignupSparkline';
 import { UserRosterTable } from './components/UserRosterTable';
-import { OPS, SX } from './adminUsersTheme';
-
-const livePulse = keyframes`
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50%      { opacity: 0.45; transform: scale(0.78); }
-`;
 
 function formatJoinedDate(iso: string | null): string {
   if (!iso) return '—';
@@ -48,147 +43,145 @@ export function AdminUsersPage() {
   const usersQuery = useListAdminUsersQuery();
   const statsQuery = useGetAdminUsersStatsQuery();
 
-  // `usersQuery.data ?? []` creates a fresh empty array each render before
-  // the fetch resolves; that array would invalidate every downstream useMemo
-  // that depends on `users` on every render. Memoize so the identity is
-  // stable across the loading phase.
+  // Memoize the empty-array fallback so downstream useMemo identities stay
+  // stable through the loading phase.
   const users = useMemo(() => usersQuery.data ?? [], [usersQuery.data]);
   const stats = statsQuery.data;
 
   const createdAts = useMemo(() => users.map((u) => u.createdAt), [users]);
 
-  const isLoading = usersQuery.isLoading || statsQuery.isLoading;
-  const error = usersQuery.error ?? statsQuery.error;
+  const usersError = usersQuery.error;
+  const statsError = statsQuery.error;
 
-  if (isLoading && !stats && users.length === 0) {
-    return (
-      <Box sx={SX.page}>
-        <LoadingState fullPage caption="loading admin data..." />
-      </Box>
-    );
+  // Per-slot loading semantics (audit pass-3 "Important" finding):
+  //   - Page-level full spinner: only when BOTH queries are still loading
+  //     AND neither has any data yet AND neither has errored. As soon as
+  //     either side resolves or errors, we render the partial page so the
+  //     loading slot doesn't mask the other slot's progress.
+  //   - Each slot independently spins iff its own query is still loading
+  //     and has no data yet. If a slot errors, it renders an inline error;
+  //     if it has data, it renders normally.
+  const usersSlotLoading = usersQuery.isLoading && users.length === 0;
+  const statsSlotLoading = statsQuery.isLoading && !stats;
+  const pageLevelLoading =
+    usersSlotLoading && statsSlotLoading && !usersError && !statsError;
+
+  if (pageLevelLoading) {
+    return <LoadingState fullPage caption="Loading admin data…" />;
   }
 
-  if (error) {
+  // Only fall back to the full-page error state when BOTH queries fail.
+  // Single-query failures render an inline ErrorState in their own slot
+  // so the rest of the page stays useful (audit log "Important" finding:
+  // hiding the roster on a stats-only failure is the exact conflated-
+  // failure pattern this PR is meant to prevent).
+  if (usersError && statsError) {
     return (
-      <Box sx={SX.page}>
+      <Container maxWidth="xl" sx={{ py: 4 }}>
         <ErrorState
           inline
-          message={extractErrorMessage(error, 'Failed to load admin data')}
+          message={extractErrorMessage(
+            usersError ?? statsError,
+            'Failed to load admin data'
+          )}
           onRetry={() => {
             usersQuery.refetch();
             statsQuery.refetch();
           }}
         />
-      </Box>
+      </Container>
     );
   }
 
-  const totalUsers = stats?.totalUsers ?? users.length;
+  // Header "X total" must reflect a TRUSTED stats number — never silently
+  // fall back to ``users.length``. When stats errored AND we have no stats
+  // payload, render an em-dash placeholder so the admin can see that the
+  // total is unknown rather than reading the roster count as authoritative
+  // (audit pass-3 "Important": ``stats?.totalUsers ?? users.length`` was
+  // a silent fallback that hid a stats outage behind a plausible number).
+  const statsUnavailable = Boolean(statsError) && !stats;
+  const totalUsers = stats?.totalUsers ?? null;
   const firstSignup = stats?.firstSignupAt ?? null;
   const latestSignup = stats?.latestSignupAt ?? null;
 
   return (
-    <Box sx={SX.page}>
-      {/* Header line — "ADMIN / USERS — n total" with pulsing live dot */}
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 2,
-          mb: 4,
-          flexWrap: 'wrap',
-        }}
-      >
-        <Box
-          sx={{
-            width: 8,
-            height: 8,
-            bgcolor: OPS.accent,
-            borderRadius: '50%',
-            animation: `${livePulse} 1.6s ease-in-out infinite`,
-          }}
+    <Container maxWidth="xl" sx={{ py: 4 }}>
+      <Typography variant="h4" component="h1" gutterBottom>
+        Admin · Users
+      </Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+        {statsUnavailable
+          ? '— total'
+          : totalUsers !== null
+            ? `${totalUsers.toLocaleString()} total`
+            : '— total'}
+      </Typography>
+
+      {statsError ? (
+        // Stats failed in isolation — render an inline error in the stat
+        // tile section but keep the roster below. Includes a retry that
+        // only refetches the failed query.
+        <ErrorState
+          inline
+          message={extractErrorMessage(statsError, 'Failed to load admin stats')}
+          onRetry={() => statsQuery.refetch()}
         />
-        <Box
-          sx={{
-            ...SX.caption,
-            fontSize: 12,
-            color: OPS.textPrimary,
-            letterSpacing: '0.24em',
-          }}
-        >
-          ADMIN&nbsp;&nbsp;/&nbsp;&nbsp;USERS
-        </Box>
-        <Box
-          sx={{
-            flexGrow: 1,
-            height: 1,
-            background: `linear-gradient(to right, ${OPS.border} 0, ${OPS.border} 60%, transparent 100%)`,
-            mx: 1,
-            display: { xs: 'none', sm: 'block' },
-          }}
+      ) : statsSlotLoading ? (
+        // Stats query still pending while the roster has resolved — show
+        // the stats-slot spinner so the admin sees explicit progress on
+        // the half that hasn't loaded yet.
+        <LoadingState minHeight={120} caption="Loading stats…" />
+      ) : (
+        <>
+          <Grid container spacing={2} sx={{ mb: 3 }}>
+            <Grid size={{ xs: 12, md: 4 }}>
+              <StatTile
+                label="Total users"
+                value={totalUsers !== null ? totalUsers.toLocaleString() : '—'}
+                meta="Cumulative signups"
+                decoration={<SignupSparkline createdAts={createdAts} />}
+              />
+            </Grid>
+            <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+              <StatTile
+                label="First signup"
+                value={formatJoinedDate(firstSignup)}
+                meta={firstSignup ? relativeDays(firstSignup) : '—'}
+              />
+            </Grid>
+            <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+              <StatTile
+                label="Latest signup"
+                value={formatJoinedDate(latestSignup)}
+                meta={latestSignup ? relativeDays(latestSignup) : '—'}
+              />
+            </Grid>
+          </Grid>
+
+          <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
+            <Typography variant="h6" component="h2" gutterBottom>
+              Signup providers
+            </Typography>
+            <ProviderBars data={stats?.byProvider ?? {}} />
+          </Paper>
+        </>
+      )}
+
+      {usersError ? (
+        // Roster failed in isolation — render an inline error in the
+        // roster slot. The stat tiles above still render.
+        <ErrorState
+          inline
+          message={extractErrorMessage(usersError, 'Failed to load user roster')}
+          onRetry={() => usersQuery.refetch()}
         />
-        <Box
-          sx={{
-            fontFamily: OPS.mono,
-            fontSize: 13,
-            color: OPS.textMuted,
-          }}
-        >
-          {totalUsers} total
-        </Box>
-      </Box>
-
-      {/* Stat tiles */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid size={{ xs: 12, md: 4 }}>
-          <StatTile
-            label="TOTAL USERS"
-            value={totalUsers.toLocaleString()}
-            meta="cumulative signups"
-            decoration={<SignupSparkline createdAts={createdAts} />}
-          />
-        </Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-          <StatTile
-            label="FIRST JOIN"
-            value={formatJoinedDate(firstSignup)}
-            meta={firstSignup ? relativeDays(firstSignup) : '—'}
-          />
-        </Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-          <StatTile
-            label="LATEST JOIN"
-            value={formatJoinedDate(latestSignup)}
-            meta={latestSignup ? relativeDays(latestSignup) : '—'}
-          />
-        </Grid>
-      </Grid>
-
-      {/* Provider breakdown */}
-      <Box sx={{ ...SX.surface, p: 2.5, mb: 3 }}>
-        <Box sx={{ ...SX.caption, mb: 2 }}>SIGNUP PROVIDER BREAKDOWN</Box>
-        <ProviderBars data={stats?.byProvider ?? {}} />
-      </Box>
-
-      {/* User roster */}
-      <UserRosterTable users={users} />
-
-      {/* Footer line */}
-      <Box
-        sx={{
-          mt: 3,
-          pt: 2,
-          borderTop: `1px dashed ${OPS.border}`,
-          ...SX.dimMono,
-          display: 'flex',
-          justifyContent: 'space-between',
-          flexWrap: 'wrap',
-          gap: 1,
-        }}
-      >
-        <span>read-only · live · {new Date().toISOString().slice(0, 19)}Z</span>
-        <span>brendanpotter00@gmail.com — sole operator</span>
-      </Box>
-    </Box>
+      ) : usersSlotLoading ? (
+        // Roster query still pending while stats has resolved (or
+        // errored) — show the roster-slot spinner.
+        <LoadingState minHeight={240} caption="Loading user roster…" />
+      ) : (
+        <UserRosterTable users={users} />
+      )}
+    </Container>
   );
 }

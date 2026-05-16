@@ -115,4 +115,22 @@ describe('/api/jobs-qa serverless function', () => {
     expect(mockRes.status).toHaveBeenCalledWith(403);
     expect(mockRes.json).toHaveBeenCalledWith({ detail: 'Admin access required' });
   });
+
+  it('forwards request body for non-PUT/POST methods (PATCH with body)', async () => {
+    // Audit pass-3: parity with ``api/admin.ts`` — the body-forwarding
+    // gate is lifted from ``PUT/POST`` to ``req.body != null`` so a
+    // future PATCH or DELETE endpoint with a body doesn't silently
+    // drop the body upstream.
+    mockReq.method = 'PATCH';
+    mockReq.query = { path: 'some-endpoint' };
+    mockReq.headers = { authorization: 'Bearer admin-token' };
+    mockReq.body = { mode: 'detail' };
+    fetchMock.mockResolvedValue(mockJsonResponse(200, {}));
+
+    await handler(mockReq as VercelRequest, mockRes as VercelResponse);
+
+    const [, fetchOptions] = fetchMock.mock.calls[0];
+    expect(fetchOptions.method).toBe('PATCH');
+    expect(fetchOptions.body).toBe(JSON.stringify({ mode: 'detail' }));
+  });
 });

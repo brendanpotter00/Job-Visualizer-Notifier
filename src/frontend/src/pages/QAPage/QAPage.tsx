@@ -27,7 +27,7 @@ import { LoadingState } from '../../components/shared/LoadingIndicator';
 import { ErrorState } from '../../components/shared/ErrorDisplay';
 import { useFetchWithStatus } from '../../hooks/useFetchWithStatus';
 import { extractErrorMessage } from '../../lib/errors';
-import { useAuth } from '../../features/auth/useAuth';
+import { useAuth, NotAuthenticatedError } from '../../features/auth/useAuth';
 import type { SearchTag } from '../../types/index.ts';
 import type { BackendJobListing } from '../../api/types.ts';
 import { COMPANIES } from '../../config/companies';
@@ -58,6 +58,11 @@ interface ScraperResult {
   error: string;
   company: string;
   completedAt: string;
+  // ``true`` when the result was produced by a NotAuthenticatedError
+  // short-circuit (session expired) rather than a real scrape failure.
+  // Drives a separate Alert severity / label so the admin can tell
+  // "your session timed out" from "the scraper crashed."
+  isAuthError?: boolean;
 }
 
 /**
@@ -133,7 +138,20 @@ export function QAPage() {
   const fetchScrapeRunsRequest = useCallback(
     async (signal: AbortSignal): Promise<ScrapeRun[]> => {
       const companyParam = selectedCompany !== 'all' ? `&company=${selectedCompany}` : '';
-      const token = await getToken();
+      // ``getToken()`` throws ``NotAuthenticatedError`` on signed-out renders
+      // (the normal anonymous path). AdminRoute is what guarantees we never
+      // reach this page anonymously in production, but the brief
+      // signed-out frame on logout / first render would otherwise flash a
+      // "Not authenticated" page error before the redirect lands.
+      // Short-circuit on the marker class and return [] — every other
+      // error (token-refresh failure, network) must still propagate.
+      let token: string;
+      try {
+        token = await getToken();
+      } catch (err) {
+        if (err instanceof NotAuthenticatedError) return [];
+        throw err;
+      }
       const response = await fetch(
         `/api/jobs-qa/scrape-runs?limit=100${companyParam}`,
         {
@@ -168,7 +186,34 @@ export function QAPage() {
     try {
       setScrapingInProgress(true);
       setScrapeResult(null);
-      const token = await getToken();
+      let token: string;
+      try {
+        token = await getToken();
+      } catch (err) {
+        if (err instanceof NotAuthenticatedError) {
+          // Anonymous click should never happen (AdminRoute guards this
+          // page). When it DOES happen (mid-session expiry, signed-out
+          // race), the user clicks "Trigger Scrape" and previously saw
+          // nothing — silent failure. Surface an actionable warning via
+          // the scrapeResult Alert so the admin knows to re-auth instead
+          // of staring at an unresponsive button.
+          //
+          // ``isAuthError`` distinguishes this from a real scraper crash
+          // at the Alert render — the scraper isn't broken, the session
+          // is. Use ``severity="warning"`` + "Session expired:" prefix
+          // instead of the red "Scrape failed:" treatment.
+          setScrapeResult({
+            exitCode: -1,
+            output: '',
+            error: 'Your session expired — please sign back in.',
+            company: selectedCompany,
+            completedAt: new Date().toISOString(),
+            isAuthError: true,
+          });
+          return;
+        }
+        throw err;
+      }
       const response = await fetch(`/api/jobs-qa/trigger-scrape?company=${selectedCompany}`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
@@ -369,12 +414,20 @@ export function QAPage() {
             </Button>
             {scrapeResult && (
               <Alert
-                severity={scrapeResult.exitCode === 0 ? 'success' : 'error'}
+                severity={
+                  scrapeResult.exitCode === 0
+                    ? 'success'
+                    : scrapeResult.isAuthError
+                      ? 'warning'
+                      : 'error'
+                }
                 sx={{ flexGrow: 1 }}
               >
                 {scrapeResult.exitCode === 0
                   ? scrapeResult.output || `Scrape started for ${scrapeResult.company}`
-                  : `Scrape failed: ${scrapeResult.error}`}
+                  : scrapeResult.isAuthError
+                    ? `Session expired: ${scrapeResult.error}`
+                    : `Scrape failed: ${scrapeResult.error}`}
               </Alert>
             )}
           </Box>

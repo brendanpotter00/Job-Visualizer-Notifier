@@ -6,6 +6,13 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from pydantic.alias_generators import to_camel
 
+# Closed set of signup provider tokens derived from
+# ``_signup_provider_from_auth0_id`` in ``services.admin_service``. Keeping
+# this as a module-level alias means a new provider added to that mapping
+# is a TS *and* Python compile error at every consumer — no silent fallback
+# to a raw string key in the admin dashboard.
+SignupProvider = Literal["google", "email", "other"]
+
 # Shared validation pattern for company name query parameters.
 # Backend-scraped companies only (google, apple, microsoft) — no dots needed.
 COMPANY_PATTERN = r"^[a-zA-Z0-9_-]+$"
@@ -99,7 +106,10 @@ class UserResponse(BaseModel):
     picture_url: str | None = None
     created_at: str
     updated_at: str
-    is_admin: bool = False
+    # Required (no default) — a future endpoint that forgets to compute the
+    # admin flag will fail Pydantic validation rather than silently demoting
+    # the user to non-admin in the response.
+    is_admin: bool
 
 
 class UserUpdateRequest(BaseModel):
@@ -153,7 +163,7 @@ class AdminUserRow(BaseModel):
     id: str
     email: str
     display_name: str | None = None
-    signup_provider: Literal["google", "email", "other"]
+    signup_provider: SignupProvider
     created_at: str
     is_admin: bool
 
@@ -170,4 +180,8 @@ class AdminUsersStatsResponse(BaseModel):
     total_users: int = Field(ge=0)
     first_signup_at: str | None = None
     latest_signup_at: str | None = None
-    by_provider: dict[str, int]
+    # Aggregate may omit zero-count providers, so this dict is partial.
+    # Typed as ``SignupProvider`` (not ``str``) so adding a new provider
+    # to ``_signup_provider_from_auth0_id`` is a compile-time error here
+    # rather than rendering raw keys to admins.
+    by_provider: dict[SignupProvider, int]

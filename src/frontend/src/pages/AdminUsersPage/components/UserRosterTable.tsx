@@ -1,5 +1,13 @@
 import { useMemo, useState } from 'react';
+import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
+import Chip from '@mui/material/Chip';
+import CircularProgress from '@mui/material/CircularProgress';
+import IconButton from '@mui/material/IconButton';
+import InputAdornment from '@mui/material/InputAdornment';
+import Menu from '@mui/material/Menu';
+import MenuItem from '@mui/material/MenuItem';
+import Paper from '@mui/material/Paper';
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
 import TableCell from '@mui/material/TableCell';
@@ -7,48 +15,49 @@ import TableContainer from '@mui/material/TableContainer';
 import TableHead from '@mui/material/TableHead';
 import TablePagination from '@mui/material/TablePagination';
 import TableRow from '@mui/material/TableRow';
+import TableSortLabel from '@mui/material/TableSortLabel';
 import TextField from '@mui/material/TextField';
-import InputAdornment from '@mui/material/InputAdornment';
+import Typography from '@mui/material/Typography';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
 import SearchIcon from '@mui/icons-material/Search';
-import type { AdminUserRow } from '../../../features/admin/adminApi';
-import { OPS, SX } from '../adminUsersTheme';
+import {
+  PROVIDER_LABEL,
+  useGrantAdminMutation,
+  useRevokeAdminMutation,
+  type AdminUserRow,
+} from '../../../features/admin/adminApi';
+import { useCurrentUser } from '../../../features/auth/useCurrentUser';
+import { extractErrorMessage } from '../../../lib/errors';
 
 interface UserRosterTableProps {
   users: AdminUserRow[];
 }
 
+type SortDir = 'asc' | 'desc';
+
 function formatJoined(iso: string): string {
-  // Stored as ISO-8601 Text. Render as YYYY-MM-DD (chronologically sortable
-  // and reads naturally in a monospace column).
   if (!iso) return '—';
   const idx = iso.indexOf('T');
   return idx > 0 ? iso.slice(0, idx) : iso;
 }
 
-const PROVIDER_BADGE: Record<string, { label: string; color: string }> = {
-  google: { label: 'GOOGLE', color: '#60a5fa' },
-  email: { label: 'EMAIL', color: '#fbbf24' },
-  other: { label: 'OTHER', color: '#94a3b8' },
-};
-
-const COL_STYLE = {
-  fontFamily: OPS.mono,
-  fontSize: 13,
-  color: OPS.textPrimary,
-  borderBottom: `1px solid ${OPS.border}`,
-  py: 1.25,
-};
-
-const HEAD_STYLE = {
-  ...SX.caption,
-  borderBottom: `1px solid ${OPS.borderStrong}`,
-  py: 1.25,
-};
-
 export function UserRosterTable({ users }: UserRosterTableProps) {
   const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(50);
+  const [rowsPerPage, setRowsPerPage] = useState(25);
   const [search, setSearch] = useState('');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
+  const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
+  const [menuRow, setMenuRow] = useState<AdminUserRow | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const { user: currentUser } = useCurrentUser();
+  const [grantAdmin, grantState] = useGrantAdminMutation();
+  const [revokeAdmin, revokeState] = useRevokeAdminMutation();
+
+  const busyUserId =
+    (grantState.isLoading && (grantState.originalArgs?.userId ?? null)) ||
+    (revokeState.isLoading && (revokeState.originalArgs?.userId ?? null)) ||
+    null;
 
   const filtered = useMemo(() => {
     if (!search.trim()) return users;
@@ -60,134 +69,173 @@ export function UserRosterTable({ users }: UserRosterTableProps) {
     );
   }, [users, search]);
 
+  const sorted = useMemo(() => {
+    const copy = [...filtered];
+    copy.sort((a, b) => {
+      const cmp = a.createdAt.localeCompare(b.createdAt);
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+    return copy;
+  }, [filtered, sortDir]);
+
   const sliced = useMemo(() => {
     const start = page * rowsPerPage;
-    return filtered.slice(start, start + rowsPerPage);
-  }, [filtered, page, rowsPerPage]);
+    return sorted.slice(start, start + rowsPerPage);
+  }, [sorted, page, rowsPerPage]);
+
+  const handleMenuOpen = (event: React.MouseEvent<HTMLElement>, row: AdminUserRow) => {
+    setMenuAnchor(event.currentTarget);
+    setMenuRow(row);
+  };
+
+  const handleMenuClose = () => {
+    setMenuAnchor(null);
+    setMenuRow(null);
+  };
+
+  const handleGrant = async () => {
+    if (!menuRow) return;
+    const target = menuRow;
+    handleMenuClose();
+    setActionError(null);
+    try {
+      await grantAdmin({ userId: target.id }).unwrap();
+    } catch (err) {
+      setActionError(
+        extractErrorMessage(err, `Failed to grant admin to ${target.email}`)
+      );
+    }
+  };
+
+  const handleRevoke = async () => {
+    if (!menuRow) return;
+    const target = menuRow;
+    handleMenuClose();
+    setActionError(null);
+    try {
+      await revokeAdmin({ userId: target.id }).unwrap();
+    } catch (err) {
+      setActionError(
+        extractErrorMessage(err, `Failed to revoke admin from ${target.email}`)
+      );
+    }
+  };
+
+  const isSelf = (row: AdminUserRow) => currentUser?.id === row.id;
 
   return (
-    <Box sx={SX.surface}>
+    <Paper variant="outlined">
       <Box
         sx={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
           gap: 2,
-          px: 2.5,
-          py: 2,
-          borderBottom: `1px solid ${OPS.border}`,
+          p: 2,
         }}
       >
-        <Box sx={SX.caption}>USER ROSTER · {filtered.length} ROWS</Box>
+        <Box>
+          <Typography variant="h6" component="h2">
+            User roster
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            {filtered.length.toLocaleString()}{' '}
+            {filtered.length === 1 ? 'user' : 'users'}
+          </Typography>
+        </Box>
         <TextField
           value={search}
           onChange={(e) => {
             setSearch(e.target.value);
             setPage(0);
           }}
-          placeholder="filter email or name"
+          placeholder="Search email or name"
           size="small"
           variant="outlined"
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <SearchIcon sx={{ color: OPS.textDim, fontSize: 18 }} />
-              </InputAdornment>
-            ),
-          }}
-          sx={{
-            width: { xs: 180, sm: 260 },
-            '& .MuiOutlinedInput-root': {
-              fontFamily: OPS.mono,
-              fontSize: 13,
-              color: OPS.textPrimary,
-              bgcolor: OPS.surfaceAlt,
-              borderRadius: 0,
-              '& fieldset': { borderColor: OPS.border },
-              '&:hover fieldset': { borderColor: OPS.borderStrong },
-              '&.Mui-focused fieldset': { borderColor: OPS.accent },
-            },
-            '& .MuiInputBase-input::placeholder': {
-              color: OPS.textDim,
-              opacity: 1,
+          slotProps={{
+            input: {
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon fontSize="small" color="action" />
+                </InputAdornment>
+              ),
             },
           }}
+          sx={{ width: { xs: 200, sm: 280 } }}
         />
       </Box>
+
+      {actionError && (
+        <Alert
+          severity="error"
+          onClose={() => setActionError(null)}
+          sx={{ mx: 2, mb: 2 }}
+        >
+          {actionError}
+        </Alert>
+      )}
 
       <TableContainer>
         <Table size="small">
           <TableHead>
             <TableRow>
-              <TableCell sx={HEAD_STYLE}>EMAIL</TableCell>
-              <TableCell sx={HEAD_STYLE}>NAME</TableCell>
-              <TableCell sx={HEAD_STYLE} align="right">
-                JOINED
+              <TableCell>Email</TableCell>
+              <TableCell>Name</TableCell>
+              <TableCell align="right" sortDirection={sortDir}>
+                <TableSortLabel
+                  active
+                  direction={sortDir}
+                  onClick={() => setSortDir(sortDir === 'asc' ? 'desc' : 'asc')}
+                >
+                  Joined
+                </TableSortLabel>
               </TableCell>
-              <TableCell sx={HEAD_STYLE}>PROVIDER</TableCell>
-              <TableCell sx={HEAD_STYLE} align="center">
-                ADMIN
+              <TableCell>Provider</TableCell>
+              <TableCell align="center">Admin</TableCell>
+              <TableCell align="right" sx={{ width: 56 }}>
+                {/* Actions */}
               </TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {sliced.map((u, i) => {
-              const badge = PROVIDER_BADGE[u.signupProvider] ?? PROVIDER_BADGE.other;
+            {sliced.map((u) => {
+              const isBusy = busyUserId === u.id;
               return (
-                <TableRow
-                  key={u.id}
-                  sx={{
-                    bgcolor: i % 2 === 0 ? 'transparent' : OPS.surfaceAlt,
-                    '&:hover': { bgcolor: '#16203a' },
-                  }}
-                >
-                  <TableCell sx={COL_STYLE}>{u.email}</TableCell>
-                  <TableCell sx={{ ...COL_STYLE, color: OPS.textMuted }}>
+                <TableRow key={u.id} hover>
+                  <TableCell>{u.email}</TableCell>
+                  <TableCell sx={{ color: 'text.secondary' }}>
                     {u.displayName ?? '—'}
                   </TableCell>
-                  <TableCell sx={{ ...COL_STYLE, color: OPS.textMuted }} align="right">
+                  <TableCell align="right" sx={{ color: 'text.secondary' }}>
                     {formatJoined(u.createdAt)}
                   </TableCell>
-                  <TableCell sx={COL_STYLE}>
-                    <Box
-                      component="span"
-                      sx={{
-                        display: 'inline-block',
-                        px: 1,
-                        py: 0.25,
-                        fontSize: 10.5,
-                        letterSpacing: '0.12em',
-                        fontWeight: 700,
-                        color: badge.color,
-                        border: `1px solid ${badge.color}55`,
-                        bgcolor: `${badge.color}11`,
-                      }}
-                    >
-                      {badge.label}
-                    </Box>
+                  <TableCell>
+                    <Chip
+                      label={PROVIDER_LABEL[u.signupProvider]}
+                      size="small"
+                      variant="outlined"
+                    />
                   </TableCell>
-                  <TableCell sx={COL_STYLE} align="center">
+                  <TableCell align="center">
                     {u.isAdmin ? (
-                      <Box
-                        component="span"
-                        sx={{
-                          display: 'inline-block',
-                          px: 1,
-                          py: 0.25,
-                          fontSize: 10.5,
-                          letterSpacing: '0.16em',
-                          fontWeight: 700,
-                          color: OPS.adminBadge,
-                          border: `1px solid ${OPS.adminBadge}55`,
-                          bgcolor: `${OPS.adminBadge}11`,
-                        }}
-                      >
-                        ADMIN
-                      </Box>
+                      <Chip label="Admin" size="small" color="primary" />
                     ) : (
-                      <Box component="span" sx={{ color: OPS.textDim }}>
-                        ·
-                      </Box>
+                      <Typography component="span" color="text.disabled">
+                        —
+                      </Typography>
+                    )}
+                  </TableCell>
+                  <TableCell align="right">
+                    {isBusy ? (
+                      <CircularProgress size={18} />
+                    ) : (
+                      <IconButton
+                        aria-label={`Actions for ${u.email}`}
+                        size="small"
+                        onClick={(e) => handleMenuOpen(e, u)}
+                      >
+                        <MoreVertIcon fontSize="small" />
+                      </IconButton>
                     )}
                   </TableCell>
                 </TableRow>
@@ -195,7 +243,10 @@ export function UserRosterTable({ users }: UserRosterTableProps) {
             })}
             {sliced.length === 0 && (
               <TableRow>
-                <TableCell colSpan={5} sx={{ ...COL_STYLE, color: OPS.textMuted, py: 4, textAlign: 'center' }}>
+                <TableCell
+                  colSpan={6}
+                  sx={{ py: 4, textAlign: 'center', color: 'text.secondary' }}
+                >
                   No matching users.
                 </TableCell>
               </TableRow>
@@ -203,6 +254,36 @@ export function UserRosterTable({ users }: UserRosterTableProps) {
           </TableBody>
         </Table>
       </TableContainer>
+
+      <Menu
+        anchorEl={menuAnchor}
+        open={Boolean(menuAnchor)}
+        onClose={handleMenuClose}
+      >
+        <MenuItem
+          onClick={handleGrant}
+          disabled={!menuRow || menuRow.isAdmin}
+        >
+          Make admin
+        </MenuItem>
+        <MenuItem
+          onClick={handleRevoke}
+          disabled={
+            !menuRow || !menuRow.isAdmin || (menuRow ? isSelf(menuRow) : false)
+          }
+        >
+          Revoke admin
+          {menuRow && isSelf(menuRow) && (
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ ml: 1 }}
+            >
+              (you)
+            </Typography>
+          )}
+        </MenuItem>
+      </Menu>
 
       <TablePagination
         component="div"
@@ -215,22 +296,7 @@ export function UserRosterTable({ users }: UserRosterTableProps) {
           setPage(0);
         }}
         rowsPerPageOptions={[25, 50, 100]}
-        sx={{
-          color: OPS.textMuted,
-          borderTop: `1px solid ${OPS.border}`,
-          fontFamily: OPS.mono,
-          '& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows': {
-            fontFamily: OPS.mono,
-            fontSize: 12,
-            color: OPS.textMuted,
-          },
-          '& .MuiTablePagination-select': {
-            fontFamily: OPS.mono,
-            color: OPS.textPrimary,
-          },
-          '& .MuiSvgIcon-root': { color: OPS.textMuted },
-        }}
       />
-    </Box>
+    </Paper>
   );
 }

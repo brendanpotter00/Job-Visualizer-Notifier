@@ -1,6 +1,6 @@
 """Integration tests for users router."""
 
-from .conftest import _make_user, _insert_user
+from .conftest import _insert_admin, _make_user, _insert_user
 
 
 class TestGetMe:
@@ -46,6 +46,61 @@ class TestGetMe:
                       "family_name", "picture_url", "created_at", "updated_at"}
         assert not snake_keys.intersection(resp.json().keys())
 
+    def test_is_admin_true_when_user_has_admin_grant(self, client, db_conn):
+        """The frontend admin UI gate (AdminRoute / NavigationDrawer) is
+        driven entirely by the ``isAdmin`` field on this response. If a
+        future refactor hard-codes it to ``False`` (the prior model default)
+        every admin in production silently loses access — guard with a
+        positive-case assertion on the actual value."""
+        # The test caller is auth0|test_user_123 / test@example.com.
+        # GET /api/users will auto-create the row; we then grant admin and
+        # call again to verify the flag flips.
+        first = client.get("/api/users")
+        assert first.status_code == 200
+        assert first.json()["isAdmin"] is False
+
+        # Insert the admin grant for the just-created caller row.
+        caller_id = first.json()["id"]
+        _insert_admin(db_conn, caller_id)
+
+        second = client.get("/api/users")
+        assert second.status_code == 200
+        assert second.json()["isAdmin"] is True
+
+    def test_is_admin_false_when_no_admin_grant(self, client):
+        """Mirror of the previous test — the default-no-grant path must
+        return ``isAdmin: false``, not omit the field or default-fail."""
+        resp = client.get("/api/users")
+        assert resp.status_code == 200
+        assert resp.json()["isAdmin"] is False
+
+    def test_get_me_surfaces_is_admin_by_email_failure_as_500(
+        self, test_app, monkeypatch
+    ):
+        """If ``is_admin_by_email`` raises (driver bug, connection drop),
+        the router must surface that as 500 — NOT silently demote the user
+        to ``isAdmin: false``. Audit log "Important" finding: the call was
+        previously inside the broad ``except psycopg2.Error`` block, so any
+        admin-lookup failure would propagate as a generic error masquerading
+        as a non-admin user.
+        """
+        from fastapi.testclient import TestClient
+        import api.routers.users as users_router
+
+        def _boom(_conn, _email):
+            # Simulate "intentional raise" path described in
+            # ``services.admin_service.is_admin_by_email``: rather than
+            # silently denying admin, the function surfaces the underlying
+            # driver/state error.
+            raise RuntimeError("simulated admin-lookup failure")
+
+        monkeypatch.setattr(users_router, "is_admin_by_email", _boom)
+        client = TestClient(test_app, raise_server_exceptions=False)
+        resp = client.get("/api/users")
+        # 500 (Internal Server Error) — distinguishable from the silent
+        # ``isAdmin: false`` regression we're guarding against.
+        assert resp.status_code == 500
+
 
 class TestPutMe:
     def test_updates_display_name(self, client):
@@ -56,6 +111,57 @@ class TestPutMe:
         resp = client.put("/api/users", json={"displayName": "New Name"})
         assert resp.status_code == 200
         assert resp.json()["displayName"] == "New Name"
+
+    def test_put_me_surfaces_is_admin_by_email_failure_as_500(
+        self, test_app, db_conn, monkeypatch
+    ):
+        """Sibling of ``test_get_me_surfaces_is_admin_by_email_failure_as_500``
+        — the PUT path also calls ``is_admin_by_email`` AFTER update_user, and
+        the call was moved OUTSIDE the ``psycopg2.Error`` catch so a driver
+        failure surfaces as 500 instead of silently demoting the user to
+        ``isAdmin: false`` in the response.
+
+        Without this test, a regression that re-wraps the call inside the
+        ``except psycopg2.Error`` block would re-introduce the swallowed
+        admin lookup on the PUT path only and slip through CI.
+        """
+        import psycopg2
+        from fastapi.testclient import TestClient
+        import api.routers.users as users_router
+
+        # PUT keys by email; ensure a row exists so update_user returns a row
+        # and we actually reach the is_admin_by_email call site.
+        user = _make_user(
+            {"auth0_id": "auth0|test_user_123", "email": "test@example.com"}
+        )
+        _insert_user(db_conn, user)
+
+        def _boom(_conn, _email):
+            # Use psycopg2.Error specifically — this is the exact class that
+            # the catch block above ``is_admin_by_email`` would have caught
+            # if the call were still inside it. If the catch is reintroduced
+            # the test would silently demote (return 200 with isAdmin=false)
+            # rather than 500.
+            raise psycopg2.Error("simulated admin-lookup failure")
+
+        monkeypatch.setattr(users_router, "is_admin_by_email", _boom)
+        client = TestClient(test_app, raise_server_exceptions=False)
+        resp = client.put("/api/users", json={"displayName": "X"})
+
+        # 500 from the unhandled psycopg2.Error — not 200 with a demoted
+        # admin flag.
+        assert resp.status_code == 500
+        # Belt-and-braces: assert we did NOT silently fall through with
+        # ``isAdmin: false``. A 200 response with that body is the exact
+        # regression we're guarding against.
+        try:
+            body = resp.json()
+        except Exception:
+            body = None
+        assert body != {"isAdmin": False}, (
+            "is_admin_by_email failure must surface as 500, not silently "
+            "demote the user to isAdmin: false."
+        )
 
     def test_rejects_long_display_name(self, client):
         """PUT /api/users should reject display_name over 100 chars."""

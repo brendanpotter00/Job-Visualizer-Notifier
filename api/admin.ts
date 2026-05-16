@@ -32,7 +32,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     headers,
   };
 
-  if ((req.method === 'PUT' || req.method === 'POST') && req.body != null) {
+  // Forward the request body for ANY method that has one. GET typically
+  // has no body so this is a no-op there; the previous PUT/POST-only
+  // restriction would have silently dropped a PATCH or DELETE body once
+  // a future admin endpoint started carrying one.
+  if (req.body != null) {
     fetchOptions.body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
   }
 
