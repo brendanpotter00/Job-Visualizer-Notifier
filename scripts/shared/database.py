@@ -157,6 +157,28 @@ def get_active_job_ids(conn: Connection, company: str) -> Set[str]:
     return {row['id'] for row in rows}
 
 
+def count_active_jobs(conn: Connection, company: str) -> int:
+    """
+    Count active (OPEN) jobs for a company.
+
+    Args:
+        conn: Database connection
+        company: Company name (e.g., "stripe")
+
+    Returns:
+        Number of jobs currently marked as OPEN for the given company.
+    """
+    cursor = conn.cursor()
+
+    cursor.execute(
+        f"SELECT COUNT(*) AS n FROM {_JOBS_TABLE} WHERE company = %s AND status = 'OPEN'",
+        (company,)
+    )
+
+    row = cursor.fetchone()
+    return int(row['n']) if row else 0
+
+
 def get_job_by_id(conn: Connection, job_id: str) -> Optional[Dict[str, Any]]:
     """
     Retrieve a job by ID
