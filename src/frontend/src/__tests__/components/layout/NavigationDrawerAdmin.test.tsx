@@ -53,7 +53,7 @@ describe('NavigationDrawer admin section', () => {
     );
     expect(screen.queryByText('ADMIN')).not.toBeInTheDocument();
     expect(screen.queryByText('Users')).not.toBeInTheDocument();
-    expect(screen.queryByText('Scraper')).not.toBeInTheDocument();
+    expect(screen.queryByText('Scraper Runs')).not.toBeInTheDocument();
   });
 
   it('hides the Admin section for non-admin users', () => {
@@ -65,10 +65,10 @@ describe('NavigationDrawer admin section', () => {
     );
     expect(screen.queryByText('ADMIN')).not.toBeInTheDocument();
     expect(screen.queryByText('Users')).not.toBeInTheDocument();
-    expect(screen.queryByText('Scraper')).not.toBeInTheDocument();
+    expect(screen.queryByText('Scraper Runs')).not.toBeInTheDocument();
   });
 
-  it('shows the Admin section with Users and Scraper items for admins', () => {
+  it('shows the Admin section with Users and Scraper Runs items for admins', () => {
     mockUser = { isAdmin: true };
     render(
       <MemoryRouter>
@@ -77,7 +77,7 @@ describe('NavigationDrawer admin section', () => {
     );
     expect(screen.getByText('ADMIN')).toBeInTheDocument();
     expect(screen.getByText('Users')).toBeInTheDocument();
-    expect(screen.getByText('Scraper')).toBeInTheDocument();
+    expect(screen.getByText('Scraper Runs')).toBeInTheDocument();
   });
 
   it('renders admin items flat (icons only) when the drawer is collapsed', () => {
@@ -87,8 +87,8 @@ describe('NavigationDrawer admin section', () => {
         <NavigationDrawer {...mockProps} open={false} />
       </MemoryRouter>
     );
-    // Icons are still rendered; ADMIN caption is hidden because the
-    // accordion header is omitted at collapsed widths.
+    // Icons are still rendered; the ADMIN caption is hidden because text
+    // labels are hidden at collapsed widths.
     expect(screen.getByTestId('PeopleIcon')).toBeInTheDocument();
     expect(screen.getByTestId('BugReportIcon')).toBeInTheDocument();
     expect(screen.queryByText('ADMIN')).not.toBeInTheDocument();
@@ -110,20 +110,14 @@ describe('NavigationDrawer admin section', () => {
       </MemoryRouter>
     );
 
-    expect(
-      screen.getByTestId('admin-status-unavailable')
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(/admin status unavailable/i)
-    ).toBeInTheDocument();
+    expect(screen.getByTestId('admin-status-unavailable')).toBeInTheDocument();
+    expect(screen.getByText(/admin status unavailable/i)).toBeInTheDocument();
 
     // Clicking the indicator must call reload() so the admin can retry
     // without a full page refresh. The button is nested inside the
     // ListItem testid wrapper; aria-label exposes the affordance.
     const user = userEvent.setup();
-    await user.click(
-      screen.getByRole('button', { name: /admin status unavailable.*retry/i })
-    );
+    await user.click(screen.getByRole('button', { name: /admin status unavailable.*retry/i }));
     expect(mockReload).toHaveBeenCalled();
   });
 
@@ -138,13 +132,11 @@ describe('NavigationDrawer admin section', () => {
         <NavigationDrawer {...mockProps} />
       </MemoryRouter>
     );
-    expect(
-      screen.queryByTestId('admin-status-unavailable')
-    ).not.toBeInTheDocument();
+    expect(screen.queryByTestId('admin-status-unavailable')).not.toBeInTheDocument();
   });
 
   it('keeps the Account item anchored to the bottom via a flex spacer', () => {
-    // Regression guard for the "admin accordion takes up the entire sidebar"
+    // Regression guard for the "admin section takes up the entire sidebar"
     // layout bug. The fix replaces `mt: 'auto'` on the Account divider with
     // an explicit `<Box sx={{ flexGrow: 1 }} />` spacer between the Admin
     // group and the Account section. We assert: the drawer content is a

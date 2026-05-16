@@ -45,7 +45,7 @@ export const ADMIN_NAV_ITEMS = [
   },
   {
     path: ROUTES.QA,
-    label: 'Scraper',
+    label: 'Scraper Runs',
     icon: 'BugReport',
   },
 ] as const;
