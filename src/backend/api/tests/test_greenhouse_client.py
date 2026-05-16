@@ -210,18 +210,32 @@ class TestTransformToJobListings:
     def test_posted_on_unparseable_becomes_none(self, caplog):
         # Per feedback_correctness_over_dont_crash: a malformed timestamp
         # must surface as a clean missing value, NOT silently passed through
-        # as a corrupt string. Row is preserved (no crash), with a warning.
+        # as a corrupt string. Row is preserved (no crash). The log lands
+        # at ERROR level so Railway's @level:error filter surfaces the
+        # data-quality issue (Pass 2 fix; was WARNING in Pass 1).
         import logging
 
         raw = dict(ONE_JOB_FIXTURE["jobs"][0])
         raw["first_published"] = "not-a-real-date"
         raw["updated_at"] = "also-bogus"
-        with caplog.at_level(logging.WARNING, logger="api.services.greenhouse_client"):
+        with caplog.at_level(logging.ERROR, logger="api.services.greenhouse_client"):
             result = transform_to_job_listings("stripe", "stripe", [raw])
         assert result[0].posted_on is None
-        assert any(
-            "unparseable posted_on" in rec.getMessage() for rec in caplog.records
-        ), f"expected unparseable warning, got: {[r.getMessage() for r in caplog.records]}"
+        matching = [
+            rec for rec in caplog.records
+            if "unparseable posted_on" in rec.getMessage()
+        ]
+        assert matching, (
+            f"expected unparseable posted_on log, got: "
+            f"{[r.getMessage() for r in caplog.records]}"
+        )
+        assert matching[0].levelname == "ERROR", (
+            f"expected ERROR level for data-quality issue, got "
+            f"{matching[0].levelname}"
+        )
+        assert "data quality issue" in matching[0].getMessage(), (
+            "log message must contain 'data quality issue' for grep-ability"
+        )
 
     def test_details_jsonb_has_field_tolerant_keys(self):
         result = transform_to_job_listings("stripe", "stripe", ONE_JOB_FIXTURE["jobs"])

@@ -181,3 +181,66 @@ class TestEnqueueGreenhouseFanOut:
         locks = {j["queueing_lock"] for j in jobs}
         expected_locks = {f"greenhouse:{cid}" for cid in ids}
         assert locks == expected_locks
+
+    async def test_per_company_psycopg2_error_does_not_abort_loop(
+        self, procrastinate_open, db_conn, monkeypatch
+    ):
+        """A transient psycopg2 error on company N must NOT abort the
+        loop and leave alphabetically-later companies unprocessed for the
+        full 30-min window. Pinned by the narrowed
+        `(procrastinate_exceptions.ConnectorException, psycopg2.Error)`
+        catch in enqueue_greenhouse_fan_out.
+
+        Strategy: monkeypatch fetch_greenhouse_company.configure(...).defer_async
+        so that the third defer_async call raises psycopg2.OperationalError;
+        all others delegate to the real implementation. Assert the loop
+        continued and recorded `failed=1` while still deferring the other
+        4 companies.
+        """
+        import psycopg2 as _psycopg2
+
+        import api.tasks.enqueue_greenhouse_fan_out as fan_out_mod
+
+        ids = [f"co{i}" for i in range(5)]
+        for cid in ids:
+            _seed_company(db_conn, cid)
+
+        real_configure = fan_out_mod.fetch_greenhouse_company.configure
+        call_count = {"n": 0}
+
+        def configure_with_flaky_defer(*args, **kwargs):
+            configured = real_configure(*args, **kwargs)
+            real_defer = configured.defer_async
+
+            async def flaky_defer_async(*a, **kw):
+                call_count["n"] += 1
+                if call_count["n"] == 3:
+                    raise _psycopg2.OperationalError(
+                        "transient connector blip on company 3"
+                    )
+                return await real_defer(*a, **kw)
+
+            configured.defer_async = flaky_defer_async
+            return configured
+
+        monkeypatch.setattr(
+            fan_out_mod.fetch_greenhouse_company,
+            "configure",
+            configure_with_flaky_defer,
+        )
+
+        deferred = await enqueue_greenhouse_fan_out(timestamp=0)
+        db_conn.rollback()
+
+        # 4 of 5 deferred; loop must NOT have aborted on the 3rd company.
+        assert deferred == 4, (
+            f"expected 4 successful deferrals after one psycopg2 error; "
+            f"got {deferred}. If the loop aborted, deferred would be 2."
+        )
+        assert call_count["n"] == 5, (
+            f"expected all 5 defer attempts; got {call_count['n']}. "
+            f"Loop aborted early."
+        )
+
+        jobs = _greenhouse_jobs(db_conn)
+        assert len(jobs) == 4

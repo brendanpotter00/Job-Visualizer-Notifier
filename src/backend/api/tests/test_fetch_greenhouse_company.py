@@ -354,11 +354,14 @@ class TestFetchGreenhouseCompany:
 
         # Drain repeatedly until the procrastinate_jobs row reaches a
         # terminal status. RetryStrategy uses exponential backoff
-        # (base=2s); we poll with bounded attempts to give the retry a
-        # chance to wake up.
-        deadline_attempts = 6
+        # (base=2s, so first retry waits ~2s); we poll with bounded
+        # attempts to give the retry a chance to wake up. Worst-case
+        # ceiling is bounded by deadline_attempts * (drain_timeout +
+        # sleep) — keep these tight; a long polling tail here gets
+        # billed to every CI run.
+        deadline_attempts = 5
         for _ in range(deadline_attempts):
-            await _drain(timeout=10.0)
+            await _drain(timeout=8.0)
             db_conn.rollback()
             cur = db_conn.cursor()
             cur.execute(
@@ -369,7 +372,7 @@ class TestFetchGreenhouseCompany:
             row = cur.fetchone()
             if row and row["status"] == "succeeded":
                 break
-            await asyncio.sleep(2.5)
+            await asyncio.sleep(2.0)
 
         db_conn.rollback()
         cur = db_conn.cursor()
@@ -384,8 +387,13 @@ class TestFetchGreenhouseCompany:
             f"task did not succeed on retry; status={row['status']} "
             f"attempts={row['attempts']} call_count={call_count['n']}"
         )
-        assert row["attempts"] >= 2, (
-            f"task succeeded without retrying (attempts={row['attempts']})"
+        # We control call_count exactly: handler returns 503 once, 200 once.
+        # Procrastinate must bump attempts to exactly 2 — no more, no less.
+        # If attempts != 2 the retry envelope is doing something we didn't
+        # ask for (e.g. extra retry, failed-then-rerun pattern).
+        assert row["attempts"] == 2, (
+            f"task succeeded but attempts={row['attempts']} (expected exactly 2 "
+            f"given the 503-then-200 handler); call_count={call_count['n']}"
         )
 
         new_row = _job_row(db_conn, f"greenhouse_{token}_777")
@@ -462,3 +470,81 @@ async def test_safety_guard_boundaries(
             f"active={active_count} returned={jobs_returned}; "
             f"jobs_seen={runs[0]['jobs_seen']}"
         )
+
+
+@pytest.mark.asyncio
+async def test_record_scrape_run_fallback_runs_on_primary_failure(
+    procrastinate_open, db_conn, monkeypatch
+):
+    """C2: cover the defensive fallback path in
+    fetch_greenhouse_company.py that opens a fresh psycopg2 connection
+    when the primary `record_scrape_run` raises (e.g. the primary
+    transaction was poisoned by a prior failure on the same connection).
+
+    Strategy: monkeypatch `db.record_scrape_run` so the FIRST call
+    (primary connection) raises psycopg2.OperationalError and the
+    SECOND call (fallback connection) succeeds by delegating to the real
+    helper. Also wrap `db.get_connection` in a counting wrapper to prove
+    the fallback actually opened a *fresh* connection.
+    """
+    import psycopg2 as _psycopg2
+
+    import api.tasks.fetch_greenhouse_company as task_mod
+
+    company = "fallbackco"
+    token = "fallbackco"
+    _seed_company(db_conn, company, token)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"jobs": [_make_raw_job(555)]})
+
+    _patch_httpx(monkeypatch, handler)
+
+    # Count get_connection calls so we can prove the fallback actually
+    # opened a second connection.
+    real_get_connection = task_mod.db.get_connection
+    get_conn_calls = {"n": 0}
+
+    def counting_get_connection(database_url):
+        get_conn_calls["n"] += 1
+        return real_get_connection(database_url)
+
+    monkeypatch.setattr(task_mod.db, "get_connection", counting_get_connection)
+
+    # First call to record_scrape_run raises (simulating poisoned primary
+    # txn); second call succeeds via the real helper. State lives in
+    # `record_calls` rather than nonlocal so the closure stays simple.
+    real_record_scrape_run = task_mod.db.record_scrape_run
+    record_calls = {"n": 0}
+
+    def flaky_record_scrape_run(conn, run_record):
+        record_calls["n"] += 1
+        if record_calls["n"] == 1:
+            raise _psycopg2.OperationalError("primary conn poisoned")
+        return real_record_scrape_run(conn, run_record)
+
+    monkeypatch.setattr(task_mod.db, "record_scrape_run", flaky_record_scrape_run)
+
+    await fetch_greenhouse_company.defer_async(
+        company_id=company, board_token=token,
+    )
+    await _drain()
+    db_conn.rollback()
+
+    # Exactly one scrape_runs row, written by the fallback path.
+    runs = _scrape_runs(db_conn, company)
+    assert len(runs) == 1, (
+        f"expected exactly 1 scrape_runs row from fallback; got {len(runs)} "
+        f"(record_calls={record_calls['n']}, get_conn_calls={get_conn_calls['n']})"
+    )
+
+    # record_scrape_run was called twice total (primary fail + fallback ok).
+    assert record_calls["n"] == 2, (
+        f"expected record_scrape_run called twice; got {record_calls['n']}"
+    )
+    # get_connection was called more than once — primary acquisition
+    # plus the fallback's fresh connection.
+    assert get_conn_calls["n"] >= 2, (
+        f"fallback did not open a fresh connection (get_conn_calls="
+        f"{get_conn_calls['n']}); fallback path likely not exercised"
+    )
