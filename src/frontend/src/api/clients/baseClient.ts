@@ -87,19 +87,15 @@ export interface ClientConfig<TResponse, TConfig extends ATSCompanyConfig> {
  *
  * @example
  * ```typescript
- * // Creating a Greenhouse client (~15 lines vs 74 lines before)
- * export const greenhouseClient = createAPIClient<
- *   GreenhouseAPIResponse,
- *   GreenhouseConfig
- * >({
- *   name: 'Greenhouse',
- *   buildUrl: (config) =>
- *     `${config.apiBaseUrl}/v1/boards/${config.boardToken}/jobs?content=true`,
- *   extractJobs: (response) => response.jobs,
- *   transformer: transformGreenhouseJob,
- *   getIdentifier: (config) => config.boardToken,
- *   validateConfig: (config): config is GreenhouseConfig =>
- *     config.type === 'greenhouse',
+ * // Creating a Lever client (~15 lines vs 74 lines before)
+ * export const leverClient = createAPIClient<LeverAPIResponse, LeverConfig>({
+ *   name: 'Lever',
+ *   buildUrl: (config) => `${config.apiBaseUrl}/v0/postings/${config.companyId}`,
+ *   extractJobs: (response) => response,
+ *   transformer: transformLeverJob,
+ *   getIdentifier: (config) => config.companyId,
+ *   validateConfig: (config): config is LeverConfig =>
+ *     config.type === 'lever',
  * });
  * ```
  *

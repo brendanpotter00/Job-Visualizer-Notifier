@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import { getClientForATS } from '../../api/utils';
-import { greenhouseClient } from '../../api/clients/greenhouseClient';
 import { leverClient } from '../../api/clients/leverClient';
 import { ashbyClient } from '../../api/clients/ashbyClient';
 import { gemClient } from '../../api/clients/gemClient';
@@ -8,11 +7,6 @@ import { workdayClient } from '../../api/clients/workdayClient';
 import { eightfoldClient } from '../../api/clients/eightfoldClient';
 
 describe('getClientForATS', () => {
-  it('returns greenhouseClient for greenhouse ATS type', () => {
-    const client = getClientForATS('greenhouse');
-    expect(client).toBe(greenhouseClient);
-  });
-
   it('returns leverClient for lever ATS type', () => {
     const client = getClientForATS('lever');
     expect(client).toBe(leverClient);

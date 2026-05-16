@@ -138,7 +138,7 @@ Eight small, individually mergeable units. Order is load-bearing.
 
 ### Unit 1 — Bootstrap Procrastinate
 
-**Status:** TODO
+**Status:** DONE
 
 **Why first:** Nothing else works without the queue runtime.
 
@@ -168,7 +168,7 @@ Eight small, individually mergeable units. Order is load-bearing.
 
 ### Unit 2 — `companies` table + seed migration
 
-**Status:** TODO
+**Status:** DONE
 
 **Why second:** The fan-out task needs this row source.
 
@@ -190,7 +190,7 @@ Eight small, individually mergeable units. Order is load-bearing.
 
 ### Unit 3 — Greenhouse fetch helper (pure function)
 
-**Status:** TODO
+**Status:** DONE
 
 **Why third:** Isolate the HTTP layer for unit testing without a queue.
 
@@ -211,7 +211,7 @@ Eight small, individually mergeable units. Order is load-bearing.
 
 ### Unit 4 — `fetch_greenhouse_company` task
 
-**Status:** TODO
+**Status:** DONE
 
 **Why fourth:** The actual worker logic. Depends on Units 1, 2, 3.
 
@@ -275,7 +275,7 @@ Eight small, individually mergeable units. Order is load-bearing.
 
 ### Unit 5 — Periodic fan-out task
 
-**Status:** TODO
+**Status:** DONE
 
 **Why fifth:** This is what the cron actually does.
 
@@ -309,7 +309,7 @@ Eight small, individually mergeable units. Order is load-bearing.
 
 ### Unit 6 — Admin trigger endpoints
 
-**Status:** TODO
+**Status:** DONE
 
 **Why sixth:** QA + emergency tooling. Mirrors `POST /api/jobs-qa/trigger-scrape` (which currently only handles Playwright scrapers).
 
@@ -332,7 +332,7 @@ Eight small, individually mergeable units. Order is load-bearing.
 
 ### Unit 7 — Frontend cutover
 
-**Status:** TODO
+**Status:** IN PROGRESS
 
 **Why seventh:** Once data is flowing into the DB, point the UI at it.
 

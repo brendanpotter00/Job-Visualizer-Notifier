@@ -14,12 +14,6 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
       },
-      '/api/greenhouse': {
-        target: 'https://boards-api.greenhouse.io',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/greenhouse/, ''),
-        secure: false,
-      },
       '/api/lever': {
         target: 'https://api.lever.co',
         changeOrigin: true,

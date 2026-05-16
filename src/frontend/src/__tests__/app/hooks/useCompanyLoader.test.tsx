@@ -10,24 +10,32 @@ import { createTestStore } from '../../../test/testUtils';
 import * as urlParams from '../../../lib/url';
 
 // Mock API responses
-const mockGreenhouseJobs = {
-  jobs: [
-    {
-      id: 1,
-      title: 'Software Engineer',
-      absolute_url: 'https://spacex.com/careers/1',
-      location: { name: 'Hawthorne, CA' },
-      departments: [{ id: 1, name: 'Engineering' }],
-      offices: [],
-      updated_at: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
-    },
-  ],
-};
+const mockBackendJobs = [
+  {
+    id: 'greenhouse_spacex_1',
+    title: 'Software Engineer',
+    company: 'spacex',
+    location: 'Hawthorne, CA',
+    url: 'https://spacex.com/careers/1',
+    sourceId: 'greenhouse_api',
+    details: JSON.stringify({ experience_level: null, is_remote_eligible: false }),
+    createdAt: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
+    postedOn: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
+    closedOn: null,
+    status: 'OPEN',
+    hasMatched: false,
+    aiMetadata: '{}',
+    firstSeenAt: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
+    lastSeenAt: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
+    consecutiveMisses: 0,
+    detailsScraped: true,
+  },
+];
 
 // Setup MSW server
 const server = setupServer(
-  http.get('/api/greenhouse/v1/boards/*/jobs', () => {
-    return HttpResponse.json(mockGreenhouseJobs);
+  http.get('/api/jobs', () => {
+    return HttpResponse.json(mockBackendJobs);
   }),
   http.get('/api/ashby/v1/jobBoard/:boardName/jobs', () => {
     return HttpResponse.json({ jobs: [] });
@@ -122,7 +130,7 @@ describe('useCompanyLoader', () => {
   it('should return error state', async () => {
     // Override API to return error
     server.use(
-      http.get('/api/greenhouse/v1/boards/*/jobs', () => {
+      http.get('/api/jobs', () => {
         return HttpResponse.error();
       })
     );
