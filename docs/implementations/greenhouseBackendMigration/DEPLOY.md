@@ -52,8 +52,21 @@ A partial mid-PR rollback is **not possible** — `api/greenhouse.ts` is deleted
    - **No** repeated `connection pool exhausted` warnings (memory notes the pool is sized to 15).
 3. **Once Railway reports healthy, manually trigger the fan-out** to skip the 30-min wait:
    ```bash
-   curl -X POST 'https://<RAILWAY_BACKEND>/api/jobs-qa/trigger-greenhouse-fan-out'
-   # Expect: 202
+   # Both /api/jobs-qa/trigger-greenhouse-fan-out and
+   # /api/jobs-qa/trigger-greenhouse-fetch are admin-gated (require_admin),
+   # consistent with every other endpoint in jobs_qa.py. Pass an Auth0
+   # bearer token for an account that has a row in the `admins` table.
+   #     export ADMIN_TOKEN="$(... your auth flow here ...)"
+   curl -X POST 'https://<RAILWAY_BACKEND>/api/jobs-qa/trigger-greenhouse-fan-out' \
+     -H "Authorization: Bearer ${ADMIN_TOKEN}"
+   # Expect: 202. Without the bearer token: 401. With a non-admin token: 403.
+   ```
+
+   Same admin requirement applies if you want to manually fire a single
+   company instead of the full fan-out:
+   ```bash
+   curl -X POST 'https://<RAILWAY_BACKEND>/api/jobs-qa/trigger-greenhouse-fetch?company_id=stripe' \
+     -H "Authorization: Bearer ${ADMIN_TOKEN}"
    ```
 4. **Watch Vercel deploy.** Should be uneventful — frontend cutover is a config + transformer change. Confirm no `404` on the now-deleted `/api/greenhouse/*` route by checking the new build's preview URL once before promotion.
 

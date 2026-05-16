@@ -76,7 +76,11 @@ async def trigger_scrape(
         try:
             result = await run_scraper(config, company)
             if result.exit_code != 0:
-                logger.warning(
+                # ERROR (not WARNING): Railway routes by Python log level
+                # to stdout/stderr, and a non-zero scraper exit must surface
+                # in @level:error filters so failed scheduled scrapes are
+                # actionable rather than buried in info noise.
+                logger.error(
                     "Triggered scrape for %s finished with exit code %d: %s",
                     company, result.exit_code, result.error,
                 )
@@ -103,6 +107,7 @@ async def trigger_greenhouse_fetch(
         description="Company id (e.g. 'stripe'). Must exist in companies table with ats='greenhouse' and enabled=true.",
     ),
     db: Connection = Depends(get_db),
+    _admin: TokenClaims = Depends(require_admin),
 ):
     """Manually defer a single fetch_greenhouse_company task.
 
@@ -174,7 +179,9 @@ async def trigger_greenhouse_fetch(
 
 
 @router.post("/trigger-greenhouse-fan-out")
-async def trigger_greenhouse_fan_out():
+async def trigger_greenhouse_fan_out(
+    _admin: TokenClaims = Depends(require_admin),
+):
     """Manually defer the enqueue_greenhouse_fan_out task.
 
     The fan-out task does not carry a queueing lock (per-company locks

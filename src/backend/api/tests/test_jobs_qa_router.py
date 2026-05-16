@@ -315,3 +315,58 @@ async def test_trigger_greenhouse_fan_out_returns_202_and_enqueues_task(
     jobs = _fan_out_jobs(db_conn)
     assert len(jobs) == 1
     assert jobs[0]["args"]["timestamp"] == 0
+
+
+# --- admin auth gate on greenhouse trigger endpoints ---
+#
+# The default test_app fixture overrides require_admin so the happy-path
+# tests above can call the endpoints without issuing real tokens. These
+# two tests pop that override so we actually exercise the real
+# require_admin dependency, mirroring the pattern in test_admin_router.py.
+# A future endpoint added here without Depends(require_admin) would go
+# undetected because every other test bypasses the gate via the override.
+
+
+def test_trigger_greenhouse_fetch_without_admin_returns_403(test_app, db_conn):
+    from fastapi.testclient import TestClient
+    from api.auth.dependencies import require_admin
+    from .conftest import _insert_user, _make_user
+
+    _insert_user(
+        db_conn,
+        _make_user({"auth0_id": "auth0|test_user_123", "email": "test@example.com"}),
+    )
+    db_conn.commit()
+
+    saved_override = test_app.dependency_overrides.pop(require_admin, None)
+    try:
+        local_client = TestClient(test_app)
+        resp = local_client.post(
+            "/api/jobs-qa/trigger-greenhouse-fetch",
+            params={"company_id": "stripe"},
+        )
+        assert resp.status_code == 403
+    finally:
+        if saved_override is not None:
+            test_app.dependency_overrides[require_admin] = saved_override
+
+
+def test_trigger_greenhouse_fan_out_without_admin_returns_403(test_app, db_conn):
+    from fastapi.testclient import TestClient
+    from api.auth.dependencies import require_admin
+    from .conftest import _insert_user, _make_user
+
+    _insert_user(
+        db_conn,
+        _make_user({"auth0_id": "auth0|test_user_123", "email": "test@example.com"}),
+    )
+    db_conn.commit()
+
+    saved_override = test_app.dependency_overrides.pop(require_admin, None)
+    try:
+        local_client = TestClient(test_app)
+        resp = local_client.post("/api/jobs-qa/trigger-greenhouse-fan-out")
+        assert resp.status_code == 403
+    finally:
+        if saved_override is not None:
+            test_app.dependency_overrides[require_admin] = saved_override
