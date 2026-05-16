@@ -1,7 +1,7 @@
 import Box from '@mui/material/Box';
 import LinearProgress from '@mui/material/LinearProgress';
 import Typography from '@mui/material/Typography';
-import type { SignupProvider } from '../../../features/admin/adminApi';
+import { PROVIDER_LABEL, type SignupProvider } from '../../../features/admin/adminApi';
 
 interface ProviderBarsProps {
   // Partial because the aggregate omits zero-count providers. Typed as
@@ -9,12 +9,6 @@ interface ProviderBarsProps {
   // compile-time error here instead of silently rendering a raw key.
   data: Partial<Record<SignupProvider, number>>;
 }
-
-const PROVIDER_LABEL: Record<SignupProvider, string> = {
-  google: 'Google',
-  email: 'Email / Auth0',
-  other: 'Other',
-};
 
 export function ProviderBars({ data }: ProviderBarsProps) {
   const entries = (

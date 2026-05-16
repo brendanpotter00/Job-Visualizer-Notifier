@@ -32,8 +32,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     headers,
   };
 
-  // Forward body for PUT/POST requests
-  if ((req.method === 'PUT' || req.method === 'POST') && req.body != null) {
+  // Forward the request body for ANY method that has one. Parity with
+  // ``api/admin.ts`` / ``api/users.ts`` / ``api/jobs-qa.ts`` — the
+  // previous PUT/POST-only restriction would silently drop a PATCH or
+  // DELETE body once a future endpoint started carrying one.
+  if (req.body != null) {
     fetchOptions.body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
   }
 

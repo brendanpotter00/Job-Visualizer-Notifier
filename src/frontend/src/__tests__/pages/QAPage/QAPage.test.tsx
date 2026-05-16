@@ -615,15 +615,25 @@ describe('QAPage', () => {
       const button = await screen.findByRole('button', { name: /trigger scrape.*google/i });
       await user.click(button);
 
-      // An Alert with the session-expired message must appear. The
-      // existing trigger-scrape Alert renders ``Scrape failed: <error>``
-      // on a non-zero exitCode, so match the human-readable portion.
+      // An Alert with the session-expired message must appear. Audit
+      // pass-3 finding: previously the Alert rendered ``severity="error"``
+      // and the prefix ``"Scrape failed: ..."`` — visually identical to
+      // a real scraper crash. The fix routes the auth-error case to
+      // ``severity="warning"`` and the prefix ``"Session expired: ..."``
+      // so the admin can tell "your session timed out" from "the
+      // scraper crashed."
       await waitFor(() => {
         expect(screen.getByRole('alert')).toHaveTextContent(
           /session expired/i
         );
       });
-      expect(screen.getByRole('alert')).toHaveClass('MuiAlert-standardError');
+      // Severity must be ``warning`` (not ``error``) for the auth case.
+      expect(screen.getByRole('alert')).toHaveClass('MuiAlert-standardWarning');
+      // Label must be "Session expired:" not "Scrape failed:".
+      expect(screen.getByRole('alert')).toHaveTextContent(/^Session expired:/);
+      expect(screen.getByRole('alert')).not.toHaveTextContent(
+        /Scrape failed/i
+      );
     });
 
     it('does not surface an error banner when getToken throws NotAuthenticatedError', async () => {

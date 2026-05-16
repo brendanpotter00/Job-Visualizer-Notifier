@@ -32,7 +32,22 @@
 - `getAdminUsersStats` `transformResponse` runtime guard symmetric to `listAdminUsers`.
 - `_row_to_user_response(row: UserRow, ...)` is the typed dict, not an opaque `dict`. Threaded from `user_service.UserRow`.
 - `api/admin.ts` forwards request body for ANY method with `req.body != null` (lifted the PUT/POST-only restriction).
-- Pass 2 commit: <fill in after commit>.
+- Pass 2 commit: `d24b10f`.
+
+**Do not revert (from pass 3):**
+- `AdminUsersPage` per-slot loading semantics: page-level full spinner only when BOTH queries are still loading AND neither has data AND neither has errored. Each slot independently spins / errors / renders data. Do not collapse back into the old "isLoading || statsLoading" gate.
+- `AdminUsersPage` header renders `"— total"` placeholder when `statsError && !stats`. Do NOT re-introduce the `stats?.totalUsers ?? users.length` silent fallback — the roster count is not authoritative as total user count.
+- `extractErrorDetail` in `authService.ts` filters every candidate field by `typeof === 'string'` and reads nested `error.message`. The previous `b.detail || b.message || b.error` ladder coerced objects to `"[object Object]"` via `new Error(value)`.
+- `forwardResponse` short-circuit covers 204 + 205 + 304 + 1xx informational. All four are body-less by RFC 9110.
+- All four serverless proxies (`api/admin.ts`, `api/users.ts`, `api/features.ts`, `api/jobs-qa.ts`) forward `req.body` whenever `req.body != null` regardless of method. Do not re-narrow to `PUT/POST` only.
+- `test_revoke_admin_uses_for_update_lock` strips comments and uses a regex matching the literal SQL pattern `SELECT user_id FROM {admins} FOR UPDATE` (no WHERE between SELECT and FOR UPDATE). A regression that scopes the lock to one row re-opens the concurrent-revoke race.
+- `listAdminUsers.transformResponse` parameter is typed `unknown` (not `AdminUsersListResponse`). The annotation must say "untrusted" because the runtime guard exists for exactly that reason.
+- `getAdminUsersStats` runtime guard validates `byProvider` values are numbers AND `firstSignupAt`/`latestSignupAt` are string|null. Do not relax to "exists" checks.
+- `get_user_by_email` returns `UserRow | None` (not `dict | None`). Required so column renames in `db_models.User` surface at the callers.
+- `QAPage.ScraperResult.isAuthError` drives `severity="warning"` + prefix `"Session expired:"` when the auth-error catch sets it. Do NOT collapse the auth case back into the generic `"Scrape failed:"` red treatment.
+- `PROVIDER_LABEL` is a single named export from `features/admin/adminApi.ts`. Both `ProviderBars.tsx` and `UserRosterTable.tsx` import it. Do not re-introduce local copies — the previous divergence (`'Email / Auth0'` vs `'Email'`) was a maintenance hazard.
+- The UserRosterTable `"Cannot revoke the last admin — promote another user first."` 409 Alert is pinned by an end-to-end test (not just the backend `assert "last admin" in detail.lower()`). The exact string is contract.
+- Pass 3 commit: see `git log` after the commit lands.
 
 ---
 
@@ -208,3 +223,74 @@
 - `VerifiedAdminClaims` narrower (still deferred from pass 1).
 - `AdminUserRow(**r)` opaque dict unpacking, `first_signup_at` ISO-8601 contract, ANALYZE post-deploy.
 - `_resolve_granter_id` defensive 401 → `logger.error` (cosmetic).
+
+---
+
+## 2026-05-15 — Review pass 3
+
+### Code-review findings
+
+Pass 3 found ZERO Critical findings — the prior two passes hardened the load-bearing surfaces. The Important findings below are mostly interactions between earlier fixes (e.g. the partial-failure independence from pass 2 left a loading-gate race; the `extractErrorMessage` `.error` walk added in pass 2 didn't extend to `authService.ts`'s ad-hoc `extractErrorDetail`).
+
+**Important fixes applied this pass:**
+
+1. **`AdminUsersPage` partial-loading transient.** Loading gate had carve-outs for `!usersError && !statsError` — if one query errored while the other was still loading, the spinner skipped and the page rendered with an empty slot and no progress indicator. Refactored to per-slot loading: page-level full spinner only when BOTH queries are still loading AND no errors yet; each slot independently shows its own spinner if loading with no data, its inline ErrorState if errored, or its data otherwise. Test added covering the "stats errored, users still loading" case.
+
+2. **`AdminUsersPage` header `{totalUsers} total` silent fallback removed.** `stats?.totalUsers ?? users.length` rendered the roster count as authoritative when stats failed — admins couldn't tell stats was broken. Fixed: header renders `"— total"` placeholder when stats has errored and there's no stats data. Test added asserting the dashed placeholder appears (and the silent numeric fallback does NOT).
+
+3. **`extractErrorDetail` (authService.ts) hardened against non-string fields.** The inline `b.detail || b.message || b.error` chain returned objects directly, which `new Error(object)` coerced to `"[object Object]"`. Each field is now filtered by `typeof === 'string'`, and the top-level `error` field's nested `.message` is read if `error` is an object. Tests added for `{ error: { code, message } }` (asserts the nested `message` surfaces) and for non-string `detail` (asserts no `[object Object]`).
+
+4. **`forwardResponse.ts` body-less short-circuit extended to 205 + 1xx.** RFC 9110 §15.3.6 (205 Reset Content), §15.2 (1xx Informational) and §15.4.5 (304) all forbid bodies. The previous gate covered 204/304 only. Now: `status === 204 || status === 205 || status === 304 || (status >= 100 && status < 200)`. 205 test added to `users.serverless.test.ts`.
+
+5. **Body-forwarding lifted from `PUT/POST`-only to `req.body != null`** in `api/users.ts`, `api/features.ts`, `api/jobs-qa.ts` — matches `api/admin.ts` lifted in pass 2. PATCH-with-body test added to each.
+
+6. **End-to-end 409 last-admin Alert contract test.** The pass-1 headline contract (`"Cannot revoke the last admin — promote another user first."`) had no test pinning backend response → `extractErrorMessage` → Alert text. Test added in `UserRosterTable.test.tsx` asserting the Alert contains the exact contract string (not a regex match) — so a regression in any layer of the chain fails loudly.
+
+7. **`test_revoke_admin_uses_for_update_lock` strengthened.** The plain `"FOR UPDATE" in source` check would still pass if a regression left `FOR UPDATE` only in a comment. Now strips `#`-comments line-by-line first, then asserts via regex that the literal pattern `SELECT\s+user_id\s+FROM\s+\{admins\}\s+FOR\s+UPDATE` appears in the SQL string — no WHERE between SELECT and FOR UPDATE (which would scope locks to one row and re-open the race).
+
+8. **PUT-path `parseUserResponse` symmetry tests.** Missing-`isAdmin` and wrong-type-`isAdmin` cases were only tested via the GET (`fetchCurrentUser`) path. `updateCurrentUser` calls `parseUserResponse` identically; symmetric tests added to lock the PUT-path contract.
+
+9. **`listAdminUsers` `transformResponse` parameter typed `unknown`.** The annotation said `AdminUsersListResponse` (the validated envelope) but the body treated the input as untrusted. Now: `(res: unknown): AdminUserRow[]` — matches the `getAdminUsersStats` pattern, makes the runtime guard's purpose explicit at the signature.
+
+10. **`getAdminUsersStats` runtime guard extended.** Previously checked `totalUsers` is number and `byProvider` is non-array object, but NOT that `byProvider` values are numbers or that `firstSignupAt`/`latestSignupAt` are string|null. Both checks added. Tests for `byProvider: { google: "5" }` and `firstSignupAt: 0` / `latestSignupAt: 1234567890` added.
+
+11. **`get_user_by_email` return type tightened to `UserRow | None`.** Was `dict | None`; now matches the pass-2 threading of `UserRow` through `get_or_create_user` / `update_user`. Callers (`routers/admin.py`, `routers/users.py`, `routers/features.py`) get column-rename detection at the per-field reads.
+
+12. **`QAPage.handleTriggerScrape` NotAuthenticatedError severity/labeling.** Previously the auth-error case rendered `severity="error"` with prefix `"Scrape failed:"` — visually identical to a real scraper crash. Added `isAuthError?: boolean` to `ScraperResult`; the auth-error branch sets it and the Alert renders `severity="warning"` with prefix `"Session expired:"`. Existing QAPage test updated to assert the warning severity and the new prefix.
+
+13. **`PROVIDER_LABEL` lifted to a single shared constant.** `ProviderBars.tsx` used `'Email / Auth0'` while `UserRosterTable.tsx` used `'Email'` — both typed `Record<SignupProvider, string>` but with divergent values, a maintenance hazard. Moved to a named export `PROVIDER_LABEL` in `features/admin/adminApi.ts` with the more-verbose canonical `'Email / Auth0'`; both components now import it.
+
+### Production-environment findings
+
+Not run this pass (focused on code-review interactions surfaced in pass 3 review). The pass-2 production checks remain authoritative.
+
+### Fixes applied this pass
+
+**Important:**
+- `AdminUsersPage` (`src/frontend/src/pages/AdminUsersPage/AdminUsersPage.tsx`): per-slot loading semantics + header em-dash placeholder when stats errors.
+- `authService.ts` (`src/frontend/src/features/auth/authService.ts`): `extractErrorDetail` now filters every candidate field by `typeof === 'string'` and reads nested `error.message`.
+- `forwardResponse.ts` (`api/utils/forwardResponse.ts`): short-circuit extended to 205 + 1xx + 304 + 204.
+- `api/users.ts`, `api/features.ts`, `api/jobs-qa.ts`: body-forwarding lifted to `req.body != null` (parity with `api/admin.ts`).
+- `test_admin_router.py::test_revoke_admin_uses_for_update_lock`: now strips comments and asserts via regex against the literal SQL string.
+- `adminApi.ts` (`src/frontend/src/features/admin/adminApi.ts`):
+  - `listAdminUsers.transformResponse: (res: unknown): AdminUserRow[]` (was `AdminUsersListResponse`).
+  - `getAdminUsersStats.transformResponse` extended to validate `byProvider` values are numbers and `firstSignupAt`/`latestSignupAt` are string|null.
+  - New named export `PROVIDER_LABEL: Record<SignupProvider, string>` with canonical `'Email / Auth0'`.
+- `user_service.py::get_user_by_email`: return type `UserRow | None` (was `dict | None`).
+- `QAPage.tsx` (`src/frontend/src/pages/QAPage/QAPage.tsx`): `ScraperResult.isAuthError?: boolean` + `severity="warning"` / `"Session expired:"` prefix when set.
+- `ProviderBars.tsx` + `UserRosterTable.tsx`: import shared `PROVIDER_LABEL` from `adminApi.ts`; remove local copies.
+
+**Test gaps closed:**
+- `AdminUsersPage.test.tsx`: stats-errored-users-still-loading case (asserts per-slot spinner); stats-fails-roster-succeeds asserts header renders `"— total"` instead of silent `users.length` fallback.
+- `authService.test.ts`: `extractErrorDetail` with `{ error: { code, message } }` body (asserts nested message surfaces); non-string `detail` falls through (asserts no `[object Object]`). Plus PUT-path `parseUserResponse` symmetric tests for missing-`isAdmin` / wrong-type-`isAdmin`.
+- `users.serverless.test.ts`: 205 Reset Content short-circuit + PATCH-with-body forwarding.
+- `features.serverless.test.ts` + `jobs-qa.serverless.test.ts`: PATCH-with-body forwarding (parity with `admin.serverless.test.ts` from pass 2).
+- `UserRosterTable.test.tsx`: 409 last-admin Alert asserts the exact contract string (cross-layer wiring).
+- `adminApi.test.ts`: `byProvider: { google: "5" }`, `firstSignupAt: 0`, `latestSignupAt: 1234567890` all reject via runtime guard.
+- `QAPage.test.tsx`: `NotAuthenticatedError` Alert asserts `severity="warning"` (not `error`) and prefix `"Session expired:"` (not `"Scrape failed:"`).
+
+**Deferred from pass 3:**
+- All pass-1 / pass-2 deferred items remain deferred.
+- No new deferred items introduced.
+
+**Pass 3 commit:** see `git log` after this commit lands.

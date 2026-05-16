@@ -21,10 +21,10 @@ import Typography from '@mui/material/Typography';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import SearchIcon from '@mui/icons-material/Search';
 import {
+  PROVIDER_LABEL,
   useGrantAdminMutation,
   useRevokeAdminMutation,
   type AdminUserRow,
-  type SignupProvider,
 } from '../../../features/admin/adminApi';
 import { useCurrentUser } from '../../../features/auth/useCurrentUser';
 import { extractErrorMessage } from '../../../lib/errors';
@@ -34,15 +34,6 @@ interface UserRosterTableProps {
 }
 
 type SortDir = 'asc' | 'desc';
-
-// Typed as ``Record<SignupProvider, string>`` (not ``Record<string, string>``)
-// so adding a new provider on the backend forces a compile-time update
-// here rather than rendering a raw key like "github" to admins.
-const PROVIDER_LABEL: Record<SignupProvider, string> = {
-  google: 'Google',
-  email: 'Email',
-  other: 'Other',
-};
 
 function formatJoined(iso: string): string {
   if (!iso) return '—';

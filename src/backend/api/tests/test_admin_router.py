@@ -506,18 +506,57 @@ class TestRevokeAdmin:
         of the last-admin guardrail. The single-connection test suite cannot
         reliably reproduce the concurrent revoke race (a true two-connection
         race would be flaky against TestClient's threading model), so this
-        guard inspects ``inspect.getsource(revoke_admin)`` and fails if
-        ``FOR UPDATE`` is silently removed. Ugly, but it pins the SQL
-        invariant that ``test_revoke_last_admin_returns_409`` only weakly
-        implies through behavior.
+        guard inspects ``inspect.getsource(revoke_admin)`` and asserts the
+        ``FOR UPDATE`` clause appears inside an actual SQL string literal —
+        not just in a comment.
+
+        The original check was a plain ``"FOR UPDATE" in source`` substring
+        test, which would still pass if a regression left the token in a
+        comment while removing it from the SQL. We strip comments first,
+        then require a regex match against the literal SQL pattern
+        ``SELECT user_id FROM {admins} FOR UPDATE`` (no WHERE between
+        SELECT and FOR UPDATE — a WHERE would scope locks to one row and
+        re-open the race).
         """
         import inspect
+        import re
         from api.services.admin_service import revoke_admin
 
         source = inspect.getsource(revoke_admin)
-        assert "FOR UPDATE" in source, (
-            "revoke_admin must hold a SELECT ... FOR UPDATE lock on admins "
-            "to serialize concurrent revokes — see LastAdminError docstring."
+
+        # Strip ``#``-comments line-by-line so a ``# FOR UPDATE`` comment
+        # cannot satisfy the assertion. Python doesn't have block comments
+        # inside function bodies (triple-quoted strings are docstrings only
+        # at the top), so line-level stripping is sufficient.
+        comment_stripped = "\n".join(
+            line.split("#", 1)[0] for line in source.splitlines()
+        )
+
+        # Pin the exact SELECT we expect. Matches the literal SQL string
+        # passed to ``sql.SQL(...)``:
+        #     "SELECT user_id FROM {admins} FOR UPDATE"
+        # If the SQL changes to add a WHERE clause between SELECT and FOR
+        # UPDATE, this regex will not match — and that's the point: a
+        # row-scoped lock re-opens the concurrent-revoke race.
+        pattern = re.compile(
+            r"SELECT\s+user_id\s+FROM\s+\{admins\}\s+FOR\s+UPDATE",
+            re.IGNORECASE,
+        )
+        assert pattern.search(comment_stripped), (
+            "revoke_admin must execute a SELECT user_id FROM {admins} FOR "
+            "UPDATE (no WHERE between SELECT and FOR UPDATE) to serialize "
+            "concurrent revokes — see LastAdminError docstring. The literal "
+            "SQL must appear inside a sql.SQL(...) string, not in a "
+            "comment."
+        )
+
+        # Belt-and-suspenders: the literal token "FOR UPDATE" must also
+        # be reachable inside the function (defense in depth against a
+        # future SQL-builder refactor that constructs the clause from
+        # variables).
+        assert "FOR UPDATE" in comment_stripped, (
+            "FOR UPDATE token must appear in revoke_admin source (outside "
+            "of comments)."
         )
 
     def test_revoke_when_multiple_admins_exist_succeeds(self, client, db_conn):

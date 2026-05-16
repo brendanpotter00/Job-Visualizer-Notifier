@@ -251,4 +251,70 @@ describe('adminApi', () => {
     expect(result.data).toBeUndefined();
     expect(result.error).toBeDefined();
   });
+
+  it('surfaces an error when /api/admin/users/stats byProvider has a non-number value', async () => {
+    // Audit pass-3: the prior guard checked ``byProvider`` was an object
+    // but NOT that its values were numbers. A CDN error page or
+    // serializer regression that returned ``{ google: "5" }`` would
+    // silently render a string as a count downstream. The new guard
+    // iterates the values and rejects if any are non-number.
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        totalUsers: 5,
+        firstSignupAt: null,
+        latestSignupAt: null,
+        byProvider: { google: '5' },
+      })
+    );
+    const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+    const result = await store.dispatch(
+      adminApi.endpoints.getAdminUsersStats.initiate()
+    );
+
+    expect(result.data).toBeUndefined();
+    expect(result.error).toBeDefined();
+  });
+
+  it('surfaces an error when /api/admin/users/stats firstSignupAt is a number instead of string|null', async () => {
+    // Audit pass-3: the timestamp fields contract is ``string | null``.
+    // A numeric value (e.g. 0) must reject — otherwise downstream
+    // ``new Date(iso).getTime()`` would silently produce "1970-01-01"
+    // or NaN without any error signal.
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        totalUsers: 0,
+        firstSignupAt: 0,
+        latestSignupAt: null,
+        byProvider: {},
+      })
+    );
+    const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+    const result = await store.dispatch(
+      adminApi.endpoints.getAdminUsersStats.initiate()
+    );
+
+    expect(result.data).toBeUndefined();
+    expect(result.error).toBeDefined();
+  });
+
+  it('surfaces an error when /api/admin/users/stats latestSignupAt is a number instead of string|null', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        totalUsers: 0,
+        firstSignupAt: null,
+        latestSignupAt: 1234567890,
+        byProvider: {},
+      })
+    );
+    const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+    const result = await store.dispatch(
+      adminApi.endpoints.getAdminUsersStats.initiate()
+    );
+
+    expect(result.data).toBeUndefined();
+    expect(result.error).toBeDefined();
+  });
 });

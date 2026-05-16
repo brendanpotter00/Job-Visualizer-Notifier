@@ -50,13 +50,23 @@ export function AdminUsersPage() {
 
   const createdAts = useMemo(() => users.map((u) => u.createdAt), [users]);
 
-  const isLoading = usersQuery.isLoading || statsQuery.isLoading;
   const usersError = usersQuery.error;
   const statsError = statsQuery.error;
-  // Page-level loading: only spin if BOTH queries are still pending. If
-  // one resolves and the other errors, we'd rather show the partial page
-  // with an error slot than keep the whole surface in loading limbo.
-  if (isLoading && !stats && users.length === 0 && !usersError && !statsError) {
+
+  // Per-slot loading semantics (audit pass-3 "Important" finding):
+  //   - Page-level full spinner: only when BOTH queries are still loading
+  //     AND neither has any data yet AND neither has errored. As soon as
+  //     either side resolves or errors, we render the partial page so the
+  //     loading slot doesn't mask the other slot's progress.
+  //   - Each slot independently spins iff its own query is still loading
+  //     and has no data yet. If a slot errors, it renders an inline error;
+  //     if it has data, it renders normally.
+  const usersSlotLoading = usersQuery.isLoading && users.length === 0;
+  const statsSlotLoading = statsQuery.isLoading && !stats;
+  const pageLevelLoading =
+    usersSlotLoading && statsSlotLoading && !usersError && !statsError;
+
+  if (pageLevelLoading) {
     return <LoadingState fullPage caption="Loading admin data…" />;
   }
 
@@ -83,7 +93,14 @@ export function AdminUsersPage() {
     );
   }
 
-  const totalUsers = stats?.totalUsers ?? users.length;
+  // Header "X total" must reflect a TRUSTED stats number — never silently
+  // fall back to ``users.length``. When stats errored AND we have no stats
+  // payload, render an em-dash placeholder so the admin can see that the
+  // total is unknown rather than reading the roster count as authoritative
+  // (audit pass-3 "Important": ``stats?.totalUsers ?? users.length`` was
+  // a silent fallback that hid a stats outage behind a plausible number).
+  const statsUnavailable = Boolean(statsError) && !stats;
+  const totalUsers = stats?.totalUsers ?? null;
   const firstSignup = stats?.firstSignupAt ?? null;
   const latestSignup = stats?.latestSignupAt ?? null;
 
@@ -93,7 +110,11 @@ export function AdminUsersPage() {
         Admin · Users
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        {totalUsers.toLocaleString()} total
+        {statsUnavailable
+          ? '— total'
+          : totalUsers !== null
+            ? `${totalUsers.toLocaleString()} total`
+            : '— total'}
       </Typography>
 
       {statsError ? (
@@ -105,13 +126,18 @@ export function AdminUsersPage() {
           message={extractErrorMessage(statsError, 'Failed to load admin stats')}
           onRetry={() => statsQuery.refetch()}
         />
+      ) : statsSlotLoading ? (
+        // Stats query still pending while the roster has resolved — show
+        // the stats-slot spinner so the admin sees explicit progress on
+        // the half that hasn't loaded yet.
+        <LoadingState minHeight={120} caption="Loading stats…" />
       ) : (
         <>
           <Grid container spacing={2} sx={{ mb: 3 }}>
             <Grid size={{ xs: 12, md: 4 }}>
               <StatTile
                 label="Total users"
-                value={totalUsers.toLocaleString()}
+                value={totalUsers !== null ? totalUsers.toLocaleString() : '—'}
                 meta="Cumulative signups"
                 decoration={<SignupSparkline createdAts={createdAts} />}
               />
@@ -149,6 +175,10 @@ export function AdminUsersPage() {
           message={extractErrorMessage(usersError, 'Failed to load user roster')}
           onRetry={() => usersQuery.refetch()}
         />
+      ) : usersSlotLoading ? (
+        // Roster query still pending while stats has resolved (or
+        // errored) — show the roster-slot spinner.
+        <LoadingState minHeight={240} caption="Loading user roster…" />
       ) : (
         <UserRosterTable users={users} />
       )}

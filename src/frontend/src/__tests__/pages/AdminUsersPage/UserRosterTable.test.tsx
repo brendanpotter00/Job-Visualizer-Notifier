@@ -178,4 +178,50 @@ describe('UserRosterTable', () => {
     });
     expect(screen.getByRole('alert')).toHaveTextContent(/user not found|failed/i);
   });
+
+  it('surfaces the 409 last-admin error verbatim in the Alert (cross-layer contract)', async () => {
+    // Audit pass-3 finding: the existing 404 test covers a generic
+    // server-error path but the 409 "Cannot revoke the last admin —
+    // promote another user first." message is the headline contract
+    // from pass 1 — and there was no end-to-end test pinning the
+    // backend response → Alert text wiring. A regression anywhere in
+    // the chain (RTK Query error shape → extractErrorMessage's
+    // data.detail walk → Alert text) would silently swallow the
+    // actionable message and leave the admin staring at a generic
+    // "Failed to revoke admin from ..." fallback.
+    //
+    // Setup: ADMIN_USER is in the table, current user is a DIFFERENT
+    // admin (so the self-revoke disable doesn't fire), and the backend
+    // returns 409 with the exact contract body.
+    mockCurrentUser = { id: 'caller-id', isAdmin: true };
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          detail: 'Cannot revoke the last admin — promote another user first.',
+        }),
+        {
+          status: 409,
+          headers: { 'content-type': 'application/json' },
+        }
+      )
+    );
+
+    const user = userEvent.setup();
+    renderTable([ADMIN_USER]);
+
+    await user.click(screen.getByLabelText('Actions for admin@example.com'));
+    await user.click(screen.getByRole('menuitem', { name: /revoke admin/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toBeInTheDocument();
+    });
+    // EXACT contract string — not a regex. The Alert must contain the
+    // backend's ``detail`` verbatim so the admin gets the actionable
+    // "promote another user first" cue. Anything shorter (e.g. a
+    // fallback to "Failed to revoke admin") means the cross-layer
+    // wiring is broken.
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Cannot revoke the last admin — promote another user first.'
+    );
+  });
 });

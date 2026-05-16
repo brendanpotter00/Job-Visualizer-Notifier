@@ -210,8 +210,15 @@ def update_user(
 def get_user_by_email(
     conn: Connection,
     email: str,
-) -> dict | None:
-    """Fetch a user row by email. Returns ``None`` if not found."""
+) -> UserRow | None:
+    """Fetch a user row by email. Returns ``None`` if not found.
+
+    Return type is the typed ``UserRow`` (not raw ``dict``) so callers
+    that read ``row["id"]`` / etc. surface a column rename in
+    ``db_models.User`` as a mypy/pyright error at the read site instead
+    of a runtime ``KeyError`` on the next request. Matches the threading
+    done for ``get_or_create_user`` / ``update_user`` in pass 2.
+    """
     table = _USERS_TABLE
     cursor = conn.cursor()
     cursor.execute(

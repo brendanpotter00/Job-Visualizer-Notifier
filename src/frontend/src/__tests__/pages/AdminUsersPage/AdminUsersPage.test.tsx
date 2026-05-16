@@ -216,6 +216,103 @@ describe('AdminUsersPage', () => {
     expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
   });
 
+  it('renders the users-section spinner and stats-section error when stats errors before users resolves', async () => {
+    // Audit pass-3 finding: the prior loading gate had carve-outs for
+    // ``!usersError && !statsError`` so if query A errored while B was
+    // still loading, the page skipped the spinner and rendered an empty
+    // roster (or empty stat slot) with no indicator that the other
+    // query was still loading. The fix: each slot independently shows
+    // its OWN spinner while loading-with-no-data, regardless of the
+    // other slot's state.
+    //
+    // Setup: stats returns a 500 immediately. The users fetch is left
+    // pending forever, so the roster slot must render its spinner while
+    // the stats slot renders the inline error.
+    const usersResolvers: Array<(value: unknown) => void> = [];
+    fetchMock.mockImplementation((input: unknown) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.includes('/api/admin/users/stats')) {
+        return Promise.resolve(jsonResponse({ detail: 'stats kaboom' }, 500));
+      }
+      // Users query: never resolves so we can assert the slot spinner.
+      return new Promise<unknown>((resolve) => {
+        usersResolvers.push(resolve);
+      });
+    });
+
+    renderPage();
+
+    // Wait for the heading to confirm we got past the page-level loading
+    // gate (i.e. the page IS rendering the partial UI rather than the
+    // full-page spinner).
+    await screen.findByRole('heading', { name: /admin · users/i });
+
+    // Stats slot shows its inline error + retry button.
+    expect(screen.getByText(/stats kaboom|failed to load admin stats/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
+
+    // Users slot shows its spinner with the roster-loading caption.
+    expect(screen.getByText(/loading user roster/i)).toBeInTheDocument();
+
+    // Tidy up still-pending fetches so they don't leak into other tests.
+    for (const resolve of usersResolvers) {
+      resolve(jsonResponse({ users: [] }));
+    }
+  });
+
+  it('does not render an "X total" header count when stats fails and users succeeds', async () => {
+    // Audit pass-3 finding: the header rendered ``{totalUsers} total``
+    // with ``totalUsers = stats?.totalUsers ?? users.length``. When
+    // stats failed, the fallback to ``users.length`` silently rendered
+    // the loaded-roster count as the authoritative total — admins
+    // couldn't tell the stats endpoint was broken.
+    //
+    // Fix: when stats has errored and there's no stats data, the header
+    // renders the dashed placeholder ``"— total"`` instead of a number.
+    fetchMock.mockImplementation((input: unknown) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.includes('/api/admin/users/stats')) {
+        return Promise.resolve(jsonResponse({ detail: 'stats kaboom' }, 500));
+      }
+      return Promise.resolve(
+        jsonResponse({
+          users: [
+            {
+              id: 'u1',
+              email: 'a@example.com',
+              displayName: null,
+              signupProvider: 'google',
+              createdAt: '2025-01-01T00:00:00Z',
+              isAdmin: false,
+            },
+            {
+              id: 'u2',
+              email: 'b@example.com',
+              displayName: null,
+              signupProvider: 'google',
+              createdAt: '2025-01-02T00:00:00Z',
+              isAdmin: false,
+            },
+          ],
+        })
+      );
+    });
+
+    renderPage();
+
+    await screen.findByRole('heading', { name: /admin · users/i });
+
+    // Roster is rendered (the two emails appear).
+    await screen.findByText('a@example.com');
+    expect(screen.getByText('b@example.com')).toBeInTheDocument();
+
+    // The header MUST NOT render "2 total" (the silent fallback to
+    // ``users.length``). Instead, it must render the em-dash placeholder
+    // so the admin can tell the count is unknown.
+    expect(screen.queryByText(/^2 total$/)).not.toBeInTheDocument();
+    expect(screen.getByText(/^— total$/)).toBeInTheDocument();
+  });
+
   it('renders stat tiles and the user roster on success', async () => {
     fetchMock.mockImplementation((input: unknown) => {
       const url = input instanceof Request ? input.url : String(input);

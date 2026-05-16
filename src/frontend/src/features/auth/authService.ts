@@ -16,10 +16,40 @@ export interface User {
   isAdmin: boolean;
 }
 
+/**
+ * Pull a human-readable error string out of a JSON error body.
+ *
+ * Filters by ``typeof === 'string'`` at every step so a structurally-shaped
+ * payload (e.g. ``{ error: { code: 'BACKEND_DOWN', message: 'pool exhausted' } }``)
+ * doesn't get coerced to ``"[object Object]"`` when ``new Error(value)`` is
+ * called on the result. When the top-level ``error`` field is itself an
+ * object with a ``message`` string, surface that — the upstream still loses
+ * the structured code, but at least the admin reads a real sentence instead
+ * of ``[object Object]``.
+ */
 async function extractErrorDetail(response: Response): Promise<string | null> {
   return response
     .json()
-    .then((b) => b.detail || b.message || b.error)
+    .then((b: unknown) => {
+      if (b == null || typeof b !== 'object') return null;
+      const obj = b as Record<string, unknown>;
+      if (typeof obj.detail === 'string' && obj.detail.length > 0) {
+        return obj.detail;
+      }
+      if (typeof obj.message === 'string' && obj.message.length > 0) {
+        return obj.message;
+      }
+      if (typeof obj.error === 'string' && obj.error.length > 0) {
+        return obj.error;
+      }
+      if (obj.error != null && typeof obj.error === 'object') {
+        const nested = (obj.error as Record<string, unknown>).message;
+        if (typeof nested === 'string' && nested.length > 0) {
+          return nested;
+        }
+      }
+      return null;
+    })
     .catch(() => null);
 }
 

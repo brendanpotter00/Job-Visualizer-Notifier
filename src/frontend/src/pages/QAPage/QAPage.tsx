@@ -58,6 +58,11 @@ interface ScraperResult {
   error: string;
   company: string;
   completedAt: string;
+  // ``true`` when the result was produced by a NotAuthenticatedError
+  // short-circuit (session expired) rather than a real scrape failure.
+  // Drives a separate Alert severity / label so the admin can tell
+  // "your session timed out" from "the scraper crashed."
+  isAuthError?: boolean;
 }
 
 /**
@@ -192,12 +197,18 @@ export function QAPage() {
           // nothing — silent failure. Surface an actionable warning via
           // the scrapeResult Alert so the admin knows to re-auth instead
           // of staring at an unresponsive button.
+          //
+          // ``isAuthError`` distinguishes this from a real scraper crash
+          // at the Alert render — the scraper isn't broken, the session
+          // is. Use ``severity="warning"`` + "Session expired:" prefix
+          // instead of the red "Scrape failed:" treatment.
           setScrapeResult({
             exitCode: -1,
             output: '',
             error: 'Your session expired — please sign back in.',
             company: selectedCompany,
             completedAt: new Date().toISOString(),
+            isAuthError: true,
           });
           return;
         }
@@ -403,12 +414,20 @@ export function QAPage() {
             </Button>
             {scrapeResult && (
               <Alert
-                severity={scrapeResult.exitCode === 0 ? 'success' : 'error'}
+                severity={
+                  scrapeResult.exitCode === 0
+                    ? 'success'
+                    : scrapeResult.isAuthError
+                      ? 'warning'
+                      : 'error'
+                }
                 sx={{ flexGrow: 1 }}
               >
                 {scrapeResult.exitCode === 0
                   ? scrapeResult.output || `Scrape started for ${scrapeResult.company}`
-                  : `Scrape failed: ${scrapeResult.error}`}
+                  : scrapeResult.isAuthError
+                    ? `Session expired: ${scrapeResult.error}`
+                    : `Scrape failed: ${scrapeResult.error}`}
               </Alert>
             )}
           </Box>

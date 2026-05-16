@@ -206,6 +206,21 @@ describe('/api/features serverless function', () => {
       const calledOptions = fetchMock.mock.calls[0][1] as RequestInit;
       expect(calledOptions.body).toBeUndefined();
     });
+
+    it('forwards request body for non-PUT/POST methods (PATCH with body)', async () => {
+      // Audit pass-3: parity with ``api/admin.ts`` — the body-forwarding
+      // gate is lifted from ``PUT/POST`` to ``req.body != null`` so a
+      // future PATCH or DELETE endpoint with a body doesn't silently
+      // drop the body upstream.
+      mockReq.method = 'PATCH';
+      mockReq.query = { path: ['some-feature'] };
+      mockReq.body = { vote: 'up' };
+      fetchMock.mockResolvedValue(mockJsonResponse(200, {}));
+      await handler(mockReq as VercelRequest, mockRes as VercelResponse);
+      const [, fetchOptions] = fetchMock.mock.calls[0];
+      expect(fetchOptions.method).toBe('PATCH');
+      expect(fetchOptions.body).toBe(JSON.stringify({ vote: 'up' }));
+    });
   });
 
   describe('Response Handling', () => {
