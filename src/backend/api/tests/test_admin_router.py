@@ -180,6 +180,172 @@ class TestAdminUsersStats:
         assert data["byProvider"] == {}
 
 
+class TestGrantAdmin:
+    """POST /api/admin/users/{user_id}/admin promotes a user."""
+
+    def _setup_caller(self, db_conn):
+        """Insert the test caller (the default admin from conftest) into users."""
+        caller = _make_user(
+            {
+                "id": "caller-id",
+                "auth0_id": "auth0|test_user_123",
+                "email": "test@example.com",
+            }
+        )
+        _insert_user(db_conn, caller)
+        return caller
+
+    def test_grant_admin_inserts_row(self, client, db_conn):
+        self._setup_caller(db_conn)
+        target = _make_user(
+            {"id": "target1", "auth0_id": "auth0|t1", "email": "promote@example.com"}
+        )
+        _insert_user(db_conn, target)
+
+        resp = client.post(f"/api/admin/users/{target['id']}/admin")
+        assert resp.status_code == 204
+
+        listing = client.get("/api/admin/users").json()["users"]
+        promoted = {u["id"]: u["isAdmin"] for u in listing}
+        assert promoted[target["id"]] is True
+
+    def test_grant_admin_idempotent(self, client, db_conn):
+        self._setup_caller(db_conn)
+        target = _make_user(
+            {"id": "target2", "auth0_id": "auth0|t2", "email": "twice@example.com"}
+        )
+        _insert_user(db_conn, target)
+
+        first = client.post(f"/api/admin/users/{target['id']}/admin")
+        second = client.post(f"/api/admin/users/{target['id']}/admin")
+        assert first.status_code == 204
+        assert second.status_code == 204
+
+    def test_grant_admin_unknown_user_returns_404(self, client, db_conn):
+        self._setup_caller(db_conn)
+
+        resp = client.post("/api/admin/users/does-not-exist/admin")
+        assert resp.status_code == 404
+        assert "not found" in resp.json()["detail"].lower()
+
+    def test_grant_admin_records_granted_by(self, client, db_conn):
+        caller = self._setup_caller(db_conn)
+        target = _make_user(
+            {"id": "target3", "auth0_id": "auth0|t3", "email": "audit@example.com"}
+        )
+        _insert_user(db_conn, target)
+
+        resp = client.post(f"/api/admin/users/{target['id']}/admin")
+        assert resp.status_code == 204
+
+        with db_conn.cursor() as cur:
+            cur.execute(
+                "SELECT granted_by FROM admins WHERE user_id = %s", (target["id"],)
+            )
+            row = cur.fetchone()
+        assert row is not None
+        assert row["granted_by"] == caller["id"]
+
+
+class TestRevokeAdmin:
+    """DELETE /api/admin/users/{user_id}/admin revokes a user."""
+
+    def _setup_caller_with_grant(self, db_conn):
+        caller = _make_user(
+            {
+                "id": "caller-id",
+                "auth0_id": "auth0|test_user_123",
+                "email": "test@example.com",
+            }
+        )
+        _insert_user(db_conn, caller)
+        _insert_admin(db_conn, caller["id"])
+        return caller
+
+    def test_revoke_admin_deletes_row(self, client, db_conn):
+        self._setup_caller_with_grant(db_conn)
+        target = _make_user(
+            {"id": "target1", "auth0_id": "auth0|t1", "email": "demote@example.com"}
+        )
+        _insert_user(db_conn, target)
+        _insert_admin(db_conn, target["id"])
+
+        resp = client.delete(f"/api/admin/users/{target['id']}/admin")
+        assert resp.status_code == 204
+
+        listing = client.get("/api/admin/users").json()["users"]
+        demoted = {u["id"]: u["isAdmin"] for u in listing}
+        assert demoted[target["id"]] is False
+
+    def test_revoke_admin_idempotent_on_non_admin(self, client, db_conn):
+        self._setup_caller_with_grant(db_conn)
+        target = _make_user(
+            {"id": "target2", "auth0_id": "auth0|t2", "email": "notadmin@example.com"}
+        )
+        _insert_user(db_conn, target)
+
+        resp = client.delete(f"/api/admin/users/{target['id']}/admin")
+        assert resp.status_code == 204
+
+    def test_revoke_self_returns_400(self, client, db_conn):
+        caller = self._setup_caller_with_grant(db_conn)
+
+        resp = client.delete(f"/api/admin/users/{caller['id']}/admin")
+        assert resp.status_code == 400
+        assert "own" in resp.json()["detail"].lower()
+
+
+class TestGrantRevokeGate:
+    """Grant/revoke endpoints are also behind require_admin."""
+
+    def test_grant_without_admin_returns_403(self, test_app, db_conn):
+        from api.auth.dependencies import require_admin
+
+        _insert_user(
+            db_conn,
+            _make_user(
+                {"auth0_id": "auth0|test_user_123", "email": "test@example.com"}
+            ),
+        )
+        target = _make_user(
+            {"id": "tg1", "auth0_id": "auth0|tg1", "email": "t@example.com"}
+        )
+        _insert_user(db_conn, target)
+
+        saved = test_app.dependency_overrides.pop(require_admin, None)
+        try:
+            client = TestClient(test_app)
+            resp = client.post(f"/api/admin/users/{target['id']}/admin")
+            assert resp.status_code == 403
+        finally:
+            if saved is not None:
+                test_app.dependency_overrides[require_admin] = saved
+
+    def test_revoke_without_admin_returns_403(self, test_app, db_conn):
+        from api.auth.dependencies import require_admin
+
+        _insert_user(
+            db_conn,
+            _make_user(
+                {"auth0_id": "auth0|test_user_123", "email": "test@example.com"}
+            ),
+        )
+        target = _make_user(
+            {"id": "tr1", "auth0_id": "auth0|tr1", "email": "t@example.com"}
+        )
+        _insert_user(db_conn, target)
+        _insert_admin(db_conn, target["id"])
+
+        saved = test_app.dependency_overrides.pop(require_admin, None)
+        try:
+            client = TestClient(test_app)
+            resp = client.delete(f"/api/admin/users/{target['id']}/admin")
+            assert resp.status_code == 403
+        finally:
+            if saved is not None:
+                test_app.dependency_overrides[require_admin] = saved
+
+
 class TestJobsQaGate:
     """jobs_qa router is now gated behind require_admin.
 

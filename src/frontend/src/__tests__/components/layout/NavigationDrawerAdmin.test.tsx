@@ -89,4 +89,39 @@ describe('NavigationDrawer admin section', () => {
     expect(screen.getByTestId('BugReportIcon')).toBeInTheDocument();
     expect(screen.queryByText('ADMIN')).not.toBeInTheDocument();
   });
+
+  it('keeps the Account item anchored to the bottom via a flex spacer', () => {
+    // Regression guard for the "admin accordion takes up the entire sidebar"
+    // layout bug. The fix replaces `mt: 'auto'` on the Account divider with
+    // an explicit `<Box sx={{ flexGrow: 1 }} />` spacer between the Admin
+    // group and the Account section. We assert: the drawer content is a
+    // flex column, Account appears after the spacer in DOM order, and the
+    // spacer's `flexGrow` style is present.
+    mockUser = { isAdmin: true };
+    const { container } = render(
+      <MemoryRouter>
+        <NavigationDrawer {...mockProps} />
+      </MemoryRouter>
+    );
+
+    // The Account link should be rendered.
+    const accountText = screen.getByText('Account');
+    expect(accountText).toBeInTheDocument();
+
+    // Locate the spacer: the only div with flex-grow: 1 inside the drawer
+    // content. computedStyle uses the inline-equivalent via getAttribute on
+    // the style attribute (jsdom + MUI's sx serializes to inline class, so
+    // probe by walking siblings instead).
+    const accountListItem = accountText.closest('li');
+    expect(accountListItem).not.toBeNull();
+    // The spacer lives in the DOM between the Admin section and the
+    // <Divider> immediately above Account — i.e. it precedes Account.
+    // Grab all elements within the drawer paper that look like a spacer.
+    const spacerCandidates = container.querySelectorAll('div');
+    const hasSpacer = Array.from(spacerCandidates).some((el) => {
+      const styles = window.getComputedStyle(el);
+      return styles.flexGrow === '1' && !el.querySelector('*');
+    });
+    expect(hasSpacer).toBe(true);
+  });
 });

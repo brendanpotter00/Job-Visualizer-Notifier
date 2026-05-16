@@ -1,78 +1,51 @@
 import Box from '@mui/material/Box';
-import { OPS, SX } from '../adminUsersTheme';
+import Paper from '@mui/material/Paper';
+import Typography from '@mui/material/Typography';
 
 interface StatTileProps {
-  /** Tiny uppercase caption above the value */
   label: string;
-  /** Primary stat (string or number — pre-formatted) */
   value: React.ReactNode;
-  /** Optional secondary line under the value */
   meta?: React.ReactNode;
-  /** Optional ASCII rule decoration on the corners ("┌─ TOTAL USERS ─┐") */
-  withCorners?: boolean;
-  /** Optional element rendered in the lower-right of the tile (sparkline, etc.) */
   decoration?: React.ReactNode;
 }
 
-export function StatTile({ label, value, meta, withCorners = true, decoration }: StatTileProps) {
+export function StatTile({ label, value, meta, decoration }: StatTileProps) {
   return (
-    <Box
+    <Paper
+      variant="outlined"
       sx={{
-        ...SX.surface,
-        position: 'relative',
-        px: 2.5,
-        py: 2.5,
-        minHeight: 132,
+        p: 2.5,
+        height: '100%',
         display: 'flex',
         flexDirection: 'column',
         justifyContent: 'space-between',
+        gap: 1.5,
       }}
     >
-      <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1 }}>
-        {withCorners && (
-          <Box component="span" sx={{ ...SX.dimMono, color: OPS.textDim }}>
-            ┌─
-          </Box>
-        )}
-        <Box component="span" sx={SX.caption}>
-          {label}
-        </Box>
-        {withCorners && (
-          <Box
-            component="span"
-            sx={{
-              ...SX.dimMono,
-              color: OPS.textDim,
-              flexGrow: 1,
-              borderBottom: `1px dashed ${OPS.border}`,
-              transform: 'translateY(-4px)',
-            }}
-          />
-        )}
-        {withCorners && (
-          <Box component="span" sx={{ ...SX.dimMono, color: OPS.textDim }}>
-            ─┐
-          </Box>
-        )}
-      </Box>
-
+      <Typography
+        variant="overline"
+        color="text.secondary"
+        sx={{ lineHeight: 1.2 }}
+      >
+        {label}
+      </Typography>
+      <Typography variant="h4" component="div" sx={{ fontWeight: 500 }}>
+        {value}
+      </Typography>
       <Box
         sx={{
-          fontFamily: OPS.mono,
-          fontSize: { xs: 36, sm: 44, md: 52 },
-          fontWeight: 500,
-          lineHeight: 1.05,
-          color: OPS.textPrimary,
-          letterSpacing: '-0.02em',
+          display: 'flex',
+          alignItems: 'flex-end',
+          justifyContent: 'space-between',
+          gap: 2,
+          minHeight: 24,
         }}
       >
-        {value}
-      </Box>
-
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 2 }}>
-        <Box sx={SX.dimMono}>{meta}</Box>
+        <Typography variant="body2" color="text.secondary">
+          {meta}
+        </Typography>
         {decoration}
       </Box>
-    </Box>
+    </Paper>
   );
 }

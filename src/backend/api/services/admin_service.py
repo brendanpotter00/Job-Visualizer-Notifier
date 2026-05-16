@@ -86,6 +86,44 @@ def list_users_with_admin_flag(conn: Connection) -> list[dict]:
     ]
 
 
+def grant_admin(conn: Connection, user_id: str, granted_by_id: str | None) -> bool:
+    """Insert an admin grant for ``user_id``.
+
+    Idempotent — ``ON CONFLICT DO NOTHING`` so a re-grant is a no-op. Returns
+    True if a row was inserted, False if the user already had a grant.
+    Raises ``psycopg2.errors.ForeignKeyViolation`` if ``user_id`` does not
+    exist in ``users`` — callers translate that to a 404 at the HTTP layer.
+    """
+    with conn.cursor() as cursor:
+        cursor.execute(
+            sql.SQL(
+                "INSERT INTO {admins} (user_id, granted_by)"
+                " VALUES (%s, %s)"
+                " ON CONFLICT (user_id) DO NOTHING"
+            ).format(admins=_ADMINS),
+            (user_id, granted_by_id),
+        )
+        inserted = cursor.rowcount == 1
+    conn.commit()
+    return inserted
+
+
+def revoke_admin(conn: Connection, user_id: str) -> bool:
+    """Delete an admin grant for ``user_id``.
+
+    Idempotent — returns False if the user wasn't an admin, True if a row
+    was deleted.
+    """
+    with conn.cursor() as cursor:
+        cursor.execute(
+            sql.SQL("DELETE FROM {admins} WHERE user_id = %s").format(admins=_ADMINS),
+            (user_id,),
+        )
+        deleted = cursor.rowcount == 1
+    conn.commit()
+    return deleted
+
+
 def get_users_stats(conn: Connection) -> dict:
     """Aggregate stats for the admin dashboard.
 

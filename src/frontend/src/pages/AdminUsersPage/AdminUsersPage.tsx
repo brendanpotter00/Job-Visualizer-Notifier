@@ -1,7 +1,8 @@
 import { useMemo } from 'react';
-import Box from '@mui/material/Box';
+import Container from '@mui/material/Container';
 import Grid from '@mui/material/Grid';
-import { keyframes } from '@mui/system';
+import Paper from '@mui/material/Paper';
+import Typography from '@mui/material/Typography';
 import {
   useGetAdminUsersStatsQuery,
   useListAdminUsersQuery,
@@ -13,12 +14,6 @@ import { StatTile } from './components/StatTile';
 import { ProviderBars } from './components/ProviderBars';
 import { SignupSparkline } from './components/SignupSparkline';
 import { UserRosterTable } from './components/UserRosterTable';
-import { OPS, SX } from './adminUsersTheme';
-
-const livePulse = keyframes`
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50%      { opacity: 0.45; transform: scale(0.78); }
-`;
 
 function formatJoinedDate(iso: string | null): string {
   if (!iso) return '—';
@@ -48,10 +43,8 @@ export function AdminUsersPage() {
   const usersQuery = useListAdminUsersQuery();
   const statsQuery = useGetAdminUsersStatsQuery();
 
-  // `usersQuery.data ?? []` creates a fresh empty array each render before
-  // the fetch resolves; that array would invalidate every downstream useMemo
-  // that depends on `users` on every render. Memoize so the identity is
-  // stable across the loading phase.
+  // Memoize the empty-array fallback so downstream useMemo identities stay
+  // stable through the loading phase.
   const users = useMemo(() => usersQuery.data ?? [], [usersQuery.data]);
   const stats = statsQuery.data;
 
@@ -61,16 +54,12 @@ export function AdminUsersPage() {
   const error = usersQuery.error ?? statsQuery.error;
 
   if (isLoading && !stats && users.length === 0) {
-    return (
-      <Box sx={SX.page}>
-        <LoadingState fullPage caption="loading admin data..." />
-      </Box>
-    );
+    return <LoadingState fullPage caption="Loading admin data…" />;
   }
 
   if (error) {
     return (
-      <Box sx={SX.page}>
+      <Container maxWidth="xl" sx={{ py: 4 }}>
         <ErrorState
           inline
           message={extractErrorMessage(error, 'Failed to load admin data')}
@@ -79,7 +68,7 @@ export function AdminUsersPage() {
             statsQuery.refetch();
           }}
         />
-      </Box>
+      </Container>
     );
   }
 
@@ -88,107 +77,47 @@ export function AdminUsersPage() {
   const latestSignup = stats?.latestSignupAt ?? null;
 
   return (
-    <Box sx={SX.page}>
-      {/* Header line — "ADMIN / USERS — n total" with pulsing live dot */}
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 2,
-          mb: 4,
-          flexWrap: 'wrap',
-        }}
-      >
-        <Box
-          sx={{
-            width: 8,
-            height: 8,
-            bgcolor: OPS.accent,
-            borderRadius: '50%',
-            animation: `${livePulse} 1.6s ease-in-out infinite`,
-          }}
-        />
-        <Box
-          sx={{
-            ...SX.caption,
-            fontSize: 12,
-            color: OPS.textPrimary,
-            letterSpacing: '0.24em',
-          }}
-        >
-          ADMIN&nbsp;&nbsp;/&nbsp;&nbsp;USERS
-        </Box>
-        <Box
-          sx={{
-            flexGrow: 1,
-            height: 1,
-            background: `linear-gradient(to right, ${OPS.border} 0, ${OPS.border} 60%, transparent 100%)`,
-            mx: 1,
-            display: { xs: 'none', sm: 'block' },
-          }}
-        />
-        <Box
-          sx={{
-            fontFamily: OPS.mono,
-            fontSize: 13,
-            color: OPS.textMuted,
-          }}
-        >
-          {totalUsers} total
-        </Box>
-      </Box>
+    <Container maxWidth="xl" sx={{ py: 4 }}>
+      <Typography variant="h4" component="h1" gutterBottom>
+        Admin · Users
+      </Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+        {totalUsers.toLocaleString()} total
+      </Typography>
 
-      {/* Stat tiles */}
       <Grid container spacing={2} sx={{ mb: 3 }}>
         <Grid size={{ xs: 12, md: 4 }}>
           <StatTile
-            label="TOTAL USERS"
+            label="Total users"
             value={totalUsers.toLocaleString()}
-            meta="cumulative signups"
+            meta="Cumulative signups"
             decoration={<SignupSparkline createdAts={createdAts} />}
           />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 4 }}>
           <StatTile
-            label="FIRST JOIN"
+            label="First signup"
             value={formatJoinedDate(firstSignup)}
             meta={firstSignup ? relativeDays(firstSignup) : '—'}
           />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 4 }}>
           <StatTile
-            label="LATEST JOIN"
+            label="Latest signup"
             value={formatJoinedDate(latestSignup)}
             meta={latestSignup ? relativeDays(latestSignup) : '—'}
           />
         </Grid>
       </Grid>
 
-      {/* Provider breakdown */}
-      <Box sx={{ ...SX.surface, p: 2.5, mb: 3 }}>
-        <Box sx={{ ...SX.caption, mb: 2 }}>SIGNUP PROVIDER BREAKDOWN</Box>
+      <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
+        <Typography variant="h6" component="h2" gutterBottom>
+          Signup providers
+        </Typography>
         <ProviderBars data={stats?.byProvider ?? {}} />
-      </Box>
+      </Paper>
 
-      {/* User roster */}
       <UserRosterTable users={users} />
-
-      {/* Footer line */}
-      <Box
-        sx={{
-          mt: 3,
-          pt: 2,
-          borderTop: `1px dashed ${OPS.border}`,
-          ...SX.dimMono,
-          display: 'flex',
-          justifyContent: 'space-between',
-          flexWrap: 'wrap',
-          gap: 1,
-        }}
-      >
-        <span>read-only · live · {new Date().toISOString().slice(0, 19)}Z</span>
-        <span>brendanpotter00@gmail.com — sole operator</span>
-      </Box>
-    </Box>
+    </Container>
   );
 }

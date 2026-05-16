@@ -1,20 +1,15 @@
 import Box from '@mui/material/Box';
-import { OPS, SX } from '../adminUsersTheme';
+import LinearProgress from '@mui/material/LinearProgress';
+import Typography from '@mui/material/Typography';
 
 interface ProviderBarsProps {
   data: Record<string, number>;
 }
 
 const PROVIDER_LABEL: Record<string, string> = {
-  google: 'GOOGLE',
-  email: 'EMAIL / AUTH0',
-  other: 'OTHER',
-};
-
-const PROVIDER_COLOR: Record<string, string> = {
-  google: '#60a5fa',
-  email: '#fbbf24',
-  other: '#94a3b8',
+  google: 'Google',
+  email: 'Email / Auth0',
+  other: 'Other',
 };
 
 export function ProviderBars({ data }: ProviderBarsProps) {
@@ -22,55 +17,37 @@ export function ProviderBars({ data }: ProviderBarsProps) {
   const max = entries.reduce((m, [, v]) => Math.max(m, v), 0);
 
   if (entries.length === 0) {
-    return <Box sx={SX.dimMono}>No signups recorded.</Box>;
+    return (
+      <Typography variant="body2" color="text.secondary">
+        No signups recorded.
+      </Typography>
+    );
   }
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
       {entries.map(([key, count]) => {
-        const widthPct = max === 0 ? 0 : (count / max) * 100;
-        const label = PROVIDER_LABEL[key] ?? key.toUpperCase();
-        const color = PROVIDER_COLOR[key] ?? OPS.textMuted;
-
+        const pct = max === 0 ? 0 : (count / max) * 100;
+        const label = PROVIDER_LABEL[key] ?? key;
         return (
           <Box
             key={key}
             sx={{
               display: 'grid',
-              gridTemplateColumns: '140px 1fr 50px',
+              gridTemplateColumns: { xs: '110px 1fr 50px', sm: '140px 1fr 60px' },
               alignItems: 'center',
-              gap: 2,
+              columnGap: 2,
             }}
           >
-            <Box sx={{ ...SX.caption, color: OPS.textMuted }}>{label}</Box>
-            <Box
-              sx={{
-                position: 'relative',
-                height: 18,
-                bgcolor: OPS.surfaceAlt,
-                border: `1px solid ${OPS.border}`,
-              }}
-            >
-              <Box
-                sx={{
-                  height: '100%',
-                  width: `${widthPct}%`,
-                  bgcolor: color,
-                  opacity: 0.85,
-                  transition: 'width 280ms ease',
-                }}
-              />
-            </Box>
-            <Box
-              sx={{
-                fontFamily: OPS.mono,
-                fontSize: 14,
-                color: OPS.textPrimary,
-                textAlign: 'right',
-              }}
-            >
-              {count}
-            </Box>
+            <Typography variant="body2">{label}</Typography>
+            <LinearProgress
+              variant="determinate"
+              value={pct}
+              sx={{ height: 8, borderRadius: 1 }}
+            />
+            <Typography variant="body2" align="right">
+              {count.toLocaleString()}
+            </Typography>
           </Box>
         );
       })}

@@ -46,7 +46,26 @@ export const adminApi = createApi({
       query: () => '/users/stats',
       providesTags: ['AdminUsersStats'],
     }),
+    grantAdmin: builder.mutation<void, { userId: string }>({
+      query: ({ userId }) => ({
+        url: `/users/${userId}/admin`,
+        method: 'POST',
+      }),
+      invalidatesTags: ['AdminUsers', 'AdminUsersStats'],
+    }),
+    revokeAdmin: builder.mutation<void, { userId: string }>({
+      query: ({ userId }) => ({
+        url: `/users/${userId}/admin`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: ['AdminUsers', 'AdminUsersStats'],
+    }),
   }),
 });
 
-export const { useListAdminUsersQuery, useGetAdminUsersStatsQuery } = adminApi;
+export const {
+  useListAdminUsersQuery,
+  useGetAdminUsersStatsQuery,
+  useGrantAdminMutation,
+  useRevokeAdminMutation,
+} = adminApi;

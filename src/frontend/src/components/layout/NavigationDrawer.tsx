@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { styled, useTheme, Theme, CSSObject } from '@mui/material/styles';
 import MuiDrawer from '@mui/material/Drawer';
+import Box from '@mui/material/Box';
 import List from '@mui/material/List';
 import Collapse from '@mui/material/Collapse';
 import Divider from '@mui/material/Divider';
@@ -238,7 +239,7 @@ export function NavigationDrawer({
   };
 
   const renderDrawerContent = () => (
-    <>
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <DrawerHeader>
         <IconButton onClick={isMobile ? onClose : onToggleCollapse}>
           {theme.direction === 'rtl' ? <ChevronRightIcon /> : <ChevronLeftIcon />}
@@ -251,13 +252,20 @@ export function NavigationDrawer({
         )}
       </List>
       {renderAdminGroup()}
+      {/* Spacer pushes the Account section to the bottom of the drawer.
+          Without this, `mt: 'auto'` on the Account divider would push every
+          sibling below the Admin group to the bottom — leaving the Admin
+          group floating mid-drawer with a large gap. An explicit spacer
+          makes the layout intent obvious and works regardless of whether
+          the Admin section is rendered. */}
+      <Box sx={{ flexGrow: 1 }} />
       {isAuthenticated && (
         <>
-          <Divider sx={{ mt: 'auto' }} />
+          <Divider />
           <List>{renderNavItem(ROUTES.ACCOUNT, 'Account', 'AccountCircle')}</List>
         </>
       )}
-    </>
+    </Box>
   );
 
   if (isMobile) {

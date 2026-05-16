@@ -44,6 +44,12 @@ function urlFromInput(input: unknown): string {
   return String(input);
 }
 
+function methodFromCall(call: [unknown, unknown]): string | undefined {
+  const [input, init] = call;
+  if (input instanceof Request) return input.method;
+  return (init as RequestInit | undefined)?.method;
+}
+
 function getAuthHeader(call: [unknown, unknown]): string | null {
   const [input, init] = call;
   if (input instanceof Request) return input.headers.get('Authorization');
@@ -106,6 +112,34 @@ describe('adminApi', () => {
 
     const call = fetchMock.mock.calls[0] as [unknown, unknown];
     expect(getAuthHeader(call)).toBeNull();
+  });
+
+  it('grantAdmin POSTs to /users/{id}/admin with Authorization', async () => {
+    fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
+    const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+    await store.dispatch(
+      adminApi.endpoints.grantAdmin.initiate({ userId: 'target-1' })
+    );
+
+    const call = fetchMock.mock.calls[0] as [unknown, unknown];
+    expect(urlFromInput(call[0])).toMatch(/\/api\/admin\/users\/target-1\/admin$/);
+    expect(methodFromCall(call)).toBe('POST');
+    expect(getAuthHeader(call)).toBe('Bearer test-admin-token');
+  });
+
+  it('revokeAdmin DELETEs /users/{id}/admin with Authorization', async () => {
+    fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
+    const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+    await store.dispatch(
+      adminApi.endpoints.revokeAdmin.initiate({ userId: 'target-2' })
+    );
+
+    const call = fetchMock.mock.calls[0] as [unknown, unknown];
+    expect(urlFromInput(call[0])).toMatch(/\/api\/admin\/users\/target-2\/admin$/);
+    expect(methodFromCall(call)).toBe('DELETE');
+    expect(getAuthHeader(call)).toBe('Bearer test-admin-token');
   });
 
   it('unwraps the { users: [...] } envelope via transformResponse', async () => {
