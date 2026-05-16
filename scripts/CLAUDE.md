@@ -86,7 +86,7 @@ pip install -r scripts/requirements-dev.txt      # Install dev dependencies (tes
 
 **Testing:**
 - `tests/conftest.py` - Shared pytest fixtures
-- `tests/unit/` - Unit tests (11 files)
+- `tests/unit/` - Unit tests (13 files)
 - `tests/integration/` - Integration tests (10 files)
 - `pytest.ini` - Test configuration
 
@@ -269,7 +269,7 @@ Edit company-specific `config.py`:
 **Testing:**
 - Test Config: `scripts/pytest.ini`
 - Fixtures: `scripts/tests/conftest.py`
-- Unit Tests (11 files):
+- Unit Tests (13 files):
   - `tests/unit/test_models.py`
   - `tests/unit/test_utils.py`
   - `tests/unit/test_parser_helpers.py`
@@ -278,6 +278,8 @@ Edit company-specific `config.py`:
   - `tests/unit/test_apple_parser.py`
   - `tests/unit/test_apple_parser_mocked.py`
   - `tests/unit/test_apple_api_client.py`
+  - `tests/unit/test_apple_scraper_methods.py`
+  - `tests/unit/test_base_scraper_initialize.py`
   - `tests/unit/test_microsoft_parser.py`
   - `tests/unit/test_microsoft_api_client.py`
   - `tests/unit/test_microsoft_scraper_methods.py`

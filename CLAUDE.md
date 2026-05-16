@@ -127,6 +127,7 @@ Edit `src/frontend/src/config/companies.ts` and add company config with ATS type
 - `api/jobs-qa.ts` - Backend QA endpoints proxy
 - `api/users.ts` - Backend users API proxy (forwards Authorization header)
 - `api/features.ts` - Feature voting API proxy (forwards Authorization header)
+- `api/admin.ts` - Admin API proxy (forwards Authorization header; admin-only endpoints)
 
 ## See Also
 
