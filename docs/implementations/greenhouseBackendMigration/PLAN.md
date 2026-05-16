@@ -332,7 +332,7 @@ Eight small, individually mergeable units. Order is load-bearing.
 
 ### Unit 7 — Frontend cutover
 
-**Status:** IN PROGRESS
+**Status:** DONE
 
 **Why seventh:** Once data is flowing into the DB, point the UI at it.
 
@@ -362,7 +362,7 @@ Eight small, individually mergeable units. Order is load-bearing.
 
 ### Unit 8 — Deploy & verify
 
-**Status:** TODO
+**Status:** DONE
 
 **Why last:** Tie everything off in prod.
 
