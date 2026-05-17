@@ -307,23 +307,17 @@ def test_upgrade_aborts_on_collision_preflight(
         command.stamp(cfg, PREV_REV)
         with pytest.raises(Exception) as exc_info:
             command.upgrade(cfg, NEW_REV)
-        # The migration MUST abort. Two acceptable abort surfaces:
-        #   1. The DO $$ RAISE EXCEPTION block in upgrade() fires after the
-        #      UPDATE (message contains "collision" / "aborting").
-        #   2. The UPDATE itself trips the legacy single-column PK because
-        #      stripping the prefix would produce a duplicate id; psycopg2
-        #      surfaces this as UniqueViolation on ``job_listings_pkey``.
-        # Either way the transaction rolls back, leaving the table state
-        # unchanged — which is what the verify block below asserts. We accept
-        # both surfaces; what matters is that destructive writes don't land.
+        # The migration MUST abort via the descriptive DO $$ RAISE EXCEPTION
+        # block in upgrade(). The pre-flight collision check now runs BEFORE
+        # the destructive UPDATE (see migration upgrade() body), so the
+        # operator's first signal is the descriptive "collisions ... aborting"
+        # message, not a UniqueViolation on the legacy single-column PK.
+        # This is the operator-runbook contract DEPLOY.md promises.
         message = str(exc_info.value).lower()
-        assert (
-            "collision" in message
-            or "aborting" in message
-            or "uniqueviolation" in message
-            or "duplicate key" in message
-            or "job_listings_pkey" in message
-        ), f"expected migration abort, got: {exc_info.value!r}"
+        assert "collision" in message and "aborting" in message, (
+            f"expected descriptive collision/aborting message from "
+            f"upgrade()'s DO $$ block, got: {exc_info.value!r}"
+        )
 
         # Table state unchanged: both rows still present, prefix still on.
         verify = psycopg2.connect(url, cursor_factory=RealDictCursor)
@@ -338,6 +332,104 @@ def test_upgrade_aborts_on_collision_preflight(
             )
             # PK is still single-column.
             assert _pk_columns(verify, "job_listings") == ["id"]
+        finally:
+            verify.close()
+    finally:
+        _drop_scratch_db(name)
+
+
+@pytest.mark.skipif(
+    _is_prod_like(TEST_DB_URL),
+    reason="refusing to run migration roundtrip against a prod-like TEST_DATABASE_URL",
+)
+def test_downgrade_aborts_on_collision_preflight(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Downgrade RAISES when re-prefixing greenhouse rows would collide
+    with a non-greenhouse row whose id already equals 'greenhouse_<raw>'.
+
+    Mirrors test_upgrade_aborts_on_collision_preflight: seed a state at
+    head where the downgrade's `UPDATE ... SET id = 'greenhouse_' || id`
+    would land on an id already used by another source. The DO $$ block
+    in downgrade() must fire and roll back the transaction with table
+    state intact (composite PK still in place, both rows still present
+    and untouched).
+    """
+    monkeypatch.delenv("PYTEST_SCHEMA", raising=False)
+    name = _make_scratch_db_name("compositepk_downgrade_collide")
+    url = _create_scratch_db(name)
+    try:
+        from alembic import command
+
+        cfg = _alembic_cfg(url)
+
+        # Bootstrap pre-migration shape, stamp at PREV_REV, upgrade to head
+        # so we have the composite PK in place and can seed colliding rows
+        # in the post-migration shape.
+        bootstrap = psycopg2.connect(url, cursor_factory=RealDictCursor)
+        bootstrap.autocommit = True
+        try:
+            _create_pre_migration_job_listings(bootstrap)
+        finally:
+            bootstrap.close()
+
+        command.stamp(cfg, PREV_REV)
+        command.upgrade(cfg, NEW_REV)
+
+        # Seed a colliding pair AT HEAD:
+        #   - (source_id='greenhouse_api', id='42')           — would become
+        #     'greenhouse_42' on downgrade.
+        #   - (source_id='google_scraper', id='greenhouse_42') — already
+        #     uses the would-be-prefixed shape, so the downgrade's
+        #     `UPDATE ... SET id = 'greenhouse_' || id WHERE source_id =
+        #     'greenhouse_api'` would create a (single-column-PK)
+        #     duplicate id. The downgrade pre-flight must catch this.
+        seed = psycopg2.connect(url, cursor_factory=RealDictCursor)
+        seed.autocommit = True
+        try:
+            _seed_pre_migration_row(
+                seed, id="42", source_id="greenhouse_api", company="stripe",
+            )
+            _seed_pre_migration_row(
+                seed, id="greenhouse_42", source_id="google_scraper",
+                company="google",
+            )
+        finally:
+            seed.close()
+
+        # Sanity: composite PK is in place before the downgrade attempt.
+        verify_pre = psycopg2.connect(url, cursor_factory=RealDictCursor)
+        try:
+            assert _pk_columns(verify_pre, "job_listings") == ["source_id", "id"]
+        finally:
+            verify_pre.close()
+
+        # Attempt downgrade; must RAISE with the descriptive message.
+        with pytest.raises(Exception) as exc_info:
+            command.downgrade(cfg, PREV_REV)
+        message = str(exc_info.value).lower()
+        assert "collide" in message and "aborting" in message, (
+            f"expected descriptive collide/aborting message from "
+            f"downgrade()'s DO $$ block, got: {exc_info.value!r}"
+        )
+
+        # Table state preserved: composite PK still in place, both rows
+        # still present and unchanged.
+        verify = psycopg2.connect(url, cursor_factory=RealDictCursor)
+        try:
+            assert _pk_columns(verify, "job_listings") == ["source_id", "id"], (
+                "composite PK was dropped despite RAISE EXCEPTION"
+            )
+            cur = verify.cursor()
+            cur.execute(
+                "SELECT source_id, id FROM job_listings "
+                "ORDER BY source_id, id"
+            )
+            rows = [(r["source_id"], r["id"]) for r in cur.fetchall()]
+            assert rows == [
+                ("google_scraper", "greenhouse_42"),
+                ("greenhouse_api", "42"),
+            ], f"table state changed despite RAISE EXCEPTION: {rows!r}"
         finally:
             verify.close()
     finally:

@@ -18,9 +18,13 @@ source's id space coexist for free.
 
 Safety: belt-and-suspenders RAISE EXCEPTION guards in both directions
 abort the migration before any destructive write if a collision is
-detected. The combined ``ALTER TABLE … DROP CONSTRAINT …, ADD PRIMARY
-KEY …`` statement rebuilds the PK index in one pass (per the combined-
-ALTER rule in docs/implementations/alembicMigration/DEPLOY.md).
+detected. The upgrade's collision pre-flight simulates the post-rewrite
+shape via a CTE (``CASE WHEN source_id = 'greenhouse_api' THEN
+regexp_replace(id, '^greenhouse_', '') ELSE id END``) so the descriptive
+RAISE fires first — matching the operator-runbook contract in DEPLOY.md.
+The combined ``ALTER TABLE … DROP CONSTRAINT …, ADD PRIMARY KEY …``
+statement rebuilds the PK index in one pass (per the combined-ALTER
+rule in docs/implementations/alembicMigration/DEPLOY.md).
 """
 from typing import Sequence, Union
 
@@ -57,19 +61,12 @@ def upgrade() -> None:
         """
     )
 
-    # Strip the legacy ``greenhouse_`` prefix. Only touches rows that still
-    # carry the prefix; idempotent on a re-run after a partial migration.
-    op.execute(
-        """
-        UPDATE job_listings
-        SET id = regexp_replace(id, '^greenhouse_', '')
-        WHERE source_id = 'greenhouse_api' AND id LIKE 'greenhouse_%'
-        """
-    )
-
-    # Pre-flight: after the rewrite above, would the new composite PK have
-    # any duplicate (source_id, id) pair? If so, RAISE and abort the txn.
-    # Mirror of the e6cbbb3c2f17 pattern, generalized to the composite key.
+    # Pre-flight: simulate the post-rewrite (source_id, id) shape and count
+    # would-be duplicates. RAISES before the destructive UPDATE below so the
+    # operator's first signal is this descriptive message — matches the
+    # operator-runbook contract in DEPLOY.md (see "Symptoms → causes").
+    # Mirror of the e6cbbb3c2f17 pattern (check before write), generalized
+    # to the composite key.
     op.execute(
         """
         DO $$
@@ -77,9 +74,13 @@ def upgrade() -> None:
             collisions int;
         BEGIN
             SELECT count(*) INTO collisions FROM (
-                SELECT source_id, id
+                SELECT source_id,
+                       CASE WHEN source_id = 'greenhouse_api'
+                            THEN regexp_replace(id, '^greenhouse_', '')
+                            ELSE id
+                       END AS new_id
                 FROM job_listings
-                GROUP BY source_id, id
+                GROUP BY 1, 2
                 HAVING count(*) > 1
             ) c;
             IF collisions > 0 THEN
@@ -89,6 +90,16 @@ def upgrade() -> None:
             END IF;
         END
         $$;
+        """
+    )
+
+    # Strip the legacy ``greenhouse_`` prefix. Only touches rows that still
+    # carry the prefix; idempotent on a re-run after a partial migration.
+    op.execute(
+        """
+        UPDATE job_listings
+        SET id = regexp_replace(id, '^greenhouse_', '')
+        WHERE source_id = 'greenhouse_api' AND id LIKE 'greenhouse_%'
         """
     )
 
