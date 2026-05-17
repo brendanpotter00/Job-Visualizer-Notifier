@@ -140,6 +140,8 @@ railway logs | grep -E "apply_alembic_migrations|RAISE EXCEPTION|UniqueViolation
 
 ## Rollback
 
+**Railway's deploy-rollback UI does NOT automatically run `alembic downgrade -1` — the operator MUST run it manually against prod (via Railway shell or `psql $DATABASE_URL`) BEFORE clicking the UI rollback button.** The lifespan hook in `src/backend/api/migrations.py` only calls `command.upgrade(cfg, "head")`; redeploying the prior container will land code that expects the single-column PK while the DB still has the composite one, breaking every upsert until the downgrade runs.
+
 The migration's `downgrade()` body re-prefixes Greenhouse rows and restores the single-column PK in one combined `ALTER TABLE`, so a rollback is mechanical:
 
 1. **Run the downgrade against prod Postgres** (via Railway shell or a `psql` with the prod `DATABASE_URL`):
