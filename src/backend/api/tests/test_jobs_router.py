@@ -83,6 +83,62 @@ def test_get_job_returns_404_when_missing(client):
     assert resp.status_code == 404
 
 
+def test_get_job_disambiguates_same_id_across_source_ids(client, db_conn):
+    """Two jobs that share an `id` but differ in `source_id` must be
+    addressable independently via /api/jobs/{source_id}/{id}. Catches a
+    regression that drops `source_id = %s` from the WHERE clause — that
+    bug would return the same row for both URLs.
+    """
+    shared_id = "collide-42"
+    _insert_job(db_conn, _make_job({
+        "id": shared_id,
+        "source_id": "google_scraper",
+        "title": "Google Role",
+        "company": "google",
+    }))
+    _insert_job(db_conn, _make_job({
+        "id": shared_id,
+        "source_id": "greenhouse_api",
+        "title": "Greenhouse Role",
+        "company": "stripe",
+    }))
+
+    google_resp = client.get(f"/api/jobs/google_scraper/{shared_id}")
+    assert google_resp.status_code == 200
+    google_job = google_resp.json()
+    assert google_job["id"] == shared_id
+    assert google_job["title"] == "Google Role"
+    assert google_job["company"] == "google"
+
+    greenhouse_resp = client.get(f"/api/jobs/greenhouse_api/{shared_id}")
+    assert greenhouse_resp.status_code == 200
+    greenhouse_job = greenhouse_resp.json()
+    assert greenhouse_job["id"] == shared_id
+    assert greenhouse_job["title"] == "Greenhouse Role"
+    assert greenhouse_job["company"] == "stripe"
+
+
+def test_get_job_returns_404_when_source_id_mismatches_real_id(client, db_conn):
+    """A real `id` looked up under the wrong `source_id` must 404 — proves
+    the WHERE clause uses both columns.
+    """
+    real_id = "real-id-7"
+    _insert_job(db_conn, _make_job({
+        "id": real_id,
+        "source_id": "google_scraper",
+        "title": "Real Google Role",
+        "company": "google",
+    }))
+
+    # Confirm the row IS reachable under its real source_id (guards against
+    # the test passing just because of a typo / missing seed).
+    ok = client.get(f"/api/jobs/google_scraper/{real_id}")
+    assert ok.status_code == 200
+
+    mismatch = client.get(f"/api/jobs/greenhouse_api/{real_id}")
+    assert mismatch.status_code == 404
+
+
 def test_get_jobs_filters_by_status_open(client):
     resp = client.get("/api/jobs", params={"status": "OPEN"})
     jobs = resp.json()

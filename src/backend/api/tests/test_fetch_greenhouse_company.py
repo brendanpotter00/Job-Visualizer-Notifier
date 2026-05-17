@@ -138,6 +138,22 @@ async def procrastinate_open(db_conn):
         await procrastinate_app.open_async()
         try:
             await ensure_schema_async(procrastinate_app)
+            # Procrastinate's tables live in `public` (installed once at app
+            # boot, the schema probe in `ensure_schema_async` finds the
+            # existing `public.procrastinate_jobs` and skips re-creation in
+            # per-test schemas). That means rows written by other test
+            # modules persist across our tests — including leftover
+            # fan-out defers from test_enqueue_greenhouse_fan_out that are
+            # never drained. When this file runs second alphabetically,
+            # _drain() picks them up and contends with the composite PK on
+            # job_listings (silent ON CONFLICT clobber on (source_id, id)).
+            # Wipe greenhouse_fetch task rows so each test sees a clean queue.
+            cur = db_conn.cursor()
+            cur.execute(
+                "DELETE FROM procrastinate_jobs "
+                "WHERE task_name = 'fetch_greenhouse_company'"
+            )
+            db_conn.commit()
             yield
         finally:
             await procrastinate_app.close_async()
