@@ -77,7 +77,7 @@ in `src/backend/api/services/database.py`.
 
 ### Unit 1 — Schema + storage layer (atomic backend change)
 
-**Status:** TODO
+**Status:** DONE
 
 **Why this is one big unit:** the schema change, the query-layer changes, the transformer change, and the `get_job_by_id` service-helper signature change must all land in the same commit. If they don't, `pytest` at HEAD between commits will fail — the new PK doesn't have a single-column index after the migration runs, but the query layer would still emit `ON CONFLICT (id)`.
 
@@ -142,7 +142,7 @@ in `src/backend/api/services/database.py`.
 
 ### Unit 2 — API route shape `/{source_id}/{job_id}`
 
-**Status:** TODO
+**Status:** DONE
 
 **Prerequisites:** Unit 1 committed and merged into the branch HEAD.
 
@@ -185,7 +185,7 @@ in `src/backend/api/services/database.py`.
 
 ### Unit 3 — DEPLOY.md
 
-**Status:** TODO
+**Status:** DONE
 
 **Prerequisites:** Units 1 and 2 committed.
 
