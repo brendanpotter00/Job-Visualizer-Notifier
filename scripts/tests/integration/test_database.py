@@ -30,7 +30,7 @@ class TestInsertAndRetrieve:
         """Insert JobListing, verify with get_job_by_id"""
         db.insert_job(in_memory_db, sample_job_listing)
 
-        retrieved = db.get_job_by_id(in_memory_db, sample_job_listing.id)
+        retrieved = db.get_job_by_id(in_memory_db, sample_job_listing.source_id, sample_job_listing.id)
 
         assert retrieved is not None
         assert retrieved["id"] == sample_job_listing.id
@@ -42,7 +42,7 @@ class TestInsertAndRetrieve:
         """Details dict serialized to JSON correctly"""
         db.insert_job(in_memory_db, sample_job_listing)
 
-        retrieved = db.get_job_by_id(in_memory_db, sample_job_listing.id)
+        retrieved = db.get_job_by_id(in_memory_db, sample_job_listing.source_id, sample_job_listing.id)
 
         # Details should be JSONB (already parsed by psycopg2)
         details = retrieved["details"]
@@ -53,7 +53,7 @@ class TestInsertAndRetrieve:
 
     def test_get_job_by_id_not_found(self, in_memory_db):
         """Returns None for non-existent job"""
-        result = db.get_job_by_id(in_memory_db, "nonexistent-id")
+        result = db.get_job_by_id(in_memory_db, "google_scraper", "nonexistent-id")
         assert result is None
 
 
@@ -67,7 +67,7 @@ class TestActiveJobIds:
             db.insert_job(in_memory_db, job)
 
         # Mark one as closed
-        db.mark_jobs_closed(in_memory_db, ["job-001"], "2024-01-16T10:00:00Z")
+        db.mark_jobs_closed(in_memory_db, "google_scraper", ["job-001"], "2024-01-16T10:00:00Z")
 
         # Get active job IDs
         active_ids = db.get_active_job_ids(in_memory_db, "google")
@@ -94,25 +94,25 @@ class TestUpdateLastSeen:
         db.insert_job(in_memory_db, sample_job_listing)
 
         # Increment misses to simulate missed runs
-        db.increment_consecutive_misses(in_memory_db, [sample_job_listing.id])
+        db.increment_consecutive_misses(in_memory_db, sample_job_listing.source_id, [sample_job_listing.id])
 
         # Verify misses incremented
-        job = db.get_job_by_id(in_memory_db, sample_job_listing.id)
+        job = db.get_job_by_id(in_memory_db, sample_job_listing.source_id, sample_job_listing.id)
         assert job["consecutive_misses"] == 2
 
         # Update last seen
         new_timestamp = "2024-01-20T10:00:00Z"
-        db.update_last_seen(in_memory_db, [sample_job_listing.id], new_timestamp)
+        db.update_last_seen(in_memory_db, sample_job_listing.source_id, [sample_job_listing.id], new_timestamp)
 
         # Verify misses reset and timestamp updated
-        job = db.get_job_by_id(in_memory_db, sample_job_listing.id)
+        job = db.get_job_by_id(in_memory_db, sample_job_listing.source_id, sample_job_listing.id)
         assert job["consecutive_misses"] == 0
         assert _parse_ts(job["last_seen_at"]) == _parse_ts(new_timestamp)
 
     def test_update_last_seen_empty_list(self, in_memory_db):
         """Handles empty job list gracefully"""
         # Should not raise
-        db.update_last_seen(in_memory_db, [], "2024-01-20T10:00:00Z")
+        db.update_last_seen(in_memory_db, "google_scraper", [], "2024-01-20T10:00:00Z")
 
 
 class TestIncrementMisses:
@@ -123,15 +123,15 @@ class TestIncrementMisses:
         db.insert_job(in_memory_db, sample_job_listing)
 
         # Increment misses
-        db.increment_consecutive_misses(in_memory_db, [sample_job_listing.id])
+        db.increment_consecutive_misses(in_memory_db, sample_job_listing.source_id, [sample_job_listing.id])
 
-        job = db.get_job_by_id(in_memory_db, sample_job_listing.id)
+        job = db.get_job_by_id(in_memory_db, sample_job_listing.source_id, sample_job_listing.id)
         assert job["consecutive_misses"] == 1
 
         # Increment again
-        db.increment_consecutive_misses(in_memory_db, [sample_job_listing.id])
+        db.increment_consecutive_misses(in_memory_db, sample_job_listing.source_id, [sample_job_listing.id])
 
-        job = db.get_job_by_id(in_memory_db, sample_job_listing.id)
+        job = db.get_job_by_id(in_memory_db, sample_job_listing.source_id, sample_job_listing.id)
         assert job["consecutive_misses"] == 2
 
 
@@ -143,9 +143,9 @@ class TestMarkJobsClosed:
         db.insert_job(in_memory_db, sample_job_listing)
 
         close_timestamp = "2024-01-20T15:00:00Z"
-        db.mark_jobs_closed(in_memory_db, [sample_job_listing.id], close_timestamp)
+        db.mark_jobs_closed(in_memory_db, sample_job_listing.source_id, [sample_job_listing.id], close_timestamp)
 
-        job = db.get_job_by_id(in_memory_db, sample_job_listing.id)
+        job = db.get_job_by_id(in_memory_db, sample_job_listing.source_id, sample_job_listing.id)
         assert job["status"] == "CLOSED"
         assert _parse_ts(job["closed_on"]) == _parse_ts(close_timestamp)
 
@@ -155,14 +155,14 @@ class TestMarkJobsClosed:
             db.insert_job(in_memory_db, job)
 
         ids_to_close = ["job-000", "job-001"]
-        db.mark_jobs_closed(in_memory_db, ids_to_close, "2024-01-20T15:00:00Z")
+        db.mark_jobs_closed(in_memory_db, "google_scraper", ids_to_close, "2024-01-20T15:00:00Z")
 
         for job_id in ids_to_close:
-            job = db.get_job_by_id(in_memory_db, job_id)
+            job = db.get_job_by_id(in_memory_db, "google_scraper", job_id)
             assert job["status"] == "CLOSED"
 
         # job-002 should still be open
-        job = db.get_job_by_id(in_memory_db, "job-002")
+        job = db.get_job_by_id(in_memory_db, "google_scraper", "job-002")
         assert job["status"] == "OPEN"
 
 
@@ -174,18 +174,18 @@ class TestReactivateJob:
         db.insert_job(in_memory_db, sample_job_listing)
 
         # Close the job
-        db.mark_jobs_closed(in_memory_db, [sample_job_listing.id], "2024-01-20T15:00:00Z")
+        db.mark_jobs_closed(in_memory_db, sample_job_listing.source_id, [sample_job_listing.id], "2024-01-20T15:00:00Z")
 
         # Verify closed
-        job = db.get_job_by_id(in_memory_db, sample_job_listing.id)
+        job = db.get_job_by_id(in_memory_db, sample_job_listing.source_id, sample_job_listing.id)
         assert job["status"] == "CLOSED"
 
         # Reactivate
         reactivate_timestamp = "2024-01-21T10:00:00Z"
-        db.reactivate_job(in_memory_db, sample_job_listing.id, reactivate_timestamp)
+        db.reactivate_job(in_memory_db, sample_job_listing.source_id, sample_job_listing.id, reactivate_timestamp)
 
         # Verify reactivated
-        job = db.get_job_by_id(in_memory_db, sample_job_listing.id)
+        job = db.get_job_by_id(in_memory_db, sample_job_listing.source_id, sample_job_listing.id)
         assert job["status"] == "OPEN"
         assert job["closed_on"] is None
         assert job["consecutive_misses"] == 0
@@ -223,7 +223,7 @@ class TestUpsertJob:
 
         assert result is True  # Was inserted (new)
 
-        job = db.get_job_by_id(in_memory_db, sample_job_listing.id)
+        job = db.get_job_by_id(in_memory_db, sample_job_listing.source_id, sample_job_listing.id)
         assert job is not None
         assert job["title"] == sample_job_listing.title
         assert job["status"] == "OPEN"
@@ -232,10 +232,10 @@ class TestUpsertJob:
         """Closed job gets reactivated when it reappears"""
         # Insert and close the job
         db.insert_job(in_memory_db, sample_job_listing)
-        db.mark_jobs_closed(in_memory_db, [sample_job_listing.id], "2024-01-16T10:00:00Z")
+        db.mark_jobs_closed(in_memory_db, sample_job_listing.source_id, [sample_job_listing.id], "2024-01-16T10:00:00Z")
 
         # Verify it's closed
-        job = db.get_job_by_id(in_memory_db, sample_job_listing.id)
+        job = db.get_job_by_id(in_memory_db, sample_job_listing.source_id, sample_job_listing.id)
         assert job["status"] == "CLOSED"
         assert job["closed_on"] is not None
 
@@ -258,7 +258,7 @@ class TestUpsertJob:
         assert result is False  # Was updated (not inserted)
 
         # Verify it's reactivated with updated fields
-        job = db.get_job_by_id(in_memory_db, sample_job_listing.id)
+        job = db.get_job_by_id(in_memory_db, sample_job_listing.source_id, sample_job_listing.id)
         assert job["status"] == "OPEN"
         assert job["closed_on"] is None
         assert job["consecutive_misses"] == 0
@@ -287,7 +287,7 @@ class TestUpsertJob:
         result = db.upsert_job(in_memory_db, updated_job)
 
         assert result is False  # Was updated
-        job = db.get_job_by_id(in_memory_db, sample_job_listing.id)
+        job = db.get_job_by_id(in_memory_db, sample_job_listing.source_id, sample_job_listing.id)
         assert job["title"] == "Updated Title"
 
 
@@ -300,7 +300,7 @@ class TestGetAllActiveJobs:
             db.insert_job(in_memory_db, job)
 
         # Mark one as closed
-        db.mark_jobs_closed(in_memory_db, ["job-001"], "2024-01-16T10:00:00Z")
+        db.mark_jobs_closed(in_memory_db, "google_scraper", ["job-001"], "2024-01-16T10:00:00Z")
 
         # Get all active jobs
         active_jobs = db.get_all_active_jobs(in_memory_db, "google")

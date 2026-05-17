@@ -26,10 +26,15 @@ def list_jobs(
 @router.get("/{job_id}", response_model=JobListingResponse)
 def get_job(
     job_id: str = Path(max_length=200),
+    source_id: str = Query(default="google_scraper", max_length=100),
     conn: Connection = Depends(get_db),
 ):
-    """Get a single job by ID."""
-    job = get_job_by_id(conn, job_id)
+    """Get a single job by composite (source_id, id) key.
+
+    NOTE: Unit 1 transitional shape. Unit 2 replaces this with
+    ``GET /api/jobs/{source_id}/{job_id}`` and removes the query-param default.
+    """
+    job = get_job_by_id(conn, source_id, job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
     return JobListingResponse(**job)

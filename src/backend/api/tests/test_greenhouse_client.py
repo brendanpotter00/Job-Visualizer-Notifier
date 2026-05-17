@@ -143,22 +143,22 @@ class TestTransformToJobListings:
         assert transform_to_job_listings("stripe", []) == []
 
     def test_id_format(self):
-        # Greenhouse raw IDs are globally unique across the platform, so the
-        # source-namespace prefix is enough to avoid collisions with other
-        # ATS providers in job_listings.
+        # Greenhouse raw IDs are globally unique across the platform. The
+        # composite (source_id, id) PK on job_listings enforces cross-source
+        # uniqueness in the schema, so we store raw upstream ids directly.
         result = transform_to_job_listings(
             company_id="spacex",
             raw_jobs=ONE_JOB_FIXTURE["jobs"],
         )
         assert len(result) == 1
-        assert result[0].id == "greenhouse_7546284"
+        assert result[0].id == "7546284"
 
     def test_id_independent_of_company_id(self):
         result = transform_to_job_listings(
             company_id="xai",
             raw_jobs=ONE_JOB_FIXTURE["jobs"],
         )
-        assert result[0].id == "greenhouse_7546284"
+        assert result[0].id == "7546284"
 
     def test_basic_fields_match_fixture(self):
         result = transform_to_job_listings("stripe", ONE_JOB_FIXTURE["jobs"])

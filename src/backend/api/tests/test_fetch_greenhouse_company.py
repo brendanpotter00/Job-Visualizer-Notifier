@@ -74,11 +74,13 @@ def _seed_job(
     conn.commit()
 
 
-def _job_row(conn, job_id: str) -> dict | None:
+def _job_row(conn, job_id: str, source_id: str = "greenhouse_api") -> dict | None:
     cur = conn.cursor()
     cur.execute(
-        sql.SQL("SELECT * FROM {} WHERE id = %s").format(sql.Identifier("job_listings")),
-        (job_id,),
+        sql.SQL("SELECT * FROM {} WHERE source_id = %s AND id = %s").format(
+            sql.Identifier("job_listings")
+        ),
+        (source_id, job_id),
     )
     return cur.fetchone()
 
@@ -174,9 +176,9 @@ class TestFetchGreenhouseCompany:
         token = "stripe"
         _seed_company(db_conn, company, token)
 
-        existing_a = f"greenhouse_100"
-        existing_b = f"greenhouse_200"
-        existing_c = f"greenhouse_300"
+        existing_a = "100"
+        existing_b = "200"
+        existing_c = "300"
         _seed_job(db_conn, existing_a, company)
         _seed_job(db_conn, existing_b, company)
         _seed_job(db_conn, existing_c, company)
@@ -201,7 +203,7 @@ class TestFetchGreenhouseCompany:
         await _drain()
         db_conn.rollback()
 
-        new_row = _job_row(db_conn, f"greenhouse_400")
+        new_row = _job_row(db_conn, "400")
         assert new_row is not None, "new job not inserted"
         assert new_row["status"] == "OPEN"
 
@@ -229,8 +231,8 @@ class TestFetchGreenhouseCompany:
         token = "datadog"
         _seed_company(db_conn, company, token)
 
-        keeper = f"greenhouse_111"
-        ghost = f"greenhouse_222"
+        keeper = "111"
+        ghost = "222"
         _seed_job(db_conn, keeper, company)
         _seed_job(db_conn, ghost, company, consecutive_misses=1)
 
@@ -261,7 +263,7 @@ class TestFetchGreenhouseCompany:
         _seed_company(db_conn, company, token)
 
         for i in range(100):
-            _seed_job(db_conn, f"greenhouse_{i}", company)
+            _seed_job(db_conn, str(i), company)
 
         def handler(request: httpx.Request) -> httpx.Response:
             return httpx.Response(200, json={"jobs": []})
@@ -396,7 +398,7 @@ class TestFetchGreenhouseCompany:
             f"given the 503-then-200 handler); call_count={call_count['n']}"
         )
 
-        new_row = _job_row(db_conn, f"greenhouse_777")
+        new_row = _job_row(db_conn, "777")
         assert new_row is not None, "job from retry attempt was not upserted"
         assert new_row["status"] == "OPEN"
 
@@ -440,7 +442,7 @@ async def test_safety_guard_boundaries(
     _seed_company(db_conn, company, token)
 
     for i in range(active_count):
-        _seed_job(db_conn, f"greenhouse_{i}", company)
+        _seed_job(db_conn, str(i), company)
 
     raw_jobs = [_make_raw_job(1000 + i) for i in range(jobs_returned)]
 

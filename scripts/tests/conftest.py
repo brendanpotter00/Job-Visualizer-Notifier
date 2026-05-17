@@ -226,6 +226,7 @@ def mock_scraper():
     """
     scraper = MagicMock()
     scraper.get_company_name.return_value = "google"
+    scraper.SOURCE_ID = "google_scraper"
     scraper.scrape_all_queries = AsyncMock(return_value=[])
     scraper.scrape_job_details_batch = AsyncMock(return_value=[])
     scraper.transform_to_job_model = MagicMock()

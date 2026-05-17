@@ -112,12 +112,12 @@ def get_jobs(
         return [_row_to_job_dict(row) for row in cursor.fetchall()]
 
 
-def get_job_by_id(conn: Connection, job_id: str) -> dict | None:
-    """Get a single job by ID."""
+def get_job_by_id(conn: Connection, source_id: str, job_id: str) -> dict | None:
+    """Get a single job by composite (source_id, id) key."""
     with conn.cursor() as cursor:
         cursor.execute(
-            sql.SQL("SELECT * FROM {} WHERE id = %s").format(_JOBS_TABLE),
-            (job_id,),
+            sql.SQL("SELECT * FROM {} WHERE source_id = %s AND id = %s").format(_JOBS_TABLE),
+            (source_id, job_id),
         )
         row = cursor.fetchone()
 

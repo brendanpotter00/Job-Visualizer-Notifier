@@ -56,6 +56,8 @@ logger = logging.getLogger(__name__)
 class MicrosoftJobsScraper(BaseScraper):
     """Main scraper class for Microsoft Careers (extends BaseScraper)"""
 
+    SOURCE_ID = "microsoft_scraper"
+
     def __init__(self, headless: bool = True, detail_scrape: bool = False):
         super().__init__(headless, detail_scrape)
 

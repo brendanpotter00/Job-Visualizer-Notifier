@@ -42,7 +42,7 @@ _JOB_COLUMNS = """
 
 # ON CONFLICT clause for upsert operations
 _UPSERT_ON_CONFLICT = """
-    ON CONFLICT (id) DO UPDATE SET
+    ON CONFLICT (source_id, id) DO UPDATE SET
         title = EXCLUDED.title,
         location = EXCLUDED.location,
         url = EXCLUDED.url,
@@ -206,20 +206,26 @@ def list_enabled_companies(conn: Connection, ats: str) -> List[Dict[str, Any]]:
     return [dict(row) for row in cursor.fetchall()]
 
 
-def get_job_by_id(conn: Connection, job_id: str) -> Optional[Dict[str, Any]]:
+def get_job_by_id(
+    conn: Connection, source_id: str, job_id: str
+) -> Optional[Dict[str, Any]]:
     """
-    Retrieve a job by ID
+    Retrieve a job by composite (source_id, id) key.
 
     Args:
         conn: Database connection
-        job_id: Job ID
+        source_id: Source namespace (e.g., "greenhouse_api", "google_scraper")
+        job_id: Job id within that source
 
     Returns:
         Job data as dict, or None if not found
     """
     cursor = conn.cursor()
 
-    cursor.execute(f"SELECT * FROM {_JOBS_TABLE} WHERE id = %s", (job_id,))
+    cursor.execute(
+        f"SELECT * FROM {_JOBS_TABLE} WHERE source_id = %s AND id = %s",
+        (source_id, job_id),
+    )
     row = cursor.fetchone()
 
     if row:
@@ -340,7 +346,7 @@ def insert_jobs_batch(conn: Connection, jobs: List[JobListing]) -> int:
 
     execute_values(
         cursor,
-        f"INSERT INTO {_JOBS_TABLE} ({_JOB_COLUMNS}) VALUES %s ON CONFLICT (id) DO NOTHING",
+        f"INSERT INTO {_JOBS_TABLE} ({_JOB_COLUMNS}) VALUES %s ON CONFLICT (source_id, id) DO NOTHING",
         values,
         page_size=100
     )
@@ -351,12 +357,15 @@ def insert_jobs_batch(conn: Connection, jobs: List[JobListing]) -> int:
     return actual_inserted
 
 
-def update_last_seen(conn: Connection, job_ids: List[str], timestamp: str) -> None:
+def update_last_seen(
+    conn: Connection, source_id: str, job_ids: List[str], timestamp: str
+) -> None:
     """
     Update last_seen_at timestamp for jobs and reset consecutive_misses to 0
 
     Args:
         conn: Database connection
+        source_id: Source namespace; ``job_ids`` must all belong to this source
         job_ids: List of job IDs to update
         timestamp: ISO 8601 timestamp
     """
@@ -367,20 +376,24 @@ def update_last_seen(conn: Connection, job_ids: List[str], timestamp: str) -> No
     placeholders = _build_id_placeholders(job_ids)
 
     cursor.execute(
-        f"UPDATE {_JOBS_TABLE} SET last_seen_at = %s, consecutive_misses = 0 WHERE id IN ({placeholders})",
-        [timestamp] + job_ids
+        f"UPDATE {_JOBS_TABLE} SET last_seen_at = %s, consecutive_misses = 0 "
+        f"WHERE source_id = %s AND id IN ({placeholders})",
+        [timestamp, source_id] + job_ids
     )
 
     conn.commit()
-    logger.info(f"Updated last_seen for {len(job_ids)} jobs")
+    logger.info(f"Updated last_seen for {len(job_ids)} jobs (source_id={source_id})")
 
 
-def increment_consecutive_misses(conn: Connection, job_ids: List[str]) -> None:
+def increment_consecutive_misses(
+    conn: Connection, source_id: str, job_ids: List[str]
+) -> None:
     """
     Increment consecutive_misses counter for jobs
 
     Args:
         conn: Database connection
+        source_id: Source namespace; ``job_ids`` must all belong to this source
         job_ids: List of job IDs to update
     """
     if not job_ids:
@@ -390,20 +403,24 @@ def increment_consecutive_misses(conn: Connection, job_ids: List[str]) -> None:
     placeholders = _build_id_placeholders(job_ids)
 
     cursor.execute(
-        f"UPDATE {_JOBS_TABLE} SET consecutive_misses = consecutive_misses + 1 WHERE id IN ({placeholders})",
-        job_ids
+        f"UPDATE {_JOBS_TABLE} SET consecutive_misses = consecutive_misses + 1 "
+        f"WHERE source_id = %s AND id IN ({placeholders})",
+        [source_id] + job_ids
     )
 
     conn.commit()
-    logger.info(f"Incremented misses for {len(job_ids)} jobs")
+    logger.info(f"Incremented misses for {len(job_ids)} jobs (source_id={source_id})")
 
 
-def mark_jobs_closed(conn: Connection, job_ids: List[str], timestamp: str) -> None:
+def mark_jobs_closed(
+    conn: Connection, source_id: str, job_ids: List[str], timestamp: str
+) -> None:
     """
     Mark jobs as CLOSED with closed_on timestamp
 
     Args:
         conn: Database connection
+        source_id: Source namespace; ``job_ids`` must all belong to this source
         job_ids: List of job IDs to mark as closed
         timestamp: ISO 8601 timestamp
     """
@@ -414,22 +431,24 @@ def mark_jobs_closed(conn: Connection, job_ids: List[str], timestamp: str) -> No
     placeholders = _build_id_placeholders(job_ids)
 
     cursor.execute(
-        f"UPDATE {_JOBS_TABLE} SET status = 'CLOSED', closed_on = %s WHERE id IN ({placeholders})",
-        [timestamp] + job_ids
+        f"UPDATE {_JOBS_TABLE} SET status = 'CLOSED', closed_on = %s "
+        f"WHERE source_id = %s AND id IN ({placeholders})",
+        [timestamp, source_id] + job_ids
     )
 
     conn.commit()
-    logger.info(f"Marked {len(job_ids)} jobs as CLOSED")
+    logger.info(f"Marked {len(job_ids)} jobs as CLOSED (source_id={source_id})")
 
 
 def get_jobs_exceeding_miss_threshold(
-    conn: Connection, job_ids: List[str], threshold: int
+    conn: Connection, source_id: str, job_ids: List[str], threshold: int
 ) -> Set[str]:
     """
     Get job IDs where consecutive_misses >= threshold in a single query.
 
     Args:
         conn: Database connection
+        source_id: Source namespace; ``job_ids`` must all belong to this source
         job_ids: List of job IDs to check
         threshold: Minimum consecutive_misses value
 
@@ -443,31 +462,38 @@ def get_jobs_exceeding_miss_threshold(
     placeholders = _build_id_placeholders(job_ids)
 
     cursor.execute(
-        f"SELECT id FROM {_JOBS_TABLE} WHERE id IN ({placeholders}) AND consecutive_misses >= %s",
-        job_ids + [threshold]
+        f"SELECT id FROM {_JOBS_TABLE} "
+        f"WHERE source_id = %s AND id IN ({placeholders}) "
+        f"AND consecutive_misses >= %s",
+        [source_id] + job_ids + [threshold]
     )
 
     return {row['id'] for row in cursor.fetchall()}
 
 
-def reactivate_job(conn: Connection, job_id: str, timestamp: str) -> None:
+def reactivate_job(
+    conn: Connection, source_id: str, job_id: str, timestamp: str
+) -> None:
     """
     Reactivate a closed job (if it reappears in search results)
 
     Args:
         conn: Database connection
+        source_id: Source namespace
         job_id: Job ID to reactivate
         timestamp: ISO 8601 timestamp
     """
     cursor = conn.cursor()
 
     cursor.execute(
-        f"UPDATE {_JOBS_TABLE} SET status = 'OPEN', closed_on = NULL, last_seen_at = %s, consecutive_misses = 0 WHERE id = %s",
-        (timestamp, job_id)
+        f"UPDATE {_JOBS_TABLE} SET status = 'OPEN', closed_on = NULL, "
+        f"last_seen_at = %s, consecutive_misses = 0 "
+        f"WHERE source_id = %s AND id = %s",
+        (timestamp, source_id, job_id)
     )
 
     conn.commit()
-    logger.info(f"Reactivated job: {job_id}")
+    logger.info(f"Reactivated job: {job_id} (source_id={source_id})")
 
 
 def record_scrape_run(conn: Connection, run_data: ScrapeRun) -> None:

@@ -47,7 +47,7 @@ from scripts.shared.models import ScrapeRun
 from scripts.shared.utils import get_iso_timestamp
 
 from ..config import settings
-from ..services.greenhouse_client import fetch_jobs, transform_to_job_listings
+from ..services.greenhouse_client import SOURCE_ID, fetch_jobs, transform_to_job_listings
 from .procrastinate_app import procrastinate_app
 
 logger = logging.getLogger(__name__)
@@ -159,7 +159,7 @@ async def fetch_greenhouse_company(
                 await asyncio.to_thread(db.upsert_jobs_batch, conn, jobs)
 
             if seen_ids:
-                await asyncio.to_thread(db.update_last_seen, conn, list(seen_ids), timestamp)
+                await asyncio.to_thread(db.update_last_seen, conn, SOURCE_ID, list(seen_ids), timestamp)
 
             new_jobs_count = len(seen_ids - pre_upsert_active)
 
@@ -167,15 +167,16 @@ async def fetch_greenhouse_company(
             missing_ids = post_upsert_active - seen_ids
 
             if missing_ids:
-                await asyncio.to_thread(db.increment_consecutive_misses, conn, list(missing_ids))
+                await asyncio.to_thread(db.increment_consecutive_misses, conn, SOURCE_ID, list(missing_ids))
                 to_close = await asyncio.to_thread(
                     db.get_jobs_exceeding_miss_threshold,
                     conn,
+                    SOURCE_ID,
                     list(missing_ids),
                     MISSED_RUN_THRESHOLD,
                 )
                 if to_close:
-                    await asyncio.to_thread(db.mark_jobs_closed, conn, list(to_close), timestamp)
+                    await asyncio.to_thread(db.mark_jobs_closed, conn, SOURCE_ID, list(to_close), timestamp)
                     closed_jobs_count = len(to_close)
 
             logger.info(

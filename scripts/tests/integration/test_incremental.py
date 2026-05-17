@@ -55,7 +55,7 @@ class TestProcessNewJobs:
         )
 
         # Verify job was inserted
-        job = db.get_job_by_id(in_memory_db, "new-job-001")
+        job = db.get_job_by_id(in_memory_db, "google_scraper", "new-job-001")
         assert job is not None
         assert job["title"] == "Software Engineer"
 
@@ -146,11 +146,11 @@ class TestUpdateExistingJobs:
         missing_ids = set()
 
         closed_count = update_existing_jobs(
-            in_memory_db, still_active_ids, missing_ids
+            in_memory_db, "google_scraper", still_active_ids, missing_ids
         )
 
         # Verify last_seen updated and misses reset
-        job = db.get_job_by_id(in_memory_db, sample_job_listing.id)
+        job = db.get_job_by_id(in_memory_db, sample_job_listing.source_id, sample_job_listing.id)
         assert job["consecutive_misses"] == 0
         assert closed_count == 0
 
@@ -162,11 +162,11 @@ class TestUpdateExistingJobs:
         missing_ids = {sample_job_listing.id}
 
         closed_count = update_existing_jobs(
-            in_memory_db, still_active_ids, missing_ids
+            in_memory_db, "google_scraper", still_active_ids, missing_ids
         )
 
         # After first miss: consecutive_misses becomes 1, threshold is 2, so not closed yet
-        job = db.get_job_by_id(in_memory_db, sample_job_listing.id)
+        job = db.get_job_by_id(in_memory_db, sample_job_listing.source_id, sample_job_listing.id)
         assert job["consecutive_misses"] == 1
         assert job["status"] == "OPEN"
         assert closed_count == 0
@@ -181,11 +181,11 @@ class TestUpdateExistingJobs:
         missing_ids = {sample_job_listing.id}
 
         closed_count = update_existing_jobs(
-            in_memory_db, still_active_ids, missing_ids, threshold=2
+            in_memory_db, "google_scraper", still_active_ids, missing_ids, threshold=2
         )
 
         # After second miss (total 2), should be closed
-        job = db.get_job_by_id(in_memory_db, sample_job_listing.id)
+        job = db.get_job_by_id(in_memory_db, sample_job_listing.source_id, sample_job_listing.id)
         assert job["status"] == "CLOSED"
         assert closed_count == 1
 
@@ -198,16 +198,16 @@ class TestUpdateExistingJobs:
         missing_ids = {"job-001", "job-002"}  # Two missing
 
         closed_count = update_existing_jobs(
-            in_memory_db, still_active_ids, missing_ids
+            in_memory_db, "google_scraper", still_active_ids, missing_ids
         )
 
         # Active job should have misses reset
-        job = db.get_job_by_id(in_memory_db, "job-000")
+        job = db.get_job_by_id(in_memory_db, "google_scraper", "job-000")
         assert job["consecutive_misses"] == 0
 
         # Missing jobs should have misses incremented
         for job_id in missing_ids:
-            job = db.get_job_by_id(in_memory_db, job_id)
+            job = db.get_job_by_id(in_memory_db, "google_scraper", job_id)
             assert job["consecutive_misses"] == 1
 
 
@@ -299,7 +299,7 @@ class TestRunIncrementalScrape:
         )
 
         # Safety guard should prevent closure
-        job = db.get_job_by_id(in_memory_db, "will-be-closed")
+        job = db.get_job_by_id(in_memory_db, "google_scraper", "will-be-closed")
         assert job["status"] == "OPEN"
         assert job["consecutive_misses"] == 1  # Unchanged
         assert result.closed_jobs == 0
@@ -343,7 +343,7 @@ class TestRunIncrementalScrape:
         )
 
         # Missing job should be closed (non-empty scrape, normal behavior)
-        job = db.get_job_by_id(in_memory_db, "will-be-closed")
+        job = db.get_job_by_id(in_memory_db, "google_scraper", "will-be-closed")
         assert job["status"] == "CLOSED"
         assert result.closed_jobs == 1
         assert result.skipped_update is False

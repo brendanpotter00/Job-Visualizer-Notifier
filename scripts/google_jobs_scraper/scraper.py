@@ -41,6 +41,8 @@ logger = logging.getLogger(__name__)
 class GoogleJobsScraper(BaseScraper):
     """Main scraper class for Google Careers (extends BaseScraper)"""
 
+    SOURCE_ID = "google_scraper"
+
     def __init__(self, headless: bool = True, detail_scrape: bool = False):
         super().__init__(headless, detail_scrape)
 
