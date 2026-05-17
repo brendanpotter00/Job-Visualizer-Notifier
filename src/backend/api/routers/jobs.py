@@ -1,4 +1,4 @@
-"""Jobs API endpoints - GET /api/jobs, GET /api/jobs/{id}."""
+"""Jobs API endpoints - GET /api/jobs, GET /api/jobs/{source_id}/{id}."""
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from psycopg2.extensions import connection as Connection
@@ -23,16 +23,15 @@ def list_jobs(
     return [JobListingResponse(**job) for job in jobs]
 
 
-@router.get("/{job_id}", response_model=JobListingResponse)
+@router.get("/{source_id}/{job_id}", response_model=JobListingResponse)
 def get_job(
+    source_id: str = Path(max_length=100),
     job_id: str = Path(max_length=200),
-    source_id: str = Query(default="google_scraper", max_length=100),
     conn: Connection = Depends(get_db),
 ):
-    """Get a single job by composite (source_id, id) key.
+    """Get a single job by composite ``(source_id, id)`` key.
 
-    NOTE: Unit 1 transitional shape. Unit 2 replaces this with
-    ``GET /api/jobs/{source_id}/{job_id}`` and removes the query-param default.
+    Returns 404 if no row matches the composite key.
     """
     job = get_job_by_id(conn, source_id, job_id)
     if job is None:

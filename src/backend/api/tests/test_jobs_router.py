@@ -1,4 +1,4 @@
-"""Tests for GET /api/jobs and GET /api/jobs/{id} endpoints."""
+"""Tests for GET /api/jobs and GET /api/jobs/{source_id}/{id} endpoints."""
 
 import json
 
@@ -70,7 +70,7 @@ def test_get_jobs_orders_by_last_seen_at_descending(client):
 
 
 def test_get_job_by_id(client):
-    resp = client.get("/api/jobs/google-123")
+    resp = client.get("/api/jobs/google_scraper/google-123")
     assert resp.status_code == 200
     job = resp.json()
     assert job["id"] == "google-123"
@@ -79,7 +79,7 @@ def test_get_job_by_id(client):
 
 
 def test_get_job_returns_404_when_missing(client):
-    resp = client.get("/api/jobs/nonexistent-id")
+    resp = client.get("/api/jobs/google_scraper/nonexistent-id")
     assert resp.status_code == 404
 
 
@@ -141,7 +141,7 @@ def test_detail_endpoint_returns_full_details(client, db_conn):
         "id": "detail-full-test",
         "details": json.dumps(full_details),
     }))
-    resp = client.get("/api/jobs/detail-full-test")
+    resp = client.get("/api/jobs/google_scraper/detail-full-test")
     details = json.loads(resp.json()["details"])
     assert details["experience_level"] == "Senior"
     assert details["about_the_job"] == "Full description here"

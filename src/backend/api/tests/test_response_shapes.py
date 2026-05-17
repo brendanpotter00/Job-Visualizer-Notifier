@@ -36,7 +36,7 @@ def test_job_response_has_camel_case_keys(client, db_conn):
 
 def test_job_detail_response_has_camel_case_keys(client, db_conn):
     _insert_job(db_conn, _make_job({"id": "shape-test-2"}))
-    resp = client.get("/api/jobs/shape-test-2")
+    resp = client.get("/api/jobs/google_scraper/shape-test-2")
     assert set(resp.json().keys()) == EXPECTED_JOB_KEYS
 
 
@@ -57,7 +57,7 @@ def test_details_and_ai_metadata_are_strings(client, db_conn):
         "details": json.dumps({"salary_range": "$100k"}),
         "ai_metadata": json.dumps({"matched": True}),
     }))
-    resp = client.get("/api/jobs/shape-test-4")
+    resp = client.get("/api/jobs/google_scraper/shape-test-4")
     job = resp.json()
     assert isinstance(job["details"], str)
     assert isinstance(job["aiMetadata"], str)
