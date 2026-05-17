@@ -147,11 +147,16 @@ async def procrastinate_open(db_conn):
             # never drained. When this file runs second alphabetically,
             # _drain() picks them up and contends with the composite PK on
             # job_listings (silent ON CONFLICT clobber on (source_id, id)).
-            # Wipe greenhouse_fetch task rows so each test sees a clean queue.
+            # Wipe both greenhouse task rows so each test sees a clean queue.
+            # Schema-qualify `public.procrastinate_jobs` so this cleanup
+            # survives a future schema-management change (and so it does
+            # not depend on the search_path resolution we set above).
+            # Mirrors the IN-clause pattern from test_jobs_qa_router.py:31-34.
             cur = db_conn.cursor()
             cur.execute(
-                "DELETE FROM procrastinate_jobs "
-                "WHERE task_name = 'fetch_greenhouse_company'"
+                "DELETE FROM public.procrastinate_jobs "
+                "WHERE task_name IN "
+                "('fetch_greenhouse_company', 'enqueue_greenhouse_fan_out')"
             )
             db_conn.commit()
             yield

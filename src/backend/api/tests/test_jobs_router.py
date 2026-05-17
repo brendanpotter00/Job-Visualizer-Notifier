@@ -9,18 +9,29 @@ from .conftest import _make_job, _insert_job
 
 @pytest.fixture(autouse=True)
 def seed_jobs(db_conn):
-    """Seed the 4 default test jobs used by most tests."""
+    """Seed the 4 default test jobs used by most tests.
+
+    `source_id` is set explicitly per company (google_scraper vs apple_scraper)
+    so the seeded rows match the source they pretend to belong to. The default
+    in `_make_job` is `google_scraper`, which would silently misfile apple rows
+    if we relied on it — a future apple-route test addressing these ids would
+    silently look in the wrong source namespace.
+    """
     jobs = [
         _make_job({"id": "google-123", "title": "Software Engineer", "company": "google",
+                    "source_id": "google_scraper",
                     "location": "Mountain View, CA", "status": "OPEN",
                     "last_seen_at": "2025-01-15T10:00:00Z"}),
         _make_job({"id": "google-456", "title": "Data Scientist", "company": "google",
+                    "source_id": "google_scraper",
                     "location": "New York, NY", "status": "CLOSED",
                     "last_seen_at": "2025-01-12T10:00:00Z"}),
         _make_job({"id": "apple-789", "title": "Machine Learning Engineer", "company": "apple",
+                    "source_id": "apple_scraper",
                     "location": "Cupertino, CA", "status": "OPEN",
                     "last_seen_at": "2025-01-16T10:00:00Z"}),
         _make_job({"id": "apple-101", "title": "iOS Developer", "company": "apple",
+                    "source_id": "apple_scraper",
                     "location": "Austin, TX", "status": "OPEN",
                     "last_seen_at": "2025-01-14T10:00:00Z"}),
     ]

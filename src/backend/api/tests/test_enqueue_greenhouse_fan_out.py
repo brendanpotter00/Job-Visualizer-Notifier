@@ -70,14 +70,19 @@ async def procrastinate_open(db_conn):
             # boot, the schema probe in `ensure_schema_async` finds the
             # existing `public.procrastinate_jobs` and skips re-creation in
             # per-test schemas). That means rows written by other test
-            # modules persist across our tests. Wipe greenhouse-fetch task
+            # modules persist across our tests. Wipe both greenhouse task
             # rows so each test sees a clean queue. Also truncate the
             # per-test `companies` table — conftest's autouse cleanup does
             # not include it.
+            # Schema-qualify `public.procrastinate_jobs` so this cleanup
+            # survives a future schema-management change (and so it does
+            # not depend on the search_path resolution we set above).
+            # Mirrors the IN-clause pattern from test_jobs_qa_router.py:31-34.
             cur = db_conn.cursor()
             cur.execute(
-                "DELETE FROM procrastinate_jobs "
-                "WHERE task_name = 'fetch_greenhouse_company'"
+                "DELETE FROM public.procrastinate_jobs "
+                "WHERE task_name IN "
+                "('fetch_greenhouse_company', 'enqueue_greenhouse_fan_out')"
             )
             cur.execute(
                 sql.SQL("TRUNCATE {} CASCADE").format(sql.Identifier("companies"))
