@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { getBackendUrl } from './utils/backendUrl';
 import { forwardResponse } from './utils/forwardResponse';
+import { getInternalKeyHeader } from './utils/internalKey';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const { path, ...queryParams } = req.query;
@@ -22,6 +23,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const headers: Record<string, string> = {
     Accept: 'application/json',
     'Content-Type': 'application/json',
+    ...getInternalKeyHeader(),
   };
   if (req.headers.authorization) {
     headers['Authorization'] = req.headers.authorization;
