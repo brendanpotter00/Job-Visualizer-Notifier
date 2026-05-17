@@ -11,7 +11,7 @@ import { APP_TITLE } from '../../config/constants';
 // Mock API responses
 const mockBackendJobs = [
   {
-    id: 'greenhouse_spacex_1',
+    id: 'greenhouse_1',
     title: 'Senior Software Engineer',
     company: 'spacex',
     location: 'Hawthorne, CA',

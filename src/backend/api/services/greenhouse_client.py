@@ -4,17 +4,14 @@ Two functions, both queue-agnostic:
 
 - ``fetch_jobs(board_token, http)``: GETs Greenhouse's public Job Board API
   and returns the raw ``jobs`` array. No DB, no transformation.
-- ``transform_to_job_listings(company_id, board_token, raw_jobs)``: maps each
-  raw Greenhouse job dict to a :class:`scripts.shared.models.JobListing`
+- ``transform_to_job_listings(company_id, raw_jobs)``: maps each raw
+  Greenhouse job dict to a :class:`scripts.shared.models.JobListing`
   ready for ``upsert_jobs_batch``.
 
-The id format ``greenhouse_{board_token}_{raw['id']}`` is the cross-unit
-contract from PLAN.md - do not change it without updating Unit 4 and the
-seeded id namespace.
-
-Per the PLAN signature, ``transform_to_job_listings`` takes ``board_token``
-explicitly (the PLAN's prose mentioned only ``company_id``, but the id
-format references ``board_token``; the caller in Unit 4 always has both).
+The id format is ``greenhouse_{raw['id']}``. Greenhouse job IDs are
+globally unique across the entire Greenhouse Job Board platform, so the
+source-namespace prefix is enough to prevent collisions with other ATS
+providers in ``job_listings`` (Apple, Google, Microsoft).
 
 Output shape note: the ``details`` JSONB column is populated with keys that
 the existing frontend ``backendScraperTransformer.ts`` reads
@@ -83,7 +80,6 @@ async def fetch_jobs(board_token: str, http: httpx.AsyncClient) -> list[dict]:
 
 def transform_to_job_listings(
     company_id: str,
-    board_token: str,
     raw_jobs: list[dict],
 ) -> list[JobListing]:
     """Map a list of Greenhouse job dicts to ``JobListing`` rows.
@@ -91,15 +87,11 @@ def transform_to_job_listings(
     See module docstring for the id format and ``details`` shape contracts.
     """
     now = get_iso_timestamp()
-    return [
-        _transform_one(company_id, board_token, raw, now)
-        for raw in raw_jobs
-    ]
+    return [_transform_one(company_id, raw, now) for raw in raw_jobs]
 
 
 def _transform_one(
     company_id: str,
-    board_token: str,
     raw: dict[str, Any],
     now: str,
 ) -> JobListing:
@@ -107,7 +99,7 @@ def _transform_one(
     raw_id = raw.get("id")
     if raw_id is None:
         raise ValueError(f"Greenhouse job missing 'id': {raw!r}")
-    job_id = f"greenhouse_{board_token}_{raw_id}"
+    job_id = f"greenhouse_{raw_id}"
 
     title = raw.get("title") or ""
     absolute_url = raw.get("absolute_url") or ""
@@ -143,10 +135,10 @@ def _transform_one(
         # ERROR (not WARNING): the comment block above promises stderr routing,
         # and Railway derives @level from Python log level.
         logger.error(
-            "Greenhouse data quality issue: job %s for board %s had "
+            "Greenhouse data quality issue: job %s for company %s had "
             "unparseable posted_on=%r; storing as NULL",
             raw_id,
-            board_token,
+            company_id,
             posted_on_raw,
         )
 

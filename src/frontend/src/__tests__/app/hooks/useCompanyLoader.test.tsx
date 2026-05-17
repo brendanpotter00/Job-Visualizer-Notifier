@@ -12,7 +12,7 @@ import * as urlParams from '../../../lib/url';
 // Mock API responses
 const mockBackendJobs = [
   {
-    id: 'greenhouse_spacex_1',
+    id: 'greenhouse_1',
     title: 'Software Engineer',
     company: 'spacex',
     location: 'Hawthorne, CA',

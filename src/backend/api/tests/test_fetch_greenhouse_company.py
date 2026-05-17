@@ -174,9 +174,9 @@ class TestFetchGreenhouseCompany:
         token = "stripe"
         _seed_company(db_conn, company, token)
 
-        existing_a = f"greenhouse_{token}_100"
-        existing_b = f"greenhouse_{token}_200"
-        existing_c = f"greenhouse_{token}_300"
+        existing_a = f"greenhouse_100"
+        existing_b = f"greenhouse_200"
+        existing_c = f"greenhouse_300"
         _seed_job(db_conn, existing_a, company)
         _seed_job(db_conn, existing_b, company)
         _seed_job(db_conn, existing_c, company)
@@ -201,7 +201,7 @@ class TestFetchGreenhouseCompany:
         await _drain()
         db_conn.rollback()
 
-        new_row = _job_row(db_conn, f"greenhouse_{token}_400")
+        new_row = _job_row(db_conn, f"greenhouse_400")
         assert new_row is not None, "new job not inserted"
         assert new_row["status"] == "OPEN"
 
@@ -229,8 +229,8 @@ class TestFetchGreenhouseCompany:
         token = "datadog"
         _seed_company(db_conn, company, token)
 
-        keeper = f"greenhouse_{token}_111"
-        ghost = f"greenhouse_{token}_222"
+        keeper = f"greenhouse_111"
+        ghost = f"greenhouse_222"
         _seed_job(db_conn, keeper, company)
         _seed_job(db_conn, ghost, company, consecutive_misses=1)
 
@@ -261,7 +261,7 @@ class TestFetchGreenhouseCompany:
         _seed_company(db_conn, company, token)
 
         for i in range(100):
-            _seed_job(db_conn, f"greenhouse_{token}_{i}", company)
+            _seed_job(db_conn, f"greenhouse_{i}", company)
 
         def handler(request: httpx.Request) -> httpx.Response:
             return httpx.Response(200, json={"jobs": []})
@@ -396,7 +396,7 @@ class TestFetchGreenhouseCompany:
             f"given the 503-then-200 handler); call_count={call_count['n']}"
         )
 
-        new_row = _job_row(db_conn, f"greenhouse_{token}_777")
+        new_row = _job_row(db_conn, f"greenhouse_777")
         assert new_row is not None, "job from retry attempt was not upserted"
         assert new_row["status"] == "OPEN"
 
@@ -440,7 +440,7 @@ async def test_safety_guard_boundaries(
     _seed_company(db_conn, company, token)
 
     for i in range(active_count):
-        _seed_job(db_conn, f"greenhouse_{token}_{i}", company)
+        _seed_job(db_conn, f"greenhouse_{i}", company)
 
     raw_jobs = [_make_raw_job(1000 + i) for i in range(jobs_returned)]
 

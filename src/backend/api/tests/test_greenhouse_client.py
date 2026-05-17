@@ -140,31 +140,28 @@ class TestFetchJobs:
 
 class TestTransformToJobListings:
     def test_empty_input_returns_empty_list(self):
-        assert transform_to_job_listings("stripe", "stripe", []) == []
+        assert transform_to_job_listings("stripe", []) == []
 
-    def test_id_format_uses_board_token(self):
-        # Use distinct values so the assertion actually proves the id is
-        # built from board_token (not company_id). Previously both were
-        # "spacex", which made the test pass even if the wrong field was
-        # used to build the id.
+    def test_id_format(self):
+        # Greenhouse raw IDs are globally unique across the platform, so the
+        # source-namespace prefix is enough to avoid collisions with other
+        # ATS providers in job_listings.
         result = transform_to_job_listings(
             company_id="spacex",
-            board_token="rocket",
             raw_jobs=ONE_JOB_FIXTURE["jobs"],
         )
         assert len(result) == 1
-        assert result[0].id == "greenhouse_rocket_7546284"
+        assert result[0].id == "greenhouse_7546284"
 
-    def test_id_format_with_distinct_board_token(self):
+    def test_id_independent_of_company_id(self):
         result = transform_to_job_listings(
             company_id="xai",
-            board_token="x",
             raw_jobs=ONE_JOB_FIXTURE["jobs"],
         )
-        assert result[0].id == "greenhouse_x_7546284"
+        assert result[0].id == "greenhouse_7546284"
 
     def test_basic_fields_match_fixture(self):
-        result = transform_to_job_listings("stripe", "stripe", ONE_JOB_FIXTURE["jobs"])
+        result = transform_to_job_listings("stripe", ONE_JOB_FIXTURE["jobs"])
         job = result[0]
         assert job.title == "Account Executive, AI Sales"
         assert job.company == "stripe"
@@ -179,30 +176,30 @@ class TestTransformToJobListings:
     def test_location_fallback_when_no_office(self):
         raw = dict(ONE_JOB_FIXTURE["jobs"][0])
         raw["offices"] = []
-        result = transform_to_job_listings("stripe", "stripe", [raw])
+        result = transform_to_job_listings("stripe", [raw])
         assert result[0].location == "San Francisco, CA"
 
     def test_location_none_when_neither_present(self):
         raw = dict(ONE_JOB_FIXTURE["jobs"][0])
         raw["offices"] = []
         raw["location"] = None
-        result = transform_to_job_listings("stripe", "stripe", [raw])
+        result = transform_to_job_listings("stripe", [raw])
         assert result[0].location is None
 
     def test_no_departments_does_not_raise(self):
         raw = dict(ONE_JOB_FIXTURE["jobs"][0])
         raw["departments"] = []
-        result = transform_to_job_listings("stripe", "stripe", [raw])
+        result = transform_to_job_listings("stripe", [raw])
         assert result[0].details["department"] is None
 
     def test_posted_on_parsed_to_utc(self):
-        result = transform_to_job_listings("stripe", "stripe", ONE_JOB_FIXTURE["jobs"])
+        result = transform_to_job_listings("stripe", ONE_JOB_FIXTURE["jobs"])
         assert result[0].posted_on is not None
         assert result[0].posted_on.startswith("2026-02-13T17:39:30")
         assert result[0].posted_on.endswith("+00:00")
 
     def test_posted_on_falls_back_to_updated_at(self):
-        result = transform_to_job_listings("stripe", "stripe", TWO_JOB_FIXTURE["jobs"])
+        result = transform_to_job_listings("stripe", TWO_JOB_FIXTURE["jobs"])
         assert result[1].posted_on is not None
         assert result[1].posted_on.startswith("2026-05-10T10:00:00")
         assert result[1].posted_on.endswith("+00:00")
@@ -219,7 +216,7 @@ class TestTransformToJobListings:
         raw["first_published"] = "not-a-real-date"
         raw["updated_at"] = "also-bogus"
         with caplog.at_level(logging.ERROR, logger="api.services.greenhouse_client"):
-            result = transform_to_job_listings("stripe", "stripe", [raw])
+            result = transform_to_job_listings("stripe", [raw])
         assert result[0].posted_on is None
         matching = [
             rec for rec in caplog.records
@@ -238,7 +235,7 @@ class TestTransformToJobListings:
         )
 
     def test_details_jsonb_has_field_tolerant_keys(self):
-        result = transform_to_job_listings("stripe", "stripe", ONE_JOB_FIXTURE["jobs"])
+        result = transform_to_job_listings("stripe", ONE_JOB_FIXTURE["jobs"])
         details = result[0].details
         assert "experience_level" in details
         assert "is_remote_eligible" in details
@@ -251,21 +248,21 @@ class TestTransformToJobListings:
         assert "content" in details
 
     def test_details_roundtrips_as_json(self):
-        result = transform_to_job_listings("stripe", "stripe", TWO_JOB_FIXTURE["jobs"])
+        result = transform_to_job_listings("stripe", TWO_JOB_FIXTURE["jobs"])
         for job in result:
             json.dumps(job.details)
 
     def test_metadata_none_results_in_empty_tags(self):
-        result = transform_to_job_listings("stripe", "stripe", TWO_JOB_FIXTURE["jobs"])
+        result = transform_to_job_listings("stripe", TWO_JOB_FIXTURE["jobs"])
         assert result[1].details["tags"] == []
 
     def test_raw_id_missing_raises(self):
         bad = {"title": "x", "absolute_url": "y"}
         with pytest.raises(ValueError, match="missing 'id'"):
-            transform_to_job_listings("stripe", "stripe", [bad])
+            transform_to_job_listings("stripe", [bad])
 
     def test_first_and_last_seen_set_to_same_iso_string(self):
-        result = transform_to_job_listings("stripe", "stripe", ONE_JOB_FIXTURE["jobs"])
+        result = transform_to_job_listings("stripe", ONE_JOB_FIXTURE["jobs"])
         job = result[0]
         assert job.first_seen_at == job.last_seen_at == job.created_at
         assert job.created_at.endswith("Z")

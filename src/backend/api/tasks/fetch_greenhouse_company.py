@@ -95,7 +95,7 @@ async def fetch_greenhouse_company(
         try:
             async with httpx.AsyncClient() as http:
                 raw_jobs = await fetch_jobs(board_token, http)
-            jobs = transform_to_job_listings(company_id, board_token, raw_jobs)
+            jobs = transform_to_job_listings(company_id, raw_jobs)
             jobs_seen = len(jobs)
 
             active_count = await asyncio.to_thread(db.count_active_jobs, conn, company_id)
