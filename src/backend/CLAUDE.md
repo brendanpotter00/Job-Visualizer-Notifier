@@ -22,7 +22,7 @@ cd src/backend && pytest api/tests/test_jobs_router.py   # Single file
 ## Prerequisites
 
 - PostgreSQL running on localhost:5432 (use `docker compose up -d postgres` from project root)
-- Database: `jobscraper` with bare-named tables `job_listings`, `scrape_runs`, `users`, `user_enabled_companies` (created on first lifespan/migration run)
+- Database: `jobscraper` with bare-named tables `job_listings`, `scrape_runs`, `users`, `user_enabled_companies`, `admins`, `features`, `feature_upvotes` (created on first lifespan/migration run)
 - Python 3.13+ with dependencies from `src/backend/api/requirements.txt`
 
 ## Configuration
@@ -62,6 +62,14 @@ All configuration via environment variables:
 **Users Router (`/api/users`):**
 - `GET /api/users` - Get or create authenticated user's profile (requires Bearer token)
 - `PUT /api/users` - Update display name (requires Bearer token)
+- `GET /api/users/enabled-companies` - List user's enabled companies (requires Bearer token)
+- `PUT /api/users/enabled-companies` - Update user's enabled companies (requires Bearer token)
+
+**Admin Router (`/api/admin`):**
+- `GET /api/admin/users` - List all users with admin flag (requires admin)
+- `GET /api/admin/users/stats` - User statistics (requires admin)
+- `POST /api/admin/users/{user_id}/admin` - Grant admin to user (requires admin)
+- `DELETE /api/admin/users/{user_id}/admin` - Revoke admin from user (requires admin)
 
 **Features Router (`/api/features`):**
 - `GET /api/features` - List all features with upvote counts and current user's vote state (optional auth)
@@ -87,11 +95,17 @@ src/backend/api/
 ├── routers/
 │   ├── jobs.py          # Jobs list and detail endpoints
 │   ├── jobs_qa.py       # Stats, scrape runs, trigger scrape
-│   ├── users.py         # User profile endpoints (auth required)
-│   └── features.py      # Feature voting endpoints (list, upvote, remove upvote)
+│   ├── users.py         # User profile + enabled-companies endpoints (auth required)
+│   ├── features.py      # Feature voting endpoints (list, upvote, remove upvote)
+│   └── admin.py         # Admin-only user management endpoints
 └── services/
     ├── database.py      # API query functions (reuses scripts/shared/database.py)
     ├── user_service.py  # User CRUD operations (get_or_create, update)
+    ├── user_preferences_service.py  # Enabled-companies CRUD
+    ├── admin_service.py # Admin grant/revoke and is_admin check
+    ├── features_service.py  # Feature list and upvote logic
+    ├── features_seed.py # Seed initial feature rows
+    ├── scraper_lock.py  # asyncio.Lock singleton shared by runner + auto-scraper
     ├── scraper_runner.py # Async subprocess runner for scrapers
     └── auto_scraper.py  # Background scheduled scraping
 ```
