@@ -4,6 +4,90 @@
 
 ---
 
+## 2026-05-17 — Review pass 3
+
+Dispatched 5 code-review agents + 2 production verifiers in parallel.
+
+- **vercel-prod-verifier:** not dispatched (no matching diff signal — still backend-only).
+- All 7 dispatched agents completed successfully.
+
+### Code-review findings
+
+**Critical:**
+
+- `scripts/shared/database.py:329-375` (`upsert_jobs_batch`) — **the pass-2 divergence WARN is built on inverted psycopg2 semantics and will spam Railway logs on every prod Greenhouse fetch >100 jobs.** Confirmed independently by silent-failure-hunter and code-reviewer. `psycopg2.extras.execute_values` docstring explicitly says: *"After the execution of the function the `cursor.rowcount` property will not contain a total result."* It runs one `cur.execute()` per page (default `page_size=100`) and `rowcount` reflects only the LAST page. The pass-2 comment ("from 2.9 onward it sums across pages; the pre-2.9 bug only returned the last-page count") is the reverse of reality. Empirical test: 250 rows in 3 pages → `cursor.rowcount == 50`, not 250. Greenhouse boards routinely have >100 open jobs (Stripe, Airbnb, Coinbase); `src/backend/api/tasks/fetch_greenhouse_company.py:163` calls `db.upsert_jobs_batch(conn, jobs)` with the full per-board list. Once prod Greenhouse traffic ramps, every fetch for a 100+ board WILL log `upsert_jobs_batch affected 50/250 rows — 200 jobs did not produce an insert-or-update`, masking the very silent-failure surface the WARN was meant to detect. **Fix paths:** (a) iterate `jobs` in chunks and sum `cursor.rowcount` per `execute_values` call yourself, (b) use `RETURNING 1` + `cursor.fetchall()` count, or (c) drop the WARN entirely and revert to the original `logger.info(f"Batch upserted {len(jobs)} jobs")`. **Recommend (c) — minimal blast radius, no false promise.** Also strike the misleading "from 2.9 onward sums across pages" / "pre-2.9 page-only rowcount bug" comment + message text. (silent-failure-hunter Critical, code-reviewer Critical, comment-analyzer Important #1)
+
+**Important:**
+
+- `src/backend/api/tests/test_jobs_qa_router.py:134,150,151` — same `apple`-rows-seeded-with-`google_scraper`-source_id problem that pass 2 fixed in `test_jobs_router.py::seed_jobs`. `_make_job({"id": "a1", "company": "apple", ...})` inherits the `google_scraper` default. Stats endpoint groups by `company` so today's tests pass, but the fixture is now lying about data shape — same justification as pass-2 Important #1. One-line fix per row: add `"source_id": "apple_scraper"`. Pin before merge for convergence on the apple fixture problem. (pr-test-analyzer Important #1)
+- `scripts/shared/database.py:161-164,194-197,253-256,425-428,468-471,514-517,562-565,608-611` + `scripts/shared/incremental.py:169-172` + `src/backend/api/services/database.py:124-125` — **the 10 new pass-2 `if not source_id: raise ValueError(...)` guards have zero positive test coverage.** Pass-2 "Do not revert" list pins these as load-bearing ("Removing them in the name of 'simplification' would re-open the silent `WHERE source_id = ''` no-op surface"). An untested load-bearing guard can be silently broken by a future refactor (catching ValueError upstream, changing `if not source_id` to `is None`, etc.). Three or four `pytest.raises(ValueError, match="source_id")` tests covering one helper per shape (`get_active_job_ids`, `update_last_seen`, `get_job_by_id`, `update_existing_jobs`) would lock the contract without duplicating across all 10 sites. (pr-test-analyzer Important #2)
+- `scripts/shared/database.py:360` — `_build_job_values(job.source_id)` is a wrong function-signature claim in the comment block. `_build_job_values` is `def _build_job_values(job: JobListing)` — takes a `JobListing`, not a `source_id`. Rephrase to `_build_job_values(job)` reads `source_id` from `job.source_id` per row. Fold into the Critical fix above. (comment-analyzer Important #2)
+
+**Suggestion:**
+
+- `src/backend/api/tests/test_enqueue_greenhouse_fan_out.py:51` — `_greenhouse_jobs` helper SELECT is unqualified (`FROM procrastinate_jobs`) while the new cleanup DELETE is qualified (`FROM public.procrastinate_jobs`). Inconsistent; harmless today. (silent-failure-hunter Suggestion, code-reviewer Suggestion)
+- `scripts/shared/database.py:405` (`insert_jobs_batch`) — pre-existing same rowcount-after-`execute_values` issue in its INFO log. Pre-PR, out of scope, flag for follow-up. (silent-failure-hunter Critical-context)
+- ValueError guards uniformly handle `None` and `""` but not whitespace-only strings (`"  "`). Defensive `if not source_id or not source_id.strip()`. Optional. (silent-failure-hunter Suggestion)
+- `reactivate_job` docstring "Today's tests are the only callers" will rot. Drop the historical aside; keep the contract. (type-design-analyzer Nit, comment-analyzer Suggestion, code-reviewer Nit)
+- `src/backend/api/routers/jobs.py:28` — `Path(max_length=100)` doesn't enforce `min_length=1`; the empty-source_id guard at the service-layer catches it, but pushing the invariant to the URL boundary (`Path(min_length=1, max_length=100)`) would close the loop. (type-design-analyzer Suggestion S2)
+- Procrastinate cleanup IN-clause could broaden to `bootstrap_noop` for future test safety. (pr-test-analyzer Suggestion)
+- Migration NULL-source_id pre-flight guard has no test (`_create_pre_migration_job_listings` declares column as NOT NULL so can't seed NULL). (pr-test-analyzer Suggestion)
+- Test `test_upgrade_aborts_on_collision_preflight` only checks `id` values — could mirror `test_downgrade_aborts_on_collision_preflight`'s fuller row-equality assertion. (pr-test-analyzer Nit, silent-failure-hunter Suggestion)
+
+### Production-environment findings
+
+**Critical:**
+
+- None.
+
+**Important:**
+
+- None new. Pass-1 and pass-2 carry-forwards stand unchanged (pool exhaustion, Postgres 17.9 vs 15.15 drift, Railway-UI-rollback warning, zero `greenhouse_api` rows in prod). All non-blocking.
+
+**Suggestion:**
+
+- None new this pass.
+
+**Could not verify:**
+
+- Same as pass 1 + 2: Railway container memory/CPU metrics; live ALTER TABLE lock duration on Railway IO.
+
+### Deferred (not fixing this pass)
+
+- `insert_jobs_batch` rowcount-after-`execute_values` fix (pre-PR; out of scope).
+- Whitespace-only `source_id` defensive `.strip()` check (defensive; optional).
+- `reactivate_job` docstring historical aside removal (polish).
+- Router `Path(min_length=1)` (folds with deferred `Literal[…]` source-id registry).
+- `bootstrap_noop` cleanup broadening (defense-in-depth; not load-bearing today).
+- Migration NULL-source_id pre-flight test (deferred since pass 1).
+- Fuller row-equality assertion on upgrade collision test (mirror of pass-2 Suggestion).
+- All other polish items from passes 1+2 still deferred.
+
+### Implementation applied
+
+- **`a648192` Review pass 3: drop spurious `upsert_jobs_batch` rowcount divergence WARN** — Removed the `cursor.rowcount`-based divergence WARN that pass 2 added to `upsert_jobs_batch` in `scripts/shared/database.py`. `psycopg2.extras.execute_values` overwrites `rowcount` per page (default `page_size=100`) — its docstring explicitly says: *"After the execution of the function the `cursor.rowcount` property will not contain a total result."* Pass 2's comment claiming "from 2.9 onward sums across pages" was the reverse of reality, so for any batch >100 rows (i.e. every prod Greenhouse board of meaningful size: Stripe, Airbnb, Coinbase) the WARN would have fired spuriously on every fetch once Greenhouse traffic ramps. Replaced with a single `logger.info` line that includes the sorted set of source_ids in the batch (genuinely useful operator data). Struck the misleading "from 2.9 onward sums across pages" / "pre-2.9 page-only rowcount bug" comment block and the wrong `_build_job_values(job.source_id)` signature claim. Resolves audit pass-3 Critical (silent-failure-hunter Critical, code-reviewer Critical, comment-analyzer Important #1, #2). The original silent-failure rationale ("future scraper builds a JobListing with the wrong source_id") cannot be detected by a rowcount-divergence check anyway — `ON CONFLICT (source_id, id) DO UPDATE` will count a mis-routed insert OR mis-routed update normally; the right defense is the per-row `_build_job_values(job)` construction itself.
+
+- **`aa229d8` Review pass 3: apple-fixture source_id symmetry + positive ValueError guard tests** — In `src/backend/api/tests/test_jobs_qa_router.py::test_stats_returns_counts_for_all_companies` and `test_stats_filters_by_company`, overrode `source_id="apple_scraper"` on apple rows and `source_id="google_scraper"` on google rows so the (source_id, id) composite-PK rows are filed in their real namespaces instead of inheriting `_make_job`'s `google_scraper` default. Stats endpoint groups by `company` so today's tests pass either way, but the fixture is no longer lying about data shape — same justification as pass-2 Important #1 in `test_jobs_router.py::seed_jobs`. Added 3 positive `pytest.raises(ValueError, match="source_id")` tests covering the three guard shapes — `get_active_job_ids` (SELECT), `update_last_seen` (bulk UPDATE), `get_job_by_id` (single-row) — as a new `TestSourceScopedHelpersRejectEmptySource` class in `scripts/tests/integration/test_database.py`. Added a 4th test for the highest-level guard `update_existing_jobs` in `scripts/tests/integration/test_incremental.py::TestUpdateExistingJobs::test_update_existing_jobs_rejects_empty_source_id`. The 10 new ValueError guards added in pass 2 are pinned as "Do not revert" but had zero positive coverage — these tests lock the contract without duplicating across all 10 sites. Resolves audit pass-3 Important #1 and #2.
+
+**Do not revert (new in this pass):**
+
+- The simplified `upsert_jobs_batch` log (no `cursor.rowcount` divergence WARN). Re-adding a rowcount check on `execute_values` output cannot reliably detect "wrong source_id" misfiling — `ON CONFLICT (source_id, id) DO UPDATE` counts mis-routed writes normally — and will fire spuriously on any batch >100 rows due to per-page rowcount semantics. The current `logger.info` line includes the sorted set of source_ids in the batch, which IS useful operator data for spotting cross-namespace mixing in logs.
+- The `TestSourceScopedHelpersRejectEmptySource` class in `test_database.py` and the `test_update_existing_jobs_rejects_empty_source_id` test in `test_incremental.py` are load-bearing for the pass-2 "Do not revert" ValueError guards. Removing these tests would let a future refactor silently weaken the guards (`if not source_id` → `is None`, upstream `except ValueError`, etc.) and re-open the silent `WHERE source_id = ''` no-op surface.
+
+**Manual action required before merge:**
+
+- None.
+
+**Conflicts with prior audit (not fixed):**
+
+- This commit REPLACES pass-2's `upsert_jobs_batch` divergence WARN with a simple info log. Pass-2's "Do not revert" list pinned the WARN — that pin is OVERRIDDEN by this pass because the WARN was factually broken (built on inverted psycopg2 semantics; cannot detect the bug class it claimed to detect; would spam Railway logs on every prod Greenhouse fetch >100 jobs). The override is justified and documented in the pass-3 Critical write-up above. Future reviewers: do NOT re-add the WARN without first fixing the underlying `execute_values` rowcount-per-page issue (option (a) chunk-and-sum yourself or option (b) RETURNING-based count from the pass-3 audit fix paths) AND a positive test proving the WARN fires only on genuine divergence and not on every multi-page batch.
+
+---
+
+## 2026-05-17 — Review pass 2
+
+---
+
 ## 2026-05-17 — Review pass 2
 
 Dispatched 5 code-review agents + 2 production verifiers in parallel.
