@@ -14,7 +14,7 @@ describe('MetricsDashboard', () => {
   // Jobs with different timestamps for testing time windows
   const jobPosted6HoursAgo: Job = {
     id: '1',
-    source: 'greenhouse',
+    source: 'backend-scraper',
     company: 'spacex',
     title: 'Senior Frontend Engineer',
     department: 'Engineering',
@@ -27,7 +27,7 @@ describe('MetricsDashboard', () => {
 
   const jobPosted18HoursAgo: Job = {
     id: '2',
-    source: 'greenhouse',
+    source: 'backend-scraper',
     company: 'spacex',
     title: 'Backend Engineer',
     department: 'Engineering',
@@ -40,7 +40,7 @@ describe('MetricsDashboard', () => {
 
   const jobPosted30HoursAgo: Job = {
     id: '3',
-    source: 'greenhouse',
+    source: 'backend-scraper',
     company: 'spacex',
     title: 'DevOps Engineer',
     department: 'Engineering',
@@ -53,7 +53,7 @@ describe('MetricsDashboard', () => {
 
   const jobPosted2DaysAgo: Job = {
     id: '4',
-    source: 'greenhouse',
+    source: 'backend-scraper',
     company: 'spacex',
     title: 'Platform Engineer',
     department: 'Engineering',
@@ -66,7 +66,7 @@ describe('MetricsDashboard', () => {
 
   const jobPosted4DaysAgo: Job = {
     id: '5',
-    source: 'greenhouse',
+    source: 'backend-scraper',
     company: 'spacex',
     title: 'Security Engineer',
     department: 'Security',
@@ -102,7 +102,7 @@ describe('MetricsDashboard', () => {
     const store = createTestStore({
       app: {
         selectedCompanyId: companyId,
-        selectedATS: 'greenhouse' as const,
+        selectedATS: 'backend-scraper' as const,
         isInitialized: true,
       },
       graphFilters: {

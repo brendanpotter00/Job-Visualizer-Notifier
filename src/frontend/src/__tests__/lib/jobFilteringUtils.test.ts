@@ -12,7 +12,7 @@ import {
 // Helper to create mock jobs
 const createMockJob = (overrides: Partial<Job> = {}): Job => ({
   id: '1',
-  source: 'greenhouse',
+  source: 'backend-scraper',
   company: 'test-company',
   title: 'Software Engineer',
   department: 'Engineering',

@@ -6,7 +6,6 @@
  * ATS provider type
  */
 export type ATSProvider =
-  | 'greenhouse'
   | 'lever'
   | 'ashby'
   | 'workday'
@@ -102,17 +101,6 @@ export interface TimeBucket {
 
   /** Job IDs in this bucket */
   jobIds: string[];
-}
-
-/**
- * Greenhouse-specific configuration
- */
-export interface GreenhouseConfig {
-  type: 'greenhouse';
-  /** Board token or identifier */
-  boardToken: string;
-  /** Optional custom API base URL */
-  apiBaseUrl?: string;
 }
 
 /**
@@ -222,7 +210,6 @@ export interface Company {
 
   /** ATS-specific configuration */
   config:
-    | GreenhouseConfig
     | LeverConfig
     | AshbyConfig
     | GemConfig

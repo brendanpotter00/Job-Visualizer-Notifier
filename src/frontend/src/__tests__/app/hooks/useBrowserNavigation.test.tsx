@@ -49,7 +49,7 @@ describe('useBrowserNavigation', () => {
     const store = createTestStore({
       app: {
         selectedCompanyId: 'spacex',
-        selectedATS: 'greenhouse',
+        selectedATS: 'backend-scraper',
         isInitialized: true,
       },
     });
@@ -78,7 +78,7 @@ describe('useBrowserNavigation', () => {
     const store = createTestStore({
       app: {
         selectedCompanyId: 'spacex',
-        selectedATS: 'greenhouse',
+        selectedATS: 'backend-scraper',
         isInitialized: true,
       },
     });
@@ -106,7 +106,7 @@ describe('useBrowserNavigation', () => {
     const store = createTestStore({
       app: {
         selectedCompanyId: 'spacex',
-        selectedATS: 'greenhouse',
+        selectedATS: 'backend-scraper',
         isInitialized: true,
       },
     });
@@ -134,7 +134,7 @@ describe('useBrowserNavigation', () => {
     const store = createTestStore({
       app: {
         selectedCompanyId: 'spacex',
-        selectedATS: 'greenhouse',
+        selectedATS: 'backend-scraper',
         isInitialized: true,
       },
     });

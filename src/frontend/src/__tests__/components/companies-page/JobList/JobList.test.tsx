@@ -7,7 +7,7 @@ describe('JobList', () => {
   const mockJobs: Job[] = [
     {
       id: '1',
-      source: 'greenhouse',
+      source: 'backend-scraper',
       company: 'spacex',
       title: 'Frontend Engineer',
       createdAt: new Date().toISOString(),

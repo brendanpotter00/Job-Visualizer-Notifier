@@ -13,6 +13,8 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from .config import settings
 from .dependencies import init_pool, close_pool, pool_is_healthy
 from .routers import admin, features, jobs, jobs_qa, users
+from .tasks import procrastinate_app
+from .tasks.procrastinate_app import ensure_schema_async
 from .migrations import apply_alembic_migrations
 
 
@@ -70,6 +72,20 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("Failed to apply migrations during startup")
         raise
+
+    # Procrastinate brings its own schema (procrastinate_jobs etc.).
+    # open_async() spins up the async pool; ensure_schema_async then probes
+    # for the procrastinate_jobs table and installs the bundled schema only
+    # if missing (the bundled DDL isn't idempotent on its own, so we gate it).
+    # Must come AFTER apply_alembic_migrations and BEFORE the worker task is
+    # created — the worker queries procrastinate_jobs on tick.
+    try:
+        await procrastinate_app.open_async()
+        await ensure_schema_async(procrastinate_app)
+    except Exception:
+        logger.exception("Failed to open Procrastinate connector during startup")
+        raise
+
     try:
         init_pool(
             settings.database_url,
@@ -118,9 +134,34 @@ async def lifespan(app: FastAPI):
     scraper_task.add_done_callback(_scraper_task_done)
     logger.info("Auto-scraper background task started")
 
+    def _worker_task_done(task: asyncio.Task) -> None:
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.error("Procrastinate worker task crashed: %s", exc, exc_info=exc)
+
+    worker_task = asyncio.create_task(
+        procrastinate_app.run_worker_async(
+            queues=["greenhouse_fetch"],
+            concurrency=5,
+        )
+    )
+    worker_task.add_done_callback(_worker_task_done)
+    logger.info("Procrastinate worker background task started (queues=['greenhouse_fetch'], concurrency=5)")
+
     yield
 
     # Shutdown
+    worker_task.cancel()
+    try:
+        await worker_task
+    except asyncio.CancelledError:
+        pass
+    try:
+        await procrastinate_app.close_async()
+    except Exception:
+        logger.warning("Error closing Procrastinate connector during shutdown", exc_info=True)
     scraper_task.cancel()
     try:
         await scraper_task

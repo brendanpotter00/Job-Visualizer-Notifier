@@ -18,7 +18,7 @@ export interface AppState {
 
 const initialState: AppState = {
   selectedCompanyId: 'spacex', // Default to SpaceX
-  selectedATS: ATSConstants.Greenhouse,
+  selectedATS: ATSConstants.BackendScraper,
   isInitialized: false,
 };
 

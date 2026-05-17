@@ -1,6 +1,5 @@
 import type {
   Job,
-  GreenhouseConfig,
   LeverConfig,
   AshbyConfig,
   GemConfig,
@@ -8,39 +7,6 @@ import type {
   EightfoldConfig,
   BackendScraperConfig,
 } from '../types';
-
-/**
- * Greenhouse job board API response
- * @see https://developers.greenhouse.io/job-board.html
- */
-export interface GreenhouseJobResponse {
-  id: number;
-  title: string;
-  absolute_url: string;
-  location: {
-    name: string;
-  };
-  departments: Array<{
-    id: number;
-    name: string;
-  }>;
-  offices: Array<{
-    id: number;
-    name: string;
-    location: string;
-  }>;
-  updated_at: string; // ISO timestamp
-  first_published?: string; // ISO timestamp - when job was first posted
-  metadata?: Array<{
-    id: number;
-    name: string;
-    value: string | string[] | null; // API can return string, array, or null
-  }>;
-}
-
-export interface GreenhouseAPIResponse {
-  jobs: GreenhouseJobResponse[];
-}
 
 /**
  * Lever job posting API response
@@ -300,7 +266,6 @@ export interface JobAPIClient {
    */
   fetchJobs(
     config:
-      | GreenhouseConfig
       | LeverConfig
       | AshbyConfig
       | GemConfig
@@ -338,7 +303,6 @@ export class APIError extends Error {
     message: string,
     public statusCode?: number,
     public atsProvider?:
-      | 'greenhouse'
       | 'lever'
       | 'ashby'
       | 'gem'
@@ -353,7 +317,6 @@ export class APIError extends Error {
 }
 
 export enum ATSConstants {
-  Greenhouse = 'greenhouse',
   Workday = 'workday',
   Ashby = 'ashby',
   Gem = 'gem',

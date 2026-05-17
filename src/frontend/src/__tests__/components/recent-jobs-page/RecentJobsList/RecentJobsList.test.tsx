@@ -66,7 +66,7 @@ function createMockJobs(count: number): Job[] {
     team: 'Backend',
     tags: [],
     isRemote: true,
-    source: 'greenhouse' as const,
+    source: 'backend-scraper' as const,
     raw: {},
   }));
 }

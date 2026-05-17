@@ -18,6 +18,7 @@ def test_all_tables_present():
         "features",
         "feature_upvotes",
         "admins",
+        "companies",
     }, f"Unexpected metadata.tables: {sorted(names)}"
 
 

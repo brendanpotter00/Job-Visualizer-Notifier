@@ -41,7 +41,7 @@ describe('CompaniesPageContent', () => {
         preloadedState: {
           app: {
             selectedCompanyId: 'x',
-            selectedATS: ATSConstants.Greenhouse,
+            selectedATS: ATSConstants.BackendScraper,
             isInitialized: false,
           },
         },

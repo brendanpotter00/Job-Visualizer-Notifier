@@ -42,28 +42,46 @@ vi.mock('../../features/auth/useAuth', () => ({
  */
 
 // Mock API responses
-const mockGreenhouseJobs = {
-  jobs: [
-    {
-      id: 1,
-      title: 'Senior Software Engineer',
-      absolute_url: 'https://spacex.com/careers/1',
-      location: { name: 'Hawthorne, CA' },
-      departments: [{ id: 1, name: 'Engineering' }],
-      offices: [],
-      updated_at: new Date(Date.now() - 1000 * 60 * 30).toISOString(), // 30 min ago
-    },
-    {
-      id: 2,
-      title: 'Frontend Engineer',
-      absolute_url: 'https://spacex.com/careers/2',
-      location: { name: 'Hawthorne, CA' },
-      departments: [{ id: 1, name: 'Engineering' }],
-      offices: [],
-      updated_at: new Date(Date.now() - 1000 * 60 * 60).toISOString(), // 1 hour ago
-    },
-  ],
-};
+const mockBackendJobs = [
+  {
+    id: 'greenhouse_1',
+    title: 'Senior Software Engineer',
+    company: 'spacex',
+    location: 'Hawthorne, CA',
+    url: 'https://spacex.com/careers/1',
+    sourceId: 'greenhouse_api',
+    details: JSON.stringify({ experience_level: null, is_remote_eligible: false }),
+    createdAt: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
+    postedOn: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
+    closedOn: null,
+    status: 'OPEN',
+    hasMatched: false,
+    aiMetadata: '{}',
+    firstSeenAt: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
+    lastSeenAt: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
+    consecutiveMisses: 0,
+    detailsScraped: true,
+  },
+  {
+    id: 'greenhouse_2',
+    title: 'Frontend Engineer',
+    company: 'spacex',
+    location: 'Hawthorne, CA',
+    url: 'https://spacex.com/careers/2',
+    sourceId: 'greenhouse_api',
+    details: JSON.stringify({ experience_level: null, is_remote_eligible: false }),
+    createdAt: new Date(Date.now() - 1000 * 60 * 60).toISOString(),
+    postedOn: new Date(Date.now() - 1000 * 60 * 60).toISOString(),
+    closedOn: null,
+    status: 'OPEN',
+    hasMatched: false,
+    aiMetadata: '{}',
+    firstSeenAt: new Date(Date.now() - 1000 * 60 * 60).toISOString(),
+    lastSeenAt: new Date(Date.now() - 1000 * 60 * 60).toISOString(),
+    consecutiveMisses: 0,
+    detailsScraped: true,
+  },
+];
 
 const mockLeverJobs = [
   {
@@ -84,14 +102,12 @@ const mockLeverJobs = [
 
 // Setup MSW server
 const server = setupServer(
-  http.get('/api/greenhouse/v1/boards/spacex/jobs', ({ request }) => {
-    // Verify content=true parameter is present
+  http.get('/api/jobs', ({ request }) => {
     const url = new URL(request.url);
-    if (url.searchParams.get('content') === 'true') {
-      return HttpResponse.json(mockGreenhouseJobs);
+    if (url.searchParams.get('company') === 'spacex') {
+      return HttpResponse.json(mockBackendJobs);
     }
-    // Return minimal response without content parameter
-    return HttpResponse.json({ jobs: [] });
+    return HttpResponse.json([]);
   }),
   http.get('/api/lever/v0/postings/spotify', () => {
     return HttpResponse.json(mockLeverJobs);

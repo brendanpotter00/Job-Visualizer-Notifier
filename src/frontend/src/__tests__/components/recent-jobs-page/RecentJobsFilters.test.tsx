@@ -40,7 +40,7 @@ vi.mock('../../../api/utils', async () => {
 const seededJobs: Job[] = [
   {
     id: 'j1',
-    source: 'greenhouse',
+    source: 'backend-scraper',
     company: 'spacex',
     title: 'Senior Software Engineer',
     createdAt: '2026-04-18T10:00:00Z',
@@ -51,7 +51,7 @@ const seededJobs: Job[] = [
   },
   {
     id: 'j2',
-    source: 'greenhouse',
+    source: 'backend-scraper',
     company: 'spacex',
     title: 'Recruiter',
     createdAt: '2026-04-18T11:00:00Z',

@@ -10,7 +10,7 @@ import type { Job } from '../../../types';
 const seededJobs: Job[] = [
   {
     id: 'j1',
-    source: 'greenhouse',
+    source: 'backend-scraper',
     company: 'spacex',
     title: 'Senior Software Engineer',
     createdAt: '2026-04-10T10:00:00Z',
@@ -21,7 +21,7 @@ const seededJobs: Job[] = [
   },
   {
     id: 'j2',
-    source: 'greenhouse',
+    source: 'backend-scraper',
     company: 'spacex',
     title: 'Recruiter',
     createdAt: '2026-04-11T10:00:00Z',
@@ -36,7 +36,7 @@ async function seedStore(jobs: Job[] = seededJobs) {
   const store = createTestStore({
     app: {
       selectedCompanyId: 'spacex',
-      selectedATS: ATSConstants.Greenhouse as const,
+      selectedATS: ATSConstants.BackendScraper as const,
       isInitialized: true,
     },
   });
@@ -77,7 +77,7 @@ describe('ListFilters', () => {
     const jobsNoLocation: Job[] = [
       {
         id: 'x1',
-        source: 'greenhouse',
+        source: 'backend-scraper',
         company: 'spacex',
         title: 'Engineer',
         createdAt: '2026-04-10T10:00:00Z',
@@ -97,7 +97,7 @@ describe('ListFilters', () => {
     const jobsNoDept: Job[] = [
       {
         id: 'y1',
-        source: 'greenhouse',
+        source: 'backend-scraper',
         company: 'spacex',
         title: 'Engineer',
         createdAt: '2026-04-10T10:00:00Z',
@@ -144,7 +144,7 @@ describe('ListFilters', () => {
     const store = createTestStore({
       app: {
         selectedCompanyId: 'spacex',
-        selectedATS: ATSConstants.Greenhouse as const,
+        selectedATS: ATSConstants.BackendScraper as const,
         isInitialized: true,
       },
       listFilters: {
@@ -180,7 +180,7 @@ describe('ListFilters', () => {
     const store = createTestStore({
       app: {
         selectedCompanyId: 'spacex',
-        selectedATS: ATSConstants.Greenhouse as const,
+        selectedATS: ATSConstants.BackendScraper as const,
         isInitialized: true,
       },
       listFilters: {
@@ -257,7 +257,7 @@ describe('ListFilters', () => {
     const store = createTestStore({
       app: {
         selectedCompanyId: 'spacex',
-        selectedATS: ATSConstants.Greenhouse as const,
+        selectedATS: ATSConstants.BackendScraper as const,
         isInitialized: true,
       },
       listFilters: {
