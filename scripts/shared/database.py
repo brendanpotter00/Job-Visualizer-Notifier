@@ -353,25 +353,24 @@ def upsert_jobs_batch(conn: Connection, jobs: List[JobListing]) -> int:
         page_size=100
     )
 
-    # execute_values returns the rowcount of the LAST page only in psycopg2
-    # < 2.9; from 2.9 onward it sums across pages. Project pins
-    # psycopg2-binary >= 2.9.9 (scripts/requirements.txt,
-    # src/backend/api/requirements.txt) so rowcount is reliable for divergence
-    # detection. Source_id comes from per-row `_build_job_values(job.source_id)`
-    # rather than a uniform arg, so a future scraper constructing a JobListing
-    # with the wrong source_id would silently upsert into the wrong namespace —
-    # the divergence warning here is the first signal that something is off.
-    affected = cursor.rowcount
+    # NOTE: do NOT inspect `cursor.rowcount` here. `psycopg2.extras.execute_values`
+    # runs one `cur.execute()` per page (default page_size=100) and overwrites
+    # rowcount per page — its docstring states explicitly: "After the execution
+    # of the function the `cursor.rowcount` property will not contain a total
+    # result." Greenhouse boards routinely have >100 jobs, so for any batch
+    # crossing a page boundary `cursor.rowcount` reflects only the LAST page.
+    # A divergence check built on it fires spuriously and can't reliably detect
+    # the "wrong source_id" failure mode anyway — `ON CONFLICT (source_id, id)
+    # DO UPDATE` will count a mis-routed insert OR a mis-routed update normally.
+    # The right defense against per-row source_id misfiling is the per-row
+    # `_build_job_values(job)` construction itself, which reads source_id
+    # straight off the JobListing.
     conn.commit()
-    if affected != len(jobs):
-        logger.warning(
-            "upsert_jobs_batch affected %d/%d rows — %d jobs did not produce "
-            "an insert-or-update (psycopg2 rowcount divergence may indicate a "
-            "constraint conflict or pre-2.9 page-only rowcount bug)",
-            affected, len(jobs), len(jobs) - affected,
-        )
-    else:
-        logger.info(f"Batch upserted {affected}/{len(jobs)} jobs")
+    source_ids = sorted({job.source_id for job in jobs})
+    logger.info(
+        "upsert_jobs_batch: upserted %d jobs (source_ids=%s)",
+        len(jobs), source_ids,
+    )
     return len(jobs)
 
 
