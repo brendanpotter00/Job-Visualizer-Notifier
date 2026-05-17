@@ -156,7 +156,9 @@ def update_existing_jobs(
     Args:
         db_conn: Database connection
         source_id: Source namespace shared by ``still_active_ids`` and
-            ``missing_ids`` (e.g., ``"google_scraper"``)
+            ``missing_ids`` (e.g., ``"google_scraper"``). Must be non-empty —
+            an empty value would silently no-op every UPDATE in this
+            function, mirroring the guard in ``run_incremental_scrape``.
         still_active_ids: Job IDs that are still in search results
         missing_ids: Job IDs that are missing from search results
         threshold: Number of consecutive misses before marking as closed
@@ -164,6 +166,10 @@ def update_existing_jobs(
     Returns:
         Number of jobs marked as closed
     """
+    if not source_id:
+        raise ValueError(
+            "update_existing_jobs requires a non-empty source_id"
+        )
     timestamp = get_iso_timestamp()
 
     # Update last_seen for still active jobs

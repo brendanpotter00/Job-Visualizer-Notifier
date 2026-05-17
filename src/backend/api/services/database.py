@@ -113,7 +113,16 @@ def get_jobs(
 
 
 def get_job_by_id(conn: Connection, source_id: str, job_id: str) -> dict | None:
-    """Get a single job by composite (source_id, id) key."""
+    """Get a single job by composite (source_id, id) key.
+
+    ``source_id`` must be non-empty. An empty value would silently 404
+    every lookup with no signal at the call site — fail fast instead.
+    The router's ``Path`` matcher already prevents ``/api/jobs//<id>``
+    from routing here, but we guard at the service boundary to catch any
+    future caller that bypasses the router.
+    """
+    if not source_id:
+        raise ValueError("get_job_by_id requires a non-empty source_id")
     with conn.cursor() as cursor:
         cursor.execute(
             sql.SQL("SELECT * FROM {} WHERE source_id = %s AND id = %s").format(_JOBS_TABLE),

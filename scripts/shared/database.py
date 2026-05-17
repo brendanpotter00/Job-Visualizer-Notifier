@@ -149,13 +149,19 @@ def get_active_job_ids(
     Args:
         conn: Database connection
         source_id: Source namespace (e.g., ``"greenhouse_api"``,
-            ``"google_scraper"``)
+            ``"google_scraper"``). Must be a non-empty string; an empty
+            string would silently build ``WHERE source_id = ''`` and return
+            no rows, masking a misconfigured caller.
         company: Company name (e.g., "google")
 
     Returns:
         Set of job IDs that are currently marked as OPEN for the given
         ``(source_id, company)`` pair.
     """
+    if not source_id:
+        raise ValueError(
+            "get_active_job_ids requires a non-empty source_id"
+        )
     cursor = conn.cursor()
 
     cursor.execute(
@@ -176,13 +182,19 @@ def count_active_jobs(
 
     Args:
         conn: Database connection
-        source_id: Source namespace (e.g., ``"greenhouse_api"``)
+        source_id: Source namespace (e.g., ``"greenhouse_api"``). Must be a
+            non-empty string; an empty string would silently return 0 and
+            mask a misconfigured caller.
         company: Company name (e.g., "stripe")
 
     Returns:
         Number of jobs currently marked as OPEN for the given
         ``(source_id, company)`` pair.
     """
+    if not source_id:
+        raise ValueError(
+            "count_active_jobs requires a non-empty source_id"
+        )
     cursor = conn.cursor()
 
     cursor.execute(
@@ -230,12 +242,18 @@ def get_job_by_id(
 
     Args:
         conn: Database connection
-        source_id: Source namespace (e.g., "greenhouse_api", "google_scraper")
+        source_id: Source namespace (e.g., "greenhouse_api", "google_scraper").
+            Must be non-empty; an empty value would silently 404 every lookup
+            with no signal at the call site.
         job_id: Job id within that source
 
     Returns:
         Job data as dict, or None if not found
     """
+    if not source_id:
+        raise ValueError(
+            "get_job_by_id requires a non-empty source_id"
+        )
     cursor = conn.cursor()
 
     cursor.execute(
@@ -335,8 +353,25 @@ def upsert_jobs_batch(conn: Connection, jobs: List[JobListing]) -> int:
         page_size=100
     )
 
+    # execute_values returns the rowcount of the LAST page only in psycopg2
+    # < 2.9; from 2.9 onward it sums across pages. Project pins
+    # psycopg2-binary >= 2.9.9 (scripts/requirements.txt,
+    # src/backend/api/requirements.txt) so rowcount is reliable for divergence
+    # detection. Source_id comes from per-row `_build_job_values(job.source_id)`
+    # rather than a uniform arg, so a future scraper constructing a JobListing
+    # with the wrong source_id would silently upsert into the wrong namespace —
+    # the divergence warning here is the first signal that something is off.
+    affected = cursor.rowcount
     conn.commit()
-    logger.info(f"Batch upserted {len(jobs)} jobs")
+    if affected != len(jobs):
+        logger.warning(
+            "upsert_jobs_batch affected %d/%d rows — %d jobs did not produce "
+            "an insert-or-update (psycopg2 rowcount divergence may indicate a "
+            "constraint conflict or pre-2.9 page-only rowcount bug)",
+            affected, len(jobs), len(jobs) - affected,
+        )
+    else:
+        logger.info(f"Batch upserted {affected}/{len(jobs)} jobs")
     return len(jobs)
 
 
@@ -381,10 +416,16 @@ def update_last_seen(
 
     Args:
         conn: Database connection
-        source_id: Source namespace; ``job_ids`` must all belong to this source
+        source_id: Source namespace; ``job_ids`` must all belong to this
+            source. Must be non-empty; an empty value would silently no-op
+            every row.
         job_ids: List of job IDs to update
         timestamp: ISO 8601 timestamp
     """
+    if not source_id:
+        raise ValueError(
+            "update_last_seen requires a non-empty source_id"
+        )
     if not job_ids:
         return
 
@@ -420,9 +461,14 @@ def increment_consecutive_misses(
 
     Args:
         conn: Database connection
-        source_id: Source namespace; ``job_ids`` must all belong to this source
+        source_id: Source namespace; ``job_ids`` must all belong to this
+            source. Must be non-empty; an empty value would silently no-op.
         job_ids: List of job IDs to update
     """
+    if not source_id:
+        raise ValueError(
+            "increment_consecutive_misses requires a non-empty source_id"
+        )
     if not job_ids:
         return
 
@@ -459,10 +505,16 @@ def mark_jobs_closed(
 
     Args:
         conn: Database connection
-        source_id: Source namespace; ``job_ids`` must all belong to this source
+        source_id: Source namespace; ``job_ids`` must all belong to this
+            source. Must be non-empty; an empty value would silently no-op
+            and the jobs would never get closed.
         job_ids: List of job IDs to mark as closed
         timestamp: ISO 8601 timestamp
     """
+    if not source_id:
+        raise ValueError(
+            "mark_jobs_closed requires a non-empty source_id"
+        )
     if not job_ids:
         return
 
@@ -498,13 +550,19 @@ def get_jobs_exceeding_miss_threshold(
 
     Args:
         conn: Database connection
-        source_id: Source namespace; ``job_ids`` must all belong to this source
+        source_id: Source namespace; ``job_ids`` must all belong to this
+            source. Must be non-empty; an empty value would silently return
+            an empty set and skip the close phase.
         job_ids: List of job IDs to check
         threshold: Minimum consecutive_misses value
 
     Returns:
         Set of job IDs that have consecutive_misses >= threshold
     """
+    if not source_id:
+        raise ValueError(
+            "get_jobs_exceeding_miss_threshold requires a non-empty source_id"
+        )
     if not job_ids:
         return set()
 
@@ -525,14 +583,32 @@ def reactivate_job(
     conn: Connection, source_id: str, job_id: str, timestamp: str
 ) -> None:
     """
-    Reactivate a closed job (if it reappears in search results)
+    Reactivate a closed job (if it reappears in search results).
+
+    **Contract: the (source_id, id) row MUST already exist.** Callers are
+    expected to look up the job first (e.g. via ``get_job_by_id``) and only
+    call ``reactivate_job`` when they have confirmed the row is present —
+    typically when a previously-closed job reappears in a scrape. The
+    ``affected != 1`` branch therefore logs a WARNING (not an INFO):
+    reaching it means a caller violated the contract and the reactivation
+    silently no-op'd, which is a real bug worth surfacing in Railway logs.
+
+    Today's tests (``scripts/tests/integration/test_database.py``) are the
+    only callers; they always insert + close + reactivate, so the warning
+    only ever fires on regression.
 
     Args:
         conn: Database connection
-        source_id: Source namespace
+        source_id: Source namespace. Must be non-empty; an empty value
+            would silently match zero rows and the WARN log below would be
+            the only signal.
         job_id: Job ID to reactivate
         timestamp: ISO 8601 timestamp
     """
+    if not source_id:
+        raise ValueError(
+            "reactivate_job requires a non-empty source_id"
+        )
     cursor = conn.cursor()
 
     cursor.execute(
@@ -547,7 +623,8 @@ def reactivate_job(
     if affected != 1:
         logger.warning(
             "reactivate_job affected %d/1 rows for source_id=%s id=%s — "
-            "no row matched the composite (source_id, id) key",
+            "no row matched the composite (source_id, id) key (contract "
+            "violation: caller must ensure the row exists before calling)",
             affected, source_id, job_id,
         )
     else:
