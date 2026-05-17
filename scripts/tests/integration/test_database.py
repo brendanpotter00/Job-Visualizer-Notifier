@@ -657,3 +657,30 @@ class TestActiveJobIdsCrossSource:
 
         assert db.count_active_jobs(in_memory_db, "source_a", "acme") == 3
         assert db.count_active_jobs(in_memory_db, "source_b", "acme") == 1
+
+
+class TestSourceScopedHelpersRejectEmptySource:
+    """Lock the empty-source_id ValueError contract added in pass 2.
+
+    Three representative shapes — SELECT, bulk-UPDATE, single-row. Future
+    refactors that catch ValueError upstream or weaken `if not source_id`
+    to `is None` would re-open the silent `WHERE source_id = ''` no-op
+    surface that pass-1's divergence WARN was only a backstop for.
+    """
+
+    def test_get_active_job_ids_rejects_empty_source_id(self, in_memory_db):
+        # SELECT-shape guard.
+        with pytest.raises(ValueError, match="source_id"):
+            db.get_active_job_ids(in_memory_db, "", "google")
+
+    def test_update_last_seen_rejects_empty_source_id(self, in_memory_db):
+        # Bulk-UPDATE-shape guard.
+        with pytest.raises(ValueError, match="source_id"):
+            db.update_last_seen(
+                in_memory_db, "", ["job-001"], "2024-01-15T10:00:00Z"
+            )
+
+    def test_get_job_by_id_rejects_empty_source_id(self, in_memory_db):
+        # Single-row-shape guard.
+        with pytest.raises(ValueError, match="source_id"):
+            db.get_job_by_id(in_memory_db, "", "job-001")

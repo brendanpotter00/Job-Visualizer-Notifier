@@ -210,6 +210,14 @@ class TestUpdateExistingJobs:
             job = db.get_job_by_id(in_memory_db, "google_scraper", job_id)
             assert job["consecutive_misses"] == 1
 
+    def test_update_existing_jobs_rejects_empty_source_id(self, in_memory_db):
+        """Highest-level fail-fast guard: empty source_id raises before any
+        DB call. Locks the contract added in pass 2 — a future caller
+        passing source_id='' (misconfigured env var, dropped class attr)
+        MUST fail at this boundary, not silently no-op every UPDATE."""
+        with pytest.raises(ValueError, match="source_id"):
+            update_existing_jobs(in_memory_db, "", {"job-001"}, set())
+
 
 class TestRunIncrementalScrape:
     """Tests for run_incremental_scrape function (full 5-phase algorithm)"""
