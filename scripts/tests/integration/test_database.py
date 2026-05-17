@@ -70,7 +70,7 @@ class TestActiveJobIds:
         db.mark_jobs_closed(in_memory_db, "google_scraper", ["job-001"], "2024-01-16T10:00:00Z")
 
         # Get active job IDs
-        active_ids = db.get_active_job_ids(in_memory_db, "google")
+        active_ids = db.get_active_job_ids(in_memory_db, "google_scraper", "google")
 
         # Should only have 2 jobs (job-000 and job-002)
         assert len(active_ids) == 2
@@ -80,7 +80,7 @@ class TestActiveJobIds:
 
     def test_get_active_job_ids_empty(self, in_memory_db):
         """Returns empty set when no jobs exist"""
-        active_ids = db.get_active_job_ids(in_memory_db, "google")
+        active_ids = db.get_active_job_ids(in_memory_db, "google_scraper", "google")
         assert active_ids == set()
 
 
@@ -406,3 +406,254 @@ class TestTimestamptzColumns:
             assert isinstance(value, str), f"{field} must be str, got {type(value)}"
             parsed = datetime.fromisoformat(value)
             assert parsed.tzinfo is not None, f"{field} should round-trip as tz-aware"
+
+
+class TestSourceScopedHelpersCrossSource:
+    """Cross-source coverage for the source-scoped helpers in database.py.
+
+    Each test seeds two jobs that share an `id` but differ in `source_id`,
+    then runs a source-A operation and asserts source-B's row is untouched.
+    A regression that drops `source_id = %s` from any of these helpers
+    would clobber source B and these tests would fail.
+    """
+
+    SHARED_ID = "shared-id-7"
+
+    def _seed_pair(self, conn):
+        """Insert two jobs that share `id` but differ in `source_id`."""
+        job_a = JobListing(
+            id=self.SHARED_ID,
+            title="Source A Role",
+            company="acme",
+            url="https://a.example/job",
+            source_id="source_a",
+            created_at="2024-01-15T10:00:00Z",
+            first_seen_at="2024-01-15T10:00:00Z",
+            last_seen_at="2024-01-15T10:00:00Z",
+            consecutive_misses=0,
+        )
+        job_b = JobListing(
+            id=self.SHARED_ID,
+            title="Source B Role",
+            company="acme",
+            url="https://b.example/job",
+            source_id="source_b",
+            created_at="2024-01-15T10:00:00Z",
+            first_seen_at="2024-01-15T10:00:00Z",
+            last_seen_at="2024-01-15T10:00:00Z",
+            consecutive_misses=0,
+        )
+        db.insert_job(conn, job_a)
+        db.insert_job(conn, job_b)
+
+    def test_update_last_seen_does_not_touch_other_source(self, in_memory_db):
+        self._seed_pair(in_memory_db)
+        new_ts = "2024-02-01T10:00:00Z"
+        db.update_last_seen(in_memory_db, "source_a", [self.SHARED_ID], new_ts)
+
+        a = db.get_job_by_id(in_memory_db, "source_a", self.SHARED_ID)
+        b = db.get_job_by_id(in_memory_db, "source_b", self.SHARED_ID)
+        assert _parse_ts(a["last_seen_at"]) == _parse_ts(new_ts)
+        # Source B unchanged.
+        assert _parse_ts(b["last_seen_at"]) == _parse_ts("2024-01-15T10:00:00Z")
+
+    def test_increment_consecutive_misses_does_not_touch_other_source(
+        self, in_memory_db
+    ):
+        self._seed_pair(in_memory_db)
+        db.increment_consecutive_misses(
+            in_memory_db, "source_a", [self.SHARED_ID]
+        )
+        a = db.get_job_by_id(in_memory_db, "source_a", self.SHARED_ID)
+        b = db.get_job_by_id(in_memory_db, "source_b", self.SHARED_ID)
+        assert a["consecutive_misses"] == 1
+        assert b["consecutive_misses"] == 0
+
+    def test_mark_jobs_closed_does_not_touch_other_source(self, in_memory_db):
+        self._seed_pair(in_memory_db)
+        db.mark_jobs_closed(
+            in_memory_db, "source_a", [self.SHARED_ID],
+            "2024-02-01T10:00:00Z",
+        )
+        a = db.get_job_by_id(in_memory_db, "source_a", self.SHARED_ID)
+        b = db.get_job_by_id(in_memory_db, "source_b", self.SHARED_ID)
+        assert a["status"] == "CLOSED"
+        assert b["status"] == "OPEN"
+        assert b["closed_on"] is None
+
+    def test_get_jobs_exceeding_miss_threshold_scopes_to_source(
+        self, in_memory_db
+    ):
+        self._seed_pair(in_memory_db)
+        # Push only source_b's misses above the threshold.
+        db.increment_consecutive_misses(
+            in_memory_db, "source_b", [self.SHARED_ID]
+        )
+        db.increment_consecutive_misses(
+            in_memory_db, "source_b", [self.SHARED_ID]
+        )
+
+        # Querying source_a with threshold 1 should NOT see source_b's row.
+        exceeded_a = db.get_jobs_exceeding_miss_threshold(
+            in_memory_db, "source_a", [self.SHARED_ID], 1
+        )
+        assert exceeded_a == set()
+
+        # Querying source_b finds it.
+        exceeded_b = db.get_jobs_exceeding_miss_threshold(
+            in_memory_db, "source_b", [self.SHARED_ID], 1
+        )
+        assert exceeded_b == {self.SHARED_ID}
+
+    def test_reactivate_job_does_not_touch_other_source(self, in_memory_db):
+        self._seed_pair(in_memory_db)
+        # Close BOTH rows so we can prove reactivate only reopens source_a.
+        db.mark_jobs_closed(
+            in_memory_db, "source_a", [self.SHARED_ID],
+            "2024-02-01T10:00:00Z",
+        )
+        db.mark_jobs_closed(
+            in_memory_db, "source_b", [self.SHARED_ID],
+            "2024-02-01T10:00:00Z",
+        )
+
+        db.reactivate_job(
+            in_memory_db, "source_a", self.SHARED_ID,
+            "2024-02-02T10:00:00Z",
+        )
+
+        a = db.get_job_by_id(in_memory_db, "source_a", self.SHARED_ID)
+        b = db.get_job_by_id(in_memory_db, "source_b", self.SHARED_ID)
+        assert a["status"] == "OPEN"
+        assert a["closed_on"] is None
+        assert b["status"] == "CLOSED"
+        assert b["closed_on"] is not None
+
+    def test_upsert_job_does_not_touch_other_source(self, in_memory_db):
+        """ON CONFLICT (source_id, id) — upserting source_a must NOT
+        overwrite source_b's row even though they share `id`."""
+        self._seed_pair(in_memory_db)
+        updated_a = JobListing(
+            id=self.SHARED_ID,
+            title="Source A Updated Title",
+            company="acme",
+            url="https://a.example/job",
+            source_id="source_a",
+            created_at="2024-01-15T10:00:00Z",
+            first_seen_at="2024-01-15T10:00:00Z",
+            last_seen_at="2024-03-01T10:00:00Z",
+        )
+        db.upsert_job(in_memory_db, updated_a)
+
+        a = db.get_job_by_id(in_memory_db, "source_a", self.SHARED_ID)
+        b = db.get_job_by_id(in_memory_db, "source_b", self.SHARED_ID)
+        assert a["title"] == "Source A Updated Title"
+        # Source B's title untouched.
+        assert b["title"] == "Source B Role"
+
+    def test_insert_jobs_batch_does_not_touch_other_source(self, in_memory_db):
+        """ON CONFLICT (source_id, id) DO NOTHING — re-inserting source_a's
+        row is a no-op, but inserting source_a with a new `id` succeeds
+        independently of source_b's id space."""
+        self._seed_pair(in_memory_db)
+
+        # Re-insert source_a with the shared id (should be a no-op skip)
+        # and a brand-new source_a id (should land). Source B untouched.
+        new_a_id = "new-source-a-only"
+        batch = [
+            JobListing(
+                id=self.SHARED_ID,  # collides with existing (source_a, shared)
+                title="Should NOT overwrite source_a's existing row",
+                company="acme",
+                url="https://a.example/job-collide",
+                source_id="source_a",
+                created_at="2024-01-15T10:00:00Z",
+                first_seen_at="2024-01-15T10:00:00Z",
+                last_seen_at="2024-01-15T10:00:00Z",
+            ),
+            JobListing(
+                id=new_a_id,
+                title="Brand new source_a row",
+                company="acme",
+                url="https://a.example/new",
+                source_id="source_a",
+                created_at="2024-01-15T10:00:00Z",
+                first_seen_at="2024-01-15T10:00:00Z",
+                last_seen_at="2024-01-15T10:00:00Z",
+            ),
+        ]
+        inserted = db.insert_jobs_batch(in_memory_db, batch)
+        assert inserted == 1, (
+            f"expected 1 actual insert (1 skip + 1 new), got {inserted}"
+        )
+
+        a_shared = db.get_job_by_id(in_memory_db, "source_a", self.SHARED_ID)
+        a_new = db.get_job_by_id(in_memory_db, "source_a", new_a_id)
+        b_shared = db.get_job_by_id(in_memory_db, "source_b", self.SHARED_ID)
+        b_new = db.get_job_by_id(in_memory_db, "source_b", new_a_id)
+        assert a_shared["title"] == "Source A Role"  # not clobbered
+        assert a_new is not None
+        assert b_shared["title"] == "Source B Role"  # untouched
+        assert b_new is None  # source_b never had this id
+
+
+class TestActiveJobIdsCrossSource:
+    """Cross-source coverage for get_active_job_ids / count_active_jobs.
+
+    Two sources can share a `company` post composite-PK. Without source_id
+    scoping, a multi-source-per-company setup would silently miscount and
+    miss-route the consecutive-misses lifecycle.
+    """
+
+    def test_get_active_job_ids_scopes_to_source(self, in_memory_db):
+        # Same `company`, different `source_id`. Each source contributes
+        # its own id space to the company.
+        for i, sid in enumerate(("source_a", "source_b")):
+            job = JobListing(
+                id=f"only-in-{sid}",
+                title=f"{sid} role",
+                company="acme",
+                url=f"https://{sid}.example/job",
+                source_id=sid,
+                created_at="2024-01-15T10:00:00Z",
+                first_seen_at="2024-01-15T10:00:00Z",
+                last_seen_at="2024-01-15T10:00:00Z",
+            )
+            db.insert_job(in_memory_db, job)
+
+        a_ids = db.get_active_job_ids(in_memory_db, "source_a", "acme")
+        b_ids = db.get_active_job_ids(in_memory_db, "source_b", "acme")
+        assert a_ids == {"only-in-source_a"}
+        assert b_ids == {"only-in-source_b"}
+
+    def test_count_active_jobs_scopes_to_source(self, in_memory_db):
+        for i in range(3):
+            db.insert_job(
+                in_memory_db,
+                JobListing(
+                    id=f"a-{i}",
+                    title="t",
+                    company="acme",
+                    url="https://a.example/job",
+                    source_id="source_a",
+                    created_at="2024-01-15T10:00:00Z",
+                    first_seen_at="2024-01-15T10:00:00Z",
+                    last_seen_at="2024-01-15T10:00:00Z",
+                ),
+            )
+        db.insert_job(
+            in_memory_db,
+            JobListing(
+                id="b-0",
+                title="t",
+                company="acme",
+                url="https://b.example/job",
+                source_id="source_b",
+                created_at="2024-01-15T10:00:00Z",
+                first_seen_at="2024-01-15T10:00:00Z",
+                last_seen_at="2024-01-15T10:00:00Z",
+            ),
+        )
+
+        assert db.count_active_jobs(in_memory_db, "source_a", "acme") == 3
+        assert db.count_active_jobs(in_memory_db, "source_b", "acme") == 1

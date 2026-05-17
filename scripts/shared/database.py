@@ -135,44 +135,60 @@ def get_connection(db_url: str) -> Connection:
     return conn
 
 
-def get_active_job_ids(conn: Connection, company: str) -> Set[str]:
+def get_active_job_ids(
+    conn: Connection, source_id: str, company: str
+) -> Set[str]:
     """
-    Get set of all active (OPEN) job IDs for a company
+    Get set of all active (OPEN) job IDs for a company within one source.
+
+    Scoping by ``source_id`` matches the composite ``(source_id, id)`` PK
+    on ``job_listings`` — without it, a future multi-source-per-company
+    setup (e.g. Greenhouse + an additional ATS for the same company) would
+    silently merge id spaces and break the consecutive-misses lifecycle.
 
     Args:
         conn: Database connection
+        source_id: Source namespace (e.g., ``"greenhouse_api"``,
+            ``"google_scraper"``)
         company: Company name (e.g., "google")
 
     Returns:
-        Set of job IDs that are currently marked as OPEN
+        Set of job IDs that are currently marked as OPEN for the given
+        ``(source_id, company)`` pair.
     """
     cursor = conn.cursor()
 
     cursor.execute(
-        f"SELECT id FROM {_JOBS_TABLE} WHERE company = %s AND status = 'OPEN'",
-        (company,)
+        f"SELECT id FROM {_JOBS_TABLE} "
+        f"WHERE source_id = %s AND company = %s AND status = 'OPEN'",
+        (source_id, company)
     )
 
     rows = cursor.fetchall()
     return {row['id'] for row in rows}
 
 
-def count_active_jobs(conn: Connection, company: str) -> int:
+def count_active_jobs(
+    conn: Connection, source_id: str, company: str
+) -> int:
     """
-    Count active (OPEN) jobs for a company.
+    Count active (OPEN) jobs for a company within one source.
 
     Args:
         conn: Database connection
+        source_id: Source namespace (e.g., ``"greenhouse_api"``)
         company: Company name (e.g., "stripe")
 
     Returns:
-        Number of jobs currently marked as OPEN for the given company.
+        Number of jobs currently marked as OPEN for the given
+        ``(source_id, company)`` pair.
     """
     cursor = conn.cursor()
 
     cursor.execute(
-        f"SELECT COUNT(*) AS n FROM {_JOBS_TABLE} WHERE company = %s AND status = 'OPEN'",
-        (company,)
+        f"SELECT COUNT(*) AS n FROM {_JOBS_TABLE} "
+        f"WHERE source_id = %s AND company = %s AND status = 'OPEN'",
+        (source_id, company)
     )
 
     row = cursor.fetchone()
@@ -381,8 +397,19 @@ def update_last_seen(
         [timestamp, source_id] + job_ids
     )
 
+    affected = cursor.rowcount
     conn.commit()
-    logger.info(f"Updated last_seen for {len(job_ids)} jobs (source_id={source_id})")
+    if affected != len(job_ids):
+        logger.warning(
+            "update_last_seen affected %d/%d rows for source_id=%s — "
+            "%d ids did not match the composite (source_id, id) key",
+            affected, len(job_ids), source_id, len(job_ids) - affected,
+        )
+    else:
+        logger.info(
+            "Updated last_seen for %d/%d jobs (source_id=%s)",
+            affected, len(job_ids), source_id,
+        )
 
 
 def increment_consecutive_misses(
@@ -408,8 +435,20 @@ def increment_consecutive_misses(
         [source_id] + job_ids
     )
 
+    affected = cursor.rowcount
     conn.commit()
-    logger.info(f"Incremented misses for {len(job_ids)} jobs (source_id={source_id})")
+    if affected != len(job_ids):
+        logger.warning(
+            "increment_consecutive_misses affected %d/%d rows for "
+            "source_id=%s — %d ids did not match the composite "
+            "(source_id, id) key",
+            affected, len(job_ids), source_id, len(job_ids) - affected,
+        )
+    else:
+        logger.info(
+            "Incremented misses for %d/%d jobs (source_id=%s)",
+            affected, len(job_ids), source_id,
+        )
 
 
 def mark_jobs_closed(
@@ -436,8 +475,19 @@ def mark_jobs_closed(
         [timestamp, source_id] + job_ids
     )
 
+    affected = cursor.rowcount
     conn.commit()
-    logger.info(f"Marked {len(job_ids)} jobs as CLOSED (source_id={source_id})")
+    if affected != len(job_ids):
+        logger.warning(
+            "mark_jobs_closed affected %d/%d rows for source_id=%s — "
+            "%d ids did not match the composite (source_id, id) key",
+            affected, len(job_ids), source_id, len(job_ids) - affected,
+        )
+    else:
+        logger.info(
+            "Marked %d/%d jobs as CLOSED (source_id=%s)",
+            affected, len(job_ids), source_id,
+        )
 
 
 def get_jobs_exceeding_miss_threshold(
@@ -492,8 +542,16 @@ def reactivate_job(
         (timestamp, source_id, job_id)
     )
 
+    affected = cursor.rowcount
     conn.commit()
-    logger.info(f"Reactivated job: {job_id} (source_id={source_id})")
+    if affected != 1:
+        logger.warning(
+            "reactivate_job affected %d/1 rows for source_id=%s id=%s — "
+            "no row matched the composite (source_id, id) key",
+            affected, source_id, job_id,
+        )
+    else:
+        logger.info(f"Reactivated job: {job_id} (source_id={source_id})")
 
 
 def record_scrape_run(conn: Connection, run_data: ScrapeRun) -> None:

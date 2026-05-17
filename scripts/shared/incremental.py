@@ -237,7 +237,7 @@ async def run_incremental_scrape(
 
         # Phase 2: Compare against database
         logger.info("Phase 2: Comparing against database...")
-        active_known_ids = db.get_active_job_ids(db_conn, company)
+        active_known_ids = db.get_active_job_ids(db_conn, source_id, company)
         new_ids, still_active_ids, missing_ids = calculate_job_diff(current_ids, active_known_ids)
 
         # Safety guard: skip update/close phases if scraper returned

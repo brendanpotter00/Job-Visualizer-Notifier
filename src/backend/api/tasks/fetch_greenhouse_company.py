@@ -98,7 +98,9 @@ async def fetch_greenhouse_company(
             jobs = transform_to_job_listings(company_id, raw_jobs)
             jobs_seen = len(jobs)
 
-            active_count = await asyncio.to_thread(db.count_active_jobs, conn, company_id)
+            active_count = await asyncio.to_thread(
+                db.count_active_jobs, conn, SOURCE_ID, company_id
+            )
 
             if active_count > 0 and jobs_seen < SAFETY_GUARD_RATIO * active_count:
                 # ERROR (not WARNING) so Railway routes this to stderr — the
@@ -118,7 +120,9 @@ async def fetch_greenhouse_company(
             timestamp = get_iso_timestamp()
             seen_ids: Set[str] = {j.id for j in jobs}
 
-            pre_upsert_active = await asyncio.to_thread(db.get_active_job_ids, conn, company_id)
+            pre_upsert_active = await asyncio.to_thread(
+                db.get_active_job_ids, conn, SOURCE_ID, company_id
+            )
 
             # =================================================================
             # Per-step auto-commit + retry idempotency (load-bearing comment).
@@ -163,7 +167,9 @@ async def fetch_greenhouse_company(
 
             new_jobs_count = len(seen_ids - pre_upsert_active)
 
-            post_upsert_active = await asyncio.to_thread(db.get_active_job_ids, conn, company_id)
+            post_upsert_active = await asyncio.to_thread(
+                db.get_active_job_ids, conn, SOURCE_ID, company_id
+            )
             missing_ids = post_upsert_active - seen_ids
 
             if missing_ids:
