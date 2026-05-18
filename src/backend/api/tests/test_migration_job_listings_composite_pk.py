@@ -27,6 +27,8 @@ import pytest
 from psycopg2 import errors as pg_errors
 from psycopg2.extras import RealDictCursor
 
+from scripts.shared.constants import SourceId
+
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _ALEMBIC_INI = _REPO_ROOT / "alembic.ini"
 _SCRIPT_LOCATION = _REPO_ROOT / "src" / "backend" / "alembic"
@@ -195,11 +197,11 @@ def test_greenhouse_id_rewrite_and_other_sources_untouched(
         try:
             _create_pre_migration_job_listings(seed)
             _seed_pre_migration_row(
-                seed, id="greenhouse_12345", source_id="greenhouse_api",
+                seed, id="greenhouse_12345", source_id=SourceId.GREENHOUSE,
                 company="stripe",
             )
             _seed_pre_migration_row(
-                seed, id="987654321", source_id="google_scraper",
+                seed, id="987654321", source_id=SourceId.GOOGLE,
                 company="google",
             )
         finally:
@@ -210,10 +212,10 @@ def test_greenhouse_id_rewrite_and_other_sources_untouched(
 
         verify = psycopg2.connect(url, cursor_factory=RealDictCursor)
         try:
-            assert _select_ids(verify, "greenhouse_api") == {"12345"}, (
+            assert _select_ids(verify, SourceId.GREENHOUSE) == {"12345"}, (
                 "greenhouse_ prefix not stripped"
             )
-            assert _select_ids(verify, "google_scraper") == {"987654321"}, (
+            assert _select_ids(verify, SourceId.GOOGLE) == {"987654321"}, (
                 "non-greenhouse row was touched"
             )
             assert _pk_columns(verify, "job_listings") == ["source_id", "id"]
@@ -252,15 +254,15 @@ def test_composite_pk_enforced_after_upgrade(
         conn.autocommit = True
         try:
             _seed_pre_migration_row(
-                conn, id="12345", source_id="greenhouse_api", company="stripe",
+                conn, id="12345", source_id=SourceId.GREENHOUSE, company="stripe",
             )
             with pytest.raises(pg_errors.UniqueViolation):
                 _seed_pre_migration_row(
-                    conn, id="12345", source_id="greenhouse_api", company="stripe",
+                    conn, id="12345", source_id=SourceId.GREENHOUSE, company="stripe",
                 )
             # Same id under a different source_id is allowed.
             _seed_pre_migration_row(
-                conn, id="12345", source_id="google_scraper", company="google",
+                conn, id="12345", source_id=SourceId.GOOGLE, company="google",
             )
             cur = conn.cursor()
             cur.execute(
@@ -294,11 +296,11 @@ def test_upgrade_aborts_on_collision_preflight(
         try:
             _create_pre_migration_job_listings(seed)
             _seed_pre_migration_row(
-                seed, id="greenhouse_12345", source_id="greenhouse_api",
+                seed, id="greenhouse_12345", source_id=SourceId.GREENHOUSE,
                 company="stripe",
             )
             _seed_pre_migration_row(
-                seed, id="12345", source_id="greenhouse_api",
+                seed, id="12345", source_id=SourceId.GREENHOUSE,
                 company="stripe",
             )
         finally:
@@ -388,10 +390,10 @@ def test_downgrade_aborts_on_collision_preflight(
         seed.autocommit = True
         try:
             _seed_pre_migration_row(
-                seed, id="42", source_id="greenhouse_api", company="stripe",
+                seed, id="42", source_id=SourceId.GREENHOUSE, company="stripe",
             )
             _seed_pre_migration_row(
-                seed, id="greenhouse_42", source_id="google_scraper",
+                seed, id="greenhouse_42", source_id=SourceId.GOOGLE,
                 company="google",
             )
         finally:
@@ -427,8 +429,8 @@ def test_downgrade_aborts_on_collision_preflight(
             )
             rows = [(r["source_id"], r["id"]) for r in cur.fetchall()]
             assert rows == [
-                ("google_scraper", "greenhouse_42"),
-                ("greenhouse_api", "42"),
+                (SourceId.GOOGLE, "greenhouse_42"),
+                (SourceId.GREENHOUSE, "42"),
             ], f"table state changed despite RAISE EXCEPTION: {rows!r}"
         finally:
             verify.close()
@@ -456,11 +458,11 @@ def test_downgrade_round_trip_reversible(
         try:
             _create_pre_migration_job_listings(seed)
             _seed_pre_migration_row(
-                seed, id="greenhouse_42", source_id="greenhouse_api",
+                seed, id="greenhouse_42", source_id=SourceId.GREENHOUSE,
                 company="stripe",
             )
             _seed_pre_migration_row(
-                seed, id="googol", source_id="google_scraper",
+                seed, id="googol", source_id=SourceId.GOOGLE,
                 company="google",
             )
         finally:
@@ -471,8 +473,8 @@ def test_downgrade_round_trip_reversible(
         command.upgrade(cfg, NEW_REV)
         verify = psycopg2.connect(url, cursor_factory=RealDictCursor)
         try:
-            assert _select_ids(verify, "greenhouse_api") == {"42"}
-            assert _select_ids(verify, "google_scraper") == {"googol"}
+            assert _select_ids(verify, SourceId.GREENHOUSE) == {"42"}
+            assert _select_ids(verify, SourceId.GOOGLE) == {"googol"}
             assert _pk_columns(verify, "job_listings") == ["source_id", "id"]
         finally:
             verify.close()
@@ -481,8 +483,8 @@ def test_downgrade_round_trip_reversible(
         command.downgrade(cfg, PREV_REV)
         verify = psycopg2.connect(url, cursor_factory=RealDictCursor)
         try:
-            assert _select_ids(verify, "greenhouse_api") == {"greenhouse_42"}
-            assert _select_ids(verify, "google_scraper") == {"googol"}
+            assert _select_ids(verify, SourceId.GREENHOUSE) == {"greenhouse_42"}
+            assert _select_ids(verify, SourceId.GOOGLE) == {"googol"}
             assert _pk_columns(verify, "job_listings") == ["id"]
         finally:
             verify.close()
@@ -491,7 +493,7 @@ def test_downgrade_round_trip_reversible(
         command.upgrade(cfg, NEW_REV)
         verify = psycopg2.connect(url, cursor_factory=RealDictCursor)
         try:
-            assert _select_ids(verify, "greenhouse_api") == {"42"}
+            assert _select_ids(verify, SourceId.GREENHOUSE) == {"42"}
             assert _pk_columns(verify, "job_listings") == ["source_id", "id"]
         finally:
             verify.close()

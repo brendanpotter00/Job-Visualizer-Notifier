@@ -30,6 +30,7 @@ from typing import Any, Optional
 
 import httpx
 
+from scripts.shared.constants import SourceId
 from scripts.shared.models import JobListing
 from scripts.shared.utils import get_iso_timestamp
 
@@ -37,7 +38,7 @@ logger = logging.getLogger(__name__)
 
 GREENHOUSE_BASE_URL = "https://boards-api.greenhouse.io/v1/boards"
 DEFAULT_TIMEOUT_SECONDS = 30.0
-SOURCE_ID = "greenhouse_api"
+SOURCE_ID = SourceId.GREENHOUSE
 
 
 async def fetch_jobs(board_token: str, http: httpx.AsyncClient) -> list[dict]:

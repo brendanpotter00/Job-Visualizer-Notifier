@@ -24,6 +24,7 @@ from api.tasks.procrastinate_app import (
     ensure_schema_async,
     procrastinate_app,
 )
+from scripts.shared.constants import SourceId
 
 
 pytestmark = pytest.mark.asyncio
@@ -65,7 +66,7 @@ def _seed_job(
             sql.SQL(", ").join(sql.Placeholder() for _ in range(15)),
         ),
         (
-            job_id, "T", company, "L", "https://x", "greenhouse_api",
+            job_id, "T", company, "L", "https://x", SourceId.GREENHOUSE,
             json.dumps({}), "2025-01-01T00:00:00Z", status, False,
             json.dumps({}), "2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z",
             consecutive_misses, True,
@@ -74,7 +75,7 @@ def _seed_job(
     conn.commit()
 
 
-def _job_row(conn, job_id: str, source_id: str = "greenhouse_api") -> dict | None:
+def _job_row(conn, job_id: str, source_id: str = SourceId.GREENHOUSE) -> dict | None:
     cur = conn.cursor()
     cur.execute(
         sql.SQL("SELECT * FROM {} WHERE source_id = %s AND id = %s").format(

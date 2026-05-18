@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+from shared.constants import SourceId
 from shared.models import JobListing, ScrapeRun
 from shared import database as db
 
@@ -53,7 +54,7 @@ class TestInsertAndRetrieve:
 
     def test_get_job_by_id_not_found(self, in_memory_db):
         """Returns None for non-existent job"""
-        result = db.get_job_by_id(in_memory_db, "google_scraper", "nonexistent-id")
+        result = db.get_job_by_id(in_memory_db, SourceId.GOOGLE, "nonexistent-id")
         assert result is None
 
 
@@ -67,10 +68,10 @@ class TestActiveJobIds:
             db.insert_job(in_memory_db, job)
 
         # Mark one as closed
-        db.mark_jobs_closed(in_memory_db, "google_scraper", ["job-001"], "2024-01-16T10:00:00Z")
+        db.mark_jobs_closed(in_memory_db, SourceId.GOOGLE, ["job-001"], "2024-01-16T10:00:00Z")
 
         # Get active job IDs
-        active_ids = db.get_active_job_ids(in_memory_db, "google_scraper", "google")
+        active_ids = db.get_active_job_ids(in_memory_db, SourceId.GOOGLE, "google")
 
         # Should only have 2 jobs (job-000 and job-002)
         assert len(active_ids) == 2
@@ -80,7 +81,7 @@ class TestActiveJobIds:
 
     def test_get_active_job_ids_empty(self, in_memory_db):
         """Returns empty set when no jobs exist"""
-        active_ids = db.get_active_job_ids(in_memory_db, "google_scraper", "google")
+        active_ids = db.get_active_job_ids(in_memory_db, SourceId.GOOGLE, "google")
         assert active_ids == set()
 
 
@@ -112,7 +113,7 @@ class TestUpdateLastSeen:
     def test_update_last_seen_empty_list(self, in_memory_db):
         """Handles empty job list gracefully"""
         # Should not raise
-        db.update_last_seen(in_memory_db, "google_scraper", [], "2024-01-20T10:00:00Z")
+        db.update_last_seen(in_memory_db, SourceId.GOOGLE, [], "2024-01-20T10:00:00Z")
 
 
 class TestIncrementMisses:
@@ -155,14 +156,14 @@ class TestMarkJobsClosed:
             db.insert_job(in_memory_db, job)
 
         ids_to_close = ["job-000", "job-001"]
-        db.mark_jobs_closed(in_memory_db, "google_scraper", ids_to_close, "2024-01-20T15:00:00Z")
+        db.mark_jobs_closed(in_memory_db, SourceId.GOOGLE, ids_to_close, "2024-01-20T15:00:00Z")
 
         for job_id in ids_to_close:
-            job = db.get_job_by_id(in_memory_db, "google_scraper", job_id)
+            job = db.get_job_by_id(in_memory_db, SourceId.GOOGLE, job_id)
             assert job["status"] == "CLOSED"
 
         # job-002 should still be open
-        job = db.get_job_by_id(in_memory_db, "google_scraper", "job-002")
+        job = db.get_job_by_id(in_memory_db, SourceId.GOOGLE, "job-002")
         assert job["status"] == "OPEN"
 
 
@@ -300,7 +301,7 @@ class TestGetAllActiveJobs:
             db.insert_job(in_memory_db, job)
 
         # Mark one as closed
-        db.mark_jobs_closed(in_memory_db, "google_scraper", ["job-001"], "2024-01-16T10:00:00Z")
+        db.mark_jobs_closed(in_memory_db, SourceId.GOOGLE, ["job-001"], "2024-01-16T10:00:00Z")
 
         # Get all active jobs
         active_jobs = db.get_all_active_jobs(in_memory_db, "google")
@@ -331,7 +332,7 @@ class TestGetAllActiveJobs:
             title="iOS Developer",
             company="apple",
             url="https://apple.com/job",
-            source_id="apple_scraper",
+            source_id=SourceId.APPLE,
             created_at="2024-01-15T10:30:00Z",
             first_seen_at="2024-01-15T10:30:00Z",
             last_seen_at="2024-01-15T10:30:00Z"

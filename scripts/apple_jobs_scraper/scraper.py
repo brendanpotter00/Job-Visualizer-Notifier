@@ -25,6 +25,7 @@ _APPLE_GOTO_WAIT_UNTIL = "domcontentloaded"
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from shared.base_scraper import BaseScraper
+from shared.constants import SourceId
 from shared.models import JobListing
 from shared.utils import get_iso_timestamp
 
@@ -53,7 +54,7 @@ logger = logging.getLogger(__name__)
 class AppleJobsScraper(BaseScraper):
     """Main scraper class for Apple Careers (extends BaseScraper)"""
 
-    SOURCE_ID = "apple_scraper"
+    SOURCE_ID = SourceId.APPLE
 
     def __init__(self, headless: bool = True, detail_scrape: bool = False):
         super().__init__(headless, detail_scrape)
@@ -350,7 +351,7 @@ class AppleJobsScraper(BaseScraper):
             company="apple",
             location=job_data.get("location"),
             url=job_url,
-            source_id="apple_scraper",
+            source_id=SourceId.APPLE,
             details=details,
             posted_on=posted_on,
             created_at=created_at,
