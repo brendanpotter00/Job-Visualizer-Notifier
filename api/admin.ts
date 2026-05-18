@@ -2,6 +2,8 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { getBackendUrl } from './utils/backendUrl';
 import { forwardResponse } from './utils/forwardResponse';
 
+const METHODS_WITH_BODY = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const { path, ...queryParams } = req.query;
 
@@ -32,11 +34,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     headers,
   };
 
-  // Forward the request body for ANY method that has one. GET typically
-  // has no body so this is a no-op there; the previous PUT/POST-only
-  // restriction would have silently dropped a PATCH or DELETE body once
-  // a future admin endpoint started carrying one.
-  if (req.body != null) {
+  // Forward the request body for any mutating method that carries one.
+  // Gated on the method allowlist because Vercel Dev parses an empty GET
+  // body as ``{}`` (non-null), and Node's native ``fetch`` rejects GET/HEAD
+  // with a body ("Request with GET/HEAD method cannot have body").
+  if (METHODS_WITH_BODY.has(req.method ?? '') && req.body != null) {
     fetchOptions.body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
   }
 

@@ -5,6 +5,8 @@ import { APIError } from '../types';
 import { logger } from '../../lib/logger';
 import { transformBackendJob } from '../transformers/backendScraperTransformer';
 
+const DEFAULT_BACKEND_JOBS_URL = '/api/jobs';
+
 /**
  * Backend scraper client - fetches jobs from backend API for scraped companies
  *
@@ -27,7 +29,7 @@ export const backendScraperClient: JobAPIClient = {
     const backendConfig = config as BackendScraperConfig;
 
     // 2. Build API URL - uses Vercel proxy to backend
-    const apiBase = backendConfig.apiBaseUrl || '/api/jobs';
+    const apiBase = backendConfig.apiBaseUrl || DEFAULT_BACKEND_JOBS_URL;
     const params = new URLSearchParams({
       company: backendConfig.companyId,
       status: 'OPEN',
@@ -115,3 +117,103 @@ export const backendScraperClient: JobAPIClient = {
     }
   },
 };
+
+export interface FetchJobsForCompaniesOptions {
+  signal?: AbortSignal;
+  limit?: number;
+  apiBaseUrl?: string;
+}
+
+/**
+ * Batched fetch for many backend-scraper companies in a single request.
+ *
+ * Collapses N parallel `/api/jobs?company=X` calls (one per company) into
+ * one `/api/jobs?companies=a,b,c` call. This is what the Recent Job
+ * Postings page uses to avoid fanning out and exhausting the backend's
+ * 15-slot Postgres pool — see commit 92bfdf6 for the Greenhouse migration
+ * that introduced the fanout.
+ *
+ * Returns one entry per requested company. Companies with no rows in the
+ * batched response get an empty `FetchJobsResult` so per-company cache
+ * seeding in `getAllJobs` stays uniform.
+ */
+export async function fetchJobsForCompanies(
+  companyIds: string[],
+  options: FetchJobsForCompaniesOptions = {}
+): Promise<Record<string, FetchJobsResult>> {
+  if (companyIds.length === 0) {
+    return {};
+  }
+
+  const apiBase = options.apiBaseUrl || DEFAULT_BACKEND_JOBS_URL;
+  // Default is high enough to cover all backend-scraper companies' OPEN
+  // jobs in one round trip — per-company limit (5000) was wrong here because
+  // it bounds the batched response across all companies, not per-company.
+  const params = new URLSearchParams({
+    companies: companyIds.join(','),
+    status: 'OPEN',
+    limit: (options.limit ?? 50000).toString(),
+  });
+  const url = `${apiBase}?${params}`;
+
+  logger.debug(
+    `[Backend Scraper Client] Batched fetch for ${companyIds.length} companies:`,
+    url
+  );
+
+  let data: BackendJobListing[];
+  try {
+    const response = await fetch(url, {
+      signal: options.signal,
+      headers: { Accept: 'application/json' },
+    });
+
+    if (!response.ok) {
+      const retryable = response.status >= 500 || response.status === 429;
+      throw new APIError(
+        `Backend Scraper API error: ${response.statusText}`,
+        response.status,
+        'backend-scraper',
+        retryable
+      );
+    }
+
+    data = await response.json();
+  } catch (error) {
+    logger.error('[Backend Scraper Client] Batched fetch error:', error);
+    if (error instanceof APIError) {
+      throw error;
+    }
+    throw new APIError(
+      `Failed to fetch batched jobs: ${(error as Error).message}`,
+      undefined,
+      'backend-scraper',
+      true
+    );
+  }
+
+  // Group rows by company id and transform.
+  const grouped: Record<string, BackendJobListing[]> = {};
+  for (const row of data) {
+    const cid = row.company;
+    if (!grouped[cid]) grouped[cid] = [];
+    grouped[cid].push(row);
+  }
+
+  const fetchedAt = new Date().toISOString();
+  const result: Record<string, FetchJobsResult> = {};
+  // Seed every requested id, even ones the backend returned zero rows for,
+  // so the caller can dispatch a per-company cache update for each.
+  for (const companyId of companyIds) {
+    const rows = grouped[companyId] ?? [];
+    const jobs = rows.map((row) => transformBackendJob(row, companyId));
+    result[companyId] = {
+      jobs,
+      metadata: {
+        totalCount: jobs.length,
+        fetchedAt,
+      },
+    };
+  }
+  return result;
+}

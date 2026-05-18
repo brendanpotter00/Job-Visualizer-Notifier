@@ -60,12 +60,22 @@ _RUNS_TABLE = sql.Identifier("scrape_runs")
 
 
 def _build_where(
-    company: str | None = None, status: str | None = None,
+    company: str | None = None,
+    status: str | None = None,
+    companies: list[str] | None = None,
 ) -> tuple[sql.Composable, list]:
-    """Build a WHERE clause and parameter list from optional filters."""
+    """Build a WHERE clause and parameter list from optional filters.
+
+    ``companies`` (set membership via ``company = ANY(%s::text[])``) takes
+    precedence over the singular ``company``. Callers are expected to enforce
+    mutual-exclusivity at the request boundary.
+    """
     conditions: list[sql.Composable] = []
     params: list = []
-    if company:
+    if companies:
+        conditions.append(sql.SQL("company = ANY(%s::text[])"))
+        params.append(list(companies))
+    elif company:
         conditions.append(sql.SQL("company = %s"))
         params.append(company)
     if status:
@@ -98,10 +108,15 @@ def get_jobs(
     status: str | None = None,
     limit: int = 5000,
     offset: int = 0,
+    companies: list[str] | None = None,
 ) -> list[dict]:
-    """List jobs with optional filters, ordered by last_seen_at DESC."""
+    """List jobs with optional filters, ordered by last_seen_at DESC.
+
+    Pass ``companies`` for batched per-company fetches (used by the Recent
+    Jobs page to avoid fanning out N requests against the connection pool).
+    """
     with conn.cursor() as cursor:
-        where, params = _build_where(company=company, status=status)
+        where, params = _build_where(company=company, status=status, companies=companies)
 
         query = sql.SQL("SELECT {} FROM {} {} ORDER BY last_seen_at DESC LIMIT %s OFFSET %s").format(
             _LIST_COLUMNS, _JOBS_TABLE, where
