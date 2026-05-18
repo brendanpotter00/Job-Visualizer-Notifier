@@ -81,12 +81,6 @@ Files: `src/backend/api/routers/jobs.py`, `src/backend/api/services/database.py`
 - New `fetchJobsForCompanies(companyIds[])` in `backendScraperClient.ts`. Single `GET /api/jobs?companies=<csv>&status=OPEN&limit=50000`, groups the response rows by `row.company`, and returns one `FetchJobsResult` per requested ID — including empty `{ jobs: [], metadata: { totalCount: 0, … } }` for IDs absent from the response so per-company cache seeding stays uniform.
 - `getAllJobs.onCacheEntryAdded` partitions `COMPANIES` into `backendScraperCompanies` (one batched call, all 49 progress entries flip success/error together) and `otherCompanies` (Lever/Ashby/Workday/Gem/Eightfold — keep the existing `Promise.allSettled` fanout against external Vercel proxies). Per-company progress updates and per-company RTK Query cache seeding via `upsertQueryData('getJobsForCompany', …)` are preserved on both branches so the `/companies` page click-through still hits a warm cache.
 
-**Tests**
-
-- Backend `test_jobs_router.py` gains 9 cases covering happy path with multiple companies, status combined with companies, `ORDER BY last_seen_at DESC` preserved across companies, unknown ID returns subset, rejection of empty value / empty ID-in-list / both-params / >100 IDs / invalid pattern.
-- Frontend new files: `src/frontend/src/__tests__/api/backendScraperClient.test.ts` (7 tests — single call, grouping, missing-company → empty array, retryable APIError mapping for 5xx and 429, network error wrapping). `src/frontend/src/__tests__/features/jobs/jobsApi.batched.test.ts` (2 tests — exactly one `/api/jobs?companies=…` call on getAllJobs, per-company cache populated for every ID including ones with no rows).
-- `src/frontend/src/__tests__/components/recent-jobs-page/RecentJobsFilters.test.tsx` adds a `vi.mock` for `fetchJobsForCompanies` paralleling the existing `getClientForATS` stub — the new entry point bypasses `getClientForATS`, so without this the seeded `byCompanyId['spacex']` cache was being clobbered to `[]` by the batched-fetch error path on every test in the file.
-
 ### Vercel proxy body-forwarding allowlist
 
 Files: `api/admin.ts`, `api/features.ts`, `api/jobs-qa.ts`, `api/users.ts`, `api/jobs.ts`.
@@ -101,6 +95,32 @@ Files: `api/admin.ts`, `api/features.ts`, `api/jobs-qa.ts`, `api/users.ts`, `api
 - **Shared serverless-proxy code paths copy-paste their bugs.** Five proxies had the same defective body-forwarding gate. The fix was a one-line allowlist applied to each. The next layer of defense would be a shared `forwardRequest(req, res, targetUrl)` helper alongside the existing `forwardResponse` so the next "forward body for any method" refactor only has to be reviewed in one place. Punted from this PR; logged as a follow-up.
 - **Vercel Dev and Vercel production parse `req.body` differently for GET.** Local dev produces `{}`; production produces `undefined`. Any check shaped `if (req.body)` or `if (req.body != null)` is a tripwire. Treat the body's truthiness as method-gated, not type-gated.
 - **Two-stage validation chain saved time.** The 50000-row truncation and the proxy 502 both surfaced only because local validation kept going past "the unit tests passed." If the PR had been pushed straight from green CI it would have shipped a Recent Jobs page that worked but silently capped at 5000 jobs, and Daisy/Brendan would have eventually noticed missing companies and hit the same diagnosis. The hour spent on local validation collapsed two future incidents into one PR.
+
+## Why 49 concurrent requests overwhelmed a stack that "should" handle far more
+
+A reasonable reaction to this incident is: *49 requests per second is not a lot of traffic — why did the backend fall over?* It's worth separating that into two questions, because the answers point at different fixes.
+
+**Concurrent ≠ throughput.** The Recent Jobs page does not produce 49 RPS *sustained* — it produces 49 *simultaneous in-flight* requests in a single burst, all of which hold a DB connection for the full duration of their query. With a 15-slot pool and an average query time of `Tq`, the back of the queue must wait roughly `(49 / 15) × Tq ≈ 3.3 × Tq` to be served. The semaphore timeout is 5 s, so as long as `Tq` stays under ~1.5 s on average — including the stale-conn probe round trip, query execution, and result serialization — no requests time out. Any contention that pushes `Tq` higher (concurrent scraper traffic, Railway shared-CPU jitter, a cold buffer cache after restart) collapses the queue. As a sustained-throughput number, 49 RPS against a 15-slot pool is trivial: a 100 ms query gives a theoretical ceiling of ~150 RPS. As a burst-arrival pattern with a 5 s deadline, it is right at the edge of what the current stack can absorb.
+
+**Five compounding choices make the burst case fragile**, none of them individually unreasonable:
+
+1. **Sync stack with a per-request connection.** FastAPI's sync routes run in `run_in_threadpool` and psycopg2's `ThreadedConnectionPool` checks out one connection for the lifetime of the request. The connection cannot be multiplexed across overlapping I/O waits. An async driver (asyncpg, or psycopg3's async API) would let many concurrent requests share the same connections while each is blocked on the wire, raising effective burst capacity ~10× without growing the pool.
+2. **`SELECT 1` probe on every checkout.** `dependencies.py:97-100` round-trips Postgres before every yield to detect stale connections. That's ~5–20 ms of pure latency added to every request, paid in the worst spot — *before* the work that justifies the connection. Cheapest single win available.
+3. **5 s semaphore acquire timeout.** Short enough to keep failures bounded, but tight when the queue is 3.3× longer than the pool. There is no graceful degradation between "served" and "RuntimeError" — a 200 ms slowdown on the underlying query is the difference between a clean page and twenty 500s.
+4. **Railway 3 GB memory ceiling.** The April 2026 pool bump from 8 → 15 already pushed the container toward memory pressure during Playwright scrapes (`memory/project_railway_backend_health.md`). The pool cannot grow further on the current plan without provoking OOMs, which is why "raise `DB_POOL_MAX` to 50" was the wrong answer here even though it would have masked this incident.
+5. **Single replica.** One Railway instance means one 15-slot pool. Two or three replicas would give 30–45 effective slots and isolate blast radius when one box is mid-scrape.
+
+**What a healthy version of this stack would look like.** A modestly-tuned FastAPI + asyncpg backend on the same hardware should comfortably handle ~500 RPS sustained and ~100 simultaneous bursty arrivals without timeouts at 50–100 ms p95 query latency. The current setup is at perhaps a tenth of that because of items 1–5 combined, not because Postgres or the network is the bottleneck.
+
+**Hardening follow-ups, ordered by cost vs. benefit** (none required for the current product; tracked here so we don't relitigate the analysis when the next fanout shows up):
+
+1. Drop the per-checkout `SELECT 1` probe. Postgres restarts on Railway are rare; psycopg2 will surface a closed connection on first real use. Saves 5–20 ms flat per request. Cheapest, smallest blast radius.
+2. Migrate the API layer to asyncpg or psycopg3-async. Biggest concurrency unlock by ~10×. Real cost, real risk — schedule it deliberately, not under fire.
+3. Bump Railway memory to 4 GB (already recommended in the April 2026 memory note, never executed). Lets the pool grow to ~25–30 safely once item 2 is done.
+4. Add a second backend replica. Doubles effective pool size; isolates the scraper's memory footprint from the request path.
+5. PgBouncer in transaction-pooling mode if app replicas ever exceed ~3. Right tool for hundreds of client connections multiplexed onto a small server-side pool — wrong tool to introduce earlier because every layer of indirection costs something.
+
+The reason this list is *follow-ups* and not "do them in this PR" is that the architectural fix in #119 collapses the 49-fanout to a single batched call. Once N=1 instead of N=49, the current stack returns to handling the actual load trivially. Items 1–5 raise the ceiling for whatever fans-out next; they do not need to land before that next fanout exists.
 
 ## Related
 
