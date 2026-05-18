@@ -304,6 +304,7 @@ export const COMPANIES: Company[] = [
   createBackendScraperCompany('thinkingmachines', 'Thinking Machines', 'https://boards.greenhouse.io/thinkingmachines'),
   createBackendScraperCompany('togetherai', 'Together AI', 'https://boards.greenhouse.io/togetherai'),
   createBackendScraperCompany('hightouch', 'Hightouch', 'https://boards.greenhouse.io/hightouch'),
+  createBackendScraperCompany('roblox', 'Roblox', 'https://boards.greenhouse.io/roblox'),
 
   // Lever companies
   createLeverCompany('palantir', 'Palantir', {
@@ -611,6 +612,7 @@ export const enum COMPANY_IDS {
   ResolveAI = 'resolve-ai',
   Roadrunner = 'roadrunner',
   Robinhood = 'robinhood',
+  Roblox = 'roblox',
   Saronic = 'saronic',
   Scaleai = 'scaleai',
   Sesame = 'sesame',
