@@ -7,13 +7,21 @@ import { jobsApi } from '../../../features/jobs/jobsApi';
 import type { Job } from '../../../types';
 
 // getAllJobs has an onCacheEntryAdded side effect that iterates ALL companies
-// and fetches via getClientForATS. In a jsdom test with no fetch available
-// those fetches throw and clobber our seeded byCompanyId['spacex'] with an
-// empty array, which breaks Location/Company dropdown assertions.
-// Stub getClientForATS so each "fetch" returns a Promise that only resolves
-// when the request is aborted (RTK Query aborts on cacheEntryRemoved). This
-// keeps the seeded cache intact during the test and cleans up automatically
-// when the store is discarded at test-end.
+// and fetches via getClientForATS (non-backend-scraper) and
+// fetchJobsForCompanies (backend-scraper, batched). In a jsdom test with no
+// fetch available those calls throw and clobber our seeded
+// byCompanyId['spacex'] with an empty array, which breaks Location/Company
+// dropdown assertions. Stub both entry points so they return pending
+// Promises that resolve only on abort — RTK Query aborts on
+// cacheEntryRemoved, so the seeded cache stays intact for the test's
+// lifetime and the stub cleans up automatically at teardown.
+const pendingUntilAbort = (signal?: AbortSignal) =>
+  new Promise((resolve) => {
+    const done = () => resolve(undefined);
+    if (signal?.aborted) return done();
+    signal?.addEventListener('abort', done, { once: true });
+  });
+
 vi.mock('../../../api/utils', async () => {
   const actual = await vi.importActual<typeof import('../../../api/utils')>(
     '../../../api/utils'
@@ -22,18 +30,22 @@ vi.mock('../../../api/utils', async () => {
     ...actual,
     getClientForATS: () => ({
       fetchJobs: ({ signal }: { signal?: AbortSignal } = {}) =>
-        new Promise((resolve) => {
-          const done = () =>
-            resolve({
-              jobs: [],
-              metadata: { totalCount: 0, fetchedAt: '2020-01-01T00:00:00Z' },
-            });
-          if (signal?.aborted) return done();
-          signal?.addEventListener('abort', done, { once: true });
-          // If no signal is provided, the promise remains pending for the
-          // test's lifetime, which is fine — no timers are leaked.
-        }),
+        pendingUntilAbort(signal).then(() => ({
+          jobs: [],
+          metadata: { totalCount: 0, fetchedAt: '2020-01-01T00:00:00Z' },
+        })),
     }),
+  };
+});
+
+vi.mock('../../../api/clients/backendScraperClient', async () => {
+  const actual = await vi.importActual<
+    typeof import('../../../api/clients/backendScraperClient')
+  >('../../../api/clients/backendScraperClient');
+  return {
+    ...actual,
+    fetchJobsForCompanies: (_ids: string[], opts: { signal?: AbortSignal } = {}) =>
+      pendingUntilAbort(opts.signal).then(() => ({})),
   };
 });
 

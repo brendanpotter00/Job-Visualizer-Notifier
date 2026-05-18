@@ -174,6 +174,68 @@ def test_get_jobs_combines_company_and_status(client):
     assert jobs[0]["status"] == "OPEN"
 
 
+# -- Batched `companies` query param (Recent Jobs page) --
+
+
+def test_get_jobs_companies_returns_jobs_for_each_listed_company(client):
+    resp = client.get("/api/jobs", params={"companies": "google,apple"})
+    assert resp.status_code == 200
+    jobs = resp.json()
+    assert len(jobs) == 4
+    assert {j["company"] for j in jobs} == {"google", "apple"}
+
+
+def test_get_jobs_companies_combines_with_status(client):
+    resp = client.get("/api/jobs", params={"companies": "google,apple", "status": "OPEN"})
+    jobs = resp.json()
+    assert len(jobs) == 3
+    assert all(j["status"] == "OPEN" for j in jobs)
+    assert {j["company"] for j in jobs} == {"google", "apple"}
+
+
+def test_get_jobs_companies_preserves_last_seen_order(client):
+    resp = client.get("/api/jobs", params={"companies": "google,apple"})
+    jobs = resp.json()
+    last_seen_values = [j["lastSeenAt"] for j in jobs]
+    assert last_seen_values == sorted(last_seen_values, reverse=True)
+
+
+def test_get_jobs_companies_unknown_id_returns_subset(client):
+    resp = client.get("/api/jobs", params={"companies": "google,nonexistent"})
+    assert resp.status_code == 200
+    jobs = resp.json()
+    assert {j["company"] for j in jobs} == {"google"}
+
+
+def test_get_jobs_companies_rejects_empty_value(client):
+    resp = client.get("/api/jobs", params={"companies": ""})
+    assert resp.status_code in (400, 422)
+
+
+def test_get_jobs_companies_rejects_empty_id_in_list(client):
+    resp = client.get("/api/jobs", params={"companies": "google,,apple"})
+    assert resp.status_code == 400
+
+
+def test_get_jobs_rejects_both_company_and_companies(client):
+    resp = client.get(
+        "/api/jobs", params={"company": "google", "companies": "google,apple"}
+    )
+    assert resp.status_code == 400
+
+
+def test_get_jobs_companies_rejects_too_many_ids(client):
+    # 101 distinct ids
+    ids = ",".join(f"co{i}" for i in range(101))
+    resp = client.get("/api/jobs", params={"companies": ids})
+    assert resp.status_code == 400
+
+
+def test_get_jobs_companies_rejects_invalid_id_pattern(client):
+    resp = client.get("/api/jobs", params={"companies": "google,bad id"})
+    assert resp.status_code == 400
+
+
 # -- List endpoint returns trimmed details --
 
 

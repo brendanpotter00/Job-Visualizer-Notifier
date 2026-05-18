@@ -3,11 +3,12 @@ import { getBackendUrl } from './utils/backendUrl';
 import { forwardResponse } from './utils/forwardResponse';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  const { status, company, limit, offset } = req.query;
+  const { status, company, companies, limit, offset } = req.query;
 
   const params = new URLSearchParams();
   if (status) params.set('status', String(status));
   if (company) params.set('company', String(company));
+  if (companies) params.set('companies', String(companies));
   if (limit) params.set('limit', String(limit));
   if (offset) params.set('offset', String(offset));
 

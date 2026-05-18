@@ -1,8 +1,9 @@
 import { createApi, fakeBaseQuery } from '@reduxjs/toolkit/query/react';
-import type { Job, FetchProgress } from '../../types';
+import type { Job, FetchProgress, Company } from '../../types';
 import { getCompanyById, COMPANIES } from '../../config/companies';
 import type { FetchJobsResult } from '../../api/types';
 import { getClientForATS } from '../../api/utils';
+import { fetchJobsForCompanies } from '../../api/clients/backendScraperClient';
 import { calculateJobDateRange } from '../../lib/date';
 import { updateCompanyProgress } from './progressHelpers';
 import { logger } from '../../lib/logger';
@@ -107,85 +108,119 @@ export const jobsApi = createApi({
         _arg,
         { updateCachedData, cacheDataLoaded, cacheEntryRemoved, dispatch }
       ) {
+        // Apply one company's successful fetch to both caches.
+        const applyCompanySuccess = (company: Company, result: FetchJobsResult) => {
+          const dateRange = calculateJobDateRange(result.jobs);
+          const perCompanyMetadata = { ...result.metadata, ...dateRange };
+
+          // Seed the per-company endpoint's cache so a later visit to
+          // /companies?company=<id> serves this data without refetching.
+          dispatch(
+            jobsApi.util.upsertQueryData(
+              'getJobsForCompany',
+              { companyId: company.id },
+              { jobs: result.jobs, metadata: perCompanyMetadata }
+            )
+          );
+
+          updateCachedData((draft) => {
+            draft.byCompanyId[company.id] = result.jobs;
+            draft.metadata[company.id] = perCompanyMetadata;
+            updateCompanyProgress(draft.progress, company.id, {
+              status: 'success',
+              jobCount: result.jobs.length,
+            });
+          });
+        };
+
+        // Apply one company's failed fetch to both caches.
+        const applyCompanyError = (company: Company, errorMessage: string) => {
+          const errorMetadata = {
+            totalCount: 0,
+            fetchedAt: new Date().toISOString(),
+          };
+
+          // Seed the per-company cache with an empty result so the
+          // company page doesn't silently re-hit a known-broken ATS when
+          // the user clicks through from the recent page.
+          dispatch(
+            jobsApi.util.upsertQueryData(
+              'getJobsForCompany',
+              { companyId: company.id },
+              { jobs: [], metadata: errorMetadata }
+            )
+          );
+
+          updateCachedData((draft) => {
+            draft.byCompanyId[company.id] = [];
+            draft.metadata[company.id] = errorMetadata;
+            draft.errors[company.id] = errorMessage;
+            updateCompanyProgress(draft.progress, company.id, {
+              status: 'error',
+              error: errorMessage,
+            });
+          });
+        };
+
         try {
           // Wait for initial data to be in cache
           await cacheDataLoaded;
 
-          // Start parallel fetches for all companies
-          const fetchPromises = COMPANIES.map(async (company) => {
-            const client = getClientForATS(company.ats);
+          // Partition: backend-scraper companies share a single batched
+          // backend call (one /api/jobs?companies=... request) to avoid
+          // exhausting the API's 15-slot Postgres pool. All other ATS
+          // companies hit external Vercel proxies and still fan out.
+          const backendScraperCompanies = COMPANIES.filter((c) => c.ats === 'backend-scraper');
+          const otherCompanies = COMPANIES.filter((c) => c.ats !== 'backend-scraper');
+
+          const batchedFetch = (async () => {
+            if (backendScraperCompanies.length === 0) return;
+
+            // Mark every backend-scraper company as loading up front.
+            updateCachedData((draft) => {
+              for (const company of backendScraperCompanies) {
+                updateCompanyProgress(draft.progress, company.id, { status: 'loading' });
+              }
+            });
 
             try {
-              // Mark as loading
+              const grouped = await fetchJobsForCompanies(
+                backendScraperCompanies.map((c) => c.id)
+              );
+              for (const company of backendScraperCompanies) {
+                const result = grouped[company.id];
+                if (result) {
+                  applyCompanySuccess(company, result);
+                } else {
+                  applyCompanyError(company, 'No result for company in batched response');
+                }
+              }
+            } catch (error) {
+              // Pool exhaustion / network failures hit every company at
+              // once. Mirror the historical per-company error shape so
+              // downstream UI keeps rendering the same error message.
+              const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+              for (const company of backendScraperCompanies) {
+                applyCompanyError(company, errorMessage);
+              }
+            }
+          })();
+
+          const otherFetches = otherCompanies.map(async (company) => {
+            const client = getClientForATS(company.ats);
+            try {
               updateCachedData((draft) => {
                 updateCompanyProgress(draft.progress, company.id, { status: 'loading' });
               });
-
-              // Fetch data
               const result: FetchJobsResult = await client.fetchJobs(company.config, {});
-
-              // Calculate date range
-              const dateRange = calculateJobDateRange(result.jobs);
-              const perCompanyMetadata = { ...result.metadata, ...dateRange };
-
-              // Seed the per-company endpoint's cache so a later visit to
-              // /companies?company=<id> serves this data without refetching.
-              dispatch(
-                jobsApi.util.upsertQueryData(
-                  'getJobsForCompany',
-                  { companyId: company.id },
-                  { jobs: result.jobs, metadata: perCompanyMetadata }
-                )
-              );
-
-              // Update cache with successful company fetch
-              updateCachedData((draft) => {
-                draft.byCompanyId[company.id] = result.jobs;
-                draft.metadata[company.id] = perCompanyMetadata;
-
-                updateCompanyProgress(draft.progress, company.id, {
-                  status: 'success',
-                  jobCount: result.jobs.length,
-                });
-              });
-
-              return { companyId: company.id, success: true };
+              applyCompanySuccess(company, result);
             } catch (error) {
               const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-              const errorMetadata = {
-                totalCount: 0,
-                fetchedAt: new Date().toISOString(),
-              };
-
-              // Seed the per-company cache with an empty result so the
-              // company page doesn't silently re-hit a known-broken ATS when
-              // the user clicks through from the recent page.
-              dispatch(
-                jobsApi.util.upsertQueryData(
-                  'getJobsForCompany',
-                  { companyId: company.id },
-                  { jobs: [], metadata: errorMetadata }
-                )
-              );
-
-              // Update cache with error
-              updateCachedData((draft) => {
-                draft.byCompanyId[company.id] = [];
-                draft.metadata[company.id] = errorMetadata;
-                draft.errors[company.id] = errorMessage;
-
-                updateCompanyProgress(draft.progress, company.id, {
-                  status: 'error',
-                  error: errorMessage,
-                });
-              });
-
-              return { companyId: company.id, success: false };
+              applyCompanyError(company, errorMessage);
             }
           });
 
-          // Wait for all fetches to complete
-          await Promise.allSettled(fetchPromises);
+          await Promise.allSettled([batchedFetch, ...otherFetches]);
 
           // Mark streaming as complete
           updateCachedData((draft) => {
