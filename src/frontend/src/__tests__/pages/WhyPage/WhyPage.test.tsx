@@ -2,19 +2,27 @@ import { describe, it, expect } from 'vitest';
 import { screen } from '@testing-library/react';
 import { renderWithProviders } from '../../../test/testUtils';
 import { WhyPage } from '../../../pages/WhyPage/WhyPage';
+import {
+  ATS_DISPLAY_NAMES,
+  getATSGroupKey,
+  type ATSGroupKey,
+} from '../../../pages/WhyPage/atsGrouping';
 import { COMPANIES, COMING_SOON_SCRAPERS } from '../../../config/companies';
+import { ROUTES } from '../../../config/routes';
+import { COMPANY_PARAM } from '../../../lib/url';
 import type { Company } from '../../../types';
 
 const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** Group companies by ATS key — mirrors `companiesByATS` useMemo in WhyPage.tsx. */
-function groupCompaniesByATS(): Record<string, Company[]> {
-  const grouped: Record<string, Company[]> = {};
+function groupCompaniesByATS(): Partial<Record<ATSGroupKey, Company[]>> {
+  const grouped: Partial<Record<ATSGroupKey, Company[]>> = {};
   for (const company of COMPANIES) {
-    if (!grouped[company.ats]) {
-      grouped[company.ats] = [];
+    const key = getATSGroupKey(company);
+    if (!grouped[key]) {
+      grouped[key] = [];
     }
-    grouped[company.ats].push(company);
+    grouped[key]!.push(company);
   }
   return grouped;
 }
@@ -32,7 +40,7 @@ describe('WhyPage', () => {
     const grouped = groupCompaniesByATS();
     const expectedCompanyCount = COMPANIES.length;
     const expectedPlatformCount = Object.entries(grouped).reduce(
-      (total, [ats, cos]) => total + (ats === 'backend-scraper' ? cos.length : 1),
+      (total, [ats, cos]) => total + (ats === 'backend-scraper' ? cos!.length : 1),
       0
     );
 
@@ -47,13 +55,41 @@ describe('WhyPage', () => {
     ).toBeInTheDocument();
   });
 
-  it('renders one ATS group header per distinct non-empty ATS in COMPANIES', () => {
+  it('renders a dedicated Greenhouse group containing only companies whose jobsUrl is on boards.greenhouse.io', () => {
+    const grouped = groupCompaniesByATS();
+    const greenhouseGroup = grouped.greenhouse ?? [];
+
+    expect(greenhouseGroup.length).toBeGreaterThan(0);
+    for (const company of greenhouseGroup) {
+      expect(company.jobsUrl?.startsWith('https://boards.greenhouse.io/')).toBe(true);
+    }
+
+    renderWithProviders(<WhyPage />, { initialEntries: ['/why'] });
+
+    expect(
+      screen.getByRole('heading', {
+        level: 3,
+        name: new RegExp(`Greenhouse\\s*\\(${greenhouseGroup.length}\\)`, 'i'),
+      })
+    ).toBeInTheDocument();
+  });
+
+  it('Custom Web Scrapers group excludes Greenhouse boards (true custom scrapers only)', () => {
+    const grouped = groupCompaniesByATS();
+    const customScrapers = grouped['backend-scraper'] ?? [];
+
+    for (const company of customScrapers) {
+      expect(company.jobsUrl?.startsWith('https://boards.greenhouse.io/') ?? false).toBe(false);
+    }
+  });
+
+  it('renders one ATS group header per distinct non-empty ATS group in COMPANIES', () => {
     const grouped = groupCompaniesByATS();
 
     renderWithProviders(<WhyPage />, { initialEntries: ['/why'] });
 
-    for (const ats of Object.keys(grouped)) {
-      const displayName = ats === 'backend-scraper' ? 'Custom Web Scrapers' : ats;
+    for (const ats of Object.keys(grouped) as ATSGroupKey[]) {
+      const displayName = ATS_DISPLAY_NAMES[ats];
       expect(
         screen.getByRole('heading', {
           level: 3,
@@ -83,8 +119,8 @@ describe('WhyPage', () => {
 
     renderWithProviders(<WhyPage />, { initialEntries: ['/why'] });
 
-    for (const [ats, companies] of Object.entries(grouped)) {
-      const displayName = ats === 'backend-scraper' ? 'Custom Web Scrapers' : ats;
+    for (const [ats, companies] of Object.entries(grouped) as [ATSGroupKey, Company[]][]) {
+      const displayName = ATS_DISPLAY_NAMES[ats];
       expect(
         screen.getByRole('heading', {
           level: 3,
@@ -94,7 +130,7 @@ describe('WhyPage', () => {
     }
   });
 
-  it('renders all company job-board links with target="_blank" and rel="noopener noreferrer"', () => {
+  it('renders every company as an internal link to its hiring trends page (not an external new-tab link)', () => {
     renderWithProviders(<WhyPage />, { initialEntries: ['/why'] });
 
     // Snapshot all anchors once — iterating per-company with getAllByRole is O(n*n)
@@ -109,12 +145,12 @@ describe('WhyPage', () => {
     }
 
     for (const company of COMPANIES) {
-      if (!company.jobsUrl) continue;
-      const link = linksByHref.get(company.jobsUrl);
-      expect(link, `expected a link to ${company.jobsUrl} for ${company.name}`).toBeDefined();
+      const expectedHref = `${ROUTES.COMPANIES}?${COMPANY_PARAM}=${company.id}`;
+      const link = linksByHref.get(expectedHref);
+      expect(link, `expected internal link to ${expectedHref} for ${company.name}`).toBeDefined();
       expect(link).toHaveTextContent(company.name);
-      expect(link).toHaveAttribute('target', '_blank');
-      expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+      // Company links navigate within the app; they should not open a new tab.
+      expect(link).not.toHaveAttribute('target', '_blank');
     }
 
     const authorLink = screen.getByRole('link', { name: /Reach out to Brendan Potter/i });

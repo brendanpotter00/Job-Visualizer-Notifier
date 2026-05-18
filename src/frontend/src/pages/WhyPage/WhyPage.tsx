@@ -1,9 +1,18 @@
 import { useMemo } from 'react';
 import { Container, Box, Typography, List, ListItem, Link, Paper, Grid } from '@mui/material';
 import type { SxProps, Theme } from '@mui/material';
+import { Link as RouterLink } from 'react-router-dom';
 import type { Company } from '../../types';
 import { COMPANIES, COMING_SOON_SCRAPERS } from '../../config/companies';
+import { ROUTES } from '../../config/routes';
+import { COMPANY_PARAM } from '../../lib/url';
 import { OpenInNew } from '@mui/icons-material';
+import {
+  ATS_DISPLAY_NAMES,
+  NON_CAPITALIZED_GROUPS,
+  getATSGroupKey,
+  type ATSGroupKey,
+} from './atsGrouping';
 
 /** Shared styling for Paper sections */
 const sectionPaperSx: SxProps<Theme> = { p: 3, mb: 4 };
@@ -14,26 +23,28 @@ const sectionPaperSx: SxProps<Theme> = { p: 3, mb: 4 };
  * Features:
  * - Introduction text explaining why this was built
  * - Lists all supported companies grouped by ATS provider
- * - Each company links to its job board
+ * - Each company links to its in-app hiring trends page
  *
  * @returns Why This Was Built page component
  */
 export function WhyPage() {
   // Group companies by ATS type for organized display
   const companiesByATS = useMemo(() => {
-    const grouped: Record<string, Company[]> = {};
+    const grouped: Partial<Record<ATSGroupKey, Company[]>> = {};
     for (const company of COMPANIES) {
-      if (!grouped[company.ats]) {
-        grouped[company.ats] = [];
+      const key = getATSGroupKey(company);
+      if (!grouped[key]) {
+        grouped[key] = [];
       }
-      grouped[company.ats].push(company);
+      grouped[key]!.push(company);
     }
     return grouped;
   }, []);
 
-  // Each custom scraper is its own platform; other ATS types count once per type
+  // Each custom scraper is its own platform; other ATS types (including
+  // Greenhouse) count once per type.
   const atsPlatformCount = Object.entries(companiesByATS).reduce(
-    (total, [ats, companies]) => total + (ats === 'backend-scraper' ? companies.length : 1),
+    (total, [ats, companies]) => total + (ats === 'backend-scraper' ? companies!.length : 1),
     0
   );
 
@@ -142,62 +153,63 @@ export function WhyPage() {
 
         {/* Group companies by ATS */}
         <Grid container spacing={3}>
-          {Object.entries(companiesByATS).map(([ats, companies]) => {
-            const displayName = ats === 'backend-scraper' ? 'Custom Web Scrapers' : ats;
-            const shouldCapitalize = ats !== 'backend-scraper';
+          {(Object.entries(companiesByATS) as [ATSGroupKey, Company[]][]).map(
+            ([ats, companies]) => {
+              const displayName = ATS_DISPLAY_NAMES[ats];
+              const shouldCapitalize = !NON_CAPITALIZED_GROUPS.has(ats);
 
-            return (
-              <Grid key={ats} size={{ xs: 12, sm: 6, md: 'grow' }}>
-                <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                  <Typography
-                    variant="h6"
-                    component="h3"
-                    sx={{
-                      textTransform: shouldCapitalize ? 'capitalize' : 'none',
-                      mb: 1,
-                      color: 'primary.main',
-                    }}
-                  >
-                    {displayName} ({companies.length})
-                  </Typography>
-                  <Paper variant="outlined" sx={{ p: 2, flexGrow: 1 }}>
-                    <List dense disablePadding>
-                      {companies.map((company) => (
-                        <ListItem key={company.id} sx={{ py: 0.5, px: 0 }}>
-                          <Link
-                            href={company.jobsUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            underline="hover"
-                            sx={{ fontWeight: 500, fontSize: '1rem' }}
-                          >
-                            {company.name}
-                          </Link>
-                        </ListItem>
-                      ))}
-                      {ats === 'backend-scraper' &&
-                        COMING_SOON_SCRAPERS.map((company) => (
-                          <ListItem key={company.name} sx={{ py: 0.5, px: 0 }}>
-                            <Typography
-                              component="span"
-                              sx={{ fontWeight: 500, fontSize: '1rem', color: 'text.secondary' }}
+              return (
+                <Grid key={ats} size={{ xs: 12, sm: 6, md: 'grow' }}>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                    <Typography
+                      variant="h6"
+                      component="h3"
+                      sx={{
+                        textTransform: shouldCapitalize ? 'capitalize' : 'none',
+                        mb: 1,
+                        color: 'primary.main',
+                      }}
+                    >
+                      {displayName} ({companies.length})
+                    </Typography>
+                    <Paper variant="outlined" sx={{ p: 2, flexGrow: 1 }}>
+                      <List dense disablePadding>
+                        {companies.map((company) => (
+                          <ListItem key={company.id} sx={{ py: 0.5, px: 0 }}>
+                            <Link
+                              component={RouterLink}
+                              to={`${ROUTES.COMPANIES}?${COMPANY_PARAM}=${company.id}`}
+                              underline="hover"
+                              sx={{ fontWeight: 500, fontSize: '1rem' }}
                             >
-                              {company.name}{' '}
-                              <Typography
-                                component="span"
-                                sx={{ fontSize: '0.75rem', fontStyle: 'italic' }}
-                              >
-                                (Coming Soon)
-                              </Typography>
-                            </Typography>
+                              {company.name}
+                            </Link>
                           </ListItem>
                         ))}
-                    </List>
-                  </Paper>
-                </Box>
-              </Grid>
-            );
-          })}
+                        {ats === 'backend-scraper' &&
+                          COMING_SOON_SCRAPERS.map((company) => (
+                            <ListItem key={company.name} sx={{ py: 0.5, px: 0 }}>
+                              <Typography
+                                component="span"
+                                sx={{ fontWeight: 500, fontSize: '1rem', color: 'text.secondary' }}
+                              >
+                                {company.name}{' '}
+                                <Typography
+                                  component="span"
+                                  sx={{ fontSize: '0.75rem', fontStyle: 'italic' }}
+                                >
+                                  (Coming Soon)
+                                </Typography>
+                              </Typography>
+                            </ListItem>
+                          ))}
+                      </List>
+                    </Paper>
+                  </Box>
+                </Grid>
+              );
+            }
+          )}
         </Grid>
       </Box>
     </Container>
