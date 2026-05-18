@@ -139,23 +139,25 @@ async def procrastinate_open(db_conn):
         await procrastinate_app.open_async()
         try:
             await ensure_schema_async(procrastinate_app)
-            # Procrastinate's tables live in `public` (installed once at app
-            # boot, the schema probe in `ensure_schema_async` finds the
-            # existing `public.procrastinate_jobs` and skips re-creation in
-            # per-test schemas). That means rows written by other test
-            # modules persist across our tests — including leftover
-            # fan-out defers from test_enqueue_greenhouse_fan_out that are
-            # never drained. When this file runs second alphabetically,
-            # _drain() picks them up and contends with the composite PK on
-            # job_listings (silent ON CONFLICT clobber on (source_id, id)).
-            # Wipe both greenhouse task rows so each test sees a clean queue.
-            # Schema-qualify `public.procrastinate_jobs` so this cleanup
-            # survives a future schema-management change (and so it does
-            # not depend on the search_path resolution we set above).
+            # Procrastinate's tables are installed in the per-test schema
+            # (see test_procrastinate_bootstrap.py:14-18 — PGOPTIONS pins
+            # search_path BEFORE open_async, so apply_schema_async() lands
+            # CREATE TABLE in test_<hex>, NOT in public). The module-scoped
+            # db_conn keeps that schema alive for every test in this file,
+            # so leftover fan-out defers from earlier tests in the module
+            # persist across cases. When this file runs after
+            # test_enqueue_greenhouse_fan_out alphabetically, _drain()
+            # would otherwise pick those leftovers up and contend with the
+            # composite PK on job_listings (silent ON CONFLICT clobber on
+            # (source_id, id)). Wipe both greenhouse task rows so each
+            # test sees a clean queue.
             # Mirrors the IN-clause pattern from test_jobs_qa_router.py:31-34.
+            # Do NOT schema-qualify as `public.procrastinate_jobs` — the
+            # table lives in the per-test schema, resolved via the
+            # PGOPTIONS search_path set above.
             cur = db_conn.cursor()
             cur.execute(
-                "DELETE FROM public.procrastinate_jobs "
+                "DELETE FROM procrastinate_jobs "
                 "WHERE task_name IN "
                 "('fetch_greenhouse_company', 'enqueue_greenhouse_fan_out')"
             )
