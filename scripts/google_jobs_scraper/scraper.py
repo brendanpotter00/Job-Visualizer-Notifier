@@ -12,6 +12,7 @@ from playwright.async_api import Page
 # Add shared module to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from shared.base_scraper import BaseScraper
+from shared.constants import SourceId
 
 from .config import (
     BASE_URL,
@@ -40,6 +41,8 @@ logger = logging.getLogger(__name__)
 
 class GoogleJobsScraper(BaseScraper):
     """Main scraper class for Google Careers (extends BaseScraper)"""
+
+    SOURCE_ID = SourceId.GOOGLE
 
     def __init__(self, headless: bool = True, detail_scrape: bool = False):
         super().__init__(headless, detail_scrape)
@@ -223,7 +226,7 @@ class GoogleJobsScraper(BaseScraper):
             company=job_data.get("company", "google"),
             location=job_data.get("location"),
             url=job_url,
-            source_id="google_scraper",
+            source_id=SourceId.GOOGLE,
             details=details,
             posted_on=None,  # Google doesn't expose post date
             created_at=created_at,

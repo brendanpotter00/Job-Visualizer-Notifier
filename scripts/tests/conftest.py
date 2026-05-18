@@ -27,6 +27,7 @@ _repo_root = Path(__file__).parent.parent.parent
 src_backend = _repo_root / "src" / "backend"
 sys.path.insert(0, str(src_backend))
 
+from shared.constants import SourceId
 from shared.models import JobListing, ScrapeRun
 from shared import database as db
 
@@ -75,7 +76,7 @@ def sample_job_listing() -> JobListing:
         company="google",
         location="Mountain View, CA, USA",
         url="https://www.google.com/about/careers/applications/jobs/results/114423471240291014-software-engineer-iii-cloud",
-        source_id="google_scraper",
+        source_id=SourceId.GOOGLE,
         details={
             "minimum_qualifications": ["Bachelor's degree", "5 years experience"],
             "preferred_qualifications": ["Distributed systems"],
@@ -226,6 +227,7 @@ def mock_scraper():
     """
     scraper = MagicMock()
     scraper.get_company_name.return_value = "google"
+    scraper.SOURCE_ID = SourceId.GOOGLE
     scraper.scrape_all_queries = AsyncMock(return_value=[])
     scraper.scrape_job_details_batch = AsyncMock(return_value=[])
     scraper.transform_to_job_model = MagicMock()
@@ -259,7 +261,7 @@ def multiple_job_listings(sample_job_listing) -> list:
             company="google",
             location="Mountain View, CA, USA",
             url=f"https://www.google.com/about/careers/applications/jobs/results/job-{i:03d}-software-engineer",
-            source_id="google_scraper",
+            source_id=SourceId.GOOGLE,
             details={},
             created_at="2024-01-15T10:30:00Z",
             status="OPEN",

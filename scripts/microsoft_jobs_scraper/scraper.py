@@ -19,6 +19,7 @@ from playwright.async_api import Page
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from shared.base_scraper import BaseScraper
+from shared.constants import SourceId
 from shared.models import JobListing
 from shared.utils import get_iso_timestamp
 
@@ -55,6 +56,8 @@ logger = logging.getLogger(__name__)
 
 class MicrosoftJobsScraper(BaseScraper):
     """Main scraper class for Microsoft Careers (extends BaseScraper)"""
+
+    SOURCE_ID = SourceId.MICROSOFT
 
     def __init__(self, headless: bool = True, detail_scrape: bool = False):
         super().__init__(headless, detail_scrape)
@@ -293,7 +296,7 @@ class MicrosoftJobsScraper(BaseScraper):
             company="microsoft",
             location=job_data.get("location"),
             url=job_url,
-            source_id="microsoft_scraper",
+            source_id=SourceId.MICROSOFT,
             details=details,
             posted_on=posted_on,
             created_at=created_at,

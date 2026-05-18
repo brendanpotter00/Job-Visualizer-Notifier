@@ -42,7 +42,7 @@ _JOB_COLUMNS = """
 
 # ON CONFLICT clause for upsert operations
 _UPSERT_ON_CONFLICT = """
-    ON CONFLICT (id) DO UPDATE SET
+    ON CONFLICT (source_id, id) DO UPDATE SET
         title = EXCLUDED.title,
         location = EXCLUDED.location,
         url = EXCLUDED.url,
@@ -135,44 +135,72 @@ def get_connection(db_url: str) -> Connection:
     return conn
 
 
-def get_active_job_ids(conn: Connection, company: str) -> Set[str]:
+def get_active_job_ids(
+    conn: Connection, source_id: str, company: str
+) -> Set[str]:
     """
-    Get set of all active (OPEN) job IDs for a company
+    Get set of all active (OPEN) job IDs for a company within one source.
+
+    Scoping by ``source_id`` matches the composite ``(source_id, id)`` PK
+    on ``job_listings`` — without it, a future multi-source-per-company
+    setup (e.g. Greenhouse + an additional ATS for the same company) would
+    silently merge id spaces and break the consecutive-misses lifecycle.
 
     Args:
         conn: Database connection
+        source_id: Source namespace (e.g., ``"greenhouse_api"``,
+            ``"google_scraper"``). Must be a non-empty string; an empty
+            string would silently build ``WHERE source_id = ''`` and return
+            no rows, masking a misconfigured caller.
         company: Company name (e.g., "google")
 
     Returns:
-        Set of job IDs that are currently marked as OPEN
+        Set of job IDs that are currently marked as OPEN for the given
+        ``(source_id, company)`` pair.
     """
+    if not source_id:
+        raise ValueError(
+            "get_active_job_ids requires a non-empty source_id"
+        )
     cursor = conn.cursor()
 
     cursor.execute(
-        f"SELECT id FROM {_JOBS_TABLE} WHERE company = %s AND status = 'OPEN'",
-        (company,)
+        f"SELECT id FROM {_JOBS_TABLE} "
+        f"WHERE source_id = %s AND company = %s AND status = 'OPEN'",
+        (source_id, company)
     )
 
     rows = cursor.fetchall()
     return {row['id'] for row in rows}
 
 
-def count_active_jobs(conn: Connection, company: str) -> int:
+def count_active_jobs(
+    conn: Connection, source_id: str, company: str
+) -> int:
     """
-    Count active (OPEN) jobs for a company.
+    Count active (OPEN) jobs for a company within one source.
 
     Args:
         conn: Database connection
+        source_id: Source namespace (e.g., ``"greenhouse_api"``). Must be a
+            non-empty string; an empty string would silently return 0 and
+            mask a misconfigured caller.
         company: Company name (e.g., "stripe")
 
     Returns:
-        Number of jobs currently marked as OPEN for the given company.
+        Number of jobs currently marked as OPEN for the given
+        ``(source_id, company)`` pair.
     """
+    if not source_id:
+        raise ValueError(
+            "count_active_jobs requires a non-empty source_id"
+        )
     cursor = conn.cursor()
 
     cursor.execute(
-        f"SELECT COUNT(*) AS n FROM {_JOBS_TABLE} WHERE company = %s AND status = 'OPEN'",
-        (company,)
+        f"SELECT COUNT(*) AS n FROM {_JOBS_TABLE} "
+        f"WHERE source_id = %s AND company = %s AND status = 'OPEN'",
+        (source_id, company)
     )
 
     row = cursor.fetchone()
@@ -206,20 +234,32 @@ def list_enabled_companies(conn: Connection, ats: str) -> List[Dict[str, Any]]:
     return [dict(row) for row in cursor.fetchall()]
 
 
-def get_job_by_id(conn: Connection, job_id: str) -> Optional[Dict[str, Any]]:
+def get_job_by_id(
+    conn: Connection, source_id: str, job_id: str
+) -> Optional[Dict[str, Any]]:
     """
-    Retrieve a job by ID
+    Retrieve a job by composite (source_id, id) key.
 
     Args:
         conn: Database connection
-        job_id: Job ID
+        source_id: Source namespace (e.g., "greenhouse_api", "google_scraper").
+            Must be non-empty; an empty value would silently 404 every lookup
+            with no signal at the call site.
+        job_id: Job id within that source
 
     Returns:
         Job data as dict, or None if not found
     """
+    if not source_id:
+        raise ValueError(
+            "get_job_by_id requires a non-empty source_id"
+        )
     cursor = conn.cursor()
 
-    cursor.execute(f"SELECT * FROM {_JOBS_TABLE} WHERE id = %s", (job_id,))
+    cursor.execute(
+        f"SELECT * FROM {_JOBS_TABLE} WHERE source_id = %s AND id = %s",
+        (source_id, job_id),
+    )
     row = cursor.fetchone()
 
     if row:
@@ -313,8 +353,24 @@ def upsert_jobs_batch(conn: Connection, jobs: List[JobListing]) -> int:
         page_size=100
     )
 
+    # NOTE: do NOT inspect `cursor.rowcount` here. `psycopg2.extras.execute_values`
+    # runs one `cur.execute()` per page (default page_size=100) and overwrites
+    # rowcount per page — its docstring states explicitly: "After the execution
+    # of the function the `cursor.rowcount` property will not contain a total
+    # result." Greenhouse boards routinely have >100 jobs, so for any batch
+    # crossing a page boundary `cursor.rowcount` reflects only the LAST page.
+    # A divergence check built on it fires spuriously and can't reliably detect
+    # the "wrong source_id" failure mode anyway — `ON CONFLICT (source_id, id)
+    # DO UPDATE` will count a mis-routed insert OR a mis-routed update normally.
+    # The right defense against per-row source_id misfiling is the per-row
+    # `_build_job_values(job)` construction itself, which reads source_id
+    # straight off the JobListing.
     conn.commit()
-    logger.info(f"Batch upserted {len(jobs)} jobs")
+    source_ids = sorted({job.source_id for job in jobs})
+    logger.info(
+        "upsert_jobs_batch: upserted %d jobs (source_ids=%s)",
+        len(jobs), source_ids,
+    )
     return len(jobs)
 
 
@@ -340,7 +396,7 @@ def insert_jobs_batch(conn: Connection, jobs: List[JobListing]) -> int:
 
     execute_values(
         cursor,
-        f"INSERT INTO {_JOBS_TABLE} ({_JOB_COLUMNS}) VALUES %s ON CONFLICT (id) DO NOTHING",
+        f"INSERT INTO {_JOBS_TABLE} ({_JOB_COLUMNS}) VALUES %s ON CONFLICT (source_id, id) DO NOTHING",
         values,
         page_size=100
     )
@@ -351,15 +407,24 @@ def insert_jobs_batch(conn: Connection, jobs: List[JobListing]) -> int:
     return actual_inserted
 
 
-def update_last_seen(conn: Connection, job_ids: List[str], timestamp: str) -> None:
+def update_last_seen(
+    conn: Connection, source_id: str, job_ids: List[str], timestamp: str
+) -> None:
     """
     Update last_seen_at timestamp for jobs and reset consecutive_misses to 0
 
     Args:
         conn: Database connection
+        source_id: Source namespace; ``job_ids`` must all belong to this
+            source. Must be non-empty; an empty value would silently no-op
+            every row.
         job_ids: List of job IDs to update
         timestamp: ISO 8601 timestamp
     """
+    if not source_id:
+        raise ValueError(
+            "update_last_seen requires a non-empty source_id"
+        )
     if not job_ids:
         return
 
@@ -367,22 +432,42 @@ def update_last_seen(conn: Connection, job_ids: List[str], timestamp: str) -> No
     placeholders = _build_id_placeholders(job_ids)
 
     cursor.execute(
-        f"UPDATE {_JOBS_TABLE} SET last_seen_at = %s, consecutive_misses = 0 WHERE id IN ({placeholders})",
-        [timestamp] + job_ids
+        f"UPDATE {_JOBS_TABLE} SET last_seen_at = %s, consecutive_misses = 0 "
+        f"WHERE source_id = %s AND id IN ({placeholders})",
+        [timestamp, source_id] + job_ids
     )
 
+    affected = cursor.rowcount
     conn.commit()
-    logger.info(f"Updated last_seen for {len(job_ids)} jobs")
+    if affected != len(job_ids):
+        logger.warning(
+            "update_last_seen affected %d/%d rows for source_id=%s — "
+            "%d ids did not match the composite (source_id, id) key",
+            affected, len(job_ids), source_id, len(job_ids) - affected,
+        )
+    else:
+        logger.info(
+            "Updated last_seen for %d/%d jobs (source_id=%s)",
+            affected, len(job_ids), source_id,
+        )
 
 
-def increment_consecutive_misses(conn: Connection, job_ids: List[str]) -> None:
+def increment_consecutive_misses(
+    conn: Connection, source_id: str, job_ids: List[str]
+) -> None:
     """
     Increment consecutive_misses counter for jobs
 
     Args:
         conn: Database connection
+        source_id: Source namespace; ``job_ids`` must all belong to this
+            source. Must be non-empty; an empty value would silently no-op.
         job_ids: List of job IDs to update
     """
+    if not source_id:
+        raise ValueError(
+            "increment_consecutive_misses requires a non-empty source_id"
+        )
     if not job_ids:
         return
 
@@ -390,23 +475,45 @@ def increment_consecutive_misses(conn: Connection, job_ids: List[str]) -> None:
     placeholders = _build_id_placeholders(job_ids)
 
     cursor.execute(
-        f"UPDATE {_JOBS_TABLE} SET consecutive_misses = consecutive_misses + 1 WHERE id IN ({placeholders})",
-        job_ids
+        f"UPDATE {_JOBS_TABLE} SET consecutive_misses = consecutive_misses + 1 "
+        f"WHERE source_id = %s AND id IN ({placeholders})",
+        [source_id] + job_ids
     )
 
+    affected = cursor.rowcount
     conn.commit()
-    logger.info(f"Incremented misses for {len(job_ids)} jobs")
+    if affected != len(job_ids):
+        logger.warning(
+            "increment_consecutive_misses affected %d/%d rows for "
+            "source_id=%s — %d ids did not match the composite "
+            "(source_id, id) key",
+            affected, len(job_ids), source_id, len(job_ids) - affected,
+        )
+    else:
+        logger.info(
+            "Incremented misses for %d/%d jobs (source_id=%s)",
+            affected, len(job_ids), source_id,
+        )
 
 
-def mark_jobs_closed(conn: Connection, job_ids: List[str], timestamp: str) -> None:
+def mark_jobs_closed(
+    conn: Connection, source_id: str, job_ids: List[str], timestamp: str
+) -> None:
     """
     Mark jobs as CLOSED with closed_on timestamp
 
     Args:
         conn: Database connection
+        source_id: Source namespace; ``job_ids`` must all belong to this
+            source. Must be non-empty; an empty value would silently no-op
+            and the jobs would never get closed.
         job_ids: List of job IDs to mark as closed
         timestamp: ISO 8601 timestamp
     """
+    if not source_id:
+        raise ValueError(
+            "mark_jobs_closed requires a non-empty source_id"
+        )
     if not job_ids:
         return
 
@@ -414,28 +521,47 @@ def mark_jobs_closed(conn: Connection, job_ids: List[str], timestamp: str) -> No
     placeholders = _build_id_placeholders(job_ids)
 
     cursor.execute(
-        f"UPDATE {_JOBS_TABLE} SET status = 'CLOSED', closed_on = %s WHERE id IN ({placeholders})",
-        [timestamp] + job_ids
+        f"UPDATE {_JOBS_TABLE} SET status = 'CLOSED', closed_on = %s "
+        f"WHERE source_id = %s AND id IN ({placeholders})",
+        [timestamp, source_id] + job_ids
     )
 
+    affected = cursor.rowcount
     conn.commit()
-    logger.info(f"Marked {len(job_ids)} jobs as CLOSED")
+    if affected != len(job_ids):
+        logger.warning(
+            "mark_jobs_closed affected %d/%d rows for source_id=%s — "
+            "%d ids did not match the composite (source_id, id) key",
+            affected, len(job_ids), source_id, len(job_ids) - affected,
+        )
+    else:
+        logger.info(
+            "Marked %d/%d jobs as CLOSED (source_id=%s)",
+            affected, len(job_ids), source_id,
+        )
 
 
 def get_jobs_exceeding_miss_threshold(
-    conn: Connection, job_ids: List[str], threshold: int
+    conn: Connection, source_id: str, job_ids: List[str], threshold: int
 ) -> Set[str]:
     """
     Get job IDs where consecutive_misses >= threshold in a single query.
 
     Args:
         conn: Database connection
+        source_id: Source namespace; ``job_ids`` must all belong to this
+            source. Must be non-empty; an empty value would silently return
+            an empty set and skip the close phase.
         job_ids: List of job IDs to check
         threshold: Minimum consecutive_misses value
 
     Returns:
         Set of job IDs that have consecutive_misses >= threshold
     """
+    if not source_id:
+        raise ValueError(
+            "get_jobs_exceeding_miss_threshold requires a non-empty source_id"
+        )
     if not job_ids:
         return set()
 
@@ -443,31 +569,65 @@ def get_jobs_exceeding_miss_threshold(
     placeholders = _build_id_placeholders(job_ids)
 
     cursor.execute(
-        f"SELECT id FROM {_JOBS_TABLE} WHERE id IN ({placeholders}) AND consecutive_misses >= %s",
-        job_ids + [threshold]
+        f"SELECT id FROM {_JOBS_TABLE} "
+        f"WHERE source_id = %s AND id IN ({placeholders}) "
+        f"AND consecutive_misses >= %s",
+        [source_id] + job_ids + [threshold]
     )
 
     return {row['id'] for row in cursor.fetchall()}
 
 
-def reactivate_job(conn: Connection, job_id: str, timestamp: str) -> None:
+def reactivate_job(
+    conn: Connection, source_id: str, job_id: str, timestamp: str
+) -> None:
     """
-    Reactivate a closed job (if it reappears in search results)
+    Reactivate a closed job (if it reappears in search results).
+
+    **Contract: the (source_id, id) row MUST already exist.** Callers are
+    expected to look up the job first (e.g. via ``get_job_by_id``) and only
+    call ``reactivate_job`` when they have confirmed the row is present —
+    typically when a previously-closed job reappears in a scrape. The
+    ``affected != 1`` branch therefore logs a WARNING (not an INFO):
+    reaching it means a caller violated the contract and the reactivation
+    silently no-op'd, which is a real bug worth surfacing in Railway logs.
+
+    Today's tests (``scripts/tests/integration/test_database.py``) are the
+    only callers; they always insert + close + reactivate, so the warning
+    only ever fires on regression.
 
     Args:
         conn: Database connection
+        source_id: Source namespace. Must be non-empty; an empty value
+            would silently match zero rows and the WARN log below would be
+            the only signal.
         job_id: Job ID to reactivate
         timestamp: ISO 8601 timestamp
     """
+    if not source_id:
+        raise ValueError(
+            "reactivate_job requires a non-empty source_id"
+        )
     cursor = conn.cursor()
 
     cursor.execute(
-        f"UPDATE {_JOBS_TABLE} SET status = 'OPEN', closed_on = NULL, last_seen_at = %s, consecutive_misses = 0 WHERE id = %s",
-        (timestamp, job_id)
+        f"UPDATE {_JOBS_TABLE} SET status = 'OPEN', closed_on = NULL, "
+        f"last_seen_at = %s, consecutive_misses = 0 "
+        f"WHERE source_id = %s AND id = %s",
+        (timestamp, source_id, job_id)
     )
 
+    affected = cursor.rowcount
     conn.commit()
-    logger.info(f"Reactivated job: {job_id}")
+    if affected != 1:
+        logger.warning(
+            "reactivate_job affected %d/1 rows for source_id=%s id=%s — "
+            "no row matched the composite (source_id, id) key (contract "
+            "violation: caller must ensure the row exists before calling)",
+            affected, source_id, job_id,
+        )
+    else:
+        logger.info(f"Reactivated job: {job_id} (source_id={source_id})")
 
 
 def record_scrape_run(conn: Connection, run_data: ScrapeRun) -> None:

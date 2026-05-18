@@ -24,6 +24,7 @@ from api.tasks.procrastinate_app import (
     ensure_schema_async,
     procrastinate_app,
 )
+from scripts.shared.constants import SourceId
 
 
 pytestmark = pytest.mark.asyncio
@@ -65,7 +66,7 @@ def _seed_job(
             sql.SQL(", ").join(sql.Placeholder() for _ in range(15)),
         ),
         (
-            job_id, "T", company, "L", "https://x", "greenhouse_api",
+            job_id, "T", company, "L", "https://x", SourceId.GREENHOUSE,
             json.dumps({}), "2025-01-01T00:00:00Z", status, False,
             json.dumps({}), "2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z",
             consecutive_misses, True,
@@ -74,11 +75,13 @@ def _seed_job(
     conn.commit()
 
 
-def _job_row(conn, job_id: str) -> dict | None:
+def _job_row(conn, job_id: str, source_id: str = SourceId.GREENHOUSE) -> dict | None:
     cur = conn.cursor()
     cur.execute(
-        sql.SQL("SELECT * FROM {} WHERE id = %s").format(sql.Identifier("job_listings")),
-        (job_id,),
+        sql.SQL("SELECT * FROM {} WHERE source_id = %s AND id = %s").format(
+            sql.Identifier("job_listings")
+        ),
+        (source_id, job_id),
     )
     return cur.fetchone()
 
@@ -136,6 +139,29 @@ async def procrastinate_open(db_conn):
         await procrastinate_app.open_async()
         try:
             await ensure_schema_async(procrastinate_app)
+            # Procrastinate's tables are installed in the per-test schema
+            # (see test_procrastinate_bootstrap.py:14-18 — PGOPTIONS pins
+            # search_path BEFORE open_async, so apply_schema_async() lands
+            # CREATE TABLE in test_<hex>, NOT in public). The module-scoped
+            # db_conn keeps that schema alive for every test in this file,
+            # so leftover fan-out defers from earlier tests in the module
+            # persist across cases. When this file runs after
+            # test_enqueue_greenhouse_fan_out alphabetically, _drain()
+            # would otherwise pick those leftovers up and contend with the
+            # composite PK on job_listings (silent ON CONFLICT clobber on
+            # (source_id, id)). Wipe both greenhouse task rows so each
+            # test sees a clean queue.
+            # Mirrors the IN-clause pattern from test_jobs_qa_router.py:31-34.
+            # Do NOT schema-qualify as `public.procrastinate_jobs` — the
+            # table lives in the per-test schema, resolved via the
+            # PGOPTIONS search_path set above.
+            cur = db_conn.cursor()
+            cur.execute(
+                "DELETE FROM procrastinate_jobs "
+                "WHERE task_name IN "
+                "('fetch_greenhouse_company', 'enqueue_greenhouse_fan_out')"
+            )
+            db_conn.commit()
             yield
         finally:
             await procrastinate_app.close_async()
@@ -174,9 +200,9 @@ class TestFetchGreenhouseCompany:
         token = "stripe"
         _seed_company(db_conn, company, token)
 
-        existing_a = f"greenhouse_100"
-        existing_b = f"greenhouse_200"
-        existing_c = f"greenhouse_300"
+        existing_a = "100"
+        existing_b = "200"
+        existing_c = "300"
         _seed_job(db_conn, existing_a, company)
         _seed_job(db_conn, existing_b, company)
         _seed_job(db_conn, existing_c, company)
@@ -201,7 +227,7 @@ class TestFetchGreenhouseCompany:
         await _drain()
         db_conn.rollback()
 
-        new_row = _job_row(db_conn, f"greenhouse_400")
+        new_row = _job_row(db_conn, "400")
         assert new_row is not None, "new job not inserted"
         assert new_row["status"] == "OPEN"
 
@@ -229,8 +255,8 @@ class TestFetchGreenhouseCompany:
         token = "datadog"
         _seed_company(db_conn, company, token)
 
-        keeper = f"greenhouse_111"
-        ghost = f"greenhouse_222"
+        keeper = "111"
+        ghost = "222"
         _seed_job(db_conn, keeper, company)
         _seed_job(db_conn, ghost, company, consecutive_misses=1)
 
@@ -261,7 +287,7 @@ class TestFetchGreenhouseCompany:
         _seed_company(db_conn, company, token)
 
         for i in range(100):
-            _seed_job(db_conn, f"greenhouse_{i}", company)
+            _seed_job(db_conn, str(i), company)
 
         def handler(request: httpx.Request) -> httpx.Response:
             return httpx.Response(200, json={"jobs": []})
@@ -396,7 +422,7 @@ class TestFetchGreenhouseCompany:
             f"given the 503-then-200 handler); call_count={call_count['n']}"
         )
 
-        new_row = _job_row(db_conn, f"greenhouse_777")
+        new_row = _job_row(db_conn, "777")
         assert new_row is not None, "job from retry attempt was not upserted"
         assert new_row["status"] == "OPEN"
 
@@ -440,7 +466,7 @@ async def test_safety_guard_boundaries(
     _seed_company(db_conn, company, token)
 
     for i in range(active_count):
-        _seed_job(db_conn, f"greenhouse_{i}", company)
+        _seed_job(db_conn, str(i), company)
 
     raw_jobs = [_make_raw_job(1000 + i) for i in range(jobs_returned)]
 

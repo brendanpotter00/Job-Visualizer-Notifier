@@ -1,26 +1,39 @@
-"""Tests for GET /api/jobs and GET /api/jobs/{id} endpoints."""
+"""Tests for GET /api/jobs and GET /api/jobs/{source_id}/{id} endpoints."""
 
 import json
 
 import pytest
+
+from scripts.shared.constants import SourceId
 
 from .conftest import _make_job, _insert_job
 
 
 @pytest.fixture(autouse=True)
 def seed_jobs(db_conn):
-    """Seed the 4 default test jobs used by most tests."""
+    """Seed the 4 default test jobs used by most tests.
+
+    `source_id` is set explicitly per company (google_scraper vs apple_scraper)
+    so the seeded rows match the source they pretend to belong to. The default
+    in `_make_job` is `google_scraper`, which would silently misfile apple rows
+    if we relied on it — a future apple-route test addressing these ids would
+    silently look in the wrong source namespace.
+    """
     jobs = [
         _make_job({"id": "google-123", "title": "Software Engineer", "company": "google",
+                    "source_id": SourceId.GOOGLE,
                     "location": "Mountain View, CA", "status": "OPEN",
                     "last_seen_at": "2025-01-15T10:00:00Z"}),
         _make_job({"id": "google-456", "title": "Data Scientist", "company": "google",
+                    "source_id": SourceId.GOOGLE,
                     "location": "New York, NY", "status": "CLOSED",
                     "last_seen_at": "2025-01-12T10:00:00Z"}),
         _make_job({"id": "apple-789", "title": "Machine Learning Engineer", "company": "apple",
+                    "source_id": SourceId.APPLE,
                     "location": "Cupertino, CA", "status": "OPEN",
                     "last_seen_at": "2025-01-16T10:00:00Z"}),
         _make_job({"id": "apple-101", "title": "iOS Developer", "company": "apple",
+                    "source_id": SourceId.APPLE,
                     "location": "Austin, TX", "status": "OPEN",
                     "last_seen_at": "2025-01-14T10:00:00Z"}),
     ]
@@ -70,7 +83,7 @@ def test_get_jobs_orders_by_last_seen_at_descending(client):
 
 
 def test_get_job_by_id(client):
-    resp = client.get("/api/jobs/google-123")
+    resp = client.get(f"/api/jobs/{SourceId.GOOGLE}/google-123")
     assert resp.status_code == 200
     job = resp.json()
     assert job["id"] == "google-123"
@@ -79,8 +92,64 @@ def test_get_job_by_id(client):
 
 
 def test_get_job_returns_404_when_missing(client):
-    resp = client.get("/api/jobs/nonexistent-id")
+    resp = client.get(f"/api/jobs/{SourceId.GOOGLE}/nonexistent-id")
     assert resp.status_code == 404
+
+
+def test_get_job_disambiguates_same_id_across_source_ids(client, db_conn):
+    """Two jobs that share an `id` but differ in `source_id` must be
+    addressable independently via /api/jobs/{source_id}/{id}. Catches a
+    regression that drops `source_id = %s` from the WHERE clause — that
+    bug would return the same row for both URLs.
+    """
+    shared_id = "collide-42"
+    _insert_job(db_conn, _make_job({
+        "id": shared_id,
+        "source_id": SourceId.GOOGLE,
+        "title": "Google Role",
+        "company": "google",
+    }))
+    _insert_job(db_conn, _make_job({
+        "id": shared_id,
+        "source_id": SourceId.GREENHOUSE,
+        "title": "Greenhouse Role",
+        "company": "stripe",
+    }))
+
+    google_resp = client.get(f"/api/jobs/{SourceId.GOOGLE}/{shared_id}")
+    assert google_resp.status_code == 200
+    google_job = google_resp.json()
+    assert google_job["id"] == shared_id
+    assert google_job["title"] == "Google Role"
+    assert google_job["company"] == "google"
+
+    greenhouse_resp = client.get(f"/api/jobs/{SourceId.GREENHOUSE}/{shared_id}")
+    assert greenhouse_resp.status_code == 200
+    greenhouse_job = greenhouse_resp.json()
+    assert greenhouse_job["id"] == shared_id
+    assert greenhouse_job["title"] == "Greenhouse Role"
+    assert greenhouse_job["company"] == "stripe"
+
+
+def test_get_job_returns_404_when_source_id_mismatches_real_id(client, db_conn):
+    """A real `id` looked up under the wrong `source_id` must 404 — proves
+    the WHERE clause uses both columns.
+    """
+    real_id = "real-id-7"
+    _insert_job(db_conn, _make_job({
+        "id": real_id,
+        "source_id": SourceId.GOOGLE,
+        "title": "Real Google Role",
+        "company": "google",
+    }))
+
+    # Confirm the row IS reachable under its real source_id (guards against
+    # the test passing just because of a typo / missing seed).
+    ok = client.get(f"/api/jobs/{SourceId.GOOGLE}/{real_id}")
+    assert ok.status_code == 200
+
+    mismatch = client.get(f"/api/jobs/{SourceId.GREENHOUSE}/{real_id}")
+    assert mismatch.status_code == 404
 
 
 def test_get_jobs_filters_by_status_open(client):
@@ -141,7 +210,7 @@ def test_detail_endpoint_returns_full_details(client, db_conn):
         "id": "detail-full-test",
         "details": json.dumps(full_details),
     }))
-    resp = client.get("/api/jobs/detail-full-test")
+    resp = client.get(f"/api/jobs/{SourceId.GOOGLE}/detail-full-test")
     details = json.loads(resp.json()["details"])
     assert details["experience_level"] == "Senior"
     assert details["about_the_job"] == "Full description here"

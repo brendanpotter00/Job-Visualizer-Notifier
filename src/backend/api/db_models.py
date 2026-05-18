@@ -38,7 +38,7 @@ Base = declarative_base()
 class JobListing(Base):
     __tablename__ = "job_listings"
 
-    id = Column(Text, primary_key=True)
+    id = Column(Text, nullable=False)
     title = Column(Text, nullable=False)
     company = Column(Text, nullable=False)
     location = Column(Text, nullable=True)
@@ -57,6 +57,7 @@ class JobListing(Base):
     details_scraped = Column(Boolean, server_default=text("false"))
 
     __table_args__ = (
+        PrimaryKeyConstraint("source_id", "id"),
         Index("idx_job_listings_status", "status"),
         Index("idx_job_listings_company", "company"),
         Index("idx_job_listings_last_seen", "last_seen_at"),

@@ -145,6 +145,7 @@ async def process_new_jobs(
 
 def update_existing_jobs(
     db_conn,
+    source_id: str,
     still_active_ids: Set[str],
     missing_ids: Set[str],
     threshold: int = MISSED_RUN_THRESHOLD
@@ -154,6 +155,10 @@ def update_existing_jobs(
 
     Args:
         db_conn: Database connection
+        source_id: Source namespace shared by ``still_active_ids`` and
+            ``missing_ids`` (e.g., ``"google_scraper"``). Must be non-empty —
+            an empty value would silently no-op every UPDATE in this
+            function, mirroring the guard in ``run_incremental_scrape``.
         still_active_ids: Job IDs that are still in search results
         missing_ids: Job IDs that are missing from search results
         threshold: Number of consecutive misses before marking as closed
@@ -161,26 +166,30 @@ def update_existing_jobs(
     Returns:
         Number of jobs marked as closed
     """
+    if not source_id:
+        raise ValueError(
+            "update_existing_jobs requires a non-empty source_id"
+        )
     timestamp = get_iso_timestamp()
 
     # Update last_seen for still active jobs
     if still_active_ids:
-        db.update_last_seen(db_conn, list(still_active_ids), timestamp)
+        db.update_last_seen(db_conn, source_id, list(still_active_ids), timestamp)
 
     if not missing_ids:
         return 0
 
     # Increment consecutive_misses for missing jobs
-    db.increment_consecutive_misses(db_conn, list(missing_ids))
+    db.increment_consecutive_misses(db_conn, source_id, list(missing_ids))
 
     # Check which jobs have exceeded threshold and mark as closed (single query)
     # Note: consecutive_misses was already incremented above, so we check >= threshold
     jobs_to_close = db.get_jobs_exceeding_miss_threshold(
-        db_conn, list(missing_ids), threshold
+        db_conn, source_id, list(missing_ids), threshold
     )
 
     if jobs_to_close:
-        db.mark_jobs_closed(db_conn, list(jobs_to_close), timestamp)
+        db.mark_jobs_closed(db_conn, source_id, list(jobs_to_close), timestamp)
         return len(jobs_to_close)
 
     return 0
@@ -190,7 +199,8 @@ async def run_incremental_scrape(
     scraper,
     db_conn,
     company: str,
-    detail_scrape: bool = True
+    detail_scrape: bool = True,
+    source_id: str | None = None,
 ) -> ScrapeResult:
     """
     Run the 5-phase incremental scraping algorithm
@@ -200,11 +210,22 @@ async def run_incremental_scrape(
         db_conn: Database connection
         company: Company name (e.g., "google", "apple")
         detail_scrape: Whether to fetch detail pages for new jobs
+        source_id: Source namespace for composite-PK lookups. If None,
+            derived from ``scraper.SOURCE_ID``. Required either way;
+            raises if neither path resolves.
 
     Returns:
         ScrapeResult with statistics
     """
-    logger.info(f"Starting incremental scrape for {company}")
+    if source_id is None:
+        source_id = getattr(scraper, "SOURCE_ID", None)
+    if not isinstance(source_id, str) or not source_id:
+        raise ValueError(
+            "run_incremental_scrape requires source_id, either as an explicit "
+            "arg or via scraper.SOURCE_ID class attribute"
+        )
+
+    logger.info(f"Starting incremental scrape for {company} (source_id={source_id})")
 
     result = ScrapeResult()
     timestamp = get_iso_timestamp()
@@ -222,7 +243,7 @@ async def run_incremental_scrape(
 
         # Phase 2: Compare against database
         logger.info("Phase 2: Comparing against database...")
-        active_known_ids = db.get_active_job_ids(db_conn, company)
+        active_known_ids = db.get_active_job_ids(db_conn, source_id, company)
         new_ids, still_active_ids, missing_ids = calculate_job_diff(current_ids, active_known_ids)
 
         # Safety guard: skip update/close phases if scraper returned
@@ -250,7 +271,7 @@ async def run_incremental_scrape(
             # Phase 4 & 5: Update existing jobs and mark closed
             logger.info("Phase 4 & 5: Updating job status...")
             result.closed_jobs = update_existing_jobs(
-                db_conn, still_active_ids, missing_ids
+                db_conn, source_id, still_active_ids, missing_ids
             )
 
     except Exception as e:

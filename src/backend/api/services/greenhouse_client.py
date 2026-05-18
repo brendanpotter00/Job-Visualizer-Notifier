@@ -8,10 +8,11 @@ Two functions, both queue-agnostic:
   Greenhouse job dict to a :class:`scripts.shared.models.JobListing`
   ready for ``upsert_jobs_batch``.
 
-The id format is ``greenhouse_{raw['id']}``. Greenhouse job IDs are
-globally unique across the entire Greenhouse Job Board platform, so the
-source-namespace prefix is enough to prevent collisions with other ATS
-providers in ``job_listings`` (Apple, Google, Microsoft).
+The id format is the raw Greenhouse job id as a string (e.g. ``"7546284"``).
+Cross-source uniqueness lives in the database schema via the composite
+``(source_id, id)`` primary key on ``job_listings`` — Greenhouse rows
+use ``source_id = 'greenhouse_api'``. Greenhouse guarantees that raw ids
+are globally unique across the entire Greenhouse Job Board platform.
 
 Output shape note: the ``details`` JSONB column is populated with keys that
 the existing frontend ``backendScraperTransformer.ts`` reads
@@ -29,6 +30,7 @@ from typing import Any, Optional
 
 import httpx
 
+from scripts.shared.constants import SourceId
 from scripts.shared.models import JobListing
 from scripts.shared.utils import get_iso_timestamp
 
@@ -36,7 +38,7 @@ logger = logging.getLogger(__name__)
 
 GREENHOUSE_BASE_URL = "https://boards-api.greenhouse.io/v1/boards"
 DEFAULT_TIMEOUT_SECONDS = 30.0
-SOURCE_ID = "greenhouse_api"
+SOURCE_ID = SourceId.GREENHOUSE
 
 
 async def fetch_jobs(board_token: str, http: httpx.AsyncClient) -> list[dict]:
@@ -99,7 +101,7 @@ def _transform_one(
     raw_id = raw.get("id")
     if raw_id is None:
         raise ValueError(f"Greenhouse job missing 'id': {raw!r}")
-    job_id = f"greenhouse_{raw_id}"
+    job_id = str(raw_id)
 
     title = raw.get("title") or ""
     absolute_url = raw.get("absolute_url") or ""

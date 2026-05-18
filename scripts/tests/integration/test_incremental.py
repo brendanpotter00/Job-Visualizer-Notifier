@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+from shared.constants import SourceId
 from shared.models import JobListing
 from shared import database as db
 from shared.incremental import (
@@ -44,7 +45,7 @@ class TestProcessNewJobs:
             title="Software Engineer",
             company="google",
             url="https://example.com/jobs/results/new-job-001",
-            source_id="google_scraper",
+            source_id=SourceId.GOOGLE,
             created_at="2024-01-15T10:30:00Z",
             first_seen_at="2024-01-15T10:30:00Z",
             last_seen_at="2024-01-15T10:30:00Z"
@@ -55,7 +56,7 @@ class TestProcessNewJobs:
         )
 
         # Verify job was inserted
-        job = db.get_job_by_id(in_memory_db, "new-job-001")
+        job = db.get_job_by_id(in_memory_db, SourceId.GOOGLE, "new-job-001")
         assert job is not None
         assert job["title"] == "Software Engineer"
 
@@ -77,7 +78,7 @@ class TestProcessNewJobs:
             title="Test Job",
             company="google",
             url="https://example.com/job",
-            source_id="google_scraper",
+            source_id=SourceId.GOOGLE,
             created_at="2024-01-15T10:30:00Z",
             first_seen_at="2024-01-15T10:30:00Z",
             last_seen_at="2024-01-15T10:30:00Z"
@@ -112,7 +113,7 @@ class TestProcessNewJobs:
             title="Test Job",
             company="google",
             url="https://example.com/job",
-            source_id="google_scraper",
+            source_id=SourceId.GOOGLE,
             created_at="2024-01-15T10:30:00Z",
             first_seen_at="2024-01-15T10:30:00Z",
             last_seen_at="2024-01-15T10:30:00Z"
@@ -146,11 +147,11 @@ class TestUpdateExistingJobs:
         missing_ids = set()
 
         closed_count = update_existing_jobs(
-            in_memory_db, still_active_ids, missing_ids
+            in_memory_db, SourceId.GOOGLE, still_active_ids, missing_ids
         )
 
         # Verify last_seen updated and misses reset
-        job = db.get_job_by_id(in_memory_db, sample_job_listing.id)
+        job = db.get_job_by_id(in_memory_db, sample_job_listing.source_id, sample_job_listing.id)
         assert job["consecutive_misses"] == 0
         assert closed_count == 0
 
@@ -162,11 +163,11 @@ class TestUpdateExistingJobs:
         missing_ids = {sample_job_listing.id}
 
         closed_count = update_existing_jobs(
-            in_memory_db, still_active_ids, missing_ids
+            in_memory_db, SourceId.GOOGLE, still_active_ids, missing_ids
         )
 
         # After first miss: consecutive_misses becomes 1, threshold is 2, so not closed yet
-        job = db.get_job_by_id(in_memory_db, sample_job_listing.id)
+        job = db.get_job_by_id(in_memory_db, sample_job_listing.source_id, sample_job_listing.id)
         assert job["consecutive_misses"] == 1
         assert job["status"] == "OPEN"
         assert closed_count == 0
@@ -181,11 +182,15 @@ class TestUpdateExistingJobs:
         missing_ids = {sample_job_listing.id}
 
         closed_count = update_existing_jobs(
-            in_memory_db, still_active_ids, missing_ids, threshold=2
+            in_memory_db,
+            SourceId.GOOGLE,
+            still_active_ids,
+            missing_ids,
+            threshold=MISSED_RUN_THRESHOLD,
         )
 
         # After second miss (total 2), should be closed
-        job = db.get_job_by_id(in_memory_db, sample_job_listing.id)
+        job = db.get_job_by_id(in_memory_db, sample_job_listing.source_id, sample_job_listing.id)
         assert job["status"] == "CLOSED"
         assert closed_count == 1
 
@@ -198,17 +203,25 @@ class TestUpdateExistingJobs:
         missing_ids = {"job-001", "job-002"}  # Two missing
 
         closed_count = update_existing_jobs(
-            in_memory_db, still_active_ids, missing_ids
+            in_memory_db, SourceId.GOOGLE, still_active_ids, missing_ids
         )
 
         # Active job should have misses reset
-        job = db.get_job_by_id(in_memory_db, "job-000")
+        job = db.get_job_by_id(in_memory_db, SourceId.GOOGLE, "job-000")
         assert job["consecutive_misses"] == 0
 
         # Missing jobs should have misses incremented
         for job_id in missing_ids:
-            job = db.get_job_by_id(in_memory_db, job_id)
+            job = db.get_job_by_id(in_memory_db, SourceId.GOOGLE, job_id)
             assert job["consecutive_misses"] == 1
+
+    def test_update_existing_jobs_rejects_empty_source_id(self, in_memory_db):
+        """Highest-level fail-fast guard: empty source_id raises before any
+        DB call. Locks the contract added in pass 2 — a future caller
+        passing source_id='' (misconfigured env var, dropped class attr)
+        MUST fail at this boundary, not silently no-op every UPDATE."""
+        with pytest.raises(ValueError, match="source_id"):
+            update_existing_jobs(in_memory_db, "", {"job-001"}, set())
 
 
 class TestRunIncrementalScrape:
@@ -223,7 +236,7 @@ class TestRunIncrementalScrape:
             title="Existing Job",
             company="google",
             url="https://example.com/existing",
-            source_id="google_scraper",
+            source_id=SourceId.GOOGLE,
             created_at="2024-01-10T10:00:00Z",
             first_seen_at="2024-01-10T10:00:00Z",
             last_seen_at="2024-01-10T10:00:00Z"
@@ -241,7 +254,7 @@ class TestRunIncrementalScrape:
             title="New Job",
             company="google",
             url="https://example.com/new",
-            source_id="google_scraper",
+            source_id=SourceId.GOOGLE,
             created_at="2024-01-15T10:30:00Z",
             first_seen_at="2024-01-15T10:30:00Z",
             last_seen_at="2024-01-15T10:30:00Z"
@@ -283,7 +296,7 @@ class TestRunIncrementalScrape:
             title="Closing Job",
             company="google",
             url="https://example.com/closing",
-            source_id="google_scraper",
+            source_id=SourceId.GOOGLE,
             created_at="2024-01-10T10:00:00Z",
             first_seen_at="2024-01-10T10:00:00Z",
             last_seen_at="2024-01-10T10:00:00Z",
@@ -299,7 +312,7 @@ class TestRunIncrementalScrape:
         )
 
         # Safety guard should prevent closure
-        job = db.get_job_by_id(in_memory_db, "will-be-closed")
+        job = db.get_job_by_id(in_memory_db, SourceId.GOOGLE, "will-be-closed")
         assert job["status"] == "OPEN"
         assert job["consecutive_misses"] == 1  # Unchanged
         assert result.closed_jobs == 0
@@ -314,7 +327,7 @@ class TestRunIncrementalScrape:
             title="Active Job",
             company="google",
             url="https://example.com/active",
-            source_id="google_scraper",
+            source_id=SourceId.GOOGLE,
             created_at="2024-01-10T10:00:00Z",
             first_seen_at="2024-01-10T10:00:00Z",
             last_seen_at="2024-01-10T10:00:00Z",
@@ -324,7 +337,7 @@ class TestRunIncrementalScrape:
             title="Closing Job",
             company="google",
             url="https://example.com/closing",
-            source_id="google_scraper",
+            source_id=SourceId.GOOGLE,
             created_at="2024-01-10T10:00:00Z",
             first_seen_at="2024-01-10T10:00:00Z",
             last_seen_at="2024-01-10T10:00:00Z",
@@ -343,7 +356,7 @@ class TestRunIncrementalScrape:
         )
 
         # Missing job should be closed (non-empty scrape, normal behavior)
-        job = db.get_job_by_id(in_memory_db, "will-be-closed")
+        job = db.get_job_by_id(in_memory_db, SourceId.GOOGLE, "will-be-closed")
         assert job["status"] == "CLOSED"
         assert result.closed_jobs == 1
         assert result.skipped_update is False
@@ -372,7 +385,7 @@ class TestRunIncrementalScrape:
                 title=f"Job {i}",
                 company="google",
                 url=f"https://example.com/job-{i}",
-                source_id="google_scraper",
+                source_id=SourceId.GOOGLE,
                 created_at="2024-01-10T10:00:00Z",
                 first_seen_at="2024-01-10T10:00:00Z",
                 last_seen_at="2024-01-10T10:00:00Z",
@@ -403,7 +416,7 @@ class TestRunIncrementalScrape:
                 title=f"Job {i}",
                 company="google",
                 url=f"https://example.com/job-{i}",
-                source_id="google_scraper",
+                source_id=SourceId.GOOGLE,
                 created_at="2024-01-10T10:00:00Z",
                 first_seen_at="2024-01-10T10:00:00Z",
                 last_seen_at="2024-01-10T10:00:00Z",

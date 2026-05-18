@@ -12,6 +12,8 @@ from api.tasks.procrastinate_app import (
     procrastinate_app,
 )
 
+from scripts.shared.constants import SourceId
+
 from .conftest import _make_job, _insert_job, _insert_scrape_run
 
 
@@ -129,9 +131,14 @@ def test_trigger_scrape_returns_409_when_scrape_in_progress(client):
 # --- stats ---
 
 def test_stats_returns_counts_for_all_companies(client, db_conn):
-    _insert_job(db_conn, _make_job({"id": "g1", "company": "google", "status": "OPEN"}))
-    _insert_job(db_conn, _make_job({"id": "g2", "company": "google", "status": "CLOSED"}))
-    _insert_job(db_conn, _make_job({"id": "a1", "company": "apple", "status": "OPEN"}))
+    # Override source_id on apple rows so the (source_id, id) composite-PK
+    # rows are filed in their real namespace instead of inheriting
+    # `_make_job`'s `google_scraper` default. Stats group by `company` so
+    # this didn't break tests, but the fixture was lying about data shape.
+    # Mirror the symmetric fix in test_jobs_router.py::seed_jobs.
+    _insert_job(db_conn, _make_job({"id": "g1", "company": "google", "source_id": SourceId.GOOGLE, "status": "OPEN"}))
+    _insert_job(db_conn, _make_job({"id": "g2", "company": "google", "source_id": SourceId.GOOGLE, "status": "CLOSED"}))
+    _insert_job(db_conn, _make_job({"id": "a1", "company": "apple", "source_id": SourceId.APPLE, "status": "OPEN"}))
 
     resp = client.get("/api/jobs-qa/stats")
     assert resp.status_code == 200
@@ -146,9 +153,9 @@ def test_stats_returns_counts_for_all_companies(client, db_conn):
 
 
 def test_stats_filters_by_company(client, db_conn):
-    _insert_job(db_conn, _make_job({"id": "g3", "company": "google", "status": "OPEN"}))
-    _insert_job(db_conn, _make_job({"id": "a2", "company": "apple", "status": "OPEN"}))
-    _insert_job(db_conn, _make_job({"id": "a3", "company": "apple", "status": "CLOSED"}))
+    _insert_job(db_conn, _make_job({"id": "g3", "company": "google", "source_id": SourceId.GOOGLE, "status": "OPEN"}))
+    _insert_job(db_conn, _make_job({"id": "a2", "company": "apple", "source_id": SourceId.APPLE, "status": "OPEN"}))
+    _insert_job(db_conn, _make_job({"id": "a3", "company": "apple", "source_id": SourceId.APPLE, "status": "CLOSED"}))
 
     resp = client.get("/api/jobs-qa/stats", params={"company": "apple"})
     stats = resp.json()
