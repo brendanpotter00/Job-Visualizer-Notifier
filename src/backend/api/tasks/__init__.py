@@ -8,5 +8,6 @@ from . import enqueue_greenhouse_fan_out  # noqa: F401  (registers periodic task
 from . import fetch_ashby_company  # noqa: F401  (registers task on app)
 from . import enqueue_ashby_fan_out  # noqa: F401  (registers periodic task on app)
 from . import fetch_workday_company  # noqa: F401  (registers task on app)
+from . import enqueue_workday_fan_out  # noqa: F401  (registers periodic task on app)
 
 __all__ = ["procrastinate_app"]
