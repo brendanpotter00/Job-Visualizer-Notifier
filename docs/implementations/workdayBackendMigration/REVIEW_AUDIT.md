@@ -52,3 +52,58 @@
 ### Deferred (not fixing this pass)
 
 - All three suggestion-level URL/date-parser micro-comments above. None block merge.
+
+---
+
+## 2026-05-19 — Review pass 2
+
+### Code-review findings
+
+**Critical:**
+- (none)
+
+**Important:**
+- (none)
+
+**Suggestion / Nit:**
+- `src/backend/api/services/workday_client.py:228` — `not isinstance(raw_total, int)` doesn't reject `bool` (since `bool` is a subclass of `int` in Python). If Workday's CXS endpoint ever returned `total: true`, the validation would pass and `total=True` would later compare as `len(all_postings) >= 1`. Real Workday API contract is `int`; the edge case is theoretical. The Lever client has a similar narrow guard. **Not fixing** — additional `isinstance(raw_total, bool)` guard would mirror Lever's `_ms_to_iso8601` defensive style but is suggestion-level only.
+- `src/backend/api/services/workday_client.py:166` — `str(provider_config["base_url"]).rstrip("/")` defends against trailing slashes but not against leading slashes in `tenant_slug` / `career_site_slug`. **Not fixing** — `_validate_provider_config` enforces non-empty, and the seed migration is the source of truth for the 11 values.
+
+### Cross-cutting checks
+
+**Surface-area sweep:** `grep -rn "workday\|Workday" src/backend/api src/frontend/src` returned only the expected references (seed comments, task names, queue names, sourceAts tags, why-page column). No dangling references to deleted files (workdayClient.ts / workdayTransformer.ts / workdayDateParser.ts / WorkdayConfig / ATSConstants.Workday).
+
+**Other-suite regression:** Re-ran `pytest -k "ashby or greenhouse or jobs_router or migration_companies"` → 131 passed. The widened `list_enabled_companies` return shape (added `provider_config` key) is invisible to Greenhouse/Ashby fan-outs (they only read `id` + `board_token`).
+
+**SQL injection:** The new trigger endpoint (`/trigger-workday-fetch`) uses `psycopg2`'s parameterized SQL (`%s` placeholders) for `company_id`. The query body literal is a static string with `AND ats = 'workday'` baked in. No string formatting.
+
+**Async + sync DB:** All sync `db.*` calls in the new code are wrapped in `asyncio.to_thread` (or behind `Depends(get_db)` in the trigger endpoint). Matches the Greenhouse / Ashby / Lever pattern.
+
+**Admin gating:** Both new trigger endpoints (`trigger-workday-fetch`, `trigger-workday-fan-out`) carry `Depends(require_admin)`. Tests pin the 401-without-auth and 403-without-admin branches for both.
+
+**Procrastinate task registration:** `tasks/__init__.py` side-effect-imports both `fetch_workday_company` and `enqueue_workday_fan_out`. Worker queue list in `main.py` includes `workday_fetch`.
+
+### Production-environment findings
+
+**Critical:**
+- (none)
+
+**Important:**
+- (none)
+
+**Suggestion:**
+- (none)
+
+**Verifier results (verified inline via prod MCP):**
+- `postgres-prod-verifier`: re-confirmed prod state unchanged since pass 1 (46 ashby + 45 greenhouse, 0 workday/lever/gem; `alembic_version = a17b7c0ffee500`; no row-id collisions on the 11 Workday ids; `companies` table still 6 columns — `provider_config` will be added by `b9714f608e21::upgrade()`).
+- `vercel-prod-verifier` (repo state): deletions verified — `api/workday.ts` gone, no `/api/workday/:path(.*)` rewrite in `vercel.json`, `X-Workday-Base-Url` removed from CORS allow-headers.
+
+### Gates re-run between passes
+
+- Backend `pytest`: **448 passed, 0 failed**.
+- Frontend `npm run type-check`: clean.
+- Frontend `npm test -w src/frontend`: **1303 passed, 0 failed**.
+
+### Deferred (not fixing this pass)
+
+- Suggestion-level findings above. None block merge.
