@@ -25,10 +25,10 @@ vi.mock('../../../config/companies', () => {
       config: { type: 'backend-scraper', companyId: 'discord' },
     },
     {
-      id: 'leverco',
-      name: 'Lever Co',
-      ats: 'lever' as const,
-      config: { type: 'lever', companyId: 'leverco', jobsUrl: 'https://jobs.lever.co/leverco' },
+      id: 'gemco',
+      name: 'Gem Co',
+      ats: 'gem' as const,
+      config: { type: 'gem', vanityUrlPath: 'gemco' },
     },
   ];
   return {
@@ -144,7 +144,7 @@ describe('jobsApi getAllJobs partitioning', () => {
     const data = getAllEntry?.data;
     expect(data).toBeDefined();
     expect(Object.keys(data.byCompanyId).sort()).toEqual(
-      ['airbnb', 'discord', 'leverco', 'stripe'].sort()
+      ['airbnb', 'discord', 'gemco', 'stripe'].sort()
     );
     expect(data.byCompanyId.stripe.length).toBe(1);
     expect(data.byCompanyId.airbnb.length).toBe(1);
