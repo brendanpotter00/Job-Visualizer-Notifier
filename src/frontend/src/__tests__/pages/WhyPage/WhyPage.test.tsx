@@ -111,6 +111,34 @@ describe('WhyPage', () => {
     }
   });
 
+  it('renders a dedicated Workday group containing only companies whose sourceAts === "workday"', () => {
+    const grouped = groupCompaniesByATS();
+    const workdayGroup = grouped.workday ?? [];
+
+    expect(workdayGroup.length).toBeGreaterThan(0);
+    for (const company of workdayGroup) {
+      expect(company.sourceAts).toBe('workday');
+    }
+
+    renderWithProviders(<WhyPage />, { initialEntries: ['/why'] });
+
+    expect(
+      screen.getByRole('heading', {
+        level: 3,
+        name: new RegExp(`Workday\\s*\\(${workdayGroup.length}\\)`, 'i'),
+      })
+    ).toBeInTheDocument();
+  });
+
+  it('Custom Web Scrapers group excludes Workday companies (true custom scrapers only)', () => {
+    const grouped = groupCompaniesByATS();
+    const customScrapers = grouped['backend-scraper'] ?? [];
+
+    for (const company of customScrapers) {
+      expect(company.sourceAts).not.toBe('workday');
+    }
+  });
+
   it('renders one ATS group header per distinct non-empty ATS group in COMPANIES', () => {
     const grouped = groupCompaniesByATS();
 
