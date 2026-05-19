@@ -9,10 +9,6 @@
       "destination": "/api/lever?path=:path"
     },
     {
-      "source": "/api/ashby/:path(.*)",
-      "destination": "/api/ashby?path=:path"
-    },
-    {
       "source": "/api/workday/:path(.*)",
       "destination": "/api/workday?path=:path"
     },

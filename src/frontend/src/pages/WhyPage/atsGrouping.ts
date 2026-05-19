@@ -22,7 +22,6 @@ export function getATSGroupKey(company: Company): ATSGroupKey {
 
 export const ATS_DISPLAY_NAMES: Record<ATSGroupKey, string> = {
   lever: 'lever',
-  ashby: 'ashby',
   workday: 'workday',
   gem: 'gem',
   eightfold: 'eightfold',
