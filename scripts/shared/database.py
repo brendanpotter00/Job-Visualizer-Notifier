@@ -234,6 +234,33 @@ def list_enabled_companies(conn: Connection, ats: str) -> List[Dict[str, Any]]:
     return [dict(row) for row in cursor.fetchall()]
 
 
+def list_enabled_eightfold_companies(conn: Connection) -> List[Dict[str, Any]]:
+    """List all enabled Eightfold companies with their ``provider_config``.
+
+    Used by the Eightfold periodic fan-out task to discover which companies
+    to defer per-company fetch tasks for. Distinct helper (not a flag on
+    ``list_enabled_companies``) because Eightfold-row callers always need
+    the ``provider_config`` JSONB blob too, and the existing helper's
+    return shape is ``[{id, board_token}]`` — extending it would change
+    the existing Greenhouse + Ashby callers' return shape and bloat their
+    deferral payload.
+
+    Returns
+    -------
+    list[dict]
+        One dict per enabled Eightfold company, with keys ``id``,
+        ``board_token``, and ``provider_config`` (the JSONB blob,
+        deserialized by psycopg2 to a dict). Ordered by ``id``.
+    """
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT id, board_token, provider_config FROM companies "
+        "WHERE ats = 'eightfold' AND enabled = true "
+        "ORDER BY id"
+    )
+    return [dict(row) for row in cursor.fetchall()]
+
+
 def get_job_by_id(
     conn: Connection, source_id: str, job_id: str
 ) -> Optional[Dict[str, Any]]:

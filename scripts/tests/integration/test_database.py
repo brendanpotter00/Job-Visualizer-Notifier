@@ -685,3 +685,85 @@ class TestSourceScopedHelpersRejectEmptySource:
         # Single-row-shape guard.
         with pytest.raises(ValueError, match="source_id"):
             db.get_job_by_id(in_memory_db, "", "job-001")
+
+
+class TestListEnabledEightfoldCompanies:
+    """Lock the contract of the Eightfold fan-out's company-discovery helper.
+
+    Failure modes the helper has to defend against:
+      - other ATSes returning rows (e.g. ashby with the same id pattern)
+      - disabled rows being deferred to anyway
+      - provider_config not being deserialized into a dict (psycopg2 cursor
+        must return it via the RealDictCursor adapter so we get a dict, not
+        a string)
+      - ordering not being deterministic across cron ticks (queue payload
+        ordering changing would make debugging harder; ORDER BY id is the
+        contract)
+    """
+
+    def _seed_company(
+        self,
+        conn,
+        company_id: str,
+        *,
+        ats: str = "eightfold",
+        enabled: bool = True,
+        provider_config: dict | None = None,
+    ) -> None:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO companies (id, display_name, ats, board_token, enabled, "
+            "provider_config) "
+            "VALUES (%s, %s, %s, %s, %s, CAST(%s AS JSONB))",
+            (
+                company_id,
+                company_id.title(),
+                ats,
+                company_id,
+                enabled,
+                json.dumps(provider_config or {}),
+            ),
+        )
+        conn.commit()
+
+    def test_returns_only_enabled_eightfold_rows(self, in_memory_db):
+        # Mix of eightfold (enabled + disabled), ashby, greenhouse.
+        self._seed_company(
+            in_memory_db, "netflix",
+            provider_config={
+                "tenant_host": "explore.jobs.netflix.net",
+                "domain": "netflix.com",
+            },
+        )
+        self._seed_company(
+            in_memory_db, "disabled_ef", enabled=False,
+            provider_config={"tenant_host": "x.eightfold.ai", "domain": "x.com"},
+        )
+        self._seed_company(in_memory_db, "ashby_co", ats="ashby")
+        self._seed_company(in_memory_db, "gh_co", ats="greenhouse")
+
+        rows = db.list_enabled_eightfold_companies(in_memory_db)
+        assert len(rows) == 1
+        assert rows[0]["id"] == "netflix"
+        assert rows[0]["board_token"] == "netflix"
+        # provider_config must be a dict (deserialized), not a JSON string.
+        assert isinstance(rows[0]["provider_config"], dict)
+        assert rows[0]["provider_config"]["tenant_host"] == "explore.jobs.netflix.net"
+        assert rows[0]["provider_config"]["domain"] == "netflix.com"
+
+    def test_order_by_id_deterministic(self, in_memory_db):
+        # Insert in non-alphabetical order; helper must return alphabetical.
+        for cid in ("zebra", "apple", "mango"):
+            self._seed_company(
+                in_memory_db, cid,
+                provider_config={
+                    "tenant_host": f"{cid}.eightfold.ai",
+                    "domain": f"{cid}.com",
+                },
+            )
+        rows = db.list_enabled_eightfold_companies(in_memory_db)
+        assert [r["id"] for r in rows] == ["apple", "mango", "zebra"]
+
+    def test_no_eightfold_rows_returns_empty(self, in_memory_db):
+        self._seed_company(in_memory_db, "ashby_only", ats="ashby")
+        assert db.list_enabled_eightfold_companies(in_memory_db) == []
