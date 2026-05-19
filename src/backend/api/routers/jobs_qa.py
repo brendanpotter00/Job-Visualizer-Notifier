@@ -14,8 +14,10 @@ from ..services.database import get_stats, get_scrape_runs
 from ..services.scraper_lock import scraper_lock
 from ..tasks.enqueue_ashby_fan_out import enqueue_ashby_fan_out
 from ..tasks.enqueue_greenhouse_fan_out import enqueue_greenhouse_fan_out
+from ..tasks.enqueue_workday_fan_out import enqueue_workday_fan_out
 from ..tasks.fetch_ashby_company import fetch_ashby_company
 from ..tasks.fetch_greenhouse_company import fetch_greenhouse_company
+from ..tasks.fetch_workday_company import fetch_workday_company
 
 logger = logging.getLogger(__name__)
 
@@ -328,6 +330,134 @@ async def trigger_ashby_fan_out(
         status_code=202,
         content={
             "message": "enqueue_ashby_fan_out deferred",
+            "already_enqueued": False,
+        },
+    )
+
+
+@router.post("/trigger-workday-fetch")
+async def trigger_workday_fetch(
+    company_id: str = Query(
+        ...,
+        pattern=COMPANY_PATTERN,
+        description=(
+            "Company id (e.g. 'nvidia'). Must exist in companies table with "
+            "ats='workday' and enabled=true."
+        ),
+    ),
+    db: Connection = Depends(get_db),
+    _admin: TokenClaims = Depends(require_admin),
+):
+    """Manually defer a single fetch_workday_company task.
+
+    Looks up the row in the `companies` table to (a) defend against typos
+    in manual triggers and (b) source the canonical `board_token` AND the
+    per-row `provider_config` JSONB blob rather than trusting query params
+    (the provider_config is sensitive — Workday URLs/tenant slugs aren't
+    a secret per se, but accepting them from a URL would invite confused-
+    deputy attacks).
+
+    Returns 202 on successful defer, 202 with already_enqueued=true if
+    a prior run for the same company is still pending/running, or 404
+    if the company is unknown / disabled / not workday.
+
+    Uses the shared bounded `ThreadedConnectionPool` via `Depends(get_db)`
+    rather than a fresh connection so concurrent QA spam can't blow past
+    `db_pool_max` and exhaust prod `max_connections`.
+    """
+    cur = db.cursor()
+    cur.execute(
+        "SELECT id, board_token, provider_config FROM companies "
+        "WHERE id = %s AND ats = 'workday' AND enabled = true",
+        (company_id,),
+    )
+    row = cur.fetchone()
+
+    if row is None:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "detail": (
+                    f"No enabled workday company with id={company_id!r}"
+                ),
+            },
+        )
+
+    board_token = row["board_token"]
+    # psycopg2 with the dict cursor (RealDictCursor) deserializes JSONB
+    # to dict automatically. Guard against an unexpected None by
+    # defaulting to {} — the per-company task validates and records a
+    # clean error if required keys are missing.
+    provider_config = row["provider_config"] or {}
+
+    try:
+        await fetch_workday_company.configure(
+            queueing_lock=f"workday:{company_id}",
+        ).defer_async(
+            company_id=company_id,
+            board_token=board_token,
+            provider_config=provider_config,
+        )
+    except procrastinate_exceptions.AlreadyEnqueued:
+        logger.info(
+            "trigger-workday-fetch: fetch_workday_company already "
+            "enqueued for %s; manual trigger collapsed by queueing_lock",
+            company_id,
+        )
+        return JSONResponse(
+            status_code=202,
+            content={
+                "message": (
+                    f"fetch_workday_company already in flight for "
+                    f"{company_id}; manual trigger deduped"
+                ),
+                "company_id": company_id,
+                "already_enqueued": True,
+            },
+        )
+
+    return JSONResponse(
+        status_code=202,
+        content={
+            "message": f"fetch_workday_company deferred for {company_id}",
+            "company_id": company_id,
+            "already_enqueued": False,
+        },
+    )
+
+
+@router.post("/trigger-workday-fan-out")
+async def trigger_workday_fan_out(
+    _admin: TokenClaims = Depends(require_admin),
+):
+    """Manually defer the enqueue_workday_fan_out task.
+
+    The fan-out task does not carry a queueing lock (per-company locks
+    live on the children). We catch AlreadyEnqueued defensively so a
+    future decision to add a fan-out lock won't break this endpoint.
+    """
+    try:
+        await enqueue_workday_fan_out.defer_async(timestamp=0)
+    except procrastinate_exceptions.AlreadyEnqueued:
+        logger.info(
+            "trigger-workday-fan-out: enqueue_workday_fan_out "
+            "already enqueued; manual trigger collapsed"
+        )
+        return JSONResponse(
+            status_code=202,
+            content={
+                "message": (
+                    "enqueue_workday_fan_out already enqueued; "
+                    "manual trigger deduped"
+                ),
+                "already_enqueued": True,
+            },
+        )
+
+    return JSONResponse(
+        status_code=202,
+        content={
+            "message": "enqueue_workday_fan_out deferred",
             "already_enqueued": False,
         },
     )
