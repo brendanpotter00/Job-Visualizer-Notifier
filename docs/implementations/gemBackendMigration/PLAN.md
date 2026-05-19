@@ -550,7 +550,9 @@ The field is optional throughout. Only Greenhouse / Ashby / Gem `backend-scraper
 
 ### Unit 9 — Reserved (no-op)
 
-**Status:** TODO
+**Status:** DONE
+
+**Skipped — no Greenhouse-style retrofit needed for Gem.** The `sourceAts` mechanism is already in place from the prior Ashby PR (#120); Unit 7 widened the union to include `'gem'` and Unit 8 added the WhyPage tests. No commit for this unit.
 
 **Why 9th:** Reserved slot for symmetry with the Ashby PLAN (Unit 9 there was the Greenhouse retrofit, which has already shipped). For the Gem migration, there is no equivalent retrofit needed — the `sourceAts` mechanism is already in place and Unit 8 widened the union. **This unit is a no-op marker:** mark DONE immediately with no commit. Keeps PLAN numbering aligned with Ashby for reviewer ergonomics.
 
@@ -573,7 +575,7 @@ The field is optional throughout. Only Greenhouse / Ashby / Gem `backend-scraper
 
 ### Unit 10 — Deploy runbook + DEPLOY.md
 
-**Status:** TODO
+**Status:** DONE
 
 **Why 10th:** Document the operator steps. No code changes.
 
