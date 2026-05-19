@@ -211,21 +211,28 @@ def list_enabled_companies(conn: Connection, ats: str) -> List[Dict[str, Any]]:
     """
     List all enabled companies for a given ATS.
 
-    Used by the Greenhouse periodic fan-out task to discover which
-    companies to defer per-company fetch tasks for.
+    Used by the periodic fan-out tasks (Greenhouse / Ashby / Workday / Gem /
+    Lever) to discover which companies to defer per-company fetch tasks for.
 
     Args:
         conn: Database connection
-        ats: ATS name to filter by (e.g., "greenhouse")
+        ats: ATS name to filter by (e.g., "greenhouse", "workday")
 
     Returns:
-        List of dicts with keys ``id`` and ``board_token``, ordered
-        deterministically by ``id``. Empty list if no rows match.
+        List of dicts with keys ``id``, ``board_token``, and
+        ``provider_config`` (a ``dict``; psycopg2 deserializes JSONB
+        automatically), ordered deterministically by ``id``. Empty list if
+        no rows match.
+
+        ``provider_config`` is ``{}`` for ATS providers that don't need
+        per-row config (Greenhouse/Ashby/Gem/Lever); Workday rows carry
+        ``{base_url, tenant_slug, career_site_slug, default_facets?}``.
+        Callers that don't read ``provider_config`` simply ignore the key.
     """
     cursor = conn.cursor()
 
     cursor.execute(
-        "SELECT id, board_token FROM companies "
+        "SELECT id, board_token, provider_config FROM companies "
         "WHERE ats = %s AND enabled = true "
         "ORDER BY id",
         (ats,),

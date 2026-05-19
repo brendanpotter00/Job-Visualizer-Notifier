@@ -41,6 +41,12 @@ SEED_REV = "939331c99a23"
 PREV_HEAD = "2da4b99b39ea"
 ASHBY_SEED_REV = "a17b7c0ffee500"
 ASHBY_PREV_HEAD = "ebb479b7eed5"
+WORKDAY_SEED_REV = "b9714f608e21"
+WORKDAY_PREV_HEAD = ASHBY_SEED_REV
+EXPECTED_WORKDAY_ROW_COUNT = 11
+WORKDAY_PROVIDER_CONFIG_REQUIRED_KEYS = (
+    "base_url", "tenant_slug", "career_site_slug",
+)
 
 
 def _is_prod_like(url: str) -> bool:
@@ -84,6 +90,25 @@ def _ashby_row_count(conn) -> int:
     if row is None:
         return 0
     return int(row["c"]) if isinstance(row, dict) else int(row[0])
+
+
+def _workday_row_count(conn) -> int:
+    cur = conn.cursor()
+    cur.execute("SELECT count(*) AS c FROM companies WHERE ats = 'workday'")
+    row = cur.fetchone()
+    if row is None:
+        return 0
+    return int(row["c"]) if isinstance(row, dict) else int(row[0])
+
+
+def _column_exists(conn, table: str, column: str) -> bool:
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT 1 FROM information_schema.columns "
+        "WHERE table_schema = 'public' AND table_name = %s AND column_name = %s",
+        (table, column),
+    )
+    return cur.fetchone() is not None
 
 
 @pytest.mark.skipif(
@@ -539,6 +564,307 @@ def test_ashby_seed_migration_preserves_pre_existing_rows(
                 "downgrade must scope DELETE to ats='ashby'"
             )
             assert _ashby_row_count(verify) == 0
+        finally:
+            verify.close()
+
+    finally:
+        try:
+            maint = psycopg2.connect(maintenance_url, cursor_factory=RealDictCursor)
+            maint.autocommit = True
+            maint_cur = maint.cursor()
+            maint_cur.execute(
+                "SELECT pg_terminate_backend(pid) "
+                "FROM pg_stat_activity "
+                "WHERE datname = %s AND pid <> pg_backend_pid()",
+                (roundtrip_db,),
+            )
+            maint_cur.execute(f'DROP DATABASE IF EXISTS "{roundtrip_db}"')
+            maint.close()
+        except Exception as drop_exc:
+            logging.getLogger(__name__).error(
+                "Failed to drop roundtrip test database %s during teardown: %s",
+                roundtrip_db,
+                drop_exc,
+            )
+
+
+@pytest.mark.skipif(
+    _is_prod_like(TEST_DB_URL),
+    reason="refusing to run migration roundtrip against a prod-like TEST_DATABASE_URL",
+)
+def test_workday_seed_migration_roundtrip(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Workday migration: add `provider_config` column + seed 11 rows.
+
+    Steps:
+      1. Bootstrap companies + Greenhouse seed + Ashby seed.
+      2. Upgrade to WORKDAY_SEED_REV. Verify:
+         - `provider_config` column exists.
+         - 11 Workday rows present.
+         - Every Workday row has the required keys (`base_url`,
+           `tenant_slug`, `career_site_slug`) in `provider_config`.
+         - Greenhouse (45) and Ashby (46) row counts untouched.
+      3. Downgrade -1. Verify column dropped, Workday rows gone, others
+         survived.
+      4. Re-upgrade. Verify idempotency.
+    """
+    monkeypatch.delenv("PYTEST_SCHEMA", raising=False)
+
+    suffix = uuid.uuid4().hex[:8]
+    roundtrip_db = f"migrate_workday_{suffix}"
+
+    maintenance_url = TEST_DB_URL.rsplit("/", 1)[0] + "/postgres"
+    maint = psycopg2.connect(maintenance_url, cursor_factory=RealDictCursor)
+    maint.autocommit = True
+    maint_cur = maint.cursor()
+    maint_cur.execute(
+        "SELECT pg_terminate_backend(pid) "
+        "FROM pg_stat_activity "
+        "WHERE datname = %s AND pid <> pg_backend_pid()",
+        (roundtrip_db,),
+    )
+    maint_cur.execute(f'DROP DATABASE IF EXISTS "{roundtrip_db}"')
+    maint_cur.execute(f'CREATE DATABASE "{roundtrip_db}"')
+    maint.close()
+
+    roundtrip_url = TEST_DB_URL.rsplit("/", 1)[0] + f"/{roundtrip_db}"
+
+    try:
+        from alembic import command
+        from alembic.config import Config
+
+        cfg = Config(str(_ALEMBIC_INI))
+        cfg.set_main_option("sqlalchemy.url", roundtrip_url)
+        cfg.set_main_option("script_location", str(_SCRIPT_LOCATION))
+        cfg.config_file_name = None
+
+        # Bootstrap: companies + Greenhouse seed + Ashby seed. Stamp jumps
+        # mirror the Ashby roundtrip test above so we skip job_listings-
+        # touching intermediate migrations that would fail on a fresh DB.
+        command.stamp(cfg, PREV_HEAD)
+        command.upgrade(cfg, SEED_REV)
+        command.stamp(cfg, ASHBY_PREV_HEAD)
+        command.upgrade(cfg, WORKDAY_PREV_HEAD)
+
+        # Apply the Workday migration.
+        command.upgrade(cfg, WORKDAY_SEED_REV)
+
+        verify = psycopg2.connect(roundtrip_url, cursor_factory=RealDictCursor)
+        try:
+            assert _column_exists(verify, "companies", "provider_config"), (
+                "provider_config column missing after upgrade to "
+                f"{WORKDAY_SEED_REV}"
+            )
+            assert _workday_row_count(verify) == EXPECTED_WORKDAY_ROW_COUNT, (
+                f"expected {EXPECTED_WORKDAY_ROW_COUNT} workday rows after "
+                f"seed, got {_workday_row_count(verify)}"
+            )
+            # All 11 Workday rows MUST have the three required keys in
+            # provider_config — the per-company task reads these and
+            # raises ValueError if any are missing.
+            cur = verify.cursor()
+            cur.execute(
+                "SELECT id, provider_config FROM companies "
+                "WHERE ats = 'workday' ORDER BY id"
+            )
+            for row in cur.fetchall():
+                cfg_dict = row["provider_config"]
+                assert isinstance(cfg_dict, dict), (
+                    f"provider_config for {row['id']!r} is not a dict: "
+                    f"{type(cfg_dict).__name__}"
+                )
+                for k in WORKDAY_PROVIDER_CONFIG_REQUIRED_KEYS:
+                    assert k in cfg_dict and cfg_dict[k], (
+                        f"workday row {row['id']!r} missing required "
+                        f"provider_config key {k!r} (or value is falsy): "
+                        f"{cfg_dict!r}"
+                    )
+            assert _greenhouse_row_count(verify) == 45, (
+                f"Greenhouse row count drifted during workday upgrade: "
+                f"{_greenhouse_row_count(verify)}"
+            )
+            assert _ashby_row_count(verify) == 46, (
+                f"Ashby row count drifted during workday upgrade: "
+                f"{_ashby_row_count(verify)}"
+            )
+        finally:
+            verify.close()
+
+        # Downgrade -1: workday rows + column gone, others survive.
+        command.downgrade(cfg, WORKDAY_PREV_HEAD)
+
+        verify = psycopg2.connect(roundtrip_url, cursor_factory=RealDictCursor)
+        try:
+            assert not _column_exists(verify, "companies", "provider_config"), (
+                "provider_config column still present after downgrade -1"
+            )
+            assert _workday_row_count(verify) == 0, (
+                f"expected 0 workday rows after downgrade, got "
+                f"{_workday_row_count(verify)}"
+            )
+            assert _greenhouse_row_count(verify) == 45, (
+                "Greenhouse rows were wiped by workday seed downgrade — "
+                "downgrade must scope DELETE to ats='workday'"
+            )
+            assert _ashby_row_count(verify) == 46, (
+                "Ashby rows were wiped by workday seed downgrade — "
+                "downgrade must scope DELETE to ats='workday'"
+            )
+        finally:
+            verify.close()
+
+        # Re-upgrade — must be idempotent.
+        command.upgrade(cfg, WORKDAY_SEED_REV)
+
+        verify = psycopg2.connect(roundtrip_url, cursor_factory=RealDictCursor)
+        try:
+            assert _column_exists(verify, "companies", "provider_config")
+            assert _workday_row_count(verify) == EXPECTED_WORKDAY_ROW_COUNT, (
+                f"expected {EXPECTED_WORKDAY_ROW_COUNT} workday rows after "
+                f"re-upgrade, got {_workday_row_count(verify)}"
+            )
+            assert _greenhouse_row_count(verify) == 45
+            assert _ashby_row_count(verify) == 46
+        finally:
+            verify.close()
+
+    finally:
+        try:
+            maint = psycopg2.connect(maintenance_url, cursor_factory=RealDictCursor)
+            maint.autocommit = True
+            maint_cur = maint.cursor()
+            maint_cur.execute(
+                "SELECT pg_terminate_backend(pid) "
+                "FROM pg_stat_activity "
+                "WHERE datname = %s AND pid <> pg_backend_pid()",
+                (roundtrip_db,),
+            )
+            maint_cur.execute(f'DROP DATABASE IF EXISTS "{roundtrip_db}"')
+            maint.close()
+        except Exception as drop_exc:
+            logging.getLogger(__name__).error(
+                "Failed to drop roundtrip test database %s during teardown: %s",
+                roundtrip_db,
+                drop_exc,
+            )
+
+
+@pytest.mark.skipif(
+    _is_prod_like(TEST_DB_URL),
+    reason="refusing to run migration roundtrip against a prod-like TEST_DATABASE_URL",
+)
+def test_workday_seed_migration_preserves_pre_existing_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A non-workday `companies` row written out-of-band (e.g. operator
+    hotfix inserting a lever entry) must survive both the upgrade-to-
+    workday-seed AND the -1 downgrade. Same shape as the ashby/greenhouse
+    pre-existing-row tests above; guarantees the downgrade's WHERE-clause
+    stays scoped to ats='workday' and the schema half doesn't cascade-
+    delete unrelated rows.
+    """
+    monkeypatch.delenv("PYTEST_SCHEMA", raising=False)
+
+    suffix = uuid.uuid4().hex[:8]
+    roundtrip_db = f"migrate_workday_pre_{suffix}"
+
+    maintenance_url = TEST_DB_URL.rsplit("/", 1)[0] + "/postgres"
+    maint = psycopg2.connect(maintenance_url, cursor_factory=RealDictCursor)
+    maint.autocommit = True
+    maint_cur = maint.cursor()
+    maint_cur.execute(
+        "SELECT pg_terminate_backend(pid) "
+        "FROM pg_stat_activity "
+        "WHERE datname = %s AND pid <> pg_backend_pid()",
+        (roundtrip_db,),
+    )
+    maint_cur.execute(f'DROP DATABASE IF EXISTS "{roundtrip_db}"')
+    maint_cur.execute(f'CREATE DATABASE "{roundtrip_db}"')
+    maint.close()
+
+    roundtrip_url = TEST_DB_URL.rsplit("/", 1)[0] + f"/{roundtrip_db}"
+
+    try:
+        from alembic import command
+        from alembic.config import Config
+
+        cfg = Config(str(_ALEMBIC_INI))
+        cfg.set_main_option("sqlalchemy.url", roundtrip_url)
+        cfg.set_main_option("script_location", str(_SCRIPT_LOCATION))
+        cfg.config_file_name = None
+
+        # Bootstrap as in the roundtrip test, but stop one revision short
+        # of the Workday seed so we can inject a pre-existing row.
+        command.stamp(cfg, PREV_HEAD)
+        command.upgrade(cfg, SEED_REV)
+        command.stamp(cfg, ASHBY_PREV_HEAD)
+        command.upgrade(cfg, WORKDAY_PREV_HEAD)
+
+        seed_conn = psycopg2.connect(roundtrip_url, cursor_factory=RealDictCursor)
+        seed_conn.autocommit = True
+        try:
+            seed_cur = seed_conn.cursor()
+            seed_cur.execute(
+                "INSERT INTO companies (id, display_name, ats, board_token) "
+                "VALUES (%s, %s, %s, %s)",
+                ("preexisting_lever_co", "Pre-Existing", "lever", "preexisting"),
+            )
+        finally:
+            seed_conn.close()
+
+        # Run the Workday migration on top.
+        command.upgrade(cfg, WORKDAY_SEED_REV)
+
+        verify = psycopg2.connect(roundtrip_url, cursor_factory=RealDictCursor)
+        try:
+            cur = verify.cursor()
+            cur.execute(
+                "SELECT count(*) AS c FROM companies WHERE id = %s",
+                ("preexisting_lever_co",),
+            )
+            row = cur.fetchone()
+            assert row["c"] == 1, (
+                "pre-existing lever row was wiped by workday seed upgrade — "
+                "the schema change (ADD COLUMN with server_default) must "
+                "NOT cascade-delete unrelated rows"
+            )
+            assert _workday_row_count(verify) == EXPECTED_WORKDAY_ROW_COUNT
+
+            # The pre-existing row picked up the server_default '{}'::jsonb
+            # for provider_config.
+            cur.execute(
+                "SELECT provider_config FROM companies WHERE id = %s",
+                ("preexisting_lever_co",),
+            )
+            row = cur.fetchone()
+            assert row["provider_config"] == {}, (
+                "pre-existing row's provider_config should equal "
+                "the server default '{}'::jsonb, got "
+                f"{row['provider_config']!r}"
+            )
+        finally:
+            verify.close()
+
+        # Downgrade -1: workday seed scope-deletes only ats='workday'.
+        # The pre-existing lever row + 45 greenhouse + 46 ashby survive.
+        command.downgrade(cfg, WORKDAY_PREV_HEAD)
+
+        verify = psycopg2.connect(roundtrip_url, cursor_factory=RealDictCursor)
+        try:
+            cur = verify.cursor()
+            cur.execute(
+                "SELECT count(*) AS c FROM companies WHERE id = %s",
+                ("preexisting_lever_co",),
+            )
+            row = cur.fetchone()
+            assert row["c"] == 1, (
+                "pre-existing lever row was wiped by workday seed "
+                "downgrade — downgrade must scope DELETE to ats='workday'"
+            )
+            assert _workday_row_count(verify) == 0
+            assert _greenhouse_row_count(verify) == 45
+            assert _ashby_row_count(verify) == 46
         finally:
             verify.close()
 
