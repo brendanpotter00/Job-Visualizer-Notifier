@@ -236,7 +236,7 @@ The field is optional throughout. Only Greenhouse / Ashby / Gem `backend-scraper
 
 ### Unit 2 — Seed Gem companies (Alembic data migration)
 
-**Status:** TODO
+**Status:** DONE
 
 **Why 2nd:** The fan-out task needs row source.
 
