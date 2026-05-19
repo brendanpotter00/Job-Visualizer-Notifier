@@ -49,13 +49,22 @@ vi.mock('../../../api/clients/backendScraperClient', async () => {
   };
 });
 
+// Compute job timestamps relative to "now" so seeded jobs always fall inside
+// the seedRecentStore default 30d timeWindow, even as the clock advances. The
+// previous hardcoded '2026-04-18' rotted past the boundary 30 days after this
+// test was written and broke CI.
+const NOW_MS = Date.now();
+const ONE_HOUR_MS = 60 * 60 * 1000;
+const ONE_DAY_MS = 24 * ONE_HOUR_MS;
+const recentISO = (msAgo: number) => new Date(NOW_MS - msAgo).toISOString();
+
 const seededJobs: Job[] = [
   {
     id: 'j1',
     source: 'backend-scraper',
     company: 'spacex',
     title: 'Senior Software Engineer',
-    createdAt: '2026-04-18T10:00:00Z',
+    createdAt: recentISO(ONE_DAY_MS),
     url: 'https://example.com/j1',
     location: 'Hawthorne, CA',
     department: 'Engineering',
@@ -66,7 +75,7 @@ const seededJobs: Job[] = [
     source: 'backend-scraper',
     company: 'spacex',
     title: 'Recruiter',
-    createdAt: '2026-04-18T11:00:00Z',
+    createdAt: recentISO(ONE_DAY_MS - ONE_HOUR_MS),
     url: 'https://example.com/j2',
     location: 'Remote',
     department: 'People',
@@ -104,7 +113,7 @@ async function seedRecentStore(
       metadata: {
         spacex: {
           totalCount: jobs.length,
-          fetchedAt: '2026-04-19T00:00:00Z',
+          fetchedAt: recentISO(0),
         },
       },
       errors: {},

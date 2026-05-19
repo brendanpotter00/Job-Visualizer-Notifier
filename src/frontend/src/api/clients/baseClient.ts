@@ -1,7 +1,6 @@
 import type {
   Job,
   LeverConfig,
-  AshbyConfig,
   GemConfig,
   WorkdayConfig,
   EightfoldConfig,
@@ -14,7 +13,6 @@ import { logger } from '../../lib/logger';
 /** Union of all ATS company configuration types */
 export type ATSCompanyConfig =
   | LeverConfig
-  | AshbyConfig
   | GemConfig
   | WorkdayConfig
   | EightfoldConfig
@@ -50,7 +48,7 @@ export interface ClientConfig<TResponse, TConfig extends ATSCompanyConfig> {
  *
  * This factory eliminates 220+ lines of code duplication across ATS clients by
  * extracting common patterns into a reusable implementation. All API clients
- * (Lever, Ashby, Gem, Workday) are created using this factory.
+ * (Lever, Gem, Workday) are created using this factory.
  *
  * **Shared Logic Provided:**
  * 1. Config validation with type guards
@@ -153,7 +151,6 @@ export function createAPIClient<TResponse, TConfig extends ATSCompanyConfig>(
             response.status,
             config.type as
               | 'lever'
-              | 'ashby'
               | 'workday'
               | 'eightfold'
               | 'backend-scraper',
@@ -202,7 +199,6 @@ export function createAPIClient<TResponse, TConfig extends ATSCompanyConfig>(
           undefined,
           config.type as
             | 'lever'
-            | 'ashby'
             | 'workday'
             | 'eightfold'
             | 'backend-scraper',

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createAPIClient } from '../../api/clients/baseClient';
-import type { Job, AshbyConfig } from '../../types';
+import type { Job, LeverConfig } from '../../types';
 import { APIError } from '../../api/types';
 
 describe('createAPIClient', () => {
@@ -15,20 +15,20 @@ describe('createAPIClient', () => {
   it('should create a client with fetchJobs method', () => {
     const client = createAPIClient({
       name: 'Test',
-      buildUrl: (config: AshbyConfig) => `https://api.test.com/${config.jobBoardName}`,
+      buildUrl: (config: LeverConfig) => `https://api.test.com/${config.companyId}`,
       extractJobs: (response: any) => response.jobs,
       transformer: (job: any, identifier: string) =>
         ({
           id: job.id,
-          source: 'ashby',
+          source: 'lever',
           company: identifier,
           title: job.title,
           createdAt: job.createdAt,
           url: job.url,
           raw: job,
         }) as Job,
-      getIdentifier: (config: AshbyConfig) => config.jobBoardName,
-      validateConfig: (config): config is AshbyConfig => config.type === 'ashby',
+      getIdentifier: (config: LeverConfig) => config.companyId,
+      validateConfig: (config): config is LeverConfig => config.type === 'lever',
     });
 
     expect(client).toHaveProperty('fetchJobs');
@@ -38,14 +38,14 @@ describe('createAPIClient', () => {
   it('should throw error for invalid config type', async () => {
     const client = createAPIClient({
       name: 'Test',
-      buildUrl: (config: AshbyConfig) => `https://api.test.com/${config.jobBoardName}`,
+      buildUrl: (config: LeverConfig) => `https://api.test.com/${config.companyId}`,
       extractJobs: (response: any) => response.jobs,
       transformer: (_job: any) => ({}) as Job,
-      getIdentifier: (config: AshbyConfig) => config.jobBoardName,
-      validateConfig: (config): config is AshbyConfig => config.type === 'ashby',
+      getIdentifier: (config: LeverConfig) => config.companyId,
+      validateConfig: (config): config is LeverConfig => config.type === 'lever',
     });
 
-    const invalidConfig = { type: 'lever' as const, companyId: 'test', jobsUrl: 'http://test.com' };
+    const invalidConfig = { type: 'gem' as const, vanityUrlPath: 'test' };
 
     await expect(client.fetchJobs(invalidConfig)).rejects.toThrow(
       'Invalid config type for Test client'
@@ -66,23 +66,23 @@ describe('createAPIClient', () => {
 
     const client = createAPIClient({
       name: 'Test',
-      buildUrl: (config: AshbyConfig) => `https://api.test.com/${config.jobBoardName}`,
+      buildUrl: (config: LeverConfig) => `https://api.test.com/${config.companyId}`,
       extractJobs: (response: any) => response.jobs,
       transformer: (job: any, identifier: string) =>
         ({
           id: job.id,
-          source: 'ashby' as const,
+          source: 'lever' as const,
           company: identifier,
           title: job.title,
           createdAt: job.createdAt,
           url: job.url,
           raw: job,
         }) as Job,
-      getIdentifier: (config: AshbyConfig) => config.jobBoardName,
-      validateConfig: (config): config is AshbyConfig => config.type === 'ashby',
+      getIdentifier: (config: LeverConfig) => config.companyId,
+      validateConfig: (config): config is LeverConfig => config.type === 'lever',
     });
 
-    const config: AshbyConfig = { type: 'ashby', jobBoardName: 'test-token' };
+    const config: LeverConfig = { type: 'lever', companyId: 'test-token', jobsUrl: 'https://jobs.lever.co/test-token' };
     const result = await client.fetchJobs(config);
 
     expect(result.jobs).toHaveLength(2);
@@ -106,23 +106,23 @@ describe('createAPIClient', () => {
 
     const client = createAPIClient({
       name: 'Test',
-      buildUrl: (config: AshbyConfig) => `https://api.test.com/${config.jobBoardName}`,
+      buildUrl: (config: LeverConfig) => `https://api.test.com/${config.companyId}`,
       extractJobs: (response: any) => response.jobs,
       transformer: (job: any, identifier: string) =>
         ({
           id: job.id,
-          source: 'ashby' as const,
+          source: 'lever' as const,
           company: identifier,
           title: 'Test',
           createdAt: job.createdAt,
           url: 'http://test.com',
           raw: job,
         }) as Job,
-      getIdentifier: (config: AshbyConfig) => config.jobBoardName,
-      validateConfig: (config): config is AshbyConfig => config.type === 'ashby',
+      getIdentifier: (config: LeverConfig) => config.companyId,
+      validateConfig: (config): config is LeverConfig => config.type === 'lever',
     });
 
-    const config: AshbyConfig = { type: 'ashby', jobBoardName: 'test-token' };
+    const config: LeverConfig = { type: 'lever', companyId: 'test-token', jobsUrl: 'https://jobs.lever.co/test-token' };
     const result = await client.fetchJobs(config, { since: '2025-01-05T00:00:00Z' });
 
     expect(result.jobs).toHaveLength(2); // Only jobs from Jan 5 onwards
@@ -144,23 +144,23 @@ describe('createAPIClient', () => {
 
     const client = createAPIClient({
       name: 'Test',
-      buildUrl: (config: AshbyConfig) => `https://api.test.com/${config.jobBoardName}`,
+      buildUrl: (config: LeverConfig) => `https://api.test.com/${config.companyId}`,
       extractJobs: (response: any) => response.jobs,
       transformer: (job: any, identifier: string) =>
         ({
           id: job.id,
-          source: 'ashby' as const,
+          source: 'lever' as const,
           company: identifier,
           title: 'Test',
           createdAt: job.createdAt,
           url: 'http://test.com',
           raw: job,
         }) as Job,
-      getIdentifier: (config: AshbyConfig) => config.jobBoardName,
-      validateConfig: (config): config is AshbyConfig => config.type === 'ashby',
+      getIdentifier: (config: LeverConfig) => config.companyId,
+      validateConfig: (config): config is LeverConfig => config.type === 'lever',
     });
 
-    const config: AshbyConfig = { type: 'ashby', jobBoardName: 'test-token' };
+    const config: LeverConfig = { type: 'lever', companyId: 'test-token', jobsUrl: 'https://jobs.lever.co/test-token' };
     const result = await client.fetchJobs(config, { limit: 3 });
 
     expect(result.jobs).toHaveLength(3);
@@ -177,14 +177,14 @@ describe('createAPIClient', () => {
 
     const client = createAPIClient({
       name: 'Test',
-      buildUrl: (config: AshbyConfig) => `https://api.test.com/${config.jobBoardName}`,
+      buildUrl: (config: LeverConfig) => `https://api.test.com/${config.companyId}`,
       extractJobs: (response: any) => response.jobs,
       transformer: (_job: any) => ({}) as Job,
-      getIdentifier: (config: AshbyConfig) => config.jobBoardName,
-      validateConfig: (config): config is AshbyConfig => config.type === 'ashby',
+      getIdentifier: (config: LeverConfig) => config.companyId,
+      validateConfig: (config): config is LeverConfig => config.type === 'lever',
     });
 
-    const config: AshbyConfig = { type: 'ashby', jobBoardName: 'test-token' };
+    const config: LeverConfig = { type: 'lever', companyId: 'test-token', jobsUrl: 'https://jobs.lever.co/test-token' };
 
     await expect(client.fetchJobs(config)).rejects.toThrow(APIError);
     await expect(client.fetchJobs(config)).rejects.toThrow('Test API error: Not Found');
@@ -195,14 +195,14 @@ describe('createAPIClient', () => {
 
     const client = createAPIClient({
       name: 'Test',
-      buildUrl: (config: AshbyConfig) => `https://api.test.com/${config.jobBoardName}`,
+      buildUrl: (config: LeverConfig) => `https://api.test.com/${config.companyId}`,
       extractJobs: (response: any) => response.jobs,
       transformer: (_job: any) => ({}) as Job,
-      getIdentifier: (config: AshbyConfig) => config.jobBoardName,
-      validateConfig: (config): config is AshbyConfig => config.type === 'ashby',
+      getIdentifier: (config: LeverConfig) => config.companyId,
+      validateConfig: (config): config is LeverConfig => config.type === 'lever',
     });
 
-    const config: AshbyConfig = { type: 'ashby', jobBoardName: 'test-token' };
+    const config: LeverConfig = { type: 'lever', companyId: 'test-token', jobsUrl: 'https://jobs.lever.co/test-token' };
 
     await expect(client.fetchJobs(config)).rejects.toThrow(APIError);
     await expect(client.fetchJobs(config)).rejects.toThrow(
@@ -219,14 +219,14 @@ describe('createAPIClient', () => {
 
     const client = createAPIClient({
       name: 'Test',
-      buildUrl: (config: AshbyConfig) => `https://api.test.com/${config.jobBoardName}`,
+      buildUrl: (config: LeverConfig) => `https://api.test.com/${config.companyId}`,
       extractJobs: (response: any) => response.jobs,
       transformer: (_job: any) => ({}) as Job,
-      getIdentifier: (config: AshbyConfig) => config.jobBoardName,
-      validateConfig: (config): config is AshbyConfig => config.type === 'ashby',
+      getIdentifier: (config: LeverConfig) => config.companyId,
+      validateConfig: (config): config is LeverConfig => config.type === 'lever',
     });
 
-    const config: AshbyConfig = { type: 'ashby', jobBoardName: 'test-token' };
+    const config: LeverConfig = { type: 'lever', companyId: 'test-token', jobsUrl: 'https://jobs.lever.co/test-token' };
     const controller = new AbortController();
 
     await client.fetchJobs(config, { signal: controller.signal });
@@ -254,23 +254,23 @@ describe('createAPIClient', () => {
 
       const client = createAPIClient({
         name: 'Test',
-        buildUrl: (config: AshbyConfig) => `https://api.test.com/${config.jobBoardName}`,
+        buildUrl: (config: LeverConfig) => `https://api.test.com/${config.companyId}`,
         extractJobs: (response: any) => response.jobs,
         transformer: (job: any, identifier: string) =>
           ({
             id: job.id,
-            source: 'ashby' as const,
+            source: 'lever' as const,
             company: identifier,
             title: 'Test',
             createdAt: job.createdAt,
             url: 'http://test.com',
             raw: job,
           }) as Job,
-        getIdentifier: (config: AshbyConfig) => config.jobBoardName,
-        validateConfig: (config): config is AshbyConfig => config.type === 'ashby',
+        getIdentifier: (config: LeverConfig) => config.companyId,
+        validateConfig: (config): config is LeverConfig => config.type === 'lever',
       });
 
-      const config: AshbyConfig = { type: 'ashby', jobBoardName: 'test-token' };
+      const config: LeverConfig = { type: 'lever', companyId: 'test-token', jobsUrl: 'https://jobs.lever.co/test-token' };
       // Filter: since Jan 5, limit 3
       const result = await client.fetchJobs(config, {
         since: new Date(2025, 0, 5).toISOString(),
@@ -298,23 +298,23 @@ describe('createAPIClient', () => {
 
       const client = createAPIClient({
         name: 'Test',
-        buildUrl: (config: AshbyConfig) => `https://api.test.com/${config.jobBoardName}`,
+        buildUrl: (config: LeverConfig) => `https://api.test.com/${config.companyId}`,
         extractJobs: (response: any) => response.jobs,
         transformer: (job: any, identifier: string) =>
           ({
             id: job.id,
-            source: 'ashby' as const,
+            source: 'lever' as const,
             company: identifier,
             title: 'Test',
             createdAt: job.createdAt,
             url: 'http://test.com',
             raw: job,
           }) as Job,
-        getIdentifier: (config: AshbyConfig) => config.jobBoardName,
-        validateConfig: (config): config is AshbyConfig => config.type === 'ashby',
+        getIdentifier: (config: LeverConfig) => config.companyId,
+        validateConfig: (config): config is LeverConfig => config.type === 'lever',
       });
 
-      const config: AshbyConfig = { type: 'ashby', jobBoardName: 'test-token' };
+      const config: LeverConfig = { type: 'lever', companyId: 'test-token', jobsUrl: 'https://jobs.lever.co/test-token' };
       // Filter: since Jan 10, limit 5 (but only 1 job matches)
       const result = await client.fetchJobs(config, {
         since: '2025-01-10T00:00:00Z',
@@ -337,14 +337,14 @@ describe('createAPIClient', () => {
 
       const client = createAPIClient({
         name: 'Test',
-        buildUrl: (config: AshbyConfig) => `https://api.test.com/${config.jobBoardName}`,
+        buildUrl: (config: LeverConfig) => `https://api.test.com/${config.companyId}`,
         extractJobs: (response: any) => response.jobs,
         transformer: (_job: any) => ({}) as Job,
-        getIdentifier: (config: AshbyConfig) => config.jobBoardName,
-        validateConfig: (config): config is AshbyConfig => config.type === 'ashby',
+        getIdentifier: (config: LeverConfig) => config.companyId,
+        validateConfig: (config): config is LeverConfig => config.type === 'lever',
       });
 
-      const config: AshbyConfig = { type: 'ashby', jobBoardName: 'test-token' };
+      const config: LeverConfig = { type: 'lever', companyId: 'test-token', jobsUrl: 'https://jobs.lever.co/test-token' };
       const result = await client.fetchJobs(config);
 
       expect(result.jobs).toHaveLength(0);
@@ -372,23 +372,23 @@ describe('createAPIClient', () => {
 
       const client = createAPIClient({
         name: 'Test',
-        buildUrl: (config: AshbyConfig) => `https://api.test.com/${config.jobBoardName}`,
+        buildUrl: (config: LeverConfig) => `https://api.test.com/${config.companyId}`,
         extractJobs: (response: any) => response.jobs,
         transformer: (job: any, identifier: string) =>
           ({
             id: job.id,
-            source: 'ashby' as const,
+            source: 'lever' as const,
             company: identifier,
             title: job.title,
             createdAt: job.createdAt,
             url: 'http://test.com',
             raw: job,
           }) as Job,
-        getIdentifier: (config: AshbyConfig) => config.jobBoardName,
-        validateConfig: (config): config is AshbyConfig => config.type === 'ashby',
+        getIdentifier: (config: LeverConfig) => config.companyId,
+        validateConfig: (config): config is LeverConfig => config.type === 'lever',
       });
 
-      const config: AshbyConfig = { type: 'ashby', jobBoardName: 'test-token' };
+      const config: LeverConfig = { type: 'lever', companyId: 'test-token', jobsUrl: 'https://jobs.lever.co/test-token' };
       const result = await client.fetchJobs(config);
 
       expect(result.jobs).toHaveLength(4);
@@ -410,23 +410,23 @@ describe('createAPIClient', () => {
 
       const client = createAPIClient({
         name: 'Test',
-        buildUrl: (config: AshbyConfig) => `https://api.test.com/${config.jobBoardName}`,
+        buildUrl: (config: LeverConfig) => `https://api.test.com/${config.companyId}`,
         extractJobs: (response: any) => response.jobs,
         transformer: (job: any, identifier: string) =>
           ({
             id: job.id,
-            source: 'ashby' as const,
+            source: 'lever' as const,
             company: identifier,
             title: 'Test',
             createdAt: job.createdAt,
             url: 'http://test.com',
             raw: job,
           }) as Job,
-        getIdentifier: (config: AshbyConfig) => config.jobBoardName,
-        validateConfig: (config): config is AshbyConfig => config.type === 'ashby',
+        getIdentifier: (config: LeverConfig) => config.companyId,
+        validateConfig: (config): config is LeverConfig => config.type === 'lever',
       });
 
-      const config: AshbyConfig = { type: 'ashby', jobBoardName: 'test-token' };
+      const config: LeverConfig = { type: 'lever', companyId: 'test-token', jobsUrl: 'https://jobs.lever.co/test-token' };
       const result = await client.fetchJobs(config);
 
       expect(result.jobs).toHaveLength(1500);
@@ -451,23 +451,23 @@ describe('createAPIClient', () => {
 
       const client = createAPIClient({
         name: 'Test',
-        buildUrl: (config: AshbyConfig) => `https://api.test.com/${config.jobBoardName}`,
+        buildUrl: (config: LeverConfig) => `https://api.test.com/${config.companyId}`,
         extractJobs: (response: any) => response.jobs,
         transformer: (job: any, identifier: string) =>
           ({
             id: job.id,
-            source: 'ashby' as const,
+            source: 'lever' as const,
             company: identifier,
             title: 'Test',
             createdAt: job.createdAt,
             url: 'http://test.com',
             raw: job,
           }) as Job,
-        getIdentifier: (config: AshbyConfig) => config.jobBoardName,
-        validateConfig: (config): config is AshbyConfig => config.type === 'ashby',
+        getIdentifier: (config: LeverConfig) => config.companyId,
+        validateConfig: (config): config is LeverConfig => config.type === 'lever',
       });
 
-      const config: AshbyConfig = { type: 'ashby', jobBoardName: 'test-token' };
+      const config: LeverConfig = { type: 'lever', companyId: 'test-token', jobsUrl: 'https://jobs.lever.co/test-token' };
       const result = await client.fetchJobs(config, { since: sameTime });
 
       // Should include all jobs with exactly the same timestamp (inclusive)
@@ -484,14 +484,14 @@ describe('createAPIClient', () => {
 
       const client = createAPIClient({
         name: 'Test',
-        buildUrl: (config: AshbyConfig) => `https://api.test.com/${config.jobBoardName}`,
+        buildUrl: (config: LeverConfig) => `https://api.test.com/${config.companyId}`,
         extractJobs: (response: any) => response.jobs || [], // Handle null/undefined
         transformer: (_job: any) => ({}) as Job,
-        getIdentifier: (config: AshbyConfig) => config.jobBoardName,
-        validateConfig: (config): config is AshbyConfig => config.type === 'ashby',
+        getIdentifier: (config: LeverConfig) => config.companyId,
+        validateConfig: (config): config is LeverConfig => config.type === 'lever',
       });
 
-      const config: AshbyConfig = { type: 'ashby', jobBoardName: 'test-token' };
+      const config: LeverConfig = { type: 'lever', companyId: 'test-token', jobsUrl: 'https://jobs.lever.co/test-token' };
       const result = await client.fetchJobs(config);
 
       expect(result.jobs).toHaveLength(0);
@@ -509,14 +509,14 @@ describe('createAPIClient', () => {
 
       const client = createAPIClient({
         name: 'Test',
-        buildUrl: (config: AshbyConfig) => `https://api.test.com/${config.jobBoardName}`,
+        buildUrl: (config: LeverConfig) => `https://api.test.com/${config.companyId}`,
         extractJobs: (response: any) => response.jobs,
         transformer: (_job: any) => ({}) as Job,
-        getIdentifier: (config: AshbyConfig) => config.jobBoardName,
-        validateConfig: (config): config is AshbyConfig => config.type === 'ashby',
+        getIdentifier: (config: LeverConfig) => config.companyId,
+        validateConfig: (config): config is LeverConfig => config.type === 'lever',
       });
 
-      const config: AshbyConfig = { type: 'ashby', jobBoardName: 'test-token' };
+      const config: LeverConfig = { type: 'lever', companyId: 'test-token', jobsUrl: 'https://jobs.lever.co/test-token' };
 
       try {
         await client.fetchJobs(config);
@@ -537,14 +537,14 @@ describe('createAPIClient', () => {
 
       const client = createAPIClient({
         name: 'Test',
-        buildUrl: (config: AshbyConfig) => `https://api.test.com/${config.jobBoardName}`,
+        buildUrl: (config: LeverConfig) => `https://api.test.com/${config.companyId}`,
         extractJobs: (response: any) => response.jobs,
         transformer: (_job: any) => ({}) as Job,
-        getIdentifier: (config: AshbyConfig) => config.jobBoardName,
-        validateConfig: (config): config is AshbyConfig => config.type === 'ashby',
+        getIdentifier: (config: LeverConfig) => config.companyId,
+        validateConfig: (config): config is LeverConfig => config.type === 'lever',
       });
 
-      const config: AshbyConfig = { type: 'ashby', jobBoardName: 'test-token' };
+      const config: LeverConfig = { type: 'lever', companyId: 'test-token', jobsUrl: 'https://jobs.lever.co/test-token' };
 
       try {
         await client.fetchJobs(config);
@@ -565,14 +565,14 @@ describe('createAPIClient', () => {
 
       const client = createAPIClient({
         name: 'Test',
-        buildUrl: (config: AshbyConfig) => `https://api.test.com/${config.jobBoardName}`,
+        buildUrl: (config: LeverConfig) => `https://api.test.com/${config.companyId}`,
         extractJobs: (response: any) => response.jobs,
         transformer: (_job: any) => ({}) as Job,
-        getIdentifier: (config: AshbyConfig) => config.jobBoardName,
-        validateConfig: (config): config is AshbyConfig => config.type === 'ashby',
+        getIdentifier: (config: LeverConfig) => config.companyId,
+        validateConfig: (config): config is LeverConfig => config.type === 'lever',
       });
 
-      const config: AshbyConfig = { type: 'ashby', jobBoardName: 'test-token' };
+      const config: LeverConfig = { type: 'lever', companyId: 'test-token', jobsUrl: 'https://jobs.lever.co/test-token' };
 
       await expect(client.fetchJobs(config)).rejects.toThrow(APIError);
 
@@ -594,14 +594,14 @@ describe('createAPIClient', () => {
 
       const client = createAPIClient({
         name: 'Test',
-        buildUrl: (config: AshbyConfig) => `https://api.test.com/${config.jobBoardName}`,
+        buildUrl: (config: LeverConfig) => `https://api.test.com/${config.companyId}`,
         extractJobs: (response: any) => response.jobs,
         transformer: (_job: any) => ({}) as Job,
-        getIdentifier: (config: AshbyConfig) => config.jobBoardName,
-        validateConfig: (config): config is AshbyConfig => config.type === 'ashby',
+        getIdentifier: (config: LeverConfig) => config.companyId,
+        validateConfig: (config): config is LeverConfig => config.type === 'lever',
       });
 
-      const config: AshbyConfig = { type: 'ashby', jobBoardName: 'test-token' };
+      const config: LeverConfig = { type: 'lever', companyId: 'test-token', jobsUrl: 'https://jobs.lever.co/test-token' };
 
       try {
         await client.fetchJobs(config);
@@ -622,14 +622,14 @@ describe('createAPIClient', () => {
 
       const client = createAPIClient({
         name: 'Test',
-        buildUrl: (config: AshbyConfig) => `https://api.test.com/${config.jobBoardName}`,
+        buildUrl: (config: LeverConfig) => `https://api.test.com/${config.companyId}`,
         extractJobs: (response: any) => response.jobs,
         transformer: (_job: any) => ({}) as Job,
-        getIdentifier: (config: AshbyConfig) => config.jobBoardName,
-        validateConfig: (config): config is AshbyConfig => config.type === 'ashby',
+        getIdentifier: (config: LeverConfig) => config.companyId,
+        validateConfig: (config): config is LeverConfig => config.type === 'lever',
       });
 
-      const config: AshbyConfig = { type: 'ashby', jobBoardName: 'test-token' };
+      const config: LeverConfig = { type: 'lever', companyId: 'test-token', jobsUrl: 'https://jobs.lever.co/test-token' };
 
       try {
         await client.fetchJobs(config);
@@ -654,14 +654,14 @@ describe('createAPIClient', () => {
 
       const client = createAPIClient({
         name: 'Test',
-        buildUrl: (config: AshbyConfig) => `https://api.test.com/${config.jobBoardName}`,
+        buildUrl: (config: LeverConfig) => `https://api.test.com/${config.companyId}`,
         extractJobs: (response: any) => response.jobs,
         transformer: (_job: any) => ({}) as Job,
-        getIdentifier: (config: AshbyConfig) => config.jobBoardName,
-        validateConfig: (config): config is AshbyConfig => config.type === 'ashby',
+        getIdentifier: (config: LeverConfig) => config.companyId,
+        validateConfig: (config): config is LeverConfig => config.type === 'lever',
       });
 
-      const config: AshbyConfig = { type: 'ashby', jobBoardName: 'test-token' };
+      const config: LeverConfig = { type: 'lever', companyId: 'test-token', jobsUrl: 'https://jobs.lever.co/test-token' };
 
       await expect(client.fetchJobs(config)).rejects.toThrow(APIError);
       await expect(client.fetchJobs(config)).rejects.toThrow(
@@ -678,14 +678,14 @@ describe('createAPIClient', () => {
 
       const client = createAPIClient({
         name: 'Test',
-        buildUrl: (config: AshbyConfig) => `https://api.test.com/${config.jobBoardName}`,
+        buildUrl: (config: LeverConfig) => `https://api.test.com/${config.companyId}`,
         extractJobs: (response: any) => response.jobs || [], // Handle missing jobs field
         transformer: (_job: any) => ({}) as Job,
-        getIdentifier: (config: AshbyConfig) => config.jobBoardName,
-        validateConfig: (config): config is AshbyConfig => config.type === 'ashby',
+        getIdentifier: (config: LeverConfig) => config.companyId,
+        validateConfig: (config): config is LeverConfig => config.type === 'lever',
       });
 
-      const config: AshbyConfig = { type: 'ashby', jobBoardName: 'test-token' };
+      const config: LeverConfig = { type: 'lever', companyId: 'test-token', jobsUrl: 'https://jobs.lever.co/test-token' };
       const result = await client.fetchJobs(config);
 
       expect(result.jobs).toHaveLength(0);

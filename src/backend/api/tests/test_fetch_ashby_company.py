@@ -1,4 +1,4 @@
-"""Integration tests: fetch_greenhouse_company Procrastinate task.
+"""Integration tests: fetch_ashby_company Procrastinate task.
 
 Tests run against a real per-worker Postgres schema (see conftest.db_conn)
 with httpx replaced by a MockTransport. The Procrastinate worker is run
@@ -11,7 +11,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import uuid
 
 import httpx
 import pytest
@@ -19,7 +18,7 @@ import pytest_asyncio
 from psycopg2 import sql
 
 from api.tasks import procrastinate_app as task_module_pkg  # noqa: F401
-from api.tasks.fetch_greenhouse_company import fetch_greenhouse_company
+from api.tasks.fetch_ashby_company import fetch_ashby_company
 from api.tasks.procrastinate_app import (
     ensure_schema_async,
     procrastinate_app,
@@ -37,7 +36,7 @@ def _seed_company(conn, company_id: str, board_token: str) -> None:
             "INSERT INTO {} (id, display_name, ats, board_token, enabled) "
             "VALUES (%s, %s, %s, %s, %s)"
         ).format(sql.Identifier("companies")),
-        (company_id, company_id.title(), "greenhouse", board_token, True),
+        (company_id, company_id.title(), "ashby", board_token, True),
     )
     conn.commit()
 
@@ -66,7 +65,7 @@ def _seed_job(
             sql.SQL(", ").join(sql.Placeholder() for _ in range(15)),
         ),
         (
-            job_id, "T", company, "L", "https://x", SourceId.GREENHOUSE,
+            job_id, "T", company, "L", "https://x", SourceId.ASHBY,
             json.dumps({}), "2025-01-01T00:00:00Z", status, False,
             json.dumps({}), "2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z",
             consecutive_misses, True,
@@ -75,7 +74,7 @@ def _seed_job(
     conn.commit()
 
 
-def _job_row(conn, job_id: str, source_id: str = SourceId.GREENHOUSE) -> dict | None:
+def _job_row(conn, job_id: str, source_id: str = SourceId.ASHBY) -> dict | None:
     cur = conn.cursor()
     cur.execute(
         sql.SQL("SELECT * FROM {} WHERE source_id = %s AND id = %s").format(
@@ -97,25 +96,27 @@ def _scrape_runs(conn, company: str) -> list[dict]:
     return list(cur.fetchall())
 
 
-def _make_raw_job(raw_id: int, title: str = "Engineer") -> dict:
+def _make_raw_job(raw_id: str, title: str = "Engineer") -> dict:
     return {
         "id": raw_id,
         "title": title,
-        "absolute_url": f"https://example.com/jobs/{raw_id}",
-        "location": {"name": "Remote"},
-        "offices": [{"name": "Remote"}],
-        "departments": [{"name": "Eng"}],
-        "metadata": [],
-        "first_published": "2025-01-01T00:00:00Z",
-        "updated_at": "2025-01-01T00:00:00Z",
-        "content": "<p>desc</p>",
+        "jobUrl": f"https://jobs.ashbyhq.com/example/{raw_id}",
+        "location": "Remote",
+        "secondaryLocations": [],
+        "department": "Eng",
+        "team": "Platform",
+        "employmentType": "FullTime",
+        "isRemote": True,
+        "compensation": {"compensationTierSummary": "$150k-$200k"},
+        "publishedAt": "2025-01-01T00:00:00Z",
+        "descriptionHtml": "<p>desc</p>",
     }
 
 
 def _patch_httpx(monkeypatch, handler) -> None:
     """Patch the task module's httpx.AsyncClient so it returns a
     MockTransport-backed client."""
-    import api.tasks.fetch_greenhouse_company as task_mod
+    import api.tasks.fetch_ashby_company as task_mod
 
     transport = httpx.MockTransport(handler)
 
@@ -146,10 +147,10 @@ async def procrastinate_open(db_conn):
             # db_conn keeps that schema alive for every test in this file,
             # so leftover fan-out defers from earlier tests in the module
             # persist across cases. When this file runs after
-            # test_enqueue_greenhouse_fan_out alphabetically, _drain()
+            # test_enqueue_ashby_fan_out alphabetically, _drain()
             # would otherwise pick those leftovers up and contend with the
             # composite PK on job_listings (silent ON CONFLICT clobber on
-            # (source_id, id)). Wipe both greenhouse task rows so each
+            # (source_id, id)). Wipe both ashby task rows so each
             # test sees a clean queue.
             # Mirrors the IN-clause pattern from test_jobs_qa_router.py:31-34.
             # Do NOT schema-qualify as `public.procrastinate_jobs` — the
@@ -159,7 +160,7 @@ async def procrastinate_open(db_conn):
             cur.execute(
                 "DELETE FROM procrastinate_jobs "
                 "WHERE task_name IN "
-                "('fetch_greenhouse_company', 'enqueue_greenhouse_fan_out')"
+                "('fetch_ashby_company', 'enqueue_ashby_fan_out')"
             )
             db_conn.commit()
             yield
@@ -179,24 +180,22 @@ async def _drain(timeout: float = 15.0) -> None:
     # cron tick within the last 10 minutes (MAX_DELAY=600s in procrastinate
     # 2.15.1). For an `*/30 * * * *` periodic that means: if the test runs
     # within 10 minutes of :00 or :30 (i.e. roughly 1/3 of the clock), the
-    # deferrer fires `enqueue_greenhouse_fan_out`, the worker drains it,
-    # and the fan-out defers a `fetch_greenhouse_company` task for the
-    # test's seeded company alongside the test's own deferred task. Both
-    # run, and the missing-job `consecutive_misses` lifecycle gets
-    # incremented twice — `assert c_row["consecutive_misses"] == 1`
-    # flakes to `2 == 1`. Pre-existing latent bug on main; this PR's CI
-    # tripped it because the run landed 6 minutes after a 04:30 UTC tick.
+    # deferrer fires `enqueue_ashby_fan_out`, the worker drains it, and the
+    # fan-out defers a `fetch_ashby_company` task for the test's seeded
+    # company alongside the test's own deferred task. Both run, and the
+    # missing-job `consecutive_misses` lifecycle gets incremented twice —
+    # `assert c_row["consecutive_misses"] == 1` flakes to `2 == 1`.
     #
     # We disable the periodics by emptying the registry for the duration of
     # the drain. Tests that need fan-out semantics call the periodic task
-    # directly via `await enqueue_greenhouse_fan_out(timestamp=...)` and
-    # don't rely on the deferrer.
+    # directly via `await enqueue_ashby_fan_out(timestamp=...)` and don't
+    # rely on the deferrer.
     saved_periodics = procrastinate_app.periodic_registry.periodic_tasks
     procrastinate_app.periodic_registry.periodic_tasks = {}
     try:
         worker_task = asyncio.create_task(
             procrastinate_app.run_worker_async(
-                queues=["greenhouse_fetch"],
+                queues=["ashby_fetch"],
                 concurrency=1,
                 wait=False,
                 install_signal_handlers=False,
@@ -215,17 +214,21 @@ async def _drain(timeout: float = 15.0) -> None:
         procrastinate_app.periodic_registry.periodic_tasks = saved_periodics
 
 
-class TestFetchGreenhouseCompany:
+class TestFetchAshbyCompany:
     async def test_happy_path_inserts_new_marks_missing(
         self, procrastinate_open, db_conn, monkeypatch
     ):
-        company = "stripe"
-        token = "stripe"
+        company = "notion"
+        token = "notion"
         _seed_company(db_conn, company, token)
 
-        existing_a = "100"
-        existing_b = "200"
-        existing_c = "300"
+        # Note: PLAN.md required case says "3 raw jobs -> 3 upserted, scrape_run
+        # recorded with error_count=0". We seed 3 existing jobs so we can also
+        # verify the consecutive_misses lifecycle in a single test (one job
+        # disappears -> miss=1) — mirrors the Greenhouse happy-path coverage.
+        existing_a = "uuid-aaa"
+        existing_b = "uuid-bbb"
+        existing_c = "uuid-ccc"
         _seed_job(db_conn, existing_a, company)
         _seed_job(db_conn, existing_b, company)
         _seed_job(db_conn, existing_c, company)
@@ -235,22 +238,22 @@ class TestFetchGreenhouseCompany:
                 200,
                 json={
                     "jobs": [
-                        _make_raw_job(100),
-                        _make_raw_job(200),
-                        _make_raw_job(400),
+                        _make_raw_job("uuid-aaa"),
+                        _make_raw_job("uuid-bbb"),
+                        _make_raw_job("uuid-ddd"),
                     ]
                 },
             )
 
         _patch_httpx(monkeypatch, handler)
 
-        await fetch_greenhouse_company.defer_async(
+        await fetch_ashby_company.defer_async(
             company_id=company, board_token=token,
         )
         await _drain()
         db_conn.rollback()
 
-        new_row = _job_row(db_conn, "400")
+        new_row = _job_row(db_conn, "uuid-ddd")
         assert new_row is not None, "new job not inserted"
         assert new_row["status"] == "OPEN"
 
@@ -274,21 +277,21 @@ class TestFetchGreenhouseCompany:
     async def test_second_run_closes_persistently_missing(
         self, procrastinate_open, db_conn, monkeypatch
     ):
-        company = "datadog"
-        token = "datadog"
+        company = "ramp"
+        token = "ramp"
         _seed_company(db_conn, company, token)
 
-        keeper = "111"
-        ghost = "222"
+        keeper = "uuid-keep"
+        ghost = "uuid-ghost"
         _seed_job(db_conn, keeper, company)
         _seed_job(db_conn, ghost, company, consecutive_misses=1)
 
         def handler(request: httpx.Request) -> httpx.Response:
-            return httpx.Response(200, json={"jobs": [_make_raw_job(111)]})
+            return httpx.Response(200, json={"jobs": [_make_raw_job("uuid-keep")]})
 
         _patch_httpx(monkeypatch, handler)
 
-        await fetch_greenhouse_company.defer_async(
+        await fetch_ashby_company.defer_async(
             company_id=company, board_token=token,
         )
         await _drain()
@@ -302,22 +305,71 @@ class TestFetchGreenhouseCompany:
         runs = _scrape_runs(db_conn, company)
         assert runs[0]["closed_jobs"] == 1
 
-    async def test_safety_guard_skips_destructive_writes(
+    async def test_cold_start_does_not_trip_safety_guard(
         self, procrastinate_open, db_conn, monkeypatch
     ):
-        company = "snowflake"
-        token = "snowflake"
+        """No active jobs + 0 jobs from API must NOT trip the guard.
+
+        The ``active_count > 0`` precondition at
+        ``fetch_ashby_company.py:~105`` is what protects cold-start
+        onboarding of a new Ashby board. Without that precondition,
+        a brand-new board with zero rows in ``job_listings`` and an
+        empty (or temporarily empty) Ashby response would record
+        ``error_count=1`` on every tick — which would mask real
+        outages once data lands.
+
+        Setup: seed an Ashby ``companies`` row, NO ``job_listings``
+        for the company, mock httpx to return ``{"jobs": []}``. Assert
+        the task completes cleanly and records ``error_count=0``.
+        """
+        company = "freshboard"
+        token = "freshboard"
         _seed_company(db_conn, company, token)
 
-        for i in range(100):
-            _seed_job(db_conn, str(i), company)
+        # Critical: no _seed_job calls. active_count must be 0.
 
         def handler(request: httpx.Request) -> httpx.Response:
             return httpx.Response(200, json={"jobs": []})
 
         _patch_httpx(monkeypatch, handler)
 
-        await fetch_greenhouse_company.defer_async(
+        await fetch_ashby_company.defer_async(
+            company_id=company, board_token=token,
+        )
+        await _drain()
+        db_conn.rollback()
+
+        runs = _scrape_runs(db_conn, company)
+        assert len(runs) == 1, (
+            f"expected exactly 1 scrape_runs row for cold-start; "
+            f"got {len(runs)}"
+        )
+        run = runs[0]
+        assert run["error_count"] == 0, (
+            "cold start (active=0, returned=0) must NOT trip the safety "
+            "guard sentinel error_count=1; "
+            f"got error_count={run['error_count']}"
+        )
+        assert run["jobs_seen"] == 0
+        assert run["new_jobs"] == 0
+        assert run["closed_jobs"] == 0
+
+    async def test_safety_guard_skips_destructive_writes(
+        self, procrastinate_open, db_conn, monkeypatch
+    ):
+        company = "openai"
+        token = "openai"
+        _seed_company(db_conn, company, token)
+
+        for i in range(100):
+            _seed_job(db_conn, f"uuid-{i}", company)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={"jobs": []})
+
+        _patch_httpx(monkeypatch, handler)
+
+        await fetch_ashby_company.defer_async(
             company_id=company, board_token=token,
         )
         await _drain()
@@ -342,8 +394,8 @@ class TestFetchGreenhouseCompany:
     async def test_http_5xx_records_failed_run_and_raises(
         self, procrastinate_open, db_conn, monkeypatch
     ):
-        company = "github"
-        token = "github"
+        company = "linear"
+        token = "linear"
         _seed_company(db_conn, company, token)
 
         def handler(request: httpx.Request) -> httpx.Response:
@@ -351,7 +403,7 @@ class TestFetchGreenhouseCompany:
 
         _patch_httpx(monkeypatch, handler)
 
-        await fetch_greenhouse_company.defer_async(
+        await fetch_ashby_company.defer_async(
             company_id=company, board_token=token,
         )
         await _drain()
@@ -365,7 +417,7 @@ class TestFetchGreenhouseCompany:
         cur = db_conn.cursor()
         cur.execute(
             "SELECT status, attempts FROM procrastinate_jobs "
-            "WHERE task_name = 'fetch_greenhouse_company' "
+            "WHERE task_name = 'fetch_ashby_company' "
             "ORDER BY id DESC LIMIT 1"
         )
         row = cur.fetchone()
@@ -373,162 +425,78 @@ class TestFetchGreenhouseCompany:
         assert row["attempts"] >= 1
         assert row["status"] in ("todo", "failed", "doing")
 
-    async def test_real_retry_503_then_200_succeeds(
+    async def test_programmer_error_propagates(
         self, procrastinate_open, db_conn, monkeypatch
     ):
-        """C1: prove the @retry envelope actually retries. The previous
-        failure-only test would pass even if @retry were removed.
+        """AttributeError (and other programmer errors) must propagate
+        rather than be swallowed by the narrow `except` block. Verifying
+        this keeps the "correctness over don't crash" invariant: a
+        deterministic bug should fail loudly so we don't burn all 5 retries
+        on the same broken code path.
 
-        First call returns 503, second returns 200 with one job. We drain
-        the worker until the task reaches a terminal state, then assert
-        the job was upserted and at least one scrape_runs row was written.
+        Strategy: monkeypatch ``transform_to_job_listings`` to raise
+        AttributeError. The narrow except in the task body catches only
+        ``(httpx.HTTPError, ValueError, psycopg2.Error)``, so AttributeError
+        must bubble up. Procrastinate marks the attempt failed/retried, but
+        the scrape_runs ``finally`` block still records an error row with
+        error_count=0 (because we never reach the ``scrape_error = e``
+        assignment when the exception isn't caught by the narrow except).
         """
-        company = "circleci"
-        token = "circleci"
+        import api.tasks.fetch_ashby_company as task_mod
+
+        company = "anthropic"
+        token = "anthropic"
         _seed_company(db_conn, company, token)
 
-        call_count = {"n": 0}
-
         def handler(request: httpx.Request) -> httpx.Response:
-            call_count["n"] += 1
-            if call_count["n"] == 1:
-                return httpx.Response(503, json={"error": "down"})
-            return httpx.Response(200, json={"jobs": [_make_raw_job(777)]})
+            return httpx.Response(200, json={"jobs": [_make_raw_job("uuid-x")]})
 
         _patch_httpx(monkeypatch, handler)
 
-        await fetch_greenhouse_company.defer_async(
+        def boom(*args, **kwargs):
+            raise AttributeError("simulated programmer error")
+
+        monkeypatch.setattr(task_mod, "transform_to_job_listings", boom)
+
+        await fetch_ashby_company.defer_async(
             company_id=company, board_token=token,
         )
-
-        # Drain repeatedly until the procrastinate_jobs row reaches a
-        # terminal status. RetryStrategy uses exponential backoff
-        # (base=2s, so first retry waits ~2s); we poll with bounded
-        # attempts to give the retry a chance to wake up. Worst-case
-        # ceiling is bounded by deadline_attempts * (drain_timeout +
-        # sleep) — keep these tight; a long polling tail here gets
-        # billed to every CI run.
-        deadline_attempts = 5
-        for _ in range(deadline_attempts):
-            await _drain(timeout=8.0)
-            db_conn.rollback()
-            cur = db_conn.cursor()
-            cur.execute(
-                "SELECT status, attempts FROM procrastinate_jobs "
-                "WHERE task_name = 'fetch_greenhouse_company' "
-                "ORDER BY id DESC LIMIT 1"
-            )
-            row = cur.fetchone()
-            if row and row["status"] == "succeeded":
-                break
-            await asyncio.sleep(2.0)
-
+        await _drain()
         db_conn.rollback()
+
+        # Procrastinate sees the AttributeError as a task failure and either
+        # retries or marks failed depending on RetryStrategy. The important
+        # invariant is that the narrow except block did NOT swallow it: when
+        # caught, the run row would have error_count=1 from the except-branch
+        # assignment. Since AttributeError propagates past the narrow except,
+        # error_count stays at its initial value 0 in the recorded row.
+        runs = _scrape_runs(db_conn, company)
+        assert len(runs) >= 1, "scrape_run finally block did not record"
+        assert runs[0]["error_count"] == 0, (
+            "AttributeError was caught by the narrow except (error_count=1); "
+            "it should have propagated past the except block"
+        )
+
         cur = db_conn.cursor()
         cur.execute(
             "SELECT status, attempts FROM procrastinate_jobs "
-            "WHERE task_name = 'fetch_greenhouse_company' "
+            "WHERE task_name = 'fetch_ashby_company' "
             "ORDER BY id DESC LIMIT 1"
         )
         row = cur.fetchone()
-        assert row is not None
-        assert row["status"] == "succeeded", (
-            f"task did not succeed on retry; status={row['status']} "
-            f"attempts={row['attempts']} call_count={call_count['n']}"
-        )
-        # We control call_count exactly: handler returns 503 once, 200 once.
-        # Procrastinate must bump attempts to exactly 2 — no more, no less.
-        # If attempts != 2 the retry envelope is doing something we didn't
-        # ask for (e.g. extra retry, failed-then-rerun pattern).
-        assert row["attempts"] == 2, (
-            f"task succeeded but attempts={row['attempts']} (expected exactly 2 "
-            f"given the 503-then-200 handler); call_count={call_count['n']}"
-        )
-
-        new_row = _job_row(db_conn, "777")
-        assert new_row is not None, "job from retry attempt was not upserted"
-        assert new_row["status"] == "OPEN"
-
-        runs = _scrape_runs(db_conn, company)
-        assert len(runs) >= 1, "no scrape_runs row written"
-        # A retry can produce either one error row + one success row OR a
-        # single row with the final result depending on timing — the
-        # important invariant is that at least one error row (the failed
-        # 503 attempt) is recorded and the final state matches reality.
-        success_runs = [r for r in runs if r["error_count"] == 0]
-        assert success_runs, "no success row in scrape_runs after retry"
-        assert success_runs[0]["jobs_seen"] == 1
-
-
-@pytest.mark.parametrize(
-    "active_count,jobs_returned,expect_skipped",
-    [
-        # Below the safety threshold (default 0.5 ratio) -> guard trips.
-        (10, 0, True),     # zero returned with 10 active -> skipped
-        (100, 9, True),    # 9 < 0.5 * 100 = 50 -> skipped
-        # At or above the threshold -> guard does NOT trip.
-        (10, 5, False),    # exactly at the ratio
-        (10, 6, False),    # comfortably above ratio
-        # Bootstrap case: zero active, zero returned -> guard does NOT trip.
-        (0, 0, False),
-    ],
-)
-@pytest.mark.asyncio
-async def test_safety_guard_boundaries(
-    procrastinate_open,
-    db_conn,
-    monkeypatch,
-    active_count,
-    jobs_returned,
-    expect_skipped,
-):
-    """C3: pin the safety guard's ratio boundary so a future tweak to
-    `<` vs `<=` or to SAFETY_GUARD_RATIO is caught by tests."""
-    company = f"safety_{active_count}_{jobs_returned}"
-    token = company
-    _seed_company(db_conn, company, token)
-
-    for i in range(active_count):
-        _seed_job(db_conn, str(i), company)
-
-    raw_jobs = [_make_raw_job(1000 + i) for i in range(jobs_returned)]
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"jobs": raw_jobs})
-
-    _patch_httpx(monkeypatch, handler)
-
-    await fetch_greenhouse_company.defer_async(
-        company_id=company, board_token=token,
-    )
-    await _drain()
-    db_conn.rollback()
-
-    runs = _scrape_runs(db_conn, company)
-    assert len(runs) == 1, f"expected 1 run, got {len(runs)}"
-    if expect_skipped:
-        assert runs[0]["error_count"] == 1, (
-            f"safety guard should have tripped for "
-            f"active={active_count} returned={jobs_returned}"
-        )
-        assert runs[0]["closed_jobs"] == 0
-        assert runs[0]["new_jobs"] == 0
-    else:
-        assert runs[0]["error_count"] == 0, (
-            f"safety guard tripped unexpectedly for "
-            f"active={active_count} returned={jobs_returned}; "
-            f"jobs_seen={runs[0]['jobs_seen']}"
-        )
+        assert row is not None, "procrastinate_jobs row missing"
+        # Procrastinate observed the unhandled exception and bumped attempts.
+        assert row["attempts"] >= 1
 
 
 @pytest.mark.asyncio
 async def test_record_scrape_run_fallback_runs_on_primary_failure(
     procrastinate_open, db_conn, monkeypatch
 ):
-    """C2: cover the defensive fallback path in
-    fetch_greenhouse_company.py that opens a fresh psycopg2 connection
-    when the primary `record_scrape_run` raises (e.g. the primary
-    transaction was poisoned by a prior failure on the same connection).
+    """Cover the defensive fallback path in fetch_ashby_company.py that
+    opens a fresh psycopg2 connection when the primary `record_scrape_run`
+    raises (e.g. the primary transaction was poisoned by a prior failure
+    on the same connection).
 
     Strategy: monkeypatch `db.record_scrape_run` so the FIRST call
     (primary connection) raises psycopg2.OperationalError and the
@@ -538,14 +506,14 @@ async def test_record_scrape_run_fallback_runs_on_primary_failure(
     """
     import psycopg2 as _psycopg2
 
-    import api.tasks.fetch_greenhouse_company as task_mod
+    import api.tasks.fetch_ashby_company as task_mod
 
-    company = "fallbackco"
-    token = "fallbackco"
+    company = "ashbyfallbackco"
+    token = "ashbyfallbackco"
     _seed_company(db_conn, company, token)
 
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"jobs": [_make_raw_job(555)]})
+        return httpx.Response(200, json={"jobs": [_make_raw_job("uuid-fb")]})
 
     _patch_httpx(monkeypatch, handler)
 
@@ -574,7 +542,7 @@ async def test_record_scrape_run_fallback_runs_on_primary_failure(
 
     monkeypatch.setattr(task_mod.db, "record_scrape_run", flaky_record_scrape_run)
 
-    await fetch_greenhouse_company.defer_async(
+    await fetch_ashby_company.defer_async(
         company_id=company, board_token=token,
     )
     await _drain()

@@ -1,7 +1,6 @@
 import type {
   Job,
   LeverConfig,
-  AshbyConfig,
   GemConfig,
   WorkdayConfig,
   EightfoldConfig,
@@ -25,55 +24,6 @@ export interface LeverJobResponse {
   createdAt: number; // Unix timestamp (milliseconds)
   tags?: (string | string[] | null)[]; // API can return mixed types
   workplaceType?: 'remote' | 'onsite' | 'unspecified';
-}
-
-/**
- * Ashby job posting API response
- * @see https://developers.ashbyhq.com/docs/public-job-posting-api
- */
-export interface AshbyJobResponse {
-  id: string;
-  title: string;
-  jobUrl: string;
-  applyUrl: string;
-  publishedAt: string; // ISO 8601 timestamp
-  location: string;
-  secondaryLocations?: Array<{
-    location: string;
-    address: {
-      postalAddress: {
-        addressRegion?: string;
-        addressCountry?: string;
-        addressLocality?: string;
-      };
-    };
-  }>;
-  department?: string;
-  team?: string;
-  employmentType: string; // "FullTime", "PartTime", "Intern", "Contract", "Temporary"
-  isRemote?: boolean;
-  isListed: boolean;
-  descriptionHtml: string;
-  descriptionPlain: string;
-  address?: {
-    postalAddress?: {
-      addressRegion?: string;
-      addressCountry?: string;
-      addressLocality?: string;
-    };
-  };
-  compensation?: {
-    compensationTierSummary?: string;
-    scrapeableCompensationSalarySummary?: string;
-    compensationTiers?: unknown[];
-    summaryComponents?: unknown[];
-  };
-  shouldDisplayCompensationOnJobPostings?: boolean;
-}
-
-export interface AshbyAPIResponse {
-  apiVersion?: string;
-  jobs: AshbyJobResponse[];
 }
 
 /**
@@ -267,7 +217,6 @@ export interface JobAPIClient {
   fetchJobs(
     config:
       | LeverConfig
-      | AshbyConfig
       | GemConfig
       | WorkdayConfig
       | EightfoldConfig
@@ -304,7 +253,6 @@ export class APIError extends Error {
     public statusCode?: number,
     public atsProvider?:
       | 'lever'
-      | 'ashby'
       | 'gem'
       | 'workday'
       | 'eightfold'
@@ -318,7 +266,6 @@ export class APIError extends Error {
 
 export enum ATSConstants {
   Workday = 'workday',
-  Ashby = 'ashby',
   Gem = 'gem',
   Lever = 'lever',
   Eightfold = 'eightfold',

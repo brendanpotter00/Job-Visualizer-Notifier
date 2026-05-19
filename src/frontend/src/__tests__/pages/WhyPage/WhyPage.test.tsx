@@ -55,13 +55,13 @@ describe('WhyPage', () => {
     ).toBeInTheDocument();
   });
 
-  it('renders a dedicated Greenhouse group containing only companies whose jobsUrl is on boards.greenhouse.io', () => {
+  it('renders a dedicated Greenhouse group containing only companies whose sourceAts === "greenhouse"', () => {
     const grouped = groupCompaniesByATS();
     const greenhouseGroup = grouped.greenhouse ?? [];
 
     expect(greenhouseGroup.length).toBeGreaterThan(0);
     for (const company of greenhouseGroup) {
-      expect(company.jobsUrl?.startsWith('https://boards.greenhouse.io/')).toBe(true);
+      expect(company.sourceAts).toBe('greenhouse');
     }
 
     renderWithProviders(<WhyPage />, { initialEntries: ['/why'] });
@@ -79,7 +79,35 @@ describe('WhyPage', () => {
     const customScrapers = grouped['backend-scraper'] ?? [];
 
     for (const company of customScrapers) {
-      expect(company.jobsUrl?.startsWith('https://boards.greenhouse.io/') ?? false).toBe(false);
+      expect(company.sourceAts).not.toBe('greenhouse');
+    }
+  });
+
+  it('renders a dedicated Ashby group containing only companies whose sourceAts === "ashby"', () => {
+    const grouped = groupCompaniesByATS();
+    const ashbyGroup = grouped.ashby ?? [];
+
+    expect(ashbyGroup.length).toBeGreaterThan(0);
+    for (const company of ashbyGroup) {
+      expect(company.sourceAts).toBe('ashby');
+    }
+
+    renderWithProviders(<WhyPage />, { initialEntries: ['/why'] });
+
+    expect(
+      screen.getByRole('heading', {
+        level: 3,
+        name: new RegExp(`Ashby\\s*\\(${ashbyGroup.length}\\)`, 'i'),
+      })
+    ).toBeInTheDocument();
+  });
+
+  it('Custom Web Scrapers group excludes Ashby companies (true custom scrapers only)', () => {
+    const grouped = groupCompaniesByATS();
+    const customScrapers = grouped['backend-scraper'] ?? [];
+
+    for (const company of customScrapers) {
+      expect(company.sourceAts).not.toBe('ashby');
     }
   });
 

@@ -37,9 +37,6 @@ const server = setupServer(
   http.get('/api/jobs', () => {
     return HttpResponse.json(mockBackendJobs);
   }),
-  http.get('/api/ashby/v1/jobBoard/:boardName/jobs', () => {
-    return HttpResponse.json({ jobs: [] });
-  }),
   http.get('/api/lever/v0/postings/*', () => {
     return HttpResponse.json([]);
   })
