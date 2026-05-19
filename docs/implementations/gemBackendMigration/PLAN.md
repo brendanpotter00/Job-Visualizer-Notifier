@@ -271,7 +271,7 @@ The field is optional throughout. Only Greenhouse / Ashby / Gem `backend-scraper
 
 ### Unit 3 — Gem fetch helper (pure module)
 
-**Status:** TODO
+**Status:** DONE
 
 **Why 3rd:** Isolate HTTP + transform layer for unit testing without queue plumbing.
 
