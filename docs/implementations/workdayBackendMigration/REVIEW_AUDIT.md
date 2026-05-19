@@ -107,3 +107,58 @@
 ### Deferred (not fixing this pass)
 
 - Suggestion-level findings above. None block merge.
+
+---
+
+## 2026-05-19 — Review pass 3
+
+### Code-review findings
+
+**Critical:**
+- (none)
+
+**Important:**
+- (none)
+
+**Suggestion / Nit:**
+- (none — re-read of every owned file in the PR diff turned up no new
+  findings beyond the suggestion-level items already deferred in passes
+  1 and 2.)
+
+### Doc accuracy spot-check
+
+Re-read `PLAN.md`, `DEPLOY.md`, and the PR-body skeleton against the
+shipped code:
+
+- **PLAN.md Units 1-10** match committed file boundaries.
+- **DEPLOY.md pre-merge checklist** matches actual gates: backend
+  `pytest`, frontend `type-check + npm test`, the `grep -c` counts on
+  `sourceAts: 'workday'`, and the required-keys SQL.
+- **DEPLOY.md rollback section** correctly warns about the parallel
+  Eightfold PR sharing the `provider_config` column.
+- **Frozen contracts** ship as documented: queue `workday_fetch`,
+  periodic id `workday_fan_out`, task name `fetch_workday_company`,
+  source id `workday_api`, column name `provider_config`.
+
+### Production-environment final state
+
+**Verifier results (verified inline via prod MCP for the third time):**
+- `postgres-prod-verifier`:
+  - `alembic_version = a17b7c0ffee500` (unchanged across passes).
+  - 46 ashby + 45 greenhouse, 0 workday/lever/gem (unchanged).
+  - `procrastinate_jobs` currently runs only `ashby_fetch` (276 succeeded `fetch_ashby_company` + 6 succeeded `enqueue_ashby_fan_out`) and `greenhouse_fetch` (3690 succeeded + 82). Workday queues appear on merge.
+  - `companies` table is still 6 columns; `provider_config` will be added by `b9714f608e21::upgrade()`.
+- `vercel-prod-verifier` (repo state): final deletion set verified — `api/workday.ts`, the `/api/workday/:path(.*)` rewrite, and the `X-Workday-Base-Url` CORS allow-header are all gone in HEAD.
+- `railway-prod-verifier` (repo state + checklist): No new env vars required. Railway service auto-deploys on merge.
+
+### Gates re-run between passes
+
+- Backend `pytest`: **448 passed, 0 failed**.
+- Frontend `npm run type-check`: clean.
+- Frontend `npm test -w src/frontend`: **1303 passed (102 files), 0 failed**.
+
+### Verdict
+
+**Ready to land.** Zero Critical or Important findings across all three
+review passes. Three suggestion-level micro-comments deferred to a
+future polish PR — none block this merge.
