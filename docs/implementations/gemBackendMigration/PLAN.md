@@ -427,7 +427,9 @@ The field is optional throughout. Only Greenhouse / Ashby / Gem `backend-scraper
 
 ### Unit 7 — Frontend cutover
 
-**Status:** TODO
+**Status:** DONE
+
+**Note (deviation from plan):** Unit 7 widened `sourceAts` to `'ashby' | 'greenhouse' | 'gem'` **and** updated `atsGrouping.ts` (adding `'gem'` to `ATSGroupKey`, the `gem: 'Gem'` display name, and `'gem'` to `NON_CAPITALIZED_GROUPS`) in the same commit. The PLAN originally deferred those `atsGrouping` changes to Unit 8, but the `ATS_DISPLAY_NAMES` `Record<ATSGroupKey, string>` constraint forces the issue: removing `'gem'` from `ATSProvider` in Unit 7 made the pre-existing `gem: 'gem'` Record entry an extra-key type error against `ATSGroupKey`. The cleanest fix was to fold the atsGrouping changes into Unit 7 so the type system stays green. Unit 8 narrows to WhyPage test additions only.
 
 **Why 7th:** Backend now serves Gem data. Point the UI at it and delete the old code paths. Why-page split lives in Unit 8 so this commit stays focused on the data-plane swap.
 

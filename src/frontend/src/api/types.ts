@@ -1,7 +1,6 @@
 import type {
   Job,
   LeverConfig,
-  GemConfig,
   WorkdayConfig,
   EightfoldConfig,
   BackendScraperConfig,
@@ -24,28 +23,6 @@ export interface LeverJobResponse {
   createdAt: number; // Unix timestamp (milliseconds)
   tags?: (string | string[] | null)[]; // API can return mixed types
   workplaceType?: 'remote' | 'onsite' | 'unspecified';
-}
-
-/**
- * Gem job board API response
- * @see https://api.gem.com/job_board/v0/reference
- */
-export interface GemJobResponse {
-  id: string;
-  title: string;
-  absolute_url: string;
-  content: string;
-  content_plain: string;
-  created_at: string;
-  updated_at: string;
-  first_published_at: string | null;
-  employment_type: string | null;
-  location_type: string | null;
-  location: { name: string } | null;
-  departments: Array<{ id: string; name: string }>;
-  offices: Array<{ id: string; name: string; location?: { name: string } }>;
-  internal_job_id: string;
-  requisition_id: string;
 }
 
 /**
@@ -217,7 +194,6 @@ export interface JobAPIClient {
   fetchJobs(
     config:
       | LeverConfig
-      | GemConfig
       | WorkdayConfig
       | EightfoldConfig
       | BackendScraperConfig,
@@ -253,7 +229,6 @@ export class APIError extends Error {
     public statusCode?: number,
     public atsProvider?:
       | 'lever'
-      | 'gem'
       | 'workday'
       | 'eightfold'
       | 'backend-scraper',
@@ -266,7 +241,6 @@ export class APIError extends Error {
 
 export enum ATSConstants {
   Workday = 'workday',
-  Gem = 'gem',
   Lever = 'lever',
   Eightfold = 'eightfold',
   BackendScraper = 'backend-scraper',

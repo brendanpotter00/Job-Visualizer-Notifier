@@ -1,6 +1,5 @@
 import type { JobAPIClient } from './types';
 import { leverClient } from './clients/leverClient';
-import { gemClient } from './clients/gemClient';
 import { workdayClient } from './clients/workdayClient';
 import { eightfoldClient } from './clients/eightfoldClient';
 import { backendScraperClient } from './clients/backendScraperClient';
@@ -22,8 +21,6 @@ export function getClientForATS(atsType: string): JobAPIClient {
   switch (atsType) {
     case 'lever':
       return leverClient;
-    case 'gem':
-      return gemClient;
     case 'workday':
       return workdayClient;
     case 'eightfold':

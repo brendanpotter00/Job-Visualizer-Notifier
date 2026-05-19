@@ -45,7 +45,16 @@ describe('createAPIClient', () => {
       validateConfig: (config): config is LeverConfig => config.type === 'lever',
     });
 
-    const invalidConfig = { type: 'gem' as const, vanityUrlPath: 'test' };
+    // Use a workday-shaped config to test that a Lever-only client
+    // rejects mismatched types. Any non-lever member of the
+    // ATSCompanyConfig union works; workday picked because it has the
+    // simplest shape after the Gem migration removed 'gem' from the union.
+    const invalidConfig = {
+      type: 'workday' as const,
+      baseUrl: 'https://example.workday.com',
+      tenantSlug: 'example',
+      careerSiteSlug: 'CareerSite',
+    };
 
     await expect(client.fetchJobs(invalidConfig)).rejects.toThrow(
       'Invalid config type for Test client'

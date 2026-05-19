@@ -2,7 +2,6 @@ import type {
   BackendScraperConfig,
   Company,
   EightfoldConfig,
-  GemConfig,
   LeverConfig,
   WorkdayConfig,
 } from '../types';
@@ -39,34 +38,6 @@ function createLeverCompany(
     ats: 'lever',
     config,
     jobsUrl,
-    recruiterLinkedInUrl: options.recruiterLinkedInUrl,
-  };
-}
-
-interface GemOptions extends FactoryOptions {
-  vanityUrlPath?: string;
-}
-
-/**
- * Factory function for Gem companies.
- * Defaults vanityUrlPath to the company id.
- */
-function createGemCompany(
-  id: string,
-  name: string,
-  options: GemOptions = {}
-): Company {
-  const vanityUrlPath = options.vanityUrlPath ?? id;
-  const config: GemConfig = {
-    type: 'gem',
-    vanityUrlPath,
-  };
-  return {
-    id,
-    name,
-    ats: 'gem',
-    config,
-    jobsUrl: `https://jobs.gem.com/${vanityUrlPath}`,
     recruiterLinkedInUrl: options.recruiterLinkedInUrl,
   };
 }
@@ -142,7 +113,7 @@ function createBackendScraperCompany(
   id: string,
   name: string,
   jobsUrl: string,
-  options: FactoryOptions & { sourceAts?: 'ashby' | 'greenhouse' } = {}
+  options: FactoryOptions & { sourceAts?: 'ashby' | 'greenhouse' | 'gem' } = {}
 ): Company {
   const config: BackendScraperConfig = {
     type: 'backend-scraper',
@@ -523,10 +494,27 @@ export const COMPANIES: Company[] = [
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%222684737%22%5D',
   }),
 
-  // Gem companies
-  createGemCompany('nominal', 'Nominal'),
-  createGemCompany('retool', 'Retool'),
-  createGemCompany('gem', 'Gem'),
+  // Gem (backend-scraper) — backend Procrastinate worker fetches from
+  // api.gem.com/job_board/v0/<id>/job_posts/ on a 30-min cron. See
+  // docs/implementations/gemBackendMigration/PLAN.md.
+  createBackendScraperCompany(
+    'nominal',
+    'Nominal',
+    'https://jobs.gem.com/nominal',
+    { sourceAts: 'gem' }
+  ),
+  createBackendScraperCompany(
+    'retool',
+    'Retool',
+    'https://jobs.gem.com/retool',
+    { sourceAts: 'gem' }
+  ),
+  createBackendScraperCompany(
+    'gem',
+    'Gem',
+    'https://jobs.gem.com/gem',
+    { sourceAts: 'gem' }
+  ),
 
   // Workday companies
   createWorkdayCompany(

@@ -13,10 +13,6 @@
       "destination": "/api/workday?path=:path"
     },
     {
-      "source": "/api/gem/:path(.*)",
-      "destination": "/api/gem?path=:path"
-    },
-    {
       "source": "/api/eightfold/:path(.*)",
       "destination": "/api/eightfold?path=:path"
     },
