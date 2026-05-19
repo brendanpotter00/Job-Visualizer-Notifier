@@ -210,11 +210,11 @@ export interface Company {
   /**
    * For companies whose `ats === 'backend-scraper'`, the ATS that originally
    * served their jobs before migration to the backend. Used by the Why page
-   * to group migrated providers (e.g. Ashby) under their own column instead
-   * of lumping them with the true Custom Web Scrapers (Google/Apple/Microsoft).
-   * Unit 9 widens this union to include 'greenhouse'.
+   * to group migrated providers (Ashby, Greenhouse) under their own column
+   * instead of lumping them with the true Custom Web Scrapers (Google/Apple/
+   * Microsoft).
    */
-  sourceAts?: 'ashby';
+  sourceAts?: 'ashby' | 'greenhouse';
 
   /** Optional URL to find recruiters on LinkedIn */
   recruiterLinkedInUrl?: string;

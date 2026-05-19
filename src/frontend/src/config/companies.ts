@@ -142,7 +142,7 @@ function createBackendScraperCompany(
   id: string,
   name: string,
   jobsUrl: string,
-  options: FactoryOptions & { sourceAts?: 'ashby' } = {}
+  options: FactoryOptions & { sourceAts?: 'ashby' | 'greenhouse' } = {}
 ): Company {
   const config: BackendScraperConfig = {
     type: 'backend-scraper',
@@ -167,115 +167,185 @@ function createBackendScraperCompany(
 export const COMPANIES: Company[] = [
   // Backend scraper companies (formerly Greenhouse)
   createBackendScraperCompany('spacex', 'SpaceX', 'https://boards.greenhouse.io/spacex', {
+    sourceAts: 'greenhouse',
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2230846%22%5D',
   }),
   createBackendScraperCompany('andurilindustries', 'Anduril', 'https://boards.greenhouse.io/andurilindustries', {
+    sourceAts: 'greenhouse',
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2218293159%22%5D',
   }),
-  createBackendScraperCompany('airtable', 'Airtable', 'https://boards.greenhouse.io/airtable'),
+  createBackendScraperCompany('airtable', 'Airtable', 'https://boards.greenhouse.io/airtable', {
+    sourceAts: 'greenhouse',
+  }),
   createBackendScraperCompany('airbnb', 'Airbnb', 'https://boards.greenhouse.io/airbnb', {
+    sourceAts: 'greenhouse',
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22309694%22%5D',
   }),
-  createBackendScraperCompany('fireworksai', 'Fireworks AI', 'https://boards.greenhouse.io/fireworksai'),
+  createBackendScraperCompany('fireworksai', 'Fireworks AI', 'https://boards.greenhouse.io/fireworksai', {
+    sourceAts: 'greenhouse',
+  }),
   createBackendScraperCompany('figma', 'Figma', 'https://boards.greenhouse.io/figma', {
+    sourceAts: 'greenhouse',
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%223650502%22%5D',
   }),
   createBackendScraperCompany('twitch', 'Twitch', 'https://boards.greenhouse.io/twitch', {
+    sourceAts: 'greenhouse',
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%222320329%22%5D',
   }),
   createBackendScraperCompany('neuralink', 'Neuralink', 'https://boards.greenhouse.io/neuralink', {
+    sourceAts: 'greenhouse',
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2219002862%22%5D',
   }),
   createBackendScraperCompany('robinhood', 'Robinhood', 'https://boards.greenhouse.io/robinhood', {
+    sourceAts: 'greenhouse',
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring+software+engineer&origin=FACETED_SEARCH',
   }),
   createBackendScraperCompany('xai', 'XAI', 'https://boards.greenhouse.io/xai', {
+    sourceAts: 'greenhouse',
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2296151950%22%5D',
   }),
   createBackendScraperCompany('anthropic', 'Anthropic', 'https://boards.greenhouse.io/anthropic', {
+    sourceAts: 'greenhouse',
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2274126343%22%5D',
   }),
   createBackendScraperCompany('reddit', 'Reddit', 'https://boards.greenhouse.io/reddit', {
+    sourceAts: 'greenhouse',
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22150573%22%5D',
   }),
-  createBackendScraperCompany('cloudflare', 'Cloudflare', 'https://boards.greenhouse.io/cloudflare'),
-  createBackendScraperCompany('scaleai', 'ScaleAI', 'https://boards.greenhouse.io/scaleai'),
+  createBackendScraperCompany('cloudflare', 'Cloudflare', 'https://boards.greenhouse.io/cloudflare', {
+    sourceAts: 'greenhouse',
+  }),
+  createBackendScraperCompany('scaleai', 'ScaleAI', 'https://boards.greenhouse.io/scaleai', {
+    sourceAts: 'greenhouse',
+  }),
   createBackendScraperCompany('lyft', 'Lyft', 'https://boards.greenhouse.io/lyft', {
+    sourceAts: 'greenhouse',
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%222620735%22%5D',
   }),
   createBackendScraperCompany('doordashusa', 'Doordash', 'https://boards.greenhouse.io/doordashusa', {
+    sourceAts: 'greenhouse',
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%223205573%22%5D',
   }),
   createBackendScraperCompany('stripe', 'Stripe', 'https://boards.greenhouse.io/stripe', {
+    sourceAts: 'greenhouse',
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%222135371%22%5D',
   }),
   createBackendScraperCompany('appliedintuition', 'Applied Intuition', 'https://boards.greenhouse.io/appliedintuition', {
+    sourceAts: 'greenhouse',
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring+software+engineer&origin=FACETED_SEARCH',
   }),
   createBackendScraperCompany('discord', 'Discord', 'https://boards.greenhouse.io/discord', {
+    sourceAts: 'greenhouse',
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%223765675%22%5D',
   }),
   createBackendScraperCompany('brex', 'Brex', 'https://boards.greenhouse.io/brex', {
+    sourceAts: 'greenhouse',
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2218505670%22%5D',
   }),
   createBackendScraperCompany('squarespace', 'Squarespace', 'https://boards.greenhouse.io/squarespace', {
+    sourceAts: 'greenhouse',
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring+software+engineer&origin=FACETED_SEARCH',
   }),
-  createBackendScraperCompany('clear', 'Clear', 'https://boards.greenhouse.io/clear'),
-  createBackendScraperCompany('affirm', 'Affirm', 'https://boards.greenhouse.io/affirm'),
-  createBackendScraperCompany('crunchyroll', 'Crunchyroll', 'https://boards.greenhouse.io/crunchyroll'),
-  createBackendScraperCompany('nuro', 'Nuro', 'https://boards.greenhouse.io/nuro'),
-  createBackendScraperCompany('pallet', 'Pallet', 'https://boards.greenhouse.io/pallet'),
+  createBackendScraperCompany('clear', 'Clear', 'https://boards.greenhouse.io/clear', {
+    sourceAts: 'greenhouse',
+  }),
+  createBackendScraperCompany('affirm', 'Affirm', 'https://boards.greenhouse.io/affirm', {
+    sourceAts: 'greenhouse',
+  }),
+  createBackendScraperCompany('crunchyroll', 'Crunchyroll', 'https://boards.greenhouse.io/crunchyroll', {
+    sourceAts: 'greenhouse',
+  }),
+  createBackendScraperCompany('nuro', 'Nuro', 'https://boards.greenhouse.io/nuro', {
+    sourceAts: 'greenhouse',
+  }),
+  createBackendScraperCompany('pallet', 'Pallet', 'https://boards.greenhouse.io/pallet', {
+    sourceAts: 'greenhouse',
+  }),
   createBackendScraperCompany('pinterest', 'Pinterest', 'https://boards.greenhouse.io/pinterest', {
+    sourceAts: 'greenhouse',
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%221124131%22%5D',
   }),
-  createBackendScraperCompany('astranis', 'Astranis', 'https://boards.greenhouse.io/astranis'),
+  createBackendScraperCompany('astranis', 'Astranis', 'https://boards.greenhouse.io/astranis', {
+    sourceAts: 'greenhouse',
+  }),
   createBackendScraperCompany('chalk', 'Chalk', 'https://careers.ashbyhq.com/chalk', {
     sourceAts: 'ashby',
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2278829224%22%5D',
   }),
   createBackendScraperCompany('waymo', 'Waymo', 'https://boards.greenhouse.io/waymo', {
+    sourceAts: 'greenhouse',
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2217900793%22%5D',
   }),
   createBackendScraperCompany('figureai', 'Figure AI', 'https://boards.greenhouse.io/figureai', {
+    sourceAts: 'greenhouse',
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2285645770%22%5D',
   }),
-  createBackendScraperCompany('gleanwork', 'Glean', 'https://boards.greenhouse.io/gleanwork'),
-  createBackendScraperCompany('merge', 'Merge', 'https://boards.greenhouse.io/merge'),
-  createBackendScraperCompany('databricks', 'Databricks', 'https://boards.greenhouse.io/databricks'),
-  createBackendScraperCompany('datadog', 'Datadog', 'https://boards.greenhouse.io/datadog'),
-  createBackendScraperCompany('dropbox', 'Dropbox', 'https://boards.greenhouse.io/dropbox'),
-  createBackendScraperCompany('instacart', 'Instacart', 'https://boards.greenhouse.io/instacart'),
-  createBackendScraperCompany('mongodb', 'MongoDB', 'https://boards.greenhouse.io/mongodb'),
-  createBackendScraperCompany('twilio', 'Twilio', 'https://boards.greenhouse.io/twilio'),
-  createBackendScraperCompany('block', 'Block', 'https://boards.greenhouse.io/block'),
-  createBackendScraperCompany('gitlab', 'GitLab', 'https://boards.greenhouse.io/gitlab'),
-  createBackendScraperCompany('unity3d', 'Unity', 'https://boards.greenhouse.io/unity3d'),
-  createBackendScraperCompany('vercel', 'Vercel', 'https://boards.greenhouse.io/vercel'),
-  createBackendScraperCompany('thinkingmachines', 'Thinking Machines', 'https://boards.greenhouse.io/thinkingmachines'),
-  createBackendScraperCompany('togetherai', 'Together AI', 'https://boards.greenhouse.io/togetherai'),
-  createBackendScraperCompany('hightouch', 'Hightouch', 'https://boards.greenhouse.io/hightouch'),
+  createBackendScraperCompany('gleanwork', 'Glean', 'https://boards.greenhouse.io/gleanwork', {
+    sourceAts: 'greenhouse',
+  }),
+  createBackendScraperCompany('merge', 'Merge', 'https://boards.greenhouse.io/merge', {
+    sourceAts: 'greenhouse',
+  }),
+  createBackendScraperCompany('databricks', 'Databricks', 'https://boards.greenhouse.io/databricks', {
+    sourceAts: 'greenhouse',
+  }),
+  createBackendScraperCompany('datadog', 'Datadog', 'https://boards.greenhouse.io/datadog', {
+    sourceAts: 'greenhouse',
+  }),
+  createBackendScraperCompany('dropbox', 'Dropbox', 'https://boards.greenhouse.io/dropbox', {
+    sourceAts: 'greenhouse',
+  }),
+  createBackendScraperCompany('instacart', 'Instacart', 'https://boards.greenhouse.io/instacart', {
+    sourceAts: 'greenhouse',
+  }),
+  createBackendScraperCompany('mongodb', 'MongoDB', 'https://boards.greenhouse.io/mongodb', {
+    sourceAts: 'greenhouse',
+  }),
+  createBackendScraperCompany('twilio', 'Twilio', 'https://boards.greenhouse.io/twilio', {
+    sourceAts: 'greenhouse',
+  }),
+  createBackendScraperCompany('block', 'Block', 'https://boards.greenhouse.io/block', {
+    sourceAts: 'greenhouse',
+  }),
+  createBackendScraperCompany('gitlab', 'GitLab', 'https://boards.greenhouse.io/gitlab', {
+    sourceAts: 'greenhouse',
+  }),
+  createBackendScraperCompany('unity3d', 'Unity', 'https://boards.greenhouse.io/unity3d', {
+    sourceAts: 'greenhouse',
+  }),
+  createBackendScraperCompany('vercel', 'Vercel', 'https://boards.greenhouse.io/vercel', {
+    sourceAts: 'greenhouse',
+  }),
+  createBackendScraperCompany('thinkingmachines', 'Thinking Machines', 'https://boards.greenhouse.io/thinkingmachines', {
+    sourceAts: 'greenhouse',
+  }),
+  createBackendScraperCompany('togetherai', 'Together AI', 'https://boards.greenhouse.io/togetherai', {
+    sourceAts: 'greenhouse',
+  }),
+  createBackendScraperCompany('hightouch', 'Hightouch', 'https://boards.greenhouse.io/hightouch', {
+    sourceAts: 'greenhouse',
+  }),
 
   // Lever companies
   createLeverCompany('palantir', 'Palantir', {
