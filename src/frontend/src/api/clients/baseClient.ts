@@ -2,7 +2,6 @@ import type {
   Job,
   LeverConfig,
   GemConfig,
-  WorkdayConfig,
   EightfoldConfig,
   BackendScraperConfig,
 } from '../../types';
@@ -14,7 +13,6 @@ import { logger } from '../../lib/logger';
 export type ATSCompanyConfig =
   | LeverConfig
   | GemConfig
-  | WorkdayConfig
   | EightfoldConfig
   | BackendScraperConfig;
 
@@ -48,7 +46,7 @@ export interface ClientConfig<TResponse, TConfig extends ATSCompanyConfig> {
  *
  * This factory eliminates 220+ lines of code duplication across ATS clients by
  * extracting common patterns into a reusable implementation. All API clients
- * (Lever, Gem, Workday) are created using this factory.
+ * (Lever, Gem) are created using this factory.
  *
  * **Shared Logic Provided:**
  * 1. Config validation with type guards
@@ -151,7 +149,7 @@ export function createAPIClient<TResponse, TConfig extends ATSCompanyConfig>(
             response.status,
             config.type as
               | 'lever'
-              | 'workday'
+              | 'gem'
               | 'eightfold'
               | 'backend-scraper',
             response.status >= 500 || response.status === 429
@@ -199,7 +197,7 @@ export function createAPIClient<TResponse, TConfig extends ATSCompanyConfig>(
           undefined,
           config.type as
             | 'lever'
-            | 'workday'
+            | 'gem'
             | 'eightfold'
             | 'backend-scraper',
           true // Assume retryable for network/unknown errors

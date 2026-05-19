@@ -7,7 +7,6 @@
  */
 export type ATSProvider =
   | 'lever'
-  | 'workday'
   | 'gem'
   | 'eightfold'
   | 'backend-scraper';
@@ -127,27 +126,6 @@ export interface GemConfig {
 }
 
 /**
- * Workday-specific configuration
- */
-export interface WorkdayConfig {
-  type: 'workday';
-  /** Base URL for the Workday tenant (e.g., "https://nvidia.wd5.myworkdayjobs.com") */
-  baseUrl: string;
-  /** Tenant slug - path segment after /wday/cxs/ (e.g., "nvidia") */
-  tenantSlug: string;
-  /** Career site slug - path segment after tenant (e.g., "NVIDIAExternalCareerSite") */
-  careerSiteSlug: string;
-  /** Optional: Job detail base URL for constructing job links (e.g., "https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/details") */
-  jobsUrl?: string;
-  /** Optional: Override default page size for pagination (default: 50) */
-  defaultPageSize?: number;
-  /** Optional: Apply default filters to all requests */
-  defaultFacets?: Record<string, string[]>;
-  /** Optional custom API base URL for proxying */
-  apiBaseUrl?: string;
-}
-
-/**
  * Eightfold AI-specific configuration
  *
  * Eightfold's public job board API requires:
@@ -200,7 +178,6 @@ export interface Company {
   config:
     | LeverConfig
     | GemConfig
-    | WorkdayConfig
     | EightfoldConfig
     | BackendScraperConfig;
 
@@ -210,11 +187,11 @@ export interface Company {
   /**
    * For companies whose `ats === 'backend-scraper'`, the ATS that originally
    * served their jobs before migration to the backend. Used by the Why page
-   * to group migrated providers (Ashby, Greenhouse) under their own column
-   * instead of lumping them with the true Custom Web Scrapers (Google/Apple/
-   * Microsoft).
+   * to group migrated providers (Ashby, Greenhouse, Workday) under their own
+   * column instead of lumping them with the true Custom Web Scrapers
+   * (Google/Apple/Microsoft).
    */
-  sourceAts?: 'ashby' | 'greenhouse';
+  sourceAts?: 'ashby' | 'greenhouse' | 'workday';
 
   /** Optional URL to find recruiters on LinkedIn */
   recruiterLinkedInUrl?: string;

@@ -1,6 +1,6 @@
 # Frontend CLAUDE.md
 
-React SPA for job posting analytics. Visualizes job posting activity over time for multiple companies using external ATS APIs (Lever, Workday, Gem, Eightfold) and backend-served data via `/api/jobs` (Greenhouse companies, Ashby companies, Google, Apple, Microsoft). Built with Redux Toolkit, Recharts, and Material-UI.
+React SPA for job posting analytics. Visualizes job posting activity over time for multiple companies using external ATS APIs (Lever, Gem, Eightfold) and backend-served data via `/api/jobs` (Greenhouse companies, Ashby companies, Workday companies, Google, Apple, Microsoft). Built with Redux Toolkit, Recharts, and Material-UI.
 
 **Note:** Commands should be run from project root (not this directory). See root CLAUDE.md for full project context.
 
@@ -37,7 +37,7 @@ All paths below are relative to `src/frontend/src/`.
 User selects company → `getJobsForCompany` RTK Query endpoint (features/jobs/jobsApi.ts) → Factory selects API client → Transform to normalized Job model → RTK Query cache update → Memoized selectors filter data → Components render
 
 **API Clients:**
-Five ATS providers (Lever, Workday, Gem, Eightfold, Backend-Scraper) are supported. Lever/Workday/Gem use `createAPIClient` factory (api/clients/baseClient.ts) which handles validation, fetch, error handling, filtering, transformation, and metadata calculation. Eightfold (api/clients/eightfoldClient.ts) uses a dedicated client because its API requires sequential pagination with a hard 10-item page cap (used by Netflix). Backend-Scraper uses a dedicated client (api/clients/backendScraperClient.ts) for companies served from the backend `/api/jobs` endpoint — all Greenhouse boards and Ashby boards (fetched by the backend Procrastinate worker) plus Google, Apple, and Microsoft (scraped via Python scripts).
+Four ATS providers (Lever, Gem, Eightfold, Backend-Scraper) are supported. Lever/Gem use `createAPIClient` factory (api/clients/baseClient.ts) which handles validation, fetch, error handling, filtering, transformation, and metadata calculation. Eightfold (api/clients/eightfoldClient.ts) uses a dedicated client because its API requires sequential pagination with a hard 10-item page cap (used by Netflix). Backend-Scraper uses a dedicated client (api/clients/backendScraperClient.ts) for companies served from the backend `/api/jobs` endpoint — all Greenhouse, Ashby, and Workday boards (fetched by the backend Procrastinate worker) plus Google, Apple, and Microsoft (scraped via Python scripts).
 
 **Key Selectors:**
 - `selectCurrentCompanyJobsRtk` (features/jobs/jobsSelectors.ts) - Jobs for selected company
@@ -103,7 +103,6 @@ New code must not add disables. If a new disable appears unavoidable, update thi
 **Adding a Company:**
 Edit `config/companies.ts` and use the appropriate factory function:
 - `createLeverCompany()` - Lever ATS
-- `createWorkdayCompany()` - Workday ATS
 - `createEightfoldCompany()` - Eightfold AI (pass `{ tenantHost, domain }`; Netflix uses `explore.jobs.netflix.net` / `netflix.com`)
 - `createBackendScraperCompany()` - Companies served from the backend `/api/jobs` endpoint, including Greenhouse boards and Ashby boards (fetched by the backend Procrastinate worker — also requires a row in the backend `companies` table; pass `{ sourceAts: 'ashby' }` for Ashby boards) and Python-script-scraped companies (Google, Apple, Microsoft)
 
@@ -162,7 +161,6 @@ All paths relative to `src/frontend/src/`:
 Located in project root `api/` directory (proxies to avoid CORS):
 
 - `lever.ts` - Lever API proxy
-- `workday.ts` - Workday API proxy
 - `gem.ts` - Gem API proxy
 - `eightfold.ts` - Eightfold AI proxy (catch-all route at `/api/eightfold/:path(.*)`; requires `X-Eightfold-Tenant-Host` header, SSRF-allowlisted to `*.eightfold.ai` + known vanity hosts like `explore.jobs.netflix.net`)
 - `jobs.ts` - Backend jobs API proxy (for scraped companies)

@@ -1,14 +1,16 @@
 import type { JobAPIClient } from './types';
 import { leverClient } from './clients/leverClient';
 import { gemClient } from './clients/gemClient';
-import { workdayClient } from './clients/workdayClient';
 import { eightfoldClient } from './clients/eightfoldClient';
 import { backendScraperClient } from './clients/backendScraperClient';
 
 /**
  * Get the appropriate API client for a given ATS type
  *
- * @param atsType - The ATS provider type ('lever', 'workday', 'eightfold', 'backend-scraper')
+ * @param atsType - The ATS provider type ('lever', 'gem', 'eightfold',
+ *   'backend-scraper'). Workday rows are 'backend-scraper' since the
+ *   Workday backend migration; they carry `sourceAts: 'workday'` for
+ *   the Why-page grouping (see atsGrouping.ts).
  * @returns The corresponding API client
  * @throws Error if ATS type is unknown
  *
@@ -24,8 +26,6 @@ export function getClientForATS(atsType: string): JobAPIClient {
       return leverClient;
     case 'gem':
       return gemClient;
-    case 'workday':
-      return workdayClient;
     case 'eightfold':
       return eightfoldClient;
     case 'backend-scraper':
