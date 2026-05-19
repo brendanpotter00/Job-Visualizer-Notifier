@@ -3,7 +3,6 @@ import type {
   LeverConfig,
   GemConfig,
   WorkdayConfig,
-  EightfoldConfig,
   BackendScraperConfig,
 } from '../../types';
 import type { JobAPIClient, FetchJobsOptions, FetchJobsResult } from '../types';
@@ -15,7 +14,6 @@ export type ATSCompanyConfig =
   | LeverConfig
   | GemConfig
   | WorkdayConfig
-  | EightfoldConfig
   | BackendScraperConfig;
 
 /**
@@ -152,7 +150,6 @@ export function createAPIClient<TResponse, TConfig extends ATSCompanyConfig>(
             config.type as
               | 'lever'
               | 'workday'
-              | 'eightfold'
               | 'backend-scraper',
             response.status >= 500 || response.status === 429
           );
@@ -200,7 +197,6 @@ export function createAPIClient<TResponse, TConfig extends ATSCompanyConfig>(
           config.type as
             | 'lever'
             | 'workday'
-            | 'eightfold'
             | 'backend-scraper',
           true // Assume retryable for network/unknown errors
         );
