@@ -392,7 +392,7 @@ The field is optional throughout. Only Greenhouse / Ashby / Gem `backend-scraper
 
 ### Unit 6 — Admin trigger endpoints
 
-**Status:** TODO
+**Status:** DONE
 
 **Why 6th:** QA + emergency tooling. Mirrors Greenhouse/Ashby trigger endpoints. Required by DEPLOY.md's "trigger fan-out manually right after deploy" step.
 
