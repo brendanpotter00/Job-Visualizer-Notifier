@@ -284,6 +284,55 @@ class TestFetchAshbyCompany:
         runs = _scrape_runs(db_conn, company)
         assert runs[0]["closed_jobs"] == 1
 
+    async def test_cold_start_does_not_trip_safety_guard(
+        self, procrastinate_open, db_conn, monkeypatch
+    ):
+        """No active jobs + 0 jobs from API must NOT trip the guard.
+
+        The ``active_count > 0`` precondition at
+        ``fetch_ashby_company.py:~105`` is what protects cold-start
+        onboarding of a new Ashby board. Without that precondition,
+        a brand-new board with zero rows in ``job_listings`` and an
+        empty (or temporarily empty) Ashby response would record
+        ``error_count=1`` on every tick — which would mask real
+        outages once data lands.
+
+        Setup: seed an Ashby ``companies`` row, NO ``job_listings``
+        for the company, mock httpx to return ``{"jobs": []}``. Assert
+        the task completes cleanly and records ``error_count=0``.
+        """
+        company = "freshboard"
+        token = "freshboard"
+        _seed_company(db_conn, company, token)
+
+        # Critical: no _seed_job calls. active_count must be 0.
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={"jobs": []})
+
+        _patch_httpx(monkeypatch, handler)
+
+        await fetch_ashby_company.defer_async(
+            company_id=company, board_token=token,
+        )
+        await _drain()
+        db_conn.rollback()
+
+        runs = _scrape_runs(db_conn, company)
+        assert len(runs) == 1, (
+            f"expected exactly 1 scrape_runs row for cold-start; "
+            f"got {len(runs)}"
+        )
+        run = runs[0]
+        assert run["error_count"] == 0, (
+            "cold start (active=0, returned=0) must NOT trip the safety "
+            "guard sentinel error_count=1; "
+            f"got error_count={run['error_count']}"
+        )
+        assert run["jobs_seen"] == 0
+        assert run["new_jobs"] == 0
+        assert run["closed_jobs"] == 0
+
     async def test_safety_guard_skips_destructive_writes(
         self, procrastinate_open, db_conn, monkeypatch
     ):

@@ -515,6 +515,58 @@ async def test_trigger_ashby_fan_out_returns_202_and_enqueues_task(
     assert jobs[0]["args"]["timestamp"] == 0
 
 
+@pytest.mark.asyncio
+async def test_trigger_ashby_fetch_after_fan_out_defer_collapses_via_lock(
+    procrastinate_open, db_conn, client,
+):
+    """PLAN invariant: a manual /trigger-ashby-fetch issued AFTER the
+    periodic fan-out has already deferred a per-company job for the same
+    company collapses via the `ashby:<company_id>` queueing lock. The
+    cross-origin race covers the case where the operator hits the manual
+    trigger button while the periodic tick is mid-flight or has just
+    landed its defers in the queue.
+
+    Asserts: the manual trigger returns 202 with already_enqueued=True
+    and exactly 1 fetch_ashby_company row exists for the company.
+    """
+    from api.tasks.enqueue_ashby_fan_out import enqueue_ashby_fan_out
+
+    _seed_company(db_conn, "notion", ats="ashby")
+    db_conn.rollback()
+
+    # Periodic fan-out runs first — defers fetch_ashby_company with
+    # queueing_lock="ashby:notion".
+    deferred = await enqueue_ashby_fan_out(timestamp=0)
+    db_conn.rollback()
+    assert deferred == 1, (
+        f"periodic fan-out should defer exactly 1 job for the seeded "
+        f"company; got {deferred}"
+    )
+
+    # Manual trigger arrives second — must collapse via the same lock.
+    resp = client.post(
+        "/api/jobs-qa/trigger-ashby-fetch",
+        params={"company_id": "notion"},
+    )
+    db_conn.rollback()
+    assert resp.status_code == 202
+    body = resp.json()
+    assert body["already_enqueued"] is True, (
+        "manual trigger after periodic fan-out must report "
+        "already_enqueued=True; the queueing lock did not dedupe across "
+        "the two origins"
+    )
+
+    jobs = _ashby_jobs(db_conn)
+    assert len(jobs) == 1, (
+        f"expected exactly 1 fetch_ashby_company row after fan-out + "
+        f"manual trigger collision; got {len(jobs)}. Locks: "
+        f"{[j['queueing_lock'] for j in jobs]}"
+    )
+    assert jobs[0]["queueing_lock"] == "ashby:notion"
+    assert jobs[0]["args"]["company_id"] == "notion"
+
+
 def test_trigger_ashby_fetch_without_admin_returns_403(test_app, db_conn):
     from fastapi.testclient import TestClient
     from api.auth.dependencies import require_admin
@@ -539,6 +591,31 @@ def test_trigger_ashby_fetch_without_admin_returns_403(test_app, db_conn):
             test_app.dependency_overrides[require_admin] = saved_override
 
 
+def test_trigger_ashby_fetch_without_auth_returns_401(test_app):
+    """Sibling to the _without_admin_returns_403 test above: pop BOTH the
+    require_admin and get_current_user overrides so the real auth chain
+    runs without an Authorization header. Locks in the 401 branch — if the
+    auth dependency order ever changes, regression here would otherwise be
+    silent (the 403 test alone can't tell the difference)."""
+    from fastapi.testclient import TestClient
+    from api.auth.dependencies import get_current_user, require_admin
+
+    saved_admin = test_app.dependency_overrides.pop(require_admin, None)
+    saved_user = test_app.dependency_overrides.pop(get_current_user, None)
+    try:
+        local_client = TestClient(test_app)
+        resp = local_client.post(
+            "/api/jobs-qa/trigger-ashby-fetch",
+            params={"company_id": "notion"},
+        )
+        assert resp.status_code == 401
+    finally:
+        if saved_admin is not None:
+            test_app.dependency_overrides[require_admin] = saved_admin
+        if saved_user is not None:
+            test_app.dependency_overrides[get_current_user] = saved_user
+
+
 def test_trigger_ashby_fan_out_without_admin_returns_403(test_app, db_conn):
     from fastapi.testclient import TestClient
     from api.auth.dependencies import require_admin
@@ -558,3 +635,24 @@ def test_trigger_ashby_fan_out_without_admin_returns_403(test_app, db_conn):
     finally:
         if saved_override is not None:
             test_app.dependency_overrides[require_admin] = saved_override
+
+
+def test_trigger_ashby_fan_out_without_auth_returns_401(test_app):
+    """Sibling to the _without_admin_returns_403 test above: pop BOTH the
+    require_admin and get_current_user overrides so the real auth chain
+    runs without an Authorization header. Mirrors
+    test_trigger_ashby_fetch_without_auth_returns_401."""
+    from fastapi.testclient import TestClient
+    from api.auth.dependencies import get_current_user, require_admin
+
+    saved_admin = test_app.dependency_overrides.pop(require_admin, None)
+    saved_user = test_app.dependency_overrides.pop(get_current_user, None)
+    try:
+        local_client = TestClient(test_app)
+        resp = local_client.post("/api/jobs-qa/trigger-ashby-fan-out")
+        assert resp.status_code == 401
+    finally:
+        if saved_admin is not None:
+            test_app.dependency_overrides[require_admin] = saved_admin
+        if saved_user is not None:
+            test_app.dependency_overrides[get_current_user] = saved_user

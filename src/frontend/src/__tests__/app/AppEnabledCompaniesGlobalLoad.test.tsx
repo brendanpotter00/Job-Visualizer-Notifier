@@ -59,9 +59,6 @@ const server = setupServer(
     return HttpResponse.json({ companyIds: ['airbnb', 'stripe'] });
   }),
   http.get('/api/users', () => HttpResponse.json({})),
-  http.get('/api/ashby/v1/jobBoard/:boardName/jobs', () =>
-    HttpResponse.json({ jobs: [] })
-  ),
   http.get('/api/lever/v0/postings/*', () => HttpResponse.json([])),
   http.get('/api/jobs', () => HttpResponse.json([]))
 );

@@ -8,12 +8,14 @@ Two functions, both queue-agnostic:
   Ashby job dict to a :class:`scripts.shared.models.JobListing`
   ready for ``upsert_jobs_batch``.
 
-The id format is the raw Ashby job id as a string (e.g. a UUID like
-``"4e1c7a5a-5b0a-4e6f-9a7c-1ad3c4f7b6e9"``). Cross-source uniqueness
-lives in the database schema via the composite ``(source_id, id)``
-primary key on ``job_listings`` — Ashby rows use
-``source_id = 'ashby_api'``. Ashby raw ids are UUIDs and globally
-unique across the Ashby Job Board platform.
+The id stored on ``JobListing`` is the raw Ashby job id as a string
+(e.g. a UUID-shaped value like
+``"4e1c7a5a-5b0a-4e6f-9a7c-1ad3c4f7b6e9"``). Ashby ids have historically
+been UUIDs and observed-unique within a board, but the actual
+cross-source uniqueness guarantee lives in the ``job_listings`` schema
+via the composite ``(source_id, id)`` primary key. Ashby rows use
+``source_id = 'ashby_api'``, so even if a raw id ever collides with a
+different source's raw id, the composite PK keeps them distinct.
 
 Output shape note: the ``details`` JSONB column is populated with keys that
 the existing frontend ``backendScraperTransformer.ts`` reads
@@ -104,8 +106,10 @@ def _transform_one(
     raw_id = raw.get("id")
     if raw_id is None:
         raise ValueError(f"Ashby job missing 'id': {raw!r}")
-    # Ashby ids are UUIDs (strings), but cast defensively in case a future
-    # response shape ever ships a non-string id.
+    # Ashby ids have historically been UUID-shaped strings, but cast
+    # defensively in case a future response shape ever ships a non-string id.
+    # The composite ``(source_id, id)`` PK on ``job_listings`` is what
+    # actually enforces cross-source uniqueness (see module docstring).
     job_id = str(raw_id)
 
     title = raw.get("title") or ""

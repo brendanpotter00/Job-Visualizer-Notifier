@@ -71,7 +71,7 @@ Three ATS providers (Lever, Workday, Gem) use `createAPIClient` factory (src/fro
 ## Common Tasks
 
 **Adding a Company:**
-Edit `src/frontend/src/config/companies.ts` and add company config with ATS type (lever/workday/gem/eightfold/backend-scraper). Greenhouse and Ashby boards use `backend-scraper` — add the company id and `board_token` to the backend `companies` table (see `docs/implementations/greenhouseBackendMigration/PLAN.md` or `docs/implementations/ashbyBackendMigration/PLAN.md`) and add a `createBackendScraperCompany(id, name, jobsUrl, { sourceAts: 'ashby' })` entry to companies.ts. System automatically uses correct client via factory pattern.
+Edit `src/frontend/src/config/companies.ts` and add company config with ATS type (lever/workday/gem/eightfold/backend-scraper). Greenhouse and Ashby boards use `backend-scraper` — add the company id and `board_token` to the backend `companies` table (see `docs/implementations/greenhouseBackendMigration/PLAN.md` or `docs/implementations/ashbyBackendMigration/PLAN.md`) and add a `createBackendScraperCompany(id, name, 'https://boards.greenhouse.io/${id}', { sourceAts: 'greenhouse' })` entry to companies.ts (use `{ sourceAts: 'ashby' }` for Ashby boards). Omitting `sourceAts` drops the company into "Custom Web Scrapers". System automatically uses correct client via factory pattern.
 
 **Adding ATS Provider:**
 1. Create transformer in `src/frontend/src/api/transformers/[provider]Transformer.ts`

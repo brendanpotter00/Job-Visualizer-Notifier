@@ -86,7 +86,7 @@ async def fetch_ashby_company(
     # still raise CancelledError — in which case the thread completes,
     # produces a live connection, and the local `conn` binding never
     # happens. Postgres reaps such orphans via idle_session_timeout, and
-    # connection-pool ceilings bound the cumulative leak. Worker cancels
+    # worker concurrency=5 bounds in-flight leaks. Worker cancels
     # are rare (deploys / OOM kills), so the residual leak is acceptable.
     conn = await asyncio.shield(
         asyncio.to_thread(db.get_connection, settings.database_url)
