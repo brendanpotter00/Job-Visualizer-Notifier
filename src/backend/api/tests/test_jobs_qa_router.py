@@ -32,7 +32,8 @@ async def procrastinate_open(db_conn):
             cur.execute(
                 "DELETE FROM procrastinate_jobs "
                 "WHERE task_name IN "
-                "('fetch_greenhouse_company', 'enqueue_greenhouse_fan_out')"
+                "('fetch_greenhouse_company', 'enqueue_greenhouse_fan_out', "
+                "'fetch_ashby_company', 'enqueue_ashby_fan_out')"
             )
             cur.execute(
                 sql.SQL("TRUNCATE {} CASCADE").format(
@@ -373,6 +374,186 @@ def test_trigger_greenhouse_fan_out_without_admin_returns_403(test_app, db_conn)
     try:
         local_client = TestClient(test_app)
         resp = local_client.post("/api/jobs-qa/trigger-greenhouse-fan-out")
+        assert resp.status_code == 403
+    finally:
+        if saved_override is not None:
+            test_app.dependency_overrides[require_admin] = saved_override
+
+
+# --- trigger-ashby-fetch / trigger-ashby-fan-out ---
+
+
+def _ashby_jobs(conn) -> list[dict]:
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, task_name, args, queueing_lock, status "
+        "FROM procrastinate_jobs "
+        "WHERE task_name = 'fetch_ashby_company' "
+        "ORDER BY id"
+    )
+    return list(cur.fetchall())
+
+
+def _ashby_fan_out_jobs(conn) -> list[dict]:
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, task_name, args, queueing_lock, status "
+        "FROM procrastinate_jobs "
+        "WHERE task_name = 'enqueue_ashby_fan_out' "
+        "ORDER BY id"
+    )
+    return list(cur.fetchall())
+
+
+@pytest.mark.asyncio
+async def test_trigger_ashby_fetch_returns_202_and_enqueues_job(
+    procrastinate_open, db_conn, client,
+):
+    _seed_company(db_conn, "notion", ats="ashby", board_token="notion")
+
+    resp = client.post(
+        "/api/jobs-qa/trigger-ashby-fetch",
+        params={"company_id": "notion"},
+    )
+    db_conn.rollback()
+
+    assert resp.status_code == 202
+    body = resp.json()
+    assert body["company_id"] == "notion"
+    assert body["already_enqueued"] is False
+    assert "deferred" in body["message"]
+
+    jobs = _ashby_jobs(db_conn)
+    assert len(jobs) == 1
+    assert jobs[0]["queueing_lock"] == "ashby:notion"
+    assert jobs[0]["args"]["company_id"] == "notion"
+    assert jobs[0]["args"]["board_token"] == "notion"
+
+
+@pytest.mark.asyncio
+async def test_trigger_ashby_fetch_404_for_unknown_company(
+    procrastinate_open, db_conn, client,
+):
+    resp = client.post(
+        "/api/jobs-qa/trigger-ashby-fetch",
+        params={"company_id": "does_not_exist"},
+    )
+    db_conn.rollback()
+
+    assert resp.status_code == 404
+    assert "does_not_exist" in resp.json()["detail"]
+    assert _ashby_jobs(db_conn) == []
+
+
+@pytest.mark.asyncio
+async def test_trigger_ashby_fetch_404_for_disabled_company(
+    procrastinate_open, db_conn, client,
+):
+    _seed_company(db_conn, "off", ats="ashby", enabled=False)
+    resp = client.post(
+        "/api/jobs-qa/trigger-ashby-fetch",
+        params={"company_id": "off"},
+    )
+    db_conn.rollback()
+    assert resp.status_code == 404
+    assert _ashby_jobs(db_conn) == []
+
+
+@pytest.mark.asyncio
+async def test_trigger_ashby_fetch_404_for_non_ashby_ats(
+    procrastinate_open, db_conn, client,
+):
+    _seed_company(db_conn, "stripe", ats="greenhouse")
+    resp = client.post(
+        "/api/jobs-qa/trigger-ashby-fetch",
+        params={"company_id": "stripe"},
+    )
+    db_conn.rollback()
+    assert resp.status_code == 404
+    assert _ashby_jobs(db_conn) == []
+
+
+@pytest.mark.asyncio
+async def test_trigger_ashby_fetch_second_call_reports_already_enqueued(
+    procrastinate_open, db_conn, client,
+):
+    _seed_company(db_conn, "notion", ats="ashby")
+
+    first = client.post(
+        "/api/jobs-qa/trigger-ashby-fetch",
+        params={"company_id": "notion"},
+    )
+    db_conn.rollback()
+    assert first.status_code == 202
+    assert first.json()["already_enqueued"] is False
+
+    second = client.post(
+        "/api/jobs-qa/trigger-ashby-fetch",
+        params={"company_id": "notion"},
+    )
+    db_conn.rollback()
+    assert second.status_code == 202
+    assert second.json()["already_enqueued"] is True
+
+    assert len(_ashby_jobs(db_conn)) == 1
+
+
+@pytest.mark.asyncio
+async def test_trigger_ashby_fan_out_returns_202_and_enqueues_task(
+    procrastinate_open, db_conn, client,
+):
+    resp = client.post("/api/jobs-qa/trigger-ashby-fan-out")
+    db_conn.rollback()
+
+    assert resp.status_code == 202
+    body = resp.json()
+    assert body["already_enqueued"] is False
+    assert "deferred" in body["message"]
+
+    jobs = _ashby_fan_out_jobs(db_conn)
+    assert len(jobs) == 1
+    assert jobs[0]["args"]["timestamp"] == 0
+
+
+def test_trigger_ashby_fetch_without_admin_returns_403(test_app, db_conn):
+    from fastapi.testclient import TestClient
+    from api.auth.dependencies import require_admin
+    from .conftest import _insert_user, _make_user
+
+    _insert_user(
+        db_conn,
+        _make_user({"auth0_id": "auth0|test_user_123", "email": "test@example.com"}),
+    )
+    db_conn.commit()
+
+    saved_override = test_app.dependency_overrides.pop(require_admin, None)
+    try:
+        local_client = TestClient(test_app)
+        resp = local_client.post(
+            "/api/jobs-qa/trigger-ashby-fetch",
+            params={"company_id": "notion"},
+        )
+        assert resp.status_code == 403
+    finally:
+        if saved_override is not None:
+            test_app.dependency_overrides[require_admin] = saved_override
+
+
+def test_trigger_ashby_fan_out_without_admin_returns_403(test_app, db_conn):
+    from fastapi.testclient import TestClient
+    from api.auth.dependencies import require_admin
+    from .conftest import _insert_user, _make_user
+
+    _insert_user(
+        db_conn,
+        _make_user({"auth0_id": "auth0|test_user_123", "email": "test@example.com"}),
+    )
+    db_conn.commit()
+
+    saved_override = test_app.dependency_overrides.pop(require_admin, None)
+    try:
+        local_client = TestClient(test_app)
+        resp = local_client.post("/api/jobs-qa/trigger-ashby-fan-out")
         assert resp.status_code == 403
     finally:
         if saved_override is not None:
