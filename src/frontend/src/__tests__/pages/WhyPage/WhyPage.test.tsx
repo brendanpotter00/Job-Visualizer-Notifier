@@ -111,6 +111,34 @@ describe('WhyPage', () => {
     }
   });
 
+  it('renders a dedicated Lever group containing only companies whose sourceAts === "lever"', () => {
+    const grouped = groupCompaniesByATS();
+    const leverGroup = grouped.lever ?? [];
+
+    expect(leverGroup.length).toBeGreaterThan(0);
+    for (const company of leverGroup) {
+      expect(company.sourceAts).toBe('lever');
+    }
+
+    renderWithProviders(<WhyPage />, { initialEntries: ['/why'] });
+
+    expect(
+      screen.getByRole('heading', {
+        level: 3,
+        name: new RegExp(`Lever\\s*\\(${leverGroup.length}\\)`, 'i'),
+      })
+    ).toBeInTheDocument();
+  });
+
+  it('Custom Web Scrapers group excludes Lever companies (true custom scrapers only)', () => {
+    const grouped = groupCompaniesByATS();
+    const customScrapers = grouped['backend-scraper'] ?? [];
+
+    for (const company of customScrapers) {
+      expect(company.sourceAts).not.toBe('lever');
+    }
+  });
+
   it('renders one ATS group header per distinct non-empty ATS group in COMPANIES', () => {
     const grouped = groupCompaniesByATS();
 
