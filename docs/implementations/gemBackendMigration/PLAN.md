@@ -353,7 +353,7 @@ The field is optional throughout. Only Greenhouse / Ashby / Gem `backend-scraper
 
 ### Unit 5 — Periodic fan-out + worker queue expansion
 
-**Status:** TODO
+**Status:** DONE
 
 **Why 5th:** Connects the cron to the per-company worker. Last backend change before the frontend cutover.
 

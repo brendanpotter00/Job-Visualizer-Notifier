@@ -143,12 +143,12 @@ async def lifespan(app: FastAPI):
 
     worker_task = asyncio.create_task(
         procrastinate_app.run_worker_async(
-            queues=["greenhouse_fetch", "ashby_fetch"],
+            queues=["greenhouse_fetch", "ashby_fetch", "gem_fetch"],
             concurrency=5,
         )
     )
     worker_task.add_done_callback(_worker_task_done)
-    logger.info("Procrastinate worker background task started (queues=['greenhouse_fetch', 'ashby_fetch'], concurrency=5)")
+    logger.info("Procrastinate worker background task started (queues=['greenhouse_fetch', 'ashby_fetch', 'gem_fetch'], concurrency=5)")
 
     yield
 
