@@ -504,7 +504,9 @@ The field is optional throughout. Only Greenhouse / Ashby / Gem `backend-scraper
 
 ### Unit 8 — Why page Gem split
 
-**Status:** TODO
+**Status:** DONE
+
+**Note:** The atsGrouping.ts and types/index.ts changes the PLAN scoped to Unit 8 were folded into Unit 7 (see Unit 7 note for rationale). Unit 8 narrowed to WhyPage test additions only.
 
 **Why 8th:** Bake in the equivalent of the Ashby Unit 8 split so we don't ship a follow-up cosmetic PR for Gem.
 

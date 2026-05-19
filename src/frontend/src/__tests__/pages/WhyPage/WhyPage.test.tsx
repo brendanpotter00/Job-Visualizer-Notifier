@@ -111,6 +111,34 @@ describe('WhyPage', () => {
     }
   });
 
+  it('renders a dedicated Gem group containing only companies whose sourceAts === "gem"', () => {
+    const grouped = groupCompaniesByATS();
+    const gemGroup = grouped.gem ?? [];
+
+    expect(gemGroup.length).toBeGreaterThan(0);
+    for (const company of gemGroup) {
+      expect(company.sourceAts).toBe('gem');
+    }
+
+    renderWithProviders(<WhyPage />, { initialEntries: ['/why'] });
+
+    expect(
+      screen.getByRole('heading', {
+        level: 3,
+        name: new RegExp(`Gem\\s*\\(${gemGroup.length}\\)`, 'i'),
+      })
+    ).toBeInTheDocument();
+  });
+
+  it('Custom Web Scrapers group excludes Gem companies (true custom scrapers only)', () => {
+    const grouped = groupCompaniesByATS();
+    const customScrapers = grouped['backend-scraper'] ?? [];
+
+    for (const company of customScrapers) {
+      expect(company.sourceAts).not.toBe('gem');
+    }
+  });
+
   it('renders one ATS group header per distinct non-empty ATS group in COMPANIES', () => {
     const grouped = groupCompaniesByATS();
 
