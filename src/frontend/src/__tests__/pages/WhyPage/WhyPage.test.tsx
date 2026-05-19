@@ -83,6 +83,34 @@ describe('WhyPage', () => {
     }
   });
 
+  it('renders a dedicated Ashby group containing only companies whose sourceAts === "ashby"', () => {
+    const grouped = groupCompaniesByATS();
+    const ashbyGroup = grouped.ashby ?? [];
+
+    expect(ashbyGroup.length).toBeGreaterThan(0);
+    for (const company of ashbyGroup) {
+      expect(company.sourceAts).toBe('ashby');
+    }
+
+    renderWithProviders(<WhyPage />, { initialEntries: ['/why'] });
+
+    expect(
+      screen.getByRole('heading', {
+        level: 3,
+        name: new RegExp(`Ashby\\s*\\(${ashbyGroup.length}\\)`, 'i'),
+      })
+    ).toBeInTheDocument();
+  });
+
+  it('Custom Web Scrapers group excludes Ashby companies (true custom scrapers only)', () => {
+    const grouped = groupCompaniesByATS();
+    const customScrapers = grouped['backend-scraper'] ?? [];
+
+    for (const company of customScrapers) {
+      expect(company.sourceAts).not.toBe('ashby');
+    }
+  });
+
   it('renders one ATS group header per distinct non-empty ATS group in COMPANIES', () => {
     const grouped = groupCompaniesByATS();
 
