@@ -174,23 +174,44 @@ async def procrastinate_open(db_conn):
 
 
 async def _drain(timeout: float = 15.0) -> None:
-    worker_task = asyncio.create_task(
-        procrastinate_app.run_worker_async(
-            queues=["ashby_fetch"],
-            concurrency=1,
-            wait=False,
-            install_signal_handlers=False,
-        )
-    )
+    # Suspend the periodic registry while the test's worker is running.
+    # Procrastinate's Worker unconditionally spins up a `periodic_deferrer`
+    # side-coroutine; on a freshly-opened App, that deferrer backfills any
+    # cron tick within the last 10 minutes (MAX_DELAY=600s in procrastinate
+    # 2.15.1). For an `*/30 * * * *` periodic that means: if the test runs
+    # within 10 minutes of :00 or :30 (i.e. roughly 1/3 of the clock), the
+    # deferrer fires `enqueue_ashby_fan_out`, the worker drains it, and the
+    # fan-out defers a `fetch_ashby_company` task for the test's seeded
+    # company alongside the test's own deferred task. Both run, and the
+    # missing-job `consecutive_misses` lifecycle gets incremented twice —
+    # `assert c_row["consecutive_misses"] == 1` flakes to `2 == 1`.
+    #
+    # We disable the periodics by emptying the registry for the duration of
+    # the drain. Tests that need fan-out semantics call the periodic task
+    # directly via `await enqueue_ashby_fan_out(timestamp=...)` and don't
+    # rely on the deferrer.
+    saved_periodics = procrastinate_app.periodic_registry.periodic_tasks
+    procrastinate_app.periodic_registry.periodic_tasks = {}
     try:
-        await asyncio.wait_for(worker_task, timeout=timeout)
-    except asyncio.TimeoutError:
-        worker_task.cancel()
+        worker_task = asyncio.create_task(
+            procrastinate_app.run_worker_async(
+                queues=["ashby_fetch"],
+                concurrency=1,
+                wait=False,
+                install_signal_handlers=False,
+            )
+        )
         try:
-            await worker_task
-        except asyncio.CancelledError:
-            pass
-        raise
+            await asyncio.wait_for(worker_task, timeout=timeout)
+        except asyncio.TimeoutError:
+            worker_task.cancel()
+            try:
+                await worker_task
+            except asyncio.CancelledError:
+                pass
+            raise
+    finally:
+        procrastinate_app.periodic_registry.periodic_tasks = saved_periodics
 
 
 class TestFetchAshbyCompany:
