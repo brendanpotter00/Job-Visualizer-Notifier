@@ -41,6 +41,7 @@ SEED_REV = "939331c99a23"
 PREV_HEAD = "2da4b99b39ea"
 ASHBY_SEED_REV = "a17b7c0ffee500"
 ASHBY_PREV_HEAD = "ebb479b7eed5"
+EIGHTFOLD_SEED_REV = "08e719b2aa03"
 
 
 def _is_prod_like(url: str) -> bool:
@@ -84,6 +85,25 @@ def _ashby_row_count(conn) -> int:
     if row is None:
         return 0
     return int(row["c"]) if isinstance(row, dict) else int(row[0])
+
+
+def _eightfold_row_count(conn) -> int:
+    cur = conn.cursor()
+    cur.execute("SELECT count(*) AS c FROM companies WHERE ats = 'eightfold'")
+    row = cur.fetchone()
+    if row is None:
+        return 0
+    return int(row["c"]) if isinstance(row, dict) else int(row[0])
+
+
+def _column_exists(conn, table: str, column: str) -> bool:
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT 1 FROM information_schema.columns "
+        "WHERE table_schema = 'public' AND table_name = %s AND column_name = %s",
+        (table, column),
+    )
+    return cur.fetchone() is not None
 
 
 @pytest.mark.skipif(
@@ -539,6 +559,270 @@ def test_ashby_seed_migration_preserves_pre_existing_rows(
                 "downgrade must scope DELETE to ats='ashby'"
             )
             assert _ashby_row_count(verify) == 0
+        finally:
+            verify.close()
+
+    finally:
+        try:
+            maint = psycopg2.connect(maintenance_url, cursor_factory=RealDictCursor)
+            maint.autocommit = True
+            maint_cur = maint.cursor()
+            maint_cur.execute(
+                "SELECT pg_terminate_backend(pid) "
+                "FROM pg_stat_activity "
+                "WHERE datname = %s AND pid <> pg_backend_pid()",
+                (roundtrip_db,),
+            )
+            maint_cur.execute(f'DROP DATABASE IF EXISTS "{roundtrip_db}"')
+            maint.close()
+        except Exception as drop_exc:
+            logging.getLogger(__name__).error(
+                "Failed to drop roundtrip test database %s during teardown: %s",
+                roundtrip_db,
+                drop_exc,
+            )
+
+
+@pytest.mark.skipif(
+    _is_prod_like(TEST_DB_URL),
+    reason="refusing to run migration roundtrip against a prod-like TEST_DATABASE_URL",
+)
+def test_eightfold_seed_migration_roundtrip(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Full upgrade ASHBY_PREV_HEAD -> ASHBY_SEED_REV -> EIGHTFOLD_SEED_REV
+    -> downgrade -1 -> re-upgrade on a clean DB.
+
+    Asserts:
+      - The Eightfold seed adds 1 Netflix row alongside Greenhouse + Ashby seeds
+      - The provider_config column is added by the Eightfold migration
+      - Netflix's provider_config carries both ``tenant_host`` and ``domain``
+      - The downgrade is scoped to ats='eightfold' (Greenhouse + Ashby untouched)
+      - The downgrade drops the provider_config column cleanly
+      - Re-upgrade is idempotent
+    """
+    monkeypatch.delenv("PYTEST_SCHEMA", raising=False)
+
+    suffix = uuid.uuid4().hex[:8]
+    roundtrip_db = f"migrate_eightfold_{suffix}"
+
+    maintenance_url = TEST_DB_URL.rsplit("/", 1)[0] + "/postgres"
+    maint = psycopg2.connect(maintenance_url, cursor_factory=RealDictCursor)
+    maint.autocommit = True
+    maint_cur = maint.cursor()
+    maint_cur.execute(
+        "SELECT pg_terminate_backend(pid) "
+        "FROM pg_stat_activity "
+        "WHERE datname = %s AND pid <> pg_backend_pid()",
+        (roundtrip_db,),
+    )
+    maint_cur.execute(f'DROP DATABASE IF EXISTS "{roundtrip_db}"')
+    maint_cur.execute(f'CREATE DATABASE "{roundtrip_db}"')
+    maint.close()
+
+    roundtrip_url = TEST_DB_URL.rsplit("/", 1)[0] + f"/{roundtrip_db}"
+
+    try:
+        from alembic import command
+        from alembic.config import Config
+
+        cfg = Config(str(_ALEMBIC_INI))
+        cfg.set_main_option("sqlalchemy.url", roundtrip_url)
+        cfg.set_main_option("script_location", str(_SCRIPT_LOCATION))
+        cfg.config_file_name = None
+
+        # Three-step bootstrap mirroring the Ashby roundtrip:
+        # 1. Stamp PREV_HEAD then upgrade to SEED_REV — companies table +
+        #    45 Greenhouse rows.
+        # 2. Stamp ASHBY_PREV_HEAD to skip job_listings-touching migrations
+        #    that need a job_listings table this fresh DB doesn't have, then
+        #    upgrade to ASHBY_SEED_REV — 46 Ashby rows.
+        # 3. Upgrade to EIGHTFOLD_SEED_REV — adds the provider_config column
+        #    AND seeds 1 Netflix row.
+        command.stamp(cfg, PREV_HEAD)
+        command.upgrade(cfg, SEED_REV)
+        command.stamp(cfg, ASHBY_PREV_HEAD)
+        command.upgrade(cfg, ASHBY_SEED_REV)
+        command.upgrade(cfg, EIGHTFOLD_SEED_REV)
+
+        verify = psycopg2.connect(roundtrip_url, cursor_factory=RealDictCursor)
+        try:
+            assert _table_exists(verify, "companies")
+            assert _column_exists(verify, "companies", "provider_config"), (
+                "provider_config column missing after Eightfold migration"
+            )
+            assert _eightfold_row_count(verify) == 1
+            assert _ashby_row_count(verify) == 46
+            assert _greenhouse_row_count(verify) == 45
+
+            cur = verify.cursor()
+            cur.execute(
+                "SELECT id, provider_config FROM companies "
+                "WHERE ats = 'eightfold'"
+            )
+            rows = cur.fetchall()
+            assert len(rows) == 1
+            row = rows[0]
+            assert row["id"] == "netflix"
+            cfg_blob = row["provider_config"]
+            assert cfg_blob.get("tenant_host") == "explore.jobs.netflix.net", (
+                "Netflix tenant_host must match the SSRF-allowlisted vanity host"
+            )
+            assert cfg_blob.get("domain") == "netflix.com"
+
+            cur.execute(
+                "SELECT count(*) AS c FROM companies "
+                "WHERE ats IN ('greenhouse', 'ashby') AND provider_config = '{}'::jsonb"
+            )
+            default_count = cur.fetchone()
+            assert int(default_count["c"]) == 45 + 46, (
+                "Greenhouse/Ashby rows must get the empty {} provider_config default"
+            )
+        finally:
+            verify.close()
+
+        # Downgrade -1 (just the Eightfold migration). Greenhouse + Ashby rows
+        # must survive; the provider_config column must be dropped cleanly.
+        command.downgrade(cfg, ASHBY_SEED_REV)
+
+        verify = psycopg2.connect(roundtrip_url, cursor_factory=RealDictCursor)
+        try:
+            assert _eightfold_row_count(verify) == 0
+            assert _ashby_row_count(verify) == 46, (
+                "Ashby rows were wiped by Eightfold downgrade — "
+                "downgrade must scope DELETE to ats='eightfold'"
+            )
+            assert _greenhouse_row_count(verify) == 45
+            assert not _column_exists(verify, "companies", "provider_config")
+        finally:
+            verify.close()
+
+        # Re-upgrade. Eightfold seed must be idempotent (ON CONFLICT DO NOTHING).
+        command.upgrade(cfg, EIGHTFOLD_SEED_REV)
+
+        verify = psycopg2.connect(roundtrip_url, cursor_factory=RealDictCursor)
+        try:
+            assert _eightfold_row_count(verify) == 1
+            assert _column_exists(verify, "companies", "provider_config")
+        finally:
+            verify.close()
+
+    finally:
+        try:
+            maint = psycopg2.connect(maintenance_url, cursor_factory=RealDictCursor)
+            maint.autocommit = True
+            maint_cur = maint.cursor()
+            maint_cur.execute(
+                "SELECT pg_terminate_backend(pid) "
+                "FROM pg_stat_activity "
+                "WHERE datname = %s AND pid <> pg_backend_pid()",
+                (roundtrip_db,),
+            )
+            maint_cur.execute(f'DROP DATABASE IF EXISTS "{roundtrip_db}"')
+            maint.close()
+        except Exception as drop_exc:
+            logging.getLogger(__name__).error(
+                "Failed to drop roundtrip test database %s during teardown: %s",
+                roundtrip_db,
+                drop_exc,
+            )
+
+
+@pytest.mark.skipif(
+    _is_prod_like(TEST_DB_URL),
+    reason="refusing to run migration roundtrip against a prod-like TEST_DATABASE_URL",
+)
+def test_eightfold_seed_migration_preserves_pre_existing_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An out-of-band non-eightfold row (operator hotfix, prior partial
+    backfill) must survive both the Eightfold seed upgrade AND its -1
+    downgrade. Catches regressions in the WHERE-clause scope of the
+    downgrade — ats='eightfold', NOT TRUNCATE."""
+    monkeypatch.delenv("PYTEST_SCHEMA", raising=False)
+
+    suffix = uuid.uuid4().hex[:8]
+    roundtrip_db = f"migrate_eightfold_pre_{suffix}"
+
+    maintenance_url = TEST_DB_URL.rsplit("/", 1)[0] + "/postgres"
+    maint = psycopg2.connect(maintenance_url, cursor_factory=RealDictCursor)
+    maint.autocommit = True
+    maint_cur = maint.cursor()
+    maint_cur.execute(
+        "SELECT pg_terminate_backend(pid) "
+        "FROM pg_stat_activity "
+        "WHERE datname = %s AND pid <> pg_backend_pid()",
+        (roundtrip_db,),
+    )
+    maint_cur.execute(f'DROP DATABASE IF EXISTS "{roundtrip_db}"')
+    maint_cur.execute(f'CREATE DATABASE "{roundtrip_db}"')
+    maint.close()
+
+    roundtrip_url = TEST_DB_URL.rsplit("/", 1)[0] + f"/{roundtrip_db}"
+
+    try:
+        from alembic import command
+        from alembic.config import Config
+
+        cfg = Config(str(_ALEMBIC_INI))
+        cfg.set_main_option("sqlalchemy.url", roundtrip_url)
+        cfg.set_main_option("script_location", str(_SCRIPT_LOCATION))
+        cfg.config_file_name = None
+
+        command.stamp(cfg, PREV_HEAD)
+        command.upgrade(cfg, SEED_REV)
+        command.stamp(cfg, ASHBY_PREV_HEAD)
+        command.upgrade(cfg, ASHBY_SEED_REV)
+
+        seed_conn = psycopg2.connect(roundtrip_url, cursor_factory=RealDictCursor)
+        seed_conn.autocommit = True
+        try:
+            seed_cur = seed_conn.cursor()
+            seed_cur.execute(
+                "INSERT INTO companies (id, display_name, ats, board_token) "
+                "VALUES (%s, %s, %s, %s)",
+                ("preexisting_lever_co", "Pre-Existing", "lever", "preexisting"),
+            )
+        finally:
+            seed_conn.close()
+
+        command.upgrade(cfg, EIGHTFOLD_SEED_REV)
+
+        verify = psycopg2.connect(roundtrip_url, cursor_factory=RealDictCursor)
+        try:
+            cur = verify.cursor()
+            cur.execute(
+                "SELECT count(*) AS c FROM companies WHERE id = %s",
+                ("preexisting_lever_co",),
+            )
+            row = cur.fetchone()
+            assert row["c"] == 1, (
+                "pre-existing lever row was wiped by eightfold seed upgrade"
+            )
+            assert _eightfold_row_count(verify) == 1
+            assert _ashby_row_count(verify) == 46
+        finally:
+            verify.close()
+
+        # Downgrade -1. Pre-existing lever + Ashby + Greenhouse must all be
+        # intact; the 1 Netflix row must be gone.
+        command.downgrade(cfg, ASHBY_SEED_REV)
+
+        verify = psycopg2.connect(roundtrip_url, cursor_factory=RealDictCursor)
+        try:
+            cur = verify.cursor()
+            cur.execute(
+                "SELECT count(*) AS c FROM companies WHERE id = %s",
+                ("preexisting_lever_co",),
+            )
+            row = cur.fetchone()
+            assert row["c"] == 1, (
+                "pre-existing lever row was wiped by eightfold seed downgrade — "
+                "downgrade must scope DELETE to ats='eightfold', not TRUNCATE"
+            )
+            assert _ashby_row_count(verify) == 46
+            assert _greenhouse_row_count(verify) == 45
+            assert _eightfold_row_count(verify) == 0
         finally:
             verify.close()
 
