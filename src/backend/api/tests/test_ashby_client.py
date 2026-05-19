@@ -145,10 +145,10 @@ class TestTransformToJobListings:
         assert transform_to_job_listings("notion", []) == []
 
     def test_id_format(self):
-        # Ashby raw IDs are UUID strings, globally unique across the Ashby
-        # platform. The composite (source_id, id) PK on job_listings enforces
-        # cross-source uniqueness in the schema, so we store raw upstream ids
-        # directly.
+        # Ashby raw IDs have historically been UUID-shaped. The composite
+        # (source_id, id) PK on job_listings is what actually enforces
+        # cross-source uniqueness; we store raw upstream ids directly because
+        # they're observed-unique within a board.
         result = transform_to_job_listings(
             company_id="notion",
             raw_jobs=ONE_JOB_FIXTURE["jobs"],
