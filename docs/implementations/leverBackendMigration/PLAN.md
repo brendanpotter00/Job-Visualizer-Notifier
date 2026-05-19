@@ -216,7 +216,7 @@ The field is optional throughout. Only Greenhouse/Ashby/Lever `backend-scraper` 
 
 ### Unit 1 — `SourceId.LEVER` constant
 
-**Status:** TODO
+**Status:** DONE
 
 **Why 1st:** Single shared constant every other unit imports. Tiny, fast, low-risk. Verifies the constants file is the right shape before the larger units depend on it.
 
@@ -243,7 +243,7 @@ The field is optional throughout. Only Greenhouse/Ashby/Lever `backend-scraper` 
 
 ### Unit 2 — Seed Lever companies (Alembic data migration)
 
-**Status:** TODO
+**Status:** DONE
 
 **Why 2nd:** The fan-out task needs row source.
 
@@ -275,7 +275,7 @@ The field is optional throughout. Only Greenhouse/Ashby/Lever `backend-scraper` 
 
 ### Unit 3 — Lever fetch helper (pure module)
 
-**Status:** TODO
+**Status:** DONE
 
 **Why 3rd:** Isolate HTTP + transform layer for unit testing without queue plumbing.
 
@@ -332,7 +332,7 @@ The field is optional throughout. Only Greenhouse/Ashby/Lever `backend-scraper` 
 
 ### Unit 4 — `fetch_lever_company` task
 
-**Status:** TODO
+**Status:** DONE
 
 **Why 4th:** The per-company worker. Depends on Units 1, 2, 3.
 
@@ -369,7 +369,7 @@ The field is optional throughout. Only Greenhouse/Ashby/Lever `backend-scraper` 
 
 ### Unit 5 — Periodic fan-out + worker queue expansion
 
-**Status:** TODO
+**Status:** DONE
 
 **Why 5th:** Connects the cron to the per-company worker. Last backend change before the frontend cutover.
 
@@ -408,7 +408,7 @@ The field is optional throughout. Only Greenhouse/Ashby/Lever `backend-scraper` 
 
 ### Unit 6 — Admin trigger endpoints
 
-**Status:** TODO
+**Status:** DONE
 
 **Why 6th:** QA + emergency tooling. Mirrors Ashby trigger endpoints. Required by DEPLOY.md's "trigger fan-out manually right after deploy" step.
 
@@ -443,7 +443,7 @@ The field is optional throughout. Only Greenhouse/Ashby/Lever `backend-scraper` 
 
 ### Unit 7 — Frontend cutover
 
-**Status:** TODO
+**Status:** DONE
 
 **Why 7th:** Backend now serves Lever data. Point the UI at it and delete the old code paths.
 
@@ -516,7 +516,7 @@ The field is optional throughout. Only Greenhouse/Ashby/Lever `backend-scraper` 
 
 ### Unit 8 — Why page Lever split
 
-**Status:** TODO
+**Status:** DONE
 
 **Why 8th:** Add Lever to the Why-page provider grouping so Lever companies appear in their own column instead of "Custom Web Scrapers".
 
@@ -554,7 +554,7 @@ The field is optional throughout. Only Greenhouse/Ashby/Lever `backend-scraper` 
 
 ### Unit 9 — Deploy runbook + DEPLOY.md
 
-**Status:** TODO
+**Status:** DONE
 
 **Why 9th:** Document the operator steps. No code changes.
 
