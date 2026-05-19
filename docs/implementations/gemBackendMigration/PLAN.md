@@ -209,7 +209,7 @@ The field is optional throughout. Only Greenhouse / Ashby / Gem `backend-scraper
 
 ### Unit 1 — `SourceId.GEM` constant
 
-**Status:** TODO
+**Status:** DONE
 
 **Why 1st:** Single shared constant every other unit imports. Tiny, fast, low-risk. Verifies the constants file is the right shape before the larger units depend on it.
 
