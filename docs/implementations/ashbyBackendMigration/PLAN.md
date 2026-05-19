@@ -8,11 +8,11 @@ The Greenhouse migration is now the canonical pattern for JSON-only ATS provider
 
 - Per-company Procrastinate task with retries and queueing locks
 - 30-minute periodic fan-out driven by Procrastinate's built-in `@app.periodic` cron
-- Existing `companies` table holds `(id, display_name, ats, board_token, enabled)` — Ashby just adds 47 more rows
+- Existing `companies` table holds `(id, display_name, ats, board_token, enabled)` — Ashby just adds 46 more rows
 - Existing `job_listings` composite PK `(source_id, id)` already supports multi-source coexistence
 - Frontend cutover flips Ashby entries from `createAshbyCompany(...)` to `createBackendScraperCompany(...)` and reads them through `/api/jobs?company=<id>` (already serving Greenhouse + Google/Apple/Microsoft)
 
-**Outcome:** Ashby jobs land in `job_listings` with `source_id = 'ashby_api'`. The 47 Ashby entries in `companies.ts` are flipped to `backend-scraper` carrying a new `sourceAts: 'ashby'` marker. The Why page renders Ashby in its own column (not "Custom Web Scrapers"). The Greenhouse entries are retro-fitted to use `sourceAts: 'greenhouse'`, ending the two-mechanism inconsistency in `atsGrouping.ts`. `api/ashby.ts`, `ashbyClient.ts`, `ashbyTransformer.ts`, their tests, and all references to `'ashby'` / `AshbyConfig` in the frontend client-selection logic are removed.
+**Outcome:** Ashby jobs land in `job_listings` with `source_id = 'ashby_api'`. The 46 Ashby entries in `companies.ts` are flipped to `backend-scraper` carrying a new `sourceAts: 'ashby'` marker. The Why page renders Ashby in its own column (not "Custom Web Scrapers"). The Greenhouse entries are retro-fitted to use `sourceAts: 'greenhouse'`, ending the two-mechanism inconsistency in `atsGrouping.ts`. `api/ashby.ts`, `ashbyClient.ts`, `ashbyTransformer.ts`, their tests, and all references to `'ashby'` / `AshbyConfig` in the frontend client-selection logic are removed.
 
 ---
 
@@ -29,11 +29,11 @@ The Greenhouse migration is now the canonical pattern for JSON-only ATS provider
 | ID format | Raw Ashby UUID as string (`str(raw["id"])`) — no prefixing. Composite PK on `(source_id, id)` handles cross-source uniqueness. |
 | `details` JSONB shape | Greenhouse-style keys where they overlap, Ashby-specific where unique. Keys: `experience_level: None` (Ashby doesn't expose), `is_remote_eligible: bool(raw.isRemote)`, `employment_type`, `department`, `team`, `secondary_locations`, `compensation_summary` (from `raw.compensation.compensationTierSummary`), `description_html`, `published_at`. |
 | `posted_on` source | `raw.publishedAt` only (no fallback). Parsed by the same `_normalize_iso8601` helper Greenhouse uses (duplicate it; ~10 lines). |
-| Seed migration | Hand-written Alembic data migration `seed_ashby_companies.py` (one acceptable hand-write — data migrations are not autogenerable). 47 rows `(id, display_name, ats='ashby', board_token=<jobBoardName>, enabled=true)`. |
+| Seed migration | Hand-written Alembic data migration `seed_ashby_companies.py` (one acceptable hand-write — data migrations are not autogenerable). 46 rows `(id, display_name, ats='ashby', board_token=<jobBoardName>, enabled=true)`. |
 | Frontend cutover | Each `createAshbyCompany(id, name, opts)` → `createBackendScraperCompany(id, name, jobsUrl, { ..., sourceAts: 'ashby' })`. Default `jobsUrl` for Ashby was `https://careers.ashbyhq.com/${jobBoardName}` — preserve per company. Custom URLs (cursor → `https://cursor.com/careers`, saronic → `https://jobs.ashbyhq.com/saronic`, plaid → `https://jobs.ashbyhq.com/plaid`) preserved verbatim. |
 | Ashby grouping on Why page | Add optional `sourceAts?: 'ashby' \| 'greenhouse'` to the `Company` type. `getATSGroupKey` checks `sourceAts` first. Cursor stays on `cursor.com/careers` — Why-page grouping no longer depends on URL prefix for Ashby. |
 | Greenhouse Why-page retrofit | After the Ashby split, retrofit the 45 existing Greenhouse entries to set `sourceAts: 'greenhouse'`. Remove `GREENHOUSE_BOARD_URL_PREFIX` detection from `atsGrouping.ts` — end the two-mechanism state. |
-| Vercel proxy deletion | Delete `api/ashby.ts` + its test file at the end of the frontend cutover unit. Once all 47 Ashby entries are backend-scraper, the proxy is dead code. |
+| Vercel proxy deletion | Delete `api/ashby.ts` + its test file at the end of the frontend cutover unit. Once all 46 Ashby entries are backend-scraper, the proxy is dead code. |
 | Frontend dead-code deletion | Delete `ashbyClient.ts`, `ashbyTransformer.ts`, their test files. Remove `AshbyConfig`/`AshbyJobResponse`/`AshbyAPIResponse` from `types/index.ts` and `api/types.ts`. Remove `'ashby'` from `ATSProvider` and from `ATSCompanyConfig` unions in `baseClient.ts`. If `appSlice.ts` defaults `selectedATS` to `Ashby`, change to `BackendScraper`. |
 | QAPage UI | Match what Greenhouse has. The implementation agent inspects QAPage during Unit 6 and adds Ashby trigger UI iff Greenhouse has its own. |
 | `rewriteCursorJobUrls` utility | If Ashby was the only caller (grep `src/frontend/src/` during Unit 7), delete `cursorJobUrl.ts` and its tests. Otherwise leave. |
@@ -118,7 +118,7 @@ No deadlocks possible — there's no multi-row locking ordered differently betwe
 
 ## Schema (no DDL changes)
 
-The `companies` table from the Greenhouse migration already supports Ashby — `ats` is a free-form `Text` column. The only schema-touching migration in this plan is the data-migration seed of the 47 Ashby company rows.
+The `companies` table from the Greenhouse migration already supports Ashby — `ats` is a free-form `Text` column. The only schema-touching migration in this plan is the data-migration seed of the 46 Ashby company rows.
 
 `job_listings` is unchanged: composite PK `(source_id, id)`, `consecutive_misses`, `status`, `closed_on`, `last_seen_at` all exist. The `details` JSONB column accepts arbitrary shape.
 
@@ -213,7 +213,7 @@ The field is optional throughout. Only Greenhouse/Ashby `backend-scraper` rows c
 
 ### Unit 1 — `SourceId.ASHBY` constant
 
-**Status:** TODO
+**Status:** DONE
 
 **Why 1st:** Single shared constant every other unit imports. Tiny, fast, low-risk. Verifies the constants file is the right shape before the larger units depend on it.
 
@@ -240,7 +240,7 @@ The field is optional throughout. Only Greenhouse/Ashby `backend-scraper` rows c
 
 ### Unit 2 — Seed Ashby companies (Alembic data migration)
 
-**Status:** TODO
+**Status:** DONE
 
 **Why 2nd:** The fan-out task needs row source.
 
@@ -255,23 +255,23 @@ The field is optional throughout. Only Greenhouse/Ashby `backend-scraper` rows c
 **Changes:**
 - Hand-written Alembic data migration `<ts>_seed_ashby_companies.py` mirroring `20260516_001452_939331c99a23_seed_greenhouse_companies.py`.
 - `down_revision` chains to the most recent migration on `main` (`ebb479b7eed5`).
-- `upgrade()`: `op.bulk_insert(...)` of 47 rows transcribed from `src/frontend/src/config/companies.ts` lines 280–410. Each row: `(id, display_name, ats='ashby', board_token=<jobBoardName>, enabled=true)`. Use `ON CONFLICT DO NOTHING` for idempotency on re-runs against pre-existing data.
+- `upgrade()`: `op.bulk_insert(...)` of 46 rows transcribed from `src/frontend/src/config/companies.ts` lines 280–410. Each row: `(id, display_name, ats='ashby', board_token=<jobBoardName>, enabled=true)`. Use `ON CONFLICT DO NOTHING` for idempotency on re-runs against pre-existing data.
 - `downgrade()`: `DELETE FROM companies WHERE ats='ashby' AND id IN (...)`.
 
 **Tests:**
-- `upgrade head` seeds 47 rows where `ats='ashby'`.
+- `upgrade head` seeds 46 rows where `ats='ashby'`.
 - Round-trip `upgrade head → downgrade -1 → upgrade head` is idempotent.
 
 **Done when:**
 - `cd src/backend && pytest api/tests/test_migration_companies.py -v` is green.
-- `SELECT count(*) FROM companies WHERE ats='ashby';` returns 47 after `alembic upgrade head` (local manual check is optional).
-- Commit message: `Unit 2: seed 47 Ashby companies via Alembic data migration`.
+- `SELECT count(*) FROM companies WHERE ats='ashby';` returns 46 after `alembic upgrade head` (local manual check is optional).
+- Commit message: `Unit 2: seed 46 Ashby companies via Alembic data migration`.
 
 ---
 
 ### Unit 3 — Ashby fetch helper (pure module)
 
-**Status:** TODO
+**Status:** DONE
 
 **Why 3rd:** Isolate HTTP + transform layer for unit testing without queue plumbing.
 
@@ -321,7 +321,7 @@ The field is optional throughout. Only Greenhouse/Ashby `backend-scraper` rows c
 
 ### Unit 4 — `fetch_ashby_company` task
 
-**Status:** TODO
+**Status:** DONE
 
 **Why 4th:** The per-company worker. Depends on Units 1, 2, 3.
 
@@ -357,7 +357,7 @@ The field is optional throughout. Only Greenhouse/Ashby `backend-scraper` rows c
 
 ### Unit 5 — Periodic fan-out + worker queue expansion
 
-**Status:** TODO
+**Status:** DONE
 
 **Why 5th:** Connects the cron to the per-company worker. Last backend change before the frontend cutover.
 
@@ -396,7 +396,7 @@ The field is optional throughout. Only Greenhouse/Ashby `backend-scraper` rows c
 
 ### Unit 6 — Admin trigger endpoints
 
-**Status:** TODO
+**Status:** DONE
 
 **Why 6th:** QA + emergency tooling. Mirrors Greenhouse trigger endpoints. Required by DEPLOY.md's "trigger fan-out manually right after deploy" step.
 
@@ -431,7 +431,7 @@ The field is optional throughout. Only Greenhouse/Ashby `backend-scraper` rows c
 
 ### Unit 7 — Frontend cutover (no Why-page changes yet)
 
-**Status:** TODO
+**Status:** DONE
 
 **Why 7th:** Backend now serves Ashby data. Point the UI at it and delete the old code paths. Why-page split lives in Unit 8 so this commit stays focused on the data-plane swap.
 
@@ -446,7 +446,7 @@ The field is optional throughout. Only Greenhouse/Ashby `backend-scraper` rows c
 - Optionally `src/frontend/src/api/clients/cursorJobUrl.ts` + its tests (delete iff Ashby was the only caller — grep `src/frontend/src/` during this unit)
 
 **Shared-file edits:**
-- `src/frontend/src/config/companies.ts` — flip 47 Ashby entries to `createBackendScraperCompany(..., { ..., sourceAts: 'ashby' })`
+- `src/frontend/src/config/companies.ts` — flip 46 Ashby entries to `createBackendScraperCompany(..., { ..., sourceAts: 'ashby' })`
 - `src/frontend/src/types/index.ts` — add optional `sourceAts?: 'ashby'` to `Company` type and to the `createBackendScraperCompany` factory's options parameter; remove `AshbyConfig` interface; remove `'ashby'` from `ATSProvider` union; remove `AshbyConfig` from `Company.config` discriminated union
 - `src/frontend/src/api/types.ts` — remove `AshbyJobResponse`, `AshbyAPIResponse`; remove `ATSConstants.Ashby` (if it exists); remove `'ashby'` from `APIError.atsProvider` union
 - `src/frontend/src/api/clients/baseClient.ts` — remove `AshbyConfig` from `ATSCompanyConfig` union and from APIError construction
@@ -458,14 +458,14 @@ The field is optional throughout. Only Greenhouse/Ashby `backend-scraper` rows c
 **Changes:**
 
 **Companies config (`src/frontend/src/config/companies.ts`):**
-- For every `createAshbyCompany(id, name, opts)` (47 entries, lines 280–410), replace with `createBackendScraperCompany(id, name, <jobsUrl>, { ...<other-options>, sourceAts: 'ashby' })`.
+- For every `createAshbyCompany(id, name, opts)` (46 entries, lines 280–410), replace with `createBackendScraperCompany(id, name, <jobsUrl>, { ...<other-options>, sourceAts: 'ashby' })`.
   - `<jobsUrl>`: keep `opts.jobsUrl` if it was set (cursor, saronic, plaid); otherwise default to `https://careers.ashbyhq.com/${jobBoardName}` (matching what `createAshbyCompany` previously produced).
   - Drop `jobBoardName` (now stored in DB as `board_token`).
   - Preserve every other option (e.g. `recruiterLinkedInUrl`).
 
 **`sourceAts` type plumbing (locked in this Unit, not Unit 8):**
 - Add optional `sourceAts?: 'ashby'` field to the `Company` type in `src/frontend/src/types/index.ts`.
-- Add matching optional parameter to `createBackendScraperCompany` factory so the 47 cutover entries can pass `sourceAts: 'ashby'` and type-check.
+- Add matching optional parameter to `createBackendScraperCompany` factory so the 46 cutover entries can pass `sourceAts: 'ashby'` and type-check.
 - Unit 8 builds the Why-page consumers of this field. Unit 9 widens the union to `'ashby' | 'greenhouse'`.
 
 **Remove Ashby dead code:**
@@ -504,7 +504,7 @@ The field is optional throughout. Only Greenhouse/Ashby `backend-scraper` rows c
 
 ### Unit 8 — Why page Ashby split
 
-**Status:** TODO
+**Status:** DONE
 
 **Why 8th:** Bake in the equivalent of commit `168701a` so we don't ship a follow-up cosmetic PR for Ashby.
 
@@ -544,14 +544,14 @@ The field is optional throughout. Only Greenhouse/Ashby `backend-scraper` rows c
 
 **Done when:**
 - `npm test -- WhyPage` passes.
-- `npm run dev:vercel -w src/frontend` → navigate to `/why` → "Ashby (47)" column renders with all 47 companies. "Custom Web Scrapers" column contains only Google/Apple/Microsoft. Greenhouse column still renders (via URL prefix, until Unit 9 retrofits it).
+- `npm run dev:vercel -w src/frontend` → navigate to `/why` → "Ashby (46)" column renders with all 46 companies. "Custom Web Scrapers" column contains only Google/Apple/Microsoft. Greenhouse column still renders (via URL prefix, until Unit 9 retrofits it).
 - Commit message: `Unit 8: split Ashby into its own Why-page column`.
 
 ---
 
 ### Unit 9 — Greenhouse retrofit to `sourceAts`
 
-**Status:** TODO
+**Status:** DONE
 
 **Why 9th:** End the two-mechanism state in `atsGrouping.ts`. After this unit, `getATSGroupKey` only checks `sourceAts` — URL-prefix detection is removed.
 
@@ -598,7 +598,7 @@ The field is optional throughout. Only Greenhouse/Ashby `backend-scraper` rows c
 
 ### Unit 10 — Deploy runbook + DEPLOY.md
 
-**Status:** TODO
+**Status:** DONE
 
 **Why 10th:** Document the operator steps. No code changes.
 
@@ -616,8 +616,8 @@ The field is optional throughout. Only Greenhouse/Ashby `backend-scraper` rows c
   - **Pre-merge check (local)**: `cd src/backend && pytest`, `npm run type-check`, `npm test`.
   - **Post-merge operator action** (the critical step): right after Railway shows "deploy succeeded" on commit-9's SHA, hit `POST /api/jobs-qa/trigger-ashby-fan-out` (curl example with admin Bearer token). This populates `job_listings` within ~30s instead of waiting up to 30 min for the next cron tick. Without this step, anyone who navigates to an Ashby company page during the gap window sees an empty list.
   - **Monitoring queries**:
-    - `SELECT count(*) FROM companies WHERE ats='ashby';` → 47.
-    - 30 min post-deploy: `SELECT count(*) FROM scrape_runs WHERE company IN (SELECT id FROM companies WHERE ats='ashby') AND started_at > now() - interval '1 hour';` ≈ 47.
+    - `SELECT count(*) FROM companies WHERE ats='ashby';` → 46.
+    - 30 min post-deploy: `SELECT count(*) FROM scrape_runs WHERE company IN (SELECT id FROM companies WHERE ats='ashby') AND started_at > now() - interval '1 hour';` ≈ 46.
     - 2 hours post-deploy: `SELECT count(*) FROM job_listings WHERE source_id='ashby_api' AND company='notion';` ≥ Ashby API count for Notion.
     - Worker health: `SELECT status, count(*) FROM procrastinate_jobs WHERE queue_name='ashby_fetch' GROUP BY status;`
   - **Rollback**: revert the merge commit. Frontend goes back to direct Ashby API calls (briefly broken since `api/ashby.ts` was deleted in the merge — note this asymmetry in the runbook so operators know rollback also needs to revert that file). Backend continues to fetch Ashby harmlessly until a code revert lands.
@@ -643,7 +643,7 @@ The field is optional throughout. Only Greenhouse/Ashby `backend-scraper` rows c
 | `src/backend/api/tasks/__init__.py` | edit (side-effect import) | 5 |
 | `src/backend/api/main.py` | edit (queues list + log) | 5 |
 | `src/backend/api/routers/jobs_qa.py` | edit (trigger endpoints) | 6 |
-| `src/frontend/src/config/companies.ts` | edit (flip 47 Ashby entries) | 7 |
+| `src/frontend/src/config/companies.ts` | edit (flip 46 Ashby entries) | 7 |
 | `src/frontend/src/types/index.ts` | edit (add `sourceAts`, drop `AshbyConfig`) | 7 |
 | `src/frontend/src/api/clients/ashbyClient.ts` | **delete** | 7 |
 | `src/frontend/src/api/transformers/ashbyTransformer.ts` | **delete** | 7 |
@@ -681,8 +681,8 @@ The field is optional throughout. Only Greenhouse/Ashby `backend-scraper` rows c
 2. `curl -X POST -H "Authorization: Bearer <admin>" 'http://localhost:8000/api/jobs-qa/trigger-ashby-fan-out'` → 202.
 3. Within ~30s: `psql -c "SELECT company, count(*) FROM job_listings WHERE source_id='ashby_api' GROUP BY company ORDER BY 2 DESC LIMIT 10;"` shows seeded Ashby companies populated.
 4. Frontend: `npm run dev:vercel -w src/frontend`. Open `/companies` → select Notion, OpenAI, Ramp, Cursor → jobs render from `/api/jobs`. Network tab: zero `/api/ashby/*` requests.
-5. Open `/why` → "Ashby (47)" column visible; "Greenhouse (45)" column visible; "Custom Web Scrapers (3)" column contains only Google/Apple/Microsoft.
-6. Wait one cron interval (30 min). `SELECT count(*) FROM scrape_runs WHERE started_at > now() - interval '1 hour' AND company IN (SELECT id FROM companies WHERE ats='ashby');` ≈ 47.
+5. Open `/why` → "Ashby (46)" column visible; "Greenhouse (45)" column visible; "Custom Web Scrapers (3)" column contains only Google/Apple/Microsoft.
+6. Wait one cron interval (30 min). `SELECT count(*) FROM scrape_runs WHERE started_at > now() - interval '1 hour' AND company IN (SELECT id FROM companies WHERE ats='ashby');` ≈ 46.
 7. Simulate disappearance: monkeypatch a fetch response to drop one Ashby job → after 2 cron cycles, that job's `status='CLOSED'`.
 8. `cd src/backend && pytest` all green; coverage ≥ existing baseline.
 9. `npm run type-check && npm test` clean.
