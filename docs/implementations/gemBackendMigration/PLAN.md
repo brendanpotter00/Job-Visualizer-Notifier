@@ -317,7 +317,7 @@ The field is optional throughout. Only Greenhouse / Ashby / Gem `backend-scraper
 
 ### Unit 4 — `fetch_gem_company` task
 
-**Status:** TODO
+**Status:** DONE
 
 **Why 4th:** The per-company worker. Depends on Units 1, 2, 3.
 
