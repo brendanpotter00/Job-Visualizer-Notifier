@@ -125,9 +125,9 @@ export interface FetchJobsForCompaniesOptions {
 }
 
 // Chunk size for /api/jobs?companies=. Backend caps at 150 (defense-in-depth);
-// 50 keeps each URL well under cap + query-string limits and leaves room to
-// add backend-scraper companies without hitting either bound again.
-const _COMPANIES_PER_REQUEST = 50;
+// 20 keeps each URL tiny and lets per-chunk responses stream in earlier so
+// Recent Jobs can render incrementally as chunks land.
+const _COMPANIES_PER_REQUEST = 20;
 
 function chunk<T>(arr: T[], size: number): T[][] {
   if (size <= 0) throw new Error('chunk size must be > 0');

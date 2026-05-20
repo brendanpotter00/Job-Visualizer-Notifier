@@ -62,9 +62,10 @@ describe('fetchJobsForCompanies (batched backend scraper)', () => {
     expect(url).toContain('limit=50000');
   });
 
-  it('splits requests into chunks of 50 when count exceeds chunk size', async () => {
+  it('splits requests into chunks of 20 when count exceeds chunk size', async () => {
     const ids = Array.from({ length: 102 }, (_, i) => `co${i}`);
-    for (let i = 0; i < 3; i++) {
+    // 102 ids at 20/chunk = 6 chunks (20+20+20+20+20+2).
+    for (let i = 0; i < 6; i++) {
       fetchMock.mockResolvedValueOnce({
         ok: true,
         status: 200,
@@ -75,20 +76,19 @@ describe('fetchJobsForCompanies (batched backend scraper)', () => {
 
     const result = await fetchJobsForCompanies(ids);
 
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
     const urls = fetchMock.mock.calls.map(([u]) => decodeURIComponent(String(u)));
-    // Each call covers a disjoint slice of ids (50 + 50 + 2).
     expect(urls[0]).toContain('companies=co0,co1,');
-    expect(urls[0]).toContain(',co49&');
-    expect(urls[1]).toContain('companies=co50,co51,');
-    expect(urls[1]).toContain(',co99&');
-    expect(urls[2]).toContain('companies=co100,co101&');
+    expect(urls[0]).toContain(',co19&');
+    expect(urls[1]).toContain('companies=co20,co21,');
+    expect(urls[1]).toContain(',co39&');
+    expect(urls[5]).toContain('companies=co100,co101&');
     // All 102 ids are keys in the merged result.
     expect(Object.keys(result).length).toBe(102);
   });
 
-  it('issues exactly two calls at 51 companies (boundary check)', async () => {
-    const ids = Array.from({ length: 51 }, (_, i) => `co${i}`);
+  it('issues exactly two calls at 21 companies (boundary check)', async () => {
+    const ids = Array.from({ length: 21 }, (_, i) => `co${i}`);
     for (let i = 0; i < 2; i++) {
       fetchMock.mockResolvedValueOnce({
         ok: true,
@@ -103,7 +103,8 @@ describe('fetchJobsForCompanies (batched backend scraper)', () => {
   });
 
   it('rejects when any chunk fails (Promise.all semantics)', async () => {
-    const ids = Array.from({ length: 102 }, (_, i) => `co${i}`);
+    const ids = Array.from({ length: 42 }, (_, i) => `co${i}`);
+    // 42 ids at 20/chunk = 3 chunks. Middle chunk fails.
     fetchMock.mockResolvedValueOnce({
       ok: true,
       status: 200,
