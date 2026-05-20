@@ -1,15 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { getClientForATS } from '../../api/utils';
-import { leverClient } from '../../api/clients/leverClient';
 import { workdayClient } from '../../api/clients/workdayClient';
 import { eightfoldClient } from '../../api/clients/eightfoldClient';
 
 describe('getClientForATS', () => {
-  it('returns leverClient for lever ATS type', () => {
-    const client = getClientForATS('lever');
-    expect(client).toBe(leverClient);
-  });
-
   it('returns workdayClient for workday ATS type', () => {
     const client = getClientForATS('workday');
     expect(client).toBe(workdayClient);

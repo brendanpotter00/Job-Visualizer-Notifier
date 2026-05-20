@@ -1,6 +1,5 @@
 import type {
   Job,
-  LeverConfig,
   WorkdayConfig,
   EightfoldConfig,
   BackendScraperConfig,
@@ -11,7 +10,6 @@ import { logger } from '../../lib/logger';
 
 /** Union of all ATS company configuration types */
 export type ATSCompanyConfig =
-  | LeverConfig
   | WorkdayConfig
   | EightfoldConfig
   | BackendScraperConfig;
@@ -22,7 +20,7 @@ export type ATSCompanyConfig =
  * @template TConfig - The company configuration type
  */
 export interface ClientConfig<TResponse, TConfig extends ATSCompanyConfig> {
-  /** Client name for logging (e.g., "Lever") */
+  /** Client name for logging (e.g., "Workday") */
   name: string;
 
   /** Function to build the API URL from config */
@@ -46,7 +44,7 @@ export interface ClientConfig<TResponse, TConfig extends ATSCompanyConfig> {
  *
  * This factory eliminates 220+ lines of code duplication across ATS clients by
  * extracting common patterns into a reusable implementation. All API clients
- * (Lever, Workday) are created using this factory.
+ * (Workday) are created using this factory.
  *
  * **Shared Logic Provided:**
  * 1. Config validation with type guards
@@ -73,23 +71,23 @@ export interface ClientConfig<TResponse, TConfig extends ATSCompanyConfig> {
  * - Extensibility: Add new ATS provider in ~15 lines
  * - Type Safety: Generic types ensure correct configuration
  *
- * @template TResponse - Raw API response type (e.g., LeverAPIResponse)
- * @template TConfig - Company configuration type (e.g., LeverConfig)
+ * @template TResponse - Raw API response type (e.g., GemAPIResponse)
+ * @template TConfig - Company configuration type (e.g., GemConfig)
  *
  * @param clientConfig - Configuration object defining client-specific behavior
  * @returns JobAPIClient implementation with fetchJobs method
  *
  * @example
  * ```typescript
- * // Creating a Lever client (~15 lines vs 74 lines before)
- * export const leverClient = createAPIClient<LeverAPIResponse, LeverConfig>({
- *   name: 'Lever',
- *   buildUrl: (config) => `${config.apiBaseUrl}/v0/postings/${config.companyId}`,
+ * // Creating a Gem client (~15 lines vs 74 lines before)
+ * export const gemClient = createAPIClient<GemAPIResponse, GemConfig>({
+ *   name: 'Gem',
+ *   buildUrl: (config) => `${config.apiBaseUrl}/job_board/v0/${config.vanityUrlPath}/job_posts/`,
  *   extractJobs: (response) => response,
- *   transformer: transformLeverJob,
- *   getIdentifier: (config) => config.companyId,
- *   validateConfig: (config): config is LeverConfig =>
- *     config.type === 'lever',
+ *   transformer: transformGemJob,
+ *   getIdentifier: (config) => config.vanityUrlPath,
+ *   validateConfig: (config): config is GemConfig =>
+ *     config.type === 'gem',
  * });
  * ```
  *
@@ -148,7 +146,6 @@ export function createAPIClient<TResponse, TConfig extends ATSCompanyConfig>(
             `${clientConfig.name} API error: ${response.statusText}`,
             response.status,
             config.type as
-              | 'lever'
               | 'workday'
               | 'eightfold'
               | 'backend-scraper',
@@ -196,7 +193,6 @@ export function createAPIClient<TResponse, TConfig extends ATSCompanyConfig>(
           `Failed to fetch ${clientConfig.name} jobs: ${(error as Error).message}`,
           undefined,
           config.type as
-            | 'lever'
             | 'workday'
             | 'eightfold'
             | 'backend-scraper',

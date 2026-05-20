@@ -1,29 +1,9 @@
 import type {
   Job,
-  LeverConfig,
   WorkdayConfig,
   EightfoldConfig,
   BackendScraperConfig,
 } from '../types';
-
-/**
- * Lever job posting API response
- * @see https://github.com/lever/postings-api
- */
-export interface LeverJobResponse {
-  id: string;
-  text: string; // Job title
-  hostedUrl: string;
-  categories: {
-    commitment?: string; // Full-time, Part-time, etc.
-    department?: string;
-    location?: string;
-    team?: string;
-  };
-  createdAt: number; // Unix timestamp (milliseconds)
-  tags?: (string | string[] | null)[]; // API can return mixed types
-  workplaceType?: 'remote' | 'onsite' | 'unspecified';
-}
 
 /**
  * Workday job posting from API response
@@ -193,7 +173,6 @@ export interface JobAPIClient {
    */
   fetchJobs(
     config:
-      | LeverConfig
       | WorkdayConfig
       | EightfoldConfig
       | BackendScraperConfig,
@@ -228,7 +207,6 @@ export class APIError extends Error {
     message: string,
     public statusCode?: number,
     public atsProvider?:
-      | 'lever'
       | 'workday'
       | 'eightfold'
       | 'backend-scraper',
@@ -241,7 +219,6 @@ export class APIError extends Error {
 
 export enum ATSConstants {
   Workday = 'workday',
-  Lever = 'lever',
   Eightfold = 'eightfold',
   BackendScraper = 'backend-scraper',
 }

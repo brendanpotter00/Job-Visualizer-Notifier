@@ -6,7 +6,6 @@
  * ATS provider type
  */
 export type ATSProvider =
-  | 'lever'
   | 'workday'
   | 'eightfold'
   | 'backend-scraper';
@@ -102,19 +101,6 @@ export interface TimeBucket {
 }
 
 /**
- * Lever-specific configuration
- */
-export interface LeverConfig {
-  type: 'lever';
-  /** Company identifier in Lever URL */
-  companyId: string;
-  /** Full jobs URL */
-  jobsUrl: string;
-  /** Optional custom API base URL */
-  apiBaseUrl?: string;
-}
-
-/**
  * Workday-specific configuration
  */
 export interface WorkdayConfig {
@@ -186,7 +172,6 @@ export interface Company {
 
   /** ATS-specific configuration */
   config:
-    | LeverConfig
     | WorkdayConfig
     | EightfoldConfig
     | BackendScraperConfig;
@@ -197,11 +182,11 @@ export interface Company {
   /**
    * For companies whose `ats === 'backend-scraper'`, the ATS that originally
    * served their jobs before migration to the backend. Used by the Why page
-   * to group migrated providers (Ashby, Greenhouse, Gem) under their own
-   * column instead of lumping them with the true Custom Web Scrapers
+   * to group migrated providers (Ashby, Greenhouse, Lever, Gem) under their
+   * own column instead of lumping them with the true Custom Web Scrapers
    * (Google/Apple/Microsoft).
    */
-  sourceAts?: 'ashby' | 'greenhouse' | 'gem';
+  sourceAts?: 'ashby' | 'greenhouse' | 'lever' | 'gem';
 
   /** Optional URL to find recruiters on LinkedIn */
   recruiterLinkedInUrl?: string;
