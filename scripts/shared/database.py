@@ -370,6 +370,30 @@ def upsert_jobs_batch(conn: Connection, jobs: List[JobListing]) -> int:
     if not jobs:
         return 0
 
+    # Defense-in-depth dedup: Postgres' ON CONFLICT (source_id, id) DO UPDATE
+    # cannot affect the same composite-key row twice in one statement and
+    # raises SQLSTATE 21000 (cardinality_violation) if asked to. If the
+    # caller's transformer didn't already dedup, drop later occurrences here
+    # so the whole batch lands. WARN — the upstream transformer should also
+    # dedup so the source-side anomaly is visible at its origin. See
+    # `docs/incidents/2026-05-20-eightfold-upsert-cardinality-violation.md`.
+    seen_keys: Set[Tuple[str, str]] = set()
+    filtered_jobs: List[JobListing] = []
+    for job in jobs:
+        key = (job.source_id, job.id)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        filtered_jobs.append(job)
+    if len(filtered_jobs) < len(jobs):
+        logger.warning(
+            "upsert_jobs_batch deduped %d duplicate (source_id, id) key(s) "
+            "(source_ids=%s) — upstream transformer should dedup",
+            len(jobs) - len(filtered_jobs),
+            sorted({job.source_id for job in jobs}),
+        )
+    jobs = filtered_jobs
+
     cursor = conn.cursor()
     values = [_build_job_values(job) for job in jobs]
 

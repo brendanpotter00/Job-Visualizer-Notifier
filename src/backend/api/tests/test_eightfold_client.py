@@ -397,6 +397,115 @@ class TestTransform:
 
 
 # ----------------------------------------------------------------------------
+# transform dedup (incident 2026-05-20: CardinalityViolation on first Netflix
+# fetch — see docs/incidents/2026-05-20-eightfold-upsert-cardinality-violation.md)
+# ----------------------------------------------------------------------------
+
+
+class TestTransformDedup:
+    """Transformer dedups duplicate job_ids and distinguishes the two
+    failure modes:
+
+    - Pagination drift (same id, same title+url) — Eightfold's offset-paginated
+      ``/api/apply/v2/jobs`` can return a single underlying position on two
+      adjacent pages when the dataset shifts between page fetches. Expected on
+      a live tenant; logged INFO.
+    - Id fallback chain collapse (same id, different title or url) — two
+      genuinely distinct raw positions resolve to the same job_id because
+      ``_extract_eightfold_id`` walked through to ``ats_job_id`` /
+      ``display_job_id`` and they happened to match another row's primary id.
+      Silent data corruption; logged WARN with both (title, url) pairs.
+    """
+
+    def test_pagination_drift_dedup_keeps_first_and_logs_info(self, caplog):
+        # Same position appears twice with identical title + url — drift.
+        pos1 = _make_position(100)
+        pos2 = _make_position(100)  # exact same id, name, canonicalPositionUrl
+
+        with caplog.at_level(
+            "INFO", logger="api.services.eightfold_client"
+        ):
+            jobs = transform_to_job_listings("netflix", [pos1, pos2])
+
+        assert len(jobs) == 1
+        assert jobs[0].id == "100"
+
+        info_msgs = [
+            r.getMessage()
+            for r in caplog.records
+            if r.levelname == "INFO" and "pagination-drift" in r.getMessage()
+        ]
+        assert len(info_msgs) == 1
+        assert "1 pagination-drift duplicate(s)" in info_msgs[0]
+
+        # No WARN should fire for benign drift.
+        warn_msgs = [
+            r.getMessage()
+            for r in caplog.records
+            if r.levelname == "WARNING" and "id collision" in r.getMessage()
+        ]
+        assert warn_msgs == []
+
+    def test_id_fallback_collision_keeps_first_and_logs_warn(self, caplog):
+        # First row has primary id "X". Second row has no primary id but its
+        # ats_job_id is also "X" — the fallback chain collapses them onto
+        # the same composite key, but they are genuinely different positions
+        # (different title + different canonicalPositionUrl).
+        first = _make_position(
+            14,
+            id="X",
+            name="Real Position Title",
+            canonicalPositionUrl="https://explore.jobs.netflix.net/jobs/real",
+        )
+        second = _make_position(
+            15,
+            id=None,
+            ats_job_id="X",  # collides via fallback chain
+            display_job_id="other-display",
+            name="Different Position Title",
+            canonicalPositionUrl="https://explore.jobs.netflix.net/jobs/other",
+        )
+
+        with caplog.at_level(
+            "WARNING", logger="api.services.eightfold_client"
+        ):
+            jobs = transform_to_job_listings("netflix", [first, second])
+
+        assert len(jobs) == 1
+        # First-wins.
+        assert jobs[0].id == "X"
+        assert jobs[0].title == "Real Position Title"
+        assert jobs[0].url == "https://explore.jobs.netflix.net/jobs/real"
+
+        warn_records = [
+            r for r in caplog.records
+            if r.levelname == "WARNING" and "id collision" in r.getMessage()
+        ]
+        assert len(warn_records) == 1
+        msg = warn_records[0].getMessage()
+        # Both titles must appear so the log is investigable on its own.
+        assert "Real Position Title" in msg
+        assert "Different Position Title" in msg
+        assert "id='X'" in msg or "id=\"X\"" in msg
+
+    def test_unique_positions_are_not_logged(self, caplog):
+        """Happy path: no dedup → no INFO drift line, no WARN collision line."""
+        positions = [_make_position(i) for i in range(200, 205)]
+
+        with caplog.at_level(
+            "INFO", logger="api.services.eightfold_client"
+        ):
+            jobs = transform_to_job_listings("netflix", positions)
+
+        assert len(jobs) == 5
+        # Neither dedup log fires on the happy path.
+        for r in caplog.records:
+            msg = r.getMessage()
+            assert "pagination-drift" not in msg
+            assert "id collision" not in msg
+
+
+# ----------------------------------------------------------------------------
 # _parse_eightfold_epoch
 # ----------------------------------------------------------------------------
 

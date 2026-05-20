@@ -304,6 +304,20 @@ def transform_to_job_listings(
     skipped_private = 0
     skipped_invalid = 0
 
+    # Dedup by job_id with a drift-vs-collision diagnostic. Eightfold paginates
+    # by offset (start=0, 10, 20, ...) and on a live tenant new positions can
+    # shift the window so a single underlying job appears on two adjacent
+    # pages — same id, same (title, url). That's pagination drift and is
+    # expected; we log INFO. The other case is an id-fallback chain collapse:
+    # two genuinely different positions resolving to the same job_id because
+    # one row's `id` was empty and we fell through to `ats_job_id` /
+    # `display_job_id` that the other row was using as `id`. That's silent
+    # data corruption — log WARN with both (title, url) pairs so it's
+    # investigable from logs alone. See
+    # `docs/incidents/2026-05-20-eightfold-upsert-cardinality-violation.md`.
+    deduped: dict[str, JobListing] = {}
+    drift = 0
+    collisions = 0
     for raw in raw_positions:
         if not isinstance(raw, dict):
             skipped_invalid += 1
@@ -315,8 +329,29 @@ def transform_to_job_listings(
         if listing is None:
             skipped_invalid += 1
             continue
-        out.append(listing)
+        prev = deduped.get(listing.id)
+        if prev is None:
+            deduped[listing.id] = listing
+            continue
+        if prev.title == listing.title and prev.url == listing.url:
+            drift += 1
+        else:
+            collisions += 1
+            logger.warning(
+                "Eightfold id collision for %s on id=%r: kept "
+                "(title=%r, url=%r), dropped (title=%r, url=%r) — "
+                "id fallback chain collapsed two distinct positions",
+                company_id, listing.id,
+                prev.title, prev.url, listing.title, listing.url,
+            )
+    out = list(deduped.values())
 
+    if drift:
+        logger.info(
+            "Eightfold transform for %s: %d pagination-drift duplicate(s) "
+            "dropped (expected on offset-paginated tenants)",
+            company_id, drift,
+        )
     if skipped_private or skipped_invalid:
         logger.debug(
             "Eightfold transform for %s: kept=%d, skipped_private=%d, "
