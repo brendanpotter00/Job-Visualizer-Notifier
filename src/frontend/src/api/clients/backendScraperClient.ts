@@ -124,18 +124,31 @@ export interface FetchJobsForCompaniesOptions {
   apiBaseUrl?: string;
 }
 
+// Chunk size for /api/jobs?companies=. Backend caps at 150 (defense-in-depth);
+// 50 keeps each URL well under cap + query-string limits and leaves room to
+// add backend-scraper companies without hitting either bound again.
+const _COMPANIES_PER_REQUEST = 50;
+
+function chunk<T>(arr: T[], size: number): T[][] {
+  if (size <= 0) throw new Error('chunk size must be > 0');
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
 /**
- * Batched fetch for many backend-scraper companies in a single request.
+ * Batched fetch for many backend-scraper companies, chunked to stay under
+ * the backend's `?companies=` cap (150) and query-string size limits.
  *
- * Collapses N parallel `/api/jobs?company=X` calls (one per company) into
- * one `/api/jobs?companies=a,b,c` call. This is what the Recent Job
- * Postings page uses to avoid fanning out and exhausting the backend's
- * 15-slot Postgres pool — see commit 92bfdf6 for the Greenhouse migration
- * that introduced the fanout.
+ * Fires chunks in parallel via `Promise.all` and merges the per-company
+ * result maps. Each chunk is one `/api/jobs?companies=a,b,c` call — the
+ * same shape as the original single-request implementation; chunking is
+ * the only difference.
  *
- * Returns one entry per requested company. Companies with no rows in the
- * batched response get an empty `FetchJobsResult` so per-company cache
- * seeding in `getAllJobs` stays uniform.
+ * Returns one entry per requested company. Companies with no rows in any
+ * chunk's response get an empty `FetchJobsResult` so per-company cache
+ * seeding in `getAllJobs` stays uniform. `Promise.all` rejects on the first
+ * chunk failure — same blast radius as the un-chunked call.
  */
 export async function fetchJobsForCompanies(
   companyIds: string[],
@@ -145,6 +158,21 @@ export async function fetchJobsForCompanies(
     return {};
   }
 
+  const chunks = chunk(companyIds, _COMPANIES_PER_REQUEST);
+  logger.debug(
+    `[Backend Scraper Client] Batched fetch for ${companyIds.length} companies across ${chunks.length} chunk(s)`
+  );
+
+  const chunkResults = await Promise.all(
+    chunks.map((chunkIds) => _fetchJobsChunk(chunkIds, options))
+  );
+  return Object.assign({}, ...chunkResults);
+}
+
+async function _fetchJobsChunk(
+  companyIds: string[],
+  options: FetchJobsForCompaniesOptions
+): Promise<Record<string, FetchJobsResult>> {
   const apiBase = options.apiBaseUrl || DEFAULT_BACKEND_JOBS_URL;
   // Default is high enough to cover all backend-scraper companies' OPEN
   // jobs in one round trip — per-company limit (5000) was wrong here because
@@ -155,11 +183,6 @@ export async function fetchJobsForCompanies(
     limit: (options.limit ?? 50000).toString(),
   });
   const url = `${apiBase}?${params}`;
-
-  logger.debug(
-    `[Backend Scraper Client] Batched fetch for ${companyIds.length} companies:`,
-    url
-  );
 
   let data: BackendJobListing[];
   try {
