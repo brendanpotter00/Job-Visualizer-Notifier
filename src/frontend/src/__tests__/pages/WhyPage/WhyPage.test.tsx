@@ -167,6 +167,52 @@ describe('WhyPage', () => {
     }
   });
 
+  it('renders a dedicated Eightfold group containing only companies whose sourceAts === "eightfold"', () => {
+    const grouped = groupCompaniesByATS();
+    const eightfoldGroup = grouped.eightfold ?? [];
+
+    // Eightfold has exactly one company (Netflix) today.
+    expect(eightfoldGroup.length).toBeGreaterThan(0);
+    for (const company of eightfoldGroup) {
+      expect(company.sourceAts).toBe('eightfold');
+      // Sanity-check: the row should be backend-scraper post-migration,
+      // NOT the pre-migration ats='eightfold' shape.
+      expect(company.ats).toBe('backend-scraper');
+    }
+
+    renderWithProviders(<WhyPage />, { initialEntries: ['/why'] });
+
+    // Display name must be capitalized "Eightfold" (not lowercase, as it
+    // was before Unit 8 of the Eightfold migration).
+    expect(
+      screen.getByRole('heading', {
+        level: 3,
+        name: new RegExp(`Eightfold\\s*\\(${eightfoldGroup.length}\\)`),
+      })
+    ).toBeInTheDocument();
+  });
+
+  it('Custom Web Scrapers group excludes Eightfold companies (true custom scrapers only)', () => {
+    const grouped = groupCompaniesByATS();
+    const customScrapers = grouped['backend-scraper'] ?? [];
+
+    for (const company of customScrapers) {
+      expect(company.sourceAts).not.toBe('eightfold');
+    }
+  });
+
+  it('Netflix is rendered under Eightfold, not Custom Web Scrapers', () => {
+    // Tightens the symmetric tests above with the specific named company —
+    // catches regressions where the seed migration / companies.ts drift
+    // and Netflix accidentally falls out of the Eightfold column.
+    const grouped = groupCompaniesByATS();
+    const eightfoldIds = (grouped.eightfold ?? []).map((c) => c.id);
+    const customScraperIds = (grouped['backend-scraper'] ?? []).map((c) => c.id);
+
+    expect(eightfoldIds).toContain('netflix');
+    expect(customScraperIds).not.toContain('netflix');
+  });
+
   it('renders a dedicated Workday group containing only companies whose sourceAts === "workday"', () => {
     const grouped = groupCompaniesByATS();
     const workdayGroup = grouped.workday ?? [];
@@ -174,6 +220,9 @@ describe('WhyPage', () => {
     expect(workdayGroup.length).toBeGreaterThan(0);
     for (const company of workdayGroup) {
       expect(company.sourceAts).toBe('workday');
+      // Sanity-check: the row should be backend-scraper post-migration,
+      // NOT the pre-migration ats='workday' shape.
+      expect(company.ats).toBe('backend-scraper');
     }
 
     renderWithProviders(<WhyPage />, { initialEntries: ['/why'] });
@@ -181,7 +230,7 @@ describe('WhyPage', () => {
     expect(
       screen.getByRole('heading', {
         level: 3,
-        name: new RegExp(`Workday\\s*\\(${workdayGroup.length}\\)`, 'i'),
+        name: new RegExp(`Workday\\s*\\(${workdayGroup.length}\\)`),
       })
     ).toBeInTheDocument();
   });
@@ -194,6 +243,7 @@ describe('WhyPage', () => {
       expect(company.sourceAts).not.toBe('workday');
     }
   });
+
 
   it('renders one ATS group header per distinct non-empty ATS group in COMPANIES', () => {
     const grouped = groupCompaniesByATS();

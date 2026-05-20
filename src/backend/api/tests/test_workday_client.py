@@ -341,6 +341,90 @@ class TestTransform:
         r = result[0]
         assert r.first_seen_at == r.last_seen_at == r.created_at == "2026-05-19T15:00:00+00:00"
 
+    def test_pagination_drift_dedupes_and_logs_info(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Two postings with identical (id, title, externalPath) are
+        pagination drift — keep one, log INFO, do NOT log WARN."""
+        import logging
+        raw = [_job(1), _job(1)]
+        with caplog.at_level(logging.INFO, logger="api.services.workday_client"):
+            result = transform_to_job_listings(
+                "nvidia", raw, PROVIDER_CONFIG_NVIDIA,
+                now="2026-05-19T15:00:00+00:00",
+            )
+        assert len(result) == 1
+        assert result[0].id == "JR0001"
+        info_records = [
+            r for r in caplog.records
+            if r.levelno == logging.INFO and "pagination-drift" in r.getMessage()
+        ]
+        assert len(info_records) == 1
+        assert "1 pagination-drift duplicate(s)" in info_records[0].getMessage()
+        warn_records = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert not warn_records, (
+            f"unexpected WARN/ERROR logs on pagination drift: "
+            f"{[r.getMessage() for r in warn_records]}"
+        )
+
+    def test_id_fallback_collision_dedupes_and_logs_warn(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Two postings with empty bulletFields whose externalPath last
+        segment matches but with DIFFERENT titles/urls — id-fallback
+        chain collapsed two distinct positions. Keep first, log WARN."""
+        import logging
+        # Both fall back to externalPath last segment. Same segment, but
+        # the rest of the path differs so the constructed urls differ.
+        raw = [
+            _job(1, bulletFields=[],
+                 title="Software Engineer A",
+                 externalPath="/job/US-CA-Santa-Clara/dup-slug"),
+            _job(2, bulletFields=[],
+                 title="Software Engineer B",
+                 externalPath="/job/US-NY-New-York/dup-slug"),
+        ]
+        with caplog.at_level(logging.WARNING, logger="api.services.workday_client"):
+            result = transform_to_job_listings(
+                "nvidia", raw, PROVIDER_CONFIG_NVIDIA,
+                now="2026-05-19T15:00:00+00:00",
+            )
+        assert len(result) == 1
+        # Kept entry is the first one seen.
+        assert result[0].id == "dup-slug"
+        assert result[0].title == "Software Engineer A"
+        warn_records = [
+            r for r in caplog.records
+            if r.levelno == logging.WARNING and "id collision" in r.getMessage()
+        ]
+        assert len(warn_records) == 1
+        msg = warn_records[0].getMessage()
+        # Both (title, url) pairs must be present in the WARN payload
+        # so the collision is investigable from logs alone.
+        assert "Software Engineer A" in msg
+        assert "Software Engineer B" in msg
+
+    def test_distinct_jobs_pass_through_with_no_dedup_logs(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Two genuinely distinct postings → 2 listings, no dedup logs."""
+        import logging
+        raw = [_job(1), _job(2)]
+        with caplog.at_level(logging.INFO, logger="api.services.workday_client"):
+            result = transform_to_job_listings(
+                "nvidia", raw, PROVIDER_CONFIG_NVIDIA,
+                now="2026-05-19T15:00:00+00:00",
+            )
+        assert {r.id for r in result} == {"JR0001", "JR0002"}
+        drift_or_collision = [
+            r for r in caplog.records
+            if "pagination-drift" in r.getMessage() or "id collision" in r.getMessage()
+        ]
+        assert not drift_or_collision, (
+            f"unexpected dedup logs on distinct inputs: "
+            f"{[r.getMessage() for r in drift_or_collision]}"
+        )
+
 
 # ---------------------------------------------------------------------------
 # _parse_workday_date — must match frontend `parseWorkdayDate`

@@ -5,7 +5,7 @@
 /**
  * ATS provider type
  */
-export type ATSProvider = 'eightfold' | 'backend-scraper';
+export type ATSProvider = 'backend-scraper';
 
 /**
  * Normalized job posting model.
@@ -98,31 +98,6 @@ export interface TimeBucket {
 }
 
 /**
- * Eightfold AI-specific configuration
- *
- * Eightfold's public job board API requires:
- * - A tenant host (e.g., "explore.jobs.netflix.net")
- * - A domain scope (e.g., "netflix.com")
- * - Paginated requests (server caps page size at 10)
- */
-export interface EightfoldConfig {
-  type: 'eightfold';
-  /**
-   * Internal company identifier (matches `Company.id`). Used as the `company`
-   * field on transformed `Job` objects so the `byCompany` cache key lines up.
-   */
-  companyId: string;
-  /** Eightfold tenant host, e.g. "explore.jobs.netflix.net" (no protocol) */
-  tenantHost: string;
-  /** Domain query parameter Eightfold uses to scope jobs, e.g. "netflix.com" */
-  domain: string;
-  /** Optional override for pagination page size (server caps at 10) */
-  defaultPageSize?: number;
-  /** Optional custom API base URL (defaults to /api/eightfold) */
-  apiBaseUrl?: string;
-}
-
-/**
  * Backend scraper configuration - for companies scraped via Python scripts
  */
 export interface BackendScraperConfig {
@@ -147,7 +122,7 @@ export interface Company {
   ats: ATSProvider;
 
   /** ATS-specific configuration */
-  config: EightfoldConfig | BackendScraperConfig;
+  config: BackendScraperConfig;
 
   /** Optional URL to company's job postings website */
   jobsUrl?: string;
@@ -155,11 +130,17 @@ export interface Company {
   /**
    * For companies whose `ats === 'backend-scraper'`, the ATS that originally
    * served their jobs before migration to the backend. Used by the Why page
-   * to group migrated providers (Ashby, Greenhouse, Lever, Gem, Workday)
-   * under their own column instead of lumping them with the true Custom
-   * Web Scrapers (Google/Apple/Microsoft).
+   * to group migrated providers (Ashby, Greenhouse, Lever, Gem, Eightfold,
+   * Workday) under their own column instead of lumping them with the true
+   * Custom Web Scrapers (Google/Apple/Microsoft).
    */
-  sourceAts?: 'ashby' | 'greenhouse' | 'lever' | 'gem' | 'workday';
+  sourceAts?:
+    | 'ashby'
+    | 'eightfold'
+    | 'gem'
+    | 'greenhouse'
+    | 'lever'
+    | 'workday';
 
   /** Optional URL to find recruiters on LinkedIn */
   recruiterLinkedInUrl?: string;

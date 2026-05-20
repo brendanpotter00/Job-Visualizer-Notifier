@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Job Posting Analytics - A monorepo containing a TypeScript + React frontend, Python FastAPI backend, and Python scraping scripts. The frontend visualizes job posting activity over time for multiple companies using the Eightfold ATS API for some and the backend's `/api/jobs` endpoint for the rest (Greenhouse, Ashby, Lever, Gem, and Workday boards, plus Google, Apple, and Microsoft). Built with Redux Toolkit, Recharts, and Material-UI.
+Job Posting Analytics - A monorepo containing a TypeScript + React frontend, Python FastAPI backend, and Python scraping scripts. The frontend visualizes job posting activity over time for multiple companies, all served from the backend's `/api/jobs` endpoint (Greenhouse, Ashby, Lever, Gem, Eightfold/Netflix, and Workday boards, plus Google, Apple, Microsoft). Built with Redux Toolkit, Recharts, and Material-UI.
 
 ## Project Structure
 
@@ -57,7 +57,7 @@ PYTHONPATH=. uvicorn src.backend.api.main:app --host 0.0.0.0 --port 8000 --reloa
 User selects company → `getJobsForCompany` RTK Query endpoint (src/frontend/src/features/jobs/jobsApi.ts) → Factory selects API client → Transform to normalized Job model → RTK Query cache update → Memoized selectors filter data → Components render
 
 **API Clients:**
-Eightfold (src/frontend/src/api/clients/eightfoldClient.ts) uses a dedicated client because it requires sequential pagination with a hard 10-item page cap. Backend-Scraper (src/frontend/src/api/clients/backendScraperClient.ts) uses a dedicated client for companies served from the backend API — all Greenhouse, Ashby, Lever, Gem, and Workday boards (fetched by the backend Procrastinate worker) plus Google, Apple, and Microsoft (scraped via Python scripts). The `createAPIClient` factory (src/frontend/src/api/clients/baseClient.ts) is retained as scaffolding for future ATS integrations; no production client currently consumes it.
+Backend-Scraper (src/frontend/src/api/clients/backendScraperClient.ts) is the only production client — every company flows through the backend `/api/jobs` endpoint. Greenhouse, Ashby, Lever, Gem, Eightfold/Netflix, and Workday boards are fetched by the backend Procrastinate worker (SSRF allowlist for Eightfold lives in Python `src/backend/api/services/eightfold_client.py`); Google, Apple, and Microsoft are scraped via Python scripts. The `createAPIClient` factory (src/frontend/src/api/clients/baseClient.ts) is retained as scaffolding for future ATS integrations; no production client currently consumes it.
 
 **Key Selectors:**
 - `selectCurrentCompanyJobsRtk` (src/frontend/src/features/jobs/jobsSelectors.ts) - Jobs for selected company
@@ -71,7 +71,7 @@ Eightfold (src/frontend/src/api/clients/eightfoldClient.ts) uses a dedicated cli
 ## Common Tasks
 
 **Adding a Company:**
-Edit `src/frontend/src/config/companies.ts` and add company config with ATS type (eightfold/backend-scraper). Greenhouse, Ashby, Lever, Gem, and Workday boards use `backend-scraper` — add the company id and `board_token` (plus a `provider_config` JSONB blob for Workday rows) to the backend `companies` table (see `docs/implementations/greenhouseBackendMigration/PLAN.md`, `docs/implementations/ashbyBackendMigration/PLAN.md`, `docs/implementations/leverBackendMigration/PLAN.md`, `docs/implementations/gemBackendMigration/PLAN.md`, or `docs/implementations/workdayBackendMigration/PLAN.md`) and add a `createBackendScraperCompany(id, name, jobsUrl, { sourceAts: 'greenhouse' })` entry to companies.ts (use `{ sourceAts: 'ashby' | 'lever' | 'gem' | 'workday' }` for the respective providers). Omitting `sourceAts` drops the company into "Custom Web Scrapers". System automatically uses correct client via factory pattern.
+Edit `src/frontend/src/config/companies.ts` and add a `createBackendScraperCompany(id, name, jobsUrl, { sourceAts: 'greenhouse' | 'ashby' | 'lever' | 'gem' | 'eightfold' | 'workday' })` entry. Then add a matching row to the backend `companies` table — see `docs/implementations/greenhouseBackendMigration/PLAN.md`, `docs/implementations/ashbyBackendMigration/PLAN.md`, `docs/implementations/leverBackendMigration/PLAN.md`, `docs/implementations/gemBackendMigration/PLAN.md`, `docs/implementations/eightfoldBackendMigration/PLAN.md`, or `docs/implementations/workdayBackendMigration/PLAN.md`. Eightfold rows require a `provider_config={tenant_host, domain}` JSONB blob with `tenant_host` on the SSRF allowlist in `src/backend/api/services/eightfold_client.py`; Workday rows require `provider_config={base_url, tenant_slug, career_site_slug, default_facets?}`. Omitting `sourceAts` drops the company into "Custom Web Scrapers".
 
 **Adding ATS Provider:**
 1. Create transformer in `src/frontend/src/api/transformers/[provider]Transformer.ts`
@@ -117,7 +117,6 @@ Edit `src/frontend/src/config/companies.ts` and add company config with ATS type
 
 ## Vercel Serverless Functions (api/)
 
-- `api/eightfold.ts` - Eightfold AI proxy (catch-all route at `/api/eightfold/:path(.*)`; requires `X-Eightfold-Tenant-Host` header, SSRF-allowlisted to `*.eightfold.ai` + known vanity hosts)
 - `api/jobs.ts` - Backend jobs API proxy
 - `api/jobs-qa.ts` - Backend QA endpoints proxy
 - `api/users.ts` - Backend users API proxy (forwards Authorization header)

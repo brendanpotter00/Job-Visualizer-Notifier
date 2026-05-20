@@ -5,6 +5,12 @@ import { configureStore } from '@reduxjs/toolkit';
 // loads — otherwise we'd be exercising the production 100+ company list
 // and the test would hit dozens of unrelated fetch mocks.
 vi.mock('../../../config/companies', () => {
+  // After the Eightfold (#124) and Workday (#123) backend migrations,
+  // every supported ATS is `backend-scraper`. The old "partitioning"
+  // case (backend-scraper batched call + per-company fallback for other
+  // ATSes) still exists in jobsApi.ts but has no live consumers; the
+  // tests below cover the surviving behavior — single batched call and
+  // a cache entry per company even when the response omits some rows.
   const COMPANIES = [
     {
       id: 'stripe',
@@ -23,17 +29,6 @@ vi.mock('../../../config/companies', () => {
       name: 'Discord',
       ats: 'backend-scraper' as const,
       config: { type: 'backend-scraper', companyId: 'discord' },
-    },
-    {
-      id: 'gemco',
-      name: 'Gem Co',
-      ats: 'eightfold' as const,
-      config: {
-        type: 'eightfold',
-        companyId: 'gemco',
-        tenantHost: 'gemco.eightfold.ai',
-        domain: 'gemco.com',
-      },
     },
   ];
   return {
@@ -90,15 +85,10 @@ describe('jobsApi getAllJobs partitioning', () => {
           ],
         });
       }
-      // Eightfold proxy — return an empty Eightfold shape so the eightfold
-      // client doesn't error. The eightfold client reads `positions` and
-      // `count` off the response.
-      return Promise.resolve({
-        ok: true,
-        status: 200,
-        statusText: 'OK',
-        json: async () => ({ positions: [], count: 0 }),
-      });
+      // No non-backend-scraper ATSes exist post-migration; any other
+      // URL is a regression — fail loudly so it shows up in the test
+      // output instead of silently shaping a stub response.
+      throw new Error(`unexpected fetch URL in jobsApi.batched test: ${url}`);
     });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
   });
@@ -150,7 +140,7 @@ describe('jobsApi getAllJobs partitioning', () => {
     const data = getAllEntry?.data;
     expect(data).toBeDefined();
     expect(Object.keys(data.byCompanyId).sort()).toEqual(
-      ['airbnb', 'discord', 'gemco', 'stripe'].sort()
+      ['airbnb', 'discord', 'stripe'].sort()
     );
     expect(data.byCompanyId.stripe.length).toBe(1);
     expect(data.byCompanyId.airbnb.length).toBe(1);

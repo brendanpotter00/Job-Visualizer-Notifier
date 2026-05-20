@@ -45,15 +45,15 @@ describe('createAPIClient', () => {
       validateConfig: (config): config is BackendScraperConfig => config.type === 'backend-scraper',
     });
 
-    // Use an eightfold-shaped config to test that a backend-scraper-only
-    // test client rejects mismatched types. Any non-backend-scraper
-    // member of the ATSCompanyConfig union works.
+    // ATSCompanyConfig is currently a single-member union
+    // (BackendScraperConfig). To exercise the validateConfig rejection
+    // path we have to fabricate a runtime-invalid config and cast — the
+    // test still covers the production behavior the factory was built
+    // to provide.
     const invalidConfig = {
-      type: 'eightfold' as const,
+      type: 'not-backend-scraper',
       companyId: 'example',
-      tenantHost: 'example.eightfold.ai',
-      domain: 'example.com',
-    };
+    } as unknown as BackendScraperConfig;
 
     await expect(client.fetchJobs(invalidConfig)).rejects.toThrow(
       'Invalid config type for Test client'

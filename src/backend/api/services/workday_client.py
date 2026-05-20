@@ -282,6 +282,19 @@ def transform_to_job_listings(
     missing ``externalPath``). Invalid postings are silently skipped at
     DEBUG level so a single malformed entry doesn't poison the batch.
 
+    Deduplicates by ``job_id`` with a drift-vs-collision diagnostic.
+    Workday paginates by offset (page size 20) and on a live tenant new
+    requisitions can shift the window so a single posting appears on two
+    adjacent pages — same id, same (title, url). That's pagination
+    drift and is expected; we log INFO. The other case is an id-fallback
+    chain collapse: two genuinely different postings resolving to the
+    same job_id because both rows had empty/non-string ``bulletFields``
+    and their ``externalPath`` last segments happened to match. That's
+    silent data corruption — log WARN with both (title, url) pairs so
+    it's investigable from logs alone. Mirrors the Eightfold dedup added
+    in ``eightfold_client.transform_to_job_listings``; see
+    ``docs/incidents/2026-05-20-eightfold-upsert-cardinality-violation.md``.
+
     See module docstring for the id format, URL construction, and
     ``details`` JSONB shape contracts.
     """
@@ -289,7 +302,9 @@ def transform_to_job_listings(
     if now is None:
         now = get_iso_timestamp()
 
-    out: list[JobListing] = []
+    deduped: dict[str, JobListing] = {}
+    drift = 0
+    collisions = 0
     for raw in raw_jobs:
         try:
             listing = _transform_one(company_id, raw, provider_config, now)
@@ -299,8 +314,29 @@ def transform_to_job_listings(
                 company_id, e, raw,
             )
             continue
-        out.append(listing)
-    return out
+        prev = deduped.get(listing.id)
+        if prev is None:
+            deduped[listing.id] = listing
+            continue
+        if prev.title == listing.title and prev.url == listing.url:
+            drift += 1
+        else:
+            collisions += 1
+            logger.warning(
+                "Workday id collision for %s on id=%r: kept "
+                "(title=%r, url=%r), dropped (title=%r, url=%r) — "
+                "id fallback chain collapsed two distinct postings",
+                company_id, listing.id,
+                prev.title, prev.url, listing.title, listing.url,
+            )
+
+    if drift:
+        logger.info(
+            "Workday transform for %s: %d pagination-drift duplicate(s) "
+            "dropped (expected on offset-paginated tenants)",
+            company_id, drift,
+        )
+    return list(deduped.values())
 
 
 class _SkipPosting(Exception):

@@ -292,6 +292,83 @@ class TestUpsertJob:
         assert job["title"] == "Updated Title"
 
 
+class TestUpsertJobsBatchDedup:
+    """Defense-in-depth dedup inside upsert_jobs_batch.
+
+    PostgreSQL ON CONFLICT (source_id, id) DO UPDATE cannot affect the same
+    composite key row twice in one statement (SQLSTATE 21000). The batch
+    upsert drops later duplicates and logs a WARN so the upstream transformer
+    bug is still visible. See
+    docs/incidents/2026-05-20-eightfold-upsert-cardinality-violation.md.
+    """
+
+    def _make_job(self, source_id: str, job_id: str, title: str) -> JobListing:
+        return JobListing(
+            id=job_id,
+            title=title,
+            company="acme",
+            url=f"https://example/{source_id}/{job_id}",
+            source_id=source_id,
+            created_at="2024-01-15T10:00:00Z",
+            first_seen_at="2024-01-15T10:00:00Z",
+            last_seen_at="2024-01-15T10:00:00Z",
+        )
+
+    def test_dedupes_duplicate_composite_keys_within_batch(self, in_memory_db, caplog):
+        """Two JobListings sharing (source_id, id) → one row, WARN logged."""
+        first = self._make_job(SourceId.EIGHTFOLD, "dup-1", "First seen — kept")
+        second = self._make_job(SourceId.EIGHTFOLD, "dup-1", "Second seen — dropped")
+        third = self._make_job(SourceId.EIGHTFOLD, "uniq-2", "Unrelated row")
+
+        with caplog.at_level("WARNING", logger="shared.database"):
+            count = db.upsert_jobs_batch(in_memory_db, [first, second, third])
+
+        # Two rows actually inserted (the duplicate was silently dropped before SQL).
+        assert count == 2
+
+        kept = db.get_job_by_id(in_memory_db, SourceId.EIGHTFOLD, "dup-1")
+        other = db.get_job_by_id(in_memory_db, SourceId.EIGHTFOLD, "uniq-2")
+        assert kept is not None
+        assert kept["title"] == "First seen — kept"
+        assert other is not None
+
+        warn_records = [
+            r for r in caplog.records
+            if r.levelname == "WARNING" and "deduped" in r.getMessage()
+        ]
+        assert len(warn_records) == 1, (
+            f"expected 1 WARN about dedup, got {len(warn_records)}: "
+            f"{[r.getMessage() for r in caplog.records]}"
+        )
+        assert "1 duplicate" in warn_records[0].getMessage()
+
+    def test_no_dedup_warning_when_input_already_unique(self, in_memory_db, caplog):
+        """No dedup needed → no WARN. Belt-and-suspenders is silent on the happy path."""
+        a = self._make_job(SourceId.EIGHTFOLD, "uniq-a", "A")
+        b = self._make_job(SourceId.EIGHTFOLD, "uniq-b", "B")
+
+        with caplog.at_level("WARNING", logger="shared.database"):
+            count = db.upsert_jobs_batch(in_memory_db, [a, b])
+
+        assert count == 2
+        warn_records = [
+            r for r in caplog.records
+            if r.levelname == "WARNING" and "deduped" in r.getMessage()
+        ]
+        assert warn_records == []
+
+    def test_dedup_scoped_by_source_id_not_just_id(self, in_memory_db):
+        """Same `id` under different `source_id` is NOT a duplicate — composite PK."""
+        a = self._make_job("source_a", "shared-id", "Source A row")
+        b = self._make_job("source_b", "shared-id", "Source B row")
+
+        count = db.upsert_jobs_batch(in_memory_db, [a, b])
+        assert count == 2
+
+        assert db.get_job_by_id(in_memory_db, "source_a", "shared-id") is not None
+        assert db.get_job_by_id(in_memory_db, "source_b", "shared-id") is not None
+
+
 class TestGetAllActiveJobs:
     """Tests for get_all_active_jobs function"""
 
@@ -685,3 +762,85 @@ class TestSourceScopedHelpersRejectEmptySource:
         # Single-row-shape guard.
         with pytest.raises(ValueError, match="source_id"):
             db.get_job_by_id(in_memory_db, "", "job-001")
+
+
+class TestListEnabledEightfoldCompanies:
+    """Lock the contract of the Eightfold fan-out's company-discovery helper.
+
+    Failure modes the helper has to defend against:
+      - other ATSes returning rows (e.g. ashby with the same id pattern)
+      - disabled rows being deferred to anyway
+      - provider_config not being deserialized into a dict (psycopg2 cursor
+        must return it via the RealDictCursor adapter so we get a dict, not
+        a string)
+      - ordering not being deterministic across cron ticks (queue payload
+        ordering changing would make debugging harder; ORDER BY id is the
+        contract)
+    """
+
+    def _seed_company(
+        self,
+        conn,
+        company_id: str,
+        *,
+        ats: str = "eightfold",
+        enabled: bool = True,
+        provider_config: dict | None = None,
+    ) -> None:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO companies (id, display_name, ats, board_token, enabled, "
+            "provider_config) "
+            "VALUES (%s, %s, %s, %s, %s, CAST(%s AS JSONB))",
+            (
+                company_id,
+                company_id.title(),
+                ats,
+                company_id,
+                enabled,
+                json.dumps(provider_config or {}),
+            ),
+        )
+        conn.commit()
+
+    def test_returns_only_enabled_eightfold_rows(self, in_memory_db):
+        # Mix of eightfold (enabled + disabled), ashby, greenhouse.
+        self._seed_company(
+            in_memory_db, "netflix",
+            provider_config={
+                "tenant_host": "explore.jobs.netflix.net",
+                "domain": "netflix.com",
+            },
+        )
+        self._seed_company(
+            in_memory_db, "disabled_ef", enabled=False,
+            provider_config={"tenant_host": "x.eightfold.ai", "domain": "x.com"},
+        )
+        self._seed_company(in_memory_db, "ashby_co", ats="ashby")
+        self._seed_company(in_memory_db, "gh_co", ats="greenhouse")
+
+        rows = db.list_enabled_eightfold_companies(in_memory_db)
+        assert len(rows) == 1
+        assert rows[0]["id"] == "netflix"
+        assert rows[0]["board_token"] == "netflix"
+        # provider_config must be a dict (deserialized), not a JSON string.
+        assert isinstance(rows[0]["provider_config"], dict)
+        assert rows[0]["provider_config"]["tenant_host"] == "explore.jobs.netflix.net"
+        assert rows[0]["provider_config"]["domain"] == "netflix.com"
+
+    def test_order_by_id_deterministic(self, in_memory_db):
+        # Insert in non-alphabetical order; helper must return alphabetical.
+        for cid in ("zebra", "apple", "mango"):
+            self._seed_company(
+                in_memory_db, cid,
+                provider_config={
+                    "tenant_host": f"{cid}.eightfold.ai",
+                    "domain": f"{cid}.com",
+                },
+            )
+        rows = db.list_enabled_eightfold_companies(in_memory_db)
+        assert [r["id"] for r in rows] == ["apple", "mango", "zebra"]
+
+    def test_no_eightfold_rows_returns_empty(self, in_memory_db):
+        self._seed_company(in_memory_db, "ashby_only", ats="ashby")
+        assert db.list_enabled_eightfold_companies(in_memory_db) == []

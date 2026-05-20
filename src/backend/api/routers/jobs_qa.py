@@ -1,5 +1,6 @@
 """QA API endpoints - stats, scrape runs, trigger scrape."""
 
+import asyncio
 import logging
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request
@@ -12,12 +13,15 @@ from ..dependencies import get_db
 from ..models import COMPANY_PATTERN, JobsStatsResponse, CompanyCountResponse, ScrapeRunResponse
 from ..services.database import get_stats, get_scrape_runs
 from ..services.scraper_lock import scraper_lock
+from ..services.eightfold_client import _is_allowed_eightfold_host
 from ..tasks.enqueue_ashby_fan_out import enqueue_ashby_fan_out
+from ..tasks.enqueue_eightfold_fan_out import enqueue_eightfold_fan_out
 from ..tasks.enqueue_gem_fan_out import enqueue_gem_fan_out
 from ..tasks.enqueue_greenhouse_fan_out import enqueue_greenhouse_fan_out
 from ..tasks.enqueue_lever_fan_out import enqueue_lever_fan_out
 from ..tasks.enqueue_workday_fan_out import enqueue_workday_fan_out
 from ..tasks.fetch_ashby_company import fetch_ashby_company
+from ..tasks.fetch_eightfold_company import fetch_eightfold_company
 from ..tasks.fetch_gem_company import fetch_gem_company
 from ..tasks.fetch_greenhouse_company import fetch_greenhouse_company
 from ..tasks.fetch_lever_company import fetch_lever_company
@@ -339,6 +343,122 @@ async def trigger_ashby_fan_out(
     )
 
 
+@router.post("/trigger-lever-fetch")
+async def trigger_lever_fetch(
+    company_id: str = Query(
+        ...,
+        pattern=COMPANY_PATTERN,
+        description="Company id (e.g. 'palantir'). Must exist in companies table with ats='lever' and enabled=true.",
+    ),
+    db: Connection = Depends(get_db),
+    _admin: TokenClaims = Depends(require_admin),
+):
+    """Manually defer a single fetch_lever_company task.
+
+    Looks up the company in the companies table to (a) defend against
+    typos in manual triggers and (b) source the canonical board_token
+    rather than trusting a query param.
+
+    Returns 202 on successful defer, 202 with already_enqueued=true if
+    a prior run for the same company is still pending/running, or 404
+    if the company is unknown / disabled / not lever.
+
+    Uses the shared bounded `ThreadedConnectionPool` via `Depends(get_db)`
+    rather than a fresh connection so concurrent QA spam can't blow past
+    `db_pool_max` and exhaust prod `max_connections`.
+    """
+    cur = db.cursor()
+    cur.execute(
+        "SELECT id, board_token FROM companies "
+        "WHERE id = %s AND ats = 'lever' AND enabled = true",
+        (company_id,),
+    )
+    row = cur.fetchone()
+
+    if row is None:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "detail": (
+                    f"No enabled lever company with id={company_id!r}"
+                ),
+            },
+        )
+
+    board_token = row["board_token"]
+
+    try:
+        await fetch_lever_company.configure(
+            queueing_lock=f"lever:{company_id}",
+        ).defer_async(
+            company_id=company_id,
+            board_token=board_token,
+        )
+    except procrastinate_exceptions.AlreadyEnqueued:
+        logger.info(
+            "trigger-lever-fetch: fetch_lever_company already "
+            "enqueued for %s; manual trigger collapsed by queueing_lock",
+            company_id,
+        )
+        return JSONResponse(
+            status_code=202,
+            content={
+                "message": (
+                    f"fetch_lever_company already in flight for "
+                    f"{company_id}; manual trigger deduped"
+                ),
+                "company_id": company_id,
+                "already_enqueued": True,
+            },
+        )
+
+    return JSONResponse(
+        status_code=202,
+        content={
+            "message": f"fetch_lever_company deferred for {company_id}",
+            "company_id": company_id,
+            "already_enqueued": False,
+        },
+    )
+
+
+@router.post("/trigger-lever-fan-out")
+async def trigger_lever_fan_out(
+    _admin: TokenClaims = Depends(require_admin),
+):
+    """Manually defer the enqueue_lever_fan_out task.
+
+    The fan-out task does not carry a queueing lock (per-company locks
+    live on the children). We catch AlreadyEnqueued defensively so a
+    future decision to add a fan-out lock won't break this endpoint.
+    """
+    try:
+        await enqueue_lever_fan_out.defer_async(timestamp=0)
+    except procrastinate_exceptions.AlreadyEnqueued:
+        logger.info(
+            "trigger-lever-fan-out: enqueue_lever_fan_out "
+            "already enqueued; manual trigger collapsed"
+        )
+        return JSONResponse(
+            status_code=202,
+            content={
+                "message": (
+                    "enqueue_lever_fan_out already enqueued; "
+                    "manual trigger deduped"
+                ),
+                "already_enqueued": True,
+            },
+        )
+
+    return JSONResponse(
+        status_code=202,
+        content={
+            "message": "enqueue_lever_fan_out deferred",
+            "already_enqueued": False,
+        },
+    )
+
+
 @router.post("/trigger-gem-fetch")
 async def trigger_gem_fetch(
     company_id: str = Query(
@@ -455,44 +575,106 @@ async def trigger_gem_fan_out(
     )
 
 
-@router.post("/trigger-lever-fetch")
-async def trigger_lever_fetch(
+def _fetch_eightfold_row(db: Connection, company_id: str) -> dict | None:
+    """Sync DB lookup. Wrapped in ``asyncio.to_thread`` at the call site so
+    the FastAPI event loop isn't blocked by the cursor round-trip."""
+    cur = db.cursor()
+    cur.execute(
+        "SELECT id, board_token, provider_config FROM companies "
+        "WHERE id = %s AND ats = 'eightfold' AND enabled = true",
+        (company_id,),
+    )
+    row = cur.fetchone()
+    return dict(row) if row else None
+
+
+@router.post("/trigger-eightfold-fetch")
+async def trigger_eightfold_fetch(
     company_id: str = Query(
         ...,
         pattern=COMPANY_PATTERN,
-        description="Company id (e.g. 'palantir'). Must exist in companies table with ats='lever' and enabled=true.",
+        description=(
+            "Company id (e.g. 'netflix'). Must exist in companies table with "
+            "ats='eightfold' and enabled=true."
+        ),
     ),
     db: Connection = Depends(get_db),
     _admin: TokenClaims = Depends(require_admin),
 ):
-    """Manually defer a single fetch_lever_company task.
+    """Manually defer a single fetch_eightfold_company task.
 
-    Looks up the company in the companies table to (a) defend against
-    typos in manual triggers and (b) source the canonical board_token
-    rather than trusting a query param.
+    Performs the L2 SSRF check (provider_config keys present + tenant_host
+    on allowlist) before deferring, so a typo in the seed migration would
+    surface here as a 400 rather than as a queue-time silent failure.
 
-    Returns 202 on successful defer, 202 with already_enqueued=true if
-    a prior run for the same company is still pending/running, or 404
-    if the company is unknown / disabled / not lever.
+    Returns:
+      - 202 on successful defer
+      - 202 with ``already_enqueued=true`` if a prior run is still in
+        flight (queueing_lock collision)
+      - 404 if the company is unknown / disabled / not eightfold
+      - 400 if the company's provider_config is missing required keys
+        or tenant_host is off the SSRF allowlist
 
-    Uses the shared bounded `ThreadedConnectionPool` via `Depends(get_db)`
-    rather than a fresh connection so concurrent QA spam can't blow past
-    `db_pool_max` and exhaust prod `max_connections`.
+    Uses the shared bounded ``ThreadedConnectionPool`` via
+    ``Depends(get_db)`` (matches Greenhouse + Ashby triggers) so concurrent
+    QA spam can't blow past ``db_pool_max`` and exhaust prod
+    ``max_connections``. The cursor work is wrapped in
+    ``asyncio.to_thread`` to keep the event loop responsive during the
+    round-trip — stricter than the Greenhouse/Ashby siblings, which call
+    ``cur.execute`` directly; carrying the extra rigor forward.
     """
-    cur = db.cursor()
-    cur.execute(
-        "SELECT id, board_token FROM companies "
-        "WHERE id = %s AND ats = 'lever' AND enabled = true",
-        (company_id,),
-    )
-    row = cur.fetchone()
+    row = await asyncio.to_thread(_fetch_eightfold_row, db, company_id)
 
     if row is None:
         return JSONResponse(
             status_code=404,
             content={
                 "detail": (
-                    f"No enabled lever company with id={company_id!r}"
+                    f"No enabled eightfold company with id={company_id!r}"
+                ),
+            },
+        )
+
+    provider_config = row.get("provider_config") or {}
+    if not isinstance(provider_config, dict):
+        return JSONResponse(
+            status_code=400,
+            content={
+                "detail": (
+                    f"eightfold company {company_id!r} has non-dict "
+                    f"provider_config (got {type(provider_config).__name__})"
+                ),
+            },
+        )
+    tenant_host = provider_config.get("tenant_host")
+    domain = provider_config.get("domain")
+    if not tenant_host or not isinstance(tenant_host, str):
+        return JSONResponse(
+            status_code=400,
+            content={
+                "detail": (
+                    f"eightfold company {company_id!r} provider_config is "
+                    f"missing/empty tenant_host"
+                ),
+            },
+        )
+    if not domain or not isinstance(domain, str):
+        return JSONResponse(
+            status_code=400,
+            content={
+                "detail": (
+                    f"eightfold company {company_id!r} provider_config is "
+                    f"missing/empty domain"
+                ),
+            },
+        )
+    if not _is_allowed_eightfold_host(tenant_host):
+        return JSONResponse(
+            status_code=400,
+            content={
+                "detail": (
+                    f"eightfold company {company_id!r} tenant_host "
+                    f"{tenant_host!r} is not on the SSRF allowlist"
                 ),
             },
         )
@@ -500,15 +682,16 @@ async def trigger_lever_fetch(
     board_token = row["board_token"]
 
     try:
-        await fetch_lever_company.configure(
-            queueing_lock=f"lever:{company_id}",
+        await fetch_eightfold_company.configure(
+            queueing_lock=f"eightfold:{company_id}",
         ).defer_async(
             company_id=company_id,
             board_token=board_token,
+            provider_config=provider_config,
         )
     except procrastinate_exceptions.AlreadyEnqueued:
         logger.info(
-            "trigger-lever-fetch: fetch_lever_company already "
+            "trigger-eightfold-fetch: fetch_eightfold_company already "
             "enqueued for %s; manual trigger collapsed by queueing_lock",
             company_id,
         )
@@ -516,7 +699,7 @@ async def trigger_lever_fetch(
             status_code=202,
             content={
                 "message": (
-                    f"fetch_lever_company already in flight for "
+                    f"fetch_eightfold_company already in flight for "
                     f"{company_id}; manual trigger deduped"
                 ),
                 "company_id": company_id,
@@ -527,35 +710,38 @@ async def trigger_lever_fetch(
     return JSONResponse(
         status_code=202,
         content={
-            "message": f"fetch_lever_company deferred for {company_id}",
+            "message": f"fetch_eightfold_company deferred for {company_id}",
             "company_id": company_id,
             "already_enqueued": False,
         },
     )
 
 
-@router.post("/trigger-lever-fan-out")
-async def trigger_lever_fan_out(
+@router.post("/trigger-eightfold-fan-out")
+async def trigger_eightfold_fan_out(
     _admin: TokenClaims = Depends(require_admin),
 ):
-    """Manually defer the enqueue_lever_fan_out task.
+    """Manually defer the enqueue_eightfold_fan_out task.
+
+    Used by DEPLOY.md to populate ``job_listings`` within ~30s of a deploy
+    instead of waiting up to 30 min for the next cron tick.
 
     The fan-out task does not carry a queueing lock (per-company locks
     live on the children). We catch AlreadyEnqueued defensively so a
     future decision to add a fan-out lock won't break this endpoint.
     """
     try:
-        await enqueue_lever_fan_out.defer_async(timestamp=0)
+        await enqueue_eightfold_fan_out.defer_async(timestamp=0)
     except procrastinate_exceptions.AlreadyEnqueued:
         logger.info(
-            "trigger-lever-fan-out: enqueue_lever_fan_out "
+            "trigger-eightfold-fan-out: enqueue_eightfold_fan_out "
             "already enqueued; manual trigger collapsed"
         )
         return JSONResponse(
             status_code=202,
             content={
                 "message": (
-                    "enqueue_lever_fan_out already enqueued; "
+                    "enqueue_eightfold_fan_out already enqueued; "
                     "manual trigger deduped"
                 ),
                 "already_enqueued": True,
@@ -565,7 +751,7 @@ async def trigger_lever_fan_out(
     return JSONResponse(
         status_code=202,
         content={
-            "message": "enqueue_lever_fan_out deferred",
+            "message": "enqueue_eightfold_fan_out deferred",
             "already_enqueued": False,
         },
     )

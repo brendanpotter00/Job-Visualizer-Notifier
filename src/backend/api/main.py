@@ -153,7 +153,14 @@ async def lifespan(app: FastAPI):
         while True:
             try:
                 await procrastinate_app.run_worker_async(
-                    queues=["greenhouse_fetch", "ashby_fetch", "lever_fetch", "gem_fetch", "workday_fetch"],
+                    queues=[
+                        "greenhouse_fetch",
+                        "ashby_fetch",
+                        "lever_fetch",
+                        "gem_fetch",
+                        "eightfold_fetch",
+                        "workday_fetch",
+                    ],
                     concurrency=5,
                 )
                 return
@@ -169,7 +176,12 @@ async def lifespan(app: FastAPI):
 
     worker_task = asyncio.create_task(_supervised_worker())
     worker_task.add_done_callback(_worker_task_done)
-    logger.info("Procrastinate worker background task started (queues=['greenhouse_fetch', 'ashby_fetch', 'lever_fetch', 'gem_fetch', 'workday_fetch'], concurrency=5)")
+    logger.info(
+        "Procrastinate worker background task started "
+        "(queues=['greenhouse_fetch', 'ashby_fetch', 'lever_fetch', 'gem_fetch', "
+        "'eightfold_fetch', 'workday_fetch'], "
+        "concurrency=5)"
+    )
 
     yield
 

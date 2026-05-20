@@ -19,4 +19,6 @@ class SourceId:
     ASHBY: Final[str] = "ashby_api"
     LEVER: Final[str] = "lever_api"
     GEM: Final[str] = "gem_api"
+    # ``_api`` suffix mirrors Greenhouse + Ashby + Lever + Gem (frozen contract).
+    EIGHTFOLD: Final[str] = "eightfold_api"
     WORKDAY: Final[str] = "workday_api"
