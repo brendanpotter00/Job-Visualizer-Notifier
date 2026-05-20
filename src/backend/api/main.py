@@ -141,16 +141,43 @@ async def lifespan(app: FastAPI):
         if exc is not None:
             logger.error("Procrastinate worker task crashed: %s", exc, exc_info=exc)
 
-    worker_task = asyncio.create_task(
-        procrastinate_app.run_worker_async(
-            queues=["greenhouse_fetch", "ashby_fetch", "eightfold_fetch"],
-            concurrency=5,
-        )
-    )
+    async def _supervised_worker() -> None:
+        # run_worker_async returns with RunTaskError when any of its
+        # concurrency=N sub-coroutines dies — e.g. when the connector pool
+        # times out during a Railway DNS blip. Without supervision the
+        # lifespan-spawned task ends and close-detection pauses until the
+        # next process restart. See
+        # docs/incidents/2026-05-19-procrastinate-worker-died-on-dns-blip.md.
+        backoff = 1.0
+        max_backoff = 60.0
+        while True:
+            try:
+                await procrastinate_app.run_worker_async(
+                    queues=[
+                        "greenhouse_fetch",
+                        "ashby_fetch",
+                        "lever_fetch",
+                        "gem_fetch",
+                        "eightfold_fetch",
+                    ],
+                    concurrency=5,
+                )
+                return
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception(
+                    "Procrastinate worker crashed; restarting in %.1fs",
+                    backoff,
+                )
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, max_backoff)
+
+    worker_task = asyncio.create_task(_supervised_worker())
     worker_task.add_done_callback(_worker_task_done)
     logger.info(
         "Procrastinate worker background task started "
-        "(queues=['greenhouse_fetch', 'ashby_fetch', 'eightfold_fetch'], "
+        "(queues=['greenhouse_fetch', 'ashby_fetch', 'lever_fetch', 'gem_fetch', 'eightfold_fetch'], "
         "concurrency=5)"
     )
 

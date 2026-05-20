@@ -25,10 +25,15 @@ vi.mock('../../../config/companies', () => {
       config: { type: 'backend-scraper', companyId: 'discord' },
     },
     {
-      id: 'leverco',
-      name: 'Lever Co',
-      ats: 'lever' as const,
-      config: { type: 'lever', companyId: 'leverco', jobsUrl: 'https://jobs.lever.co/leverco' },
+      id: 'gemco',
+      name: 'Gem Co',
+      ats: 'workday' as const,
+      config: {
+        type: 'workday',
+        baseUrl: 'https://gemco.wd5.myworkdayjobs.com',
+        tenantSlug: 'gemco',
+        careerSiteSlug: 'GemCoCareerSite',
+      },
     },
   ];
   return {
@@ -85,13 +90,14 @@ describe('jobsApi getAllJobs partitioning', () => {
           ],
         });
       }
-      // Lever proxy — return an empty Lever shape so the lever client
-      // doesn't error. baseClient expects an array.
+      // Workday proxy — return an empty Workday shape so the workday
+      // client doesn't error. The workday client reads `total` and
+      // `jobPostings` off the response.
       return Promise.resolve({
         ok: true,
         status: 200,
         statusText: 'OK',
-        json: async () => [],
+        json: async () => ({ total: 0, jobPostings: [], facets: [], userAuthenticated: false }),
       });
     });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
@@ -144,7 +150,7 @@ describe('jobsApi getAllJobs partitioning', () => {
     const data = getAllEntry?.data;
     expect(data).toBeDefined();
     expect(Object.keys(data.byCompanyId).sort()).toEqual(
-      ['airbnb', 'discord', 'leverco', 'stripe'].sort()
+      ['airbnb', 'discord', 'gemco', 'stripe'].sort()
     );
     expect(data.byCompanyId.stripe.length).toBe(1);
     expect(data.byCompanyId.airbnb.length).toBe(1);

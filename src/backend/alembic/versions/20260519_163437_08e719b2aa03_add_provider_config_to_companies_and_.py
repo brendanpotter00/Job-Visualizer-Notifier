@@ -1,7 +1,7 @@
 """add provider_config to companies and seed eightfold companies
 
 Revision ID: 08e719b2aa03
-Revises: a17b7c0ffee500
+Revises: b29c1ef8800600
 Create Date: 2026-05-19 16:34:37.883974+00:00
 
 Combined schema + data migration:
@@ -13,11 +13,18 @@ Combined schema + data migration:
    contract shared with the parallel Workday PR #123, which uses the same
    column for ``{base_url, tenant_slug, career_site_slug, default_facets?}``.
 
-   **Rebase coordination with Workday PR #123:**
-     If Workday merges first, this migration's ``op.add_column`` for
-     ``provider_config`` will conflict — the column already exists. The
-     mechanical rebase is: drop the ``op.add_column`` (and ``op.drop_column``)
-     and keep the data migration. See
+   **Rebase coordination with sibling backend-migration PRs:**
+     During the merge that brought this PR up to main, the Lever (#122) and
+     Gem (#121) seed migrations had already landed, extending the chain
+     Ashby → Lever → Gem. ``down_revision`` was rebased from
+     ``'a17b7c0ffee500'`` (Ashby) to ``'b29c1ef8800600'`` (Gem) so Alembic
+     has a single head. Neither Lever nor Gem touch ``provider_config``,
+     so the ``op.add_column`` add is still safe.
+
+     If Workday PR #123 merges first (its plan also writes
+     ``provider_config``), the mechanical rebase is: drop the
+     ``op.add_column`` (and ``op.drop_column``) and keep the data
+     migration. See
      ``docs/implementations/eightfoldBackendMigration/DEPLOY.md`` for the
      resolution procedure.
 
@@ -49,7 +56,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision: str = '08e719b2aa03'
-down_revision: Union[str, None] = 'a17b7c0ffee500'
+down_revision: Union[str, None] = 'b29c1ef8800600'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

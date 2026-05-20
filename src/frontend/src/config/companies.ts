@@ -1,8 +1,6 @@
 import type {
   BackendScraperConfig,
   Company,
-  GemConfig,
-  LeverConfig,
   WorkdayConfig,
 } from '../types';
 
@@ -15,59 +13,6 @@ interface FactoryOptions {
 
 interface WorkdayOptions extends FactoryOptions {
   defaultFacets?: Record<string, string[]>;
-}
-
-/**
- * Factory function for Lever companies.
- * Computes jobsUrl from company id.
- */
-function createLeverCompany(
-  id: string,
-  name: string,
-  options: FactoryOptions = {}
-): Company {
-  const jobsUrl = `https://jobs.lever.co/${id}`;
-  const config: LeverConfig = {
-    type: 'lever',
-    companyId: id,
-    jobsUrl,
-  };
-  return {
-    id,
-    name,
-    ats: 'lever',
-    config,
-    jobsUrl,
-    recruiterLinkedInUrl: options.recruiterLinkedInUrl,
-  };
-}
-
-interface GemOptions extends FactoryOptions {
-  vanityUrlPath?: string;
-}
-
-/**
- * Factory function for Gem companies.
- * Defaults vanityUrlPath to the company id.
- */
-function createGemCompany(
-  id: string,
-  name: string,
-  options: GemOptions = {}
-): Company {
-  const vanityUrlPath = options.vanityUrlPath ?? id;
-  const config: GemConfig = {
-    type: 'gem',
-    vanityUrlPath,
-  };
-  return {
-    id,
-    name,
-    ats: 'gem',
-    config,
-    jobsUrl: `https://jobs.gem.com/${vanityUrlPath}`,
-    recruiterLinkedInUrl: options.recruiterLinkedInUrl,
-  };
 }
 
 /**
@@ -111,7 +56,9 @@ function createBackendScraperCompany(
   id: string,
   name: string,
   jobsUrl: string,
-  options: FactoryOptions & { sourceAts?: 'ashby' | 'greenhouse' | 'eightfold' } = {}
+  options: FactoryOptions & {
+    sourceAts?: 'ashby' | 'greenhouse' | 'lever' | 'gem' | 'eightfold';
+  } = {}
 ): Company {
   const config: BackendScraperConfig = {
     type: 'backend-scraper',
@@ -316,16 +263,19 @@ export const COMPANIES: Company[] = [
     sourceAts: 'greenhouse',
   }),
 
-  // Lever companies
-  createLeverCompany('palantir', 'Palantir', {
+  // Lever companies (migrated to backend-scraper)
+  createBackendScraperCompany('palantir', 'Palantir', 'https://jobs.lever.co/palantir', {
+    sourceAts: 'lever',
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2220708%22%5D',
   }),
-  createLeverCompany('spotify', 'Spotify', {
+  createBackendScraperCompany('spotify', 'Spotify', 'https://jobs.lever.co/spotify', {
+    sourceAts: 'lever',
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22207470%22%5D',
   }),
-  createLeverCompany('zoox', 'Zoox', {
+  createBackendScraperCompany('zoox', 'Zoox', 'https://jobs.lever.co/zoox', {
+    sourceAts: 'lever',
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring+software+engineer&origin=FACETED_SEARCH',
   }),
@@ -492,10 +442,27 @@ export const COMPANIES: Company[] = [
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%222684737%22%5D',
   }),
 
-  // Gem companies
-  createGemCompany('nominal', 'Nominal'),
-  createGemCompany('retool', 'Retool'),
-  createGemCompany('gem', 'Gem'),
+  // Gem (backend-scraper) — backend Procrastinate worker fetches from
+  // api.gem.com/job_board/v0/<id>/job_posts/ on a 30-min cron. See
+  // docs/implementations/gemBackendMigration/PLAN.md.
+  createBackendScraperCompany(
+    'nominal',
+    'Nominal',
+    'https://jobs.gem.com/nominal',
+    { sourceAts: 'gem' }
+  ),
+  createBackendScraperCompany(
+    'retool',
+    'Retool',
+    'https://jobs.gem.com/retool',
+    { sourceAts: 'gem' }
+  ),
+  createBackendScraperCompany(
+    'gem',
+    'Gem',
+    'https://jobs.gem.com/gem',
+    { sourceAts: 'gem' }
+  ),
 
   // Workday companies
   createWorkdayCompany(

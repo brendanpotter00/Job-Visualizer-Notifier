@@ -5,16 +5,8 @@
   "outputDirectory": "src/frontend/dist",
   "rewrites": [
     {
-      "source": "/api/lever/:path(.*)",
-      "destination": "/api/lever?path=:path"
-    },
-    {
       "source": "/api/workday/:path(.*)",
       "destination": "/api/workday?path=:path"
-    },
-    {
-      "source": "/api/gem/:path(.*)",
-      "destination": "/api/gem?path=:path"
     },
     {
       "source": "/api/jobs-qa",

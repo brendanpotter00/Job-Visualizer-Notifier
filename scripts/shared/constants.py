@@ -17,6 +17,8 @@ class SourceId:
     MICROSOFT: Final[str] = "microsoft_scraper"
     GREENHOUSE: Final[str] = "greenhouse_api"
     ASHBY: Final[str] = "ashby_api"
+    LEVER: Final[str] = "lever_api"
+    GEM: Final[str] = "gem_api"
     # ``_api`` suffix mirrors Greenhouse + Ashby (frozen contract).
     # Asymmetric with the parallel Workday migration which uses bare ``"workday"``;
     # both literals are frozen by their respective migrations.
