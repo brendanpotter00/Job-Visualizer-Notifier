@@ -25,10 +25,15 @@ vi.mock('../../../config/companies', () => {
       config: { type: 'backend-scraper', companyId: 'discord' },
     },
     {
-      id: 'leverco',
-      name: 'Lever Co',
-      ats: 'lever' as const,
-      config: { type: 'lever', companyId: 'leverco', jobsUrl: 'https://jobs.lever.co/leverco' },
+      id: 'gemco',
+      name: 'Gem Co',
+      ats: 'eightfold' as const,
+      config: {
+        type: 'eightfold',
+        companyId: 'gemco',
+        tenantHost: 'gemco.eightfold.ai',
+        domain: 'gemco.com',
+      },
     },
   ];
   return {
@@ -85,13 +90,14 @@ describe('jobsApi getAllJobs partitioning', () => {
           ],
         });
       }
-      // Lever proxy — return an empty Lever shape so the lever client
-      // doesn't error. baseClient expects an array.
+      // Eightfold proxy — return an empty Eightfold shape so the eightfold
+      // client doesn't error. The eightfold client reads `positions` and
+      // `count` off the response.
       return Promise.resolve({
         ok: true,
         status: 200,
         statusText: 'OK',
-        json: async () => [],
+        json: async () => ({ positions: [], count: 0 }),
       });
     });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
@@ -144,7 +150,7 @@ describe('jobsApi getAllJobs partitioning', () => {
     const data = getAllEntry?.data;
     expect(data).toBeDefined();
     expect(Object.keys(data.byCompanyId).sort()).toEqual(
-      ['airbnb', 'discord', 'leverco', 'stripe'].sort()
+      ['airbnb', 'discord', 'gemco', 'stripe'].sort()
     );
     expect(data.byCompanyId.stripe.length).toBe(1);
     expect(data.byCompanyId.airbnb.length).toBe(1);

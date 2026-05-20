@@ -1,7 +1,7 @@
 """add provider_config to companies and seed workday companies
 
 Revision ID: b9714f608e21
-Revises: a17b7c0ffee500
+Revises: b29c1ef8800600
 Create Date: 2026-05-19 15:43:55.335041+00:00
 
 Combined schema + data migration:
@@ -40,7 +40,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision: str = 'b9714f608e21'
-down_revision: Union[str, None] = 'a17b7c0ffee500'
+down_revision: Union[str, None] = 'b29c1ef8800600'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

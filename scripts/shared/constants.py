@@ -17,4 +17,6 @@ class SourceId:
     MICROSOFT: Final[str] = "microsoft_scraper"
     GREENHOUSE: Final[str] = "greenhouse_api"
     ASHBY: Final[str] = "ashby_api"
+    LEVER: Final[str] = "lever_api"
+    GEM: Final[str] = "gem_api"
     WORKDAY: Final[str] = "workday_api"

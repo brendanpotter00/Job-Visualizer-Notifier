@@ -1,7 +1,5 @@
 import type {
   Job,
-  LeverConfig,
-  GemConfig,
   EightfoldConfig,
   BackendScraperConfig,
 } from '../../types';
@@ -10,11 +8,7 @@ import { APIError } from '../types';
 import { logger } from '../../lib/logger';
 
 /** Union of all ATS company configuration types */
-export type ATSCompanyConfig =
-  | LeverConfig
-  | GemConfig
-  | EightfoldConfig
-  | BackendScraperConfig;
+export type ATSCompanyConfig = EightfoldConfig | BackendScraperConfig;
 
 /**
  * Configuration for creating an API client
@@ -22,7 +16,7 @@ export type ATSCompanyConfig =
  * @template TConfig - The company configuration type
  */
 export interface ClientConfig<TResponse, TConfig extends ATSCompanyConfig> {
-  /** Client name for logging (e.g., "Lever") */
+  /** Client name for logging (e.g., "Workday") */
   name: string;
 
   /** Function to build the API URL from config */
@@ -45,8 +39,11 @@ export interface ClientConfig<TResponse, TConfig extends ATSCompanyConfig> {
  * Factory function to create an API client with shared logic.
  *
  * This factory eliminates 220+ lines of code duplication across ATS clients by
- * extracting common patterns into a reusable implementation. All API clients
- * (Lever, Gem) are created using this factory.
+ * extracting common patterns into a reusable implementation. It is retained
+ * as a reusable scaffold for future ATS integrations; no production client
+ * currently consumes it (Greenhouse, Ashby, Lever, Gem, and Workday have been
+ * migrated to the backend Procrastinate worker and use `backendScraperClient`,
+ * while Eightfold uses a dedicated client for its sequential-pagination quirks).
  *
  * **Shared Logic Provided:**
  * 1. Config validation with type guards
@@ -73,23 +70,23 @@ export interface ClientConfig<TResponse, TConfig extends ATSCompanyConfig> {
  * - Extensibility: Add new ATS provider in ~15 lines
  * - Type Safety: Generic types ensure correct configuration
  *
- * @template TResponse - Raw API response type (e.g., LeverAPIResponse)
- * @template TConfig - Company configuration type (e.g., LeverConfig)
+ * @template TResponse - Raw API response type (e.g., GemAPIResponse)
+ * @template TConfig - Company configuration type (e.g., GemConfig)
  *
  * @param clientConfig - Configuration object defining client-specific behavior
  * @returns JobAPIClient implementation with fetchJobs method
  *
  * @example
  * ```typescript
- * // Creating a Lever client (~15 lines vs 74 lines before)
- * export const leverClient = createAPIClient<LeverAPIResponse, LeverConfig>({
- *   name: 'Lever',
- *   buildUrl: (config) => `${config.apiBaseUrl}/v0/postings/${config.companyId}`,
+ * // Creating a Gem client (~15 lines vs 74 lines before)
+ * export const gemClient = createAPIClient<GemAPIResponse, GemConfig>({
+ *   name: 'Gem',
+ *   buildUrl: (config) => `${config.apiBaseUrl}/job_board/v0/${config.vanityUrlPath}/job_posts/`,
  *   extractJobs: (response) => response,
- *   transformer: transformLeverJob,
- *   getIdentifier: (config) => config.companyId,
- *   validateConfig: (config): config is LeverConfig =>
- *     config.type === 'lever',
+ *   transformer: transformGemJob,
+ *   getIdentifier: (config) => config.vanityUrlPath,
+ *   validateConfig: (config): config is GemConfig =>
+ *     config.type === 'gem',
  * });
  * ```
  *
@@ -147,11 +144,7 @@ export function createAPIClient<TResponse, TConfig extends ATSCompanyConfig>(
           throw new APIError(
             `${clientConfig.name} API error: ${response.statusText}`,
             response.status,
-            config.type as
-              | 'lever'
-              | 'gem'
-              | 'eightfold'
-              | 'backend-scraper',
+            config.type as 'eightfold' | 'backend-scraper',
             response.status >= 500 || response.status === 429
           );
         }
@@ -195,11 +188,7 @@ export function createAPIClient<TResponse, TConfig extends ATSCompanyConfig>(
         throw new APIError(
           `Failed to fetch ${clientConfig.name} jobs: ${(error as Error).message}`,
           undefined,
-          config.type as
-            | 'lever'
-            | 'gem'
-            | 'eightfold'
-            | 'backend-scraper',
+          config.type as 'eightfold' | 'backend-scraper',
           true // Assume retryable for network/unknown errors
         );
       }

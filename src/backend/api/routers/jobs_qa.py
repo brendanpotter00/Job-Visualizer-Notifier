@@ -13,10 +13,14 @@ from ..models import COMPANY_PATTERN, JobsStatsResponse, CompanyCountResponse, S
 from ..services.database import get_stats, get_scrape_runs
 from ..services.scraper_lock import scraper_lock
 from ..tasks.enqueue_ashby_fan_out import enqueue_ashby_fan_out
+from ..tasks.enqueue_gem_fan_out import enqueue_gem_fan_out
 from ..tasks.enqueue_greenhouse_fan_out import enqueue_greenhouse_fan_out
+from ..tasks.enqueue_lever_fan_out import enqueue_lever_fan_out
 from ..tasks.enqueue_workday_fan_out import enqueue_workday_fan_out
 from ..tasks.fetch_ashby_company import fetch_ashby_company
+from ..tasks.fetch_gem_company import fetch_gem_company
 from ..tasks.fetch_greenhouse_company import fetch_greenhouse_company
+from ..tasks.fetch_lever_company import fetch_lever_company
 from ..tasks.fetch_workday_company import fetch_workday_company
 
 logger = logging.getLogger(__name__)
@@ -330,6 +334,238 @@ async def trigger_ashby_fan_out(
         status_code=202,
         content={
             "message": "enqueue_ashby_fan_out deferred",
+            "already_enqueued": False,
+        },
+    )
+
+
+@router.post("/trigger-gem-fetch")
+async def trigger_gem_fetch(
+    company_id: str = Query(
+        ...,
+        pattern=COMPANY_PATTERN,
+        description="Company id (e.g. 'retool'). Must exist in companies table with ats='gem' and enabled=true.",
+    ),
+    db: Connection = Depends(get_db),
+    _admin: TokenClaims = Depends(require_admin),
+):
+    """Manually defer a single fetch_gem_company task.
+
+    Looks up the company in the companies table to (a) defend against
+    typos in manual triggers and (b) source the canonical board_token
+    rather than trusting a query param.
+
+    Returns 202 on successful defer, 202 with already_enqueued=true if
+    a prior run for the same company is still pending/running, or 404
+    if the company is unknown / disabled / not gem.
+
+    Uses the shared bounded `ThreadedConnectionPool` via `Depends(get_db)`
+    rather than a fresh connection so concurrent QA spam can't blow past
+    `db_pool_max` and exhaust prod `max_connections`.
+    """
+    cur = db.cursor()
+    cur.execute(
+        "SELECT id, board_token FROM companies "
+        "WHERE id = %s AND ats = 'gem' AND enabled = true",
+        (company_id,),
+    )
+    row = cur.fetchone()
+
+    if row is None:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "detail": (
+                    f"No enabled gem company with id={company_id!r}"
+                ),
+            },
+        )
+
+    board_token = row["board_token"]
+
+    try:
+        await fetch_gem_company.configure(
+            queueing_lock=f"gem:{company_id}",
+        ).defer_async(
+            company_id=company_id,
+            board_token=board_token,
+        )
+    except procrastinate_exceptions.AlreadyEnqueued:
+        logger.info(
+            "trigger-gem-fetch: fetch_gem_company already "
+            "enqueued for %s; manual trigger collapsed by queueing_lock",
+            company_id,
+        )
+        return JSONResponse(
+            status_code=202,
+            content={
+                "message": (
+                    f"fetch_gem_company already in flight for "
+                    f"{company_id}; manual trigger deduped"
+                ),
+                "company_id": company_id,
+                "already_enqueued": True,
+            },
+        )
+
+    return JSONResponse(
+        status_code=202,
+        content={
+            "message": f"fetch_gem_company deferred for {company_id}",
+            "company_id": company_id,
+            "already_enqueued": False,
+        },
+    )
+
+
+@router.post("/trigger-gem-fan-out")
+async def trigger_gem_fan_out(
+    _admin: TokenClaims = Depends(require_admin),
+):
+    """Manually defer the enqueue_gem_fan_out task.
+
+    The fan-out task does not carry a queueing lock (per-company locks
+    live on the children). We catch AlreadyEnqueued defensively so a
+    future decision to add a fan-out lock won't break this endpoint.
+    """
+    try:
+        await enqueue_gem_fan_out.defer_async(timestamp=0)
+    except procrastinate_exceptions.AlreadyEnqueued:
+        logger.info(
+            "trigger-gem-fan-out: enqueue_gem_fan_out "
+            "already enqueued; manual trigger collapsed"
+        )
+        return JSONResponse(
+            status_code=202,
+            content={
+                "message": (
+                    "enqueue_gem_fan_out already enqueued; "
+                    "manual trigger deduped"
+                ),
+                "already_enqueued": True,
+            },
+        )
+
+    return JSONResponse(
+        status_code=202,
+        content={
+            "message": "enqueue_gem_fan_out deferred",
+            "already_enqueued": False,
+        },
+    )
+
+
+@router.post("/trigger-lever-fetch")
+async def trigger_lever_fetch(
+    company_id: str = Query(
+        ...,
+        pattern=COMPANY_PATTERN,
+        description="Company id (e.g. 'palantir'). Must exist in companies table with ats='lever' and enabled=true.",
+    ),
+    db: Connection = Depends(get_db),
+    _admin: TokenClaims = Depends(require_admin),
+):
+    """Manually defer a single fetch_lever_company task.
+
+    Looks up the company in the companies table to (a) defend against
+    typos in manual triggers and (b) source the canonical board_token
+    rather than trusting a query param.
+
+    Returns 202 on successful defer, 202 with already_enqueued=true if
+    a prior run for the same company is still pending/running, or 404
+    if the company is unknown / disabled / not lever.
+
+    Uses the shared bounded `ThreadedConnectionPool` via `Depends(get_db)`
+    rather than a fresh connection so concurrent QA spam can't blow past
+    `db_pool_max` and exhaust prod `max_connections`.
+    """
+    cur = db.cursor()
+    cur.execute(
+        "SELECT id, board_token FROM companies "
+        "WHERE id = %s AND ats = 'lever' AND enabled = true",
+        (company_id,),
+    )
+    row = cur.fetchone()
+
+    if row is None:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "detail": (
+                    f"No enabled lever company with id={company_id!r}"
+                ),
+            },
+        )
+
+    board_token = row["board_token"]
+
+    try:
+        await fetch_lever_company.configure(
+            queueing_lock=f"lever:{company_id}",
+        ).defer_async(
+            company_id=company_id,
+            board_token=board_token,
+        )
+    except procrastinate_exceptions.AlreadyEnqueued:
+        logger.info(
+            "trigger-lever-fetch: fetch_lever_company already "
+            "enqueued for %s; manual trigger collapsed by queueing_lock",
+            company_id,
+        )
+        return JSONResponse(
+            status_code=202,
+            content={
+                "message": (
+                    f"fetch_lever_company already in flight for "
+                    f"{company_id}; manual trigger deduped"
+                ),
+                "company_id": company_id,
+                "already_enqueued": True,
+            },
+        )
+
+    return JSONResponse(
+        status_code=202,
+        content={
+            "message": f"fetch_lever_company deferred for {company_id}",
+            "company_id": company_id,
+            "already_enqueued": False,
+        },
+    )
+
+
+@router.post("/trigger-lever-fan-out")
+async def trigger_lever_fan_out(
+    _admin: TokenClaims = Depends(require_admin),
+):
+    """Manually defer the enqueue_lever_fan_out task.
+
+    The fan-out task does not carry a queueing lock (per-company locks
+    live on the children). We catch AlreadyEnqueued defensively so a
+    future decision to add a fan-out lock won't break this endpoint.
+    """
+    try:
+        await enqueue_lever_fan_out.defer_async(timestamp=0)
+    except procrastinate_exceptions.AlreadyEnqueued:
+        logger.info(
+            "trigger-lever-fan-out: enqueue_lever_fan_out "
+            "already enqueued; manual trigger collapsed"
+        )
+        return JSONResponse(
+            status_code=202,
+            content={
+                "message": (
+                    "enqueue_lever_fan_out already enqueued; "
+                    "manual trigger deduped"
+                ),
+                "already_enqueued": True,
+            },
+        )
+
+    return JSONResponse(
+        status_code=202,
+        content={
+            "message": "enqueue_lever_fan_out deferred",
             "already_enqueued": False,
         },
     )
