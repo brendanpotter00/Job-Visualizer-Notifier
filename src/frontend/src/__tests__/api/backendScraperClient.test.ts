@@ -44,7 +44,7 @@ describe('fetchJobsForCompanies (batched backend scraper)', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('issues exactly one /api/jobs call regardless of company count', async () => {
+  it('fits in a single call when company count is at or below the chunk size', async () => {
     fetchMock.mockResolvedValueOnce({
       ok: true,
       status: 200,
@@ -60,6 +60,70 @@ describe('fetchJobsForCompanies (batched backend scraper)', () => {
     expect(url).toContain('companies=stripe%2Cairbnb%2Cdiscord');
     expect(url).toContain('status=OPEN');
     expect(url).toContain('limit=50000');
+  });
+
+  it('splits requests into chunks of 50 when count exceeds chunk size', async () => {
+    const ids = Array.from({ length: 102 }, (_, i) => `co${i}`);
+    for (let i = 0; i < 3; i++) {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        json: async () => [],
+      });
+    }
+
+    const result = await fetchJobsForCompanies(ids);
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    const urls = fetchMock.mock.calls.map(([u]) => decodeURIComponent(String(u)));
+    // Each call covers a disjoint slice of ids (50 + 50 + 2).
+    expect(urls[0]).toContain('companies=co0,co1,');
+    expect(urls[0]).toContain(',co49&');
+    expect(urls[1]).toContain('companies=co50,co51,');
+    expect(urls[1]).toContain(',co99&');
+    expect(urls[2]).toContain('companies=co100,co101&');
+    // All 102 ids are keys in the merged result.
+    expect(Object.keys(result).length).toBe(102);
+  });
+
+  it('issues exactly two calls at 51 companies (boundary check)', async () => {
+    const ids = Array.from({ length: 51 }, (_, i) => `co${i}`);
+    for (let i = 0; i < 2; i++) {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        json: async () => [],
+      });
+    }
+
+    await fetchJobsForCompanies(ids);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects when any chunk fails (Promise.all semantics)', async () => {
+    const ids = Array.from({ length: 102 }, (_, i) => `co${i}`);
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      json: async () => [],
+    });
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      statusText: 'Server Error',
+      json: async () => ({}),
+    });
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      json: async () => [],
+    });
+
+    await expect(fetchJobsForCompanies(ids)).rejects.toBeInstanceOf(APIError);
   });
 
   it('groups response rows by company id', async () => {

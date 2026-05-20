@@ -225,8 +225,8 @@ def test_get_jobs_rejects_both_company_and_companies(client):
 
 
 def test_get_jobs_companies_rejects_too_many_ids(client):
-    # 101 distinct ids
-    ids = ",".join(f"co{i}" for i in range(101))
+    # 151 distinct ids (one over the 150 cap)
+    ids = ",".join(f"co{i}" for i in range(151))
     resp = client.get("/api/jobs", params={"companies": ids})
     assert resp.status_code == 400
 
