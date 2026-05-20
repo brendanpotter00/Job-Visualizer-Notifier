@@ -83,23 +83,6 @@ const mockBackendJobs = [
   },
 ];
 
-const mockLeverJobs = [
-  {
-    id: 'spotify-1',
-    text: 'Backend Engineer',
-    hostedUrl: 'https://jobs.lever.co/spotify/1',
-    categories: {
-      commitment: 'Full-time',
-      department: 'Engineering',
-      location: 'Los Angeles, CA',
-      team: 'Platform',
-    },
-    createdAt: Date.now() - 1000 * 60 * 45, // 45 min ago
-    tags: ['backend', 'node'],
-    workplaceType: 'remote',
-  },
-];
-
 // Setup MSW server
 const server = setupServer(
   http.get('/api/jobs', ({ request }) => {
@@ -107,10 +90,9 @@ const server = setupServer(
     if (url.searchParams.get('company') === 'spacex') {
       return HttpResponse.json(mockBackendJobs);
     }
+    // All other companies (including spotify, now migrated to
+    // backend-scraper) go through /api/jobs.
     return HttpResponse.json([]);
-  }),
-  http.get('/api/lever/v0/postings/spotify', () => {
-    return HttpResponse.json(mockLeverJobs);
   })
 );
 
