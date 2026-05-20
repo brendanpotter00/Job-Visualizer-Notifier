@@ -1,6 +1,5 @@
 import type {
   Job,
-  GemConfig,
   WorkdayConfig,
   EightfoldConfig,
   BackendScraperConfig,
@@ -11,7 +10,6 @@ import { logger } from '../../lib/logger';
 
 /** Union of all ATS company configuration types */
 export type ATSCompanyConfig =
-  | GemConfig
   | WorkdayConfig
   | EightfoldConfig
   | BackendScraperConfig;
@@ -22,7 +20,7 @@ export type ATSCompanyConfig =
  * @template TConfig - The company configuration type
  */
 export interface ClientConfig<TResponse, TConfig extends ATSCompanyConfig> {
-  /** Client name for logging (e.g., "Lever") */
+  /** Client name for logging (e.g., "Workday") */
   name: string;
 
   /** Function to build the API URL from config */
@@ -46,7 +44,7 @@ export interface ClientConfig<TResponse, TConfig extends ATSCompanyConfig> {
  *
  * This factory eliminates 220+ lines of code duplication across ATS clients by
  * extracting common patterns into a reusable implementation. All API clients
- * (Lever, Gem, Workday) are created using this factory.
+ * (Workday) are created using this factory.
  *
  * **Shared Logic Provided:**
  * 1. Config validation with type guards
@@ -148,7 +146,6 @@ export function createAPIClient<TResponse, TConfig extends ATSCompanyConfig>(
             `${clientConfig.name} API error: ${response.statusText}`,
             response.status,
             config.type as
-              | 'gem'
               | 'workday'
               | 'eightfold'
               | 'backend-scraper',
@@ -196,7 +193,6 @@ export function createAPIClient<TResponse, TConfig extends ATSCompanyConfig>(
           `Failed to fetch ${clientConfig.name} jobs: ${(error as Error).message}`,
           undefined,
           config.type as
-            | 'gem'
             | 'workday'
             | 'eightfold'
             | 'backend-scraper',

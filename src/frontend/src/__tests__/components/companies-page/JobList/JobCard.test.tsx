@@ -102,7 +102,7 @@ describe('JobCard', () => {
   it('handles job with no optional fields', () => {
     const minimalJob: Job = {
       id: '2',
-      source: 'gem',
+      source: 'backend-scraper',
       company: 'spotify',
       title: 'Engineer',
       createdAt: new Date().toISOString(),

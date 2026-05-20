@@ -42,7 +42,11 @@ PREV_HEAD = "2da4b99b39ea"
 ASHBY_SEED_REV = "a17b7c0ffee500"
 ASHBY_PREV_HEAD = "ebb479b7eed5"
 LEVER_SEED_REV = "b29cd1eef0aab1"
-LEVER_PREV_HEAD = "a17b7c0ffee500"
+LEVER_PREV_HEAD = ASHBY_SEED_REV
+GEM_SEED_REV = "b29c1ef8800600"
+# GEM_PREV_HEAD is the Lever seed — Gem chains directly off Lever
+# (Lever landed on main first, so the chain is Ashby → Lever → Gem).
+GEM_PREV_HEAD = LEVER_SEED_REV
 
 
 def _is_prod_like(url: str) -> bool:
@@ -91,6 +95,15 @@ def _ashby_row_count(conn) -> int:
 def _lever_row_count(conn) -> int:
     cur = conn.cursor()
     cur.execute("SELECT count(*) AS c FROM companies WHERE ats = 'lever'")
+    row = cur.fetchone()
+    if row is None:
+        return 0
+    return int(row["c"]) if isinstance(row, dict) else int(row[0])
+
+
+def _gem_row_count(conn) -> int:
+    cur = conn.cursor()
+    cur.execute("SELECT count(*) AS c FROM companies WHERE ats = 'gem'")
     row = cur.fetchone()
     if row is None:
         return 0
@@ -801,6 +814,273 @@ def test_lever_seed_migration_preserves_pre_existing_rows(
             assert _greenhouse_row_count(verify) == 45, (
                 "Greenhouse rows were wiped by lever seed downgrade — "
                 "downgrade must scope DELETE to ats='lever'"
+            )
+        finally:
+            verify.close()
+
+    finally:
+        try:
+            maint = psycopg2.connect(maintenance_url, cursor_factory=RealDictCursor)
+            maint.autocommit = True
+            maint_cur = maint.cursor()
+            maint_cur.execute(
+                "SELECT pg_terminate_backend(pid) "
+                "FROM pg_stat_activity "
+                "WHERE datname = %s AND pid <> pg_backend_pid()",
+                (roundtrip_db,),
+            )
+            maint_cur.execute(f'DROP DATABASE IF EXISTS "{roundtrip_db}"')
+            maint.close()
+        except Exception as drop_exc:
+            logging.getLogger(__name__).error(
+                "Failed to drop roundtrip test database %s during teardown: %s",
+                roundtrip_db,
+                drop_exc,
+            )
+
+
+@pytest.mark.skipif(
+    _is_prod_like(TEST_DB_URL),
+    reason="refusing to run migration roundtrip against a prod-like TEST_DATABASE_URL",
+)
+def test_gem_seed_migration_roundtrip(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Full upgrade PREV_HEAD -> LEVER_SEED_REV -> GEM_SEED_REV ->
+    downgrade -1 -> re-upgrade on a clean DB. Asserts the Gem seed
+    adds 3 rows on top of the existing Greenhouse + Ashby + Lever
+    rows, and that the downgrade is scoped to ats='gem' (other rows
+    untouched)."""
+    monkeypatch.delenv("PYTEST_SCHEMA", raising=False)
+
+    suffix = uuid.uuid4().hex[:8]
+    roundtrip_db = f"migrate_gem_{suffix}"
+
+    maintenance_url = TEST_DB_URL.rsplit("/", 1)[0] + "/postgres"
+    maint = psycopg2.connect(maintenance_url, cursor_factory=RealDictCursor)
+    maint.autocommit = True
+    maint_cur = maint.cursor()
+    maint_cur.execute(
+        "SELECT pg_terminate_backend(pid) "
+        "FROM pg_stat_activity "
+        "WHERE datname = %s AND pid <> pg_backend_pid()",
+        (roundtrip_db,),
+    )
+    maint_cur.execute(f'DROP DATABASE IF EXISTS "{roundtrip_db}"')
+    maint_cur.execute(f'CREATE DATABASE "{roundtrip_db}"')
+    maint.close()
+
+    roundtrip_url = TEST_DB_URL.rsplit("/", 1)[0] + f"/{roundtrip_db}"
+
+    try:
+        from alembic import command
+        from alembic.config import Config
+
+        cfg = Config(str(_ALEMBIC_INI))
+        cfg.set_main_option("sqlalchemy.url", roundtrip_url)
+        cfg.set_main_option("script_location", str(_SCRIPT_LOCATION))
+        cfg.config_file_name = None
+
+        # Four-step bootstrap:
+        # 1. Stamp PREV_HEAD + upgrade to SEED_REV (Greenhouse rows seeded).
+        # 2. Stamp ASHBY_PREV_HEAD + upgrade to ASHBY_SEED_REV (Ashby rows seeded).
+        # 3. Upgrade to LEVER_SEED_REV (LEVER_PREV_HEAD == ASHBY_SEED_REV).
+        # 4. Upgrade to GEM_SEED_REV (GEM_PREV_HEAD == LEVER_SEED_REV).
+        command.stamp(cfg, PREV_HEAD)
+        command.upgrade(cfg, SEED_REV)
+        command.stamp(cfg, ASHBY_PREV_HEAD)
+        command.upgrade(cfg, ASHBY_SEED_REV)
+        command.upgrade(cfg, LEVER_SEED_REV)
+        command.upgrade(cfg, GEM_SEED_REV)
+
+        verify = psycopg2.connect(roundtrip_url, cursor_factory=RealDictCursor)
+        try:
+            assert _table_exists(verify, "companies"), (
+                f"companies missing after upgrade to {GEM_SEED_REV}"
+            )
+            assert _gem_row_count(verify) == 3, (
+                f"expected 3 gem rows after seed, got "
+                f"{_gem_row_count(verify)}"
+            )
+            assert _lever_row_count(verify) == 3, (
+                f"expected 3 lever rows alongside gem seed, got "
+                f"{_lever_row_count(verify)}"
+            )
+            assert _ashby_row_count(verify) == 46, (
+                f"expected 46 ashby rows alongside gem seed, got "
+                f"{_ashby_row_count(verify)}"
+            )
+            assert _greenhouse_row_count(verify) == 45, (
+                f"expected 45 greenhouse rows alongside gem seed, got "
+                f"{_greenhouse_row_count(verify)}"
+            )
+        finally:
+            verify.close()
+
+        # Downgrade -1 (just the Gem seed). Lever, Ashby, and Greenhouse
+        # rows must survive.
+        command.downgrade(cfg, GEM_PREV_HEAD)
+
+        verify = psycopg2.connect(roundtrip_url, cursor_factory=RealDictCursor)
+        try:
+            assert _gem_row_count(verify) == 0, (
+                f"expected 0 gem rows after gem seed downgrade, got "
+                f"{_gem_row_count(verify)}"
+            )
+            assert _lever_row_count(verify) == 3, (
+                "Lever rows were wiped by gem seed downgrade — "
+                "downgrade must scope DELETE to ats='gem'"
+            )
+            assert _ashby_row_count(verify) == 46, (
+                "Ashby rows were wiped by gem seed downgrade — "
+                "downgrade must scope DELETE to ats='gem'"
+            )
+            assert _greenhouse_row_count(verify) == 45, (
+                "Greenhouse rows were wiped by gem seed downgrade — "
+                "downgrade must scope DELETE to ats='gem'"
+            )
+        finally:
+            verify.close()
+
+        # Re-upgrade. Gem seed must be idempotent.
+        command.upgrade(cfg, GEM_SEED_REV)
+
+        verify = psycopg2.connect(roundtrip_url, cursor_factory=RealDictCursor)
+        try:
+            assert _gem_row_count(verify) == 3, (
+                f"expected 3 gem rows after re-upgrade, got "
+                f"{_gem_row_count(verify)}"
+            )
+            assert _lever_row_count(verify) == 3
+            assert _ashby_row_count(verify) == 46
+            assert _greenhouse_row_count(verify) == 45
+        finally:
+            verify.close()
+
+    finally:
+        try:
+            maint = psycopg2.connect(maintenance_url, cursor_factory=RealDictCursor)
+            maint.autocommit = True
+            maint_cur = maint.cursor()
+            maint_cur.execute(
+                "SELECT pg_terminate_backend(pid) "
+                "FROM pg_stat_activity "
+                "WHERE datname = %s AND pid <> pg_backend_pid()",
+                (roundtrip_db,),
+            )
+            maint_cur.execute(f'DROP DATABASE IF EXISTS "{roundtrip_db}"')
+            maint.close()
+        except Exception as drop_exc:
+            logging.getLogger(__name__).error(
+                "Failed to drop roundtrip test database %s during teardown: %s",
+                roundtrip_db,
+                drop_exc,
+            )
+
+
+@pytest.mark.skipif(
+    _is_prod_like(TEST_DB_URL),
+    reason="refusing to run migration roundtrip against a prod-like TEST_DATABASE_URL",
+)
+def test_gem_seed_migration_preserves_pre_existing_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A non-gem `companies` row written out-of-band must survive both
+    the upgrade-to-gem-seed AND the -1 downgrade. Guarantees the Gem
+    seed's downgrade WHERE-clause stays scoped to ats='gem'."""
+    monkeypatch.delenv("PYTEST_SCHEMA", raising=False)
+
+    suffix = uuid.uuid4().hex[:8]
+    roundtrip_db = f"migrate_gem_pre_{suffix}"
+
+    maintenance_url = TEST_DB_URL.rsplit("/", 1)[0] + "/postgres"
+    maint = psycopg2.connect(maintenance_url, cursor_factory=RealDictCursor)
+    maint.autocommit = True
+    maint_cur = maint.cursor()
+    maint_cur.execute(
+        "SELECT pg_terminate_backend(pid) "
+        "FROM pg_stat_activity "
+        "WHERE datname = %s AND pid <> pg_backend_pid()",
+        (roundtrip_db,),
+    )
+    maint_cur.execute(f'DROP DATABASE IF EXISTS "{roundtrip_db}"')
+    maint_cur.execute(f'CREATE DATABASE "{roundtrip_db}"')
+    maint.close()
+
+    roundtrip_url = TEST_DB_URL.rsplit("/", 1)[0] + f"/{roundtrip_db}"
+
+    try:
+        from alembic import command
+        from alembic.config import Config
+
+        cfg = Config(str(_ALEMBIC_INI))
+        cfg.set_main_option("sqlalchemy.url", roundtrip_url)
+        cfg.set_main_option("script_location", str(_SCRIPT_LOCATION))
+        cfg.config_file_name = None
+
+        command.stamp(cfg, PREV_HEAD)
+        command.upgrade(cfg, SEED_REV)
+        command.stamp(cfg, ASHBY_PREV_HEAD)
+        command.upgrade(cfg, ASHBY_SEED_REV)
+        command.upgrade(cfg, LEVER_SEED_REV)
+
+        # Inject a pre-existing workday row before the Gem seed runs.
+        seed_conn = psycopg2.connect(roundtrip_url, cursor_factory=RealDictCursor)
+        seed_conn.autocommit = True
+        try:
+            seed_cur = seed_conn.cursor()
+            seed_cur.execute(
+                "INSERT INTO companies (id, display_name, ats, board_token) "
+                "VALUES (%s, %s, %s, %s)",
+                ("preexisting_workday_co3", "Pre-Existing", "workday", "preexisting"),
+            )
+        finally:
+            seed_conn.close()
+
+        command.upgrade(cfg, GEM_SEED_REV)
+
+        verify = psycopg2.connect(roundtrip_url, cursor_factory=RealDictCursor)
+        try:
+            cur = verify.cursor()
+            cur.execute(
+                "SELECT count(*) AS c FROM companies WHERE id = %s",
+                ("preexisting_workday_co3",),
+            )
+            row = cur.fetchone()
+            assert row["c"] == 1, "pre-existing workday row was wiped by gem seed upgrade"
+            assert _gem_row_count(verify) == 3
+            assert _lever_row_count(verify) == 3
+            assert _ashby_row_count(verify) == 46
+            assert _greenhouse_row_count(verify) == 45
+        finally:
+            verify.close()
+
+        command.downgrade(cfg, GEM_PREV_HEAD)
+
+        verify = psycopg2.connect(roundtrip_url, cursor_factory=RealDictCursor)
+        try:
+            cur = verify.cursor()
+            cur.execute(
+                "SELECT count(*) AS c FROM companies WHERE id = %s",
+                ("preexisting_workday_co3",),
+            )
+            row = cur.fetchone()
+            assert row["c"] == 1, (
+                "pre-existing workday row was wiped by gem seed downgrade — "
+                "downgrade must scope DELETE to ats='gem', not TRUNCATE"
+            )
+            assert _gem_row_count(verify) == 0
+            assert _lever_row_count(verify) == 3, (
+                "Lever rows were wiped by gem seed downgrade — "
+                "downgrade must scope DELETE to ats='gem'"
+            )
+            assert _ashby_row_count(verify) == 46, (
+                "Ashby rows were wiped by gem seed downgrade — "
+                "downgrade must scope DELETE to ats='gem'"
+            )
+            assert _greenhouse_row_count(verify) == 45, (
+                "Greenhouse rows were wiped by gem seed downgrade — "
+                "downgrade must scope DELETE to ats='gem'"
             )
         finally:
             verify.close()

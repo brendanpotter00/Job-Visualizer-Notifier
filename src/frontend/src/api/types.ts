@@ -1,32 +1,9 @@
 import type {
   Job,
-  GemConfig,
   WorkdayConfig,
   EightfoldConfig,
   BackendScraperConfig,
 } from '../types';
-
-/**
- * Gem job board API response
- * @see https://api.gem.com/job_board/v0/reference
- */
-export interface GemJobResponse {
-  id: string;
-  title: string;
-  absolute_url: string;
-  content: string;
-  content_plain: string;
-  created_at: string;
-  updated_at: string;
-  first_published_at: string | null;
-  employment_type: string | null;
-  location_type: string | null;
-  location: { name: string } | null;
-  departments: Array<{ id: string; name: string }>;
-  offices: Array<{ id: string; name: string; location?: { name: string } }>;
-  internal_job_id: string;
-  requisition_id: string;
-}
 
 /**
  * Workday job posting from API response
@@ -196,7 +173,6 @@ export interface JobAPIClient {
    */
   fetchJobs(
     config:
-      | GemConfig
       | WorkdayConfig
       | EightfoldConfig
       | BackendScraperConfig,
@@ -231,7 +207,6 @@ export class APIError extends Error {
     message: string,
     public statusCode?: number,
     public atsProvider?:
-      | 'gem'
       | 'workday'
       | 'eightfold'
       | 'backend-scraper',
@@ -244,7 +219,6 @@ export class APIError extends Error {
 
 export enum ATSConstants {
   Workday = 'workday',
-  Gem = 'gem',
   Eightfold = 'eightfold',
   BackendScraper = 'backend-scraper',
 }

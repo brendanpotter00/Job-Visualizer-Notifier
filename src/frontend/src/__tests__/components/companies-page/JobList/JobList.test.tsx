@@ -16,7 +16,7 @@ describe('JobList', () => {
     },
     {
       id: '2',
-      source: 'gem',
+      source: 'backend-scraper',
       company: 'spotify',
       title: 'Backend Engineer',
       createdAt: new Date().toISOString(),

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createAPIClient } from '../../api/clients/baseClient';
-import type { Job, GemConfig } from '../../types';
+import type { Job, BackendScraperConfig } from '../../types';
 import { APIError } from '../../api/types';
 
 describe('createAPIClient', () => {
@@ -15,20 +15,20 @@ describe('createAPIClient', () => {
   it('should create a client with fetchJobs method', () => {
     const client = createAPIClient({
       name: 'Test',
-      buildUrl: (config: GemConfig) => `https://api.test.com/${config.vanityUrlPath}`,
+      buildUrl: (config: BackendScraperConfig) => `https://api.test.com/${config.companyId}`,
       extractJobs: (response: any) => response.jobs,
       transformer: (job: any, identifier: string) =>
         ({
           id: job.id,
-          source: 'gem',
+          source: 'backend-scraper',
           company: identifier,
           title: job.title,
           createdAt: job.createdAt,
           url: job.url,
           raw: job,
         }) as Job,
-      getIdentifier: (config: GemConfig) => config.vanityUrlPath,
-      validateConfig: (config): config is GemConfig => config.type === 'gem',
+      getIdentifier: (config: BackendScraperConfig) => config.companyId,
+      validateConfig: (config): config is BackendScraperConfig => config.type === 'backend-scraper',
     });
 
     expect(client).toHaveProperty('fetchJobs');
@@ -38,18 +38,21 @@ describe('createAPIClient', () => {
   it('should throw error for invalid config type', async () => {
     const client = createAPIClient({
       name: 'Test',
-      buildUrl: (config: GemConfig) => `https://api.test.com/${config.vanityUrlPath}`,
+      buildUrl: (config: BackendScraperConfig) => `https://api.test.com/${config.companyId}`,
       extractJobs: (response: any) => response.jobs,
       transformer: (_job: any) => ({}) as Job,
-      getIdentifier: (config: GemConfig) => config.vanityUrlPath,
-      validateConfig: (config): config is GemConfig => config.type === 'gem',
+      getIdentifier: (config: BackendScraperConfig) => config.companyId,
+      validateConfig: (config): config is BackendScraperConfig => config.type === 'backend-scraper',
     });
 
+    // Use a workday-shaped config to test that a backend-scraper-only
+    // test client rejects mismatched types. Any non-backend-scraper
+    // member of the ATSCompanyConfig union works.
     const invalidConfig = {
       type: 'workday' as const,
-      baseUrl: 'https://example.com',
-      tenantSlug: 'tenant',
-      careerSiteSlug: 'site',
+      baseUrl: 'https://example.workday.com',
+      tenantSlug: 'example',
+      careerSiteSlug: 'CareerSite',
     };
 
     await expect(client.fetchJobs(invalidConfig)).rejects.toThrow(
@@ -71,23 +74,23 @@ describe('createAPIClient', () => {
 
     const client = createAPIClient({
       name: 'Test',
-      buildUrl: (config: GemConfig) => `https://api.test.com/${config.vanityUrlPath}`,
+      buildUrl: (config: BackendScraperConfig) => `https://api.test.com/${config.companyId}`,
       extractJobs: (response: any) => response.jobs,
       transformer: (job: any, identifier: string) =>
         ({
           id: job.id,
-          source: 'gem' as const,
+          source: 'backend-scraper' as const,
           company: identifier,
           title: job.title,
           createdAt: job.createdAt,
           url: job.url,
           raw: job,
         }) as Job,
-      getIdentifier: (config: GemConfig) => config.vanityUrlPath,
-      validateConfig: (config): config is GemConfig => config.type === 'gem',
+      getIdentifier: (config: BackendScraperConfig) => config.companyId,
+      validateConfig: (config): config is BackendScraperConfig => config.type === 'backend-scraper',
     });
 
-    const config: GemConfig = { type: 'gem', vanityUrlPath: 'test-token' };
+    const config: BackendScraperConfig = { type: 'backend-scraper', companyId: 'test-token' };
     const result = await client.fetchJobs(config);
 
     expect(result.jobs).toHaveLength(2);
@@ -111,23 +114,23 @@ describe('createAPIClient', () => {
 
     const client = createAPIClient({
       name: 'Test',
-      buildUrl: (config: GemConfig) => `https://api.test.com/${config.vanityUrlPath}`,
+      buildUrl: (config: BackendScraperConfig) => `https://api.test.com/${config.companyId}`,
       extractJobs: (response: any) => response.jobs,
       transformer: (job: any, identifier: string) =>
         ({
           id: job.id,
-          source: 'gem' as const,
+          source: 'backend-scraper' as const,
           company: identifier,
           title: 'Test',
           createdAt: job.createdAt,
           url: 'http://test.com',
           raw: job,
         }) as Job,
-      getIdentifier: (config: GemConfig) => config.vanityUrlPath,
-      validateConfig: (config): config is GemConfig => config.type === 'gem',
+      getIdentifier: (config: BackendScraperConfig) => config.companyId,
+      validateConfig: (config): config is BackendScraperConfig => config.type === 'backend-scraper',
     });
 
-    const config: GemConfig = { type: 'gem', vanityUrlPath: 'test-token' };
+    const config: BackendScraperConfig = { type: 'backend-scraper', companyId: 'test-token' };
     const result = await client.fetchJobs(config, { since: '2025-01-05T00:00:00Z' });
 
     expect(result.jobs).toHaveLength(2); // Only jobs from Jan 5 onwards
@@ -149,23 +152,23 @@ describe('createAPIClient', () => {
 
     const client = createAPIClient({
       name: 'Test',
-      buildUrl: (config: GemConfig) => `https://api.test.com/${config.vanityUrlPath}`,
+      buildUrl: (config: BackendScraperConfig) => `https://api.test.com/${config.companyId}`,
       extractJobs: (response: any) => response.jobs,
       transformer: (job: any, identifier: string) =>
         ({
           id: job.id,
-          source: 'gem' as const,
+          source: 'backend-scraper' as const,
           company: identifier,
           title: 'Test',
           createdAt: job.createdAt,
           url: 'http://test.com',
           raw: job,
         }) as Job,
-      getIdentifier: (config: GemConfig) => config.vanityUrlPath,
-      validateConfig: (config): config is GemConfig => config.type === 'gem',
+      getIdentifier: (config: BackendScraperConfig) => config.companyId,
+      validateConfig: (config): config is BackendScraperConfig => config.type === 'backend-scraper',
     });
 
-    const config: GemConfig = { type: 'gem', vanityUrlPath: 'test-token' };
+    const config: BackendScraperConfig = { type: 'backend-scraper', companyId: 'test-token' };
     const result = await client.fetchJobs(config, { limit: 3 });
 
     expect(result.jobs).toHaveLength(3);
@@ -182,14 +185,14 @@ describe('createAPIClient', () => {
 
     const client = createAPIClient({
       name: 'Test',
-      buildUrl: (config: GemConfig) => `https://api.test.com/${config.vanityUrlPath}`,
+      buildUrl: (config: BackendScraperConfig) => `https://api.test.com/${config.companyId}`,
       extractJobs: (response: any) => response.jobs,
       transformer: (_job: any) => ({}) as Job,
-      getIdentifier: (config: GemConfig) => config.vanityUrlPath,
-      validateConfig: (config): config is GemConfig => config.type === 'gem',
+      getIdentifier: (config: BackendScraperConfig) => config.companyId,
+      validateConfig: (config): config is BackendScraperConfig => config.type === 'backend-scraper',
     });
 
-    const config: GemConfig = { type: 'gem', vanityUrlPath: 'test-token' };
+    const config: BackendScraperConfig = { type: 'backend-scraper', companyId: 'test-token' };
 
     await expect(client.fetchJobs(config)).rejects.toThrow(APIError);
     await expect(client.fetchJobs(config)).rejects.toThrow('Test API error: Not Found');
@@ -200,14 +203,14 @@ describe('createAPIClient', () => {
 
     const client = createAPIClient({
       name: 'Test',
-      buildUrl: (config: GemConfig) => `https://api.test.com/${config.vanityUrlPath}`,
+      buildUrl: (config: BackendScraperConfig) => `https://api.test.com/${config.companyId}`,
       extractJobs: (response: any) => response.jobs,
       transformer: (_job: any) => ({}) as Job,
-      getIdentifier: (config: GemConfig) => config.vanityUrlPath,
-      validateConfig: (config): config is GemConfig => config.type === 'gem',
+      getIdentifier: (config: BackendScraperConfig) => config.companyId,
+      validateConfig: (config): config is BackendScraperConfig => config.type === 'backend-scraper',
     });
 
-    const config: GemConfig = { type: 'gem', vanityUrlPath: 'test-token' };
+    const config: BackendScraperConfig = { type: 'backend-scraper', companyId: 'test-token' };
 
     await expect(client.fetchJobs(config)).rejects.toThrow(APIError);
     await expect(client.fetchJobs(config)).rejects.toThrow(
@@ -224,14 +227,14 @@ describe('createAPIClient', () => {
 
     const client = createAPIClient({
       name: 'Test',
-      buildUrl: (config: GemConfig) => `https://api.test.com/${config.vanityUrlPath}`,
+      buildUrl: (config: BackendScraperConfig) => `https://api.test.com/${config.companyId}`,
       extractJobs: (response: any) => response.jobs,
       transformer: (_job: any) => ({}) as Job,
-      getIdentifier: (config: GemConfig) => config.vanityUrlPath,
-      validateConfig: (config): config is GemConfig => config.type === 'gem',
+      getIdentifier: (config: BackendScraperConfig) => config.companyId,
+      validateConfig: (config): config is BackendScraperConfig => config.type === 'backend-scraper',
     });
 
-    const config: GemConfig = { type: 'gem', vanityUrlPath: 'test-token' };
+    const config: BackendScraperConfig = { type: 'backend-scraper', companyId: 'test-token' };
     const controller = new AbortController();
 
     await client.fetchJobs(config, { signal: controller.signal });
@@ -259,23 +262,23 @@ describe('createAPIClient', () => {
 
       const client = createAPIClient({
         name: 'Test',
-        buildUrl: (config: GemConfig) => `https://api.test.com/${config.vanityUrlPath}`,
+        buildUrl: (config: BackendScraperConfig) => `https://api.test.com/${config.companyId}`,
         extractJobs: (response: any) => response.jobs,
         transformer: (job: any, identifier: string) =>
           ({
             id: job.id,
-            source: 'gem' as const,
+            source: 'backend-scraper' as const,
             company: identifier,
             title: 'Test',
             createdAt: job.createdAt,
             url: 'http://test.com',
             raw: job,
           }) as Job,
-        getIdentifier: (config: GemConfig) => config.vanityUrlPath,
-        validateConfig: (config): config is GemConfig => config.type === 'gem',
+        getIdentifier: (config: BackendScraperConfig) => config.companyId,
+        validateConfig: (config): config is BackendScraperConfig => config.type === 'backend-scraper',
       });
 
-      const config: GemConfig = { type: 'gem', vanityUrlPath: 'test-token' };
+      const config: BackendScraperConfig = { type: 'backend-scraper', companyId: 'test-token' };
       // Filter: since Jan 5, limit 3
       const result = await client.fetchJobs(config, {
         since: new Date(2025, 0, 5).toISOString(),
@@ -303,23 +306,23 @@ describe('createAPIClient', () => {
 
       const client = createAPIClient({
         name: 'Test',
-        buildUrl: (config: GemConfig) => `https://api.test.com/${config.vanityUrlPath}`,
+        buildUrl: (config: BackendScraperConfig) => `https://api.test.com/${config.companyId}`,
         extractJobs: (response: any) => response.jobs,
         transformer: (job: any, identifier: string) =>
           ({
             id: job.id,
-            source: 'gem' as const,
+            source: 'backend-scraper' as const,
             company: identifier,
             title: 'Test',
             createdAt: job.createdAt,
             url: 'http://test.com',
             raw: job,
           }) as Job,
-        getIdentifier: (config: GemConfig) => config.vanityUrlPath,
-        validateConfig: (config): config is GemConfig => config.type === 'gem',
+        getIdentifier: (config: BackendScraperConfig) => config.companyId,
+        validateConfig: (config): config is BackendScraperConfig => config.type === 'backend-scraper',
       });
 
-      const config: GemConfig = { type: 'gem', vanityUrlPath: 'test-token' };
+      const config: BackendScraperConfig = { type: 'backend-scraper', companyId: 'test-token' };
       // Filter: since Jan 10, limit 5 (but only 1 job matches)
       const result = await client.fetchJobs(config, {
         since: '2025-01-10T00:00:00Z',
@@ -342,14 +345,14 @@ describe('createAPIClient', () => {
 
       const client = createAPIClient({
         name: 'Test',
-        buildUrl: (config: GemConfig) => `https://api.test.com/${config.vanityUrlPath}`,
+        buildUrl: (config: BackendScraperConfig) => `https://api.test.com/${config.companyId}`,
         extractJobs: (response: any) => response.jobs,
         transformer: (_job: any) => ({}) as Job,
-        getIdentifier: (config: GemConfig) => config.vanityUrlPath,
-        validateConfig: (config): config is GemConfig => config.type === 'gem',
+        getIdentifier: (config: BackendScraperConfig) => config.companyId,
+        validateConfig: (config): config is BackendScraperConfig => config.type === 'backend-scraper',
       });
 
-      const config: GemConfig = { type: 'gem', vanityUrlPath: 'test-token' };
+      const config: BackendScraperConfig = { type: 'backend-scraper', companyId: 'test-token' };
       const result = await client.fetchJobs(config);
 
       expect(result.jobs).toHaveLength(0);
@@ -377,23 +380,23 @@ describe('createAPIClient', () => {
 
       const client = createAPIClient({
         name: 'Test',
-        buildUrl: (config: GemConfig) => `https://api.test.com/${config.vanityUrlPath}`,
+        buildUrl: (config: BackendScraperConfig) => `https://api.test.com/${config.companyId}`,
         extractJobs: (response: any) => response.jobs,
         transformer: (job: any, identifier: string) =>
           ({
             id: job.id,
-            source: 'gem' as const,
+            source: 'backend-scraper' as const,
             company: identifier,
             title: job.title,
             createdAt: job.createdAt,
             url: 'http://test.com',
             raw: job,
           }) as Job,
-        getIdentifier: (config: GemConfig) => config.vanityUrlPath,
-        validateConfig: (config): config is GemConfig => config.type === 'gem',
+        getIdentifier: (config: BackendScraperConfig) => config.companyId,
+        validateConfig: (config): config is BackendScraperConfig => config.type === 'backend-scraper',
       });
 
-      const config: GemConfig = { type: 'gem', vanityUrlPath: 'test-token' };
+      const config: BackendScraperConfig = { type: 'backend-scraper', companyId: 'test-token' };
       const result = await client.fetchJobs(config);
 
       expect(result.jobs).toHaveLength(4);
@@ -415,23 +418,23 @@ describe('createAPIClient', () => {
 
       const client = createAPIClient({
         name: 'Test',
-        buildUrl: (config: GemConfig) => `https://api.test.com/${config.vanityUrlPath}`,
+        buildUrl: (config: BackendScraperConfig) => `https://api.test.com/${config.companyId}`,
         extractJobs: (response: any) => response.jobs,
         transformer: (job: any, identifier: string) =>
           ({
             id: job.id,
-            source: 'gem' as const,
+            source: 'backend-scraper' as const,
             company: identifier,
             title: 'Test',
             createdAt: job.createdAt,
             url: 'http://test.com',
             raw: job,
           }) as Job,
-        getIdentifier: (config: GemConfig) => config.vanityUrlPath,
-        validateConfig: (config): config is GemConfig => config.type === 'gem',
+        getIdentifier: (config: BackendScraperConfig) => config.companyId,
+        validateConfig: (config): config is BackendScraperConfig => config.type === 'backend-scraper',
       });
 
-      const config: GemConfig = { type: 'gem', vanityUrlPath: 'test-token' };
+      const config: BackendScraperConfig = { type: 'backend-scraper', companyId: 'test-token' };
       const result = await client.fetchJobs(config);
 
       expect(result.jobs).toHaveLength(1500);
@@ -456,23 +459,23 @@ describe('createAPIClient', () => {
 
       const client = createAPIClient({
         name: 'Test',
-        buildUrl: (config: GemConfig) => `https://api.test.com/${config.vanityUrlPath}`,
+        buildUrl: (config: BackendScraperConfig) => `https://api.test.com/${config.companyId}`,
         extractJobs: (response: any) => response.jobs,
         transformer: (job: any, identifier: string) =>
           ({
             id: job.id,
-            source: 'gem' as const,
+            source: 'backend-scraper' as const,
             company: identifier,
             title: 'Test',
             createdAt: job.createdAt,
             url: 'http://test.com',
             raw: job,
           }) as Job,
-        getIdentifier: (config: GemConfig) => config.vanityUrlPath,
-        validateConfig: (config): config is GemConfig => config.type === 'gem',
+        getIdentifier: (config: BackendScraperConfig) => config.companyId,
+        validateConfig: (config): config is BackendScraperConfig => config.type === 'backend-scraper',
       });
 
-      const config: GemConfig = { type: 'gem', vanityUrlPath: 'test-token' };
+      const config: BackendScraperConfig = { type: 'backend-scraper', companyId: 'test-token' };
       const result = await client.fetchJobs(config, { since: sameTime });
 
       // Should include all jobs with exactly the same timestamp (inclusive)
@@ -489,14 +492,14 @@ describe('createAPIClient', () => {
 
       const client = createAPIClient({
         name: 'Test',
-        buildUrl: (config: GemConfig) => `https://api.test.com/${config.vanityUrlPath}`,
+        buildUrl: (config: BackendScraperConfig) => `https://api.test.com/${config.companyId}`,
         extractJobs: (response: any) => response.jobs || [], // Handle null/undefined
         transformer: (_job: any) => ({}) as Job,
-        getIdentifier: (config: GemConfig) => config.vanityUrlPath,
-        validateConfig: (config): config is GemConfig => config.type === 'gem',
+        getIdentifier: (config: BackendScraperConfig) => config.companyId,
+        validateConfig: (config): config is BackendScraperConfig => config.type === 'backend-scraper',
       });
 
-      const config: GemConfig = { type: 'gem', vanityUrlPath: 'test-token' };
+      const config: BackendScraperConfig = { type: 'backend-scraper', companyId: 'test-token' };
       const result = await client.fetchJobs(config);
 
       expect(result.jobs).toHaveLength(0);
@@ -514,14 +517,14 @@ describe('createAPIClient', () => {
 
       const client = createAPIClient({
         name: 'Test',
-        buildUrl: (config: GemConfig) => `https://api.test.com/${config.vanityUrlPath}`,
+        buildUrl: (config: BackendScraperConfig) => `https://api.test.com/${config.companyId}`,
         extractJobs: (response: any) => response.jobs,
         transformer: (_job: any) => ({}) as Job,
-        getIdentifier: (config: GemConfig) => config.vanityUrlPath,
-        validateConfig: (config): config is GemConfig => config.type === 'gem',
+        getIdentifier: (config: BackendScraperConfig) => config.companyId,
+        validateConfig: (config): config is BackendScraperConfig => config.type === 'backend-scraper',
       });
 
-      const config: GemConfig = { type: 'gem', vanityUrlPath: 'test-token' };
+      const config: BackendScraperConfig = { type: 'backend-scraper', companyId: 'test-token' };
 
       try {
         await client.fetchJobs(config);
@@ -542,14 +545,14 @@ describe('createAPIClient', () => {
 
       const client = createAPIClient({
         name: 'Test',
-        buildUrl: (config: GemConfig) => `https://api.test.com/${config.vanityUrlPath}`,
+        buildUrl: (config: BackendScraperConfig) => `https://api.test.com/${config.companyId}`,
         extractJobs: (response: any) => response.jobs,
         transformer: (_job: any) => ({}) as Job,
-        getIdentifier: (config: GemConfig) => config.vanityUrlPath,
-        validateConfig: (config): config is GemConfig => config.type === 'gem',
+        getIdentifier: (config: BackendScraperConfig) => config.companyId,
+        validateConfig: (config): config is BackendScraperConfig => config.type === 'backend-scraper',
       });
 
-      const config: GemConfig = { type: 'gem', vanityUrlPath: 'test-token' };
+      const config: BackendScraperConfig = { type: 'backend-scraper', companyId: 'test-token' };
 
       try {
         await client.fetchJobs(config);
@@ -570,14 +573,14 @@ describe('createAPIClient', () => {
 
       const client = createAPIClient({
         name: 'Test',
-        buildUrl: (config: GemConfig) => `https://api.test.com/${config.vanityUrlPath}`,
+        buildUrl: (config: BackendScraperConfig) => `https://api.test.com/${config.companyId}`,
         extractJobs: (response: any) => response.jobs,
         transformer: (_job: any) => ({}) as Job,
-        getIdentifier: (config: GemConfig) => config.vanityUrlPath,
-        validateConfig: (config): config is GemConfig => config.type === 'gem',
+        getIdentifier: (config: BackendScraperConfig) => config.companyId,
+        validateConfig: (config): config is BackendScraperConfig => config.type === 'backend-scraper',
       });
 
-      const config: GemConfig = { type: 'gem', vanityUrlPath: 'test-token' };
+      const config: BackendScraperConfig = { type: 'backend-scraper', companyId: 'test-token' };
 
       await expect(client.fetchJobs(config)).rejects.toThrow(APIError);
 
@@ -599,14 +602,14 @@ describe('createAPIClient', () => {
 
       const client = createAPIClient({
         name: 'Test',
-        buildUrl: (config: GemConfig) => `https://api.test.com/${config.vanityUrlPath}`,
+        buildUrl: (config: BackendScraperConfig) => `https://api.test.com/${config.companyId}`,
         extractJobs: (response: any) => response.jobs,
         transformer: (_job: any) => ({}) as Job,
-        getIdentifier: (config: GemConfig) => config.vanityUrlPath,
-        validateConfig: (config): config is GemConfig => config.type === 'gem',
+        getIdentifier: (config: BackendScraperConfig) => config.companyId,
+        validateConfig: (config): config is BackendScraperConfig => config.type === 'backend-scraper',
       });
 
-      const config: GemConfig = { type: 'gem', vanityUrlPath: 'test-token' };
+      const config: BackendScraperConfig = { type: 'backend-scraper', companyId: 'test-token' };
 
       try {
         await client.fetchJobs(config);
@@ -627,14 +630,14 @@ describe('createAPIClient', () => {
 
       const client = createAPIClient({
         name: 'Test',
-        buildUrl: (config: GemConfig) => `https://api.test.com/${config.vanityUrlPath}`,
+        buildUrl: (config: BackendScraperConfig) => `https://api.test.com/${config.companyId}`,
         extractJobs: (response: any) => response.jobs,
         transformer: (_job: any) => ({}) as Job,
-        getIdentifier: (config: GemConfig) => config.vanityUrlPath,
-        validateConfig: (config): config is GemConfig => config.type === 'gem',
+        getIdentifier: (config: BackendScraperConfig) => config.companyId,
+        validateConfig: (config): config is BackendScraperConfig => config.type === 'backend-scraper',
       });
 
-      const config: GemConfig = { type: 'gem', vanityUrlPath: 'test-token' };
+      const config: BackendScraperConfig = { type: 'backend-scraper', companyId: 'test-token' };
 
       try {
         await client.fetchJobs(config);
@@ -659,14 +662,14 @@ describe('createAPIClient', () => {
 
       const client = createAPIClient({
         name: 'Test',
-        buildUrl: (config: GemConfig) => `https://api.test.com/${config.vanityUrlPath}`,
+        buildUrl: (config: BackendScraperConfig) => `https://api.test.com/${config.companyId}`,
         extractJobs: (response: any) => response.jobs,
         transformer: (_job: any) => ({}) as Job,
-        getIdentifier: (config: GemConfig) => config.vanityUrlPath,
-        validateConfig: (config): config is GemConfig => config.type === 'gem',
+        getIdentifier: (config: BackendScraperConfig) => config.companyId,
+        validateConfig: (config): config is BackendScraperConfig => config.type === 'backend-scraper',
       });
 
-      const config: GemConfig = { type: 'gem', vanityUrlPath: 'test-token' };
+      const config: BackendScraperConfig = { type: 'backend-scraper', companyId: 'test-token' };
 
       await expect(client.fetchJobs(config)).rejects.toThrow(APIError);
       await expect(client.fetchJobs(config)).rejects.toThrow(
@@ -683,14 +686,14 @@ describe('createAPIClient', () => {
 
       const client = createAPIClient({
         name: 'Test',
-        buildUrl: (config: GemConfig) => `https://api.test.com/${config.vanityUrlPath}`,
+        buildUrl: (config: BackendScraperConfig) => `https://api.test.com/${config.companyId}`,
         extractJobs: (response: any) => response.jobs || [], // Handle missing jobs field
         transformer: (_job: any) => ({}) as Job,
-        getIdentifier: (config: GemConfig) => config.vanityUrlPath,
-        validateConfig: (config): config is GemConfig => config.type === 'gem',
+        getIdentifier: (config: BackendScraperConfig) => config.companyId,
+        validateConfig: (config): config is BackendScraperConfig => config.type === 'backend-scraper',
       });
 
-      const config: GemConfig = { type: 'gem', vanityUrlPath: 'test-token' };
+      const config: BackendScraperConfig = { type: 'backend-scraper', companyId: 'test-token' };
       const result = await client.fetchJobs(config);
 
       expect(result.jobs).toHaveLength(0);

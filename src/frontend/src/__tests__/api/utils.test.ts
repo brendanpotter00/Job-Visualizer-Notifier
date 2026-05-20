@@ -1,15 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { getClientForATS } from '../../api/utils';
-import { gemClient } from '../../api/clients/gemClient';
 import { workdayClient } from '../../api/clients/workdayClient';
 import { eightfoldClient } from '../../api/clients/eightfoldClient';
 
 describe('getClientForATS', () => {
-  it('returns gemClient for gem ATS type', () => {
-    const client = getClientForATS('gem');
-    expect(client).toBe(gemClient);
-  });
-
   it('returns workdayClient for workday ATS type', () => {
     const client = getClientForATS('workday');
     expect(client).toBe(workdayClient);
