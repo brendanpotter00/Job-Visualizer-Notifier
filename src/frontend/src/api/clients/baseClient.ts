@@ -1,7 +1,6 @@
 import type {
   Job,
   WorkdayConfig,
-  EightfoldConfig,
   BackendScraperConfig,
 } from '../../types';
 import type { JobAPIClient, FetchJobsOptions, FetchJobsResult } from '../types';
@@ -11,7 +10,6 @@ import { logger } from '../../lib/logger';
 /** Union of all ATS company configuration types */
 export type ATSCompanyConfig =
   | WorkdayConfig
-  | EightfoldConfig
   | BackendScraperConfig;
 
 /**
@@ -147,7 +145,6 @@ export function createAPIClient<TResponse, TConfig extends ATSCompanyConfig>(
             response.status,
             config.type as
               | 'workday'
-              | 'eightfold'
               | 'backend-scraper',
             response.status >= 500 || response.status === 429
           );
@@ -194,7 +191,6 @@ export function createAPIClient<TResponse, TConfig extends ATSCompanyConfig>(
           undefined,
           config.type as
             | 'workday'
-            | 'eightfold'
             | 'backend-scraper',
           true // Assume retryable for network/unknown errors
         );

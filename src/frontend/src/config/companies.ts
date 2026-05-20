@@ -1,7 +1,6 @@
 import type {
   BackendScraperConfig,
   Company,
-  EightfoldConfig,
   WorkdayConfig,
 } from '../types';
 
@@ -50,36 +49,6 @@ function createWorkdayCompany(
 }
 
 /**
- * Factory function for Eightfold AI companies.
- * Requires explicit configuration for tenantHost and domain.
- */
-function createEightfoldCompany(
-  id: string,
-  name: string,
-  eightfoldConfig: {
-    tenantHost: string;
-    domain: string;
-  },
-  options: FactoryOptions = {}
-): Company {
-  const config: EightfoldConfig = {
-    type: 'eightfold',
-    companyId: id,
-    tenantHost: eightfoldConfig.tenantHost,
-    domain: eightfoldConfig.domain,
-  };
-  const jobsUrl = `https://${eightfoldConfig.tenantHost}/careers`;
-  return {
-    id,
-    name,
-    ats: 'eightfold',
-    config,
-    jobsUrl,
-    recruiterLinkedInUrl: options.recruiterLinkedInUrl,
-  };
-}
-
-/**
  * Factory function for backend-scraper companies.
  * These are companies scraped via Python scripts and served from our backend.
  */
@@ -88,7 +57,7 @@ function createBackendScraperCompany(
   name: string,
   jobsUrl: string,
   options: FactoryOptions & {
-    sourceAts?: 'ashby' | 'greenhouse' | 'lever' | 'gem';
+    sourceAts?: 'ashby' | 'greenhouse' | 'lever' | 'gem' | 'eightfold';
   } = {}
 ): Company {
   const config: BackendScraperConfig = {
@@ -580,21 +549,14 @@ export const COMPANIES: Company[] = [
     careerSiteSlug: 'jobs',
   }),
 
-  // Eightfold companies
-  createEightfoldCompany(
-    'netflix',
-    'Netflix',
-    {
-      tenantHost: 'explore.jobs.netflix.net',
-      domain: 'netflix.com',
-    },
-    {
-      recruiterLinkedInUrl:
-        'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22165158%22%5D',
-    }
-  ),
+  // Backend scraper companies (formerly Eightfold)
+  createBackendScraperCompany('netflix', 'Netflix', 'https://explore.jobs.netflix.net/', {
+    sourceAts: 'eightfold',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22165158%22%5D',
+  }),
 
-  // Backend scraper companies
+  // Backend scraper companies (Python-scraped: Google, Apple, Microsoft)
   createBackendScraperCompany('google', 'Google', 'https://careers.google.com/', {
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring+software+engineer&origin=FACETED_SEARCH',

@@ -11,5 +11,7 @@ from . import fetch_lever_company  # noqa: F401  (registers task on app)
 from . import enqueue_lever_fan_out  # noqa: F401  (registers periodic task on app)
 from . import fetch_gem_company  # noqa: F401  (registers task on app)
 from . import enqueue_gem_fan_out  # noqa: F401  (registers periodic task on app)
+from . import fetch_eightfold_company  # noqa: F401  (registers task on app)
+from . import enqueue_eightfold_fan_out  # noqa: F401  (registers periodic task on app)
 
 __all__ = ["procrastinate_app"]
