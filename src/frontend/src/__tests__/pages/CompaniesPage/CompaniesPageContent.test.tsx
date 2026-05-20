@@ -2,7 +2,6 @@ import { describe, it, expect, vi } from 'vitest';
 import { screen } from '@testing-library/react';
 import { renderWithProviders } from '../../../test/testUtils';
 import { CompaniesPageContent } from '../../../pages/CompaniesPage/CompaniesPageContent';
-import { ATSConstants } from '../../../api/types';
 
 vi.mock('../../../components/companies-page/JobPostingsChart/GraphSection', () => ({
   GraphSection: () => <div data-testid="graph-section" />,
@@ -20,32 +19,12 @@ describe('CompaniesPageContent', () => {
       expect(screen.getByRole('progressbar')).toBeInTheDocument();
     });
 
-    it('renders the Workday caption when selectedATS is Workday', () => {
-      renderWithProviders(<CompaniesPageContent isLoading />, {
-        preloadedState: {
-          app: {
-            selectedCompanyId: 'x',
-            selectedATS: ATSConstants.Workday,
-            isInitialized: false,
-          },
-        },
-      });
-
-      expect(
-        screen.getByText('Workday source requires more loading time to fetch all paginated jobs...')
-      ).toBeInTheDocument();
-    });
-
-    it('does NOT render the Workday caption for non-Workday ATS', () => {
-      renderWithProviders(<CompaniesPageContent isLoading />, {
-        preloadedState: {
-          app: {
-            selectedCompanyId: 'x',
-            selectedATS: ATSConstants.BackendScraper,
-            isInitialized: false,
-          },
-        },
-      });
+    it('does NOT render the legacy Workday caption (Workday rows are now backend-scraper)', () => {
+      // After the Workday backend migration, Workday rows fetch from
+      // `/api/jobs` instead of paginating from the browser — the old
+      // "paginated jobs" caption no longer applies. This test pins
+      // that the caption is gone for ANY loading state.
+      renderWithProviders(<CompaniesPageContent isLoading />);
 
       expect(screen.queryByText(/Workday source requires/i)).not.toBeInTheDocument();
     });

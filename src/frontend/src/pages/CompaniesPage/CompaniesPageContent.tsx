@@ -2,8 +2,6 @@ import { Stack } from '@mui/material';
 import { LoadingState } from '../../components/shared/LoadingIndicator';
 import { GraphSection } from '../../components/companies-page/JobPostingsChart/GraphSection';
 import { ListSection } from '../../components/companies-page/JobList/ListSection';
-import { useAppSelector } from '../../app/hooks';
-import { ATSConstants } from '../../api/types';
 
 /**
  * Props for the CompaniesPageContent component
@@ -23,19 +21,8 @@ interface CompaniesPageContentProps {
  * @returns Loading indicator or main content sections
  */
 export function CompaniesPageContent({ isLoading }: CompaniesPageContentProps) {
-  const selectedATS = useAppSelector((state) => state.app.selectedATS);
   if (isLoading) {
-    return (
-      <LoadingState
-        size={60}
-        minHeight={400}
-        caption={
-          selectedATS === ATSConstants.Workday
-            ? 'Workday source requires more loading time to fetch all paginated jobs...'
-            : undefined
-        }
-      />
-    );
+    return <LoadingState size={60} minHeight={400} />;
   }
 
   return (

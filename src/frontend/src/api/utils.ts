@@ -1,24 +1,25 @@
 import type { JobAPIClient } from './types';
-import { workdayClient } from './clients/workdayClient';
 import { backendScraperClient } from './clients/backendScraperClient';
 
 /**
- * Get the appropriate API client for a given ATS type
+ * Get the appropriate API client for a given ATS type.
  *
- * @param atsType - The ATS provider type ('workday', 'backend-scraper')
- * @returns The corresponding API client
- * @throws Error if ATS type is unknown
+ * @param atsType - The ATS provider type. After the Eightfold (#124) and
+ *   Workday (#123) backend migrations the only supported value is
+ *   `'backend-scraper'`. Greenhouse, Ashby, Lever, Gem, Eightfold, and
+ *   Workday companies all flow through the backend `/api/jobs` endpoint
+ *   and carry `sourceAts` for Why-page grouping (see atsGrouping.ts).
+ * @returns The corresponding API client.
+ * @throws Error if ATS type is unknown.
  *
  * @example
  * ```typescript
- * const client = getClientForATS('workday');
+ * const client = getClientForATS('backend-scraper');
  * const result = await client.fetchJobs(config, {});
  * ```
  */
 export function getClientForATS(atsType: string): JobAPIClient {
   switch (atsType) {
-    case 'workday':
-      return workdayClient;
     case 'backend-scraper':
       return backendScraperClient;
     default:

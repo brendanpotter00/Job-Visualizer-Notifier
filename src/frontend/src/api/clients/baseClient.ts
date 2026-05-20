@@ -1,16 +1,10 @@
-import type {
-  Job,
-  WorkdayConfig,
-  BackendScraperConfig,
-} from '../../types';
+import type { Job, BackendScraperConfig } from '../../types';
 import type { JobAPIClient, FetchJobsOptions, FetchJobsResult } from '../types';
 import { APIError } from '../types';
 import { logger } from '../../lib/logger';
 
 /** Union of all ATS company configuration types */
-export type ATSCompanyConfig =
-  | WorkdayConfig
-  | BackendScraperConfig;
+export type ATSCompanyConfig = BackendScraperConfig;
 
 /**
  * Configuration for creating an API client
@@ -41,8 +35,11 @@ export interface ClientConfig<TResponse, TConfig extends ATSCompanyConfig> {
  * Factory function to create an API client with shared logic.
  *
  * This factory eliminates 220+ lines of code duplication across ATS clients by
- * extracting common patterns into a reusable implementation. All API clients
- * (Workday) are created using this factory.
+ * extracting common patterns into a reusable implementation. It is retained
+ * as a reusable scaffold for future ATS integrations; no production client
+ * currently consumes it (Greenhouse, Ashby, Lever, Gem, Eightfold, and
+ * Workday have all been migrated to the backend Procrastinate worker and
+ * consume `backendScraperClient`).
  *
  * **Shared Logic Provided:**
  * 1. Config validation with type guards
@@ -143,9 +140,7 @@ export function createAPIClient<TResponse, TConfig extends ATSCompanyConfig>(
           throw new APIError(
             `${clientConfig.name} API error: ${response.statusText}`,
             response.status,
-            config.type as
-              | 'workday'
-              | 'backend-scraper',
+            config.type as 'backend-scraper',
             response.status >= 500 || response.status === 429
           );
         }
@@ -189,9 +184,7 @@ export function createAPIClient<TResponse, TConfig extends ATSCompanyConfig>(
         throw new APIError(
           `Failed to fetch ${clientConfig.name} jobs: ${(error as Error).message}`,
           undefined,
-          config.type as
-            | 'workday'
-            | 'backend-scraper',
+          config.type as 'backend-scraper',
           true // Assume retryable for network/unknown errors
         );
       }

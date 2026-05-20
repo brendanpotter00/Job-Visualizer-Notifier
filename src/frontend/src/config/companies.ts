@@ -1,51 +1,10 @@
-import type {
-  BackendScraperConfig,
-  Company,
-  WorkdayConfig,
-} from '../types';
+import type { BackendScraperConfig, Company } from '../types';
 
 /**
  * Options for factory functions
  */
 interface FactoryOptions {
   recruiterLinkedInUrl?: string;
-}
-
-interface WorkdayOptions extends FactoryOptions {
-  defaultFacets?: Record<string, string[]>;
-}
-
-/**
- * Factory function for Workday companies.
- * Requires explicit configuration for baseUrl, tenantSlug, and careerSiteSlug.
- */
-function createWorkdayCompany(
-  id: string,
-  name: string,
-  workdayConfig: {
-    baseUrl: string;
-    tenantSlug: string;
-    careerSiteSlug: string;
-  },
-  options: WorkdayOptions = {}
-): Company {
-  const jobsUrl = `${workdayConfig.baseUrl}/${workdayConfig.careerSiteSlug}/details`;
-  const config: WorkdayConfig = {
-    type: 'workday',
-    baseUrl: workdayConfig.baseUrl,
-    tenantSlug: workdayConfig.tenantSlug,
-    careerSiteSlug: workdayConfig.careerSiteSlug,
-    jobsUrl,
-    defaultFacets: options.defaultFacets,
-  };
-  return {
-    id,
-    name,
-    ats: 'workday',
-    config,
-    jobsUrl,
-    recruiterLinkedInUrl: options.recruiterLinkedInUrl,
-  };
 }
 
 /**
@@ -57,7 +16,13 @@ function createBackendScraperCompany(
   name: string,
   jobsUrl: string,
   options: FactoryOptions & {
-    sourceAts?: 'ashby' | 'greenhouse' | 'lever' | 'gem' | 'eightfold';
+    sourceAts?:
+      | 'ashby'
+      | 'eightfold'
+      | 'gem'
+      | 'greenhouse'
+      | 'lever'
+      | 'workday';
   } = {}
 ): Company {
   const config: BackendScraperConfig = {
@@ -464,90 +429,81 @@ export const COMPANIES: Company[] = [
     { sourceAts: 'gem' }
   ),
 
-  // Workday companies
-  createWorkdayCompany(
+  // Workday companies (migrated to backend-scraper)
+  createBackendScraperCompany(
     'nvidia',
     'NVIDIA',
+    'https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite',
     {
-      baseUrl: 'https://nvidia.wd5.myworkdayjobs.com',
-      tenantSlug: 'nvidia',
-      careerSiteSlug: 'NVIDIAExternalCareerSite',
-    },
-    {
-      defaultFacets: {
-        locationHierarchy1: ['2fcb99c455831013ea52fb338f2932d8'], // United States
-        jobFamilyGroup: ['0c40f6bd1d8f10ae43ffaefd46dc7e78'], // Engineering
-        timeType: ['5509c0b5959810ac0029943377d47364'], // Full time
-      },
+      sourceAts: 'workday',
       recruiterLinkedInUrl:
         'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%223608%22%5D',
     }
   ),
-  createWorkdayCompany(
+  createBackendScraperCompany(
     'adobe',
     'Adobe',
+    'https://adobe.wd5.myworkdayjobs.com/external_experienced',
     {
-      baseUrl: 'https://adobe.wd5.myworkdayjobs.com',
-      tenantSlug: 'adobe',
-      careerSiteSlug: 'external_experienced',
-    },
-    {
-      defaultFacets: {
-        locationCountry: ['bc33aa3152ec42d4995f4791a106ed09'], // United States
-        jobFamilyGroup: [
-          '591af8b812fa10737af39db3d96eed9f',
-          '591af8b812fa10737b43a1662896f01c',
-        ], // Engineering, University
-      },
+      sourceAts: 'workday',
       recruiterLinkedInUrl:
         'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%221480%22%5D',
     }
   ),
-  createWorkdayCompany('expedia', 'Expedia', {
-    baseUrl: 'https://expedia.wd108.myworkdayjobs.com',
-    tenantSlug: 'expedia',
-    careerSiteSlug: 'search',
-  }),
-  createWorkdayCompany('turo', 'Turo', {
-    baseUrl: 'https://turo.wd12.myworkdayjobs.com',
-    tenantSlug: 'turo',
-    careerSiteSlug: 'Turo_careers',
-  }),
-  createWorkdayCompany('blueorigin', 'Blue Origin', {
-    baseUrl: 'https://blueorigin.wd5.myworkdayjobs.com',
-    tenantSlug: 'blueorigin',
-    careerSiteSlug: 'BlueOrigin',
-  }),
-  createWorkdayCompany('snap', 'Snap', {
-    baseUrl: 'https://snapchat.wd1.myworkdayjobs.com',
-    tenantSlug: 'snapchat',
-    careerSiteSlug: 'snap',
-  }),
-  createWorkdayCompany('gm', 'General Motors', {
-    baseUrl: 'https://generalmotors.wd5.myworkdayjobs.com',
-    tenantSlug: 'generalmotors',
-    careerSiteSlug: 'Careers_GM',
-  }),
-  createWorkdayCompany('disney', 'Disney', {
-    baseUrl: 'https://disney.wd5.myworkdayjobs.com',
-    tenantSlug: 'disney',
-    careerSiteSlug: 'disneycareer',
-  }),
-  createWorkdayCompany('slack', 'Slack', {
-    baseUrl: 'https://salesforce.wd12.myworkdayjobs.com',
-    tenantSlug: 'salesforce',
-    careerSiteSlug: 'Slack',
-  }),
-  createWorkdayCompany('capitalone', 'Capital One', {
-    baseUrl: 'https://capitalone.wd12.myworkdayjobs.com',
-    tenantSlug: 'capitalone',
-    careerSiteSlug: 'Capital_One',
-  }),
-  createWorkdayCompany('paypal', 'PayPal', {
-    baseUrl: 'https://paypal.wd1.myworkdayjobs.com',
-    tenantSlug: 'paypal',
-    careerSiteSlug: 'jobs',
-  }),
+  createBackendScraperCompany(
+    'expedia',
+    'Expedia',
+    'https://expedia.wd108.myworkdayjobs.com/search',
+    { sourceAts: 'workday' }
+  ),
+  createBackendScraperCompany(
+    'turo',
+    'Turo',
+    'https://turo.wd12.myworkdayjobs.com/Turo_careers',
+    { sourceAts: 'workday' }
+  ),
+  createBackendScraperCompany(
+    'blueorigin',
+    'Blue Origin',
+    'https://blueorigin.wd5.myworkdayjobs.com/BlueOrigin',
+    { sourceAts: 'workday' }
+  ),
+  createBackendScraperCompany(
+    'snap',
+    'Snap',
+    'https://snapchat.wd1.myworkdayjobs.com/snap',
+    { sourceAts: 'workday' }
+  ),
+  createBackendScraperCompany(
+    'gm',
+    'General Motors',
+    'https://generalmotors.wd5.myworkdayjobs.com/Careers_GM',
+    { sourceAts: 'workday' }
+  ),
+  createBackendScraperCompany(
+    'disney',
+    'Disney',
+    'https://disney.wd5.myworkdayjobs.com/disneycareer',
+    { sourceAts: 'workday' }
+  ),
+  createBackendScraperCompany(
+    'slack',
+    'Slack',
+    'https://salesforce.wd12.myworkdayjobs.com/Slack',
+    { sourceAts: 'workday' }
+  ),
+  createBackendScraperCompany(
+    'capitalone',
+    'Capital One',
+    'https://capitalone.wd12.myworkdayjobs.com/Capital_One',
+    { sourceAts: 'workday' }
+  ),
+  createBackendScraperCompany(
+    'paypal',
+    'PayPal',
+    'https://paypal.wd1.myworkdayjobs.com/jobs',
+    { sourceAts: 'workday' }
+  ),
 
   // Backend scraper companies (formerly Eightfold)
   createBackendScraperCompany('netflix', 'Netflix', 'https://explore.jobs.netflix.net/', {

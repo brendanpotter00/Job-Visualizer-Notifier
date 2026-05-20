@@ -180,11 +180,12 @@ class Company(Base):
     board_token = Column(Text, nullable=False)
     enabled = Column(Boolean, nullable=False, server_default=text("true"))
     # Per-ATS configuration that doesn't fit in scalar columns. Eightfold rows
-    # carry ``{tenant_host, domain}``; future ATSes (Workday's parallel PR adds
-    # ``{base_url, tenant_slug, career_site_slug, default_facets?}``) reuse the
-    # same column. The column name is a frozen contract shared with the
-    # parallel Workday PR #123 — see this migration's docstring. Empty
-    # ``{}``::jsonb default keeps Greenhouse + Ashby rows unaffected.
+    # carry ``{tenant_host, domain}``; Workday rows carry
+    # ``{base_url, tenant_slug, career_site_slug, default_facets?}``. The column
+    # name is a frozen contract — Eightfold seeded it in migration
+    # ``08e719b2aa03`` and Workday's seed migration reuses it. Empty
+    # ``{}``::jsonb default keeps Greenhouse + Ashby + Lever + Gem rows
+    # unaffected.
     provider_config = Column(
         JSONB, nullable=False, server_default=text("'{}'::jsonb")
     )

@@ -1,66 +1,4 @@
-import type {
-  Job,
-  WorkdayConfig,
-  BackendScraperConfig,
-} from '../types';
-
-/**
- * Workday job posting from API response
- * NOTE: This is a preliminary structure - will be updated after investigating actual API response
- */
-export interface WorkdayJobPosting {
-  /** Job title */
-  title: string;
-  /** Relative path to job posting (combine with baseUrl for full URL) */
-  externalPath?: string;
-  /** Location text (may be "X Locations" for multiple) */
-  locationsText?: string;
-  /** Relative posting date (e.g., "Posted Today", "Posted Yesterday") */
-  postedOn?: string;
-  /** Array of metadata, first element is typically job requisition ID */
-  bulletFields?: string[];
-  /** Allow additional fields we haven't discovered yet */
-  [key: string]: unknown;
-}
-
-/**
- * Workday facet value - represents a single selectable filter option
- */
-export interface WorkdayFacetValue {
-  /** Human-readable name (e.g., "United States", "Engineering") */
-  descriptor: string;
-  /** Opaque identifier used in appliedFacets (e.g., "2fcb99c455831013ea52fb338f2932d8") */
-  id: string;
-  /** Number of jobs matching this facet value */
-  count: number;
-}
-
-/**
- * Workday facet - represents a filter category with available options
- */
-export interface WorkdayFacet {
-  /** Facet type identifier (e.g., "locationHierarchy1", "jobFamilyGroup") */
-  facetParameter: string;
-  /** Human-readable facet name (e.g., "Locations", "Job Category") */
-  descriptor?: string;
-  /** Available filter values for this facet */
-  values: WorkdayFacetValue[];
-}
-
-/**
- * Workday jobs API response
- * @see https://[tenant].wd5.myworkdayjobs.com/wday/cxs/[tenant]/[careerSite]/jobs
- */
-export interface WorkdayJobsResponse {
-  /** Total number of matching jobs (used for pagination) */
-  total: number;
-  /** Array of job postings for current page */
-  jobPostings: WorkdayJobPosting[];
-  /** Available filters with counts (only present in first page response) */
-  facets: WorkdayFacet[];
-  /** Whether user is authenticated (always false for public API) */
-  userAuthenticated: boolean;
-}
+import type { Job, BackendScraperConfig } from '../types';
 
 /**
  * Backend job details stored in JobListing.details JSON field
@@ -115,9 +53,7 @@ export interface JobAPIClient {
    * @returns Normalized jobs array
    */
   fetchJobs(
-    config:
-      | WorkdayConfig
-      | BackendScraperConfig,
+    config: BackendScraperConfig,
     options?: FetchJobsOptions
   ): Promise<FetchJobsResult>;
 }
@@ -148,9 +84,7 @@ export class APIError extends Error {
   constructor(
     message: string,
     public statusCode?: number,
-    public atsProvider?:
-      | 'workday'
-      | 'backend-scraper',
+    public atsProvider?: 'backend-scraper',
     public retryable: boolean = false
   ) {
     super(message);
@@ -159,6 +93,5 @@ export class APIError extends Error {
 }
 
 export enum ATSConstants {
-  Workday = 'workday',
   BackendScraper = 'backend-scraper',
 }

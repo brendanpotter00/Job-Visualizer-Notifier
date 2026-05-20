@@ -36,7 +36,8 @@ async def procrastinate_open(db_conn):
                 "'fetch_ashby_company', 'enqueue_ashby_fan_out', "
                 "'fetch_lever_company', 'enqueue_lever_fan_out', "
                 "'fetch_gem_company', 'enqueue_gem_fan_out', "
-                "'fetch_eightfold_company', 'enqueue_eightfold_fan_out')"
+                "'fetch_eightfold_company', 'enqueue_eightfold_fan_out', "
+                "'fetch_workday_company', 'enqueue_workday_fan_out')"
             )
             cur.execute(
                 sql.SQL("TRUNCATE {} CASCADE").format(
@@ -63,6 +64,14 @@ def _seed_company(
     board_token: str | None = None,
     provider_config: dict | None = None,
 ) -> None:
+    """Insert a `companies` row.
+
+    `provider_config` is the JSONB blob added in the Eightfold + Workday
+    migrations. For non-Eightfold/Workday rows it stays as the server
+    default '{}'::jsonb; for tests that need the blob, callers pass the
+    per-row dict explicitly so trigger-endpoint round-trip assertions can
+    verify the blob makes it through unchanged.
+    """
     import json as _json
 
     cur = conn.cursor()
@@ -1415,6 +1424,309 @@ def test_trigger_eightfold_fan_out_without_auth_returns_401(test_app):
     try:
         local_client = TestClient(test_app)
         resp = local_client.post("/api/jobs-qa/trigger-eightfold-fan-out")
+        assert resp.status_code == 401
+    finally:
+        if saved_admin is not None:
+            test_app.dependency_overrides[require_admin] = saved_admin
+        if saved_user is not None:
+            test_app.dependency_overrides[get_current_user] = saved_user
+
+
+
+# --- trigger-workday-fetch / trigger-workday-fan-out ---
+
+
+_WORKDAY_PROVIDER_CONFIG = {
+    "base_url": "https://test.wd5.myworkdayjobs.com",
+    "tenant_slug": "test",
+    "career_site_slug": "TestCareerSite",
+}
+
+
+def _workday_jobs(conn) -> list[dict]:
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, task_name, args, queueing_lock, status "
+        "FROM procrastinate_jobs "
+        "WHERE task_name = 'fetch_workday_company' "
+        "ORDER BY id"
+    )
+    return list(cur.fetchall())
+
+
+def _workday_fan_out_jobs(conn) -> list[dict]:
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, task_name, args, queueing_lock, status "
+        "FROM procrastinate_jobs "
+        "WHERE task_name = 'enqueue_workday_fan_out' "
+        "ORDER BY id"
+    )
+    return list(cur.fetchall())
+
+
+@pytest.mark.asyncio
+async def test_trigger_workday_fetch_returns_202_and_enqueues_job(
+    procrastinate_open, db_conn, client,
+):
+    _seed_company(
+        db_conn, "nvidia", ats="workday", board_token="nvidia",
+        provider_config=_WORKDAY_PROVIDER_CONFIG,
+    )
+
+    resp = client.post(
+        "/api/jobs-qa/trigger-workday-fetch",
+        params={"company_id": "nvidia"},
+    )
+    db_conn.rollback()
+
+    assert resp.status_code == 202
+    body = resp.json()
+    assert body["company_id"] == "nvidia"
+    assert body["already_enqueued"] is False
+    assert "deferred" in body["message"]
+
+    jobs = _workday_jobs(db_conn)
+    assert len(jobs) == 1
+    assert jobs[0]["queueing_lock"] == "workday:nvidia"
+    assert jobs[0]["args"]["company_id"] == "nvidia"
+    assert jobs[0]["args"]["board_token"] == "nvidia"
+    # Critical: provider_config round-tripped from DB through the trigger
+    # endpoint into the deferred task args. If this assertion fails the
+    # per-company task would crash on _validate_provider_config.
+    assert jobs[0]["args"]["provider_config"] == _WORKDAY_PROVIDER_CONFIG
+
+
+@pytest.mark.asyncio
+async def test_trigger_workday_fetch_404_for_unknown_company(
+    procrastinate_open, db_conn, client,
+):
+    resp = client.post(
+        "/api/jobs-qa/trigger-workday-fetch",
+        params={"company_id": "does_not_exist"},
+    )
+    db_conn.rollback()
+
+    assert resp.status_code == 404
+    assert "does_not_exist" in resp.json()["detail"]
+    assert _workday_jobs(db_conn) == []
+
+
+@pytest.mark.asyncio
+async def test_trigger_workday_fetch_404_for_disabled_company(
+    procrastinate_open, db_conn, client,
+):
+    _seed_company(
+        db_conn, "off", ats="workday", enabled=False,
+        provider_config=_WORKDAY_PROVIDER_CONFIG,
+    )
+    resp = client.post(
+        "/api/jobs-qa/trigger-workday-fetch",
+        params={"company_id": "off"},
+    )
+    db_conn.rollback()
+    assert resp.status_code == 404
+    assert _workday_jobs(db_conn) == []
+
+
+@pytest.mark.asyncio
+async def test_trigger_workday_fetch_404_for_non_workday_ats(
+    procrastinate_open, db_conn, client,
+):
+    _seed_company(db_conn, "stripe", ats="greenhouse")
+    resp = client.post(
+        "/api/jobs-qa/trigger-workday-fetch",
+        params={"company_id": "stripe"},
+    )
+    db_conn.rollback()
+    assert resp.status_code == 404
+    assert _workday_jobs(db_conn) == []
+
+
+@pytest.mark.asyncio
+async def test_trigger_workday_fetch_second_call_reports_already_enqueued(
+    procrastinate_open, db_conn, client,
+):
+    _seed_company(
+        db_conn, "nvidia", ats="workday",
+        provider_config=_WORKDAY_PROVIDER_CONFIG,
+    )
+
+    first = client.post(
+        "/api/jobs-qa/trigger-workday-fetch",
+        params={"company_id": "nvidia"},
+    )
+    db_conn.rollback()
+    assert first.status_code == 202
+    assert first.json()["already_enqueued"] is False
+
+    second = client.post(
+        "/api/jobs-qa/trigger-workday-fetch",
+        params={"company_id": "nvidia"},
+    )
+    db_conn.rollback()
+    assert second.status_code == 202
+    assert second.json()["already_enqueued"] is True
+
+    assert len(_workday_jobs(db_conn)) == 1
+
+
+@pytest.mark.asyncio
+async def test_trigger_workday_fan_out_returns_202_and_enqueues_task(
+    procrastinate_open, db_conn, client,
+):
+    resp = client.post("/api/jobs-qa/trigger-workday-fan-out")
+    db_conn.rollback()
+
+    assert resp.status_code == 202
+    body = resp.json()
+    assert body["already_enqueued"] is False
+    assert "deferred" in body["message"]
+
+    jobs = _workday_fan_out_jobs(db_conn)
+    assert len(jobs) == 1
+    assert jobs[0]["args"]["timestamp"] == 0
+
+
+@pytest.mark.asyncio
+async def test_trigger_workday_fetch_after_fan_out_defer_collapses_via_lock(
+    procrastinate_open, db_conn, client,
+):
+    """Cross-origin lock-dedup invariant: manual trigger after periodic
+    fan-out for the same company collapses via `workday:<company_id>`.
+    Mirrors the equivalent Ashby test above.
+    """
+    from api.tasks.enqueue_workday_fan_out import enqueue_workday_fan_out
+
+    _seed_company(
+        db_conn, "nvidia", ats="workday",
+        provider_config=_WORKDAY_PROVIDER_CONFIG,
+    )
+    db_conn.rollback()
+
+    deferred = await enqueue_workday_fan_out(timestamp=0)
+    db_conn.rollback()
+    assert deferred == 1
+
+    resp = client.post(
+        "/api/jobs-qa/trigger-workday-fetch",
+        params={"company_id": "nvidia"},
+    )
+    db_conn.rollback()
+    assert resp.status_code == 202
+    body = resp.json()
+    assert body["already_enqueued"] is True, (
+        "manual trigger after periodic fan-out must report "
+        "already_enqueued=True; the queueing lock did not dedupe across "
+        "the two origins"
+    )
+
+    jobs = _workday_jobs(db_conn)
+    assert len(jobs) == 1
+    assert jobs[0]["queueing_lock"] == "workday:nvidia"
+
+
+@pytest.mark.asyncio
+async def test_trigger_workday_fetch_with_null_provider_config_defaults_to_empty(
+    procrastinate_open, db_conn, client,
+):
+    """An out-of-band Workday row with `provider_config='{}'::jsonb`
+    (the server default) still gets a 202 — the trigger endpoint passes
+    the empty dict through to the task, which records a clean error
+    via _validate_provider_config. The trigger endpoint's job is to
+    defer, not to gate on row content.
+    """
+    _seed_company(
+        db_conn, "broken", ats="workday",
+        provider_config={},
+    )
+
+    resp = client.post(
+        "/api/jobs-qa/trigger-workday-fetch",
+        params={"company_id": "broken"},
+    )
+    db_conn.rollback()
+
+    assert resp.status_code == 202
+    jobs = _workday_jobs(db_conn)
+    assert len(jobs) == 1
+    assert jobs[0]["args"]["provider_config"] == {}
+
+
+def test_trigger_workday_fetch_without_admin_returns_403(test_app, db_conn):
+    from fastapi.testclient import TestClient
+    from api.auth.dependencies import require_admin
+    from .conftest import _insert_user, _make_user
+
+    _insert_user(
+        db_conn,
+        _make_user({"auth0_id": "auth0|test_user_123", "email": "test@example.com"}),
+    )
+    db_conn.commit()
+
+    saved_override = test_app.dependency_overrides.pop(require_admin, None)
+    try:
+        local_client = TestClient(test_app)
+        resp = local_client.post(
+            "/api/jobs-qa/trigger-workday-fetch",
+            params={"company_id": "nvidia"},
+        )
+        assert resp.status_code == 403
+    finally:
+        if saved_override is not None:
+            test_app.dependency_overrides[require_admin] = saved_override
+
+
+def test_trigger_workday_fetch_without_auth_returns_401(test_app):
+    from fastapi.testclient import TestClient
+    from api.auth.dependencies import get_current_user, require_admin
+
+    saved_admin = test_app.dependency_overrides.pop(require_admin, None)
+    saved_user = test_app.dependency_overrides.pop(get_current_user, None)
+    try:
+        local_client = TestClient(test_app)
+        resp = local_client.post(
+            "/api/jobs-qa/trigger-workday-fetch",
+            params={"company_id": "nvidia"},
+        )
+        assert resp.status_code == 401
+    finally:
+        if saved_admin is not None:
+            test_app.dependency_overrides[require_admin] = saved_admin
+        if saved_user is not None:
+            test_app.dependency_overrides[get_current_user] = saved_user
+
+
+def test_trigger_workday_fan_out_without_admin_returns_403(test_app, db_conn):
+    from fastapi.testclient import TestClient
+    from api.auth.dependencies import require_admin
+    from .conftest import _insert_user, _make_user
+
+    _insert_user(
+        db_conn,
+        _make_user({"auth0_id": "auth0|test_user_123", "email": "test@example.com"}),
+    )
+    db_conn.commit()
+
+    saved_override = test_app.dependency_overrides.pop(require_admin, None)
+    try:
+        local_client = TestClient(test_app)
+        resp = local_client.post("/api/jobs-qa/trigger-workday-fan-out")
+        assert resp.status_code == 403
+    finally:
+        if saved_override is not None:
+            test_app.dependency_overrides[require_admin] = saved_override
+
+
+def test_trigger_workday_fan_out_without_auth_returns_401(test_app):
+    from fastapi.testclient import TestClient
+    from api.auth.dependencies import get_current_user, require_admin
+
+    saved_admin = test_app.dependency_overrides.pop(require_admin, None)
+    saved_user = test_app.dependency_overrides.pop(get_current_user, None)
+    try:
+        local_client = TestClient(test_app)
+        resp = local_client.post("/api/jobs-qa/trigger-workday-fan-out")
         assert resp.status_code == 401
     finally:
         if saved_admin is not None:
