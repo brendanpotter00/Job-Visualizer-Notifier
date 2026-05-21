@@ -11,6 +11,9 @@ import logging
 from typing import Dict, Any, Optional, List
 from playwright.async_api import Page
 
+from shared.constants import SourceId
+from shared.source_registry import VerifierResult, register_verifier
+
 from .config import BASE_URL, API_BASE
 
 logger = logging.getLogger(__name__)
@@ -226,3 +229,107 @@ def get_apply_url(job_id: str) -> str:
         Application URL
     """
     return f"{BASE_URL}/app/en-us/apply/{job_id}"
+
+
+# -----------------------------------------------------------------------------
+# URL verifier — close-gate signal for the Apple scraper
+# -----------------------------------------------------------------------------
+#
+# Apple's ``/api/role/jobDetails/{id}?locale=en-us`` endpoint returns a
+# populated ``res`` object for active jobs and either 404s or returns an
+# empty/error response for closed jobs. We can use it as ground truth at
+# close-decision time to filter the false-close set produced by HTML
+# pagination drift in ``scraper.scrape_query``.
+#
+# Critical constraint: the API REQUIRES a Playwright browser context to
+# respond — a plain httpx request gets redirected to ``apple.com/pagenotfound``
+# (verified 2026-05-21). So the verifier must run via ``page.evaluate``
+# inside the same browser context the scraper uses. The scraper sets the
+# page reference via ``set_apple_verifier_page(page)`` once at startup;
+# the verifier reads that module-level reference at call time.
+# -----------------------------------------------------------------------------
+
+_VERIFIER_PAGE: Optional[Page] = None
+
+
+def set_apple_verifier_page(page: Optional[Page]) -> None:
+    """Install (or clear) the Playwright page the Apple verifier uses.
+
+    The Apple scraper calls this with its own dedicated verify page when
+    starting and again with ``None`` on shutdown. While ``None``, the
+    verifier returns ``"unknown"`` so the close path treats Apple sources
+    as unverifiable (close-on-threshold) — preserving today's behavior for
+    JSON-mode runs without a browser.
+    """
+    global _VERIFIER_PAGE
+    _VERIFIER_PAGE = page
+
+
+_JOB_ID_FROM_URL = re.compile(r"/details/([^/?#]+)")
+
+
+def _extract_apple_job_id_from_url(url: str) -> Optional[str]:
+    """Pull the ``200555687-0836``-style id out of a jobs.apple.com URL.
+
+    Mirrors ``parser.extract_job_id_from_url`` — duplicated here to avoid a
+    circular import between ``api_client`` (verifier) and ``parser``.
+    """
+    if not url:
+        return None
+    match = _JOB_ID_FROM_URL.search(url)
+    return match.group(1) if match else None
+
+
+async def verify_url_alive(
+    url: str, source_id: str, job_id: str
+) -> VerifierResult:
+    """Verify a candidate-close Apple job is actually gone upstream.
+
+    Returns:
+    - ``"alive"`` if Apple's detail API returns a populated ``res`` object.
+    - ``"dead"`` if Apple's detail API returns no ``res`` / empty payload
+      (closed or removed).
+    - ``"unknown"`` if no verifier page is installed, the in-page fetch
+      raises, or the URL doesn't parse.
+    """
+    if _VERIFIER_PAGE is None:
+        return "unknown"
+
+    # Use the ID parsed from the URL — Apple's API expects the
+    # ``{positionId}-{teamSuffix}`` form that appears in the URL path, which
+    # may differ from the bare positionId stored in the row when the suffix
+    # has been remapped.
+    parsed_id = _extract_apple_job_id_from_url(url) or job_id
+    api_url = f"{BASE_URL}{API_BASE}/jobDetails/{parsed_id}?locale=en-us"
+
+    try:
+        response = await asyncio.wait_for(
+            _VERIFIER_PAGE.evaluate(
+                _FETCH_JS,
+                {"url": api_url, "timeoutMs": _FETCH_BROWSER_TIMEOUT_MS},
+            ),
+            timeout=_FETCH_OUTER_TIMEOUT_S,
+        )
+    except asyncio.TimeoutError:
+        logger.warning(
+            "apple verify_url_alive: outer timeout for %s — returning unknown",
+            parsed_id,
+        )
+        return "unknown"
+    except Exception:
+        logger.warning(
+            "apple verify_url_alive: in-page fetch raised for %s — unknown",
+            parsed_id,
+            exc_info=True,
+        )
+        return "unknown"
+
+    if isinstance(response, dict) and "res" in response and response["res"]:
+        return "alive"
+    # Apple's API returns ``{"res": null}``, ``{}``, or an error dict for
+    # closed positions. Anything that's not a populated ``res`` is treated
+    # as dead.
+    return "dead"
+
+
+register_verifier(SourceId.APPLE, verify_url_alive)

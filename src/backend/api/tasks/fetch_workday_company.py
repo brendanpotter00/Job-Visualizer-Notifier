@@ -48,6 +48,7 @@ import psycopg2
 from procrastinate import RetryStrategy
 
 from scripts.shared import database as db
+from scripts.shared.close_verifier import process_missing_ids
 from scripts.shared.incremental import (
     MISSED_RUN_THRESHOLD,
     SAFETY_GUARD_RATIO,
@@ -206,24 +207,13 @@ async def fetch_workday_company(
                 )
                 missing_ids = post_upsert_active - seen_ids
 
-                if missing_ids:
-                    await asyncio.to_thread(
-                        db.increment_consecutive_misses,
-                        conn, SOURCE_ID, list(missing_ids),
-                    )
-                    to_close = await asyncio.to_thread(
-                        db.get_jobs_exceeding_miss_threshold,
-                        conn,
-                        SOURCE_ID,
-                        list(missing_ids),
-                        MISSED_RUN_THRESHOLD,
-                    )
-                    if to_close:
-                        await asyncio.to_thread(
-                            db.mark_jobs_closed,
-                            conn, SOURCE_ID, list(to_close), timestamp,
-                        )
-                        closed_jobs_count = len(to_close)
+                # Threshold → URL-verify → close (Layer 1 of 2026-05-21 fix).
+                # No verifier registered for Workday today → legacy
+                # close-on-threshold behavior preserved.
+                closed_jobs_count = await process_missing_ids(
+                    conn, SOURCE_ID, list(missing_ids), timestamp,
+                    threshold=MISSED_RUN_THRESHOLD,
+                )
 
                 logger.info(
                     "fetch_workday_company %s: seen=%d new=%d closed=%d",

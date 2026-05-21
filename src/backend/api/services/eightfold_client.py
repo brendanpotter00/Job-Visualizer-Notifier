@@ -14,12 +14,13 @@ Three concerns, all queue-agnostic:
    caps each page at 10 rows server-side (empirically verified 2026-04-18),
    so a Netflix-sized tenant requires ~60-100 round-trips. The loop breaks
    on the first of: ``fetchedSoFar >= total`` reported by the server, empty
-   page, partial page (< 10 rows), or the ``MAX_PAGES`` safety cap. If we
-   hit the cap we log an ERROR and **return the partial result** — the
-   alternative (raising) would zero out the scrape and trip the safety
-   guard in ``fetch_eightfold_company``, marking every existing job as
-   "missing this run" which is the wrong correctness call when we *did*
-   fetch hundreds of jobs.
+   page, or the ``MAX_PAGES`` safety cap. If we hit the cap we log an ERROR
+   and **return the partial result** for the scrape path — the alternative
+   (raising) would zero out the scrape and trip the safety guard in
+   ``fetch_eightfold_company``, marking every existing job as "missing this
+   run" which is the wrong correctness call when we *did* fetch hundreds of
+   jobs. (A previous "partial page (< 10 rows) = end of data" break was
+   dropped 2026-05-21 — see the body of ``fetch_jobs`` for the rationale.)
 
 3. ``transform_to_job_listings(company_id, raw_jobs)``: maps each raw
    Eightfold position dict to a :class:`scripts.shared.models.JobListing`
@@ -43,15 +44,19 @@ expose ``experience_level``, so we pass through whatever's there
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
+import time
 from datetime import datetime, timezone
 from typing import Any, Optional
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 
 from scripts.shared.constants import SourceId
 from scripts.shared.models import JobListing
+from scripts.shared.source_registry import VerifierResult, register_verifier
 from scripts.shared.utils import get_iso_timestamp
 
 logger = logging.getLogger(__name__)
@@ -133,14 +138,12 @@ async def fetch_jobs(
 
     - ``len(all_positions) >= count`` (server-reported total, captured on
       page 1)
-    - empty positions array (defensive — Eightfold sometimes returns 0 rows
-      before the reported ``count`` is exhausted; we still treat empty as
-      "we're done")
-    - partial page (< ``EIGHTFOLD_PAGE_SIZE`` rows — the real-world end-of-
-      data signal, since Eightfold under-reports ``count`` more often than
-      it over-reports)
+    - empty positions array — definitive end-of-data signal
     - ``MAX_PAGES`` cap — ERROR log + partial-return backstop (see module
       docstring for rationale)
+
+    A "partial page (< ``EIGHTFOLD_PAGE_SIZE`` rows)" break was dropped
+    2026-05-21 — see the body of this function for the rationale.
 
     Raises
     ------
@@ -239,6 +242,28 @@ async def fetch_jobs(
         page_size = len(positions)
 
         # Break conditions, evaluated in priority order.
+        #
+        # Layer 2 of the 2026-05-21 false-close fix dropped the previous
+        # "partial page = end of data" heuristic. That heuristic was unsafe:
+        # if Eightfold's API ever returned 9 rows in the middle of the
+        # dataset (transient hiccup, a position being removed between two
+        # page fetches, server-side jitter), pagination would terminate
+        # early and ALL jobs from that page onward would be silently absent
+        # from the scrape — manifesting as a one-tick spike in
+        # ``jobs_seen`` undershoot, which then triggers
+        # ``consecutive_misses`` increments and (after a second such tick)
+        # false-CLOSED rows.
+        #
+        # The two remaining break conditions are robust:
+        #   - reported-count reached: trust the server's count once we've
+        #     accumulated that many rows. Server may under- or over-report;
+        #     the empty-page condition below catches both.
+        #   - empty page: definitive end-of-data signal.
+        #
+        # The cost of dropping the partial-page heuristic is exactly one
+        # extra HTTP call at the end of pagination (the empty page after
+        # the last partial one). With Netflix at ~595 jobs that's 1/60
+        # extra requests — negligible.
         if total is not None and len(all_positions) >= total:
             logger.debug(
                 "Eightfold pagination done for %s: hit reported total %d "
@@ -251,13 +276,6 @@ async def fetch_jobs(
                 "Eightfold pagination done for %s: empty page %d "
                 "(server exhausted; total was %r)",
                 tenant_host, iteration, total,
-            )
-            break
-        if page_size < EIGHTFOLD_PAGE_SIZE:
-            logger.debug(
-                "Eightfold pagination done for %s: partial page %d "
-                "(got %d rows; reported total was %r)",
-                tenant_host, iteration, page_size, total,
             )
             break
     else:
@@ -507,3 +525,205 @@ def _transform_one(
         ai_metadata={},
         closed_on=None,
     )
+
+
+# -----------------------------------------------------------------------------
+# URL verifier — close-gate signal for Eightfold sources
+# -----------------------------------------------------------------------------
+#
+# Why a list-refetch and not a detail-endpoint probe:
+#
+# Eightfold's ``/api/apply/v2/jobs/{id}`` endpoint returns full row data for
+# BOTH active and closed positions — the row is preserved after closure, and
+# the careers SPA distinguishes the two by cross-referencing against the
+# active positions list (the same list our scrape uses). A naive detail-API
+# verifier would therefore return ``alive`` for everything, blocking
+# legitimate closes.
+#
+# The active-list refetch IS the correct ground-truth signal. The catch:
+# offset-paginated Eightfold tenants have drift (see the module docstring
+# for ``fetch_jobs``), so a single refetch reproduces the same noise as the
+# original scrape. To average out the noise, we cache the refetch for 60s —
+# that means a batch of N close-candidates triggers ONE full pagination
+# (not N), and the cached set is the union of the most recent refetch's
+# results.
+#
+# Layer 2 of the false-close fix (dropping the unsafe "partial page = end
+# of data" break in ``fetch_jobs``) keeps pagination from terminating
+# prematurely; this verifier is the defense-in-depth that catches whatever
+# drift Layer 2 still permits (jobs reshuffling between offsets within a
+# paginated run).
+# -----------------------------------------------------------------------------
+
+# (tenant_host, domain) -> (fetched_at_epoch_s, set_of_ids_as_str)
+_VERIFY_LIST_CACHE: dict[tuple[str, str], tuple[float, frozenset[str]]] = {}
+_VERIFY_CACHE_TTL_S = 60.0
+"""TTL well under the 30-min fan-out tick. One tick's worth of close
+candidates share one refetch."""
+
+
+def _clear_verify_cache_for_testing() -> None:
+    """Test-only: wipe the verifier's refetch cache.
+
+    Tests that exercise the close path across multiple sub-runs (or
+    multiple companies sharing a tenant_host) need to drop the cached
+    refetch between runs — otherwise a stale ``alive`` set from an
+    earlier sub-test makes the next one's verifier return ``"alive"``
+    spuriously. Production code never calls this.
+    """
+    _VERIFY_LIST_CACHE.clear()
+
+
+def _extract_eightfold_tenant_and_domain(url: str) -> tuple[Optional[str], Optional[str]]:
+    """Parse a ``canonicalPositionUrl`` into ``(tenant_host, microsite_domain)``.
+
+    Eightfold's canonical URL form is
+    ``https://{tenant_host}/careers/job/{id}?microsite={domain}``. Both
+    components are needed to refetch the active list (``tenant_host`` for
+    the request URL, ``microsite`` for the ``domain`` query param).
+
+    Returns ``(None, None)`` on anything that doesn't parse — the caller
+    will then return ``"unknown"`` from the verifier.
+
+    SSRF-allowlist rejects are logged at ERROR with the offending host so
+    operators can distinguish data corruption (URL was malformed) from a
+    potential indicator of compromise (URL points at an unallowed host).
+    """
+    if not url or not isinstance(url, str):
+        return None, None
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return None, None
+    tenant_host = parsed.netloc.lower()
+    if not tenant_host:
+        return None, None
+    if not _is_allowed_eightfold_host(tenant_host):
+        logger.error(
+            "eightfold verify: tenant_host %r from url=%r is not on the "
+            "SSRF allowlist — row may have a corrupted url column or be "
+            "an indicator of compromise",
+            tenant_host, url,
+        )
+        return None, None
+    # ``microsite`` lives in the query string (e.g. ``microsite=netflix.com``).
+    # ``parse_qs`` handles URL-encoded values correctly (a value like
+    # ``netflix%2Ecom`` is decoded to ``netflix.com``); the previous raw
+    # ``split("=", 1)`` would have stored the percent-encoded form and the
+    # refetch would silently false-DEAD every candidate.
+    qs = parse_qs(parsed.query, keep_blank_values=False)
+    domain_values = qs.get("microsite")
+    domain = domain_values[0] if domain_values else None
+    return tenant_host, domain
+
+
+# Outer ceiling on the verifier's refetch. ``fetch_jobs`` has a per-request
+# timeout (``DEFAULT_TIMEOUT_SECONDS``) but no whole-walk bound — worst case
+# is ``MAX_PAGES * DEFAULT_TIMEOUT_SECONDS`` ≈ 50 minutes, which would hang
+# the close-detection phase of a worker tick well past any reasonable bound.
+# 120s is generous for a healthy ~60-page tenant and kills before a runaway
+# can hold the loop. On timeout we return ``"unknown"`` (fail-safe), not a
+# partial/empty set (which would false-DEAD every candidate).
+_REFETCH_OUTER_TIMEOUT_S = 120.0
+
+
+async def _refetch_active_ids(
+    tenant_host: str, domain: str
+) -> frozenset[str]:
+    """Refetch the active positions list and return the set of position ids.
+
+    Result is cached for ``_VERIFY_CACHE_TTL_S`` so a batch of N close
+    candidates within one tick shares one pagination.
+
+    Raises ``ValueError`` if ``fetch_jobs`` hit ``MAX_PAGES`` (the truncated
+    set is not safe to use as ground-truth — any job whose id lives past
+    the cap would be falsely classified as ``"dead"``, recreating the very
+    incident the verifier exists to prevent). The caller catches
+    ``ValueError`` and returns ``"unknown"``.
+
+    Raises ``asyncio.TimeoutError`` if the refetch exceeds
+    ``_REFETCH_OUTER_TIMEOUT_S``. Same fail-safe contract: caller resolves
+    to ``"unknown"``.
+    """
+    cache_key = (tenant_host, domain)
+    now = time.time()
+    cached = _VERIFY_LIST_CACHE.get(cache_key)
+    if cached is not None and (now - cached[0]) < _VERIFY_CACHE_TTL_S:
+        return cached[1]
+
+    async with httpx.AsyncClient() as http:
+        positions = await asyncio.wait_for(
+            fetch_jobs(tenant_host, domain, http),
+            timeout=_REFETCH_OUTER_TIMEOUT_S,
+        )
+    # MAX_PAGES guard: if ``fetch_jobs`` truncated the result, the cached
+    # id set would be missing whatever lives past page 100. The verifier
+    # would then return ``"dead"`` for any genuinely-alive job in the
+    # truncated tail — the exact false-CLOSED failure mode this verifier
+    # was added to prevent. Refuse to cache; signal ``"unknown"`` upstream.
+    if len(positions) >= MAX_PAGES * EIGHTFOLD_PAGE_SIZE:
+        raise ValueError(
+            f"eightfold verify refetch for {tenant_host!r} hit MAX_PAGES "
+            f"({MAX_PAGES}) — truncated set of {len(positions)} positions "
+            f"is not safe to use as close-gate ground truth"
+        )
+    ids: set[str] = set()
+    for p in positions:
+        if not isinstance(p, dict):
+            continue
+        pid = _extract_eightfold_id(p)
+        if pid:
+            ids.add(pid)
+    frozen = frozenset(ids)
+    _VERIFY_LIST_CACHE[cache_key] = (now, frozen)
+    logger.info(
+        "eightfold verify: refetched %s (domain=%s), %d active ids cached for %.0fs",
+        tenant_host, domain, len(frozen), _VERIFY_CACHE_TTL_S,
+    )
+    return frozen
+
+
+async def verify_url_alive(
+    url: str, source_id: str, job_id: str
+) -> VerifierResult:
+    """Verify a candidate-close Eightfold job is actually gone upstream.
+
+    Returns:
+    - ``"alive"`` if ``job_id`` appears in a fresh refetch of the active
+      positions list (scrape was lying — drift, not a real close).
+    - ``"dead"`` if ``job_id`` is absent from the refetched list AND
+      the URL is parseable (tenant on allowlist, ``microsite`` present).
+    - ``"unknown"`` if anything goes wrong (URL won't parse, SSRF fail,
+      HTTP error, etc.). The caller's ``unknown_policy`` then decides
+      whether to skip or close.
+    """
+    tenant_host, domain = _extract_eightfold_tenant_and_domain(url)
+    if not tenant_host or not domain:
+        logger.warning(
+            "eightfold verify_url_alive: could not parse tenant/domain "
+            "from url=%r (source_id=%s job_id=%s)",
+            url, source_id, job_id,
+        )
+        return "unknown"
+    try:
+        active_ids = await _refetch_active_ids(tenant_host, domain)
+    except (httpx.HTTPError, ValueError, asyncio.TimeoutError):
+        # Covers: per-page HTTP error, MAX_PAGES guard raise, SSRF
+        # ValueError on a stale cached tenant_host, and the outer
+        # ``asyncio.wait_for`` timeout. All resolve to ``"unknown"`` so
+        # ``unknown_policy="skip"`` keeps the row OPEN this tick.
+        logger.warning(
+            "eightfold verify_url_alive: refetch failed for tenant=%s "
+            "domain=%s (job_id=%s) — returning unknown",
+            tenant_host, domain, job_id,
+            exc_info=True,
+        )
+        return "unknown"
+    return "alive" if str(job_id) in active_ids else "dead"
+
+
+# Register at import time so any code path that loads this module activates
+# the verifier. The fetch task imports this module to call ``fetch_jobs`` /
+# ``transform_to_job_listings``, so the registration is in effect for every
+# Procrastinate worker that processes ``eightfold_fetch`` jobs.
+register_verifier(SOURCE_ID, verify_url_alive)

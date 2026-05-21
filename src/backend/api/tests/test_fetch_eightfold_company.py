@@ -18,6 +18,7 @@ import pytest
 import pytest_asyncio
 from psycopg2 import sql
 
+from api.services.eightfold_client import _clear_verify_cache_for_testing
 from api.tasks import procrastinate_app as task_module_pkg  # noqa: F401
 from api.tasks.fetch_eightfold_company import fetch_eightfold_company
 from api.tasks.procrastinate_app import (
@@ -28,6 +29,20 @@ from scripts.shared.constants import SourceId
 
 
 pytestmark = pytest.mark.asyncio
+
+
+@pytest.fixture(autouse=True)
+def _reset_verify_cache():
+    """Drop the Layer 1 URL-verifier refetch cache between tests.
+
+    Without this, the verifier's 60-second TTL cache holds the previous
+    test's mocked positions list, so a fresh test's ghost-id assertion
+    can fail by seeing the prior fixture's set. Production never needs
+    this — it's purely test-isolation hygiene.
+    """
+    _clear_verify_cache_for_testing()
+    yield
+    _clear_verify_cache_for_testing()
 
 
 NETFLIX_PROVIDER_CONFIG = {
@@ -80,7 +95,15 @@ def _seed_job(
             sql.SQL(", ").join(sql.Placeholder() for _ in range(15)),
         ),
         (
-            job_id, "T", company, "L", "https://x", SourceId.EIGHTFOLD,
+            # URL shape matches Eightfold's ``canonicalPositionUrl`` so the
+            # Layer 1 URL verifier can parse tenant_host + microsite from it.
+            # The path netloc is on the SSRF allowlist (vanity host). Without
+            # this, the verifier returns ``"unknown"`` and ``unknown_policy=
+            # "skip"`` (Eightfold has a registered verifier) prevents the
+            # close, and the test assertion that ghost gets CLOSED fails.
+            job_id, "T", company, "L",
+            f"https://explore.jobs.netflix.net/careers/job/{job_id}?microsite=netflix.com",
+            SourceId.EIGHTFOLD,
             json.dumps({}), "2025-01-01T00:00:00Z", status, False,
             json.dumps({}), "2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z",
             consecutive_misses, True,

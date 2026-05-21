@@ -191,7 +191,18 @@ def extract_job_id_from_url(url: str) -> Optional[str]:
 
 async def check_has_next_page(page: Page) -> Optional[bool]:
     """
-    Check if there's a next page of results
+    Check if there's a next page of results.
+
+    Apple's careers site renders pagination as a button labeled "Next Page".
+    If the button isn't present, we're on the last page. If the button is
+    present but disabled, we're also on the last page.
+
+    The single CSS selector below is the suspect for the 2026-05-21 Apple
+    set-drift investigation — if Apple ever localizes the button text
+    (e.g., to "Next" or "Older") or wraps it in a different element,
+    this returns False and pagination terminates prematurely without
+    erroring. The DEBUG log emitted here captures the precise reason on
+    each call so a future investigation can grep for it.
 
     Args:
         page: Playwright page object
@@ -204,11 +215,21 @@ async def check_has_next_page(page: Page) -> Optional[bool]:
     try:
         next_button = await page.query_selector('button:has-text("Next Page")')
         if not next_button:
+            logger.debug(
+                "check_has_next_page: 'Next Page' button not found in DOM "
+                "— treating as end of pagination. If this fires before the "
+                "real last page, Apple's HTML has changed."
+            )
             return False
 
         # Check if button is disabled
         is_disabled = await next_button.get_attribute("disabled")
-        return is_disabled is None
+        result = is_disabled is None
+        if not result:
+            logger.debug(
+                "check_has_next_page: button present but disabled — last page"
+            )
+        return result
 
     except Exception as e:
         logger.error(f"Failed to check for next page: {e}")

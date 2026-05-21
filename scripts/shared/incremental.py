@@ -143,15 +143,22 @@ async def process_new_jobs(
     return details_fetched
 
 
-def update_existing_jobs(
+async def update_existing_jobs(
     db_conn,
     source_id: str,
     still_active_ids: Set[str],
     missing_ids: Set[str],
-    threshold: int = MISSED_RUN_THRESHOLD
+    threshold: int = MISSED_RUN_THRESHOLD,
 ) -> int:
     """
-    Update existing jobs: reset misses for active, increment for missing, mark closed if threshold reached
+    Update existing jobs: reset misses for active, increment for missing, mark closed if threshold reached.
+
+    Threshold-exceeding rows are gated on a per-source URL verifier before
+    being closed — see ``scripts/shared/close_verifier.py``. Sources without
+    a registered verifier (Microsoft, plus Greenhouse / Ashby / Lever / Gem /
+    Workday until their verifiers ship) fall through to legacy behavior via
+    ``unknown_policy="close"``; sources with one (Apple + Eightfold today)
+    fail-safe to ``unknown_policy="skip"`` on ambiguity.
 
     Args:
         db_conn: Database connection
@@ -164,7 +171,7 @@ def update_existing_jobs(
         threshold: Number of consecutive misses before marking as closed
 
     Returns:
-        Number of jobs marked as closed
+        Number of jobs marked as closed (after URL re-verification).
     """
     if not source_id:
         raise ValueError(
@@ -182,17 +189,34 @@ def update_existing_jobs(
     # Increment consecutive_misses for missing jobs
     db.increment_consecutive_misses(db_conn, source_id, list(missing_ids))
 
-    # Check which jobs have exceeded threshold and mark as closed (single query)
-    # Note: consecutive_misses was already incremented above, so we check >= threshold
+    # Check which jobs have exceeded threshold (single query).
+    # consecutive_misses was already incremented above, so we check >= threshold.
     jobs_to_close = db.get_jobs_exceeding_miss_threshold(
         db_conn, source_id, list(missing_ids), threshold
     )
 
-    if jobs_to_close:
-        db.mark_jobs_closed(db_conn, source_id, list(jobs_to_close), timestamp)
-        return len(jobs_to_close)
+    if not jobs_to_close:
+        return 0
 
-    return 0
+    # URL-verification gate: probe each candidate's public URL before
+    # closing. See module docstring of ``close_verifier`` for the policy.
+    # Sources without a registered verifier (Microsoft) → unknown maps to
+    # "close" so legacy behavior is preserved. Sources with one → unknown
+    # maps to "skip" (fail-safe — re-evaluate next tick).
+    from .close_verifier import verify_close_candidates
+    from .source_registry import get_verifier, _unknown_verifier
+
+    has_verifier = get_verifier(source_id) is not _unknown_verifier
+    unknown_policy = "skip" if has_verifier else "close"
+
+    closed_ids, _kept_alive_ids, _skipped_ids = await verify_close_candidates(
+        db_conn,
+        source_id,
+        list(jobs_to_close),
+        timestamp,
+        unknown_policy=unknown_policy,
+    )
+    return len(closed_ids)
 
 
 async def run_incremental_scrape(
@@ -268,9 +292,23 @@ async def run_incremental_scrape(
             )
             result.new_jobs = len(new_ids)
 
-            # Phase 4 & 5: Update existing jobs and mark closed
+            # Phase 4 & 5: Update existing jobs and mark closed (URL-verify-gated)
             logger.info("Phase 4 & 5: Updating job status...")
-            result.closed_jobs = update_existing_jobs(
+            # Give the scraper a chance to install its source-specific URL
+            # verifier before the close path runs. Default is a no-op; the
+            # Apple scraper overrides this to open a dedicated Playwright
+            # page used by ``apple_jobs_scraper.api_client.verify_url_alive``.
+            setup_fn = getattr(scraper, "setup_close_verifier", None)
+            if callable(setup_fn):
+                try:
+                    await setup_fn()
+                except Exception:
+                    logger.warning(
+                        "Close verifier setup raised — proceeding with "
+                        "legacy threshold-only close behavior",
+                        exc_info=True,
+                    )
+            result.closed_jobs = await update_existing_jobs(
                 db_conn, source_id, still_active_ids, missing_ids
             )
 

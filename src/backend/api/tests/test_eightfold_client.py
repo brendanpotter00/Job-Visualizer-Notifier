@@ -168,18 +168,28 @@ class TestFetchJobsPagination:
         assert len(result) == 25
         assert captured_offsets == [0, 10, 20]
 
-    async def test_stops_on_partial_page_even_when_count_overreports(self):
-        """Eightfold sometimes over-reports count — partial page wins."""
+    async def test_stops_on_empty_page_after_overreported_count(self):
+        """When count over-reports, the empty-page break catches the end.
+
+        Layer 2 of the 2026-05-21 false-close fix dropped the previous
+        "partial page = end of data" heuristic. With it gone, an
+        over-reported count + a small final page no longer short-circuits
+        on the partial page itself — pagination continues to the next
+        offset, sees the empty page, and stops there. Behavior-wise the
+        caller still gets the same 7 positions back.
+        """
+        offsets_seen: list[int] = []
 
         def handler(request: httpx.Request) -> httpx.Response:
             offset = int(request.url.params["start"])
+            offsets_seen.append(offset)
             if offset == 0:
                 # Server lies: count=100 but actually only returns 7 rows.
                 positions = [_make_position(i) for i in range(7)]
                 return httpx.Response(
                     200, json={"count": 100, "positions": positions}
                 )
-            # Should never reach here.
+            # Empty page after the partial — this is what Layer 2 relies on.
             return httpx.Response(200, json={"count": 100, "positions": []})
 
         async with _client_with_handler(handler) as http:
@@ -187,6 +197,9 @@ class TestFetchJobsPagination:
                 "explore.jobs.netflix.net", "netflix.com", http
             )
         assert len(result) == 7
+        # Pagination MUST have walked to the empty page (offset=10) to
+        # terminate — pinning that Layer 2 didn't sneak back in.
+        assert offsets_seen == [0, 10]
 
     async def test_stops_on_empty_page(self):
         """First empty page short-circuits the loop."""
@@ -285,23 +298,67 @@ class TestFetchJobsPagination:
                 )
 
     async def test_falls_back_when_count_missing(self):
-        """Missing or non-int ``count`` should NOT abort the fetch — partial-page detection still terminates the loop."""
+        """Missing or non-int ``count`` should NOT abort the fetch — the
+        loop now keeps fetching past partial pages until it sees an empty
+        page (Layer 2 of 2026-05-21 false-close fix; previously a partial
+        page broke the loop and could prematurely terminate pagination
+        on a transient short page mid-stream)."""
 
         def handler(request: httpx.Request) -> httpx.Response:
             offset = int(request.url.params["start"])
             if offset == 0:
-                # No 'count' key at all.
+                # No 'count' key at all — partial page (5 < 10).
                 return httpx.Response(
                     200, json={"positions": [_make_position(i) for i in range(5)]}
                 )
-            pytest.fail("should not request more than one page")
+            if offset == 10:
+                # Empty page — definitive end-of-data signal.
+                return httpx.Response(200, json={"positions": []})
+            pytest.fail(
+                f"should stop after the empty page at offset=10; got offset={offset}"
+            )
 
         async with _client_with_handler(handler) as http:
             result = await fetch_jobs(
                 "explore.jobs.netflix.net", "netflix.com", http
             )
-        # Partial page (5 < 10) breaks the loop.
+        # Page 1 returned 5; page 2 was empty → 5 total kept.
         assert len(result) == 5
+
+    async def test_continues_past_mid_stream_partial_page(self):
+        """A mid-stream partial page (transient short response) must NOT
+        terminate the loop early. This is the load-bearing assertion that
+        Layer 2 of the false-close fix actually changed pagination
+        semantics — before the fix, a 9-row response at offset=10 would
+        have stopped the fetch and dropped offsets 20+ silently."""
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            offset = int(request.url.params["start"])
+            payload = {"count": 25}
+            if offset == 0:
+                # Full page.
+                payload["positions"] = [_make_position(i) for i in range(10)]
+            elif offset == 10:
+                # PARTIAL mid-stream (the failure mode the old code didn't
+                # survive — 9 rows where 10 were expected).
+                payload["positions"] = [_make_position(i + 10) for i in range(9)]
+            elif offset == 20:
+                # Last page with the remaining 6 rows.
+                payload["positions"] = [_make_position(i + 20) for i in range(6)]
+            elif offset == 30:
+                # Past the end; an empty page is fine too. The break above
+                # on ``len(all_positions) >= total`` should trip first.
+                payload["positions"] = []
+            else:
+                pytest.fail(f"unexpected offset {offset}")
+            return httpx.Response(200, json=payload)
+
+        async with _client_with_handler(handler) as http:
+            result = await fetch_jobs(
+                "explore.jobs.netflix.net", "netflix.com", http
+            )
+        # 10 + 9 + 6 = 25 — proves we walked past the mid-stream partial.
+        assert len(result) == 25
 
 
 # ----------------------------------------------------------------------------

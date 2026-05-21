@@ -137,16 +137,26 @@ class TestProcessNewJobs:
 
 
 class TestUpdateExistingJobs:
-    """Tests for update_existing_jobs function"""
+    """Tests for update_existing_jobs function.
 
-    def test_update_existing_jobs_active(self, in_memory_db, sample_job_listing):
+    ``update_existing_jobs`` became ``async`` when the URL-verifier gate
+    landed (Layer 1 of 2026-05-21 false-close fix). The tests below pin
+    the legacy behavior for sources WITHOUT a registered verifier
+    (``SourceId.GOOGLE`` is intentionally chosen because no
+    ``google_scraper`` verifier is registered) — ``unknown_policy=
+    "close"`` is selected automatically by the helper, so the
+    close-on-threshold behavior is unchanged for unverified sources.
+    """
+
+    @pytest.mark.asyncio
+    async def test_update_existing_jobs_active(self, in_memory_db, sample_job_listing):
         """Active jobs get last_seen updated"""
         db.insert_job(in_memory_db, sample_job_listing)
 
         still_active_ids = {sample_job_listing.id}
         missing_ids = set()
 
-        closed_count = update_existing_jobs(
+        closed_count = await update_existing_jobs(
             in_memory_db, SourceId.GOOGLE, still_active_ids, missing_ids
         )
 
@@ -155,14 +165,15 @@ class TestUpdateExistingJobs:
         assert job["consecutive_misses"] == 0
         assert closed_count == 0
 
-    def test_update_existing_jobs_missing_increment(self, in_memory_db, sample_job_listing):
+    @pytest.mark.asyncio
+    async def test_update_existing_jobs_missing_increment(self, in_memory_db, sample_job_listing):
         """Missing jobs get misses incremented but not closed until threshold"""
         db.insert_job(in_memory_db, sample_job_listing)
 
         still_active_ids = set()
         missing_ids = {sample_job_listing.id}
 
-        closed_count = update_existing_jobs(
+        closed_count = await update_existing_jobs(
             in_memory_db, SourceId.GOOGLE, still_active_ids, missing_ids
         )
 
@@ -172,7 +183,8 @@ class TestUpdateExistingJobs:
         assert job["status"] == "OPEN"
         assert closed_count == 0
 
-    def test_update_existing_jobs_closes_at_threshold(self, in_memory_db, sample_job_listing):
+    @pytest.mark.asyncio
+    async def test_update_existing_jobs_closes_at_threshold(self, in_memory_db, sample_job_listing):
         """Jobs closed when misses >= threshold (2)"""
         # Start with 1 miss
         sample_job_listing.consecutive_misses = 1
@@ -181,7 +193,7 @@ class TestUpdateExistingJobs:
         still_active_ids = set()
         missing_ids = {sample_job_listing.id}
 
-        closed_count = update_existing_jobs(
+        closed_count = await update_existing_jobs(
             in_memory_db,
             SourceId.GOOGLE,
             still_active_ids,
@@ -189,12 +201,15 @@ class TestUpdateExistingJobs:
             threshold=MISSED_RUN_THRESHOLD,
         )
 
-        # After second miss (total 2), should be closed
+        # After second miss (total 2), should be closed.
+        # Google has no registered verifier → unknown_policy="close" preserves
+        # legacy behavior, so threshold→CLOSED still fires.
         job = db.get_job_by_id(in_memory_db, sample_job_listing.source_id, sample_job_listing.id)
         assert job["status"] == "CLOSED"
         assert closed_count == 1
 
-    def test_update_existing_jobs_mixed(self, in_memory_db, multiple_job_listings):
+    @pytest.mark.asyncio
+    async def test_update_existing_jobs_mixed(self, in_memory_db, multiple_job_listings):
         """Handles mix of active and missing jobs"""
         for job in multiple_job_listings:
             db.insert_job(in_memory_db, job)
@@ -202,7 +217,7 @@ class TestUpdateExistingJobs:
         still_active_ids = {"job-000"}  # One still active
         missing_ids = {"job-001", "job-002"}  # Two missing
 
-        closed_count = update_existing_jobs(
+        closed_count = await update_existing_jobs(
             in_memory_db, SourceId.GOOGLE, still_active_ids, missing_ids
         )
 
@@ -215,13 +230,157 @@ class TestUpdateExistingJobs:
             job = db.get_job_by_id(in_memory_db, SourceId.GOOGLE, job_id)
             assert job["consecutive_misses"] == 1
 
-    def test_update_existing_jobs_rejects_empty_source_id(self, in_memory_db):
+    @pytest.mark.asyncio
+    async def test_update_existing_jobs_rejects_empty_source_id(self, in_memory_db):
         """Highest-level fail-fast guard: empty source_id raises before any
         DB call. Locks the contract added in pass 2 — a future caller
         passing source_id='' (misconfigured env var, dropped class attr)
         MUST fail at this boundary, not silently no-op every UPDATE."""
         with pytest.raises(ValueError, match="source_id"):
-            update_existing_jobs(in_memory_db, "", {"job-001"}, set())
+            await update_existing_jobs(in_memory_db, "", {"job-001"}, set())
+
+
+class TestCloseVerifierGating:
+    """Tests for the URL-verifier gate on the close transition.
+
+    Layer 1 of the 2026-05-21 false-close fix: before flipping a row to
+    CLOSED, each candidate's URL is probed via the registered verifier.
+    These tests pin the three branches (alive / dead / unknown) using
+    a stub verifier registered for a synthetic source_id.
+    """
+
+    @pytest.mark.asyncio
+    async def test_verifier_alive_keeps_open(self, in_memory_db, sample_job_listing):
+        """Verifier returns 'alive' → row stays OPEN; misses reset to 0."""
+        from shared.source_registry import (
+            clear_verifiers_for_testing,
+            register_verifier,
+        )
+
+        sample_job_listing.consecutive_misses = 1
+        db.insert_job(in_memory_db, sample_job_listing)
+
+        async def alive_verifier(url, source_id, job_id):
+            return "alive"
+
+        register_verifier(sample_job_listing.source_id, alive_verifier)
+        try:
+            closed_count = await update_existing_jobs(
+                in_memory_db,
+                sample_job_listing.source_id,
+                set(),
+                {sample_job_listing.id},
+                threshold=MISSED_RUN_THRESHOLD,
+            )
+        finally:
+            clear_verifiers_for_testing()
+
+        assert closed_count == 0
+        job = db.get_job_by_id(
+            in_memory_db, sample_job_listing.source_id, sample_job_listing.id
+        )
+        assert job["status"] == "OPEN"
+        # Verifier branch: update_last_seen reset misses to 0.
+        assert job["consecutive_misses"] == 0
+
+    @pytest.mark.asyncio
+    async def test_verifier_dead_closes(self, in_memory_db, sample_job_listing):
+        """Verifier returns 'dead' → row goes CLOSED."""
+        from shared.source_registry import (
+            clear_verifiers_for_testing,
+            register_verifier,
+        )
+
+        sample_job_listing.consecutive_misses = 1
+        db.insert_job(in_memory_db, sample_job_listing)
+
+        async def dead_verifier(url, source_id, job_id):
+            return "dead"
+
+        register_verifier(sample_job_listing.source_id, dead_verifier)
+        try:
+            closed_count = await update_existing_jobs(
+                in_memory_db,
+                sample_job_listing.source_id,
+                set(),
+                {sample_job_listing.id},
+                threshold=MISSED_RUN_THRESHOLD,
+            )
+        finally:
+            clear_verifiers_for_testing()
+
+        assert closed_count == 1
+        job = db.get_job_by_id(
+            in_memory_db, sample_job_listing.source_id, sample_job_listing.id
+        )
+        assert job["status"] == "CLOSED"
+
+    @pytest.mark.asyncio
+    async def test_verifier_unknown_skips_close(self, in_memory_db, sample_job_listing):
+        """Verifier returns 'unknown' (with verifier registered) → row
+        stays OPEN and the close is deferred to next tick. ``consecutive_
+        misses`` stays at threshold so the row is re-evaluated next run."""
+        from shared.source_registry import (
+            clear_verifiers_for_testing,
+            register_verifier,
+        )
+
+        sample_job_listing.consecutive_misses = 1
+        db.insert_job(in_memory_db, sample_job_listing)
+
+        async def unknown_verifier(url, source_id, job_id):
+            return "unknown"
+
+        register_verifier(sample_job_listing.source_id, unknown_verifier)
+        try:
+            closed_count = await update_existing_jobs(
+                in_memory_db,
+                sample_job_listing.source_id,
+                set(),
+                {sample_job_listing.id},
+                threshold=MISSED_RUN_THRESHOLD,
+            )
+        finally:
+            clear_verifiers_for_testing()
+
+        assert closed_count == 0
+        job = db.get_job_by_id(
+            in_memory_db, sample_job_listing.source_id, sample_job_listing.id
+        )
+        # Fail-safe: no close, but misses NOT reset (verifier is ambiguous,
+        # not a positive "alive" signal). Threshold was hit by the
+        # increment_consecutive_misses inside update_existing_jobs.
+        assert job["status"] == "OPEN"
+        assert job["consecutive_misses"] >= MISSED_RUN_THRESHOLD
+
+    @pytest.mark.asyncio
+    async def test_no_verifier_preserves_legacy_close(
+        self, in_memory_db, sample_job_listing,
+    ):
+        """A source WITHOUT a registered verifier still closes on threshold.
+
+        This is the load-bearing legacy-compat assertion: adding the
+        verifier gate must NOT regress Microsoft (or any other source
+        that hasn't yet shipped a verifier) into never-closing."""
+        from shared.source_registry import clear_verifiers_for_testing
+
+        clear_verifiers_for_testing()  # ensure nothing's registered
+        sample_job_listing.consecutive_misses = 1
+        db.insert_job(in_memory_db, sample_job_listing)
+
+        closed_count = await update_existing_jobs(
+            in_memory_db,
+            sample_job_listing.source_id,
+            set(),
+            {sample_job_listing.id},
+            threshold=MISSED_RUN_THRESHOLD,
+        )
+
+        assert closed_count == 1
+        job = db.get_job_by_id(
+            in_memory_db, sample_job_listing.source_id, sample_job_listing.id
+        )
+        assert job["status"] == "CLOSED"
 
 
 class TestRunIncrementalScrape:

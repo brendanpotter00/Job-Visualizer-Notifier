@@ -43,6 +43,7 @@ import psycopg2
 from procrastinate import RetryStrategy
 
 from scripts.shared import database as db
+from scripts.shared.close_verifier import process_missing_ids
 from scripts.shared.incremental import (
     MISSED_RUN_THRESHOLD,
     SAFETY_GUARD_RATIO,
@@ -194,22 +195,15 @@ async def fetch_eightfold_company(
                 )
                 missing_ids = post_upsert_active - seen_ids
 
-                if missing_ids:
-                    await asyncio.to_thread(
-                        db.increment_consecutive_misses, conn, SOURCE_ID, list(missing_ids),
-                    )
-                    to_close = await asyncio.to_thread(
-                        db.get_jobs_exceeding_miss_threshold,
-                        conn,
-                        SOURCE_ID,
-                        list(missing_ids),
-                        MISSED_RUN_THRESHOLD,
-                    )
-                    if to_close:
-                        await asyncio.to_thread(
-                            db.mark_jobs_closed, conn, SOURCE_ID, list(to_close), timestamp,
-                        )
-                        closed_jobs_count = len(to_close)
+                # Threshold → URL-verify → close (Layer 1 of 2026-05-21 fix).
+                # Eightfold registers a verifier (see eightfold_client.py),
+                # so ``process_missing_ids`` auto-selects
+                # ``unknown_policy="skip"`` — ambiguous verify results
+                # defer the close to next tick instead of false-closing.
+                closed_jobs_count = await process_missing_ids(
+                    conn, SOURCE_ID, list(missing_ids), timestamp,
+                    threshold=MISSED_RUN_THRESHOLD,
+                )
 
                 logger.info(
                     "fetch_eightfold_company %s: seen=%d new=%d closed=%d",

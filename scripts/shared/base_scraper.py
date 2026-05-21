@@ -162,6 +162,22 @@ class BaseScraper(ABC):
         """
         return True
 
+    async def setup_close_verifier(self) -> None:
+        """Hook for subclasses to install a URL verifier before the close phase.
+
+        Called from ``incremental.run_incremental_scrape`` between phase 1
+        (list scrape) and phase 4 (close detection). Default is a no-op —
+        only the Apple scraper currently overrides this to spin up a
+        dedicated Playwright page that the registered verifier in
+        ``apple_jobs_scraper.api_client`` reads from.
+
+        Implementations MUST be idempotent and MUST NOT raise — they are
+        a best-effort enhancement. A failed verifier setup falls back to
+        legacy threshold-only close behavior, which is no worse than the
+        pre-fix code path.
+        """
+        return None
+
     # ========== Concrete Methods (shared implementation) ==========
 
     async def __aenter__(self):
