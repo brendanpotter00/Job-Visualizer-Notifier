@@ -215,9 +215,10 @@ async def process_missing_ids(
          resolve to ``"unknown"`` under
          ``unknown_policy_for_unverified="close"``).
 
-    The ``unknown_policy`` argument selects between fail-safe and legacy
-    behavior for sources WITHOUT a registered verifier (Microsoft today,
-    and the four API-based ATSes until per-source verifiers ship):
+    The ``unknown_policy_for_unverified`` argument selects between fail-safe
+    and legacy behavior for sources WITHOUT a registered verifier (Microsoft
+    today, plus Greenhouse / Ashby / Lever / Gem / Workday until per-source
+    verifiers ship):
 
     - ``"close"`` (default) — preserves observable close-on-threshold
       behavior for unverified sources. The control flow still routes
@@ -245,8 +246,15 @@ async def process_missing_ids(
         threshold,
     )
     if not to_close:
+        logger.debug(
+            "process_missing_ids source_id=%s: %d missing ids incremented, "
+            "0 candidates exceed threshold=%d this tick",
+            source_id, len(missing_ids), threshold,
+        )
         return 0
 
+    # Registered verifier overrides caller's policy: a verifier-with-
+    # ambiguity means "ask again next tick" rather than "close anyway."
     has_verifier = get_verifier(source_id) is not _unknown_verifier
     unknown_policy: UnknownPolicy = "skip" if has_verifier else unknown_policy_for_unverified
 

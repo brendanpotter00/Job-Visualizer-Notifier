@@ -77,6 +77,13 @@ class AppleJobsScraper(BaseScraper):
         # context is torn down by the base class, so any in-flight verify
         # call sees ``None`` rather than a closed page.
         set_apple_verifier_page(None)
+        # Unregister so a sibling scraper instance in the same process
+        # (e.g., tests) doesn't see APPLE → real verifier + None page,
+        # which would silently disable close-detection for that next run.
+        # The next scraper's ``_ensure_verifier_page`` re-registers on
+        # success. Subprocess runs (production) re-import the module
+        # fresh, so this is purely test-isolation hygiene.
+        unregister_verifier(SourceId.APPLE)
         if self._verifier_page is not None:
             try:
                 await self._verifier_page.close()
@@ -138,7 +145,14 @@ class AppleJobsScraper(BaseScraper):
                 try:
                     await self._verifier_page.close()
                 except Exception:
-                    pass
+                    # Match the __aexit__ pattern — log instead of swallowing.
+                    # A close failure here leaks a browser tab, which would
+                    # otherwise be invisible.
+                    logger.warning(
+                        "Failed to close partial Apple verifier page during "
+                        "setup-recovery",
+                        exc_info=True,
+                    )
                 self._verifier_page = None
             set_apple_verifier_page(None)
             unregister_verifier(SourceId.APPLE)
@@ -413,14 +427,20 @@ class AppleJobsScraper(BaseScraper):
                 try:
                     details = await fetch_job_details(page, job_id)
                     yield {**job_card, **details}
-                except JobDetailsFetchError as e:
-                    # API/network failure - log and yield original card with failure flag
-                    logger.error(f"Detail fetch failed for {job_id}: {e}")
+                except JobDetailsFetchError:
+                    # API/network failure — well-defined; the inner code
+                    # has already logged the cause. Yield the card with a
+                    # failure flag so the scrape stays per-card-resilient.
+                    logger.error(
+                        "Detail fetch failed for %s", job_id, exc_info=True,
+                    )
                     yield {**job_card, "_detail_fetch_failed": True}
-                except Exception as e:
-                    # Unexpected error - log and yield original card with failure flag
-                    logger.error(f"Unexpected error fetching details for {job_id}: {e}")
-                    yield {**job_card, "_detail_fetch_failed": True}
+                # Note: programming bugs (TypeError, AttributeError, KeyError
+                # from a refactor of fetch_job_details / _parse_api_response)
+                # are deliberately NOT caught here. They propagate up to the
+                # outer scrape, fail loudly via Sentry, and get fixed
+                # instead of silently masquerading as "ambient detail-fetch
+                # failures."
 
                 await self._random_delay()
         finally:

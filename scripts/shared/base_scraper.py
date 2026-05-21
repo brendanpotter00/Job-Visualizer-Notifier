@@ -171,10 +171,17 @@ class BaseScraper(ABC):
         dedicated Playwright page that the registered verifier in
         ``apple_jobs_scraper.api_client`` reads from.
 
-        Implementations MUST be idempotent and MUST NOT raise — they are
-        a best-effort enhancement. A failed verifier setup falls back to
-        legacy threshold-only close behavior, which is no worse than the
-        pre-fix code path.
+        Implementations SHOULD be idempotent. They MAY raise — the caller
+        in ``incremental.run_incremental_scrape`` wraps this call in a
+        try/except and logs at WARN, then proceeds without the verifier.
+        A failed verifier setup is a best-effort fallback to legacy
+        threshold-only close behavior, which is no worse than the pre-fix
+        code path. Subclasses that own a registered verifier (e.g.,
+        Apple) SHOULD call ``unregister_verifier(source_id)`` on setup
+        failure so the close path actually falls back instead of
+        silently disabling itself (the verifier would otherwise return
+        ``"unknown"`` for every call and ``unknown_policy="skip"`` would
+        veto every close).
         """
         return None
 

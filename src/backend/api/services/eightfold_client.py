@@ -124,10 +124,33 @@ def _is_allowed_eightfold_host(host: str | None) -> bool:
 # -----------------------------------------------------------------------------
 
 
+class EightfoldMaxPagesError(Exception):
+    """Raised when ``fetch_jobs(..., raise_on_max_pages=True)`` hits the cap.
+
+    The partial result is attached as ``.partial`` so callers that want to
+    preserve "use partial" semantics can opt into it explicitly. Callers
+    that need a deterministic "did we exhaust naturally or get truncated?"
+    signal (the verifier path) propagate this upward as a ValueError-class
+    failure → ``"unknown"``.
+    """
+
+    def __init__(self, partial: list[dict], tenant_host: str, total: Optional[int]):
+        super().__init__(
+            f"Eightfold pagination for {tenant_host!r} hit MAX_PAGES "
+            f"({MAX_PAGES}); returned {len(partial)} positions (server total "
+            f"was {total!r})"
+        )
+        self.partial = partial
+        self.tenant_host = tenant_host
+        self.total = total
+
+
 async def fetch_jobs(
     tenant_host: str,
     domain: str,
     http: httpx.AsyncClient,
+    *,
+    raise_on_max_pages: bool = False,
 ) -> list[dict]:
     """Fetch all positions for an Eightfold tenant via sequential pagination.
 
@@ -221,19 +244,19 @@ async def fetch_jobs(
                 f"'positions' is not a list: got {type(positions).__name__}"
             )
 
-        # Capture total on page 1. Eightfold sometimes lies (over- or under-
-        # reports), so we ALSO use partial-page detection below.
+        # Capture total on page 1. Eightfold sometimes over-reports; the
+        # empty-page break below catches that case too.
         if total is None:
             count_val = payload.get("count")
             if isinstance(count_val, int):
                 total = count_val
             else:
-                # Defensive: missing or non-int count. We can still walk via
-                # partial-page detection — don't abort the fetch over a
+                # Defensive: missing or non-int count. We can still walk
+                # via empty-page detection — don't abort the fetch over a
                 # missing/wrong count.
                 logger.warning(
                     "Eightfold page 1 for %s missing or non-int 'count' "
-                    "(got %r); falling back to partial-page detection",
+                    "(got %r); falling back to empty-page detection",
                     tenant_host, count_val,
                 )
                 total = None
@@ -279,17 +302,30 @@ async def fetch_jobs(
             )
             break
     else:
-        # MAX_PAGES reached without a natural break. Return partial result
-        # rather than raising — see module docstring for rationale.
-        # ERROR level so Railway routes it to stderr (where @level:error
-        # is queryable).
+        # MAX_PAGES reached without a natural break.
+        #
+        # Default behavior (scrape path): log ERROR and return the partial
+        # result. The alternative (raising) would zero out the scrape and
+        # trip the safety guard in ``fetch_eightfold_company``.
+        #
+        # When the caller passes ``raise_on_max_pages=True`` (the verifier
+        # path), we instead raise ``EightfoldMaxPagesError`` — the verifier
+        # CANNOT safely use a truncated active-ids set as ground truth
+        # (any id whose position lives past page 100 would be classified
+        # as "dead", recreating the very false-CLOSED incident the verifier
+        # exists to prevent). The caller catches and resolves to "unknown".
         logger.error(
-            "Eightfold pagination MAX_PAGES (%d) reached for %s: returning "
-            "partial result of %d positions (server-reported total was %r). "
-            "If this fires repeatedly, raise MAX_PAGES or investigate the "
-            "tenant for unbounded growth.",
-            MAX_PAGES, tenant_host, len(all_positions), total,
+            "Eightfold pagination MAX_PAGES (%d) reached for %s: %s "
+            "(server-reported total was %r). If this fires repeatedly, "
+            "raise MAX_PAGES or investigate the tenant for unbounded growth.",
+            MAX_PAGES, tenant_host,
+            f"raising EightfoldMaxPagesError ({len(all_positions)} partial positions)"
+            if raise_on_max_pages
+            else f"returning partial result of {len(all_positions)} positions",
+            total,
         )
+        if raise_on_max_pages:
+            raise EightfoldMaxPagesError(all_positions, tenant_host, total)
 
     logger.info(
         "Eightfold fetched %d positions for %s in %d pages",
@@ -590,31 +626,79 @@ def _extract_eightfold_tenant_and_domain(url: str) -> tuple[Optional[str], Optio
     potential indicator of compromise (URL points at an unallowed host).
     """
     if not url or not isinstance(url, str):
+        logger.warning(
+            "eightfold verify: url is empty or non-string (got %r)", url,
+        )
         return None, None
     try:
         parsed = urlparse(url)
     except ValueError:
+        logger.warning(
+            "eightfold verify: url=%r failed to parse", url,
+        )
         return None, None
     tenant_host = parsed.netloc.lower()
     if not tenant_host:
+        logger.warning(
+            "eightfold verify: url=%r has no netloc", url,
+        )
         return None, None
     if not _is_allowed_eightfold_host(tenant_host):
+        _log_ssrf_reject_once(tenant_host, url)
+        return None, None
+    # ``microsite`` lives in the query string (e.g. ``microsite=netflix.com``).
+    # ``parse_qs`` decodes URL-encoded values (e.g. ``netflix%2Ecom`` →
+    # ``netflix.com``). ``keep_blank_values=True`` so an empty ``microsite=``
+    # is observable as a distinct failure mode from a missing key.
+    qs = parse_qs(parsed.query, keep_blank_values=True)
+    domain_values = qs.get("microsite")
+    if domain_values is None:
+        logger.warning(
+            "eightfold verify: url=%r missing ?microsite= query param",
+            url,
+        )
+        return None, None
+    domain = domain_values[0].strip() if domain_values[0] else ""
+    if not domain:
+        logger.warning(
+            "eightfold verify: url=%r has empty/whitespace ?microsite= "
+            "value — likely data corruption upstream",
+            url,
+        )
+        return None, None
+    return tenant_host, domain
+
+
+# SSRF rejects: log ERROR once per (tenant_host) per process lifetime so
+# operators get one alert per corrupt host instead of one per close
+# candidate per tick. Subsequent occurrences log at DEBUG. The set is
+# unbounded but in practice grows to at most a handful of entries before
+# the data is fixed.
+_SSRF_REJECTED_HOSTS: set[str] = set()
+
+
+def _log_ssrf_reject_once(tenant_host: str, url: str) -> None:
+    """ERROR on the first reject for a given ``tenant_host``; DEBUG after."""
+    if tenant_host not in _SSRF_REJECTED_HOSTS:
+        _SSRF_REJECTED_HOSTS.add(tenant_host)
         logger.error(
             "eightfold verify: tenant_host %r from url=%r is not on the "
             "SSRF allowlist — row may have a corrupted url column or be "
-            "an indicator of compromise",
+            "an indicator of compromise (further occurrences of this host "
+            "will log at DEBUG)",
             tenant_host, url,
         )
-        return None, None
-    # ``microsite`` lives in the query string (e.g. ``microsite=netflix.com``).
-    # ``parse_qs`` handles URL-encoded values correctly (a value like
-    # ``netflix%2Ecom`` is decoded to ``netflix.com``); the previous raw
-    # ``split("=", 1)`` would have stored the percent-encoded form and the
-    # refetch would silently false-DEAD every candidate.
-    qs = parse_qs(parsed.query, keep_blank_values=False)
-    domain_values = qs.get("microsite")
-    domain = domain_values[0] if domain_values else None
-    return tenant_host, domain
+    else:
+        logger.debug(
+            "eightfold verify: SSRF-rejected tenant_host=%r url=%r "
+            "(already alerted)",
+            tenant_host, url,
+        )
+
+
+def _reset_ssrf_log_cache_for_testing() -> None:
+    """Test-only: clear the SSRF-reject dedupe set."""
+    _SSRF_REJECTED_HOSTS.clear()
 
 
 # Outer ceiling on the verifier's refetch. ``fetch_jobs`` has a per-request
@@ -651,22 +735,26 @@ async def _refetch_active_ids(
     if cached is not None and (now - cached[0]) < _VERIFY_CACHE_TTL_S:
         return cached[1]
 
+    # ``raise_on_max_pages=True`` makes ``fetch_jobs`` raise
+    # ``EightfoldMaxPagesError`` if it truncated the result. The verifier
+    # CANNOT safely use a truncated id set as ground truth (any id past
+    # page 100 would be classified as ``"dead"``). The previous
+    # ``len(positions) >= MAX_PAGES * EIGHTFOLD_PAGE_SIZE`` heuristic
+    # missed cases where average page size was < 10 due to drift, and
+    # false-fired when natural completion landed at exactly 1000 rows.
     async with httpx.AsyncClient() as http:
-        positions = await asyncio.wait_for(
-            fetch_jobs(tenant_host, domain, http),
-            timeout=_REFETCH_OUTER_TIMEOUT_S,
-        )
-    # MAX_PAGES guard: if ``fetch_jobs`` truncated the result, the cached
-    # id set would be missing whatever lives past page 100. The verifier
-    # would then return ``"dead"`` for any genuinely-alive job in the
-    # truncated tail — the exact false-CLOSED failure mode this verifier
-    # was added to prevent. Refuse to cache; signal ``"unknown"`` upstream.
-    if len(positions) >= MAX_PAGES * EIGHTFOLD_PAGE_SIZE:
-        raise ValueError(
-            f"eightfold verify refetch for {tenant_host!r} hit MAX_PAGES "
-            f"({MAX_PAGES}) — truncated set of {len(positions)} positions "
-            f"is not safe to use as close-gate ground truth"
-        )
+        try:
+            positions = await asyncio.wait_for(
+                fetch_jobs(
+                    tenant_host, domain, http, raise_on_max_pages=True,
+                ),
+                timeout=_REFETCH_OUTER_TIMEOUT_S,
+            )
+        except EightfoldMaxPagesError as e:
+            # Surface as ValueError so ``verify_url_alive``'s existing
+            # ``except (httpx.HTTPError, ValueError, asyncio.TimeoutError)``
+            # resolves to ``"unknown"``.
+            raise ValueError(str(e)) from e
     ids: set[str] = set()
     for p in positions:
         if not isinstance(p, dict):
@@ -697,13 +785,12 @@ async def verify_url_alive(
       HTTP error, etc.). The caller's ``unknown_policy`` then decides
       whether to skip or close.
     """
+    # ``_extract_eightfold_tenant_and_domain`` logs the specific failure
+    # reason (empty url, parse fail, missing microsite, empty microsite,
+    # SSRF reject) so this branch just resolves to "unknown" without
+    # re-logging.
     tenant_host, domain = _extract_eightfold_tenant_and_domain(url)
     if not tenant_host or not domain:
-        logger.warning(
-            "eightfold verify_url_alive: could not parse tenant/domain "
-            "from url=%r (source_id=%s job_id=%s)",
-            url, source_id, job_id,
-        )
         return "unknown"
     try:
         active_ids = await _refetch_active_ids(tenant_host, domain)

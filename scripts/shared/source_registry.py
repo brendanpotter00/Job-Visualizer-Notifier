@@ -56,6 +56,23 @@ The ``source_id`` and ``job_id`` are passed in addition to the URL because
 some verifiers need to construct the canonical detail URL from the id
 rather than trusting the ``url`` column (which may be stale or
 locale-specific).
+
+Contract for implementers:
+
+- MUST resolve transient errors (network, timeout, parse-fail, HTTP error,
+  cancellation other than asyncio.CancelledError) to ``"unknown"`` —
+  do NOT raise them up to the caller. The caller's discriminated catch in
+  ``close_verifier.verify_close_candidates`` is httpx-specific
+  (``httpx.HTTPError, asyncio.TimeoutError, OSError, ValueError``); a
+  verifier built on another HTTP client (aiohttp, urllib) that raises a
+  client-specific exception WOULD be reclassified as a programming bug
+  and re-raised to Sentry. Verifiers own their own transient-error
+  swallowing.
+- MAY propagate ``asyncio.CancelledError`` (and SHOULD — cancellation
+  must never be suppressed).
+- MAY raise programming bugs (TypeError, AttributeError, etc.) — the
+  caller deliberately does NOT catch these, so they reach Sentry and
+  get fixed.
 """
 
 
@@ -104,6 +121,13 @@ def unregister_verifier(source_id: str) -> None:
 
     Idempotent — no-op if ``source_id`` is not registered.
     """
+    if not source_id:
+        # Mirror register_verifier's guard. An empty source_id can't
+        # validly be in the registry, but accepting it silently would
+        # mask typos (e.g., a renamed SourceId constant collapsed to "").
+        raise ValueError(
+            "unregister_verifier requires a non-empty source_id"
+        )
     if _VERIFIERS.pop(source_id, None) is not None:
         logger.debug("Unregistered URL verifier for source_id=%s", source_id)
 

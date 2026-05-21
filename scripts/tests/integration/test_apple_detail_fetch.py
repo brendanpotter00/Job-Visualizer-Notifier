@@ -155,10 +155,16 @@ class TestFetchJobDetailsCore:
         assert results[0]["id"] == "200640732-0836"
 
     @pytest.mark.asyncio
-    async def test_fetch_job_details_unexpected_error_sets_flag(
+    async def test_fetch_job_details_programming_bug_propagates(
         self, mock_context, mock_page, sample_job_cards
     ):
-        """Sets _detail_fetch_failed on unexpected error"""
+        """Programming bugs (generic Exception, TypeError, AttributeError)
+        propagate out of _fetch_job_details rather than being silently
+        masked with _detail_fetch_failed=True. Per 2026-05-21 review
+        guidance: bug-shaped exceptions should reach Sentry and get fixed
+        instead of being collapsed into "ambient detail-fetch failure"
+        noise. Only the well-defined ``JobDetailsFetchError`` (transient
+        API/network) flags the job and continues."""
         scraper = AppleJobsScraper(headless=True, detail_scrape=True)
         scraper.context = mock_context
         scraper._random_delay = AsyncMock()
@@ -166,14 +172,11 @@ class TestFetchJobDetailsCore:
 
         with patch(
             "apple_jobs_scraper.scraper.fetch_job_details",
-            AsyncMock(side_effect=Exception("Unexpected error")),
+            AsyncMock(side_effect=TypeError("simulated programming bug")),
         ):
-            results = []
-            async for job in scraper._fetch_job_details(sample_job_cards[:1]):
-                results.append(job)
-
-        assert len(results) == 1
-        assert results[0]["_detail_fetch_failed"] is True
+            with pytest.raises(TypeError, match="simulated programming bug"):
+                async for _ in scraper._fetch_job_details(sample_job_cards[:1]):
+                    pass
 
 
 class TestScrapeJobDetailsBatch:

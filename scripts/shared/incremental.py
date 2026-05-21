@@ -183,40 +183,20 @@ async def update_existing_jobs(
     if still_active_ids:
         db.update_last_seen(db_conn, source_id, list(still_active_ids), timestamp)
 
-    if not missing_ids:
-        return 0
+    # Delegate the close path to ``close_verifier.process_missing_ids``
+    # so the increment → threshold-check → verifier → close pipeline lives
+    # in one place. The backend ATS tasks (fetch_*_company.py) call the
+    # same helper; keeping both paths converged means a future change to
+    # the policy / verifier hook lands in one file.
+    from .close_verifier import process_missing_ids
 
-    # Increment consecutive_misses for missing jobs
-    db.increment_consecutive_misses(db_conn, source_id, list(missing_ids))
-
-    # Check which jobs have exceeded threshold (single query).
-    # consecutive_misses was already incremented above, so we check >= threshold.
-    jobs_to_close = db.get_jobs_exceeding_miss_threshold(
-        db_conn, source_id, list(missing_ids), threshold
-    )
-
-    if not jobs_to_close:
-        return 0
-
-    # URL-verification gate: probe each candidate's public URL before
-    # closing. See module docstring of ``close_verifier`` for the policy.
-    # Sources without a registered verifier (Microsoft) → unknown maps to
-    # "close" so legacy behavior is preserved. Sources with one → unknown
-    # maps to "skip" (fail-safe — re-evaluate next tick).
-    from .close_verifier import verify_close_candidates
-    from .source_registry import get_verifier, _unknown_verifier
-
-    has_verifier = get_verifier(source_id) is not _unknown_verifier
-    unknown_policy = "skip" if has_verifier else "close"
-
-    closed_ids, _kept_alive_ids, _skipped_ids = await verify_close_candidates(
+    return await process_missing_ids(
         db_conn,
         source_id,
-        list(jobs_to_close),
+        list(missing_ids),
         timestamp,
-        unknown_policy=unknown_policy,
+        threshold=threshold,
     )
-    return len(closed_ids)
 
 
 async def run_incremental_scrape(

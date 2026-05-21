@@ -97,3 +97,105 @@ class TestNavigateToPage:
             await scraper.navigate_to_page(page, "https://jobs.apple.com/x")
 
         assert page.goto.await_count == 2
+
+
+class TestEnsureVerifierPage:
+    """The Apple verifier-page setup is load-bearing for close-detection.
+
+    Three branches that MUST be pinned:
+      - Setup succeeds → registry has Apple verifier registered.
+      - Setup fails (context.new_page raises, or navigate fails) →
+        registry is empty for Apple, so the close path falls through to
+        legacy threshold-only close-on-threshold instead of silently
+        disabling all Apple closes (the verifier would otherwise return
+        "unknown" for every call and unknown_policy="skip" would veto
+        every close).
+      - __aexit__ unregisters → next scraper instance in the same process
+        sees a fresh registry rather than a leftover real-callable + None
+        page combo.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _isolate_registry(self):
+        """Per-test registry isolation. Each test starts with the
+        import-time registration (Apple verifier present) and ends
+        without contaminating sibling tests.
+        """
+        from shared.source_registry import (
+            _VERIFIERS,
+            clear_verifiers_for_testing,
+            register_verifier,
+        )
+        from shared.constants import SourceId
+        from apple_jobs_scraper.api_client import verify_url_alive
+
+        snapshot = dict(_VERIFIERS)
+        yield
+        clear_verifiers_for_testing()
+        for sid, verifier in snapshot.items():
+            register_verifier(sid, verifier)
+
+    @pytest.mark.asyncio
+    async def test_setup_failure_unregisters_apple_verifier(self):
+        """If _ensure_verifier_page can't create the page (new_page raises),
+        the Apple verifier MUST be unregistered so process_missing_ids
+        auto-selects unknown_policy="close" (legacy threshold-only) for
+        the rest of the run instead of skipping every close.
+        """
+        from shared.constants import SourceId
+        from shared.source_registry import get_verifier, _unknown_verifier
+
+        scraper = AppleJobsScraper.__new__(AppleJobsScraper)
+        scraper._verifier_page = None
+        scraper.context = MagicMock()
+        scraper.context.new_page = AsyncMock(
+            side_effect=RuntimeError("playwright context torn down"),
+        )
+
+        await scraper._ensure_verifier_page()
+
+        # Registry MUST fall back to the no-op fallback. Otherwise
+        # has_verifier=True and every Apple close gets silently skipped.
+        assert get_verifier(SourceId.APPLE) is _unknown_verifier
+
+    @pytest.mark.asyncio
+    async def test_setup_failure_keeps_verifier_page_none(self):
+        """If _ensure_verifier_page raises after new_page succeeded but
+        before navigate completed, the half-created page MUST be cleaned
+        up so __aexit__'s teardown doesn't double-fault.
+        """
+        scraper = AppleJobsScraper.__new__(AppleJobsScraper)
+        scraper._verifier_page = None
+        scraper.context = MagicMock()
+        half_created = MagicMock()
+        half_created.close = AsyncMock()
+        scraper.context.new_page = AsyncMock(return_value=half_created)
+        scraper.navigate_to_page = AsyncMock(
+            side_effect=RuntimeError("navigation failed"),
+        )
+
+        await scraper._ensure_verifier_page()
+
+        assert scraper._verifier_page is None
+        half_created.close.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_setup_success_keeps_verifier_registered(self):
+        """Happy path: new_page + navigate both succeed → registry retains
+        the real Apple verifier. (Also pins the re-arm-after-prior-failure
+        contract on line ~150 of scraper.py.)
+        """
+        from shared.constants import SourceId
+        from shared.source_registry import get_verifier, _unknown_verifier
+
+        scraper = AppleJobsScraper.__new__(AppleJobsScraper)
+        scraper._verifier_page = None
+        scraper.context = MagicMock()
+        page = MagicMock()
+        scraper.context.new_page = AsyncMock(return_value=page)
+        scraper.navigate_to_page = AsyncMock()
+
+        await scraper._ensure_verifier_page()
+
+        assert scraper._verifier_page is page
+        assert get_verifier(SourceId.APPLE) is not _unknown_verifier
