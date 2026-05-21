@@ -38,7 +38,7 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint('id'),
     )
     op.create_index(
-        'idx_worker_heartbeats_at_desc',
+        'idx_worker_heartbeats_at',
         'worker_heartbeats',
         ['at'],
         unique=False,
@@ -46,5 +46,5 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index('idx_worker_heartbeats_at_desc', table_name='worker_heartbeats')
+    op.drop_index('idx_worker_heartbeats_at', table_name='worker_heartbeats')
     op.drop_table('worker_heartbeats')

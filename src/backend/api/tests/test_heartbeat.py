@@ -1,14 +1,29 @@
-"""Tests for the heartbeat periodic task + cleanup."""
+"""Tests for the heartbeat periodic task + cleanup.
+
+Covers:
+- ``_insert_heartbeat_sync`` writes one row with a near-now ``at``.
+- ``_cleanup_heartbeats_sync`` deletes rows older than 24h, keeps the rest.
+- The async ``worker_heartbeat`` task swallows ``psycopg2.Error`` /
+  ``OSError`` (transient DB hiccups don't kill the canary; the freshness
+  probe will catch a real outage) — pinned so a future widen to
+  ``except Exception`` is caught.
+- The async ``worker_heartbeat`` task PROPAGATES programmer errors
+  (``AttributeError`` etc.) so Procrastinate marks the task failed —
+  pinned so the narrow ``(psycopg2.Error, OSError)`` catch can't quietly
+  become ``except Exception``.
+"""
 
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import psycopg2
 import pytest
 
 from api.tasks.heartbeat import (
     _cleanup_heartbeats_sync,
     _insert_heartbeat_sync,
+    worker_heartbeat,
 )
 
 
@@ -65,3 +80,46 @@ def test_cleanup_prunes_only_old_rows(db_conn):
     assert deleted == 3
     remaining = _select_heartbeats(db_conn)
     assert len(remaining) == 2
+
+
+@pytest.mark.asyncio
+async def test_worker_heartbeat_swallows_psycopg_error(monkeypatch, caplog):
+    """A transient DB error inside the insert path is caught and logged
+    at ERROR — the task itself returns None so Procrastinate doesn't
+    mark it failed and pile up retries. The freshness probe is the
+    canary for a persistent failure, not Procrastinate's retry state.
+    """
+    import logging
+    import api.tasks.heartbeat as heartbeat_mod
+
+    def boom(_db_url):
+        raise psycopg2.OperationalError("simulated DB hiccup")
+
+    monkeypatch.setattr(heartbeat_mod, "_insert_heartbeat_sync", boom)
+
+    with caplog.at_level(logging.ERROR, logger="api.tasks.heartbeat"):
+        result = await worker_heartbeat(timestamp=0)
+
+    assert result is None
+    assert any(
+        "worker_heartbeat insert failed" in rec.message
+        for rec in caplog.records
+    ), "expected ERROR log for the swallowed psycopg2 error"
+
+
+@pytest.mark.asyncio
+async def test_worker_heartbeat_propagates_programmer_error(monkeypatch):
+    """An ``AttributeError`` (programmer bug) must propagate so
+    Procrastinate marks the task failed. This pins the narrow
+    ``(psycopg2.Error, OSError)`` catch against a quiet widening to
+    ``except Exception`` — which would silently swallow real bugs.
+    """
+    import api.tasks.heartbeat as heartbeat_mod
+
+    def boom(_db_url):
+        raise AttributeError("simulated programmer error")
+
+    monkeypatch.setattr(heartbeat_mod, "_insert_heartbeat_sync", boom)
+
+    with pytest.raises(AttributeError, match="simulated programmer error"):
+        await worker_heartbeat(timestamp=0)

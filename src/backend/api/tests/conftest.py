@@ -223,7 +223,7 @@ def _insert_user(conn, user: dict) -> None:
 def _clear_tables(conn) -> None:
     """Truncate test tables between tests."""
     cursor = conn.cursor()
-    cursor.execute(sql.SQL("TRUNCATE {}, {}, {}, {}, {}, {}, {}, {} CASCADE").format(
+    cursor.execute(sql.SQL("TRUNCATE {}, {}, {}, {}, {}, {}, {}, {}, {} CASCADE").format(
         sql.Identifier("feature_upvotes"),
         sql.Identifier("features"),
         sql.Identifier("user_enabled_companies"),
@@ -232,6 +232,7 @@ def _clear_tables(conn) -> None:
         sql.Identifier("admins"),
         sql.Identifier("users"),
         sql.Identifier("companies"),
+        sql.Identifier("worker_heartbeats"),
     ))
     conn.commit()
 

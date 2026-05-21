@@ -260,28 +260,52 @@ def health():
 def health_worker(conn=Depends(get_db)):
     """Procrastinate worker liveness probe.
 
-    Returns 503 when the most recent `procrastinate_events` row is older
-    than _WORKER_FRESHNESS_SECONDS. Wire this as Railway's healthcheckPath
+    Returns 503 when EITHER stream is stale:
+      - the most recent `procrastinate_events` row is older than
+        _WORKER_FRESHNESS_SECONDS (35 min — one */30 cron tick + slack), OR
+      - the most recent `worker_heartbeats` row is older than
+        _HEARTBEAT_FRESHNESS_SECONDS (10 min — one */5 cron tick + slack).
+
+    The two streams are checked independently so a sick connector that
+    breaks event-writes but leaves the periodic scheduler alive still
+    surfaces a freshness signal. Wire this as Railway's healthcheckPath
     so the platform restarts the container when the worker silently hangs
     (the original failure class the 2026-05-19 supervisor PR couldn't
     cover, since a hang produces no exception).
 
     Uses the FastAPI sync pool (NOT Procrastinate's async connector) so a
-    sick Procrastinate connector doesn't mask a sick worker. The query is
-    SELECT MAX(at) — single row, no scan past the index tip; sub-ms even
-    on millions of events.
+    sick Procrastinate connector doesn't mask a sick worker.
 
-    During the brief startup window before `init_pool` runs, `get_db` raises
-    RuntimeError → FastAPI returns 500. Railway's `healthcheckTimeout` (5min
-    default) is generous enough to absorb this; the deploy succeeds as soon
-    as the lifespan finishes initializing.
+    Failure modes:
+    - `psycopg2.Error` from the probe queries -> 503 with status="db_error".
+      A liveness probe that can't read its own data plane IS a liveness
+      failure; surfacing 503 lets Railway restart the container.
+    - During the brief startup window before `init_pool` runs, `get_db`
+      raises RuntimeError → FastAPI returns 500. Railway's
+      `healthcheckTimeout` (5min) absorbs this until lifespan completes.
     """
-    with conn.cursor() as cur:
-        cur.execute("SELECT MAX(at) AS latest FROM procrastinate_events")
-        events_row = cur.fetchone()
-        cur.execute("SELECT MAX(at) AS latest FROM worker_heartbeats")
-        heartbeat_row = cur.fetchone()
-        conn.rollback()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT MAX(at) AS latest FROM procrastinate_events")
+            events_row = cur.fetchone()
+            cur.execute("SELECT MAX(at) AS latest FROM worker_heartbeats")
+            heartbeat_row = cur.fetchone()
+    except psycopg2.Error:
+        logger.exception("health_worker DB query failed")
+        return JSONResponse(
+            status_code=503,
+            content={"status": "db_error"},
+        )
+    finally:
+        # End any txn the queries opened so the connection returns to the
+        # pool clean. get_db's except path also rolls back on exception,
+        # but doing it here keeps the intent local and covers the case
+        # where the *second* SELECT raises after the first one's read
+        # opened an implicit transaction.
+        try:
+            conn.rollback()
+        except psycopg2.Error:
+            logger.exception("health_worker rollback failed")
 
     now = datetime.now(timezone.utc)
 

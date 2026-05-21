@@ -540,11 +540,13 @@ async def test_task_timeout_records_failed_run(
     """A task that hangs past `_TASK_TIMEOUT_S` raises asyncio.TimeoutError
     inside the handler and is recorded with error_count=1.
 
-    We monkeypatch the constant to 1.0s and patch httpx to sleep 5s, so
-    the wait_for fires deterministically. Without the wait_for the test
-    would hang for ~5s and the assertion would never run; with it, the
-    finally-block still records a scrape_runs row (proving Python 3.13's
-    wait_for cancellation lets the finally complete).
+    We monkeypatch the constant to 1.0s and patch httpx to sleep 5s. With
+    the wait_for in place, the timeout fires after ~1s and the finally
+    block still records a scrape_runs row — proving the cancellation
+    propagates through the outer try/finally cleanly. Without the
+    wait_for, the inner await would block for the full 5s sleep and the
+    task would record a *successful* run (jobs_seen=0), which is the
+    exact silent-hang failure class this PR exists to prevent.
     """
     import api.tasks.fetch_workday_company as task_mod
 

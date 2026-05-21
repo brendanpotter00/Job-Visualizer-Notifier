@@ -1,8 +1,12 @@
 """Tests for the /health/worker DB-freshness liveness endpoint.
 
-The endpoint queries `MAX(procrastinate_events.at)`; if older than 35
-minutes it returns 503. This is what Railway will use as healthcheckPath
-so it can restart the container when the worker silently hangs.
+The endpoint queries `MAX(procrastinate_events.at)` AND
+`MAX(worker_heartbeats.at)`; if EITHER is older than its threshold
+(35 min for events, 10 min for heartbeats) it returns 503. A
+`psycopg2.Error` from either probe query also returns 503 (the
+probe can't read its data plane, so the data plane is unhealthy).
+This is what Railway uses as healthcheckPath so it can restart the
+container when the worker silently hangs.
 """
 
 from __future__ import annotations
@@ -94,3 +98,65 @@ def test_health_worker_cold_start_is_ok(client, db_conn):
     assert body["status"] == "cold"
     assert body["latest_event"] is None
     assert body["latest_heartbeat"] is None
+
+
+def test_health_worker_returns_503_when_both_stale(client, db_conn):
+    """Both streams stale → 503. Pins the `or` short-circuit so a refactor
+    to `and` (which would mask a real outage as healthy) is caught."""
+    _wipe(db_conn)
+    _insert_event(db_conn, age_seconds=40 * 60)  # past 35-min threshold
+    _insert_heartbeat(db_conn, age_seconds=15 * 60)  # past 10-min threshold
+
+    resp = client.get("/health/worker")
+    assert resp.status_code == 503
+    body = resp.json()
+    assert body["status"] == "stale"
+    assert body["gap_seconds"] > 35 * 60
+    assert body["heartbeat_gap_seconds"] > 10 * 60
+
+
+def test_health_worker_returns_503_on_db_error(client, test_app):
+    """A psycopg2.Error from a probe query returns 503 with
+    status='db_error'. A liveness probe that can't read its data plane IS
+    a liveness failure — Railway should restart, not 500."""
+    import psycopg2
+
+    from api.dependencies import get_db
+
+    class _BoomCursorCtx:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def execute(self, *a, **kw):
+            raise psycopg2.OperationalError("simulated DB hiccup")
+
+        def fetchone(self):
+            return None
+
+    class _BoomConn:
+        def cursor(self):
+            return _BoomCursorCtx()
+
+        def rollback(self):
+            pass
+
+    def override():
+        yield _BoomConn()
+
+    original = test_app.dependency_overrides.get(get_db)
+    test_app.dependency_overrides[get_db] = override
+    try:
+        resp = client.get("/health/worker")
+    finally:
+        if original is not None:
+            test_app.dependency_overrides[get_db] = original
+        else:
+            del test_app.dependency_overrides[get_db]
+
+    assert resp.status_code == 503, (
+        f"expected 503 on DB error (Railway restart signal), got {resp.status_code}"
+    )
+    assert resp.json()["status"] == "db_error"

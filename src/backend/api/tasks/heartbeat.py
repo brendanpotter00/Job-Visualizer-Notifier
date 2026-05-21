@@ -4,16 +4,18 @@ scheduler + worker pair is still alive.
 Why a heartbeat at all when /health/worker already reads
 ``procrastinate_events``? Two reasons:
 
-1. ``procrastinate_events`` is written by the worker's job-execution path.
-   If that path silently fails (e.g., the connector's pool returns broken
-   connections so event-writes hang) but the periodic scheduler is still
-   running, the events table will go stale while the worker is technically
-   alive. A standalone heartbeat write proves the periodic scheduler can
-   defer AND the worker can dequeue AND a write can hit Postgres — three
-   layers, not just one.
-2. Independent table = independent indexing on liveness. A future change
-   to ``procrastinate_events`` schema (Procrastinate upgrade) won't break
-   the freshness probe.
+1. ``_insert_heartbeat_sync`` opens a **fresh** psycopg2 connection
+   (independent of Procrastinate's connector pool) before writing. So
+   the heartbeat row hits Postgres via a different code path than the
+   Procrastinate event-stream — a Procrastinate connector that's
+   serving stale/broken connections to its own event writes can still
+   produce healthy heartbeat rows iff the worker can dequeue, and a
+   sick application/IO path that breaks fresh connections too will
+   show up here even when Procrastinate's events table is also stale.
+   Two signals, two write paths.
+2. Independent table = independent of Procrastinate's schema. A future
+   Procrastinate upgrade that renames or reshapes ``procrastinate_events``
+   won't break the freshness probe.
 
 Fires every 5 minutes. The companion cleanup task (``cleanup_heartbeats``)
 prunes rows older than 24 hours so the table stays tiny.

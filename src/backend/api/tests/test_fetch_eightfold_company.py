@@ -488,3 +488,39 @@ class TestFetchEightfoldCompany:
             "AttributeError was caught by the narrow except (error_count=1); "
             "it should have propagated past the except block"
         )
+
+    async def test_task_timeout_records_failed_run(
+        self, procrastinate_open, db_conn, monkeypatch
+    ):
+        """A task that hangs past `_TASK_TIMEOUT_S` raises asyncio.TimeoutError
+        and is recorded with error_count=1 by the outer finally.
+
+        Mirrors test_fetch_workday_company.py — all 6 ATS task files share
+        the same wait_for + finally pattern; the guarantee must hold for
+        every one of them, not just Workday.
+        """
+        import api.tasks.fetch_eightfold_company as task_mod
+
+        monkeypatch.setattr(task_mod, "_TASK_TIMEOUT_S", 1.0)
+
+        company = "netflix"
+        _seed_company(db_conn, company)
+
+        async def slow_handler(request: httpx.Request) -> httpx.Response:
+            await asyncio.sleep(5.0)  # > _TASK_TIMEOUT_S → wait_for fires
+            return httpx.Response(200, json={"count": 0, "positions": []})
+
+        _patch_httpx(monkeypatch, slow_handler)
+
+        await fetch_eightfold_company.defer_async(
+            company_id=company,
+            board_token=company,
+            provider_config=NETFLIX_PROVIDER_CONFIG,
+        )
+        await _drain(timeout=10.0)
+        db_conn.rollback()
+
+        runs = _scrape_runs(db_conn, company)
+        assert len(runs) == 1, "timed-out task must still record a scrape_runs row"
+        assert runs[0]["error_count"] == 1
+        assert runs[0]["jobs_seen"] == 0

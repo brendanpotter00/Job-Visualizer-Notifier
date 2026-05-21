@@ -215,5 +215,9 @@ class WorkerHeartbeat(Base):
     )
 
     __table_args__ = (
-        Index("idx_worker_heartbeats_at_desc", "at"),
+        # Plain ASC btree — Postgres' planner uses it for both
+        # `MAX(at)` (the /health/worker probe) and
+        # `at < now() - interval '24h'` (the cleanup task) with a
+        # forward or backward scan. No DESC needed.
+        Index("idx_worker_heartbeats_at", "at"),
     )
