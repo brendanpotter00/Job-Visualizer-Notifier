@@ -24,6 +24,14 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'add-exa',
+    title: 'Added Exa',
+    description:
+      'Exa is now tracked via its Ashby job board, joining the other Ashby-hosted companies in Recent Jobs and Company Hiring Trends.',
+    tags: ['new-companies'],
+    date: '2026-05-21',
+  },
+  {
     id: 'add-paypal',
     title: 'Added PayPal',
     description:
