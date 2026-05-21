@@ -554,9 +554,9 @@ async def test_record_scrape_run_fallback_runs_on_primary_failure(
     real_get_connection = task_mod.db.get_connection
     get_conn_calls = {"n": 0}
 
-    def counting_get_connection(database_url):
+    def counting_get_connection(database_url, **kwargs):
         get_conn_calls["n"] += 1
-        return real_get_connection(database_url)
+        return real_get_connection(database_url, **kwargs)
 
     monkeypatch.setattr(task_mod.db, "get_connection", counting_get_connection)
 
@@ -597,3 +597,41 @@ async def test_record_scrape_run_fallback_runs_on_primary_failure(
         f"fallback did not open a fresh connection (get_conn_calls="
         f"{get_conn_calls['n']}); fallback path likely not exercised"
     )
+
+
+async def test_task_timeout_records_failed_run(
+    procrastinate_open, db_conn, monkeypatch
+):
+    """A task that hangs past `_TASK_TIMEOUT_S` raises asyncio.TimeoutError
+    and is recorded with error_count=1 by the outer finally.
+
+    Mirrors test_fetch_workday_company.py::test_task_timeout_records_failed_run.
+    All 6 ATS task files share the same wait_for + finally pattern; the
+    guarantee must hold for every one of them, not just Workday — the
+    silent-hang failure class this PR exists to prevent is exactly the
+    case a regression in any one file would silently re-introduce.
+    """
+    import api.tasks.fetch_greenhouse_company as task_mod
+
+    monkeypatch.setattr(task_mod, "_TASK_TIMEOUT_S", 1.0)
+
+    company = "greenhousetimeoutco"
+    token = "greenhousetimeoutco"
+    _seed_company(db_conn, company, token)
+
+    async def slow_handler(request: httpx.Request) -> httpx.Response:
+        await asyncio.sleep(5.0)  # > _TASK_TIMEOUT_S → wait_for fires
+        return httpx.Response(200, json={"jobs": []})
+
+    _patch_httpx(monkeypatch, slow_handler)
+
+    await fetch_greenhouse_company.defer_async(
+        company_id=company, board_token=token,
+    )
+    await _drain(timeout=10.0)
+    db_conn.rollback()
+
+    runs = _scrape_runs(db_conn, company)
+    assert len(runs) == 1, "timed-out task must still record a scrape_runs row"
+    assert runs[0]["error_count"] == 1
+    assert runs[0]["jobs_seen"] == 0

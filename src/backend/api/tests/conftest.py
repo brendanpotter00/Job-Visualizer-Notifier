@@ -223,7 +223,7 @@ def _insert_user(conn, user: dict) -> None:
 def _clear_tables(conn) -> None:
     """Truncate test tables between tests."""
     cursor = conn.cursor()
-    cursor.execute(sql.SQL("TRUNCATE {}, {}, {}, {}, {}, {}, {}, {} CASCADE").format(
+    cursor.execute(sql.SQL("TRUNCATE {}, {}, {}, {}, {}, {}, {}, {}, {} CASCADE").format(
         sql.Identifier("feature_upvotes"),
         sql.Identifier("features"),
         sql.Identifier("user_enabled_companies"),
@@ -232,6 +232,7 @@ def _clear_tables(conn) -> None:
         sql.Identifier("admins"),
         sql.Identifier("users"),
         sql.Identifier("companies"),
+        sql.Identifier("worker_heartbeats"),
     ))
     conn.commit()
 
@@ -274,6 +275,11 @@ def test_app(db_conn):
     def health():
         from fastapi.responses import PlainTextResponse
         return PlainTextResponse("OK")
+
+    # Register the worker-freshness endpoint by reusing the real one so the
+    # production logic is what tests exercise.
+    from api.main import health_worker as _health_worker
+    app.add_api_route("/health/worker", _health_worker, methods=["GET"])
 
     # Override the get_db dependency to use the test connection
     def override_get_db():
