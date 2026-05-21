@@ -1,7 +1,7 @@
 """seed exa and roblox companies
 
 Revision ID: 1e35a6d3cb28
-Revises: b9714f608e21
+Revises: 2aaec46888f4
 Create Date: 2026-05-21 12:00:00.000000+00:00
 
 Hand-written data migration (the documented exception to the
@@ -15,6 +15,10 @@ Both sit on top of the frozen per-ATS seeds (Ashby revision
 counts asserted in ``test_migration_companies.py`` are unaffected because
 that test stops at ``WORKDAY_SEED_REV``, before this revision.
 
+Chains off ``2aaec46888f4`` (the worker_heartbeats schema migration from
+PR #129) rather than directly off the Workday seed, so the alembic chain
+has a single head when this PR is merged into main.
+
 Source of truth for the frontend entries:
   src/frontend/src/config/companies.ts (``exa`` and ``roblox`` rows)
 """
@@ -25,7 +29,7 @@ import sqlalchemy as sa
 
 
 revision: str = '1e35a6d3cb28'
-down_revision: Union[str, None] = 'b9714f608e21'
+down_revision: Union[str, None] = '2aaec46888f4'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
