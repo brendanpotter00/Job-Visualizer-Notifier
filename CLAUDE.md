@@ -103,6 +103,7 @@ Edit `src/frontend/src/config/companies.ts` and add a `createBackendScraperCompa
    - Always use pagination for tables with 100+ rows (see QAPage pattern)
    - Use `useMemo` for derived data and avoid creating large arrays in render methods
    - Never render unbounded lists - Chrome can consume 50+ GB memory with large unpaginated tables
+8. **Postgres MCP timezone bug**: When debugging time-sensitive state through `mcp__postgres-prod__query`, `now() AT TIME ZONE 'UTC'` (and any `timestamptz → timestamp without time zone` cast) drops the timezone tag and the MCP's JSON serializer then re-renders the naked timestamp **as if it were already local time**. The visible result is a phantom shift equal to your local UTC offset (CDT = +5h, CST = +6h, PDT = +7h, UTC = 0). Always cross-check elapsed time with `EXTRACT(EPOCH FROM now())::bigint` or compare against bare `now()` which renders correctly as `…Z`. This one-time confusion produced a phantom "5h hang" investigation in May 2026 on a CDT machine that wasn't real.
 
 ## Key Files (Frontend)
 

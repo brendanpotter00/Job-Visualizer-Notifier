@@ -4,18 +4,52 @@ import asyncio
 import logging
 import sys
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 
 import psycopg2
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 
 from .config import settings
-from .dependencies import init_pool, close_pool, pool_is_healthy
+from .dependencies import get_db, init_pool, close_pool, pool_is_healthy
 from .routers import admin, features, jobs, jobs_qa, users
 from .tasks import procrastinate_app
 from .tasks.procrastinate_app import ensure_schema_async
 from .migrations import apply_alembic_migrations
+
+
+# Liveness threshold for `procrastinate_events` freshness. 35 min is a
+# hard floor — in healthy operation events are written every */5 by the
+# heartbeat task (and far more frequently by fan-out + per-task transitions),
+# so anything older than 35 min indicates the connector / scheduler is dead.
+# The 35 = 30 (worst-case */30 fan-out tick) + 5 (slack) framing covers the
+# fallback case where the heartbeat is also stuck. Railway healthcheckPath
+# uses this to decide when to restart the container.
+_WORKER_FRESHNESS_SECONDS = 35 * 60
+
+# Heartbeat freshness threshold. The heartbeat task fires every 5 min;
+# 10 min covers a single missed tick plus slack. The heartbeat's *write*
+# path is independent of Procrastinate's event-stream (it opens a fresh
+# psycopg2 connection, not the connector pool), so a sick connector whose
+# event-writes hang but whose dequeue path still functions will surface
+# here even when `procrastinate_events.at` is unreliable.
+_HEARTBEAT_FRESHNESS_SECONDS = 10 * 60
+
+# Queues the Procrastinate worker drains. Module-level constant so tests
+# can pin the membership (in particular, that "heartbeat" stays present —
+# removing it silently would only surface as production going red via the
+# /health/worker freshness probe). Order doesn't matter for correctness;
+# kept stable for grep-friendly log output.
+_WORKER_QUEUES: tuple[str, ...] = (
+    "greenhouse_fetch",
+    "ashby_fetch",
+    "lever_fetch",
+    "gem_fetch",
+    "eightfold_fetch",
+    "workday_fetch",
+    "heartbeat",
+)
 
 
 # Railway derives its `@level` field from which OS stream a log line came out
@@ -153,14 +187,7 @@ async def lifespan(app: FastAPI):
         while True:
             try:
                 await procrastinate_app.run_worker_async(
-                    queues=[
-                        "greenhouse_fetch",
-                        "ashby_fetch",
-                        "lever_fetch",
-                        "gem_fetch",
-                        "eightfold_fetch",
-                        "workday_fetch",
-                    ],
+                    queues=list(_WORKER_QUEUES),
                     concurrency=5,
                 )
                 return
@@ -178,9 +205,8 @@ async def lifespan(app: FastAPI):
     worker_task.add_done_callback(_worker_task_done)
     logger.info(
         "Procrastinate worker background task started "
-        "(queues=['greenhouse_fetch', 'ashby_fetch', 'lever_fetch', 'gem_fetch', "
-        "'eightfold_fetch', 'workday_fetch'], "
-        "concurrency=5)"
+        "(queues=%s, concurrency=5)",
+        list(_WORKER_QUEUES),
     )
 
     yield
@@ -239,3 +265,97 @@ def health():
     if not pool_is_healthy():
         return PlainTextResponse("UNAVAILABLE", status_code=503)
     return PlainTextResponse("OK")
+
+
+@app.get("/health/worker")
+def health_worker(conn=Depends(get_db)):
+    """Procrastinate worker liveness probe.
+
+    Returns 503 when EITHER stream is stale:
+      - the most recent `procrastinate_events` row is older than
+        _WORKER_FRESHNESS_SECONDS (35 min — one */30 cron tick + slack), OR
+      - the most recent `worker_heartbeats` row is older than
+        _HEARTBEAT_FRESHNESS_SECONDS (10 min — one */5 cron tick + slack).
+
+    The two streams are checked independently so a sick connector that
+    breaks event-writes but leaves the periodic scheduler alive still
+    surfaces a freshness signal. Wire this as Railway's healthcheckPath
+    so the platform restarts the container when the worker silently hangs
+    (the original failure class the 2026-05-19 supervisor PR couldn't
+    cover, since a hang produces no exception).
+
+    Uses the FastAPI sync pool (NOT Procrastinate's async connector) so a
+    sick Procrastinate connector doesn't mask a sick worker.
+
+    Failure modes:
+    - `psycopg2.Error` from the probe queries -> 503 with status="db_error".
+      A liveness probe that can't read its own data plane IS a liveness
+      failure; surfacing 503 lets Railway restart the container.
+    - During the brief startup window before `init_pool` runs, `get_db`
+      raises RuntimeError → FastAPI returns 500. Railway's
+      `healthcheckTimeout` (5min) absorbs this until lifespan completes.
+    """
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT MAX(at) AS latest FROM procrastinate_events")
+            events_row = cur.fetchone()
+            cur.execute("SELECT MAX(at) AS latest FROM worker_heartbeats")
+            heartbeat_row = cur.fetchone()
+    except psycopg2.Error:
+        logger.exception("health_worker DB query failed")
+        return JSONResponse(
+            status_code=503,
+            content={"status": "db_error"},
+        )
+    finally:
+        # End any txn the queries opened so the connection returns to the
+        # pool clean. get_db's except path also rolls back on exception,
+        # but doing it here keeps the intent local and covers the case
+        # where the *second* SELECT raises after the first one's read
+        # opened an implicit transaction.
+        try:
+            conn.rollback()
+        except psycopg2.Error:
+            logger.exception("health_worker rollback failed")
+
+    now = datetime.now(timezone.utc)
+
+    def _gap(row) -> tuple[datetime | None, float | None]:
+        latest = row["latest"] if row else None
+        if latest is None:
+            return None, None
+        if latest.tzinfo is None:
+            latest = latest.replace(tzinfo=timezone.utc)
+        return latest, (now - latest).total_seconds()
+
+    events_latest, events_gap = _gap(events_row)
+    heartbeat_latest, heartbeat_gap = _gap(heartbeat_row)
+
+    payload = {
+        "latest_event": events_latest.isoformat() if events_latest else None,
+        "gap_seconds": round(events_gap, 1) if events_gap is not None else None,
+        "threshold_seconds": _WORKER_FRESHNESS_SECONDS,
+        "latest_heartbeat": (
+            heartbeat_latest.isoformat() if heartbeat_latest else None
+        ),
+        "heartbeat_gap_seconds": (
+            round(heartbeat_gap, 1) if heartbeat_gap is not None else None
+        ),
+        "heartbeat_threshold_seconds": _HEARTBEAT_FRESHNESS_SECONDS,
+    }
+
+    if events_latest is None and heartbeat_latest is None:
+        # Cold deploy — neither has run yet. Allow as healthy; the cron
+        # will fire within ~5min (heartbeat) and write the first row.
+        return {**payload, "status": "cold"}
+
+    events_stale = events_gap is not None and events_gap > _WORKER_FRESHNESS_SECONDS
+    heartbeat_stale = (
+        heartbeat_gap is not None and heartbeat_gap > _HEARTBEAT_FRESHNESS_SECONDS
+    )
+    if events_stale or heartbeat_stale:
+        return JSONResponse(
+            status_code=503,
+            content={**payload, "status": "stale"},
+        )
+    return {**payload, "status": "ok"}

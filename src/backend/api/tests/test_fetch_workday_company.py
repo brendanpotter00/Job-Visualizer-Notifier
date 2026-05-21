@@ -501,9 +501,9 @@ async def test_record_scrape_run_fallback_runs_on_primary_failure(
     real_get_connection = task_mod.db.get_connection
     get_conn_calls = {"n": 0}
 
-    def counting_get_connection(database_url):
+    def counting_get_connection(database_url, **kwargs):
         get_conn_calls["n"] += 1
-        return real_get_connection(database_url)
+        return real_get_connection(database_url, **kwargs)
 
     monkeypatch.setattr(task_mod.db, "get_connection", counting_get_connection)
 
@@ -532,3 +532,44 @@ async def test_record_scrape_run_fallback_runs_on_primary_failure(
     )
     assert record_calls["n"] == 2
     assert get_conn_calls["n"] >= 2
+
+
+async def test_task_timeout_records_failed_run(
+    procrastinate_open, db_conn, monkeypatch
+):
+    """A task that hangs past `_TASK_TIMEOUT_S` raises asyncio.TimeoutError
+    inside the handler and is recorded with error_count=1.
+
+    We monkeypatch the constant to 1.0s and patch httpx to sleep 5s. With
+    the wait_for in place, the timeout fires after ~1s and the finally
+    block still records a scrape_runs row — proving the cancellation
+    propagates through the outer try/finally cleanly. Without the
+    wait_for, the inner await would block for the full 5s sleep and the
+    task would record a *successful* run (jobs_seen=0), which is the
+    exact silent-hang failure class this PR exists to prevent.
+    """
+    import api.tasks.fetch_workday_company as task_mod
+
+    monkeypatch.setattr(task_mod, "_TASK_TIMEOUT_S", 1.0)
+
+    company = "workdaytimeoutco"
+    token = "workdaytimeoutco"
+    _seed_company(db_conn, company, token)
+
+    async def slow_handler(request: httpx.Request) -> httpx.Response:
+        await asyncio.sleep(5.0)  # > _TASK_TIMEOUT_S → wait_for fires
+        return httpx.Response(200, json=_make_workday_response([]))
+
+    _patch_httpx(monkeypatch, slow_handler)
+
+    await fetch_workday_company.defer_async(
+        company_id=company, board_token=token, provider_config=_PROVIDER_CONFIG,
+    )
+    # Drain with a generous timeout — the task itself caps at 1s.
+    await _drain(timeout=10.0)
+    db_conn.rollback()
+
+    runs = _scrape_runs(db_conn, company)
+    assert len(runs) == 1, "timed-out task must still record a scrape_runs row"
+    assert runs[0]["error_count"] == 1
+    assert runs[0]["jobs_seen"] == 0

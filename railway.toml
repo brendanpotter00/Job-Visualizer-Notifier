@@ -1,0 +1,32 @@
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "src/backend/Dockerfile"
+
+[deploy]
+# /health/worker returns 503 when EITHER stream is stale:
+#   - procrastinate_events (last job ack)   > 35 min
+#   - worker_heartbeats    (canary tick)    > 10 min
+# Railway auto-restarts the container on 503 — the silent-hang failure class
+# the 2026-05-19 supervisor PR couldn't cover (a hang produces no exception).
+#
+# The two streams are independent on the WRITE path (events flow through the
+# Procrastinate connector pool; the heartbeat task opens a fresh psycopg2
+# connection), but coupled on the DEQUEUE path (both rely on the connector
+# being able to claim jobs). So the practical failure modes are:
+#   (a) connector dead / scheduler hung    -> both streams stale  -> 503 stale
+#   (b) connector can dequeue, but event-
+#       writes broken (trigger / schema)   -> events stale, heartbeat fresh
+#                                             -> 503 stale; payload shows split
+#   (c) probe query itself raises          -> 503 db_error
+# Cases (a) and (b) both trip the OR in the freshness check; case (b) is the
+# only one where the payload distinguishes "scheduler dead" from "event-write
+# pipe broken" — visible to operators in Railway logs, not affecting the
+# restart decision.
+#
+# `restartPolicyMaxRetries = 10` × ~35-min event threshold ≈ ~6h before
+# Railway gives up — long enough to outlast a Postgres outage but short
+# enough to surface a corrupted deploy.
+healthcheckPath = "/health/worker"
+healthcheckTimeout = 300
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
