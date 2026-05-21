@@ -19,16 +19,21 @@ from .tasks.procrastinate_app import ensure_schema_async
 from .migrations import apply_alembic_migrations
 
 
-# Liveness threshold for the worker freshness probe. 30-min cron cadence
-# + 5-min slack to absorb a slow fan-out tick. Anything older indicates
-# the worker is silently hung — Railway healthcheckPath uses this to
-# decide when to restart the container.
+# Liveness threshold for `procrastinate_events` freshness. 35 min is a
+# hard floor — in healthy operation events are written every */5 by the
+# heartbeat task (and far more frequently by fan-out + per-task transitions),
+# so anything older than 35 min indicates the connector / scheduler is dead.
+# The 35 = 30 (worst-case */30 fan-out tick) + 5 (slack) framing covers the
+# fallback case where the heartbeat is also stuck. Railway healthcheckPath
+# uses this to decide when to restart the container.
 _WORKER_FRESHNESS_SECONDS = 35 * 60
 
-# Heartbeat freshness threshold. The heartbeat task fires every 5 minutes;
-# 10 minutes covers a single missed tick plus slack. Independent of the
-# event-stream check so a connector that breaks event-writes but leaves the
-# scheduler alive still surfaces a freshness signal.
+# Heartbeat freshness threshold. The heartbeat task fires every 5 min;
+# 10 min covers a single missed tick plus slack. The heartbeat's *write*
+# path is independent of Procrastinate's event-stream (it opens a fresh
+# psycopg2 connection, not the connector pool), so a sick connector whose
+# event-writes hang but whose dequeue path still functions will surface
+# here even when `procrastinate_events.at` is unreliable.
 _HEARTBEAT_FRESHNESS_SECONDS = 10 * 60
 
 # Queues the Procrastinate worker drains. Module-level constant so tests

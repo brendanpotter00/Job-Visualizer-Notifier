@@ -2,20 +2,21 @@
 scheduler + worker pair is still alive.
 
 Why a heartbeat at all when /health/worker already reads
-``procrastinate_events``? Two reasons:
+``procrastinate_events``? Two reasons — both about narrowing the failure
+class the freshness probe can detect:
 
-1. ``_insert_heartbeat_sync`` opens a **fresh** psycopg2 connection
-   (independent of Procrastinate's connector pool) before writing. So
-   the heartbeat row hits Postgres via a different code path than the
-   Procrastinate event-stream — a Procrastinate connector that's
-   serving stale/broken connections to its own event writes can still
-   produce healthy heartbeat rows iff the worker can dequeue, and a
-   sick application/IO path that breaks fresh connections too will
-   show up here even when Procrastinate's events table is also stale.
-   Two signals, two write paths.
-2. Independent table = independent of Procrastinate's schema. A future
-   Procrastinate upgrade that renames or reshapes ``procrastinate_events``
-   won't break the freshness probe.
+1. **Independent write path.** ``_insert_heartbeat_sync`` opens a fresh
+   psycopg2 connection (NOT through Procrastinate's connector pool) before
+   writing the row. The heartbeat IS still a Procrastinate task, so its
+   dequeue path shares the same connector — meaning a fully-dead connector
+   stops both streams. But a connector that can still dequeue jobs while
+   its event-write trigger is broken (e.g. trigger disabled, schema
+   corruption, role permissions drift on ``procrastinate_events``) will
+   keep producing healthy heartbeat rows. That's the case this layer
+   exists for — and the only case where heartbeat freshness disagrees
+   with event freshness in a useful direction.
+2. **Independent table.** A future Procrastinate upgrade that renames
+   or reshapes ``procrastinate_events`` can't break the probe.
 
 Fires every 5 minutes. The companion cleanup task (``cleanup_heartbeats``)
 prunes rows older than 24 hours so the table stays tiny.

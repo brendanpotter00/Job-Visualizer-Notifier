@@ -4,13 +4,20 @@ dockerfilePath = "src/backend/Dockerfile"
 
 [deploy]
 # /health/worker returns 503 when EITHER stream is stale:
-#   - procrastinate_events (last job ack)   > 35 min (one */30 cron tick + slack)
-#   - worker_heartbeats    (canary tick)    > 10 min (one */5 cron tick + slack)
+#   - procrastinate_events (last job ack)   > 35 min
+#   - worker_heartbeats    (canary tick)    > 10 min
 # Railway auto-restarts the container on 503 — the silent-hang failure class
 # the 2026-05-19 supervisor PR couldn't cover (a hang produces no exception).
-# Two streams catch different failure modes: a sick connector that breaks
-# event-writes is caught by the heartbeat (separate psycopg2 connection); a
-# scheduler glitch is caught by the events freshness check.
+#
+# The two streams are independent on the WRITE path (events flow through the
+# Procrastinate connector pool; the heartbeat task opens a fresh psycopg2
+# connection), but coupled on the DEQUEUE path (both rely on the connector
+# being able to claim jobs). So the practical failure modes are:
+#   (a) connector dead / scheduler hung  -> both streams stale
+#   (b) connector can dequeue, but Procrastinate event-writes broken
+#       (trigger / schema corruption)    -> heartbeat alone keeps surfacing
+#   (c) heartbeat table broken (rare)    -> events alone keeps surfacing
+#
 # `restartPolicyMaxRetries = 10` × ~35-min event threshold ≈ ~6h before
 # Railway gives up — long enough to outlast a Postgres outage but short
 # enough to surface a corrupted deploy.
