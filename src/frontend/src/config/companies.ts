@@ -227,6 +227,9 @@ export const COMPANIES: Company[] = [
   createBackendScraperCompany('hightouch', 'Hightouch', 'https://boards.greenhouse.io/hightouch', {
     sourceAts: 'greenhouse',
   }),
+  createBackendScraperCompany('roblox', 'Roblox', 'https://boards.greenhouse.io/roblox', {
+    sourceAts: 'greenhouse',
+  }),
 
   // Lever companies (migrated to backend-scraper)
   createBackendScraperCompany('palantir', 'Palantir', 'https://jobs.lever.co/palantir', {
@@ -615,6 +618,7 @@ export const enum COMPANY_IDS {
   ResolveAI = 'resolve-ai',
   Roadrunner = 'roadrunner',
   Robinhood = 'robinhood',
+  Roblox = 'roblox',
   Saronic = 'saronic',
   Scaleai = 'scaleai',
   Sesame = 'sesame',

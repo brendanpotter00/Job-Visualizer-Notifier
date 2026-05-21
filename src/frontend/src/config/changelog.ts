@@ -24,12 +24,28 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'add-roblox',
+    title: 'Added Roblox',
+    description:
+      'Roblox — the user-generated immersive gaming platform with 132M daily active users — is now tracked via its Greenhouse job board.',
+    tags: ['new-companies'],
+    date: '2026-05-21',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add Roblox to your company preferences',
+    },
+  },
+  {
     id: 'add-exa',
     title: 'Added Exa',
     description:
-      'Exa is now tracked via its Ashby job board, joining the other Ashby-hosted companies in Recent Jobs and Company Hiring Trends.',
+      'Exa — the AI-native search engine that powers Cursor, Cognition, HubSpot, and 400k+ developers — is now tracked via its Ashby job board. Exa just closed a $250M Series C at a $2.2B valuation.',
     tags: ['new-companies'],
     date: '2026-05-21',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add Exa to your company preferences',
+    },
   },
   {
     id: 'add-paypal',
