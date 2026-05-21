@@ -115,10 +115,30 @@ def test_health_worker_returns_503_when_both_stale(client, db_conn):
     assert body["heartbeat_gap_seconds"] > 10 * 60
 
 
-def test_health_worker_returns_503_on_db_error(client, test_app):
+def test_worker_queues_include_heartbeat():
+    """Pin that "heartbeat" is in the worker's queue list. If it gets
+    removed, the heartbeat task piles up unprocessed and /health/worker
+    flips to 503 — but only in production. Catching it at test time is
+    much cheaper than discovering it via a Railway restart loop.
+    """
+    from api.main import _WORKER_QUEUES
+
+    assert "heartbeat" in _WORKER_QUEUES, (
+        f"'heartbeat' queue missing from worker queues={_WORKER_QUEUES!r} — "
+        "the */5 heartbeat task would pile up unprocessed and "
+        "/health/worker would flip to 503 in production"
+    )
+
+
+def test_health_worker_returns_503_on_db_error(client, test_app, monkeypatch, caplog):
     """A psycopg2.Error from a probe query returns 503 with
     status='db_error'. A liveness probe that can't read its data plane IS
-    a liveness failure — Railway should restart, not 500."""
+    a liveness failure — Railway should restart, not 500.
+
+    Also asserts the failure is logged at ERROR with exc_info so silent
+    removal of the `logger.exception(...)` call would fail this test.
+    """
+    import logging
     import psycopg2
 
     from api.dependencies import get_db
@@ -146,17 +166,27 @@ def test_health_worker_returns_503_on_db_error(client, test_app):
     def override():
         yield _BoomConn()
 
-    original = test_app.dependency_overrides.get(get_db)
-    test_app.dependency_overrides[get_db] = override
-    try:
+    # monkeypatch.setitem guarantees restoration even on BaseException.
+    monkeypatch.setitem(test_app.dependency_overrides, get_db, override)
+
+    with caplog.at_level(logging.ERROR, logger="api.main"):
         resp = client.get("/health/worker")
-    finally:
-        if original is not None:
-            test_app.dependency_overrides[get_db] = original
-        else:
-            del test_app.dependency_overrides[get_db]
 
     assert resp.status_code == 503, (
         f"expected 503 on DB error (Railway restart signal), got {resp.status_code}"
     )
     assert resp.json()["status"] == "db_error"
+    # The log line must include exc_info so the operator can grep for the
+    # stack trace in Railway logs. Silent removal of logger.exception
+    # would fail this assertion.
+    matching = [
+        r for r in caplog.records
+        if r.levelno == logging.ERROR
+        and "health_worker DB query failed" in r.getMessage()
+    ]
+    assert matching, (
+        "expected ERROR log 'health_worker DB query failed' on DB-error path"
+    )
+    assert matching[0].exc_info is not None, (
+        "log line must include exc_info=True so Railway surfaces the stack trace"
+    )

@@ -101,10 +101,18 @@ async def test_worker_heartbeat_swallows_psycopg_error(monkeypatch, caplog):
         result = await worker_heartbeat(timestamp=0)
 
     assert result is None
-    assert any(
-        "worker_heartbeat insert failed" in rec.message
-        for rec in caplog.records
-    ), "expected ERROR log for the swallowed psycopg2 error"
+    matching = [
+        r for r in caplog.records
+        if r.levelno == logging.ERROR
+        and "worker_heartbeat insert failed" in r.getMessage()
+    ]
+    assert matching, "expected ERROR log for the swallowed psycopg2 error"
+    # exc_info=True is load-bearing: Railway's @level:error surface relies
+    # on the stack trace to be greppable. A future refactor to drop
+    # exc_info would silently break post-mortem debugging.
+    assert matching[0].exc_info is not None, (
+        "log line must include exc_info=True so the stack trace appears in Railway"
+    )
 
 
 @pytest.mark.asyncio

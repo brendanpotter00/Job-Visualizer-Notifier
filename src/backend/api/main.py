@@ -31,6 +31,21 @@ _WORKER_FRESHNESS_SECONDS = 35 * 60
 # scheduler alive still surfaces a freshness signal.
 _HEARTBEAT_FRESHNESS_SECONDS = 10 * 60
 
+# Queues the Procrastinate worker drains. Module-level constant so tests
+# can pin the membership (in particular, that "heartbeat" stays present —
+# removing it silently would only surface as production going red via the
+# /health/worker freshness probe). Order doesn't matter for correctness;
+# kept stable for grep-friendly log output.
+_WORKER_QUEUES: tuple[str, ...] = (
+    "greenhouse_fetch",
+    "ashby_fetch",
+    "lever_fetch",
+    "gem_fetch",
+    "eightfold_fetch",
+    "workday_fetch",
+    "heartbeat",
+)
+
 
 # Railway derives its `@level` field from which OS stream a log line came out
 # on: stdout → info, stderr → error. Python's default StreamHandler writes
@@ -167,15 +182,7 @@ async def lifespan(app: FastAPI):
         while True:
             try:
                 await procrastinate_app.run_worker_async(
-                    queues=[
-                        "greenhouse_fetch",
-                        "ashby_fetch",
-                        "lever_fetch",
-                        "gem_fetch",
-                        "eightfold_fetch",
-                        "workday_fetch",
-                        "heartbeat",
-                    ],
+                    queues=list(_WORKER_QUEUES),
                     concurrency=5,
                 )
                 return
@@ -193,9 +200,8 @@ async def lifespan(app: FastAPI):
     worker_task.add_done_callback(_worker_task_done)
     logger.info(
         "Procrastinate worker background task started "
-        "(queues=['greenhouse_fetch', 'ashby_fetch', 'lever_fetch', 'gem_fetch', "
-        "'eightfold_fetch', 'workday_fetch', 'heartbeat'], "
-        "concurrency=5)"
+        "(queues=%s, concurrency=5)",
+        list(_WORKER_QUEUES),
     )
 
     yield

@@ -52,8 +52,22 @@ def _insert_heartbeat_sync(database_url: str) -> None:
         with conn.cursor() as cur:
             cur.execute("INSERT INTO worker_heartbeats (at) VALUES (now())")
         conn.commit()
+    except Exception:
+        # End the aborted transaction explicitly so close() doesn't have
+        # to handle TRANSACTION_STATUS_INERROR cleanup, and so the
+        # original exception isn't masked by a close-time error.
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
     finally:
-        conn.close()
+        try:
+            conn.close()
+        except Exception:
+            logger.error(
+                "task_heartbeat connection close failed", exc_info=True
+            )
 
 
 def _cleanup_heartbeats_sync(database_url: str) -> int:
@@ -71,8 +85,19 @@ def _cleanup_heartbeats_sync(database_url: str) -> int:
             deleted = cur.rowcount
         conn.commit()
         return int(deleted)
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
     finally:
-        conn.close()
+        try:
+            conn.close()
+        except Exception:
+            logger.error(
+                "task_heartbeat_cleanup connection close failed", exc_info=True
+            )
 
 
 @procrastinate_app.periodic(cron="*/5 * * * *", periodic_id="heartbeat")

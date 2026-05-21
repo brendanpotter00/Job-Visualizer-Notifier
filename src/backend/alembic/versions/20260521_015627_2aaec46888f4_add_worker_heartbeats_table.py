@@ -37,6 +37,12 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint('id'),
     )
+    # Drop any pre-rename leftover from an in-development run of this
+    # migration where the index was originally named `_at_desc`. Prod
+    # never saw the old name (migration was unmerged), so this is a
+    # no-op there; on dev boxes that ran the old code it cleans up
+    # the orphaned index so the names converge.
+    op.execute("DROP INDEX IF EXISTS idx_worker_heartbeats_at_desc")
     op.create_index(
         'idx_worker_heartbeats_at',
         'worker_heartbeats',

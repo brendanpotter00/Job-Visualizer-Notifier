@@ -216,7 +216,8 @@ async def fetch_eightfold_company(
             await asyncio.wait_for(_work(), timeout=_TASK_TIMEOUT_S)
         except asyncio.TimeoutError as e:
             logger.error(
-                "fetch_eightfold_company exceeded 120s for %s — Procrastinate will retry",
+                "fetch_eightfold_company exceeded %ss for %s — Procrastinate will retry",
+                _TASK_TIMEOUT_S,
                 company_id,
             )
             error_count = 1
