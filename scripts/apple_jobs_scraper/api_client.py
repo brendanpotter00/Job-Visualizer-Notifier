@@ -9,7 +9,7 @@ import asyncio
 import re
 import logging
 from typing import Dict, Any, Optional, List
-from playwright.async_api import Page
+from playwright.async_api import Error as PlaywrightError, Page
 
 from shared.constants import SourceId
 from shared.source_registry import VerifierResult, register_verifier
@@ -316,7 +316,14 @@ async def verify_url_alive(
             parsed_id,
         )
         return "unknown"
-    except Exception:
+    except (PlaywrightError, OSError):
+        # Transient verifier failure: Playwright-level error (page crashed,
+        # context torn down, navigation race, JS abort) or OS-level socket
+        # error from the in-page fetch. Resolves to "unknown" per the
+        # ``source_registry.Verifier`` contract — implementers MUST swallow
+        # transient errors themselves. Programming bugs (TypeError,
+        # AttributeError) are NOT caught — they propagate to Sentry instead
+        # of being silently classified as "ambient verifier ambiguity."
         logger.warning(
             "apple verify_url_alive: in-page fetch raised for %s — unknown",
             parsed_id,

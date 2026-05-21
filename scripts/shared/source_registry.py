@@ -59,17 +59,16 @@ locale-specific).
 
 Contract for implementers:
 
-- MUST resolve transient errors (network, timeout, parse-fail, HTTP error,
-  cancellation other than asyncio.CancelledError) to ``"unknown"`` —
-  do NOT raise them up to the caller. The caller's discriminated catch in
-  ``close_verifier.verify_close_candidates`` is httpx-specific
-  (``httpx.HTTPError, asyncio.TimeoutError, OSError, ValueError``); a
-  verifier built on another HTTP client (aiohttp, urllib) that raises a
-  client-specific exception WOULD be reclassified as a programming bug
-  and re-raised to Sentry. Verifiers own their own transient-error
-  swallowing.
-- MAY propagate ``asyncio.CancelledError`` (and SHOULD — cancellation
-  must never be suppressed).
+- MUST resolve transient errors (network, timeout, parse-fail, HTTP error)
+  to ``"unknown"`` — do NOT raise them up to the caller. The caller's
+  discriminated catch in ``close_verifier.verify_close_candidates`` is
+  httpx-specific (``httpx.HTTPError, asyncio.TimeoutError, OSError,
+  ValueError``); a verifier built on another HTTP client (aiohttp,
+  urllib) that raises a client-specific exception WOULD be reclassified
+  as a programming bug and re-raised to Sentry. Verifiers own their own
+  transient-error swallowing.
+- MUST NOT suppress ``asyncio.CancelledError`` — cancellation must
+  propagate.
 - MAY raise programming bugs (TypeError, AttributeError, etc.) — the
   caller deliberately does NOT catch these, so they reach Sentry and
   get fixed.

@@ -1,6 +1,6 @@
-"""Pure Eightfold AI Job Board API client + transformer.
+"""Pure Eightfold AI Job Board API client + transformer + close-gate verifier.
 
-Three concerns, all queue-agnostic:
+Four concerns, all queue-agnostic:
 
 1. ``_is_allowed_eightfold_host(host)``: SSRF allowlist enforcement. Ported
    verbatim from ``api/eightfold.ts``. Restricts upstream hosts to
@@ -26,6 +26,16 @@ Three concerns, all queue-agnostic:
    Eightfold position dict to a :class:`scripts.shared.models.JobListing`
    row. Field semantics preserved from the deleted frontend
    ``eightfoldTransformer.ts``; see that file's git history for context.
+
+4. ``verify_url_alive(url, source_id, job_id)``: per-source close-gate
+   verifier registered with ``scripts.shared.source_registry`` at import
+   time. Refetches the active-positions list (TTL-cached 60s) and reports
+   whether the given ``job_id`` appears in it. Used by
+   ``close_verifier.verify_close_candidates`` to gate the close decision —
+   without this, scrape-set drift (Eightfold over-paginates inconsistently)
+   produced false-CLOSED rows on every tick. See the inline banner above
+   ``_VERIFY_LIST_CACHE`` for the full design rationale (including why a
+   list-refetch instead of a detail-endpoint probe).
 
 The id stored on ``JobListing`` is ``str(position.id or position.ats_job_id
 or position.display_job_id)``. If all three are falsy we drop the row
@@ -162,11 +172,21 @@ async def fetch_jobs(
     - ``len(all_positions) >= count`` (server-reported total, captured on
       page 1)
     - empty positions array — definitive end-of-data signal
-    - ``MAX_PAGES`` cap — ERROR log + partial-return backstop (see module
-      docstring for rationale)
+    - ``MAX_PAGES`` cap — ERROR log; behavior depends on
+      ``raise_on_max_pages`` (see Parameters)
 
     A "partial page (< ``EIGHTFOLD_PAGE_SIZE`` rows)" break was dropped
     2026-05-21 — see the body of this function for the rationale.
+
+    Parameters
+    ----------
+    tenant_host, domain, http
+        Standard pagination inputs.
+    raise_on_max_pages
+        When False (default — the scrape path), MAX_PAGES exhaustion logs
+        ERROR and returns the partial list. When True (the verifier path),
+        MAX_PAGES exhaustion raises ``EightfoldMaxPagesError``; the caller
+        cannot safely use a truncated set as ground truth.
 
     Raises
     ------
@@ -174,8 +194,15 @@ async def fetch_jobs(
         - ``tenant_host`` is not on the SSRF allowlist. Raised BEFORE any
           outbound HTTP call. This is the load-bearing security check that
           replaced ``api/eightfold.ts``.
-        - Any page is missing ``positions`` (non-list) or ``count``
-          (non-int).
+        - ``domain`` is empty or not a string.
+        - Any page payload is not a dict.
+        - Any page is missing the ``positions`` key.
+        - Any page's ``positions`` value is not a list.
+        (A non-int ``count`` does NOT raise — the loop falls back to
+        empty-page detection. See the page-1 capture block.)
+    EightfoldMaxPagesError
+        Only when ``raise_on_max_pages=True`` and the loop exhausts
+        ``MAX_PAGES`` iterations. ``.partial`` carries the truncated list.
     httpx.HTTPStatusError
         Non-2xx on any page aborts the whole fetch (Eightfold pages don't
         compose well — a 500 mid-walk likely means subsequent pages are
@@ -621,9 +648,12 @@ def _extract_eightfold_tenant_and_domain(url: str) -> tuple[Optional[str], Optio
     Returns ``(None, None)`` on anything that doesn't parse — the caller
     will then return ``"unknown"`` from the verifier.
 
-    SSRF-allowlist rejects are logged at ERROR with the offending host so
-    operators can distinguish data corruption (URL was malformed) from a
-    potential indicator of compromise (URL points at an unallowed host).
+    SSRF-allowlist rejects are logged at ERROR on the first occurrence per
+    ``tenant_host`` (per process lifetime), DEBUG thereafter — see
+    ``_log_ssrf_reject_once``. This dedupe is so a single corrupt row
+    doesn't fire one ERROR per close candidate per tick. Other failure
+    modes (empty url, parse fail, missing/empty microsite param) log at
+    WARN once per candidate per tick.
     """
     if not url or not isinstance(url, str):
         logger.warning(

@@ -9,7 +9,11 @@ Algorithm phases:
 2. Compare current_ids vs database active_ids
 3. Fetch details ONLY for new job IDs (variable time, depends on new jobs)
 4. Update last_seen for existing, increment misses for missing
-5. Mark as closed if consecutive_misses >= 2
+5. URL-verification-gated close: candidates whose consecutive_misses crossed
+   MISSED_RUN_THRESHOLD are passed through ``close_verifier.process_missing_ids``,
+   which runs the registered per-source URL verifier before flipping rows
+   to CLOSED. Sources without a registered verifier fall through to legacy
+   close-on-threshold; sources with one fail-safe to "skip" on ambiguity.
 """
 
 import logging

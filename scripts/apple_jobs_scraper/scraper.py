@@ -73,23 +73,46 @@ class AppleJobsScraper(BaseScraper):
         self._verifier_page: Optional[Page] = None
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        # Drop the module-level verifier reference BEFORE the browser
-        # context is torn down by the base class, so any in-flight verify
-        # call sees ``None`` rather than a closed page.
-        set_apple_verifier_page(None)
-        # Unregister so a sibling scraper instance in the same process
-        # (e.g., tests) doesn't see APPLE → real verifier + None page,
-        # which would silently disable close-detection for that next run.
-        # The next scraper's ``_ensure_verifier_page`` re-registers on
-        # success. Subprocess runs (production) re-import the module
-        # fresh, so this is purely test-isolation hygiene.
-        unregister_verifier(SourceId.APPLE)
+        # Each teardown step is wrapped independently so a failure in one
+        # doesn't skip the others. Defense-in-depth: any of these could
+        # plausibly raise in a future refactor (e.g., set_apple_verifier_page
+        # gaining validation, unregister_verifier becoming strict about
+        # registry state, etc.). Today they don't raise, but a chained
+        # `a(); b(); c()` would mean a regression in a() skips both b() and
+        # c() — including super().__aexit__() which OWNS the browser context
+        # teardown.
+        try:
+            # Drop the module-level verifier reference BEFORE the browser
+            # context is torn down, so any in-flight verify call sees None
+            # rather than a closed page.
+            set_apple_verifier_page(None)
+        except Exception:
+            logger.warning(
+                "AppleJobsScraper.__aexit__: set_apple_verifier_page(None) "
+                "raised; continuing teardown",
+                exc_info=True,
+            )
+        try:
+            # Unregister so a sibling scraper instance in the same process
+            # (e.g., tests) doesn't see APPLE → real verifier + None page,
+            # which would silently disable close-detection for that next
+            # run. The next scraper's _ensure_verifier_page re-registers
+            # on success. Subprocess runs (production) re-import the
+            # module fresh, so this is purely test-isolation hygiene.
+            unregister_verifier(SourceId.APPLE)
+        except Exception:
+            logger.warning(
+                "AppleJobsScraper.__aexit__: unregister_verifier(APPLE) "
+                "raised; continuing teardown",
+                exc_info=True,
+            )
         if self._verifier_page is not None:
             try:
                 await self._verifier_page.close()
             except Exception:
                 logger.warning(
-                    "Failed to close Apple verifier page cleanly", exc_info=True,
+                    "Failed to close Apple verifier page cleanly",
+                    exc_info=True,
                 )
             finally:
                 self._verifier_page = None
