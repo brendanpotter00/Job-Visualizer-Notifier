@@ -124,8 +124,9 @@ async def cleanup_heartbeats(timestamp: int) -> int:
     """Prune worker_heartbeats rows older than 24h. Returns count deleted.
 
     Fires every 6 hours at :17 past to avoid colliding with the */5 ticks
-    or the */30 fan-outs. With heartbeats inserted every 5 minutes (288/day),
-    each cleanup removes at most ~288 rows — cheap.
+    or the */30 fan-outs. With heartbeats inserted every 5 minutes
+    (~288/day), each cleanup removes ~72 rows (the 6h window that just
+    aged past 24h). Table steady-state stays under ~288 rows — cheap.
     """
     deleted = await asyncio.to_thread(_cleanup_heartbeats_sync, settings.database_url)
     logger.info("cleanup_heartbeats: pruned %d rows older than 24h", deleted)

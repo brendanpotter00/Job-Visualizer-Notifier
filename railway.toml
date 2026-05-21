@@ -13,10 +13,15 @@ dockerfilePath = "src/backend/Dockerfile"
 # Procrastinate connector pool; the heartbeat task opens a fresh psycopg2
 # connection), but coupled on the DEQUEUE path (both rely on the connector
 # being able to claim jobs). So the practical failure modes are:
-#   (a) connector dead / scheduler hung  -> both streams stale
-#   (b) connector can dequeue, but Procrastinate event-writes broken
-#       (trigger / schema corruption)    -> heartbeat alone keeps surfacing
-#   (c) heartbeat table broken (rare)    -> events alone keeps surfacing
+#   (a) connector dead / scheduler hung    -> both streams stale  -> 503 stale
+#   (b) connector can dequeue, but event-
+#       writes broken (trigger / schema)   -> events stale, heartbeat fresh
+#                                             -> 503 stale; payload shows split
+#   (c) probe query itself raises          -> 503 db_error
+# Cases (a) and (b) both trip the OR in the freshness check; case (b) is the
+# only one where the payload distinguishes "scheduler dead" from "event-write
+# pipe broken" — visible to operators in Railway logs, not affecting the
+# restart decision.
 #
 # `restartPolicyMaxRetries = 10` × ~35-min event threshold ≈ ~6h before
 # Railway gives up — long enough to outlast a Postgres outage but short

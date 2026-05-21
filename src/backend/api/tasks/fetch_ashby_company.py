@@ -84,8 +84,9 @@ async def fetch_ashby_company(
 
     # Acquire a sync psycopg2 connection in a thread. libpq connect_timeout=10
     # (set by augment_db_url in scripts/shared/database.py) bounds the
-    # handshake; no shield needed — the wait_for below depends on this await
-    # being cancellable so the worker slot can be freed on timeout.
+    # handshake; no shield — task-level cancellation (Procrastinate shutdown /
+    # SIGTERM) must propagate so the worker slot frees cleanly. The wait_for
+    # below wraps `_work()` only; this acquire runs to completion first.
     conn = await asyncio.to_thread(
         db.get_connection,
         settings.database_url,
