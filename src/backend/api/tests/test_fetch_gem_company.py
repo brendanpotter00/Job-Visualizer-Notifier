@@ -486,9 +486,9 @@ async def test_record_scrape_run_fallback_runs_on_primary_failure(
     real_get_connection = task_mod.db.get_connection
     get_conn_calls = {"n": 0}
 
-    def counting_get_connection(database_url):
+    def counting_get_connection(database_url, **kwargs):
         get_conn_calls["n"] += 1
-        return real_get_connection(database_url)
+        return real_get_connection(database_url, **kwargs)
 
     monkeypatch.setattr(task_mod.db, "get_connection", counting_get_connection)
 

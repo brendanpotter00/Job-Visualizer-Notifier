@@ -97,6 +97,13 @@ def _validate_provider_config(
     return tenant_host, domain
 
 
+# Per-task wall-clock cap. Slowest observed prod task is Workday ~43s; 120s
+# leaves ~3x headroom. Hitting this raises asyncio.TimeoutError → Procrastinate
+# retries via RetryStrategy. Tests monkeypatch this to a low value to
+# exercise the timeout path without sleeping for two minutes.
+_TASK_TIMEOUT_S: float = 120.0
+
+
 @procrastinate_app.task(
     queue="eightfold_fetch",
     name="fetch_eightfold_company",
@@ -126,80 +133,94 @@ async def fetch_eightfold_company(
     error_count = 0
     scrape_error: BaseException | None = None
 
-    # Connection acquisition + shield: see fetch_ashby_company.py for the
-    # detailed rationale. Both files share the same pattern.
-    conn = await asyncio.shield(
-        asyncio.to_thread(db.get_connection, settings.database_url)
+    # Acquire a sync psycopg2 connection in a thread. libpq connect_timeout=10
+    # (set by augment_db_url) bounds the handshake; no shield needed — the
+    # wait_for below depends on this await being cancellable.
+    conn = await asyncio.to_thread(
+        db.get_connection,
+        settings.database_url,
+        application_name="task_fetch_eightfold",
+        statement_timeout_ms=60_000,
     )
     try:
         try:
-            async with httpx.AsyncClient() as http:
-                raw_jobs = await fetch_jobs(tenant_host, domain, http)
-            jobs = transform_to_job_listings(company_id, raw_jobs)
-            jobs_seen = len(jobs)
+            async def _work() -> None:
+                nonlocal jobs_seen, new_jobs_count, closed_jobs_count, error_count
+                async with httpx.AsyncClient() as http:
+                    raw_jobs = await fetch_jobs(tenant_host, domain, http)
+                jobs = transform_to_job_listings(company_id, raw_jobs)
+                jobs_seen = len(jobs)
 
-            active_count = await asyncio.to_thread(
-                db.count_active_jobs, conn, SOURCE_ID, company_id
-            )
-
-            if active_count > 0 and jobs_seen < SAFETY_GUARD_RATIO * active_count:
-                # ERROR routes to stderr → Railway @level:error queries.
-                logger.error(
-                    "SAFETY GUARD for %s: returned %d jobs but %d active in "
-                    "DB (threshold %.0f%% = %.0f). Skipping update/close phases.",
-                    company_id, jobs_seen, active_count,
-                    SAFETY_GUARD_RATIO * 100, SAFETY_GUARD_RATIO * active_count,
-                )
-                error_count = 1
-                return
-
-            timestamp = get_iso_timestamp()
-            seen_ids: Set[str] = {j.id for j in jobs}
-
-            pre_upsert_active = await asyncio.to_thread(
-                db.get_active_job_ids, conn, SOURCE_ID, company_id
-            )
-
-            # Per-step auto-commit + retry idempotency: the order below is
-            # what makes a partially-applied state converge on retry. See
-            # the long comment in fetch_ashby_company.py for the full
-            # analysis.
-            if jobs:
-                await asyncio.to_thread(db.upsert_jobs_batch, conn, jobs)
-
-            if seen_ids:
-                await asyncio.to_thread(
-                    db.update_last_seen, conn, SOURCE_ID, list(seen_ids), timestamp,
+                active_count = await asyncio.to_thread(
+                    db.count_active_jobs, conn, SOURCE_ID, company_id
                 )
 
-            new_jobs_count = len(seen_ids - pre_upsert_active)
-
-            post_upsert_active = await asyncio.to_thread(
-                db.get_active_job_ids, conn, SOURCE_ID, company_id
-            )
-            missing_ids = post_upsert_active - seen_ids
-
-            if missing_ids:
-                await asyncio.to_thread(
-                    db.increment_consecutive_misses, conn, SOURCE_ID, list(missing_ids),
-                )
-                to_close = await asyncio.to_thread(
-                    db.get_jobs_exceeding_miss_threshold,
-                    conn,
-                    SOURCE_ID,
-                    list(missing_ids),
-                    MISSED_RUN_THRESHOLD,
-                )
-                if to_close:
-                    await asyncio.to_thread(
-                        db.mark_jobs_closed, conn, SOURCE_ID, list(to_close), timestamp,
+                if active_count > 0 and jobs_seen < SAFETY_GUARD_RATIO * active_count:
+                    # ERROR routes to stderr → Railway @level:error queries.
+                    logger.error(
+                        "SAFETY GUARD for %s: returned %d jobs but %d active in "
+                        "DB (threshold %.0f%% = %.0f). Skipping update/close phases.",
+                        company_id, jobs_seen, active_count,
+                        SAFETY_GUARD_RATIO * 100, SAFETY_GUARD_RATIO * active_count,
                     )
-                    closed_jobs_count = len(to_close)
+                    error_count = 1
+                    return
 
-            logger.info(
-                "fetch_eightfold_company %s: seen=%d new=%d closed=%d",
-                company_id, jobs_seen, new_jobs_count, closed_jobs_count,
+                timestamp = get_iso_timestamp()
+                seen_ids: Set[str] = {j.id for j in jobs}
+
+                pre_upsert_active = await asyncio.to_thread(
+                    db.get_active_job_ids, conn, SOURCE_ID, company_id
+                )
+
+                # Per-step auto-commit + retry idempotency: the order below is
+                # what makes a partially-applied state converge on retry. See
+                # the long comment in fetch_ashby_company.py for the full
+                # analysis.
+                if jobs:
+                    await asyncio.to_thread(db.upsert_jobs_batch, conn, jobs)
+
+                if seen_ids:
+                    await asyncio.to_thread(
+                        db.update_last_seen, conn, SOURCE_ID, list(seen_ids), timestamp,
+                    )
+
+                new_jobs_count = len(seen_ids - pre_upsert_active)
+
+                post_upsert_active = await asyncio.to_thread(
+                    db.get_active_job_ids, conn, SOURCE_ID, company_id
+                )
+                missing_ids = post_upsert_active - seen_ids
+
+                if missing_ids:
+                    await asyncio.to_thread(
+                        db.increment_consecutive_misses, conn, SOURCE_ID, list(missing_ids),
+                    )
+                    to_close = await asyncio.to_thread(
+                        db.get_jobs_exceeding_miss_threshold,
+                        conn,
+                        SOURCE_ID,
+                        list(missing_ids),
+                        MISSED_RUN_THRESHOLD,
+                    )
+                    if to_close:
+                        await asyncio.to_thread(
+                            db.mark_jobs_closed, conn, SOURCE_ID, list(to_close), timestamp,
+                        )
+                        closed_jobs_count = len(to_close)
+
+                logger.info(
+                    "fetch_eightfold_company %s: seen=%d new=%d closed=%d",
+                    company_id, jobs_seen, new_jobs_count, closed_jobs_count,
+                )
+            await asyncio.wait_for(_work(), timeout=_TASK_TIMEOUT_S)
+        except asyncio.TimeoutError as e:
+            logger.error(
+                "fetch_eightfold_company exceeded 120s for %s — Procrastinate will retry",
+                company_id,
             )
+            error_count = 1
+            scrape_error = e
         except (httpx.HTTPError, ValueError, psycopg2.Error) as e:
             # Narrow: programmer errors (Attribute/Type/NameError) propagate
             # so Procrastinate marks the task failed immediately rather than
@@ -233,8 +254,11 @@ async def fetch_eightfold_company(
                 run_id,
             )
             try:
-                fallback_conn = await asyncio.shield(
-                    asyncio.to_thread(db.get_connection, settings.database_url)
+                fallback_conn = await asyncio.to_thread(
+                    db.get_connection,
+                    settings.database_url,
+                    application_name="task_fetch_eightfold_fallback",
+                    statement_timeout_ms=60_000,
                 )
                 try:
                     await asyncio.to_thread(

@@ -67,6 +67,13 @@ from .procrastinate_app import procrastinate_app
 logger = logging.getLogger(__name__)
 
 
+# Per-task wall-clock cap. Slowest observed prod task is Workday ~43s; 120s
+# leaves ~3x headroom. Hitting this raises asyncio.TimeoutError → Procrastinate
+# retries via RetryStrategy. Tests monkeypatch this to a low value to
+# exercise the timeout path without sleeping for two minutes.
+_TASK_TIMEOUT_S: float = 120.0
+
+
 @procrastinate_app.task(
     queue="workday_fetch",
     name="fetch_workday_company",
@@ -103,118 +110,133 @@ async def fetch_workday_company(
     error_count = 0
     scrape_error: BaseException | None = None
 
-    # Connection acquisition wrapped in to_thread + shield. See
-    # fetch_lever_company.py for the load-bearing rationale on the shield
-    # (best-effort against worker cancel during the sync TCP handshake;
-    # bounded leak via Postgres idle_session_timeout + concurrency=5).
-    conn = await asyncio.shield(
-        asyncio.to_thread(db.get_connection, settings.database_url)
+    # Acquire a sync psycopg2 connection in a thread. libpq connect_timeout=10
+    # (set by augment_db_url in scripts/shared/database.py) bounds the
+    # handshake; no shield needed — the wait_for below depends on this await
+    # being cancellable so the worker slot can be freed on timeout.
+    conn = await asyncio.to_thread(
+        db.get_connection,
+        settings.database_url,
+        application_name="task_fetch_workday",
+        statement_timeout_ms=60_000,
     )
     try:
         try:
-            # Validate provider_config BEFORE doing any IO so a bad row
-            # doesn't waste an HTTP round-trip. ValueError lands in the
-            # narrow except below and is recorded as a failed run.
-            _validate_provider_config(provider_config)
+            async def _work() -> None:
+                nonlocal jobs_seen, new_jobs_count, closed_jobs_count, error_count
 
-            async with httpx.AsyncClient() as http:
-                raw_jobs = await fetch_jobs(provider_config, http)
-            jobs = transform_to_job_listings(
-                company_id, raw_jobs, provider_config,
-            )
-            jobs_seen = len(jobs)
+                # Validate provider_config BEFORE doing any IO so a bad row
+                # doesn't waste an HTTP round-trip. ValueError lands in the
+                # narrow except below and is recorded as a failed run.
+                _validate_provider_config(provider_config)
 
-            active_count = await asyncio.to_thread(
-                db.count_active_jobs, conn, SOURCE_ID, company_id
-            )
-
-            if active_count > 0 and jobs_seen < SAFETY_GUARD_RATIO * active_count:
-                # ERROR (not WARNING): Railway routes by Python level —
-                # see _configure_logging in main.py. A persistently-
-                # tripping safety guard would otherwise be invisible in
-                # @level:error filters.
-                logger.error(
-                    "SAFETY GUARD for %s: returned %d jobs but %d active in DB "
-                    "(threshold %.0f%% = %.0f). Skipping update/close phases.",
-                    company_id, jobs_seen, active_count,
-                    SAFETY_GUARD_RATIO * 100, SAFETY_GUARD_RATIO * active_count,
+                async with httpx.AsyncClient() as http:
+                    raw_jobs = await fetch_jobs(provider_config, http)
+                jobs = transform_to_job_listings(
+                    company_id, raw_jobs, provider_config,
                 )
-                error_count = 1
-                return
+                jobs_seen = len(jobs)
 
-            timestamp = get_iso_timestamp()
-            seen_ids: Set[str] = {j.id for j in jobs}
-
-            pre_upsert_active = await asyncio.to_thread(
-                db.get_active_job_ids, conn, SOURCE_ID, company_id
-            )
-
-            # =================================================================
-            # Per-step auto-commit + retry idempotency (load-bearing comment).
-            #
-            # Each helper below opens its own transaction and commits internally.
-            # A mid-task failure (worker crash, Procrastinate kill, etc.) can
-            # leave the DB partially-applied, and the RetryStrategy re-runs
-            # the whole handler. The order below makes that safe:
-            #
-            #   1. upsert_jobs_batch       -- INSERT ... ON CONFLICT DO UPDATE.
-            #                                 Idempotent: same input → same row state.
-            #   2. update_last_seen        -- Sets last_seen_at AND resets
-            #                                 consecutive_misses=0 for any id we
-            #                                 saw in *this* run. Wipes any spurious
-            #                                 increments from a prior partial run
-            #                                 for any job still on the board.
-            #   3. increment_consecutive_misses -- Only for ids active before
-            #                                 this fetch and NOT in seen_ids. If
-            #                                 a previous retry already incremented
-            #                                 them and the job is still missing,
-            #                                 the increment is correct (missed both
-            #                                 runs). If the job came back, step 2
-            #                                 reset the counter.
-            #   4. mark_jobs_closed        -- Idempotent (status='CLOSED' terminal).
-            #
-            # Do NOT reorder these without re-doing the analysis. Mirrors
-            # fetch_ashby_company / fetch_lever_company verbatim.
-            # =================================================================
-
-            if jobs:
-                await asyncio.to_thread(db.upsert_jobs_batch, conn, jobs)
-
-            if seen_ids:
-                await asyncio.to_thread(
-                    db.update_last_seen, conn, SOURCE_ID, list(seen_ids), timestamp,
+                active_count = await asyncio.to_thread(
+                    db.count_active_jobs, conn, SOURCE_ID, company_id
                 )
 
-            new_jobs_count = len(seen_ids - pre_upsert_active)
-
-            post_upsert_active = await asyncio.to_thread(
-                db.get_active_job_ids, conn, SOURCE_ID, company_id
-            )
-            missing_ids = post_upsert_active - seen_ids
-
-            if missing_ids:
-                await asyncio.to_thread(
-                    db.increment_consecutive_misses,
-                    conn, SOURCE_ID, list(missing_ids),
-                )
-                to_close = await asyncio.to_thread(
-                    db.get_jobs_exceeding_miss_threshold,
-                    conn,
-                    SOURCE_ID,
-                    list(missing_ids),
-                    MISSED_RUN_THRESHOLD,
-                )
-                if to_close:
-                    await asyncio.to_thread(
-                        db.mark_jobs_closed,
-                        conn, SOURCE_ID, list(to_close), timestamp,
+                if active_count > 0 and jobs_seen < SAFETY_GUARD_RATIO * active_count:
+                    # ERROR (not WARNING): Railway routes by Python level —
+                    # see _configure_logging in main.py. A persistently-
+                    # tripping safety guard would otherwise be invisible in
+                    # @level:error filters.
+                    logger.error(
+                        "SAFETY GUARD for %s: returned %d jobs but %d active in DB "
+                        "(threshold %.0f%% = %.0f). Skipping update/close phases.",
+                        company_id, jobs_seen, active_count,
+                        SAFETY_GUARD_RATIO * 100, SAFETY_GUARD_RATIO * active_count,
                     )
-                    closed_jobs_count = len(to_close)
+                    error_count = 1
+                    return
 
-            logger.info(
-                "fetch_workday_company %s: seen=%d new=%d closed=%d",
-                company_id, jobs_seen, new_jobs_count, closed_jobs_count,
+                timestamp = get_iso_timestamp()
+                seen_ids: Set[str] = {j.id for j in jobs}
+
+                pre_upsert_active = await asyncio.to_thread(
+                    db.get_active_job_ids, conn, SOURCE_ID, company_id
+                )
+
+                # =================================================================
+                # Per-step auto-commit + retry idempotency (load-bearing comment).
+                #
+                # Each helper below opens its own transaction and commits internally.
+                # A mid-task failure (worker crash, Procrastinate kill, etc.) can
+                # leave the DB partially-applied, and the RetryStrategy re-runs
+                # the whole handler. The order below makes that safe:
+                #
+                #   1. upsert_jobs_batch       -- INSERT ... ON CONFLICT DO UPDATE.
+                #                                 Idempotent: same input → same row state.
+                #   2. update_last_seen        -- Sets last_seen_at AND resets
+                #                                 consecutive_misses=0 for any id we
+                #                                 saw in *this* run. Wipes any spurious
+                #                                 increments from a prior partial run
+                #                                 for any job still on the board.
+                #   3. increment_consecutive_misses -- Only for ids active before
+                #                                 this fetch and NOT in seen_ids. If
+                #                                 a previous retry already incremented
+                #                                 them and the job is still missing,
+                #                                 the increment is correct (missed both
+                #                                 runs). If the job came back, step 2
+                #                                 reset the counter.
+                #   4. mark_jobs_closed        -- Idempotent (status='CLOSED' terminal).
+                #
+                # Do NOT reorder these without re-doing the analysis. Mirrors
+                # fetch_ashby_company / fetch_lever_company verbatim.
+                # =================================================================
+
+                if jobs:
+                    await asyncio.to_thread(db.upsert_jobs_batch, conn, jobs)
+
+                if seen_ids:
+                    await asyncio.to_thread(
+                        db.update_last_seen, conn, SOURCE_ID, list(seen_ids), timestamp,
+                    )
+
+                new_jobs_count = len(seen_ids - pre_upsert_active)
+
+                post_upsert_active = await asyncio.to_thread(
+                    db.get_active_job_ids, conn, SOURCE_ID, company_id
+                )
+                missing_ids = post_upsert_active - seen_ids
+
+                if missing_ids:
+                    await asyncio.to_thread(
+                        db.increment_consecutive_misses,
+                        conn, SOURCE_ID, list(missing_ids),
+                    )
+                    to_close = await asyncio.to_thread(
+                        db.get_jobs_exceeding_miss_threshold,
+                        conn,
+                        SOURCE_ID,
+                        list(missing_ids),
+                        MISSED_RUN_THRESHOLD,
+                    )
+                    if to_close:
+                        await asyncio.to_thread(
+                            db.mark_jobs_closed,
+                            conn, SOURCE_ID, list(to_close), timestamp,
+                        )
+                        closed_jobs_count = len(to_close)
+
+                logger.info(
+                    "fetch_workday_company %s: seen=%d new=%d closed=%d",
+                    company_id, jobs_seen, new_jobs_count, closed_jobs_count,
+                )
+
+            await asyncio.wait_for(_work(), timeout=_TASK_TIMEOUT_S)
+        except asyncio.TimeoutError as e:
+            logger.error(
+                "fetch_workday_company exceeded 120s for %s — Procrastinate will retry",
+                company_id,
             )
+            error_count = 1
+            scrape_error = e
         except (httpx.HTTPError, ValueError, psycopg2.Error) as e:
             # Narrow on purpose: programmer errors (AttributeError, TypeError,
             # NameError, etc.) should propagate so Procrastinate marks the
@@ -249,9 +271,11 @@ async def fetch_workday_company(
                 run_id,
             )
             try:
-                # Same best-effort shield as the primary acquire above.
-                fallback_conn = await asyncio.shield(
-                    asyncio.to_thread(db.get_connection, settings.database_url)
+                fallback_conn = await asyncio.to_thread(
+                    db.get_connection,
+                    settings.database_url,
+                    application_name="task_fetch_workday_fallback",
+                    statement_timeout_ms=60_000,
                 )
                 try:
                     await asyncio.to_thread(
