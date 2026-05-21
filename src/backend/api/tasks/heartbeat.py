@@ -1,5 +1,6 @@
-"""Worker heartbeat: a no-op periodic task that proves the Procrastinate
-scheduler + worker pair is still alive.
+"""Worker heartbeat: a side-effect-only periodic task whose body is one
+INSERT into ``worker_heartbeats`` and whose freshness proves the
+Procrastinate scheduler + worker pair is still alive.
 
 Why a heartbeat at all when /health/worker already reads
 ``procrastinate_events``? Two reasons — both about narrowing the failure
