@@ -275,6 +275,11 @@ def test_app(db_conn):
         from fastapi.responses import PlainTextResponse
         return PlainTextResponse("OK")
 
+    # Register the worker-freshness endpoint by reusing the real one so the
+    # production logic is what tests exercise.
+    from api.main import health_worker as _health_worker
+    app.add_api_route("/health/worker", _health_worker, methods=["GET"])
+
     # Override the get_db dependency to use the test connection
     def override_get_db():
         yield db_conn

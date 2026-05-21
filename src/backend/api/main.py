@@ -4,18 +4,26 @@ import asyncio
 import logging
 import sys
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 
 import psycopg2
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 
 from .config import settings
-from .dependencies import init_pool, close_pool, pool_is_healthy
+from .dependencies import get_db, init_pool, close_pool, pool_is_healthy
 from .routers import admin, features, jobs, jobs_qa, users
 from .tasks import procrastinate_app
 from .tasks.procrastinate_app import ensure_schema_async
 from .migrations import apply_alembic_migrations
+
+
+# Liveness threshold for the worker freshness probe. 30-min cron cadence
+# + 5-min slack to absorb a slow fan-out tick. Anything older indicates
+# the worker is silently hung — Railway healthcheckPath uses this to
+# decide when to restart the container.
+_WORKER_FRESHNESS_SECONDS = 35 * 60
 
 
 # Railway derives its `@level` field from which OS stream a log line came out
@@ -239,3 +247,52 @@ def health():
     if not pool_is_healthy():
         return PlainTextResponse("UNAVAILABLE", status_code=503)
     return PlainTextResponse("OK")
+
+
+@app.get("/health/worker")
+def health_worker(conn=Depends(get_db)):
+    """Procrastinate worker liveness probe.
+
+    Returns 503 when the most recent `procrastinate_events` row is older
+    than _WORKER_FRESHNESS_SECONDS. Wire this as Railway's healthcheckPath
+    so the platform restarts the container when the worker silently hangs
+    (the original failure class the 2026-05-19 supervisor PR couldn't
+    cover, since a hang produces no exception).
+
+    Uses the FastAPI sync pool (NOT Procrastinate's async connector) so a
+    sick Procrastinate connector doesn't mask a sick worker. The query is
+    SELECT MAX(at) — single row, no scan past the index tip; sub-ms even
+    on millions of events.
+
+    During the brief startup window before `init_pool` runs, `get_db` raises
+    RuntimeError → FastAPI returns 500. Railway's `healthcheckTimeout` (5min
+    default) is generous enough to absorb this; the deploy succeeds as soon
+    as the lifespan finishes initializing.
+    """
+    with conn.cursor() as cur:
+        cur.execute("SELECT MAX(at) AS latest FROM procrastinate_events")
+        row = cur.fetchone()
+        conn.rollback()
+
+    latest = row["latest"] if row else None
+    if latest is None:
+        # No events ever — worker has not yet processed anything (cold
+        # start, fresh deploy). Treat as healthy for the first window;
+        # the cron will fire within ~30 minutes and write the first row.
+        return {"latest_event": None, "gap_seconds": None, "status": "cold"}
+
+    if latest.tzinfo is None:
+        latest = latest.replace(tzinfo=timezone.utc)
+    now = datetime.now(timezone.utc)
+    gap = (now - latest).total_seconds()
+    payload = {
+        "latest_event": latest.isoformat(),
+        "gap_seconds": round(gap, 1),
+        "threshold_seconds": _WORKER_FRESHNESS_SECONDS,
+    }
+    if gap > _WORKER_FRESHNESS_SECONDS:
+        return JSONResponse(
+            status_code=503,
+            content={**payload, "status": "stale"},
+        )
+    return {**payload, "status": "ok"}
