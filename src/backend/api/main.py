@@ -25,6 +25,12 @@ from .migrations import apply_alembic_migrations
 # decide when to restart the container.
 _WORKER_FRESHNESS_SECONDS = 35 * 60
 
+# Heartbeat freshness threshold. The heartbeat task fires every 5 minutes;
+# 10 minutes covers a single missed tick plus slack. Independent of the
+# event-stream check so a connector that breaks event-writes but leaves the
+# scheduler alive still surfaces a freshness signal.
+_HEARTBEAT_FRESHNESS_SECONDS = 10 * 60
+
 
 # Railway derives its `@level` field from which OS stream a log line came out
 # on: stdout → info, stderr → error. Python's default StreamHandler writes
@@ -168,6 +174,7 @@ async def lifespan(app: FastAPI):
                         "gem_fetch",
                         "eightfold_fetch",
                         "workday_fetch",
+                        "heartbeat",
                     ],
                     concurrency=5,
                 )
@@ -187,7 +194,7 @@ async def lifespan(app: FastAPI):
     logger.info(
         "Procrastinate worker background task started "
         "(queues=['greenhouse_fetch', 'ashby_fetch', 'lever_fetch', 'gem_fetch', "
-        "'eightfold_fetch', 'workday_fetch'], "
+        "'eightfold_fetch', 'workday_fetch', 'heartbeat'], "
         "concurrency=5)"
     )
 
@@ -271,26 +278,47 @@ def health_worker(conn=Depends(get_db)):
     """
     with conn.cursor() as cur:
         cur.execute("SELECT MAX(at) AS latest FROM procrastinate_events")
-        row = cur.fetchone()
+        events_row = cur.fetchone()
+        cur.execute("SELECT MAX(at) AS latest FROM worker_heartbeats")
+        heartbeat_row = cur.fetchone()
         conn.rollback()
 
-    latest = row["latest"] if row else None
-    if latest is None:
-        # No events ever — worker has not yet processed anything (cold
-        # start, fresh deploy). Treat as healthy for the first window;
-        # the cron will fire within ~30 minutes and write the first row.
-        return {"latest_event": None, "gap_seconds": None, "status": "cold"}
-
-    if latest.tzinfo is None:
-        latest = latest.replace(tzinfo=timezone.utc)
     now = datetime.now(timezone.utc)
-    gap = (now - latest).total_seconds()
+
+    def _gap(row) -> tuple[datetime | None, float | None]:
+        latest = row["latest"] if row else None
+        if latest is None:
+            return None, None
+        if latest.tzinfo is None:
+            latest = latest.replace(tzinfo=timezone.utc)
+        return latest, (now - latest).total_seconds()
+
+    events_latest, events_gap = _gap(events_row)
+    heartbeat_latest, heartbeat_gap = _gap(heartbeat_row)
+
     payload = {
-        "latest_event": latest.isoformat(),
-        "gap_seconds": round(gap, 1),
+        "latest_event": events_latest.isoformat() if events_latest else None,
+        "gap_seconds": round(events_gap, 1) if events_gap is not None else None,
         "threshold_seconds": _WORKER_FRESHNESS_SECONDS,
+        "latest_heartbeat": (
+            heartbeat_latest.isoformat() if heartbeat_latest else None
+        ),
+        "heartbeat_gap_seconds": (
+            round(heartbeat_gap, 1) if heartbeat_gap is not None else None
+        ),
+        "heartbeat_threshold_seconds": _HEARTBEAT_FRESHNESS_SECONDS,
     }
-    if gap > _WORKER_FRESHNESS_SECONDS:
+
+    if events_latest is None and heartbeat_latest is None:
+        # Cold deploy — neither has run yet. Allow as healthy; the cron
+        # will fire within ~5min (heartbeat) and write the first row.
+        return {**payload, "status": "cold"}
+
+    events_stale = events_gap is not None and events_gap > _WORKER_FRESHNESS_SECONDS
+    heartbeat_stale = (
+        heartbeat_gap is not None and heartbeat_gap > _HEARTBEAT_FRESHNESS_SECONDS
+    )
+    if events_stale or heartbeat_stale:
         return JSONResponse(
             status_code=503,
             content={**payload, "status": "stale"},

@@ -1,0 +1,67 @@
+"""Tests for the heartbeat periodic task + cleanup."""
+
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+
+import pytest
+
+from api.tasks.heartbeat import (
+    _cleanup_heartbeats_sync,
+    _insert_heartbeat_sync,
+)
+
+
+@pytest.fixture(autouse=True)
+def _wipe_heartbeats(db_conn):
+    cur = db_conn.cursor()
+    cur.execute("DELETE FROM worker_heartbeats")
+    db_conn.commit()
+    yield
+
+
+def _select_heartbeats(db_conn) -> list[dict]:
+    cur = db_conn.cursor()
+    cur.execute("SELECT id, at FROM worker_heartbeats ORDER BY at DESC")
+    return list(cur.fetchall())
+
+
+def test_insert_heartbeat_writes_one_row(db_conn):
+    import os
+
+    db_url = os.environ["DATABASE_URL"]
+    _insert_heartbeat_sync(db_url)
+    db_conn.rollback()
+
+    rows = _select_heartbeats(db_conn)
+    assert len(rows) == 1
+    # The `at` value should be within the last 10 seconds.
+    age = (datetime.now(timezone.utc) - rows[0]["at"]).total_seconds()
+    assert 0 <= age < 10
+
+
+def test_cleanup_prunes_only_old_rows(db_conn):
+    import os
+
+    db_url = os.environ["DATABASE_URL"]
+    cur = db_conn.cursor()
+    # Three old rows (25h-26h ago) and two fresh rows.
+    now = datetime.now(timezone.utc)
+    for hours_ago in (26, 25, 24.5):
+        cur.execute(
+            "INSERT INTO worker_heartbeats (at) VALUES (%s)",
+            (now - timedelta(hours=hours_ago),),
+        )
+    for minutes_ago in (5, 1):
+        cur.execute(
+            "INSERT INTO worker_heartbeats (at) VALUES (%s)",
+            (now - timedelta(minutes=minutes_ago),),
+        )
+    db_conn.commit()
+
+    deleted = _cleanup_heartbeats_sync(db_url)
+    db_conn.rollback()
+
+    assert deleted == 3
+    remaining = _select_heartbeats(db_conn)
+    assert len(remaining) == 2

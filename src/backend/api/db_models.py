@@ -196,3 +196,24 @@ class Company(Base):
     __table_args__ = (
         Index("ix_companies_ats_enabled", "ats", "enabled"),
     )
+
+
+class WorkerHeartbeat(Base):
+    """Tick row written by the heartbeat periodic task every 5 minutes.
+
+    Independent of `procrastinate_events` so a sick connector that breaks
+    event-writes (but leaves the worker's periodic scheduler alive) still
+    surfaces a freshness signal via /health/worker. The table is kept tiny
+    by a separate cleanup periodic task that prunes rows older than 24h.
+    """
+
+    __tablename__ = "worker_heartbeats"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    at = Column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        Index("idx_worker_heartbeats_at_desc", "at"),
+    )
