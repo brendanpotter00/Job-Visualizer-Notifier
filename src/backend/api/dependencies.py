@@ -11,6 +11,8 @@ import psycopg2.extensions
 from psycopg2.pool import ThreadedConnectionPool
 from psycopg2.extras import RealDictCursor
 
+from scripts.shared.database import augment_db_url
+
 logger = logging.getLogger(__name__)
 
 _pool: ThreadedConnectionPool | None = None
@@ -20,14 +22,24 @@ _pool_timeout: float = 5.0
 # Identifier safety: interpolated into SET search_path below.
 _PYTEST_SCHEMA_RE = re.compile(r"^(?:public|test_[a-f0-9]{8,})$")
 
+# 30s statement timeout for FastAPI HTTP handlers. List-jobs queries can be
+# heavy for large companies but should still complete inside the request
+# budget; a query past 30s is misbehaving and we'd rather fail loud.
+_HTTP_STATEMENT_TIMEOUT_MS = 30_000
+
 
 def init_pool(dsn: str, minconn: int = 1, maxconn: int = 15, timeout: float = 5.0) -> None:
     """Create the connection pool. Called once during app lifespan startup."""
     global _pool, _pool_semaphore, _pool_timeout
+    augmented_dsn = augment_db_url(
+        dsn,
+        application_name="fastapi_pool",
+        statement_timeout_ms=_HTTP_STATEMENT_TIMEOUT_MS,
+    )
     _pool = ThreadedConnectionPool(
         minconn=minconn,
         maxconn=maxconn,
-        dsn=dsn,
+        dsn=augmented_dsn,
         cursor_factory=RealDictCursor,
     )
     _pool_semaphore = threading.Semaphore(maxconn)

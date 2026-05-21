@@ -11,7 +11,7 @@ import os
 import re
 from datetime import datetime
 from typing import Set, List, Optional, Dict, Any, Tuple
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode, quote
 
 import psycopg2
 from psycopg2.extras import RealDictCursor, execute_values
@@ -27,6 +27,50 @@ Connection = psycopg2.extensions.connection
 # Tight regex: prevents SQL injection via a crafted PYTEST_SCHEMA env var
 # since the name is interpolated into a quoted identifier below.
 _PYTEST_SCHEMA_RE = re.compile(r"^(?:public|test_[a-f0-9]{8,})$")
+
+# libpq keepalive defaults. Without these, a half-open TCP (one side died
+# without an RST — common with NAT/proxy timeouts on Railway internal
+# network) blocks recv() forever. ~60s detection: idle 30s + 10s * 3 probes.
+_LIBPQ_KEEPALIVE_PARAMS: Dict[str, str] = {
+    "connect_timeout": "10",
+    "keepalives": "1",
+    "keepalives_idle": "30",
+    "keepalives_interval": "10",
+    "keepalives_count": "3",
+}
+
+
+def augment_db_url(
+    db_url: str,
+    application_name: str,
+    statement_timeout_ms: Optional[int] = None,
+) -> str:
+    """Augment a Postgres URL with libpq keepalives, application_name, and
+    optionally a session ``statement_timeout``.
+
+    Returns a new URL with query-string params appended. Caller-supplied
+    values in the input URL win — we only ``setdefault``.
+
+    ``statement_timeout_ms`` is applied via libpq's ``options`` startup
+    parameter (``-c statement_timeout=...``), which the server applies
+    once per new connection. Use this on worker / per-request paths where
+    a >N-second query is definitionally broken; leave it ``None`` on
+    long-running scraper subprocess code paths.
+    """
+    parsed = urlparse(db_url)
+    if parsed.scheme != "postgresql":
+        raise ValueError(
+            f"Unsupported database scheme: {parsed.scheme}. "
+            "Only 'postgresql' is supported."
+        )
+    params = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    for k, v in _LIBPQ_KEEPALIVE_PARAMS.items():
+        params.setdefault(k, v)
+    params.setdefault("application_name", application_name)
+    if statement_timeout_ms is not None:
+        params.setdefault("options", f"-c statement_timeout={int(statement_timeout_ms)}")
+    new_query = urlencode(params, quote_via=quote)
+    return urlunparse(parsed._replace(query=new_query))
 
 # Bare table names (post envAgnosticTables).
 _JOBS_TABLE = "job_listings"
@@ -87,33 +131,47 @@ def _build_id_placeholders(ids: List[str]) -> str:
     return ','.join(['%s' for _ in ids])
 
 
-def get_connection(db_url: str) -> Connection:
+def get_connection(
+    db_url: str,
+    *,
+    application_name: str = "jobscraper",
+    statement_timeout_ms: Optional[int] = None,
+) -> Connection:
     """
     Create a PostgreSQL database connection from a URL
 
     Args:
         db_url: Database URL (postgresql://user:pass@host:port/dbname)
+        application_name: libpq application_name, surfaced in
+            ``pg_stat_activity``. Use a path-specific value (e.g.,
+            ``"task_fetch_workday"``) so connection leaks can be attributed.
+        statement_timeout_ms: optional session ``statement_timeout`` (ms)
+            applied via libpq ``options``. Leave ``None`` for long-running
+            scraper subprocesses; pass a concrete value (e.g. 60_000) on
+            worker task paths where a >N-second query is broken.
 
     Returns:
         PostgreSQL connection object
 
     Notes:
+        Always sets libpq keepalives + ``connect_timeout`` via
+        :func:`augment_db_url`, so a half-open TCP socket can never block
+        ``recv()`` forever.
+
         If PYTEST_SCHEMA is set (pytest-driven isolation), the returned
         connection has search_path pinned to that schema. Unset in prod
         and normal local dev — behavior is identical to not having the
         feature then. Per-connection, not session-global — each call to
         get_connection gets a fresh SET.
     """
-    parsed = urlparse(db_url)
-
-    if parsed.scheme != "postgresql":
-        raise ValueError(
-            f"Unsupported database scheme: {parsed.scheme}. "
-            "Only 'postgresql' is supported."
-        )
-
+    augmented_url = augment_db_url(
+        db_url,
+        application_name=application_name,
+        statement_timeout_ms=statement_timeout_ms,
+    )
+    parsed = urlparse(augmented_url)
     logger.info(f"Connecting to PostgreSQL database: {parsed.hostname}")
-    conn = psycopg2.connect(db_url, cursor_factory=RealDictCursor)
+    conn = psycopg2.connect(augmented_url, cursor_factory=RealDictCursor)
 
     pytest_schema = os.environ.get("PYTEST_SCHEMA")
     if pytest_schema is not None:

@@ -21,14 +21,28 @@ import logging
 
 from procrastinate import App, PsycopgConnector
 
+from scripts.shared.database import augment_db_url
+
 from ..config import settings
 
 logger = logging.getLogger(__name__)
 
+# 60s statement timeout matches the */30 cron cadence — any single
+# Procrastinate-internal query past 60s is broken. Per-task SQL on Workday
+# pagination is bounded by the per-task asyncio.wait_for (see Unit 2), not
+# this GUC.
+_WORKER_STATEMENT_TIMEOUT_MS = 60_000
+
 # Single source of truth for the worker app. Other task modules attach
 # themselves to this instance.
 procrastinate_app: App = App(
-    connector=PsycopgConnector(conninfo=settings.database_url),
+    connector=PsycopgConnector(
+        conninfo=augment_db_url(
+            settings.database_url,
+            application_name="procrastinate_worker",
+            statement_timeout_ms=_WORKER_STATEMENT_TIMEOUT_MS,
+        ),
+    ),
 )
 
 
