@@ -227,6 +227,9 @@ export const COMPANIES: Company[] = [
   createBackendScraperCompany('hightouch', 'Hightouch', 'https://boards.greenhouse.io/hightouch', {
     sourceAts: 'greenhouse',
   }),
+  createBackendScraperCompany('roblox', 'Roblox', 'https://boards.greenhouse.io/roblox', {
+    sourceAts: 'greenhouse',
+  }),
 
   // Lever companies (migrated to backend-scraper)
   createBackendScraperCompany('palantir', 'Palantir', 'https://jobs.lever.co/palantir', {
@@ -406,6 +409,9 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%222684737%22%5D',
   }),
+  createBackendScraperCompany('exa', 'Exa', 'https://jobs.ashbyhq.com/exa', {
+    sourceAts: 'ashby',
+  }),
 
   // Gem (backend-scraper) — backend Procrastinate worker fetches from
   // api.gem.com/job_board/v0/<id>/job_posts/ on a 30-min cron. See
@@ -564,6 +570,7 @@ export const enum COMPANY_IDS {
   Doordashusa = 'doordashusa',
   ElevenLabs = 'elevenlabs',
   EliseAI = 'eliseai',
+  Exa = 'exa',
   Expedia = 'expedia',
   Figma = 'figma',
   FigureAI = 'figureai',
@@ -611,6 +618,7 @@ export const enum COMPANY_IDS {
   ResolveAI = 'resolve-ai',
   Roadrunner = 'roadrunner',
   Robinhood = 'robinhood',
+  Roblox = 'roblox',
   Saronic = 'saronic',
   Scaleai = 'scaleai',
   Sesame = 'sesame',
