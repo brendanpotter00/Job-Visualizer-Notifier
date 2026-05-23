@@ -131,7 +131,7 @@ Edit `config/companies.ts` and use `createBackendScraperCompany()` for every new
 6. **Empty Buckets Matter**: Time bucketing creates empty buckets for full range - don't filter them out
 7. **Factory Patterns**: When modifying API or filter logic, update the factory functions, not individual implementations
 8. **Zero TypeScript Errors Required**: Run `npm run type-check` before committing
-9. **Test Coverage**: Maintain >85% coverage (1300+ tests passing)
+9. **Test Coverage**: Maintain >80% coverage (1300+ tests passing)
 10. **Memory Management**: Large job datasets require careful handling:
    - **Tables**: Always paginate tables with 100+ rows - unpaginated tables with thousands of rows cause severe browser memory issues (50+ GB)
    - **Selectors**: `selectAllJobsFromQuery` flattens all jobs - use filtered selectors when possible
@@ -149,7 +149,7 @@ All paths relative to `src/frontend/src/`:
 - Backend Scraper Client: `api/clients/backendScraperClient.ts`
 - Filter Slice Factory: `features/filters/slices/createFilterSlice.ts`
 - Jobs RTK Query API: `features/jobs/jobsApi.ts`, `jobsSelectors.ts`, `progressHelpers.ts`
-- Recent Jobs Filters: `features/filters/slices/recentJobsFiltersSlice.ts`, `selectors/recentJobsSelectors.ts`
+- Recent Jobs Filters: `features/filters/slices/recentJobsFiltersSlice.ts`, `features/filters/selectors/recentJobsSelectors.ts`
 - Time Bucketing: `lib/timeBucketing.ts`
 - Main App: `app/App.tsx`
 
