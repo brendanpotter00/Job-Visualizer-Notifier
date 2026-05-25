@@ -53,7 +53,7 @@ export const SIGN_IN_OVERLAY_CONFIG = {
    * SignInOverlay takes over. Applies uniformly to the recent jobs page, the
    * companies page list, and the graph-bucket modal.
    */
-  SIGNED_OUT_JOB_LIMIT: 3,
+  SIGNED_OUT_JOB_LIMIT: 12,
 
   /**
    * Height (in pixels) of the gradient fade that sits above the CTA.
