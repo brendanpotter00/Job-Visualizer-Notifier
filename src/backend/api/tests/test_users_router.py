@@ -362,13 +362,13 @@ class TestEnabledCompanies:
         returns an empty list rather than 404."""
         resp = client.get("/api/users/enabled-companies")
         assert resp.status_code == 200
-        assert resp.json() == {"companyIds": []}
+        assert resp.json() == {"companyIds": [], "autoEnrollNewCompanies": True}
 
     def test_get_returns_empty_list_after_user_created(self, client):
         client.get("/api/users")
         resp = client.get("/api/users/enabled-companies")
         assert resp.status_code == 200
-        assert resp.json() == {"companyIds": []}
+        assert resp.json() == {"companyIds": [], "autoEnrollNewCompanies": True}
 
     def test_put_then_get_round_trip(self, client):
         client.get("/api/users")
@@ -377,11 +377,17 @@ class TestEnabledCompanies:
             json={"companyIds": ["airbnb", "stripe"]},
         )
         assert put_resp.status_code == 200
-        assert put_resp.json() == {"companyIds": ["airbnb", "stripe"]}
+        assert put_resp.json() == {
+            "companyIds": ["airbnb", "stripe"],
+            "autoEnrollNewCompanies": True,
+        }
 
         get_resp = client.get("/api/users/enabled-companies")
         assert get_resp.status_code == 200
-        assert get_resp.json() == {"companyIds": ["airbnb", "stripe"]}
+        assert get_resp.json() == {
+            "companyIds": ["airbnb", "stripe"],
+            "autoEnrollNewCompanies": True,
+        }
 
     def test_put_dedupes_and_sorts(self, client):
         client.get("/api/users")
@@ -390,7 +396,10 @@ class TestEnabledCompanies:
             json={"companyIds": ["stripe", "airbnb", "stripe", "airbnb"]},
         )
         assert resp.status_code == 200
-        assert resp.json() == {"companyIds": ["airbnb", "stripe"]}
+        assert resp.json() == {
+            "companyIds": ["airbnb", "stripe"],
+            "autoEnrollNewCompanies": True,
+        }
 
     def test_put_empty_list_clears(self, client):
         client.get("/api/users")
@@ -400,9 +409,9 @@ class TestEnabledCompanies:
         )
         resp = client.put("/api/users/enabled-companies", json={"companyIds": []})
         assert resp.status_code == 200
-        assert resp.json() == {"companyIds": []}
+        assert resp.json() == {"companyIds": [], "autoEnrollNewCompanies": True}
         get_resp = client.get("/api/users/enabled-companies")
-        assert get_resp.json() == {"companyIds": []}
+        assert get_resp.json() == {"companyIds": [], "autoEnrollNewCompanies": True}
 
     def test_put_replaces_previous_set(self, client):
         client.get("/api/users")
@@ -415,7 +424,39 @@ class TestEnabledCompanies:
             json={"companyIds": ["x", "y"]},
         )
         assert resp.status_code == 200
-        assert resp.json() == {"companyIds": ["x", "y"]}
+        assert resp.json() == {
+            "companyIds": ["x", "y"],
+            "autoEnrollNewCompanies": True,
+        }
+
+    def test_get_returns_auto_enroll_flag_default_true(self, client):
+        client.get("/api/users")
+        resp = client.get("/api/users/enabled-companies")
+        assert resp.status_code == 200
+        assert resp.json()["autoEnrollNewCompanies"] is True
+
+    def test_put_round_trips_auto_enroll_false(self, client):
+        client.get("/api/users")
+        put_resp = client.put(
+            "/api/users/enabled-companies",
+            json={"companyIds": ["airbnb"], "autoEnrollNewCompanies": False},
+        )
+        assert put_resp.status_code == 200
+        assert put_resp.json() == {
+            "companyIds": ["airbnb"],
+            "autoEnrollNewCompanies": False,
+        }
+        get_resp = client.get("/api/users/enabled-companies")
+        assert get_resp.json()["autoEnrollNewCompanies"] is False
+
+    def test_put_defaults_auto_enroll_true_when_omitted(self, client):
+        client.get("/api/users")
+        resp = client.put(
+            "/api/users/enabled-companies",
+            json={"companyIds": ["airbnb"]},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["autoEnrollNewCompanies"] is True
 
     def test_put_rejects_non_list_body(self, client):
         client.get("/api/users")
@@ -490,11 +531,16 @@ class TestEnabledCompanies:
         assert resp.status_code == 422
 
     def test_put_rejects_oversize_list(self, client):
-        """The list is capped at 200 items to prevent runaway payloads."""
+        """The list is capped at 1000 items to prevent runaway payloads.
+
+        The cap is well above the company catalogue size so auto-enroll's
+        materialized full-catalogue lists ("Select All" / see-all users) still
+        save successfully.
+        """
         client.get("/api/users")
         resp = client.put(
             "/api/users/enabled-companies",
-            json={"companyIds": [f"c{i}" for i in range(201)]},
+            json={"companyIds": [f"c{i}" for i in range(1001)]},
         )
         assert resp.status_code == 422
 

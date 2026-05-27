@@ -6,6 +6,7 @@ import { COMPANIES } from '../../../config/companies';
 
 type MockEnabled = {
   ids: string[] | null;
+  autoEnroll: boolean | null;
   loading: boolean;
   error: string | null;
   save: ReturnType<typeof vi.fn>;
@@ -14,6 +15,7 @@ type MockEnabled = {
 
 let mockEnabled: MockEnabled = {
   ids: null,
+  autoEnroll: true,
   loading: false,
   error: null,
   save: vi.fn(),
@@ -27,6 +29,7 @@ vi.mock('../../../features/preferences/useEnabledCompanies', () => ({
 function resetMock(overrides: Partial<MockEnabled> = {}) {
   mockEnabled = {
     ids: null,
+    autoEnroll: true,
     loading: false,
     error: null,
     save: vi.fn().mockResolvedValue(undefined),
@@ -180,7 +183,7 @@ describe('EnabledCompaniesSection', () => {
     await user.click(screen.getByRole('button', { name: /save changes/i }));
 
     await waitFor(() => {
-      expect(saveMock).toHaveBeenCalledWith(['airbnb', 'stripe']);
+      expect(saveMock).toHaveBeenCalledWith(['airbnb', 'stripe'], true);
     });
   });
 
@@ -237,7 +240,7 @@ describe('EnabledCompaniesSection', () => {
 
     const expectedIds = [...COMPANIES.map((c) => c.id)].sort();
     await waitFor(() => {
-      expect(saveMock).toHaveBeenCalledWith(expectedIds);
+      expect(saveMock).toHaveBeenCalledWith(expectedIds, true);
     });
   });
 
@@ -266,6 +269,69 @@ describe('EnabledCompaniesSection', () => {
     });
 
     expect(screen.getByRole('button', { name: /save changes/i })).toBeDisabled();
+  });
+
+  // ---------------------------------------------------------------------
+  // Auto-include-new-companies toggle.
+  // ---------------------------------------------------------------------
+
+  function getAutoEnrollToggle(): HTMLElement {
+    return screen.getByRole('checkbox', {
+      name: /auto-include newly added companies/i,
+    });
+  }
+
+  it('renders the auto-include toggle checked when autoEnroll is true', async () => {
+    resetMock({ ids: ['airbnb'], autoEnroll: true });
+    render(<EnabledCompaniesSection />);
+    await waitFor(() => {
+      expect(getAutoEnrollToggle()).toBeChecked();
+    });
+  });
+
+  it('reflects autoEnroll=false from the hook as an unchecked toggle and stays not-dirty', async () => {
+    resetMock({ ids: ['airbnb'], autoEnroll: false });
+    render(<EnabledCompaniesSection />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('selected-chip-Airbnb')).toBeInTheDocument();
+    });
+    expect(getAutoEnrollToggle()).not.toBeChecked();
+    expect(screen.getByRole('button', { name: /save changes/i })).toBeDisabled();
+  });
+
+  it('toggling the switch alone makes the form dirty', async () => {
+    resetMock({ ids: ['airbnb'], autoEnroll: true });
+    const user = userEvent.setup();
+    render(<EnabledCompaniesSection />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('selected-chip-Airbnb')).toBeInTheDocument();
+    });
+    expect(screen.getByRole('button', { name: /save changes/i })).toBeDisabled();
+
+    await user.click(getAutoEnrollToggle());
+
+    expect(getAutoEnrollToggle()).not.toBeChecked();
+    expect(screen.getByRole('button', { name: /save changes/i })).toBeEnabled();
+  });
+
+  it('saving with the auto-include toggle off passes autoEnroll=false', async () => {
+    const saveMock = vi.fn().mockResolvedValue(undefined);
+    resetMock({ ids: ['airbnb'], autoEnroll: true, save: saveMock });
+    const user = userEvent.setup();
+    render(<EnabledCompaniesSection />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('selected-chip-Airbnb')).toBeInTheDocument();
+    });
+
+    await user.click(getAutoEnrollToggle());
+    await user.click(screen.getByRole('button', { name: /save changes/i }));
+
+    await waitFor(() => {
+      expect(saveMock).toHaveBeenCalledWith(['airbnb'], false);
+    });
   });
 
   // ---------------------------------------------------------------------

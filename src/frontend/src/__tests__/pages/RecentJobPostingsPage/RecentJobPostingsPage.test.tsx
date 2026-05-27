@@ -217,6 +217,7 @@ describe('RecentJobPostingsPage', () => {
         preloadedState: {
           enabledCompanies: {
             ids: null,
+            autoEnroll: null,
             loading: true,
             error: null,
             activeLoadRequestId: 'r1',
@@ -256,6 +257,7 @@ describe('RecentJobPostingsPage', () => {
         preloadedState: {
           enabledCompanies: {
             ids: ['spacex', 'google'],
+            autoEnroll: true,
             loading: false,
             error: null,
             activeLoadRequestId: null,

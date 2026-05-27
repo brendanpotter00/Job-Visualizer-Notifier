@@ -7,6 +7,7 @@ import {
   resetEnabledCompanies,
   enabledCompaniesLoadFailed,
   selectEnabledCompanyIds,
+  selectAutoEnroll,
 } from './enabledCompaniesSlice';
 import { extractErrorMessage } from '../../lib/errors';
 
@@ -16,6 +17,7 @@ export function useEnabledCompanies() {
   const { isAuthenticated, getToken } = useAuth();
   const dispatch = useAppDispatch();
   const ids = useAppSelector(selectEnabledCompanyIds);
+  const autoEnroll = useAppSelector(selectAutoEnroll);
   const loading = useAppSelector((s) => s.enabledCompanies.loading);
   const error = useAppSelector((s) => s.enabledCompanies.error);
   // Tracks the in-flight load so auth-state changes and subsequent reloads
@@ -68,7 +70,7 @@ export function useEnabledCompanies() {
   }, [isAuthenticated, reload, dispatch]);
 
   const save = useCallback(
-    async (companyIds: string[]) => {
+    async (companyIds: string[], autoEnrollNewCompanies: boolean = true) => {
       // Abort any in-flight load before saving. The slice's save.pending
       // reducer also invalidates activeLoadRequestId as a backstop — if
       // the load's fetch already resolved, its .fulfilled handler will
@@ -76,10 +78,16 @@ export function useEnabledCompanies() {
       activePromise.current?.abort();
       activePromise.current = null;
       const token = await getToken();
-      await dispatch(saveEnabledCompanies({ token, companyIds })).unwrap();
+      await dispatch(
+        saveEnabledCompanies({
+          token,
+          companyIds,
+          autoEnroll: autoEnrollNewCompanies,
+        })
+      ).unwrap();
     },
     [getToken, dispatch]
   );
 
-  return { ids, loading, error, save, reload };
+  return { ids, autoEnroll, loading, error, save, reload };
 }

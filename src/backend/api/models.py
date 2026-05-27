@@ -122,12 +122,20 @@ class EnabledCompaniesResponse(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
     company_ids: list[str]
+    # When true, companies added after the user's last save auto-enroll into
+    # their feed on read. See user_preferences_service.list_enabled_companies.
+    auto_enroll_new_companies: bool = True
 
 
 class EnabledCompaniesUpdateRequest(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, extra="forbid")
 
-    company_ids: list[CompanyId] = Field(max_length=200)
+    # Cap is well above the company catalogue size: auto-enroll materializes
+    # full-catalogue lists for "Select All" / see-all users, so a save payload
+    # can legitimately contain every company id. 200 was too tight once the
+    # catalogue passed ~119 and keeps growing.
+    company_ids: list[CompanyId] = Field(max_length=1000)
+    auto_enroll_new_companies: bool = True
 
 
 class FeatureResponse(BaseModel):

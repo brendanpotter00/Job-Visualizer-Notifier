@@ -133,10 +133,17 @@ export async function updateCurrentUser(
   return parseUserResponse(await response.json());
 }
 
+export interface EnabledCompaniesResult {
+  companyIds: string[];
+  // When true, companies added after the user's last save auto-enroll into
+  // their feed. Defaults to true if the backend omits it (older payloads).
+  autoEnroll: boolean;
+}
+
 export async function fetchEnabledCompanies(
   token: string,
   signal?: AbortSignal
-): Promise<string[]> {
+): Promise<EnabledCompaniesResult> {
   const response = await fetch('/api/users/enabled-companies', {
     headers: {
       Authorization: `Bearer ${token}`,
@@ -151,13 +158,17 @@ export async function fetchEnabledCompanies(
   }
 
   const body = await response.json();
-  return body.companyIds as string[];
+  return {
+    companyIds: body.companyIds as string[],
+    autoEnroll: (body.autoEnrollNewCompanies ?? true) as boolean,
+  };
 }
 
 export async function updateEnabledCompanies(
   token: string,
-  companyIds: string[]
-): Promise<string[]> {
+  companyIds: string[],
+  autoEnroll: boolean
+): Promise<EnabledCompaniesResult> {
   const response = await fetch('/api/users/enabled-companies', {
     method: 'PUT',
     headers: {
@@ -165,7 +176,7 @@ export async function updateEnabledCompanies(
       'Content-Type': 'application/json',
       Accept: 'application/json',
     },
-    body: JSON.stringify({ companyIds }),
+    body: JSON.stringify({ companyIds, autoEnrollNewCompanies: autoEnroll }),
   });
 
   if (!response.ok) {
@@ -174,5 +185,8 @@ export async function updateEnabledCompanies(
   }
 
   const body = await response.json();
-  return body.companyIds as string[];
+  return {
+    companyIds: body.companyIds as string[],
+    autoEnroll: (body.autoEnrollNewCompanies ?? true) as boolean,
+  };
 }
