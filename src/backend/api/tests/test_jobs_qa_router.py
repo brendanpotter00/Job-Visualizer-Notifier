@@ -151,7 +151,11 @@ def test_trigger_scrape_returns_409_when_scrape_in_progress(client):
     from api.services.scraper_lock import scraper_lock
     import asyncio
 
-    loop = asyncio.get_event_loop()
+    # Use a fresh loop rather than asyncio.get_event_loop(): once any async
+    # test has run earlier in the session, pytest-asyncio leaves the loop
+    # policy with no current loop, so get_event_loop() raises "There is no
+    # current event loop" — making this test pass only in isolation.
+    loop = asyncio.new_event_loop()
     loop.run_until_complete(scraper_lock.acquire())
     try:
         resp = client.post("/api/jobs-qa/trigger-scrape", params={"company": "google"})
@@ -159,6 +163,7 @@ def test_trigger_scrape_returns_409_when_scrape_in_progress(client):
         assert "already in progress" in resp.json()["detail"]
     finally:
         scraper_lock.release()
+        loop.close()
 
 
 # --- stats ---
