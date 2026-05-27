@@ -24,6 +24,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'add-sierra',
+    title: 'Added Sierra',
+    description:
+      'Sierra — the customer-experience AI company co-founded by former Salesforce co-CEO Bret Taylor and ex-Google VP Clay Bavor that builds autonomous AI agents for enterprise customer service (used by SoFi, Ramp, and Brex) — is now tracked via its Ashby job board. Sierra recently raised ~$950M at a ~$15.8B valuation.',
+    tags: ['new-companies'],
+    date: '2026-05-27',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add Sierra to your company preferences',
+    },
+  },
+  {
     id: 'add-roblox',
     title: 'Added Roblox',
     description:
