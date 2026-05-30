@@ -24,6 +24,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'add-trajectory',
+    title: 'Added Trajectory',
+    description:
+      'Trajectory — the Palo Alto AI startup from ex-Google DeepMind and Apple researchers building multimodal models with stronger visual reasoning for robotics, autonomous vehicles, and manufacturing — is now tracked via its Ashby job board.',
+    tags: ['new-companies'],
+    date: '2026-05-29',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add Trajectory to your company preferences',
+    },
+  },
+  {
     id: 'add-roblox',
     title: 'Added Roblox',
     description:
