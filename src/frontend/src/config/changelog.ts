@@ -24,6 +24,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'add-krea',
+    title: 'Added Krea',
+    description:
+      'Krea — the San Francisco GenAI creative platform unifying 64+ image and video models (Veo, Sora, Kling, Runway) plus real-time generation and custom model training, used by creators at Pixar, LEGO, and Samsung — is now tracked via its Ashby job board. Krea raised an $83M round at a $500M valuation.',
+    tags: ['new-companies'],
+    date: '2026-05-30',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add Krea to your company preferences',
+    },
+  },
+  {
     id: 'add-trajectory',
     title: 'Added Trajectory',
     description:
