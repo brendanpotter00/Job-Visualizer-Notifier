@@ -230,6 +230,9 @@ export const COMPANIES: Company[] = [
   createBackendScraperCompany('roblox', 'Roblox', 'https://boards.greenhouse.io/roblox', {
     sourceAts: 'greenhouse',
   }),
+  createBackendScraperCompany('fal', 'fal', 'https://boards.greenhouse.io/fal', {
+    sourceAts: 'greenhouse',
+  }),
 
   // Lever companies (migrated to backend-scraper)
   createBackendScraperCompany('palantir', 'Palantir', 'https://jobs.lever.co/palantir', {
@@ -581,6 +584,7 @@ export const enum COMPANY_IDS {
   EliseAI = 'eliseai',
   Exa = 'exa',
   Expedia = 'expedia',
+  Fal = 'fal',
   Figma = 'figma',
   FigureAI = 'figureai',
   Flint = 'flint',

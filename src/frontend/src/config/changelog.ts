@@ -24,6 +24,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'add-fal',
+    title: 'Added fal',
+    description:
+      'fal — the generative media cloud serving 1,000+ image, video, audio, and 3D models through one API to 2.5M+ developers and companies like Canva, Adobe, and Amazon MGM Studios — is now tracked via its Greenhouse job board. fal raised a $140M round led by Sequoia at a $4.5B valuation.',
+    tags: ['new-companies'],
+    date: '2026-05-30',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add fal to your company preferences',
+    },
+  },
+  {
     id: 'add-vizcom',
     title: 'Added Vizcom',
     description:
