@@ -418,6 +418,9 @@ export const COMPANIES: Company[] = [
   createBackendScraperCompany('krea', 'Krea', 'https://jobs.ashbyhq.com/krea', {
     sourceAts: 'ashby',
   }),
+  createBackendScraperCompany('vizcom', 'Vizcom', 'https://jobs.ashbyhq.com/vizcom', {
+    sourceAts: 'ashby',
+  }),
 
   // Gem (backend-scraper) — backend Procrastinate worker fetches from
   // api.gem.com/job_board/v0/<id>/job_posts/ on a 30-min cron. See
@@ -650,6 +653,7 @@ export const enum COMPANY_IDS {
   Twitch = 'twitch',
   Unity = 'unity3d',
   Vercel = 'vercel',
+  Vizcom = 'vizcom',
   Waymo = 'waymo',
   WisprFlow = 'wispr-flow',
   Xai = 'xai',

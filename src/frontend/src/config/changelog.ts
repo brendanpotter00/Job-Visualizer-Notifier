@@ -24,6 +24,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'add-vizcom',
+    title: 'Added Vizcom',
+    description:
+      'Vizcom — the AI industrial design platform that turns sketches into photorealistic renders and 3D models for automotive, footwear, and consumer goods teams at Ford and New Balance, serving 700k+ designers — is now tracked via its Ashby job board. Vizcom has raised a $27M Series B led by Radical Ventures.',
+    tags: ['new-companies'],
+    date: '2026-05-30',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add Vizcom to your company preferences',
+    },
+  },
+  {
     id: 'add-krea',
     title: 'Added Krea',
     description:
