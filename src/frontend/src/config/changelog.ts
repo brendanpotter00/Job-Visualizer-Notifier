@@ -24,6 +24,54 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'add-fal',
+    title: 'Added fal',
+    description:
+      'fal — the generative media cloud serving 1,000+ image, video, audio, and 3D models through one API to 2.5M+ developers and companies like Canva, Adobe, and Amazon MGM Studios — is now tracked via its Greenhouse job board. fal raised a $140M round led by Sequoia at a $4.5B valuation.',
+    tags: ['new-companies'],
+    date: '2026-05-30',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add fal to your company preferences',
+    },
+  },
+  {
+    id: 'add-vizcom',
+    title: 'Added Vizcom',
+    description:
+      'Vizcom — the AI industrial design platform that turns sketches into photorealistic renders and 3D models for automotive, footwear, and consumer goods teams at Ford and New Balance, serving 700k+ designers — is now tracked via its Ashby job board. Vizcom has raised a $27M Series B led by Radical Ventures.',
+    tags: ['new-companies'],
+    date: '2026-05-30',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add Vizcom to your company preferences',
+    },
+  },
+  {
+    id: 'add-krea',
+    title: 'Added Krea',
+    description:
+      'Krea — the San Francisco GenAI creative platform unifying 64+ image and video models (Veo, Sora, Kling, Runway) plus real-time generation and custom model training, used by creators at Pixar, LEGO, and Samsung — is now tracked via its Ashby job board. Krea raised an $83M round at a $500M valuation.',
+    tags: ['new-companies'],
+    date: '2026-05-30',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add Krea to your company preferences',
+    },
+  },
+  {
+    id: 'add-trajectory',
+    title: 'Added Trajectory',
+    description:
+      'Trajectory — the Palo Alto AI startup from ex-Google DeepMind and Apple researchers building multimodal models with stronger visual reasoning for robotics, autonomous vehicles, and manufacturing — is now tracked via its Ashby job board.',
+    tags: ['new-companies'],
+    date: '2026-05-29',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add Trajectory to your company preferences',
+    },
+  },
+  {
     id: 'add-roblox',
     title: 'Added Roblox',
     description:
