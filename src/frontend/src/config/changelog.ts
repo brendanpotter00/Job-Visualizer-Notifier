@@ -24,6 +24,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'add-posthog',
+    title: 'Added PostHog',
+    description:
+      'PostHog — the open-source product analytics platform (YC W20) that bundles analytics, session replay, feature flags, A/B testing, surveys, and error tracking into a single tool for product engineers, serving 190k+ customers including ~65% of Y Combinator companies — is now tracked via its Ashby job board. PostHog reached unicorn status in 2025 with a $75M Series E led by Peak XV at a $1.4B valuation.',
+    tags: ['new-companies'],
+    date: '2026-06-04',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add PostHog to your company preferences',
+    },
+  },
+  {
     id: 'add-fal',
     title: 'Added fal',
     description:
