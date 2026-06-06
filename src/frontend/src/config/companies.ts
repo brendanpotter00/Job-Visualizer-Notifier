@@ -427,6 +427,11 @@ export const COMPANIES: Company[] = [
   createBackendScraperCompany('posthog', 'PostHog', 'https://jobs.ashbyhq.com/posthog', {
     sourceAts: 'ashby',
   }),
+  // The Interaction Company of California (makers of Poke). Ashby board slug is
+  // 'interaction' (board_token), surfaced here as 'Poke'.
+  createBackendScraperCompany('poke', 'Poke', 'https://jobs.ashbyhq.com/interaction', {
+    sourceAts: 'ashby',
+  }),
 
   // Gem (backend-scraper) — backend Procrastinate worker fetches from
   // api.gem.com/job_board/v0/<id>/job_posts/ on a 30-min cron. See
@@ -631,6 +636,7 @@ export const enum COMPANY_IDS {
   Pylon = 'pylon-labs',
   Pinterest = 'pinterest',
   Plaid = 'plaid',
+  Poke = 'poke',
   Ramp = 'ramp',
   Reddit = 'reddit',
   ResolveAI = 'resolve-ai',

@@ -24,6 +24,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'add-poke',
+    title: 'Added Poke',
+    description:
+      'Poke — the proactive AI assistant from The Interaction Company of California that lives inside iMessage, WhatsApp, SMS, and Telegram to handle daily planning, scheduling, and follow-ups entirely by text — is now tracked via its Ashby job board. Founded by the ex-TUM Boring team (winners of SpaceX’s Not-a-Boring tunneling competition), it became the first AI agent approved on Apple’s Messages for Business platform in 2026 and has raised ~$25M from General Catalyst and Spark Capital at a ~$300M valuation.',
+    tags: ['new-companies'],
+    date: '2026-06-06',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add Poke to your company preferences',
+    },
+  },
+  {
     id: 'add-posthog',
     title: 'Added PostHog',
     description:
