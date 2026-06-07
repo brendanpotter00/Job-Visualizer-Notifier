@@ -91,6 +91,17 @@ class User(Base):
     picture_url = Column(Text, nullable=True)
     created_at = Column(Text, nullable=False)
     updated_at = Column(Text, nullable=False)
+    # "I've already decided about every company that existed as of this time."
+    # Companies created after this watermark auto-enroll into the user's set on
+    # read (gated by auto_enroll_new_companies); bumped to now() on every save
+    # so opt-outs stick. Real timestamptz — do NOT mimic the legacy Text-typed
+    # created_at/updated_at above.
+    company_enroll_watermark = Column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+    auto_enroll_new_companies = Column(
+        Boolean, nullable=False, server_default=text("true")
+    )
 
     __table_args__ = (
         UniqueConstraint("email", name="users_email_key"),

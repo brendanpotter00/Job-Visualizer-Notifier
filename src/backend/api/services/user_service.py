@@ -53,6 +53,8 @@ class UserRow(TypedDict):
     picture_url: str | None
     created_at: str
     updated_at: str
+    company_enroll_watermark: datetime
+    auto_enroll_new_companies: bool
 
 
 def get_or_create_user(

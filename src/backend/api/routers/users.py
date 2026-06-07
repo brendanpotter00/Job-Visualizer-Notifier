@@ -155,7 +155,10 @@ async def get_enabled_companies(
         raise HTTPException(
             status_code=500, detail="Failed to load enabled companies"
         )
-    return EnabledCompaniesResponse(company_ids=ids)
+    return EnabledCompaniesResponse(
+        company_ids=ids,
+        auto_enroll_new_companies=row["auto_enroll_new_companies"],
+    )
 
 
 @router.put("/enabled-companies", response_model=EnabledCompaniesResponse)
@@ -174,10 +177,18 @@ async def update_enabled_companies(
     if row is None:
         raise HTTPException(status_code=404, detail="User not found")
     try:
-        saved = set_enabled_companies(conn, row["id"], body.company_ids)
+        saved = set_enabled_companies(
+            conn,
+            row["id"],
+            body.company_ids,
+            body.auto_enroll_new_companies,
+        )
     except psycopg2.Error:
         logger.exception("Failed to save enabled companies for user=%s", row["id"])
         raise HTTPException(
             status_code=500, detail="Failed to save enabled companies"
         )
-    return EnabledCompaniesResponse(company_ids=saved)
+    return EnabledCompaniesResponse(
+        company_ids=saved,
+        auto_enroll_new_companies=body.auto_enroll_new_companies,
+    )

@@ -53,3 +53,6 @@ __pycache__/
 *.pyc
 .venv/
 .env*.local
+
+# Local learning scratchpads (not part of PRs)
+docs/learning/

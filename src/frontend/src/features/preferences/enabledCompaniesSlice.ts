@@ -1,8 +1,14 @@
 import { createSlice, createAsyncThunk, type PayloadAction } from '@reduxjs/toolkit';
-import { fetchEnabledCompanies, updateEnabledCompanies } from '../auth/authService';
+import {
+  fetchEnabledCompanies,
+  updateEnabledCompanies,
+  type EnabledCompaniesResult,
+} from '../auth/authService';
 
 export interface EnabledCompaniesState {
   ids: string[] | null;
+  // Global "auto-include newly added companies" toggle. null until loaded.
+  autoEnroll: boolean | null;
   loading: boolean;
   error: string | null;
   // requestId of the load whose fulfillment is still authoritative. Cleared
@@ -13,21 +19,22 @@ export interface EnabledCompaniesState {
 
 const initialState: EnabledCompaniesState = {
   ids: null,
+  autoEnroll: null,
   loading: false,
   error: null,
   activeLoadRequestId: null,
 };
 
-export const loadEnabledCompanies = createAsyncThunk<string[], string>(
+export const loadEnabledCompanies = createAsyncThunk<EnabledCompaniesResult, string>(
   'enabledCompanies/load',
   async (token, { signal }) => fetchEnabledCompanies(token, signal)
 );
 
 export const saveEnabledCompanies = createAsyncThunk<
-  string[],
-  { token: string; companyIds: string[] }
->('enabledCompanies/save', async ({ token, companyIds }) =>
-  updateEnabledCompanies(token, companyIds)
+  EnabledCompaniesResult,
+  { token: string; companyIds: string[]; autoEnroll: boolean }
+>('enabledCompanies/save', async ({ token, companyIds, autoEnroll }) =>
+  updateEnabledCompanies(token, companyIds, autoEnroll)
 );
 
 const slice = createSlice({
@@ -36,6 +43,7 @@ const slice = createSlice({
   reducers: {
     reset: (state) => {
       state.ids = null;
+      state.autoEnroll = null;
       state.loading = false;
       state.error = null;
       state.activeLoadRequestId = null;
@@ -60,7 +68,8 @@ const slice = createSlice({
       // Skip stale loads: a save between pending and fulfilled cleared
       // activeLoadRequestId, so we must not clobber the fresh saved ids.
       if (state.activeLoadRequestId !== action.meta.requestId) return;
-      state.ids = action.payload;
+      state.ids = action.payload.companyIds;
+      state.autoEnroll = action.payload.autoEnroll;
       state.activeLoadRequestId = null;
     });
     builder.addCase(loadEnabledCompanies.rejected, (state, action) => {
@@ -80,7 +89,8 @@ const slice = createSlice({
       state.activeLoadRequestId = null;
     });
     builder.addCase(saveEnabledCompanies.fulfilled, (state, action) => {
-      state.ids = action.payload;
+      state.ids = action.payload.companyIds;
+      state.autoEnroll = action.payload.autoEnroll;
       state.error = null;
     });
     builder.addCase(saveEnabledCompanies.rejected, (state, action) => {
@@ -99,3 +109,7 @@ export default slice.reducer;
 export const selectEnabledCompanyIds = (state: {
   enabledCompanies: EnabledCompaniesState;
 }) => state.enabledCompanies.ids;
+
+export const selectAutoEnroll = (state: {
+  enabledCompanies: EnabledCompaniesState;
+}) => state.enabledCompanies.autoEnroll;

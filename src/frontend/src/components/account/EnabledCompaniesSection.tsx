@@ -5,6 +5,8 @@ import Button from '@mui/material/Button';
 import Alert from '@mui/material/Alert';
 import Stack from '@mui/material/Stack';
 import Box from '@mui/material/Box';
+import Switch from '@mui/material/Switch';
+import FormControlLabel from '@mui/material/FormControlLabel';
 import { COMPANIES } from '../../config/companies';
 import { useEnabledCompanies } from '../../features/preferences/useEnabledCompanies';
 import { CompanySearchAddInput } from './CompanySearchAddInput';
@@ -15,9 +17,10 @@ import { LoadingState } from '../shared/LoadingIndicator';
 import { extractErrorMessage } from '../../lib/errors';
 
 export function EnabledCompaniesSection() {
-  const { ids, loading, error, save } = useEnabledCompanies();
+  const { ids, autoEnroll, loading, error, save } = useEnabledCompanies();
 
   const [draft, setDraft] = useState<string[]>([]);
+  const [draftAutoEnroll, setDraftAutoEnroll] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -29,6 +32,11 @@ export function EnabledCompaniesSection() {
     // reload) so it can't shadow a newer slice-level error in the Alert.
     setSaveError(null);
   }, [ids]);
+
+  const savedAutoEnroll = autoEnroll ?? true;
+  useEffect(() => {
+    setDraftAutoEnroll(savedAutoEnroll);
+  }, [savedAutoEnroll]);
 
   useEffect(() => {
     if (error) setSaveError(null);
@@ -48,14 +56,16 @@ export function EnabledCompaniesSection() {
 
   const canonicalDraft = useMemo(() => [...new Set(draft)].sort(), [draft]);
   const canonicalSaved = useMemo(() => [...(ids ?? [])].sort(), [ids]);
-  const isDirty = canonicalDraft.join('|') !== canonicalSaved.join('|');
+  const isDirty =
+    canonicalDraft.join('|') !== canonicalSaved.join('|') ||
+    draftAutoEnroll !== savedAutoEnroll;
 
   const handleSave = async () => {
     setIsSaving(true);
     setSaveSuccess(false);
     setSaveError(null);
     try {
-      await save(canonicalDraft);
+      await save(canonicalDraft, draftAutoEnroll);
       setSaveSuccess(true);
     } catch (err) {
       setSaveError(extractErrorMessage(err, 'Failed to save changes'));
@@ -127,6 +137,28 @@ export function EnabledCompaniesSection() {
             onToggle={handleToggleId}
           />
         </BrowseCompaniesAccordion>
+      </Box>
+
+      <Box sx={{ mb: 2 }}>
+        <FormControlLabel
+          control={
+            <Switch
+              checked={draftAutoEnroll}
+              onChange={(e) => {
+                setSaveSuccess(false);
+                setDraftAutoEnroll(e.target.checked);
+              }}
+              slotProps={{
+                input: { 'aria-label': 'Auto-include newly added companies' },
+              }}
+            />
+          }
+          label="Auto-include newly added companies"
+        />
+        <Typography variant="caption" color="text.secondary" display="block">
+          When on, companies we add later show up in your feed automatically. You can remove any
+          you don&apos;t want.
+        </Typography>
       </Box>
 
       <SelectedCompaniesPanel
