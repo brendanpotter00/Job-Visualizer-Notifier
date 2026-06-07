@@ -1,24 +1,21 @@
-"""seed sierra company
+"""seed trajectory company
 
-Revision ID: c4f0a2d8b9e1
+Revision ID: c3f2a1d4e5b6
 Revises: 1e35a6d3cb28
-Create Date: 2026-05-27 12:00:00.000000+00:00
+Create Date: 2026-05-29 12:00:00.000000+00:00
 
 Hand-written data migration (the documented exception to the
 autogenerate-only rule). Adds one company to the ``companies`` table:
 
-- ``sierra`` (Ashby) — https://jobs.ashbyhq.com/Sierra
+- ``trajectory`` (Ashby) — https://jobs.ashbyhq.com/trajectory
 
-Sits on top of the frozen per-ATS Ashby seed (revision ``a17b7c0ffee500``)
-and chains off the current head ``1e35a6d3cb28`` (the exa/roblox seed) so the
-alembic chain has a single head. Lands after ``WORKDAY_SEED_REV``, so the
-per-ATS counts asserted in ``test_migration_companies.py`` are unaffected.
-
-``board_token`` uses the exact URL-path casing ``Sierra`` because Ashby's
-posting API is case-sensitive.
+Sits on top of the frozen per-ATS seeds (Ashby revision
+``a17b7c0ffee500``) and the exa+roblox seed (``1e35a6d3cb28``); the
+per-ATS counts asserted in ``test_migration_companies.py`` are unaffected
+because that test stops at ``WORKDAY_SEED_REV``, before these revisions.
 
 Source of truth for the frontend entry:
-  src/frontend/src/config/companies.ts (``sierra`` row)
+  src/frontend/src/config/companies.ts (``trajectory`` row)
 """
 from typing import Sequence, Union
 
@@ -26,14 +23,14 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = 'c4f0a2d8b9e1'
+revision: str = 'c3f2a1d4e5b6'
 down_revision: Union[str, None] = '1e35a6d3cb28'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
 SEED_ROWS = [
-    {'id': 'sierra', 'display_name': 'Sierra', 'ats': 'ashby', 'board_token': 'Sierra'},
+    {'id': 'trajectory', 'display_name': 'Trajectory', 'ats': 'ashby', 'board_token': 'trajectory'},
 ]
 
 
@@ -49,4 +46,4 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.execute("DELETE FROM companies WHERE id = 'sierra'")
+    op.execute("DELETE FROM companies WHERE id IN ('trajectory')")
