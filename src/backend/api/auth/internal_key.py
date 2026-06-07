@@ -47,7 +47,14 @@ async def require_internal_key(
         return await call_next(request)
 
     presented = request.headers.get(_HEADER_NAME)
-    if presented is None or not secrets.compare_digest(presented, expected):
+    # Compare as UTF-8 bytes, not str: secrets.compare_digest raises TypeError
+    # on a str containing non-ASCII characters, so a header like
+    # "X-Internal-Key: café" would surface as a 500 instead of a clean 401.
+    # Encoding first keeps the comparison constant-time and makes any malformed
+    # or mismatched key deterministically Unauthorized.
+    if presented is None or not secrets.compare_digest(
+        presented.encode("utf-8"), expected.encode("utf-8")
+    ):
         return JSONResponse(
             status_code=401,
             content={"detail": "Unauthorized"},

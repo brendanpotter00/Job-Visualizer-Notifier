@@ -65,6 +65,23 @@ class TestKeyEnforced:
         assert resp.status_code == 401
         assert resp.json() == {"detail": "Unauthorized"}
 
+    def test_non_ascii_header_is_rejected_not_500(self, app_factory):
+        """A non-ASCII header byte must be a clean 401, never a 500.
+
+        HTTP headers travel as latin-1 bytes; a raw high byte like 0xe9 decodes
+        server-side into a non-ASCII str ("é"). secrets.compare_digest raises
+        TypeError on a str with non-ASCII characters, so comparing raw strings
+        would crash this request into the 500 handler instead of denying it.
+        Encoding to bytes first keeps it a deterministic Unauthorized. The
+        header value is sent as raw bytes because an HTTP client cannot encode
+        a non-latin-1 str into a header at all.
+        """
+        app = app_factory("expected-secret")
+        with TestClient(app, raise_server_exceptions=False) as client:
+            resp = client.get("/api/jobs", headers={"X-Internal-Key": b"\xe9"})
+        assert resp.status_code == 401
+        assert resp.json() == {"detail": "Unauthorized"}
+
     def test_correct_header_is_accepted(self, app_factory):
         app = app_factory("expected-secret")
         with TestClient(app) as client:
