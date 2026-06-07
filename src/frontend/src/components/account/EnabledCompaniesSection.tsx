@@ -117,28 +117,6 @@ export function EnabledCompaniesSection() {
       </Typography>
 
       <Box sx={{ mb: 2 }}>
-        <FormControlLabel
-          control={
-            <Switch
-              checked={draftAutoEnroll}
-              onChange={(e) => {
-                setSaveSuccess(false);
-                setDraftAutoEnroll(e.target.checked);
-              }}
-              slotProps={{
-                input: { 'aria-label': 'Auto-include newly added companies' },
-              }}
-            />
-          }
-          label="Auto-include newly added companies"
-        />
-        <Typography variant="caption" color="text.secondary" display="block">
-          When on, companies we add later show up in your feed automatically. You can remove any
-          you don&apos;t want.
-        </Typography>
-      </Box>
-
-      <Box sx={{ mb: 2 }}>
         <CompanySearchAddInput
           companies={sortedCompanies}
           selectedIds={draftSet}
@@ -159,6 +137,28 @@ export function EnabledCompaniesSection() {
             onToggle={handleToggleId}
           />
         </BrowseCompaniesAccordion>
+      </Box>
+
+      <Box sx={{ mb: 2 }}>
+        <FormControlLabel
+          control={
+            <Switch
+              checked={draftAutoEnroll}
+              onChange={(e) => {
+                setSaveSuccess(false);
+                setDraftAutoEnroll(e.target.checked);
+              }}
+              slotProps={{
+                input: { 'aria-label': 'Auto-include newly added companies' },
+              }}
+            />
+          }
+          label="Auto-include newly added companies"
+        />
+        <Typography variant="caption" color="text.secondary" display="block">
+          When on, companies we add later show up in your feed automatically. You can remove any
+          you don&apos;t want.
+        </Typography>
       </Box>
 
       <SelectedCompaniesPanel
