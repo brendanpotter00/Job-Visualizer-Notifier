@@ -98,23 +98,36 @@ src/backend/api/
 │   ├── users.py         # User profile + enabled-companies endpoints (auth required)
 │   ├── features.py      # Feature voting endpoints (list, upvote, remove upvote)
 │   └── admin.py         # Admin-only user management endpoints
-└── services/
-    ├── database.py      # API query functions (reuses scripts/shared/database.py)
-    ├── user_service.py  # User CRUD operations (get_or_create, update)
-    ├── user_preferences_service.py  # Enabled-companies CRUD
-    ├── admin_service.py # Admin grant/revoke and is_admin check
-    ├── features_service.py  # Feature list and upvote logic
-    ├── features_seed.py # Seed initial feature rows
-    ├── scraper_lock.py  # asyncio.Lock singleton shared by runner + auto-scraper
-    ├── scraper_runner.py # Async subprocess runner for scrapers
-    └── auto_scraper.py  # Background scheduled scraping
+├── services/
+│   ├── database.py      # API query functions (reuses scripts/shared/database.py)
+│   ├── user_service.py  # User CRUD operations (get_or_create, update)
+│   ├── user_preferences_service.py  # Enabled-companies CRUD
+│   ├── admin_service.py # Admin grant/revoke and is_admin check
+│   ├── features_service.py  # Feature list and upvote logic
+│   ├── features_seed.py # Seed initial feature rows
+│   ├── scraper_lock.py  # asyncio.Lock singleton shared by runner + auto-scraper
+│   ├── scraper_runner.py # Async subprocess runner for scrapers
+│   ├── auto_scraper.py  # Background scheduled scraping (Google/Apple/Microsoft)
+│   ├── ashby_client.py      # Ashby ATS HTTP client
+│   ├── eightfold_client.py  # Eightfold ATS HTTP client (SSRF allowlist lives here)
+│   ├── gem_client.py        # Gem ATS HTTP client
+│   ├── greenhouse_client.py # Greenhouse ATS HTTP client
+│   ├── lever_client.py      # Lever ATS HTTP client
+│   └── workday_client.py    # Workday ATS HTTP client
+└── tasks/
+    ├── procrastinate_app.py         # Procrastinate App instance + schema setup
+    ├── heartbeat.py                 # Heartbeat task (liveness probe for /health/worker)
+    ├── enqueue_*_fan_out.py (×6)    # Fan-out tasks: enqueue per-company fetch for each ATS
+    └── fetch_*_company.py (×6)      # Leaf tasks: fetch + upsert one company's jobs
 ```
 
 ## Architecture
 
 - **Database**: Connection pool managed by `dependencies.py`; table naming reused from `scripts/shared/database.py`
 - **Response serialization**: Pydantic models with `alias_generator=to_camel` produce camelCase JSON matching frontend expectations
-- **Background scraper**: asyncio task launched in FastAPI lifespan context
+- **Background workers**: Two workers run in the FastAPI lifespan context:
+  1. **Procrastinate worker** (`tasks/procrastinate_app.py`) — drains the Procrastinate job queue; handles Greenhouse, Ashby, Lever, Gem, Eightfold, and Workday ATS companies via fan-out + per-company fetch tasks. Supervised with auto-restart on crash.
+  2. **Auto-scraper loop** (`services/auto_scraper.py`) — asyncio task that periodically spawns subprocesses for Google, Apple, and Microsoft scrapers.
 - **Scraper subprocess**: Runs `scripts/run_scraper.py` via `asyncio.create_subprocess_exec`
 
 ### Schema migrations

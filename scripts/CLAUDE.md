@@ -82,6 +82,7 @@ pip install -r scripts/requirements-dev.txt      # Install dev dependencies (tes
 - `shared/models.py` - Database-aligned Pydantic models (JobListing, ScrapeRun) (~62 lines)
 - `shared/batch_writer.py` - Buffered batch writing utility (~157 lines)
 - `shared/utils.py` - Shared utilities (timestamps) (~13 lines)
+- `shared/constants.py` - Shared constants (table names, etc.)
 - Schema is managed by Alembic in `src/backend/alembic/` (see `src/backend/CLAUDE.md` § Schema migrations).
 
 **Testing:**
@@ -297,8 +298,8 @@ Edit company-specific `config.py`:
   - `tests/integration/test_alembic_parity.py`
 
 **Output:**
-- JSON: `scripts/output/google_jobs.json`
-- Checkpoint: `scripts/output/.checkpoint.json` (temporary, JSON mode)
+- JSON: `scripts/output/google_jobs.json` (`scripts/output/` is created at runtime by `ensure_output_directory()` — not committed to the repo)
+- Checkpoint: `scripts/output/.checkpoint.json` (temporary, JSON mode; auto-deleted on success)
 - Database: PostgreSQL connection
 
 ## See Also
