@@ -1,7 +1,7 @@
 """seed sierra company
 
 Revision ID: c4f0a2d8b9e1
-Revises: a3f9c1d20e74
+Revises: ff0685df978b
 Create Date: 2026-05-27 12:00:00.000000+00:00
 
 Hand-written data migration (the documented exception to the
@@ -10,9 +10,13 @@ autogenerate-only rule). Adds one company to the ``companies`` table:
 - ``sierra`` (Ashby) — https://jobs.ashbyhq.com/Sierra
 
 Sits on top of the frozen per-ATS Ashby seed (revision ``a17b7c0ffee500``)
-and chains off the current head ``a3f9c1d20e74`` (the poke seed) so the
-alembic chain has a single head. Lands after ``WORKDAY_SEED_REV``, so the
-per-ATS counts asserted in ``test_migration_companies.py`` are unaffected.
+and chains off the current head ``ff0685df978b`` (the auto-enroll full
+company-list materialization from #136) so the alembic chain has a single
+head. Originally authored against ``a3f9c1d20e74`` (the poke seed), but #136
+landed two migrations on top of poke, advancing the head to ``ff0685df978b``;
+re-parented here so merging into main does not produce two heads. Lands after
+``WORKDAY_SEED_REV``, so the per-ATS counts asserted in
+``test_migration_companies.py`` are unaffected.
 
 ``board_token`` uses the exact URL-path casing ``Sierra`` because Ashby's
 posting API is case-sensitive.
@@ -27,7 +31,7 @@ import sqlalchemy as sa
 
 
 revision: str = 'c4f0a2d8b9e1'
-down_revision: Union[str, None] = 'a3f9c1d20e74'
+down_revision: Union[str, None] = 'ff0685df978b'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
