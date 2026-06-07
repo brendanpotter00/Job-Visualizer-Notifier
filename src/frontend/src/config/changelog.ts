@@ -24,6 +24,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'auto-enroll-new-companies',
+    title: 'New companies join your list automatically',
+    description:
+      'If you’ve curated a set of companies on the Account page, companies we add afterward now show up in your feed automatically — no need to come back and re-add each one. A new “Auto-include newly added companies” toggle on the Account page is on by default; turn it off to keep your list frozen to exactly what you picked.',
+    tags: ['feature'],
+    date: '2026-06-07',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Turn auto-include on or off on your Account page',
+    },
+  },
+  {
     id: 'add-poke',
     title: 'Added Poke',
     description:
