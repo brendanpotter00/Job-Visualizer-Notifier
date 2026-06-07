@@ -6,6 +6,7 @@ import enabledCompaniesReducer, {
   resetEnabledCompanies,
   enabledCompaniesLoadFailed,
   selectEnabledCompanyIds,
+  selectAutoEnroll,
 } from '../../../features/preferences/enabledCompaniesSlice';
 
 function makeStore() {
@@ -24,10 +25,11 @@ describe('enabledCompaniesSlice', () => {
   });
 
   describe('initial state', () => {
-    it('has null ids, not loading, no error, no active request id', () => {
+    it('has null ids/autoEnroll, not loading, no error, no active request id', () => {
       const store = makeStore();
       expect(store.getState().enabledCompanies).toEqual({
         ids: null,
+        autoEnroll: null,
         loading: false,
         error: null,
         activeLoadRequestId: null,
@@ -47,7 +49,7 @@ describe('enabledCompaniesSlice', () => {
       expect(store.getState().enabledCompanies.activeLoadRequestId).toBe('req-1');
     });
 
-    it('fulfilled sets ids and clears loading', () => {
+    it('fulfilled sets ids + autoEnroll and clears loading', () => {
       const store = makeStore();
       store.dispatch({
         type: loadEnabledCompanies.pending.type,
@@ -55,11 +57,12 @@ describe('enabledCompaniesSlice', () => {
       });
       store.dispatch({
         type: loadEnabledCompanies.fulfilled.type,
-        payload: ['a', 'b'],
+        payload: { companyIds: ['a', 'b'], autoEnroll: false },
         meta: { requestId: 'req-1' },
       });
       expect(store.getState().enabledCompanies).toEqual({
         ids: ['a', 'b'],
+        autoEnroll: false,
         loading: false,
         error: null,
         activeLoadRequestId: null,
@@ -79,6 +82,7 @@ describe('enabledCompaniesSlice', () => {
       });
       expect(store.getState().enabledCompanies).toEqual({
         ids: null,
+        autoEnroll: null,
         loading: false,
         error: 'boom',
         activeLoadRequestId: null,
@@ -148,13 +152,13 @@ describe('enabledCompaniesSlice', () => {
       });
       store.dispatch({
         type: saveEnabledCompanies.fulfilled.type,
-        payload: ['saved-a', 'saved-b'],
+        payload: { companyIds: ['saved-a', 'saved-b'], autoEnroll: true },
         meta: { requestId: 'save-1' },
       });
       // Now the stale load finally resolves.
       store.dispatch({
         type: loadEnabledCompanies.fulfilled.type,
-        payload: ['stale-x', 'stale-y'],
+        payload: { companyIds: ['stale-x', 'stale-y'], autoEnroll: false },
         meta: { requestId: 'req-stale' },
       });
       // Saved ids must win.
@@ -162,6 +166,7 @@ describe('enabledCompaniesSlice', () => {
         'saved-a',
         'saved-b',
       ]);
+      expect(store.getState().enabledCompanies.autoEnroll).toBe(true);
     });
   });
 
@@ -182,13 +187,14 @@ describe('enabledCompaniesSlice', () => {
       expect(store.getState().enabledCompanies.activeLoadRequestId).toBeNull();
     });
 
-    it('fulfilled updates ids and clears error', () => {
+    it('fulfilled updates ids + autoEnroll and clears error', () => {
       const store = makeStore();
       store.dispatch({
         type: saveEnabledCompanies.fulfilled.type,
-        payload: ['a', 'b'],
+        payload: { companyIds: ['a', 'b'], autoEnroll: false },
       });
       expect(store.getState().enabledCompanies.ids).toEqual(['a', 'b']);
+      expect(store.getState().enabledCompanies.autoEnroll).toBe(false);
       expect(store.getState().enabledCompanies.error).toBeNull();
     });
 
@@ -200,7 +206,7 @@ describe('enabledCompaniesSlice', () => {
       });
       store.dispatch({
         type: loadEnabledCompanies.fulfilled.type,
-        payload: ['a'],
+        payload: { companyIds: ['a'], autoEnroll: true },
         meta: { requestId: 'req-1' },
       });
       store.dispatch({
@@ -220,7 +226,7 @@ describe('enabledCompaniesSlice', () => {
       });
       store.dispatch({
         type: loadEnabledCompanies.fulfilled.type,
-        payload: ['a'],
+        payload: { companyIds: ['a'], autoEnroll: true },
         meta: { requestId: 'req-1' },
       });
       const before = store.getState().enabledCompanies;
@@ -243,6 +249,7 @@ describe('enabledCompaniesSlice', () => {
       store.dispatch(enabledCompaniesLoadFailed('token expired'));
       expect(store.getState().enabledCompanies).toEqual({
         ids: null,
+        autoEnroll: null,
         loading: false,
         error: 'token expired',
         activeLoadRequestId: null,
@@ -259,7 +266,7 @@ describe('enabledCompaniesSlice', () => {
       });
       store.dispatch({
         type: loadEnabledCompanies.fulfilled.type,
-        payload: ['a', 'b'],
+        payload: { companyIds: ['a', 'b'], autoEnroll: false },
         meta: { requestId: 'req-1' },
       });
       store.dispatch({
@@ -270,6 +277,7 @@ describe('enabledCompaniesSlice', () => {
       store.dispatch(resetEnabledCompanies());
       expect(store.getState().enabledCompanies).toEqual({
         ids: null,
+        autoEnroll: null,
         loading: false,
         error: null,
         activeLoadRequestId: null,
@@ -283,6 +291,7 @@ describe('enabledCompaniesSlice', () => {
         selectEnabledCompanyIds({
           enabledCompanies: {
             ids: ['a'],
+            autoEnroll: true,
             loading: false,
             error: null,
             activeLoadRequestId: null,
@@ -293,6 +302,7 @@ describe('enabledCompaniesSlice', () => {
         selectEnabledCompanyIds({
           enabledCompanies: {
             ids: null,
+            autoEnroll: null,
             loading: false,
             error: null,
             activeLoadRequestId: null,
@@ -303,6 +313,7 @@ describe('enabledCompaniesSlice', () => {
         selectEnabledCompanyIds({
           enabledCompanies: {
             ids: [],
+            autoEnroll: true,
             loading: false,
             error: null,
             activeLoadRequestId: null,
@@ -312,15 +323,55 @@ describe('enabledCompaniesSlice', () => {
     });
   });
 
+  describe('selectAutoEnroll', () => {
+    it('returns the autoEnroll field from state', () => {
+      expect(
+        selectAutoEnroll({
+          enabledCompanies: {
+            ids: ['a'],
+            autoEnroll: false,
+            loading: false,
+            error: null,
+            activeLoadRequestId: null,
+          },
+        })
+      ).toBe(false);
+      expect(
+        selectAutoEnroll({
+          enabledCompanies: {
+            ids: null,
+            autoEnroll: null,
+            loading: false,
+            error: null,
+            activeLoadRequestId: null,
+          },
+        })
+      ).toBeNull();
+    });
+  });
+
   describe('integration with fetch', () => {
     it('load dispatch flows through to fulfilled', async () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-        new Response(JSON.stringify({ companyIds: ['x', 'y'] }), { status: 200 })
+        new Response(
+          JSON.stringify({ companyIds: ['x', 'y'], autoEnrollNewCompanies: false }),
+          { status: 200 }
+        )
       );
       const store = makeStore();
       await store.dispatch(loadEnabledCompanies('tok'));
       expect(store.getState().enabledCompanies.ids).toEqual(['x', 'y']);
+      expect(store.getState().enabledCompanies.autoEnroll).toBe(false);
       expect(store.getState().enabledCompanies.loading).toBe(false);
+    });
+
+    it('load defaults autoEnroll to true when the field is omitted', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(JSON.stringify({ companyIds: ['x'] }), { status: 200 })
+      );
+      const store = makeStore();
+      await store.dispatch(loadEnabledCompanies('tok'));
+      expect(store.getState().enabledCompanies.autoEnroll).toBe(true);
     });
 
     it('load dispatch flows through to rejected on 500', async () => {
@@ -334,15 +385,24 @@ describe('enabledCompaniesSlice', () => {
       expect(store.getState().enabledCompanies.loading).toBe(false);
     });
 
-    it('save dispatch round-trips server echo into ids', async () => {
-      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-        new Response(JSON.stringify({ companyIds: ['a', 'b'] }), { status: 200 })
+    it('save dispatch round-trips server echo into ids + autoEnroll', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(
+          JSON.stringify({ companyIds: ['a', 'b'], autoEnrollNewCompanies: false }),
+          { status: 200 }
+        )
       );
       const store = makeStore();
       await store.dispatch(
-        saveEnabledCompanies({ token: 'tok', companyIds: ['b', 'a'] })
+        saveEnabledCompanies({ token: 'tok', companyIds: ['b', 'a'], autoEnroll: false })
       );
       expect(store.getState().enabledCompanies.ids).toEqual(['a', 'b']);
+      expect(store.getState().enabledCompanies.autoEnroll).toBe(false);
+      // The toggle is sent to the backend under its camelCase alias.
+      const body = JSON.parse(
+        (fetchSpy.mock.calls[0][1] as RequestInit).body as string
+      );
+      expect(body.autoEnrollNewCompanies).toBe(false);
     });
   });
 });
