@@ -230,6 +230,9 @@ export const COMPANIES: Company[] = [
   createBackendScraperCompany('roblox', 'Roblox', 'https://boards.greenhouse.io/roblox', {
     sourceAts: 'greenhouse',
   }),
+  createBackendScraperCompany('fal', 'fal', 'https://boards.greenhouse.io/fal', {
+    sourceAts: 'greenhouse',
+  }),
 
   // Lever companies (migrated to backend-scraper)
   createBackendScraperCompany('palantir', 'Palantir', 'https://jobs.lever.co/palantir', {
@@ -412,6 +415,23 @@ export const COMPANIES: Company[] = [
   createBackendScraperCompany('exa', 'Exa', 'https://jobs.ashbyhq.com/exa', {
     sourceAts: 'ashby',
   }),
+  createBackendScraperCompany('trajectory', 'Trajectory', 'https://jobs.ashbyhq.com/trajectory', {
+    sourceAts: 'ashby',
+  }),
+  createBackendScraperCompany('krea', 'Krea', 'https://jobs.ashbyhq.com/krea', {
+    sourceAts: 'ashby',
+  }),
+  createBackendScraperCompany('vizcom', 'Vizcom', 'https://jobs.ashbyhq.com/vizcom', {
+    sourceAts: 'ashby',
+  }),
+  createBackendScraperCompany('posthog', 'PostHog', 'https://jobs.ashbyhq.com/posthog', {
+    sourceAts: 'ashby',
+  }),
+  // The Interaction Company of California (makers of Poke). Ashby board slug is
+  // 'interaction' (board_token), surfaced here as 'Poke'.
+  createBackendScraperCompany('poke', 'Poke', 'https://jobs.ashbyhq.com/interaction', {
+    sourceAts: 'ashby',
+  }),
 
   // Gem (backend-scraper) — backend Procrastinate worker fetches from
   // api.gem.com/job_board/v0/<id>/job_posts/ on a 30-min cron. See
@@ -572,6 +592,7 @@ export const enum COMPANY_IDS {
   EliseAI = 'eliseai',
   Exa = 'exa',
   Expedia = 'expedia',
+  Fal = 'fal',
   Figma = 'figma',
   FigureAI = 'figureai',
   Flint = 'flint',
@@ -589,6 +610,7 @@ export const enum COMPANY_IDS {
   Hightouch = 'hightouch',
   Instacart = 'instacart',
   JudgmentLabs = 'judgmentlabs',
+  Krea = 'krea',
   LangChain = 'langchain',
   Light = 'light',
   Linear = 'linear',
@@ -610,9 +632,11 @@ export const enum COMPANY_IDS {
   Paraform = 'paraform',
   PayPal = 'paypal',
   Perplexity = 'perplexity',
+  PostHog = 'posthog',
   Pylon = 'pylon-labs',
   Pinterest = 'pinterest',
   Plaid = 'plaid',
+  Poke = 'poke',
   Ramp = 'ramp',
   Reddit = 'reddit',
   ResolveAI = 'resolve-ai',
@@ -636,12 +660,14 @@ export const enum COMPANY_IDS {
   Supabase = 'supabase',
   ThinkingMachines = 'thinkingmachines',
   TogetherAI = 'togetherai',
+  Trajectory = 'trajectory',
   Traversal = 'traversal',
   Twilio = 'twilio',
   Turo = 'turo',
   Twitch = 'twitch',
   Unity = 'unity3d',
   Vercel = 'vercel',
+  Vizcom = 'vizcom',
   Waymo = 'waymo',
   WisprFlow = 'wispr-flow',
   Xai = 'xai',

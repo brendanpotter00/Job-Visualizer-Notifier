@@ -24,6 +24,78 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'add-poke',
+    title: 'Added Poke',
+    description:
+      'Poke — the proactive AI assistant from The Interaction Company of California that lives inside iMessage, WhatsApp, SMS, and Telegram to handle daily planning, scheduling, and follow-ups entirely by text — is now tracked via its Ashby job board. Founded by the ex-TUM Boring team (winners of SpaceX’s Not-a-Boring tunneling competition), it became the first AI agent approved on Apple’s Messages for Business platform in 2026 and has raised ~$25M from General Catalyst and Spark Capital at a ~$300M valuation.',
+    tags: ['new-companies'],
+    date: '2026-06-06',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add Poke to your company preferences',
+    },
+  },
+  {
+    id: 'add-posthog',
+    title: 'Added PostHog',
+    description:
+      'PostHog — the open-source product analytics platform (YC W20) that bundles analytics, session replay, feature flags, A/B testing, surveys, and error tracking into a single tool for product engineers, serving 190k+ customers including ~65% of Y Combinator companies — is now tracked via its Ashby job board. PostHog reached unicorn status in 2025 with a $75M Series E led by Peak XV at a $1.4B valuation.',
+    tags: ['new-companies'],
+    date: '2026-06-04',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add PostHog to your company preferences',
+    },
+  },
+  {
+    id: 'add-fal',
+    title: 'Added fal',
+    description:
+      'fal — the generative media cloud serving 1,000+ image, video, audio, and 3D models through one API to 2.5M+ developers and companies like Canva, Adobe, and Amazon MGM Studios — is now tracked via its Greenhouse job board. fal raised a $140M round led by Sequoia at a $4.5B valuation.',
+    tags: ['new-companies'],
+    date: '2026-05-30',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add fal to your company preferences',
+    },
+  },
+  {
+    id: 'add-vizcom',
+    title: 'Added Vizcom',
+    description:
+      'Vizcom — the AI industrial design platform that turns sketches into photorealistic renders and 3D models for automotive, footwear, and consumer goods teams at Ford and New Balance, serving 700k+ designers — is now tracked via its Ashby job board. Vizcom has raised a $27M Series B led by Radical Ventures.',
+    tags: ['new-companies'],
+    date: '2026-05-30',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add Vizcom to your company preferences',
+    },
+  },
+  {
+    id: 'add-krea',
+    title: 'Added Krea',
+    description:
+      'Krea — the San Francisco GenAI creative platform unifying 64+ image and video models (Veo, Sora, Kling, Runway) plus real-time generation and custom model training, used by creators at Pixar, LEGO, and Samsung — is now tracked via its Ashby job board. Krea raised an $83M round at a $500M valuation.',
+    tags: ['new-companies'],
+    date: '2026-05-30',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add Krea to your company preferences',
+    },
+  },
+  {
+    id: 'add-trajectory',
+    title: 'Added Trajectory',
+    description:
+      'Trajectory — the Palo Alto AI startup from ex-Google DeepMind and Apple researchers building multimodal models with stronger visual reasoning for robotics, autonomous vehicles, and manufacturing — is now tracked via its Ashby job board.',
+    tags: ['new-companies'],
+    date: '2026-05-29',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add Trajectory to your company preferences',
+    },
+  },
+  {
     id: 'add-roblox',
     title: 'Added Roblox',
     description:

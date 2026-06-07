@@ -1,7 +1,7 @@
 """add company_enroll_watermark and auto_enroll_new_companies to users
 
 Revision ID: 204a7e074899
-Revises: 1e35a6d3cb28
+Revises: a3f9c1d20e74
 Create Date: 2026-05-27 13:09:58.148984+00:00
 
 Adds the two per-user columns that drive auto-enroll into newly-added
@@ -27,7 +27,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = '204a7e074899'
-down_revision: Union[str, None] = '1e35a6d3cb28'
+down_revision: Union[str, None] = 'a3f9c1d20e74'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
