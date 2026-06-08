@@ -1,0 +1,715 @@
+<!doctype html>
+<html lang="en" data-theme="corporate">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Location Normalization — Implementation Plan (rev 2)</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5.5.19/daisyui.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5.5.19/themes.css" />
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.2.4/dist/index.global.js"></script>
+    <style>
+      .flow-node { border: 1px solid oklch(var(--bc) / 0.15); }
+      .flow-arrow { font-size: 1.4rem; line-height: 1; opacity: 0.5; }
+      .step-card { scroll-margin-top: 5rem; }
+      code { font-size: 0.85em; }
+      .lead { max-width: 72ch; }
+      .ann { scroll-margin-top: 5rem; }
+    </style>
+  </head>
+  <body class="bg-base-200 text-base-content">
+    <!-- ===================== Top bar ===================== -->
+    <div class="navbar bg-base-100 border-b border-base-content/10 sticky top-0 z-30">
+      <div class="navbar-start">
+        <span class="btn btn-ghost text-lg gap-2">📍 <span class="font-bold">Location Normalization</span></span>
+      </div>
+      <div class="navbar-center hidden lg:flex">
+        <ul class="menu menu-horizontal px-1 text-sm">
+          <li><a href="#changed">What changed</a></li>
+          <li><a href="#approach">Approach</a></li>
+          <li><a href="#architecture">Architecture</a></li>
+          <li><a href="#schema">Schema</a></li>
+          <li><a href="#examples">Examples</a></li>
+          <li><a href="#units">Units</a></li>
+          <li><a href="#risks">Risks &amp; Q's</a></li>
+        </ul>
+      </div>
+      <div class="navbar-end gap-2">
+        <span class="badge badge-soft badge-success">rev 2 — verified vs repo</span>
+      </div>
+    </div>
+
+    <main class="mx-auto max-w-6xl p-5 lg:p-8 space-y-10">
+      <!-- ===================== WHAT CHANGED SINCE REVIEW ===================== -->
+      <section id="changed" class="space-y-3">
+        <div class="card card-border bg-base-100"><div class="card-body gap-2">
+          <h3 class="font-semibold text-sm">Your questions → jump to where each is answered</h3>
+          <div class="grid gap-x-8 gap-y-1.5 sm:grid-cols-2 text-sm">
+            <a class="link link-primary" href="#u1">Does Procrastinate exist / how is it enqueued? → Unit 1 + Architecture</a>
+            <a class="link link-primary" href="#q2">Admin roles + new security on main → Q2 + Unit 8</a>
+            <a class="link link-primary" href="#multiloc">What if a job has multiple locations? → Schema</a>
+            <a class="link link-primary" href="#ann-kind"><code>kind</code> vs <code>city/region/country</code>? → Schema</a>
+            <a class="link link-primary" href="#ann-remote">Why <code>remote_scope</code> in the UNIQUE key? → Schema</a>
+            <a class="link link-primary" href="#ann-instantiate">How is <code>locations</code> instantiated? → Schema</a>
+            <a class="link link-primary" href="#ann-joblocation">Is <code>JobLocation</code> a join table (not a CSV field)? → Schema</a>
+            <a class="link link-primary" href="#q3">Where do lat/lng come from? → Q3 <span class="badge badge-success badge-xs">resolved</span></a>
+            <a class="link link-primary" href="#prompt">What does the Haiku system prompt look like? → Tier 2 prompt</a>
+            <a class="link link-primary" href="#q1">How is each ingestion path enqueued? → Q1 <span class="badge badge-success badge-xs">resolved</span></a>
+            <a class="link link-primary" href="#examples">Migrate scrapers to Procrastinate first? → separate initiative</a>
+            <a class="link link-primary" href="#risks">Pool/worker contention + the prior incident → F1</a>
+            <a class="link link-primary" href="#risks">Cache poisoning + audit skill → F2</a>
+            <a class="link link-primary" href="#risks">Cost of <code>re-normalize-all</code> → F3</a>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===================== HERO / GOAL ===================== -->
+      <section class="hero bg-base-100 rounded-box border border-base-content/10">
+        <div class="hero-content flex-col items-start gap-4 py-8">
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="badge badge-primary">Backend</span>
+            <span class="badge badge-soft badge-secondary">Procrastinate fan-out</span>
+            <span class="badge badge-soft">Claude Haiku 4.5</span>
+            <span class="badge badge-soft">Postgres</span>
+          </div>
+          <h1 class="text-4xl font-bold">Give every job a canonical location</h1>
+          <p class="lead text-base-content/80">
+            ATS APIs hand us strings like <code>"sf"</code>, <code>"San Francisco, CA"</code>,
+            <code>"SF Bay Area"</code>, <code>"San Francisco, CA / New York, NY / Remote"</code>.
+            Today <code>job_listings.location TEXT</code> stores these raw — no canonical form,
+            no geo, no clean way to answer <em>"show me all SF-or-remote jobs."</em> This adds a
+            canonical model populated by an async normalization pipeline that rides the
+            <strong>existing</strong> Procrastinate worker.
+          </p>
+        </div>
+      </section>
+
+      <!-- Goal / Current / Desired -->
+      <section class="grid gap-4 md:grid-cols-3">
+        <div class="card card-border bg-base-100"><div class="card-body">
+          <h2 class="card-title text-base">🎯 Goal</h2>
+          <p class="text-sm text-base-content/80">A canonical location model + an async pipeline so filtering, grouping, and (later) geo all key off normalized data, not raw text.</p>
+        </div></div>
+        <div class="card card-border bg-base-100"><div class="card-body">
+          <h2 class="card-title text-base">📦 Current state</h2>
+          <p class="text-sm text-base-content/80">One free-text <code>location</code> column. No dedupe, no multi-location, no geo. Filters resort to brittle <code>LIKE</code>.</p>
+        </div></div>
+        <div class="card card-border bg-base-100"><div class="card-body">
+          <h2 class="card-title text-base">✅ Desired</h2>
+          <p class="text-sm text-base-content/80">Every <code>job_listings</code> row → <strong>0+</strong> canonical <code>location</code> rows via a <code>job_locations</code> join table. Multi-location is first-class.</p>
+        </div></div>
+      </section>
+
+      <!-- ===================== APPROACH ===================== -->
+      <section id="approach" class="space-y-5">
+        <h2 class="text-2xl font-bold">Approach — a two-tier cascade on the existing worker</h2>
+        <div class="grid gap-4 md:grid-cols-2">
+          <div class="card card-border bg-base-100"><div class="card-body">
+            <div class="flex items-center gap-2"><span class="badge badge-success">Tier 1</span><h3 class="card-title text-base">Postgres alias cache</h3></div>
+            <p class="text-sm text-base-content/80"><code>location_aliases</code> keyed on the pre-normalized raw string. After warmup, <strong>~90%+ are cache hits</strong> — zero LLM calls.</p>
+          </div></div>
+          <div class="card card-border bg-base-100"><div class="card-body">
+            <div class="flex items-center gap-2"><span class="badge badge-warning">Tier 2</span><h3 class="card-title text-base">Claude Haiku 4.5</h3></div>
+            <p class="text-sm text-base-content/80">Only on cache misses. Returns structured JSON for one <em>or more</em> canonical locations; result is cached so the next occurrence is free.</p>
+          </div></div>
+        </div>
+        <div role="alert" class="alert alert-info alert-soft">
+          <span><strong>Decoupled:</strong> normalization is a new <code>normalize</code> queue on the worker that already exists — its own retry/concurrency budget, so a slow LLM never blocks ATS fetches.</span>
+        </div>
+      </section>
+
+      <!-- ===================== ARCHITECTURE ===================== -->
+      <section id="architecture" class="space-y-4">
+        <h2 class="text-2xl font-bold">Architecture <span class="badge badge-success badge-soft align-middle">corrected</span></h2>
+        <p class="text-sm text-base-content/70">The Procrastinate worker, fan-out tasks, and per-company fetch tasks <strong>already exist</strong> (<code>src/backend/api/tasks/</code>). This feature adds the orange node + a new queue.</p>
+
+        <!-- Triggers -->
+        <div class="grid gap-4 lg:grid-cols-2">
+          <div class="flow-node rounded-box bg-base-100 p-4">
+            <div class="flex items-center gap-2 mb-1"><span class="badge badge-soft badge-primary">existing</span><h3 class="font-semibold">6 ATS providers — Procrastinate</h3></div>
+            <p class="text-sm text-base-content/70">Periodic <code>enqueue_&lt;p&gt;_fan_out</code> → per-company <code>fetch_&lt;p&gt;_company</code> (queues: <code>greenhouse/ashby/lever/gem/eightfold/workday_fetch</code>) → <code>upsert_jobs_batch</code>.</p>
+          </div>
+          <div class="flow-node rounded-box bg-base-100 p-4">
+            <div class="flex items-center gap-2 mb-1"><span class="badge badge-soft badge-primary">existing</span><h3 class="font-semibold">Google / Apple / Microsoft — subprocess</h3></div>
+            <p class="text-sm text-base-content/70"><code>auto_scraper.py</code> spawns <code>scripts/run_scraper.py</code> subprocesses that write to the DB directly. <em>No in-process defer hook.</em></p>
+          </div>
+        </div>
+
+        <div class="text-center flow-arrow">▼ &nbsp; new enqueue (Unit 6) &nbsp; ▼</div>
+
+        <!-- normalize queue node -->
+        <div class="rounded-box border-2 border-warning bg-warning/5 p-4 text-center">
+          <code class="font-semibold">procrastinate_jobs</code>
+          <span class="badge badge-soft badge-sm">existing table</span>
+          <span class="text-sm text-base-content/70">— gains a <span class="badge badge-warning badge-sm">NEW</span> <code>normalize</code> queue, drained by the <strong>existing worker pool</strong> (scales with it — no cap; see <a href="#risks" class="link link-warning">F1</a>). Procrastinate manages its own schema.</span>
+        </div>
+
+        <div class="text-center flow-arrow">▼</div>
+
+        <div class="flow-node rounded-box bg-base-100 p-5">
+          <h3 class="font-semibold mb-3"><code>@procrastinate_app.task(queue="normalize")</code> <code>normalize_location(job_id)</code></h3>
+          <ul class="steps steps-vertical w-full">
+            <li class="step step-primary" data-content="1"><span class="text-sm text-left">SELECT location; if <code>status='done'</code> → return <em>(idempotent)</em></span></li>
+            <li class="step step-primary" data-content="2"><span class="text-sm text-left"><code>raw = normalize_string(location)</code></span></li>
+            <li class="step step-success" data-content="T1"><span class="text-sm text-left"><strong>Tier 1:</strong> alias-cache JOIN. HIT → write <code>job_locations</code> → <code>done</code> → return</span></li>
+            <li class="step step-warning" data-content="T2"><span class="text-sm text-left"><strong>Tier 2:</strong> Claude Haiku → <code>list[CanonicalLocation]</code></span></li>
+            <li class="step" data-content="5"><span class="text-sm text-left">UPSERT each into <code>locations</code> (<code>ON CONFLICT DO NOTHING</code>)</span></li>
+            <li class="step" data-content="6"><span class="text-sm text-left">INSERT alias + alias_locations + job_locations; <code>status='done'</code></span></li>
+          </ul>
+        </div>
+        <p class="text-sm text-base-content/60"><strong>How it's enqueued (your Q):</strong> exactly like the existing fan-out — <code>normalize_location.configure(queue="normalize").defer_async(job_id=…)</code>, called from each <code>fetch_&lt;p&gt;_company</code> task after upsert. Same <code>.defer_async</code> pattern used by <code>enqueue_lever_fan_out</code> today. See <a href="#q1" class="link link-primary">Q1</a> for the per-path strategy.</p>
+      </section>
+
+      <!-- ===================== SCHEMA (annotated answers) ===================== -->
+      <section id="schema" class="space-y-5">
+        <h2 class="text-2xl font-bold">Schema <span class="text-base font-normal text-base-content/60">— your 5 questions answered inline</span></h2>
+        <p class="text-sm text-base-content/70">Four new tables in <code>db_models.py</code> (autogenerate per the combined-ALTER-TABLE rule, baseline <code>91337142414f</code>), plus one additive column on <code>JobListing</code>.</p>
+
+        <!-- ANSWER: multi-location storage (you asked twice — making it unmissable) -->
+        <div id="multiloc" class="ann card card-border border-info bg-info/5"><div class="card-body gap-3">
+          <h3 class="card-title text-base">📌 "What if a job has multiple locations?" — it is NOT one field on the job row</h3>
+          <p class="text-sm text-base-content/80">
+            You're right that stuffing a list into the job record would be wrong — and we don't.
+            <strong>The <code>job_listings</code> row is never given a normalized-location field.</strong>
+            The only column we add to it is <code>normalization_status</code>. The locations live in a separate
+            <strong>join table</strong>, <code>job_locations</code> — <strong>one row per location</strong>. A job with
+            two locations produces two <code>job_locations</code> rows, each a real foreign key to a canonical
+            <code>locations</code> row.
+          </p>
+
+          <div class="rounded-box bg-base-100 border border-base-content/10 p-4 text-center text-sm font-mono">
+            <span class="badge badge-neutral">job_listings</span> <span class="text-base-content/50">1 row</span>
+            &nbsp;──&lt;&nbsp; <span class="badge badge-warning">job_locations</span> <span class="text-base-content/50">N rows (the join)</span>
+            &nbsp;&gt;──&nbsp; <span class="badge badge-success">locations</span> <span class="text-base-content/50">canonical, shared</span>
+          </div>
+
+          <p class="text-sm font-semibold text-base-content/70">Concretely, the multi-location job from Example B, across all three tables:</p>
+          <div class="space-y-3">
+            <div>
+              <p class="text-xs font-semibold mb-1 text-base-content/60">job_listings <span class="font-normal">— ONE row; raw <code>location</code> kept as-is for provenance; only <code>normalization_status</code> is new</span></p>
+              <div class="overflow-x-auto rounded-box border border-base-content/10">
+                <table class="table table-xs">
+                  <thead><tr><th>id</th><th>title</th><th>location <span class="badge badge-ghost badge-xs">raw, unchanged</span></th><th>normalization_status <span class="badge badge-info badge-xs">new col</span></th></tr></thead>
+                  <tbody><tr><td>305582211904771</td><td>Staff Backend Engineer</td><td>Sunnyvale, CA, USA; Kirkland, WA, USA</td><td>done</td></tr></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="grid gap-3 md:grid-cols-2">
+              <div>
+                <p class="text-xs font-semibold mb-1 text-base-content/60">job_locations <span class="font-normal">— TWO rows for the one job</span></p>
+                <div class="overflow-x-auto rounded-box border border-base-content/10">
+                  <table class="table table-xs table-zebra">
+                    <thead><tr><th>job_listing_id</th><th>normalized_location_id</th><th>is_primary</th></tr></thead>
+                    <tbody>
+                      <tr><td>305582211904771</td><td>2</td><td>true</td></tr>
+                      <tr><td>305582211904771</td><td>3</td><td>false</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              <div>
+                <p class="text-xs font-semibold mb-1 text-base-content/60">locations <span class="font-normal">— the canonical rows those FKs point at (shared by other jobs)</span></p>
+                <div class="overflow-x-auto rounded-box border border-base-content/10">
+                  <table class="table table-xs table-zebra">
+                    <thead><tr><th>id</th><th>canonical_name</th><th>city</th><th>region</th></tr></thead>
+                    <tbody>
+                      <tr><td>2</td><td>Sunnyvale, CA, US</td><td>Sunnyvale</td><td>CA</td></tr>
+                      <tr><td>3</td><td>Kirkland, WA, US</td><td>Kirkland</td><td>WA</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+          <p class="text-sm text-base-content/70">
+            So "how many locations does a job have?" is just <code>SELECT count(*) FROM job_locations WHERE job_listing_id = …</code>,
+            and "all SF-or-remote jobs" is an indexed join — never a <code>LIKE</code> over a packed string. This is standard
+            third-normal-form: the job row holds no list, the join table holds the relationships.
+          </p>
+        </div></div>
+
+        <!-- locations table + answers -->
+        <div class="grid gap-4 lg:grid-cols-2">
+          <div class="mockup-code text-xs">
+            <pre data-prefix="" class="text-success"><code>class Location(Base):   # "locations"</code></pre>
+            <pre data-prefix=""><code>  id              PK</code></pre>
+            <pre data-prefix=""><code>  canonical_name  Text NOT NULL  # display string</code></pre>
+            <pre data-prefix=""><code>  kind            Text NOT NULL  # city|region|country|remote</code></pre>
+            <pre data-prefix=""><code>  city/region/country  Text NULL  # structured parts</code></pre>
+            <pre data-prefix=""><code>  remote_scope    Text NULL      # NULL|global|us|eu|...</code></pre>
+            <pre data-prefix=""><code>  lat / lng       Float NULL     # geo (see note)</code></pre>
+            <pre data-prefix=""><code>  UNIQUE(kind, city, region, country, remote_scope)</code></pre>
+          </div>
+          <div class="space-y-3">
+            <div id="ann-kind" class="ann card card-border bg-base-100"><div class="card-body p-4">
+              <h3 class="font-semibold text-sm">❓ <code>kind</code> vs <code>city/region/country</code>?</h3>
+              <p class="text-sm text-base-content/80"><code>kind</code> is the <strong>discriminator</strong> — it tells you which structured fields are meaningful. The others are the actual <strong>parts</strong>.</p>
+              <div class="overflow-x-auto"><table class="table table-xs mt-1">
+                <thead><tr><th>kind</th><th>city</th><th>region</th><th>country</th><th>remote_scope</th></tr></thead>
+                <tbody>
+                  <tr><td>city</td><td>San Francisco</td><td>CA</td><td>US</td><td>—</td></tr>
+                  <tr><td>region</td><td>—</td><td>CA</td><td>US</td><td>—</td></tr>
+                  <tr><td>country</td><td>—</td><td>—</td><td>US</td><td>—</td></tr>
+                  <tr><td>remote</td><td>—</td><td>—</td><td>—</td><td>us</td></tr>
+                </tbody>
+              </table></div>
+            </div></div>
+            <div id="ann-remote" class="ann card card-border bg-base-100"><div class="card-body p-4">
+              <h3 class="font-semibold text-sm">❓ Why is <code>remote_scope</code> in the UNIQUE key?</h3>
+              <p class="text-sm text-base-content/80">Because <code>Remote (US)</code>, <code>Remote (EU)</code>, and <code>Remote (global)</code> are <strong>distinct canonical locations</strong> — they filter differently. Leaving <code>remote_scope</code> out of the key would collapse them into one row, so a "remote US-only" job and a "remote anywhere" job would be indistinguishable. It's part of canonical identity. (For non-remote kinds it's NULL, and Postgres treats NULLs as distinct — fine here because <code>kind</code>+parts already disambiguate those.)</p>
+            </div></div>
+          </div>
+        </div>
+
+        <div class="grid gap-4 lg:grid-cols-2">
+          <div id="ann-latlng" class="ann">
+            <div role="alert" class="alert alert-warning alert-soft h-full">
+              <span><strong>❓ Where do lat/lng come from?</strong> Honestly: <em>nowhere reliable in v1.</em> Haiku can emit approximate city centroids, but coordinates are the thing LLMs hallucinate most. <strong>Recommendation:</strong> keep the columns (nullable) but <strong>drop lat/lng from the v1 LLM ask</strong> and leave them NULL; add a dedicated geocoding pass (Nominatim/Mapbox over <code>canonical_name</code>) as the deferred "Geo features" follow-up. → <a href="#q3" class="link link-warning">decision Q3</a></span>
+            </div>
+          </div>
+          <div id="ann-instantiate" class="ann">
+            <div role="alert" class="alert alert-info alert-soft h-full">
+              <span><strong>❓ How is <code>locations</code> initially instantiated?</strong> It isn't seeded — it starts <strong>empty</strong> and is populated <strong>lazily</strong>: every Tier-2 cache miss UPSERTs the canonical rows it produces (<code>ON CONFLICT DO NOTHING</code> dedupes). The cache and canonical set co-grow with real traffic. Optional: seed a handful of obvious ones (SF, NYC, Remote-US) to skip first-call latency — not required.</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- join tables + JobLocation answer -->
+        <div id="ann-joblocation" class="ann grid gap-4 lg:grid-cols-2">
+          <div class="mockup-code text-xs">
+            <pre data-prefix="" class="text-success"><code>class LocationAlias(Base):  # "location_aliases"</code></pre>
+            <pre data-prefix=""><code>  raw_text   PK   # pre-normalized cache key</code></pre>
+            <pre data-prefix=""><code>  source / confidence</code></pre>
+            <pre data-prefix=""><code> </code></pre>
+            <pre data-prefix="" class="text-success"><code>class AliasLocation(Base):  # "alias_locations"</code></pre>
+            <pre data-prefix=""><code>  raw_text FK + normalized_location_id FK   (PK)</code></pre>
+            <pre data-prefix=""><code>  position INT   # order within the raw string</code></pre>
+            <pre data-prefix=""><code> </code></pre>
+            <pre data-prefix="" class="text-warning"><code>class JobLocation(Base):    # "job_locations"</code></pre>
+            <pre data-prefix=""><code>  job_listing_id  FK → job_listings.id   (PK)</code></pre>
+            <pre data-prefix=""><code>  normalized_location_id  FK → locations.id (PK)</code></pre>
+            <pre data-prefix=""><code>  is_primary  BOOL</code></pre>
+          </div>
+          <div class="card card-border bg-base-100"><div class="card-body p-4">
+            <h3 class="font-semibold text-sm">❓ Is <code>JobLocation</code> a new table? Isn't a comma-separated text field bad?</h3>
+            <p class="text-sm text-base-content/80">Yes, new table — and <strong>no comma-separated text anywhere.</strong> The mockup above compressed it; to be unambiguous:</p>
+            <ul class="list-disc ml-5 text-sm text-base-content/80 space-y-1 mt-1">
+              <li><code>job_locations</code> is a proper <strong>many-to-many join table</strong>: <strong>one row per (job, location) pair</strong>.</li>
+              <li>A job with 3 locations → <strong>3 rows</strong>, each a real FK to a <code>locations</code> row. Indexed, joinable, no string parsing at query time.</li>
+              <li><code>"show me all SF-or-remote jobs"</code> becomes a clean indexed join, not a <code>LIKE</code>.</li>
+              <li><code>is_primary</code> marks the first/primary location for default display.</li>
+            </ul>
+            <p class="text-sm text-base-content/70 mt-1">This is exactly the efficient, normalized shape — the raw comma-string never makes it past Tier 2.</p>
+          </div></div>
+        </div>
+
+        <div role="alert" class="alert alert-soft">
+          <span>Additive column: <code>JobListing.normalization_status Text NULL</code> — <code>NULL | pending | done | failed</code>. <code>IS NULL</code> = "never attempted", the signal the safety-net cron queries.</span>
+        </div>
+      </section>
+
+      <!-- ===================== WORKED EXAMPLES (real data) ===================== -->
+      <section id="examples" class="space-y-6">
+        <h2 class="text-2xl font-bold">Worked examples <span class="badge badge-info badge-soft align-middle">real prod strings</span></h2>
+        <p class="lead text-sm text-base-content/70">
+          Every raw string below is a real value pulled from the live <code>job_listings.location</code>
+          column (with its frequency). Each example traces the pipeline end-to-end and shows the exact
+          rows that land in each table. <code>raw_text</code> keys are shown post-<code>normalize_string()</code>
+          (lowercased, trimmed).
+        </p>
+
+        <!-- EXAMPLE A: dedup -->
+        <div class="card card-border bg-base-100"><div class="card-body gap-3">
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="badge badge-success">Example A</span>
+            <h3 class="card-title text-base">Three spellings → one canonical row (the dedup win)</h3>
+          </div>
+          <p class="text-sm text-base-content/80">
+            <code>"San Francisco"</code> (×2,059), <code>"San Francisco, CA"</code> (×662), and
+            <code>"San Francisco, California"</code> (×302) are the <em>same place</em>. Today they're three
+            unrelated strings. After normalization they all point at <strong>one</strong> <code>locations</code> row —
+            so a filter for SF returns all 3,023 jobs with a single indexed join.
+          </p>
+          <div class="grid gap-4 lg:grid-cols-2">
+            <div>
+              <p class="text-xs font-semibold mb-1 text-base-content/60">locations <span class="font-normal">— 1 new row (first miss), reused after</span></p>
+              <div class="overflow-x-auto rounded-box border border-base-content/10">
+                <table class="table table-xs table-zebra">
+                  <thead><tr><th>id</th><th>canonical_name</th><th>kind</th><th>city</th><th>region</th><th>country</th></tr></thead>
+                  <tbody><tr><td>1</td><td>San Francisco, CA, US</td><td>city</td><td>San Francisco</td><td>CA</td><td>US</td></tr></tbody>
+                </table>
+              </div>
+              <p class="text-xs font-semibold mt-3 mb-1 text-base-content/60">location_aliases <span class="font-normal">— one cache key per distinct raw string</span></p>
+              <div class="overflow-x-auto rounded-box border border-base-content/10">
+                <table class="table table-xs table-zebra">
+                  <thead><tr><th>raw_text</th><th>source</th><th>confidence</th></tr></thead>
+                  <tbody>
+                    <tr><td>san francisco</td><td>llm</td><td>0.97</td></tr>
+                    <tr><td>san francisco, ca</td><td>llm</td><td>0.99</td></tr>
+                    <tr><td>san francisco, california</td><td>llm</td><td>0.98</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div>
+              <p class="text-xs font-semibold mb-1 text-base-content/60">alias_locations <span class="font-normal">— all three aliases → location 1</span></p>
+              <div class="overflow-x-auto rounded-box border border-base-content/10">
+                <table class="table table-xs table-zebra">
+                  <thead><tr><th>raw_text</th><th>normalized_location_id</th><th>position</th></tr></thead>
+                  <tbody>
+                    <tr><td>san francisco</td><td>1</td><td>0</td></tr>
+                    <tr><td>san francisco, ca</td><td>1</td><td>0</td></tr>
+                    <tr><td>san francisco, california</td><td>1</td><td>0</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <p class="text-xs font-semibold mt-3 mb-1 text-base-content/60">job_locations <span class="font-normal">— one row per job, all → location 1</span></p>
+              <div class="overflow-x-auto rounded-box border border-base-content/10">
+                <table class="table table-xs table-zebra">
+                  <thead><tr><th>job_listing_id</th><th>normalized_location_id</th><th>is_primary</th></tr></thead>
+                  <tbody>
+                    <tr><td>114423471240291014</td><td>1</td><td>true</td></tr>
+                    <tr><td>982233019847120</td><td>1</td><td>true</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          <div role="alert" class="alert alert-success alert-soft text-sm"><span>The 2nd and 3rd spellings were <strong>cache hits</strong> after the first — zero LLM calls, no new <code>locations</code> row (the <code>UNIQUE(kind, city, region, country, remote_scope)</code> constraint short-circuits the insert).</span></div>
+        </div></div>
+
+        <!-- EXAMPLE B: multi-location -->
+        <div class="card card-border bg-base-100"><div class="card-body gap-3">
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="badge badge-warning">Example B</span>
+            <h3 class="card-title text-base">Multi-location → two canonical rows + <code>position</code></h3>
+          </div>
+          <p class="text-sm text-base-content/80">
+            <code>"Sunnyvale, CA, USA; Kirkland, WA, USA"</code> (×202). Tier 2 splits it into two canonical
+            locations; <code>alias_locations.position</code> preserves source order; <code>job_locations.is_primary</code>
+            flags the first.
+          </p>
+          <div class="grid gap-4 lg:grid-cols-2">
+            <div>
+              <p class="text-xs font-semibold mb-1 text-base-content/60">locations</p>
+              <div class="overflow-x-auto rounded-box border border-base-content/10">
+                <table class="table table-xs table-zebra">
+                  <thead><tr><th>id</th><th>canonical_name</th><th>kind</th><th>city</th><th>region</th><th>country</th></tr></thead>
+                  <tbody>
+                    <tr><td>2</td><td>Sunnyvale, CA, US</td><td>city</td><td>Sunnyvale</td><td>CA</td><td>US</td></tr>
+                    <tr><td>3</td><td>Kirkland, WA, US</td><td>city</td><td>Kirkland</td><td>WA</td><td>US</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <p class="text-xs font-semibold mt-3 mb-1 text-base-content/60">location_aliases</p>
+              <div class="overflow-x-auto rounded-box border border-base-content/10">
+                <table class="table table-xs table-zebra">
+                  <thead><tr><th>raw_text</th><th>source</th><th>confidence</th></tr></thead>
+                  <tbody><tr><td>sunnyvale, ca, usa; kirkland, wa, usa</td><td>llm</td><td>0.96</td></tr></tbody>
+                </table>
+              </div>
+            </div>
+            <div>
+              <p class="text-xs font-semibold mb-1 text-base-content/60">alias_locations <span class="font-normal">— one alias → two locations, ordered</span></p>
+              <div class="overflow-x-auto rounded-box border border-base-content/10">
+                <table class="table table-xs table-zebra">
+                  <thead><tr><th>raw_text</th><th>normalized_location_id</th><th>position</th></tr></thead>
+                  <tbody>
+                    <tr><td>sunnyvale, ca, usa; kirkland, wa, usa</td><td>2</td><td>0</td></tr>
+                    <tr><td>sunnyvale, ca, usa; kirkland, wa, usa</td><td>3</td><td>1</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <p class="text-xs font-semibold mt-3 mb-1 text-base-content/60">job_locations <span class="font-normal">— a single job, two locations</span></p>
+              <div class="overflow-x-auto rounded-box border border-base-content/10">
+                <table class="table table-xs table-zebra">
+                  <thead><tr><th>job_listing_id</th><th>normalized_location_id</th><th>is_primary</th></tr></thead>
+                  <tbody>
+                    <tr><td>305582211904771</td><td>2</td><td>true</td></tr>
+                    <tr><td>305582211904771</td><td>3</td><td>false</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div></div>
+
+        <!-- EXAMPLE C: remote + messy gallery -->
+        <div class="grid gap-4 lg:grid-cols-2">
+          <div class="card card-border bg-base-100"><div class="card-body gap-3">
+            <div class="flex items-center gap-2 flex-wrap"><span class="badge badge-info">Example C</span><h3 class="card-title text-base">Remote, with scope</h3></div>
+            <p class="text-sm text-base-content/80"><code>"Remote - United States"</code> (×294) and bare <code>"Remote"</code> (×250) are <strong>distinct</strong> — exactly why <code>remote_scope</code> is in the unique key.</p>
+            <div class="overflow-x-auto rounded-box border border-base-content/10">
+              <table class="table table-xs table-zebra">
+                <thead><tr><th>id</th><th>canonical_name</th><th>kind</th><th>remote_scope</th></tr></thead>
+                <tbody>
+                  <tr><td>4</td><td>Remote (US)</td><td>remote</td><td>us</td></tr>
+                  <tr><td>5</td><td>Remote (Global)</td><td>remote</td><td>global</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p class="text-xs text-base-content/60">city / region / country are all NULL for <code>kind='remote'</code>.</p>
+          </div></div>
+
+          <div class="card card-border bg-base-100"><div class="card-body gap-3">
+            <div class="flex items-center gap-2 flex-wrap"><span class="badge badge-error badge-soft">Example D</span><h3 class="card-title text-base">Messy input → clean canonical</h3></div>
+            <p class="text-sm text-base-content/80">The long tail the cache can't pre-seed and regex can't parse — handled once by Tier 2, cached forever after.</p>
+            <div class="overflow-x-auto rounded-box border border-base-content/10">
+              <table class="table table-xs">
+                <thead><tr><th>raw (real)</th><th>→ canonical_name</th></tr></thead>
+                <tbody>
+                  <tr><td>United States, Washington, Redmond</td><td>Redmond, WA, US</td></tr>
+                  <tr><td>US, CA, Santa Clara</td><td>Santa Clara, CA, US</td></tr>
+                  <tr><td>Mountain View (US-MTV-EMF680)</td><td>Mountain View, CA, US</td></tr>
+                  <tr><td>Costa Mesa, CA (HQ)</td><td>Costa Mesa, CA, US</td></tr>
+                  <tr><td>Greater Seattle Area</td><td>Seattle, WA, US <span class="badge badge-ghost badge-xs">region-ish</span></td></tr>
+                  <tr><td>Cupertino, California, United States</td><td>Cupertino, CA, US</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p class="text-xs text-base-content/60">Note the reversed order, embedded building codes, and "(HQ)" noise — all collapsed to the same canonical shape.</p>
+          </div></div>
+        </div>
+      </section>
+
+      <!-- ===================== TIER 2 PROMPT ===================== -->
+      <section id="prompt" class="space-y-3">
+        <h2 class="text-2xl font-bold">Tier 2 — the Haiku prompt <span class="badge badge-soft align-middle">your Q</span></h2>
+        <p class="text-sm text-base-content/70">Lives in <code>services/llm_client.py</code>. Short system prompt + structured output (tool/JSON mode), 2–3 few-shot examples. Draft:</p>
+        <div class="mockup-code text-xs">
+          <pre data-prefix="sys"><code>You normalize raw job-location strings into canonical locations.</code></pre>
+          <pre data-prefix="sys"><code>Return a JSON array; one object per distinct location in the input.</code></pre>
+          <pre data-prefix="sys"><code>Fields: canonical_name, kind(city|region|country|remote),</code></pre>
+          <pre data-prefix="sys"><code>        city, region, country, remote_scope, confidence(0..1).</code></pre>
+          <pre data-prefix="sys"><code>Rules: expand abbreviations ("sf"→San Francisco, CA, US).</code></pre>
+          <pre data-prefix="sys"><code>Split multi-location strings ("A / B / Remote") into N objects.</code></pre>
+          <pre data-prefix="sys"><code>"Remote (US)"→kind=remote, remote_scope=us. Do NOT emit lat/lng.</code></pre>
+          <pre data-prefix=""><code> </code></pre>
+          <pre data-prefix="in"><code>"San Francisco, CA / Remote (US)"</code></pre>
+          <pre data-prefix="out" class="text-success"><code>[{canonical_name:"San Francisco, CA, US", kind:"city", city:"San Francisco", region:"CA", country:"US", confidence:0.98},</code></pre>
+          <pre data-prefix="out" class="text-success"><code> {canonical_name:"Remote (US)", kind:"remote", remote_scope:"us", confidence:0.95}]</code></pre>
+        </div>
+        <p class="text-sm text-base-content/60">Model id <code>claude-haiku-4-5-20251001</code>, 10s timeout, retries via Procrastinate's <code>RetryStrategy</code> (not tenacity). <strong>Adopted:</strong> the prompt returns a per-location <code>confidence</code>, and a value below a threshold marks <code>status='failed'</code> for review instead of caching a guess (the confidence-floor mitigation in <a href="#risks" class="link">F2 cache poisoning</a>).</p>
+      </section>
+
+      <!-- ===================== UNITS OF WORK ===================== -->
+      <section id="units" class="space-y-4">
+        <div class="flex items-end justify-between flex-wrap gap-2">
+          <h2 class="text-2xl font-bold">Units of work</h2>
+          <span class="text-sm text-base-content/60">small · individually mergeable · order matters</span>
+        </div>
+
+        <ul class="steps steps-vertical lg:steps-horizontal w-full text-xs">
+          <li class="step step-primary">Queue+config</li>
+          <li class="step step-primary">Schema</li>
+          <li class="step step-primary">Tier 1</li>
+          <li class="step step-primary">Tier 2</li>
+          <li class="step step-primary">Task glue</li>
+          <li class="step step-primary">Enqueue</li>
+          <li class="step step-primary">Safety-net</li>
+          <li class="step step-primary">Admin</li>
+        </ul>
+
+        <div class="space-y-3">
+          <!-- Unit 1 (REWRITTEN) -->
+          <div id="u1" class="collapse collapse-arrow bg-success/5 border border-success/40 step-card">
+            <input type="checkbox" checked />
+            <div class="collapse-title">
+              <div class="flex items-center gap-3 flex-wrap">
+                <span class="badge badge-primary">Unit 1</span>
+                <span class="font-semibold">Wire the <code>normalize</code> queue + Anthropic config</span>
+                <span class="badge badge-success badge-soft badge-sm">rewritten</span>
+              </div>
+            </div>
+            <div class="collapse-content text-sm space-y-2">
+              <p><strong>Was:</strong> "Bootstrap Procrastinate — it doesn't exist." <strong>Reality:</strong> Procrastinate is already fully wired — <code>tasks/procrastinate_app.py</code> App singleton, worker started in <code>main.py</code> lifespan (concurrency 5, supervised auto-restart), 6 fetch queues + heartbeat, and it manages its own schema (<code>apply_schema_async</code>). So Unit 1 shrinks to plumbing:</p>
+              <p><strong>Changes:</strong> add <code>"normalize"</code> to <code>_WORKER_QUEUES</code> in <code>main.py:45</code> — the existing worker drains it alongside the fetch queues and scales with the pool (no separate capped worker; see <a href="#risks" class="link">F1</a>). Add <code>anthropic</code> to <code>requirements.txt</code>; add <code>anthropic_api_key: SecretStr | None</code> to <code>config.py</code>.</p>
+              <p class="text-base-content/60"><strong>Verify:</strong> worker boots with the new queue listed in the startup log; existing bootstrap-noop task pattern confirms registration works.</p>
+            </div>
+          </div>
+
+          <!-- Unit 2 -->
+          <div id="u2" class="collapse collapse-arrow bg-base-100 border border-base-content/10 step-card">
+            <input type="checkbox" />
+            <div class="collapse-title"><div class="flex items-center gap-3 flex-wrap"><span class="badge badge-primary">Unit 2</span><span class="font-semibold">Schema migration (additive)</span></div></div>
+            <div class="collapse-content text-sm space-y-2">
+              <p><strong>Changes:</strong> add the 4 tables + <code>normalization_status</code> to <code>db_models.py</code>; <code>alembic revision --autogenerate</code>; review per the <strong>combined-ALTER-TABLE rule</strong> (<code>docs/implementations/alembicMigration/DEPLOY.md</code>) — <code>add_column</code> nullable / no server-default, no <code>job_listings</code> rewrite (2026-04-18 volume-fill incident).</p>
+              <p class="text-base-content/60"><strong>Verify:</strong> <code>alembic upgrade head</code> + downgrade round-trip; new <code>test_migration_locations.py</code> mirrors <code>test_migration_features.py</code>; remember Procrastinate's runtime tables show as phantom "removed" in autogen — strip them (precedent: the 20260519 + 20260521 revisions).</p>
+            </div>
+          </div>
+
+          <!-- Unit 3 -->
+          <div id="u3" class="collapse collapse-arrow bg-base-100 border border-base-content/10 step-card">
+            <input type="checkbox" />
+            <div class="collapse-title"><div class="flex items-center gap-3 flex-wrap"><span class="badge badge-primary">Unit 3</span><span class="font-semibold">Tier 1 — alias-cache lookup</span></div></div>
+            <div class="collapse-content text-sm space-y-2">
+              <p><strong>Changes:</strong> new <code>services/location_normalization.py</code> — <code>normalize_string()</code> (pure) + <code>lookup_alias(conn, raw) -&gt; list[int] | None</code>. Reuse the <code>ThreadedConnectionPool</code> + <code>RealDictCursor</code> style from <code>services/database.py</code>.</p>
+              <p class="text-base-content/60"><strong>Verify:</strong> unit tests, seeded aliases — single hit, multi hit, miss→None, normalization edge cases. Coverage &gt;80% (per updated CLAUDE.md).</p>
+            </div>
+          </div>
+
+          <!-- Unit 4 -->
+          <div id="u4" class="collapse collapse-arrow bg-base-100 border border-base-content/10 step-card">
+            <input type="checkbox" />
+            <div class="collapse-title"><div class="flex items-center gap-3 flex-wrap"><span class="badge badge-primary">Unit 4</span><span class="font-semibold">Tier 2 — Claude Haiku client</span></div></div>
+            <div class="collapse-content text-sm space-y-2">
+              <p><strong>Changes:</strong> new <code>services/llm_client.py</code> — <code>normalize_location_via_llm(raw) -&gt; list[CanonicalLocation]</code> via <code>AsyncAnthropic</code> + <code>claude-haiku-4-5-20251001</code>, JSON/structured output, 10s timeout, <a href="#prompt" class="link">the prompt above</a>. No lat/lng in v1 output.</p>
+              <p class="text-base-content/60"><strong>Verify:</strong> mocked client — single, multi, malformed JSON (raises), API error (raises → Procrastinate retries).</p>
+            </div>
+          </div>
+
+          <!-- Unit 5 -->
+          <div id="u5" class="collapse collapse-arrow bg-base-100 border border-base-content/10 step-card">
+            <input type="checkbox" />
+            <div class="collapse-title"><div class="flex items-center gap-3 flex-wrap"><span class="badge badge-primary">Unit 5</span><span class="font-semibold"><code>normalize_location</code> task — the glue</span><span class="badge badge-ghost badge-sm">→ U1·U2·U3·U4</span></div></div>
+            <div class="collapse-content text-sm space-y-2">
+              <p><strong>Changes:</strong> new <code>tasks/normalize_location.py</code> — <code>@procrastinate_app.task(queue="normalize", retry=RetryStrategy(max_attempts=5, exponential_wait=2))</code>. Mirror the existing fetch tasks' standalone-connection + <code>asyncio.to_thread(db.…)</code> pattern. <strong>Per F1, do NOT hold a connection across the LLM call:</strong> tx1 = read + Tier 1 (then release the connection), Haiku call with no connection open, tx2 = writes (<code>ON CONFLICT DO NOTHING</code>, first canonical <code>is_primary=true</code>). A Tier-1 hit skips the LLM and writes in one short tx.</p>
+              <p class="text-base-content/60"><strong>Verify:</strong> integration test (real PG + mocked LLM) — <code>'sf'</code> → 1 row + alias + done; re-run = cache hit (LLM NOT called); multi-location → 2 rows; LLM raises → <code>failed</code> after max attempts, job stays unnormalized for the safety-net.</p>
+            </div>
+          </div>
+
+          <!-- Unit 6 (REWRITTEN) -->
+          <div id="u6" class="collapse collapse-arrow bg-success/5 border border-success/40 step-card">
+            <input type="checkbox" checked />
+            <div class="collapse-title"><div class="flex items-center gap-3 flex-wrap"><span class="badge badge-primary">Unit 6</span><span class="font-semibold">Enqueue after scrape</span><span class="badge badge-success badge-soft badge-sm">rewritten</span><span class="badge badge-warning badge-soft badge-sm">decision ↓ Q1</span></div></div>
+            <div class="collapse-content text-sm space-y-2">
+              <p><strong>Was:</strong> a vague "subprocess scraper, pick the cleaner." <strong>Reality:</strong> two concrete ingestion paths.</p>
+              <p><strong>ATS (6, the bulk):</strong> extend <code>upsert_jobs_batch</code> (<code>scripts/shared/database.py:421</code>, currently returns <code>int</code>) to also return inserted IDs — <code>execute_values(..., fetch=True)</code> with <code>RETURNING id, (xmax = 0) AS inserted</code>. Then in each <code>fetch_&lt;p&gt;_company</code> task, after upsert, <code>await normalize_location.configure(queue="normalize").defer_async(job_id=id)</code> per new id. <code>fetch_eightfold_company</code> already computes <code>seen_ids - pre_upsert_active</code> — same idea, generalized.</p>
+              <p><strong>Script scrapers (Google/Apple/MS):</strong> subprocesses with no defer hook → covered by the safety-net cron (Unit 7). See <a href="#q1" class="link link-warning">Q1</a> for whether to add an explicit enqueue here.</p>
+              <p class="text-base-content/60"><strong>Verify:</strong> run a fan-out fetch on a non-empty company; <code>count(*) procrastinate_jobs WHERE queue_name='normalize'</code> == new jobs; all drain to <code>done</code>.</p>
+            </div>
+          </div>
+
+          <!-- Unit 7 -->
+          <div id="u7" class="collapse collapse-arrow bg-base-100 border border-base-content/10 step-card">
+            <input type="checkbox" />
+            <div class="collapse-title"><div class="flex items-center gap-3 flex-wrap"><span class="badge badge-primary">Unit 7</span><span class="font-semibold">Safety-net periodic task — scan unnormalized</span></div></div>
+            <div class="collapse-content text-sm space-y-2">
+              <p><strong>Changes:</strong> new <code>tasks/scan_unnormalized.py</code> — register as a <strong>Procrastinate periodic task</strong> (<code>@procrastinate_app.periodic(cron=…)</code>), mirroring the existing <code>enqueue_&lt;p&gt;_fan_out</code> periodic tasks, rather than a separate Railway cron service. <code>SELECT id WHERE normalization_status IS NULL LIMIT n</code> → defer each. Catches the script-scraper jobs + LLM-failure tail + pre-existing rows.</p>
+              <p class="text-base-content/60"><strong>Verify:</strong> seed 5 NULL jobs → run → 5 deferred + count returned. <em>(Note: this replaces rev 1's standalone Railway cron — the periodic-task machinery already exists.)</em></p>
+            </div>
+          </div>
+
+          <!-- Unit 8 (CORRECTED) -->
+          <div id="u8" class="collapse collapse-arrow bg-success/5 border border-success/40 step-card">
+            <input type="checkbox" checked />
+            <div class="collapse-title"><div class="flex items-center gap-3 flex-wrap"><span class="badge badge-primary">Unit 8</span><span class="font-semibold">Admin endpoints</span><span class="badge badge-success badge-soft badge-sm">corrected</span></div></div>
+            <div class="collapse-content text-sm space-y-2">
+              <p><strong>Was:</strong> "no admin-role system, hard-code an email." <strong>Reality:</strong> there's an <code>admins</code> table, an existing <code>routers/admin.py</code>, and a <code>require_admin</code> dependency (<code>auth/dependencies.py:62</code>) that 403s non-admins by email.</p>
+              <p><strong>Changes:</strong> <strong>add</strong> to the existing <code>routers/admin.py</code> (don't create it), each gated by <code>_admin = Depends(require_admin)</code> like the existing grant/revoke endpoints:</p>
+              <ul class="list-disc ml-5 text-sm space-y-1">
+                <li><code>POST /api/admin/jobs/{id}/normalize</code> — re-run one job (the audit agent's per-job fix).</li>
+                <li><code>PUT /api/admin/locations/aliases/{raw_text}</code> — <strong>manual override</strong>: upsert a <code>source='manual'</code> alias → location mapping that wins over the cached <code>llm</code> guess. This is the primary correction primitive (F2).</li>
+                <li><code>GET /api/admin/locations/aliases?contains=</code> — debug/inspect.</li>
+                <li><code>POST /api/admin/locations/re-normalize-all</code> — <strong>break-glass only</strong> (rarely used, throttled/batched; F3).</li>
+              </ul>
+              <p class="text-base-content/60">The <code>require_internal_key</code> middleware already gates the whole app, so these sit behind <em>both</em> infra + admin auth for free. These endpoints are what the <strong>Claude location-audit skill</strong> calls to correct bad rows. <strong>Verify:</strong> admin token → 2xx; non-admin → 403; missing internal key → 401.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===================== RISKS & OPEN QUESTIONS ===================== -->
+      <section id="risks" class="space-y-5">
+        <h2 class="text-2xl font-bold">Risks &amp; open questions</h2>
+        <p class="lead text-sm text-base-content/70">Annotate a card or reply with your pick — I'll fold the decision into the plan and remove the question.</p>
+
+        <!-- Q1 (expanded) -->
+        <div id="q1" class="card card-border border-success bg-success/5"><div class="card-body">
+          <div class="flex items-center gap-2 flex-wrap"><span class="badge badge-success">Resolved · Q1</span><h3 class="card-title text-base">Ingestion enqueue — <strong>decided: A1 + B1</strong></h3></div>
+          <p class="text-sm text-base-content/80"><strong>Decision (you approved):</strong> chain in the fetch task for the 6 ATS providers (A1), safety-net cron for the 3 subprocess scrapers (B1). The two paths below are kept for the record.</p>
+
+          <div class="divider text-xs my-1">Path A — 6 ATS providers (Procrastinate fetch tasks)</div>
+          <div class="grid gap-3 md:grid-cols-3">
+            <div class="rounded-box border-2 border-success bg-success/5 p-3"><span class="badge badge-success badge-sm">A1 · recommend</span><p class="text-sm mt-1"><strong>Chain in the fetch task</strong> after <code>upsert_jobs_batch</code> returns new IDs. Immediate, uniform across all 6, mirrors the existing fan-out. Cost: touch <code>upsert_jobs_batch</code>'s signature (+ its tests).</p></div>
+            <div class="rounded-box border border-base-content/15 p-3"><span class="badge badge-soft badge-sm">A2</span><p class="text-sm mt-1"><strong>A dedicated fan-out</strong> <code>enqueue_normalize_fan_out</code> that scans recent rows. Decoupled from fetch, but adds a second moving part and lag.</p></div>
+            <div class="rounded-box border border-base-content/15 p-3"><span class="badge badge-soft badge-sm">A3</span><p class="text-sm mt-1"><strong>Safety-net only</strong> (no real-time). Simplest, but up to a full cron interval of latency before a job is normalized.</p></div>
+          </div>
+
+          <div class="divider text-xs my-1">Path B — Google / Apple / Microsoft (subprocess scrapers)</div>
+          <div class="grid gap-3 md:grid-cols-3">
+            <div class="rounded-box border-2 border-success bg-success/5 p-3"><span class="badge badge-success badge-sm">B1 · recommend (v1)</span><p class="text-sm mt-1"><strong>Safety-net cron only.</strong> Only 3 low-volume companies; a daily/hourly periodic pass is plenty and needs zero subprocess changes.</p></div>
+            <div class="rounded-box border border-base-content/15 p-3"><span class="badge badge-soft badge-sm">B2</span><p class="text-sm mt-1"><strong>Parent enqueues post-subprocess:</strong> after the subprocess exits, the parent diffs "jobs inserted since start" and defers. Needs a reliable watermark.</p></div>
+            <div class="rounded-box border border-base-content/15 p-3"><span class="badge badge-soft badge-sm">B3</span><p class="text-sm mt-1"><strong>Subprocess emits new IDs to stdout;</strong> parent reads + defers. Precise but couples on a stdout contract.</p></div>
+          </div>
+          <p class="text-sm text-base-content/70 mt-2"><strong>Decided:</strong> A1 + B1 — real-time chain for the high-volume ATS path, safety-net for the 3 script companies. <span class="text-base-content/50">(Migrating the subprocess scrapers onto Procrastinate — which would collapse path B into path A — is tracked as a <strong>separate initiative</strong>, your call; out of scope here.)</span></p>
+        </div></div>
+
+        <!-- Q2 (corrected) -->
+        <div id="q2" class="card card-border bg-base-100"><div class="card-body">
+          <div class="flex items-center gap-2 flex-wrap"><span class="badge badge-success">Resolved · Q2</span><h3 class="card-title text-base">Admin-route auth <span class="badge badge-success badge-soft badge-sm">corrected — no longer open</span></h3></div>
+          <p class="text-sm text-base-content/80">Rev 1 wrongly said no admin system exists. It does: <code>admins</code> table + <code>require_admin</code> (403 by email) + an existing <code>routers/admin.py</code>. And PR #114's <code>require_internal_key</code> middleware already gates every request infra-side.</p>
+          <p class="text-sm text-base-content/80 mt-1"><strong>Decision (unless you object):</strong> reuse <code>Depends(require_admin)</code> and add the endpoints to the existing router. No hard-coded email, no new auth. The only thing to confirm: should <code>re-normalize-all</code> (a potentially expensive, cost-incurring action — see <a href="#risks" class="link">F3</a>) require anything <em>beyond</em> admin, e.g. a typed confirmation param?</p>
+        </div></div>
+
+        <!-- Q3 (new) -->
+        <div id="q3" class="card card-border border-success bg-success/5"><div class="card-body">
+          <div class="flex items-center gap-2 flex-wrap"><span class="badge badge-success">Resolved · Q3</span><h3 class="card-title text-base">lat/lng — <strong>decided: keep columns, NULL in v1</strong></h3></div>
+          <p class="text-sm text-base-content/80"><strong>Decision (you approved):</strong> keep the nullable <code>lat</code>/<code>lng</code> columns but don't populate them in v1 — the Haiku prompt explicitly does <strong>not</strong> emit coordinates (hallucination risk). A real geocoding pass over <code>canonical_name</code> is deferred to the geo follow-up. Schema unchanged; <code>llm_client.py</code> just omits coords from its ask.</p>
+        </div></div>
+
+        <!-- Failure modes -->
+        <!-- F1 (rewritten with the real incident) -->
+        <div class="card card-border border-warning bg-warning/5"><div class="card-body gap-2">
+          <div class="flex items-center gap-2 flex-wrap"><span class="badge badge-warning">F1</span><h3 class="card-title text-base">Connection-hold &amp; worker-concurrency under the 10s LLM call <span class="badge badge-info badge-soft badge-sm">root cause + fix you asked for</span></h3></div>
+          <p class="text-sm text-base-content/80">
+            <strong>What caused the prior incident</strong> (<code>docs/incidents/2026-05-17-recent-jobs-pool-exhaustion.md</code>):
+            the Greenhouse→backend migration (#110) grew the Recent Jobs page from 3 to 49 simultaneous
+            <code>/api/jobs?company=X</code> reads, each holding one of the <strong>15</strong> pool slots for its full
+            duration. The semaphore's 5s acquire timeout (<code>dependencies.py:76</code>) elapsed on ~20 of them every load.
+            The headline lesson: <em>the failure mode is connections held across slow work</em>, and the fix was
+            <strong>structural (batch the fanout), not growing the pool</strong> — Railway's 3 GB ceiling + Playwright
+            memory pressure made "raise <code>DB_POOL_MAX</code> to 50" explicitly the wrong answer.
+          </p>
+          <p class="text-sm text-base-content/80">
+            <strong>Correction to rev 1:</strong> I wrongly said normalize "rides the same 15-slot pool." It doesn't —
+            like every existing fetch task, it opens its <strong>own standalone psycopg2 connection</strong> (the task files
+            note "separate from the FastAPI request pool… won't show up in pool metrics"). So it can't time out
+            <code>/api/jobs</code> reads. The only residual risk is <strong>total concurrent connections vs Railway memory</strong> —
+            and the design below neutralizes even that <em>without</em> capping throughput, so normalization still scales with the
+            whole worker pool.
+          </p>
+          <div class="rounded-box bg-base-100 border border-base-content/10 p-3">
+            <h4 class="font-semibold text-sm">Suggested design <span class="badge badge-success badge-soft badge-sm">revised per your pushback — scale-friendly</span></h4>
+            <p class="text-sm text-base-content/70 mb-1">You're right: a hard <code>concurrency=2</code> cap is anti-scale and not worker-agnostic. Dropped. The load-bearing fix is the connection discipline, which is exactly what makes high concurrency safe:</p>
+            <ol class="list-decimal ml-5 text-sm text-base-content/80 space-y-1">
+              <li><strong>Never hold a DB connection across the Haiku call.</strong> Read + Tier 1 on a short-lived connection → <em>release it</em> → 10s LLM call with <strong>no connection open</strong> → fresh short connection to write. The key consequence: a normalize task holds a connection only for two brief writes, not for its ~10s lifetime — so <strong>500 in-flight normalize tasks ≠ 500 open connections</strong>. The exact thing the incident punished (connections held across slow work) structurally can't happen.</li>
+              <li><strong>Scale with the pool — no cap.</strong> <code>normalize</code> is just another queue the existing worker drains, at whatever concurrency / however many worker replicas you run. Normalization tasks are independent (one <code>job_id</code> each, order doesn't matter), so they parallelize freely and a big backlog drains as fast as the pool allows. Procrastinate is horizontally scalable — 1,000 workers would use all 1,000.</li>
+              <li><strong>If you ever need to shield ATS fetches</strong> from a huge normalize backlog, the worker-agnostic way is a <em>separate worker replica/process</em> dedicated to the <code>normalize</code> queue (scales independently) — never a coroutine cap. Not needed for v1, because (1) makes each task cheap.</li>
+              <li><strong>Only real ceiling:</strong> total <em>concurrent</em> DB connections vs Railway memory. Thanks to (1) that tracks active write-moments, not in-flight task count, so it stays low even under heavy parallelism. Don't preemptively grow <code>DB_POOL_MAX</code> — the incident showed that's the wrong lever.</li>
+            </ol>
+          </div>
+        </div></div>
+
+        <!-- F2 → correction workflow (cache poisoning) -->
+        <div class="card card-border bg-base-100 mt-3"><div class="card-body gap-2">
+          <div class="flex items-center gap-2 flex-wrap"><span class="badge badge-soft">F2</span><h3 class="card-title text-base">Cache poisoning → a correction workflow (your audit-agent idea) <span class="badge badge-success badge-soft badge-sm">approved</span></h3></div>
+          <p class="text-sm text-base-content/80">A wrong LLM result is cached and reused (no per-alias invalidation today). Three mitigations, layered:</p>
+          <ul class="list-disc ml-5 text-sm text-base-content/80 space-y-1">
+            <li><strong>Confidence floor <span class="badge badge-success badge-xs">adopted</span>:</strong> the LLM call + prompt return a per-location confidence; below a threshold, set <code>status='failed'</code> instead of caching a guess — surfaces it for review rather than silently poisoning the cache.</li>
+            <li><strong>Manual override persists:</strong> a correction writes a <code>location_aliases</code> row with <code>source='manual'</code> that wins over the <code>llm</code> one (the <code>source</code> column already exists for exactly this). Add a small admin endpoint for it (→ <a href="#u8" class="link">Unit 8</a>).</li>
+            <li><strong>Claude location-audit skill (your suggestion):</strong> a scheduled/triggerable agent that queries the prod DB for suspect canonical rows (e.g. <code>kind='country'</code> where a city was expected, low-confidence aliases, orphans) and corrects each via the admin endpoints. <strong>Document this in the ops/DEPLOY docs</strong> (you flagged this). Tracked as a follow-up — see Out of Scope.</li>
+          </ul>
+        </div></div>
+
+        <div role="alert" class="alert alert-soft"><span><strong>F3 · Bulk re-normalize is break-glass.</strong> Per your call: keep <code>re-normalize-all</code> but treat it as a rarely-used, gated, throttled/batched escape hatch. Day-to-day correction is the targeted audit-agent path (F2) — no thundering herd of Haiku calls.</span></div>
+      </section>
+
+      <!-- ===================== OUT OF SCOPE ===================== -->
+      <section class="space-y-3">
+        <h2 class="text-2xl font-bold">Out of scope <span class="text-base font-normal text-base-content/60">(deferred)</span></h2>
+        <div class="flex flex-wrap gap-2">
+          <span class="badge badge-lg badge-outline">Frontend integration</span>
+          <span class="badge badge-lg badge-outline">Geo features + geocoding pass (owns lat/lng)</span>
+          <span class="badge badge-lg badge-outline">Backfill (handled by Unit 7 over time)</span>
+          <span class="badge badge-lg badge-outline">In-memory L1 cache</span>
+          <span class="badge badge-lg badge-outline badge-primary">Claude location-audit skill (queries prod, fixes via admin endpoints)</span>
+          <span class="badge badge-lg badge-outline badge-primary">Scraper → Procrastinate migration (separate initiative)</span>
+        </div>
+      </section>
+
+      <footer class="footer footer-center p-6 text-base-content/50 text-xs">
+        <aside><p>rev 2 — rendered from <code>silly-nibbling-sky.md</code>, reconciled against the live repo. Annotate any element or reply; I'll revise again.</p></aside>
+      </footer>
+    </main>
+  </body>
+</html>
