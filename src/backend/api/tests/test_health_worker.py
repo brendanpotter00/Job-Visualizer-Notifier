@@ -130,6 +130,20 @@ def test_worker_queues_include_heartbeat():
     )
 
 
+def test_worker_queues_include_normalize():
+    """Pin that "normalize" is in the worker's queue list. The location
+    normalization task is deferred onto this queue; if it gets removed,
+    normalize jobs pile up unprocessed and locations are never resolved.
+    """
+    from api.main import _WORKER_QUEUES
+
+    assert "normalize" in _WORKER_QUEUES, (
+        f"'normalize' queue missing from worker queues={_WORKER_QUEUES!r} — "
+        "location normalization tasks would pile up unprocessed and "
+        "job_listings rows would never get normalized"
+    )
+
+
 def test_health_worker_returns_503_on_db_error(client, test_app, monkeypatch, caplog):
     """A psycopg2.Error from a probe query returns 503 with
     status='db_error'. A liveness probe that can't read its data plane IS
