@@ -306,6 +306,7 @@ bare `Remote` → `(5, "Remote (Global)", remote, remote_scope=global)`. Distinc
 Each unit is small, individually mergeable, individually verifiable. Order matters.
 
 ### Unit 1 — Wire the `normalize` queue + Anthropic config
+**Status:** DONE
 **Why first:** trivial plumbing the rest depends on. Procrastinate itself is already wired
 (Decision #1).
 - Add `"normalize"` to `_WORKER_QUEUES` in `src/backend/api/main.py:45` (the existing
@@ -315,6 +316,7 @@ Each unit is small, individually mergeable, individually verifiable. Order matte
 **Verify:** worker boots with `normalize` in the startup queue log.
 
 ### Unit 2 — Schema migration (additive)
+**Status:** DONE (migration `c876c313e55c`, down_revision `c4f0a2d8b9e1`)
 - Add the 4 tables + `normalization_status` to `db_models.py` exactly as in **Schema**.
 - `alembic revision --autogenerate -m "add location normalization tables"`; review per the
   combined-ALTER-TABLE rule (nullable add, no `job_listings` rewrite); strip Procrastinate's
@@ -324,6 +326,7 @@ Each unit is small, individually mergeable, individually verifiable. Order matte
 backend startup still succeeds.
 
 ### Unit 3 — Tier 1: alias-cache lookup
+**Status:** DONE
 - New `src/backend/api/services/location_normalization.py`:
   - `normalize_string(raw) -> str` — pure: lowercase, trim, collapse whitespace, normalize
     unicode dashes/quotes.
@@ -334,6 +337,7 @@ backend startup still succeeds.
 normalization edge cases.
 
 ### Unit 4 — Tier 2: Claude Haiku client
+**Status:** DONE
 - New `src/backend/api/services/llm_client.py`:
   - `async def normalize_location_via_llm(raw) -> list[CanonicalLocation]` (Pydantic model:
     `canonical_name, kind, city, region, country, remote_scope, confidence`). **No lat/lng**
@@ -346,6 +350,7 @@ normalization edge cases.
 Procrastinate retries).
 
 ### Unit 5 — `normalize_location` task (the glue)
+**Status:** DONE
 **Depends on Units 1–4.**
 - New `src/backend/api/tasks/normalize_location.py`:
   ```python
@@ -372,6 +377,7 @@ row + alias + `status='done'`; re-run = cache hit (LLM **not** called); multi-lo
 rows; LLM raises → ends `failed`/retried, job stays unnormalized for the safety-net.
 
 ### Unit 6 — Enqueue after scrape (ATS path = A1)
+**Status:** DONE (reused `seen_ids - pre_upsert_active`; `upsert_jobs_batch` unchanged)
 - Extend `scripts/shared/database.py::upsert_jobs_batch` (currently returns `int`, line ~421)
   to also return inserted IDs: `execute_values(..., fetch=True)` with
   `RETURNING id, (xmax = 0) AS inserted` (generalize the `(xmax = 0) AS inserted` trick
@@ -387,6 +393,7 @@ rows; LLM raises → ends `failed`/retried, job stays unnormalized for the safet
 WHERE queue_name='normalize'` matches the new-job count; all drain to `done`.
 
 ### Unit 7 — Safety-net periodic task: scan unnormalized
+**Status:** DONE (skip-when-no-key for auto-recovery; `*/5` cron, SCAN_LIMIT=100)
 - New `src/backend/api/tasks/scan_unnormalized.py`, registered as a **Procrastinate periodic
   task** (mirror the `enqueue_<p>_fan_out` periodic pattern — Decision #11):
   `SELECT id FROM job_listings WHERE normalization_status IS NULL LIMIT %s` → defer
@@ -397,6 +404,7 @@ WHERE queue_name='normalize'` matches the new-job count; all drain to `done`.
 assert 5 deferred + count returned.
 
 ### Unit 8 — Admin endpoints
+**Status:** DONE
 - Add to the **existing** `src/backend/api/routers/admin.py` (don't create it), each gated by
   `_admin: TokenClaims = Depends(require_admin)` like the existing grant/revoke endpoints:
   - `POST /api/admin/jobs/{job_id}/normalize` — reset `normalization_status=NULL` and defer
@@ -552,21 +560,35 @@ Day-to-day correction is the targeted audit-agent path (F2).
 - `_WORKER_QUEUES` is the tuple at `src/backend/api/main.py:45` (currently 6 fetch queues +
   `heartbeat`). Add `"normalize"`. A backend test pins this tuple's membership — update that test.
 
-### NEW load-bearing requirement — graceful degradation when `ANTHROPIC_API_KEY` is unset
+### Schema correctness fix discovered during implementation (2026-06-07)
+- **`uq_locations_canonical` is `NULLS NOT DISTINCT`** (amended Unit 2; prod is PostgreSQL 17.9, PG15+).
+  Plain `UNIQUE` over the nullable `(kind,city,region,country,remote_scope)` would NOT dedup, because
+  Postgres treats NULLs as distinct by default and every `kind` has ≥1 NULL keyed column (city-kind →
+  `remote_scope` NULL; remote-kind → city/region/country NULL). Without `NULLS NOT DISTINCT` the dedup
+  `ON CONFLICT` never fires and duplicate canonical rows accumulate. Verified via `pg_index.indnullsnotdistinct`
+  + a live duplicate-rejection proof. Expressed as `postgresql_nulls_not_distinct=True` on the model + migration.
+  **Unit 5 upserts target this constraint** (`ON CONFLICT ON CONSTRAINT uq_locations_canonical`), and any
+  SELECT-existing-id fallback MUST use `IS NOT DISTINCT FROM` for the nullable columns.
+
+### NEW load-bearing requirement — graceful degradation when `ANTHROPIC_API_KEY` is unset (FINAL DESIGN: leave-NULL + safety-net skip → auto-recovery)
 **The Railway prod env var `ANTHROPIC_API_KEY` is NOT confirmed set** (could not be read).
-The feature MUST be safe to deploy *before* the key is configured:
-- If `settings.anthropic_api_key` is falsy, the Tier-2 path (`normalize_location_via_llm` /
-  the `normalize_location` task) must **NOT** raise an unhandled error that burns all retries
-  and spams the worker logs / crash-loops anything. On a missing key, **skip Tier 2 and leave
-  the job unnormalized** (do not mark `done`; let it stay `NULL`/re-tryable so the safety-net
-  picks it up once the key is added) — OR set a distinct `normalization_status='failed'` with a
-  clearly-logged `no-api-key` reason. Either way: a single concise WARN per occurrence, no
-  stack-trace storms, worker stays green on `/health/worker`.
+The feature MUST be safe to deploy *before* the key is configured, and recover automatically
+once it is set. Final coherent design:
+- **Unit 5 `normalize_location` on missing key →** log a single WARN and **return, leaving
+  `normalization_status` NULL** (no DB write, no raise → no retry burn, worker stays green).
+- **Unit 7 safety-net `scan_unnormalized` →** at the top, if `settings.anthropic_api_key` is
+  falsy, **skip entirely (defer nothing) and return 0**. This is what makes leave-NULL safe:
+  the safety-net does NOT re-defer the NULL backlog while the key is absent, so there's no
+  stuck-window churn — the backlog simply stays NULL and dormant.
+- **Auto-recovery:** once `ANTHROPIC_API_KEY` is added in Railway, the very next safety-net tick
+  starts draining the NULL backlog (and Unit-6 scrape-chaining resumes normally). **No manual
+  `re-normalize-all` is needed** for the no-key case — `re-normalize-all` remains a break-glass
+  tool for cache-poisoning corrections only.
 - Tier 1 (alias cache), the schema migration, the admin endpoints, and the enqueue chaining
   are all independent of the key and ship/operate normally without it.
-- **Deploy prerequisite to surface in the PR description + DEPLOY notes:** add
-  `ANTHROPIC_API_KEY` to the Railway `Job-Visualizer-Notifier` service before expecting any real
-  normalization; until then rows accumulate as unnormalized (NULL), which is harmless.
+- **Deploy note to surface in the PR description + DEPLOY notes:** add `ANTHROPIC_API_KEY` to
+  the Railway `Job-Visualizer-Notifier` service to activate normalization. Until then rows stay
+  unnormalized (NULL) and dormant (harmless); after the key is set they drain automatically.
 
 ### End-to-end verification additions (beyond the plan's §End-to-End Verification)
 - Run the three production verifiers (`railway-prod-verifier`, `postgres-prod-verifier`,
