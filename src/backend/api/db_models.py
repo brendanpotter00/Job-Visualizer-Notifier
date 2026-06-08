@@ -19,6 +19,7 @@ from __future__ import annotations
 from sqlalchemy import (
     Boolean,
     Column,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -55,6 +56,7 @@ class JobListing(Base):
     last_seen_at = Column(TIMESTAMP(timezone=True), nullable=False)
     consecutive_misses = Column(Integer, server_default=text("0"))
     details_scraped = Column(Boolean, server_default=text("false"))
+    normalization_status = Column(Text, nullable=True)  # NULL|'pending'|'done'|'failed'
 
     __table_args__ = (
         PrimaryKeyConstraint("source_id", "id"),
@@ -231,4 +233,80 @@ class WorkerHeartbeat(Base):
         # `at < now() - interval '24h'` (the cleanup task) with a
         # forward or backward scan. No DESC needed.
         Index("idx_worker_heartbeats_at", "at"),
+    )
+
+
+class Location(Base):
+    __tablename__ = "locations"
+
+    id = Column(Integer, primary_key=True)
+    canonical_name = Column(Text, nullable=False)        # "San Francisco, CA, US"
+    kind = Column(Text, nullable=False)                  # 'city'|'region'|'country'|'remote'
+    city = Column(Text, nullable=True)
+    region = Column(Text, nullable=True)
+    country = Column(Text, nullable=True)
+    remote_scope = Column(Text, nullable=True)           # NULL|'global'|'us'|'eu'|...
+    lat = Column(Float, nullable=True)                   # NULL in v1 (Decision #7)
+    lng = Column(Float, nullable=True)                   # NULL in v1
+    created_at = Column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        # remote_scope intentionally part of the uniqueness key (Decision #6).
+        UniqueConstraint(
+            "kind", "city", "region", "country", "remote_scope",
+            name="uq_locations_canonical",
+        ),
+    )
+
+
+class LocationAlias(Base):
+    __tablename__ = "location_aliases"
+
+    raw_text = Column(Text, primary_key=True)            # pre-normalized cache key
+    source = Column(Text, nullable=False)                # 'llm'|'manual' (manual wins; Decision #10)
+    confidence = Column(Float, nullable=True)
+    created_at = Column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class AliasLocation(Base):
+    # join: one alias -> 1..N canonical locations, ordered by `position`.
+    __tablename__ = "alias_locations"
+
+    raw_text = Column(
+        Text,
+        ForeignKey("location_aliases.raw_text", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    normalized_location_id = Column(
+        Integer, ForeignKey("locations.id"), primary_key=True
+    )
+    position = Column(Integer, nullable=False)           # order within the raw string
+
+
+class JobLocation(Base):
+    # job <-> canonical location join (Decision #5: keyed by job alone).
+    #
+    # NOTE: job_listing_id has NO database FK. job_listings' PK is the COMPOSITE
+    # (source_id, id) and there is no UNIQUE/PK constraint on `id` alone, so a
+    # single-column FK to job_listings(id) is invalid Postgres. We key
+    # job_locations by job_listing_id alone (matches the plan's worked examples
+    # and lets Units 5/8 operate with just job_id) and enforce integrity at the
+    # application layer. job_listings.id is globally unique in practice
+    # (verified: 0 collisions across 44,666 prod rows). normalized_location_id
+    # keeps a real FK because locations.id is a single-column PK.
+    __tablename__ = "job_locations"
+
+    job_listing_id = Column(Text, nullable=False)
+    normalized_location_id = Column(
+        Integer, ForeignKey("locations.id"), nullable=False
+    )
+    is_primary = Column(Boolean, nullable=False, server_default=text("false"))
+
+    __table_args__ = (
+        PrimaryKeyConstraint("job_listing_id", "normalized_location_id"),
+        Index("idx_job_locations_job_listing_id", "job_listing_id"),
     )
