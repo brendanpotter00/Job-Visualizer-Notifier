@@ -257,6 +257,7 @@ class Location(Base):
         UniqueConstraint(
             "kind", "city", "region", "country", "remote_scope",
             name="uq_locations_canonical",
+            postgresql_nulls_not_distinct=True,
         ),
     )
 
