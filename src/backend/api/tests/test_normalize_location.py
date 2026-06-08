@@ -156,12 +156,12 @@ async def test_empty_whitespace_location_marks_failed_no_llm(db_conn, monkeypatc
     assert llm.await_count == 0
 
 
-async def test_missing_api_key_marks_failed_no_raise(db_conn, monkeypatch):
+async def test_missing_api_key_leaves_null_no_raise(db_conn, monkeypatch):
     jid = _insert_job(db_conn, location="sf")
     _patch_llm(monkeypatch, side_effect=MissingAnthropicKeyError("no key"))
     await normalize_location(job_id=jid)  # must NOT raise
     db_conn.rollback()
-    assert _status(db_conn, jid) == "failed"
+    assert _status(db_conn, jid) is None
     assert _count(db_conn, _LOCATIONS) == 0
     assert _count(db_conn, _LOCATION_ALIASES) == 0
 

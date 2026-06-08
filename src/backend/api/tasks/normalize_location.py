@@ -6,11 +6,12 @@ tx1 (read + Tier-1) -> CLOSE conn -> LLM call (no conn) -> tx2 (fresh conn, writ
 The 2026-05-17 pool-exhaustion incident was caused by connections held across
 slow work; a 10s LLM hold on an open connection is exactly that anti-pattern.
 
-Graceful no-key (Implementation Addendum): a missing ANTHROPIC_API_KEY marks the
-job 'failed' (logged no-api-key) and returns normally — no raise, no retry burn,
-worker stays green. Marking 'failed' (not NULL) advances the safety-net's
-WHERE normalization_status IS NULL window. After the key is set, the operator
-runs the Unit-8 re-normalize-all endpoint to reprocess.
+Graceful no-key (Implementation Addendum): a missing ANTHROPIC_API_KEY leaves the
+job unnormalized (status stays NULL) and returns normally — no DB write, no raise,
+no retry burn, worker stays green. Leaving NULL lets the Unit-7 safety-net
+auto-recover the job once ANTHROPIC_API_KEY is configured (the safety-net skips
+deferring while the key is unset, so NULL does NOT cause a stuck re-defer window).
+No re-normalize-all needed.
 """
 
 from __future__ import annotations
@@ -111,15 +112,15 @@ async def normalize_location(job_id: str) -> None:
     try:
         locations = await normalize_location_via_llm(location)
     except MissingAnthropicKeyError:
-        conn2 = await _open_conn("task_normalize_location_nokey")
-        try:
-            set_normalization_status(conn2, job_id, "failed")
-            conn2.commit()
-        finally:
-            await _close_conn(conn2)
+        # No key: leave the job unnormalized (status stays NULL) so the Unit-7
+        # safety-net auto-recovers it once ANTHROPIC_API_KEY is configured. The
+        # safety-net skips deferring while the key is unset, so leaving NULL does
+        # NOT cause a stuck re-defer window. NO DB write, NO raise (no retry burn,
+        # worker stays green).
         logger.warning(
-            "normalize_location: ANTHROPIC_API_KEY unset; job %r marked failed (no-api-key). "
-            "Set the key and run re-normalize-all to reprocess.", job_id,
+            "normalize_location: ANTHROPIC_API_KEY unset; job %r left unnormalized "
+            "(status stays NULL; safety-net will normalize it once the key is set).",
+            job_id,
         )
         return
     # LocationLLMError / anthropic.APIError / APITimeoutError -> propagate (Procrastinate retries).
