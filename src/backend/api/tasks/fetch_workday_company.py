@@ -46,6 +46,7 @@ from typing import Set
 import httpx
 import psycopg2
 from procrastinate import RetryStrategy
+from procrastinate import exceptions as procrastinate_exceptions
 
 from scripts.shared import database as db
 from scripts.shared.incremental import (
@@ -62,6 +63,7 @@ from ..services.workday_client import (
     fetch_jobs,
     transform_to_job_listings,
 )
+from .normalize_location import normalize_location
 from .procrastinate_app import procrastinate_app
 
 logger = logging.getLogger(__name__)
@@ -108,6 +110,7 @@ async def fetch_workday_company(
     new_jobs_count = 0
     closed_jobs_count = 0
     error_count = 0
+    new_ids: Set[str] = set()
     scrape_error: BaseException | None = None
 
     # Acquire a sync psycopg2 connection in a thread. libpq connect_timeout=10
@@ -124,7 +127,7 @@ async def fetch_workday_company(
     try:
         try:
             async def _work() -> None:
-                nonlocal jobs_seen, new_jobs_count, closed_jobs_count, error_count
+                nonlocal jobs_seen, new_jobs_count, closed_jobs_count, error_count, new_ids
 
                 # Validate provider_config BEFORE doing any IO so a bad row
                 # doesn't waste an HTTP round-trip. ValueError lands in the
@@ -199,7 +202,8 @@ async def fetch_workday_company(
                         db.update_last_seen, conn, SOURCE_ID, list(seen_ids), timestamp,
                     )
 
-                new_jobs_count = len(seen_ids - pre_upsert_active)
+                new_ids = seen_ids - pre_upsert_active
+                new_jobs_count = len(new_ids)
 
                 post_upsert_active = await asyncio.to_thread(
                     db.get_active_job_ids, conn, SOURCE_ID, company_id
@@ -231,6 +235,43 @@ async def fetch_workday_company(
                 )
 
             await asyncio.wait_for(_work(), timeout=_TASK_TIMEOUT_S)
+
+            # ===== Unit 6: defer normalize_location for new ids =====
+            # new_ids = seen_ids - pre_upsert_active (same set as new_jobs_count).
+            # Run AFTER wait_for so deferring isn't charged against
+            # _TASK_TIMEOUT_S and only happens when the scrape succeeded (the
+            # upsert committed inside _work, so job_listings rows exist).
+            # queueing_lock dedups against a defer for the same job already
+            # pending (Unit-6 re-run or the Unit-7 safety-net) — AlreadyEnqueued
+            # is the expected, swallowed path. Per-id try/except mirrors
+            # enqueue_*_fan_out so one transient blip doesn't strand the rest.
+            normalize_deferred = 0
+            for job_id in new_ids:
+                try:
+                    await normalize_location.configure(
+                        queueing_lock=f"normalize:{job_id}",
+                    ).defer_async(job_id=job_id)
+                    normalize_deferred += 1
+                except procrastinate_exceptions.AlreadyEnqueued:
+                    logger.debug(
+                        "normalize_location already enqueued for job %s; skipping",
+                        job_id,
+                    )
+                except (
+                    procrastinate_exceptions.ConnectorException,
+                    psycopg2.Error,
+                ):
+                    logger.exception(
+                        "Failed to defer normalize_location for job %s; "
+                        "continuing with remaining new ids",
+                        job_id,
+                    )
+            if new_ids:
+                logger.info(
+                    "%s: deferred normalize_location for %d/%d new job(s)",
+                    company_id, normalize_deferred, len(new_ids),
+                )
+            # ===== end Unit 6 =====
         except asyncio.TimeoutError as e:
             logger.error(
                 "fetch_workday_company exceeded %ss for %s — Procrastinate will retry",

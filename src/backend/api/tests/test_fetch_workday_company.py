@@ -152,6 +152,29 @@ def _patch_httpx(monkeypatch, handler) -> None:
     monkeypatch.setattr(task_mod.httpx, "AsyncClient", _PatchedClient)
 
 
+def _patch_normalize_defer(monkeypatch):
+    """Patch normalize_location.configure so .defer_async is an AsyncMock.
+
+    Canonical edge coverage (AlreadyEnqueued, safety-guard) lives in
+    test_fetch_greenhouse_company.py. Returns (defer_mock, configure_calls).
+    """
+    from unittest.mock import AsyncMock, MagicMock
+
+    import api.tasks.fetch_workday_company as task_mod
+
+    defer_mock = AsyncMock(return_value=None)
+    configure_calls = []
+
+    def fake_configure(*args, **kwargs):
+        configure_calls.append(kwargs)
+        configured = MagicMock()
+        configured.defer_async = defer_mock
+        return configured
+
+    monkeypatch.setattr(task_mod.normalize_location, "configure", fake_configure)
+    return defer_mock, configure_calls
+
+
 @pytest_asyncio.fixture
 async def procrastinate_open(db_conn):
     """Open Procrastinate against the active test schema."""
@@ -469,6 +492,50 @@ class TestFetchWorkdayCompany:
             "AttributeError was caught by the narrow except (error_count=1); "
             "it should have propagated past the except block"
         )
+
+    async def test_defers_normalize_for_new_ids_only(
+        self, procrastinate_open, db_conn, monkeypatch
+    ):
+        """Unit 6: after a successful scrape, normalize_location is deferred
+        for the NEW ids only, with a per-id queueing_lock. Canonical edge
+        coverage (AlreadyEnqueued, safety-guard) lives in
+        test_fetch_greenhouse_company.py.
+        """
+        company = "normwd"
+        token = "normwd"
+        _seed_company(db_conn, company, token)
+
+        _seed_job(db_conn, "JR-AAA", company)
+        _seed_job(db_conn, "JR-BBB", company)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            jobs = [
+                _make_raw_workday_posting("JR-AAA"),
+                _make_raw_workday_posting("JR-BBB"),
+                _make_raw_workday_posting("JR-DDD"),
+            ]
+            return httpx.Response(200, json=_make_workday_response(jobs))
+
+        _patch_httpx(monkeypatch, handler)
+        defer_mock, configure_calls = _patch_normalize_defer(monkeypatch)
+
+        await fetch_workday_company.defer_async(
+            company_id=company, board_token=token, provider_config=_PROVIDER_CONFIG,
+        )
+        await _drain()
+        db_conn.rollback()
+
+        deferred_ids = {
+            c.kwargs["job_id"] for c in defer_mock.await_args_list
+        }
+        assert deferred_ids == {"JR-DDD"}
+        assert defer_mock.await_count == 1
+        assert configure_calls == [{"queueing_lock": "normalize:JR-DDD"}]
+
+        runs = _scrape_runs(db_conn, company)
+        assert len(runs) == 1
+        assert runs[0]["new_jobs"] == 1
+        assert runs[0]["error_count"] == 0
 
 
 @pytest.mark.asyncio

@@ -143,6 +143,29 @@ def _patch_httpx(monkeypatch, handler) -> None:
     monkeypatch.setattr(task_mod.httpx, "AsyncClient", _PatchedClient)
 
 
+def _patch_normalize_defer(monkeypatch):
+    """Patch normalize_location.configure so .defer_async is an AsyncMock.
+
+    Canonical edge coverage (AlreadyEnqueued, safety-guard) lives in
+    test_fetch_greenhouse_company.py. Returns (defer_mock, configure_calls).
+    """
+    from unittest.mock import AsyncMock, MagicMock
+
+    import api.tasks.fetch_eightfold_company as task_mod
+
+    defer_mock = AsyncMock(return_value=None)
+    configure_calls = []
+
+    def fake_configure(*args, **kwargs):
+        configure_calls.append(kwargs)
+        configured = MagicMock()
+        configured.defer_async = defer_mock
+        return configured
+
+    monkeypatch.setattr(task_mod.normalize_location, "configure", fake_configure)
+    return defer_mock, configure_calls
+
+
 @pytest_asyncio.fixture
 async def procrastinate_open(db_conn):
     """Open Procrastinate against the active test schema."""
@@ -524,3 +547,53 @@ class TestFetchEightfoldCompany:
         assert len(runs) == 1, "timed-out task must still record a scrape_runs row"
         assert runs[0]["error_count"] == 1
         assert runs[0]["jobs_seen"] == 0
+
+    async def test_defers_normalize_for_new_ids_only(
+        self, procrastinate_open, db_conn, monkeypatch
+    ):
+        """Unit 6: after a successful scrape, normalize_location is deferred
+        for the NEW ids only, with a per-id queueing_lock. Canonical edge
+        coverage (AlreadyEnqueued, safety-guard) lives in
+        test_fetch_greenhouse_company.py.
+        """
+        company = "netflix"
+        _seed_company(db_conn, company)
+
+        _seed_job(db_conn, "111", company)
+        _seed_job(db_conn, "222", company)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                json={
+                    "count": 3,
+                    "positions": [
+                        _make_raw_position(111),
+                        _make_raw_position(222),
+                        _make_raw_position(444),  # new
+                    ],
+                },
+            )
+
+        _patch_httpx(monkeypatch, handler)
+        defer_mock, configure_calls = _patch_normalize_defer(monkeypatch)
+
+        await fetch_eightfold_company.defer_async(
+            company_id=company,
+            board_token=company,
+            provider_config=NETFLIX_PROVIDER_CONFIG,
+        )
+        await _drain()
+        db_conn.rollback()
+
+        deferred_ids = {
+            c.kwargs["job_id"] for c in defer_mock.await_args_list
+        }
+        assert deferred_ids == {"444"}
+        assert defer_mock.await_count == 1
+        assert configure_calls == [{"queueing_lock": "normalize:444"}]
+
+        runs = _scrape_runs(db_conn, company)
+        assert len(runs) == 1
+        assert runs[0]["new_jobs"] == 1
+        assert runs[0]["error_count"] == 0
