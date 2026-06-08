@@ -336,6 +336,16 @@ async def admin_re_normalize_all(
             "admin_re_normalize_all: scan_unnormalized already enqueued; "
             "reset applied, defer collapsed"
         )
+    except (procrastinate_exceptions.ConnectorException, psycopg2.Error):
+        # The destructive reset already committed; a failed defer must NOT 500
+        # after a successful reset (that hides the partial success). Return 200
+        # with scanDeferred=False — the periodic scan_unnormalized tick (every
+        # 5 min) will pick up the now-NULL rows, as the response `note` explains.
+        scan_deferred = False
+        logger.exception(
+            "admin_re_normalize_all: scan_unnormalized defer failed after reset "
+            "committed; returning 200 (periodic scan will drain the backlog)"
+        )
 
     return AdminReNormalizeAllResponse(
         reset_count=reset_count,

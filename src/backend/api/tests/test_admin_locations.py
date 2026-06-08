@@ -254,6 +254,19 @@ class TestOverrideAlias:
         resp = client.put("/api/admin/locations/aliases/foo", json={"locations": []})
         assert resp.status_code == 422
 
+    def test_contradictory_spec_rejected_422(self, client):
+        # LocationSpec cross-field invariant: kind='remote' carrying a city is a
+        # validation error -> 422 (never reaches the DB writer).
+        resp = client.put(
+            "/api/admin/locations/aliases/bad-remote",
+            json={"locations": [
+                {"canonicalName": "Remote (US)", "kind": "remote",
+                 "city": "San Jose", "region": None, "country": None,
+                 "remoteScope": "us"},
+            ]},
+        )
+        assert resp.status_code == 422
+
     def test_without_admin_returns_403(self, test_app, db_conn):
         from api.auth.dependencies import require_admin
         _insert_user(db_conn, _make_user({"auth0_id": "auth0|test_user_123", "email": "test@example.com"}))
@@ -341,6 +354,35 @@ class TestReNormalizeAll:
         scans = _scan_jobs(db_conn)
         assert len(scans) == 1
         assert scans[0]["args"]["timestamp"] == 0
+
+    @pytest.mark.asyncio
+    async def test_returns_200_when_scan_defer_fails(self, db_conn, client, monkeypatch):
+        """FIX-4: a failed scan_unnormalized defer AFTER the reset committed must
+        NOT 500 — return 200 with scanDeferred=False (the destructive reset stands
+        and the periodic scan picks it up)."""
+        from procrastinate import exceptions as procrastinate_exceptions
+
+        from api.routers import admin as admin_router
+
+        _insert_job(db_conn, _make_job({"id": "rd1", "normalization_status": "done"}))
+        db_conn.commit()
+
+        async def _boom(*args, **kwargs):
+            raise procrastinate_exceptions.ConnectorException("simulated connector failure")
+
+        monkeypatch.setattr(admin_router.scan_unnormalized, "defer_async", _boom)
+
+        resp = client.post("/api/admin/locations/re-normalize-all")
+        db_conn.rollback()
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["scanDeferred"] is False
+        assert body["resetCount"] >= 1
+
+        # The reset still committed despite the defer failure.
+        cur = db_conn.cursor()
+        cur.execute("SELECT normalization_status FROM job_listings WHERE id=%s", ("rd1",))
+        assert cur.fetchone()["normalization_status"] is None
 
     def test_without_admin_returns_403(self, test_app, db_conn):
         from api.auth.dependencies import require_admin

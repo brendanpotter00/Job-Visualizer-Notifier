@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 from pydantic.alias_generators import to_camel
 
 # Closed set of signup provider tokens derived from
@@ -223,6 +223,28 @@ class LocationSpec(BaseModel):
     region: str | None = Field(default=None, max_length=120)
     country: str | None = Field(default=None, max_length=120)
     remote_scope: str | None = Field(default=None, max_length=60)
+
+    @model_validator(mode="after")
+    def _kind_remote_scope_invariant(self) -> "LocationSpec":
+        """Enforce the kind <-> remote_scope cross-field rule.
+
+        Mirrors services.llm_client.CanonicalLocation: a contradictory manual
+        override (kind='remote' carrying city/region/country, or a non-remote
+        kind carrying remote_scope) yields a 422 instead of silently writing a
+        nonsensical canonical row.
+        """
+        if self.kind == "remote":
+            if self.city is not None or self.region is not None or self.country is not None:
+                raise ValueError(
+                    "kind='remote' must have city/region/country all None; "
+                    f"got city={self.city!r} region={self.region!r} country={self.country!r}"
+                )
+        elif self.remote_scope is not None:
+            raise ValueError(
+                f"remote_scope is only valid for kind='remote'; got kind={self.kind!r} "
+                f"remote_scope={self.remote_scope!r}"
+            )
+        return self
 
 
 class AdminAliasOverrideRequest(BaseModel):

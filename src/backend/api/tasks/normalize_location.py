@@ -130,8 +130,8 @@ async def normalize_location(job_id: str) -> None:
     if max_conf < CONFIDENCE_FLOOR:
         conn3 = await _open_conn("task_normalize_location_lowconf")
         try:
-            set_normalization_status(conn3, job_id, "failed")
-            conn3.commit()
+            await asyncio.to_thread(set_normalization_status, conn3, job_id, "failed")
+            await asyncio.to_thread(conn3.commit)
         finally:
             await _close_conn(conn3)
         logger.warning("normalize_location: job %r low-confidence (max=%.2f < %.2f); marked failed, not cached.",

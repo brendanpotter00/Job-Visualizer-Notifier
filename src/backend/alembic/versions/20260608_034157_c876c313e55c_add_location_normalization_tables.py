@@ -6,8 +6,9 @@ Create Date: 2026-06-08 03:41:57.058724+00:00
 
 Additive schema for the location-normalization pipeline (Unit 2). Creates four
 new tables — locations, location_aliases, alias_locations, job_locations — plus
-one nullable column job_listings.normalization_status (NULL|'pending'|'done'|
-'failed'). The column add is catalog-only: nullable, no default backfill, no USING
+one nullable column job_listings.normalization_status (NULL = never attempted |
+'done' | 'failed'; 'pending' is intentionally unused — the pipeline never writes
+it). The column add is catalog-only: nullable, no default backfill, no USING
 clause, so it cannot rewrite the 44,666-row job_listings table (combined-ALTER-TABLE
 rule; see docs/incidents/2026-04-18-migration-filled-postgres-volume/).
 

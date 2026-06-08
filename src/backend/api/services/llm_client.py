@@ -23,7 +23,7 @@ import logging
 
 import anthropic
 from anthropic import AsyncAnthropic
-from pydantic import BaseModel, ValidationError, field_validator
+from pydantic import BaseModel, ValidationError, field_validator, model_validator
 
 from ..config import settings
 
@@ -67,6 +67,27 @@ class CanonicalLocation(BaseModel):
         if not (0.0 <= v <= 1.0):
             raise ValueError(f"confidence must be in [0, 1]; got {v}")
         return v
+
+    @model_validator(mode="after")
+    def _kind_remote_scope_invariant(self) -> "CanonicalLocation":
+        """Enforce the kind <-> remote_scope cross-field rule.
+
+        A contradictory LLM response (e.g. kind='city' with remote_scope set, or
+        kind='remote' carrying city/region/country) becomes a ValidationError ->
+        caught by _parse_envelope -> LocationLLMError, so Procrastinate retries.
+        """
+        if self.kind == "remote":
+            if self.city is not None or self.region is not None or self.country is not None:
+                raise ValueError(
+                    "kind='remote' must have city/region/country all None; "
+                    f"got city={self.city!r} region={self.region!r} country={self.country!r}"
+                )
+        elif self.remote_scope is not None:
+            raise ValueError(
+                f"remote_scope is only valid for kind='remote'; got kind={self.kind!r} "
+                f"remote_scope={self.remote_scope!r}"
+            )
+        return self
 
 
 class _LocationsEnvelope(BaseModel):
@@ -196,32 +217,3 @@ async def normalize_location_via_llm(raw: str) -> list[CanonicalLocation]:
     except json.JSONDecodeError as exc:
         raise LocationLLMError(f"LLM returned non-JSON text for {raw!r}: {exc}") from exc
     return _parse_envelope(raw_obj)
-
-
-async def _call_via_forced_tool_use(client: AsyncAnthropic, raw: str) -> list[CanonicalLocation]:
-    """PATH B fallback. If Step 0 picks this, replace the PATH A block in
-    normalize_location_via_llm with `return await _call_via_forced_tool_use(client, raw)`.
-    Ship only ONE active path."""
-    response = await client.messages.create(
-        model=HAIKU_MODEL,
-        max_tokens=MAX_TOKENS,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": _build_user_message(raw)}],
-        tools=[{
-            "name": "emit_locations",
-            "description": "Emit the normalized canonical location(s) parsed from the raw input string.",
-            "input_schema": _LOCATIONS_SCHEMA,
-        }],
-        tool_choice={"type": "tool", "name": "emit_locations"},
-    )
-    tool_input = None
-    for block in response.content:
-        if getattr(block, "type", None) == "tool_use" and block.name == "emit_locations":
-            tool_input = block.input
-            break
-    if tool_input is None:
-        raise LocationLLMError(
-            f"LLM did not return the forced emit_locations tool_use for {raw!r}; "
-            f"stop_reason={getattr(response, 'stop_reason', None)!r}"
-        )
-    return _parse_envelope(tool_input)

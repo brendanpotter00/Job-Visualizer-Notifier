@@ -34,9 +34,7 @@ def _text_block(text: str):
 
 
 def _resp(locations: list[dict]):
-    """PATH A: one text block with the JSON envelope.
-    PATH B swap: block = SimpleNamespace(type="tool_use", name="emit_locations",
-    input={"locations": locations}); return SimpleNamespace(content=[block], stop_reason="tool_use")."""
+    """PATH A (structured outputs): one text block carrying the JSON envelope."""
     payload = json.dumps({"locations": locations})
     return SimpleNamespace(content=[_text_block(payload)], stop_reason="end_turn")
 
@@ -124,6 +122,27 @@ async def test_bad_kind_raises(monkeypatch):
     }]))
     with pytest.raises(LocationLLMError):
         await normalize_location_via_llm("Mars Base One")
+
+
+async def test_city_with_remote_scope_rejected(monkeypatch):
+    # kind='city' carrying a remote_scope violates the cross-field invariant ->
+    # ValidationError -> LocationLLMError (Procrastinate retries).
+    _install_mock_client(monkeypatch, create_return=_resp([{
+        "canonical_name": "San Jose, CA, US", "kind": "city", "city": "San Jose",
+        "region": "CA", "country": "US", "remote_scope": "us", "confidence": 0.95,
+    }]))
+    with pytest.raises(LocationLLMError):
+        await normalize_location_via_llm("San Jose")
+
+
+async def test_remote_with_city_rejected(monkeypatch):
+    # kind='remote' carrying a city violates the cross-field invariant.
+    _install_mock_client(monkeypatch, create_return=_resp([{
+        "canonical_name": "Remote (US)", "kind": "remote", "city": "San Jose",
+        "region": None, "country": None, "remote_scope": "us", "confidence": 0.95,
+    }]))
+    with pytest.raises(LocationLLMError):
+        await normalize_location_via_llm("Remote San Jose")
 
 
 async def test_confidence_out_of_range_rejected(monkeypatch):

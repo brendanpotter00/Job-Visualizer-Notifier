@@ -28,8 +28,6 @@ import psycopg2
 from psycopg2 import sql
 from psycopg2.extensions import connection as Connection
 
-from .location_normalization import normalize_string  # noqa: F401  (re-export convenience)
-
 logger = logging.getLogger(__name__)
 
 _JOB_LISTINGS = sql.Identifier("job_listings")

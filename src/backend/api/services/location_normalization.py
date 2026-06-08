@@ -185,9 +185,19 @@ def set_normalization_status(conn: Connection, job_id: str, status: str) -> None
 
 
 def write_job_locations_from_ids(conn: Connection, job_id: str, location_ids: Sequence[int]) -> None:
-    """Tier-1-HIT writer: job_locations rows (position 0 primary) + mark done. Idempotent. No commit."""
+    """Tier-1-HIT writer: job_locations rows (position 0 primary) + mark done. Idempotent. No commit.
+
+    REPLACE semantics: clears this job's existing job_locations links FIRST so a
+    re-run after a mapping change reflects the new set (and resets is_primary)
+    instead of appending stale rows / leaving two is_primary=true rows. The
+    ON CONFLICT DO NOTHING below is retained only for concurrency safety.
+    """
     cursor = conn.cursor()
     try:
+        cursor.execute(
+            sql.SQL("DELETE FROM {} WHERE job_listing_id = %s").format(_JOB_LOCATIONS),
+            (job_id,),
+        )
         for position, loc_id in enumerate(location_ids):
             cursor.execute(
                 sql.SQL(
@@ -240,6 +250,12 @@ def persist_llm_result(conn: Connection, job_id: str, raw_text: str, locations: 
                 loc_id = row["id"] if isinstance(row, dict) else row[0]
             location_ids.append(int(loc_id))
 
+        # Dedup preserving first-seen order: if the LLM returns two specs that
+        # resolve to the same locations.id, the duplicate must not double-insert
+        # (PK conflicts) or claim a second position.
+        seen: set[int] = set()
+        location_ids = [lid for lid in location_ids if not (lid in seen or seen.add(lid))]
+
         avg_conf = sum(l.confidence for l in locations) / len(locations)
         cursor.execute(
             sql.SQL("INSERT INTO {} (raw_text, source, confidence) VALUES (%s, 'llm', %s) "
@@ -252,6 +268,14 @@ def persist_llm_result(conn: Connection, job_id: str, raw_text: str, locations: 
                         "ON CONFLICT (raw_text, normalized_location_id) DO NOTHING").format(_ALIAS_LOCATIONS),
                 (raw_text, loc_id, position),
             )
+        # REPLACE this job's links FIRST (reset is_primary, drop stale rows) so a
+        # re-normalization reflects the new mapping. ON CONFLICT below stays for
+        # concurrency safety. Does NOT touch location_aliases/alias_locations
+        # (the shared cache).
+        cursor.execute(
+            sql.SQL("DELETE FROM {} WHERE job_listing_id = %s").format(_JOB_LOCATIONS),
+            (job_id,),
+        )
         for position, loc_id in enumerate(location_ids):
             cursor.execute(
                 sql.SQL("INSERT INTO {} (job_listing_id, normalized_location_id, is_primary) VALUES (%s, %s, %s) "

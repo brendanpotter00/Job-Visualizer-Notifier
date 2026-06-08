@@ -56,7 +56,7 @@ class JobListing(Base):
     last_seen_at = Column(TIMESTAMP(timezone=True), nullable=False)
     consecutive_misses = Column(Integer, server_default=text("0"))
     details_scraped = Column(Boolean, server_default=text("false"))
-    normalization_status = Column(Text, nullable=True)  # NULL|'pending'|'done'|'failed'
+    normalization_status = Column(Text, nullable=True)  # NULL (never attempted) | 'done' | 'failed'
 
     __table_args__ = (
         PrimaryKeyConstraint("source_id", "id"),

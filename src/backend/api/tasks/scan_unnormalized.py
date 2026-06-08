@@ -100,8 +100,17 @@ async def scan_unnormalized(timestamp: int, limit: int = SCAN_LIMIT) -> int:
                 "Failed to defer normalize_location for %s; continuing with remaining ids", job_id,
             )
 
-    logger.info(
-        "scan_unnormalized tick %d: deferred %d / %d unnormalized (failed=%d, limit=%d)",
-        timestamp, deferred, len(job_ids), failed, limit,
-    )
+    if failed > 0 and deferred == 0:
+        # Every defer failed: the safety-net-of-last-resort made zero progress
+        # this tick. Escalate to @level:error so a fully-broken tick is visible
+        # in Railway's error stream (not buried in the INFO summary).
+        logger.error(
+            "scan_unnormalized tick %d: ALL %d defer(s) FAILED (deferred=0, limit=%d); "
+            "no progress this tick", timestamp, failed, limit,
+        )
+    else:
+        logger.info(
+            "scan_unnormalized tick %d: deferred %d / %d unnormalized (failed=%d, limit=%d)",
+            timestamp, deferred, len(job_ids), failed, limit,
+        )
     return deferred

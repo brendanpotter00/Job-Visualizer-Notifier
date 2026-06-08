@@ -210,3 +210,69 @@ async def test_job_vanished_returns_without_error(db_conn, monkeypatch):
     llm = _patch_llm(monkeypatch, return_value=[])
     await normalize_location(job_id="does-not-exist")
     assert llm.await_count == 0
+
+
+async def test_renormalization_replaces_links(db_conn, monkeypatch):
+    """Re-running with a DIFFERENT result must REPLACE job_locations (drives FIX-1).
+
+    Without the DELETE-before-INSERT, the job would stay linked to BOTH A and B
+    (and could carry two is_primary=true rows). We force a Tier-1 MISS on both
+    runs by using a distinct raw location each time (different cache key), so the
+    Tier-2 writer path runs both times.
+    """
+    jid = _insert_job(db_conn, location="city-a-raw")
+    _patch_llm(monkeypatch, return_value=[_loc("Alpha City, AA, US", "city", "Alpha City", "AA", "US", confidence=0.97)])
+    await normalize_location(job_id=jid)
+    db_conn.rollback()
+    jl = _job_locations(db_conn, jid)
+    assert len(jl) == 1
+    a_id = jl[0]["lid"]
+    assert jl[0]["is_primary"] is True
+
+    # Reset status to NULL and change BOTH the raw location (fresh cache key ->
+    # Tier-1 miss) and the LLM result to a DIFFERENT location B.
+    cur = db_conn.cursor()
+    cur.execute(sql.SQL("UPDATE {} SET normalization_status = NULL, location = %s WHERE id = %s").format(_JOB_LISTINGS),
+                ("city-b-raw", jid))
+    db_conn.commit()
+    _patch_llm(monkeypatch, return_value=[_loc("Beta City, BB, US", "city", "Beta City", "BB", "US", confidence=0.97)])
+    await normalize_location(job_id=jid)
+    db_conn.rollback()
+
+    assert _status(db_conn, jid) == "done"
+    jl2 = _job_locations(db_conn, jid)
+    # Old A link is gone; only B remains; exactly one is_primary=true.
+    assert len(jl2) == 1
+    b_id = jl2[0]["lid"]
+    assert b_id != a_id
+    assert jl2[0]["is_primary"] is True
+    assert len([r for r in jl2 if r["is_primary"]]) == 1
+
+
+async def test_remote_existing_row_dedup_via_is_not_distinct_from(db_conn, monkeypatch):
+    """Pre-seeded REMOTE location (NULL city/region/country) must dedup on re-use.
+
+    Exercises persist_llm_result's ON CONFLICT DO NOTHING -> IS NOT DISTINCT FROM
+    fallback against the NULL-bearing canonical columns (uq_locations_canonical is
+    NULLS NOT DISTINCT). No duplicate locations row may be created.
+    """
+    cur = db_conn.cursor()
+    cur.execute(sql.SQL("INSERT INTO {} (canonical_name, kind, city, region, country, remote_scope) "
+                        "VALUES (%s,%s,%s,%s,%s,%s) RETURNING id").format(_LOCATIONS),
+                ("Remote (US)", "remote", None, None, None, "us"))
+    r = cur.fetchone()
+    pre_id = r["id"] if isinstance(r, dict) else r[0]
+    db_conn.commit()
+    assert _count(db_conn, _LOCATIONS) == 1
+
+    jid = _insert_job(db_conn, location="Remote - United States")
+    _patch_llm(monkeypatch, return_value=[
+        _loc("Remote (US)", "remote", city=None, region=None, country=None, remote_scope="us", confidence=0.95)])
+    await normalize_location(job_id=jid)
+    db_conn.rollback()
+
+    assert _status(db_conn, jid) == "done"
+    # No duplicate locations row: the existing remote row was reused.
+    assert _count(db_conn, _LOCATIONS) == 1
+    jl = _job_locations(db_conn, jid)
+    assert len(jl) == 1 and jl[0]["lid"] == pre_id and jl[0]["is_primary"] is True
