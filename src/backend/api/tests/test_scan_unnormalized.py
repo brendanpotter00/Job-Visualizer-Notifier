@@ -136,3 +136,28 @@ async def test_no_rows_returns_zero(db_conn, defer_mock):
     deferred = await scan_unnormalized(timestamp=0, limit=10)
     assert deferred == 0
     defer_mock.assert_not_awaited()
+
+
+async def test_all_defers_failed_escalates_to_error(db_conn, defer_mock, caplog):
+    """A fully-broken tick (every defer fails, deferred==0) escalates to a
+    distinct ERROR summary so it surfaces in Railway's @level:error stream,
+    not just the INFO summary (FIX-5)."""
+    import logging
+
+    for jid in [f"job-{i}" for i in range(3)]:
+        _insert_job(db_conn, jid, None)
+    defer_mock.side_effect = procrastinate_exceptions.ConnectorException("connector down")
+
+    with caplog.at_level(logging.ERROR, logger="api.tasks.scan_unnormalized"):
+        deferred = await scan_unnormalized(timestamp=0, limit=10)
+
+    assert deferred == 0
+    # The distinctive fully-failed-tick escalation message (not the per-id
+    # logger.exception lines) must be present at ERROR level.
+    assert any(
+        rec.levelno == logging.ERROR
+        and rec.name == "api.tasks.scan_unnormalized"
+        and "ALL" in rec.getMessage()
+        and "no progress this tick" in rec.getMessage()
+        for rec in caplog.records
+    )
