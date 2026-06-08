@@ -41,6 +41,10 @@ def app_factory(monkeypatch):
         def health():
             return PlainTextResponse("OK")
 
+        @app.get("/health/worker")
+        def health_worker():
+            return PlainTextResponse("OK")
+
         return app
 
     return _build
@@ -96,6 +100,16 @@ class TestKeyEnforced:
         app = app_factory("expected-secret")
         with TestClient(app) as client:
             resp = client.get("/health")
+        assert resp.status_code == 200
+        assert resp.text == "OK"
+
+    def test_health_worker_is_exempt_without_header(self, app_factory):
+        """Railway's container healthcheck probes /health/worker (see
+        railway.toml). It cannot send the key, so gating this path makes every
+        deploy fail its healthcheck and never go live. Must pass through."""
+        app = app_factory("expected-secret")
+        with TestClient(app) as client:
+            resp = client.get("/health/worker")
         assert resp.status_code == 200
         assert resp.text == "OK"
 

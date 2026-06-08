@@ -20,9 +20,12 @@ from ..config import settings
 
 logger = logging.getLogger(__name__)
 
-# Paths that bypass the gate entirely. Railway's container healthcheck and
-# external uptime monitors hit /health without the key — never block them.
-_EXEMPT_PATHS = frozenset({"/health"})
+# Paths that bypass the gate entirely. Railway's container healthcheck hits
+# /health/worker and external uptime monitors hit /health — both arrive
+# without the key (the prober can't send it), so neither can ever be gated or
+# the deploy fails its healthcheck and never goes live. Keep this in sync with
+# railway.toml's healthcheckPath.
+_EXEMPT_PATHS = frozenset({"/health", "/health/worker"})
 
 _HEADER_NAME = "X-Internal-Key"
 
