@@ -11,6 +11,7 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 
+from .auth.internal_key import require_internal_key, warn_if_unset
 from .config import settings
 from .dependencies import get_db, init_pool, close_pool, pool_is_healthy
 from .routers import admin, features, jobs, jobs_qa, users
@@ -100,6 +101,7 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
+    warn_if_unset()
     logger.info("Applying database migrations...")
     try:
         apply_alembic_migrations(settings.database_url)
@@ -234,6 +236,12 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Jobs API", lifespan=lifespan)
+
+# Register the internal-key gate FIRST so CORSMiddleware ends up on the
+# outside of the stack. Starlette runs middleware in reverse-registration
+# order; if CORS is inside the gate, preflight OPTIONS without the header
+# would be rejected before CORS can answer.
+app.middleware("http")(require_internal_key)
 
 app.add_middleware(
     CORSMiddleware,

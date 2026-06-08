@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { getBackendUrl } from './utils/backendUrl';
 import { forwardResponse } from './utils/forwardResponse';
+import { getInternalKeyHeader } from './utils/internalKey';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const { status, company, companies, limit, offset } = req.query;
@@ -16,7 +17,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const url = `${backendUrl}/api/jobs?${params}`;
 
   try {
-    const response = await fetch(url);
+    const response = await fetch(url, { headers: getInternalKeyHeader() });
     await forwardResponse(response, res);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch from backend' });

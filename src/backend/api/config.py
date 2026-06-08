@@ -36,6 +36,13 @@ class Settings(BaseSettings):
     # Google One Tap authentication
     google_client_id: str | None = None
 
+    # Internal API key: shared secret between the Vercel serverless proxies
+    # and this backend. When set, the require_internal_key middleware rejects
+    # any request that doesn't present a matching X-Internal-Key header.
+    # When unset (local dev), the middleware allows all requests through and
+    # logs a startup warning.
+    internal_api_key: str | None = None
+
     # Server
     port: int = 8080
     cors_origins: str = "http://localhost:3000,http://localhost:5173,http://localhost:8000"
