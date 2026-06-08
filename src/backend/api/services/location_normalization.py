@@ -28,10 +28,14 @@ from __future__ import annotations
 import logging
 import re
 import unicodedata
+from typing import TYPE_CHECKING, Sequence
 
 import psycopg2
 from psycopg2 import sql
 from psycopg2.extensions import connection as Connection
+
+if TYPE_CHECKING:  # avoid circular import — Tier-1 must not hard-import Tier-2.
+    from .llm_client import CanonicalLocation
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +97,9 @@ def normalize_string(raw: str | None) -> str:
 
 _LOCATION_ALIASES = sql.Identifier("location_aliases")
 _ALIAS_LOCATIONS = sql.Identifier("alias_locations")
+_LOCATIONS = sql.Identifier("locations")
+_JOB_LOCATIONS = sql.Identifier("job_locations")
+_JOB_LISTINGS = sql.Identifier("job_listings")
 
 
 def _location_id_from_row(row) -> int:
@@ -156,5 +163,104 @@ def lookup_alias(conn: Connection, raw: str | None) -> list[int] | None:
             key, exc, exc_info=True,
         )
         raise
+    finally:
+        cursor.close()
+
+
+# --- Unit-5 writers (caller owns the transaction; none of these commit) -----
+
+
+def set_normalization_status(conn: Connection, job_id: str, status: str) -> None:
+    """Set job_listings.normalization_status. Keys on id alone (globally unique). No commit."""
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            sql.SQL("UPDATE {} SET normalization_status = %s WHERE id = %s").format(_JOB_LISTINGS),
+            (status, job_id),
+        )
+        if cursor.rowcount == 0:
+            logger.warning("set_normalization_status: no job_listings row for id=%r (status=%r)", job_id, status)
+    finally:
+        cursor.close()
+
+
+def write_job_locations_from_ids(conn: Connection, job_id: str, location_ids: Sequence[int]) -> None:
+    """Tier-1-HIT writer: job_locations rows (position 0 primary) + mark done. Idempotent. No commit."""
+    cursor = conn.cursor()
+    try:
+        for position, loc_id in enumerate(location_ids):
+            cursor.execute(
+                sql.SQL(
+                    "INSERT INTO {} (job_listing_id, normalized_location_id, is_primary) "
+                    "VALUES (%s, %s, %s) ON CONFLICT (job_listing_id, normalized_location_id) DO NOTHING"
+                ).format(_JOB_LOCATIONS),
+                (job_id, int(loc_id), position == 0),
+            )
+        cursor.execute(
+            sql.SQL("UPDATE {} SET normalization_status = 'done' WHERE id = %s").format(_JOB_LISTINGS),
+            (job_id,),
+        )
+    finally:
+        cursor.close()
+
+
+def persist_llm_result(conn: Connection, job_id: str, raw_text: str, locations: "Sequence[CanonicalLocation]") -> None:
+    """Tier-2 writer (tx2 body). raw_text MUST be the normalize_string()'d key. All ON CONFLICT DO NOTHING. No commit."""
+    cursor = conn.cursor()
+    try:
+        location_ids: list[int] = []
+        for loc in locations:
+            cursor.execute(
+                sql.SQL(
+                    "INSERT INTO {} (canonical_name, kind, city, region, country, remote_scope) "
+                    "VALUES (%s, %s, %s, %s, %s, %s) "
+                    "ON CONFLICT ON CONSTRAINT uq_locations_canonical DO NOTHING RETURNING id"
+                ).format(_LOCATIONS),
+                (loc.canonical_name, loc.kind, loc.city, loc.region, loc.country, loc.remote_scope),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                cursor.execute(
+                    sql.SQL(
+                        "SELECT id FROM {} WHERE kind = %s "
+                        "AND city IS NOT DISTINCT FROM %s AND region IS NOT DISTINCT FROM %s "
+                        "AND country IS NOT DISTINCT FROM %s AND remote_scope IS NOT DISTINCT FROM %s"
+                    ).format(_LOCATIONS),
+                    (loc.kind, loc.city, loc.region, loc.country, loc.remote_scope),
+                )
+                existing = cursor.fetchone()
+                if existing is None:
+                    raise RuntimeError(
+                        f"locations upsert conflicted but no matching row found for "
+                        f"kind={loc.kind!r} city={loc.city!r} region={loc.region!r} "
+                        f"country={loc.country!r} remote_scope={loc.remote_scope!r}"
+                    )
+                loc_id = existing["id"] if isinstance(existing, dict) else existing[0]
+            else:
+                loc_id = row["id"] if isinstance(row, dict) else row[0]
+            location_ids.append(int(loc_id))
+
+        avg_conf = sum(l.confidence for l in locations) / len(locations)
+        cursor.execute(
+            sql.SQL("INSERT INTO {} (raw_text, source, confidence) VALUES (%s, 'llm', %s) "
+                    "ON CONFLICT (raw_text) DO NOTHING").format(_LOCATION_ALIASES),
+            (raw_text, avg_conf),
+        )
+        for position, loc_id in enumerate(location_ids):
+            cursor.execute(
+                sql.SQL("INSERT INTO {} (raw_text, normalized_location_id, position) VALUES (%s, %s, %s) "
+                        "ON CONFLICT (raw_text, normalized_location_id) DO NOTHING").format(_ALIAS_LOCATIONS),
+                (raw_text, loc_id, position),
+            )
+        for position, loc_id in enumerate(location_ids):
+            cursor.execute(
+                sql.SQL("INSERT INTO {} (job_listing_id, normalized_location_id, is_primary) VALUES (%s, %s, %s) "
+                        "ON CONFLICT (job_listing_id, normalized_location_id) DO NOTHING").format(_JOB_LOCATIONS),
+                (job_id, loc_id, position == 0),
+            )
+        cursor.execute(
+            sql.SQL("UPDATE {} SET normalization_status = 'done' WHERE id = %s").format(_JOB_LISTINGS),
+            (job_id,),
+        )
     finally:
         cursor.close()
