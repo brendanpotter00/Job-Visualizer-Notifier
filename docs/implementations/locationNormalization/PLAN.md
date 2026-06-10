@@ -245,8 +245,13 @@ class AliasLocation(Base):                                # join: one alias → 
 
 class JobLocation(Base):                                  # join: job ↔ canonical location (Decision #5)
     __tablename__ = "job_locations"
-    job_listing_id         = Column(Text, ForeignKey("job_listings.id",
-                                     ondelete="CASCADE"), primary_key=True)
+    # NOTE (implementation delta): the ForeignKey on job_listing_id was DROPPED
+    # during implementation — job_listings has a composite PK (source_id, id),
+    # so a single-column FK to job_listings.id is invalid Postgres. The shipped
+    # model keys on `id` alone by convention (globally unique in practice; see
+    # the migration c876c313e55c docstring and db_models.py — do NOT "fix" this
+    # by adding the FK back or a UNIQUE on job_listings.id).
+    job_listing_id         = Column(Text, primary_key=True)  # FK-by-convention; no DB FK
     normalized_location_id = Column(Integer, ForeignKey("locations.id"), primary_key=True)
     is_primary             = Column(Boolean, default=False, nullable=False)
 ```
@@ -254,7 +259,7 @@ class JobLocation(Base):                                  # join: job ↔ canoni
 Additive column on `JobListing`:
 
 ```python
-normalization_status = Column(Text, nullable=True)   # NULL|'pending'|'done'|'failed'
+normalization_status = Column(Text, nullable=True)   # NULL (never attempted) | 'done' | 'failed' — 'pending' intentionally unused (FIX-7)
 ```
 
 `normalization_status IS NULL` means "never attempted" — the queryable signal the
@@ -503,7 +508,7 @@ Day-to-day correction is the targeted audit-agent path (F2).
 | `src/backend/api/tasks/normalize_location.py` | new — the task |
 | `src/backend/api/tasks/scan_unnormalized.py` | new — safety-net periodic task |
 | `src/backend/api/tasks/fetch_*_company.py` (×6) | chain `normalize_location.defer_async` after upsert |
-| `scripts/shared/database.py` | `upsert_jobs_batch` returns new IDs |
+| `scripts/shared/database.py` | unchanged — Unit 6 reuses `seen_ids - pre_upsert_active` instead of modifying `upsert_jobs_batch` |
 | `src/backend/api/routers/admin.py` | add normalize/override/re-normalize endpoints |
 
 ## Existing Utilities to Reuse

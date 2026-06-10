@@ -1,6 +1,4 @@
-"""Tier 1 of the location-normalization cascade: the Postgres alias cache.
-
-This module is intentionally small and side-effect-light:
+"""Tier-1 alias-cache lookup + the pipeline writers for location normalization.
 
 * ``normalize_string`` is a PURE function that produces the canonical cache key
   stored in ``location_aliases.raw_text``. It lowercases, NFKC-normalizes,
@@ -14,8 +12,13 @@ This module is intentionally small and side-effect-light:
   string it pre-normalizes the string, then looks the key up in
   ``location_aliases`` joined to ``alias_locations``. It returns an ordered
   ``list[int]`` of ``locations.id`` on a cache hit, or ``None`` on a cache miss
-  (no ``location_aliases`` row at all). Writing the cache is NOT this module's
-  job -- that belongs to the Tier-2 task (Unit 5).
+  (no ``location_aliases`` row at all).
+
+* The Unit-5 writers (``set_normalization_status``,
+  ``write_job_locations_from_ids``, ``persist_llm_result``) also live here so
+  every write to the location tables shares one module with the key/lookup
+  logic. They NEVER commit — the Unit-5 *task* (tasks/normalize_location.py)
+  owns the transactions and connection lifecycle.
 
 Connection contract for ``lookup_alias``: the caller owns the connection. The
 function issues only ``SELECT`` statements and does not commit. On a database

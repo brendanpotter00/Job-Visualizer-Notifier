@@ -143,6 +143,56 @@ class TestNormalizeJob:
         assert jobs[0]["queueing_lock"] == "normalize:job-1"
         assert jobs[0]["args"]["job_id"] == "job-1"
 
+    def test_returns_200_when_defer_fails_after_reset(self, db_conn, client, monkeypatch):
+        """A failed defer AFTER the reset committed must NOT 500 (mirrors the
+        FIX-4 semantics on re-normalize-all): the row is NULL now, the periodic
+        scan picks it up, and the response says what actually happened."""
+        from procrastinate import exceptions as procrastinate_exceptions
+
+        from api.routers import admin as admin_router
+
+        _insert_job(db_conn, _make_job({"id": "job-df1", "normalization_status": "done"}))
+        db_conn.commit()
+
+        class _StubConfigured:
+            async def defer_async(self, **kwargs):
+                raise procrastinate_exceptions.ConnectorException("simulated connector failure")
+
+        class _StubTask:
+            def configure(self, **kwargs):
+                return _StubConfigured()
+
+        monkeypatch.setattr(admin_router, "normalize_location", _StubTask())
+
+        resp = client.post("/api/admin/jobs/job-df1/normalize")
+        db_conn.rollback()
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["status"] == "reset_defer_failed"
+
+        # The reset still committed despite the defer failure.
+        cur = db_conn.cursor()
+        cur.execute("SELECT normalization_status FROM job_listings WHERE id=%s", ("job-df1",))
+        assert cur.fetchone()["normalization_status"] is None
+
+    @pytest.mark.asyncio
+    async def test_key_configured_flag_reflects_settings(self, procrastinate_open, db_conn, client, monkeypatch):
+        from api.config import settings
+
+        _insert_job(db_conn, _make_job({"id": "job-kc1", "normalization_status": "done"}))
+        db_conn.commit()
+
+        monkeypatch.setattr(settings, "anthropic_api_key", None)
+        resp = client.post("/api/admin/jobs/job-kc1/normalize")
+        db_conn.rollback()
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["keyConfigured"] is False
+
+        monkeypatch.setattr(settings, "anthropic_api_key", "test-key")
+        resp = client.post("/api/admin/jobs/job-kc1/normalize")
+        db_conn.rollback()
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["keyConfigured"] is True
+
     @pytest.mark.asyncio
     async def test_unknown_job_returns_404(self, procrastinate_open, db_conn, client):
         resp = client.post("/api/admin/jobs/does-not-exist/normalize")
@@ -249,6 +299,52 @@ class TestOverrideAlias:
         assert [l["position"] for l in locs] == [0, 1]
         assert locs[0]["canonicalName"] == "Sunnyvale, CA, US"
         assert locs[1]["canonicalName"] == "Kirkland, WA, US"
+
+    def test_slash_in_raw_text_routes_and_upserts(self, client, db_conn):
+        """Real location strings carry literal slashes ("EMEA / Remote",
+        "Bellevue, WA / Seattle, WA"). The `:path` converter must route them to
+        this endpoint instead of 404ing the primary correction primitive."""
+        resp = client.put(
+            "/api/admin/locations/aliases/Bellevue, WA %2F Seattle, WA",
+            json={"locations": [
+                {"canonicalName": "Bellevue, WA, US", "kind": "city",
+                 "city": "Bellevue", "region": "WA", "country": "US"},
+                {"canonicalName": "Seattle, WA, US", "kind": "city",
+                 "city": "Seattle", "region": "WA", "country": "US"},
+            ]},
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["rawText"] == "bellevue, wa / seattle, wa"
+        assert len(body["locations"]) == 2
+
+        cur = db_conn.cursor()
+        cur.execute("SELECT source FROM location_aliases WHERE raw_text=%s",
+                    ("bellevue, wa / seattle, wa",))
+        assert cur.fetchone()["source"] == "manual"
+
+    def test_duplicate_canonical_specs_dedup_not_500(self, client, db_conn):
+        """Two specs resolving to the same canonical identity (same
+        kind/city/region/country/remote_scope, different canonicalName) must
+        collapse to one mapping row — not PK-violate alias_locations and 500."""
+        resp = client.put(
+            "/api/admin/locations/aliases/dupe-city-key",
+            json={"locations": [
+                {"canonicalName": "Dupe City, DD, US", "kind": "city",
+                 "city": "Dupe City", "region": "DD", "country": "US"},
+                {"canonicalName": "DUPE CITY (alt spelling), DD, US", "kind": "city",
+                 "city": "Dupe City", "region": "DD", "country": "US"},
+            ]},
+        )
+        assert resp.status_code == 200, resp.text
+        locs = resp.json()["locations"]
+        assert len(locs) == 1
+        assert locs[0]["position"] == 0
+
+        cur = db_conn.cursor()
+        cur.execute("SELECT COUNT(*) AS n FROM alias_locations WHERE raw_text=%s",
+                    ("dupe-city-key",))
+        assert cur.fetchone()["n"] == 1
 
     def test_empty_locations_rejected_422(self, client):
         resp = client.put("/api/admin/locations/aliases/foo", json={"locations": []})
@@ -383,6 +479,32 @@ class TestReNormalizeAll:
         cur = db_conn.cursor()
         cur.execute("SELECT normalization_status FROM job_listings WHERE id=%s", ("rd1",))
         assert cur.fetchone()["normalization_status"] is None
+
+    @pytest.mark.asyncio
+    async def test_no_key_surfaces_paused_draining(self, procrastinate_open, db_conn, client, monkeypatch):
+        """With ANTHROPIC_API_KEY unset the reset still happens, but the response
+        must say draining is paused (keyConfigured=False + WARNING note) instead
+        of implying the backlog will drain — the deferred scan skips while the
+        key is absent, so a bare success response would be a silent no-op."""
+        from api.config import settings
+
+        _insert_job(db_conn, _make_job({"id": "nk1", "normalization_status": "done"}))
+        db_conn.commit()
+
+        monkeypatch.setattr(settings, "anthropic_api_key", None)
+        resp = client.post("/api/admin/locations/re-normalize-all")
+        db_conn.rollback()
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["keyConfigured"] is False
+        assert "PAUSED" in body["note"]
+
+        monkeypatch.setattr(settings, "anthropic_api_key", "test-key")
+        resp = client.post("/api/admin/locations/re-normalize-all")
+        db_conn.rollback()
+        body = resp.json()
+        assert body["keyConfigured"] is True
+        assert "PAUSED" not in body["note"]
 
     def test_without_admin_returns_403(self, test_app, db_conn):
         from api.auth.dependencies import require_admin

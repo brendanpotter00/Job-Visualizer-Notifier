@@ -19,7 +19,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from procrastinate import RetryStrategy
+from procrastinate import JobContext, RetryStrategy
 
 from scripts.shared import database as db
 
@@ -42,6 +42,11 @@ logger = logging.getLogger(__name__)
 
 CONFIDENCE_FLOOR: float = 0.5
 _STATEMENT_TIMEOUT_MS = 60_000
+# Shared by the RetryStrategy and the final-attempt check below. Procrastinate's
+# job.attempts counts PRIOR runs (0 on the first run), and RetryStrategy stops
+# retrying once attempts >= max_attempts — so the run where
+# attempts == _RETRY_MAX_ATTEMPTS is the last one (no retry will follow).
+_RETRY_MAX_ATTEMPTS = 5
 
 # Sentinel distinguishing "tx1 reached a terminal state" from "proceed to Tier-2".
 _DONE_SENTINEL = object()
@@ -63,9 +68,10 @@ async def _close_conn(conn) -> None:
 
 @procrastinate_app.task(
     queue="normalize", name="normalize_location",
-    retry=RetryStrategy(max_attempts=5, exponential_wait=2),
+    retry=RetryStrategy(max_attempts=_RETRY_MAX_ATTEMPTS, exponential_wait=2),
+    pass_context=True,
 )
-async def normalize_location(job_id: str) -> None:
+async def normalize_location(context: JobContext | None = None, *, job_id: str) -> None:
     """Normalize one job's location via Tier-1 cache then Tier-2 Haiku."""
     # ---- tx1: read + Tier-1. Connection released BEFORE the LLM await. ----
     conn = await _open_conn("task_normalize_location")
@@ -94,6 +100,17 @@ async def normalize_location(job_id: str) -> None:
                 logger.info("normalize_location: job %r has no location (no-location); marked failed", job_id)
                 return _DONE_SENTINEL
             ids = lookup_alias(conn, loc)
+            if ids is not None and len(ids) == 0:
+                # A location_aliases row with zero alias_locations children
+                # violates the writer invariant (every alias is written with
+                # >=1 child). Falling through to Tier-2 self-heals, but at LLM
+                # cost on a string that "should" be a cache hit — make the
+                # violation loud so it's debuggable, not silent spend.
+                logger.warning(
+                    "normalize_location: alias cache invariant violated — alias row for "
+                    "key %r has zero alias_locations children; falling back to Tier-2 for job %r",
+                    normalize_string(loc), job_id,
+                )
             if ids is not None and len(ids) > 0:
                 write_job_locations_from_ids(conn, job_id, ids)
                 conn.commit()
@@ -123,7 +140,31 @@ async def normalize_location(job_id: str) -> None:
             job_id,
         )
         return
-    # LocationLLMError / anthropic.APIError / APITimeoutError -> propagate (Procrastinate retries).
+    except LocationLLMError as exc:
+        # Parse/schema failures can recur deterministically for a pathological
+        # location string. Retries still help (LLM output is nondeterministic),
+        # but the FINAL attempt must mark the row 'failed' (terminal, like the
+        # no-location and low-confidence paths) instead of leaving NULL —
+        # otherwise the scan_unnormalized safety-net re-defers the job every
+        # tick forever (the queueing_lock frees on terminal queue failure),
+        # burning ~5 Haiku calls per tick per stuck job indefinitely.
+        attempts = context.job.attempts if context is not None and context.job is not None else 0
+        if attempts < _RETRY_MAX_ATTEMPTS:
+            raise  # not the last run: propagate so Procrastinate retries.
+        conn2 = await _open_conn("task_normalize_location_llmfail")
+        try:
+            await asyncio.to_thread(set_normalization_status, conn2, job_id, "failed")
+            await asyncio.to_thread(conn2.commit)
+        finally:
+            await _close_conn(conn2)
+        logger.error(
+            "normalize_location: job %r permanently unparseable after %d attempts "
+            "(location=%r); marked failed (terminal): %s",
+            job_id, attempts + 1, location, exc,
+        )
+        raise  # keep the Procrastinate job record honest (it did fail).
+    # anthropic.APIError / APITimeoutError (transient) -> propagate (Procrastinate
+    # retries; the row stays NULL so the safety-net recovers it later).
 
     # ---- Confidence floor (Decision #9): still no conn. ----
     max_conf = max(loc.confidence for loc in locations)

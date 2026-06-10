@@ -194,7 +194,7 @@ async def normalize_location_via_llm(raw: str) -> list[CanonicalLocation]:
 
     client = AsyncAnthropic(api_key=api_key, max_retries=0, timeout=LLM_TIMEOUT_SECONDS)
 
-    # ---- PATH A (PRIMARY): structured outputs ----
+    # Structured outputs (json_schema) — the only call path.
     response = await client.messages.create(
         model=HAIKU_MODEL,
         max_tokens=MAX_TOKENS,

@@ -308,7 +308,12 @@ class AdminNormalizeJobResponse(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
     job_id: str
-    status: str  # "queued"
+    status: str  # "queued" | "reset_defer_failed" (reset committed; safety-net will pick it up)
+    # False when ANTHROPIC_API_KEY is unset: the reset/defer still happened, but
+    # a Tier-1 cache miss will dead-end until the key is configured (the job
+    # stays NULL and auto-recovers once it is set). Surfaced so an explicit
+    # admin action never silently no-ops.
+    key_configured: bool
 
 
 class AdminReNormalizeAllResponse(BaseModel):
@@ -318,6 +323,11 @@ class AdminReNormalizeAllResponse(BaseModel):
 
     reset_count: int
     scan_deferred: bool
+    # False when ANTHROPIC_API_KEY is unset: the reset is committed, but the
+    # deferred scan skips while the key is absent — draining is PAUSED until the
+    # key is set (then it auto-resumes on the next periodic tick). Surfaced so
+    # the break-glass action never claims progress it can't make.
+    key_configured: bool
     # Explicit, surfaced to the operator in the JSON body: this does NOT force
     # fresh LLM re-normalization — it re-applies the pipeline against the
     # current alias cache (incl. manual overrides). To force fresh LLM calls an

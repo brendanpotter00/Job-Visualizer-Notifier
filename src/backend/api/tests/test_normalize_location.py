@@ -10,9 +10,12 @@ import uuid
 import pytest
 from psycopg2 import sql
 
+from procrastinate import JobContext
+from procrastinate.jobs import Job
+
 from api.services.llm_client import CanonicalLocation, LocationLLMError, MissingAnthropicKeyError
 from api.services.location_normalization import normalize_string
-from api.tasks.normalize_location import CONFIDENCE_FLOOR, normalize_location
+from api.tasks.normalize_location import _RETRY_MAX_ATTEMPTS, CONFIDENCE_FLOOR, normalize_location
 
 pytestmark = pytest.mark.asyncio
 
@@ -166,14 +169,54 @@ async def test_missing_api_key_leaves_null_no_raise(db_conn, monkeypatch):
     assert _count(db_conn, _LOCATION_ALIASES) == 0
 
 
+def _ctx(attempts: int) -> JobContext:
+    """A worker-style JobContext whose job has run ``attempts`` prior times."""
+    return JobContext(job=Job(
+        queue="normalize", lock=None, queueing_lock=None,
+        task_name="normalize_location", attempts=attempts,
+    ))
+
+
 async def test_llm_error_propagates_and_status_stays_null(db_conn, monkeypatch):
+    """Non-final attempts: LocationLLMError propagates (Procrastinate retries) and
+    the row stays NULL so a retry / the safety-net can still pick it up."""
+    jid = _insert_job(db_conn, location="sf")
+    _patch_llm(monkeypatch, side_effect=LocationLLMError("unparseable"))
+    with pytest.raises(LocationLLMError):
+        await normalize_location(_ctx(attempts=0), job_id=jid)
+    db_conn.rollback()
+    assert _status(db_conn, jid) is None
+    assert _count(db_conn, _LOCATIONS) == 0
+
+
+async def test_llm_error_final_attempt_marks_failed(db_conn, monkeypatch):
+    """FINAL attempt of a permanent parse failure must mark the row 'failed'.
+
+    Without this, the terminal queue failure frees the queueing_lock while the
+    row stays NULL, so scan_unnormalized re-defers the same job every tick
+    forever — an unbounded LLM-spend loop for any string the model can never
+    parse. 'failed' is terminal: the safety-net's WHERE normalization_status
+    IS NULL no longer selects the row.
+    """
+    jid = _insert_job(db_conn, location="sf")
+    _patch_llm(monkeypatch, side_effect=LocationLLMError("permanently unparseable"))
+    with pytest.raises(LocationLLMError):
+        await normalize_location(_ctx(attempts=_RETRY_MAX_ATTEMPTS), job_id=jid)
+    db_conn.rollback()
+    assert _status(db_conn, jid) == "failed"
+    assert _count(db_conn, _LOCATIONS) == 0
+    assert _job_locations(db_conn, jid) == []
+
+
+async def test_llm_error_without_context_stays_null(db_conn, monkeypatch):
+    """Direct invocation with no JobContext (attempts unknown) must behave like a
+    non-final attempt: propagate and leave the row NULL."""
     jid = _insert_job(db_conn, location="sf")
     _patch_llm(monkeypatch, side_effect=LocationLLMError("unparseable"))
     with pytest.raises(LocationLLMError):
         await normalize_location(job_id=jid)
     db_conn.rollback()
     assert _status(db_conn, jid) is None
-    assert _count(db_conn, _LOCATIONS) == 0
 
 
 async def test_low_confidence_marks_failed_no_writes(db_conn, monkeypatch):

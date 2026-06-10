@@ -10,6 +10,7 @@ from procrastinate import exceptions as procrastinate_exceptions
 from psycopg2.extensions import connection as Connection
 
 from ..auth.dependencies import TokenClaims, require_admin
+from ..config import settings
 from ..dependencies import get_db
 from ..models import (
     AdminAliasListResponse,
@@ -188,7 +189,12 @@ async def admin_normalize_job(
 
     The audit agent's per-job fix (Decision #10). Keys on `id` alone (globally
     unique in practice; the task does likewise). 404 if no such job. Returns
-    200 with {jobId, status: "queued"} on a successful defer.
+    200 with status "queued" on a successful defer (or when an equivalent
+    normalize is already enqueued — queueing_lock collapse), or status
+    "reset_defer_failed" when the defer fails after the reset committed (the
+    safety-net scan picks the NULL row up within ~5 minutes). `keyConfigured`
+    is False when ANTHROPIC_API_KEY is unset — a Tier-1 miss will then stay
+    NULL until the key is set.
 
     The DB reset is a short sync write via the request connection; the defer is
     awaited on the app connector (opened in the FastAPI lifespan) — mirrors the
@@ -215,10 +221,26 @@ async def admin_normalize_job(
             "admin_normalize_job: normalize_location already enqueued for %s; "
             "reset applied, defer collapsed by queueing_lock", job_id,
         )
-    return AdminNormalizeJobResponse(job_id=job_id, status="queued")
+    except (procrastinate_exceptions.ConnectorException, psycopg2.Error):
+        # The reset already committed; a failed defer must NOT 500 after a
+        # successful reset (that hides the partial success — mirrors
+        # admin_re_normalize_all). The row is NULL now, so the periodic
+        # scan_unnormalized tick normalizes it within ~5 minutes anyway.
+        logger.exception(
+            "admin_normalize_job: defer failed after reset committed for %s; "
+            "returning 200 (safety-net will normalize the job)", job_id,
+        )
+        return AdminNormalizeJobResponse(
+            job_id=job_id, status="reset_defer_failed",
+            key_configured=bool(settings.anthropic_api_key),
+        )
+    return AdminNormalizeJobResponse(
+        job_id=job_id, status="queued",
+        key_configured=bool(settings.anthropic_api_key),
+    )
 
 
-@router.put("/locations/aliases/{raw_text}", response_model=AdminAliasResponse)
+@router.put("/locations/aliases/{raw_text:path}", response_model=AdminAliasResponse)
 def admin_override_alias(
     raw_text: str,
     body: AdminAliasOverrideRequest,
@@ -229,7 +251,10 @@ def admin_override_alias(
 
     OVERWRITE / manual-wins semantics:
       * key = normalize_string(raw_text)  (the URL path segment is the raw
-        string; we URL-decode then normalize it to the cache key).
+        string; we URL-decode then normalize it to the cache key). The
+        `:path` converter lets the segment carry literal slashes — real
+        location strings like "EMEA / Remote" are exactly the messy
+        multi-location inputs this override exists to correct.
       * Upsert each location spec into `locations` (NULLS-NOT-DISTINCT dedup).
       * Upsert the alias as source='manual', confidence=1.0 with
         ON CONFLICT (raw_text) DO UPDATE — promotes a cached 'llm' alias to
@@ -347,12 +372,28 @@ async def admin_re_normalize_all(
             "committed; returning 200 (periodic scan will drain the backlog)"
         )
 
+    key_configured = bool(settings.anthropic_api_key)
+    note = (
+        "Re-applies the normalization pipeline against the current alias "
+        "cache (manual overrides preserved). Does NOT force fresh LLM "
+        "re-normalization; clear the alias tables manually to do that."
+    )
+    if not key_configured:
+        # The reset committed, but the deferred scan skips while the key is
+        # absent — without this the break-glass action would claim progress
+        # that won't happen until someone sets the key.
+        note += (
+            " WARNING: ANTHROPIC_API_KEY is not configured — draining is "
+            "PAUSED until the key is set (it then auto-resumes on the next "
+            "periodic scan tick)."
+        )
+        logger.warning(
+            "admin_re_normalize_all: reset %d row(s) but ANTHROPIC_API_KEY is "
+            "unset; draining paused until the key is configured", reset_count,
+        )
     return AdminReNormalizeAllResponse(
         reset_count=reset_count,
         scan_deferred=scan_deferred,
-        note=(
-            "Re-applies the normalization pipeline against the current alias "
-            "cache (manual overrides preserved). Does NOT force fresh LLM "
-            "re-normalization; clear the alias tables manually to do that."
-        ),
+        key_configured=key_configured,
+        note=note,
     )

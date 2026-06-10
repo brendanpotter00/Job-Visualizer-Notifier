@@ -96,3 +96,24 @@ All three passes converged. No Critical/Important findings remain in code. Outst
 - **Follow-ups:** partial index on `normalization_status` (CONCURRENTLY) once backlog drains; document the `%2F`-in-raw_text proxy edge for alias-override callers; deferred type/comment polish.
 
 ---
+
+## 2026-06-09 — Review pass 4 (independent /pr-review-toolkit:review-pr of PR #145)
+
+Agents: code-reviewer, silent-failure-hunter, pr-test-analyzer, type-design-analyzer, comment-analyzer (all 5, parallel, fresh context against `git diff main...HEAD`).
+
+### Findings
+- **Critical C1 (code-reviewer + silent-failure-hunter, independently):** permanently-unparseable locations looped forever — `LocationLLMError` exhausts Procrastinate's 5 retries, the queue job fails terminally (freeing the queueing_lock) but `normalization_status` stays NULL, so `scan_unnormalized` re-defers the same job every 5-minute tick (~1,440 Haiku calls/day per stuck job) with healthy-looking INFO logs.
+- **Critical C2 (type-design-analyzer):** `PUT /locations/aliases/{raw_text}` with two specs resolving to the same canonical identity PK-violated `alias_locations` (manual path had no dedup, unlike `persist_llm_result`) → 500 instead of success/422.
+- **Important:** I1 `{raw_text}` route param couldn't match slash-bearing locations ("EMEA / Remote") — the primary correction primitive; I2 `admin_normalize_job` 500'd on defer failure after a committed reset (sibling endpoint had FIX-4, this one didn't); I3 `re-normalize-all` claimed success with no `ANTHROPIC_API_KEY` (deferred scan silently skips); I4 empty-alias cache-invariant violation fell through to a paid LLM call unlogged; I5 two rotted code comments (`location_normalization.py` module docstring still said writers don't live there; `PATH A (PRIMARY)` label outlived FIX-8) + three stale PLAN.md claims (FK shown on `job_locations` that was deliberately dropped; `'pending'` status; `upsert_jobs_batch` listed as changed).
+- **Non-blocking suggestions logged for follow-up:** schema hardening (CHECKs on kind/source/confidence/normalization_status, single-`is_primary` partial unique index, `UNIQUE(raw_text, position)`), Pydantic `LocationSpec`/`CanonicalLocation` shared base, drop redundant `idx_job_locations_job_listing_id`, Tier-1-HIT replace-semantics + two-transaction-discipline regression tests.
+
+### Implementation applied (pass 4)
+- **C1:** `normalize_location` now takes `pass_context=True`; on the FINAL attempt (`job.attempts >= _RETRY_MAX_ATTEMPTS`) a `LocationLLMError` marks the row `'failed'` (terminal, like the no-location/low-confidence paths) and logs at ERROR with the raw string, then re-raises. Transient `APIError`/`APITimeoutError` keep retry-and-stay-NULL. Tests: `test_llm_error_final_attempt_marks_failed`, `test_llm_error_without_context_stays_null`.
+- **C2:** `upsert_manual_alias` dedups resolved location ids first-seen-order (mirrors `persist_llm_result`). Test: `test_duplicate_canonical_specs_dedup_not_500`.
+- **I1:** route is now `{raw_text:path}`. Test: `test_slash_in_raw_text_routes_and_upserts`. (Closes the pass-3 "%2F proxy edge" follow-up at the route layer.)
+- **I2:** `admin_normalize_job` catches `(ConnectorException, psycopg2.Error)` on defer → 200 `status="reset_defer_failed"`. Test: `test_returns_200_when_defer_fails_after_reset`.
+- **I3:** both normalize endpoints return `keyConfigured`; re-normalize-all appends a draining-PAUSED warning to `note` and logs WARNING when the key is unset. Tests: `test_key_configured_flag_reflects_settings`, `test_no_key_surfaces_paused_draining`.
+- **I4:** zero-children alias rows now log a WARNING ("alias cache invariant violated") before the Tier-2 fallback.
+- **I5:** rewrote the `location_normalization.py` module docstring (writers live here; the task owns transactions), replaced the `PATH A` label, and corrected the three stale PLAN.md claims (FK delta annotated with do-not-fix warning; `'pending'` removed; `upsert_jobs_batch` row marked unchanged).
+
+**785 backend + 429 scripts tests green** (was 778 + 7 new). `alembic heads` single head `c876c313e55c`; branch contains origin/main.

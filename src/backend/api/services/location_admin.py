@@ -146,6 +146,13 @@ def upsert_manual_alias(
             location_ids: list[int] = []
             for spec in location_specs:
                 location_ids.append(_upsert_location(cur, spec))
+            # Dedup preserving first-seen order (mirrors persist_llm_result): two
+            # specs resolving to the same locations.id (same canonical identity,
+            # possibly different canonical_name) must not double-insert — the
+            # alias_locations INSERT below has no ON CONFLICT, so a duplicate
+            # would PK-violate and turn the whole override into a 500.
+            seen: set[int] = set()
+            location_ids = [lid for lid in location_ids if not (lid in seen or seen.add(lid))]
 
             cur.execute(
                 sql.SQL(
