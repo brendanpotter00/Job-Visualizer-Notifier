@@ -24,6 +24,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'add-quant-firms',
+    title: 'Added 8 quant trading firms',
+    description:
+      'Eight of the largest quantitative / proprietary trading firms are now tracked: Jump Trading, DRW, Akuna Capital, Optiver, IMC Trading, Chicago Trading (CTC), and Hudson River Trading via their Greenhouse boards, plus Belvedere Trading via Lever.',
+    tags: ['new-companies'],
+    date: '2026-06-11',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add them to your company preferences',
+    },
+  },
+  {
     id: 'auto-enroll-new-companies',
     title: 'New companies join your list automatically',
     description:
