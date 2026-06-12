@@ -24,6 +24,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'add-workweave',
+    title: 'Added Workweave',
+    description:
+      'Workweave — a Y Combinator (W25) startup whose product serves 200+ customers including Robinhood and PostHog — is now tracked via its Ashby job board. It is currently hiring across founding engineering, product, design, and go-to-market roles in San Francisco.',
+    tags: ['new-companies'],
+    date: '2026-06-12',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add Workweave to your company preferences',
+    },
+  },
+  {
     id: 'add-quant-firms',
     title: 'Added 8 quant trading firms',
     description:
