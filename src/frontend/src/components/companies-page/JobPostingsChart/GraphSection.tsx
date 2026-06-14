@@ -1,4 +1,6 @@
-import { Typography } from '@mui/material';
+import { useState } from 'react';
+import { Box, ButtonBase, Collapse } from '@mui/material';
+import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import { useAppDispatch, useAppSelector } from '../../../app/hooks';
 import { JobPostingsChart } from './JobPostingsChart';
 import { GraphFilters } from '../GraphFilters.tsx';
@@ -11,11 +13,23 @@ import { openGraphModal } from '../../../features/ui/uiSlice';
 import { ErrorDisplay } from '../../shared/ErrorDisplay.tsx';
 import type { TimeBucket } from '../../../types';
 
+const CHART_REGION_ID = 'job-postings-chart-region';
+
 /**
  * Graph section: the shared filter controls and the postings chart.
  *
  * Rendered inside the page's shared `<Paper>` card (alongside the job list), so
  * it no longer supplies its own card wrapper.
+ *
+ * The timeline chart is collapsible: clicking the header (or its chevron) hides
+ * only the chart. The filters stay visible because they are the single source of
+ * truth that also drives the job list below. State is local and resets to
+ * expanded on each visit — there is no persisted preference. Collapsing uses
+ * `unmountOnExit` so the (heavy) Recharts canvas is fully torn down while hidden.
+ *
+ * The header follows the WAI-ARIA disclosure pattern — a `<button>` (carrying
+ * `aria-expanded` / `aria-controls`) wrapped in an `<h2>` so the section keeps
+ * its heading semantics in the document outline.
  */
 export function GraphSection() {
   const dispatch = useAppDispatch();
@@ -23,6 +37,8 @@ export function GraphSection() {
   const isLoading = useAppSelector(selectCurrentCompanyLoadingRtk);
   const error = useAppSelector(selectCurrentCompanyError);
   const graphFilters = useAppSelector((state) => state.graphFilters.filters);
+
+  const [collapsed, setCollapsed] = useState(false);
 
   const handlePointClick = (bucket: TimeBucket) => {
     if (bucket.count > 0) {
@@ -38,23 +54,70 @@ export function GraphSection() {
 
   return (
     <>
-      <Typography variant="h5" component="h2" gutterBottom>
-        Job Posting Timeline
-      </Typography>
+      <Box component="h2" sx={{ m: 0, mb: 1 }}>
+        <ButtonBase
+          onClick={() => setCollapsed((prev) => !prev)}
+          aria-expanded={!collapsed}
+          aria-controls={CHART_REGION_ID}
+          focusRipple
+          sx={{
+            typography: 'h5',
+            color: 'text.primary',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            textAlign: 'left',
+            // Bleed the hit area into the card padding so the whole header row
+            // is clickable, while the text stays aligned with the content below.
+            width: 'calc(100% + 16px)',
+            mx: -1,
+            px: 1,
+            py: 0.75,
+            borderRadius: 1,
+            transition: (theme) =>
+              theme.transitions.create('background-color', {
+                duration: theme.transitions.duration.shortest,
+              }),
+            '&:hover': { bgcolor: 'action.hover' },
+            '&.Mui-focusVisible': {
+              outline: (theme) => `2px solid ${theme.palette.primary.main}`,
+              outlineOffset: 2,
+            },
+          }}
+        >
+          Job Posting Timeline
+          <KeyboardArrowUpIcon
+            fontSize="small"
+            sx={{
+              ml: 1,
+              color: 'action.active',
+              transition: (theme) =>
+                theme.transitions.create('transform', {
+                  duration: theme.transitions.duration.shorter,
+                }),
+              transform: collapsed ? 'rotate(180deg)' : 'rotate(0deg)',
+            }}
+          />
+        </ButtonBase>
+      </Box>
 
       <GraphFilters />
 
-      {error ? (
-        <ErrorDisplay title="Failed to Load Chart Data" message={error} />
-      ) : (
-        <JobPostingsChart
-          data={bucketData}
-          onPointClick={handlePointClick}
-          timeWindow={graphFilters.timeWindow}
-          isLoading={isLoading}
-          height={400}
-        />
-      )}
+      <Collapse in={!collapsed} timeout="auto" unmountOnExit>
+        <Box id={CHART_REGION_ID}>
+          {error ? (
+            <ErrorDisplay title="Failed to Load Chart Data" message={error} />
+          ) : (
+            <JobPostingsChart
+              data={bucketData}
+              onPointClick={handlePointClick}
+              timeWindow={graphFilters.timeWindow}
+              isLoading={isLoading}
+              height={400}
+            />
+          )}
+        </Box>
+      </Collapse>
     </>
   );
 }

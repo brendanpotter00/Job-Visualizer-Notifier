@@ -31,6 +31,7 @@ All paths below are relative to `src/frontend/src/`.
 - Traditional Redux slices for filters, app, and ui state
 - Factory patterns: `createAPIClient` (api/clients/baseClient.ts) and `createFilterSlice` (features/filters/slices/createFilterSlice.ts)
 - The company hiring-trend page has a single filter source (`graphFilters`) that drives both the graph and the job list — the list reflects the graph
+- The timeline chart in `GraphSection.tsx` is collapsible (local `useState`, default expanded, not persisted); collapsing hides only the chart — the filters stay visible because they also drive the list
 - Jobs normalized by company ID in `byCompany` map for O(1) lookup
 
 **Data Flow:**
