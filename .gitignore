@@ -7,6 +7,10 @@ node_modules/
 coverage/
 .nyc_output
 
+# Playwright / browser-automation artifacts (MCP snapshots, traces)
+.playwright/
+.playwright-mcp/
+
 # Production
 dist/
 build/
