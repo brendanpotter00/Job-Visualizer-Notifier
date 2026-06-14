@@ -36,6 +36,14 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
     },
   },
   {
+    id: 'location-normalization',
+    title: 'Location normalization',
+    description:
+      'Job locations from every source are now standardized into consistent, structured city, region, country, and remote fields. A deterministic alias cache resolves about 90% of raw location strings instantly, and Claude Haiku 4.5 normalizes the rest, including multi-location postings and region-scoped remotes, caching every result for reuse. Normalization runs off the request path on a background worker, with a periodic safety-net task for stragglers and a golden-set eval harness guarding output quality.',
+    tags: ['feature', 'technical'],
+    date: '2026-06-14',
+  },
+  {
     id: 'add-workweave',
     title: 'Added Workweave',
     description:
