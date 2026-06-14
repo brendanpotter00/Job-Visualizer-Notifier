@@ -36,7 +36,16 @@ export function JobCard({ job }: JobCardProps) {
           </Box>
 
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-            {job.location && <Chip label={job.location} size="small" variant="outlined" />}
+            {job.locations && job.locations.length > 0
+              ? job.locations.map((loc) => (
+                  <Chip
+                    key={loc.canonicalName}
+                    label={loc.canonicalName}
+                    size="small"
+                    variant="outlined"
+                  />
+                ))
+              : job.location && <Chip label={job.location} size="small" variant="outlined" />}
             {job.employmentType && (
               <Chip label={job.employmentType} size="small" variant="outlined" />
             )}

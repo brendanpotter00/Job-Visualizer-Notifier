@@ -16,6 +16,17 @@ const seededJobs: Job[] = [
     createdAt: '2026-04-10T10:00:00Z',
     url: 'https://example.com/j1',
     location: 'Hawthorne, CA',
+    locations: [
+      {
+        canonicalName: 'Hawthorne, CA, US',
+        kind: 'city',
+        city: 'Hawthorne',
+        region: 'CA',
+        country: 'US',
+        remoteScope: null,
+        isPrimary: true,
+      },
+    ],
     department: 'Engineering',
     raw: {},
   },
@@ -27,6 +38,17 @@ const seededJobs: Job[] = [
     createdAt: '2026-04-11T10:00:00Z',
     url: 'https://example.com/j2',
     location: 'Remote',
+    locations: [
+      {
+        canonicalName: 'Remote (US)',
+        kind: 'remote',
+        city: null,
+        region: null,
+        country: 'US',
+        remoteScope: 'us',
+        isPrimary: true,
+      },
+    ],
     department: 'People',
     raw: {},
   },
@@ -103,6 +125,17 @@ describe('GraphFilters', () => {
         createdAt: '2026-04-10T10:00:00Z',
         url: 'https://example.com/y1',
         location: 'SF',
+        locations: [
+          {
+            canonicalName: 'San Francisco, CA, US',
+            kind: 'city',
+            city: 'San Francisco',
+            region: 'CA',
+            country: 'US',
+            remoteScope: null,
+            isPrimary: true,
+          },
+        ],
         raw: {},
       },
     ];

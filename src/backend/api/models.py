@@ -28,6 +28,26 @@ CompanyId = Annotated[
 ]
 
 
+class JobLocationResponse(BaseModel):
+    """One normalized canonical location tag attached to a job.
+
+    Mirrors a ``locations`` row reached through the ``job_locations`` join.
+    The DB layer builds these as camelCase JSON via ``json_build_object`` (see
+    ``services.database._LOCATIONS_SUBQUERY``), so the camelCase keys land on the
+    aliases here; ``populate_by_name`` also accepts the snake_case field names.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    canonical_name: str
+    kind: str
+    city: str | None = None
+    region: str | None = None
+    country: str | None = None
+    remote_scope: str | None = None
+    is_primary: bool
+
+
 class JobListingResponse(BaseModel):
     """Matches the frontend BackendJobListing TypeScript interface."""
 
@@ -36,7 +56,12 @@ class JobListingResponse(BaseModel):
     id: str
     title: str
     company: str
+    # Raw scraped location string, kept for display fallback on jobs that have
+    # not been normalized yet. Filtering uses ``locations`` (the canonical tags).
     location: str | None = None
+    # Normalized canonical location tags (multi-location aware). Empty list for
+    # jobs whose ``normalization_status`` is NULL/failed.
+    locations: list[JobLocationResponse] = Field(default_factory=list)
     url: str
     source_id: str
     details: str  # JSON string, not parsed object

@@ -8,6 +8,24 @@
 export type ATSProvider = 'backend-scraper';
 
 /**
+ * A normalized canonical location tag attached to a job (city, region,
+ * country, or remote). A job can carry several; the location filter treats
+ * each as a tag so one "Austin, TX, US" option matches every job tagged with it.
+ */
+export interface JobLocation {
+  /** Clean display label, e.g. "Austin, TX, US". */
+  canonicalName: string;
+  /** 'city' | 'region' | 'country' | 'remote'. */
+  kind: string;
+  city?: string | null;
+  region?: string | null;
+  /** Short country code, e.g. "US". */
+  country?: string | null;
+  remoteScope?: string | null;
+  isPrimary: boolean;
+}
+
+/**
  * Normalized job posting model.
  * All ATS-specific data is transformed into this structure.
  */
@@ -30,8 +48,11 @@ export interface Job {
   /** Team within department (if available) */
   team?: string;
 
-  /** Location (city, state, country) */
+  /** Raw location string from the ATS/scraper (used for free-text search and display fallback). */
   location?: string;
+
+  /** Normalized canonical location tags (multi-location aware); used by the location filter. */
+  locations?: JobLocation[];
 
   /** Remote work indicator */
   isRemote?: boolean;

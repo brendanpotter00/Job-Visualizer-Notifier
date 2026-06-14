@@ -111,11 +111,22 @@ export const selectRecentJobsFilteredWithoutLocation = createSelector(
 export const selectRecentAvailableLocations = createSelector(
   [selectRecentJobsFilteredWithoutLocation],
   (jobs) => {
+    // Build options from normalized canonical tags, not raw strings: all the
+    // Austin variants and the ";"-joined multi-location strings collapse into
+    // single tags like "Austin, TX, US". Prepend the "United States" meta-option
+    // when any job carries a US-country tag.
     const locations = new Set<string>();
+    let hasUSLocations = false;
     jobs.forEach((job) => {
-      if (job.location) locations.add(job.location);
+      job.locations?.forEach((loc) => {
+        locations.add(loc.canonicalName);
+        if (loc.country === 'US') hasUSLocations = true;
+      });
     });
-    return Array.from(locations).sort();
+    const sorted = Array.from(locations).sort();
+    // Dedupe: a canonical "United States" country tag (raw location was "US")
+    // collides with the prepended meta-option — keep one (the meta, at front).
+    return hasUSLocations ? Array.from(new Set(['United States', ...sorted])) : sorted;
   }
 );
 

@@ -9,6 +9,32 @@ from scripts.shared.constants import SourceId
 from .conftest import _make_job, _insert_job
 
 
+def _insert_location(conn, *, id, canonical_name, kind="city", city=None,
+                     region=None, country=None, remote_scope=None) -> None:
+    """Insert a canonical ``locations`` row with an explicit id."""
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO locations"
+        " (id, canonical_name, kind, city, region, country, remote_scope)"
+        " VALUES (%s, %s, %s, %s, %s, %s, %s)",
+        (id, canonical_name, kind, city, region, country, remote_scope),
+    )
+    conn.commit()
+
+
+def _link_job_location(conn, *, job_listing_id, normalized_location_id,
+                       is_primary=False) -> None:
+    """Link a job to a canonical location via the ``job_locations`` join."""
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO job_locations"
+        " (job_listing_id, normalized_location_id, is_primary)"
+        " VALUES (%s, %s, %s)",
+        (job_listing_id, normalized_location_id, is_primary),
+    )
+    conn.commit()
+
+
 @pytest.fixture(autouse=True)
 def seed_jobs(db_conn):
     """Seed the 4 default test jobs used by most tests.
@@ -333,3 +359,71 @@ def test_get_jobs_returns_iso8601_datetime_strings(client, db_conn):
     # Guardrail: the seeded job above should have exercised both fields.
     assert saw_posted_on, "expected at least one job with non-null postedOn"
     assert saw_closed_on, "expected at least one job with non-null closedOn"
+
+
+# -- Normalized location tags (job_locations join) --
+
+
+def test_get_jobs_includes_normalized_location_tags(client, db_conn):
+    """A multi-location job exposes all its canonical tags, primary first.
+
+    This is the contract the Recent Jobs location filter relies on: one job ->
+    N location tags, so selecting "Austin, TX, US" matches a job that is also
+    tagged Atlanta.
+    """
+    _insert_location(db_conn, id=9001, canonical_name="Austin, TX, US",
+                     city="Austin", region="TX", country="US")
+    _insert_location(db_conn, id=9002, canonical_name="Atlanta, GA, US",
+                     city="Atlanta", region="GA", country="US")
+    _insert_job(db_conn, _make_job({
+        "id": "multi-loc-1", "company": "google", "source_id": SourceId.GOOGLE,
+        "location": "Austin, TX, USA; Atlanta, GA, USA",
+    }))
+    # Insert non-primary first to prove ordering is by is_primary, not insert order.
+    _link_job_location(db_conn, job_listing_id="multi-loc-1",
+                       normalized_location_id=9002, is_primary=False)
+    _link_job_location(db_conn, job_listing_id="multi-loc-1",
+                       normalized_location_id=9001, is_primary=True)
+
+    resp = client.get("/api/jobs", params={"company": "google"})
+    assert resp.status_code == 200
+    job = next(j for j in resp.json() if j["id"] == "multi-loc-1")
+
+    tags = job["locations"]
+    assert [t["canonicalName"] for t in tags] == ["Austin, TX, US", "Atlanta, GA, US"]
+    assert tags[0]["isPrimary"] is True
+    assert tags[1]["isPrimary"] is False
+    assert tags[0]["kind"] == "city"
+    assert tags[0]["city"] == "Austin"
+    assert tags[0]["region"] == "TX"
+    assert tags[0]["country"] == "US"
+    assert tags[0]["remoteScope"] is None
+
+
+def test_get_jobs_returns_empty_locations_for_unnormalized_job(client):
+    """A job with no job_locations rows (unnormalized) returns locations: []."""
+    resp = client.get("/api/jobs", params={"company": "apple"})
+    # apple-101 (Austin, TX) is seeded with no normalized tags.
+    job = next(j for j in resp.json() if j["id"] == "apple-101")
+    assert job["locations"] == []
+
+
+def test_get_job_by_id_includes_location_tags(client, db_conn):
+    """The detail endpoint also surfaces the canonical location tags."""
+    _insert_location(db_conn, id=9100, canonical_name="Remote (US)",
+                     kind="remote", country="US", remote_scope="us")
+    _insert_job(db_conn, _make_job({
+        "id": "detail-loc-1", "company": "google", "source_id": SourceId.GOOGLE,
+        "location": "Remote - US",
+    }))
+    _link_job_location(db_conn, job_listing_id="detail-loc-1",
+                       normalized_location_id=9100, is_primary=True)
+
+    resp = client.get(f"/api/jobs/{SourceId.GOOGLE}/detail-loc-1")
+    assert resp.status_code == 200
+    tags = resp.json()["locations"]
+    assert len(tags) == 1
+    assert tags[0]["canonicalName"] == "Remote (US)"
+    assert tags[0]["kind"] == "remote"
+    assert tags[0]["city"] is None
+    assert tags[0]["remoteScope"] == "us"

@@ -56,6 +56,9 @@ CURATED_CASES: list[dict] = [
      "expected": [_city("Seattle", "WA")], "gating": True},
     {"id": "simple-chicago-bare", "raw": "Chicago", "category": "simple",
      "expected": [_city("Chicago", "IL")], "gating": True, "notes": "infer region/country from a famous city"},
+    {"id": "verbose-austin-us", "raw": "Austin, Texas, United States", "category": "simple",
+     "expected": [_city("Austin", "TX")], "gating": True,
+     "notes": "verbose full-name form -> concise codes; prod-confirmed (user-flagged dropdown variant)"},
 
     # ---- reversed order (gating; very common in prod) ----
     {"id": "reversed-redmond", "raw": "United States, Washington, Redmond", "category": "reversed",
@@ -70,6 +73,9 @@ CURATED_CASES: list[dict] = [
      "expected": [_city("Raleigh", "NC"), _city("Durham", "NC")], "gating": True},
     {"id": "multi-mtv-austin", "raw": "Mountain View, CA, USA; Austin, TX, USA", "category": "multi",
      "expected": [_city("Mountain View", "CA"), _city("Austin", "TX")], "gating": True},
+    {"id": "multi-austin-atlanta", "raw": "Austin, TX, USA; Atlanta, GA, USA", "category": "multi",
+     "expected": [_city("Austin", "TX"), _city("Atlanta", "GA")], "gating": True,
+     "notes": "user-flagged: appeared as ONE dropdown option; must split into two city tags"},
 
     # ---- multi-location synthetic delimiters (robustness; '/' and 'or' ~absent in prod) ----
     {"id": "multi-slash", "raw": "Bellevue, WA / Seattle, WA", "category": "multi",
@@ -111,6 +117,11 @@ CURATED_CASES: list[dict] = [
      "expected": [_city("Reston", "VA")], "gating": True, "notes": "strip site code"},
     {"id": "building-ashville", "raw": "Ashville, OH (Arsenal 1)", "category": "parenthetical",
      "expected": [_city("Ashville", "OH")], "gating": True},
+    {"id": "building-atlanta-atl01", "raw": "Atlanta, GA (ATL-01)", "category": "parenthetical",
+     "expected": [_city("Atlanta", "GA")], "gating": True, "notes": "strip office code; user-flagged dropdown variant"},
+    {"id": "building-austin-dash", "raw": "Austin - 5323", "category": "parenthetical",
+     "expected": [_city("Austin", "TX")], "gating": True,
+     "notes": "bare city + dash site-number; strip code + infer TX; prod-confirmed (user-flagged)"},
     {"id": "building-mtv-code", "raw": "Mountain View (US-MTV-EMF680)", "category": "parenthetical",
      "expected": [_city("Mountain View", "CA")], "gating": True, "notes": "Workday building code; infer CA/US"},
     {"id": "street-chandler", "raw": "Chandler - 300 N 56th St", "category": "parenthetical",

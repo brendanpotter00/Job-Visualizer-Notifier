@@ -7,7 +7,6 @@ import type {
   RecentJobsFilters,
 } from '../../../types';
 import { getTimeWindowDuration } from '../../../lib/date.ts';
-import { isUnitedStatesLocation } from '../../../lib/location.ts';
 
 /**
  * Shared utility functions for job filtering logic.
@@ -72,20 +71,30 @@ export function matchesSearchTags(job: Job, searchTags: SearchTag[] | undefined)
 }
 
 /**
- * Check if a job matches location filter (multi-select with OR logic)
+ * Check if a job matches the location filter (multi-select with OR logic).
+ *
+ * Matches against the job's normalized canonical tags (`job.locations`), so a
+ * multi-location job is matched by ANY of its tags. A job with no tags
+ * (unnormalized or failed normalization) matches no specific location filter —
+ * there is intentionally no raw-string fallback.
  */
 export function matchesLocation(job: Job, locations: string[] | undefined): boolean {
   if (!locations || locations.length === 0) {
     return true;
   }
 
+  const tags = job.locations;
+  if (!tags || tags.length === 0) {
+    return false;
+  }
+
   return locations.some((filterLoc) => {
-    // Special handling for "United States" meta-filter
+    // "United States" meta-filter: any tag with a US country code.
     if (filterLoc === 'United States') {
-      return isUnitedStatesLocation(job.location);
+      return tags.some((tag) => tag.country === 'US');
     }
-    // Exact match for specific locations
-    return job.location === filterLoc;
+    // Specific location: any tag whose canonical name matches.
+    return tags.some((tag) => tag.canonicalName === filterLoc);
   });
 }
 

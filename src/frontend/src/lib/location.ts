@@ -2,6 +2,8 @@
  * Utility functions for location filtering and detection
  */
 
+import type { JobLocation } from '../types';
+
 /**
  * All 50 US state abbreviations
  */
@@ -93,4 +95,25 @@ export function isUnitedStatesLocation(location: string | undefined): boolean {
 
   // Check for ", XX" pattern where XX is a US state code
   return STATE_PATTERN.test(location);
+}
+
+/**
+ * Display label for a job's location.
+ *
+ * Prefers the normalized canonical tags (joined), which are clean and
+ * deduplicated, and falls back to the raw scraped string for jobs that have
+ * not been normalized yet. Returns undefined when neither is available.
+ *
+ * @example
+ * formatJobLocations([{ canonicalName: 'Austin, TX, US', ... }]) // "Austin, TX, US"
+ * formatJobLocations([], 'Austin - 5323') // "Austin - 5323" (raw fallback)
+ */
+export function formatJobLocations(
+  locations: JobLocation[] | undefined,
+  rawFallback?: string
+): string | undefined {
+  if (locations && locations.length > 0) {
+    return locations.map((loc) => loc.canonicalName).join('; ');
+  }
+  return rawFallback || undefined;
 }

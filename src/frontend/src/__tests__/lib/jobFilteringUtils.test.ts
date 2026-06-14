@@ -9,21 +9,33 @@ import {
   filterJobsByFilters,
 } from '../../features/filters/utils/jobFilteringUtils';
 
-// Helper to create mock jobs
-const createMockJob = (overrides: Partial<Job> = {}): Job => ({
-  id: '1',
-  source: 'backend-scraper',
-  company: 'test-company',
-  title: 'Software Engineer',
-  department: 'Engineering',
-  team: 'Backend',
-  location: 'San Francisco',
-  employmentType: 'Full-time',
-  createdAt: new Date().toISOString(),
-  url: 'https://example.com/job/1',
-  raw: {},
-  ...overrides,
-});
+// Helper to create mock jobs.
+// Derives a single canonical location tag from the raw `location` string
+// (canonicalName === the string) unless the caller passes `locations`
+// explicitly — so the many location-bearing fixtures keep working against the
+// tag-based location matcher.
+const createMockJob = (overrides: Partial<Job> = {}): Job => {
+  const job: Job = {
+    id: '1',
+    source: 'backend-scraper',
+    company: 'test-company',
+    title: 'Software Engineer',
+    department: 'Engineering',
+    team: 'Backend',
+    location: 'San Francisco',
+    employmentType: 'Full-time',
+    createdAt: new Date().toISOString(),
+    url: 'https://example.com/job/1',
+    raw: {},
+    ...overrides,
+  };
+  if (job.locations === undefined && job.location) {
+    job.locations = [
+      { canonicalName: job.location, kind: 'city', country: null, isPrimary: true },
+    ];
+  }
+  return job;
+};
 
 describe('jobFilteringUtils', () => {
   describe('isJobWithinTimeWindow', () => {
@@ -187,45 +199,79 @@ describe('jobFilteringUtils', () => {
   });
 
   describe('matchesLocation', () => {
+    const austinTag = {
+      canonicalName: 'Austin, TX, US',
+      kind: 'city',
+      city: 'Austin',
+      region: 'TX',
+      country: 'US',
+      remoteScope: null,
+      isPrimary: true,
+    };
+    const atlantaTag = {
+      canonicalName: 'Atlanta, GA, US',
+      kind: 'city',
+      city: 'Atlanta',
+      region: 'GA',
+      country: 'US',
+      remoteScope: null,
+      isPrimary: false,
+    };
+    const londonTag = {
+      canonicalName: 'London, GB',
+      kind: 'city',
+      city: 'London',
+      region: null,
+      country: 'GB',
+      remoteScope: null,
+      isPrimary: true,
+    };
+
     it('should return true when no location filter provided', () => {
-      const job = createMockJob();
+      const job = createMockJob({ locations: [austinTag] });
 
       expect(matchesLocation(job, undefined)).toBe(true);
       expect(matchesLocation(job, [])).toBe(true);
     });
 
-    it('should match exact location', () => {
-      const job = createMockJob({ location: 'San Francisco' });
+    it('should match a job by its canonical location tag', () => {
+      const job = createMockJob({ locations: [austinTag] });
 
-      expect(matchesLocation(job, ['San Francisco'])).toBe(true);
+      expect(matchesLocation(job, ['Austin, TX, US'])).toBe(true);
     });
 
-    it('should match any location (OR logic)', () => {
-      const job = createMockJob({ location: 'New York' });
+    it('should match a multi-location job by ANY of its tags', () => {
+      const job = createMockJob({ locations: [austinTag, atlantaTag] });
 
-      expect(matchesLocation(job, ['San Francisco', 'New York'])).toBe(true);
+      expect(matchesLocation(job, ['Atlanta, GA, US'])).toBe(true);
+      expect(matchesLocation(job, ['Austin, TX, US'])).toBe(true);
     });
 
-    it('should fail when location does not match', () => {
-      const job = createMockJob({ location: 'Austin' });
+    it('should fail when no tag matches the filter', () => {
+      const job = createMockJob({ locations: [austinTag] });
 
-      expect(matchesLocation(job, ['San Francisco', 'New York'])).toBe(false);
+      expect(matchesLocation(job, ['San Francisco, CA, US', 'New York, NY, US'])).toBe(false);
     });
 
-    it('should handle "United States" meta-filter for US locations', () => {
-      const jobInCalifornia = createMockJob({ location: 'San Francisco, CA' });
-      const jobInTexas = createMockJob({ location: 'Austin, TX' });
-      const jobInUK = createMockJob({ location: 'London, UK' });
+    it('should not match a job with no normalized tags (no raw fallback)', () => {
+      const job = createMockJob({ location: 'Austin, TX', locations: [] });
 
-      expect(matchesLocation(jobInCalifornia, ['United States'])).toBe(true);
-      expect(matchesLocation(jobInTexas, ['United States'])).toBe(true);
-      expect(matchesLocation(jobInUK, ['United States'])).toBe(false);
+      expect(matchesLocation(job, ['Austin, TX, US'])).toBe(false);
+      expect(matchesLocation(job, ['United States'])).toBe(false);
+    });
+
+    it('should handle "United States" meta-filter via country code', () => {
+      const usJob = createMockJob({ locations: [austinTag] });
+      const ukJob = createMockJob({ locations: [londonTag] });
+
+      expect(matchesLocation(usJob, ['United States'])).toBe(true);
+      expect(matchesLocation(ukJob, ['United States'])).toBe(false);
     });
 
     it('should handle combination of specific location and United States', () => {
-      const job = createMockJob({ location: 'London, UK' });
+      const job = createMockJob({ locations: [londonTag] });
 
-      expect(matchesLocation(job, ['United States', 'London, UK'])).toBe(true);
+      expect(matchesLocation(job, ['United States', 'London, GB'])).toBe(true);
     });
   });
 
