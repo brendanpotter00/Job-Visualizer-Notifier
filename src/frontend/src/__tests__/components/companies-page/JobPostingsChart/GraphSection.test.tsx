@@ -51,6 +51,20 @@ describe('GraphSection collapse', () => {
     ).toBeInTheDocument();
   });
 
+  it('labels the toggle "Hide graph" when expanded and "Show graph" when collapsed', async () => {
+    renderWithProviders(<GraphSection />);
+
+    // Expanded by default → the action is to hide.
+    expect(screen.getByText('Hide graph')).toBeInTheDocument();
+    expect(screen.queryByText('Show graph')).not.toBeInTheDocument();
+
+    fireEvent.click(getToggle());
+
+    // Collapsed → the action flips to show.
+    expect(await screen.findByText('Show graph')).toBeInTheDocument();
+    expect(screen.queryByText('Hide graph')).not.toBeInTheDocument();
+  });
+
   it('collapses only the chart when toggled — filters stay visible', async () => {
     renderWithProviders(<GraphSection />);
 

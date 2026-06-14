@@ -21,11 +21,12 @@ const CHART_REGION_ID = 'job-postings-chart-region';
  * Rendered inside the page's shared `<Paper>` card (alongside the job list), so
  * it no longer supplies its own card wrapper.
  *
- * The timeline chart is collapsible: clicking the header (or its chevron) hides
- * only the chart. The filters stay visible because they are the single source of
- * truth that also drives the job list below. State is local and resets to
- * expanded on each visit — there is no persisted preference. Collapsing uses
- * `unmountOnExit` so the (heavy) Recharts canvas is fully torn down while hidden.
+ * The timeline chart is collapsible: clicking the header (labelled "Hide graph"
+ * / "Show graph") hides only the chart. The filters stay visible because they are
+ * the single source of truth that also drives the job list below. State is local
+ * and resets to expanded on each visit — there is no persisted preference.
+ * Collapsing uses `unmountOnExit` so the (heavy) Recharts canvas is fully torn
+ * down while hidden.
  *
  * The header follows the WAI-ARIA disclosure pattern — a `<button>` (carrying
  * `aria-expanded` / `aria-controls`) wrapped in an `<h2>` so the section keeps
@@ -61,11 +62,11 @@ export function GraphSection() {
           aria-controls={CHART_REGION_ID}
           focusRipple
           sx={{
-            typography: 'h5',
             color: 'text.primary',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
+            gap: 2,
             textAlign: 'left',
             // Bleed the hit area into the card padding so the whole header row
             // is clickable, while the text stays aligned with the content below.
@@ -85,19 +86,34 @@ export function GraphSection() {
             },
           }}
         >
-          Job Posting Timeline
-          <KeyboardArrowUpIcon
-            fontSize="small"
+          <Box component="span" sx={{ typography: 'h5' }}>
+            Job Posting Timeline
+          </Box>
+          <Box
+            component="span"
             sx={{
-              ml: 1,
-              color: 'action.active',
-              transition: (theme) =>
-                theme.transitions.create('transform', {
-                  duration: theme.transitions.duration.shorter,
-                }),
-              transform: collapsed ? 'rotate(180deg)' : 'rotate(0deg)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 0.5,
+              flexShrink: 0,
+              typography: 'body2',
+              fontWeight: 600,
+              color: 'text.secondary',
             }}
-          />
+          >
+            {collapsed ? 'Show graph' : 'Hide graph'}
+            <KeyboardArrowUpIcon
+              fontSize="small"
+              sx={{
+                color: 'inherit',
+                transition: (theme) =>
+                  theme.transitions.create('transform', {
+                    duration: theme.transitions.duration.shorter,
+                  }),
+                transform: collapsed ? 'rotate(180deg)' : 'rotate(0deg)',
+              }}
+            />
+          </Box>
         </ButtonBase>
       </Box>
 
