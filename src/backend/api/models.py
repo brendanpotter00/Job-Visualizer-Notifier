@@ -302,6 +302,9 @@ class AdminAliasListResponse(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
     aliases: list[AdminAliasResponse]
+    # Bounded count of all aliases matching the same filter — independent of the
+    # page `limit`, so the UI can paginate. Added for the monitor page.
+    total: int = Field(ge=0)
 
 
 class AdminNormalizeJobResponse(BaseModel):
@@ -335,3 +338,136 @@ class AdminReNormalizeAllResponse(BaseModel):
     # current alias cache (incl. manual overrides). To force fresh LLM calls an
     # operator must clear aliases manually (deliberately not one-click).
     note: str
+
+
+# --- Location-normalization MONITOR models (admin read-only oversight) --------
+
+# Invariant set of integrity-check severities. Literal (not str) so the values
+# stay a closed set at the type boundary — a typo'd severity is a compile error.
+CheckSeverity = Literal["ok", "warn", "crit"]
+
+
+class AdminLocationHealthResponse(BaseModel):
+    """Health snapshot for the monitor page (GET /api/admin/locations/health)."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    schema_present: bool
+    window_hours: int
+    null_backlog: int = Field(ge=0)
+    null_aged: int = Field(ge=0)
+    done: int = Field(ge=0)
+    failed: int = Field(ge=0)
+    total: int = Field(ge=0)
+    failed_blank: int = Field(ge=0)
+    failed_nonblank: int = Field(ge=0)
+    # Percentage 0..100 = 100 * failed_nonblank / (done + failed_nonblank); 0.0
+    # when the denominator is 0.
+    failed_nonblank_ratio: float = Field(ge=0)
+    # Minutes since the last worker_heartbeats row; None when the table is absent
+    # or empty.
+    heartbeat_age_minutes: float | None = None
+    # Procrastinate 'normalize' queue counts by status; {} when the procrastinate
+    # tables are absent (NOT ORM tables — guarded by to_regclass).
+    normalize_queue: dict[str, int]
+    # Succeeded normalize events in the window; None when procrastinate tables
+    # are absent.
+    throughput_in_window: int | None = None
+    key_configured: bool
+    dormant: bool
+
+
+class AdminLocationIntegrityCheck(BaseModel):
+    """One C1..C9 integrity probe result."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    id: str
+    label: str
+    count: int = Field(ge=0)
+    severity: CheckSeverity
+
+
+class AdminLocationIntegrityResponse(BaseModel):
+    """GET /api/admin/locations/integrity."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    schema_present: bool
+    checks: list[AdminLocationIntegrityCheck]
+
+
+class AdminReverseLocation(BaseModel):
+    """The canonical location half of a reverse-lookup row.
+
+    A subset of AdminLocationResponse (no `position` — reverse lookup is not
+    scoped to a single alias mapping).
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    id: int
+    canonical_name: str
+    kind: str
+    city: str | None = None
+    region: str | None = None
+    country: str | None = None
+    remote_scope: str | None = None
+
+
+class AdminLocationReverseRow(BaseModel):
+    """One canonical location + every raw_text that maps to it."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    location: AdminReverseLocation
+    raw_texts: list[str]
+
+
+class AdminLocationReverseListResponse(BaseModel):
+    """GET /api/admin/locations/reverse."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    results: list[AdminLocationReverseRow]
+
+
+class AdminAliasOriginal(BaseModel):
+    """One verbatim job-location string + the job ids carrying it."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    original: str
+    job_ids: list[str]
+
+
+class AdminAliasOriginalsResponse(BaseModel):
+    """GET /api/admin/locations/alias-originals."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    raw_text: str
+    total: int = Field(ge=0)
+    originals: list[AdminAliasOriginal]
+
+
+class AdminProblemJob(BaseModel):
+    """One actionable failed job (failed status with a non-blank location)."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    id: str
+    title: str | None = None
+    company: str | None = None
+    location: str | None = None
+    normalization_status: str | None = None
+    last_seen_at: str | None = None
+
+
+class AdminProblemJobsResponse(BaseModel):
+    """GET /api/admin/locations/problem-jobs."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    jobs: list[AdminProblemJob]
+    total: int = Field(ge=0)
