@@ -27,6 +27,18 @@ export const EMPTY_STATE_MESSAGES = {
 } as const;
 
 /**
+ * Messages for the feature Changelog on the /vote-features page
+ */
+export const CHANGELOG_MESSAGES = {
+  /**
+   * End-of-list message shown when every changelog entry has been revealed via
+   * infinite scroll.
+   * @param count - Total number of entries shown
+   */
+  ALL_LOADED: (count: number) => `You're all caught up — showing all ${count} updates`,
+} as const;
+
+/**
  * ARIA labels for accessibility
  */
 export const ARIA_LABELS = {
@@ -34,6 +46,11 @@ export const ARIA_LABELS = {
    * Loading skeleton during infinite scroll
    */
   LOADING_MORE_JOBS: 'Loading more jobs',
+
+  /**
+   * Loading skeleton while revealing more changelog entries
+   */
+  LOADING_MORE_CHANGELOG: 'Loading more changelog entries',
 
   /**
    * Back to top button
