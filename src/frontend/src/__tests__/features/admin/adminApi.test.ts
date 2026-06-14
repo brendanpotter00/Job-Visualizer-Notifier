@@ -317,4 +317,63 @@ describe('adminApi', () => {
     expect(result.data).toBeUndefined();
     expect(result.error).toBeDefined();
   });
+
+  describe('listAdminFeedback', () => {
+    const fakeFeedback = [
+      {
+        id: 'fb1',
+        message: 'love it',
+        userId: 'u1',
+        userEmail: 'a@example.com',
+        displayName: 'Alice',
+        createdAt: '2026-06-01T10:00:00Z',
+      },
+      {
+        id: 'fb2',
+        message: 'anon note',
+        userId: null,
+        userEmail: null,
+        displayName: null,
+        createdAt: '2026-06-02T10:00:00Z',
+      },
+    ];
+
+    it('GETs /api/admin/feedback with Authorization and unwraps the envelope', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ feedback: fakeFeedback }));
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(
+        adminApi.endpoints.listAdminFeedback.initiate()
+      );
+
+      const call = fetchMock.mock.calls[0] as [unknown, unknown];
+      expect(urlFromInput(call[0])).toMatch(/\/api\/admin\/feedback$/);
+      expect(getAuthHeader(call)).toBe('Bearer test-admin-token');
+      expect(result.data).toEqual(fakeFeedback);
+    });
+
+    it('surfaces an error when the 2xx body is missing feedback[]', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({}));
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(
+        adminApi.endpoints.listAdminFeedback.initiate()
+      );
+
+      expect(result.data).toBeUndefined();
+      expect(result.error).toBeDefined();
+    });
+
+    it('surfaces an error when feedback is the wrong type', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ feedback: 'oops' }));
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(
+        adminApi.endpoints.listAdminFeedback.initiate()
+      );
+
+      expect(result.data).toBeUndefined();
+      expect(result.error).toBeDefined();
+    });
+  });
 });

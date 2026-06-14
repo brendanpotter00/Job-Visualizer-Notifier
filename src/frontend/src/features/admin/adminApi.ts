@@ -50,6 +50,23 @@ export interface AdminUsersListResponse {
   users: AdminUserRow[];
 }
 
+/**
+ * One row in the admin User Feedback table. Field names mirror the backend's
+ * camelCased ``FeedbackResponse``. Null user fields ⇒ an anonymous submission.
+ */
+export interface FeedbackRow {
+  id: string;
+  message: string;
+  userId: string | null;
+  userEmail: string | null;
+  displayName: string | null;
+  createdAt: string;
+}
+
+export interface AdminFeedbackListResponse {
+  feedback: FeedbackRow[];
+}
+
 interface AdminApiExtra {
   getTokenOrNull: () => Promise<string | null>;
 }
@@ -67,8 +84,27 @@ export const adminApi = createApi({
       return headers;
     },
   }),
-  tagTypes: ['AdminUsers', 'AdminUsersStats'],
+  tagTypes: ['AdminUsers', 'AdminUsersStats', 'AdminFeedback'],
   endpoints: (builder) => ({
+    listAdminFeedback: builder.query<FeedbackRow[], void>({
+      query: () => '/feedback',
+      transformResponse: (res: unknown): FeedbackRow[] => {
+        // Runtime guard mirroring listAdminUsers: a 2xx body with the wrong
+        // shape (CDN error page, a future paginated envelope) would otherwise
+        // yield ``undefined`` and silently render an empty feedback table.
+        if (
+          res == null ||
+          typeof res !== 'object' ||
+          !Array.isArray((res as { feedback?: unknown }).feedback)
+        ) {
+          throw new Error(
+            'Invalid /api/admin/feedback response: missing feedback[]'
+          );
+        }
+        return (res as AdminFeedbackListResponse).feedback;
+      },
+      providesTags: ['AdminFeedback'],
+    }),
     listAdminUsers: builder.query<AdminUserRow[], void>({
       query: () => '/users',
       transformResponse: (res: unknown): AdminUserRow[] => {
@@ -181,6 +217,7 @@ export const adminApi = createApi({
 });
 
 export const {
+  useListAdminFeedbackQuery,
   useListAdminUsersQuery,
   useGetAdminUsersStatsQuery,
   useGrantAdminMutation,

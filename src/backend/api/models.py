@@ -163,6 +163,41 @@ class FeatureUpvoteStateResponse(BaseModel):
     has_upvoted: bool
 
 
+class FeedbackSubmitRequest(BaseModel):
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
+
+    # min_length=1 rejects an empty body at the 422 boundary; 5000 caps a single
+    # note so an oversized message is rejected before it ever reaches the INSERT.
+    # Whitespace-only bodies pass min_length but are stripped + re-rejected in the
+    # router (Pydantic min_length does not strip).
+    message: str = Field(min_length=1, max_length=5000)
+
+
+class FeedbackResponse(BaseModel):
+    """One feedback row. Used by the public submit ACK and the admin list.
+
+    ``user_id``/``user_email``/``display_name`` are all null for anonymous
+    submissions; when set they are a point-in-time snapshot of the submitter.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    id: str
+    message: str
+    user_id: str | None = None
+    user_email: str | None = None
+    display_name: str | None = None
+    created_at: datetime
+
+
+class AdminFeedbackListResponse(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    feedback: list[FeedbackResponse]
+
+
 class AdminUserRow(BaseModel):
     """One row in the admin Users page roster."""
 

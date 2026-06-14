@@ -30,10 +30,10 @@ describe('VoteFeaturesPage', () => {
     vi.clearAllMocks();
   });
 
-  it('renders the "Vote for features" h1 heading', () => {
+  it('renders the "Give Feedback" h1 heading', () => {
     renderWithProviders(<VoteFeaturesPage />);
     expect(
-      screen.getByRole('heading', { name: /vote for features/i, level: 1 })
+      screen.getByRole('heading', { name: /give feedback/i, level: 1 })
     ).toBeInTheDocument();
   });
 

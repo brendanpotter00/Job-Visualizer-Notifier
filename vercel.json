@@ -29,6 +29,14 @@
       "destination": "/api/features?path=:path"
     },
     {
+      "source": "/api/feedback",
+      "destination": "/api/feedback"
+    },
+    {
+      "source": "/api/feedback/:path(.*)",
+      "destination": "/api/feedback?path=:path"
+    },
+    {
       "source": "/api/admin",
       "destination": "/api/admin"
     },

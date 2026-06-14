@@ -163,4 +163,47 @@ describe('AdminRoute', () => {
     await userEvent.click(retry);
     expect(reload).toHaveBeenCalledTimes(1);
   });
+
+  describe('feedback admin route', () => {
+    function renderFeedbackAt(path: string) {
+      return render(
+        <MemoryRouter initialEntries={[path]}>
+          <Routes>
+            <Route path="/" element={<div>Home</div>} />
+            <Route
+              path="/admin/feedback"
+              element={
+                <AdminRoute>
+                  <div>Feedback Admin Content</div>
+                </AdminRoute>
+              }
+            />
+          </Routes>
+        </MemoryRouter>
+      );
+    }
+
+    it('renders the feedback admin content for an admin', () => {
+      mockCurrentUserState = {
+        user: { isAdmin: true },
+        loading: false,
+        error: null,
+        reload: vi.fn(),
+      };
+      renderFeedbackAt('/admin/feedback');
+      expect(screen.getByText('Feedback Admin Content')).toBeInTheDocument();
+    });
+
+    it('redirects a non-admin away from /admin/feedback', () => {
+      mockCurrentUserState = {
+        user: { isAdmin: false },
+        loading: false,
+        error: null,
+        reload: vi.fn(),
+      };
+      renderFeedbackAt('/admin/feedback');
+      expect(screen.getByText('Home')).toBeInTheDocument();
+      expect(screen.queryByText('Feedback Admin Content')).not.toBeInTheDocument();
+    });
+  });
 });
