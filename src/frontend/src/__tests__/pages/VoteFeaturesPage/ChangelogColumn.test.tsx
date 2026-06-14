@@ -4,11 +4,11 @@ import userEvent from '@testing-library/user-event';
 import { ChangelogColumn } from '../../../pages/VoteFeaturesPage/ChangelogColumn';
 
 // Four entries, two tags. Sorted newest-first the order is:
-// Feature One → Feature Two → Feature Three → Technical One.
+// Feature One → Feature Two → Feature Three → Company One.
 vi.mock('../../../config/changelog', () => {
   // 'improvement' is intentionally an option no mocked entry uses, so selecting
   // it filters the list down to zero and exercises the empty state.
-  const CHANGELOG_TAGS = ['feature', 'technical', 'improvement'] as const;
+  const CHANGELOG_TAGS = ['feature', 'new-companies', 'improvement'] as const;
   const CHANGELOG = [
     {
       id: 'feat-1',
@@ -32,10 +32,10 @@ vi.mock('../../../config/changelog', () => {
       date: '2026-04-18',
     },
     {
-      id: 'tech-1',
-      title: 'Technical One',
-      description: 'Refactor of the old thing.',
-      tags: ['technical'],
+      id: 'comp-1',
+      title: 'Company One',
+      description: 'Added a new company.',
+      tags: ['new-companies'],
       date: '2026-01-10',
     },
   ];
@@ -96,7 +96,7 @@ describe('ChangelogColumn', () => {
     expect(screen.getByText('Feature Two')).toBeInTheDocument();
     // Beyond the initial batch of 2 — not yet rendered.
     expect(screen.queryByText('Feature Three')).not.toBeInTheDocument();
-    expect(screen.queryByText('Technical One')).not.toBeInTheDocument();
+    expect(screen.queryByText('Company One')).not.toBeInTheDocument();
     // End-of-list message is hidden while more remain.
     expect(screen.queryByText(/all 4 updates/i)).not.toBeInTheDocument();
   });
@@ -109,7 +109,7 @@ describe('ChangelogColumn', () => {
     expect(screen.getByText('Feature One')).toBeInTheDocument();
     expect(screen.getByText('Feature Two')).toBeInTheDocument();
     expect(screen.getByText('Feature Three')).toBeInTheDocument();
-    expect(screen.getByText('Technical One')).toBeInTheDocument();
+    expect(screen.getByText('Company One')).toBeInTheDocument();
     // Everything shown — end-of-list message appears.
     expect(screen.getByText(/all 4 updates/i)).toBeInTheDocument();
   });
@@ -120,18 +120,18 @@ describe('ChangelogColumn', () => {
 
     const titles = screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent);
 
-    expect(titles).toEqual(['Feature One', 'Feature Two', 'Feature Three', 'Technical One']);
+    expect(titles).toEqual(['Feature One', 'Feature Two', 'Feature Three', 'Company One']);
   });
 
-  it('selecting "technical" narrows the list to technical-tagged entries only', async () => {
+  it('selecting "new-companies" narrows the list to new-companies-tagged entries only', async () => {
     const user = userEvent.setup();
     render(<ChangelogColumn />);
 
     await user.click(screen.getByRole('combobox', { name: /tags/i }));
     const listbox = await screen.findByRole('listbox');
-    await user.click(within(listbox).getByRole('option', { name: 'technical' }));
+    await user.click(within(listbox).getByRole('option', { name: 'new-companies' }));
 
-    expect(screen.getByText('Technical One')).toBeInTheDocument();
+    expect(screen.getByText('Company One')).toBeInTheDocument();
     expect(screen.queryByText('Feature One')).not.toBeInTheDocument();
     expect(screen.queryByText('Feature Two')).not.toBeInTheDocument();
     // Only 1 entry — below the initial batch size — so the end-of-list "all N
@@ -177,7 +177,7 @@ describe('ChangelogColumn', () => {
     expect(screen.getByText('Feature One')).toBeInTheDocument();
     expect(screen.getByText('Feature Two')).toBeInTheDocument();
     expect(screen.queryByText('Feature Three')).not.toBeInTheDocument();
-    expect(screen.queryByText('Technical One')).not.toBeInTheDocument();
+    expect(screen.queryByText('Company One')).not.toBeInTheDocument();
     // More remain again — end-of-list message hidden.
     expect(screen.queryByText(/all 3 updates/i)).not.toBeInTheDocument();
   });

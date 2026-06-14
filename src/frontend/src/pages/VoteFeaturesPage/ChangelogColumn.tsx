@@ -23,7 +23,6 @@ const BLACK_CHIP_SX: SxProps<Theme> = {
 const TAG_SX: Record<ChangelogTag, SxProps<Theme>> = {
   feature: { bgcolor: 'success.main', color: 'success.contrastText' },
   improvement: BLACK_CHIP_SX,
-  technical: BLACK_CHIP_SX,
   'new-companies': BLACK_CHIP_SX,
 };
 
