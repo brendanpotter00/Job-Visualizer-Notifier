@@ -165,6 +165,17 @@ cd ../..
 
 On every later boot the backend keeps the schema current automatically (`alembic upgrade head` in its lifespan) — you only run this once per fresh database. If a branch switch later stamps your DB at a revision that doesn't exist on the current branch, see *"Backend exits on startup with `Can't locate revision`"* in Troubleshooting.
 
+**Seed the `companies` table (required for any scraped data):**
+
+The bootstrap above stamps Alembic at head *without running migration bodies*, so the `seed_*` company migrations never fire — your `companies` table is **empty**, which means the scraper fan-out has nothing to scrape and `job_listings` stays empty. Apply the idempotent seed (a snapshot of prod's company set, `ON CONFLICT DO NOTHING`):
+
+```bash
+docker exec -i jobscraper-postgres psql -U postgres -d jobscraper \
+  -v ON_ERROR_STOP=1 -f - < src/backend/seed/companies_seed.sql
+```
+
+Safe to re-run any time. Prod is the source of truth — see the header of `src/backend/seed/companies_seed.sql` for the one-line query to refresh the snapshot when companies are added. Once seeded, the in-process Procrastinate worker fans out per-company fetches every 30 min (or trigger immediately via the `/api/jobs-qa/trigger-*-fan-out` admin endpoints) and `job_listings` fills in.
+
 ### 9. Verify
 
 Start each service per the Quick Start section above and confirm the frontend loads at http://localhost:3000.

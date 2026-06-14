@@ -47,7 +47,13 @@ docker compose stop postgres    # or `docker compose down` to remove the contain
   ```bash
   alembic stamp head        # repo root, venv active
   ```
-  If your DB is actually empty (e.g. after `docker compose down -v`), don't stamp — re-run the schema **bootstrap** from [LOCAL-SETUP.md](./LOCAL-SETUP.md) step 8 instead (the Alembic chain can't build an empty DB from scratch).
+  If your DB is actually empty (e.g. after `docker compose down -v`), don't stamp — re-run the schema **bootstrap** from [LOCAL-SETUP.md](./LOCAL-SETUP.md) step 8 instead (the Alembic chain can't build an empty DB from scratch), **then re-seed companies** (the bootstrap skips migration data, so the `companies` table comes up empty and nothing scrapes):
+  ```bash
+  docker exec -i jobscraper-postgres psql -U postgres -d jobscraper \
+    -v ON_ERROR_STOP=1 -f - < src/backend/seed/companies_seed.sql
+  ```
+
+- **UI loads but no companies / no jobs.** The `companies` table is empty (fresh DB after a bootstrap, which skips the `seed_*` migration data). Re-seed with the idempotent snapshot above; the worker fans out and fills `job_listings` within 30 min (or hit `/api/jobs-qa/trigger-*-fan-out` to start now).
 
 - **Every `/api/*` returns 401 / UI shows "Admin status unavailable".** `.env.local` carries a real `INTERNAL_API_KEY` (pulled in by `vercel link`). Comment it out — locally the backend's internal-key gate must stay **open** (unset).
 
