@@ -1,4 +1,3 @@
-import { useMemo, useState } from 'react';
 import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
@@ -13,11 +12,20 @@ import TableSortLabel from '@mui/material/TableSortLabel';
 import { EmptyState } from '../../../components/shared/ErrorDisplay';
 import type { FeedbackRow } from '../../../features/admin/adminApi';
 
-interface FeedbackTableProps {
-  feedback: FeedbackRow[];
-}
-
 type SortDir = 'asc' | 'desc';
+
+interface FeedbackTableProps {
+  /** The current page of rows, already ordered server-side. */
+  feedback: FeedbackRow[];
+  /** Total rows across the whole table (drives the pager). */
+  total: number;
+  page: number;
+  rowsPerPage: number;
+  sortDir: SortDir;
+  onPageChange: (page: number) => void;
+  onRowsPerPageChange: (rowsPerPage: number) => void;
+  onToggleSort: () => void;
+}
 
 function formatSubmitted(iso: string): string {
   if (!iso) return '—';
@@ -49,26 +57,22 @@ function FromCell({ row }: { row: FeedbackRow }) {
   );
 }
 
-export function FeedbackTable({ feedback }: FeedbackTableProps) {
-  const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(25);
-  const [sortDir, setSortDir] = useState<SortDir>('desc');
-
-  const sorted = useMemo(() => {
-    const copy = [...feedback];
-    copy.sort((a, b) => {
-      const cmp = a.createdAt.localeCompare(b.createdAt);
-      return sortDir === 'asc' ? cmp : -cmp;
-    });
-    return copy;
-  }, [feedback, sortDir]);
-
-  const sliced = useMemo(() => {
-    const start = page * rowsPerPage;
-    return sorted.slice(start, start + rowsPerPage);
-  }, [sorted, page, rowsPerPage]);
-
-  if (feedback.length === 0) {
+/**
+ * Presentational table for the admin feedback viewer. Pagination and sort are
+ * controlled by the parent (which turns them into a server query), so this
+ * component only renders the page it is handed — no client-side slicing.
+ */
+export function FeedbackTable({
+  feedback,
+  total,
+  page,
+  rowsPerPage,
+  sortDir,
+  onPageChange,
+  onRowsPerPageChange,
+  onToggleSort,
+}: FeedbackTableProps) {
+  if (total === 0) {
     return <EmptyState title="No feedback yet" message="No feedback has been submitted." />;
   }
 
@@ -84,7 +88,7 @@ export function FeedbackTable({ feedback }: FeedbackTableProps) {
                 <TableSortLabel
                   active
                   direction={sortDir}
-                  onClick={() => setSortDir(sortDir === 'asc' ? 'desc' : 'asc')}
+                  onClick={onToggleSort}
                 >
                   Submitted
                 </TableSortLabel>
@@ -92,7 +96,7 @@ export function FeedbackTable({ feedback }: FeedbackTableProps) {
             </TableRow>
           </TableHead>
           <TableBody>
-            {sliced.map((row) => (
+            {feedback.map((row) => (
               <TableRow key={row.id} hover>
                 <TableCell>
                   <FromCell row={row} />
@@ -108,13 +112,13 @@ export function FeedbackTable({ feedback }: FeedbackTableProps) {
                 </TableCell>
               </TableRow>
             ))}
-            {sliced.length === 0 && (
+            {feedback.length === 0 && (
               <TableRow>
                 <TableCell
                   colSpan={3}
                   sx={{ py: 4, textAlign: 'center', color: 'text.secondary' }}
                 >
-                  No matching feedback.
+                  No feedback on this page.
                 </TableCell>
               </TableRow>
             )}
@@ -123,14 +127,11 @@ export function FeedbackTable({ feedback }: FeedbackTableProps) {
       </TableContainer>
       <TablePagination
         component="div"
-        count={feedback.length}
+        count={total}
         page={page}
-        onPageChange={(_, p) => setPage(p)}
+        onPageChange={(_, p) => onPageChange(p)}
         rowsPerPage={rowsPerPage}
-        onRowsPerPageChange={(e) => {
-          setRowsPerPage(parseInt(e.target.value, 10));
-          setPage(0);
-        }}
+        onRowsPerPageChange={(e) => onRowsPerPageChange(parseInt(e.target.value, 10))}
         rowsPerPageOptions={[25, 50, 100]}
       />
     </Paper>

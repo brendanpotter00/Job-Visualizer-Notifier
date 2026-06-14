@@ -4,7 +4,11 @@ from datetime import datetime, timedelta, timezone
 
 from psycopg2 import sql
 
-from api.services.feedback_service import list_feedback, submit_feedback
+from api.services.feedback_service import (
+    count_feedback,
+    list_feedback,
+    submit_feedback,
+)
 
 from .conftest import _insert_user, _make_user
 
@@ -113,3 +117,33 @@ class TestListFeedback:
         page2 = list_feedback(db_conn, limit=2, offset=2)
         assert [r["message"] for r in page1] == ["m4", "m3"]
         assert [r["message"] for r in page2] == ["m2", "m1"]
+
+    def test_sort_dir_asc_returns_oldest_first(self, db_conn):
+        base = datetime(2026, 6, 1, tzinfo=timezone.utc)
+        _insert_feedback_row(db_conn, "a", "oldest", created_at=base)
+        _insert_feedback_row(db_conn, "b", "middle", created_at=base + timedelta(hours=1))
+        _insert_feedback_row(db_conn, "c", "newest", created_at=base + timedelta(hours=2))
+        rows = list_feedback(db_conn, limit=50, offset=0, sort_dir="asc")
+        assert [r["message"] for r in rows] == ["oldest", "middle", "newest"]
+
+    def test_unknown_sort_dir_falls_back_to_newest_first(self, db_conn):
+        base = datetime(2026, 6, 1, tzinfo=timezone.utc)
+        _insert_feedback_row(db_conn, "a", "oldest", created_at=base)
+        _insert_feedback_row(db_conn, "b", "newest", created_at=base + timedelta(hours=1))
+        rows = list_feedback(db_conn, limit=50, offset=0, sort_dir="garbage")
+        assert [r["message"] for r in rows] == ["newest", "oldest"]
+
+
+class TestCountFeedback:
+    def test_empty_state_returns_zero(self, db_conn):
+        assert count_feedback(db_conn) == 0
+
+    def test_counts_all_rows_regardless_of_page_size(self, db_conn):
+        base = datetime(2026, 6, 1, tzinfo=timezone.utc)
+        for i in range(7):
+            _insert_feedback_row(
+                db_conn, f"id{i}", f"m{i}", created_at=base + timedelta(hours=i)
+            )
+        # A small page must not change the reported total.
+        assert list_feedback(db_conn, limit=2, offset=0) != []
+        assert count_feedback(db_conn) == 7

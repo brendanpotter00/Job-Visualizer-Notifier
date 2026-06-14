@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { Provider } from 'react-redux';
 import { configureStore } from '@reduxjs/toolkit';
 import { adminApi } from '../../../features/admin/adminApi';
@@ -46,6 +47,13 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
+function urlOf(call: unknown[]): string {
+  const input = call[0];
+  if (typeof input === 'string') return input;
+  if (input instanceof Request) return input.url;
+  return String(input);
+}
+
 const SAMPLE = [
   {
     id: 'fb1',
@@ -79,8 +87,8 @@ describe('AdminFeedbackPage', () => {
     expect(screen.getByRole('progressbar')).toBeInTheDocument();
   });
 
-  it('renders the heading, submission count, rows and "Anonymous" for null users', async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ feedback: SAMPLE }));
+  it('renders the heading, submission count (from total), rows and "Anonymous"', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ feedback: SAMPLE, total: 2 }));
     renderPage();
 
     expect(
@@ -95,14 +103,41 @@ describe('AdminFeedbackPage', () => {
     expect(screen.getByText('Anonymous thought')).toBeInTheDocument();
   });
 
+  it('reports the server total even when the page holds fewer rows', async () => {
+    // The page shows 2 rows but total is 60 — the count must reflect the server
+    // total, not the length of the fetched page.
+    fetchMock.mockResolvedValue(jsonResponse({ feedback: SAMPLE, total: 60 }));
+    renderPage();
+    expect(await screen.findByText('60 submissions')).toBeInTheDocument();
+  });
+
   it('uses the singular "submission" label for a single row', async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ feedback: [SAMPLE[0]] }));
+    fetchMock.mockResolvedValue(jsonResponse({ feedback: [SAMPLE[0]], total: 1 }));
     renderPage();
     expect(await screen.findByText('1 submission')).toBeInTheDocument();
   });
 
+  it('refetches with the next offset when the pager advances', async () => {
+    // Fresh Response per call: paging issues two fetches, and a single reused
+    // Response can't have its body consumed twice (RTK Query clones it).
+    fetchMock.mockImplementation(() =>
+      Promise.resolve(jsonResponse({ feedback: SAMPLE, total: 60 }))
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText('Love the new dashboard');
+    expect(urlOf(fetchMock.mock.calls[0])).toContain('offset=0');
+
+    await user.click(screen.getByRole('button', { name: /next page/i }));
+    await waitFor(() => {
+      const urls = fetchMock.mock.calls.map((c) => urlOf(c));
+      expect(urls.some((u) => u.includes('offset=25'))).toBe(true);
+    });
+  });
+
   it('shows an empty state when there is no feedback', async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ feedback: [] }));
+    fetchMock.mockResolvedValue(jsonResponse({ feedback: [], total: 0 }));
     renderPage();
     expect(await screen.findByText(/no feedback has been submitted/i)).toBeInTheDocument();
   });

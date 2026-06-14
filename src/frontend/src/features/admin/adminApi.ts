@@ -65,6 +65,15 @@ export interface FeedbackRow {
 
 export interface AdminFeedbackListResponse {
   feedback: FeedbackRow[];
+  /** Total rows in the table (not just this page) — drives the server-side pager. */
+  total: number;
+}
+
+/** One page request for the admin feedback list (server-side pagination). */
+export interface AdminFeedbackPageArgs {
+  page: number;
+  rowsPerPage: number;
+  sortDir: 'asc' | 'desc';
 }
 
 interface AdminApiExtra {
@@ -86,22 +95,28 @@ export const adminApi = createApi({
   }),
   tagTypes: ['AdminUsers', 'AdminUsersStats', 'AdminFeedback'],
   endpoints: (builder) => ({
-    listAdminFeedback: builder.query<FeedbackRow[], void>({
-      query: () => '/feedback',
-      transformResponse: (res: unknown): FeedbackRow[] => {
+    listAdminFeedback: builder.query<
+      AdminFeedbackListResponse,
+      AdminFeedbackPageArgs
+    >({
+      query: ({ page, rowsPerPage, sortDir }) =>
+        `/feedback?limit=${rowsPerPage}&offset=${page * rowsPerPage}&sort_dir=${sortDir}`,
+      transformResponse: (res: unknown): AdminFeedbackListResponse => {
         // Runtime guard mirroring listAdminUsers: a 2xx body with the wrong
-        // shape (CDN error page, a future paginated envelope) would otherwise
-        // yield ``undefined`` and silently render an empty feedback table.
+        // shape (CDN error page, a missing field) would otherwise yield
+        // ``undefined`` and silently render an empty table / wrong count.
         if (
           res == null ||
           typeof res !== 'object' ||
-          !Array.isArray((res as { feedback?: unknown }).feedback)
+          !Array.isArray((res as { feedback?: unknown }).feedback) ||
+          typeof (res as { total?: unknown }).total !== 'number'
         ) {
           throw new Error(
-            'Invalid /api/admin/feedback response: missing feedback[]'
+            'Invalid /api/admin/feedback response: missing feedback[] or total'
           );
         }
-        return (res as AdminFeedbackListResponse).feedback;
+        const { feedback, total } = res as AdminFeedbackListResponse;
+        return { feedback, total };
       },
       providesTags: ['AdminFeedback'],
     }),

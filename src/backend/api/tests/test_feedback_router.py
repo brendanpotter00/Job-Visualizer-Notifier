@@ -1,9 +1,22 @@
 """Integration tests for the public feedback router (POST /api/feedback)."""
 
+import pytest
 from fastapi.testclient import TestClient
 from psycopg2 import sql
 
 from api.auth.dependencies import get_optional_user_lenient
+from api.config import settings
+from api.services.rate_limit import feedback_rate_limiter
+
+
+@pytest.fixture(autouse=True)
+def _reset_feedback_rate_limiter():
+    """The limiter is a module-level singleton keyed by client IP. Every request
+    from TestClient shares one key, so without a reset the per-IP window would
+    leak across tests and trip the limit. Clear it around each test."""
+    feedback_rate_limiter.reset()
+    yield
+    feedback_rate_limiter.reset()
 
 
 def _count_users(db_conn) -> int:
@@ -141,5 +154,56 @@ class TestSubmitFeedbackValidation:
                 "/api/feedback", json={"message": "ok", "userId": "spoof"}
             )
             assert resp.status_code == 422
+        finally:
+            test_app.dependency_overrides.pop(get_optional_user_lenient, None)
+
+
+class TestSubmitFeedbackRateLimit:
+    def test_429_after_exceeding_per_ip_limit(self, test_app, db_conn):
+        # The same IP submitting faster than the limit gets a 429 with a
+        # Retry-After header; everything up to the limit succeeds.
+        test_app.dependency_overrides[get_optional_user_lenient] = lambda: None
+        max_allowed = settings.feedback_rate_limit_max
+        headers = {"X-Forwarded-For": "203.0.113.5"}
+        try:
+            client = TestClient(test_app)
+            for _ in range(max_allowed):
+                ok = client.post(
+                    "/api/feedback", json={"message": "hi"}, headers=headers
+                )
+                assert ok.status_code == 201, ok.text
+            blocked = client.post(
+                "/api/feedback", json={"message": "too fast"}, headers=headers
+            )
+            assert blocked.status_code == 429
+            assert "Retry-After" in blocked.headers
+        finally:
+            test_app.dependency_overrides.pop(get_optional_user_lenient, None)
+
+    def test_distinct_ips_are_limited_independently(self, test_app, db_conn):
+        # Exhausting one IP's budget must not block a different IP.
+        test_app.dependency_overrides[get_optional_user_lenient] = lambda: None
+        max_allowed = settings.feedback_rate_limit_max
+        try:
+            client = TestClient(test_app)
+            for _ in range(max_allowed):
+                client.post(
+                    "/api/feedback",
+                    json={"message": "a"},
+                    headers={"X-Forwarded-For": "198.51.100.1"},
+                )
+            blocked = client.post(
+                "/api/feedback",
+                json={"message": "a"},
+                headers={"X-Forwarded-For": "198.51.100.1"},
+            )
+            assert blocked.status_code == 429
+            # A fresh IP is unaffected.
+            other = client.post(
+                "/api/feedback",
+                json={"message": "b"},
+                headers={"X-Forwarded-For": "198.51.100.2"},
+            )
+            assert other.status_code == 201, other.text
         finally:
             test_app.dependency_overrides.pop(get_optional_user_lenient, None)

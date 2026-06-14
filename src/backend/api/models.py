@@ -196,6 +196,9 @@ class AdminFeedbackListResponse(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
     feedback: list[FeedbackResponse]
+    # Total rows across the whole table (not just this page) so the admin UI can
+    # paginate server-side and report an accurate count.
+    total: int
 
 
 class AdminUserRow(BaseModel):

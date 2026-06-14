@@ -19,6 +19,7 @@ from ..auth.jwt import get_normalized_subject
 from ..dependencies import get_db
 from ..models import FeedbackResponse, FeedbackSubmitRequest
 from ..services.feedback_service import submit_feedback
+from ..services.rate_limit import enforce_feedback_rate_limit
 from ..services.user_service import get_or_create_user
 
 logger = logging.getLogger(__name__)
@@ -66,7 +67,12 @@ def _resolve_optional_submitter(
     return row["id"], row["email"], row.get("display_name")
 
 
-@router.post("", response_model=FeedbackResponse, status_code=201)
+@router.post(
+    "",
+    response_model=FeedbackResponse,
+    status_code=201,
+    dependencies=[Depends(enforce_feedback_rate_limit)],
+)
 def post_feedback(
     body: FeedbackSubmitRequest,
     conn=Depends(get_db),

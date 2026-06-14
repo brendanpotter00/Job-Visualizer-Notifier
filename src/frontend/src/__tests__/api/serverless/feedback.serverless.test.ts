@@ -54,6 +54,36 @@ describe('/api/feedback serverless function', () => {
     );
   });
 
+  it('forwards the client IP as X-Forwarded-For for backend rate limiting', async () => {
+    mockReq.headers = { 'x-forwarded-for': '203.0.113.7' };
+    fetchMock.mockResolvedValue(mockJsonResponse(201, { id: 'fb1' }));
+    await handler(mockReq as VercelRequest, mockRes as VercelResponse);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        headers: expect.objectContaining({ 'X-Forwarded-For': '203.0.113.7' }),
+      })
+    );
+  });
+
+  it('falls back to x-real-ip when x-forwarded-for is absent', async () => {
+    mockReq.headers = { 'x-real-ip': '198.51.100.4' };
+    fetchMock.mockResolvedValue(mockJsonResponse(201, { id: 'fb1' }));
+    await handler(mockReq as VercelRequest, mockRes as VercelResponse);
+    const calledOptions = fetchMock.mock.calls[0][1] as RequestInit;
+    const headers = calledOptions.headers as Record<string, string>;
+    expect(headers['X-Forwarded-For']).toBe('198.51.100.4');
+  });
+
+  it('omits X-Forwarded-For when no client IP header is present', async () => {
+    mockReq.headers = {};
+    fetchMock.mockResolvedValue(mockJsonResponse(201, { id: 'fb1' }));
+    await handler(mockReq as VercelRequest, mockRes as VercelResponse);
+    const calledOptions = fetchMock.mock.calls[0][1] as RequestInit;
+    const headers = calledOptions.headers as Record<string, string>;
+    expect(headers).not.toHaveProperty('X-Forwarded-For');
+  });
+
   it('omits Authorization when absent (anonymous feedback allowed)', async () => {
     mockReq.headers = {};
     fetchMock.mockResolvedValue(mockJsonResponse(201, { id: 'fb1' }));

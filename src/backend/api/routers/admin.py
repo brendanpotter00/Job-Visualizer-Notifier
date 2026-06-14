@@ -32,7 +32,7 @@ from ..services.admin_service import (
     list_users_with_admin_flag,
     revoke_admin,
 )
-from ..services.feedback_service import list_feedback
+from ..services.feedback_service import count_feedback, list_feedback
 from ..services.location_admin import (
     list_aliases,
     reset_all_normalization,
@@ -89,16 +89,18 @@ def get_admin_users_stats(
 def list_admin_feedback(
     conn: Connection = Depends(get_db),
     _admin: TokenClaims = Depends(require_admin),
-    # Default to the cap: the admin page paginates client-side over the full
-    # returned set, so a param-less call must return the bounded "everything"
-    # (not a silent 50-row slice that would make the page's count + pagination
-    # under-report). Still hard-bounded at 200 by the unbounded-reads rule.
-    limit: int = Query(default=_FEEDBACK_LIST_CAP, ge=1, le=_FEEDBACK_LIST_CAP),
+    # Server-side pagination: the UI requests one page at a time and reads
+    # ``total`` to drive the pager, so it can reach all feedback rather than a
+    # single fetched slice. Page size is hard-bounded at 200 (unbounded-reads
+    # memory rule) and defaults to one screenful.
+    limit: int = Query(default=25, ge=1, le=_FEEDBACK_LIST_CAP),
     offset: int = Query(default=0, ge=0),
+    sort_dir: str = Query(default="desc", pattern="^(asc|desc)$"),
 ):
-    """All user feedback, newest first. Bounded (limit <= 200 — memory rule)."""
+    """One page of user feedback (ordered by ``created_at``) plus the total."""
     try:
-        rows = list_feedback(conn, limit, offset)
+        rows = list_feedback(conn, limit, offset, sort_dir)
+        total = count_feedback(conn)
     except psycopg2.Error:
         conn.rollback()
         logger.exception("Failed to list feedback for admin dashboard")
@@ -114,7 +116,8 @@ def list_admin_feedback(
                 created_at=r["created_at"],
             )
             for r in rows
-        ]
+        ],
+        total=total,
     )
 
 

@@ -108,6 +108,28 @@ describe('GiveFeedbackBox', () => {
     expect(textbox.value).toBe('will fail');
   });
 
+  it('surfaces the backend 429 rate-limit message and keeps the text', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(
+        {
+          detail:
+            "You're sending feedback too quickly. Please wait a moment and try again.",
+        },
+        429
+      )
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<GiveFeedbackBox />);
+
+    const textbox = screen.getByRole('textbox') as HTMLTextAreaElement;
+    await user.type(textbox, 'rapid fire');
+    await user.click(screen.getByRole('button', { name: /send/i }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(/too quickly/i);
+    expect(textbox.value).toBe('rapid fire');
+  });
+
   it('falls back to a generic error message when the body has no detail', async () => {
     fetchMock.mockResolvedValue(jsonResponse({}, 500));
     const user = userEvent.setup();

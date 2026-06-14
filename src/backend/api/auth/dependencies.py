@@ -67,7 +67,10 @@ async def get_optional_user_lenient(
     try:
         return validate_token(credentials.credentials)
     except (jwt.InvalidTokenError, PyJWKClientError) as exc:
-        logger.info(
+        # debug, not info: on a public endpoint a stale token is routine and
+        # high-volume (every request from an expired session hits this), so it
+        # would otherwise be log noise.
+        logger.debug(
             "Ignoring unverifiable token on a public endpoint (treating as "
             "anonymous): %s", exc,
         )

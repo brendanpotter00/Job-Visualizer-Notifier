@@ -32,6 +32,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.headers.authorization) {
     headers['Authorization'] = req.headers.authorization;
   }
+  // Forward the caller's IP so the backend can rate-limit anonymous feedback
+  // per-IP (this is a public, unauthenticated write endpoint). Vercel populates
+  // ``x-forwarded-for`` (falling back to ``x-real-ip``); the backend keys on the
+  // first token. See src/backend/api/services/rate_limit.py for the spoofing
+  // caveat inherent to any IP-based throttle.
+  const forwardedFor = req.headers['x-forwarded-for'] ?? req.headers['x-real-ip'];
+  if (forwardedFor) {
+    headers['X-Forwarded-For'] = Array.isArray(forwardedFor)
+      ? forwardedFor[0]
+      : forwardedFor;
+  }
 
   const fetchOptions: RequestInit = {
     method: req.method,
