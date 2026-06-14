@@ -233,6 +233,28 @@ export const COMPANIES: Company[] = [
   createBackendScraperCompany('fal', 'fal', 'https://boards.greenhouse.io/fal', {
     sourceAts: 'greenhouse',
   }),
+  // Quant / proprietary trading firms (Greenhouse)
+  createBackendScraperCompany('jumptrading', 'Jump Trading', 'https://boards.greenhouse.io/jumptrading', {
+    sourceAts: 'greenhouse',
+  }),
+  createBackendScraperCompany('drw', 'DRW', 'https://job-boards.greenhouse.io/drweng', {
+    sourceAts: 'greenhouse',
+  }),
+  createBackendScraperCompany('akunacapital', 'Akuna Capital', 'https://job-boards.greenhouse.io/akunacapital', {
+    sourceAts: 'greenhouse',
+  }),
+  createBackendScraperCompany('optiver', 'Optiver', 'https://job-boards.greenhouse.io/optiverprivate', {
+    sourceAts: 'greenhouse',
+  }),
+  createBackendScraperCompany('imc', 'IMC Trading', 'https://job-boards.greenhouse.io/imc', {
+    sourceAts: 'greenhouse',
+  }),
+  createBackendScraperCompany('ctc', 'Chicago Trading (CTC)', 'https://job-boards.greenhouse.io/chicagotrading', {
+    sourceAts: 'greenhouse',
+  }),
+  createBackendScraperCompany('hrt', 'Hudson River Trading', 'https://boards.greenhouse.io/wehrtyou', {
+    sourceAts: 'greenhouse',
+  }),
 
   // Lever companies (migrated to backend-scraper)
   createBackendScraperCompany('palantir', 'Palantir', 'https://jobs.lever.co/palantir', {
@@ -249,6 +271,10 @@ export const COMPANIES: Company[] = [
     sourceAts: 'lever',
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring+software+engineer&origin=FACETED_SEARCH',
+  }),
+  // Quant / proprietary trading firm (Lever)
+  createBackendScraperCompany('belvederetrading', 'Belvedere Trading', 'https://jobs.lever.co/belvederetrading', {
+    sourceAts: 'lever',
   }),
   // Ashby companies (migrated to backend-scraper)
   createBackendScraperCompany('notion', 'Notion', 'https://careers.ashbyhq.com/notion', {
@@ -433,6 +459,9 @@ export const COMPANIES: Company[] = [
     sourceAts: 'ashby',
   }),
   createBackendScraperCompany('sierra', 'Sierra', 'https://jobs.ashbyhq.com/Sierra', {
+    sourceAts: 'ashby',
+  }),
+  createBackendScraperCompany('workweave', 'Workweave', 'https://jobs.ashbyhq.com/workweave', {
     sourceAts: 'ashby',
   }),
 
@@ -674,6 +703,7 @@ export const enum COMPANY_IDS {
   Vizcom = 'vizcom',
   Waymo = 'waymo',
   WisprFlow = 'wispr-flow',
+  Workweave = 'workweave',
   Xai = 'xai',
   Zoox = 'zoox',
 }
