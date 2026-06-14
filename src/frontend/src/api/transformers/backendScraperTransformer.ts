@@ -35,6 +35,7 @@ export function transformBackendJob(raw: BackendJobListing, companyId: string): 
     title: raw.title,
     department: details.experience_level,
     location: raw.location || undefined,
+    locations: raw.locations ?? [],
     isRemote: details.is_remote_eligible,
     // employmentType not available from scraper
     createdAt: raw.postedOn || raw.firstSeenAt, // Use actual posted date, fallback to first seen

@@ -14,12 +14,22 @@ from ..config import settings
 from ..dependencies import get_db
 from ..models import (
     AdminAliasListResponse,
+    AdminAliasOriginal,
+    AdminAliasOriginalsResponse,
     AdminAliasOverrideRequest,
     AdminAliasResponse,
     AdminFeedbackListResponse,
+    AdminLocationHealthResponse,
+    AdminLocationIntegrityCheck,
+    AdminLocationIntegrityResponse,
     AdminLocationResponse,
+    AdminLocationReverseListResponse,
+    AdminLocationReverseRow,
     AdminNormalizeJobResponse,
+    AdminProblemJob,
+    AdminProblemJobsResponse,
     AdminReNormalizeAllResponse,
+    AdminReverseLocation,
     AdminUserRow,
     AdminUsersListResponse,
     AdminUsersStatsResponse,
@@ -34,11 +44,16 @@ from ..services.admin_service import (
 )
 from ..services.feedback_service import count_feedback, list_feedback
 from ..services.location_admin import (
+    alias_originals,
+    count_aliases,
     list_aliases,
+    list_problem_jobs,
     reset_all_normalization,
     reset_job_normalization,
+    reverse_lookup_locations,
     upsert_manual_alias,
 )
+from ..services.location_monitor import get_health, get_integrity
 from ..services.location_normalization import normalize_string
 from ..services.user_service import get_user_by_email
 from ..tasks.normalize_location import normalize_location
@@ -333,15 +348,19 @@ def admin_list_aliases(
     _admin: TokenClaims = Depends(require_admin),
     contains: str | None = Query(default=None, max_length=200),
     limit: int = Query(default=50, ge=1, le=_ALIAS_LIST_CAP),
+    offset: int = Query(default=0, ge=0),
 ):
     """Inspect/debug the alias cache. Bounded (limit <= 200 — memory rule).
 
     Filters raw_text by case-insensitive substring when `contains` is given
     (parameterized ILIKE; never string-formatted), else returns the most recent
-    `limit` aliases. Each row includes the mapped canonical locations (ordered).
+    `limit` aliases. `offset` paginates. Each row includes the mapped canonical
+    locations (ordered). `total` is a bounded count under the same filter,
+    independent of `limit`, so the UI can paginate.
     """
     try:
-        rows = list_aliases(conn, contains, limit)
+        rows = list_aliases(conn, contains, limit, offset)
+        total = count_aliases(conn, contains)
     except psycopg2.Error:
         logger.exception("admin_list_aliases failed (contains=%r)", contains)
         raise HTTPException(status_code=500, detail="Failed to list aliases")
@@ -354,7 +373,134 @@ def admin_list_aliases(
                 locations=[AdminLocationResponse(**loc) for loc in a["locations"]],
             )
             for a in rows
+        ],
+        total=total,
+    )
+
+
+# --- Location-normalization MONITOR endpoints (read-only oversight) -----------
+#
+# These STATIC GET paths are registered AFTER the catch-all
+# PUT /locations/aliases/{raw_text:path} (defined earlier in this file), but
+# order is irrelevant here: that route is a PUT under a different path prefix
+# (/locations/aliases/...), so it can never match these GETs on /locations/health,
+# /integrity, /reverse, /alias-originals, or /problem-jobs — the method AND the
+# prefix both differ. (If a future `:path` GET on /locations/... is ever added,
+# register it LAST so it can't shadow these static GETs.)
+
+
+@router.get("/locations/health", response_model=AdminLocationHealthResponse)
+def admin_locations_health(
+    conn: Connection = Depends(get_db),
+    _admin: TokenClaims = Depends(require_admin),
+    window_hours: int = Query(default=24, ge=1, le=168, alias="windowHours"),
+):
+    """Operational health snapshot for the location-normalization pipeline.
+
+    Pure SELECTs (sync def → FastAPI threadpool). `windowHours` bounds the
+    backlog-aging + throughput windows (1..168; 422 outside).
+    """
+    try:
+        result = get_health(conn, window_hours)
+    except psycopg2.Error:
+        logger.exception("admin_locations_health failed (window_hours=%s)", window_hours)
+        raise HTTPException(status_code=500, detail="Failed to load location health")
+    return AdminLocationHealthResponse(**result)
+
+
+@router.get("/locations/integrity", response_model=AdminLocationIntegrityResponse)
+def admin_locations_integrity(
+    conn: Connection = Depends(get_db),
+    _admin: TokenClaims = Depends(require_admin),
+):
+    """Run the C1..C9 data-integrity checks. Pure SELECTs."""
+    try:
+        result = get_integrity(conn)
+    except psycopg2.Error:
+        logger.exception("admin_locations_integrity failed")
+        raise HTTPException(status_code=500, detail="Failed to run integrity checks")
+    return AdminLocationIntegrityResponse(
+        schema_present=result["schema_present"],
+        checks=[AdminLocationIntegrityCheck(**c) for c in result["checks"]],
+    )
+
+
+@router.get("/locations/reverse", response_model=AdminLocationReverseListResponse)
+def admin_locations_reverse(
+    conn: Connection = Depends(get_db),
+    _admin: TokenClaims = Depends(require_admin),
+    contains: str | None = Query(default=None, max_length=200),
+    limit: int = Query(default=50, ge=1, le=_ALIAS_LIST_CAP),
+):
+    """Reverse lookup: canonical locations + every raw_text that maps to each.
+
+    Searches `canonical_name ILIKE %contains%` (parameterized) when `contains`
+    is given, else returns up to `limit` recent locations. Bounded (limit <=
+    200 — memory rule).
+    """
+    try:
+        rows = reverse_lookup_locations(conn, contains, limit)
+    except psycopg2.Error:
+        logger.exception("admin_locations_reverse failed (contains=%r)", contains)
+        raise HTTPException(status_code=500, detail="Failed to reverse-lookup locations")
+    return AdminLocationReverseListResponse(
+        results=[
+            AdminLocationReverseRow(
+                location=AdminReverseLocation(**r["location"]),
+                raw_texts=r["raw_texts"],
+            )
+            for r in rows
         ]
+    )
+
+
+@router.get("/locations/alias-originals", response_model=AdminAliasOriginalsResponse)
+def admin_locations_alias_originals(
+    raw_text: str = Query(..., max_length=400, alias="rawText"),
+    conn: Connection = Depends(get_db),
+    _admin: TokenClaims = Depends(require_admin),
+    limit: int = Query(default=50, ge=1, le=_ALIAS_LIST_CAP),
+):
+    """Verbatim job-location strings that normalize to the given alias key.
+
+    `rawText` is the (already-normalized) alias key. Reconstructs the implicit
+    job→alias link via `normalize_string(job_listings.location) == rawText`
+    (SQL prefilter + Python SSOT verify). Bounded (limit <= 200).
+    """
+    try:
+        result = alias_originals(conn, raw_text, limit)
+    except psycopg2.Error:
+        logger.exception("admin_locations_alias_originals failed (raw_text=%r)", raw_text)
+        raise HTTPException(status_code=500, detail="Failed to load alias originals")
+    return AdminAliasOriginalsResponse(
+        raw_text=result["raw_text"],
+        total=result["total"],
+        originals=[AdminAliasOriginal(**o) for o in result["originals"]],
+    )
+
+
+@router.get("/locations/problem-jobs", response_model=AdminProblemJobsResponse)
+def admin_locations_problem_jobs(
+    conn: Connection = Depends(get_db),
+    _admin: TokenClaims = Depends(require_admin),
+    limit: int = Query(default=50, ge=1, le=_ALIAS_LIST_CAP),
+    offset: int = Query(default=0, ge=0),
+):
+    """Actionable failed jobs: failed status with a NON-blank location.
+
+    Blank-location failures are excluded (nothing to fix). Ordered by
+    last_seen_at DESC; paginated by limit/offset. Bounded (limit <= 200).
+    """
+    try:
+        result = list_problem_jobs(conn, limit, offset)
+    except psycopg2.Error:
+        logger.exception(
+            "admin_locations_problem_jobs failed (limit=%s offset=%s)", limit, offset
+        )
+        raise HTTPException(status_code=500, detail="Failed to load problem jobs")
+    return AdminProblemJobsResponse(
+        jobs=[AdminProblemJob(**j) for j in result["jobs"]],
+        total=result["total"],
     )
 
 

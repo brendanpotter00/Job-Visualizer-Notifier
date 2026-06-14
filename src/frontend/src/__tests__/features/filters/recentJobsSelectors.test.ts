@@ -18,21 +18,31 @@ import {
   selectRecentJobsTimeBasedCounts,
 } from '../../../features/filters/selectors/recentJobsSelectors';
 
-// Helper to create mock jobs
-const createMockJob = (overrides: Partial<Job> = {}): Job => ({
-  id: '1',
-  source: 'backend-scraper',
-  company: 'spacex',
-  title: 'Software Engineer',
-  department: 'Engineering',
-  team: 'Backend',
-  location: 'San Francisco, CA',
-  employmentType: 'Full-time',
-  createdAt: new Date().toISOString(),
-  url: 'https://example.com/job/1',
-  raw: {},
-  ...overrides,
-});
+// Helper to create mock jobs.
+// Derives a single canonical location tag from the raw `location` string
+// (canonicalName === the string, country null so no implicit "United States"
+// option) unless the caller passes `locations` explicitly. Lets the existing
+// dropdown fixtures keep asserting on the same strings under the tag model.
+const createMockJob = (overrides: Partial<Job> = {}): Job => {
+  const job: Job = {
+    id: '1',
+    source: 'backend-scraper',
+    company: 'spacex',
+    title: 'Software Engineer',
+    department: 'Engineering',
+    team: 'Backend',
+    location: 'San Francisco, CA',
+    employmentType: 'Full-time',
+    createdAt: new Date().toISOString(),
+    url: 'https://example.com/job/1',
+    raw: {},
+    ...overrides,
+  };
+  if (job.locations === undefined && job.location) {
+    job.locations = [{ canonicalName: job.location, kind: 'city', country: null, isPrimary: true }];
+  }
+  return job;
+};
 
 // Helper to create a mock store with jobs
 const createMockStoreWithJobs = (
@@ -596,6 +606,157 @@ describe('recentJobsSelectors', () => {
       const companies = selectRecentAvailableCompanies(state);
       expect(companies).toHaveLength(1);
       expect(companies[0].id).toBe('spacex');
+    });
+
+    it('collapses raw location variants into a single canonical tag option', () => {
+      // Three different raw strings + a multi-location string, all normalizing to
+      // the same Austin tag, must yield exactly ONE "Austin, TX, US" option.
+      const austinTag = {
+        canonicalName: 'Austin, TX, US',
+        kind: 'city',
+        city: 'Austin',
+        region: 'TX',
+        country: 'US',
+        remoteScope: null,
+        isPrimary: true,
+      };
+      const atlantaTag = {
+        canonicalName: 'Atlanta, GA, US',
+        kind: 'city',
+        city: 'Atlanta',
+        region: 'GA',
+        country: 'US',
+        remoteScope: null,
+        isPrimary: false,
+      };
+      const jobs: Job[] = [
+        createMockJob({ id: '1', location: 'Austin - 5323', locations: [austinTag] }),
+        createMockJob({
+          id: '2',
+          location: 'Austin, Texas, United States',
+          locations: [austinTag],
+        }),
+        createMockJob({
+          id: '3',
+          location: 'Austin, TX, USA; Atlanta, GA, USA',
+          locations: [austinTag, atlantaTag],
+        }),
+      ];
+
+      const filters: RecentJobsFilters = { timeWindow: 'all', softwareOnly: false };
+      const state = createMockStoreWithJobs(jobs, filters);
+      const result = selectRecentAvailableLocations(state);
+
+      // "United States" meta + synthesized state parents (Georgia, Texas) + the
+      // two distinct canonical city tags. "Austin, TX, US" appears exactly once
+      // despite 3 source rows / raw strings.
+      expect(result).toEqual([
+        'United States',
+        'Georgia, US',
+        'Texas, US',
+        'Atlanta, GA, US',
+        'Austin, TX, US',
+      ]);
+      expect(result.filter((l) => l === 'Austin, TX, US')).toHaveLength(1);
+    });
+
+    it('prepends "United States" only when a job carries a US-country tag', () => {
+      const londonTag = {
+        canonicalName: 'London, GB',
+        kind: 'city',
+        city: 'London',
+        region: null,
+        country: 'GB',
+        remoteScope: null,
+        isPrimary: true,
+      };
+      const jobs: Job[] = [createMockJob({ id: '1', location: 'London', locations: [londonTag] })];
+
+      const filters: RecentJobsFilters = { timeWindow: 'all', softwareOnly: false };
+      const state = createMockStoreWithJobs(jobs, filters);
+      const result = selectRecentAvailableLocations(state);
+
+      expect(result).toEqual(['London, GB']);
+      expect(result).not.toContain('United States');
+    });
+
+    it('does not duplicate "United States" when a canonical country tag already says so', () => {
+      // Raw "US" normalizes to a country-kind tag whose canonicalName IS
+      // "United States"; it must not collide with the prepended meta-option.
+      const usCountryTag = {
+        canonicalName: 'United States',
+        kind: 'country',
+        city: null,
+        region: null,
+        country: 'US',
+        remoteScope: null,
+        isPrimary: true,
+      };
+      const austinTag = {
+        canonicalName: 'Austin, TX, US',
+        kind: 'city',
+        city: 'Austin',
+        region: 'TX',
+        country: 'US',
+        remoteScope: null,
+        isPrimary: true,
+      };
+      const jobs: Job[] = [
+        createMockJob({ id: '1', location: 'US', locations: [usCountryTag] }),
+        createMockJob({ id: '2', location: 'Austin, TX, USA', locations: [austinTag] }),
+      ];
+
+      const filters: RecentJobsFilters = { timeWindow: 'all', softwareOnly: false };
+      const state = createMockStoreWithJobs(jobs, filters);
+      const result = selectRecentAvailableLocations(state);
+
+      expect(result.filter((l) => l === 'United States')).toHaveLength(1);
+      // The country-only tag synthesizes no state; the Austin tag synthesizes "Texas, US".
+      expect(result).toEqual(['United States', 'Texas, US', 'Austin, TX, US']);
+    });
+
+    it('synthesizes a state parent option even when no job is tagged at state level', () => {
+      const cupertinoTag = {
+        canonicalName: 'Cupertino, CA, US',
+        kind: 'city',
+        city: 'Cupertino',
+        region: 'CA',
+        country: 'US',
+        remoteScope: null,
+        isPrimary: true,
+      };
+      const jobs: Job[] = [
+        createMockJob({ id: '1', location: 'Cupertino, CA', locations: [cupertinoTag] }),
+      ];
+      const filters: RecentJobsFilters = { timeWindow: 'all', softwareOnly: false };
+      const state = createMockStoreWithJobs(jobs, filters);
+      const result = selectRecentAvailableLocations(state);
+
+      // "California, US" is offered as a pickable parent even though no job is
+      // tagged at state level — paired with hierarchical matching.
+      expect(result).toEqual(['United States', 'California, US', 'Cupertino, CA, US']);
+    });
+
+    it('does not synthesize US-state options for non-US regions', () => {
+      const torontoTag = {
+        canonicalName: 'Toronto, ON, CA',
+        kind: 'city',
+        city: 'Toronto',
+        region: 'ON',
+        country: 'CA',
+        remoteScope: null,
+        isPrimary: true,
+      };
+      const jobs: Job[] = [
+        createMockJob({ id: '1', location: 'Toronto, ON', locations: [torontoTag] }),
+      ];
+      const filters: RecentJobsFilters = { timeWindow: 'all', softwareOnly: false };
+      const state = createMockStoreWithJobs(jobs, filters);
+      const result = selectRecentAvailableLocations(state);
+
+      expect(result).toEqual(['Toronto, ON, CA']);
+      expect(result).not.toContain('United States');
+      expect(result).not.toContain('Ontario, US');
     });
   });
 

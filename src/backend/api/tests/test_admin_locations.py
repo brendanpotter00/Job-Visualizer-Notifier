@@ -300,6 +300,46 @@ class TestOverrideAlias:
         assert locs[0]["canonicalName"] == "Sunnyvale, CA, US"
         assert locs[1]["canonicalName"] == "Kirkland, WA, US"
 
+    def test_noncanonical_spec_is_canonicalized_before_upsert(self, client, db_conn):
+        """REGRESSION GUARD for _upsert_location's `c = canonicalize(spec)` wiring.
+
+        A manual override may carry a non-canonical country ("USA") and a full
+        US state name ("California"). The persisted location MUST land on the
+        canonical codes (country='US', region='CA') with a RECOMPUTED city label
+        ("San Jose, CA, US"), NOT the raw spec values. Every other PUT spec in
+        this class already uses canonical values (country='US', USPS region
+        codes) — fixed points of canonicalize — so removing the canonicalize()
+        call would leave them green. This non-canonical input fails the moment
+        that call is reverted.
+        """
+        resp = client.put(
+            "/api/admin/locations/aliases/san-jose-noncanon-key",
+            json={"locations": [
+                {"canonicalName": "San Jose, California, USA", "kind": "city",
+                 "city": "San Jose", "region": "California", "country": "USA"},
+            ]},
+        )
+        assert resp.status_code == 200, resp.text
+        loc = resp.json()["locations"][0]
+        # Response reflects the canonicalized codes + recomputed label.
+        assert loc["country"] == "US"
+        assert loc["region"] == "CA"
+        assert loc["canonicalName"] == "San Jose, CA, US"
+        # The raw, non-canonical values must NOT survive.
+        assert loc["country"] != "USA"
+        assert loc["region"] != "California"
+
+        # DB confirms the persisted locations row carries the canonical columns.
+        cur = db_conn.cursor()
+        cur.execute(
+            "SELECT l.canonical_name, l.region, l.country FROM alias_locations al "
+            "JOIN locations l ON l.id = al.normalized_location_id "
+            "WHERE al.raw_text=%s", ("san-jose-noncanon-key",))
+        row = cur.fetchone()
+        assert row["country"] == "US"
+        assert row["region"] == "CA"
+        assert row["canonical_name"] == "San Jose, CA, US"
+
     def test_region_scoped_remote_override_accepted(self, client, db_conn):
         """A manual override can create a region/country-scoped remote (prod has
         'US - AZ - Remote', etc.): city stays None, region/country carry the

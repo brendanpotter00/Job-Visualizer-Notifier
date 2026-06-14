@@ -2,6 +2,7 @@ import { createSelector } from '@reduxjs/toolkit';
 import type { RootState } from '../../../app/store.ts';
 import { jobsApi } from '../../jobs/jobsApi.ts';
 import { filterJobsByFilters } from '../utils/jobFilteringUtils.ts';
+import { buildLocationOptions } from '../../../lib/location.ts';
 import { isSoftwareOnlyEnabled } from '../../../constants/tags.ts';
 import { getCompanyById } from '../../../config/companies.ts';
 import { filterJobsByHours } from '../../../lib/date.ts';
@@ -28,22 +29,19 @@ const selectEnabledByCompanyId = createSelector(
 );
 
 // Pre-filters by the user's enabled-companies preference (null or [] = all).
-export const selectAllJobsFromQuery = createSelector(
-  [selectEnabledByCompanyId],
-  (byCompanyId) => {
-    const allJobs = Object.values(byCompanyId).flat();
+export const selectAllJobsFromQuery = createSelector([selectEnabledByCompanyId], (byCompanyId) => {
+  const allJobs = Object.values(byCompanyId).flat();
 
-    // Deduplicate by job ID (in case same job appears multiple times)
-    const jobsMap = new Map<string, (typeof allJobs)[0]>();
-    allJobs.forEach((job) => {
-      if (!jobsMap.has(job.id)) {
-        jobsMap.set(job.id, job);
-      }
-    });
+  // Deduplicate by job ID (in case same job appears multiple times)
+  const jobsMap = new Map<string, (typeof allJobs)[0]>();
+  allJobs.forEach((job) => {
+    if (!jobsMap.has(job.id)) {
+      jobsMap.set(job.id, job);
+    }
+  });
 
-    return Array.from(jobsMap.values());
-  }
-);
+  return Array.from(jobsMap.values());
+});
 
 /**
  * Apply filters to all jobs
@@ -110,13 +108,10 @@ export const selectRecentJobsFilteredWithoutLocation = createSelector(
  */
 export const selectRecentAvailableLocations = createSelector(
   [selectRecentJobsFilteredWithoutLocation],
-  (jobs) => {
-    const locations = new Set<string>();
-    jobs.forEach((job) => {
-      if (job.location) locations.add(job.location);
-    });
-    return Array.from(locations).sort();
-  }
+  // Build options from normalized canonical tags via `buildLocationOptions`:
+  // variants collapse into single tags, and pickable parents ("United States",
+  // each "<State>, US") are synthesized so the hierarchy is navigable.
+  (jobs) => buildLocationOptions(jobs)
 );
 
 /**

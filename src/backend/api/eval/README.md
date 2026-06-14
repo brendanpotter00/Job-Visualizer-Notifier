@@ -12,6 +12,13 @@ change that starts mis-parsing real inputs.
 It targets the **client directly** — no DB, no Procrastinate. It needs only
 `ANTHROPIC_API_KEY`.
 
+> **Sibling: the prod monitor.** `monitor_prod.py` (in this dir) is the eval's
+> production counterpart — a read-only, on-demand health check of the *live*
+> normalization pipeline (backlog draining, worker liveness, integrity invariants,
+> queue health). It needs `MONITOR_DATABASE_URL` (a read-only prod DSN) and **not**
+> `ANTHROPIC_API_KEY`; its quality arm shells out to *this* eval. Full runbook:
+> [`../../docs/location-normalization-monitoring.md`](../../docs/location-normalization-monitoring.md).
+
 ## How to run
 
 Run from the **repo root** so `Settings` auto-loads `ANTHROPIC_API_KEY` from

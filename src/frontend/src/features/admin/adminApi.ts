@@ -80,6 +80,176 @@ interface AdminApiExtra {
   getTokenOrNull: () => Promise<string | null>;
 }
 
+// ───────────────────────────────────────────────────────────────────────────
+// Location Normalization Monitor — types
+//
+// The backend serializes these as camelCase JSON. NOTE the two distinct id
+// types: ``locations.id`` is a NUMBER (canonical-location PK) while a job
+// listing id is a STRING. Typed accordingly so a future call site can't pass
+// one where the other is expected.
+// ───────────────────────────────────────────────────────────────────────────
+
+/** Severity tag carried by an integrity invariant row. */
+export type IntegritySeverity = 'ok' | 'warn' | 'crit';
+
+/** Source of an alias mapping — model-inferred vs. human override. */
+export type AliasSource = 'llm' | 'manual';
+
+/**
+ * Worker queue depth snapshot keyed by Procrastinate job state. Typed as a
+ * loose record because the backend may add states; the UI reads a known
+ * subset (``todo``/``doing``/``succeeded``/``failed``) defensively.
+ */
+export type NormalizeQueue = Record<string, number>;
+
+export interface LocationHealth {
+  schemaPresent: boolean;
+  windowHours: number;
+  nullBacklog: number;
+  nullAged: number;
+  done: number;
+  failed: number;
+  total: number;
+  failedBlank: number;
+  failedNonblank: number;
+  /** Percentage in the range 0..100 (NOT a 0..1 fraction). */
+  failedNonblankRatio: number;
+  heartbeatAgeMinutes: number | null;
+  normalizeQueue: NormalizeQueue;
+  throughputInWindow: number | null;
+  keyConfigured: boolean;
+  dormant: boolean;
+}
+
+export interface IntegrityCheck {
+  id: string;
+  label: string;
+  count: number;
+  severity: IntegritySeverity;
+}
+
+interface IntegrityResponse {
+  schemaPresent: boolean;
+  checks: IntegrityCheck[];
+}
+
+/** A canonical location mapped from an alias. ``id`` is numeric. */
+export interface CanonicalLocation {
+  id: number;
+  canonicalName: string;
+  kind: string;
+  city: string | null;
+  region: string | null;
+  country: string | null;
+  remoteScope: string | null;
+  position: number;
+}
+
+export interface AliasRow {
+  rawText: string;
+  source: AliasSource;
+  confidence: number | null;
+  locations: CanonicalLocation[];
+}
+
+export interface AliasListResponse {
+  aliases: AliasRow[];
+  total: number;
+}
+
+/** Canonical location in the reverse view (no ``position``). */
+export interface ReverseLocation {
+  id: number;
+  canonicalName: string;
+  kind: string;
+  city: string | null;
+  region: string | null;
+  country: string | null;
+  remoteScope: string | null;
+}
+
+export interface ReverseResult {
+  location: ReverseLocation;
+  rawTexts: string[];
+}
+
+export interface ReverseSearchResponse {
+  results: ReverseResult[];
+}
+
+export interface AliasOriginal {
+  original: string;
+  jobIds: string[];
+}
+
+export interface AliasOriginalsResponse {
+  rawText: string;
+  total: number;
+  originals: AliasOriginal[];
+}
+
+export interface ProblemJob {
+  id: string;
+  title: string | null;
+  company: string | null;
+  location: string | null;
+  normalizationStatus: string | null;
+  lastSeenAt: string | null;
+}
+
+export interface ProblemJobsResponse {
+  jobs: ProblemJob[];
+  total: number;
+}
+
+/** Editable canonical-location spec for the alias override mutation. */
+export interface LocationSpec {
+  canonicalName: string;
+  kind: 'city' | 'region' | 'country' | 'remote';
+  city?: string | null;
+  region?: string | null;
+  country?: string | null;
+  remoteScope?: string | null;
+}
+
+// ─── Runtime-guard helpers (mirror the throwing style of listAdminUsers) ─────
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return v != null && typeof v === 'object' && !Array.isArray(v);
+}
+
+function isIntegritySeverity(v: unknown): v is IntegritySeverity {
+  return v === 'ok' || v === 'warn' || v === 'crit';
+}
+
+function isAliasSource(v: unknown): v is AliasSource {
+  return v === 'llm' || v === 'manual';
+}
+
+function validateCanonicalLocation(loc: unknown, ctx: string, withPosition: boolean): void {
+  if (!isRecord(loc)) {
+    throw new Error(`Invalid ${ctx}: location entry is not an object`);
+  }
+  if (typeof loc.id !== 'number') {
+    throw new Error(`Invalid ${ctx}: location.id must be a number`);
+  }
+  if (typeof loc.canonicalName !== 'string') {
+    throw new Error(`Invalid ${ctx}: location.canonicalName must be a string`);
+  }
+  if (typeof loc.kind !== 'string') {
+    throw new Error(`Invalid ${ctx}: location.kind must be a string`);
+  }
+  for (const field of ['city', 'region', 'country', 'remoteScope'] as const) {
+    const val = loc[field];
+    if (val !== null && val !== undefined && typeof val !== 'string') {
+      throw new Error(`Invalid ${ctx}: location.${field} must be string or null`);
+    }
+  }
+  if (withPosition && typeof loc.position !== 'number') {
+    throw new Error(`Invalid ${ctx}: location.position must be a number`);
+  }
+}
+
 export const adminApi = createApi({
   reducerPath: 'adminApi',
   baseQuery: fetchBaseQuery({
@@ -93,7 +263,15 @@ export const adminApi = createApi({
       return headers;
     },
   }),
-  tagTypes: ['AdminUsers', 'AdminUsersStats', 'AdminFeedback'],
+  tagTypes: [
+    'AdminUsers',
+    'AdminUsersStats',
+    'AdminFeedback',
+    'LocationHealth',
+    'LocationIntegrity',
+    'LocationAliases',
+    'LocationProblemJobs',
+  ],
   endpoints: (builder) => ({
     listAdminFeedback: builder.query<
       AdminFeedbackListResponse,
@@ -228,6 +406,334 @@ export const adminApi = createApi({
       }),
       invalidatesTags: ['AdminUsers', 'AdminUsersStats'],
     }),
+
+    // ─── Location Normalization Monitor ─────────────────────────────────────
+
+    getLocationHealth: builder.query<LocationHealth, void>({
+      query: () => '/locations/health',
+      transformResponse: (res: unknown): LocationHealth => {
+        // Throwing guard (hard house rule): a proxy 2xx with the wrong body
+        // (CDN error page, future serializer change) must surface as an
+        // error, never silently render a fabricated "verdict" from
+        // undefined fields. Validate every field the verdict logic reads.
+        if (!isRecord(res)) {
+          throw new Error('Invalid /api/admin/locations/health response: body is not an object');
+        }
+        for (const field of [
+          'windowHours',
+          'nullBacklog',
+          'nullAged',
+          'done',
+          'failed',
+          'total',
+          'failedBlank',
+          'failedNonblank',
+          'failedNonblankRatio',
+        ] as const) {
+          if (typeof res[field] !== 'number') {
+            throw new Error(
+              `Invalid /api/admin/locations/health response: ${field} must be a number`
+            );
+          }
+        }
+        for (const field of ['schemaPresent', 'keyConfigured', 'dormant'] as const) {
+          if (typeof res[field] !== 'boolean') {
+            throw new Error(
+              `Invalid /api/admin/locations/health response: ${field} must be a boolean`
+            );
+          }
+        }
+        if (res.heartbeatAgeMinutes !== null && typeof res.heartbeatAgeMinutes !== 'number') {
+          throw new Error(
+            'Invalid /api/admin/locations/health response: heartbeatAgeMinutes must be number or null'
+          );
+        }
+        if (res.throughputInWindow !== null && typeof res.throughputInWindow !== 'number') {
+          throw new Error(
+            'Invalid /api/admin/locations/health response: throughputInWindow must be number or null'
+          );
+        }
+        if (!isRecord(res.normalizeQueue)) {
+          throw new Error(
+            'Invalid /api/admin/locations/health response: normalizeQueue must be an object'
+          );
+        }
+        for (const v of Object.values(res.normalizeQueue)) {
+          if (typeof v !== 'number') {
+            throw new Error(
+              'Invalid /api/admin/locations/health response: normalizeQueue contains a non-number value'
+            );
+          }
+        }
+        return res as unknown as LocationHealth;
+      },
+      providesTags: ['LocationHealth'],
+    }),
+
+    getLocationIntegrity: builder.query<IntegrityCheck[], void>({
+      query: () => '/locations/integrity',
+      transformResponse: (res: unknown): IntegrityCheck[] => {
+        if (!isRecord(res)) {
+          throw new Error('Invalid /api/admin/locations/integrity response: body is not an object');
+        }
+        if (typeof res.schemaPresent !== 'boolean') {
+          throw new Error(
+            'Invalid /api/admin/locations/integrity response: schemaPresent must be a boolean'
+          );
+        }
+        if (!Array.isArray(res.checks)) {
+          throw new Error(
+            'Invalid /api/admin/locations/integrity response: checks must be an array'
+          );
+        }
+        for (const check of res.checks) {
+          if (!isRecord(check)) {
+            throw new Error(
+              'Invalid /api/admin/locations/integrity response: check entry is not an object'
+            );
+          }
+          if (typeof check.id !== 'string' || typeof check.label !== 'string') {
+            throw new Error(
+              'Invalid /api/admin/locations/integrity response: check.id and check.label must be strings'
+            );
+          }
+          if (typeof check.count !== 'number') {
+            throw new Error(
+              'Invalid /api/admin/locations/integrity response: check.count must be a number'
+            );
+          }
+          if (!isIntegritySeverity(check.severity)) {
+            throw new Error(
+              'Invalid /api/admin/locations/integrity response: check.severity must be ok|warn|crit'
+            );
+          }
+        }
+        return (res as unknown as IntegrityResponse).checks;
+      },
+      providesTags: ['LocationIntegrity'],
+    }),
+
+    listLocationAliases: builder.query<
+      AliasListResponse,
+      { contains?: string; limit: number; offset: number }
+    >({
+      query: ({ contains, limit, offset }) => ({
+        url: '/locations/aliases',
+        // Omit ``contains`` entirely when empty so the backend serves the
+        // unfiltered page rather than filtering on an empty string.
+        params: {
+          ...(contains && contains.length > 0 ? { contains } : {}),
+          limit,
+          offset,
+        },
+      }),
+      transformResponse: (res: unknown): AliasListResponse => {
+        if (!isRecord(res)) {
+          throw new Error('Invalid /api/admin/locations/aliases response: body is not an object');
+        }
+        if (typeof res.total !== 'number') {
+          throw new Error('Invalid /api/admin/locations/aliases response: total must be a number');
+        }
+        if (!Array.isArray(res.aliases)) {
+          throw new Error('Invalid /api/admin/locations/aliases response: aliases must be an array');
+        }
+        for (const alias of res.aliases) {
+          if (!isRecord(alias)) {
+            throw new Error(
+              'Invalid /api/admin/locations/aliases response: alias entry is not an object'
+            );
+          }
+          if (typeof alias.rawText !== 'string') {
+            throw new Error(
+              'Invalid /api/admin/locations/aliases response: alias.rawText must be a string'
+            );
+          }
+          if (!isAliasSource(alias.source)) {
+            throw new Error(
+              'Invalid /api/admin/locations/aliases response: alias.source must be llm|manual'
+            );
+          }
+          if (alias.confidence !== null && typeof alias.confidence !== 'number') {
+            throw new Error(
+              'Invalid /api/admin/locations/aliases response: alias.confidence must be number or null'
+            );
+          }
+          if (!Array.isArray(alias.locations)) {
+            throw new Error(
+              'Invalid /api/admin/locations/aliases response: alias.locations must be an array'
+            );
+          }
+          for (const loc of alias.locations) {
+            validateCanonicalLocation(loc, '/api/admin/locations/aliases response', true);
+          }
+        }
+        return res as unknown as AliasListResponse;
+      },
+      providesTags: ['LocationAliases'],
+    }),
+
+    reverseSearchLocations: builder.query<
+      ReverseSearchResponse,
+      { contains?: string; limit: number }
+    >({
+      query: ({ contains, limit }) => ({
+        url: '/locations/reverse',
+        params: {
+          ...(contains && contains.length > 0 ? { contains } : {}),
+          limit,
+        },
+      }),
+      transformResponse: (res: unknown): ReverseSearchResponse => {
+        if (!isRecord(res)) {
+          throw new Error('Invalid /api/admin/locations/reverse response: body is not an object');
+        }
+        if (!Array.isArray(res.results)) {
+          throw new Error('Invalid /api/admin/locations/reverse response: results must be an array');
+        }
+        for (const result of res.results) {
+          if (!isRecord(result)) {
+            throw new Error(
+              'Invalid /api/admin/locations/reverse response: result entry is not an object'
+            );
+          }
+          validateCanonicalLocation(result.location, '/api/admin/locations/reverse response', false);
+          if (
+            !Array.isArray(result.rawTexts) ||
+            result.rawTexts.some((t) => typeof t !== 'string')
+          ) {
+            throw new Error(
+              'Invalid /api/admin/locations/reverse response: result.rawTexts must be a string array'
+            );
+          }
+        }
+        return res as unknown as ReverseSearchResponse;
+      },
+      providesTags: ['LocationAliases'],
+    }),
+
+    getAliasOriginals: builder.query<AliasOriginalsResponse, { rawText: string; limit: number }>({
+      query: ({ rawText, limit }) => ({
+        url: '/locations/alias-originals',
+        params: { rawText, limit },
+      }),
+      transformResponse: (res: unknown): AliasOriginalsResponse => {
+        if (!isRecord(res)) {
+          throw new Error(
+            'Invalid /api/admin/locations/alias-originals response: body is not an object'
+          );
+        }
+        if (typeof res.rawText !== 'string') {
+          throw new Error(
+            'Invalid /api/admin/locations/alias-originals response: rawText must be a string'
+          );
+        }
+        if (typeof res.total !== 'number') {
+          throw new Error(
+            'Invalid /api/admin/locations/alias-originals response: total must be a number'
+          );
+        }
+        if (!Array.isArray(res.originals)) {
+          throw new Error(
+            'Invalid /api/admin/locations/alias-originals response: originals must be an array'
+          );
+        }
+        for (const original of res.originals) {
+          if (!isRecord(original)) {
+            throw new Error(
+              'Invalid /api/admin/locations/alias-originals response: original entry is not an object'
+            );
+          }
+          if (typeof original.original !== 'string') {
+            throw new Error(
+              'Invalid /api/admin/locations/alias-originals response: original.original must be a string'
+            );
+          }
+          if (
+            !Array.isArray(original.jobIds) ||
+            original.jobIds.some((j) => typeof j !== 'string')
+          ) {
+            throw new Error(
+              'Invalid /api/admin/locations/alias-originals response: original.jobIds must be a string array'
+            );
+          }
+        }
+        return res as unknown as AliasOriginalsResponse;
+      },
+      providesTags: ['LocationAliases'],
+    }),
+
+    listProblemJobs: builder.query<ProblemJobsResponse, { limit: number; offset: number }>({
+      query: ({ limit, offset }) => ({
+        url: '/locations/problem-jobs',
+        params: { limit, offset },
+      }),
+      transformResponse: (res: unknown): ProblemJobsResponse => {
+        if (!isRecord(res)) {
+          throw new Error(
+            'Invalid /api/admin/locations/problem-jobs response: body is not an object'
+          );
+        }
+        if (typeof res.total !== 'number') {
+          throw new Error(
+            'Invalid /api/admin/locations/problem-jobs response: total must be a number'
+          );
+        }
+        if (!Array.isArray(res.jobs)) {
+          throw new Error(
+            'Invalid /api/admin/locations/problem-jobs response: jobs must be an array'
+          );
+        }
+        for (const job of res.jobs) {
+          if (!isRecord(job)) {
+            throw new Error(
+              'Invalid /api/admin/locations/problem-jobs response: job entry is not an object'
+            );
+          }
+          if (typeof job.id !== 'string') {
+            throw new Error(
+              'Invalid /api/admin/locations/problem-jobs response: job.id must be a string'
+            );
+          }
+          for (const field of [
+            'title',
+            'company',
+            'location',
+            'normalizationStatus',
+            'lastSeenAt',
+          ] as const) {
+            const val = job[field];
+            if (val !== null && val !== undefined && typeof val !== 'string') {
+              throw new Error(
+                `Invalid /api/admin/locations/problem-jobs response: job.${field} must be string or null`
+              );
+            }
+          }
+        }
+        return res as unknown as ProblemJobsResponse;
+      },
+      providesTags: ['LocationProblemJobs'],
+    }),
+
+    overrideAlias: builder.mutation<unknown, { rawText: string; locations: LocationSpec[] }>({
+      query: ({ rawText, locations }) => ({
+        // ``rawText`` may contain a literal ``/`` (e.g. "Remote / US") which
+        // can break path routing through the proxy — encode it. If the proxy
+        // still rejects, the caller surfaces extractErrorMessage rather than
+        // swallowing it.
+        url: `/locations/aliases/${encodeURIComponent(rawText)}`,
+        method: 'PUT',
+        body: { locations },
+      }),
+      invalidatesTags: ['LocationAliases', 'LocationIntegrity', 'LocationHealth'],
+    }),
+
+    renormalizeJob: builder.mutation<unknown, { jobId: string }>({
+      query: ({ jobId }) => ({
+        url: `/jobs/${jobId}/normalize`,
+        method: 'POST',
+      }),
+      invalidatesTags: ['LocationProblemJobs', 'LocationHealth'],
+    }),
   }),
 });
 
@@ -237,4 +743,12 @@ export const {
   useGetAdminUsersStatsQuery,
   useGrantAdminMutation,
   useRevokeAdminMutation,
+  useGetLocationHealthQuery,
+  useGetLocationIntegrityQuery,
+  useListLocationAliasesQuery,
+  useReverseSearchLocationsQuery,
+  useGetAliasOriginalsQuery,
+  useListProblemJobsQuery,
+  useOverrideAliasMutation,
+  useRenormalizeJobMutation,
 } = adminApi;

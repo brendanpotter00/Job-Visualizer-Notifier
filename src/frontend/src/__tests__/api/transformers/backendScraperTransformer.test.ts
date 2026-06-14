@@ -8,6 +8,7 @@ describe('transformBackendJob', () => {
     title: 'Senior Software Engineer, Cloud Platform',
     company: 'google',
     location: 'Mountain View, CA, USA',
+    locations: [],
     url: 'https://careers.google.com/jobs/results/123456',
     sourceId: 'google_scraper',
     details: JSON.stringify({
@@ -121,6 +122,49 @@ describe('transformBackendJob', () => {
     const job = transformBackendJob(noLocationJob, 'google');
 
     expect(job.location).toBeUndefined();
+  });
+
+  it('should map normalized location tags through unchanged', () => {
+    const taggedJob: BackendJobListing = {
+      ...mockBackendJob,
+      location: 'Austin, TX, USA; Atlanta, GA, USA',
+      locations: [
+        {
+          canonicalName: 'Austin, TX, US',
+          kind: 'city',
+          city: 'Austin',
+          region: 'TX',
+          country: 'US',
+          remoteScope: null,
+          isPrimary: true,
+        },
+        {
+          canonicalName: 'Atlanta, GA, US',
+          kind: 'city',
+          city: 'Atlanta',
+          region: 'GA',
+          country: 'US',
+          remoteScope: null,
+          isPrimary: false,
+        },
+      ],
+    };
+
+    const job = transformBackendJob(taggedJob, 'google');
+
+    expect(job.locations).toHaveLength(2);
+    expect(job.locations?.map((l) => l.canonicalName)).toEqual([
+      'Austin, TX, US',
+      'Atlanta, GA, US',
+    ]);
+  });
+
+  it('should default locations to [] when backend omits the field', () => {
+    // Defensive: an older/edge backend payload without `locations`.
+    const { locations: _omit, ...withoutLocations } = mockBackendJob;
+    const job = transformBackendJob(withoutLocations as BackendJobListing, 'google');
+
+    expect(job.locations).toEqual([]);
   });
 
   it('should preserve raw response for debugging', () => {

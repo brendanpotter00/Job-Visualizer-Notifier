@@ -28,12 +28,21 @@ import psycopg2
 from psycopg2 import sql
 from psycopg2.extensions import connection as Connection
 
+from .location_canonicalize import canonicalize
+from .location_normalization import normalize_string
+
 logger = logging.getLogger(__name__)
 
 _JOB_LISTINGS = sql.Identifier("job_listings")
 _LOCATIONS = sql.Identifier("locations")
 _LOCATION_ALIASES = sql.Identifier("location_aliases")
 _ALIAS_LOCATIONS = sql.Identifier("alias_locations")
+
+# alias_originals() prefilters candidate job rows in SQL before the Python SSOT
+# verify. Bounded so a hot alias key (e.g. "remote") can't pull an unbounded set
+# into memory. Saturating this cap means some originals may be omitted — a
+# display-only limitation we log (see alias_originals).
+_ALIAS_ORIGINALS_PREFILTER_CAP = 500
 
 
 def _scalar(row, key: str):
@@ -83,16 +92,17 @@ def _upsert_location(cur, spec) -> int:
     NULLS NOT DISTINCT and several cols are nullable).
 
     `spec` is a models.LocationSpec (has .canonical_name/.kind/.city/.region/
-    .country/.remote_scope).
+    .country/.remote_scope). The spec is canonicalized first (same pass as the
+    LLM write path) so manual overrides land on the same canonical codes/labels.
     """
+    c = canonicalize(spec)
     cur.execute(
         sql.SQL(
             "INSERT INTO {} (canonical_name, kind, city, region, country, remote_scope) "
             "VALUES (%s, %s, %s, %s, %s, %s) "
             "ON CONFLICT ON CONSTRAINT uq_locations_canonical DO NOTHING RETURNING id"
         ).format(_LOCATIONS),
-        (spec.canonical_name, spec.kind, spec.city, spec.region,
-         spec.country, spec.remote_scope),
+        (c.canonical_name, c.kind, c.city, c.region, c.country, c.remote_scope),
     )
     row = cur.fetchone()
     if row is not None:
@@ -103,14 +113,14 @@ def _upsert_location(cur, spec) -> int:
             "AND city IS NOT DISTINCT FROM %s AND region IS NOT DISTINCT FROM %s "
             "AND country IS NOT DISTINCT FROM %s AND remote_scope IS NOT DISTINCT FROM %s"
         ).format(_LOCATIONS),
-        (spec.kind, spec.city, spec.region, spec.country, spec.remote_scope),
+        (c.kind, c.city, c.region, c.country, c.remote_scope),
     )
     existing = cur.fetchone()
     if existing is None:
         raise RuntimeError(
             "locations upsert conflicted but no matching row found for "
-            f"kind={spec.kind!r} city={spec.city!r} region={spec.region!r} "
-            f"country={spec.country!r} remote_scope={spec.remote_scope!r}"
+            f"kind={c.kind!r} city={c.city!r} region={c.region!r} "
+            f"country={c.country!r} remote_scope={c.remote_scope!r}"
         )
     return int(_scalar(existing, "id"))
 
@@ -237,16 +247,17 @@ def _row_to_loc(r) -> dict:
 # --- inspect: list aliases (bounded) -----------------------------------------
 
 def list_aliases(
-    conn: Connection, contains: str | None, limit: int
+    conn: Connection, contains: str | None, limit: int, offset: int = 0
 ) -> list[dict]:
     """List aliases (bounded), optionally filtered by raw_text ILIKE %contains%.
 
     READ-ONLY: only SELECTs, no commit. `limit` is ALWAYS applied (caller caps
-    it; the root CLAUDE.md memory rule forbids unbounded reads). The ILIKE
-    parameter is parameterized (never string-formatted): the pattern is built in
-    Python as f"%{contains}%" and passed as a bind param against a plain
-    `WHERE raw_text ILIKE %s` — fully parameterized (the value, not the column,
-    is bound), sidestepping any literal-`%` quoting ambiguity in sql.SQL.
+    it; the root CLAUDE.md memory rule forbids unbounded reads). `offset`
+    paginates (default 0). The ILIKE parameter is parameterized (never
+    string-formatted): the pattern is built in Python as f"%{contains}%" and
+    passed as a bind param against a plain `WHERE raw_text ILIKE %s` — fully
+    parameterized (the value, not the column, is bound), sidestepping any
+    literal-`%` quoting ambiguity in sql.SQL.
     Returns a list of the same dict shape as _read_alias's result.
     """
     with conn.cursor() as cur:
@@ -254,19 +265,41 @@ def list_aliases(
             cur.execute(
                 sql.SQL(
                     "SELECT raw_text FROM {} WHERE raw_text ILIKE %s "
-                    "ORDER BY created_at DESC LIMIT %s"
+                    "ORDER BY created_at DESC LIMIT %s OFFSET %s"
                 ).format(_LOCATION_ALIASES),
-                (f"%{contains}%", limit),
+                (f"%{contains}%", limit, offset),
             )
         else:
             cur.execute(
                 sql.SQL(
-                    "SELECT raw_text FROM {} ORDER BY created_at DESC LIMIT %s"
+                    "SELECT raw_text FROM {} ORDER BY created_at DESC LIMIT %s OFFSET %s"
                 ).format(_LOCATION_ALIASES),
-                (limit,),
+                (limit, offset),
             )
         keys = [_scalar(r, "raw_text") for r in cur.fetchall()]
     return [a for k in keys if (a := _read_alias(conn, k)) is not None]
+
+
+def count_aliases(conn: Connection, contains: str | None) -> int:
+    """Count aliases matching the same (optional) ILIKE filter as list_aliases.
+
+    READ-ONLY: a single bounded `SELECT count(*)`. The ILIKE pattern is
+    parameterized exactly as in list_aliases. Feeds AdminAliasListResponse.total
+    so the UI can paginate (total is independent of the page `limit`).
+    """
+    with conn.cursor() as cur:
+        if contains:
+            cur.execute(
+                sql.SQL("SELECT count(*) AS n FROM {} WHERE raw_text ILIKE %s").format(
+                    _LOCATION_ALIASES
+                ),
+                (f"%{contains}%",),
+            )
+        else:
+            cur.execute(
+                sql.SQL("SELECT count(*) AS n FROM {}").format(_LOCATION_ALIASES),
+            )
+        return int(_scalar(cur.fetchone(), "n") or 0)
 
 
 # --- break-glass: reset all normalization (feeds re-normalize-all) ------------
@@ -295,3 +328,230 @@ def reset_all_normalization(conn: Connection) -> int:
         conn.rollback()
         logger.exception("reset_all_normalization failed")
         raise
+
+
+# --- monitor read helpers (SELECT-only; never commit; rollback on error) ------
+#
+# These three back the inspection panels of the admin Location-Normalization
+# Monitor. They read the alias/job/location cache and NEVER write. On a
+# psycopg2 error each rolls back (so the caller's connection is never left
+# mid-transaction) and re-raises; the router logs + 500s.
+
+
+def reverse_lookup_locations(
+    conn: Connection, contains: str | None, limit: int
+) -> list[dict]:
+    """Canonical locations (optionally filtered) + every raw_text mapping to each.
+
+    Searches `locations.canonical_name ILIKE %contains%` (parameterized) when
+    `contains` is given, else returns up to `limit` recent locations. Bounded by
+    `limit` (caller caps it). Then one `alias_locations` query resolves the
+    raw_texts for the matched location ids; rawTexts are grouped per location in
+    Python.
+
+    READ-ONLY. Returns a list of
+    ``{"location": {id,canonical_name,kind,city,region,country,remote_scope},
+       "raw_texts": [str, ...]}`` ordered by the location query (newest first).
+    """
+    try:
+        with conn.cursor() as cur:
+            if contains:
+                cur.execute(
+                    sql.SQL(
+                        "SELECT id, canonical_name, kind, city, region, country, "
+                        "remote_scope FROM {} WHERE canonical_name ILIKE %s "
+                        "ORDER BY created_at DESC, id DESC LIMIT %s"
+                    ).format(_LOCATIONS),
+                    (f"%{contains}%", limit),
+                )
+            else:
+                cur.execute(
+                    sql.SQL(
+                        "SELECT id, canonical_name, kind, city, region, country, "
+                        "remote_scope FROM {} ORDER BY created_at DESC, id DESC LIMIT %s"
+                    ).format(_LOCATIONS),
+                    (limit,),
+                )
+            loc_rows = cur.fetchall()
+            locations: list[dict] = []
+            id_order: list[int] = []
+            by_id: dict[int, dict] = {}
+            for r in loc_rows:
+                loc = {
+                    "id": int(_scalar(r, "id")),
+                    "canonical_name": r["canonical_name"] if isinstance(r, dict) else r[1],
+                    "kind": r["kind"] if isinstance(r, dict) else r[2],
+                    "city": r["city"] if isinstance(r, dict) else r[3],
+                    "region": r["region"] if isinstance(r, dict) else r[4],
+                    "country": r["country"] if isinstance(r, dict) else r[5],
+                    "remote_scope": r["remote_scope"] if isinstance(r, dict) else r[6],
+                }
+                entry = {"location": loc, "raw_texts": []}
+                locations.append(entry)
+                id_order.append(loc["id"])
+                by_id[loc["id"]] = entry
+
+            if id_order:
+                cur.execute(
+                    sql.SQL(
+                        "SELECT normalized_location_id, raw_text FROM {} "
+                        "WHERE normalized_location_id = ANY(%s) "
+                        "ORDER BY normalized_location_id, raw_text"
+                    ).format(_ALIAS_LOCATIONS),
+                    (id_order,),
+                )
+                for r in cur.fetchall():
+                    loc_id = int(_scalar(r, "normalized_location_id"))
+                    raw = r["raw_text"] if isinstance(r, dict) else r[1]
+                    entry = by_id.get(loc_id)
+                    if entry is not None:
+                        entry["raw_texts"].append(raw)
+        return locations
+    except psycopg2.Error:
+        conn.rollback()
+        logger.exception("reverse_lookup_locations failed (contains=%r)", contains)
+        raise
+
+
+def alias_originals(conn: Connection, raw_text: str, limit: int) -> dict:
+    """Verbatim job `location` strings that normalize to the alias key `raw_text`.
+
+    There is NO stored job->alias link: the link is implicit via
+    ``normalize_string(job_listings.location) == raw_text``. This reconstructs
+    it for display.
+
+    Implementation:
+      1. SQL prefilter (bounded to 500): rows whose location, after a SQL-side
+         case+whitespace fold, equals `raw_text`. This narrows the candidate set
+         cheaply.
+      2. Python verify: keep only rows where ``normalize_string(location)``
+         exactly equals `raw_text` (the SSOT normalizer) — guarantees no false
+         positives.
+      3. Group distinct verbatim location strings -> their jobIds; cap the number
+         of distinct originals at `limit`.
+
+    ``total`` is the count of distinct originals actually RETURNED — i.e. it
+    always equals ``len(originals)``, bounded by both `limit` and the
+    ``_ALIAS_ORIGINALS_PREFILTER_CAP``-row SQL prefilter. It is NOT a
+    filter-independent grand total (unlike list_aliases/list_problem_jobs
+    ``total``); this is a display feature, so there is no full count to report.
+
+    Caveats (both display-only, never integrity guarantees):
+      * The SQL prefilter folds case and whitespace but NOT exotic NFKC or
+        dash-only Unicode variants. An original differing from `raw_text` ONLY by
+        such a variant may be missed by the prefilter and so not appear here. The
+        alias key itself is always produced by the full normalize_string SSOT.
+      * If the prefilter saturates its row cap, some originals may be omitted;
+        we log a warning so the truncation is visible rather than silent.
+
+    READ-ONLY. Returns ``{"raw_text", "total", "originals": [{"original",
+    "job_ids": [str, ...]}, ...]}``.
+    """
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                sql.SQL(
+                    "SELECT id, location FROM {} "
+                    "WHERE location IS NOT NULL AND btrim(location) <> '' "
+                    "AND lower(btrim(regexp_replace(location, '\\s+', ' ', 'g'))) = %(key)s "
+                    "LIMIT %(cap)s"
+                ).format(_JOB_LISTINGS),
+                {"key": raw_text, "cap": _ALIAS_ORIGINALS_PREFILTER_CAP},
+            )
+            rows = cur.fetchall()
+    except psycopg2.Error:
+        conn.rollback()
+        logger.exception("alias_originals prefilter failed (raw_text=%r)", raw_text)
+        raise
+
+    if len(rows) >= _ALIAS_ORIGINALS_PREFILTER_CAP:
+        logger.warning(
+            "alias_originals prefilter hit the %d-row cap for raw_text=%r; some "
+            "originals may be omitted (display-only feature)",
+            _ALIAS_ORIGINALS_PREFILTER_CAP,
+            raw_text,
+        )
+
+    # Group distinct verbatim location strings -> jobIds, preserving first-seen
+    # order. Verify each candidate with the SSOT normalizer (no false positives).
+    grouped: dict[str, list[str]] = {}
+    order: list[str] = []
+    for r in rows:
+        job_id = r["id"] if isinstance(r, dict) else r[0]
+        location = r["location"] if isinstance(r, dict) else r[1]
+        if normalize_string(location) != raw_text:
+            continue
+        if location not in grouped:
+            grouped[location] = []
+            order.append(location)
+        grouped[location].append(str(job_id))
+
+    capped = order[:limit]
+    originals = [{"original": loc, "job_ids": grouped[loc]} for loc in capped]
+    return {"raw_text": raw_text, "total": len(capped), "originals": originals}
+
+
+def list_problem_jobs(conn: Connection, limit: int, offset: int) -> dict:
+    """Actionable failed jobs: failed status with a NON-blank location.
+
+    Filter: ``normalization_status='failed' AND location IS NOT NULL AND
+    btrim(location) <> ''`` — blank-location failures are excluded (nothing to
+    fix there). Ordered by ``last_seen_at DESC``, paginated by limit/offset.
+    ``total`` is a bounded count of the same filter (independent of the page).
+
+    READ-ONLY. Returns ``{"jobs": [{id, title, company, location,
+    normalization_status, last_seen_at}, ...], "total": int}``.
+    """
+    _filter = (
+        "normalization_status='failed' AND location IS NOT NULL "
+        "AND btrim(location) <> ''"
+    )
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                sql.SQL(
+                    "SELECT id, title, company, location, normalization_status, "
+                    "last_seen_at FROM {} WHERE " + _filter +
+                    " ORDER BY last_seen_at DESC LIMIT %s OFFSET %s"
+                ).format(_JOB_LISTINGS),
+                (limit, offset),
+            )
+            rows = cur.fetchall()
+            cur.execute(
+                sql.SQL("SELECT count(*) AS n FROM {} WHERE " + _filter).format(
+                    _JOB_LISTINGS
+                ),
+            )
+            total = int(_scalar(cur.fetchone(), "n") or 0)
+    except psycopg2.Error:
+        conn.rollback()
+        logger.exception("list_problem_jobs failed (limit=%s offset=%s)", limit, offset)
+        raise
+
+    jobs = []
+    for r in rows:
+        if isinstance(r, dict):
+            last_seen = r["last_seen_at"]
+            jobs.append(
+                {
+                    "id": str(r["id"]),
+                    "title": r["title"],
+                    "company": r["company"],
+                    "location": r["location"],
+                    "normalization_status": r["normalization_status"],
+                    "last_seen_at": last_seen.isoformat() if last_seen is not None else None,
+                }
+            )
+        else:
+            last_seen = r[5]
+            jobs.append(
+                {
+                    "id": str(r[0]),
+                    "title": r[1],
+                    "company": r[2],
+                    "location": r[3],
+                    "normalization_status": r[4],
+                    "last_seen_at": last_seen.isoformat() if last_seen is not None else None,
+                }
+            )
+    return {"jobs": jobs, "total": total}

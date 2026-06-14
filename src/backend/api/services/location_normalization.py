@@ -37,6 +37,8 @@ import psycopg2
 from psycopg2 import sql
 from psycopg2.extensions import connection as Connection
 
+from .location_canonicalize import canonicalize
+
 if TYPE_CHECKING:  # avoid circular import — Tier-1 must not hard-import Tier-2.
     from .llm_client import CanonicalLocation
 
@@ -223,13 +225,18 @@ def persist_llm_result(conn: Connection, job_id: str, raw_text: str, locations: 
     try:
         location_ids: list[int] = []
         for loc in locations:
+            # Canonicalize the structured codes (country->ISO-2, US region->USPS,
+            # non-US region dropped) + recompute the city label BEFORE the upsert,
+            # so the uniqueness key dedups consistently and the frontend hierarchy
+            # (region/country comparison) is reliable. See location_canonicalize.
+            c = canonicalize(loc)
             cursor.execute(
                 sql.SQL(
                     "INSERT INTO {} (canonical_name, kind, city, region, country, remote_scope) "
                     "VALUES (%s, %s, %s, %s, %s, %s) "
                     "ON CONFLICT ON CONSTRAINT uq_locations_canonical DO NOTHING RETURNING id"
                 ).format(_LOCATIONS),
-                (loc.canonical_name, loc.kind, loc.city, loc.region, loc.country, loc.remote_scope),
+                (c.canonical_name, c.kind, c.city, c.region, c.country, c.remote_scope),
             )
             row = cursor.fetchone()
             if row is None:
@@ -239,14 +246,14 @@ def persist_llm_result(conn: Connection, job_id: str, raw_text: str, locations: 
                         "AND city IS NOT DISTINCT FROM %s AND region IS NOT DISTINCT FROM %s "
                         "AND country IS NOT DISTINCT FROM %s AND remote_scope IS NOT DISTINCT FROM %s"
                     ).format(_LOCATIONS),
-                    (loc.kind, loc.city, loc.region, loc.country, loc.remote_scope),
+                    (c.kind, c.city, c.region, c.country, c.remote_scope),
                 )
                 existing = cursor.fetchone()
                 if existing is None:
                     raise RuntimeError(
                         f"locations upsert conflicted but no matching row found for "
-                        f"kind={loc.kind!r} city={loc.city!r} region={loc.region!r} "
-                        f"country={loc.country!r} remote_scope={loc.remote_scope!r}"
+                        f"kind={c.kind!r} city={c.city!r} region={c.region!r} "
+                        f"country={c.country!r} remote_scope={c.remote_scope!r}"
                     )
                 loc_id = existing["id"] if isinstance(existing, dict) else existing[0]
             else:

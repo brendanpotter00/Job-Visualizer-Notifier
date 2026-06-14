@@ -125,7 +125,10 @@ SYSTEM_PROMPT = (
     "Strip embedded building/site codes, parenthetical annotations like '(HQ)', and "
     "reorder reversed inputs (e.g. 'United States, Washington, Redmond' is Redmond, "
     "WA, US). Treat a bare city-state (e.g. 'Singapore') as kind='country' with its "
-    "country code. Do NOT invent coordinates. Do NOT include latitude or longitude."
+    "country code. Treat the bare macro-region code 'AMER' (the Americas hiring "
+    "region some ATS use) as the United States: kind='country', country='US', "
+    "canonical_name 'United States', with high confidence. Do NOT invent "
+    "coordinates. Do NOT include latitude or longitude."
 )
 
 FEW_SHOT_GUIDE = (

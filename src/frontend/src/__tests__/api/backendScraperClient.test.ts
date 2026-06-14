@@ -9,6 +9,7 @@ function makeBackendJob(overrides: Partial<BackendJobListing> = {}): BackendJobL
     title: 'Software Engineer',
     company: 'stripe',
     location: 'San Francisco, CA',
+    locations: [],
     url: 'https://example.com/job/1',
     sourceId: 'greenhouse',
     details: JSON.stringify({ experience_level: 'L4', is_remote_eligible: true }),

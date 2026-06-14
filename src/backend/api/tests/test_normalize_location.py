@@ -72,6 +72,14 @@ def _count(db_conn, ident, where_sql="", params=()):
     return int(row["n"] if isinstance(row, dict) else row[0])
 
 
+def _location_row(db_conn, loc_id):
+    """Read the persisted canonical columns of one `locations` row."""
+    cur = db_conn.cursor()
+    cur.execute(sql.SQL("SELECT canonical_name, kind, city, region, country, remote_scope "
+                        "FROM {} WHERE id = %s").format(_LOCATIONS), (loc_id,))
+    return dict(cur.fetchone())
+
+
 def _patch_llm(monkeypatch, *, return_value=None, side_effect=None):
     from unittest.mock import AsyncMock
     mock = AsyncMock()
@@ -319,3 +327,35 @@ async def test_remote_existing_row_dedup_via_is_not_distinct_from(db_conn, monke
     assert _count(db_conn, _LOCATIONS) == 1
     jl = _job_locations(db_conn, jid)
     assert len(jl) == 1 and jl[0]["lid"] == pre_id and jl[0]["is_primary"] is True
+
+
+async def test_llm_noncanonical_codes_are_canonicalized_before_upsert(db_conn, monkeypatch):
+    """REGRESSION GUARD for persist_llm_result's `c = canonicalize(loc)` wiring.
+
+    The LLM may emit a non-canonical spec — full country name ("Germany"), a
+    non-US region the codebase intentionally drops, and a label built from those
+    raw parts. The persisted `locations` row MUST carry the canonical codes
+    (country='DE', region=None for non-US) and a RECOMPUTED city label
+    ("Berlin, DE"), NOT the raw values. Every other test in this file feeds
+    already-canonical specs (country='US', USPS region codes) — fixed points of
+    canonicalize — so removing the canonicalize() call would leave them all
+    green. This non-canonical input fails the moment that call is reverted.
+    """
+    jid = _insert_job(db_conn, location="Berlin office")
+    _patch_llm(monkeypatch, return_value=[
+        _loc("Berlin, Berlin, Germany", "city", "Berlin", "Berlin", "Germany", confidence=0.96)])
+    await normalize_location(job_id=jid)
+    db_conn.rollback()
+
+    assert _status(db_conn, jid) == "done"
+    jl = _job_locations(db_conn, jid)
+    assert len(jl) == 1
+    row = _location_row(db_conn, jl[0]["lid"])
+    # country canonicalized Germany -> DE; non-US region dropped to NULL; city
+    # label recomputed deterministically from the canonical parts.
+    assert row["country"] == "DE"
+    assert row["region"] is None
+    assert row["canonical_name"] == "Berlin, DE"
+    # The raw, non-canonical values must NOT survive to the DB.
+    assert row["country"] != "Germany"
+    assert row["canonical_name"] != "Berlin, Berlin, Germany"

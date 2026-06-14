@@ -48,6 +48,14 @@ def _row_to_job_dict(row: dict) -> dict:
     d = dict(row)
     d["details"] = _ensure_json_string(d.get("details"))
     d["ai_metadata"] = _ensure_json_string(d.get("ai_metadata"))
+    # ``locations`` is a real array (canonical location tags), unlike
+    # details/ai_metadata which the frontend wants as JSON strings. RealDictCursor
+    # parses the ``json_agg`` column into a Python list; tolerate a raw string and
+    # a missing key (single-job SELECT * paths that omit the column) defensively.
+    locations = d.get("locations")
+    if isinstance(locations, str):
+        locations = json.loads(locations)
+    d["locations"] = locations or []
     for field in _JOB_TIMESTAMP_FIELDS:
         value = d.get(field)
         if isinstance(value, datetime):
@@ -85,6 +93,25 @@ def _build_where(
     return where, params
 
 
+# Normalized canonical location tags for a job, aggregated as a camelCase JSON
+# array (keys match ``JobLocationResponse`` aliases). Correlated on
+# ``job_listings.id``: ``job_locations`` is keyed by ``job_listing_id`` alone
+# (no source_id column) and indexed (``idx_job_locations_job_listing_id`` plus
+# the composite PK's leading column), so this is an index probe per row. Empty
+# ``[]`` for jobs that are unnormalized or failed. Primary tag sorts first.
+_LOCATIONS_SUBQUERY = sql.SQL(
+    "COALESCE(("
+    "  SELECT json_agg(json_build_object("
+    "    'canonicalName', l.canonical_name, 'kind', l.kind, 'city', l.city,"
+    "    'region', l.region, 'country', l.country, 'remoteScope', l.remote_scope,"
+    "    'isPrimary', jl.is_primary"
+    "  ) ORDER BY jl.is_primary DESC, l.canonical_name)"
+    "  FROM job_locations jl"
+    "  JOIN locations l ON l.id = jl.normalized_location_id"
+    "  WHERE jl.job_listing_id = job_listings.id"
+    "), '[]'::json) AS locations"
+)
+
 # Lightweight column list for the list endpoint.  Returns only the
 # two ``details`` sub-fields the frontend transformer actually uses
 # (experience_level, is_remote_eligible) and an empty ai_metadata,
@@ -98,8 +125,8 @@ _LIST_COLUMNS = sql.SQL(
     " ) AS details,"
     " created_at, posted_on, closed_on, status,"
     " has_matched, jsonb_build_object() AS ai_metadata,"
-    " first_seen_at, last_seen_at, consecutive_misses, details_scraped"
-)
+    " first_seen_at, last_seen_at, consecutive_misses, details_scraped, "
+) + _LOCATIONS_SUBQUERY
 
 
 def get_jobs(
@@ -140,7 +167,9 @@ def get_job_by_id(conn: Connection, source_id: str, job_id: str) -> dict | None:
         raise ValueError("get_job_by_id requires a non-empty source_id")
     with conn.cursor() as cursor:
         cursor.execute(
-            sql.SQL("SELECT * FROM {} WHERE source_id = %s AND id = %s").format(_JOBS_TABLE),
+            sql.SQL("SELECT *, {} FROM {} WHERE source_id = %s AND id = %s").format(
+                _LOCATIONS_SUBQUERY, _JOBS_TABLE
+            ),
             (source_id, job_id),
         )
         row = cursor.fetchone()

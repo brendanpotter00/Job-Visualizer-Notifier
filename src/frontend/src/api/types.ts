@@ -17,6 +17,21 @@ export interface BackendJobDetails {
 }
 
 /**
+ * One normalized canonical location tag attached to a job.
+ * Matches the FastAPI JobLocationResponse model (src/backend/api/models.py),
+ * sourced from the `job_locations` join. A job carries 0..N of these.
+ */
+export interface BackendJobLocation {
+  canonicalName: string; // e.g. "Austin, TX, US"
+  kind: string; // 'city' | 'region' | 'country' | 'remote'
+  city: string | null;
+  region: string | null;
+  country: string | null; // short code, e.g. "US"
+  remoteScope: string | null;
+  isPrimary: boolean;
+}
+
+/**
  * Backend JobListing entity structure
  * Matches the FastAPI JobListingResponse model (src/backend/api/models.py)
  * Used for all scraped companies (Google, Apple, etc.)
@@ -25,7 +40,9 @@ export interface BackendJobListing {
   id: string;
   title: string;
   company: string;
-  location: string | null;
+  location: string | null; // raw scraped string (display fallback)
+  /** Normalized canonical location tags; [] for unnormalized/failed jobs. */
+  locations: BackendJobLocation[];
   url: string;
   sourceId: string;
   details: string; // JSON string containing BackendJobDetails

@@ -19,6 +19,7 @@ import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import ThumbUpIcon from '@mui/icons-material/ThumbUp';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import PeopleIcon from '@mui/icons-material/People';
+import PlaceIcon from '@mui/icons-material/Place';
 import FeedbackIcon from '@mui/icons-material/Feedback';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ADMIN_NAV_ITEMS, ROUTES, USER_NAV_ITEMS } from '../../config/routes.ts';
@@ -96,6 +97,7 @@ type IconName =
   | 'ThumbUp'
   | 'TrendingUp'
   | 'People'
+  | 'Place'
   | 'Feedback';
 const iconMap: Record<IconName, React.ComponentType> = {
   Schedule: ScheduleIcon,
@@ -105,6 +107,7 @@ const iconMap: Record<IconName, React.ComponentType> = {
   ThumbUp: ThumbUpIcon,
   TrendingUp: TrendingUpIcon,
   People: PeopleIcon,
+  Place: PlaceIcon,
   Feedback: FeedbackIcon,
 };
 

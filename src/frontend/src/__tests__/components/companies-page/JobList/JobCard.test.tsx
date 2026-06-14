@@ -42,6 +42,60 @@ describe('JobCard', () => {
     expect(screen.getByText('San Francisco, CA')).toBeInTheDocument();
   });
 
+  it('renders one chip per canonical tag when job.locations is populated', () => {
+    const multiLocationJob: Job = {
+      ...mockJob,
+      location: 'Austin, TX, USA; Atlanta, GA, USA', // raw fallback NOT used when tags exist
+      locations: [
+        {
+          canonicalName: 'Austin, TX, US',
+          kind: 'city',
+          city: 'Austin',
+          region: 'TX',
+          country: 'US',
+          remoteScope: null,
+          isPrimary: true,
+        },
+        {
+          canonicalName: 'Atlanta, GA, US',
+          kind: 'city',
+          city: 'Atlanta',
+          region: 'GA',
+          country: 'US',
+          remoteScope: null,
+          isPrimary: false,
+        },
+      ],
+    };
+    render(<JobCard job={multiLocationJob} />);
+
+    // One chip per canonical tag...
+    expect(screen.getByText('Austin, TX, US')).toBeInTheDocument();
+    expect(screen.getByText('Atlanta, GA, US')).toBeInTheDocument();
+    // ...and the raw location string is NOT rendered when tags are present.
+    expect(screen.queryByText('Austin, TX, USA; Atlanta, GA, USA')).not.toBeInTheDocument();
+  });
+
+  it('falls back to the raw job.location string when job.locations is empty', () => {
+    const noTagsJob: Job = {
+      ...mockJob,
+      location: 'Remote - Worldwide',
+      locations: [],
+    };
+    render(<JobCard job={noTagsJob} />);
+    expect(screen.getByText('Remote - Worldwide')).toBeInTheDocument();
+  });
+
+  it('falls back to the raw job.location string when job.locations is undefined', () => {
+    const undefinedTagsJob: Job = {
+      ...mockJob,
+      location: 'Hawthorne, CA',
+      locations: undefined,
+    };
+    render(<JobCard job={undefinedTagsJob} />);
+    expect(screen.getByText('Hawthorne, CA')).toBeInTheDocument();
+  });
+
   it('displays remote chip when job is remote', () => {
     render(<JobCard job={mockJob} />);
     expect(screen.getByText('Remote')).toBeInTheDocument();

@@ -4,6 +4,7 @@ import type { Job } from '../../../types';
 import { useJobMetadata } from '../../shared/JobCard/useJobMetadata.ts';
 import { JobChipsSection } from '../../shared/JobCard/JobChipsSection.tsx';
 import { CARD_HOVER_SX, CARD_VARIANT } from '../../shared/JobCard/jobCardStyles.ts';
+import { formatJobLocations } from '../../../lib/location.ts';
 
 interface RecentJobCardProps {
   job: Job;
@@ -18,6 +19,7 @@ interface RecentJobCardProps {
  */
 export function RecentJobCard({ job, companyName, recruiterLinkedInUrl }: RecentJobCardProps) {
   const { postedAgo } = useJobMetadata(job.createdAt);
+  const locationLabel = formatJobLocations(job.locations, job.location);
 
   const handleCardClick = () => {
     window.open(job.url, '_blank', 'noopener,noreferrer');
@@ -50,9 +52,9 @@ export function RecentJobCard({ job, companyName, recruiterLinkedInUrl }: Recent
 
         {/* Location and employment type */}
         <Typography variant="body2" color="text.secondary" gutterBottom>
-          {job.location && job.employmentType
-            ? `${job.location} · ${job.employmentType}`
-            : job.location || job.employmentType || 'Location not specified'}
+          {locationLabel && job.employmentType
+            ? `${locationLabel} · ${job.employmentType}`
+            : locationLabel || job.employmentType || 'Location not specified'}
         </Typography>
 
         {/* Chips for metadata */}
