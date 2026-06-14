@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, fireEvent, waitFor } from '@testing-library/react';
 import { renderWithProviders } from '../../../../test/testUtils';
 import { GraphSection } from '../../../../components/companies-page/JobPostingsChart/GraphSection';
@@ -13,6 +13,24 @@ vi.mock('../../../../components/companies-page/JobPostingsChart/JobPostingsChart
 vi.mock('../../../../components/companies-page/GraphFilters', () => ({
   GraphFilters: () => <div data-testid="graph-filters" />,
 }));
+
+// Seeding a real RTK Query *error* cache entry has no public util, so we mock
+// `selectCurrentCompanyError` through a mutable holder. All other selectors keep
+// their real implementations (importOriginal), and `ErrorDisplay` stays UNMOCKED
+// so the error text it renders is real. The happy-path tests leave the holder at
+// `undefined`, exercising the real store exactly as before.
+let mockCurrentCompanyError: string | undefined;
+vi.mock('../../../../features/jobs/jobsSelectors', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../features/jobs/jobsSelectors')>();
+  return {
+    ...actual,
+    selectCurrentCompanyError: () => mockCurrentCompanyError,
+  };
+});
+
+beforeEach(() => {
+  mockCurrentCompanyError = undefined;
+});
 
 const getToggle = () => screen.getByRole('button', { name: /job posting timeline/i });
 
@@ -61,5 +79,48 @@ describe('GraphSection collapse', () => {
 
     expect(getToggle()).toHaveAttribute('aria-expanded', 'true');
     expect(await screen.findByTestId('job-postings-chart')).toBeInTheDocument();
+  });
+});
+
+describe('GraphSection error branch', () => {
+  // The error branch now lives INSIDE the <Collapse>, so it must render while
+  // expanded, disappear when collapsed (unmountOnExit), and come back when
+  // re-expanded — same lifecycle as the chart it replaces.
+  it('renders the ErrorDisplay (not the chart) while expanded when an error is present', () => {
+    mockCurrentCompanyError = 'Boom: feed unreachable';
+    renderWithProviders(<GraphSection />);
+
+    expect(getToggle()).toHaveAttribute('aria-expanded', 'true');
+    // Real ErrorDisplay (unmocked) renders the title and the message.
+    expect(screen.getByText('Failed to Load Chart Data')).toBeInTheDocument();
+    expect(screen.getByText('Boom: feed unreachable')).toBeInTheDocument();
+    // The chart stub must NOT render — the error replaces it.
+    expect(screen.queryByTestId('job-postings-chart')).not.toBeInTheDocument();
+    // Filters remain regardless of the error.
+    expect(screen.getByTestId('graph-filters')).toBeInTheDocument();
+  });
+
+  it('hides the error region when collapsed and brings it back on re-expand; filters stay throughout', async () => {
+    mockCurrentCompanyError = 'Boom: feed unreachable';
+    renderWithProviders(<GraphSection />);
+
+    // Visible by default.
+    expect(screen.getByText('Failed to Load Chart Data')).toBeInTheDocument();
+
+    // Collapse: unmountOnExit tears down the error region.
+    fireEvent.click(getToggle());
+    expect(getToggle()).toHaveAttribute('aria-expanded', 'false');
+    await waitFor(() =>
+      expect(screen.queryByText('Failed to Load Chart Data')).not.toBeInTheDocument()
+    );
+    // Filters survive the collapse (single source of truth for the list).
+    expect(screen.getByTestId('graph-filters')).toBeInTheDocument();
+
+    // Re-expand: the error region comes back.
+    fireEvent.click(getToggle());
+    expect(getToggle()).toHaveAttribute('aria-expanded', 'true');
+    expect(await screen.findByText('Failed to Load Chart Data')).toBeInTheDocument();
+    expect(screen.getByText('Boom: feed unreachable')).toBeInTheDocument();
+    expect(screen.queryByTestId('job-postings-chart')).not.toBeInTheDocument();
   });
 });
