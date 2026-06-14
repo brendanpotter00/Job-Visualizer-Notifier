@@ -1,8 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
-import { screen, render } from '@testing-library/react';
+import { screen, render as rtlRender } from '@testing-library/react';
+import type { ReactElement } from 'react';
 import userEvent from '@testing-library/user-event';
+import { Provider } from 'react-redux';
 import { MemoryRouter } from 'react-router-dom';
 import { NavigationDrawer } from '../../../components/layout/NavigationDrawer.tsx';
+import { createTestStore } from '../../../test/testUtils';
+import type { RootState } from '../../../app/store';
 
 vi.mock('../../../features/auth/useAuth', () => ({
   useAuth: () => ({
@@ -23,6 +27,12 @@ const mockProps = {
   drawerWidth: 240,
   isMobile: false,
 };
+
+// NavigationDrawer reads `ui.hideAdminFeatures` via useAppSelector, so every
+// render needs a Redux Provider. Wrap RTL's render with a test store.
+function render(ui: ReactElement, preloadedState?: Partial<RootState>) {
+  return rtlRender(<Provider store={createTestStore(preloadedState)}>{ui}</Provider>);
+}
 
 describe('NavigationDrawer', () => {
   describe('Rendering', () => {
