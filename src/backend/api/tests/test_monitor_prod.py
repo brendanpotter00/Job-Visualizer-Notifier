@@ -21,6 +21,7 @@ from api.eval.monitor_prod import (
     _eval_queue,
     _zero_count,
     all_sql_statements,
+    main,
     overall_exit,
     render_table,
 )
@@ -231,3 +232,15 @@ def test_render_table_not_deployed_banner():
     out = render_table(rep)
     assert "FEATURE NOT DEPLOYED" in out
     assert "Verdict: SETUP (exit 2)" in out
+
+
+# ---- read-only guard: refuse PYTEST_SCHEMA ----------------------------------
+
+def test_main_refuses_to_run_under_pytest_schema(monkeypatch, capsys):
+    # Even with a DSN present, main() must bail with exit 2 BEFORE connecting:
+    # get_connection's PYTEST_SCHEMA branch would otherwise CREATE SCHEMA +
+    # commit (a write) before the read-only pin. No DB is touched here.
+    monkeypatch.setenv("MONITOR_DATABASE_URL", "postgresql://u:p@localhost:5432/db")
+    monkeypatch.setenv("PYTEST_SCHEMA", "test_deadbeef")
+    assert main([]) == 2
+    assert "PYTEST_SCHEMA" in capsys.readouterr().err

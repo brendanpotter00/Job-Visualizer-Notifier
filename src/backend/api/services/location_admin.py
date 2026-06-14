@@ -37,6 +37,12 @@ _LOCATIONS = sql.Identifier("locations")
 _LOCATION_ALIASES = sql.Identifier("location_aliases")
 _ALIAS_LOCATIONS = sql.Identifier("alias_locations")
 
+# alias_originals() prefilters candidate job rows in SQL before the Python SSOT
+# verify. Bounded so a hot alias key (e.g. "remote") can't pull an unbounded set
+# into memory. Saturating this cap means some originals may be omitted — a
+# display-only limitation we log (see alias_originals).
+_ALIAS_ORIGINALS_PREFILTER_CAP = 500
+
 
 def _scalar(row, key: str):
     """Read a column from a RealDict row or a plain tuple (first col)."""
@@ -420,14 +426,21 @@ def alias_originals(conn: Connection, raw_text: str, limit: int) -> dict:
          exactly equals `raw_text` (the SSOT normalizer) — guarantees no false
          positives.
       3. Group distinct verbatim location strings -> their jobIds; cap the number
-         of distinct originals at `limit`; ``total`` = number of distinct
-         originals found (post-cap count of the returned list).
+         of distinct originals at `limit`.
 
-    Caveat: the SQL prefilter folds case and whitespace but NOT exotic NFKC or
-    dash-only Unicode variants. An original differing from `raw_text` ONLY by such
-    a variant may be missed by the prefilter and so not appear here. This is an
-    accepted limitation — this is a display feature, not an integrity guarantee;
-    the alias key itself is always produced by the full normalize_string SSOT.
+    ``total`` is the count of distinct originals actually RETURNED — i.e. it
+    always equals ``len(originals)``, bounded by both `limit` and the
+    ``_ALIAS_ORIGINALS_PREFILTER_CAP``-row SQL prefilter. It is NOT a
+    filter-independent grand total (unlike list_aliases/list_problem_jobs
+    ``total``); this is a display feature, so there is no full count to report.
+
+    Caveats (both display-only, never integrity guarantees):
+      * The SQL prefilter folds case and whitespace but NOT exotic NFKC or
+        dash-only Unicode variants. An original differing from `raw_text` ONLY by
+        such a variant may be missed by the prefilter and so not appear here. The
+        alias key itself is always produced by the full normalize_string SSOT.
+      * If the prefilter saturates its row cap, some originals may be omitted;
+        we log a warning so the truncation is visible rather than silent.
 
     READ-ONLY. Returns ``{"raw_text", "total", "originals": [{"original",
     "job_ids": [str, ...]}, ...]}``.
@@ -439,15 +452,23 @@ def alias_originals(conn: Connection, raw_text: str, limit: int) -> dict:
                     "SELECT id, location FROM {} "
                     "WHERE location IS NOT NULL AND btrim(location) <> '' "
                     "AND lower(btrim(regexp_replace(location, '\\s+', ' ', 'g'))) = %(key)s "
-                    "LIMIT 500"
+                    "LIMIT %(cap)s"
                 ).format(_JOB_LISTINGS),
-                {"key": raw_text},
+                {"key": raw_text, "cap": _ALIAS_ORIGINALS_PREFILTER_CAP},
             )
             rows = cur.fetchall()
     except psycopg2.Error:
         conn.rollback()
         logger.exception("alias_originals prefilter failed (raw_text=%r)", raw_text)
         raise
+
+    if len(rows) >= _ALIAS_ORIGINALS_PREFILTER_CAP:
+        logger.warning(
+            "alias_originals prefilter hit the %d-row cap for raw_text=%r; some "
+            "originals may be omitted (display-only feature)",
+            _ALIAS_ORIGINALS_PREFILTER_CAP,
+            raw_text,
+        )
 
     # Group distinct verbatim location strings -> jobIds, preserving first-seen
     # order. Verify each candidate with the SSOT normalizer (no false positives).

@@ -7,11 +7,12 @@ import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import {
+  adminApi,
   useGetLocationHealthQuery,
   useGetLocationIntegrityQuery,
-  useListProblemJobsQuery,
   type AliasRow,
 } from '../../features/admin/adminApi';
+import { useAppDispatch } from '../../app/hooks';
 import { LoadingState } from '../../components/shared/LoadingIndicator';
 import { ErrorState } from '../../components/shared/ErrorDisplay';
 import { extractErrorMessage } from '../../lib/errors';
@@ -23,11 +24,9 @@ import { AliasEditDialog } from './components/AliasEditDialog';
 import { ProblemJobsTable } from './components/ProblemJobsTable';
 
 export function AdminLocationNormalizationPage() {
+  const dispatch = useAppDispatch();
   const healthQuery = useGetLocationHealthQuery();
   const integrityQuery = useGetLocationIntegrityQuery();
-  // Kept here only so the page-level Refresh button can refetch all three read
-  // queries; the table owns its own pagination/render via useListProblemJobsQuery.
-  const problemJobsQuery = useListProblemJobsQuery({ limit: 25, offset: 0 });
 
   const [editAlias, setEditAlias] = useState<AliasRow | null>(null);
   const [editOpen, setEditOpen] = useState(false);
@@ -50,7 +49,10 @@ export function AdminLocationNormalizationPage() {
   const handleRefresh = () => {
     healthQuery.refetch();
     integrityQuery.refetch();
-    problemJobsQuery.refetch();
+    // The problem-jobs table owns its own pagination, so refetch it by TAG
+    // rather than a query-instance refetch pinned to offset 0 — this refreshes
+    // whatever page the table is currently showing.
+    dispatch(adminApi.util.invalidateTags(['LocationProblemJobs']));
   };
 
   const handleEdit = (alias: AliasRow) => {

@@ -338,10 +338,13 @@ def admin_list_aliases(
 
 # --- Location-normalization MONITOR endpoints (read-only oversight) -----------
 #
-# These STATIC GET paths are registered ABOVE the catch-all
-# PUT /locations/aliases/{raw_text:path} below. GET and PUT differ in method so
-# there's no real conflict today, but keeping the static GETs first guards
-# against a future `:path` GET shadowing them.
+# These STATIC GET paths are registered AFTER the catch-all
+# PUT /locations/aliases/{raw_text:path} (defined earlier in this file), but
+# order is irrelevant here: that route is a PUT under a different path prefix
+# (/locations/aliases/...), so it can never match these GETs on /locations/health,
+# /integrity, /reverse, /alias-originals, or /problem-jobs — the method AND the
+# prefix both differ. (If a future `:path` GET on /locations/... is ever added,
+# register it LAST so it can't shadow these static GETs.)
 
 
 @router.get("/locations/health", response_model=AdminLocationHealthResponse)

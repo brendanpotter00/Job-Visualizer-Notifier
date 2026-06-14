@@ -16,6 +16,7 @@ import pytest
 from fastapi.testclient import TestClient
 from psycopg2 import sql
 
+from api.services.location_monitor import get_health, get_integrity
 from .conftest import _insert_job, _insert_user, _make_job, _make_user
 from .test_admin_locations import _seed_alias
 
@@ -489,3 +490,90 @@ class TestAliasesOffsetTotal:
 
     def test_negative_offset_422(self, client):
         assert client.get("/api/admin/locations/aliases", params={"offset": -1}).status_code == 422
+
+
+# ===== Schema-absent (feature not deployed) — must NOT 500 ====================
+#
+# get_db hands out NON-autocommit connections, so a probe/query that references
+# a missing column or table aborts the whole transaction and poisons every
+# later statement (a fresh cursor does NOT clear that state). These tests drive
+# the not-deployed path with a tiny stub connection so they don't have to drop
+# tables from the module-scoped, create_all-provisioned test schema (which
+# always has the column — the exact reason this path was previously untested).
+# The happy path (real pg_attribute / to_regclass SQL) is covered by the
+# integration tests above, which run those queries against the real schema.
+
+
+class _QueueCursor:
+    """Cursor stub that returns canned fetchone() results in order."""
+
+    def __init__(self, results):
+        self._results = list(results)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+    def execute(self, _sql, _params=None):
+        # Never raises — the point is to prove the service early-returns from
+        # the schema gate WITHOUT relying on a failing statement.
+        pass
+
+    def fetchone(self):
+        return self._results.pop(0) if self._results else None
+
+    def fetchall(self):
+        return []
+
+
+class _QueueConn:
+    def __init__(self, results):
+        self._results = results
+        self.rollbacks = 0
+
+    def cursor(self):
+        return _QueueCursor(self._results)
+
+    def rollback(self):
+        self.rollbacks += 1
+
+
+class TestSchemaAbsent:
+    def test_health_missing_column_returns_clean_zeroed_snapshot(self):
+        # pg_attribute probe reports the normalization_status column absent.
+        conn = _QueueConn([{"n": 0}])
+        result = get_health(conn, 24)
+        assert result["schema_present"] is False
+        assert result["window_hours"] == 24
+        for key in (
+            "null_backlog", "null_aged", "done", "failed", "total",
+            "failed_blank", "failed_nonblank",
+        ):
+            assert result[key] == 0
+        assert result["failed_nonblank_ratio"] == 0.0
+        assert result["heartbeat_age_minutes"] is None
+        assert result["normalize_queue"] == {}
+        assert result["throughput_in_window"] is None
+        assert result["dormant"] is False
+        # Read-only hygiene: the connection is rolled back, never left open.
+        assert conn.rollbacks >= 1
+
+    def test_health_missing_location_table_returns_schema_absent(self):
+        # Column present (n=1) but the first location table does not resolve.
+        conn = _QueueConn([{"n": 1}, {"oid": None}])
+        result = get_health(conn, 24)
+        assert result["schema_present"] is False
+        assert result["total"] == 0
+
+    def test_integrity_missing_column_returns_empty_checks(self):
+        conn = _QueueConn([{"n": 0}])
+        result = get_integrity(conn)
+        assert result == {"schema_present": False, "checks": []}
+        assert conn.rollbacks >= 1
+
+    def test_integrity_missing_location_table_returns_empty_checks(self):
+        conn = _QueueConn([{"n": 1}, {"oid": None}])
+        result = get_integrity(conn)
+        assert result == {"schema_present": False, "checks": []}

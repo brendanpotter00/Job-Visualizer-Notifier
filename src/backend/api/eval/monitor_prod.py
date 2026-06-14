@@ -573,6 +573,20 @@ def _parse_args(argv=None):
 def main(argv=None) -> int:
     args = _parse_args(argv)
 
+    # Refuse to run under a pytest schema. db.get_connection's PYTEST_SCHEMA
+    # branch issues CREATE SCHEMA + commit (a WRITE) at connect time — BEFORE
+    # connect_readonly can pin default_transaction_read_only. The monitor is
+    # read-only by contract and must target prod via MONITOR_DATABASE_URL, never
+    # a test schema, so bail out before any connection is opened.
+    if os.environ.get("PYTEST_SCHEMA"):
+        print(
+            "ERROR: refusing to run with PYTEST_SCHEMA set — the monitor is "
+            "strictly read-only and must target prod via MONITOR_DATABASE_URL, "
+            "not a test schema. Unset PYTEST_SCHEMA and retry.",
+            file=sys.stderr,
+        )
+        return 2
+
     dsn = os.environ.get("MONITOR_DATABASE_URL")
     if not dsn:
         print(_NO_DSN_MSG, file=sys.stderr)

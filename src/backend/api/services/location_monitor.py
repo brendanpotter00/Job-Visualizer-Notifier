@@ -195,21 +195,25 @@ def _regclass(cur, name: str) -> bool:
 def _normalization_column_present(cur) -> bool:
     """True when job_listings exists AND has a normalization_status column.
 
-    Probed without pinning ``table_schema='public'`` (search-path-correct): a
-    ``SELECT normalization_status FROM job_listings LIMIT 0`` succeeds iff the
-    column resolves on the active search_path, and raises UndefinedColumn /
-    UndefinedTable otherwise. We swallow only that probe error (rolling back the
-    aborted subtxn would require a savepoint; instead we run this probe on its
-    own cursor BEFORE any other health query so a miss can't poison them).
+    Search-path-correct (no hardcoded ``public``) AND non-raising: resolves the
+    table via ``to_regclass`` (NULL off the active search_path) and looks the
+    column up in ``pg_attribute`` by that oid. A missing table or column yields
+    0 rows -> False without ever issuing a statement that errors.
+
+    Non-raising is load-bearing: get_db hands out NON-autocommit connections, so
+    a probe that raises (the old ``SELECT normalization_status ... LIMIT 0``)
+    would abort the whole transaction and poison every subsequent health query
+    — a fresh cursor does NOT clear an aborted transaction, that state is
+    per-connection — turning a not-deployed schema into a 500 instead of a clean
+    schema_present=False.
     """
-    if not _regclass(cur, "job_listings"):
-        return False
-    try:
-        cur.execute("SELECT normalization_status FROM job_listings LIMIT 0")
-        cur.fetchall()
-        return True
-    except psycopg2.Error:
-        return False
+    cur.execute(
+        "SELECT count(*) AS n FROM pg_attribute "
+        "WHERE attrelid = to_regclass('job_listings') "
+        "AND attname = 'normalization_status' "
+        "AND NOT attisdropped AND attnum > 0"
+    )
+    return int(_scalar(cur.fetchone(), "n") or 0) > 0
 
 
 def get_health(conn, window_hours: int) -> dict:
@@ -232,13 +236,36 @@ def get_health(conn, window_hours: int) -> dict:
     try:
         with conn.cursor() as cur:
             # Schema presence: all four location tables + normalization_status col.
-            # Run the column probe first (it owns error-swallowing) so a missing
-            # column can't poison a later statement in the same cursor.
+            # Both probes are non-raising (see _normalization_column_present and
+            # _regclass), so neither can abort the transaction.
             norm_col = _normalization_column_present(cur)
             schema_present = norm_col and all(
                 _regclass(cur, t)
                 for t in ("locations", "location_aliases", "alias_locations", "job_locations")
             )
+
+            # Not deployed: the B1/B2 queries below reference normalization_status,
+            # so running them now would raise UndefinedColumn — and on a
+            # non-autocommit connection that 500s the request. Return a clean
+            # zeroed snapshot instead; schema_present=False is the signal.
+            if not schema_present:
+                return {
+                    "schema_present": False,
+                    "window_hours": window_hours,
+                    "null_backlog": 0,
+                    "null_aged": 0,
+                    "done": 0,
+                    "failed": 0,
+                    "total": 0,
+                    "failed_blank": 0,
+                    "failed_nonblank": 0,
+                    "failed_nonblank_ratio": 0.0,
+                    "heartbeat_age_minutes": None,
+                    "normalize_queue": {},
+                    "throughput_in_window": None,
+                    "key_configured": key_configured,
+                    "dormant": False,
+                }
 
             # B1 backlog
             cur.execute(_SQL_B1_BACKLOG, {"window_hours": window_hours})
@@ -324,16 +351,20 @@ def get_integrity(conn) -> dict:
 
     Returns {schemaPresent, checks:[{id,label,count,severity}]}. ``severity`` is
     "ok" when count==0, else the check's configured severity. ``schemaPresent``
-    here only requires the four location tables to resolve (the checks query
-    them); job_listings always exists, so the normalization_status column
-    presence isn't gated here.
+    requires the four location tables to resolve AND job_listings to carry a
+    normalization_status column (C1 references it). When the schema isn't
+    deployed we return an empty check list rather than running the C1..C9 SQL,
+    which would raise against the missing schema — and 500 the request on a
+    non-autocommit connection.
     """
     try:
         with conn.cursor() as cur:
-            schema_present = all(
+            schema_present = _normalization_column_present(cur) and all(
                 _regclass(cur, t)
                 for t in ("locations", "location_aliases", "alias_locations", "job_locations")
             )
+            if not schema_present:
+                return {"schema_present": False, "checks": []}
             checks = []
             for chk in INTEGRITY_CHECKS:
                 cur.execute(chk.sql)

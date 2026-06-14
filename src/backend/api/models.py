@@ -447,6 +447,10 @@ class AdminAliasOriginalsResponse(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
     raw_text: str
+    # Count of distinct originals RETURNED (== len(originals)), bounded by the
+    # page `limit` and the service-side prefilter cap. NOT a filter-independent
+    # grand total like the other *total fields — this is a display feature with
+    # no full count to report. See services.location_admin.alias_originals.
     total: int = Field(ge=0)
     originals: list[AdminAliasOriginal]
 

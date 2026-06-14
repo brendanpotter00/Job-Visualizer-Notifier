@@ -3,10 +3,14 @@ import type { LocationHealth, IntegrityCheck } from '../../features/admin/adminA
 /**
  * Pure verdict-derivation for the Location Normalization Monitor.
  *
- * Every threshold here comes from the runbook §6. The module is intentionally
- * free of React/MUI imports so it is fully unit-testable in isolation and the
- * page can derive its focal "verdict banner" from a single trusted function
- * rather than scattering threshold checks across the UI.
+ * The thresholds below mirror the runbook §6 table
+ * (src/backend/docs/location-normalization-monitoring.md) and the CLI
+ * (src/backend/api/eval/monitor_prod.py) — the same numbers expressed in three
+ * places (TS can't share a constant with Python). Keep all three in sync when a
+ * threshold changes. The module is intentionally free of React/MUI imports so
+ * it is fully unit-testable in isolation and the page can derive its focal
+ * "verdict banner" from a single trusted function rather than scattering
+ * threshold checks across the UI.
  */
 
 // ─── Thresholds (runbook §6) ─────────────────────────────────────────────────
@@ -25,9 +29,6 @@ export const NULL_AGED_WARN = 500;
 export const FAILED_RATIO_CRIT = 5;
 /** failedNonblankRatio (percentage 0..100): above this is a warning. */
 export const FAILED_RATIO_WARN = 2;
-
-/** Dormant heuristic: a backlog this large with zero done implies idle worker. */
-export const DORMANT_NULL_BACKLOG = 100;
 
 export type MetricSeverity = 'ok' | 'warn' | 'crit';
 
@@ -127,9 +128,11 @@ export function computeVerdict(health: LocationHealth, checks: IntegrityCheck[])
     };
   }
 
-  // DORMANT: key not configured but a meaningful backlog exists with zero
-  // progress. Work is piling up and nothing is draining it.
-  if (!health.keyConfigured && health.nullBacklog > DORMANT_NULL_BACKLOG && health.done === 0) {
+  // DORMANT: trust the backend's authoritative dormancy inference (no LLM key +
+  // a NULL backlog with nothing processed yet) rather than recomputing the
+  // heuristic here — single source of truth, so the API and the UI can't
+  // disagree. SETUP above already handled the empty-corpus case.
+  if (health.dormant) {
     return {
       verdict: 'DORMANT',
       color: 'info',

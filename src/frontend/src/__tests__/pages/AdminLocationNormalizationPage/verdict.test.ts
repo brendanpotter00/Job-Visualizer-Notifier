@@ -57,27 +57,22 @@ describe('computeVerdict', () => {
     expect(result.verdict).not.toBe('SETUP');
   });
 
-  it('returns DORMANT (info) when key missing, backlog > 100, and done === 0', () => {
+  it('returns DORMANT (info) when the backend reports dormant', () => {
+    // The verdict trusts the backend `dormant` flag (single source of truth)
+    // rather than recomputing a backlog/done heuristic on the client.
     const result = computeVerdict(
-      makeHealth({ keyConfigured: false, total: 500, nullBacklog: 101, done: 0 }),
+      makeHealth({ keyConfigured: false, dormant: true, total: 500, nullBacklog: 101, done: 0 }),
       []
     );
     expect(result.verdict).toBe('DORMANT');
     expect(result.color).toBe('info');
   });
 
-  it('does NOT return DORMANT when backlog is exactly 100 (boundary)', () => {
-    // Threshold is strictly greater-than 100.
+  it('does NOT return DORMANT when the backend dormant flag is false', () => {
+    // Even with no key + a backlog + zero done, the client no longer infers
+    // dormancy itself — only the backend flag drives it.
     const result = computeVerdict(
-      makeHealth({ keyConfigured: false, total: 500, nullBacklog: 100, done: 0 }),
-      []
-    );
-    expect(result.verdict).not.toBe('DORMANT');
-  });
-
-  it('does NOT return DORMANT when done > 0 even if backlog is large', () => {
-    const result = computeVerdict(
-      makeHealth({ keyConfigured: false, total: 500, nullBacklog: 200, done: 5 }),
+      makeHealth({ keyConfigured: false, dormant: false, total: 500, nullBacklog: 200, done: 0 }),
       []
     );
     expect(result.verdict).not.toBe('DORMANT');

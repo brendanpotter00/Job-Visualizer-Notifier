@@ -263,6 +263,13 @@ the eval, and files any integrity fix. The monitor's job ends at the report.
 These start as **proposals**; the first steady-state run sets the real numbers
 (especially B1 and the D queue sizes). Record the chosen values in that run's findings doc.
 
+> **Mirrored thresholds — keep in sync.** The A2 / B1 / B2 numbers above are
+> duplicated in two code sites that can't share a constant with this doc:
+> the CLI `src/backend/api/eval/monitor_prod.py` (the `Check` thresholds) and the
+> admin page `src/frontend/src/pages/AdminLocationNormalizationPage/verdict.ts`
+> (the `HEARTBEAT_*` / `NULL_AGED_*` / `FAILED_RATIO_*` constants). When a
+> threshold changes here, update both.
+
 > **Why C3 is load-bearing.** `job_listings`' PK is the composite `(source_id, id)` —
 > there is **no** unique constraint on `id` alone, and `job_locations` keys on
 > `job_listing_id` with **no DB FK** (integrity is enforced in the app layer). The whole
