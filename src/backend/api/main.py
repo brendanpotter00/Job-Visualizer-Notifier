@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from .auth.internal_key import require_internal_key, warn_if_unset
 from .config import settings
 from .dependencies import get_db, init_pool, close_pool, pool_is_healthy
-from .routers import admin, features, jobs, jobs_qa, users
+from .routers import admin, feedback, features, jobs, jobs_qa, users
 from .tasks import procrastinate_app
 from .tasks.procrastinate_app import ensure_schema_async
 from .migrations import apply_alembic_migrations
@@ -256,6 +256,7 @@ app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])
 app.include_router(jobs_qa.router, prefix="/api/jobs-qa", tags=["jobs-qa"])
 app.include_router(users.router, prefix="/api/users", tags=["users"])
 app.include_router(features.router, prefix="/api/features", tags=["features"])
+app.include_router(feedback.router, prefix="/api/feedback", tags=["feedback"])
 app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 
 

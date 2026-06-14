@@ -1,6 +1,7 @@
 """Integration tests for the admin router and the require_admin gate."""
 
 from fastapi.testclient import TestClient
+from psycopg2 import sql
 
 from .conftest import _insert_admin, _insert_user, _make_user
 
@@ -771,6 +772,225 @@ class TestJobsQaGate:
             client = TestClient(test_app)
             resp = client.post("/api/jobs-qa/trigger-scrape", params={"company": "google"})
             assert resp.status_code == 403
+        finally:
+            if saved_override is not None:
+                test_app.dependency_overrides[require_admin] = saved_override
+
+
+def _insert_feedback(
+    db_conn, fid, message="m", created_at=None, user_id=None,
+    user_email=None, display_name=None,
+):
+    cur = db_conn.cursor()
+    if created_at is None:
+        cur.execute(
+            sql.SQL(
+                "INSERT INTO {} (id, message, user_id, user_email, display_name)"
+                " VALUES (%s, %s, %s, %s, %s)"
+            ).format(sql.Identifier("feedback")),
+            (fid, message, user_id, user_email, display_name),
+        )
+    else:
+        cur.execute(
+            sql.SQL(
+                "INSERT INTO {} (id, message, user_id, user_email, display_name,"
+                " created_at) VALUES (%s, %s, %s, %s, %s, %s)"
+            ).format(sql.Identifier("feedback")),
+            (fid, message, user_id, user_email, display_name, created_at),
+        )
+    db_conn.commit()
+
+
+class TestAdminFeedbackList:
+    """GET /api/admin/feedback — gate + payload shape."""
+
+    def test_without_auth_returns_401(self, test_app):
+        from api.auth.dependencies import get_current_user, require_admin
+
+        saved_admin = test_app.dependency_overrides.pop(require_admin, None)
+        saved_current = test_app.dependency_overrides.pop(get_current_user, None)
+        try:
+            client = TestClient(test_app)
+            resp = client.get("/api/admin/feedback")
+            assert resp.status_code == 401
+        finally:
+            if saved_current is not None:
+                test_app.dependency_overrides[get_current_user] = saved_current
+            if saved_admin is not None:
+                test_app.dependency_overrides[require_admin] = saved_admin
+
+    def test_non_admin_returns_403(self, test_app, db_conn):
+        from api.auth.dependencies import require_admin
+
+        _insert_user(
+            db_conn,
+            _make_user({"auth0_id": "auth0|test_user_123", "email": "test@example.com"}),
+        )
+        saved_override = test_app.dependency_overrides.pop(require_admin, None)
+        try:
+            client = TestClient(test_app)
+            resp = client.get("/api/admin/feedback")
+            assert resp.status_code == 403
+        finally:
+            if saved_override is not None:
+                test_app.dependency_overrides[require_admin] = saved_override
+
+    def test_admin_returns_feedback_newest_first(self, test_app, db_conn):
+        from datetime import datetime, timedelta, timezone
+
+        from api.auth.dependencies import require_admin
+
+        user = _make_user(
+            {"auth0_id": "auth0|test_user_123", "email": "test@example.com"}
+        )
+        _insert_user(db_conn, user)
+        _insert_admin(db_conn, user["id"])
+
+        base = datetime(2026, 6, 1, tzinfo=timezone.utc)
+        _insert_feedback(db_conn, "a", "oldest", created_at=base)
+        _insert_feedback(
+            db_conn, "b", "from user", created_at=base + timedelta(hours=1),
+            user_id=user["id"], user_email="test@example.com", display_name="Tester",
+        )
+        _insert_feedback(db_conn, "c", "anon newest", created_at=base + timedelta(hours=2))
+
+        saved_override = test_app.dependency_overrides.pop(require_admin, None)
+        try:
+            client = TestClient(test_app)
+            resp = client.get("/api/admin/feedback")
+            assert resp.status_code == 200, resp.text
+            body = resp.json()
+            rows = body["feedback"]
+            assert body["total"] == 3
+            assert [r["message"] for r in rows] == ["anon newest", "from user", "oldest"]
+            # camelCase keys and an anonymous row surfaces with null user fields.
+            assert set(rows[0].keys()) == {
+                "id", "message", "userId", "userEmail", "displayName", "createdAt",
+            }
+            assert rows[0]["userId"] is None and rows[0]["userEmail"] is None
+            assert rows[1]["userEmail"] == "test@example.com"
+            assert rows[1]["displayName"] == "Tester"
+        finally:
+            if saved_override is not None:
+                test_app.dependency_overrides[require_admin] = saved_override
+
+    def test_returns_one_page_with_total_reflecting_all_rows(self, test_app, db_conn):
+        # Server-side pagination: a page returns at most ``limit`` rows, but
+        # ``total`` reports the full count so the UI pager can reach everything.
+        from datetime import datetime, timedelta, timezone
+
+        from api.auth.dependencies import require_admin
+
+        user = _make_user(
+            {"auth0_id": "auth0|test_user_123", "email": "test@example.com"}
+        )
+        _insert_user(db_conn, user)
+        _insert_admin(db_conn, user["id"])
+
+        base = datetime(2026, 6, 1, tzinfo=timezone.utc)
+        for i in range(60):
+            _insert_feedback(
+                db_conn, f"id{i}", f"m{i}", created_at=base + timedelta(minutes=i)
+            )
+
+        saved_override = test_app.dependency_overrides.pop(require_admin, None)
+        try:
+            client = TestClient(test_app)
+            # Param-less call uses the default page size (25), not the whole set.
+            resp = client.get("/api/admin/feedback")
+            assert resp.status_code == 200, resp.text
+            body = resp.json()
+            assert len(body["feedback"]) == 25
+            assert body["total"] == 60
+        finally:
+            if saved_override is not None:
+                test_app.dependency_overrides[require_admin] = saved_override
+
+    def test_offset_paging_returns_the_right_slice(self, test_app, db_conn):
+        from datetime import datetime, timedelta, timezone
+
+        from api.auth.dependencies import require_admin
+
+        user = _make_user(
+            {"auth0_id": "auth0|test_user_123", "email": "test@example.com"}
+        )
+        _insert_user(db_conn, user)
+        _insert_admin(db_conn, user["id"])
+
+        base = datetime(2026, 6, 1, tzinfo=timezone.utc)
+        for i in range(5):
+            _insert_feedback(
+                db_conn, f"id{i}", f"m{i}", created_at=base + timedelta(minutes=i)
+            )
+
+        saved_override = test_app.dependency_overrides.pop(require_admin, None)
+        try:
+            client = TestClient(test_app)
+            # Newest-first: m4, m3, m2, m1, m0
+            page1 = client.get("/api/admin/feedback", params={"limit": 2, "offset": 0})
+            page2 = client.get("/api/admin/feedback", params={"limit": 2, "offset": 2})
+            assert [r["message"] for r in page1.json()["feedback"]] == ["m4", "m3"]
+            assert [r["message"] for r in page2.json()["feedback"]] == ["m2", "m1"]
+            assert page1.json()["total"] == 5
+        finally:
+            if saved_override is not None:
+                test_app.dependency_overrides[require_admin] = saved_override
+
+    def test_sort_dir_asc_flips_order(self, test_app, db_conn):
+        from datetime import datetime, timedelta, timezone
+
+        from api.auth.dependencies import require_admin
+
+        user = _make_user(
+            {"auth0_id": "auth0|test_user_123", "email": "test@example.com"}
+        )
+        _insert_user(db_conn, user)
+        _insert_admin(db_conn, user["id"])
+
+        base = datetime(2026, 6, 1, tzinfo=timezone.utc)
+        _insert_feedback(db_conn, "a", "oldest", created_at=base)
+        _insert_feedback(db_conn, "b", "newest", created_at=base + timedelta(hours=1))
+
+        saved_override = test_app.dependency_overrides.pop(require_admin, None)
+        try:
+            client = TestClient(test_app)
+            resp = client.get("/api/admin/feedback", params={"sort_dir": "asc"})
+            assert resp.status_code == 200, resp.text
+            assert [r["message"] for r in resp.json()["feedback"]] == ["oldest", "newest"]
+        finally:
+            if saved_override is not None:
+                test_app.dependency_overrides[require_admin] = saved_override
+
+    def test_bad_sort_dir_returns_422(self, test_app, db_conn):
+        from api.auth.dependencies import require_admin
+
+        user = _make_user(
+            {"auth0_id": "auth0|test_user_123", "email": "test@example.com"}
+        )
+        _insert_user(db_conn, user)
+        _insert_admin(db_conn, user["id"])
+        saved_override = test_app.dependency_overrides.pop(require_admin, None)
+        try:
+            client = TestClient(test_app)
+            resp = client.get("/api/admin/feedback", params={"sort_dir": "sideways"})
+            assert resp.status_code == 422
+        finally:
+            if saved_override is not None:
+                test_app.dependency_overrides[require_admin] = saved_override
+
+    def test_limit_over_cap_returns_422(self, test_app, db_conn):
+        from api.auth.dependencies import require_admin
+
+        user = _make_user(
+            {"auth0_id": "auth0|test_user_123", "email": "test@example.com"}
+        )
+        _insert_user(db_conn, user)
+        _insert_admin(db_conn, user["id"])
+        saved_override = test_app.dependency_overrides.pop(require_admin, None)
+        try:
+            client = TestClient(test_app)
+            resp = client.get("/api/admin/feedback", params={"limit": 201})
+            assert resp.status_code == 422
         finally:
             if saved_override is not None:
                 test_app.dependency_overrides[require_admin] = saved_override

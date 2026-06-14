@@ -50,6 +50,13 @@ class Settings(BaseSettings):
     # str|None to match internal_api_key (NOT SecretStr).
     anthropic_api_key: str | None = None
 
+    # Public feedback endpoint rate limit (per client IP, sliding window).
+    # Defaults are generous for a human but hostile to a script: 5 submissions
+    # per 60s. Enforced in-process by services/rate_limit.py — see that module
+    # for why an in-memory limiter is appropriate here.
+    feedback_rate_limit_max: int = Field(default=5, gt=0)
+    feedback_rate_limit_window_seconds: int = Field(default=60, gt=0)
+
     # Server
     port: int = 8080
     cors_origins: str = "http://localhost:3000,http://localhost:5173,http://localhost:8000"

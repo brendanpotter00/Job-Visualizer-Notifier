@@ -223,9 +223,12 @@ def _insert_user(conn, user: dict) -> None:
 def _clear_tables(conn) -> None:
     """Truncate test tables between tests."""
     cursor = conn.cursor()
-    cursor.execute(sql.SQL("TRUNCATE {}, {}, {}, {}, {}, {}, {}, {}, {} CASCADE").format(
+    cursor.execute(sql.SQL("TRUNCATE {}, {}, {}, {}, {}, {}, {}, {}, {}, {} CASCADE").format(
         sql.Identifier("feature_upvotes"),
         sql.Identifier("features"),
+        # feedback FKs users with ON DELETE SET NULL, so a users CASCADE would
+        # only null user_id rather than remove the row — truncate it explicitly.
+        sql.Identifier("feedback"),
         sql.Identifier("user_enabled_companies"),
         sql.Identifier("job_listings"),
         sql.Identifier("scrape_runs"),
@@ -256,7 +259,7 @@ def clean_tables(db_conn):
 @pytest.fixture(scope="module")
 def test_app(db_conn):
     """FastAPI test app with database connection wired up (no auto-scraper)."""
-    from api.routers import admin, features, jobs, jobs_qa, users
+    from api.routers import admin, feedback, features, jobs, jobs_qa, users
     from api.dependencies import get_db
     from api.auth.dependencies import (
         get_current_user,
@@ -269,6 +272,7 @@ def test_app(db_conn):
     app.include_router(jobs_qa.router, prefix="/api/jobs-qa")
     app.include_router(users.router, prefix="/api/users")
     app.include_router(features.router, prefix="/api/features")
+    app.include_router(feedback.router, prefix="/api/feedback")
     app.include_router(admin.router, prefix="/api/admin")
 
     @app.get("/health")

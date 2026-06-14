@@ -47,14 +47,14 @@ describe('NavigationDrawer', () => {
       expect(screen.getByText('Recent Job Postings')).toBeInTheDocument();
     });
 
-    it('renders the "Vote for features" nav item', () => {
+    it('renders the "Give Feedback" nav item', () => {
       render(
         <MemoryRouter>
           <NavigationDrawer {...mockProps} />
         </MemoryRouter>
       );
 
-      expect(screen.getByText('Vote for features')).toBeInTheDocument();
+      expect(screen.getByText('Give Feedback')).toBeInTheDocument();
       // The ThumbUp icon should be rendered alongside the label
       expect(screen.getByTestId('ThumbUpIcon')).toBeInTheDocument();
     });
@@ -133,7 +133,7 @@ describe('NavigationDrawer', () => {
       expect(companiesButton).toBeInTheDocument();
     });
 
-    it('navigates to /vote-features when the Vote for features item is clicked', async () => {
+    it('navigates to /vote-features when the Give Feedback item is clicked', async () => {
       const user = userEvent.setup();
 
       render(
@@ -142,7 +142,7 @@ describe('NavigationDrawer', () => {
         </MemoryRouter>
       );
 
-      const voteButton = screen.getByText('Vote for features').closest('div[role="button"]');
+      const voteButton = screen.getByText('Give Feedback').closest('div[role="button"]');
       expect(voteButton).toBeInTheDocument();
 
       await user.click(voteButton as Element);

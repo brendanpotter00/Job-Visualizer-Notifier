@@ -17,6 +17,7 @@ def test_all_tables_present():
         "user_enabled_companies",
         "features",
         "feature_upvotes",
+        "feedback",
         "admins",
         "companies",
         "worker_heartbeats",

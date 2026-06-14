@@ -12,6 +12,7 @@ export const ROUTES = {
   ACCOUNT: '/account',
   VOTE_FEATURES: '/vote-features',
   ADMIN_USERS: '/admin/users',
+  ADMIN_FEEDBACK: '/admin/feedback',
 } as const;
 
 export const USER_NAV_ITEMS = [
@@ -27,7 +28,7 @@ export const USER_NAV_ITEMS = [
   },
   {
     path: ROUTES.VOTE_FEATURES,
-    label: 'Vote for features',
+    label: 'Give Feedback',
     icon: 'ThumbUp',
   },
   {
@@ -47,6 +48,11 @@ export const ADMIN_NAV_ITEMS = [
     path: ROUTES.QA,
     label: 'Scraper Runs',
     icon: 'BugReport',
+  },
+  {
+    path: ROUTES.ADMIN_FEEDBACK,
+    label: 'User Feedback',
+    icon: 'Feedback',
   },
 ] as const;
 

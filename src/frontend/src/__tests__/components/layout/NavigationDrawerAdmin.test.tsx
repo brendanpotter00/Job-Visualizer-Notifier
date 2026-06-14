@@ -64,6 +64,7 @@ describe('NavigationDrawer admin section', () => {
     expect(screen.queryByText('ADMIN')).not.toBeInTheDocument();
     expect(screen.queryByText('Users')).not.toBeInTheDocument();
     expect(screen.queryByText('Scraper Runs')).not.toBeInTheDocument();
+    expect(screen.queryByText('User Feedback')).not.toBeInTheDocument();
   });
 
   it('hides the Admin section for non-admin users', () => {
@@ -76,9 +77,10 @@ describe('NavigationDrawer admin section', () => {
     expect(screen.queryByText('ADMIN')).not.toBeInTheDocument();
     expect(screen.queryByText('Users')).not.toBeInTheDocument();
     expect(screen.queryByText('Scraper Runs')).not.toBeInTheDocument();
+    expect(screen.queryByText('User Feedback')).not.toBeInTheDocument();
   });
 
-  it('shows the Admin section with Users and Scraper Runs items for admins', () => {
+  it('shows the Admin section with Users, Scraper Runs and User Feedback items for admins', () => {
     mockUser = { isAdmin: true };
     render(
       <MemoryRouter>
@@ -88,6 +90,7 @@ describe('NavigationDrawer admin section', () => {
     expect(screen.getByText('ADMIN')).toBeInTheDocument();
     expect(screen.getByText('Users')).toBeInTheDocument();
     expect(screen.getByText('Scraper Runs')).toBeInTheDocument();
+    expect(screen.getByText('User Feedback')).toBeInTheDocument();
   });
 
   it('hides the Admin section for admins when hideAdminFeatures is enabled (demo mode)', () => {
