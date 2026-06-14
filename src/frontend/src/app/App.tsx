@@ -10,6 +10,7 @@ import { ROUTES } from '../config/routes';
 import { QAPage } from '../pages/QAPage/QAPage.tsx';
 import { AdminUsersPage } from '../pages/AdminUsersPage/AdminUsersPage.tsx';
 import { AdminLocationNormalizationPage } from '../pages/AdminLocationNormalizationPage/AdminLocationNormalizationPage.tsx';
+import { AdminFeedbackPage } from '../pages/AdminFeedbackPage/AdminFeedbackPage.tsx';
 import { AdminRoute } from '../components/auth/AdminRoute.tsx';
 import { useEnabledCompanies } from '../features/preferences/useEnabledCompanies';
 import { useFeaturesAuthBridge } from '../features/features/useFeaturesAuthBridge';
@@ -56,6 +57,14 @@ function AppContent() {
             element={
               <AdminRoute>
                 <AdminLocationNormalizationPage />
+              </AdminRoute>
+            }
+          />
+          <Route
+            path={ROUTES.ADMIN_FEEDBACK}
+            element={
+              <AdminRoute>
+                <AdminFeedbackPage />
               </AdminRoute>
             }
           />

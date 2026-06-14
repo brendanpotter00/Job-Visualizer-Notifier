@@ -820,4 +820,85 @@ describe('adminApi', () => {
     expect(methodFromCall(call)).toBe('POST');
     expect(getAuthHeader(call)).toBe('Bearer test-admin-token');
   });
+
+  describe('listAdminFeedback', () => {
+    const fakeFeedback = [
+      {
+        id: 'fb1',
+        message: 'love it',
+        userId: 'u1',
+        userEmail: 'a@example.com',
+        displayName: 'Alice',
+        createdAt: '2026-06-01T10:00:00Z',
+      },
+      {
+        id: 'fb2',
+        message: 'anon note',
+        userId: null,
+        userEmail: null,
+        displayName: null,
+        createdAt: '2026-06-02T10:00:00Z',
+      },
+    ];
+
+    const pageArgs = { page: 0, rowsPerPage: 25, sortDir: 'desc' as const };
+
+    it('GETs a page with limit/offset/sort_dir + Authorization and returns {feedback,total}', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ feedback: fakeFeedback, total: 2 }));
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(
+        adminApi.endpoints.listAdminFeedback.initiate({
+          page: 1,
+          rowsPerPage: 25,
+          sortDir: 'asc',
+        })
+      );
+
+      const call = fetchMock.mock.calls[0] as [unknown, unknown];
+      const url = urlFromInput(call[0]);
+      expect(url).toMatch(/\/api\/admin\/feedback\?/);
+      expect(url).toContain('limit=25');
+      expect(url).toContain('offset=25'); // page 1 * 25
+      expect(url).toContain('sort_dir=asc');
+      expect(getAuthHeader(call)).toBe('Bearer test-admin-token');
+      expect(result.data).toEqual({ feedback: fakeFeedback, total: 2 });
+    });
+
+    it('surfaces an error when the 2xx body is missing feedback[]', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ total: 0 }));
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(
+        adminApi.endpoints.listAdminFeedback.initiate(pageArgs)
+      );
+
+      expect(result.data).toBeUndefined();
+      expect(result.error).toBeDefined();
+    });
+
+    it('surfaces an error when total is missing', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ feedback: fakeFeedback }));
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(
+        adminApi.endpoints.listAdminFeedback.initiate(pageArgs)
+      );
+
+      expect(result.data).toBeUndefined();
+      expect(result.error).toBeDefined();
+    });
+
+    it('surfaces an error when feedback is the wrong type', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ feedback: 'oops', total: 0 }));
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(
+        adminApi.endpoints.listAdminFeedback.initiate(pageArgs)
+      );
+
+      expect(result.data).toBeUndefined();
+      expect(result.error).toBeDefined();
+    });
+  });
 });

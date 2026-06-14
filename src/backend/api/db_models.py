@@ -184,6 +184,33 @@ class FeatureUpvote(Base):
     )
 
 
+class Feedback(Base):
+    __tablename__ = "feedback"
+
+    id = Column(Text, primary_key=True)
+    message = Column(Text, nullable=False)
+    # Nullable FK so anonymous submissions are allowed; SET NULL keeps the
+    # feedback row (and its email/display_name snapshot) after a user is deleted.
+    user_id = Column(
+        Text,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    # Point-in-time snapshots of who submitted this, as they were AT submit time.
+    # Kept independent of the live users row so the admin view stays stable after
+    # an email change or account deletion (FK goes NULL, snapshot stays).
+    user_email = Column(Text, nullable=True)
+    display_name = Column(Text, nullable=True)
+    created_at = Column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        Index("idx_feedback_user_id", "user_id"),
+        Index("idx_feedback_created_at", "created_at"),
+    )
+
+
 class Company(Base):
     __tablename__ = "companies"
 

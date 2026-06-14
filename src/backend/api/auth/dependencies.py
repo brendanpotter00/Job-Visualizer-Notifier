@@ -50,6 +50,33 @@ async def get_optional_user(
         raise HTTPException(status_code=401, detail="Invalid token")
 
 
+async def get_optional_user_lenient(
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
+) -> TokenClaims | None:
+    """Like ``get_optional_user`` but NEVER raises on a bad token — returns None.
+
+    For PUBLIC endpoints where authentication is purely additive (e.g. feedback
+    submission): a missing, expired, malformed, or currently-unverifiable token
+    must degrade the caller to anonymous, never block the request. ``ExpiredSignatureError``
+    is a subclass of ``InvalidTokenError`` so it's covered; ``PyJWKClientError``
+    covers a transient JWKS outage. Contrast with ``get_optional_user``, which
+    surfaces 401/503 so auth-required flows can react to those distinctly.
+    """
+    if credentials is None:
+        return None
+    try:
+        return validate_token(credentials.credentials)
+    except (jwt.InvalidTokenError, PyJWKClientError) as exc:
+        # debug, not info: on a public endpoint a stale token is routine and
+        # high-volume (every request from an expired session hits this), so it
+        # would otherwise be log noise.
+        logger.debug(
+            "Ignoring unverifiable token on a public endpoint (treating as "
+            "anonymous): %s", exc,
+        )
+        return None
+
+
 async def get_current_user(
     user: TokenClaims | None = Depends(get_optional_user),
 ) -> TokenClaims:

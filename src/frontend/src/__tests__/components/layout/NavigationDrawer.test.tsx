@@ -1,8 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
-import { screen, render } from '@testing-library/react';
+import { screen, render as rtlRender } from '@testing-library/react';
+import type { ReactElement } from 'react';
 import userEvent from '@testing-library/user-event';
+import { Provider } from 'react-redux';
 import { MemoryRouter } from 'react-router-dom';
 import { NavigationDrawer } from '../../../components/layout/NavigationDrawer.tsx';
+import { createTestStore } from '../../../test/testUtils';
+import type { RootState } from '../../../app/store';
 
 vi.mock('../../../features/auth/useAuth', () => ({
   useAuth: () => ({
@@ -24,6 +28,12 @@ const mockProps = {
   isMobile: false,
 };
 
+// NavigationDrawer reads `ui.hideAdminFeatures` via useAppSelector, so every
+// render needs a Redux Provider. Wrap RTL's render with a test store.
+function render(ui: ReactElement, preloadedState?: Partial<RootState>) {
+  return rtlRender(<Provider store={createTestStore(preloadedState)}>{ui}</Provider>);
+}
+
 describe('NavigationDrawer', () => {
   describe('Rendering', () => {
     it('renders all navigation items from NAV_ITEMS config', () => {
@@ -37,14 +47,14 @@ describe('NavigationDrawer', () => {
       expect(screen.getByText('Recent Job Postings')).toBeInTheDocument();
     });
 
-    it('renders the "Vote for features" nav item', () => {
+    it('renders the "Give Feedback" nav item', () => {
       render(
         <MemoryRouter>
           <NavigationDrawer {...mockProps} />
         </MemoryRouter>
       );
 
-      expect(screen.getByText('Vote for features')).toBeInTheDocument();
+      expect(screen.getByText('Give Feedback')).toBeInTheDocument();
       // The ThumbUp icon should be rendered alongside the label
       expect(screen.getByTestId('ThumbUpIcon')).toBeInTheDocument();
     });
@@ -123,7 +133,7 @@ describe('NavigationDrawer', () => {
       expect(companiesButton).toBeInTheDocument();
     });
 
-    it('navigates to /vote-features when the Vote for features item is clicked', async () => {
+    it('navigates to /vote-features when the Give Feedback item is clicked', async () => {
       const user = userEvent.setup();
 
       render(
@@ -132,7 +142,7 @@ describe('NavigationDrawer', () => {
         </MemoryRouter>
       );
 
-      const voteButton = screen.getByText('Vote for features').closest('div[role="button"]');
+      const voteButton = screen.getByText('Give Feedback').closest('div[role="button"]');
       expect(voteButton).toBeInTheDocument();
 
       await user.click(voteButton as Element);

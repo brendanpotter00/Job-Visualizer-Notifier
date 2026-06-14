@@ -20,10 +20,12 @@ import ThumbUpIcon from '@mui/icons-material/ThumbUp';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import PeopleIcon from '@mui/icons-material/People';
 import PlaceIcon from '@mui/icons-material/Place';
+import FeedbackIcon from '@mui/icons-material/Feedback';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ADMIN_NAV_ITEMS, ROUTES, USER_NAV_ITEMS } from '../../config/routes.ts';
 import { useAuth } from '../../features/auth/useAuth';
 import { useCurrentUser } from '../../features/auth/useCurrentUser';
+import { useAppSelector } from '../../app/hooks';
 
 /**
  * Props for the NavigationDrawer component
@@ -95,7 +97,8 @@ type IconName =
   | 'ThumbUp'
   | 'TrendingUp'
   | 'People'
-  | 'Place';
+  | 'Place'
+  | 'Feedback';
 const iconMap: Record<IconName, React.ComponentType> = {
   Schedule: ScheduleIcon,
   Info: InfoIcon,
@@ -105,6 +108,7 @@ const iconMap: Record<IconName, React.ComponentType> = {
   TrendingUp: TrendingUpIcon,
   People: PeopleIcon,
   Place: PlaceIcon,
+  Feedback: FeedbackIcon,
 };
 
 export function NavigationDrawer({
@@ -120,6 +124,8 @@ export function NavigationDrawer({
   const { isAuthenticated } = useAuth();
   const { user, error: userError, reload: reloadUser } = useCurrentUser();
   const isAdmin = !!user?.isAdmin;
+  // Demo-only ephemeral flag: when on, suppress all admin nav affordances.
+  const hideAdminFeatures = useAppSelector((state) => state.ui.hideAdminFeatures);
   // Show the Admin status indicator only when the /api/users fetch
   // failed AND we have no cached user. If we have a cached user, the
   // existing isAdmin branch handles things. If the user just logged out
@@ -163,6 +169,10 @@ export function NavigationDrawer({
   }
 
   const renderAdminGroup = () => {
+    // Demo mode: hide the entire admin group (including the outage retry
+    // affordance) regardless of admin status. Resets on refresh.
+    if (hideAdminFeatures) return null;
+
     if (!isAdmin) {
       if (adminStatusUnavailable) {
         // Auth backend outage: ``useCurrentUser`` returned ``error`` and

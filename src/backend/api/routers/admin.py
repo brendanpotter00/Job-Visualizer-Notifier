@@ -18,6 +18,7 @@ from ..models import (
     AdminAliasOriginalsResponse,
     AdminAliasOverrideRequest,
     AdminAliasResponse,
+    AdminFeedbackListResponse,
     AdminLocationHealthResponse,
     AdminLocationIntegrityCheck,
     AdminLocationIntegrityResponse,
@@ -32,6 +33,7 @@ from ..models import (
     AdminUserRow,
     AdminUsersListResponse,
     AdminUsersStatsResponse,
+    FeedbackResponse,
 )
 from ..services.admin_service import (
     LastAdminError,
@@ -40,6 +42,7 @@ from ..services.admin_service import (
     list_users_with_admin_flag,
     revoke_admin,
 )
+from ..services.feedback_service import count_feedback, list_feedback
 from ..services.location_admin import (
     alias_originals,
     count_aliases,
@@ -64,6 +67,9 @@ router = APIRouter()
 # forbids unbounded reads, so the GET endpoint enforces this both via the
 # Query(le=...) validator (422 above cap) and the service's always-applied LIMIT.
 _ALIAS_LIST_CAP = 200
+
+# Hard cap on the admin feedback page size (same unbounded-reads memory rule).
+_FEEDBACK_LIST_CAP = 200
 
 
 @router.get("/users", response_model=AdminUsersListResponse)
@@ -92,6 +98,42 @@ def get_admin_users_stats(
         logger.exception("Failed to compute user stats for admin dashboard")
         raise HTTPException(status_code=500, detail="Failed to load user stats")
     return AdminUsersStatsResponse(**stats)
+
+
+@router.get("/feedback", response_model=AdminFeedbackListResponse)
+def list_admin_feedback(
+    conn: Connection = Depends(get_db),
+    _admin: TokenClaims = Depends(require_admin),
+    # Server-side pagination: the UI requests one page at a time and reads
+    # ``total`` to drive the pager, so it can reach all feedback rather than a
+    # single fetched slice. Page size is hard-bounded at 200 (unbounded-reads
+    # memory rule) and defaults to one screenful.
+    limit: int = Query(default=25, ge=1, le=_FEEDBACK_LIST_CAP),
+    offset: int = Query(default=0, ge=0),
+    sort_dir: str = Query(default="desc", pattern="^(asc|desc)$"),
+):
+    """One page of user feedback (ordered by ``created_at``) plus the total."""
+    try:
+        rows = list_feedback(conn, limit, offset, sort_dir)
+        total = count_feedback(conn)
+    except psycopg2.Error:
+        conn.rollback()
+        logger.exception("Failed to list feedback for admin dashboard")
+        raise HTTPException(status_code=500, detail="Failed to load feedback")
+    return AdminFeedbackListResponse(
+        feedback=[
+            FeedbackResponse(
+                id=r["id"],
+                message=r["message"],
+                user_id=r["user_id"],
+                user_email=r["user_email"],
+                display_name=r["display_name"],
+                created_at=r["created_at"],
+            )
+            for r in rows
+        ],
+        total=total,
+    )
 
 
 def _resolve_granter_id(conn: Connection, admin_claims: TokenClaims) -> str:

@@ -1,7 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, render } from '@testing-library/react';
+import { screen, render as rtlRender } from '@testing-library/react';
+import type { ReactElement } from 'react';
+import { Provider } from 'react-redux';
 import { MemoryRouter } from 'react-router-dom';
 import { NavigationDrawer } from '../../../components/layout/NavigationDrawer.tsx';
+import { createTestStore } from '../../../test/testUtils';
+import type { RootState } from '../../../app/store';
 
 let mockUser: { isAdmin: boolean } | null = null;
 let mockUserError: string | null = null;
@@ -37,6 +41,12 @@ const mockProps = {
   isMobile: false,
 };
 
+// NavigationDrawer reads `ui.hideAdminFeatures` via useAppSelector, so every
+// render needs a Redux Provider. Wrap RTL's render with a test store.
+function render(ui: ReactElement, preloadedState?: Partial<RootState>) {
+  return rtlRender(<Provider store={createTestStore(preloadedState)}>{ui}</Provider>);
+}
+
 describe('NavigationDrawer admin section', () => {
   beforeEach(() => {
     mockUser = null;
@@ -54,6 +64,7 @@ describe('NavigationDrawer admin section', () => {
     expect(screen.queryByText('ADMIN')).not.toBeInTheDocument();
     expect(screen.queryByText('Users')).not.toBeInTheDocument();
     expect(screen.queryByText('Scraper Runs')).not.toBeInTheDocument();
+    expect(screen.queryByText('User Feedback')).not.toBeInTheDocument();
   });
 
   it('hides the Admin section for non-admin users', () => {
@@ -66,9 +77,10 @@ describe('NavigationDrawer admin section', () => {
     expect(screen.queryByText('ADMIN')).not.toBeInTheDocument();
     expect(screen.queryByText('Users')).not.toBeInTheDocument();
     expect(screen.queryByText('Scraper Runs')).not.toBeInTheDocument();
+    expect(screen.queryByText('User Feedback')).not.toBeInTheDocument();
   });
 
-  it('shows the Admin section with Users and Scraper Runs items for admins', () => {
+  it('shows the Admin section with Users, Scraper Runs and User Feedback items for admins', () => {
     mockUser = { isAdmin: true };
     render(
       <MemoryRouter>
@@ -78,6 +90,30 @@ describe('NavigationDrawer admin section', () => {
     expect(screen.getByText('ADMIN')).toBeInTheDocument();
     expect(screen.getByText('Users')).toBeInTheDocument();
     expect(screen.getByText('Scraper Runs')).toBeInTheDocument();
+    expect(screen.getByText('User Feedback')).toBeInTheDocument();
+  });
+
+  it('hides the Admin section for admins when hideAdminFeatures is enabled (demo mode)', () => {
+    // Demo-only ephemeral flag in the ui slice. Even for a real admin, the
+    // entire Admin group is suppressed while the flag is on; it returns on
+    // refresh because the flag is not persisted.
+    mockUser = { isAdmin: true };
+    render(
+      <MemoryRouter>
+        <NavigationDrawer {...mockProps} />
+      </MemoryRouter>,
+      {
+        ui: {
+          graphModal: { open: false },
+          globalLoading: false,
+          notifications: [],
+          hideAdminFeatures: true,
+        },
+      }
+    );
+    expect(screen.queryByText('ADMIN')).not.toBeInTheDocument();
+    expect(screen.queryByText('Users')).not.toBeInTheDocument();
+    expect(screen.queryByText('Scraper Runs')).not.toBeInTheDocument();
   });
 
   it('renders admin items flat (icons only) when the drawer is collapsed', () => {

@@ -21,6 +21,12 @@ export interface UIState {
     type: 'success' | 'error' | 'info' | 'warning';
     message: string;
   }>;
+
+  /**
+   * Demo-only: when true, hide admin-only UI affordances (the Admin section
+   * in the sidebar). Ephemeral and not persisted — resets to false on refresh.
+   */
+  hideAdminFeatures: boolean;
 }
 
 const initialState: UIState = {
@@ -29,6 +35,7 @@ const initialState: UIState = {
   },
   globalLoading: false,
   notifications: [],
+  hideAdminFeatures: false,
 };
 
 interface OpenGraphModalPayload {
@@ -62,6 +69,9 @@ const uiSlice = createSlice({
     removeNotification(state, action: PayloadAction<string>) {
       state.notifications = state.notifications.filter((n) => n.id !== action.payload);
     },
+    setHideAdminFeatures(state, action: PayloadAction<boolean>) {
+      state.hideAdminFeatures = action.payload;
+    },
   },
 });
 
@@ -71,6 +81,7 @@ export const {
   setGlobalLoading,
   addNotification,
   removeNotification,
+  setHideAdminFeatures,
 } = uiSlice.actions;
 
 export default uiSlice.reducer;

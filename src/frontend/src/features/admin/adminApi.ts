@@ -50,6 +50,32 @@ export interface AdminUsersListResponse {
   users: AdminUserRow[];
 }
 
+/**
+ * One row in the admin User Feedback table. Field names mirror the backend's
+ * camelCased ``FeedbackResponse``. Null user fields ⇒ an anonymous submission.
+ */
+export interface FeedbackRow {
+  id: string;
+  message: string;
+  userId: string | null;
+  userEmail: string | null;
+  displayName: string | null;
+  createdAt: string;
+}
+
+export interface AdminFeedbackListResponse {
+  feedback: FeedbackRow[];
+  /** Total rows in the table (not just this page) — drives the server-side pager. */
+  total: number;
+}
+
+/** One page request for the admin feedback list (server-side pagination). */
+export interface AdminFeedbackPageArgs {
+  page: number;
+  rowsPerPage: number;
+  sortDir: 'asc' | 'desc';
+}
+
 interface AdminApiExtra {
   getTokenOrNull: () => Promise<string | null>;
 }
@@ -240,12 +266,38 @@ export const adminApi = createApi({
   tagTypes: [
     'AdminUsers',
     'AdminUsersStats',
+    'AdminFeedback',
     'LocationHealth',
     'LocationIntegrity',
     'LocationAliases',
     'LocationProblemJobs',
   ],
   endpoints: (builder) => ({
+    listAdminFeedback: builder.query<
+      AdminFeedbackListResponse,
+      AdminFeedbackPageArgs
+    >({
+      query: ({ page, rowsPerPage, sortDir }) =>
+        `/feedback?limit=${rowsPerPage}&offset=${page * rowsPerPage}&sort_dir=${sortDir}`,
+      transformResponse: (res: unknown): AdminFeedbackListResponse => {
+        // Runtime guard mirroring listAdminUsers: a 2xx body with the wrong
+        // shape (CDN error page, a missing field) would otherwise yield
+        // ``undefined`` and silently render an empty table / wrong count.
+        if (
+          res == null ||
+          typeof res !== 'object' ||
+          !Array.isArray((res as { feedback?: unknown }).feedback) ||
+          typeof (res as { total?: unknown }).total !== 'number'
+        ) {
+          throw new Error(
+            'Invalid /api/admin/feedback response: missing feedback[] or total'
+          );
+        }
+        const { feedback, total } = res as AdminFeedbackListResponse;
+        return { feedback, total };
+      },
+      providesTags: ['AdminFeedback'],
+    }),
     listAdminUsers: builder.query<AdminUserRow[], void>({
       query: () => '/users',
       transformResponse: (res: unknown): AdminUserRow[] => {
@@ -686,6 +738,7 @@ export const adminApi = createApi({
 });
 
 export const {
+  useListAdminFeedbackQuery,
   useListAdminUsersQuery,
   useGetAdminUsersStatsQuery,
   useGrantAdminMutation,
