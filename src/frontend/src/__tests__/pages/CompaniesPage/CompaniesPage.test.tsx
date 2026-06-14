@@ -79,6 +79,7 @@ describe('CompaniesPage', () => {
             graphModal: { open: false },
             globalLoading: true,
             notifications: [],
+            hideAdminFeatures: false,
           },
         },
       });

@@ -2,7 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
+import { Provider } from 'react-redux';
 import { AccountPage } from '../../../pages/AccountPage/AccountPage';
+import { createTestStore } from '../../../test/testUtils';
 
 const mockLogin = vi.fn();
 const mockGetToken = vi.fn();
@@ -53,11 +55,17 @@ vi.mock('../../../features/preferences/useEnabledCompanies', () => ({
 }));
 
 function renderPage() {
-  return render(
-    <MemoryRouter>
-      <AccountPage />
-    </MemoryRouter>
-  );
+  const store = createTestStore();
+  return {
+    store,
+    ...render(
+      <Provider store={store}>
+        <MemoryRouter>
+          <AccountPage />
+        </MemoryRouter>
+      </Provider>
+    ),
+  };
 }
 
 describe('AccountPage', () => {
@@ -237,6 +245,37 @@ describe('AccountPage', () => {
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
       });
+    });
+
+    it('shows the "Hide all admin features" toggle for admin users', async () => {
+      mockFetchCurrentUser.mockResolvedValue({ ...mockUser, isAdmin: true });
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByLabelText('Hide all admin features')).toBeInTheDocument();
+      });
+    });
+
+    it('does not show the toggle for non-admin users', async () => {
+      // mockUser.isAdmin is false by default
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByText('test@example.com')).toBeInTheDocument();
+      });
+      expect(screen.queryByLabelText('Hide all admin features')).not.toBeInTheDocument();
+    });
+
+    it('toggling the switch sets hideAdminFeatures in the store (ephemeral, demo-only)', async () => {
+      mockFetchCurrentUser.mockResolvedValue({ ...mockUser, isAdmin: true });
+      const user = userEvent.setup();
+      const { store } = renderPage();
+
+      const toggle = await screen.findByLabelText('Hide all admin features');
+      expect(store.getState().ui.hideAdminFeatures).toBe(false);
+
+      await user.click(toggle);
+      expect(store.getState().ui.hideAdminFeatures).toBe(true);
     });
   });
 });

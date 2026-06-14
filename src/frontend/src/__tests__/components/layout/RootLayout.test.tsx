@@ -1,9 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, render } from '@testing-library/react';
+import { screen, render as rtlRender } from '@testing-library/react';
+import type { ReactElement } from 'react';
+import { Provider } from 'react-redux';
 import { MemoryRouter } from 'react-router-dom';
 import { RootLayout } from '../../../components/layout/RootLayout.tsx';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { APP_TITLE } from '../../../config/constants';
+import { createTestStore } from '../../../test/testUtils';
+import type { RootState } from '../../../app/store';
 
 // Mock useMediaQuery to control mobile/desktop state
 vi.mock('@mui/material/useMediaQuery');
@@ -19,6 +23,12 @@ vi.mock('../../../features/auth/useAuth', () => ({
     getToken: vi.fn(),
   }),
 }));
+
+// RootLayout renders NavigationDrawer, which reads `ui.hideAdminFeatures` via
+// useAppSelector, so every render needs a Redux Provider.
+function render(ui: ReactElement, preloadedState?: Partial<RootState>) {
+  return rtlRender(<Provider store={createTestStore(preloadedState)}>{ui}</Provider>);
+}
 
 describe('RootLayout', () => {
   beforeEach(() => {

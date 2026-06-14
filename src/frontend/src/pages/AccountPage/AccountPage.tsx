@@ -7,6 +7,10 @@ import TextField from '@mui/material/TextField';
 import Button from '@mui/material/Button';
 import Avatar from '@mui/material/Avatar';
 import Alert from '@mui/material/Alert';
+import Switch from '@mui/material/Switch';
+import FormControlLabel from '@mui/material/FormControlLabel';
+import { useAppDispatch, useAppSelector } from '../../app/hooks';
+import { setHideAdminFeatures } from '../../features/ui/uiSlice';
 import { useAuth } from '../../features/auth/useAuth';
 import { useCurrentUser } from '../../features/auth/useCurrentUser';
 import { updateCurrentUser } from '../../features/auth/authService';
@@ -18,6 +22,8 @@ import { extractErrorMessage } from '../../lib/errors';
 export function AccountPage() {
   const { isAuthenticated, isLoading: authLoading, login, getToken } = useAuth();
   const { user, setUser, loading, error, reload: loadProfile } = useCurrentUser();
+  const dispatch = useAppDispatch();
+  const hideAdminFeatures = useAppSelector((state) => state.ui.hideAdminFeatures);
 
   const [displayName, setDisplayName] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -153,6 +159,25 @@ export function AccountPage() {
       </Paper>
 
       <EnabledCompaniesSection />
+
+      {user.isAdmin && (
+        <Paper sx={{ p: 4, mt: 3 }}>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={hideAdminFeatures}
+                onChange={(e) => dispatch(setHideAdminFeatures(e.target.checked))}
+                slotProps={{ input: { 'aria-label': 'Hide all admin features' } }}
+              />
+            }
+            label="Hide all admin features"
+          />
+          <Typography variant="caption" color="text.secondary" display="block">
+            Demo only — hides the Admin section in the sidebar for this session.
+            Resets when you refresh the page.
+          </Typography>
+        </Paper>
+      )}
     </Container>
   );
 }
