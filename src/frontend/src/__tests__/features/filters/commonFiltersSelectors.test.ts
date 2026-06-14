@@ -45,9 +45,7 @@ const makeJob = (overrides: Partial<Job> = {}): Job => {
     ...overrides,
   };
   if (job.locations === undefined && job.location) {
-    job.locations = [
-      { canonicalName: job.location, kind: 'city', country: null, isPrimary: true },
-    ];
+    job.locations = [{ canonicalName: job.location, kind: 'city', country: null, isPrimary: true }];
   }
   return job;
 };
@@ -103,9 +101,16 @@ describe('commonFiltersSelectors', () => {
       const store = await seedStore(jobs);
       const result = selectAvailableLocations(store.getState());
 
-      // "United States" meta + the two distinct canonical city tags. Crucially
-      // "Austin, TX, US" appears exactly once despite 3 source rows / raw strings.
-      expect(result).toEqual(['United States', 'Atlanta, GA, US', 'Austin, TX, US']);
+      // "United States" meta + synthesized state parents (Georgia, Texas) + the
+      // two distinct canonical city tags. "Austin, TX, US" appears exactly once
+      // despite 3 source rows / raw strings.
+      expect(result).toEqual([
+        'United States',
+        'Georgia, US',
+        'Texas, US',
+        'Atlanta, GA, US',
+        'Austin, TX, US',
+      ]);
       expect(result.filter((l) => l === 'Austin, TX, US')).toHaveLength(1);
     });
 
@@ -158,7 +163,8 @@ describe('commonFiltersSelectors', () => {
       const result = selectAvailableLocations(store.getState());
 
       expect(result.filter((l) => l === 'United States')).toHaveLength(1);
-      expect(result).toEqual(['United States', 'Austin, TX, US']);
+      // The country-only tag synthesizes no state; the Austin tag synthesizes "Texas, US".
+      expect(result).toEqual(['United States', 'Texas, US', 'Austin, TX, US']);
     });
 
     it('returns an empty array when the selected company has no jobs', async () => {

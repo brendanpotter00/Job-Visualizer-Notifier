@@ -28,6 +28,7 @@ import psycopg2
 from psycopg2 import sql
 from psycopg2.extensions import connection as Connection
 
+from .location_canonicalize import canonicalize
 from .location_normalization import normalize_string
 
 logger = logging.getLogger(__name__)
@@ -91,16 +92,17 @@ def _upsert_location(cur, spec) -> int:
     NULLS NOT DISTINCT and several cols are nullable).
 
     `spec` is a models.LocationSpec (has .canonical_name/.kind/.city/.region/
-    .country/.remote_scope).
+    .country/.remote_scope). The spec is canonicalized first (same pass as the
+    LLM write path) so manual overrides land on the same canonical codes/labels.
     """
+    c = canonicalize(spec)
     cur.execute(
         sql.SQL(
             "INSERT INTO {} (canonical_name, kind, city, region, country, remote_scope) "
             "VALUES (%s, %s, %s, %s, %s, %s) "
             "ON CONFLICT ON CONSTRAINT uq_locations_canonical DO NOTHING RETURNING id"
         ).format(_LOCATIONS),
-        (spec.canonical_name, spec.kind, spec.city, spec.region,
-         spec.country, spec.remote_scope),
+        (c.canonical_name, c.kind, c.city, c.region, c.country, c.remote_scope),
     )
     row = cur.fetchone()
     if row is not None:
@@ -111,14 +113,14 @@ def _upsert_location(cur, spec) -> int:
             "AND city IS NOT DISTINCT FROM %s AND region IS NOT DISTINCT FROM %s "
             "AND country IS NOT DISTINCT FROM %s AND remote_scope IS NOT DISTINCT FROM %s"
         ).format(_LOCATIONS),
-        (spec.kind, spec.city, spec.region, spec.country, spec.remote_scope),
+        (c.kind, c.city, c.region, c.country, c.remote_scope),
     )
     existing = cur.fetchone()
     if existing is None:
         raise RuntimeError(
             "locations upsert conflicted but no matching row found for "
-            f"kind={spec.kind!r} city={spec.city!r} region={spec.region!r} "
-            f"country={spec.country!r} remote_scope={spec.remote_scope!r}"
+            f"kind={c.kind!r} city={c.city!r} region={c.region!r} "
+            f"country={c.country!r} remote_scope={c.remote_scope!r}"
         )
     return int(_scalar(existing, "id"))
 

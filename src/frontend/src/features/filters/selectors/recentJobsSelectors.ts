@@ -2,6 +2,7 @@ import { createSelector } from '@reduxjs/toolkit';
 import type { RootState } from '../../../app/store.ts';
 import { jobsApi } from '../../jobs/jobsApi.ts';
 import { filterJobsByFilters } from '../utils/jobFilteringUtils.ts';
+import { buildLocationOptions } from '../../../lib/location.ts';
 import { isSoftwareOnlyEnabled } from '../../../constants/tags.ts';
 import { getCompanyById } from '../../../config/companies.ts';
 import { filterJobsByHours } from '../../../lib/date.ts';
@@ -28,22 +29,19 @@ const selectEnabledByCompanyId = createSelector(
 );
 
 // Pre-filters by the user's enabled-companies preference (null or [] = all).
-export const selectAllJobsFromQuery = createSelector(
-  [selectEnabledByCompanyId],
-  (byCompanyId) => {
-    const allJobs = Object.values(byCompanyId).flat();
+export const selectAllJobsFromQuery = createSelector([selectEnabledByCompanyId], (byCompanyId) => {
+  const allJobs = Object.values(byCompanyId).flat();
 
-    // Deduplicate by job ID (in case same job appears multiple times)
-    const jobsMap = new Map<string, (typeof allJobs)[0]>();
-    allJobs.forEach((job) => {
-      if (!jobsMap.has(job.id)) {
-        jobsMap.set(job.id, job);
-      }
-    });
+  // Deduplicate by job ID (in case same job appears multiple times)
+  const jobsMap = new Map<string, (typeof allJobs)[0]>();
+  allJobs.forEach((job) => {
+    if (!jobsMap.has(job.id)) {
+      jobsMap.set(job.id, job);
+    }
+  });
 
-    return Array.from(jobsMap.values());
-  }
-);
+  return Array.from(jobsMap.values());
+});
 
 /**
  * Apply filters to all jobs
@@ -110,24 +108,10 @@ export const selectRecentJobsFilteredWithoutLocation = createSelector(
  */
 export const selectRecentAvailableLocations = createSelector(
   [selectRecentJobsFilteredWithoutLocation],
-  (jobs) => {
-    // Build options from normalized canonical tags, not raw strings: all the
-    // Austin variants and the ";"-joined multi-location strings collapse into
-    // single tags like "Austin, TX, US". Prepend the "United States" meta-option
-    // when any job carries a US-country tag.
-    const locations = new Set<string>();
-    let hasUSLocations = false;
-    jobs.forEach((job) => {
-      job.locations?.forEach((loc) => {
-        locations.add(loc.canonicalName);
-        if (loc.country === 'US') hasUSLocations = true;
-      });
-    });
-    const sorted = Array.from(locations).sort();
-    // Dedupe: a canonical "United States" country tag (raw location was "US")
-    // collides with the prepended meta-option — keep one (the meta, at front).
-    return hasUSLocations ? Array.from(new Set(['United States', ...sorted])) : sorted;
-  }
+  // Build options from normalized canonical tags via `buildLocationOptions`:
+  // variants collapse into single tags, and pickable parents ("United States",
+  // each "<State>, US") are synthesized so the hierarchy is navigable.
+  (jobs) => buildLocationOptions(jobs)
 );
 
 /**

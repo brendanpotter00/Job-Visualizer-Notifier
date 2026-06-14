@@ -164,6 +164,26 @@ CURATED_CASES: list[dict] = [
     {"id": "country-code-gbr", "raw": "Farnborough, GBR", "category": "misspelling",
      "expected": [_city("Farnborough", None, "GB")], "gating": False, "notes": "3-letter country code GBR -> GB"},
 
+    # ---- international canonical consistency (NON-gating; intl is inherently
+    #      flaky run-to-run). These assert the MODEL's output; the deterministic
+    #      post-LLM canonicalize() pass (services/location_canonicalize.py) is the
+    #      real guarantee and is covered by tests/test_location_canonicalize.py.
+    #      Promote to gating only after --repeat 3 shows 3/3 stability. ----
+    {"id": "intl-berlin", "raw": "Berlin, Germany", "category": "intl_canonical",
+     "expected": [_city("Berlin", None, "DE")], "gating": False,
+     "notes": "country full-name -> DE; region omitted for non-US"},
+    {"id": "intl-london-uk", "raw": "London, United Kingdom", "category": "intl_canonical",
+     "expected": [_city("London", None, "GB")], "gating": False,
+     "notes": "UK -> GB (scorer alias bridges); region omitted"},
+    {"id": "intl-bangalore", "raw": "Bangalore, India", "category": "intl_canonical",
+     "expected": [_city("Bangalore", None, "IN")], "gating": False},
+    {"id": "intl-amsterdam", "raw": "Amsterdam, Netherlands", "category": "intl_canonical",
+     "expected": [_city("Amsterdam", None, "NL")], "gating": False},
+    {"id": "country-brazil-name", "raw": "Brazil", "category": "intl_canonical",
+     "expected": [_country("BR")], "gating": False, "notes": "full country name -> BR"},
+    {"id": "country-sweden-name", "raw": "Sweden", "category": "intl_canonical",
+     "expected": [_country("SE")], "gating": False, "notes": "full country name -> SE"},
+
     # ---- ambiguous (NON-gating) ----
     {"id": "ambiguous-multiple-loc", "raw": "United States, Multiple Locations, Multiple Locations",
      "category": "ambiguous", "expected": [_country("US")], "gating": False, "notes": "550 prod rows; not a real place"},
