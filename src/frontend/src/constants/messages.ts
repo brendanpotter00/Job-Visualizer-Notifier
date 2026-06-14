@@ -35,8 +35,7 @@ export const CHANGELOG_MESSAGES = {
    * infinite scroll.
    * @param count - Total number of entries shown
    */
-  ALL_LOADED: (count: number) =>
-    `You're all caught up — showing all ${count} updates`,
+  ALL_LOADED: (count: number) => `You're all caught up — showing all ${count} updates`,
 } as const;
 
 /**

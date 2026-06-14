@@ -11,10 +11,7 @@ import {
 } from '../../config/changelog';
 import { MultiSelectAutocomplete } from '../../components/shared/filters/MultiSelectAutocomplete';
 import { useInfiniteScroll } from '../../hooks/useInfiniteScroll';
-import {
-  CHANGELOG_INFINITE_SCROLL_CONFIG,
-  INFINITE_SCROLL_CONFIG,
-} from '../../constants/ui';
+import { CHANGELOG_INFINITE_SCROLL_CONFIG, INFINITE_SCROLL_CONFIG } from '../../constants/ui';
 import { CHANGELOG_MESSAGES } from '../../constants/messages';
 import { ChangelogSkeletons } from './ChangelogSkeletons';
 
@@ -41,9 +38,7 @@ export function ChangelogColumn() {
     const base =
       selected.length === 0
         ? [...CHANGELOG]
-        : CHANGELOG.filter((entry) =>
-            entry.tags.some((tag) => selected.includes(tag))
-          );
+        : CHANGELOG.filter((entry) => entry.tags.some((tag) => selected.includes(tag)));
     return base.sort((a, b) => Date.parse(b.date) - Date.parse(a.date));
   }, [selected]);
 
@@ -143,11 +138,7 @@ export function ChangelogColumn() {
                     {format(parseISO(entry.date), 'MMM d, yyyy')}
                   </Typography>
                 </Stack>
-                <Typography
-                  variant="body2"
-                  color="text.secondary"
-                  sx={{ mb: entry.link ? 1 : 2 }}
-                >
+                <Typography variant="body2" color="text.secondary" sx={{ mb: entry.link ? 1 : 2 }}>
                   {entry.description}
                 </Typography>
                 {entry.link && (
@@ -159,12 +150,7 @@ export function ChangelogColumn() {
                 )}
                 <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
                   {entry.tags.map((tag) => (
-                    <Chip
-                      key={tag}
-                      label={tag}
-                      size="small"
-                      sx={TAG_SX[tag]}
-                    />
+                    <Chip key={tag} label={tag} size="small" sx={TAG_SX[tag]} />
                   ))}
                 </Box>
               </CardContent>
@@ -173,24 +159,17 @@ export function ChangelogColumn() {
 
           {/* Skeleton placeholders while the next batch is being revealed */}
           {isLoadingMore && (
-            <ChangelogSkeletons
-              count={CHANGELOG_INFINITE_SCROLL_CONFIG.SKELETON_COUNT}
-            />
+            <ChangelogSkeletons count={CHANGELOG_INFINITE_SCROLL_CONFIG.SKELETON_COUNT} />
           )}
 
           {/* Sentinel that triggers loading the next batch when scrolled near */}
           {hasMore && !isLoadingMore && (
-            <div
-              ref={sentinelRef}
-              aria-hidden="true"
-              style={{ height: '1px', width: '100%' }}
-            />
+            <div ref={sentinelRef} aria-hidden="true" style={{ height: '1px', width: '100%' }} />
           )}
 
           {/* End-of-list message once everything is shown */}
           {!hasMore &&
-            visibleEntries.length >
-              CHANGELOG_INFINITE_SCROLL_CONFIG.INITIAL_BATCH_SIZE && (
+            visibleEntries.length > CHANGELOG_INFINITE_SCROLL_CONFIG.INITIAL_BATCH_SIZE && (
               <Box sx={{ textAlign: 'center', py: 2 }} role="status">
                 <Typography variant="body2" color="text.secondary">
                   {CHANGELOG_MESSAGES.ALL_LOADED(visibleEntries.length)}

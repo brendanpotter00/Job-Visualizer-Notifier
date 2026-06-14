@@ -6,7 +6,9 @@ import { ChangelogColumn } from '../../../pages/VoteFeaturesPage/ChangelogColumn
 // Four entries, two tags. Sorted newest-first the order is:
 // Feature One → Feature Two → Feature Three → Technical One.
 vi.mock('../../../config/changelog', () => {
-  const CHANGELOG_TAGS = ['feature', 'technical'] as const;
+  // 'improvement' is intentionally an option no mocked entry uses, so selecting
+  // it filters the list down to zero and exercises the empty state.
+  const CHANGELOG_TAGS = ['feature', 'technical', 'improvement'] as const;
   const CHANGELOG = [
     {
       id: 'feat-1',
@@ -54,9 +56,7 @@ vi.mock('../../../constants/ui', async (importOriginal) => {
 });
 
 describe('ChangelogColumn', () => {
-  let observerCallback:
-    | ((entries: { isIntersecting: boolean }[]) => void)
-    | null = null;
+  let observerCallback: ((entries: { isIntersecting: boolean }[]) => void) | null = null;
 
   beforeEach(() => {
     observerCallback = null;
@@ -118,16 +118,9 @@ describe('ChangelogColumn', () => {
     render(<ChangelogColumn />);
     await revealNextBatch();
 
-    const titles = screen
-      .getAllByRole('heading', { level: 3 })
-      .map((h) => h.textContent);
+    const titles = screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent);
 
-    expect(titles).toEqual([
-      'Feature One',
-      'Feature Two',
-      'Feature Three',
-      'Technical One',
-    ]);
+    expect(titles).toEqual(['Feature One', 'Feature Two', 'Feature Three', 'Technical One']);
   });
 
   it('selecting "technical" narrows the list to technical-tagged entries only', async () => {
@@ -141,6 +134,30 @@ describe('ChangelogColumn', () => {
     expect(screen.getByText('Technical One')).toBeInTheDocument();
     expect(screen.queryByText('Feature One')).not.toBeInTheDocument();
     expect(screen.queryByText('Feature Two')).not.toBeInTheDocument();
+    // Only 1 entry — below the initial batch size — so the end-of-list "all N
+    // updates" message must stay hidden. This locks in why the guard is
+    // `!hasMore && length > INITIAL_BATCH_SIZE` and not just `!hasMore`.
+    expect(screen.queryByText(/updates/i)).not.toBeInTheDocument();
+  });
+
+  it('shows the empty state when a tag matches no entries', async () => {
+    const user = userEvent.setup();
+    render(<ChangelogColumn />);
+
+    // 'improvement' is an option but no mocked entry carries it.
+    await user.click(screen.getByRole('combobox', { name: /tags/i }));
+    const listbox = await screen.findByRole('listbox');
+    await user.click(within(listbox).getByRole('option', { name: 'improvement' }));
+
+    expect(screen.getByText('No changelog entries match the selected tags.')).toBeInTheDocument();
+    // No entry cards.
+    expect(screen.queryAllByRole('heading', { level: 3 })).toHaveLength(0);
+    // No loading skeletons.
+    expect(
+      screen.queryByRole('status', { name: /loading more changelog entries/i })
+    ).not.toBeInTheDocument();
+    // No end-of-list message.
+    expect(screen.queryByText(/updates/i)).not.toBeInTheDocument();
   });
 
   it('resets to the first batch when the tag filter changes', async () => {
