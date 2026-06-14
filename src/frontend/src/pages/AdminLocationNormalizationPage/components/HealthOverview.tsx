@@ -47,7 +47,7 @@ export function HealthOverview({ health }: HealthOverviewProps) {
           <StatTile
             label="Done"
             value={health.done.toLocaleString()}
-            meta={`in last ${health.windowHours}h window`}
+            meta="normalized (all time)"
           />
         </Grid>
         <Grid size={{ xs: 6, sm: 3 }}>

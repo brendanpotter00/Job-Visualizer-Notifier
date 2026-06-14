@@ -5,10 +5,12 @@ This module is the READ-ONLY backing for two admin endpoints:
 * get_health    -> GET /api/admin/locations/health
 * get_integrity -> GET /api/admin/locations/integrity
 
-Why self-contained: the operational runbook ships a separate ``monitor_prod.py``
-script, but that script is NOT on this branch. Rather than import from it (and
-couple the live admin surface to an ops-only tool that may not exist), the exact
-health/integrity SQL is embedded here verbatim as module data.
+Why self-contained: the operational runbook also ships an ops-only CLI,
+``monitor_prod.py`` (in ``api/eval/``), which runs the same health/integrity
+SQL from the command line. Rather than import that SQL from the CLI — coupling
+the live admin surface to an ops-only tool — the exact health/integrity SQL is
+embedded here verbatim as module data. The two copies are an intentional
+duplicate and MUST be kept in sync.
 
 Connection contract (SELECT-only): every function issues only ``SELECT``
 statements and NEVER commits. ``conn.rollback()`` runs in a ``finally`` so the
@@ -29,6 +31,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from typing import Literal
 
 import psycopg2
 
@@ -51,7 +54,10 @@ class IntegrityCheck:
     id: str
     label: str
     sql: str
-    severity_when_nonzero: str  # "warn" | "crit"
+    # Closed set so a typo in the INTEGRITY_CHECKS table is an import-time error,
+    # not a per-request 500 at the response boundary. "ok" is never authored here
+    # (the router maps count==0 to "ok"); only "warn"/"crit" are valid.
+    severity_when_nonzero: Literal["warn", "crit"]
 
 
 # C1..C9, in id order. C1 and C3 are crit; the rest are warn.
