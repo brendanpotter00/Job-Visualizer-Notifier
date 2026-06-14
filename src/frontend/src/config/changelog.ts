@@ -24,6 +24,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'give-feedback',
+    title: 'Give Feedback',
+    description:
+      'The “Vote for features” page is now “Give Feedback” — there’s a new feedback box at the top where you can send a note, suggestion, bug report, or request directly to me (signed in or not). The feature voting and changelog you already know stay right underneath.',
+    tags: ['improvement'],
+    date: '2026-06-14',
+    link: {
+      to: ROUTES.VOTE_FEATURES,
+      label: 'Leave feedback',
+    },
+  },
+  {
     id: 'add-workweave',
     title: 'Added Workweave',
     description:
