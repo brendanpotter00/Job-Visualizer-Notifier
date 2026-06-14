@@ -242,10 +242,10 @@ class Location(Base):
     id = Column(Integer, primary_key=True)
     canonical_name = Column(Text, nullable=False)        # "San Francisco, CA, US"
     kind = Column(Text, nullable=False)                  # 'city'|'region'|'country'|'remote'
-    city = Column(Text, nullable=True)
-    region = Column(Text, nullable=True)
-    country = Column(Text, nullable=True)
-    remote_scope = Column(Text, nullable=True)           # NULL|'global'|'us'|'eu'|...
+    city = Column(Text, nullable=True)                   # always NULL for kind='remote'
+    region = Column(Text, nullable=True)                 # may scope a remote (e.g. 'AZ')
+    country = Column(Text, nullable=True)                # may scope a remote (e.g. 'US')
+    remote_scope = Column(Text, nullable=True)           # NULL|'global'|'us'|'eu'|country code
     lat = Column(Float, nullable=True)                   # NULL in v1 (Decision #7)
     lng = Column(Float, nullable=True)                   # NULL in v1
     created_at = Column(

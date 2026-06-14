@@ -72,15 +72,20 @@ class CanonicalLocation(BaseModel):
     def _kind_remote_scope_invariant(self) -> "CanonicalLocation":
         """Enforce the kind <-> remote_scope cross-field rule.
 
-        A contradictory LLM response (e.g. kind='city' with remote_scope set, or
-        kind='remote' carrying city/region/country) becomes a ValidationError ->
-        caught by _parse_envelope -> LocationLLMError, so Procrastinate retries.
+        A remote role has no specific worksite ``city``, but it MAY be scoped to a
+        country or sub-national ``region`` (prod carries 'US - AZ - Remote',
+        'Remote - Montana', 'BR - Brazil - Remote', ...) — those parts are kept so
+        the scope's geography is not lost. A contradictory LLM response (kind='city'
+        with remote_scope set, or kind='remote' carrying a city) becomes a
+        ValidationError -> caught by _parse_envelope -> LocationLLMError, so
+        Procrastinate retries.
         """
         if self.kind == "remote":
-            if self.city is not None or self.region is not None or self.country is not None:
+            if self.city is not None:
                 raise ValueError(
-                    "kind='remote' must have city/region/country all None; "
-                    f"got city={self.city!r} region={self.region!r} country={self.country!r}"
+                    "kind='remote' must have city=None (a remote role has no "
+                    "worksite city); region/country may carry the remote's scope. "
+                    f"got city={self.city!r}"
                 )
         elif self.remote_scope is not None:
             raise ValueError(
@@ -102,16 +107,25 @@ SYSTEM_PROMPT = (
     "- canonical_name: a clean human-readable label. For cities use "
     "'City, REGION, COUNTRY' with short region/country codes when unambiguous "
     "(e.g. 'San Francisco, CA, US'). For remote, use 'Remote (US)', 'Remote (EU)', "
-    "or 'Remote (Global)'.\n"
+    "'Remote (Global)', or a scoped form like 'Remote (AZ, US)' / 'Remote (Brazil)' "
+    "when the remote is tied to a region/country.\n"
     "- kind: one of 'city', 'region', 'country', or 'remote'.\n"
     "- city, region, country: the structured parts (short codes, e.g. 'CA', 'US'). "
-    "Set a part to null when it does not apply for the kind.\n"
-    "- remote_scope: ONLY for kind='remote'. Use 'us', 'eu', a code, or 'global' "
-    "when unscoped/worldwide. Null for non-remote kinds.\n"
+    "For city, use the standard common name without redundant suffixes "
+    "(e.g. 'New York', not 'New York City' or 'NYC'). "
+    "Set a part to null when it does not apply for the kind. For kind='remote', "
+    "city is ALWAYS null, but if the posting scopes the remote to a country or "
+    "sub-national region (e.g. 'US - AZ - Remote', 'Remote - Montana', "
+    "'BR - Brazil - Remote'), set country (and region) to short codes so the scope "
+    "is not lost; leave them null only for a fully unscoped remote.\n"
+    "- remote_scope: ONLY for kind='remote'. Use 'global' when worldwide/unscoped, "
+    "'us' or 'eu' for those zones, or a short country code for a country/region-"
+    "scoped remote. Null for non-remote kinds.\n"
     "- confidence: your confidence in this single parsed location, 0.0 to 1.0.\n"
     "Strip embedded building/site codes, parenthetical annotations like '(HQ)', and "
     "reorder reversed inputs (e.g. 'United States, Washington, Redmond' is Redmond, "
-    "WA, US). Do NOT invent coordinates. Do NOT include latitude or longitude."
+    "WA, US). Treat a bare city-state (e.g. 'Singapore') as kind='country' with its "
+    "country code. Do NOT invent coordinates. Do NOT include latitude or longitude."
 )
 
 FEW_SHOT_GUIDE = (
@@ -133,7 +147,11 @@ FEW_SHOT_GUIDE = (
     'Input: "Remote"\n'
     'Output: {"locations": [{"canonical_name": "Remote (Global)", '
     '"kind": "remote", "city": null, "region": null, "country": null, '
-    '"remote_scope": "global", "confidence": 0.9}]}'
+    '"remote_scope": "global", "confidence": 0.9}]}\n'
+    'Input: "US - AZ - Remote"\n'
+    'Output: {"locations": [{"canonical_name": "Remote (AZ, US)", '
+    '"kind": "remote", "city": null, "region": "AZ", "country": "US", '
+    '"remote_scope": "us", "confidence": 0.9}]}'
 )
 
 _LOCATIONS_SCHEMA = {
@@ -166,6 +184,31 @@ def _build_user_message(raw: str) -> str:
     return f'{FEW_SHOT_GUIDE}\n\nNow normalize this input:\n"{raw}"'
 
 
+def build_message_params(raw: str) -> dict:
+    """The exact ``messages.create(...)`` kwargs for one raw string.
+
+    Single source of truth for the request shape (model, prompt, structured-outputs
+    schema). Shared by the sync production path below AND the eval's batch path, so
+    the two can never drift — the eval must exercise the production prompt/schema.
+    """
+    return {
+        "model": HAIKU_MODEL,
+        "max_tokens": MAX_TOKENS,
+        "system": SYSTEM_PROMPT,
+        "messages": [{"role": "user", "content": _build_user_message(raw)}],
+        "output_config": {"format": {"type": "json_schema", "schema": _LOCATIONS_SCHEMA}},
+    }
+
+
+def extract_text_content(response: object) -> str:
+    """Join the text blocks of a Messages response (sync or batch)."""
+    return "".join(
+        getattr(block, "text", "")
+        for block in getattr(response, "content", [])
+        if getattr(block, "type", None) == "text"
+    ).strip()
+
+
 def _parse_envelope(raw_obj: object) -> list[CanonicalLocation]:
     try:
         envelope = _LocationsEnvelope.model_validate(raw_obj)
@@ -174,6 +217,21 @@ def _parse_envelope(raw_obj: object) -> list[CanonicalLocation]:
     if not envelope.locations:
         raise LocationLLMError("LLM returned zero locations for a non-empty input")
     return envelope.locations
+
+
+def parse_locations_text(text: str, raw: str = "") -> list[CanonicalLocation]:
+    """Parse a model text payload into >=1 ``CanonicalLocation``.
+
+    Shared by the sync and batch paths. Raises ``LocationLLMError`` on empty /
+    non-JSON / schema-invalid / zero-location output.
+    """
+    if not text:
+        raise LocationLLMError(f"LLM returned no text content for {raw!r}")
+    try:
+        raw_obj = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise LocationLLMError(f"LLM returned non-JSON text for {raw!r}: {exc}") from exc
+    return _parse_envelope(raw_obj)
 
 
 async def normalize_location_via_llm(raw: str) -> list[CanonicalLocation]:
@@ -195,25 +253,11 @@ async def normalize_location_via_llm(raw: str) -> list[CanonicalLocation]:
     client = AsyncAnthropic(api_key=api_key, max_retries=0, timeout=LLM_TIMEOUT_SECONDS)
 
     # Structured outputs (json_schema) — the only call path.
-    response = await client.messages.create(
-        model=HAIKU_MODEL,
-        max_tokens=MAX_TOKENS,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": _build_user_message(raw)}],
-        output_config={"format": {"type": "json_schema", "schema": _LOCATIONS_SCHEMA}},
-    )
-    text = "".join(
-        getattr(block, "text", "")
-        for block in response.content
-        if getattr(block, "type", None) == "text"
-    ).strip()
+    response = await client.messages.create(**build_message_params(raw))
+    text = extract_text_content(response)
     if not text:
         raise LocationLLMError(
             f"LLM returned no text content for {raw!r}; "
             f"stop_reason={getattr(response, 'stop_reason', None)!r}"
         )
-    try:
-        raw_obj = json.loads(text)
-    except json.JSONDecodeError as exc:
-        raise LocationLLMError(f"LLM returned non-JSON text for {raw!r}: {exc}") from exc
-    return _parse_envelope(raw_obj)
+    return parse_locations_text(text, raw)

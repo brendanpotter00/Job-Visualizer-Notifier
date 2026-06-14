@@ -228,16 +228,18 @@ class LocationSpec(BaseModel):
     def _kind_remote_scope_invariant(self) -> "LocationSpec":
         """Enforce the kind <-> remote_scope cross-field rule.
 
-        Mirrors services.llm_client.CanonicalLocation: a contradictory manual
-        override (kind='remote' carrying city/region/country, or a non-remote
-        kind carrying remote_scope) yields a 422 instead of silently writing a
-        nonsensical canonical row.
+        Mirrors services.llm_client.CanonicalLocation: a remote role has no
+        worksite city, but MAY carry a country/region scope (so a manual override
+        can map 'US - AZ - Remote' -> Remote(AZ, US)). A contradictory override
+        (kind='remote' carrying a city, or a non-remote kind carrying
+        remote_scope) yields a 422 instead of silently writing a nonsensical row.
         """
         if self.kind == "remote":
-            if self.city is not None or self.region is not None or self.country is not None:
+            if self.city is not None:
                 raise ValueError(
-                    "kind='remote' must have city/region/country all None; "
-                    f"got city={self.city!r} region={self.region!r} country={self.country!r}"
+                    "kind='remote' must have city=None (a remote role has no "
+                    "worksite city); region/country may carry the remote's scope. "
+                    f"got city={self.city!r}"
                 )
         elif self.remote_scope is not None:
             raise ValueError(

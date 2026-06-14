@@ -300,6 +300,33 @@ class TestOverrideAlias:
         assert locs[0]["canonicalName"] == "Sunnyvale, CA, US"
         assert locs[1]["canonicalName"] == "Kirkland, WA, US"
 
+    def test_region_scoped_remote_override_accepted(self, client, db_conn):
+        """A manual override can create a region/country-scoped remote (prod has
+        'US - AZ - Remote', etc.): city stays None, region/country carry the
+        scope. Mirrors the relaxed CanonicalLocation invariant on the LLM path."""
+        resp = client.put(
+            "/api/admin/locations/aliases/us-az-remote-key",
+            json={"locations": [
+                {"canonicalName": "Remote (AZ, US)", "kind": "remote",
+                 "city": None, "region": "AZ", "country": "US",
+                 "remoteScope": "us"},
+            ]},
+        )
+        assert resp.status_code == 200, resp.text
+        loc = resp.json()["locations"][0]
+        assert loc["kind"] == "remote"
+        assert loc["city"] is None
+        assert loc["region"] == "AZ"
+        assert loc["country"] == "US"
+
+        cur = db_conn.cursor()
+        cur.execute(
+            "SELECT l.kind, l.region, l.country FROM alias_locations al "
+            "JOIN locations l ON l.id = al.normalized_location_id "
+            "WHERE al.raw_text=%s", ("us-az-remote-key",))
+        row = cur.fetchone()
+        assert (row["kind"], row["region"], row["country"]) == ("remote", "AZ", "US")
+
     def test_slash_in_raw_text_routes_and_upserts(self, client, db_conn):
         """Real location strings carry literal slashes ("EMEA / Remote",
         "Bellevue, WA / Seattle, WA"). The `:path` converter must route them to

@@ -145,6 +145,36 @@ async def test_remote_with_city_rejected(monkeypatch):
         await normalize_location_via_llm("Remote San Jose")
 
 
+async def test_remote_with_region_country_scope_accepted(monkeypatch):
+    # A region/country-scoped remote keeps its geography: city stays None but
+    # region/country carry the scope (prod has 'US - AZ - Remote', etc.).
+    _install_mock_client(monkeypatch, create_return=_resp([{
+        "canonical_name": "Remote (AZ, US)", "kind": "remote", "city": None,
+        "region": "AZ", "country": "US", "remote_scope": "us", "confidence": 0.9,
+    }]))
+    result = await normalize_location_via_llm("US - AZ - Remote")
+    loc = result[0]
+    assert loc.kind == "remote"
+    assert loc.city is None
+    assert loc.region == "AZ"
+    assert loc.country == "US"
+    assert loc.remote_scope == "us"
+
+
+async def test_remote_with_country_only_scope_accepted(monkeypatch):
+    # Country-scoped remote (no sub-national region): country set, region None.
+    _install_mock_client(monkeypatch, create_return=_resp([{
+        "canonical_name": "Remote (Brazil)", "kind": "remote", "city": None,
+        "region": None, "country": "BR", "remote_scope": "br", "confidence": 0.9,
+    }]))
+    result = await normalize_location_via_llm("BR - Brazil - Remote")
+    loc = result[0]
+    assert loc.kind == "remote"
+    assert loc.city is None
+    assert loc.region is None
+    assert loc.country == "BR"
+
+
 async def test_confidence_out_of_range_rejected(monkeypatch):
     _install_mock_client(monkeypatch, create_return=_resp([{
         "canonical_name": "San Jose, CA, US", "kind": "city", "city": "San Jose",
