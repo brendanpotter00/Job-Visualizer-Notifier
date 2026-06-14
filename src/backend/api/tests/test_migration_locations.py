@@ -1,10 +1,11 @@
 """Integration test: the location-normalization migration upgrades cleanly on
-top of the c4f0a2d8b9e1 head and reverses cleanly via downgrade.
+top of its parent head d5e1a9c30f72 and reverses cleanly via downgrade.
 
 Mirrors test_migration_features.py: create only the FK-dependency table this
-migration touches (job_listings — it ADD COLUMNs it), stamp the current head
-c4f0a2d8b9e1 (so Alembic treats everything up to there as applied without
-running the ~20 seed migrations), upgrade through THIS migration only, assert
+migration touches (job_listings — it ADD COLUMNs it), stamp this migration's
+parent head d5e1a9c30f72 (so Alembic treats everything up to there as applied
+without running the ~20 seed migrations — several of which INSERT INTO companies,
+a table this test never creates), upgrade through THIS migration only, assert
 the 4 tables + unique constraint + new column exist, downgrade back and assert
 they're gone while job_listings survives.
 """
@@ -34,7 +35,7 @@ TEST_DB_URL = os.environ.get(
     "postgresql://postgres:postgres@localhost:5432/jobscraper",
 )
 
-_PRIOR_HEAD = "c4f0a2d8b9e1"
+_PRIOR_HEAD = "d5e1a9c30f72"
 _LOCATIONS_REV = "c876c313e55c"
 
 
