@@ -1,24 +1,32 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen } from '@testing-library/react';
 import { renderWithProviders, createTestStore } from '../../../../test/testUtils';
 import { ListSection } from '../../../../components/companies-page/JobList/ListSection';
 import { jobsApi } from '../../../../features/jobs/jobsApi';
 import { ATSConstants } from '../../../../api/types';
+import { SIGN_IN_OVERLAY_CONFIG } from '../../../../constants/ui';
 import type { Job } from '../../../../types';
 
-// Signed-in so the list renders unbounded (no SignInOverlay cap interfering
-// with the assertions). The cap behavior itself is covered elsewhere.
+// Mutable auth state: signed-in by default so list tests render unbounded;
+// individual tests flip it to exercise the signed-out SignInOverlay cap.
+const mockAuthState = {
+  isEnabled: true,
+  isAuthenticated: true,
+  isLoading: false,
+  user: undefined,
+  login: vi.fn(),
+  logout: vi.fn(),
+  getToken: vi.fn(),
+};
+
 vi.mock('../../../../features/auth/useAuth', () => ({
-  useAuth: () => ({
-    isEnabled: true,
-    isAuthenticated: true,
-    isLoading: false,
-    user: undefined,
-    login: vi.fn(),
-    logout: vi.fn(),
-    getToken: vi.fn(),
-  }),
+  useAuth: () => mockAuthState,
 }));
+
+beforeEach(() => {
+  mockAuthState.isEnabled = true;
+  mockAuthState.isAuthenticated = true;
+});
 
 const jobs: Job[] = [
   {
@@ -100,5 +108,46 @@ describe('ListSection', () => {
     expect(screen.getByText('2 jobs found')).toBeInTheDocument();
     expect(renderedTitles()).toEqual(['Frontend Engineer', 'Backend Engineer']);
     expect(screen.queryByText('Recruiter')).not.toBeInTheDocument();
+  });
+
+  it('caps the list and shows the sign-in overlay when signed out', async () => {
+    mockAuthState.isAuthenticated = false;
+
+    const limit = SIGN_IN_OVERLAY_CONFIG.SIGNED_OUT_JOB_LIMIT;
+    const manyJobs: Job[] = Array.from({ length: limit + 1 }, (_, i) => ({
+      id: `job-${i}`,
+      source: 'backend-scraper',
+      company: 'spacex',
+      title: `Engineer ${i}`,
+      createdAt: `2026-02-${String(i + 1).padStart(2, '0')}T00:00:00Z`,
+      url: `https://example.com/job-${i}`,
+      location: 'Hawthorne, CA',
+      department: 'Engineering',
+      raw: {},
+    }));
+
+    const store = createTestStore({
+      app: {
+        selectedCompanyId: 'spacex',
+        selectedATS: ATSConstants.BackendScraper as const,
+        isInitialized: true,
+      },
+      graphFilters: { filters: { timeWindow: 'all', softwareOnly: false } },
+    });
+    await store.dispatch(
+      jobsApi.util.upsertQueryData(
+        'getJobsForCompany',
+        { companyId: 'spacex' },
+        {
+          jobs: manyJobs,
+          metadata: { totalCount: manyJobs.length, fetchedAt: '2026-04-01T00:00:00Z' },
+        }
+      )
+    );
+    renderWithProviders(<ListSection />, { store });
+
+    // More jobs than the signed-out limit → list capped + overlay shown.
+    expect(renderedTitles()).toHaveLength(limit);
+    expect(screen.getByRole('region', { name: 'Sign in prompt' })).toBeInTheDocument();
   });
 });
