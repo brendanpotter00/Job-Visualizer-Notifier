@@ -78,6 +78,7 @@ All configuration via environment variables:
 
 **Health:**
 - `GET /health` - Health check (returns "OK" 200, or "UNAVAILABLE" 503 if pool is down)
+- `GET /health/worker` - Procrastinate worker liveness probe; checks `procrastinate_events` and `worker_heartbeats` freshness windows; returns 200 OK or 503; used as Railway's `healthcheckPath`
 
 ## Key Files
 
