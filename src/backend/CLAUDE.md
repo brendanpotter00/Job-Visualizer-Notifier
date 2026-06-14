@@ -139,6 +139,11 @@ before a `re-normalize-all` backfill. The **pure scorer** (`api/eval/scoring.py`
 is unit-tested in the normal suite (`api/tests/test_eval_scoring.py`). Full how/when:
 **`api/eval/README.md`**.
 
+A read-only, on-demand **prod monitor** (`api/eval/monitor_prod.py`) verifies the
+*live* normalization pipeline (deployment, backlog drain, integrity invariants,
+queue health) — run it with a read-only `MONITOR_DATABASE_URL` (no Anthropic key
+needed); full runbook in **`src/backend/docs/location-normalization-monitoring.md`**.
+
 ## Architecture
 
 - **Database**: Connection pool managed by `dependencies.py`; table naming reused from `scripts/shared/database.py`
