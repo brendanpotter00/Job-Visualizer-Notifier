@@ -132,6 +132,15 @@ CURATED_CASES: list[dict] = [
     {"id": "country-us-bare", "raw": "United States", "category": "country",
      "expected": [_country("US")], "gating": True, "notes": "348 prod rows"},
 
+    # ---- macro-region code with a firm product mapping (gating) ----
+    {"id": "macro-amer", "raw": "AMER", "category": "macro_region",
+     "expected": [_country("US")], "gating": True,
+     "notes": "product decision: 'AMER' (Americas hiring region; Vercel/Supabase "
+              "use it) normalizes to US. Enforced by a SYSTEM_PROMPT rule, NOT a "
+              "few-shot input, so this case still tests rule-following not "
+              "memorization. Gating (unlike the ambiguous EMEA/APAC region codes) "
+              "because the mapping is a deliberate, fixed product choice."},
+
     # ---- accents (NON-gating; checks the model doesn't choke / how it renders diacritics) ----
     {"id": "accent-zurich", "raw": "Zürich, Switzerland", "category": "accents",
      "expected": [_city("Zürich", None, "CH")], "gating": False, "notes": "verify diacritics handling in output"},
