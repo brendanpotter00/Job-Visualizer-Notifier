@@ -81,7 +81,7 @@ async function seedStore(jobs: Job[] = seededJobs) {
 }
 
 describe('GraphFilters', () => {
-  it('renders SearchTagsInput, TimeWindowSelect, Location, Department, SoftwareOnlyToggle, SyncFiltersButton', async () => {
+  it('renders SearchTagsInput, TimeWindowSelect, Location, Department, SoftwareOnlyToggle', async () => {
     const store = await seedStore();
     renderWithProviders(<GraphFilters />, { store });
 
@@ -92,7 +92,6 @@ describe('GraphFilters', () => {
     expect(
       screen.getByRole('switch', { name: 'Software engineering roles only' })
     ).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /sync to list/i })).toBeInTheDocument();
   });
 
   it('does NOT render Location control when availableLocations is empty', async () => {
@@ -286,58 +285,5 @@ describe('GraphFilters', () => {
     const tags = store.getState().graphFilters.filters.searchTags ?? [];
     // SOFTWARE_ENGINEERING_TAGS has 6 entries
     expect(tags.length).toBe(6);
-  });
-
-  it('dispatches syncGraphToList thunk when Sync button clicked — copies graph filters to list slice', async () => {
-    const store = createTestStore({
-      app: {
-        selectedCompanyId: 'spacex',
-        selectedATS: ATSConstants.BackendScraper as const,
-        isInitialized: true,
-      },
-      graphFilters: {
-        filters: {
-          timeWindow: '7d',
-          searchTags: [{ text: 'senior', mode: 'include' }],
-          location: ['SF'],
-          softwareOnly: false,
-        },
-      },
-    });
-    await store.dispatch(
-      jobsApi.util.upsertQueryData(
-        'getJobsForCompany',
-        { companyId: 'spacex' },
-        {
-          jobs: seededJobs,
-          metadata: { totalCount: seededJobs.length, fetchedAt: '2026-04-12T00:00:00Z' },
-        }
-      )
-    );
-    const user = userEvent.setup();
-    renderWithProviders(<GraphFilters />, { store });
-
-    await user.click(screen.getByRole('button', { name: /sync to list/i }));
-
-    const listFilters = store.getState().listFilters.filters;
-    expect(listFilters.timeWindow).toBe('7d');
-    expect(listFilters.searchTags).toEqual([{ text: 'senior', mode: 'include' }]);
-    expect(listFilters.location).toEqual(['SF']);
-  });
-
-  it('preserves listFilters slice when dispatching a graph-only action (filter independence)', async () => {
-    const store = await seedStore();
-    const listBefore = store.getState().listFilters;
-    const user = userEvent.setup();
-    renderWithProviders(<GraphFilters />, { store });
-
-    const timeWindowCombo = screen.getByRole('combobox', { name: 'Time Window' });
-    await user.click(timeWindowCombo);
-    const listbox = await screen.findByRole('listbox');
-    await user.click(within(listbox).getByRole('option', { name: '7 days' }));
-
-    // Reducer-identity: an action that only touches graphFilters must leave
-    // listFilters reference-identical (proves the list reducer never ran).
-    expect(store.getState().listFilters).toBe(listBefore);
   });
 });

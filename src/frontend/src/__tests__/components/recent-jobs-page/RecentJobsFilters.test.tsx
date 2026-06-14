@@ -309,10 +309,9 @@ describe('RecentJobsFilters', () => {
     expect(loc === undefined || loc.length === 0).toBe(true);
   });
 
-  it('preserves graphFilters and listFilters slices when dispatching a recent-only action (filter independence)', async () => {
+  it('preserves graphFilters slice when dispatching a recent-only action (filter independence)', async () => {
     const store = await seedRecentStore();
     const graphBefore = store.getState().graphFilters;
-    const listBefore = store.getState().listFilters;
     const user = userEvent.setup();
     renderWithProviders(<RecentJobsFilters />, { store });
 
@@ -321,8 +320,7 @@ describe('RecentJobsFilters', () => {
     const listbox = await screen.findByRole('listbox');
     await user.click(within(listbox).getByRole('option', { name: '7 days' }));
 
-    // An action on recentJobsFilters should NOT touch graph or list slices.
+    // An action on recentJobsFilters should NOT touch the graph slice.
     expect(store.getState().graphFilters).toBe(graphBefore);
-    expect(store.getState().listFilters).toBe(listBefore);
   });
 });

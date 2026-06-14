@@ -8,7 +8,6 @@ describe('Redux Store', () => {
     expect(state).toHaveProperty('app');
     expect(state).toHaveProperty('jobsApi');
     expect(state).toHaveProperty('graphFilters');
-    expect(state).toHaveProperty('listFilters');
     expect(state).toHaveProperty('ui');
   });
 
@@ -32,10 +31,9 @@ describe('Redux Store', () => {
   it('should have correct initial filters state', () => {
     const state = store.getState();
 
-    expect(state.graphFilters.filters.timeWindow).toBe('30d');
+    expect(state.graphFilters.filters.timeWindow).toBe('7d');
     expect(state.graphFilters.filters.softwareOnly).toBe(false);
-    expect(state.listFilters.filters.timeWindow).toBe('24h');
-    expect(state.listFilters.filters.searchTags).toBeUndefined();
+    expect(state.graphFilters.filters.searchTags).toBeUndefined();
   });
 
   it('should have correct initial UI state', () => {

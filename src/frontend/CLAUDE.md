@@ -30,7 +30,7 @@ All paths below are relative to `src/frontend/src/`.
 - Redux Toolkit Query (RTK Query) for jobs data fetching with caching
 - Traditional Redux slices for filters, app, and ui state
 - Factory patterns: `createAPIClient` (api/clients/baseClient.ts) and `createFilterSlice` (features/filters/slices/createFilterSlice.ts)
-- Graph and list filters operate independently (manual sync available)
+- The company hiring-trend page has a single filter source (`graphFilters`) that drives both the graph and the job list — the list reflects the graph
 - Jobs normalized by company ID in `byCompany` map for O(1) lookup
 
 **Data Flow:**
@@ -42,7 +42,7 @@ Backend-Scraper (api/clients/backendScraperClient.ts) is the only production cli
 **Key Selectors:**
 - `selectCurrentCompanyJobsRtk` (features/jobs/jobsSelectors.ts) - Jobs for selected company
 - `selectGraphFilteredJobs` (features/filters/selectors/graphFiltersSelectors.ts) - Apply graph filters
-- `selectListFilteredJobs` (features/filters/selectors/listFiltersSelectors.ts) - Apply list filters + search
+- `selectGraphFilteredJobsSorted` (features/filters/selectors/graphFiltersSelectors.ts) - Graph-filtered jobs sorted most-recent-first; feeds the job list view
 - `selectGraphBucketData` (features/filters/selectors/graphFiltersSelectors.ts) - Filtered jobs + time bucketing
 - `selectRecentFilteredJobs` (features/filters/selectors/recentJobsSelectors.ts) - Apply recent jobs filters
 
@@ -91,8 +91,7 @@ The following `eslint-disable` directives are allowed; all others must be justif
 
 **Other disables:**
 
-- `features/filters/slices/graphFiltersSlice.ts:55` — `@typescript-eslint/no-explicit-any`. `createFilterSlice` generates action creators via computed property names (`[set${CapitalizedName}TimeWindow]`), which TypeScript cannot infer through. The `as any` cast on `slice.actions` is the documented TS limitation (see https://github.com/reduxjs/redux-toolkit/issues/368). Types are still enforced at dispatch sites.
-- `features/filters/slices/listFiltersSlice.ts:55` — `@typescript-eslint/no-explicit-any`. Same rationale as `graphFiltersSlice.ts`.
+- `features/filters/slices/graphFiltersSlice.ts:54` — `@typescript-eslint/no-explicit-any`. `createFilterSlice` generates action creators via computed property names (`[set${CapitalizedName}TimeWindow]`), which TypeScript cannot infer through. The `as any` cast on `slice.actions` is the documented TS limitation (see https://github.com/reduxjs/redux-toolkit/issues/368). Types are still enforced at dispatch sites.
 - `features/filters/slices/recentJobsFiltersSlice.ts:60` — `@typescript-eslint/no-explicit-any`. Same rationale as `graphFiltersSlice.ts`.
 - `features/auth/GoogleCredentialContext.tsx:10` — `react-refresh/only-export-components`. The file exports both a React component (`GoogleCredentialProvider`) and the context object (`GoogleCredentialContext`) consumers need for `useContext`. Splitting into two files is possible but adds no runtime value; the disable is the established pattern for context modules.
 
@@ -110,10 +109,10 @@ Edit `config/companies.ts` and use `createBackendScraperCompany()` for every new
 4. Add to company configs and client selection logic
 
 **Adding Filters:**
-1. Add field to `GraphFilters` or `ListFilters` type (types/index.ts)
+1. Add field to `GraphFilters` type (types/index.ts)
 2. Update `createFilterSlice` factory (features/filters/slices/createFilterSlice.ts)
-3. Update filtering logic (features/filters/selectors/graphFiltersSelectors.ts or listFiltersSelectors.ts)
-4. Add UI control (components/companies-page/GraphFilters.tsx or ListFilters.tsx)
+3. Update filtering logic (features/filters/selectors/graphFiltersSelectors.ts)
+4. Add UI control (components/companies-page/GraphFilters.tsx)
 
 **Debugging:**
 - Redux DevTools for state inspection
@@ -127,7 +126,7 @@ Edit `config/companies.ts` and use `createBackendScraperCompany()` for every new
 2. **Vite env files must live in `src/frontend/`, NOT the project root**: The root `vite.config.ts` sets `root: 'src/frontend'`. Vite resolves `.env` files relative to its `root`, so it reads `src/frontend/.env.local`, NOT `<project-root>/.env.local`. **DO NOT add `envDir` to `vite.config.ts` to point at the project root** — this breaks Vercel Dev's API proxy routing, causing all `/api/*` requests to fail. Instead, frontend `VITE_*` env vars go in `src/frontend/.env.local` and backend/Vercel env vars go in `<project-root>/.env.local`.
 3. **Vercel Dev cloud env vars override ALL local `.env` files for serverless functions (`api/*.ts`)**: `vercel dev` pulls env vars from the linked Vercel project and they take absolute precedence — `.env.local`, `.env.development.local`, and even shell env vars are all ignored. The `api/utils/backendUrl.ts` helper works around this by detecting `localhost` in the request Host header to use `http://localhost:8000` for local dev. **Do NOT rely on `process.env` in serverless functions for local dev config.**
 4. **macOS port 5000 is AirPlay**: Never configure backend services on port 5000 — macOS Monterey+ runs AirPlay Receiver there via ControlCenter. It silently accepts HTTP connections and returns 403, masking "connection refused" errors. The backend runs on port 8000.
-5. **Graph/List Filter Independence**: Separate by design - changing graph filters doesn't affect list
+5. **Single Filter Source (companies page)**: The graph and the job list share one filter slice (`graphFilters`) — the list reflects the graph. There is no separate list-filter slice and no sync buttons.
 6. **Empty Buckets Matter**: Time bucketing creates empty buckets for full range - don't filter them out
 7. **Factory Patterns**: When modifying API or filter logic, update the factory functions, not individual implementations
 8. **Zero TypeScript Errors Required**: Run `npm run type-check` before committing

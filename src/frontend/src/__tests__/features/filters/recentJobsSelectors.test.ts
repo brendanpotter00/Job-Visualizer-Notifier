@@ -6,7 +6,6 @@ import { jobsApi } from '../../../features/jobs/jobsApi';
 import recentJobsFiltersReducer from '../../../features/filters/slices/recentJobsFiltersSlice';
 import appReducer from '../../../features/app/appSlice';
 import graphFiltersReducer from '../../../features/filters/slices/graphFiltersSlice';
-import listFiltersReducer from '../../../features/filters/slices/listFiltersSlice';
 import uiReducer from '../../../features/ui/uiSlice';
 import enabledCompaniesReducer from '../../../features/preferences/enabledCompaniesSlice';
 import {
@@ -54,7 +53,6 @@ const createMockStoreWithJobs = (
     reducer: {
       app: appReducer,
       graphFilters: graphFiltersReducer,
-      listFilters: listFiltersReducer,
       recentJobsFilters: recentJobsFiltersReducer,
       ui: uiReducer,
       enabledCompanies: enabledCompaniesReducer,

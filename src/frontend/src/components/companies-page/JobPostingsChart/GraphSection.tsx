@@ -1,8 +1,7 @@
-import { Paper, Typography } from '@mui/material';
+import { Typography } from '@mui/material';
 import { useAppDispatch, useAppSelector } from '../../../app/hooks';
 import { JobPostingsChart } from './JobPostingsChart';
 import { GraphFilters } from '../GraphFilters.tsx';
-import { MetricsDashboard } from '../MetricsDashboard/MetricsDashboard';
 import { selectGraphBucketData } from '../../../features/filters/selectors/graphFiltersSelectors.ts';
 import {
   selectCurrentCompanyLoadingRtk,
@@ -13,7 +12,10 @@ import { ErrorDisplay } from '../../shared/ErrorDisplay.tsx';
 import type { TimeBucket } from '../../../types';
 
 /**
- * Graph section with filters and chart
+ * Graph section: the shared filter controls and the postings chart.
+ *
+ * Rendered inside the page's shared `<Paper>` card (alongside the job list), so
+ * it no longer supplies its own card wrapper.
  */
 export function GraphSection() {
   const dispatch = useAppDispatch();
@@ -36,27 +38,23 @@ export function GraphSection() {
 
   return (
     <>
-      <MetricsDashboard />
+      <Typography variant="h5" component="h2" gutterBottom>
+        Job Posting Timeline
+      </Typography>
 
-      <Paper sx={{ p: { xs: 2, sm: 3 }, mb: 3 }}>
-        <Typography variant="h5" component="h2" gutterBottom>
-          Job Posting Timeline
-        </Typography>
+      <GraphFilters />
 
-        <GraphFilters />
-
-        {error ? (
-          <ErrorDisplay title="Failed to Load Chart Data" message={error} />
-        ) : (
-          <JobPostingsChart
-            data={bucketData}
-            onPointClick={handlePointClick}
-            timeWindow={graphFilters.timeWindow}
-            isLoading={isLoading}
-            height={400}
-          />
-        )}
-      </Paper>
+      {error ? (
+        <ErrorDisplay title="Failed to Load Chart Data" message={error} />
+      ) : (
+        <JobPostingsChart
+          data={bucketData}
+          onPointClick={handlePointClick}
+          timeWindow={graphFilters.timeWindow}
+          isLoading={isLoading}
+          height={400}
+        />
+      )}
     </>
   );
 }

@@ -50,7 +50,7 @@ PYTHONPATH=. uvicorn src.backend.api.main:app --host 0.0.0.0 --port 8000 --reloa
 - Redux Toolkit Query (RTK Query) for jobs data fetching with caching
 - Traditional Redux slices for filters, app, and ui state
 - Factory patterns: `createAPIClient` (src/frontend/src/api/clients/baseClient.ts) and `createFilterSlice` (src/frontend/src/features/filters/slices/createFilterSlice.ts)
-- Graph and list filters operate independently (manual sync available)
+- The company hiring-trend page has a single filter source (`graphFilters`) that drives both the graph and the job list — the list reflects the graph
 - Jobs normalized by company ID in `byCompany` map for O(1) lookup
 
 **Data Flow:**
@@ -62,7 +62,7 @@ Backend-Scraper (src/frontend/src/api/clients/backendScraperClient.ts) is the on
 **Key Selectors:**
 - `selectCurrentCompanyJobsRtk` (src/frontend/src/features/jobs/jobsSelectors.ts) - Jobs for selected company
 - `selectGraphFilteredJobs` (src/frontend/src/features/filters/selectors/graphFiltersSelectors.ts) - Apply graph filters
-- `selectListFilteredJobs` (src/frontend/src/features/filters/selectors/listFiltersSelectors.ts) - Apply list filters + search
+- `selectGraphFilteredJobsSorted` (src/frontend/src/features/filters/selectors/graphFiltersSelectors.ts) - Graph-filtered jobs sorted most-recent-first; feeds the job list view
 - `selectGraphBucketData` (src/frontend/src/features/filters/selectors/graphFiltersSelectors.ts) - Filtered jobs + time bucketing
 
 **Key Algorithms:**
@@ -80,10 +80,10 @@ Edit `src/frontend/src/config/companies.ts` and add a `createBackendScraperCompa
 4. Add to company configs and client selection logic
 
 **Adding Filters:**
-1. Add field to `GraphFilters` or `ListFilters` type (src/frontend/src/types/index.ts)
+1. Add field to `GraphFilters` type (src/frontend/src/types/index.ts)
 2. Update `createFilterSlice` factory (src/frontend/src/features/filters/slices/createFilterSlice.ts)
-3. Update filtering logic (src/frontend/src/features/filters/selectors/graphFiltersSelectors.ts or listFiltersSelectors.ts)
-4. Add UI control (src/frontend/src/components/companies-page/GraphFilters.tsx or ListFilters.tsx)
+3. Update filtering logic (src/frontend/src/features/filters/selectors/graphFiltersSelectors.ts)
+4. Add UI control (src/frontend/src/components/companies-page/GraphFilters.tsx)
 
 **Debugging:**
 - Redux DevTools for state inspection
@@ -94,7 +94,7 @@ Edit `src/frontend/src/config/companies.ts` and add a `createBackendScraperCompa
 ## Critical Gotchas
 
 1. **Use Vercel Dev**: Must run `npm run dev:vercel -w src/frontend` (not `npm run dev`) - Vercel serverless functions in `api/` directory proxy ATS API calls to avoid CORS issues
-2. **Graph/List Filter Independence**: Separate by design - changing graph filters doesn't affect list
+2. **Single Filter Source (companies page)**: The graph and the job list share one filter slice (`graphFilters`) — the list reflects the graph. There is no separate list-filter slice and no sync buttons.
 3. **Empty Buckets Matter**: Time bucketing creates empty buckets for full range - don't filter them out
 4. **Factory Patterns**: When modifying API or filter logic, update the factory functions, not individual implementations
 5. **Zero TypeScript Errors Required**: Run `npm run type-check` before committing

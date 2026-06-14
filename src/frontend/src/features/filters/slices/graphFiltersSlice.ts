@@ -9,7 +9,7 @@ export interface GraphFiltersState {
 }
 
 const initialFilters: GraphFilters = {
-  timeWindow: '30d',
+  timeWindow: '7d',
   searchTags: undefined,
   softwareOnly: false,
 };
@@ -51,7 +51,6 @@ export const {
   toggleGraphSoftwareOnly,
   setGraphSoftwareOnly,
   resetGraphFilters,
-  syncGraphFromList,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 } = graphFiltersSlice.actions as any;
 
