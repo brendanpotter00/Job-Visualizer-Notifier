@@ -43,6 +43,13 @@ class Settings(BaseSettings):
     # logs a startup warning.
     internal_api_key: str | None = None
 
+    # Anthropic API key for location normalization (Tier 2 — Claude Haiku).
+    # Read from the ANTHROPIC_API_KEY env var. When unset, the normalize
+    # pipeline must degrade gracefully (later units): Tier 1 / schema / admin
+    # endpoints operate normally and rows simply stay unnormalized. Plain
+    # str|None to match internal_api_key (NOT SecretStr).
+    anthropic_api_key: str | None = None
+
     # Server
     port: int = 8080
     cors_origins: str = "http://localhost:3000,http://localhost:5173,http://localhost:8000"

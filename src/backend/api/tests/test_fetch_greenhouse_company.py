@@ -127,6 +127,37 @@ def _patch_httpx(monkeypatch, handler) -> None:
     monkeypatch.setattr(task_mod.httpx, "AsyncClient", _PatchedClient)
 
 
+def _patch_normalize_defer(monkeypatch):
+    """Patch normalize_location.configure so .defer_async is an AsyncMock.
+
+    Mirrors the configure/defer mock seam in
+    test_enqueue_greenhouse_fan_out.py: we patch the *task object's*
+    `configure` attribute (the name the fetch task imported), so no real
+    procrastinate_jobs row is written for normalize_location and the
+    `procrastinate_open` cleanup (which only wipes the fetch/fan-out task
+    rows) stays correct as-is.
+
+    Returns (defer_mock, configure_calls) where configure_calls is the list
+    of kwargs each `configure(...)` was called with (to assert the
+    queueing_lock).
+    """
+    from unittest.mock import AsyncMock, MagicMock
+
+    import api.tasks.fetch_greenhouse_company as task_mod
+
+    defer_mock = AsyncMock(return_value=None)
+    configure_calls = []
+
+    def fake_configure(*args, **kwargs):
+        configure_calls.append(kwargs)
+        configured = MagicMock()
+        configured.defer_async = defer_mock
+        return configured
+
+    monkeypatch.setattr(task_mod.normalize_location, "configure", fake_configure)
+    return defer_mock, configure_calls
+
+
 @pytest_asyncio.fixture
 async def procrastinate_open(db_conn):
     """Open Procrastinate against the active test schema."""
@@ -316,6 +347,7 @@ class TestFetchGreenhouseCompany:
             return httpx.Response(200, json={"jobs": []})
 
         _patch_httpx(monkeypatch, handler)
+        defer_mock, _ = _patch_normalize_defer(monkeypatch)
 
         await fetch_greenhouse_company.defer_async(
             company_id=company, board_token=token,
@@ -338,6 +370,10 @@ class TestFetchGreenhouseCompany:
         assert runs[0]["error_count"] == 1
         assert runs[0]["closed_jobs"] == 0
         assert runs[0]["jobs_seen"] == 0
+
+        # Unit 6: the safety guard returns from _work BEFORE new_ids is
+        # populated, so nothing is deferred for normalization.
+        assert defer_mock.await_count == 0
 
     async def test_http_5xx_records_failed_run_and_raises(
         self, procrastinate_open, db_conn, monkeypatch
@@ -458,6 +494,99 @@ class TestFetchGreenhouseCompany:
         success_runs = [r for r in runs if r["error_count"] == 0]
         assert success_runs, "no success row in scrape_runs after retry"
         assert success_runs[0]["jobs_seen"] == 1
+
+    async def test_defers_normalize_for_new_ids_only(
+        self, procrastinate_open, db_conn, monkeypatch
+    ):
+        """Unit 6 (canonical): after a successful scrape, normalize_location
+        is deferred for the NEW ids only (seen_ids - pre_upsert_active), with
+        a per-id queueing_lock. Pre-existing active jobs that are merely
+        re-seen must NOT be re-deferred.
+        """
+        company = "normco"
+        token = "normco"
+        _seed_company(db_conn, company, token)
+
+        # Two already-active jobs; the handler re-returns both plus one new.
+        _seed_job(db_conn, "100", company)
+        _seed_job(db_conn, "200", company)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                json={
+                    "jobs": [
+                        _make_raw_job(100),
+                        _make_raw_job(200),
+                        _make_raw_job(400),
+                    ]
+                },
+            )
+
+        _patch_httpx(monkeypatch, handler)
+        defer_mock, configure_calls = _patch_normalize_defer(monkeypatch)
+
+        await fetch_greenhouse_company.defer_async(
+            company_id=company, board_token=token,
+        )
+        await _drain()
+        db_conn.rollback()
+
+        deferred_ids = {
+            c.kwargs["job_id"] for c in defer_mock.await_args_list
+        }
+        assert deferred_ids == {"400"}
+        assert defer_mock.await_count == 1
+        assert configure_calls == [{"queueing_lock": "normalize:400"}]
+
+        # Sanity: the scrape itself still recorded the new job.
+        runs = _scrape_runs(db_conn, company)
+        assert len(runs) == 1
+        assert runs[0]["new_jobs"] == 1
+        assert runs[0]["error_count"] == 0
+
+    async def test_already_enqueued_is_swallowed(
+        self, procrastinate_open, db_conn, monkeypatch
+    ):
+        """Unit 6 (canonical): a per-id AlreadyEnqueued is swallowed so the
+        scrape still records success and the new job is upserted. This is the
+        load-bearing per-id catch — without it the exception would escape
+        _work's wrapper and fail the whole scrape.
+        """
+        from procrastinate import exceptions as procrastinate_exceptions
+
+        company = "dupco"
+        token = "dupco"
+        _seed_company(db_conn, company, token)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={"jobs": [_make_raw_job(500)]})
+
+        _patch_httpx(monkeypatch, handler)
+        defer_mock, _ = _patch_normalize_defer(monkeypatch)
+        defer_mock.side_effect = procrastinate_exceptions.AlreadyEnqueued(
+            "normalize:500 already pending"
+        )
+
+        await fetch_greenhouse_company.defer_async(
+            company_id=company, board_token=token,
+        )
+        # Must NOT raise: AlreadyEnqueued is swallowed per-id.
+        await _drain()
+        db_conn.rollback()
+
+        # The defer was attempted exactly once for the one new id.
+        assert defer_mock.await_count == 1
+
+        # The new job was still upserted and the run recorded success.
+        new_row = _job_row(db_conn, "500")
+        assert new_row is not None
+        assert new_row["status"] == "OPEN"
+
+        runs = _scrape_runs(db_conn, company)
+        assert len(runs) == 1
+        assert runs[0]["new_jobs"] == 1
+        assert runs[0]["error_count"] == 0
 
 
 @pytest.mark.parametrize(

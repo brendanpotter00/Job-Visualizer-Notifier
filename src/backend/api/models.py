@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 from pydantic.alias_generators import to_camel
 
 # Closed set of signup provider tokens derived from
@@ -193,3 +193,145 @@ class AdminUsersStatsResponse(BaseModel):
     # to ``_signup_provider_from_auth0_id`` is a compile-time error here
     # rather than rendering raw keys to admins.
     by_provider: dict[SignupProvider, int]
+
+
+# --- Location-normalization admin models (Unit 8) ----------------------------
+
+# Allowed values for a manual-override location spec's `kind`. Mirrors
+# `_VALID_KINDS` in services.llm_client.CanonicalLocation so a manual override
+# can produce exactly the same `locations` rows the LLM path produces.
+LocationKind = Literal["city", "region", "country", "remote"]
+
+
+class LocationSpec(BaseModel):
+    """One canonical location in a manual alias-override request body.
+
+    Mirrors services.llm_client.CanonicalLocation's structured fields (minus
+    `confidence`, which is forced to 1.0 for manual overrides). The upsert into
+    `locations` keys on (kind, city, region, country, remote_scope) against the
+    NULLS-NOT-DISTINCT `uq_locations_canonical` constraint, exactly like the LLM
+    write path.
+    """
+
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
+
+    canonical_name: str = Field(min_length=1, max_length=200)
+    kind: LocationKind
+    city: str | None = Field(default=None, max_length=120)
+    region: str | None = Field(default=None, max_length=120)
+    country: str | None = Field(default=None, max_length=120)
+    remote_scope: str | None = Field(default=None, max_length=60)
+
+    @model_validator(mode="after")
+    def _kind_remote_scope_invariant(self) -> "LocationSpec":
+        """Enforce the kind <-> remote_scope cross-field rule.
+
+        Mirrors services.llm_client.CanonicalLocation: a remote role has no
+        worksite city, but MAY carry a country/region scope (so a manual override
+        can map 'US - AZ - Remote' -> Remote(AZ, US)). A contradictory override
+        (kind='remote' carrying a city, or a non-remote kind carrying
+        remote_scope) yields a 422 instead of silently writing a nonsensical row.
+        """
+        if self.kind == "remote":
+            if self.city is not None:
+                raise ValueError(
+                    "kind='remote' must have city=None (a remote role has no "
+                    "worksite city); region/country may carry the remote's scope. "
+                    f"got city={self.city!r}"
+                )
+        elif self.remote_scope is not None:
+            raise ValueError(
+                f"remote_scope is only valid for kind='remote'; got kind={self.kind!r} "
+                f"remote_scope={self.remote_scope!r}"
+            )
+        return self
+
+
+class AdminAliasOverrideRequest(BaseModel):
+    """Body for PUT /api/admin/locations/aliases/{raw_text}.
+
+    `locations` is the ordered list of canonical locations this raw string maps
+    to (position = list index). Manual overwrite semantics: this REPLACES any
+    existing mapping for the normalized key and promotes the alias to
+    source='manual' so it wins over a cached 'llm' guess (Decision #10).
+    """
+
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
+
+    # Bounded: a single raw string never maps to more than a handful of
+    # locations (the multi-location prod max is 2). Cap defends against an
+    # accidental huge body fanning out unbounded INSERTs.
+    locations: list[LocationSpec] = Field(min_length=1, max_length=20)
+
+
+class AdminLocationResponse(BaseModel):
+    """A canonical location row as returned by the admin endpoints."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    id: int
+    canonical_name: str
+    kind: str
+    city: str | None = None
+    region: str | None = None
+    country: str | None = None
+    remote_scope: str | None = None
+    position: int  # order within the alias mapping (alias_locations.position)
+
+
+class AdminAliasResponse(BaseModel):
+    """Result of a manual override OR one inspect row.
+
+    `locations` is ordered by position. `confidence` is nullable (manual
+    overrides set 1.0; llm aliases carry the averaged model confidence).
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    raw_text: str
+    source: str
+    confidence: float | None = None
+    locations: list[AdminLocationResponse]
+
+
+class AdminAliasListResponse(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    aliases: list[AdminAliasResponse]
+
+
+class AdminNormalizeJobResponse(BaseModel):
+    """Result of POST /api/admin/jobs/{job_id}/normalize."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    job_id: str
+    status: str  # "queued" | "reset_defer_failed" (reset committed; safety-net will pick it up)
+    # False when ANTHROPIC_API_KEY is unset: the reset/defer still happened, but
+    # a Tier-1 cache miss will dead-end until the key is configured (the job
+    # stays NULL and auto-recovers once it is set). Surfaced so an explicit
+    # admin action never silently no-ops.
+    key_configured: bool
+
+
+class AdminReNormalizeAllResponse(BaseModel):
+    """Result of POST /api/admin/locations/re-normalize-all (break-glass)."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    reset_count: int
+    scan_deferred: bool
+    # False when ANTHROPIC_API_KEY is unset: the reset is committed, but the
+    # deferred scan skips while the key is absent — draining is PAUSED until the
+    # key is set (then it auto-resumes on the next periodic tick). Surfaced so
+    # the break-glass action never claims progress it can't make.
+    key_configured: bool
+    # Explicit, surfaced to the operator in the JSON body: this does NOT force
+    # fresh LLM re-normalization — it re-applies the pipeline against the
+    # current alias cache (incl. manual overrides). To force fresh LLM calls an
+    # operator must clear aliases manually (deliberately not one-click).
+    note: str

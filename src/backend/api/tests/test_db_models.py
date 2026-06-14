@@ -20,6 +20,10 @@ def test_all_tables_present():
         "admins",
         "companies",
         "worker_heartbeats",
+        "locations",
+        "location_aliases",
+        "alias_locations",
+        "job_locations",
     }, f"Unexpected metadata.tables: {sorted(names)}"
 
 

@@ -50,6 +50,7 @@ _WORKER_QUEUES: tuple[str, ...] = (
     "eightfold_fetch",
     "workday_fetch",
     "heartbeat",
+    "normalize",
 )
 
 
