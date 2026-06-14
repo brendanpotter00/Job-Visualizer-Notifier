@@ -56,3 +56,6 @@ __pycache__/
 
 # Local learning scratchpads (not part of PRs)
 docs/learning/
+
+# Location-eval run outputs (transient; the committed reference is eval-baseline.json)
+src/backend/api/eval/results/

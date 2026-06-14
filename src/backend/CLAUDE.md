@@ -121,6 +121,24 @@ src/backend/api/
     └── fetch_*_company.py (×6)      # Leaf tasks: fetch + upsert one company's jobs
 ```
 
+## Evals
+
+`api/eval/` holds an **on-demand, human-run, never-CI** golden-set eval that scores
+the **real** Claude Haiku output of Tier-2 location normalization against a curated
++ prod-sampled set — it catches *quality* regressions that the (LLM-mocking) unit
+tests cannot. It needs `ANTHROPIC_API_KEY` and spends real money (~a few cents/run).
+
+```bash
+# from repo root (so .env.local is auto-loaded)
+PYTHONPATH=. python -m src.backend.api.eval.eval_locations --set all
+```
+
+Run it before merging any change to the location-normalization logic (prompt,
+model, schema, `CanonicalLocation`/`LocationSpec`, the `anthropic` SDK pin) and
+before a `re-normalize-all` backfill. The **pure scorer** (`api/eval/scoring.py`)
+is unit-tested in the normal suite (`api/tests/test_eval_scoring.py`). Full how/when:
+**`api/eval/README.md`**.
+
 ## Architecture
 
 - **Database**: Connection pool managed by `dependencies.py`; table naming reused from `scripts/shared/database.py`

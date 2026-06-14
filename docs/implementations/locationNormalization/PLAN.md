@@ -491,6 +491,14 @@ Day-to-day correction is the targeted audit-agent path (F2).
 5. Run an ATS fan-out fetch → `procrastinate_jobs WHERE queue_name='normalize'` matches the
    new-job count; all drain to `done`.
 6. `pytest src/backend/api/tests/` green, coverage > 80%.
+7. **Tier-2 quality (golden-set eval).** A standalone, human-run, never-CI eval
+   guards the Haiku output against prompt/model/schema regressions:
+   `PYTHONPATH=. python -m src.backend.api.eval.eval_locations --set all` (from
+   repo root, needs `ANTHROPIC_API_KEY`). See `EVAL_PLAN.md` and
+   `src/backend/api/eval/README.md`. This eval also verifies the
+   **region/country-scoped-remote schema fix** (relaxed `CanonicalLocation` /
+   `LocationSpec` remote invariant — a `kind='remote'` may now carry
+   `region`/`country` scope, e.g. `US - AZ - Remote` → `Remote (AZ, US)`).
 
 ---
 

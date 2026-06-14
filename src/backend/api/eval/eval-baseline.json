@@ -1,0 +1,4437 @@
+{
+  "summary": {
+    "total_cases": 110,
+    "gating_total": 66,
+    "informational_total": 44,
+    "gating_pass": 66,
+    "gating_fail": 0,
+    "gating_accuracy": 1.0,
+    "primary_mismatches": 11,
+    "below_confidence_floor": 1,
+    "llm_errors": 0,
+    "api_errors": 0,
+    "by_category": {
+      "simple": {
+        "pass": 36,
+        "total": 36
+      },
+      "reversed": {
+        "pass": 7,
+        "total": 7
+      },
+      "multi": {
+        "pass": 5,
+        "total": 5
+      },
+      "remote": {
+        "pass": 2,
+        "total": 2
+      },
+      "parenthetical": {
+        "pass": 6,
+        "total": 6
+      },
+      "region": {
+        "pass": 4,
+        "total": 4
+      },
+      "country": {
+        "pass": 6,
+        "total": 6
+      }
+    }
+  },
+  "results": [
+    {
+      "id": "simple-austin",
+      "raw": "Austin, Texas",
+      "category": "simple",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Austin",
+          "region": "TX",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Austin, TX, US",
+          "kind": "city",
+          "city": "Austin",
+          "region": "TX",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.98
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.98,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "simple-boston",
+      "raw": "Boston, MA",
+      "category": "simple",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Boston",
+          "region": "MA",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Boston, MA, US",
+          "kind": "city",
+          "city": "Boston",
+          "region": "MA",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.97
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.97,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "simple-seattle",
+      "raw": "Seattle, Washington",
+      "category": "simple",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Seattle",
+          "region": "WA",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Seattle, WA, US",
+          "kind": "city",
+          "city": "Seattle",
+          "region": "WA",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.97
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.97,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "simple-chicago-bare",
+      "raw": "Chicago",
+      "category": "simple",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Chicago",
+          "region": "IL",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Chicago, IL, US",
+          "kind": "city",
+          "city": "Chicago",
+          "region": "IL",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.98
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.98,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "reversed-redmond",
+      "raw": "United States, Washington, Redmond",
+      "category": "reversed",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Redmond",
+          "region": "WA",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Redmond, WA, US",
+          "kind": "city",
+          "city": "Redmond",
+          "region": "WA",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.97
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.97,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "reversed-santa-clara",
+      "raw": "US, CA, Santa Clara",
+      "category": "reversed",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Santa Clara",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Santa Clara, CA, US",
+          "kind": "city",
+          "city": "Santa Clara",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.97
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.97,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "reversed-dash-sf",
+      "raw": "USA - California - San Francisco",
+      "category": "reversed",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "San Francisco",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "San Francisco, CA, US",
+          "kind": "city",
+          "city": "San Francisco",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.98
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.98,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "multi-raleigh-durham",
+      "raw": "Raleigh, NC, USA; Durham, NC, USA",
+      "category": "multi",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Raleigh",
+          "region": "NC",
+          "country": "US",
+          "remote_scope": null
+        },
+        {
+          "kind": "city",
+          "city": "Durham",
+          "region": "NC",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Raleigh, NC, US",
+          "kind": "city",
+          "city": "Raleigh",
+          "region": "NC",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.97
+        },
+        {
+          "canonical_name": "Durham, NC, US",
+          "kind": "city",
+          "city": "Durham",
+          "region": "NC",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.97
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.97,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "multi-mtv-austin",
+      "raw": "Mountain View, CA, USA; Austin, TX, USA",
+      "category": "multi",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Mountain View",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null
+        },
+        {
+          "kind": "city",
+          "city": "Austin",
+          "region": "TX",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Mountain View, CA, US",
+          "kind": "city",
+          "city": "Mountain View",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.97
+        },
+        {
+          "canonical_name": "Austin, TX, US",
+          "kind": "city",
+          "city": "Austin",
+          "region": "TX",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.97
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.97,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "multi-slash",
+      "raw": "Bellevue, WA / Seattle, WA",
+      "category": "multi",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Bellevue",
+          "region": "WA",
+          "country": "US",
+          "remote_scope": null
+        },
+        {
+          "kind": "city",
+          "city": "Seattle",
+          "region": "WA",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Bellevue, WA, US",
+          "kind": "city",
+          "city": "Bellevue",
+          "region": "WA",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.97
+        },
+        {
+          "canonical_name": "Seattle, WA, US",
+          "kind": "city",
+          "city": "Seattle",
+          "region": "WA",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.97
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.97,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "multi-or",
+      "raw": "New York or Boston",
+      "category": "multi",
+      "gating": false,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "New York",
+          "region": "NY",
+          "country": "US",
+          "remote_scope": null
+        },
+        {
+          "kind": "city",
+          "city": "Boston",
+          "region": "MA",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "New York, NY, US",
+          "kind": "city",
+          "city": "New York",
+          "region": "NY",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.95
+        },
+        {
+          "canonical_name": "Boston, MA, US",
+          "kind": "city",
+          "city": "Boston",
+          "region": "MA",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.95
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.95,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "multi-newline",
+      "raw": "Denver, CO\nPhoenix, AZ",
+      "category": "multi",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Denver",
+          "region": "CO",
+          "country": "US",
+          "remote_scope": null
+        },
+        {
+          "kind": "city",
+          "city": "Phoenix",
+          "region": "AZ",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Denver, CO, US",
+          "kind": "city",
+          "city": "Denver",
+          "region": "CO",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.97
+        },
+        {
+          "canonical_name": "Phoenix, AZ, US",
+          "kind": "city",
+          "city": "Phoenix",
+          "region": "AZ",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.97
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.97,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "remote-worldwide",
+      "raw": "Fully remote, worldwide",
+      "category": "remote",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "remote",
+          "city": null,
+          "region": null,
+          "country": null,
+          "remote_scope": "global"
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Remote (Global)",
+          "kind": "remote",
+          "city": null,
+          "region": null,
+          "country": null,
+          "remote_scope": "global",
+          "confidence": 0.95
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.95,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "remote-anywhere",
+      "raw": "Remote (Anywhere)",
+      "category": "remote",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "remote",
+          "city": null,
+          "region": null,
+          "country": null,
+          "remote_scope": "global"
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Remote (Global)",
+          "kind": "remote",
+          "city": null,
+          "region": null,
+          "country": null,
+          "remote_scope": "global",
+          "confidence": 0.92
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.92,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "remote-wfh",
+      "raw": "Work from home",
+      "category": "remote",
+      "gating": false,
+      "expected": [
+        {
+          "kind": "remote",
+          "city": null,
+          "region": null,
+          "country": null,
+          "remote_scope": "global"
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Remote (Global)",
+          "kind": "remote",
+          "city": null,
+          "region": null,
+          "country": null,
+          "remote_scope": "global",
+          "confidence": 0.85
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.85,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "remote-co",
+      "raw": "US - CO - Remote",
+      "category": "remote_scoped",
+      "gating": false,
+      "expected": [
+        {
+          "kind": "remote",
+          "city": null,
+          "region": "CO",
+          "country": "US",
+          "remote_scope": "us"
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Remote (CO, US)",
+          "kind": "remote",
+          "city": null,
+          "region": "CO",
+          "country": "US",
+          "remote_scope": "us",
+          "confidence": 0.95
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.95,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "remote-montana",
+      "raw": "Remote - Montana",
+      "category": "remote_scoped",
+      "gating": false,
+      "expected": [
+        {
+          "kind": "remote",
+          "city": null,
+          "region": "MT",
+          "country": "US",
+          "remote_scope": "us"
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Remote (MT, US)",
+          "kind": "remote",
+          "city": null,
+          "region": "MT",
+          "country": "US",
+          "remote_scope": "us",
+          "confidence": 0.95
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.95,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "remote-brazil",
+      "raw": "BR - Brazil - Remote",
+      "category": "remote_scoped",
+      "gating": false,
+      "expected": [
+        {
+          "kind": "remote",
+          "city": null,
+          "region": null,
+          "country": "BR",
+          "remote_scope": "br"
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Remote (Brazil)",
+          "kind": "remote",
+          "city": null,
+          "region": null,
+          "country": "BR",
+          "remote_scope": "br",
+          "confidence": 0.95
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.95,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "remote-us-only",
+      "raw": "Remote (US only)",
+      "category": "remote_scoped",
+      "gating": false,
+      "expected": [
+        {
+          "kind": "remote",
+          "city": null,
+          "region": null,
+          "country": "US",
+          "remote_scope": "us"
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Remote (US)",
+          "kind": "remote",
+          "city": null,
+          "region": null,
+          "country": "US",
+          "remote_scope": "us",
+          "confidence": 0.95
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.95,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "remote-emea",
+      "raw": "Remote - EMEA",
+      "category": "remote_scoped",
+      "gating": false,
+      "expected": [
+        {
+          "kind": "remote",
+          "city": null,
+          "region": null,
+          "country": null,
+          "remote_scope": "eu"
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Remote (EMEA)",
+          "kind": "remote",
+          "city": null,
+          "region": null,
+          "country": null,
+          "remote_scope": "eu",
+          "confidence": 0.88
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.88,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "paren-hq",
+      "raw": "Costa Mesa, CA (HQ)",
+      "category": "parenthetical",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Costa Mesa",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Costa Mesa, CA, US",
+          "kind": "city",
+          "city": "Costa Mesa",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.97
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.97,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "building-reston",
+      "raw": "Reston, VA (NOVA-01)",
+      "category": "parenthetical",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Reston",
+          "region": "VA",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Reston, VA, US",
+          "kind": "city",
+          "city": "Reston",
+          "region": "VA",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.97
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.97,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "building-ashville",
+      "raw": "Ashville, OH (Arsenal 1)",
+      "category": "parenthetical",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Ashville",
+          "region": "OH",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Ashville, OH, US",
+          "kind": "city",
+          "city": "Ashville",
+          "region": "OH",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.95
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.95,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "building-mtv-code",
+      "raw": "Mountain View (US-MTV-EMF680)",
+      "category": "parenthetical",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Mountain View",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Mountain View, CA, US",
+          "kind": "city",
+          "city": "Mountain View",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.95
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.95,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "street-chandler",
+      "raw": "Chandler - 300 N 56th St",
+      "category": "parenthetical",
+      "gating": false,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Chandler",
+          "region": "AZ",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Chandler, AZ, US",
+          "kind": "city",
+          "city": "Chandler",
+          "region": "AZ",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.85
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.85,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "region-california",
+      "raw": "California",
+      "category": "region",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "region",
+          "city": null,
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "California, US",
+          "kind": "region",
+          "city": null,
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.98
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.98,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "region-california-named",
+      "raw": "California, United States",
+      "category": "region",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "region",
+          "city": null,
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "California, US",
+          "kind": "region",
+          "city": null,
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.98
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.98,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "region-texas-named",
+      "raw": "Texas, United States",
+      "category": "region",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "region",
+          "city": null,
+          "region": "TX",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Texas, US",
+          "kind": "region",
+          "city": null,
+          "region": "TX",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.98
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.98,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "country-japan",
+      "raw": "Japan",
+      "category": "country",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "country",
+          "city": null,
+          "region": null,
+          "country": "JP",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Japan",
+          "kind": "country",
+          "city": null,
+          "region": null,
+          "country": "JP",
+          "remote_scope": null,
+          "confidence": 0.98
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.98,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "country-singapore",
+      "raw": "Singapore",
+      "category": "country",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "country",
+          "city": null,
+          "region": null,
+          "country": "SG",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Singapore",
+          "kind": "country",
+          "city": null,
+          "region": null,
+          "country": "SG",
+          "remote_scope": null,
+          "confidence": 0.98
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.98,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "country-us-bare",
+      "raw": "United States",
+      "category": "country",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "country",
+          "city": null,
+          "region": null,
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "United States",
+          "kind": "country",
+          "city": null,
+          "region": null,
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.98
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.98,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "accent-zurich",
+      "raw": "Z\u00fcrich, Switzerland",
+      "category": "accents",
+      "gating": false,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Z\u00fcrich",
+          "region": null,
+          "country": "CH",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Zurich, Switzerland",
+          "kind": "city",
+          "city": "Zurich",
+          "region": null,
+          "country": "CH",
+          "remote_scope": null,
+          "confidence": 0.98
+        }
+      ],
+      "error": null,
+      "verdict": "fail",
+      "passed": false,
+      "primary_match": false,
+      "missing": [
+        [
+          "city",
+          "z\u00fcrich",
+          null,
+          "CH",
+          null
+        ]
+      ],
+      "extra": [
+        [
+          "city",
+          "zurich",
+          null,
+          "CH",
+          null
+        ]
+      ],
+      "max_confidence": 0.98,
+      "below_floor": false,
+      "flaky": true,
+      "runs_passed": "1/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "accent-saopaulo",
+      "raw": "S\u00e3o Paulo, Brazil",
+      "category": "accents",
+      "gating": false,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "S\u00e3o Paulo",
+          "region": null,
+          "country": "BR",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "S\u00e3o Paulo, Brazil",
+          "kind": "city",
+          "city": "S\u00e3o Paulo",
+          "region": null,
+          "country": "BR",
+          "remote_scope": null,
+          "confidence": 0.97
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.97,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "misspell-cincinnati",
+      "raw": "Cincinatti, OH",
+      "category": "misspelling",
+      "gating": false,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Cincinnati",
+          "region": "OH",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Cincinnati, OH, US",
+          "kind": "city",
+          "city": "Cincinnati",
+          "region": "OH",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.97
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.97,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "country-code-gbr",
+      "raw": "Farnborough, GBR",
+      "category": "misspelling",
+      "gating": false,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Farnborough",
+          "region": null,
+          "country": "GB",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Farnborough, England, GB",
+          "kind": "city",
+          "city": "Farnborough",
+          "region": "England",
+          "country": "GB",
+          "remote_scope": null,
+          "confidence": 0.92
+        }
+      ],
+      "error": null,
+      "verdict": "fail",
+      "passed": false,
+      "primary_match": false,
+      "missing": [
+        [
+          "city",
+          "farnborough",
+          null,
+          "GB",
+          null
+        ]
+      ],
+      "extra": [
+        [
+          "city",
+          "farnborough",
+          "ENGLAND",
+          "GB",
+          null
+        ]
+      ],
+      "max_confidence": 0.92,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "0/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "ambiguous-multiple-loc",
+      "raw": "United States, Multiple Locations, Multiple Locations",
+      "category": "ambiguous",
+      "gating": false,
+      "expected": [
+        {
+          "kind": "country",
+          "city": null,
+          "region": null,
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Remote (US)",
+          "kind": "remote",
+          "city": null,
+          "region": null,
+          "country": "US",
+          "remote_scope": "us",
+          "confidence": 0.85
+        }
+      ],
+      "error": null,
+      "verdict": "fail",
+      "passed": false,
+      "primary_match": false,
+      "missing": [
+        [
+          "country",
+          null,
+          null,
+          "US",
+          null
+        ]
+      ],
+      "extra": [
+        [
+          "remote",
+          null,
+          null,
+          "US",
+          "us"
+        ]
+      ],
+      "max_confidence": 0.85,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "0/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "ambiguous-greater-seattle",
+      "raw": "Greater Seattle Area",
+      "category": "ambiguous",
+      "gating": false,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Seattle",
+          "region": "WA",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Seattle, WA, US",
+          "kind": "city",
+          "city": "Seattle",
+          "region": "WA",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.85
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.85,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "ambiguous-emea-bare",
+      "raw": "EMEA",
+      "category": "ambiguous",
+      "gating": false,
+      "expected": [
+        {
+          "kind": "region",
+          "city": null,
+          "region": "EMEA",
+          "country": null,
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "EMEA",
+          "kind": "region",
+          "city": null,
+          "region": "EMEA",
+          "country": null,
+          "remote_scope": null,
+          "confidence": 0.85
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.85,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "lowconf-various",
+      "raw": "Various",
+      "category": "low_confidence",
+      "gating": false,
+      "expected": [],
+      "produced": [
+        {
+          "canonical_name": "Remote (Global)",
+          "kind": "remote",
+          "city": null,
+          "region": null,
+          "country": null,
+          "remote_scope": "global",
+          "confidence": 0.6
+        }
+      ],
+      "error": null,
+      "verdict": "fail",
+      "passed": false,
+      "primary_match": null,
+      "missing": [],
+      "extra": [
+        [
+          "remote",
+          null,
+          null,
+          null,
+          "global"
+        ]
+      ],
+      "max_confidence": 0.6,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "0/3",
+      "expect_below_floor": true
+    },
+    {
+      "id": "lowconf-tbd",
+      "raw": "TBD",
+      "category": "low_confidence",
+      "gating": false,
+      "expected": [],
+      "produced": [
+        {
+          "canonical_name": "Remote (Global)",
+          "kind": "remote",
+          "city": null,
+          "region": null,
+          "country": null,
+          "remote_scope": "global",
+          "confidence": 0.3
+        }
+      ],
+      "error": null,
+      "verdict": "fail",
+      "passed": false,
+      "primary_match": null,
+      "missing": [],
+      "extra": [
+        [
+          "remote",
+          null,
+          null,
+          null,
+          "global"
+        ]
+      ],
+      "max_confidence": 0.3,
+      "below_floor": true,
+      "flaky": false,
+      "runs_passed": "0/3",
+      "expect_below_floor": true
+    },
+    {
+      "id": "prod-cupertino",
+      "raw": "Cupertino, California, United States",
+      "category": "simple",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Cupertino",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Cupertino, CA, US",
+          "kind": "city",
+          "city": "Cupertino",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.98
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.98,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-sf-bare",
+      "raw": "San Francisco",
+      "category": "simple",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "San Francisco",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "San Francisco, CA, US",
+          "kind": "city",
+          "city": "San Francisco",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.95
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.95,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-redmond-reversed",
+      "raw": "United States, Washington, Redmond",
+      "category": "reversed",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Redmond",
+          "region": "WA",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Redmond, WA, US",
+          "kind": "city",
+          "city": "Redmond",
+          "region": "WA",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.97
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.97,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-austin-full",
+      "raw": "Austin, Texas, United States",
+      "category": "simple",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Austin",
+          "region": "TX",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Austin, TX, US",
+          "kind": "city",
+          "city": "Austin",
+          "region": "TX",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.97
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.97,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-costa-mesa-hq",
+      "raw": "Costa Mesa, CA (HQ)",
+      "category": "parenthetical",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Costa Mesa",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Costa Mesa, CA, US",
+          "kind": "city",
+          "city": "Costa Mesa",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.97
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.97,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-sunnyvale-usa",
+      "raw": "Sunnyvale, CA, USA",
+      "category": "simple",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Sunnyvale",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Sunnyvale, CA, US",
+          "kind": "city",
+          "city": "Sunnyvale",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.97
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.97,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-california-named",
+      "raw": "California, United States",
+      "category": "region",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "region",
+          "city": null,
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "California, US",
+          "kind": "region",
+          "city": null,
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.98
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.98,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-sf-ca",
+      "raw": "San Francisco, CA",
+      "category": "simple",
+      "gating": false,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "San Francisco",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "San Francisco, CA, US",
+          "kind": "city",
+          "city": "San Francisco",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.97
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.97,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-mtv-usa",
+      "raw": "Mountain View, CA, USA",
+      "category": "simple",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Mountain View",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Mountain View, CA, US",
+          "kind": "city",
+          "city": "Mountain View",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.97
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.97,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-san-diego-full",
+      "raw": "San Diego, California, United States",
+      "category": "simple",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "San Diego",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "San Diego, CA, US",
+          "kind": "city",
+          "city": "San Diego",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.98
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.98,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-hawthorne",
+      "raw": "Hawthorne, CA",
+      "category": "simple",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Hawthorne",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Hawthorne, CA, US",
+          "kind": "city",
+          "city": "Hawthorne",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.97
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.97,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-santa-clara-reversed",
+      "raw": "US, CA, Santa Clara",
+      "category": "reversed",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Santa Clara",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Santa Clara, CA, US",
+          "kind": "city",
+          "city": "Santa Clara",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.97
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.97,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-bastrop",
+      "raw": "Bastrop, TX",
+      "category": "simple",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Bastrop",
+          "region": "TX",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Bastrop, TX, US",
+          "kind": "city",
+          "city": "Bastrop",
+          "region": "TX",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.97
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.97,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-multiple-locations",
+      "raw": "United States, Multiple Locations, Multiple Locations",
+      "category": "ambiguous",
+      "gating": false,
+      "expected": [
+        {
+          "kind": "country",
+          "city": null,
+          "region": null,
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Remote (US)",
+          "kind": "remote",
+          "city": null,
+          "region": null,
+          "country": "US",
+          "remote_scope": "us",
+          "confidence": 0.85
+        }
+      ],
+      "error": null,
+      "verdict": "fail",
+      "passed": false,
+      "primary_match": false,
+      "missing": [
+        [
+          "country",
+          null,
+          null,
+          "US",
+          null
+        ]
+      ],
+      "extra": [
+        [
+          "remote",
+          null,
+          null,
+          "US",
+          "us"
+        ]
+      ],
+      "max_confidence": 0.85,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "0/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-new-york-bare",
+      "raw": "New York",
+      "category": "ambiguous",
+      "gating": false,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "New York",
+          "region": "NY",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "New York, NY, US",
+          "kind": "city",
+          "city": "New York",
+          "region": "NY",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.95
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.95,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-new-york-ny",
+      "raw": "New York, NY",
+      "category": "simple",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "New York",
+          "region": "NY",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "New York, NY, US",
+          "kind": "city",
+          "city": "New York",
+          "region": "NY",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.97
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.97,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-sunnyvale-full",
+      "raw": "Sunnyvale, California, United States",
+      "category": "simple",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Sunnyvale",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Sunnyvale, CA, US",
+          "kind": "city",
+          "city": "Sunnyvale",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.97
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.97,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-warren-usoa",
+      "raw": "Warren, Michigan, United States of America",
+      "category": "simple",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Warren",
+          "region": "MI",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Warren, MI, US",
+          "kind": "city",
+          "city": "Warren",
+          "region": "MI",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.97
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.97,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-austin-tx",
+      "raw": "Austin, TX",
+      "category": "simple",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Austin",
+          "region": "TX",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Austin, TX, US",
+          "kind": "city",
+          "city": "Austin",
+          "region": "TX",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.97
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.97,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-us-bare",
+      "raw": "US",
+      "category": "country",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "country",
+          "city": null,
+          "region": null,
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "United States",
+          "kind": "country",
+          "city": null,
+          "region": null,
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.98
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.98,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-seattle-full",
+      "raw": "Seattle, Washington, United States",
+      "category": "simple",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Seattle",
+          "region": "WA",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Seattle, WA, US",
+          "kind": "city",
+          "city": "Seattle",
+          "region": "WA",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.98
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.98,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-london",
+      "raw": "London",
+      "category": "international",
+      "gating": false,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "London",
+          "region": null,
+          "country": "GB",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "London, England, UK",
+          "kind": "city",
+          "city": "London",
+          "region": "England",
+          "country": "UK",
+          "remote_scope": null,
+          "confidence": 0.98
+        }
+      ],
+      "error": null,
+      "verdict": "fail",
+      "passed": false,
+      "primary_match": false,
+      "missing": [
+        [
+          "city",
+          "london",
+          null,
+          "GB",
+          null
+        ]
+      ],
+      "extra": [
+        [
+          "city",
+          "london",
+          "ENGLAND",
+          "GB",
+          null
+        ]
+      ],
+      "max_confidence": 0.98,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "0/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-redmond-wa",
+      "raw": "Redmond, WA",
+      "category": "simple",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Redmond",
+          "region": "WA",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Redmond, WA, US",
+          "kind": "city",
+          "city": "Redmond",
+          "region": "WA",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.97
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.97,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-space-coast",
+      "raw": "Space Coast, FL",
+      "category": "ambiguous",
+      "gating": false,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Space Coast",
+          "region": "FL",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Space Coast, FL, US",
+          "kind": "region",
+          "city": null,
+          "region": "FL",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.85
+        }
+      ],
+      "error": null,
+      "verdict": "fail",
+      "passed": false,
+      "primary_match": false,
+      "missing": [
+        [
+          "city",
+          "space coast",
+          "FL",
+          "US",
+          null
+        ]
+      ],
+      "extra": [
+        [
+          "region",
+          null,
+          "FL",
+          "US",
+          null
+        ]
+      ],
+      "max_confidence": 0.85,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "0/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-united-states",
+      "raw": "United States",
+      "category": "country",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "country",
+          "city": null,
+          "region": null,
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "United States",
+          "kind": "country",
+          "city": null,
+          "region": null,
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.99
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.99,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-starbase",
+      "raw": "Starbase, TX",
+      "category": "simple",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Starbase",
+          "region": "TX",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Starbase, TX, US",
+          "kind": "city",
+          "city": "Starbase",
+          "region": "TX",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.92
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.92,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-greater-seattle",
+      "raw": "Greater Seattle Area",
+      "category": "metro",
+      "gating": false,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Seattle",
+          "region": "WA",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Greater Seattle Area, WA, US",
+          "kind": "region",
+          "city": null,
+          "region": "WA",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.85
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": false,
+      "missing": [
+        [
+          "city",
+          "seattle",
+          "WA",
+          "US",
+          null
+        ]
+      ],
+      "extra": [
+        [
+          "region",
+          null,
+          "WA",
+          "US",
+          null
+        ]
+      ],
+      "max_confidence": 0.85,
+      "below_floor": false,
+      "flaky": true,
+      "runs_passed": "2/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-remote-us",
+      "raw": "Remote - United States",
+      "category": "remote_scoped",
+      "gating": false,
+      "expected": [
+        {
+          "kind": "remote",
+          "city": null,
+          "region": null,
+          "country": "US",
+          "remote_scope": "us"
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Remote (US)",
+          "kind": "remote",
+          "city": null,
+          "region": null,
+          "country": null,
+          "remote_scope": "us",
+          "confidence": 0.95
+        }
+      ],
+      "error": null,
+      "verdict": "fail",
+      "passed": false,
+      "primary_match": false,
+      "missing": [
+        [
+          "remote",
+          null,
+          null,
+          "US",
+          "us"
+        ]
+      ],
+      "extra": [
+        [
+          "remote",
+          null,
+          null,
+          null,
+          "us"
+        ]
+      ],
+      "max_confidence": 0.95,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "0/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-sf-california",
+      "raw": "San Francisco, California",
+      "category": "simple",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "San Francisco",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "San Francisco, CA, US",
+          "kind": "city",
+          "city": "San Francisco",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.98
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.98,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-nyc",
+      "raw": "New York City",
+      "category": "simple",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "New York",
+          "region": "NY",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "New York, NY, US",
+          "kind": "city",
+          "city": "New York",
+          "region": "NY",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.98
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.98,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-mtv-code",
+      "raw": "Mountain View (US-MTV-EMF680)",
+      "category": "parenthetical",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Mountain View",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Mountain View, CA, US",
+          "kind": "city",
+          "city": "Mountain View",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.95
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.95,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-santa-clara-full",
+      "raw": "Santa Clara, California, United States",
+      "category": "simple",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Santa Clara",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Santa Clara, CA, US",
+          "kind": "city",
+          "city": "Santa Clara",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.97
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.97,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-san-mateo",
+      "raw": "San Mateo, CA",
+      "category": "simple",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "San Mateo",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "San Mateo, CA, US",
+          "kind": "city",
+          "city": "San Mateo",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.97
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.97,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-singapore",
+      "raw": "Singapore",
+      "category": "country",
+      "gating": false,
+      "expected": [
+        {
+          "kind": "country",
+          "city": null,
+          "region": null,
+          "country": "SG",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Singapore",
+          "kind": "country",
+          "city": null,
+          "region": null,
+          "country": "SG",
+          "remote_scope": null,
+          "confidence": 0.98
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.98,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-remote-bare",
+      "raw": "Remote",
+      "category": "remote",
+      "gating": false,
+      "expected": [
+        {
+          "kind": "remote",
+          "city": null,
+          "region": null,
+          "country": null,
+          "remote_scope": "global"
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Remote (Global)",
+          "kind": "remote",
+          "city": null,
+          "region": null,
+          "country": null,
+          "remote_scope": "global",
+          "confidence": 0.9
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.9,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-chicago",
+      "raw": "Chicago",
+      "category": "simple",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Chicago",
+          "region": "IL",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Chicago, IL, US",
+          "kind": "city",
+          "city": "Chicago",
+          "region": "IL",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.98
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.98,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-foster-city",
+      "raw": "Foster City, CA",
+      "category": "simple",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Foster City",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Foster City, CA, US",
+          "kind": "city",
+          "city": "Foster City",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.97
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.97,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-san-jose-bare",
+      "raw": "San Jose",
+      "category": "simple",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "San Jose",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "San Jose, CA, US",
+          "kind": "city",
+          "city": "San Jose",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.92
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.92,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-beaverton",
+      "raw": "Beaverton, Oregon, United States",
+      "category": "simple",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Beaverton",
+          "region": "OR",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Beaverton, OR, US",
+          "kind": "city",
+          "city": "Beaverton",
+          "region": "OR",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.97
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.97,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-sunnyvale-kirkland",
+      "raw": "Sunnyvale, CA, USA; Kirkland, WA, USA",
+      "category": "multi",
+      "gating": false,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Sunnyvale",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null
+        },
+        {
+          "kind": "city",
+          "city": "Kirkland",
+          "region": "WA",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Sunnyvale, CA, US",
+          "kind": "city",
+          "city": "Sunnyvale",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.96
+        },
+        {
+          "canonical_name": "Kirkland, WA, US",
+          "kind": "city",
+          "city": "Kirkland",
+          "region": "WA",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.96
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.96,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-montreal",
+      "raw": "Montreal",
+      "category": "international",
+      "gating": false,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Montreal",
+          "region": null,
+          "country": "CA",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Montreal, QC, CA",
+          "kind": "city",
+          "city": "Montreal",
+          "region": "QC",
+          "country": "CA",
+          "remote_scope": null,
+          "confidence": 0.98
+        }
+      ],
+      "error": null,
+      "verdict": "fail",
+      "passed": false,
+      "primary_match": false,
+      "missing": [
+        [
+          "city",
+          "montreal",
+          null,
+          "CA",
+          null
+        ]
+      ],
+      "extra": [
+        [
+          "city",
+          "montreal",
+          "QC",
+          "CA",
+          null
+        ]
+      ],
+      "max_confidence": 0.98,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "0/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-latam-remote",
+      "raw": "LATAM (Remote)",
+      "category": "remote_scoped",
+      "gating": false,
+      "expected": [
+        {
+          "kind": "remote",
+          "city": null,
+          "region": null,
+          "country": null,
+          "remote_scope": "latam"
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Remote (LATAM)",
+          "kind": "remote",
+          "city": null,
+          "region": null,
+          "country": null,
+          "remote_scope": "latam",
+          "confidence": 0.85
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.85,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-lake-grove",
+      "raw": "Lake Grove, NY",
+      "category": "simple",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Lake Grove",
+          "region": "NY",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Lake Grove, NY, US",
+          "kind": "city",
+          "city": "Lake Grove",
+          "region": "NY",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.95
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.95,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-mandeville",
+      "raw": "Mandeville, LA",
+      "category": "simple",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Mandeville",
+          "region": "LA",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Mandeville, LA, US",
+          "kind": "city",
+          "city": "Mandeville",
+          "region": "LA",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.97
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.97,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-stockholm",
+      "raw": "Stockholm ",
+      "category": "international",
+      "gating": false,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Stockholm",
+          "region": null,
+          "country": "SE",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Stockholm, Sweden",
+          "kind": "city",
+          "city": "Stockholm",
+          "region": null,
+          "country": "SE",
+          "remote_scope": null,
+          "confidence": 0.98
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.98,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-houston-usa",
+      "raw": "Houston, TX, USA",
+      "category": "simple",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Houston",
+          "region": "TX",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Houston, TX, US",
+          "kind": "city",
+          "city": "Houston",
+          "region": "TX",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.97
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.97,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-quebec-remote",
+      "raw": "CA-Quebec-Remote",
+      "category": "remote_scoped",
+      "gating": false,
+      "expected": [
+        {
+          "kind": "remote",
+          "city": null,
+          "region": "QC",
+          "country": "CA",
+          "remote_scope": "ca"
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Remote (Quebec, CA)",
+          "kind": "remote",
+          "city": null,
+          "region": "QC",
+          "country": "CA",
+          "remote_scope": "ca",
+          "confidence": 0.92
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.92,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-boston-metro-remote",
+      "raw": "US - MA - Boston Metro - Remote",
+      "category": "remote_scoped",
+      "gating": false,
+      "expected": [
+        {
+          "kind": "remote",
+          "city": null,
+          "region": "MA",
+          "country": "US",
+          "remote_scope": "us"
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Remote (MA, US)",
+          "kind": "remote",
+          "city": null,
+          "region": "MA",
+          "country": "US",
+          "remote_scope": "us",
+          "confidence": 0.92
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.92,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-tampa",
+      "raw": "Tampa, FL",
+      "category": "simple",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Tampa",
+          "region": "FL",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Tampa, FL, US",
+          "kind": "city",
+          "city": "Tampa",
+          "region": "FL",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.97
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.97,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-charlotte",
+      "raw": "Charlotte, NC",
+      "category": "simple",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Charlotte",
+          "region": "NC",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Charlotte, NC, US",
+          "kind": "city",
+          "city": "Charlotte",
+          "region": "NC",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.97
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.97,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-brazil-remote",
+      "raw": "BR - Brazil - Remote",
+      "category": "remote_scoped",
+      "gating": false,
+      "expected": [
+        {
+          "kind": "remote",
+          "city": null,
+          "region": null,
+          "country": "BR",
+          "remote_scope": "br"
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Remote (Brazil)",
+          "kind": "remote",
+          "city": null,
+          "region": null,
+          "country": "BR",
+          "remote_scope": "br",
+          "confidence": 0.95
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.95,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-bulgaria",
+      "raw": "Bulgaria",
+      "category": "country",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "country",
+          "city": null,
+          "region": null,
+          "country": "BG",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Bulgaria",
+          "kind": "country",
+          "city": null,
+          "region": null,
+          "country": "BG",
+          "remote_scope": null,
+          "confidence": 0.98
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.98,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-tallulah",
+      "raw": "Tallulah, LA",
+      "category": "simple",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Tallulah",
+          "region": "LA",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Tallulah, LA, US",
+          "kind": "city",
+          "city": "Tallulah",
+          "region": "LA",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.97
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.97,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-chandler-street",
+      "raw": "Chandler - 300 N 56th St",
+      "category": "parenthetical",
+      "gating": false,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Chandler",
+          "region": "AZ",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Chandler, AZ, US",
+          "kind": "city",
+          "city": "Chandler",
+          "region": "AZ",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.92
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.92,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-sf-reversed",
+      "raw": "USA - California - San Francisco",
+      "category": "reversed",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "San Francisco",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "San Francisco, CA, US",
+          "kind": "city",
+          "city": "San Francisco",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.98
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.98,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-tri-remote",
+      "raw": "Remote, Canada; Remote, United Kingdom; Remote, US",
+      "category": "remote_scoped",
+      "gating": false,
+      "expected": [
+        {
+          "kind": "remote",
+          "city": null,
+          "region": null,
+          "country": "CA",
+          "remote_scope": "ca"
+        },
+        {
+          "kind": "remote",
+          "city": null,
+          "region": null,
+          "country": "GB",
+          "remote_scope": "gb"
+        },
+        {
+          "kind": "remote",
+          "city": null,
+          "region": null,
+          "country": "US",
+          "remote_scope": "us"
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Remote (Canada)",
+          "kind": "remote",
+          "city": null,
+          "region": null,
+          "country": "CA",
+          "remote_scope": "ca",
+          "confidence": 0.95
+        },
+        {
+          "canonical_name": "Remote (United Kingdom)",
+          "kind": "remote",
+          "city": null,
+          "region": null,
+          "country": "GB",
+          "remote_scope": "gb",
+          "confidence": 0.95
+        },
+        {
+          "canonical_name": "Remote (US)",
+          "kind": "remote",
+          "city": null,
+          "region": null,
+          "country": "US",
+          "remote_scope": "us",
+          "confidence": 0.95
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.95,
+      "below_floor": false,
+      "flaky": true,
+      "runs_passed": "2/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-az-remote",
+      "raw": "US - AZ - Remote",
+      "category": "remote_scoped",
+      "gating": false,
+      "expected": [
+        {
+          "kind": "remote",
+          "city": null,
+          "region": "AZ",
+          "country": "US",
+          "remote_scope": "us"
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Remote (AZ, US)",
+          "kind": "remote",
+          "city": null,
+          "region": "AZ",
+          "country": "US",
+          "remote_scope": "us",
+          "confidence": 0.95
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.95,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-lexington",
+      "raw": "Lexington, KY",
+      "category": "simple",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Lexington",
+          "region": "KY",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Lexington, KY, US",
+          "kind": "city",
+          "city": "Lexington",
+          "region": "KY",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.97
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.97,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-fort-worth",
+      "raw": "Fort Worth",
+      "category": "simple",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Fort Worth",
+          "region": "TX",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Fort Worth, TX, US",
+          "kind": "city",
+          "city": "Fort Worth",
+          "region": "TX",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.95
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.95,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-bonn",
+      "raw": "Bonn",
+      "category": "international",
+      "gating": false,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Bonn",
+          "region": null,
+          "country": "DE",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Bonn, NW, DE",
+          "kind": "city",
+          "city": "Bonn",
+          "region": "NW",
+          "country": "DE",
+          "remote_scope": null,
+          "confidence": 0.95
+        }
+      ],
+      "error": null,
+      "verdict": "fail",
+      "passed": false,
+      "primary_match": false,
+      "missing": [
+        [
+          "city",
+          "bonn",
+          null,
+          "DE",
+          null
+        ]
+      ],
+      "extra": [
+        [
+          "city",
+          "bonn",
+          "NW",
+          "DE",
+          null
+        ]
+      ],
+      "max_confidence": 0.95,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "0/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-dayton",
+      "raw": "Dayton",
+      "category": "ambiguous",
+      "gating": false,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Dayton",
+          "region": "OH",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Dayton, OH, US",
+          "kind": "city",
+          "city": "Dayton",
+          "region": "OH",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.92
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.92,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-farnborough-gbr",
+      "raw": "Farnborough, GBR",
+      "category": "international",
+      "gating": false,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Farnborough",
+          "region": null,
+          "country": "GB",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Farnborough, England, GB",
+          "kind": "city",
+          "city": "Farnborough",
+          "region": "England",
+          "country": "GB",
+          "remote_scope": null,
+          "confidence": 0.92
+        }
+      ],
+      "error": null,
+      "verdict": "fail",
+      "passed": false,
+      "primary_match": false,
+      "missing": [
+        [
+          "city",
+          "farnborough",
+          null,
+          "GB",
+          null
+        ]
+      ],
+      "extra": [
+        [
+          "city",
+          "farnborough",
+          "ENGLAND",
+          "GB",
+          null
+        ]
+      ],
+      "max_confidence": 0.92,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "0/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-remote-montana",
+      "raw": "Remote - Montana",
+      "category": "remote_scoped",
+      "gating": false,
+      "expected": [
+        {
+          "kind": "remote",
+          "city": null,
+          "region": "MT",
+          "country": "US",
+          "remote_scope": "us"
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Remote (MT, US)",
+          "kind": "remote",
+          "city": null,
+          "region": "MT",
+          "country": "US",
+          "remote_scope": "us",
+          "confidence": 0.93
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.93,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-orlando-reversed",
+      "raw": "USA - Florida - Orlando",
+      "category": "reversed",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Orlando",
+          "region": "FL",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Orlando, FL, US",
+          "kind": "city",
+          "city": "Orlando",
+          "region": "FL",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.97
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.97,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-pune",
+      "raw": "Pune, India",
+      "category": "international",
+      "gating": false,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Pune",
+          "region": null,
+          "country": "IN",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Pune, India",
+          "kind": "city",
+          "city": "Pune",
+          "region": null,
+          "country": "IN",
+          "remote_scope": null,
+          "confidence": 0.97
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.97,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-cincinnati-misspell",
+      "raw": "Cincinatti, OH",
+      "category": "misspelling",
+      "gating": false,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Cincinnati",
+          "region": "OH",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Cincinnati, OH, US",
+          "kind": "city",
+          "city": "Cincinnati",
+          "region": "OH",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.97
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.97,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-ferndale",
+      "raw": "Ferndale",
+      "category": "ambiguous",
+      "gating": false,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Ferndale",
+          "region": "MI",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Ferndale, MI, US",
+          "kind": "city",
+          "city": "Ferndale",
+          "region": "MI",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.6
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.6,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-las-vegas",
+      "raw": "Las Vegas",
+      "category": "simple",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Las Vegas",
+          "region": "NV",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Las Vegas, NV, US",
+          "kind": "city",
+          "city": "Las Vegas",
+          "region": "NV",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.98
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.98,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-indaiatuba",
+      "raw": "Indaiatuba, Sao Paulo, Brazil",
+      "category": "international",
+      "gating": false,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "Indaiatuba",
+          "region": "SP",
+          "country": "BR",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "Indaiatuba, SP, BR",
+          "kind": "city",
+          "city": "Indaiatuba",
+          "region": "SP",
+          "country": "BR",
+          "remote_scope": null,
+          "confidence": 0.95
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.95,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    },
+    {
+      "id": "prod-sf-seattle-multi",
+      "raw": "San Francisco, CA, USA; Seattle, WA, USA",
+      "category": "multi",
+      "gating": true,
+      "expected": [
+        {
+          "kind": "city",
+          "city": "San Francisco",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null
+        },
+        {
+          "kind": "city",
+          "city": "Seattle",
+          "region": "WA",
+          "country": "US",
+          "remote_scope": null
+        }
+      ],
+      "produced": [
+        {
+          "canonical_name": "San Francisco, CA, US",
+          "kind": "city",
+          "city": "San Francisco",
+          "region": "CA",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.97
+        },
+        {
+          "canonical_name": "Seattle, WA, US",
+          "kind": "city",
+          "city": "Seattle",
+          "region": "WA",
+          "country": "US",
+          "remote_scope": null,
+          "confidence": 0.97
+        }
+      ],
+      "error": null,
+      "verdict": "pass",
+      "passed": true,
+      "primary_match": true,
+      "missing": [],
+      "extra": [],
+      "max_confidence": 0.97,
+      "below_floor": false,
+      "flaky": false,
+      "runs_passed": "3/3",
+      "expect_below_floor": false
+    }
+  ],
+  "elapsed_s": 83.54459549998865
+}
