@@ -14,7 +14,7 @@ function createMockState(searchTags?: SearchTag[]): RootState {
   return {
     graphFilters: {
       filters: {
-        timeWindow: '30d',
+        timeWindow: '7d',
         searchTags,
         softwareOnly: false,
       },
