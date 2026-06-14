@@ -24,6 +24,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'unified-company-filters',
+    title: 'One set of filters on the Company page, plus a hideable graph',
+    description:
+      'On the Company Hiring Trends page the graph and the job list each had their own filters, with “Sync to List” / “Sync to Graph” buttons to copy one onto the other. Building this, I realized I always just ended up syncing the two together anyway — so I merged them into a single source of truth. The filters now drive the graph and the list at the same time: fewer clicks, nothing to keep in sync. I also added a “Hide graph” / “Show graph” toggle on the timeline header, for when you just want the job list without the chart.',
+    tags: ['improvement'],
+    date: '2026-06-14',
+    link: {
+      to: ROUTES.COMPANIES,
+      label: 'See it on the Company Hiring Trends page',
+    },
+  },
+  {
     id: 'give-feedback',
     title: 'Give Feedback',
     description:

@@ -29,6 +29,18 @@ export const selectGraphFilteredJobs = createSelector(
 );
 
 /**
+ * Graph-filtered jobs sorted most-recent-first, for the job list view.
+ *
+ * The list view shares the graph's filters (single source of truth), but
+ * displays them sorted by creation date descending. Spread before sorting so
+ * the array returned by `selectGraphFilteredJobs` (also consumed by
+ * `selectGraphBucketData`) is not mutated.
+ */
+export const selectGraphFilteredJobsSorted = createSelector([selectGraphFilteredJobs], (jobs) =>
+  [...jobs].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+);
+
+/**
  * Select bucketed data for graph visualization
  */
 export const selectGraphBucketData = createSelector(

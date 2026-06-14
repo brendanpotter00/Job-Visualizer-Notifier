@@ -1,7 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import { renderWithProviders } from '../../../test/testUtils';
 import { CompaniesPageContent } from '../../../pages/CompaniesPage/CompaniesPageContent';
+
+vi.mock('../../../components/companies-page/MetricsDashboard/MetricsDashboard', () => ({
+  MetricsDashboard: () => <div data-testid="metrics-dashboard" />,
+}));
 
 vi.mock('../../../components/companies-page/JobPostingsChart/GraphSection', () => ({
   GraphSection: () => <div data-testid="graph-section" />,
@@ -49,6 +53,21 @@ describe('CompaniesPageContent', () => {
       renderWithProviders(<CompaniesPageContent isLoading={false} />);
 
       expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+    });
+
+    it('renders the graph and list inside a single Paper card separated by a divider', () => {
+      const { container } = renderWithProviders(<CompaniesPageContent isLoading={false} />);
+
+      // The graph and list share ONE consolidated card (MetricsDashboard is a
+      // sibling above it and is mocked away here).
+      const papers = container.querySelectorAll('.MuiPaper-root');
+      expect(papers).toHaveLength(1);
+
+      const card = papers[0] as HTMLElement;
+      expect(card).toContainElement(screen.getByTestId('graph-section'));
+      expect(card).toContainElement(screen.getByTestId('list-section'));
+      // A divider visually separates the two sections within the card.
+      expect(within(card).getByRole('separator')).toBeInTheDocument();
     });
   });
 });

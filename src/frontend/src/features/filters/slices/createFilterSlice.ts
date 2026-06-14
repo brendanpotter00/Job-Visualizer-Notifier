@@ -93,20 +93,19 @@ function capitalize(str: string): string {
 /**
  * Factory function to create filter slices with identical logic.
  *
- * This eliminates 95%+ code duplication between graphFiltersSlice and
- * listFiltersSlice by generating all 25 action creators dynamically.
+ * This eliminates duplication across the graph and recent-jobs filter slices
+ * by generating all filter action creators dynamically.
  *
  * @example
  * ```typescript
  * const graphFiltersSlice = createFilterSlice('graph', {
- *   timeWindow: '30d',
+ *   timeWindow: '7d',
  *   searchTags: undefined,
  *   softwareOnly: false,
- *   roleCategory: undefined,
  * });
  * ```
  *
- * @param name - 'graph' or 'list'
+ * @param name - 'graph', 'list', or 'recentJobs'
  * @param initialFilters - Initial filter values
  * @returns Redux Toolkit slice with all filter actions
  */
@@ -234,15 +233,6 @@ export function createFilterSlice<T extends Filters>(name: FilterSliceName, init
       [`reset${capitalizedName}Filters`]: (state) => {
         // Use Object.assign to work with Immer's Draft type
         Object.assign(state.filters, initialState.filters);
-      },
-
-      // Sync (1 action) - for cross-slice synchronization
-      [`sync${capitalizedName}From${capitalize(name === 'graph' ? 'list' : 'graph')}`]: (
-        state,
-        action: PayloadAction<T>
-      ) => {
-        // Use Object.assign to work with Immer's Draft type
-        Object.assign(state.filters, action.payload);
       },
     },
   });

@@ -6,7 +6,6 @@ import { configureStore } from '@reduxjs/toolkit';
 import type { RootState } from '../app/store';
 import appReducer from '../features/app/appSlice';
 import graphFiltersReducer from '../features/filters/slices/graphFiltersSlice';
-import listFiltersReducer from '../features/filters/slices/listFiltersSlice';
 import recentJobsFiltersReducer from '../features/filters/slices/recentJobsFiltersSlice';
 import uiReducer from '../features/ui/uiSlice';
 import enabledCompaniesReducer from '../features/preferences/enabledCompaniesSlice';
@@ -27,7 +26,6 @@ export function createTestStore(preloadedState: Partial<RootState> | Record<stri
     reducer: {
       app: appReducer,
       graphFilters: graphFiltersReducer,
-      listFilters: listFiltersReducer,
       recentJobsFilters: recentJobsFiltersReducer,
       ui: uiReducer,
       enabledCompanies: enabledCompaniesReducer,

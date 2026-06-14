@@ -188,7 +188,11 @@ export interface GraphFilters {
 }
 
 /**
- * List filter state (independent from graph)
+ * Structurally identical to `GraphFilters`. Retained only as generic
+ * scaffolding for the `createFilterSlice` factory (its `'list'` slice name and
+ * `Filters`/`FiltersWithDepartments` unions) — no Redux slice consumes it. The
+ * company page now uses a single `graphFilters` source that drives both the
+ * graph and the list.
  */
 export interface ListFilters {
   timeWindow: TimeWindow;

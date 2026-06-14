@@ -58,14 +58,13 @@ describe('createFilterSlice', () => {
         'toggleGraphSoftwareOnly',
         'setGraphSoftwareOnly',
         'resetGraphFilters',
-        'syncGraphFromList',
       ];
 
       expectedActions.forEach((actionName) => {
         expect(actionNames).toContain(actionName);
       });
 
-      expect(actionNames).toHaveLength(23); // Total actions (roleCategory actions removed)
+      expect(actionNames).toHaveLength(22); // Total actions (roleCategory + sync actions removed)
     });
   });
 
@@ -107,30 +106,6 @@ describe('createFilterSlice', () => {
       });
 
       expect(newState.filters).toEqual(initialFilters);
-    });
-
-    it('should handle sync action', () => {
-      const initialFilters: GraphFilters = {
-        timeWindow: '30d',
-        searchTags: undefined,
-        softwareOnly: false,
-      };
-
-      const slice = createFilterSlice('graph', initialFilters);
-      const initialState = { filters: initialFilters };
-
-      const syncedFilters: GraphFilters = {
-        timeWindow: '7d',
-        searchTags: [{ text: 'engineer', mode: 'include' }],
-        softwareOnly: true,
-      };
-
-      const newState = slice.reducer(initialState, {
-        type: 'graphFilters/syncGraphFromList',
-        payload: syncedFilters,
-      });
-
-      expect(newState.filters).toEqual(syncedFilters);
     });
 
     it('should set employment type correctly', () => {
@@ -518,31 +493,6 @@ describe('createFilterSlice', () => {
   });
 
   describe('Edge Cases', () => {
-    it('should handle sync with partial filters', () => {
-      const initialFilters: GraphFilters = {
-        timeWindow: '30d',
-        searchTags: [{ text: 'test', mode: 'include' }],
-        softwareOnly: false,
-      };
-
-      const slice = createFilterSlice('graph', initialFilters);
-      const initialState = { filters: initialFilters };
-
-      const partialFilters: GraphFilters = {
-        timeWindow: '7d',
-        searchTags: undefined,
-        softwareOnly: true,
-      };
-
-      const newState = slice.reducer(initialState, {
-        type: 'graphFilters/syncGraphFromList',
-        payload: partialFilters,
-      });
-
-      expect(newState.filters.timeWindow).toBe('7d');
-      expect(newState.filters.searchTags).toBeUndefined();
-    });
-
     it('should preserve slice name after reset', () => {
       const initialFilters: GraphFilters = {
         timeWindow: '7d',
@@ -562,7 +512,7 @@ describe('createFilterSlice', () => {
       expect(slice.name).toBe('graphFilters');
     });
 
-    it('should work with Immer Draft types (Object.assign)', () => {
+    it('should work with Immer Draft types (Object.assign) on reset', () => {
       const initialFilters: GraphFilters = {
         timeWindow: '30d',
         searchTags: undefined,
@@ -570,22 +520,22 @@ describe('createFilterSlice', () => {
       };
 
       const slice = createFilterSlice('graph', initialFilters);
-      const initialState = { filters: initialFilters };
-
-      // Sync action uses Object.assign for Immer compatibility
-      const syncFilters: GraphFilters = {
-        timeWindow: '7d',
-        searchTags: [{ text: 'test', mode: 'include' }],
-        softwareOnly: true,
+      const modifiedState = {
+        filters: {
+          timeWindow: '7d' as TimeWindow,
+          searchTags: [{ text: 'test', mode: 'include' as const }],
+          softwareOnly: true,
+        },
       };
 
-      const newState = slice.reducer(initialState, {
-        type: 'graphFilters/syncGraphFromList',
-        payload: syncFilters,
+      // Reset uses Object.assign for Immer compatibility
+      const newState = slice.reducer(modifiedState, {
+        type: 'graphFilters/resetGraphFilters',
+        payload: undefined,
       });
 
-      // Should successfully assign all properties
-      expect(newState.filters).toEqual(syncFilters);
+      // Should successfully assign all properties back to the initial values
+      expect(newState.filters).toEqual(initialFilters);
     });
   });
 });

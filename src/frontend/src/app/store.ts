@@ -1,7 +1,6 @@
 import { configureStore } from '@reduxjs/toolkit';
 import appReducer from '../features/app/appSlice';
 import graphFiltersReducer from '../features/filters/slices/graphFiltersSlice';
-import listFiltersReducer from '../features/filters/slices/listFiltersSlice';
 import recentJobsFiltersReducer from '../features/filters/slices/recentJobsFiltersSlice';
 import uiReducer from '../features/ui/uiSlice';
 import enabledCompaniesReducer from '../features/preferences/enabledCompaniesSlice';
@@ -15,7 +14,6 @@ export const store = configureStore({
   reducer: {
     app: appReducer,
     graphFilters: graphFiltersReducer,
-    listFilters: listFiltersReducer,
     recentJobsFilters: recentJobsFiltersReducer,
     ui: uiReducer,
     enabledCompanies: enabledCompaniesReducer,

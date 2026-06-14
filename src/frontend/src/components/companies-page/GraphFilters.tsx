@@ -19,15 +19,16 @@ import {
   selectAvailableLocations,
   selectAvailableDepartments,
 } from '../../features/filters/selectors/commonFiltersSelectors.ts';
-import { syncGraphToList } from '../../features/filters/syncActions.ts';
 import { SearchTagsInput } from '../shared/filters/SearchTagsInput.tsx';
 import { TimeWindowSelect } from '../shared/filters/TimeWindowSelect.tsx';
 import { MultiSelectAutocomplete } from '../shared/filters/MultiSelectAutocomplete.tsx';
-import { SyncFiltersButton } from '../shared/filters/SyncFiltersButton.tsx';
 import { SoftwareOnlyToggle } from '../shared/filters/SoftwareOnlyToggle.tsx';
 
 /**
- * Filter controls for the graph visualization
+ * Filter controls for the company hiring-trend page.
+ *
+ * These are the single source of truth: they drive both the graph and the job
+ * list below it.
  */
 export function GraphFilters() {
   const dispatch = useAppDispatch();
@@ -75,10 +76,6 @@ export function GraphFilters() {
             onChange={() => dispatch(toggleGraphSoftwareOnly())}
             label="Software engineering roles only"
           />
-        </Stack>
-
-        <Stack direction="row" spacing={2} alignItems="center">
-          <SyncFiltersButton direction="toList" onClick={() => dispatch(syncGraphToList())} />
         </Stack>
       </Stack>
     </Box>

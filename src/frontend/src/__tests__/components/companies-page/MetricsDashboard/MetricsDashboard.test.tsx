@@ -111,12 +111,6 @@ describe('MetricsDashboard', () => {
           softwareOnly: false,
         },
       },
-      listFilters: {
-        filters: {
-          timeWindow: '7d' as const,
-          softwareOnly: false,
-        },
-      },
       ui: {
         graphModal: {
           open: false,
