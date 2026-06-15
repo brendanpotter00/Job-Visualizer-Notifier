@@ -61,14 +61,9 @@ function AppContent() {
               </AdminRoute>
             }
           />
-          <Route
-            path={ROUTES.ADMIN_LOCATION_PIPELINE}
-            element={
-              <AdminRoute>
-                <AdminLocationPipelinePage />
-              </AdminRoute>
-            }
-          />
+          {/* Public route — not admin-gated. Admins get a sidebar link
+              (ADMIN_NAV_ITEMS); everyone else arrives via the Changelog card. */}
+          <Route path={ROUTES.LOCATION_PIPELINE} element={<AdminLocationPipelinePage />} />
           <Route
             path={ROUTES.ADMIN_FEEDBACK}
             element={

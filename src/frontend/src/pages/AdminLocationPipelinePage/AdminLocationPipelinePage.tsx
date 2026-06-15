@@ -41,7 +41,7 @@ export function AdminLocationPipelinePage() {
     <Container maxWidth="xl" sx={{ py: 4 }}>
       <Box sx={{ mb: 3 }}>
         <Typography variant="h4" component="h1" gutterBottom>
-          Admin · Location Pipeline
+          Location Pipeline
         </Typography>
         <Typography variant="body2" color="text.secondary">
           A read-only walkthrough of how a raw job-location string becomes structured, canonical

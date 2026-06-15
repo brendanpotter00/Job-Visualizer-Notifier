@@ -13,7 +13,9 @@ export const ROUTES = {
   VOTE_FEATURES: '/vote-features',
   ADMIN_USERS: '/admin/users',
   ADMIN_LOCATION_NORMALIZATION: '/admin/location-normalization',
-  ADMIN_LOCATION_PIPELINE: '/admin/location-pipeline',
+  // Public route (not admin-gated). Admins still get a sidebar link via
+  // ADMIN_NAV_ITEMS; everyone else reaches it from the Changelog card.
+  LOCATION_PIPELINE: '/location-pipeline',
   ADMIN_FEEDBACK: '/admin/feedback',
 } as const;
 
@@ -52,7 +54,7 @@ export const ADMIN_NAV_ITEMS = [
     icon: 'Place',
   },
   {
-    path: ROUTES.ADMIN_LOCATION_PIPELINE,
+    path: ROUTES.LOCATION_PIPELINE,
     label: 'Location Pipeline',
     icon: 'AccountTree',
   },
