@@ -1,6 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
-import { usePipelinePlayer } from '../../../pages/AdminLocationPipelinePage/usePipelinePlayer';
+import {
+  usePipelinePlayer,
+  STEP_MS,
+} from '../../../pages/AdminLocationPipelinePage/usePipelinePlayer';
 
 // Example order in fixtures.ts:
 // 0 multi-miss · 1 cache-hit · 2 remote-eu · 3 garbage-fail · 4 no-key
@@ -92,5 +95,92 @@ describe('usePipelinePlayer', () => {
     act(() => result.current.stepBack());
     expect(result.current.currentStageIndex).toBe(1);
     expect(result.current.isPlaying).toBe(false);
+  });
+});
+
+describe('usePipelinePlayer · autoplay (fake timers)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('play() sets isPlaying true and a tick advances the cursor one stage', () => {
+    const { result } = renderHook(() => usePipelinePlayer());
+    act(() => result.current.play());
+    expect(result.current.isPlaying).toBe(true);
+    expect(result.current.currentStageIndex).toBe(0);
+
+    act(() => vi.advanceTimersByTime(STEP_MS));
+    expect(result.current.currentStageIndex).toBe(1);
+    expect(result.current.isPlaying).toBe(true);
+  });
+
+  it('autoplay runs to the last stage then halts (timer stops re-arming)', () => {
+    const { result } = renderHook(() => usePipelinePlayer());
+    act(() => result.current.play());
+
+    // MISS path has 7 stages (indices 0..6) → 6 ticks reach the end.
+    for (let i = 0; i < 6; i++) {
+      act(() => vi.advanceTimersByTime(STEP_MS));
+    }
+    expect(result.current.currentStageIndex).toBe(6);
+    expect(result.current.atEnd).toBe(true);
+    expect(result.current.phase).toBe('done');
+
+    // Autoplay self-terminates by NOT re-arming the timer at the end (the
+    // effect bails on `atEnd`). The cursor freezes — no runaway advance — even
+    // though `isPlaying` is left set (the visible "stop" is the halted cursor).
+    act(() => vi.advanceTimersByTime(STEP_MS * 3));
+    expect(result.current.currentStageIndex).toBe(6);
+    expect(result.current.atEnd).toBe(true);
+  });
+
+  it('play() while already at the end restarts from cursor 0 and plays', () => {
+    const { result } = renderHook(() => usePipelinePlayer());
+    // Walk to the end first.
+    for (let i = 0; i < 6; i++) act(() => result.current.stepForward());
+    expect(result.current.atEnd).toBe(true);
+
+    act(() => result.current.play());
+    expect(result.current.currentStageIndex).toBe(0);
+    expect(result.current.isPlaying).toBe(true);
+
+    act(() => vi.advanceTimersByTime(STEP_MS));
+    expect(result.current.currentStageIndex).toBe(1);
+  });
+
+  it('pause() stops playback and clears the timer (no advance after pause)', () => {
+    const { result } = renderHook(() => usePipelinePlayer());
+    act(() => result.current.play());
+    act(() => vi.advanceTimersByTime(STEP_MS));
+    expect(result.current.currentStageIndex).toBe(1);
+
+    act(() => result.current.pause());
+    expect(result.current.isPlaying).toBe(false);
+
+    // The cleared timer must not fire — the cursor stays put.
+    act(() => vi.advanceTimersByTime(STEP_MS * 5));
+    expect(result.current.currentStageIndex).toBe(1);
+  });
+
+  it('toggle() plays from paused and pauses from playing', () => {
+    const { result } = renderHook(() => usePipelinePlayer());
+    expect(result.current.isPlaying).toBe(false);
+
+    act(() => result.current.toggle());
+    expect(result.current.isPlaying).toBe(true);
+
+    act(() => vi.advanceTimersByTime(STEP_MS));
+    expect(result.current.currentStageIndex).toBe(1);
+
+    act(() => result.current.toggle());
+    expect(result.current.isPlaying).toBe(false);
+
+    // Paused again — no further advance.
+    act(() => vi.advanceTimersByTime(STEP_MS * 3));
+    expect(result.current.currentStageIndex).toBe(1);
   });
 });

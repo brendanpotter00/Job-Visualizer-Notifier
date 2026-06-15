@@ -46,6 +46,7 @@ export function StageNode({ meta, index, state }: StageNodeProps) {
 
   return (
     <motion.div
+      data-stage-state={state}
       style={{ flex: '1 1 0', minWidth: 0 }}
       animate={{
         scale: reduce ? 1 : emphasised ? 1.04 : 1,
