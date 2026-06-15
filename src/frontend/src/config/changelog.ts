@@ -1,10 +1,6 @@
 import { ROUTES } from './routes';
 
-export const CHANGELOG_TAGS = [
-  'feature',
-  'improvement',
-  'new-companies',
-] as const;
+export const CHANGELOG_TAGS = ['feature', 'improvement', 'new-companies'] as const;
 export type ChangelogTag = (typeof CHANGELOG_TAGS)[number];
 
 export interface ChangelogLink {
@@ -53,6 +49,10 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
       'Job locations from every source are now standardized into consistent, structured city, region, country, and remote fields. A deterministic alias cache resolves about 90% of raw location strings instantly, and Claude Haiku 4.5 normalizes the rest, including multi-location postings and region-scoped remotes, caching every result for reuse. Normalization runs off the request path on a background worker, with a periodic safety-net task for stragglers and a golden-set eval harness guarding output quality.',
     tags: ['feature'],
     date: '2026-06-14',
+    link: {
+      to: ROUTES.LOCATION_PIPELINE,
+      label: 'See how it works',
+    },
   },
   {
     id: 'add-workweave',
