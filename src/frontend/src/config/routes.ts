@@ -13,6 +13,7 @@ export const ROUTES = {
   VOTE_FEATURES: '/vote-features',
   ADMIN_USERS: '/admin/users',
   ADMIN_LOCATION_NORMALIZATION: '/admin/location-normalization',
+  ADMIN_LOCATION_PIPELINE: '/admin/location-pipeline',
   ADMIN_FEEDBACK: '/admin/feedback',
 } as const;
 
@@ -49,6 +50,11 @@ export const ADMIN_NAV_ITEMS = [
     path: ROUTES.ADMIN_LOCATION_NORMALIZATION,
     label: 'Location Normalization',
     icon: 'Place',
+  },
+  {
+    path: ROUTES.ADMIN_LOCATION_PIPELINE,
+    label: 'Location Pipeline',
+    icon: 'AccountTree',
   },
   {
     path: ROUTES.QA,
