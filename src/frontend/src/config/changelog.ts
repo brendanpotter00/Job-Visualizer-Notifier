@@ -19,6 +19,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'add-reducto',
+    title: 'Added Reducto',
+    description:
+      'Reducto — a document-ingestion / OCR API startup that turns complex PDFs and documents into LLM-ready structured data — is now tracked via its Ashby job board. It is currently hiring across engineering, product, and go-to-market roles in San Francisco.',
+    tags: ['new-companies'],
+    date: '2026-06-18',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add Reducto to your company preferences',
+    },
+  },
+  {
     id: 'unified-company-filters',
     title: 'One set of filters on the Company page, plus a hideable graph',
     description:
