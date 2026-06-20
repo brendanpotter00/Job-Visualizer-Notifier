@@ -158,6 +158,13 @@ export function WhyPage() {
             <Typography component="li" variant="body1" sx={{ mb: 1 }}>
               Company-Website Web Scrapers (Google, Apple, Microsoft) <LiveMarker />
             </Typography>
+            <Typography component="li" variant="body1" sx={{ mb: 1 }}>
+              Custom Dashboards
+            </Typography>
+            <Typography component="li" variant="body1" sx={{ mb: 1 }}>
+              Market Trend Page — summarizing trends across the market, like which
+              companies are quickest to close their job postings
+            </Typography>
           </Box>
         </Paper>
 
