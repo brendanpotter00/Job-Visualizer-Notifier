@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Grid, Typography } from '@mui/material';
 import { EmptyState } from '../../components/shared/ErrorDisplay';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
@@ -12,12 +12,6 @@ interface CuratedCompaniesGridProps {
 }
 
 const GRID_ITEM_SIZE = { xs: 12, sm: 6, md: 4 } as const;
-
-// Reveal the next batch when the viewport bottom comes within this many px of
-// the page bottom. Small enough that we only ever load ~one batch ahead (so the
-// page lazy-loads instead of rendering all ~130 cards up front), large enough
-// to prefetch slightly before the user hits the very end.
-const REVEAL_THRESHOLD_PX = 300;
 
 export function CuratedCompaniesGrid({ companies }: CuratedCompaniesGridProps) {
   const [search, setSearch] = useState('');
@@ -44,56 +38,48 @@ export function CuratedCompaniesGrid({ companies }: CuratedCompaniesGridProps) {
     );
   }, [sorted, debouncedSearch]);
 
-  const [displayedCount, setDisplayedCount] = useState<number>(
+  const [visibleCount, setVisibleCount] = useState<number>(
     CHANGELOG_INFINITE_SCROLL_CONFIG.INITIAL_BATCH_SIZE
   );
 
   // Reset to the first batch whenever the (debounced) search query changes, so a
-  // new search starts from the top of its result set. Done during render rather
-  // than in an effect — React's recommended "adjust state when a value changes"
-  // pattern — which avoids a second commit per keystroke.
+  // new search starts from the top of its result set. Done during render (not in
+  // an effect) per React's "adjust state when a value changes" pattern.
   const [lastSearch, setLastSearch] = useState(debouncedSearch);
   if (debouncedSearch !== lastSearch) {
     setLastSearch(debouncedSearch);
-    setDisplayedCount(CHANGELOG_INFINITE_SCROLL_CONFIG.INITIAL_BATCH_SIZE);
+    setVisibleCount(CHANGELOG_INFINITE_SCROLL_CONFIG.INITIAL_BATCH_SIZE);
   }
 
-  const hasMore = displayedCount < filtered.length;
+  const hasMore = visibleCount < filtered.length;
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
 
-  const revealMore = useCallback(() => {
-    setDisplayedCount((count) =>
+  const loadMore = useCallback(() => {
+    setVisibleCount((count) =>
       Math.min(count + CHANGELOG_INFINITE_SCROLL_CONFIG.SUBSEQUENT_BATCH_SIZE, filtered.length)
     );
   }, [filtered.length]);
 
-  // Reveal the next batch as the viewport nears the page bottom. A plain
-  // window-scroll check (rather than an IntersectionObserver on a tiny sentinel)
-  // is both reliable across browsers and precisely self-limiting: reading
-  // scrollHeight forces a fresh layout, so each pass sees the true height and
-  // stops exactly when the viewport is filled — no over-loading. The effect
-  // re-runs after each reveal (displayedCount dep), which also auto-fills when
-  // the initial batch is shorter than the viewport.
+  // Standard infinite scroll: an IntersectionObserver watches a sentinel at the
+  // bottom of the list and reveals the next batch when it scrolls into view.
+  // Re-running on visibleCount re-observes after each reveal, which continues
+  // loading as you scroll and auto-fills when the first batch is shorter than
+  // the viewport.
   useEffect(() => {
     if (!hasMore) return;
-    const check = () => {
-      const doc = document.documentElement;
-      if (window.innerHeight + window.scrollY >= doc.scrollHeight - REVEAL_THRESHOLD_PX) {
-        revealMore();
-      }
-    };
-    check();
-    window.addEventListener('scroll', check, { passive: true });
-    window.addEventListener('resize', check);
-    return () => {
-      window.removeEventListener('scroll', check);
-      window.removeEventListener('resize', check);
-    };
-  }, [hasMore, displayedCount, revealMore]);
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) loadMore();
+      },
+      { rootMargin: '200px' }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, visibleCount, loadMore]);
 
-  const displayed = useMemo(
-    () => filtered.slice(0, displayedCount),
-    [filtered, displayedCount]
-  );
+  const displayed = useMemo(() => filtered.slice(0, visibleCount), [filtered, visibleCount]);
 
   return (
     <Box>
@@ -119,6 +105,8 @@ export function CuratedCompaniesGrid({ companies }: CuratedCompaniesGridProps) {
               </Grid>
             ))}
           </Grid>
+
+          {hasMore && <Box ref={sentinelRef} aria-hidden="true" sx={{ height: '1px' }} />}
 
           {!hasMore && filtered.length > CHANGELOG_INFINITE_SCROLL_CONFIG.INITIAL_BATCH_SIZE && (
             <Box sx={{ textAlign: 'center', py: 2 }} role="status">
