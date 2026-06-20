@@ -27,6 +27,15 @@ describe('JobCard', () => {
     expect(link).toHaveAttribute('target', '_blank');
   });
 
+  it('renders the company logo (resolved from job.company)', () => {
+    // Guards the CompanyLogo wiring: 'spacex' -> SpaceX -> /logos/icons/spacex.png.
+    render(<JobCard job={mockJob} />);
+    expect(screen.getByRole('img', { name: 'SpaceX' })).toHaveAttribute(
+      'src',
+      '/logos/icons/spacex.png'
+    );
+  });
+
   it('displays relative time posted', () => {
     render(<JobCard job={mockJob} />);
     expect(screen.getByText(/2 hours ago/i)).toBeInTheDocument();

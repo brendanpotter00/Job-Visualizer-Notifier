@@ -214,6 +214,10 @@ describe('BucketJobsModal', () => {
     });
     expect(screen.getByText('Backend Engineer')).toBeInTheDocument();
     expect(screen.queryByText('DevOps Engineer')).not.toBeInTheDocument();
+    // Each rendered bucket job card surfaces its company logo (wired via JobCard).
+    const logos = screen.getAllByRole('img', { name: 'SpaceX' });
+    expect(logos).toHaveLength(2);
+    expect(logos[0]).toHaveAttribute('src', '/logos/icons/spacex.png');
   });
 
   it('displays job count', async () => {

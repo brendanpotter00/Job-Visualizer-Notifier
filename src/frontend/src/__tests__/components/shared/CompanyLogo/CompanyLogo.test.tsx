@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { CompanyLogo } from '../../../../components/shared/CompanyLogo/CompanyLogo';
 import { getCompanyLogoUrl } from '../../../../config/companies';
 
@@ -29,5 +29,19 @@ describe('CompanyLogo', () => {
   it('lazy-loads the icon so large grids do not fetch every logo upfront', () => {
     render(<CompanyLogo companyId="stripe" companyName="Stripe" />);
     expect(screen.getByRole('img', { name: 'Stripe' })).toHaveAttribute('loading', 'lazy');
+  });
+
+  it('falls back to the company initial when the icon fails to load', () => {
+    const { container } = render(<CompanyLogo companyId="reducto" companyName="Reducto" />);
+    fireEvent.error(screen.getByRole('img', { name: 'Reducto' }));
+    // The <img> is replaced by an initials tile that still exposes the company name.
+    expect(container.querySelector('img')).toBeNull();
+    expect(screen.getByRole('img', { name: 'Reducto' })).toHaveTextContent('R');
+  });
+
+  it('is hidden from assistive tech when marked decorative (name shown elsewhere)', () => {
+    render(<CompanyLogo companyId="stripe" companyName="Stripe" decorative />);
+    // Decorative image has an empty alt, so it is not exposed as a named image.
+    expect(screen.queryByRole('img', { name: 'Stripe' })).not.toBeInTheDocument();
   });
 });
