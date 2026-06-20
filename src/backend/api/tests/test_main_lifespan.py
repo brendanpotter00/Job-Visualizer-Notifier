@@ -263,3 +263,64 @@ class TestLifespanSeedFailureGuard:
             with TestClient(api_main.app) as client:
                 resp = client.get("/health")
                 assert resp.status_code in (200, 503)
+
+
+class TestLifespanCompanyProfilesSeedFailureGuard:
+    """The company-profiles seed (`seed_company_profiles`) reads + parses a
+    committed JSON file, so beyond psycopg2/RuntimeError it can raise
+    JSONDecodeError / OSError on a malformed or unreadable
+    company_profiles.json. The lifespan guards THIS seed with a deliberately
+    BROADER `except Exception` (main.py) so a content problem degrades to
+    last-good DB content instead of crash-looping boot — a strictly wider
+    contract than the feature seed's `(psycopg2.Error, RuntimeError)` guard.
+    A regression narrowing that catch back to the feature-seed tuple would let
+    a malformed JSON file crash-loop boot uncaught; these tests pin the width.
+    """
+
+    def _fake_get_db(self):
+        """Stand-in for `get_db()` yielding a Mock connection (no real pool),
+        driven by `next(gen)` twice exactly as the lifespan does."""
+        from unittest.mock import MagicMock
+        def _gen():
+            yield MagicMock()
+        return _gen()
+
+    def test_malformed_json_load_error_does_not_prevent_app_boot(self):
+        """A JSONDecodeError out of `seed_company_profiles` (malformed
+        company_profiles.json) is NOT a psycopg2.Error or RuntimeError, so it
+        would escape the feature-seed guard. The broad company-profiles guard
+        must still let the app boot."""
+        import json
+
+        def _failing_seed(conn):
+            # Mirrors what `_load_profiles()` raises on a malformed file.
+            raise json.JSONDecodeError("Expecting value", doc="{ bad", pos=0)
+
+        fake_procrastinate = _make_fake_procrastinate()
+        async def _fake_ensure_schema(app):
+            pass
+
+        with patch(
+            "api.services.companies_seed.seed_company_profiles",
+            side_effect=_failing_seed,
+        ) as mock_seed, \
+             patch(
+                 "api.dependencies.get_db",
+                 side_effect=lambda: self._fake_get_db(),
+             ), \
+             patch.object(api_main, "apply_alembic_migrations") as mock_apply, \
+             patch.object(api_main, "init_pool") as mock_init, \
+             patch.object(api_main, "close_pool"), \
+             patch.object(api_main, "procrastinate_app", new=fake_procrastinate), \
+             patch.object(api_main, "ensure_schema_async", new=_fake_ensure_schema), \
+             patch("api.services.auto_scraper.auto_scraper_loop", new=_noop_coro):
+            # Lifespan startup must complete despite the company-profiles seed
+            # raising a non-DB exception. If the guard were narrowed, entering
+            # the TestClient context would re-raise and this block would throw.
+            with TestClient(api_main.app) as client:
+                resp = client.get("/health")
+                assert resp.status_code in (200, 503)
+
+        mock_apply.assert_called_once()
+        mock_init.assert_called_once()
+        mock_seed.assert_called_once()

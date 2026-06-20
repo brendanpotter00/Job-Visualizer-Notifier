@@ -11,6 +11,7 @@ import uiReducer from '../features/ui/uiSlice';
 import enabledCompaniesReducer from '../features/preferences/enabledCompaniesSlice';
 import { jobsApi } from '../features/jobs/jobsApi';
 import { featuresApi } from '../features/features/featuresApi';
+import { companiesApi } from '../features/companies/companiesApi';
 import { feedbackApi } from '../features/feedback/feedbackApi';
 import { adminApi } from '../features/admin/adminApi';
 import { getTokenOrNull } from '../features/features/getTokenOrNull';
@@ -31,6 +32,7 @@ export function createTestStore(preloadedState: Partial<RootState> | Record<stri
       enabledCompanies: enabledCompaniesReducer,
       [jobsApi.reducerPath]: jobsApi.reducer,
       [featuresApi.reducerPath]: featuresApi.reducer,
+      [companiesApi.reducerPath]: companiesApi.reducer,
       [feedbackApi.reducerPath]: feedbackApi.reducer,
       [adminApi.reducerPath]: adminApi.reducer,
     },
@@ -40,6 +42,7 @@ export function createTestStore(preloadedState: Partial<RootState> | Record<stri
       })
         .concat(jobsApi.middleware)
         .concat(featuresApi.middleware)
+        .concat(companiesApi.middleware)
         .concat(feedbackApi.middleware)
         .concat(adminApi.middleware),
     preloadedState: preloadedState as RootState,

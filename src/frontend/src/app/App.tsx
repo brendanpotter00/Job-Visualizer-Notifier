@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { useURLSync, useBrowserNavigation } from './hooks';
 import { RootLayout } from '../components/layout/RootLayout.tsx';
 import { CompaniesPage } from '../pages/CompaniesPage/CompaniesPage';
+import { CuratedCompaniesPage } from '../pages/CuratedCompaniesPage';
 import { RecentJobPostingsPage } from '../pages/RecentJobPostingsPage/RecentJobPostingsPage';
 import { WhyPage } from '../pages/WhyPage/WhyPage.tsx';
 import { AccountPage } from '../pages/AccountPage/AccountPage.tsx';
@@ -36,6 +37,7 @@ function AppContent() {
         <Route path="/" element={<RootLayout />}>
           <Route index element={<RecentJobPostingsPage />} />
           <Route path={ROUTES.COMPANIES} element={<CompaniesPage />} />
+          <Route path={ROUTES.CURATED_COMPANIES} element={<CuratedCompaniesPage />} />
           <Route path={ROUTES.WHY} element={<WhyPage />} />
           <Route
             path={ROUTES.QA}

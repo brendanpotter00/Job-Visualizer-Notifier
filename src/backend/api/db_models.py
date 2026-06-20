@@ -237,6 +237,13 @@ class Company(Base):
     provider_config = Column(
         JSONB, nullable=False, server_default=text("'{}'::jsonb")
     )
+    # Curated directory content for the public "Curated Companies" page. Both
+    # nullable — a company added without a profile still lists (the page omits
+    # the missing line). Populated idempotently on startup from the committed
+    # ``data/company_profiles.json`` by ``services.companies_seed`` (that JSON
+    # is the source of truth, re-applied each boot).
+    blurb = Column(Text, nullable=True)
+    accomplishment = Column(Text, nullable=True)
     created_at = Column(
         TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
     )
