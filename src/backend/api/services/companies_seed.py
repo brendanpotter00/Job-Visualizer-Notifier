@@ -23,6 +23,7 @@ Two phases, one transaction:
 import json
 import logging
 from pathlib import Path
+from typing import cast
 
 import psycopg2
 from psycopg2 import sql
@@ -56,7 +57,8 @@ def _load_profiles() -> dict:
     row-creation fields are present only on script-scraped companies.
     """
     with open(_DATA_PATH, encoding="utf-8") as fh:
-        return json.load(fh)
+        # json.load is untyped (-> Any); the committed file is a JSON object.
+        return cast(dict, json.load(fh))
 
 
 def seed_company_profiles(
