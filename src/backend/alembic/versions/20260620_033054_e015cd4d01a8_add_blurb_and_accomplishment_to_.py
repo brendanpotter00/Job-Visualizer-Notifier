@@ -1,7 +1,7 @@
 """add blurb and accomplishment to companies
 
 Revision ID: e015cd4d01a8
-Revises: b38c364cd0c4
+Revises: c7d2e9f4a1b8
 Create Date: 2026-06-20 03:30:54.871640+00:00
 
 """
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = 'e015cd4d01a8'
-down_revision: Union[str, None] = 'b38c364cd0c4'
+down_revision: Union[str, None] = 'c7d2e9f4a1b8'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

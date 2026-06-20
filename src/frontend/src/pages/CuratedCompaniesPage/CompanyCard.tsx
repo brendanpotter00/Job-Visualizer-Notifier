@@ -16,8 +16,8 @@ interface CompanyCardProps {
  * The link only renders when the company exists in the frontend config —
  * `getInitialCompanyId()` validates `?company=<id>` against `getCompanyById`
  * and silently falls back to the default company otherwise, so a DB-only id
- * (e.g. `reducto`, present in the table but not the config) shows no link
- * rather than a misleading one.
+ * (present in the table but not the config) shows no link rather than a
+ * misleading one.
  */
 export function CompanyCard({ company }: CompanyCardProps) {
   const linkable = getCompanyById(company.id) !== undefined;

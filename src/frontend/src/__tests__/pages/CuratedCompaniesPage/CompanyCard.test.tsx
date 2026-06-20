@@ -29,13 +29,13 @@ describe('CompanyCard', () => {
   });
 
   it('omits the hiring-trends link for a DB-only company missing from the frontend config', () => {
-    // `reducto` exists in the DB but not in config/companies.ts — a deep link
-    // would be rejected by getInitialCompanyId, so the card shows no link.
+    // `db-only-co` exists in the DB but not in config/companies.ts — a deep
+    // link would be rejected by getInitialCompanyId, so the card shows no link.
     renderWithProviders(
-      <CompanyCard company={company({ id: 'reducto', displayName: 'Reducto' })} />
+      <CompanyCard company={company({ id: 'db-only-co', displayName: 'DB Only Co' })} />
     );
     expect(screen.queryByRole('link')).not.toBeInTheDocument();
-    expect(screen.getByRole('heading', { level: 3, name: 'Reducto' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 3, name: 'DB Only Co' })).toBeInTheDocument();
   });
 
   it('renders no description when both blurb and accomplishment are null', () => {
