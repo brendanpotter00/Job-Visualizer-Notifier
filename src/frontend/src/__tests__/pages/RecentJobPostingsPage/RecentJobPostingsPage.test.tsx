@@ -62,7 +62,6 @@ vi.mock('../../../components/companies-page/FetchProgressBar/FetchProgressBarSke
 
 interface RecentJobsMetricsProps {
   totalJobs: number;
-  companiesRepresented: number;
   jobsLast24Hours: number;
   jobsLast3Hours: number;
 }

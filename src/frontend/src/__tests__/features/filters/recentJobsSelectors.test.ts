@@ -817,7 +817,6 @@ describe('recentJobsSelectors', () => {
       const metadata = selectRecentJobsMetadata(state);
       expect(metadata.totalJobs).toBe(0);
       expect(metadata.filteredCount).toBe(0);
-      expect(metadata.companiesRepresented).toBe(0);
     });
 
     it('propagates filter to selectRecentJobsMetadata and selectRecentJobsTimeBasedCounts', () => {
@@ -826,7 +825,6 @@ describe('recentJobsSelectors', () => {
       const metadata = selectRecentJobsMetadata(state);
       expect(metadata.totalJobs).toBe(1);
       expect(metadata.filteredCount).toBe(1);
-      expect(metadata.companiesRepresented).toBe(1);
 
       const counts = selectRecentJobsTimeBasedCounts(state);
       expect(counts.jobsLast24Hours).toBe(1);
