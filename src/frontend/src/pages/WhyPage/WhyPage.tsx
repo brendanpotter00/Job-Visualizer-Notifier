@@ -134,7 +134,7 @@ export function WhyPage() {
 
         <Paper sx={sectionPaperSx}>
           <Typography variant="body1" component="p" sx={{ mb: 2 }}>
-            Progress and what's next (<LiveMarker /> = already shipped):
+            Progress and what's next:
           </Typography>
           <Box component="ul" sx={{ mt: 0, mb: 0, pl: 3 }}>
             <Typography component="li" variant="body1" sx={{ mb: 1 }}>

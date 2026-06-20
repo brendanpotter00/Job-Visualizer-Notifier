@@ -49,8 +49,8 @@ describe('WhyPage', () => {
     for (const label of shippedItems) {
       expect(screen.getByText(new RegExp(escapeRegex(label), 'i'))).toBeInTheDocument();
     }
-    // One badge per shipped item, plus one in the legend lead-in.
-    expect(screen.getAllByText(/^Live$/).length).toBe(shippedItems.length + 1);
+    // One badge per shipped item.
+    expect(screen.getAllByText(/^Live$/).length).toBe(shippedItems.length);
 
     // Still-future items render, but without a badge of their own.
     expect(screen.getByText(/Notification System/i)).toBeInTheDocument();
