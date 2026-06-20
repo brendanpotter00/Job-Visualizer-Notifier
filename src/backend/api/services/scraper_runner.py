@@ -138,8 +138,11 @@ async def run_scraper(config: Settings, company: str) -> ScraperResult:
             logger.log(level, "scraper[%s] %s", company, text)
 
         # stdout is guaranteed non-None: the process is spawned with
-        # stdout=PIPE (asyncio types it Optional regardless).
-        assert process.stdout is not None
+        # stdout=PIPE (asyncio types it Optional regardless). Raise rather than
+        # assert so the invariant still holds under `python -O` (which strips
+        # asserts).
+        if process.stdout is None:
+            raise RuntimeError("scraper subprocess was spawned without a stdout pipe")
         reader_task = asyncio.create_task(
             _stream_and_tail_stderr(
                 process.stdout,

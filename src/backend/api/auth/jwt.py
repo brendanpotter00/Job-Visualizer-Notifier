@@ -9,6 +9,7 @@ import jwt
 from jwt import PyJWKClient, PyJWTError
 
 from ..config import settings
+from .claims import TokenClaims
 from .google_jwt import GOOGLE_ISSUERS
 
 logger = logging.getLogger(__name__)
@@ -38,7 +39,7 @@ def _get_jwks_client() -> PyJWKClient:
     return _jwks_client
 
 
-def _validate_auth0_token(token: str) -> dict:
+def _validate_auth0_token(token: str) -> TokenClaims:
     """Validate a JWT token against the Auth0 JWKS endpoint."""
     client = _get_jwks_client()
     try:
@@ -58,10 +59,13 @@ def _validate_auth0_token(token: str) -> dict:
         logger.warning("Auth0 token decode failed", exc_info=True)
         raise
     logger.debug("Auth0 token validated for sub=%s", claims.get("sub"))
-    return claims
+    # cast at the decode boundary: jwt.decode is untyped (returns Any), and a
+    # validated JWT's claim set is the TokenClaims shape. Doing it here means
+    # callers get a precise type with no cast of their own.
+    return cast(TokenClaims, claims)
 
 
-def validate_token(token: str) -> dict:
+def validate_token(token: str) -> TokenClaims:
     """Validate a JWT against Auth0 or Google JWKS based on the token issuer."""
     try:
         # Unverified decode — only used to extract the issuer for dispatcher
@@ -104,4 +108,7 @@ def get_normalized_subject(claims: Mapping[str, Any]) -> str | None:
     issuer = claims.get("iss", "")
     if issuer in GOOGLE_ISSUERS:
         return f"google|{sub}"
-    return cast(str, sub)
+    # str() coerces (and can't lie the way cast(str, ...) can): a JWT `sub` is a
+    # StringOrURI per RFC 7519, but `claims` is Mapping[str, Any] so `sub` is
+    # statically Any. The `if not sub` guard above already excludes None/empty.
+    return str(sub)

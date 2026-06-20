@@ -26,6 +26,10 @@ disallow_untyped_defs = true
 disallow_incomplete_defs = true
 
 # Third-party libs without bundled type stubs — silence import errors only.
+# NOTE: scripts.* is deliberately NOT here — it is first-party in-repo code
+# (the scraper package), found via mypy_path and silenced by
+# follow_imports = "silent" above, so an ignore_missing_imports entry would be
+# an inert, mis-categorized no-op.
 [[tool.mypy.overrides]]
 module = [
     "psycopg2.*",
@@ -34,6 +38,5 @@ module = [
     "google.*",
     "alembic.*",
     "jwt.*",
-    "scripts.*",
 ]
 ignore_missing_imports = true

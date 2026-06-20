@@ -28,9 +28,10 @@ Static type checking is enforced by **mypy** (config in `src/backend/pyproject.t
 and runs in CI ahead of `pytest` — a type error fails the build, so `mypy` must be
 clean before committing (mirrors the frontend's "Zero TypeScript Errors Required").
 
-- **Baseline**: `disallow_untyped_defs` + `check_untyped_defs` + `warn_return_any` +
-  `no_implicit_optional` over `api/`. Every function in the production code has typed
-  params and a return type; DB rows that cross into routers are carried as `TypedDict`
+- **Baseline** (over `api/`): `disallow_untyped_defs` + `disallow_incomplete_defs` +
+  `check_untyped_defs` + `warn_return_any` + `warn_redundant_casts` +
+  `warn_unused_ignores` + `no_implicit_optional`. Every function in the production code
+  has typed params and a return type; DB rows that cross into routers are carried as `TypedDict`
   (e.g. `UserRow`) via `typing.cast(...)` so a `db_models` column rename surfaces as a
   mypy error at the read site, not a runtime `KeyError`.
 - **psycopg2 is intentionally untyped** (`ignore_missing_imports`): the code uses

@@ -1,7 +1,6 @@
 """FastAPI authentication dependencies."""
 
 import logging
-from typing import TypedDict, cast
 
 import jwt
 from jwt import PyJWKClientError
@@ -9,6 +8,7 @@ from fastapi import Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from psycopg2.extensions import connection as Connection
 
+from .claims import TokenClaims
 from .jwt import validate_token
 from ..dependencies import get_db
 from ..services.admin_service import is_admin_by_email
@@ -17,13 +17,11 @@ logger = logging.getLogger(__name__)
 
 _bearer_scheme = HTTPBearer(auto_error=False)
 
-
-class TokenClaims(TypedDict, total=False):
-    sub: str
-    email: str
-    given_name: str | None
-    family_name: str | None
-    picture: str | None
+# TokenClaims is re-exported here so existing `from ..auth.dependencies import
+# TokenClaims` call sites (routers) keep working; the type itself lives in
+# auth.claims to avoid an import cycle with the validators.
+__all__ = ["TokenClaims", "get_optional_user", "get_optional_user_lenient",
+           "get_current_user", "require_admin"]
 
 
 async def get_optional_user(
@@ -33,7 +31,7 @@ async def get_optional_user(
     if credentials is None:
         return None
     try:
-        return cast(TokenClaims, validate_token(credentials.credentials))
+        return validate_token(credentials.credentials)
     except jwt.ExpiredSignatureError:
         logger.warning("JWT token expired")
         raise HTTPException(status_code=401, detail="Token expired")
@@ -66,7 +64,7 @@ async def get_optional_user_lenient(
     if credentials is None:
         return None
     try:
-        return cast(TokenClaims, validate_token(credentials.credentials))
+        return validate_token(credentials.credentials)
     except (jwt.InvalidTokenError, PyJWKClientError) as exc:
         # debug, not info: on a public endpoint a stale token is routine and
         # high-volume (every request from an expired session hits this), so it

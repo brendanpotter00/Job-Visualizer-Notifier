@@ -2,11 +2,13 @@
 
 import logging
 import threading
+from typing import cast
 
 import jwt
 from jwt import PyJWKClient, PyJWTError
 
 from ..config import settings
+from .claims import TokenClaims
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +37,7 @@ def _get_google_jwks_client() -> PyJWKClient:
     return _google_jwks_client
 
 
-def validate_google_token(token: str) -> dict:
+def validate_google_token(token: str) -> TokenClaims:
     """Validate a Google ID token against Google's JWKS endpoint."""
     client = _get_google_jwks_client()
     try:
@@ -55,4 +57,6 @@ def validate_google_token(token: str) -> dict:
         logger.warning("Google token decode failed", exc_info=True)
         raise
     logger.debug("Google token validated for sub=%s", claims.get("sub"))
-    return claims
+    # cast at the decode boundary (jwt.decode is untyped) so callers get the
+    # precise TokenClaims type without a cast of their own.
+    return cast(TokenClaims, claims)

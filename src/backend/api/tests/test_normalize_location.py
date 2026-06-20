@@ -148,6 +148,38 @@ async def test_multi_location_two_rows_ordered(db_conn, monkeypatch):
     assert [(r["position"] if isinstance(r, dict) else r[0]) for r in cur.fetchall()] == [0, 1]
 
 
+async def test_within_call_duplicate_spec_deduped_contiguous_positions(db_conn, monkeypatch):
+    """Two LLM specs that resolve to the SAME locations.id in one call collapse
+    to a single position — exercising persist_llm_result's within-call dedup loop.
+
+    The LLM returns [A, A', B] where A and A' differ only in display label but
+    share the canonical key (kind/city/region/country/remote_scope), so both map
+    to one locations row. The dedup loop yields location_ids [A, B] → positions
+    [0, 1]. WITHOUT the loop, the second A is skipped by the
+    `ON CONFLICT (raw_text, normalized_location_id) DO NOTHING` but B keeps its
+    enumerate index 2, leaving a NON-contiguous [0, 2] — which this asserts against.
+    """
+    jid = _insert_job(db_conn, location="Sunnyvale, CA; Sunnyvale, California; Kirkland, WA")
+    _patch_llm(monkeypatch, return_value=[
+        _loc("Sunnyvale, CA, US", "city", "Sunnyvale", "CA", "US", confidence=0.96),
+        _loc("Sunnyvale, California, United States", "city", "Sunnyvale", "CA", "US", confidence=0.96),
+        _loc("Kirkland, WA, US", "city", "Kirkland", "WA", "US", confidence=0.96)])
+    await normalize_location(job_id=jid)
+    db_conn.rollback()
+    assert _status(db_conn, jid) == "done"
+    # A + A' collapse to ONE locations row; B is the second -> 2 distinct rows.
+    assert _count(db_conn, _LOCATIONS) == 2
+    # The duplicate must NOT claim its own alias position: exactly two rows at
+    # contiguous positions [0, 1] (not [0, 2]).
+    assert _count(db_conn, _ALIAS_LOCATIONS) == 2
+    cur = db_conn.cursor()
+    cur.execute(sql.SQL("SELECT position FROM {} ORDER BY position").format(_ALIAS_LOCATIONS))
+    assert [(r["position"] if isinstance(r, dict) else r[0]) for r in cur.fetchall()] == [0, 1]
+    # job_locations: one link per distinct id, exactly one primary.
+    jl = _job_locations(db_conn, jid)
+    assert len(jl) == 2 and len([r for r in jl if r["is_primary"]]) == 1
+
+
 async def test_null_location_marks_failed_no_llm(db_conn, monkeypatch):
     jid = _insert_job(db_conn, location=None)
     llm = _patch_llm(monkeypatch, return_value=[])
