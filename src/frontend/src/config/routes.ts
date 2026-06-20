@@ -7,6 +7,7 @@
 export const ROUTES = {
   RECENT_JOBS: '/',
   COMPANIES: '/companies',
+  CURATED_COMPANIES: '/curated-companies',
   WHY: '/why',
   QA: '/qa',
   ACCOUNT: '/account',
@@ -29,6 +30,11 @@ export const USER_NAV_ITEMS = [
     path: ROUTES.COMPANIES,
     label: 'Company Hiring Trends',
     icon: 'TrendingUp',
+  },
+  {
+    path: ROUTES.CURATED_COMPANIES,
+    label: 'Curated Companies',
+    icon: 'Business',
   },
   {
     path: ROUTES.VOTE_FEATURES,

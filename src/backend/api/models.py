@@ -188,6 +188,25 @@ class FeatureUpvoteStateResponse(BaseModel):
     has_upvoted: bool
 
 
+class CompanyProfileResponse(BaseModel):
+    """One curated company in the public directory. ``blurb`` /
+    ``accomplishment`` are nullable — a company without a profile still lists."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    id: str
+    display_name: str
+    ats: str
+    blurb: str | None = None
+    accomplishment: str | None = None
+
+
+class CompanyListResponse(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    companies: list[CompanyProfileResponse]
+
+
 class FeedbackSubmitRequest(BaseModel):
     model_config = ConfigDict(
         alias_generator=to_camel, populate_by_name=True, extra="forbid"

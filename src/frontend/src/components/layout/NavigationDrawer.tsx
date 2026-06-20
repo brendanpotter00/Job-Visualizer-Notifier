@@ -18,6 +18,7 @@ import BugReportIcon from '@mui/icons-material/BugReport';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import ThumbUpIcon from '@mui/icons-material/ThumbUp';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
+import BusinessIcon from '@mui/icons-material/Business';
 import PeopleIcon from '@mui/icons-material/People';
 import PlaceIcon from '@mui/icons-material/Place';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
@@ -97,6 +98,7 @@ type IconName =
   | 'AccountCircle'
   | 'ThumbUp'
   | 'TrendingUp'
+  | 'Business'
   | 'People'
   | 'Place'
   | 'AccountTree'
@@ -108,6 +110,7 @@ const iconMap: Record<IconName, React.ComponentType> = {
   AccountCircle: AccountCircleIcon,
   ThumbUp: ThumbUpIcon,
   TrendingUp: TrendingUpIcon,
+  Business: BusinessIcon,
   People: PeopleIcon,
   Place: PlaceIcon,
   AccountTree: AccountTreeIcon,

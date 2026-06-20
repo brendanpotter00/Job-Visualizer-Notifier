@@ -19,6 +19,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'curated-companies',
+    title: 'Browse the curated companies',
+    description:
+      'There’s a new Curated Companies page in the sidebar — a searchable grid of every company this site tracks, each with a short blurb on what it does and one thing it’s known for. It’s sorted alphabetically and pulls straight from the database, so a company added to the tracker shows up here automatically. Click any card to jump into that company’s hiring trends.',
+    tags: ['feature'],
+    date: '2026-06-19',
+    link: {
+      to: ROUTES.CURATED_COMPANIES,
+      label: 'Browse curated companies',
+    },
+  },
+  {
     id: 'unified-company-filters',
     title: 'One set of filters on the Company page, plus a hideable graph',
     description:
