@@ -18,7 +18,11 @@ skews open/closed metrics.
 
 import pytest
 
-from integrity import SCRAPER_SPECS, assert_job_integrity
+# Absolute package import (tests/ is a package and scripts/ is on sys.path via
+# tests/conftest.py). This matches the tests/unit and tests/integration
+# convention and is robust to pytest's import mode, unlike a bare
+# ``from integrity import ...`` which only works under prepend mode.
+from tests.e2e.integrity import SCRAPER_SPECS, assert_job_integrity
 
 
 @pytest.mark.e2e
