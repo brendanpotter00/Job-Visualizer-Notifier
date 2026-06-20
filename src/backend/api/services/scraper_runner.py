@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -29,7 +30,7 @@ KILL_WAIT_SECONDS = 30
 async def _stream_and_tail_stderr(
     stream: asyncio.StreamReader,
     max_bytes: int,
-    line_logger,
+    line_logger: Callable[[str], None],
     tail_out: bytearray,
 ) -> None:
     """Stream *stream* line-by-line, mutating *tail_out* in place.
@@ -136,6 +137,9 @@ async def run_scraper(config: Settings, company: str) -> ScraperResult:
                 level = logging.INFO
             logger.log(level, "scraper[%s] %s", company, text)
 
+        # stdout is guaranteed non-None: the process is spawned with
+        # stdout=PIPE (asyncio types it Optional regardless).
+        assert process.stdout is not None
         reader_task = asyncio.create_task(
             _stream_and_tail_stderr(
                 process.stdout,

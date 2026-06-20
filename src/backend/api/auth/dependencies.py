@@ -1,12 +1,13 @@
 """FastAPI authentication dependencies."""
 
 import logging
-from typing import TypedDict
+from typing import TypedDict, cast
 
 import jwt
 from jwt import PyJWKClientError
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from psycopg2.extensions import connection as Connection
 
 from .jwt import validate_token
 from ..dependencies import get_db
@@ -32,7 +33,7 @@ async def get_optional_user(
     if credentials is None:
         return None
     try:
-        return validate_token(credentials.credentials)
+        return cast(TokenClaims, validate_token(credentials.credentials))
     except jwt.ExpiredSignatureError:
         logger.warning("JWT token expired")
         raise HTTPException(status_code=401, detail="Token expired")
@@ -65,7 +66,7 @@ async def get_optional_user_lenient(
     if credentials is None:
         return None
     try:
-        return validate_token(credentials.credentials)
+        return cast(TokenClaims, validate_token(credentials.credentials))
     except (jwt.InvalidTokenError, PyJWKClientError) as exc:
         # debug, not info: on a public endpoint a stale token is routine and
         # high-volume (every request from an expired session hits this), so it
@@ -87,7 +88,7 @@ async def get_current_user(
 
 
 async def require_admin(
-    conn=Depends(get_db),
+    conn: Connection = Depends(get_db),
     user: TokenClaims = Depends(get_current_user),
 ) -> TokenClaims:
     """Require an admin grant for the authenticated user.

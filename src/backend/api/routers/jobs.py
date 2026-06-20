@@ -40,7 +40,7 @@ def list_jobs(
     # one round trip. The per-company default remains 5000.
     limit: int = Query(default=5000, ge=1, le=50000),
     offset: int = Query(default=0, ge=0),
-):
+) -> list[JobListingResponse]:
     """List jobs with optional filtering by company and status.
 
     Accepts either a single ``company`` or a comma-separated ``companies``
@@ -91,7 +91,7 @@ def get_job(
     source_id: str = Path(max_length=100),
     job_id: str = Path(max_length=200),
     conn: Connection = Depends(get_db),
-):
+) -> JobListingResponse:
     """Get a single job by composite ``(source_id, id)`` key.
 
     Returns 404 if no row matches the composite key.

@@ -31,9 +31,10 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 import psycopg2
+from psycopg2.extensions import connection as Connection
 
 from ..config import settings
 
@@ -183,7 +184,7 @@ _SQL_D_THROUGHPUT = (
 )
 
 
-def _scalar(row, key: str):
+def _scalar(row: Any, key: str) -> Any:
     """Read a column from a RealDict row or a plain tuple (first col)."""
     if row is None:
         return None
@@ -192,13 +193,13 @@ def _scalar(row, key: str):
     return row[0]
 
 
-def _regclass(cur, name: str) -> bool:
+def _regclass(cur: Any, name: str) -> bool:
     """True when ``to_regclass(name)`` resolves (table exists on search_path)."""
     cur.execute("SELECT to_regclass(%s) AS oid", (name,))
     return _scalar(cur.fetchone(), "oid") is not None
 
 
-def _normalization_column_present(cur) -> bool:
+def _normalization_column_present(cur: Any) -> bool:
     """True when job_listings exists AND has a normalization_status column.
 
     Search-path-correct (no hardcoded ``public``) AND non-raising: resolves the
@@ -222,7 +223,7 @@ def _normalization_column_present(cur) -> bool:
     return int(_scalar(cur.fetchone(), "n") or 0) > 0
 
 
-def get_health(conn, window_hours: int) -> dict:
+def get_health(conn: Connection, window_hours: int) -> dict:
     """Health snapshot for the monitor page. SELECT-only; never commits.
 
     Returns the AdminLocationHealthResponse dict (snake_case keys; the router's
@@ -352,7 +353,7 @@ def get_health(conn, window_hours: int) -> dict:
             pass
 
 
-def get_integrity(conn) -> dict:
+def get_integrity(conn: Connection) -> dict:
     """Run every C1..C9 integrity check. SELECT-only; never commits.
 
     Returns {schemaPresent, checks:[{id,label,count,severity}]}. ``severity`` is

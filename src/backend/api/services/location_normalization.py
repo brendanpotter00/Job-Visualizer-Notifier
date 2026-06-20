@@ -31,7 +31,7 @@ from __future__ import annotations
 import logging
 import re
 import unicodedata
-from typing import TYPE_CHECKING, Sequence
+from typing import TYPE_CHECKING, Any, Sequence
 
 import psycopg2
 from psycopg2 import sql
@@ -107,7 +107,7 @@ _JOB_LOCATIONS = sql.Identifier("job_locations")
 _JOB_LISTINGS = sql.Identifier("job_listings")
 
 
-def _location_id_from_row(row) -> int:
+def _location_id_from_row(row: Any) -> int:
     """Extract normalized_location_id from a RealDict row or a plain tuple."""
     if isinstance(row, dict):
         return int(row["normalized_location_id"])
@@ -264,7 +264,12 @@ def persist_llm_result(conn: Connection, job_id: str, raw_text: str, locations: 
         # resolve to the same locations.id, the duplicate must not double-insert
         # (PK conflicts) or claim a second position.
         seen: set[int] = set()
-        location_ids = [lid for lid in location_ids if not (lid in seen or seen.add(lid))]
+        deduped: list[int] = []
+        for lid in location_ids:
+            if lid not in seen:
+                seen.add(lid)
+                deduped.append(lid)
+        location_ids = deduped
 
         avg_conf = sum(l.confidence for l in locations) / len(locations)
         cursor.execute(

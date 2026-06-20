@@ -61,6 +61,8 @@ jobs:
 
       - run: pip install -r src/backend/api/requirements.txt -r src/backend/api/requirements-dev.txt
 
+      - run: cd src/backend && mypy
+
       - run: cd src/backend && pytest
         env:
           TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/jobscraper

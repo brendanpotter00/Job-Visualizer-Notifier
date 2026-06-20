@@ -29,6 +29,7 @@ import asyncio
 import logging
 
 import psycopg2
+from psycopg2.extensions import connection as Connection
 
 from scripts.shared import database as db
 
@@ -45,7 +46,7 @@ def _insert_heartbeat_sync(database_url: str) -> None:
     attributed in pg_stat_activity. statement_timeout=10s — heartbeat
     write should be instant; a hang here is itself a hang signal.
     """
-    conn = db.get_connection(
+    conn: Connection = db.get_connection(
         database_url,
         application_name="task_heartbeat",
         statement_timeout_ms=10_000,
@@ -74,7 +75,7 @@ def _insert_heartbeat_sync(database_url: str) -> None:
 
 def _cleanup_heartbeats_sync(database_url: str) -> int:
     """DELETE worker_heartbeats rows older than 24 hours. Returns row count."""
-    conn = db.get_connection(
+    conn: Connection = db.get_connection(
         database_url,
         application_name="task_heartbeat_cleanup",
         statement_timeout_ms=30_000,

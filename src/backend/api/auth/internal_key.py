@@ -12,7 +12,7 @@ will slot in here when the MCP/external-API surface comes online.
 import logging
 import secrets
 
-from fastapi import Request
+from fastapi import Request, Response
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import RequestResponseEndpoint
 
@@ -32,7 +32,7 @@ _HEADER_NAME = "X-Internal-Key"
 
 async def require_internal_key(
     request: Request, call_next: RequestResponseEndpoint
-):
+) -> Response:
     """Reject requests missing or mismatching the configured shared secret.
 
     - When ``settings.internal_api_key`` is None (local dev with no env var),

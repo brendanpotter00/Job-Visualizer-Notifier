@@ -3,10 +3,13 @@
 import asyncio
 import logging
 import sys
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 import psycopg2
+from psycopg2.extensions import connection as Connection
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
@@ -100,7 +103,7 @@ logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Startup
     warn_if_unset()
     logger.info("Applying database migrations...")
@@ -261,7 +264,9 @@ app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 
 
 @app.exception_handler(Exception)
-async def unhandled_exception_handler(request: Request, exc: Exception):
+async def unhandled_exception_handler(
+    request: Request, exc: Exception
+) -> JSONResponse:
     """Return structured JSON for any unhandled server error."""
     logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
     return JSONResponse(
@@ -271,14 +276,16 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 
 @app.get("/health")
-def health():
+def health() -> PlainTextResponse:
     if not pool_is_healthy():
         return PlainTextResponse("UNAVAILABLE", status_code=503)
     return PlainTextResponse("OK")
 
 
-@app.get("/health/worker")
-def health_worker(conn=Depends(get_db)):
+@app.get("/health/worker", response_model=None)
+def health_worker(
+    conn: Connection = Depends(get_db),
+) -> dict[str, Any] | JSONResponse:
     """Procrastinate worker liveness probe.
 
     Returns 503 when EITHER stream is stale:
@@ -330,7 +337,7 @@ def health_worker(conn=Depends(get_db)):
 
     now = datetime.now(timezone.utc)
 
-    def _gap(row) -> tuple[datetime | None, float | None]:
+    def _gap(row: dict[str, Any] | None) -> tuple[datetime | None, float | None]:
         latest = row["latest"] if row else None
         if latest is None:
             return None, None

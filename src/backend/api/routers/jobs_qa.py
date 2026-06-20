@@ -37,7 +37,7 @@ def stats(
     conn: Connection = Depends(get_db),
     _admin: TokenClaims = Depends(require_admin),
     company: str | None = Query(default=None, pattern=COMPANY_PATTERN),
-):
+) -> JobsStatsResponse:
     """Get job statistics with optional company filter. Admin-only."""
     data = get_stats(conn, company=company)
     return JobsStatsResponse(
@@ -54,7 +54,7 @@ def scrape_runs(
     _admin: TokenClaims = Depends(require_admin),
     company: str | None = Query(default=None, pattern=COMPANY_PATTERN),
     limit: int = Query(default=20, ge=1, le=1000),
-):
+) -> list[ScrapeRunResponse]:
     """Get scrape run history. Admin-only."""
     runs = get_scrape_runs(conn, company=company, limit=limit)
     return [ScrapeRunResponse(**r) for r in runs]
@@ -66,7 +66,7 @@ async def trigger_scrape(
     background_tasks: BackgroundTasks,
     _admin: TokenClaims = Depends(require_admin),
     company: str = Query(default="google", pattern=COMPANY_PATTERN),
-):
+) -> JSONResponse:
     """Trigger a scrape run in the background. Returns 202 immediately. Admin-only."""
     from ..services.scraper_runner import run_scraper
 
@@ -84,7 +84,7 @@ async def trigger_scrape(
 
     config = request.app.state.config
 
-    async def _run_scraper_logged():
+    async def _run_scraper_logged() -> None:
         try:
             result = await run_scraper(config, company)
             if result.exit_code != 0:
@@ -120,7 +120,7 @@ async def trigger_greenhouse_fetch(
     ),
     db: Connection = Depends(get_db),
     _admin: TokenClaims = Depends(require_admin),
-):
+) -> JSONResponse:
     """Manually defer a single fetch_greenhouse_company task.
 
     Looks up the company in the companies table to (a) defend against
@@ -193,7 +193,7 @@ async def trigger_greenhouse_fetch(
 @router.post("/trigger-greenhouse-fan-out")
 async def trigger_greenhouse_fan_out(
     _admin: TokenClaims = Depends(require_admin),
-):
+) -> JSONResponse:
     """Manually defer the enqueue_greenhouse_fan_out task.
 
     The fan-out task does not carry a queueing lock (per-company locks
@@ -236,7 +236,7 @@ async def trigger_ashby_fetch(
     ),
     db: Connection = Depends(get_db),
     _admin: TokenClaims = Depends(require_admin),
-):
+) -> JSONResponse:
     """Manually defer a single fetch_ashby_company task.
 
     Looks up the company in the companies table to (a) defend against
@@ -309,7 +309,7 @@ async def trigger_ashby_fetch(
 @router.post("/trigger-ashby-fan-out")
 async def trigger_ashby_fan_out(
     _admin: TokenClaims = Depends(require_admin),
-):
+) -> JSONResponse:
     """Manually defer the enqueue_ashby_fan_out task.
 
     The fan-out task does not carry a queueing lock (per-company locks
@@ -352,7 +352,7 @@ async def trigger_lever_fetch(
     ),
     db: Connection = Depends(get_db),
     _admin: TokenClaims = Depends(require_admin),
-):
+) -> JSONResponse:
     """Manually defer a single fetch_lever_company task.
 
     Looks up the company in the companies table to (a) defend against
@@ -425,7 +425,7 @@ async def trigger_lever_fetch(
 @router.post("/trigger-lever-fan-out")
 async def trigger_lever_fan_out(
     _admin: TokenClaims = Depends(require_admin),
-):
+) -> JSONResponse:
     """Manually defer the enqueue_lever_fan_out task.
 
     The fan-out task does not carry a queueing lock (per-company locks
@@ -468,7 +468,7 @@ async def trigger_gem_fetch(
     ),
     db: Connection = Depends(get_db),
     _admin: TokenClaims = Depends(require_admin),
-):
+) -> JSONResponse:
     """Manually defer a single fetch_gem_company task.
 
     Looks up the company in the companies table to (a) defend against
@@ -541,7 +541,7 @@ async def trigger_gem_fetch(
 @router.post("/trigger-gem-fan-out")
 async def trigger_gem_fan_out(
     _admin: TokenClaims = Depends(require_admin),
-):
+) -> JSONResponse:
     """Manually defer the enqueue_gem_fan_out task.
 
     The fan-out task does not carry a queueing lock (per-company locks
@@ -600,7 +600,7 @@ async def trigger_eightfold_fetch(
     ),
     db: Connection = Depends(get_db),
     _admin: TokenClaims = Depends(require_admin),
-):
+) -> JSONResponse:
     """Manually defer a single fetch_eightfold_company task.
 
     Performs the L2 SSRF check (provider_config keys present + tenant_host
@@ -720,7 +720,7 @@ async def trigger_eightfold_fetch(
 @router.post("/trigger-eightfold-fan-out")
 async def trigger_eightfold_fan_out(
     _admin: TokenClaims = Depends(require_admin),
-):
+) -> JSONResponse:
     """Manually defer the enqueue_eightfold_fan_out task.
 
     Used by DEPLOY.md to populate ``job_listings`` within ~30s of a deploy
@@ -769,7 +769,7 @@ async def trigger_workday_fetch(
     ),
     db: Connection = Depends(get_db),
     _admin: TokenClaims = Depends(require_admin),
-):
+) -> JSONResponse:
     """Manually defer a single fetch_workday_company task.
 
     Looks up the row in the `companies` table to (a) defend against typos
@@ -851,7 +851,7 @@ async def trigger_workday_fetch(
 @router.post("/trigger-workday-fan-out")
 async def trigger_workday_fan_out(
     _admin: TokenClaims = Depends(require_admin),
-):
+) -> JSONResponse:
     """Manually defer the enqueue_workday_fan_out task.
 
     The fan-out task does not carry a queueing lock (per-company locks

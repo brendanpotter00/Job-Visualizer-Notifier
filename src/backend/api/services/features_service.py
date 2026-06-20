@@ -11,6 +11,7 @@ not exist, before touching the upvote table.
 """
 
 import logging
+from typing import Any
 
 import psycopg2
 from psycopg2 import sql
@@ -71,7 +72,7 @@ def list_features_with_upvotes(
     ]
 
 
-def _feature_exists(cursor, feature_id: str) -> bool:
+def _feature_exists(cursor: Any, feature_id: str) -> bool:
     cursor.execute(
         sql.SQL("SELECT 1 FROM {} WHERE id = %s").format(_FEATURES),
         (feature_id,),
@@ -79,7 +80,7 @@ def _feature_exists(cursor, feature_id: str) -> bool:
     return cursor.fetchone() is not None
 
 
-def _count_upvotes(cursor, feature_id: str) -> int:
+def _count_upvotes(cursor: Any, feature_id: str) -> int:
     cursor.execute(
         sql.SQL("SELECT COUNT(*) AS n FROM {} WHERE feature_id = %s").format(_UPVOTES),
         (feature_id,),

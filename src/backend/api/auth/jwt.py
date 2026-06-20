@@ -2,6 +2,8 @@
 
 import logging
 import threading
+from collections.abc import Mapping
+from typing import Any, cast
 
 import jwt
 from jwt import PyJWKClient, PyJWTError
@@ -87,7 +89,7 @@ def validate_token(token: str) -> dict:
     return _validate_auth0_token(token)
 
 
-def get_normalized_subject(claims: dict) -> str | None:
+def get_normalized_subject(claims: Mapping[str, Any]) -> str | None:
     """Return a provider-prefixed stable user identifier from JWT claims.
 
     Auth0 tokens already embed the provider (e.g. ``auth0|…``, ``google-oauth2|…``)
@@ -102,4 +104,4 @@ def get_normalized_subject(claims: dict) -> str | None:
     issuer = claims.get("iss", "")
     if issuer in GOOGLE_ISSUERS:
         return f"google|{sub}"
-    return sub
+    return cast(str, sub)

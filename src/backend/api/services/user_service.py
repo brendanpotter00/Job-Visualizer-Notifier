@@ -18,7 +18,7 @@ See ``docs/implementations/auth0/REVIEW_AUDIT.md`` "2026-04-14 — Design revers
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import TypedDict
+from typing import TypedDict, cast
 
 import psycopg2
 from psycopg2 import sql
@@ -172,7 +172,7 @@ def _lookup_and_upsert(
         raise RuntimeError(
             f"User upsert returned no rows for auth0_id={auth0_id}"
         )
-    return dict(row)
+    return cast(UserRow, dict(row))
 
 
 def update_user(
@@ -206,7 +206,7 @@ def update_user(
         )
         raise
     row = cursor.fetchone()
-    return dict(row) if row else None
+    return cast(UserRow, dict(row)) if row else None
 
 
 def get_user_by_email(
@@ -228,4 +228,4 @@ def get_user_by_email(
         (email,),
     )
     row = cursor.fetchone()
-    return dict(row) if row else None
+    return cast(UserRow, dict(row)) if row else None

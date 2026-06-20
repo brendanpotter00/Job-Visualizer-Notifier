@@ -1,3 +1,39 @@
 [tool.pytest.ini_options]
 testpaths = ["api/tests"]
 pythonpath = [".", "../.."]
+
+[tool.mypy]
+python_version = "3.13"
+files = ["api"]
+mypy_path = "../.."
+explicit_package_bases = true
+# Production code is the gate. The test suite (api/tests) and the human-run
+# eval harness (api/eval) are excluded for now — a deliberate ratchet point:
+# tighten by enabling them module-by-module in a follow-up.
+exclude = "^api/(tests|eval)/"
+# Follow imports for type info but don't report errors in modules outside the
+# checked set (e.g. scripts/shared/* — the separate scraper package).
+follow_imports = "silent"
+# Meaningful baseline — catches the bugs we care about without demanding
+# full strict mode everywhere on day one.
+check_untyped_defs = true
+warn_return_any = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+no_implicit_optional = true
+# Require annotations on the public surface + business logic.
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+
+# Third-party libs without bundled type stubs — silence import errors only.
+[[tool.mypy.overrides]]
+module = [
+    "psycopg2.*",
+    "procrastinate.*",
+    "psycopg_pool.*",
+    "google.*",
+    "alembic.*",
+    "jwt.*",
+    "scripts.*",
+]
+ignore_missing_imports = true

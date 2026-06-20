@@ -31,9 +31,17 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import DeclarativeBase
 
-Base = declarative_base()
+
+class Base(DeclarativeBase):
+    """Declarative base for all ORM models.
+
+    Defined as a ``DeclarativeBase`` subclass (rather than the legacy
+    ``declarative_base()`` factory) so static type checkers recognize it as a
+    valid base class / type. Metadata behaviour is identical, so Alembic
+    autogenerate is unaffected.
+    """
 
 
 class JobListing(Base):
