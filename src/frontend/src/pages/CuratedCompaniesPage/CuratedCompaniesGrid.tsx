@@ -3,7 +3,7 @@ import { Box, Grid, Typography } from '@mui/material';
 import { EmptyState } from '../../components/shared/ErrorDisplay';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 import { useInfiniteScroll } from '../../hooks/useInfiniteScroll';
-import { CHANGELOG_INFINITE_SCROLL_CONFIG, INFINITE_SCROLL_CONFIG } from '../../constants/ui';
+import { CHANGELOG_INFINITE_SCROLL_CONFIG } from '../../constants/ui';
 import type { CuratedCompany } from '../../features/companies/companiesApi';
 import { CompanyCard } from './CompanyCard';
 import { CompanyCardSkeleton } from './CompanyCardSkeleton';
@@ -75,8 +75,12 @@ export function CuratedCompaniesGrid({ companies }: CuratedCompaniesGridProps) {
     hasMore,
     isLoadingMore,
     onLoadMore: loadMore,
-    rootMargin: INFINITE_SCROLL_CONFIG.SENTINEL_ROOT_MARGIN,
-    threshold: INFINITE_SCROLL_CONFIG.SENTINEL_THRESHOLD,
+    // Prefetch the next batch well before the sentinel reaches the viewport, and
+    // fire on ANY intersection (threshold 0). A threshold of 0.1 against a 1px
+    // sentinel is unreliable across browsers (notably Safari) and could leave
+    // the grid stuck after the first batch on a manual scroll-to-bottom.
+    rootMargin: '600px',
+    threshold: 0,
   });
 
   const displayed = useMemo(

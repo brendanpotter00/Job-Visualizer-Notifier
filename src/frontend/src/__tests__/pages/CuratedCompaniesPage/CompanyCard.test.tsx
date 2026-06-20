@@ -16,18 +16,21 @@ function company(overrides: Partial<CuratedCompany> = {}): CuratedCompany {
 }
 
 describe('CompanyCard', () => {
-  it('links the whole card to hiring trends for a config-known company', () => {
+  it('renders an explicit hiring-trends link for a config-known company', () => {
     renderWithProviders(<CompanyCard company={company()} />);
-    const link = screen.getByRole('link', { name: /view hiring trends for stripe/i });
+    const link = screen.getByRole('link', { name: /see company hiring trends/i });
     expect(link).toHaveAttribute('href', '/companies?company=stripe');
     expect(screen.getByRole('heading', { level: 3, name: 'Stripe' })).toBeInTheDocument();
-    expect(screen.getByText('Payments infra.')).toBeInTheDocument();
-    expect(screen.getByText('Powers checkout.')).toBeInTheDocument();
   });
 
-  it('renders a non-link card for a DB-only company missing from the frontend config', () => {
+  it('combines blurb and accomplishment into one cohesive description', () => {
+    renderWithProviders(<CompanyCard company={company()} />);
+    expect(screen.getByText('Payments infra. Powers checkout.')).toBeInTheDocument();
+  });
+
+  it('omits the hiring-trends link for a DB-only company missing from the frontend config', () => {
     // `reducto` exists in the DB but not in config/companies.ts — a deep link
-    // would be rejected by getInitialCompanyId, so the card must not be a link.
+    // would be rejected by getInitialCompanyId, so the card shows no link.
     renderWithProviders(
       <CompanyCard company={company({ id: 'reducto', displayName: 'Reducto' })} />
     );
@@ -35,12 +38,14 @@ describe('CompanyCard', () => {
     expect(screen.getByRole('heading', { level: 3, name: 'Reducto' })).toBeInTheDocument();
   });
 
-  it('omits the blurb and accomplishment lines when they are null', () => {
+  it('renders no description when both blurb and accomplishment are null', () => {
     renderWithProviders(
       <CompanyCard company={company({ blurb: null, accomplishment: null })} />
     );
-    expect(screen.queryByText('Payments infra.')).not.toBeInTheDocument();
-    expect(screen.queryByText('Powers checkout.')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Payments infra\./)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Powers checkout\./)).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 3, name: 'Stripe' })).toBeInTheDocument();
+    // Still linkable.
+    expect(screen.getByRole('link', { name: /see company hiring trends/i })).toBeInTheDocument();
   });
 });
