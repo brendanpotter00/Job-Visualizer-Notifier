@@ -1,7 +1,7 @@
-import { Card, CardActions, CardContent, Link, Stack, Typography } from '@mui/material';
+import { Card, CardActions, CardContent, Link, Typography } from '@mui/material';
 import { Link as RouterLink } from 'react-router-dom';
 import { CARD_VARIANT } from '../../components/shared/JobCard/jobCardStyles';
-import { CompanyLogo } from '../../components/shared/CompanyLogo/CompanyLogo';
+import { CompanyWordmark } from '../../components/shared/CompanyLogo/CompanyWordmark';
 import { ROUTES } from '../../config/routes';
 import { getCompanyById } from '../../config/companies';
 import type { CuratedCompany } from '../../features/companies/companiesApi';
@@ -29,12 +29,7 @@ export function CompanyCard({ company }: CompanyCardProps) {
   return (
     <Card variant={CARD_VARIANT} sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <CardContent sx={{ flexGrow: 1 }}>
-        <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 1 }}>
-          <CompanyLogo companyId={company.id} companyName={company.displayName} size={32} />
-          <Typography variant="h6" component="h3">
-            {company.displayName}
-          </Typography>
-        </Stack>
+        <CompanyWordmark companyId={company.id} displayName={company.displayName} />
         {description && (
           <Typography variant="body2" color="text.secondary">
             {description}
