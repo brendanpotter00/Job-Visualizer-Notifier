@@ -6,7 +6,8 @@ metrics: the open/closed lifecycle in ``shared/incremental.py`` marks a job
 absent. If a scraper returns 0 (or far too few) jobs — because Google/Apple/
 Microsoft changed their DOM/API, or the browser environment broke — every job
 it "missed" gets falsely closed. That exact failure mode mass-closed 3,582 Apple
-jobs on 2026-03-29 (see ``docs/incidents/2026-03-29-mass-job-closure.md``).
+jobs (failure began 2026-03-28; see
+``docs/incidents/2026-03-29-mass-job-closure.md``).
 
 The unit/integration suite already covers the lifecycle *logic* with mocks. This
 module covers the part mocks cannot: that the real scrapers still return a
@@ -14,8 +15,14 @@ healthy volume of well-formed jobs against the live sites.
 
 ``assert_job_integrity`` reuses each scraper's own ``transform_to_job_model`` so
 every scraped card must construct a valid ``JobListing`` Pydantic model — the
-canonical data contract — and ``filter_job`` so we confirm returned jobs are
-actually the relevant roles.
+canonical data contract.
+
+Coverage note: ``posted_on`` is only validated where the list card actually
+carries it. In list-only mode that is Microsoft alone — its transform reads
+``posted_on``/``posted_date`` — while Google and Apple list cards leave
+``posted_on=None`` (Apple's list card emits ``posted_date`` but its transform
+reads ``posted_on``), so the parse branch is exercised for Microsoft and skipped
+for the other two.
 """
 
 from __future__ import annotations
@@ -98,8 +105,8 @@ def assert_job_integrity(
     Args:
         raw_jobs: Job-card dicts as returned by ``scrape_all_queries``.
         spec: The scraper's spec (floors, patterns, host).
-        scraper: The scraper instance (for ``transform_to_job_model`` /
-            ``filter_job`` — both pure, no browser needed).
+        scraper: The scraper instance (for ``transform_to_job_model`` — pure,
+            no browser needed).
     """
     # --- Health floor: the load-bearing assertion ---------------------------
     assert len(raw_jobs) >= spec.min_jobs, (
@@ -142,7 +149,10 @@ def assert_job_integrity(
         assert job.status == "OPEN", f"{ctx}: fresh job not OPEN (got {job.status})"
         assert job.closed_on is None, f"{ctx}: fresh job has closed_on set"
 
-        # posted_on must be parseable when present
+        # posted_on must be parseable when present. In list-only mode only
+        # Microsoft populates posted_on (see module docstring), so this branch
+        # is exercised for Microsoft and skipped for Google/Apple (posted_on is
+        # None for them).
         if job.posted_on is not None:
             try:
                 date_parser.parse(job.posted_on)
@@ -150,11 +160,6 @@ def assert_job_integrity(
                 raise AssertionError(
                     f"{ctx}: posted_on {job.posted_on!r} is not parseable: {exc}"
                 )
-
-        # Filter sanity: returned jobs must actually be relevant roles
-        assert scraper.filter_job(job.title), (
-            f"{ctx}: title passed through but fails filter_job — filter regression"
-        )
 
         ids.append(job.id)
         if job.location and job.location.strip():

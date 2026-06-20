@@ -39,8 +39,8 @@ jobs:
       - run: pip install -r scripts/requirements.txt -r scripts/requirements-dev.txt
 
       # --with-deps installs the system libraries Chromium needs. Omitting it
-      # is exactly what crashed the browser (0 jobs -> mass closure) on
-      # 2026-03-29; see docs/incidents/2026-03-29-mass-job-closure.md.
+      # is exactly what crashed the browser (0 jobs -> mass closure); see
+      # docs/incidents/2026-03-29-mass-job-closure.md.
       - run: playwright install --with-deps chromium
 
       - run: cd scripts && pytest -m e2e
