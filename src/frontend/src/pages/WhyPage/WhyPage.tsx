@@ -162,8 +162,7 @@ export function WhyPage() {
               Custom Dashboards
             </Typography>
             <Typography component="li" variant="body1" sx={{ mb: 1 }}>
-              Market Trend Page — summarizing trends across the market, like which
-              companies are quickest to close their job postings
+              Market Summary Page
             </Typography>
           </Box>
         </Paper>
