@@ -168,7 +168,6 @@ export const selectRecentJobsMetadata = createSelector(
   (filteredJobs, allJobs) => ({
     totalJobs: allJobs.length,
     filteredCount: filteredJobs.length,
-    companiesRepresented: new Set(filteredJobs.map((j) => j.company)).size,
   })
 );
 
