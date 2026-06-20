@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Box, Grid, Typography } from '@mui/material';
 import { EmptyState } from '../../components/shared/ErrorDisplay';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
@@ -82,6 +82,36 @@ export function CuratedCompaniesGrid({ companies }: CuratedCompaniesGridProps) {
     rootMargin: '600px',
     threshold: 0,
   });
+
+  // Reliability fallback to the IntersectionObserver above. The observer watches
+  // a 1px sentinel, which some browser/layout combinations fire inconsistently —
+  // leaving the grid stuck after the first batch on a manual scroll-to-bottom.
+  // A passive window scroll/resize check that reveals the next batch when near
+  // the bottom guarantees it keeps loading. loadMore is guarded against
+  // double-fire, so this composes safely with the observer; and because the
+  // effect re-runs whenever loadMore changes (after each batch), it also auto-
+  // fills when the content is shorter than the viewport.
+  useEffect(() => {
+    if (!hasMore) return;
+    const NEAR_BOTTOM_PX = 800;
+    const check = () => {
+      const doc = document.documentElement;
+      // Only engage once content overflows the viewport — the observer already
+      // covers the shorter-than-viewport case. (This also keeps the fallback
+      // inert under jsdom, which reports scrollHeight 0.)
+      if (doc.scrollHeight <= window.innerHeight) return;
+      if (window.innerHeight + window.scrollY >= doc.scrollHeight - NEAR_BOTTOM_PX) {
+        loadMore();
+      }
+    };
+    check();
+    window.addEventListener('scroll', check, { passive: true });
+    window.addEventListener('resize', check);
+    return () => {
+      window.removeEventListener('scroll', check);
+      window.removeEventListener('resize', check);
+    };
+  }, [hasMore, loadMore]);
 
   const displayed = useMemo(
     () => filtered.slice(0, displayedCount),
