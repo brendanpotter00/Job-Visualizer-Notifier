@@ -6,7 +6,7 @@ import type { Company } from '../../types';
 import { COMPANIES, COMING_SOON_SCRAPERS } from '../../config/companies';
 import { ROUTES } from '../../config/routes';
 import { COMPANY_PARAM } from '../../lib/url';
-import { OpenInNew } from '@mui/icons-material';
+import { OpenInNew, CheckCircle } from '@mui/icons-material';
 import {
   ATS_DISPLAY_NAMES,
   NON_CAPITALIZED_GROUPS,
@@ -16,6 +16,26 @@ import {
 
 /** Shared styling for Paper sections */
 const sectionPaperSx: SxProps<Theme> = { p: 3, mb: 4 };
+
+/** Inline "shipped" badge used to mark roadmap items that are already live. */
+function LiveMarker() {
+  return (
+    <Typography
+      component="span"
+      sx={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 0.25,
+        fontSize: '0.75rem',
+        fontWeight: 600,
+        color: 'success.main',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      <CheckCircle sx={{ fontSize: '0.9rem' }} /> Live
+    </Typography>
+  );
+}
 
 /**
  * WhyPage - Explains the purpose of this application and displays supported companies
@@ -114,20 +134,20 @@ export function WhyPage() {
 
         <Paper sx={sectionPaperSx}>
           <Typography variant="body1" component="p" sx={{ mb: 2 }}>
-            I am planning on adding:
+            Progress and what's next:
           </Typography>
           <Box component="ul" sx={{ mt: 0, mb: 0, pl: 3 }}>
             <Typography component="li" variant="body1" sx={{ mb: 1 }}>
-              Accounts
+              Accounts <LiveMarker />
             </Typography>
             <Typography component="li" variant="body1" sx={{ mb: 1 }}>
               Saved Filter Settings
             </Typography>
             <Typography component="li" variant="body1" sx={{ mb: 1 }}>
-              Normalizing Locations with NLP
+              Normalizing Locations with NLP <LiveMarker />
             </Typography>
             <Typography component="li" variant="body1" sx={{ mb: 1 }}>
-              Historical Data
+              Historical Data <LiveMarker />
             </Typography>
             <Typography component="li" variant="body1" sx={{ mb: 1 }}>
               Notification System
@@ -136,7 +156,13 @@ export function WhyPage() {
               AI Powered Resume To Job Listing Matching
             </Typography>
             <Typography component="li" variant="body1" sx={{ mb: 1 }}>
-              Company-Website Web Scrapers (Meta, Roblox, etc)
+              Company-Website Web Scrapers (Google, Apple, Microsoft) <LiveMarker />
+            </Typography>
+            <Typography component="li" variant="body1" sx={{ mb: 1 }}>
+              Custom Dashboards
+            </Typography>
+            <Typography component="li" variant="body1" sx={{ mb: 1 }}>
+              Market Summary Page
             </Typography>
           </Box>
         </Paper>
