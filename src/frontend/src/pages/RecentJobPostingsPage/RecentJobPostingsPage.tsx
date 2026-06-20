@@ -26,7 +26,7 @@ import { extractErrorMessage } from '../../lib/errors';
  * Features independent filters and chronological job list.
  *
  * Uses memoized selectors for optimal performance:
- * - selectRecentJobsMetadata: Filtered job counts and company representation
+ * - selectRecentJobsMetadata: Filtered job counts
  * - selectRecentJobsTimeBasedCounts: Time-based counts (24h and 3h windows)
  *
  * @returns Recent job postings page with loading, error, or data display
@@ -68,7 +68,6 @@ export function RecentJobPostingsPage() {
           <>
             <RecentJobsMetrics
               totalJobs={metadata.filteredCount}
-              companiesRepresented={metadata.companiesRepresented}
               jobsLast24Hours={timeBasedCounts.jobsLast24Hours}
               jobsLast3Hours={timeBasedCounts.jobsLast3Hours}
             />
