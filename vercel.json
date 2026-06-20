@@ -61,6 +61,10 @@
       "destination": "/index.html"
     },
     {
+      "source": "/curated-companies",
+      "destination": "/index.html"
+    },
+    {
       "source": "/account",
       "destination": "/index.html"
     },

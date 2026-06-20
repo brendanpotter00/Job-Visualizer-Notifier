@@ -1,0 +1,535 @@
+{
+  "adobe": {
+    "accomplishment": "Adobe is known for flagship creative tools including Photoshop, Illustrator, and Acrobat, and it invented the PDF and PostScript standards.",
+    "blurb": "Adobe builds creative, document, and digital-experience software for designers, businesses, and everyday users."
+  },
+  "affirm": {
+    "accomplishment": "Affirm is a leading point-of-sale installment lender, partnering with major retailers like Amazon, Walmart, and Shopify and pledging no hidden or late fees.",
+    "blurb": "Affirm provides buy-now-pay-later financing that lets shoppers split purchases into installment payments at checkout."
+  },
+  "airbnb": {
+    "accomplishment": "Airbnb pioneered the home-sharing economy, building a global platform spanning millions of listings across virtually every country.",
+    "blurb": "Airbnb operates an online marketplace connecting travelers with hosts offering short-term lodging and local experiences."
+  },
+  "airtable": {
+    "accomplishment": "Airtable popularized the no-code database, enabling non-technical teams to create relational apps and workflows without writing code.",
+    "blurb": "Airtable offers a cloud collaboration platform that blends spreadsheet simplicity with database power for building custom apps."
+  },
+  "akunacapital": {
+    "accomplishment": "Akuna Capital is a leading options market maker that trades exclusively with its own capital and builds its own low-latency technology and quantitative models.",
+    "blurb": "Akuna Capital is a proprietary trading firm specializing in options market making across global exchanges."
+  },
+  "andurilindustries": {
+    "accomplishment": "Anduril is known for its Lattice AI platform and autonomous systems, pioneering a software-first, commercially funded model for defense products.",
+    "blurb": "Anduril builds autonomous defense technology, integrating hardware and AI software for military and national-security applications."
+  },
+  "anthropic": {
+    "accomplishment": "Anthropic is the creator of the Claude family of AI models and is recognized for its focus on AI safety and interpretability research.",
+    "blurb": "Anthropic is an AI safety company that develops large language models and AI systems, including the Claude assistant."
+  },
+  "apex-technology-inc": {
+    "accomplishment": "Apex is known for its Aries satellite bus platform, applying high-rate manufacturing to mass-produce spacecraft buses for low Earth and geostationary orbits.",
+    "blurb": "Apex manufactures standardized, productized satellite buses at scale for commercial, civil, and defense space missions."
+  },
+  "apple": {
+    "accomplishment": "Apple is renowned for the iPhone, one of the best-selling product lines in history, and ranks among the most valuable companies in the world.",
+    "ats": "script",
+    "blurb": "Apple designs and sells consumer hardware, software, and services, including the iPhone, Mac, iPad, Apple Watch, and AirPods.",
+    "boardToken": "apple",
+    "displayName": "Apple"
+  },
+  "appliedintuition": {
+    "accomplishment": "Its toolchain for testing and deploying autonomous systems is used across automotive, trucking, construction, mining, agriculture, and defense by leading automakers worldwide.",
+    "blurb": "Applied Intuition builds simulation, validation, and autonomy software that helps automakers and defense customers develop self-driving and intelligent vehicle systems."
+  },
+  "astranis": {
+    "accomplishment": "It is known for its MicroGEO satellite class: compact geostationary spacecraft providing dedicated internet capacity at a fraction of the size and cost of traditional GEO satellites.",
+    "blurb": "Astranis designs and manufactures small, software-defined geostationary communications satellites that deliver dedicated broadband connectivity to specific regions and customers."
+  },
+  "base-power": {
+    "accomplishment": "It builds a distributed network of residential battery storage that provides homes with backup power while helping balance the electric grid.",
+    "blurb": "Base Power Company is an electricity provider that installs home battery systems and supplies grid power, pairing backup energy with low-cost service."
+  },
+  "baseten": {
+    "accomplishment": "Its inference stack delivers high-performance, cost-efficient serving for large language models, embeddings, transcription, and other AI workloads at production scale.",
+    "blurb": "Baseten provides a machine learning inference platform for deploying, serving, and scaling AI models in production."
+  },
+  "belvederetrading": {
+    "accomplishment": "A Chicago-based options market maker, it provides liquidity across equity indices, single stocks, energies, grains, interest rates, metals, and softs through proprietary in-house trading systems.",
+    "blurb": "Belvedere Trading is a proprietary trading firm and market maker that provides liquidity across global derivatives markets using its own technology."
+  },
+  "block": {
+    "accomplishment": "It is the parent of Square and Cash App, pioneering mobile card payments for small businesses and operating one of the most widely used consumer money apps.",
+    "blurb": "Block is a financial technology company that builds payment, banking, and commerce tools for merchants and consumers."
+  },
+  "blueorigin": {
+    "accomplishment": "It flies private passengers to the edge of space aboard its reusable New Shepard rocket and reaches orbit with its heavy-lift New Glenn launch vehicle.",
+    "blurb": "Blue Origin is an aerospace company that develops reusable rockets, spacecraft, and engines to enable commercial human spaceflight and access to orbit."
+  },
+  "braintrust": {
+    "accomplishment": "Its evaluation and observability tooling helps companies ship reliable AI features, with adoption by teams such as Notion, Stripe, Vercel, and Perplexity.",
+    "blurb": "Braintrust is an AI evaluation and observability platform that helps teams test, monitor, and improve LLM-powered applications."
+  },
+  "brex": {
+    "accomplishment": "Brex is a financial technology platform for company spend, integrating corporate cards with expense management and controls for startups and enterprises.",
+    "blurb": "Brex provides corporate credit cards, expense management, and spend software built for startups and growing businesses."
+  },
+  "browserbase": {
+    "accomplishment": "Browserbase offers serverless headless browsers with stealth, proxy, and session-control capabilities for deploying browser-based AI agents.",
+    "blurb": "Browserbase provides cloud-hosted headless browser infrastructure for running web automation and AI agents at scale."
+  },
+  "capitalone": {
+    "accomplishment": "Capital One is a major U.S. bank and one of the country's largest credit card issuers.",
+    "blurb": "Capital One is a diversified bank offering credit cards, consumer and commercial banking, and auto loans."
+  },
+  "chalk": {
+    "accomplishment": "Chalk provides a data-source-agnostic feature store delivering low-latency feature computation with time-travel for training, batch scoring, and real-time inference.",
+    "blurb": "Chalk offers a real-time data and feature platform for building and serving production machine learning and AI inference."
+  },
+  "clear": {
+    "accomplishment": "CLEAR pioneered tokenless biometric screening and operates expedited identity lanes across many U.S. airports and sports venues.",
+    "blurb": "CLEAR (Clear Secure) operates a biometric identity verification platform used at airports, stadiums, and other venues."
+  },
+  "clickup": {
+    "accomplishment": "ClickUp consolidates tasks, documents, goals, and chat into a single workspace marketed as an app to replace many separate work tools.",
+    "blurb": "ClickUp offers an all-in-one productivity platform combining project management, tasks, docs, and collaboration tools."
+  },
+  "cloudflare": {
+    "accomplishment": "Cloudflare operates one of the world's largest networks, protecting and accelerating a substantial share of internet websites and applications.",
+    "blurb": "Cloudflare provides a global content delivery network, web security, and edge computing services."
+  },
+  "cognition": {
+    "accomplishment": "Cognition created Devin, an autonomous AI software engineer that can plan, write, test, and ship code.",
+    "blurb": "Cognition builds autonomous AI software engineering agents, best known for its AI software engineer Devin."
+  },
+  "cohere": {
+    "accomplishment": "Cohere is known for its Command, Embed, and Rerank model family, offering enterprise LLMs optimized for retrieval, multilingual search, and regulated industries.",
+    "blurb": "Cohere builds enterprise-grade large language models and AI tools designed for secure, private deployment inside business and regulated-industry infrastructure."
+  },
+  "crunchyroll": {
+    "accomplishment": "Crunchyroll is the world's leading anime streaming brand, distributing a vast licensed catalog of simulcast and dubbed series to subscribers across the globe.",
+    "blurb": "Crunchyroll operates a subscription streaming service dedicated to anime, manga, and East Asian entertainment for a global audience."
+  },
+  "ctc": {
+    "accomplishment": "CTC is a premier derivatives market maker, providing liquidity across equity index, interest rate, and commodity products on major options exchanges.",
+    "blurb": "Chicago Trading Company (CTC) is a proprietary trading firm specializing in options and derivatives market making across global exchanges."
+  },
+  "cursor": {
+    "accomplishment": "Cursor is one of the most widely adopted AI coding tools, used by developers and businesses worldwide to write, refactor, and debug software.",
+    "blurb": "Anysphere develops Cursor, an AI-first code editor that integrates code generation, understanding, and multi-file editing into the development workflow."
+  },
+  "databricks": {
+    "accomplishment": "Databricks pioneered the data lakehouse and was founded by the original creators of Apache Spark, MLflow, and Delta Lake.",
+    "blurb": "Databricks provides a unified data and AI platform built around the lakehouse architecture for analytics, data engineering, and machine learning."
+  },
+  "datadog": {
+    "accomplishment": "Datadog is a leading observability platform, unifying metrics, traces, and logs so engineering teams can monitor cloud-scale systems in one place.",
+    "blurb": "Datadog offers a cloud-based observability and security platform that monitors infrastructure, applications, logs, and user experience."
+  },
+  "decagon": {
+    "accomplishment": "Decagon is known for its AI concierge platform, deploying conversational agents that resolve customer inquiries and execute tasks like refunds and cancellations.",
+    "blurb": "Decagon builds enterprise AI agents that autonomously handle customer support across chat, email, and voice channels."
+  },
+  "discord": {
+    "accomplishment": "Discord is a leading communication platform for online communities, hosting millions of servers where people gather over shared interests in real time.",
+    "blurb": "Discord operates a voice, video, and text communication platform organized around community servers for gamers and interest-based groups."
+  },
+  "disney": {
+    "accomplishment": "Disney is one of the world's largest media and entertainment conglomerates, home to iconic brands including Pixar, Marvel, Star Wars, ESPN, and its theme park resorts.",
+    "blurb": "Disney is a diversified global entertainment company spanning film and television studios, streaming, theme parks, and consumer products."
+  },
+  "distyl": {
+    "accomplishment": "Distyl forward-deploys engineers and researchers to deliver production AI systems for Fortune 100 leaders across healthcare, telecommunications, CPG, retail, and manufacturing.",
+    "blurb": "Distyl is an enterprise generative AI firm that builds and deploys custom AI systems and applications for large organizations."
+  },
+  "doordashusa": {
+    "accomplishment": "DoorDash is the leading food-delivery marketplace in the United States, connecting consumers with merchants through a network of independent couriers.",
+    "blurb": "DoorDash operates an on-demand local commerce platform connecting customers with restaurants and merchants through delivery and pickup."
+  },
+  "dropbox": {
+    "accomplishment": "Dropbox pioneered seamless cloud file syncing and serves users worldwide as a foundational cloud-storage platform.",
+    "blurb": "Dropbox provides cloud-based file storage, syncing, sharing, and collaboration tools for individuals and teams."
+  },
+  "drw": {
+    "accomplishment": "DRW is one of the world's largest principal trading firms, making markets across fixed income, options, derivatives, commodities, equities, FX, and crypto from offices on multiple continents.",
+    "blurb": "DRW is a proprietary trading firm that trades its own capital across global markets using technology-driven, quantitative strategies."
+  },
+  "elevenlabs": {
+    "accomplishment": "ElevenLabs is a leading voice AI platform, known for highly realistic text-to-speech and voice cloning that generates lifelike speech across dozens of languages.",
+    "blurb": "ElevenLabs is an AI audio research and deployment company building voice generation, text-to-speech, dubbing, and conversational AI tools."
+  },
+  "eliseai": {
+    "accomplishment": "EliseAI is a leading AI platform for the housing industry, automating phone, text, email, and chat interactions around the clock across leasing and resident services.",
+    "blurb": "EliseAI builds conversational AI assistants and CRM software that automate leasing, resident communication, and operations for property management and housing."
+  },
+  "exa": {
+    "accomplishment": "Exa operates its own independently built web index and neural search models, providing embeddings-based semantic search, crawling, and retrieval infrastructure for AI applications.",
+    "blurb": "Exa builds a web search API and AI search engine that uses neural embeddings to retrieve content for AI agents and applications."
+  },
+  "expedia": {
+    "accomplishment": "Expedia is one of the world's largest online travel companies, anchoring a brand family that includes Hotels.com, Vrbo, and Orbitz.",
+    "blurb": "Expedia operates online travel booking platforms where travelers compare and reserve flights, hotels, car rentals, and vacation packages."
+  },
+  "fal": {
+    "accomplishment": "fal operates a generative media platform serving developers and companies through a unified API with proprietary inference optimizations.",
+    "blurb": "fal runs a generative media inference platform giving developers fast API access to AI image, video, audio, and 3D models."
+  },
+  "figma": {
+    "accomplishment": "Figma pioneered real-time multiplayer design in the browser and is a standard collaborative tool for product designers and teams worldwide.",
+    "blurb": "Figma makes a browser-based collaborative design platform for interface design, prototyping, and real-time multiplayer product work."
+  },
+  "figureai": {
+    "accomplishment": "Figure AI develops autonomous humanoid robots powered by its own AI for commercial use in manufacturing, logistics, and other workplaces.",
+    "blurb": "Figure AI builds general-purpose humanoid robots designed to perform physical labor across manufacturing, logistics, and other workplaces."
+  },
+  "fireworksai": {
+    "accomplishment": "Fireworks AI provides highly optimized, low-latency inference that lets developers deploy large language and multimodal models at production scale.",
+    "blurb": "Fireworks AI provides a fast inference platform for running, fine-tuning, and serving open-source and custom generative AI models in production."
+  },
+  "flint": {
+    "accomplishment": "Flint provides schools with an AI tutor and teaching tools that deliver personalized, standards-aligned instruction across subjects.",
+    "blurb": "Flint offers an AI tutoring and personalized-learning platform built for K-12 schools, serving both students and teachers."
+  },
+  "flowengineering": {
+    "accomplishment": "Flow Engineering's platform modernizes hardware design for aerospace, robotics, automotive, and nuclear teams, enabling live requirements traceability and AI-assisted engineering.",
+    "blurb": "Flow Engineering builds a collaborative systems-engineering platform that unifies requirements and engineering models for hardware development teams."
+  },
+  "gem": {
+    "accomplishment": "Gem is a talent engagement and recruiting CRM that recruiting teams use to build and manage hiring pipelines.",
+    "blurb": "Gem provides an AI-powered recruiting platform combining candidate relationship management, sourcing, analytics, and applicant tracking for hiring teams."
+  },
+  "generalintelligencecompany": {
+    "accomplishment": "Its flagship product, Cofounder, gives business owners a staff of AI agents that handle day-to-day work, advancing a mission to make every business agent-native.",
+    "blurb": "The General Intelligence Company is an applied AI lab building autonomous agents that run end-to-end business operations from natural-language instructions."
+  },
+  "gigaml": {
+    "accomplishment": "It deploys AI support agents for large consumer brands such as DoorDash and meets SOC 2, GDPR, ISO 27001, and HIPAA compliance standards.",
+    "blurb": "GigaML builds enterprise AI voice and chat agents that resolve customer-support issues at scale with human-like conversations."
+  },
+  "gitlab": {
+    "accomplishment": "It is one of the world's largest all-remote companies and provides a single application used by enterprises and open-source developers worldwide.",
+    "blurb": "GitLab is a DevSecOps platform unifying source control, CI/CD, security, and project planning across the software development lifecycle."
+  },
+  "gleanwork": {
+    "accomplishment": "Its trusted-knowledge model connects many enterprise data sources while enforcing user permissions, grounding AI answers in each organization's secured content.",
+    "blurb": "Glean is an enterprise Work AI platform that unifies search, assistants, and agents across a company's apps and data."
+  },
+  "gm": {
+    "accomplishment": "It is one of the largest American automakers, pursuing an all-electric future built on its Ultium battery platform across a global vehicle lineup.",
+    "blurb": "General Motors designs, manufactures, and sells vehicles and parts under brands including Chevrolet, GMC, Buick, and Cadillac."
+  },
+  "google": {
+    "accomplishment": "Google operates the world's most-used search engine and the Android mobile operating system, which together reach billions of users globally.",
+    "ats": "script",
+    "blurb": "Google builds internet products and services, including its dominant search engine, online advertising, the Android operating system, and cloud computing.",
+    "boardToken": "google",
+    "displayName": "Google"
+  },
+  "granola": {
+    "accomplishment": "It blends a user's own notes with AI-generated detail into shareable summaries and is widely adopted by founders, investors, and recruiters.",
+    "blurb": "Granola is an AI notepad that transcribes and summarizes meetings by capturing device audio without joining calls as a bot."
+  },
+  "happyrobot.ai": {
+    "accomplishment": "Its AI workers integrate with transportation management systems and load boards to handle carrier sales and check calls for major logistics and freight firms.",
+    "blurb": "Happyrobot builds voice AI agents that automate inbound and outbound phone calls, emails, and texts for the logistics and freight industry."
+  },
+  "harvey": {
+    "accomplishment": "Its AI platform serves law firms and in-house legal teams worldwide, counting much of the Am Law 100 among its customers.",
+    "blurb": "Harvey builds domain-specific AI for legal and professional services, automating contract analysis, due diligence, compliance, and litigation work."
+  },
+  "hightouch": {
+    "accomplishment": "It pioneered the Reverse ETL category and the Composable CDP, letting companies activate customer data directly from their warehouse without copying it into a separate system.",
+    "blurb": "Hightouch is a data activation platform that syncs warehouse data into the marketing, sales, and advertising tools teams use."
+  },
+  "hrt": {
+    "accomplishment": "It is one of the largest market makers in US equities and serves as a designated market maker on the New York Stock Exchange.",
+    "blurb": "Hudson River Trading is a quantitative trading firm that uses algorithms and research to provide liquidity across global financial markets."
+  },
+  "imc": {
+    "accomplishment": "Founded by Amsterdam options traders, it makes markets in securities across exchanges worldwide and is a designated market maker on the New York Stock Exchange.",
+    "blurb": "IMC Trading is a technology-driven global market maker and proprietary trading firm that provides liquidity across financial markets."
+  },
+  "instacart": {
+    "accomplishment": "It is North America's largest online grocery platform, partnering with retailers to fulfill orders from their stores across the continent.",
+    "blurb": "Instacart is an online grocery marketplace connecting shoppers with delivery and pickup from local and national retailers."
+  },
+  "judgmentlabs": {
+    "accomplishment": "It created Judgeval, an open-source library for tracing, scoring, and monitoring agent behavior to surface failure patterns in production AI workflows.",
+    "blurb": "Judgment Labs builds evaluation and monitoring tools that help teams measure, debug, and continuously improve AI agents."
+  },
+  "jumptrading": {
+    "accomplishment": "Founded by former Chicago pit traders, it trades equities, futures, options, and digital assets worldwide and built a major presence in cryptocurrency through Jump Crypto.",
+    "blurb": "Jump Trading is a research-driven proprietary trading firm specializing in algorithmic and high-frequency trading across global markets."
+  },
+  "krea": {
+    "accomplishment": "It is known for a real-time canvas that renders generated imagery as users type or draw, plus custom-model training and its own Krea image models.",
+    "blurb": "Krea is a generative AI creative suite for producing and editing images, video, and 3D from text prompts."
+  },
+  "langchain": {
+    "accomplishment": "Its LangChain framework is among the most widely adopted open-source toolkits for LLM apps, complemented by LangGraph for agent orchestration and LangSmith for observability.",
+    "blurb": "LangChain builds open-source frameworks and tools for developing applications and agents powered by large language models."
+  },
+  "light": {
+    "accomplishment": "Light is recognized for pioneering an AI-powered general ledger designed to unify and automate financial operations across multiple countries and currencies.",
+    "blurb": "Light builds an AI-native general ledger and ERP platform that automates accounting, tax, payments, and reporting for global multinational companies."
+  },
+  "linear": {
+    "accomplishment": "Linear is known for setting a benchmark in developer tooling speed and design, becoming a widely adopted alternative to legacy trackers like Jira.",
+    "blurb": "Linear makes a fast, keyboard-driven issue tracking and project management tool purpose-built for software product and engineering teams."
+  },
+  "lyft": {
+    "accomplishment": "Lyft is one of the largest ridesharing platforms in North America and a primary competitor to Uber in the on-demand mobility market.",
+    "blurb": "Lyft operates a ridesharing marketplace connecting passengers with drivers through its mobile app across North America."
+  },
+  "merge": {
+    "accomplishment": "Merge is one of the most widely adopted unified API platforms, letting B2B software teams ship many third-party integrations through one normalized interface.",
+    "blurb": "Merge provides a single unified API that lets software products add hundreds of integrations across HR, payroll, accounting, CRM, and ticketing."
+  },
+  "microsoft": {
+    "accomplishment": "Microsoft's Windows is among the most widely used desktop operating systems in the world, and its Azure platform is a leading cloud computing service.",
+    "ats": "script",
+    "blurb": "Microsoft develops software, cloud services, and devices, including the Windows operating system, Office productivity suite, and Azure cloud platform.",
+    "boardToken": "microsoft",
+    "displayName": "Microsoft"
+  },
+  "mintlify": {
+    "accomplishment": "Mintlify powers documentation for leading developer companies and is known for automatically keeping docs in sync with a product's codebase.",
+    "blurb": "Mintlify offers an AI-native documentation platform that helps developer teams build polished docs sites with interactive API playgrounds and smart search."
+  },
+  "modal": {
+    "accomplishment": "Modal is known for serverless GPU and CPU infrastructure that lets AI and data teams run code at scale without managing underlying servers.",
+    "blurb": "Modal Labs runs a serverless cloud platform that lets developers deploy and scale compute-intensive AI, machine learning, and data workloads in Python."
+  },
+  "mongodb": {
+    "accomplishment": "MongoDB is the world's most popular document database, with its fully managed Atlas service offered across AWS, Azure, and Google Cloud.",
+    "blurb": "MongoDB develops a document-oriented NoSQL database and a multi-cloud data platform for building and scaling modern applications."
+  },
+  "netflix": {
+    "accomplishment": "Netflix is one of the world's largest streaming entertainment services, pioneering on-demand streaming and large-scale original content production worldwide.",
+    "blurb": "Netflix operates a global subscription streaming service offering films, series, and other content, and produces its own original programming."
+  },
+  "neuralink": {
+    "accomplishment": "Neuralink is known for surgically implanting a wireless brain chip that lets paralyzed people control digital devices using only their thoughts.",
+    "blurb": "Neuralink develops implantable brain-computer interface devices that connect the human brain directly to computers."
+  },
+  "nominal": {
+    "accomplishment": "Nominal is known for modernizing how engineers test complex physical and defense systems with software-driven hardware test and observability tooling.",
+    "blurb": "Nominal builds a unified data platform for capturing, analyzing, and monitoring hardware test data across aerospace, defense, and heavy industry."
+  },
+  "notion": {
+    "accomplishment": "Notion is known for pioneering the flexible block-based workspace, with a vast community of template and integration builders.",
+    "blurb": "Notion offers an all-in-one workspace combining notes, documents, databases, wikis, and project management for individuals and teams."
+  },
+  "nuro": {
+    "accomplishment": "Nuro was the first company to receive an autonomous vehicle exemption from the U.S. NHTSA for a purpose-built driverless delivery vehicle.",
+    "blurb": "Nuro develops AI-first autonomous driving technology, originally for custom self-driving local delivery vehicles."
+  },
+  "nvidia": {
+    "accomplishment": "NVIDIA invented the GPU and its CUDA platform powers the majority of the world's AI training and high-performance computing workloads.",
+    "blurb": "NVIDIA designs graphics processing units and accelerated computing platforms for gaming, data centers, and artificial intelligence."
+  },
+  "openai": {
+    "accomplishment": "OpenAI created ChatGPT and the GPT family of models, defining the modern generative AI era with one of the fastest-growing consumer applications ever.",
+    "blurb": "OpenAI is an artificial intelligence research and deployment company building large language models and AI products."
+  },
+  "optiver": {
+    "accomplishment": "Optiver is one of the world's leading market makers, trading and quoting prices across exchanges around the globe.",
+    "blurb": "Optiver is a proprietary trading firm and global market maker providing liquidity across equities, options, futures, and other asset classes."
+  },
+  "palantir": {
+    "accomplishment": "Palantir is known for its Gotham and Foundry platforms, widely used across government, defense, and enterprise for intelligence and operational analytics.",
+    "blurb": "Palantir builds data integration and analytics software platforms that help organizations make decisions from large, complex datasets."
+  },
+  "pallet": {
+    "accomplishment": "Pallet is known for its all-in-one logistics operating system that automates back-office freight workflows like order entry, dispatch, billing, and shipment tracking with AI agents.",
+    "blurb": "Pallet builds AI-powered logistics software, including transportation and warehouse management systems, for fleets, freight brokers, and third-party logistics providers."
+  },
+  "paraform": {
+    "accomplishment": "Paraform is known for its marketplace of vetted independent recruiters who fill roles on a pay-for-success basis, offering an alternative to in-house and agency hiring.",
+    "blurb": "Paraform operates a recruiting marketplace that connects companies with independent professional recruiters to fill open roles on a success-based fee model."
+  },
+  "paypal": {
+    "accomplishment": "PayPal is one of the world's most widely used digital payment networks and owns the Venmo and Braintree payment brands.",
+    "blurb": "PayPal operates a global online payments platform that lets consumers and businesses send, receive, and manage money digitally."
+  },
+  "perplexity": {
+    "accomplishment": "Perplexity is recognized as a leading AI search platform that pioneered citation-backed conversational answers as an alternative to traditional search engines.",
+    "blurb": "Perplexity runs an AI-powered answer engine that responds to questions with direct, conversational answers backed by cited web sources."
+  },
+  "pinterest": {
+    "accomplishment": "Pinterest is a leading visual discovery engine where people browse and save ideas, known as Pins, for inspiration and planning.",
+    "blurb": "Pinterest operates a visual discovery platform where users find, save, and organize images and ideas for projects and inspiration."
+  },
+  "plaid": {
+    "accomplishment": "Plaid is core financial infrastructure, providing the connectivity that lets fintech apps and banks securely link to users' bank accounts and financial data.",
+    "blurb": "Plaid provides a fintech data network and APIs that let applications securely connect to users' bank accounts and financial data."
+  },
+  "poke": {
+    "accomplishment": "Poke is known for making AI agents as accessible as sending a text, proactively handling email, calendar, and everyday tasks via iMessage and SMS.",
+    "blurb": "Poke, by The Interaction Company of California, is an AI personal assistant that operates through text messaging to manage tasks on a user's behalf."
+  },
+  "posthog": {
+    "accomplishment": "PostHog is known as a leading open-source, all-in-one product analytics suite that developers can self-host with full access to their own data.",
+    "blurb": "PostHog provides an open-source product analytics platform combining event tracking, session replay, feature flags, experimentation, and more for developers."
+  },
+  "pylon-labs": {
+    "accomplishment": "Pylon serves fast-growing software companies as a modern alternative to legacy help desks, consolidating omnichannel B2B support into a single inbox.",
+    "blurb": "Pylon is an AI-native customer support platform for B2B companies, unifying ticketing, chat, knowledge base, and account intelligence across Slack and Microsoft Teams."
+  },
+  "ramp": {
+    "accomplishment": "Ramp is known for pairing corporate cards with automated finance software designed to actively cut company spending rather than encourage it.",
+    "blurb": "Ramp provides corporate cards and a spend-management platform that helps businesses automate expenses, payments, accounting, and procurement."
+  },
+  "reddit": {
+    "accomplishment": "Reddit hosts hundreds of thousands of interest-based communities, billing itself as the front page of the internet and ranking among the world's most-visited sites.",
+    "blurb": "Reddit operates a social platform of community forums called subreddits where users post, vote on, and discuss content across nearly every topic."
+  },
+  "reducto": {
+    "accomplishment": "Reducto combines computer vision with vision-language models to parse documents at scale, outperforming major cloud document APIs on accuracy benchmarks.",
+    "blurb": "Reducto builds a document-parsing and ingestion API that turns complex PDFs, spreadsheets, and slides into structured data for AI systems."
+  },
+  "resolve-ai": {
+    "accomplishment": "Founded by co-creators of OpenTelemetry, Resolve AI is deployed in production at major technology, financial, and consumer companies to reduce incident resolution time.",
+    "blurb": "Resolve AI builds an agentic AI production engineer that autonomously investigates and resolves software incidents and SRE workflows."
+  },
+  "retool": {
+    "accomplishment": "Retool is widely adopted across enterprises and startups as a standard way to build internal software faster than coding apps from scratch.",
+    "blurb": "Retool is a development platform for quickly building internal tools, dashboards, and business apps from prebuilt UI components and existing data sources."
+  },
+  "roadrunner": {
+    "accomplishment": "Backed by Kleiner Perkins and led by repeat founders, Roadrunner aims to replace legacy quoting tools with an AI-driven pricing model for enterprise sales.",
+    "blurb": "Roadrunner builds AI-native CPQ (configure, price, quote) software with an agentic Prompt, Quote, Approve stack for enterprise sales pricing and deal approvals."
+  },
+  "robinhood": {
+    "accomplishment": "Robinhood is credited with popularizing commission-free trading and helping bring a new generation of retail investors into the financial markets.",
+    "blurb": "Robinhood operates a mobile-first investing app offering commission-free trading of stocks, options, ETFs, and cryptocurrencies."
+  },
+  "roblox": {
+    "accomplishment": "Roblox is one of the world's largest user-generated gaming platforms, where creators build experiences with its Studio tools and earn money via its Robux currency.",
+    "blurb": "Roblox operates an online platform and marketplace where users play, create, and share immersive 3D games and experiences built by a global community."
+  },
+  "saronic": {
+    "accomplishment": "Saronic produces a family of autonomous naval surface vessels for the U.S. military, designed to operate unmanned for missions including surveillance and at-sea rescue.",
+    "blurb": "Saronic designs and builds autonomous surface vessels and the software that lets them operate unmanned for defense and maritime missions."
+  },
+  "scaleai": {
+    "accomplishment": "Scale AI is a leading provider of the labeled data and evaluation tooling behind modern AI, serving automotive, enterprise, and U.S. government and defense customers.",
+    "blurb": "Scale AI provides data labeling, annotation, and evaluation infrastructure that supplies high-quality training and test data for machine learning models."
+  },
+  "sentry": {
+    "accomplishment": "Sentry is a widely adopted error-tracking and performance-monitoring platform, rooted in open source and supporting dozens of programming languages and frameworks.",
+    "blurb": "Sentry makes application monitoring software that helps developers detect, diagnose, and fix errors and performance issues across web, mobile, and backend apps."
+  },
+  "sesame": {
+    "accomplishment": "Founded by Oculus co-founder Brendan Iribe, Sesame created a Conversational Speech Model that produces emotionally expressive, natural-sounding voice assistants.",
+    "blurb": "Sesame builds lifelike conversational voice AI companions and lightweight wearable glasses designed to access them throughout the day."
+  },
+  "sierra": {
+    "accomplishment": "Co-founded by former Salesforce co-CEO Bret Taylor and ex-Google Labs lead Clay Bavor, Sierra powers customer-facing AI agents for major enterprise brands.",
+    "blurb": "Sierra builds a platform that lets businesses create branded conversational AI agents for customer service, sales, and operations across chat, voice, and messaging."
+  },
+  "siftstack": {
+    "accomplishment": "Sift offers an observability stack purpose-built for mission-critical hardware, serving aerospace, defense, and robotics teams working with high-cardinality sensor data.",
+    "blurb": "Sift builds an observability platform that ingests, stores, and analyzes hardware sensor telemetry at scale for engineering teams."
+  },
+  "slack": {
+    "accomplishment": "Slack is a leading team-collaboration platform known for popularizing channel-based workplace messaging, and is part of Salesforce.",
+    "blurb": "Slack provides a cloud-based messaging platform that organizes team communication into channels and integrates with workplace tools and apps."
+  },
+  "snap": {
+    "accomplishment": "Snap pioneered ephemeral messaging and augmented-reality lenses through Snapchat, a camera app used by hundreds of millions of people daily.",
+    "blurb": "Snap is a camera and social media company whose flagship app, Snapchat, lets people share disappearing photos and videos."
+  },
+  "snowflake": {
+    "accomplishment": "Snowflake popularized the cloud data warehouse by separating storage from compute, enabling elastic, cross-cloud analytics and secure data sharing at scale.",
+    "blurb": "Snowflake provides a cloud-based data platform for storing, querying, and sharing large-scale data and AI workloads across providers."
+  },
+  "spacex": {
+    "accomplishment": "SpaceX is the first private company to develop reusable orbital rockets and to send astronauts to the International Space Station.",
+    "blurb": "SpaceX designs, manufactures, and launches rockets and spacecraft, providing launch services and satellite internet to advance access to space."
+  },
+  "spotify": {
+    "accomplishment": "Spotify is the world's largest music streaming service, known for personalized recommendations and discovery features like its annual Wrapped recap.",
+    "blurb": "Spotify operates an audio streaming platform offering music, podcasts, and audiobooks to listeners and a distribution channel for creators."
+  },
+  "squarespace": {
+    "accomplishment": "Squarespace is known for its design-forward, template-driven website builder that lets individuals and small businesses launch professional sites without coding.",
+    "blurb": "Squarespace offers an all-in-one platform for building websites, online stores, and managing domains, scheduling, and digital marketing."
+  },
+  "stainlessapi": {
+    "accomplishment": "Stainless powers the official client libraries for leading API providers including OpenAI, Anthropic, and Cloudflare across languages like TypeScript, Python, and Go.",
+    "blurb": "Stainless generates client SDKs, CLIs, and developer tooling for APIs directly from their OpenAPI specifications."
+  },
+  "stripe": {
+    "accomplishment": "Stripe is a foundational internet payments platform whose developer-friendly APIs power online checkout for millions of businesses worldwide.",
+    "blurb": "Stripe builds payments infrastructure and financial APIs that let businesses accept payments and manage commerce online."
+  },
+  "sunday": {
+    "accomplishment": "Founded by Stanford roboticists behind influential robot-learning work, Sunday trains its Memo robot on millions of real household chore demonstrations.",
+    "blurb": "Sunday Robotics builds AI-powered household robots, led by its home robot Memo that learns and performs everyday chores."
+  },
+  "supabase": {
+    "accomplishment": "Supabase is widely known as the open-source alternative to Firebase, building its entire platform around the standard PostgreSQL database.",
+    "blurb": "Supabase is an open-source backend-as-a-service that gives developers a hosted Postgres database with authentication, storage, realtime, and auto-generated APIs."
+  },
+  "thinkingmachines": {
+    "accomplishment": "Thinking Machines pursues a mission of building collaborative, customizable general intelligence and offers Tinker, an API for fine-tuning open-weight language models.",
+    "blurb": "Thinking Machines is an artificial intelligence research and product lab founded by former OpenAI chief technology officer Mira Murati."
+  },
+  "togetherai": {
+    "accomplishment": "Together AI is recognized for fast, cost-efficient inference and for advancing open research like the FlashAttention and RedPajama open-dataset projects.",
+    "blurb": "Together AI operates a cloud platform for running, fine-tuning, and training open-source generative AI models on high-performance GPU infrastructure."
+  },
+  "trajectory": {
+    "accomplishment": "Trajectory partners with AI-native companies to continuously post-train their models in production, turning live usage signals into ongoing model improvements.",
+    "blurb": "Trajectory builds a continual-learning platform that post-trains large-scale agentic AI models on real product-usage signals so they improve over time."
+  },
+  "traversal": {
+    "accomplishment": "Traversal applies causal machine learning to identify the true root cause of production incidents in minutes, serving large enterprises like American Express.",
+    "blurb": "Traversal builds an AI site reliability engineer that autonomously triages production incidents and pinpoints their root cause across complex systems."
+  },
+  "turo": {
+    "accomplishment": "Turo is one of the world's largest car-sharing marketplaces, connecting guests with a wide selection of host-owned vehicles across many countries.",
+    "blurb": "Turo runs a peer-to-peer car-sharing marketplace where private vehicle owners rent their cars to travelers and other guests."
+  },
+  "twilio": {
+    "accomplishment": "Twilio is a foundational customer-engagement platform whose programmable APIs power SMS, phone, and authentication flows for a vast range of companies.",
+    "blurb": "Twilio provides cloud communications APIs that let developers embed messaging, voice, email, and video into their applications."
+  },
+  "twitch": {
+    "accomplishment": "Twitch is the world's leading live-streaming service for gamers and a flagship part of Amazon, pioneering interactive features like Bits and channel subscriptions.",
+    "blurb": "Twitch operates a live-streaming platform centered on gaming, esports, music, and creator content with real-time interactive chat."
+  },
+  "unity3d": {
+    "accomplishment": "Unity is one of the world's most widely used game engines, powering a large share of mobile and indie games.",
+    "blurb": "Unity builds a cross-platform real-time 3D engine and toolset for creating and operating games and interactive content."
+  },
+  "vercel": {
+    "accomplishment": "Vercel created and maintains Next.js, one of the most popular React frameworks for building web applications.",
+    "blurb": "Vercel operates a frontend cloud platform for deploying, scaling, and hosting modern web applications."
+  },
+  "vizcom": {
+    "accomplishment": "Vizcom's sketch-to-render tools are used by industrial and automotive design teams to accelerate concept visualization.",
+    "blurb": "Vizcom makes an AI design platform that turns rough sketches into photorealistic, refinable product renders."
+  },
+  "waymo": {
+    "accomplishment": "Waymo, an Alphabet subsidiary, operates a fully driverless public robotaxi service on U.S. city streets.",
+    "blurb": "Waymo develops autonomous driving technology and operates a self-driving ride-hailing service."
+  },
+  "wispr-flow": {
+    "accomplishment": "Wispr Flow delivers AI voice-to-text across desktop and mobile, automatically cleaning up spoken input into polished writing.",
+    "blurb": "Wispr Flow builds an AI voice dictation app that turns natural speech into clean, formatted text across any application."
+  },
+  "workweave": {
+    "accomplishment": "Workweave gives engineering teams AI-driven visibility into productivity, impact, and collaboration across their development work.",
+    "blurb": "Workweave (Weave) builds an AI agent that measures and improves how software engineering teams work and ship."
+  },
+  "xai": {
+    "accomplishment": "xAI develops Grok, an AI assistant integrated with the X platform, and was founded by Elon Musk.",
+    "blurb": "xAI is an artificial intelligence company building advanced AI models and the Grok conversational assistant."
+  },
+  "zoox": {
+    "accomplishment": "Zoox, an Amazon subsidiary, develops a bidirectional, steering-wheel-free vehicle engineered from the ground up for autonomous ride-hailing.",
+    "blurb": "Zoox designs and operates purpose-built autonomous robotaxis for on-demand urban ride-hailing."
+  }
+}

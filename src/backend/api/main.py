@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from .auth.internal_key import require_internal_key, warn_if_unset
 from .config import settings
 from .dependencies import get_db, init_pool, close_pool, pool_is_healthy
-from .routers import admin, feedback, features, jobs, jobs_qa, users
+from .routers import admin, companies, feedback, features, jobs, jobs_qa, users
 from .tasks import procrastinate_app
 from .tasks.procrastinate_app import ensure_schema_async
 from .migrations import apply_alembic_migrations
@@ -142,6 +142,7 @@ async def lifespan(app: FastAPI):
     # get_db()/the pool lookup is a data-plane hiccup that should not
     # prevent the rest of the lifespan from continuing.
     from .services.features_seed import seed_starter_features
+    from .services.companies_seed import seed_company_profiles
     from .dependencies import get_db
 
     try:
@@ -156,6 +157,27 @@ async def lifespan(app: FastAPI):
                 pass
     except (psycopg2.Error, RuntimeError):
         logger.exception("Failed to seed starter features during startup")
+
+    # Seed curated company directory content (blurb + accomplishment) and the
+    # script-scraped rows (google/apple/microsoft). Same soft-fail contract as
+    # the feature seed, but a BROADER except: this seed also reads + parses a
+    # committed JSON file, so a malformed/unreadable company_profiles.json (or a
+    # wrongly-shaped entry) raises JSONDecodeError/OSError/AttributeError — none
+    # of which are psycopg2/RuntimeError. The directory seed is non-critical;
+    # a content problem must degrade to last-good DB content, never crash-loop
+    # boot. (The JSON is loaded lazily inside the seeder so it's covered here.)
+    try:
+        gen = get_db()
+        seed_conn = next(gen)
+        try:
+            seed_company_profiles(seed_conn)
+        finally:
+            try:
+                next(gen)
+            except StopIteration:
+                pass
+    except Exception:
+        logger.exception("Failed to seed company profiles during startup")
 
     # Start background auto-scraper
     from .services.auto_scraper import auto_scraper_loop
@@ -256,6 +278,7 @@ app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])
 app.include_router(jobs_qa.router, prefix="/api/jobs-qa", tags=["jobs-qa"])
 app.include_router(users.router, prefix="/api/users", tags=["users"])
 app.include_router(features.router, prefix="/api/features", tags=["features"])
+app.include_router(companies.router, prefix="/api/companies", tags=["companies"])
 app.include_router(feedback.router, prefix="/api/feedback", tags=["feedback"])
 app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 

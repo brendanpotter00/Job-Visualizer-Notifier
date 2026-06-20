@@ -259,7 +259,7 @@ def clean_tables(db_conn):
 @pytest.fixture(scope="module")
 def test_app(db_conn):
     """FastAPI test app with database connection wired up (no auto-scraper)."""
-    from api.routers import admin, feedback, features, jobs, jobs_qa, users
+    from api.routers import admin, companies, feedback, features, jobs, jobs_qa, users
     from api.dependencies import get_db
     from api.auth.dependencies import (
         get_current_user,
@@ -272,6 +272,7 @@ def test_app(db_conn):
     app.include_router(jobs_qa.router, prefix="/api/jobs-qa")
     app.include_router(users.router, prefix="/api/users")
     app.include_router(features.router, prefix="/api/features")
+    app.include_router(companies.router, prefix="/api/companies")
     app.include_router(feedback.router, prefix="/api/feedback")
     app.include_router(admin.router, prefix="/api/admin")
 
