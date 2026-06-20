@@ -4,6 +4,7 @@ import type { Job } from '../../../types';
 import { useJobMetadata } from '../../shared/JobCard/useJobMetadata.ts';
 import { JobChipsSection } from '../../shared/JobCard/JobChipsSection.tsx';
 import { CARD_HOVER_SX, CARD_VARIANT } from '../../shared/JobCard/jobCardStyles.ts';
+import { CompanyLogo } from '../../shared/CompanyLogo/CompanyLogo.tsx';
 import { formatJobLocations } from '../../../lib/location.ts';
 
 interface RecentJobCardProps {
@@ -41,9 +42,12 @@ export function RecentJobCard({ job, companyName, recruiterLinkedInUrl }: Recent
     >
       <CardContent>
         {/* Company header */}
-        <Typography variant="subtitle2" color="text.secondary" fontWeight="bold" mb={1}>
-          {companyName}
-        </Typography>
+        <Stack direction="row" spacing={1} alignItems="center" mb={1}>
+          <CompanyLogo companyId={job.company} companyName={companyName} size={24} />
+          <Typography variant="subtitle2" color="text.secondary" fontWeight="bold">
+            {companyName}
+          </Typography>
+        </Stack>
 
         {/* Job title */}
         <Typography variant="h6" component="h3" gutterBottom>
