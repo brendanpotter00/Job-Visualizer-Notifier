@@ -31,10 +31,16 @@ function AppContent() {
   // Hydrate enabled-companies at the app root so selectors have it before
   // any page reads them.
   useEnabledCompanies();
+  // Register the RTK Query token-getter BEFORE the hydrate hook below. On the
+  // render where auth flips true, the hydrate hook fires the preferences /
+  // keyword-lists requests; those must read a credential-bearing token getter
+  // (not the stale anonymous one) or they go out without an Authorization header,
+  // 401, and stick — the queries have no retry / refetchOnMountOrArgChange.
+  // React runs effects in declaration order, so the bridge must come first.
+  useFeaturesAuthBridge();
   // Hydrate the filter slices (time windows, locations, active keyword list)
   // from saved user preferences once on sign-in; reset on sign-out.
   useHydrateFilterPreferences();
-  useFeaturesAuthBridge();
 
   return (
     <>

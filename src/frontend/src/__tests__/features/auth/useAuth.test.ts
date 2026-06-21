@@ -95,6 +95,19 @@ describe('useAuth', () => {
     expect(result.current.isAuthenticated).toBe(true);
   });
 
+  it('is authenticated via Google credential while Auth0 is still loading', async () => {
+    // Crux of the One Tap fix: a fresh Google credential flips isAuthenticated
+    // true (un-skipping the preferences query and hydrating filters) even while
+    // Auth0's silent-auth is still in flight. isAuthenticated and isLoading are
+    // independent, so One Tap no longer has to wait out Auth0's ~30s timeout.
+    mockGoogleCredential = 'google-jwt-token';
+    mockAuth0State.isLoading = true;
+    const { useAuth } = await import('../../../features/auth/useAuth');
+    const { result } = renderHook(() => useAuth());
+    expect(result.current.isAuthenticated).toBe(true);
+    expect(result.current.isLoading).toBe(true);
+  });
+
   it('returns isAuthenticated false when config is disabled even if Auth0 is authenticated', async () => {
     mockAuth0State.isAuthenticated = true;
     mockAuthConfig.isEnabled = false;

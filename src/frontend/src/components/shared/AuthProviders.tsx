@@ -23,6 +23,14 @@ export function AuthProviders({ children }: { children: React.ReactNode }) {
         cacheLocation="localstorage"
         useRefreshTokens
         useRefreshTokensFallback
+        // Cap the background /authorize?prompt=none silent-auth (default 60s). A
+        // Google-One-Tap-only user has no Auth0 refresh token, so this iframe
+        // always runs and stalls on Chrome's blocked third-party cookies. One Tap
+        // no longer waits on it (see GoogleOneTap.tsx), but bounding it to 8s
+        // limits wasted background work and the transient "authenticated but
+        // isLoading still true" window that gates UserMenu / SignInOverlay /
+        // EditCompanyPreferencesLink.
+        authorizeTimeoutInSeconds={8}
         authorizationParams={{
           redirect_uri: AUTH_CONFIG.redirectUri,
           audience: AUTH_CONFIG.audience,
