@@ -13,6 +13,7 @@ import logging
 
 import psycopg2
 from fastapi import APIRouter, Depends, HTTPException
+from psycopg2.extensions import connection as Connection
 
 from ..auth.dependencies import TokenClaims, get_optional_user_lenient
 from ..auth.jwt import get_normalized_subject
@@ -28,7 +29,7 @@ router = APIRouter()
 
 
 def _resolve_optional_submitter(
-    conn, user: TokenClaims | None
+    conn: Connection, user: TokenClaims | None
 ) -> tuple[str | None, str | None, str | None]:
     """Resolve the (user_id, email, display_name) snapshot for the submitter.
 
@@ -75,9 +76,9 @@ def _resolve_optional_submitter(
 )
 def post_feedback(
     body: FeedbackSubmitRequest,
-    conn=Depends(get_db),
+    conn: Connection = Depends(get_db),
     user: TokenClaims | None = Depends(get_optional_user_lenient),
-):
+) -> FeedbackResponse:
     message = body.message.strip()
     if not message:
         raise HTTPException(status_code=422, detail="Message must not be empty")

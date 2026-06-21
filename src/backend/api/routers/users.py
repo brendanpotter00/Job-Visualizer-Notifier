@@ -4,6 +4,7 @@ import logging
 
 import psycopg2
 from fastapi import APIRouter, Depends, HTTPException
+from psycopg2.extensions import connection as Connection
 
 from ..auth.dependencies import TokenClaims, get_current_user
 from ..auth.jwt import get_normalized_subject
@@ -62,9 +63,9 @@ def _row_to_user_response(row: UserRow, *, is_admin: bool) -> UserResponse:
 
 @router.get("", response_model=UserResponse)
 async def get_current_user_profile(
-    conn=Depends(get_db),
+    conn: Connection = Depends(get_db),
     user: TokenClaims = Depends(get_current_user),
-):
+) -> UserResponse:
     """Get or create the authenticated user's profile.
 
     Catches only ``psycopg2.Error`` around ``get_or_create_user`` —
@@ -103,9 +104,9 @@ async def get_current_user_profile(
 @router.put("", response_model=UserResponse)
 async def update_current_user_profile(
     body: UserUpdateRequest,
-    conn=Depends(get_db),
+    conn: Connection = Depends(get_db),
     user: TokenClaims = Depends(get_current_user),
-):
+) -> UserResponse:
     """Update the authenticated user's display name.
 
     Keyed by ``email`` (the stable identifier) rather than ``auth0_id`` — a
@@ -136,9 +137,9 @@ async def update_current_user_profile(
 
 @router.get("/enabled-companies", response_model=EnabledCompaniesResponse)
 async def get_enabled_companies(
-    conn=Depends(get_db),
+    conn: Connection = Depends(get_db),
     user: TokenClaims = Depends(get_current_user),
-):
+) -> EnabledCompaniesResponse:
     """Return the company IDs the authenticated user has enabled."""
     email = user.get("email")
     if not email:
@@ -164,9 +165,9 @@ async def get_enabled_companies(
 @router.put("/enabled-companies", response_model=EnabledCompaniesResponse)
 async def update_enabled_companies(
     body: EnabledCompaniesUpdateRequest,
-    conn=Depends(get_db),
+    conn: Connection = Depends(get_db),
     user: TokenClaims = Depends(get_current_user),
-):
+) -> EnabledCompaniesResponse:
     """Replace the authenticated user's enabled-companies set."""
     email = user.get("email")
     if not email:

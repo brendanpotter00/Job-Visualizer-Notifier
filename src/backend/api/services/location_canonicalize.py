@@ -38,6 +38,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
+from typing import Protocol
 
 logger = logging.getLogger(__name__)
 
@@ -165,7 +166,7 @@ def canonical_region(raw: str | None, canon_country: str | None, kind: str) -> s
     if canon_country == "US":
         up = s.upper()
         if _TWO_LETTER.match(up) and up in _US_STATE_CODES:
-            region = up
+            region: str | None = up
         else:
             mapped = _US_STATE_NAME_TO_USPS.get(up)
             if mapped:
@@ -238,7 +239,33 @@ def canonicalize_parts(
     )
 
 
-def canonicalize(loc) -> CanonicalParts:
+class _LocationLike(Protocol):
+    """Structural type for anything ``canonicalize`` can read.
+
+    A ``CanonicalLocation`` (LLM), a ``models.LocationSpec`` (admin), and the
+    backfill's row wrapper all satisfy this — they expose the same 6 attributes.
+    Declaring it as a Protocol makes a caller passing the wrong shape a
+    type error rather than a runtime ``AttributeError``.
+
+    Members are read-only properties (covariant) so a model whose ``kind`` is a
+    narrower ``Literal`` (e.g. ``models.LocationSpec``) still matches ``str``.
+    """
+
+    @property
+    def kind(self) -> str: ...
+    @property
+    def canonical_name(self) -> str: ...
+    @property
+    def city(self) -> str | None: ...
+    @property
+    def region(self) -> str | None: ...
+    @property
+    def country(self) -> str | None: ...
+    @property
+    def remote_scope(self) -> str | None: ...
+
+
+def canonicalize(loc: _LocationLike) -> CanonicalParts:
     """Canonicalize any object exposing the 6 location attributes.
 
     Accepts a ``CanonicalLocation`` (LLM), a ``models.LocationSpec`` (admin), or

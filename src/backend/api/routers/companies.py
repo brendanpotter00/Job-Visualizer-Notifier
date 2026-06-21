@@ -11,6 +11,7 @@ import logging
 
 import psycopg2
 from fastapi import APIRouter, Depends, HTTPException
+from psycopg2.extensions import connection as Connection
 
 from ..dependencies import get_db
 from ..models import CompanyListResponse, CompanyProfileResponse
@@ -22,7 +23,7 @@ router = APIRouter()
 
 
 @router.get("", response_model=CompanyListResponse)
-def list_companies(conn=Depends(get_db)):
+def list_companies(conn: Connection = Depends(get_db)) -> CompanyListResponse:
     try:
         rows = list_enabled_companies_with_profiles(conn)
     except psycopg2.Error:

@@ -1,13 +1,14 @@
 """FastAPI authentication dependencies."""
 
 import logging
-from typing import TypedDict
 
 import jwt
 from jwt import PyJWKClientError
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from psycopg2.extensions import connection as Connection
 
+from .claims import TokenClaims
 from .jwt import validate_token
 from ..dependencies import get_db
 from ..services.admin_service import is_admin_by_email
@@ -16,13 +17,11 @@ logger = logging.getLogger(__name__)
 
 _bearer_scheme = HTTPBearer(auto_error=False)
 
-
-class TokenClaims(TypedDict, total=False):
-    sub: str
-    email: str
-    given_name: str | None
-    family_name: str | None
-    picture: str | None
+# TokenClaims is re-exported here so existing `from ..auth.dependencies import
+# TokenClaims` call sites (routers) keep working; the type itself lives in
+# auth.claims to avoid an import cycle with the validators.
+__all__ = ["TokenClaims", "get_optional_user", "get_optional_user_lenient",
+           "get_current_user", "require_admin"]
 
 
 async def get_optional_user(
@@ -87,7 +86,7 @@ async def get_current_user(
 
 
 async def require_admin(
-    conn=Depends(get_db),
+    conn: Connection = Depends(get_db),
     user: TokenClaims = Depends(get_current_user),
 ) -> TokenClaims:
     """Require an admin grant for the authenticated user.

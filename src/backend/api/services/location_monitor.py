@@ -31,11 +31,13 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 import psycopg2
+from psycopg2.extensions import connection as Connection
 
 from ..config import settings
+from .db_rows import scalar
 
 logger = logging.getLogger(__name__)
 
@@ -183,22 +185,13 @@ _SQL_D_THROUGHPUT = (
 )
 
 
-def _scalar(row, key: str):
-    """Read a column from a RealDict row or a plain tuple (first col)."""
-    if row is None:
-        return None
-    if isinstance(row, dict):
-        return row[key]
-    return row[0]
-
-
-def _regclass(cur, name: str) -> bool:
+def _regclass(cur: Any, name: str) -> bool:
     """True when ``to_regclass(name)`` resolves (table exists on search_path)."""
     cur.execute("SELECT to_regclass(%s) AS oid", (name,))
-    return _scalar(cur.fetchone(), "oid") is not None
+    return scalar(cur.fetchone(), "oid") is not None
 
 
-def _normalization_column_present(cur) -> bool:
+def _normalization_column_present(cur: Any) -> bool:
     """True when job_listings exists AND has a normalization_status column.
 
     Search-path-correct (no hardcoded ``public``) AND non-raising: resolves the
@@ -219,10 +212,10 @@ def _normalization_column_present(cur) -> bool:
         "AND attname = 'normalization_status' "
         "AND NOT attisdropped AND attnum > 0"
     )
-    return int(_scalar(cur.fetchone(), "n") or 0) > 0
+    return int(scalar(cur.fetchone(), "n") or 0) > 0
 
 
-def get_health(conn, window_hours: int) -> dict:
+def get_health(conn: Connection, window_hours: int) -> dict:
     """Health snapshot for the monitor page. SELECT-only; never commits.
 
     Returns the AdminLocationHealthResponse dict (snake_case keys; the router's
@@ -276,17 +269,17 @@ def get_health(conn, window_hours: int) -> dict:
             # B1 backlog
             cur.execute(_SQL_B1_BACKLOG, {"window_hours": window_hours})
             b1 = cur.fetchone()
-            null_backlog = int(_scalar(b1, "null_backlog") or 0)
-            null_aged = int(_scalar(b1, "null_aged") or 0)
-            done = int(_scalar(b1, "done") or 0)
-            failed = int(_scalar(b1, "failed") or 0)
-            total = int(_scalar(b1, "total") or 0)
+            null_backlog = int(scalar(b1, "null_backlog") or 0)
+            null_aged = int(scalar(b1, "null_aged") or 0)
+            done = int(scalar(b1, "done") or 0)
+            failed = int(scalar(b1, "failed") or 0)
+            total = int(scalar(b1, "total") or 0)
 
             # B2 failed-blank / failed-nonblank
             cur.execute(_SQL_B2_FAILED)
             b2 = cur.fetchone()
-            failed_blank = int(_scalar(b2, "failed_blank") or 0)
-            failed_nonblank = int(_scalar(b2, "failed_nonblank") or 0)
+            failed_blank = int(scalar(b2, "failed_blank") or 0)
+            failed_nonblank = int(scalar(b2, "failed_nonblank") or 0)
 
             denom = done + failed_nonblank
             failed_nonblank_ratio = (
@@ -297,7 +290,7 @@ def get_health(conn, window_hours: int) -> dict:
             heartbeat_age_minutes = None
             if _regclass(cur, "worker_heartbeats"):
                 cur.execute(_SQL_A2_HEARTBEAT)
-                heartbeat_age_minutes = _scalar(cur.fetchone(), "minutes_since_heartbeat")
+                heartbeat_age_minutes = scalar(cur.fetchone(), "minutes_since_heartbeat")
                 if heartbeat_age_minutes is not None:
                     heartbeat_age_minutes = float(heartbeat_age_minutes)
 
@@ -308,10 +301,10 @@ def get_health(conn, window_hours: int) -> dict:
             if _regclass(cur, "procrastinate_jobs"):
                 cur.execute(_SQL_D_NORMALIZE_QUEUE)
                 for r in cur.fetchall():
-                    normalize_queue[str(_scalar(r, "status"))] = int(_scalar(r, "n"))
+                    normalize_queue[str(scalar(r, "status"))] = int(scalar(r, "n"))
                 if _regclass(cur, "procrastinate_events"):
                     cur.execute(_SQL_D_THROUGHPUT, {"window_hours": window_hours})
-                    throughput_in_window = int(_scalar(cur.fetchone(), "n") or 0)
+                    throughput_in_window = int(scalar(cur.fetchone(), "n") or 0)
 
         # dormant: no key AND a large NULL backlog with nothing processed yet
         # (done==0 and failed_nonblank==0) — the runbook's dormancy inference.
@@ -352,7 +345,7 @@ def get_health(conn, window_hours: int) -> dict:
             pass
 
 
-def get_integrity(conn) -> dict:
+def get_integrity(conn: Connection) -> dict:
     """Run every C1..C9 integrity check. SELECT-only; never commits.
 
     Returns {schemaPresent, checks:[{id,label,count,severity}]}. ``severity`` is
@@ -374,7 +367,7 @@ def get_integrity(conn) -> dict:
             checks = []
             for chk in INTEGRITY_CHECKS:
                 cur.execute(chk.sql)
-                count = int(_scalar(cur.fetchone(), "n") or 0)
+                count = int(scalar(cur.fetchone(), "n") or 0)
                 severity = "ok" if count == 0 else chk.severity_when_nonzero
                 checks.append(
                     {"id": chk.id, "label": chk.label, "count": count, "severity": severity}

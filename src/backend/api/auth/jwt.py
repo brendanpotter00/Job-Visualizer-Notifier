@@ -2,11 +2,14 @@
 
 import logging
 import threading
+from collections.abc import Mapping
+from typing import Any, cast
 
 import jwt
 from jwt import PyJWKClient, PyJWTError
 
 from ..config import settings
+from .claims import TokenClaims
 from .google_jwt import GOOGLE_ISSUERS
 
 logger = logging.getLogger(__name__)
@@ -36,7 +39,7 @@ def _get_jwks_client() -> PyJWKClient:
     return _jwks_client
 
 
-def _validate_auth0_token(token: str) -> dict:
+def _validate_auth0_token(token: str) -> TokenClaims:
     """Validate a JWT token against the Auth0 JWKS endpoint."""
     client = _get_jwks_client()
     try:
@@ -56,10 +59,13 @@ def _validate_auth0_token(token: str) -> dict:
         logger.warning("Auth0 token decode failed", exc_info=True)
         raise
     logger.debug("Auth0 token validated for sub=%s", claims.get("sub"))
-    return claims
+    # cast at the decode boundary: jwt.decode is untyped (returns Any), and a
+    # validated JWT's claim set is the TokenClaims shape. Doing it here means
+    # callers get a precise type with no cast of their own.
+    return cast(TokenClaims, claims)
 
 
-def validate_token(token: str) -> dict:
+def validate_token(token: str) -> TokenClaims:
     """Validate a JWT against Auth0 or Google JWKS based on the token issuer."""
     try:
         # Unverified decode — only used to extract the issuer for dispatcher
@@ -87,7 +93,7 @@ def validate_token(token: str) -> dict:
     return _validate_auth0_token(token)
 
 
-def get_normalized_subject(claims: dict) -> str | None:
+def get_normalized_subject(claims: Mapping[str, Any]) -> str | None:
     """Return a provider-prefixed stable user identifier from JWT claims.
 
     Auth0 tokens already embed the provider (e.g. ``auth0|…``, ``google-oauth2|…``)
@@ -102,4 +108,7 @@ def get_normalized_subject(claims: dict) -> str | None:
     issuer = claims.get("iss", "")
     if issuer in GOOGLE_ISSUERS:
         return f"google|{sub}"
-    return sub
+    # str() coerces (and can't lie the way cast(str, ...) can): a JWT `sub` is a
+    # StringOrURI per RFC 7519, but `claims` is Mapping[str, Any] so `sub` is
+    # statically Any. The `if not sub` guard above already excludes None/empty.
+    return str(sub)

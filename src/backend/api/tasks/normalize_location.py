@@ -18,8 +18,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Any
 
 from procrastinate import JobContext, RetryStrategy
+from psycopg2.extensions import connection as Connection
 
 from scripts.shared import database as db
 
@@ -52,14 +54,14 @@ _RETRY_MAX_ATTEMPTS = 5
 _DONE_SENTINEL = object()
 
 
-async def _open_conn(application_name: str):
+async def _open_conn(application_name: str) -> Connection:
     return await asyncio.to_thread(
         db.get_connection, settings.database_url,
         application_name=application_name, statement_timeout_ms=_STATEMENT_TIMEOUT_MS,
     )
 
 
-async def _close_conn(conn) -> None:
+async def _close_conn(conn: Connection) -> None:
     try:
         await asyncio.to_thread(conn.close)
     except Exception:
@@ -76,7 +78,7 @@ async def normalize_location(context: JobContext | None = None, *, job_id: str) 
     # ---- tx1: read + Tier-1. Connection released BEFORE the LLM await. ----
     conn = await _open_conn("task_normalize_location")
     try:
-        def _read_and_tier1():
+        def _read_and_tier1() -> Any:
             cur = conn.cursor()
             try:
                 cur.execute(

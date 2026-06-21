@@ -125,7 +125,7 @@ def grant_admin(conn: Connection, user_id: str, granted_by_id: str | None) -> bo
         )
         inserted = cursor.rowcount == 1
     conn.commit()
-    return inserted
+    return bool(inserted)
 
 
 def revoke_admin(conn: Connection, user_id: str) -> bool:
@@ -175,7 +175,7 @@ def revoke_admin(conn: Connection, user_id: str) -> bool:
             )
             deleted = cursor.rowcount == 1
         conn.commit()
-        return deleted
+        return bool(deleted)
     except Exception:
         # Includes LastAdminError — rolls back the row locks then re-raises.
         # The router's ``except LastAdminError`` translates to a 409;

@@ -16,6 +16,7 @@ from .scraper_runner import run_scraper
 
 logger = logging.getLogger(__name__)
 
+_libc: ctypes.CDLL | None
 try:
     _libc = ctypes.CDLL("libc.so.6")
 except OSError:

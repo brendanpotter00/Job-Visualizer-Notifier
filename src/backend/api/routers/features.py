@@ -4,6 +4,7 @@ import logging
 
 import psycopg2
 from fastapi import APIRouter, Depends, HTTPException, Path
+from psycopg2.extensions import connection as Connection
 
 from ..auth.dependencies import TokenClaims, get_current_user, get_optional_user
 from ..auth.jwt import get_normalized_subject
@@ -26,7 +27,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def _resolve_user_id_for_mutation(conn, user: TokenClaims) -> str:
+def _resolve_user_id_for_mutation(conn: Connection, user: TokenClaims) -> str:
     auth0_id = get_normalized_subject(user)
     if not auth0_id:
         raise HTTPException(status_code=401, detail="Token missing required 'sub' claim")
@@ -48,7 +49,7 @@ def _resolve_user_id_for_mutation(conn, user: TokenClaims) -> str:
     return row["id"]
 
 
-def _resolve_optional_user_id(conn, user: TokenClaims | None) -> str | None:
+def _resolve_optional_user_id(conn: Connection, user: TokenClaims | None) -> str | None:
     # GET is best-effort: a DB hiccup when looking up the caller should not fail
     # the whole list endpoint. Treat the caller as anonymous (hasUpvoted=false on
     # every row) and log so the symptom is debuggable.
@@ -72,9 +73,9 @@ def _resolve_optional_user_id(conn, user: TokenClaims | None) -> str | None:
 
 @router.get("", response_model=FeatureListResponse)
 def list_features(
-    conn=Depends(get_db),
+    conn: Connection = Depends(get_db),
     user: TokenClaims | None = Depends(get_optional_user),
-):
+) -> FeatureListResponse:
     user_id = _resolve_optional_user_id(conn, user)
     try:
         rows = list_features_with_upvotes(conn, user_id)
@@ -102,9 +103,9 @@ def list_features(
 @router.post("/{feature_id}/upvote", response_model=FeatureUpvoteStateResponse)
 def post_upvote(
     feature_id: str = Path(min_length=1, max_length=64),
-    conn=Depends(get_db),
+    conn: Connection = Depends(get_db),
     user: TokenClaims = Depends(get_current_user),
-):
+) -> FeatureUpvoteStateResponse:
     user_id = _resolve_user_id_for_mutation(conn, user)
     try:
         result = add_upvote(conn, feature_id, user_id)
@@ -123,9 +124,9 @@ def post_upvote(
 @router.delete("/{feature_id}/upvote", response_model=FeatureUpvoteStateResponse)
 def delete_upvote(
     feature_id: str = Path(min_length=1, max_length=64),
-    conn=Depends(get_db),
+    conn: Connection = Depends(get_db),
     user: TokenClaims = Depends(get_current_user),
-):
+) -> FeatureUpvoteStateResponse:
     user_id = _resolve_user_id_for_mutation(conn, user)
     try:
         result = remove_upvote(conn, feature_id, user_id)

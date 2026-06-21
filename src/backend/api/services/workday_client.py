@@ -428,7 +428,7 @@ def _transform_one(
     # Workday's list endpoint exposes only `title`/`externalPath`/
     # `locationsText`/`postedOn`/`bulletFields[*]` structurally; the
     # other keys are None / [] because we don't have detail-page data.
-    details = {
+    details: dict[str, Any] = {
         "department": None,
         "team": None,
         "secondary_locations": [],

@@ -22,12 +22,14 @@ endpoints: the router resets status via these (sync) then awaits defer_async.
 from __future__ import annotations
 
 import logging
-from typing import Sequence
+from typing import Any, Sequence
 
 import psycopg2
 from psycopg2 import sql
 from psycopg2.extensions import connection as Connection
 
+from ..models import LocationSpec
+from .db_rows import scalar
 from .location_canonicalize import canonicalize
 from .location_normalization import normalize_string
 
@@ -43,15 +45,6 @@ _ALIAS_LOCATIONS = sql.Identifier("alias_locations")
 # into memory. Saturating this cap means some originals may be omitted — a
 # display-only limitation we log (see alias_originals).
 _ALIAS_ORIGINALS_PREFILTER_CAP = 500
-
-
-def _scalar(row, key: str):
-    """Read a column from a RealDict row or a plain tuple (first col)."""
-    if row is None:
-        return None
-    if isinstance(row, dict):
-        return row[key]
-    return row[0]
 
 
 # --- reset one job's normalization status (feeds the per-job defer endpoint) --
@@ -73,7 +66,7 @@ def reset_job_normalization(conn: Connection, job_id: str) -> bool:
             )
             matched = cur.rowcount > 0
         conn.commit()
-        return matched
+        return bool(matched)
     except psycopg2.Error:
         conn.rollback()
         logger.exception("reset_job_normalization failed for job_id=%r", job_id)
@@ -82,7 +75,7 @@ def reset_job_normalization(conn: Connection, job_id: str) -> bool:
 
 # --- manual override: upsert a source='manual' alias mapping (manual wins) ----
 
-def _upsert_location(cur, spec) -> int:
+def _upsert_location(cur: Any, spec: LocationSpec) -> int:
     """Upsert one location spec, return its locations.id.
 
     Same shape as services.location_normalization.persist_llm_result: insert
@@ -106,7 +99,7 @@ def _upsert_location(cur, spec) -> int:
     )
     row = cur.fetchone()
     if row is not None:
-        return int(_scalar(row, "id"))
+        return int(scalar(row, "id"))
     cur.execute(
         sql.SQL(
             "SELECT id FROM {} WHERE kind = %s "
@@ -122,11 +115,11 @@ def _upsert_location(cur, spec) -> int:
             f"kind={c.kind!r} city={c.city!r} region={c.region!r} "
             f"country={c.country!r} remote_scope={c.remote_scope!r}"
         )
-    return int(_scalar(existing, "id"))
+    return int(scalar(existing, "id"))
 
 
 def upsert_manual_alias(
-    conn: Connection, raw_text_key: str, location_specs: Sequence
+    conn: Connection, raw_text_key: str, location_specs: Sequence[LocationSpec]
 ) -> dict:
     """Create/overwrite a source='manual' alias mapping. Manual WINS.
 
@@ -162,7 +155,12 @@ def upsert_manual_alias(
             # alias_locations INSERT below has no ON CONFLICT, so a duplicate
             # would PK-violate and turn the whole override into a 500.
             seen: set[int] = set()
-            location_ids = [lid for lid in location_ids if not (lid in seen or seen.add(lid))]
+            deduped: list[int] = []
+            for lid in location_ids:
+                if lid not in seen:
+                    seen.add(lid)
+                    deduped.append(lid)
+            location_ids = deduped
 
             cur.execute(
                 sql.SQL(
@@ -224,14 +222,14 @@ def _read_alias(conn: Connection, raw_text_key: str) -> dict | None:
         )
         locs = cur.fetchall()
     return {
-        "raw_text": _scalar(alias, "raw_text"),
-        "source": _scalar(alias, "source"),
+        "raw_text": scalar(alias, "raw_text"),
+        "source": scalar(alias, "source"),
         "confidence": (alias["confidence"] if isinstance(alias, dict) else alias[2]),
         "locations": [_row_to_loc(r) for r in locs],
     }
 
 
-def _row_to_loc(r) -> dict:
+def _row_to_loc(r: Any) -> dict:
     if isinstance(r, dict):
         return {
             "id": r["id"], "canonical_name": r["canonical_name"], "kind": r["kind"],
@@ -276,7 +274,7 @@ def list_aliases(
                 ).format(_LOCATION_ALIASES),
                 (limit, offset),
             )
-        keys = [_scalar(r, "raw_text") for r in cur.fetchall()]
+        keys = [scalar(r, "raw_text") for r in cur.fetchall()]
     return [a for k in keys if (a := _read_alias(conn, k)) is not None]
 
 
@@ -299,7 +297,7 @@ def count_aliases(conn: Connection, contains: str | None) -> int:
             cur.execute(
                 sql.SQL("SELECT count(*) AS n FROM {}").format(_LOCATION_ALIASES),
             )
-        return int(_scalar(cur.fetchone(), "n") or 0)
+        return int(scalar(cur.fetchone(), "n") or 0)
 
 
 # --- break-glass: reset all normalization (feeds re-normalize-all) ------------
@@ -323,7 +321,7 @@ def reset_all_normalization(conn: Connection) -> int:
             )
             count = cur.rowcount
         conn.commit()
-        return count
+        return int(count)
     except psycopg2.Error:
         conn.rollback()
         logger.exception("reset_all_normalization failed")
@@ -373,12 +371,12 @@ def reverse_lookup_locations(
                     (limit,),
                 )
             loc_rows = cur.fetchall()
-            locations: list[dict] = []
+            locations: list[dict[str, Any]] = []
             id_order: list[int] = []
-            by_id: dict[int, dict] = {}
+            by_id: dict[int, dict[str, Any]] = {}
             for r in loc_rows:
                 loc = {
-                    "id": int(_scalar(r, "id")),
+                    "id": int(scalar(r, "id")),
                     "canonical_name": r["canonical_name"] if isinstance(r, dict) else r[1],
                     "kind": r["kind"] if isinstance(r, dict) else r[2],
                     "city": r["city"] if isinstance(r, dict) else r[3],
@@ -386,7 +384,7 @@ def reverse_lookup_locations(
                     "country": r["country"] if isinstance(r, dict) else r[5],
                     "remote_scope": r["remote_scope"] if isinstance(r, dict) else r[6],
                 }
-                entry = {"location": loc, "raw_texts": []}
+                entry: dict[str, Any] = {"location": loc, "raw_texts": []}
                 locations.append(entry)
                 id_order.append(loc["id"])
                 by_id[loc["id"]] = entry
@@ -401,11 +399,11 @@ def reverse_lookup_locations(
                     (id_order,),
                 )
                 for r in cur.fetchall():
-                    loc_id = int(_scalar(r, "normalized_location_id"))
+                    loc_id = int(scalar(r, "normalized_location_id"))
                     raw = r["raw_text"] if isinstance(r, dict) else r[1]
-                    entry = by_id.get(loc_id)
-                    if entry is not None:
-                        entry["raw_texts"].append(raw)
+                    target = by_id.get(loc_id)
+                    if target is not None:
+                        target["raw_texts"].append(raw)
         return locations
     except psycopg2.Error:
         conn.rollback()
@@ -522,7 +520,7 @@ def list_problem_jobs(conn: Connection, limit: int, offset: int) -> dict:
                     _JOB_LISTINGS
                 ),
             )
-            total = int(_scalar(cur.fetchone(), "n") or 0)
+            total = int(scalar(cur.fetchone(), "n") or 0)
     except psycopg2.Error:
         conn.rollback()
         logger.exception("list_problem_jobs failed (limit=%s offset=%s)", limit, offset)

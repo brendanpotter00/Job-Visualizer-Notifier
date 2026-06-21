@@ -181,7 +181,7 @@ async def fetch_jobs(
     for iteration in range(1, MAX_PAGES + 1):
         iterations = iteration
         offset = (iteration - 1) * EIGHTFOLD_PAGE_SIZE
-        params = {
+        params: dict[str, str | int] = {
             "domain": domain,
             "num": EIGHTFOLD_PAGE_SIZE,
             "start": offset,

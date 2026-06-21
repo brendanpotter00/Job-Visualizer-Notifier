@@ -76,7 +76,7 @@ _FEEDBACK_LIST_CAP = 200
 def list_admin_users(
     conn: Connection = Depends(get_db),
     _admin: TokenClaims = Depends(require_admin),
-):
+) -> AdminUsersListResponse:
     """Full user roster with derived signup provider and admin flag."""
     try:
         rows = list_users_with_admin_flag(conn)
@@ -90,7 +90,7 @@ def list_admin_users(
 def get_admin_users_stats(
     conn: Connection = Depends(get_db),
     _admin: TokenClaims = Depends(require_admin),
-):
+) -> AdminUsersStatsResponse:
     """Aggregate user growth + signup-provider breakdown."""
     try:
         stats = get_users_stats(conn)
@@ -111,7 +111,7 @@ def list_admin_feedback(
     limit: int = Query(default=25, ge=1, le=_FEEDBACK_LIST_CAP),
     offset: int = Query(default=0, ge=0),
     sort_dir: str = Query(default="desc", pattern="^(asc|desc)$"),
-):
+) -> AdminFeedbackListResponse:
     """One page of user feedback (ordered by ``created_at``) plus the total."""
     try:
         rows = list_feedback(conn, limit, offset, sort_dir)
@@ -160,7 +160,7 @@ def grant_user_admin(
     user_id: str,
     conn: Connection = Depends(get_db),
     admin: TokenClaims = Depends(require_admin),
-):
+) -> Response:
     """Grant admin status to ``user_id``. Idempotent (204 even if already admin)."""
     granter_id = _resolve_granter_id(conn, admin)
     try:
@@ -203,7 +203,7 @@ def revoke_user_admin(
     user_id: str,
     conn: Connection = Depends(get_db),
     admin: TokenClaims = Depends(require_admin),
-):
+) -> Response:
     """Revoke admin status from ``user_id``. Idempotent.
 
     Guardrail: an admin cannot revoke their own grant — that's the single
@@ -241,7 +241,7 @@ async def admin_normalize_job(
     job_id: str,
     conn: Connection = Depends(get_db),
     _admin: TokenClaims = Depends(require_admin),
-):
+) -> AdminNormalizeJobResponse:
     """Reset one job's normalization_status to NULL and re-defer normalize_location.
 
     The audit agent's per-job fix (Decision #10). Keys on `id` alone (globally
@@ -303,7 +303,7 @@ def admin_override_alias(
     body: AdminAliasOverrideRequest,
     conn: Connection = Depends(get_db),
     _admin: TokenClaims = Depends(require_admin),
-):
+) -> AdminAliasResponse:
     """Manual alias override — the PRIMARY correction primitive (Decision #10).
 
     OVERWRITE / manual-wins semantics:
@@ -349,7 +349,7 @@ def admin_list_aliases(
     contains: str | None = Query(default=None, max_length=200),
     limit: int = Query(default=50, ge=1, le=_ALIAS_LIST_CAP),
     offset: int = Query(default=0, ge=0),
-):
+) -> AdminAliasListResponse:
     """Inspect/debug the alias cache. Bounded (limit <= 200 — memory rule).
 
     Filters raw_text by case-insensitive substring when `contains` is given
@@ -394,7 +394,7 @@ def admin_locations_health(
     conn: Connection = Depends(get_db),
     _admin: TokenClaims = Depends(require_admin),
     window_hours: int = Query(default=24, ge=1, le=168, alias="windowHours"),
-):
+) -> AdminLocationHealthResponse:
     """Operational health snapshot for the location-normalization pipeline.
 
     Pure SELECTs (sync def → FastAPI threadpool). `windowHours` bounds the
@@ -412,7 +412,7 @@ def admin_locations_health(
 def admin_locations_integrity(
     conn: Connection = Depends(get_db),
     _admin: TokenClaims = Depends(require_admin),
-):
+) -> AdminLocationIntegrityResponse:
     """Run the C1..C9 data-integrity checks. Pure SELECTs."""
     try:
         result = get_integrity(conn)
@@ -431,7 +431,7 @@ def admin_locations_reverse(
     _admin: TokenClaims = Depends(require_admin),
     contains: str | None = Query(default=None, max_length=200),
     limit: int = Query(default=50, ge=1, le=_ALIAS_LIST_CAP),
-):
+) -> AdminLocationReverseListResponse:
     """Reverse lookup: canonical locations + every raw_text that maps to each.
 
     Searches `canonical_name ILIKE %contains%` (parameterized) when `contains`
@@ -460,7 +460,7 @@ def admin_locations_alias_originals(
     conn: Connection = Depends(get_db),
     _admin: TokenClaims = Depends(require_admin),
     limit: int = Query(default=50, ge=1, le=_ALIAS_LIST_CAP),
-):
+) -> AdminAliasOriginalsResponse:
     """Verbatim job-location strings that normalize to the given alias key.
 
     `rawText` is the (already-normalized) alias key. Reconstructs the implicit
@@ -485,7 +485,7 @@ def admin_locations_problem_jobs(
     _admin: TokenClaims = Depends(require_admin),
     limit: int = Query(default=50, ge=1, le=_ALIAS_LIST_CAP),
     offset: int = Query(default=0, ge=0),
-):
+) -> AdminProblemJobsResponse:
     """Actionable failed jobs: failed status with a NON-blank location.
 
     Blank-location failures are excluded (nothing to fix). Ordered by
@@ -510,7 +510,7 @@ def admin_locations_problem_jobs(
 async def admin_re_normalize_all(
     conn: Connection = Depends(get_db),
     _admin: TokenClaims = Depends(require_admin),
-):
+) -> AdminReNormalizeAllResponse:
     """BREAK-GLASS (Decision #10 / Risk F3). Gated + bounded.
 
     Conservative behavior (deliberate deviation from F3's "bypass the cache /

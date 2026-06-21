@@ -15,7 +15,7 @@ from scripts.shared.database import Connection
 logger = logging.getLogger(__name__)
 
 
-def _ensure_json_string(value) -> str:
+def _ensure_json_string(value: object) -> str:
     """Ensure a value is a JSON string (not a parsed dict/list).
 
     psycopg2 with RealDictCursor auto-parses JSONB columns into Python dicts.

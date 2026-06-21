@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Any
 
 import psycopg2
 from procrastinate import RetryStrategy
@@ -62,7 +63,7 @@ async def scan_unnormalized(timestamp: int, limit: int = SCAN_LIMIT) -> int:
         application_name="task_scan_unnormalized", statement_timeout_ms=_STATEMENT_TIMEOUT_MS,
     )
     try:
-        def _select_ids():
+        def _select_ids() -> list[Any]:
             cur = conn.cursor()
             try:
                 cur.execute(

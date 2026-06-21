@@ -17,7 +17,30 @@ pip install -r src/backend/api/requirements.txt  # Install API dependencies
 cd src/backend && pytest                                 # Run all backend tests
 cd src/backend && pytest -v                              # Verbose output
 cd src/backend && pytest api/tests/test_jobs_router.py   # Single file
+
+# Type checking (from src/backend/) — run before committing; CI gates on it
+cd src/backend && mypy                                   # Static type check (config in pyproject.toml)
 ```
+
+## Type checking
+
+Static type checking is enforced by **mypy** (config in `src/backend/pyproject.toml`)
+and runs in CI ahead of `pytest` — a type error fails the build, so `mypy` must be
+clean before committing (mirrors the frontend's "Zero TypeScript Errors Required").
+
+- **Baseline** (over `api/`): `disallow_untyped_defs` + `disallow_incomplete_defs` +
+  `check_untyped_defs` + `warn_return_any` + `warn_redundant_casts` +
+  `warn_unused_ignores` + `no_implicit_optional`. Every function in the production code
+  has typed params and a return type; DB rows that cross into routers are carried as `TypedDict`
+  (e.g. `UserRow`) via `typing.cast(...)` so a `db_models` column rename surfaces as a
+  mypy error at the read site, not a runtime `KeyError`.
+- **psycopg2 is intentionally untyped** (`ignore_missing_imports`): the code uses
+  `RealDictCursor` (dict rows) and the published tuple-row stubs would fight that. The
+  `conn: Connection` annotations are convention; data-shape safety lives in the
+  Pydantic models / `TypedDict`s, not the driver.
+- **Ratchet (not yet checked, tighten later)**: `api/tests/` and `api/eval/` are
+  excluded (see the `exclude` in `[tool.mypy]`). Enable them module-by-module in a
+  follow-up. New production code under `api/` is checked from day one.
 
 ## Prerequisites
 
