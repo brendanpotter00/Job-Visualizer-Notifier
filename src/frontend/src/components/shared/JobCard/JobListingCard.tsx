@@ -1,0 +1,145 @@
+import { Card, CardContent, Typography, Chip, Stack, Link, Box, Button } from '@mui/material';
+import { OpenInNew } from '@mui/icons-material';
+import type { Job } from '../../../types';
+import { useJobMetadata } from './useJobMetadata.ts';
+import { JobChipsSection } from './JobChipsSection.tsx';
+import { CARD_HOVER_SX, CARD_VARIANT } from './jobCardStyles.ts';
+import { CompanyLogo } from '../CompanyLogo/CompanyLogo.tsx';
+import { getCompanyById } from '../../../config/companies.ts';
+
+interface JobListingCardProps {
+  job: Job;
+}
+
+/**
+ * Unified job posting card used by both the company hiring-trend page and the
+ * Recent Jobs page, so the two lists render identical cards.
+ *
+ * Layout: a 44px company logo spans the two-line [company name, job title]
+ * header block on the left, with a black rounded "Apply" button in the top
+ * right. The whole card is clickable (opens the posting in a new tab); the
+ * Apply button and the LinkedIn recruiter link stop propagation so they don't
+ * double-trigger the card click. Company name and the recruiter LinkedIn URL
+ * are resolved from the company config via `job.company`.
+ */
+export function JobListingCard({ job }: JobListingCardProps) {
+  const { postedAgo } = useJobMetadata(job.createdAt);
+  const company = getCompanyById(job.company);
+  const companyName = company?.name ?? job.company;
+  const recruiterLinkedInUrl = company?.recruiterLinkedInUrl;
+
+  const openJob = () => {
+    window.open(job.url, '_blank', 'noopener,noreferrer');
+  };
+  const stop = (e: React.MouseEvent) => {
+    e.stopPropagation();
+  };
+
+  return (
+    <Card
+      variant={CARD_VARIANT}
+      sx={{ mb: 2, cursor: 'pointer', ...CARD_HOVER_SX }}
+      onClick={openJob}
+    >
+      <CardContent>
+        <Stack spacing={1}>
+          {/* Header: logo spanning company name + title, Apply button top-right */}
+          <Stack
+            direction="row"
+            spacing={1.5}
+            justifyContent="space-between"
+            alignItems="flex-start"
+          >
+            <Stack direction="row" spacing={1.5} alignItems="center" sx={{ minWidth: 0 }}>
+              <CompanyLogo companyId={job.company} displayName={companyName} size={44} decorative />
+              <Box sx={{ minWidth: 0 }}>
+                <Typography variant="subtitle2" color="text.secondary" fontWeight="bold">
+                  {companyName}
+                </Typography>
+                <Typography variant="h6" component="h3">
+                  {job.title}
+                </Typography>
+              </Box>
+            </Stack>
+            <Button
+              component="a"
+              href={job.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={stop}
+              variant="contained"
+              size="small"
+              sx={{
+                flexShrink: 0,
+                borderRadius: 2,
+                textTransform: 'none',
+                bgcolor: 'common.black',
+                color: 'common.white',
+                '&:hover': { bgcolor: 'grey.900' },
+              }}
+            >
+              Apply
+            </Button>
+          </Stack>
+
+          {/* Location + employment-type chips */}
+          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+            {job.locations && job.locations.length > 0
+              ? job.locations.map((loc) => (
+                  <Chip
+                    key={loc.canonicalName}
+                    label={loc.canonicalName}
+                    size="small"
+                    variant="outlined"
+                  />
+                ))
+              : job.location && <Chip label={job.location} size="small" variant="outlined" />}
+            {job.employmentType && (
+              <Chip label={job.employmentType} size="small" variant="outlined" />
+            )}
+          </Stack>
+
+          <JobChipsSection department={job.department} isRemote={job.isRemote} />
+
+          {job.tags && job.tags.length > 0 && (
+            <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+              {job.tags
+                .filter((tag): tag is string => typeof tag === 'string' && tag.length > 0)
+                .slice(0, 5)
+                .map((tag, index) => (
+                  <Chip key={index} label={tag} size="small" variant="filled" />
+                ))}
+            </Stack>
+          )}
+
+          {/* LinkedIn recruiter link */}
+          {recruiterLinkedInUrl && (
+            <Link
+              href={recruiterLinkedInUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              variant="caption"
+              color="primary"
+              underline="hover"
+              onClick={stop}
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 0.5,
+                cursor: 'pointer',
+              }}
+            >
+              Find recruiter and hiring manager posts on LinkedIn
+              <OpenInNew sx={{ fontSize: '0.875rem' }} />
+            </Link>
+          )}
+
+          {/* Posted date */}
+          <Typography variant="caption" color="text.secondary">
+            Posted {postedAgo}
+          </Typography>
+        </Stack>
+      </CardContent>
+    </Card>
+  );
+}

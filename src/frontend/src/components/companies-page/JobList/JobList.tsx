@@ -1,5 +1,5 @@
 import { Typography, Stack } from '@mui/material';
-import { JobCard } from './JobCard';
+import { JobListingCard } from '../../shared/JobCard/JobListingCard.tsx';
 import { JobListSkeleton } from '../../shared/LoadingIndicator.tsx';
 import { EmptyJobListState } from '../../shared/EmptyJobListState.tsx';
 import type { Job } from '../../../types';
@@ -30,7 +30,7 @@ export function JobList({ jobs, isLoading = false }: JobListProps) {
         {jobs.length} {jobs.length === 1 ? 'job' : 'jobs'} found
       </Typography>
       {jobs.map((job) => (
-        <JobCard key={job.id} job={job} />
+        <JobListingCard key={job.id} job={job} />
       ))}
     </Stack>
   );
