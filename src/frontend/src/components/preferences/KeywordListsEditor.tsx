@@ -5,32 +5,28 @@ import Stack from '@mui/material/Stack';
 import Box from '@mui/material/Box';
 import AddIcon from '@mui/icons-material/Add';
 import { KeywordListCard } from './KeywordListCard.tsx';
-import type { SearchTag } from '../../types';
 import type { DraftKeywordList } from './keywordListDraft.ts';
 
 export interface KeywordListsEditorProps {
+  /** All cards in display order: new (unsaved) first, then user lists, builtin last. */
   lists: DraftKeywordList[];
   onAddList: () => void;
-  onRename: (id: string, name: string) => void;
-  onAddTag: (id: string, tag: SearchTag) => void;
-  onRemoveTag: (id: string, text: string) => void;
-  onToggleTagMode: (id: string, text: string) => void;
-  onDelete: (id: string) => void;
+  onCardCreated: (tempId: string) => void;
+  onCardCancelNew: (tempId: string) => void;
+  onCardDeleted: (id: string) => void;
 }
 
 /**
- * Card listing every keyword list: user lists (editable, by position) first,
- * then the read-only built-in "Software Engineering (default)" last. An "Add
- * list" button appends a new empty draft list.
+ * Card listing every keyword list. Each card saves itself (per-card Save /
+ * Edit) — there is no global batch save here. "Add list" prepends a new draft
+ * card at the top in edit mode.
  */
 export function KeywordListsEditor({
   lists,
   onAddList,
-  onRename,
-  onAddTag,
-  onRemoveTag,
-  onToggleTagMode,
-  onDelete,
+  onCardCreated,
+  onCardCancelNew,
+  onCardDeleted,
 }: KeywordListsEditorProps) {
   return (
     <Paper sx={{ p: 4 }}>
@@ -38,30 +34,28 @@ export function KeywordListsEditor({
         Keyword lists
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        Named sets of include/exclude keywords. Pick one as the active list per
-        page below; select it from the &quot;Keyword list&quot; dropdown on each
-        page.
+        Named sets of include/exclude keywords. Each list saves on its own. Pick one as the active
+        list above to apply it on all pages.
       </Typography>
+
+      <Box sx={{ mb: 2 }}>
+        <Button variant="outlined" size="small" startIcon={<AddIcon />} onClick={onAddList}>
+          Add list
+        </Button>
+      </Box>
 
       <Stack spacing={2}>
         {lists.map((list) => (
           <KeywordListCard
             key={list.id}
             list={list}
-            onRename={onRename}
-            onAddTag={onAddTag}
-            onRemoveTag={onRemoveTag}
-            onToggleTagMode={onToggleTagMode}
-            onDelete={onDelete}
+            startInEdit={list.isNew}
+            onCreated={onCardCreated}
+            onCancelNew={onCardCancelNew}
+            onDeleted={onCardDeleted}
           />
         ))}
       </Stack>
-
-      <Box sx={{ mt: 2 }}>
-        <Button variant="outlined" size="small" startIcon={<AddIcon />} onClick={onAddList}>
-          Add list
-        </Button>
-      </Box>
     </Paper>
   );
 }

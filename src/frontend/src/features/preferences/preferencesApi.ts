@@ -133,6 +133,10 @@ export const preferencesApi = createApi({
       query: () => '/preferences',
       transformResponse: (res: unknown) => validatePreferences(res),
       providesTags: ['Preferences'],
+      // Keep the cache warm for 5 min so navigating back to Preferences (or
+      // re-reading on another page) is instant rather than re-paying the
+      // (cold-start-dominated) round trip. Mutations still invalidate.
+      keepUnusedDataFor: 300,
     }),
     updatePreferences: builder.mutation<UserPreferences, UserPreferences>({
       query: (body) => ({ url: '/preferences', method: 'PUT', body }),
@@ -143,15 +147,14 @@ export const preferencesApi = createApi({
       query: () => '/preferences/keyword-lists',
       transformResponse: (res: unknown): KeywordList[] => {
         if (!isRecord(res) || !Array.isArray(res.lists)) {
-          throw new Error(
-            'Invalid /api/users/preferences/keyword-lists response: missing lists[]'
-          );
+          throw new Error('Invalid /api/users/preferences/keyword-lists response: missing lists[]');
         }
         return res.lists.map((l) =>
           validateKeywordList(l, '/api/users/preferences/keyword-lists response')
         );
       },
       providesTags: ['KeywordLists'],
+      keepUnusedDataFor: 300,
     }),
     createKeywordList: builder.mutation<KeywordList, CreateKeywordListArgs>({
       query: (body) => ({ url: '/preferences/keyword-lists', method: 'POST', body }),
