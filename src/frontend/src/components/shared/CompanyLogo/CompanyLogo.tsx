@@ -18,7 +18,12 @@ interface CompanyLogoProps {
 }
 
 /**
- * Square brand icon for a company, rendered on a subtle rounded tile.
+ * Square brand icon for a company, filling a rounded tile edge-to-edge.
+ *
+ * The icon art fills the tile (no inset padding) so the brand-color icon assets
+ * read as solid tiles; the tile's `background.paper` only shows through for a
+ * transparent mark or behind the initials fallback. `overflow: 'hidden'` plus
+ * `borderRadius` clips the square art to the tile's rounded corners.
  *
  * Uses a plain lazy `<img>` (not MUI `Avatar`) so that `loading="lazy"` actually
  * defers off-screen fetches, and so the fallback is driven by the rendered
@@ -71,7 +76,7 @@ export function CompanyLogo({
         alt={decorative ? '' : label}
         loading="lazy"
         onError={() => setFailed(true)}
-        sx={{ width: '100%', height: '100%', objectFit: 'contain', p: '12%' }}
+        sx={{ width: '100%', height: '100%', objectFit: 'contain', p: 0 }}
       />
     </Box>
   );
