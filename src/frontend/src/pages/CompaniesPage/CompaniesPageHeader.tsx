@@ -1,7 +1,8 @@
-import { capitalize, Stack, Typography } from '@mui/material';
+import { Stack, Typography } from '@mui/material';
 import { CompanySelector } from '../../components/companies-page/CompanySelector/CompanySelector';
 import { useAppSelector } from '../../app/hooks';
 import { getCompanyById } from '../../config/companies';
+import { getCompanySourceLabel } from '../../config/atsSource';
 
 /**
  * Companies page header component
@@ -13,8 +14,9 @@ import { getCompanyById } from '../../config/companies';
  */
 export function CompaniesPageHeader() {
   const selectedCompanyId = useAppSelector((state) => state.app.selectedCompanyId);
-  const companyNameHeaderTitle = getCompanyById(selectedCompanyId)?.name || 'Job Posting Analytics';
-  const companyATSSource = capitalize(getCompanyById(selectedCompanyId)?.ats || 'Unknown Source');
+  const company = getCompanyById(selectedCompanyId);
+  const companyNameHeaderTitle = company?.name || 'Job Posting Analytics';
+  const companyATSSource = company ? getCompanySourceLabel(company) : 'Unknown Source';
   return (
     <Stack
       direction={{ xs: 'column', sm: 'row' }}

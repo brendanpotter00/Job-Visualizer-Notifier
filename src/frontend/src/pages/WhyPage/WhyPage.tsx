@@ -12,7 +12,7 @@ import {
   NON_CAPITALIZED_GROUPS,
   getATSGroupKey,
   type ATSGroupKey,
-} from './atsGrouping';
+} from '../../config/atsSource';
 
 /** Shared styling for Paper sections */
 const sectionPaperSx: SxProps<Theme> = { p: 3, mb: 4 };
