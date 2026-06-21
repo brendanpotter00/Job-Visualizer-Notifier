@@ -20,7 +20,15 @@ export function isTempId(id: string): boolean {
 //    reducer utils which target `searchTags`). Mutate the passed array in place
 //    so they compose with the immutable copy made in the page's `mutateList`. ──
 
-/** Add a tag (trim + de-dupe by text), mirroring `addSearchTagToFilters`. */
+/**
+ * Add a tag (trim + de-dupe by text), mirroring `addSearchTagToFilters`.
+ *
+ * The editor keys tags by `text` (one keyword per list; flip include/exclude via
+ * `toggleTagModeInList`), matching the app-wide search-tag model of the shared
+ * `SearchTagsInput`. This is intentionally stricter than the backend, which
+ * accepts the same text in both modes - the UI simply never produces such a pair.
+ * Re-adding an existing keyword is a no-op (toggle its mode instead).
+ */
 export function addTagToList(list: DraftKeywordList, tag: SearchTag): void {
   const text = tag.text.trim();
   if (!text) return;

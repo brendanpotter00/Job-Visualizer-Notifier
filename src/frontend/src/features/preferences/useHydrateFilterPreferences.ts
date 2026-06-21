@@ -11,27 +11,24 @@ import {
   resetRecentJobsFilters,
   setRecentJobsHydrated,
 } from '../filters/slices/recentJobsFiltersSlice';
-import { SOFTWARE_ENGINEERING_TAGS } from '../../constants/tags';
-import { useGetPreferencesQuery, useGetKeywordListsQuery } from './preferencesApi';
+import { useGetPreferencesQuery, useGetKeywordListsQuery, preferencesApi } from './preferencesApi';
 import type { KeywordList, SearchTag } from '../../types';
-
-/** Backend id for the synthesized, read-only "Software Engineering" list. */
-const BUILTIN_SWE_ID = 'builtin-swe';
 
 /**
  * Resolve a saved active-list id to the concrete `searchTags` to hydrate.
  * - `null` (no keyword filter) -> `undefined`
- * - built-in SWE id -> a fresh copy of `SOFTWARE_ENGINEERING_TAGS`
- * - any other id -> the matching list's tags (or `undefined` if it no longer exists)
+ * - any id (including the built-in "builtin-swe") -> the matching list's tags
+ *   from the server-provided `lists`, or `undefined` if it no longer exists.
+ *
+ * The built-in list is resolved from `lists` (the backend includes it) rather
+ * than a local constant, so the hydrated tags can never drift from what the
+ * keyword-list dropdown compares the active selection against.
  */
 function resolveActiveTags(
   activeId: string | null,
   lists: KeywordList[]
 ): SearchTag[] | undefined {
   if (activeId === null) return undefined;
-  if (activeId === BUILTIN_SWE_ID) {
-    return SOFTWARE_ENGINEERING_TAGS.map((tag) => ({ ...tag }));
-  }
   const match = lists.find((l) => l.id === activeId);
   return match ? match.tags.map((tag) => ({ ...tag })) : undefined;
 }
@@ -43,8 +40,9 @@ function resolveActiveTags(
  *
  * Hydration is one-shot per slice (guarded by the slices' `hydrated` flag), so a
  * re-render or a late-arriving query result never clobbers edits the user has
- * since made. On logout the slices are reset and their `hydrated` flag cleared so
- * the next sign-in re-hydrates from fresh preferences.
+ * since made. On logout the slices are reset, their `hydrated` flag cleared, and
+ * the preferences API cache is reset, so the next sign-in re-hydrates from fresh
+ * preferences for the current user (never the previous user's cached data).
  */
 export function useHydrateFilterPreferences(): void {
   const { isAuthenticated } = useAuth();
@@ -93,6 +91,10 @@ export function useHydrateFilterPreferences(): void {
       dispatch(resetRecentJobsFilters());
       dispatch(setGraphHydrated(false));
       dispatch(setRecentJobsHydrated(false));
+      // Clear the cached preferences/keyword-lists so a subsequent login - e.g. a
+      // different user via Google One Tap, which does not reload the page - cannot
+      // hydrate filters from the previous user's still-cached data.
+      dispatch(preferencesApi.util.resetApiState());
     }
   }, [isAuthenticated, preferences, keywordLists, dispatch]);
 }
