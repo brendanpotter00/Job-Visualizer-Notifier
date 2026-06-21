@@ -8,19 +8,14 @@ import type { Company } from '../types';
  * providers so the UI can show their original provider instead of
  * lumping them in with the custom scrapers.
  *
- * Note: `'eightfold'` and `'workday'` are no longer in `Company['ats']`
- * after their respective backend migrations, but stay in this union so
- * consumers can render dedicated labels for `sourceAts === 'eightfold'`
- * and `sourceAts === 'workday'` companies.
+ * Note: providers like `'eightfold'` and `'workday'` are no longer in
+ * `Company['ats']` after their respective backend migrations, so this union
+ * pulls them in via `Company['sourceAts']` instead. Deriving the union from
+ * `Company['ats'] | NonNullable<Company['sourceAts']>` keeps it in lockstep
+ * with the config: adding a provider to `sourceAts` forces a compile error
+ * at the `Record<ATSGroupKey, string>` map until a label is supplied.
  */
-export type ATSGroupKey =
-  | Company['ats']
-  | 'greenhouse'
-  | 'ashby'
-  | 'lever'
-  | 'gem'
-  | 'eightfold'
-  | 'workday';
+export type ATSGroupKey = Company['ats'] | NonNullable<Company['sourceAts']>;
 
 export function getATSGroupKey(company: Company): ATSGroupKey {
   if (company.ats === 'backend-scraper' && company.sourceAts) {

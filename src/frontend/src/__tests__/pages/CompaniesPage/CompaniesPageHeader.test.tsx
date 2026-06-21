@@ -40,4 +40,14 @@ describe('CompaniesPageHeader source label', () => {
     });
     expect(screen.getByText('Source: Workday')).toBeInTheDocument();
   });
+
+  it('falls back to "Unknown Source" and the generic title for an unknown company id', () => {
+    renderWithProviders(<CompaniesPageHeader />, {
+      initialEntries: ['/companies'],
+      preloadedState: appState('does-not-exist'),
+    });
+    expect(screen.getByText('Source: Unknown Source')).toBeInTheDocument();
+    // company is undefined, so the title also falls back to the generic name.
+    expect(screen.getByText(/^Job Posting Analytics - Job Posting Analytics$/)).toBeInTheDocument();
+  });
 });
