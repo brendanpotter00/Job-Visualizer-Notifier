@@ -192,13 +192,13 @@ export interface KeywordList {
 }
 
 /**
- * Persisted, login-gated user preferences that hydrate the filter slices on
+ * Persisted, login-gated user saved filters that hydrate the filter slices on
  * sign-in. `recentTimeWindow`/`trendTimeWindow` are per-page defaults; `locations`
  * is a single shared default set applied to both pages. The two
  * `*ActiveKeywordListId` fields name the active keyword list per page (the
  * built-in id `"builtin-swe"`, a user list id, or `null` for no keyword filter).
  */
-export interface UserPreferences {
+export interface SavedFilters {
   recentTimeWindow: TimeWindow;
   trendTimeWindow: TimeWindow;
   locations: string[];

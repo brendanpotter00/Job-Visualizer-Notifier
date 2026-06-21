@@ -18,7 +18,7 @@ import {
   useCreateKeywordListMutation,
   useUpdateKeywordListMutation,
   useDeleteKeywordListMutation,
-} from '../../features/preferences/preferencesApi.ts';
+} from '../../features/savedFilters/savedFiltersApi.ts';
 import {
   addTagToList,
   removeTagFromList,

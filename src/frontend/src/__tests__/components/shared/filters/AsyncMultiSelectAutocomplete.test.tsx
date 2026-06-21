@@ -4,7 +4,7 @@ import { AsyncMultiSelectAutocomplete } from '../../../../components/shared/filt
 
 const { searchMock } = vi.hoisted(() => ({ searchMock: vi.fn() }));
 
-vi.mock('../../../../features/preferences/preferencesApi', () => ({
+vi.mock('../../../../features/savedFilters/savedFiltersApi', () => ({
   useSearchLocationsQuery: (...args: unknown[]) => searchMock(...args),
 }));
 

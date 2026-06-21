@@ -566,10 +566,10 @@ class AdminProblemJobsResponse(BaseModel):
     total: int = Field(ge=0)
 
 
-# --- User Preferences ---------------------------------------------------------
+# --- User Saved Filters -------------------------------------------------------
 
 # The 13 allowed time-window tokens shared by the Recent and Trend pages.
-# Stored as TEXT in ``user_preferences`` but validated to this Literal at the
+# Stored as TEXT in ``user_saved_filters`` but validated to this Literal at the
 # boundary, so any value outside the set yields a 422 (same mechanism as
 # ``ScrapeRunResponse.mode``).
 TimeWindow = Literal[
@@ -627,7 +627,7 @@ def _dedup_tags(tags: list[SearchTag]) -> list[SearchTag]:
     return result
 
 
-class PreferencesResponse(BaseModel):
+class SavedFiltersResponse(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
     recent_time_window: TimeWindow
@@ -637,8 +637,8 @@ class PreferencesResponse(BaseModel):
     trend_active_keyword_list_id: str | None = None
 
 
-class PreferencesUpdateRequest(BaseModel):
-    """Full-replace body for PUT /api/users/preferences.
+class SavedFiltersUpdateRequest(BaseModel):
+    """Full-replace body for PUT /api/users/saved-filters.
 
     Locations are deduped (order-preserving) at the boundary. The active-list
     pointers are bounded at 64 chars to match the uuid4-hex id shape and the
@@ -683,7 +683,7 @@ class KeywordListsResponse(BaseModel):
 
 
 class KeywordListCreateRequest(BaseModel):
-    """Body for POST /api/users/preferences/keyword-lists.
+    """Body for POST /api/users/saved-filters/keyword-lists.
 
     Tags are deduped (order-preserving) on (text, mode) at the boundary.
     """
@@ -704,7 +704,7 @@ class KeywordListCreateRequest(BaseModel):
 
 
 class KeywordListUpdateRequest(BaseModel):
-    """Body for PATCH /api/users/preferences/keyword-lists/{id}.
+    """Body for PATCH /api/users/saved-filters/keyword-lists/{id}.
 
     All fields optional (partial update): ``name`` renames, ``tags`` replaces
     the whole array, ``position`` reorders. An empty body is a no-op. Tags are
@@ -732,7 +732,7 @@ class KeywordListUpdateRequest(BaseModel):
 
 
 class LocationSearchResult(BaseModel):
-    """One canonical location returned by the preferences location-search
+    """One canonical location returned by the saved-filters location-search
     autocomplete. Leaner than ``AdminLocationResponse`` (no ``position``)."""
 
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)

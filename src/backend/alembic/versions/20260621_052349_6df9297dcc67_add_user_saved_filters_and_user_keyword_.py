@@ -1,4 +1,4 @@
-"""add user_preferences and user_keyword_lists
+"""add user_saved_filters and user_keyword_lists
 
 Revision ID: 6df9297dcc67
 Revises: e015cd4d01a8
@@ -43,7 +43,7 @@ def upgrade() -> None:
         unique=True,
     )
     op.create_table(
-        'user_preferences',
+        'user_saved_filters',
         sa.Column('user_id', sa.Text(), nullable=False),
         sa.Column('recent_time_window', sa.Text(), server_default=sa.text("'3h'"), nullable=False),
         sa.Column('trend_time_window', sa.Text(), server_default=sa.text("'7d'"), nullable=False),
@@ -58,7 +58,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_table('user_preferences')
+    op.drop_table('user_saved_filters')
     op.drop_index('uq_user_keyword_lists_user_name', table_name='user_keyword_lists')
     op.drop_index('idx_user_keyword_lists_user_id', table_name='user_keyword_lists')
     op.drop_table('user_keyword_lists')

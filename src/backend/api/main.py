@@ -24,7 +24,7 @@ from .routers import (
     features,
     jobs,
     jobs_qa,
-    preferences,
+    saved_filters,
     users,
 )
 from .tasks import procrastinate_app
@@ -290,7 +290,7 @@ app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])
 app.include_router(jobs_qa.router, prefix="/api/jobs-qa", tags=["jobs-qa"])
 app.include_router(users.router, prefix="/api/users", tags=["users"])
 app.include_router(
-    preferences.router, prefix="/api/users/preferences", tags=["preferences"]
+    saved_filters.router, prefix="/api/users/saved-filters", tags=["saved-filters"]
 )
 app.include_router(features.router, prefix="/api/features", tags=["features"])
 app.include_router(companies.router, prefix="/api/companies", tags=["companies"])

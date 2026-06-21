@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { ActiveListSelector } from '../../../components/preferences/ActiveListSelector';
-import type { DraftKeywordList } from '../../../components/preferences/keywordListDraft';
+import { ActiveListSelector } from '../../../components/saved-filters/ActiveListSelector';
+import type { DraftKeywordList } from '../../../components/saved-filters/keywordListDraft';
 
 const lists: DraftKeywordList[] = [
   { id: 'a', name: 'Backend', tags: [], isBuiltin: false, position: 0, isNew: false },

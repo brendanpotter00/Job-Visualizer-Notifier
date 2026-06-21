@@ -15,7 +15,7 @@ def test_all_tables_present():
         "scrape_runs",
         "users",
         "user_enabled_companies",
-        "user_preferences",
+        "user_saved_filters",
         "user_keyword_lists",
         "features",
         "feature_upvotes",

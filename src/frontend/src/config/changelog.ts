@@ -19,15 +19,15 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
-    id: 'preferences',
+    id: 'saved-filters',
     title: 'Save your default filters',
     description:
-      'There’s a new Preferences page in the sidebar. Set the default time window for the Recent Jobs and Company Trends pages, pick a default set of locations once and have it apply to both, and build reusable keyword lists — named sets of include/exclude keywords that each save on their own with an Edit button when you want to change one. Choose a single active keyword list and it’s applied as your default filter across every page. Your defaults load automatically when you sign in and stay fully editable in the moment.',
+      'There’s a new Saved Filters page in the sidebar. Set the default time window for the Recent Jobs and Company Trends pages, pick a default set of locations once and have it apply to both, and build reusable keyword lists — named sets of include/exclude keywords that each save on their own with an Edit button when you want to change one. Choose a single active keyword list and it’s applied as your default filter across every page. Your defaults load automatically when you sign in and stay fully editable in the moment.',
     tags: ['feature'],
     date: '2026-06-21',
     link: {
-      to: ROUTES.PREFERENCES,
-      label: 'Set your preferences',
+      to: ROUTES.SAVED_FILTERS,
+      label: 'Set your saved filters',
     },
   },
   {

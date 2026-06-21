@@ -97,7 +97,7 @@ describe('useAuth', () => {
 
   it('is authenticated via Google credential while Auth0 is still loading', async () => {
     // Crux of the One Tap fix: a fresh Google credential flips isAuthenticated
-    // true (un-skipping the preferences query and hydrating filters) even while
+    // true (un-skipping the saved-filters query and hydrating filters) even while
     // Auth0's silent-auth is still in flight. isAuthenticated and isLoading are
     // independent, so One Tap no longer has to wait out Auth0's ~30s timeout.
     mockGoogleCredential = 'google-jwt-token';

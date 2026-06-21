@@ -26,7 +26,7 @@ export function GoogleOneTap() {
     // has no Auth0 refresh token, so Auth0's silent-auth fallback
     // (/authorize?prompt=none) stalls ~30s behind blocked third-party cookies on
     // every stale load. Gating One Tap on that made the Google credential — and
-    // therefore preference hydration — wait the full ~30s. One Tap auto_select
+    // therefore saved-filters hydration — wait the full ~30s. One Tap auto_select
     // runs in parallel with Auth0 instead; useGoogleOneTapLogin already gates
     // internally on GSI script readiness, and `isAuthenticated` flips true the
     // instant the Google credential is set (even while Auth0 is still loading).

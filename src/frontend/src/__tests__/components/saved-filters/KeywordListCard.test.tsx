@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { KeywordListCard } from '../../../components/preferences/KeywordListCard';
-import type { DraftKeywordList } from '../../../components/preferences/keywordListDraft';
+import { KeywordListCard } from '../../../components/saved-filters/KeywordListCard';
+import type { DraftKeywordList } from '../../../components/saved-filters/keywordListDraft';
 
 const { createMock, updateMock, deleteMock } = vi.hoisted(() => ({
   createMock: vi.fn(),
@@ -10,7 +10,7 @@ const { createMock, updateMock, deleteMock } = vi.hoisted(() => ({
   deleteMock: vi.fn(),
 }));
 
-vi.mock('../../../features/preferences/preferencesApi', () => ({
+vi.mock('../../../features/savedFilters/savedFiltersApi', () => ({
   useCreateKeywordListMutation: () => [createMock, { isLoading: false }],
   useUpdateKeywordListMutation: () => [updateMock, { isLoading: false }],
   useDeleteKeywordListMutation: () => [deleteMock, { isLoading: false }],

@@ -1,11 +1,11 @@
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
-import type { KeywordList, SearchTag, UserPreferences } from '../../types';
+import type { KeywordList, SearchTag, SavedFilters } from '../../types';
 
 /**
- * One location suggestion returned by the preferences location-search endpoint.
+ * One location suggestion returned by the saved-filters location-search endpoint.
  * NOTE: `id` is a NUMBER (canonical-location PK), matching the admin
  * location-normalization types; `canonicalName` is the display label written
- * into the shared `locations` preference.
+ * into the shared `locations` saved filter.
  */
 export interface LocationSearchResult {
   id: number;
@@ -13,7 +13,7 @@ export interface LocationSearchResult {
   kind: string;
 }
 
-/** Args for the debounced location autocomplete on the Preferences page. */
+/** Args for the debounced location autocomplete on the Saved Filters page. */
 export interface SearchLocationsArgs {
   q: string;
   limit?: number;
@@ -34,7 +34,7 @@ export interface UpdateKeywordListArgs {
   position?: number;
 }
 
-interface PreferencesApiExtra {
+interface SavedFiltersApiExtra {
   getTokenOrNull: () => Promise<string | null>;
 }
 
@@ -88,38 +88,38 @@ function validateKeywordList(value: unknown, ctx: string): KeywordList {
   };
 }
 
-function validatePreferences(res: unknown): UserPreferences {
+function validateSavedFilters(res: unknown): SavedFilters {
   if (!isRecord(res)) {
-    throw new Error('Invalid /api/users/preferences response: body is not an object');
+    throw new Error('Invalid /api/users/saved-filters response: body is not an object');
   }
   if (typeof res.recentTimeWindow !== 'string') {
-    throw new Error('Invalid /api/users/preferences response: recentTimeWindow must be a string');
+    throw new Error('Invalid /api/users/saved-filters response: recentTimeWindow must be a string');
   }
   if (typeof res.trendTimeWindow !== 'string') {
-    throw new Error('Invalid /api/users/preferences response: trendTimeWindow must be a string');
+    throw new Error('Invalid /api/users/saved-filters response: trendTimeWindow must be a string');
   }
   if (!Array.isArray(res.locations) || res.locations.some((l) => typeof l !== 'string')) {
-    throw new Error('Invalid /api/users/preferences response: locations must be a string array');
+    throw new Error('Invalid /api/users/saved-filters response: locations must be a string array');
   }
   if (res.recentActiveKeywordListId !== null && typeof res.recentActiveKeywordListId !== 'string') {
     throw new Error(
-      'Invalid /api/users/preferences response: recentActiveKeywordListId must be string or null'
+      'Invalid /api/users/saved-filters response: recentActiveKeywordListId must be string or null'
     );
   }
   if (res.trendActiveKeywordListId !== null && typeof res.trendActiveKeywordListId !== 'string') {
     throw new Error(
-      'Invalid /api/users/preferences response: trendActiveKeywordListId must be string or null'
+      'Invalid /api/users/saved-filters response: trendActiveKeywordListId must be string or null'
     );
   }
-  return res as unknown as UserPreferences;
+  return res as unknown as SavedFilters;
 }
 
-export const preferencesApi = createApi({
-  reducerPath: 'preferencesApi',
+export const savedFiltersApi = createApi({
+  reducerPath: 'savedFiltersApi',
   baseQuery: fetchBaseQuery({
     baseUrl: '/api/users',
     prepareHeaders: async (headers, { extra }) => {
-      const { getTokenOrNull } = extra as PreferencesApiExtra;
+      const { getTokenOrNull } = extra as SavedFiltersApiExtra;
       const token = await getTokenOrNull();
       if (token) {
         headers.set('Authorization', `Bearer ${token}`);
@@ -127,61 +127,61 @@ export const preferencesApi = createApi({
       return headers;
     },
   }),
-  tagTypes: ['Preferences', 'KeywordLists'],
+  tagTypes: ['SavedFilters', 'KeywordLists'],
   endpoints: (builder) => ({
-    getPreferences: builder.query<UserPreferences, void>({
-      query: () => '/preferences',
-      transformResponse: (res: unknown) => validatePreferences(res),
-      providesTags: ['Preferences'],
-      // Keep the cache warm for 5 min so navigating back to Preferences (or
+    getSavedFilters: builder.query<SavedFilters, void>({
+      query: () => '/saved-filters',
+      transformResponse: (res: unknown) => validateSavedFilters(res),
+      providesTags: ['SavedFilters'],
+      // Keep the cache warm for 5 min so navigating back to Saved Filters (or
       // re-reading on another page) is instant rather than re-paying the
       // (cold-start-dominated) round trip. Mutations still invalidate.
       keepUnusedDataFor: 300,
     }),
-    updatePreferences: builder.mutation<UserPreferences, UserPreferences>({
-      query: (body) => ({ url: '/preferences', method: 'PUT', body }),
-      transformResponse: (res: unknown) => validatePreferences(res),
-      invalidatesTags: ['Preferences'],
+    updateSavedFilters: builder.mutation<SavedFilters, SavedFilters>({
+      query: (body) => ({ url: '/saved-filters', method: 'PUT', body }),
+      transformResponse: (res: unknown) => validateSavedFilters(res),
+      invalidatesTags: ['SavedFilters'],
     }),
     getKeywordLists: builder.query<KeywordList[], void>({
-      query: () => '/preferences/keyword-lists',
+      query: () => '/saved-filters/keyword-lists',
       transformResponse: (res: unknown): KeywordList[] => {
         if (!isRecord(res) || !Array.isArray(res.lists)) {
-          throw new Error('Invalid /api/users/preferences/keyword-lists response: missing lists[]');
+          throw new Error('Invalid /api/users/saved-filters/keyword-lists response: missing lists[]');
         }
         return res.lists.map((l) =>
-          validateKeywordList(l, '/api/users/preferences/keyword-lists response')
+          validateKeywordList(l, '/api/users/saved-filters/keyword-lists response')
         );
       },
       providesTags: ['KeywordLists'],
       keepUnusedDataFor: 300,
     }),
     createKeywordList: builder.mutation<KeywordList, CreateKeywordListArgs>({
-      query: (body) => ({ url: '/preferences/keyword-lists', method: 'POST', body }),
+      query: (body) => ({ url: '/saved-filters/keyword-lists', method: 'POST', body }),
       transformResponse: (res: unknown) =>
-        validateKeywordList(res, 'POST /api/users/preferences/keyword-lists response'),
+        validateKeywordList(res, 'POST /api/users/saved-filters/keyword-lists response'),
       invalidatesTags: ['KeywordLists'],
     }),
     updateKeywordList: builder.mutation<KeywordList, UpdateKeywordListArgs>({
       query: ({ id, ...patch }) => ({
-        url: `/preferences/keyword-lists/${id}`,
+        url: `/saved-filters/keyword-lists/${id}`,
         method: 'PATCH',
         body: patch,
       }),
       transformResponse: (res: unknown) =>
-        validateKeywordList(res, 'PATCH /api/users/preferences/keyword-lists response'),
+        validateKeywordList(res, 'PATCH /api/users/saved-filters/keyword-lists response'),
       invalidatesTags: ['KeywordLists'],
     }),
     deleteKeywordList: builder.mutation<void, string>({
       query: (id) => ({
-        url: `/preferences/keyword-lists/${id}`,
+        url: `/saved-filters/keyword-lists/${id}`,
         method: 'DELETE',
       }),
       invalidatesTags: ['KeywordLists'],
     }),
     searchLocations: builder.query<LocationSearchResult[], SearchLocationsArgs>({
       query: ({ q, limit, openOnly }) => ({
-        url: '/preferences/locations/search',
+        url: '/saved-filters/locations/search',
         params: {
           q,
           ...(limit !== undefined ? { limit } : {}),
@@ -191,7 +191,7 @@ export const preferencesApi = createApi({
       transformResponse: (res: unknown): LocationSearchResult[] => {
         if (!Array.isArray(res)) {
           throw new Error(
-            'Invalid /api/users/preferences/locations/search response: body is not an array'
+            'Invalid /api/users/saved-filters/locations/search response: body is not an array'
           );
         }
         for (const row of res) {
@@ -202,7 +202,7 @@ export const preferencesApi = createApi({
             typeof row.kind !== 'string'
           ) {
             throw new Error(
-              'Invalid /api/users/preferences/locations/search response: bad row shape'
+              'Invalid /api/users/saved-filters/locations/search response: bad row shape'
             );
           }
         }
@@ -213,11 +213,11 @@ export const preferencesApi = createApi({
 });
 
 export const {
-  useGetPreferencesQuery,
-  useUpdatePreferencesMutation,
+  useGetSavedFiltersQuery,
+  useUpdateSavedFiltersMutation,
   useGetKeywordListsQuery,
   useCreateKeywordListMutation,
   useUpdateKeywordListMutation,
   useDeleteKeywordListMutation,
   useSearchLocationsQuery,
-} = preferencesApi;
+} = savedFiltersApi;

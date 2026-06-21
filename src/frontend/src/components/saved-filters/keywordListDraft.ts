@@ -1,7 +1,7 @@
 import type { KeywordList, SearchTag } from '../../types';
 
 /**
- * A keyword list in the Preferences page draft. Identical to `KeywordList` plus
+ * A keyword list in the Saved Filters page draft. Identical to `KeywordList` plus
  * an `isNew` flag: locally-created lists carry a temporary client id (e.g.
  * `temp-1`) and must be POSTed (not PATCHed) on save. Each card now owns its
  * own save lifecycle (create/update/delete persist immediately), so the draft

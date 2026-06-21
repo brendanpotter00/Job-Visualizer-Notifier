@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Autocomplete, TextField, Chip, CircularProgress } from '@mui/material';
 import { getArrayDiff } from '../../../features/filters/utils/filterUtils.ts';
-import { useSearchLocationsQuery } from '../../../features/preferences/preferencesApi.ts';
+import { useSearchLocationsQuery } from '../../../features/savedFilters/savedFiltersApi.ts';
 import { extractErrorMessage } from '../../../lib/errors.ts';
 
 export interface AsyncMultiSelectAutocompleteProps {
@@ -27,7 +27,7 @@ const MIN_QUERY_LEN = 2;
  * Multi-select autocomplete backed by the server-side location search endpoint.
  * Mirrors `MultiSelectAutocomplete` (string array, add/remove callbacks) but
  * sources its options from a debounced `useSearchLocationsQuery` rather than a
- * static `options` prop. Used only by the Preferences page for default
+ * static `options` prop. Used only by the Saved Filters page for default
  * locations — the in-page filter dropdowns build options from loaded jobs.
  *
  * A failed search must never be silent: the query's error is surfaced both as

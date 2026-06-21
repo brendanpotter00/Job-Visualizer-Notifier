@@ -6,29 +6,29 @@ import Button from '@mui/material/Button';
 import Stack from '@mui/material/Stack';
 import { useAuth } from '../../features/auth/useAuth';
 import {
-  useGetPreferencesQuery,
+  useGetSavedFiltersQuery,
   useGetKeywordListsQuery,
-  useUpdatePreferencesMutation,
-} from '../../features/preferences/preferencesApi';
+  useUpdateSavedFiltersMutation,
+} from '../../features/savedFilters/savedFiltersApi';
 import { LoadingState } from '../../components/shared/LoadingIndicator';
 import { ErrorState } from '../../components/shared/ErrorDisplay';
 import { extractErrorMessage } from '../../lib/errors';
-import { TimeWindowDefaults } from '../../components/preferences/TimeWindowDefaults';
-import { LocationDefaultsEditor } from '../../components/preferences/LocationDefaultsEditor';
-import { ActiveListSelector } from '../../components/preferences/ActiveListSelector';
-import { KeywordListsEditor } from '../../components/preferences/KeywordListsEditor';
-import { PreferencesSaveBar } from '../../components/preferences/PreferencesSaveBar';
+import { TimeWindowDefaults } from '../../components/saved-filters/TimeWindowDefaults';
+import { LocationDefaultsEditor } from '../../components/saved-filters/LocationDefaultsEditor';
+import { ActiveListSelector } from '../../components/saved-filters/ActiveListSelector';
+import { KeywordListsEditor } from '../../components/saved-filters/KeywordListsEditor';
+import { SavedFiltersSaveBar } from '../../components/saved-filters/SavedFiltersSaveBar';
 import {
   type DraftKeywordList,
   TEMP_ID_PREFIX,
   toDraftLists,
-} from '../../components/preferences/keywordListDraft';
-import type { TimeWindow, UserPreferences } from '../../types';
+} from '../../components/saved-filters/keywordListDraft';
+import type { TimeWindow, SavedFilters } from '../../types';
 
-/** Draft of the scalar preference fields (everything except keyword lists). */
-type PreferencesDraft = UserPreferences;
+/** Draft of the scalar saved-filter fields (everything except keyword lists). */
+type SavedFiltersDraft = SavedFilters;
 
-function canonicalPreferences(p: PreferencesDraft): string {
+function canonicalSavedFilters(p: SavedFiltersDraft): string {
   return JSON.stringify({
     recentTimeWindow: p.recentTimeWindow,
     trendTimeWindow: p.trendTimeWindow,
@@ -38,7 +38,7 @@ function canonicalPreferences(p: PreferencesDraft): string {
   });
 }
 
-function draftFromServer(p: UserPreferences): PreferencesDraft {
+function draftFromServer(p: SavedFilters): SavedFiltersDraft {
   return {
     recentTimeWindow: p.recentTimeWindow,
     trendTimeWindow: p.trendTimeWindow,
@@ -48,17 +48,17 @@ function draftFromServer(p: UserPreferences): PreferencesDraft {
   };
 }
 
-export function PreferencesPage() {
+export function SavedFiltersPage() {
   const { isAuthenticated, isLoading: authLoading, login } = useAuth();
 
-  const prefsQuery = useGetPreferencesQuery(undefined, { skip: !isAuthenticated });
+  const prefsQuery = useGetSavedFiltersQuery(undefined, { skip: !isAuthenticated });
   const listsQuery = useGetKeywordListsQuery(undefined, { skip: !isAuthenticated });
 
-  const [updatePreferences] = useUpdatePreferencesMutation();
+  const [updateSavedFilters] = useUpdateSavedFiltersMutation();
 
   // Scalar prefs (time windows, locations, active list) are committed by the
   // single Save bar; keyword lists save per-card (see KeywordListCard).
-  const [draft, setDraft] = useState<PreferencesDraft | null>(null);
+  const [draft, setDraft] = useState<SavedFiltersDraft | null>(null);
   // Not-yet-persisted keyword-list placeholders (new cards open in edit mode).
   const [newCards, setNewCards] = useState<DraftKeywordList[]>([]);
   const [nextTempId, setNextTempId] = useState(1);
@@ -69,7 +69,7 @@ export function PreferencesPage() {
   const serverPrefs = prefsQuery.data;
   const serverLists = listsQuery.data;
 
-  // Seed the scalar draft from the server preferences whenever they (re)load.
+  // Seed the scalar draft from the server saved filters whenever they (re)load.
   // serverPrefs only changes on initial load and after a scalar save (keyword
   // create/update/delete invalidate the KeywordLists tag only), so this never
   // clobbers in-progress scalar edits.
@@ -80,7 +80,7 @@ export function PreferencesPage() {
     }
   }, [serverPrefs]);
 
-  const patchDraft = (patch: Partial<PreferencesDraft>) => {
+  const patchDraft = (patch: Partial<SavedFiltersDraft>) => {
     setSaveSuccess(false);
     setDraft((d) => (d ? { ...d, ...patch } : d));
   };
@@ -131,7 +131,7 @@ export function PreferencesPage() {
 
   const isDirty = useMemo(() => {
     if (!draft || !serverPrefs) return false;
-    return canonicalPreferences(draft) !== canonicalPreferences(serverPrefs);
+    return canonicalSavedFilters(draft) !== canonicalSavedFilters(serverPrefs);
   }, [draft, serverPrefs]);
 
   const handleSave = async () => {
@@ -140,7 +140,7 @@ export function PreferencesPage() {
     setSaveSuccess(false);
     setSaveError(null);
     try {
-      const saved = await updatePreferences({
+      const saved = await updateSavedFilters({
         recentTimeWindow: draft.recentTimeWindow,
         trendTimeWindow: draft.trendTimeWindow,
         locations: draft.locations,
@@ -150,7 +150,7 @@ export function PreferencesPage() {
       setDraft(draftFromServer(saved));
       setSaveSuccess(true);
     } catch (err) {
-      setSaveError(extractErrorMessage(err, 'Failed to save preferences'));
+      setSaveError(extractErrorMessage(err, 'Failed to save your saved filters'));
     } finally {
       setIsSaving(false);
     }
@@ -166,10 +166,10 @@ export function PreferencesPage() {
       <Container maxWidth="sm" sx={{ py: 4 }}>
         <Paper sx={{ p: 4, textAlign: 'center' }}>
           <Typography variant="h5" gutterBottom>
-            Preferences
+            Saved Filters
           </Typography>
           <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
-            Sign in to manage your preferences.
+            Sign in to manage your saved filters.
           </Typography>
           <Button variant="contained" onClick={login}>
             Sign In
@@ -188,19 +188,19 @@ export function PreferencesPage() {
   return (
     <Container maxWidth="md" sx={{ py: 4 }}>
       <Typography variant="h4" component="h1" gutterBottom>
-        Preferences
+        Saved Filters
       </Typography>
 
       <Stack spacing={3}>
         {prefsQuery.isError ? (
           <ErrorState
             inline
-            message={extractErrorMessage(prefsQuery.error, 'Failed to load preferences')}
+            message={extractErrorMessage(prefsQuery.error, 'Failed to load saved filters')}
             onRetry={() => prefsQuery.refetch()}
           />
         ) : prefsLoading || !draft ? (
           <Paper sx={{ p: 4 }}>
-            <LoadingState minHeight={140} caption="Loading your preferences…" />
+            <LoadingState minHeight={140} caption="Loading your saved filters…" />
           </Paper>
         ) : (
           <>
@@ -260,7 +260,7 @@ export function PreferencesPage() {
         )}
 
         {draft && !prefsQuery.isError && (
-          <PreferencesSaveBar
+          <SavedFiltersSaveBar
             isDirty={isDirty}
             isSaving={isSaving}
             saveSuccess={saveSuccess}

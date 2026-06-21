@@ -1,6 +1,6 @@
-"""Per-user preferences + keyword-list CRUD + canonical-location search.
+"""Per-user saved filters + keyword-list CRUD + canonical-location search.
 
-Backed by the bare-named ``user_preferences`` and ``user_keyword_lists`` tables
+Backed by the bare-named ``user_saved_filters`` and ``user_keyword_lists`` tables
 and the read-only ``locations`` table. Mirrors the psycopg2 conventions of
 ``user_preferences_service`` (enabled-companies): raw SQL via a pooled
 ``Connection`` with ``RealDictCursor``, atomic transactions with explicit
@@ -8,7 +8,7 @@ and the read-only ``locations`` table. Mirrors the psycopg2 conventions of
 
 Two scalars-vs-collection shapes:
 
-* ``user_preferences`` is a single fixed-shape row per user, written with an
+* ``user_saved_filters`` is a single fixed-shape row per user, written with an
   ``INSERT ... ON CONFLICT (user_id) DO UPDATE`` upsert (PUT = full replace).
   A missing row reads back as the server defaults (``GET`` never 404s).
 * ``user_keyword_lists`` is an unbounded per-user collection mutated one list at
@@ -17,7 +17,7 @@ Two scalars-vs-collection shapes:
 The built-in "Software Engineering" list is **synthesized** here (module
 constant ``BUILTIN_SWE_LIST``) and never stored. It is returned last by
 ``list_keyword_lists`` and its name is reserved case-insensitively. The
-active-list pointers on ``user_preferences`` are plain TEXT (not FKs) so they
+active-list pointers on ``user_saved_filters`` are plain TEXT (not FKs) so they
 can hold the built-in id; ownership is enforced in this layer and a list DELETE
 NULLs any pointer referencing it in the same transaction.
 """
@@ -35,7 +35,7 @@ from psycopg2.extras import Json
 
 logger = logging.getLogger(__name__)
 
-_PREFERENCES = sql.Identifier("user_preferences")
+_SAVED_FILTERS = sql.Identifier("user_saved_filters")
 _KEYWORD_LISTS = sql.Identifier("user_keyword_lists")
 _LOCATIONS = sql.Identifier("locations")
 
@@ -64,13 +64,13 @@ BUILTIN_SWE_LIST: dict[str, Any] = {
     ],
 }
 
-# Server defaults returned when a user has no ``user_preferences`` row.
+# Server defaults returned when a user has no ``user_saved_filters`` row.
 _DEFAULT_RECENT_TIME_WINDOW = "3h"
 _DEFAULT_TREND_TIME_WINDOW = "7d"
 
 
-class PreferencesRow(TypedDict):
-    """Shape of the preferences dict returned by this service to the router."""
+class SavedFiltersRow(TypedDict):
+    """Shape of the saved-filters dict returned by this service to the router."""
 
     recent_time_window: str
     trend_time_window: str
@@ -117,11 +117,11 @@ class UnknownActiveList(Exception):
     own (and is not the built-in id). Router -> 409."""
 
 
-# --- Scalar preferences -------------------------------------------------------
+# --- Scalar saved filters -----------------------------------------------------
 
 
-def default_preferences() -> PreferencesRow:
-    """Server defaults returned when a user has no ``user_preferences`` row.
+def default_saved_filters() -> SavedFiltersRow:
+    """Server defaults returned when a user has no ``user_saved_filters`` row.
 
     Public so the router can serve them for a caller with no ``users`` row yet
     (avoiding a pointless query against a non-existent user id) without the
@@ -136,7 +136,7 @@ def default_preferences() -> PreferencesRow:
     }
 
 
-def _row_to_preferences(row: dict[str, Any]) -> PreferencesRow:
+def _row_to_saved_filters(row: dict[str, Any]) -> SavedFiltersRow:
     # ``locations`` round-trips as a Python list via the JSONB column; guard
     # against an unexpected NULL/non-list by coercing to [].
     raw_locations = row["locations"]
@@ -150,11 +150,11 @@ def _row_to_preferences(row: dict[str, Any]) -> PreferencesRow:
     }
 
 
-def get_preferences(conn: Connection, user_id: str) -> PreferencesRow:
-    """Return the user's scalar preferences, or server defaults if no row.
+def get_saved_filters(conn: Connection, user_id: str) -> SavedFiltersRow:
+    """Return the user's scalar saved filters, or server defaults if no row.
 
     READ-ONLY (SELECT only; no commit). Never raises for a missing row — a
-    user who has never saved preferences resolves to the defaults so the GET
+    user who has never saved any filters resolves to the defaults so the GET
     endpoint never 404s.
     """
     cursor = conn.cursor()
@@ -163,13 +163,13 @@ def get_preferences(conn: Connection, user_id: str) -> PreferencesRow:
             "SELECT recent_time_window, trend_time_window, locations,"
             " recent_active_keyword_list_id, trend_active_keyword_list_id"
             " FROM {} WHERE user_id = %s"
-        ).format(_PREFERENCES),
+        ).format(_SAVED_FILTERS),
         (user_id,),
     )
     row = cursor.fetchone()
     if row is None:
-        return default_preferences()
-    return _row_to_preferences(dict(row))
+        return default_saved_filters()
+    return _row_to_saved_filters(dict(row))
 
 
 def _user_owns_list(cursor: Any, user_id: str, list_id: str) -> bool:
@@ -193,7 +193,7 @@ def _validate_active_pointer(
         raise UnknownActiveList(pointer)
 
 
-def upsert_preferences(
+def upsert_saved_filters(
     conn: Connection,
     user_id: str,
     *,
@@ -202,8 +202,8 @@ def upsert_preferences(
     locations: list[str],
     recent_active_keyword_list_id: str | None,
     trend_active_keyword_list_id: str | None,
-) -> PreferencesRow:
-    """Full-replace upsert of the user's scalar preferences (PUT semantics).
+) -> SavedFiltersRow:
+    """Full-replace upsert of the user's scalar saved filters (PUT semantics).
 
     Validates each non-null active-list pointer against the built-in id or a
     list the caller owns BEFORE writing (raises ``UnknownActiveList`` -> 409),
@@ -231,7 +231,7 @@ def upsert_preferences(
                 " updated_at = now()"
                 " RETURNING recent_time_window, trend_time_window, locations,"
                 " recent_active_keyword_list_id, trend_active_keyword_list_id"
-            ).format(_PREFERENCES),
+            ).format(_SAVED_FILTERS),
             (
                 user_id,
                 recent_time_window,
@@ -249,7 +249,7 @@ def upsert_preferences(
     except psycopg2.Error as exc:
         conn.rollback()
         logger.error(
-            "Database error in upsert_preferences for user_id=%s: %s",
+            "Database error in upsert_saved_filters for user_id=%s: %s",
             user_id,
             exc,
             exc_info=True,
@@ -257,9 +257,9 @@ def upsert_preferences(
         raise
     if row is None:
         raise RuntimeError(
-            f"upsert_preferences returned no row for user_id={user_id}"
+            f"upsert_saved_filters returned no row for user_id={user_id}"
         )
-    return _row_to_preferences(dict(row))
+    return _row_to_saved_filters(dict(row))
 
 
 # --- Keyword lists ------------------------------------------------------------
@@ -511,7 +511,7 @@ def delete_keyword_list(conn: Connection, user_id: str, list_id: str) -> None:
 
     Raises ``BuiltinListReadOnly`` (-> 422) for the built-in id and
     ``KeywordListNotFound`` (-> 404) if the list isn't owned. In the same
-    transaction, NULLs any ``user_preferences`` active-list pointer (recent
+    transaction, NULLs any ``user_saved_filters`` active-list pointer (recent
     and/or trend) that referenced this list — the pointer is a plain TEXT
     column (not a FK), so ``ON DELETE CASCADE`` does not cover it.
     """
@@ -540,7 +540,7 @@ def delete_keyword_list(conn: Connection, user_id: str, list_id: str) -> None:
                 " WHERE user_id = %(uid)s"
                 " AND (recent_active_keyword_list_id = %(lid)s"
                 " OR trend_active_keyword_list_id = %(lid)s)"
-            ).format(_PREFERENCES),
+            ).format(_SAVED_FILTERS),
             {"lid": list_id, "uid": user_id},
         )
         conn.commit()

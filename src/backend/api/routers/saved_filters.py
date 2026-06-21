@@ -1,13 +1,13 @@
-"""User preferences endpoints.
+"""User saved-filters endpoints.
 
-Self-contained router (mounted at ``/api/users/preferences``) covering scalar
-preferences, the keyword-list CRUD sub-resource, and canonical-location search.
+Self-contained router (mounted at ``/api/users/saved-filters``) covering scalar
+saved filters, the keyword-list CRUD sub-resource, and canonical-location search.
 All routes require a logged-in user (``get_current_user``) and resolve the DB
 user by email (``get_user_by_email``), mirroring ``routers/users.py``.
 
 Service exceptions are mapped to HTTP status codes here:
 
-* ``UnknownActiveList``        -> 409 (PUT preferences pointer not owned)
+* ``UnknownActiveList``        -> 409 (PUT saved-filters pointer not owned)
 * ``DuplicateListName``        -> 409 (create/rename collision or reserved name)
 * ``KeywordListLimitReached``  -> 422 (per-user list cap)
 * ``KeywordListNotFound``      -> 404 (PATCH/DELETE not owned)
@@ -28,17 +28,17 @@ from ..models import (
     KeywordListsResponse,
     KeywordListUpdateRequest,
     LocationSearchResult,
-    PreferencesResponse,
-    PreferencesUpdateRequest,
+    SavedFiltersResponse,
+    SavedFiltersUpdateRequest,
 )
-from ..services import preferences_service
-from ..services.preferences_service import (
+from ..services import saved_filters_service
+from ..services.saved_filters_service import (
     BuiltinListReadOnly,
     DuplicateListName,
     KeywordListLimitReached,
     KeywordListNotFound,
     KeywordListRow,
-    PreferencesRow,
+    SavedFiltersRow,
     UnknownActiveList,
 )
 from ..services.user_service import get_user_by_email
@@ -61,7 +61,7 @@ def _resolve_user_id(conn: Connection, user: TokenClaims) -> str:
     """Resolve the caller's DB user id by email, 404 if no row.
 
     Mirrors the PUT enabled-companies handler (``users.py``): the user row is
-    created lazily on first ``GET /api/users``, so a preferences mutation before
+    created lazily on first ``GET /api/users``, so a saved-filters mutation before
     that returns 404.
     """
     email = _require_email(user)
@@ -71,11 +71,11 @@ def _resolve_user_id(conn: Connection, user: TokenClaims) -> str:
     return row["id"]
 
 
-def _preferences_response(prefs: PreferencesRow) -> PreferencesResponse:
+def _saved_filters_response(prefs: SavedFiltersRow) -> SavedFiltersResponse:
     # ``model_validate`` over the snake_case dict (``populate_by_name=True``)
     # also runs the ``TimeWindow`` Literal check at runtime: a corrupt stored
     # window surfaces as a 500 rather than being silently coerced.
-    return PreferencesResponse.model_validate(prefs)
+    return SavedFiltersResponse.model_validate(prefs)
 
 
 def _keyword_list_response(row: KeywordListRow) -> KeywordListResponse:
@@ -84,41 +84,41 @@ def _keyword_list_response(row: KeywordListRow) -> KeywordListResponse:
     return KeywordListResponse.model_validate(row)
 
 
-# --- Scalar preferences -------------------------------------------------------
+# --- Scalar saved filters -----------------------------------------------------
 
 
-@router.get("", response_model=PreferencesResponse)
-def get_preferences(
+@router.get("", response_model=SavedFiltersResponse)
+def get_saved_filters(
     conn: Connection = Depends(get_db),
     user: TokenClaims = Depends(get_current_user),
-) -> PreferencesResponse:
-    """Return the caller's scalar preferences, or server defaults.
+) -> SavedFiltersResponse:
+    """Return the caller's scalar saved filters, or server defaults.
 
     Never 404s: a user with no row (or no users row yet) gets the defaults.
     """
     email = _require_email(user)
     row = get_user_by_email(conn, email)
     if row is None:
-        return _preferences_response(preferences_service.default_preferences())
+        return _saved_filters_response(saved_filters_service.default_saved_filters())
     try:
-        prefs = preferences_service.get_preferences(conn, row["id"])
+        prefs = saved_filters_service.get_saved_filters(conn, row["id"])
     except psycopg2.Error:
         conn.rollback()
-        logger.exception("Failed to load preferences for user=%s", row["id"])
-        raise HTTPException(status_code=500, detail="Failed to load preferences")
-    return _preferences_response(prefs)
+        logger.exception("Failed to load saved filters for user=%s", row["id"])
+        raise HTTPException(status_code=500, detail="Failed to load saved filters")
+    return _saved_filters_response(prefs)
 
 
-@router.put("", response_model=PreferencesResponse)
-def put_preferences(
-    body: PreferencesUpdateRequest,
+@router.put("", response_model=SavedFiltersResponse)
+def put_saved_filters(
+    body: SavedFiltersUpdateRequest,
     conn: Connection = Depends(get_db),
     user: TokenClaims = Depends(get_current_user),
-) -> PreferencesResponse:
-    """Full-replace the caller's scalar preferences (upsert)."""
+) -> SavedFiltersResponse:
+    """Full-replace the caller's scalar saved filters (upsert)."""
     user_id = _resolve_user_id(conn, user)
     try:
-        prefs = preferences_service.upsert_preferences(
+        prefs = saved_filters_service.upsert_saved_filters(
             conn,
             user_id,
             recent_time_window=body.recent_time_window,
@@ -133,9 +133,9 @@ def put_preferences(
             detail="An active keyword list id does not exist or is not yours",
         )
     except psycopg2.Error:
-        logger.exception("Failed to save preferences for user=%s", user_id)
-        raise HTTPException(status_code=500, detail="Failed to save preferences")
-    return _preferences_response(prefs)
+        logger.exception("Failed to save saved filters for user=%s", user_id)
+        raise HTTPException(status_code=500, detail="Failed to save saved filters")
+    return _saved_filters_response(prefs)
 
 
 # --- Keyword lists ------------------------------------------------------------
@@ -153,10 +153,10 @@ def get_keyword_lists(
     row = get_user_by_email(conn, email)
     if row is None:
         return KeywordListsResponse(
-            lists=[_keyword_list_response(preferences_service.builtin_swe_list())]
+            lists=[_keyword_list_response(saved_filters_service.builtin_swe_list())]
         )
     try:
-        rows = preferences_service.list_keyword_lists(conn, row["id"])
+        rows = saved_filters_service.list_keyword_lists(conn, row["id"])
     except psycopg2.Error:
         conn.rollback()
         logger.exception("Failed to list keyword lists for user=%s", row["id"])
@@ -182,7 +182,7 @@ def post_keyword_list(
     user_id = _resolve_user_id(conn, user)
     tags = [{"text": t.text, "mode": t.mode} for t in body.tags]
     try:
-        row = preferences_service.create_keyword_list(
+        row = saved_filters_service.create_keyword_list(
             conn, user_id, name=body.name, tags=tags
         )
     except DuplicateListName:
@@ -194,7 +194,7 @@ def post_keyword_list(
             status_code=422,
             detail=(
                 "Keyword list limit reached "
-                f"({preferences_service.MAX_KEYWORD_LISTS_PER_USER})"
+                f"({saved_filters_service.MAX_KEYWORD_LISTS_PER_USER})"
             ),
         )
     except psycopg2.Error:
@@ -220,7 +220,7 @@ def patch_keyword_list(
         else None
     )
     try:
-        row = preferences_service.update_keyword_list(
+        row = saved_filters_service.update_keyword_list(
             conn,
             user_id,
             list_id,
@@ -259,7 +259,7 @@ def delete_keyword_list(
     """Delete a keyword list (NULLs any active pointer referencing it)."""
     user_id = _resolve_user_id(conn, user)
     try:
-        preferences_service.delete_keyword_list(conn, user_id, list_id)
+        saved_filters_service.delete_keyword_list(conn, user_id, list_id)
     except BuiltinListReadOnly:
         raise HTTPException(
             status_code=422, detail="The built-in list is read-only"
@@ -290,7 +290,7 @@ def search_locations(
     # ``user`` is required purely to gate the endpoint to logged-in callers.
     _require_email(user)
     try:
-        rows = preferences_service.search_locations(conn, q, limit, open_only)
+        rows = saved_filters_service.search_locations(conn, q, limit, open_only)
     except psycopg2.Error:
         logger.exception("Failed to search locations for q=%r", q)
         raise HTTPException(status_code=500, detail="Failed to search locations")

@@ -103,7 +103,7 @@ describe('GoogleOneTap', () => {
   });
 
   it('calls useGoogleOneTapLogin with disabled=false while Auth0 is loading (decoupled from isLoading)', async () => {
-    // Regression guard for the ~30s preference-load delay: One Tap must run in
+    // Regression guard for the ~30s saved-filters-load delay: One Tap must run in
     // parallel with Auth0's silent-auth, NOT wait on it. A Google-only user has
     // no Auth0 refresh token, so gating One Tap on Auth0 `isLoading` blocked the
     // Google credential — and therefore filter hydration — for the full

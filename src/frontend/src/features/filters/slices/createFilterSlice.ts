@@ -79,8 +79,8 @@ function hasCompanyField<T extends Filters>(
 /**
  * Filter state structure.
  *
- * `hydrated` guards the one-time hydration from saved user preferences (see the
- * `hydrate{Name}Filters` reducer). Once true, preference hydration is a no-op so
+ * `hydrated` guards the one-time hydration from saved filters (see the
+ * `hydrate{Name}Filters` reducer). Once true, saved-filters hydration is a no-op so
  * later user edits to the filters are never clobbered by a re-run of the
  * hydration effect. It is reset to false on logout via `set{Name}Hydrated`.
  */
@@ -236,12 +236,12 @@ export function createFilterSlice<T extends Filters>(name: FilterSliceName, init
         setSoftwareOnlyInFilters(state.filters, action.payload);
       },
 
-      // Hydration from saved user preferences (2 actions)
+      // Hydration from saved filters (2 actions)
       //
-      // `hydrate{Name}Filters` applies saved preference values ONCE: if the
+      // `hydrate{Name}Filters` applies saved filter values ONCE: if the
       // slice is already hydrated it returns untouched so a re-running effect
       // (or a second mount) can't clobber edits the user has since made. The
-      // payload is a partial so only the preference-backed fields (timeWindow,
+      // payload is a partial so only the saved-filter-backed fields (timeWindow,
       // location, searchTags) are overwritten.
       [`hydrate${capitalizedName}Filters`]: (state, action: PayloadAction<Partial<T>>) => {
         if (state.hydrated) return;

@@ -14,7 +14,7 @@ import { featuresApi } from '../features/features/featuresApi';
 import { companiesApi } from '../features/companies/companiesApi';
 import { feedbackApi } from '../features/feedback/feedbackApi';
 import { adminApi } from '../features/admin/adminApi';
-import { preferencesApi } from '../features/preferences/preferencesApi';
+import { savedFiltersApi } from '../features/savedFilters/savedFiltersApi';
 import { getTokenOrNull } from '../features/features/getTokenOrNull';
 
 /**
@@ -36,7 +36,7 @@ export function createTestStore(preloadedState: Partial<RootState> | Record<stri
       [companiesApi.reducerPath]: companiesApi.reducer,
       [feedbackApi.reducerPath]: feedbackApi.reducer,
       [adminApi.reducerPath]: adminApi.reducer,
-      [preferencesApi.reducerPath]: preferencesApi.reducer,
+      [savedFiltersApi.reducerPath]: savedFiltersApi.reducer,
     },
     middleware: (getDefaultMiddleware) =>
       getDefaultMiddleware({
@@ -47,7 +47,7 @@ export function createTestStore(preloadedState: Partial<RootState> | Record<stri
         .concat(companiesApi.middleware)
         .concat(feedbackApi.middleware)
         .concat(adminApi.middleware)
-        .concat(preferencesApi.middleware),
+        .concat(savedFiltersApi.middleware),
     preloadedState: preloadedState as RootState,
   });
 }

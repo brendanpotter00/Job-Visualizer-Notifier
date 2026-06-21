@@ -1,6 +1,6 @@
 import { useId, useMemo } from 'react';
 import { FormControl, InputLabel, Select, MenuItem } from '@mui/material';
-import { useGetKeywordListsQuery } from '../../../features/preferences/preferencesApi';
+import { useGetKeywordListsQuery } from '../../../features/savedFilters/savedFiltersApi';
 import { useAuth } from '../../../features/auth/useAuth';
 import type { KeywordList, SearchTag } from '../../../types';
 

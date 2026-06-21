@@ -3,7 +3,7 @@ import Button from '@mui/material/Button';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 
-export interface PreferencesSaveBarProps {
+export interface SavedFiltersSaveBarProps {
   isDirty: boolean;
   isSaving: boolean;
   saveSuccess: boolean;
@@ -12,22 +12,22 @@ export interface PreferencesSaveBarProps {
 }
 
 /**
- * The single, explicit Save bar for the Preferences page. There is NO per-card
+ * The single, explicit Save bar for the Saved Filters page. There is NO per-card
  * autosave: this bar commits every card's draft (time windows, locations,
  * active lists, and all keyword-list create/update/delete operations) at once.
  */
-export function PreferencesSaveBar({
+export function SavedFiltersSaveBar({
   isDirty,
   isSaving,
   saveSuccess,
   saveError,
   onSave,
-}: PreferencesSaveBarProps) {
+}: SavedFiltersSaveBarProps) {
   return (
     <Paper sx={{ p: 3 }}>
       {saveSuccess && (
         <Alert severity="success" sx={{ mb: 2 }}>
-          Preferences saved.
+          Saved filters updated.
         </Alert>
       )}
       {saveError && (

@@ -11,7 +11,7 @@ import {
   resetRecentJobsFilters,
   setRecentJobsHydrated,
 } from '../filters/slices/recentJobsFiltersSlice';
-import { useGetPreferencesQuery, useGetKeywordListsQuery, preferencesApi } from './preferencesApi';
+import { useGetSavedFiltersQuery, useGetKeywordListsQuery, savedFiltersApi } from './savedFiltersApi';
 import type { KeywordList, SearchTag } from '../../types';
 
 /**
@@ -34,21 +34,21 @@ function resolveActiveTags(
 }
 
 /**
- * Loads the signed-in user's saved preferences once and hydrates the graph and
+ * Loads the signed-in user's saved filters once and hydrates the graph and
  * recent-jobs filter slices from them. Mirrors `useEnabledCompanies`: mount once
  * at the app root so the slices are seeded before any page reads them.
  *
  * Hydration is one-shot per slice (guarded by the slices' `hydrated` flag), so a
  * re-render or a late-arriving query result never clobbers edits the user has
  * since made. On logout the slices are reset, their `hydrated` flag cleared, and
- * the preferences API cache is reset, so the next sign-in re-hydrates from fresh
- * preferences for the current user (never the previous user's cached data).
+ * the saved-filters API cache is reset, so the next sign-in re-hydrates from fresh
+ * saved filters for the current user (never the previous user's cached data).
  */
-export function useHydrateFilterPreferences(): void {
+export function useHydrateSavedFilters(): void {
   const { isAuthenticated } = useAuth();
   const dispatch = useAppDispatch();
 
-  const { data: preferences } = useGetPreferencesQuery(undefined, { skip: !isAuthenticated });
+  const { data: savedFilters } = useGetSavedFiltersQuery(undefined, { skip: !isAuthenticated });
   const { data: keywordLists } = useGetKeywordListsQuery(undefined, { skip: !isAuthenticated });
 
   // Remember whether we were authenticated last render so we can detect the
@@ -60,23 +60,23 @@ export function useHydrateFilterPreferences(): void {
       wasAuthenticated.current = true;
 
       // Both requests must have resolved before we hydrate: the active-list ids
-      // in `preferences` are resolved against `keywordLists`.
-      if (!preferences || !keywordLists) return;
+      // in `savedFilters` are resolved against `keywordLists`.
+      if (!savedFilters || !keywordLists) return;
 
-      const trendTags = resolveActiveTags(preferences.trendActiveKeywordListId, keywordLists);
-      const recentTags = resolveActiveTags(preferences.recentActiveKeywordListId, keywordLists);
+      const trendTags = resolveActiveTags(savedFilters.trendActiveKeywordListId, keywordLists);
+      const recentTags = resolveActiveTags(savedFilters.recentActiveKeywordListId, keywordLists);
 
       dispatch(
         hydrateGraphFilters({
-          timeWindow: preferences.trendTimeWindow,
-          location: preferences.locations,
+          timeWindow: savedFilters.trendTimeWindow,
+          location: savedFilters.locations,
           searchTags: trendTags,
         })
       );
       dispatch(
         hydrateRecentJobsFilters({
-          timeWindow: preferences.recentTimeWindow,
-          location: preferences.locations,
+          timeWindow: savedFilters.recentTimeWindow,
+          location: savedFilters.locations,
           searchTags: recentTags,
         })
       );
@@ -91,10 +91,10 @@ export function useHydrateFilterPreferences(): void {
       dispatch(resetRecentJobsFilters());
       dispatch(setGraphHydrated(false));
       dispatch(setRecentJobsHydrated(false));
-      // Clear the cached preferences/keyword-lists so a subsequent login - e.g. a
+      // Clear the cached saved-filters/keyword-lists so a subsequent login - e.g. a
       // different user via Google One Tap, which does not reload the page - cannot
       // hydrate filters from the previous user's still-cached data.
-      dispatch(preferencesApi.util.resetApiState());
+      dispatch(savedFiltersApi.util.resetApiState());
     }
-  }, [isAuthenticated, preferences, keywordLists, dispatch]);
+  }, [isAuthenticated, savedFilters, keywordLists, dispatch]);
 }

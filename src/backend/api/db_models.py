@@ -157,8 +157,8 @@ class UserEnabledCompany(Base):
     )
 
 
-class UserPreferences(Base):
-    """Scalar per-user preferences (one row per user).
+class UserSavedFilters(Base):
+    """Scalar per-user saved filters (one row per user).
 
     Time windows are plain TEXT validated to the ``TimeWindow`` Literal at the
     Pydantic boundary (matches how ``job_listings.status`` stays TEXT and is
@@ -172,7 +172,7 @@ class UserPreferences(Base):
     DELETE NULLs any pointer referencing it in the same transaction.
     """
 
-    __tablename__ = "user_preferences"
+    __tablename__ = "user_saved_filters"
 
     user_id = Column(
         Text,
