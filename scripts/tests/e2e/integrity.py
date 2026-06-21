@@ -62,6 +62,24 @@ class ScraperSpec:
     # heuristic miss doesn't fail, but a wholesale location break (0%) does.
     min_location_coverage: float = 0.25
 
+    def __post_init__(self) -> None:
+        # Guard the cross-field invariants the table author must uphold. Without
+        # this, a typo like min_jobs > max_jobs makes the health floor
+        # unsatisfiable (scrape_all_queries caps the list at max_jobs), turning
+        # the canary permanently red regardless of scraper health — a silent
+        # erosion of the very signal this suite exists to provide. Failing at
+        # construction surfaces it loudly in the default suite instead.
+        if not 0 < self.min_jobs <= self.max_jobs:
+            raise ValueError(
+                f"{self.name}: require 0 < min_jobs ({self.min_jobs}) "
+                f"<= max_jobs ({self.max_jobs})"
+            )
+        if not 0.0 <= self.min_location_coverage <= 1.0:
+            raise ValueError(
+                f"{self.name}: min_location_coverage must be in [0, 1], "
+                f"got {self.min_location_coverage}"
+            )
+
 
 SCRAPER_SPECS: List[ScraperSpec] = [
     ScraperSpec(
@@ -145,9 +163,11 @@ def assert_job_integrity(
             f"{ctx}: source_id {job.source_id!r} != {spec.source_id!r}"
         )
 
-        # Fresh-scrape lifecycle state must be OPEN / not closed
-        assert job.status == "OPEN", f"{ctx}: fresh job not OPEN (got {job.status})"
-        assert job.closed_on is None, f"{ctx}: fresh job has closed_on set"
+        # NOTE: fresh-scrape lifecycle state (status == "OPEN", closed_on is
+        # None) is intentionally NOT asserted here. All three transforms
+        # hardcode those fields, so the check tested a constant rather than the
+        # live scrape; the transform contract is covered by
+        # tests/integration/test_scraper_transform.py instead.
 
         # posted_on must be parseable when present. In list-only mode only
         # Microsoft populates posted_on (see module docstring), so this branch
