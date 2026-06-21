@@ -6,6 +6,7 @@ import { CuratedCompaniesPage } from '../pages/CuratedCompaniesPage';
 import { RecentJobPostingsPage } from '../pages/RecentJobPostingsPage/RecentJobPostingsPage';
 import { WhyPage } from '../pages/WhyPage/WhyPage.tsx';
 import { AccountPage } from '../pages/AccountPage/AccountPage.tsx';
+import { PreferencesPage } from '../pages/PreferencesPage';
 import { VoteFeaturesPage } from '../pages/VoteFeaturesPage';
 import { ROUTES } from '../config/routes';
 import { QAPage } from '../pages/QAPage/QAPage.tsx';
@@ -15,6 +16,7 @@ import { AdminLocationPipelinePage } from '../pages/AdminLocationPipelinePage/Ad
 import { AdminFeedbackPage } from '../pages/AdminFeedbackPage/AdminFeedbackPage.tsx';
 import { AdminRoute } from '../components/auth/AdminRoute.tsx';
 import { useEnabledCompanies } from '../features/preferences/useEnabledCompanies';
+import { useHydrateFilterPreferences } from '../features/preferences/useHydrateFilterPreferences';
 import { useFeaturesAuthBridge } from '../features/features/useFeaturesAuthBridge';
 
 /**
@@ -29,6 +31,9 @@ function AppContent() {
   // Hydrate enabled-companies at the app root so selectors have it before
   // any page reads them.
   useEnabledCompanies();
+  // Hydrate the filter slices (time windows, locations, active keyword list)
+  // from saved user preferences once on sign-in; reset on sign-out.
+  useHydrateFilterPreferences();
   useFeaturesAuthBridge();
 
   return (
@@ -75,6 +80,7 @@ function AppContent() {
             }
           />
           <Route path={ROUTES.ACCOUNT} element={<AccountPage />} />
+          <Route path={ROUTES.PREFERENCES} element={<PreferencesPage />} />
           <Route path={ROUTES.VOTE_FEATURES} element={<VoteFeaturesPage />} />
         </Route>
       </Routes>

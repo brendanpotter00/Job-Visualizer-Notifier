@@ -1,0 +1,220 @@
+import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
+import type { KeywordList, SearchTag, UserPreferences } from '../../types';
+
+/**
+ * One location suggestion returned by the preferences location-search endpoint.
+ * NOTE: `id` is a NUMBER (canonical-location PK), matching the admin
+ * location-normalization types; `canonicalName` is the display label written
+ * into the shared `locations` preference.
+ */
+export interface LocationSearchResult {
+  id: number;
+  canonicalName: string;
+  kind: string;
+}
+
+/** Args for the debounced location autocomplete on the Preferences page. */
+export interface SearchLocationsArgs {
+  q: string;
+  limit?: number;
+  openOnly?: boolean;
+}
+
+/** Body for creating a new keyword list. */
+export interface CreateKeywordListArgs {
+  name: string;
+  tags: SearchTag[];
+}
+
+/** Body for patching an existing keyword list (all fields optional). */
+export interface UpdateKeywordListArgs {
+  id: string;
+  name?: string;
+  tags?: SearchTag[];
+  position?: number;
+}
+
+interface PreferencesApiExtra {
+  getTokenOrNull: () => Promise<string | null>;
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return v != null && typeof v === 'object' && !Array.isArray(v);
+}
+
+/**
+ * Validate that an untrusted value is a `SearchTag[]`. A 2xx body with the
+ * wrong shape (CDN error page, serializer regression) must surface as an error
+ * rather than silently feeding malformed tags into the filter slices.
+ */
+function validateTags(value: unknown, ctx: string): SearchTag[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`Invalid ${ctx}: tags must be an array`);
+  }
+  for (const tag of value) {
+    if (!isRecord(tag) || typeof tag.text !== 'string') {
+      throw new Error(`Invalid ${ctx}: tag.text must be a string`);
+    }
+    if (tag.mode !== 'include' && tag.mode !== 'exclude') {
+      throw new Error(`Invalid ${ctx}: tag.mode must be include|exclude`);
+    }
+  }
+  return value as SearchTag[];
+}
+
+function validateKeywordList(value: unknown, ctx: string): KeywordList {
+  if (!isRecord(value)) {
+    throw new Error(`Invalid ${ctx}: keyword list is not an object`);
+  }
+  if (typeof value.id !== 'string') {
+    throw new Error(`Invalid ${ctx}: list.id must be a string`);
+  }
+  if (typeof value.name !== 'string') {
+    throw new Error(`Invalid ${ctx}: list.name must be a string`);
+  }
+  if (typeof value.isBuiltin !== 'boolean') {
+    throw new Error(`Invalid ${ctx}: list.isBuiltin must be a boolean`);
+  }
+  if (typeof value.position !== 'number') {
+    throw new Error(`Invalid ${ctx}: list.position must be a number`);
+  }
+  const tags = validateTags(value.tags, ctx);
+  return {
+    id: value.id,
+    name: value.name,
+    isBuiltin: value.isBuiltin,
+    position: value.position,
+    tags,
+  };
+}
+
+function validatePreferences(res: unknown): UserPreferences {
+  if (!isRecord(res)) {
+    throw new Error('Invalid /api/users/preferences response: body is not an object');
+  }
+  if (typeof res.recentTimeWindow !== 'string') {
+    throw new Error('Invalid /api/users/preferences response: recentTimeWindow must be a string');
+  }
+  if (typeof res.trendTimeWindow !== 'string') {
+    throw new Error('Invalid /api/users/preferences response: trendTimeWindow must be a string');
+  }
+  if (!Array.isArray(res.locations) || res.locations.some((l) => typeof l !== 'string')) {
+    throw new Error('Invalid /api/users/preferences response: locations must be a string array');
+  }
+  if (res.recentActiveKeywordListId !== null && typeof res.recentActiveKeywordListId !== 'string') {
+    throw new Error(
+      'Invalid /api/users/preferences response: recentActiveKeywordListId must be string or null'
+    );
+  }
+  if (res.trendActiveKeywordListId !== null && typeof res.trendActiveKeywordListId !== 'string') {
+    throw new Error(
+      'Invalid /api/users/preferences response: trendActiveKeywordListId must be string or null'
+    );
+  }
+  return res as unknown as UserPreferences;
+}
+
+export const preferencesApi = createApi({
+  reducerPath: 'preferencesApi',
+  baseQuery: fetchBaseQuery({
+    baseUrl: '/api/users',
+    prepareHeaders: async (headers, { extra }) => {
+      const { getTokenOrNull } = extra as PreferencesApiExtra;
+      const token = await getTokenOrNull();
+      if (token) {
+        headers.set('Authorization', `Bearer ${token}`);
+      }
+      return headers;
+    },
+  }),
+  tagTypes: ['Preferences', 'KeywordLists'],
+  endpoints: (builder) => ({
+    getPreferences: builder.query<UserPreferences, void>({
+      query: () => '/preferences',
+      transformResponse: (res: unknown) => validatePreferences(res),
+      providesTags: ['Preferences'],
+    }),
+    updatePreferences: builder.mutation<UserPreferences, UserPreferences>({
+      query: (body) => ({ url: '/preferences', method: 'PUT', body }),
+      transformResponse: (res: unknown) => validatePreferences(res),
+      invalidatesTags: ['Preferences'],
+    }),
+    getKeywordLists: builder.query<KeywordList[], void>({
+      query: () => '/preferences/keyword-lists',
+      transformResponse: (res: unknown): KeywordList[] => {
+        if (!isRecord(res) || !Array.isArray(res.lists)) {
+          throw new Error(
+            'Invalid /api/users/preferences/keyword-lists response: missing lists[]'
+          );
+        }
+        return res.lists.map((l) =>
+          validateKeywordList(l, '/api/users/preferences/keyword-lists response')
+        );
+      },
+      providesTags: ['KeywordLists'],
+    }),
+    createKeywordList: builder.mutation<KeywordList, CreateKeywordListArgs>({
+      query: (body) => ({ url: '/preferences/keyword-lists', method: 'POST', body }),
+      transformResponse: (res: unknown) =>
+        validateKeywordList(res, 'POST /api/users/preferences/keyword-lists response'),
+      invalidatesTags: ['KeywordLists'],
+    }),
+    updateKeywordList: builder.mutation<KeywordList, UpdateKeywordListArgs>({
+      query: ({ id, ...patch }) => ({
+        url: `/preferences/keyword-lists/${id}`,
+        method: 'PATCH',
+        body: patch,
+      }),
+      transformResponse: (res: unknown) =>
+        validateKeywordList(res, 'PATCH /api/users/preferences/keyword-lists response'),
+      invalidatesTags: ['KeywordLists'],
+    }),
+    deleteKeywordList: builder.mutation<void, string>({
+      query: (id) => ({
+        url: `/preferences/keyword-lists/${id}`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: ['KeywordLists'],
+    }),
+    searchLocations: builder.query<LocationSearchResult[], SearchLocationsArgs>({
+      query: ({ q, limit, openOnly }) => ({
+        url: '/preferences/locations/search',
+        params: {
+          q,
+          ...(limit !== undefined ? { limit } : {}),
+          ...(openOnly !== undefined ? { openOnly } : {}),
+        },
+      }),
+      transformResponse: (res: unknown): LocationSearchResult[] => {
+        if (!Array.isArray(res)) {
+          throw new Error(
+            'Invalid /api/users/preferences/locations/search response: body is not an array'
+          );
+        }
+        for (const row of res) {
+          if (
+            !isRecord(row) ||
+            typeof row.id !== 'number' ||
+            typeof row.canonicalName !== 'string' ||
+            typeof row.kind !== 'string'
+          ) {
+            throw new Error(
+              'Invalid /api/users/preferences/locations/search response: bad row shape'
+            );
+          }
+        }
+        return res as LocationSearchResult[];
+      },
+    }),
+  }),
+});
+
+export const {
+  useGetPreferencesQuery,
+  useUpdatePreferencesMutation,
+  useGetKeywordListsQuery,
+  useCreateKeywordListMutation,
+  useUpdateKeywordListMutation,
+  useDeleteKeywordListMutation,
+  useSearchLocationsQuery,
+} = preferencesApi;

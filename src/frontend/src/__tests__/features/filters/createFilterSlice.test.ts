@@ -57,6 +57,8 @@ describe('createFilterSlice', () => {
         'setGraphEmploymentType',
         'toggleGraphSoftwareOnly',
         'setGraphSoftwareOnly',
+        'hydrateGraphFilters',
+        'setGraphHydrated',
         'resetGraphFilters',
       ];
 
@@ -64,7 +66,8 @@ describe('createFilterSlice', () => {
         expect(actionNames).toContain(actionName);
       });
 
-      expect(actionNames).toHaveLength(22); // Total actions (roleCategory + sync actions removed)
+      // 22 prior actions + hydrate{Name}Filters + set{Name}Hydrated
+      expect(actionNames).toHaveLength(24);
     });
   });
 
@@ -77,7 +80,7 @@ describe('createFilterSlice', () => {
       };
 
       const slice = createFilterSlice('graph', initialFilters);
-      const initialState = { filters: initialFilters };
+      const initialState = { filters: initialFilters, hydrated: false };
 
       const newState = slice.reducer(initialState, {
         type: 'graphFilters/setGraphTimeWindow',
@@ -97,7 +100,10 @@ describe('createFilterSlice', () => {
       const slice = createFilterSlice('graph', initialFilters);
 
       // Modify state
-      let state = { filters: { ...initialFilters, timeWindow: '7d' as TimeWindow } };
+      let state = {
+        filters: { ...initialFilters, timeWindow: '7d' as TimeWindow },
+        hydrated: false,
+      };
 
       // Reset
       const newState = slice.reducer(state, {
@@ -116,7 +122,7 @@ describe('createFilterSlice', () => {
       };
 
       const slice = createFilterSlice('list', initialFilters);
-      const initialState = { filters: initialFilters };
+      const initialState = { filters: initialFilters, hydrated: false };
 
       const newState = slice.reducer(initialState, {
         type: 'listFilters/setListEmploymentType',
@@ -185,7 +191,7 @@ describe('createFilterSlice', () => {
       };
 
       const slice = createFilterSlice('graph', initialFilters);
-      const initialState = { filters: initialFilters };
+      const initialState = { filters: initialFilters, hydrated: false };
 
       const newState = slice.reducer(initialState, {
         type: 'graphFilters/addGraphSearchTag',
@@ -204,7 +210,7 @@ describe('createFilterSlice', () => {
       };
 
       const slice = createFilterSlice('graph', initialFilters);
-      const initialState = { filters: initialFilters };
+      const initialState = { filters: initialFilters, hydrated: false };
 
       const newState = slice.reducer(initialState, {
         type: 'graphFilters/addGraphSearchTag',
@@ -226,7 +232,7 @@ describe('createFilterSlice', () => {
       };
 
       const slice = createFilterSlice('graph', initialFilters);
-      const initialState = { filters: initialFilters };
+      const initialState = { filters: initialFilters, hydrated: false };
 
       const newState = slice.reducer(initialState, {
         type: 'graphFilters/removeGraphSearchTag',
@@ -245,7 +251,7 @@ describe('createFilterSlice', () => {
       };
 
       const slice = createFilterSlice('graph', initialFilters);
-      const initialState = { filters: initialFilters };
+      const initialState = { filters: initialFilters, hydrated: false };
 
       const newState = slice.reducer(initialState, {
         type: 'graphFilters/toggleGraphSearchTagMode',
@@ -266,7 +272,7 @@ describe('createFilterSlice', () => {
       };
 
       const slice = createFilterSlice('graph', initialFilters);
-      const initialState = { filters: initialFilters };
+      const initialState = { filters: initialFilters, hydrated: false };
 
       const newState = slice.reducer(initialState, {
         type: 'graphFilters/clearGraphSearchTags',
@@ -286,7 +292,7 @@ describe('createFilterSlice', () => {
       };
 
       const slice = createFilterSlice('graph', initialFilters);
-      const initialState = { filters: initialFilters };
+      const initialState = { filters: initialFilters, hydrated: false };
 
       const newState = slice.reducer(initialState, {
         type: 'graphFilters/addGraphLocation',
@@ -305,7 +311,7 @@ describe('createFilterSlice', () => {
       };
 
       const slice = createFilterSlice('graph', initialFilters);
-      const initialState = { filters: initialFilters };
+      const initialState = { filters: initialFilters, hydrated: false };
 
       const newState = slice.reducer(initialState, {
         type: 'graphFilters/removeGraphLocation',
@@ -324,7 +330,7 @@ describe('createFilterSlice', () => {
       };
 
       const slice = createFilterSlice('graph', initialFilters);
-      const initialState = { filters: initialFilters };
+      const initialState = { filters: initialFilters, hydrated: false };
 
       const newState = slice.reducer(initialState, {
         type: 'graphFilters/clearGraphLocations',
@@ -342,7 +348,7 @@ describe('createFilterSlice', () => {
       };
 
       const slice = createFilterSlice('graph', initialFilters);
-      const initialState = { filters: initialFilters };
+      const initialState = { filters: initialFilters, hydrated: false };
 
       const newState = slice.reducer(initialState, {
         type: 'graphFilters/setGraphLocation',
@@ -362,7 +368,7 @@ describe('createFilterSlice', () => {
       };
 
       const slice = createFilterSlice('graph', initialFilters);
-      const initialState = { filters: initialFilters };
+      const initialState = { filters: initialFilters, hydrated: false };
 
       const newState = slice.reducer(initialState, {
         type: 'graphFilters/addGraphDepartment',
@@ -381,7 +387,7 @@ describe('createFilterSlice', () => {
       };
 
       const slice = createFilterSlice('graph', initialFilters);
-      const initialState = { filters: initialFilters };
+      const initialState = { filters: initialFilters, hydrated: false };
 
       const newState = slice.reducer(initialState, {
         type: 'graphFilters/removeGraphDepartment',
@@ -400,7 +406,7 @@ describe('createFilterSlice', () => {
       };
 
       const slice = createFilterSlice('graph', initialFilters);
-      const initialState = { filters: initialFilters };
+      const initialState = { filters: initialFilters, hydrated: false };
 
       const newState = slice.reducer(initialState, {
         type: 'graphFilters/clearGraphDepartments',
@@ -418,7 +424,7 @@ describe('createFilterSlice', () => {
       };
 
       const slice = createFilterSlice('graph', initialFilters);
-      const initialState = { filters: initialFilters };
+      const initialState = { filters: initialFilters, hydrated: false };
 
       const newState = slice.reducer(initialState, {
         type: 'graphFilters/setGraphDepartment',
@@ -438,7 +444,7 @@ describe('createFilterSlice', () => {
       };
 
       const slice = createFilterSlice('graph', initialFilters);
-      const initialState = { filters: initialFilters };
+      const initialState = { filters: initialFilters, hydrated: false };
 
       const newState = slice.reducer(initialState, {
         type: 'graphFilters/toggleGraphSoftwareOnly',
@@ -458,7 +464,7 @@ describe('createFilterSlice', () => {
       };
 
       const slice = createFilterSlice('graph', initialFilters);
-      const initialState = { filters: initialFilters };
+      const initialState = { filters: initialFilters, hydrated: false };
 
       const newState = slice.reducer(initialState, {
         type: 'graphFilters/setGraphSoftwareOnly',
@@ -480,7 +486,7 @@ describe('createFilterSlice', () => {
       };
 
       const slice = createFilterSlice('graph', initialFilters);
-      const initialState = { filters: initialFilters };
+      const initialState = { filters: initialFilters, hydrated: false };
 
       const newState = slice.reducer(initialState, {
         type: 'graphFilters/setGraphSoftwareOnly',
@@ -501,7 +507,7 @@ describe('createFilterSlice', () => {
       };
 
       const slice = createFilterSlice('graph', initialFilters);
-      const state = { filters: initialFilters };
+      const state = { filters: initialFilters, hydrated: false };
 
       slice.reducer(state, {
         type: 'graphFilters/resetGraphFilters',
@@ -526,6 +532,7 @@ describe('createFilterSlice', () => {
           searchTags: [{ text: 'test', mode: 'include' as const }],
           softwareOnly: true,
         },
+        hydrated: false,
       };
 
       // Reset uses Object.assign for Immer compatibility

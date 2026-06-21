@@ -176,6 +176,37 @@ export type SearchTag = {
 };
 
 /**
+ * A user-created (or built-in) named keyword list. Selecting a list on a filter
+ * page replaces that page's `searchTags` with the list's `tags`.
+ *
+ * The built-in "Software Engineering (default)" list is synthesized by the
+ * backend, returned last, carries `isBuiltin: true` (id `"builtin-swe"`), and is
+ * read-only in the editor.
+ */
+export interface KeywordList {
+  id: string;
+  name: string;
+  tags: SearchTag[];
+  isBuiltin: boolean;
+  position: number;
+}
+
+/**
+ * Persisted, login-gated user preferences that hydrate the filter slices on
+ * sign-in. `recentTimeWindow`/`trendTimeWindow` are per-page defaults; `locations`
+ * is a single shared default set applied to both pages. The two
+ * `*ActiveKeywordListId` fields name the active keyword list per page (the
+ * built-in id `"builtin-swe"`, a user list id, or `null` for no keyword filter).
+ */
+export interface UserPreferences {
+  recentTimeWindow: TimeWindow;
+  trendTimeWindow: TimeWindow;
+  locations: string[];
+  recentActiveKeywordListId: string | null;
+  trendActiveKeywordListId: string | null;
+}
+
+/**
  * Graph filter state
  */
 export interface GraphFilters {

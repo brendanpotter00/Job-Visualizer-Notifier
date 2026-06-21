@@ -147,7 +147,7 @@ async function seedRecentStore(
 }
 
 describe('RecentJobsFilters', () => {
-  it('renders SearchTagsInput, TimeWindowSelect, Company, Location, SoftwareOnlyToggle, Reset button', async () => {
+  it('renders SearchTagsInput, TimeWindowSelect, Company, Location, KeywordListSelect, Reset button', async () => {
     const store = await seedRecentStore();
     renderWithProviders(<RecentJobsFilters />, { store });
 
@@ -155,9 +155,7 @@ describe('RecentJobsFilters', () => {
     expect(screen.getAllByText('Time Window').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Company').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Location').length).toBeGreaterThan(0);
-    expect(
-      screen.getByRole('switch', { name: 'Software engineering roles only' })
-    ).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Keyword list' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /reset filters/i })).toBeInTheDocument();
   });
 
@@ -247,16 +245,21 @@ describe('RecentJobsFilters', () => {
     expect(store.getState().recentJobsFilters.filters.location).toContain(chosenLocation);
   });
 
-  it('dispatches toggleRecentJobsSoftwareOnly when switch clicked', async () => {
-    const store = await seedRecentStore();
+  it('clears searchTags via KeywordListSelect "None" option', async () => {
+    // Seed hand-added tags so the dropdown offers a selectable "None"; with no
+    // keyword lists loaded, selecting it clears the slice's tags.
+    const store = await seedRecentStore({
+      searchTags: [{ text: 'senior', mode: 'include' }],
+    });
     const user = userEvent.setup();
     renderWithProviders(<RecentJobsFilters />, { store });
 
-    await user.click(screen.getByRole('switch', { name: 'Software engineering roles only' }));
+    await user.click(screen.getByRole('combobox', { name: 'Keyword list' }));
+    const listbox = await screen.findByRole('listbox');
+    await user.click(within(listbox).getByRole('option', { name: 'None' }));
 
-    const tags = store.getState().recentJobsFilters.filters.searchTags ?? [];
-    // SOFTWARE_ENGINEERING_TAGS has 6 entries
-    expect(tags.length).toBe(6);
+    const tags = store.getState().recentJobsFilters.filters.searchTags;
+    expect(tags === undefined || tags.length === 0).toBe(true);
   });
 
   it('dispatches resetRecentJobsFilters when Reset Filters button clicked', async () => {

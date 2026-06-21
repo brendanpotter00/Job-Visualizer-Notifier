@@ -1,12 +1,11 @@
 import type { GraphFilters } from '../../../types';
-import { createFilterSlice } from './createFilterSlice';
+import { createFilterSlice, type FiltersState } from './createFilterSlice';
 
 /**
- * Graph filter state
+ * Graph filter state. Aliased to the factory's `FiltersState<GraphFilters>` so
+ * it stays the single source of truth (and carries the `hydrated` flag).
  */
-export interface GraphFiltersState {
-  filters: GraphFilters;
-}
+export type GraphFiltersState = FiltersState<GraphFilters>;
 
 const initialFilters: GraphFilters = {
   timeWindow: '7d',
@@ -50,6 +49,8 @@ export const {
   setGraphEmploymentType,
   toggleGraphSoftwareOnly,
   setGraphSoftwareOnly,
+  hydrateGraphFilters,
+  setGraphHydrated,
   resetGraphFilters,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 } = graphFiltersSlice.actions as any;
