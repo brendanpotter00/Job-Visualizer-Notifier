@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { JobCard } from '../../../../components/companies-page/JobList/JobCard';
+import { JobListingCard } from '../../../../components/shared/JobCard/JobListingCard';
 import type { Job } from '../../../../types';
 
-describe('JobCard', () => {
+describe('JobListingCard', () => {
   const mockJob: Job = {
     id: '1',
     source: 'backend-scraper',
@@ -19,35 +19,45 @@ describe('JobCard', () => {
     raw: {},
   };
 
-  it('renders job title as a link', () => {
-    render(<JobCard job={mockJob} />);
-    const link = screen.getByRole('link', { name: 'Senior Frontend Engineer' });
-    expect(link).toBeInTheDocument();
-    expect(link).toHaveAttribute('href', 'https://example.com/job/1');
-    expect(link).toHaveAttribute('target', '_blank');
+  it('renders the job title as a heading', () => {
+    render(<JobListingCard job={mockJob} />);
+    expect(
+      screen.getByRole('heading', { name: 'Senior Frontend Engineer' })
+    ).toBeInTheDocument();
+  });
+
+  it('renders a black Apply link to the job posting', () => {
+    render(<JobListingCard job={mockJob} />);
+    const apply = screen.getByRole('link', { name: 'Apply' });
+    expect(apply).toHaveAttribute('href', 'https://example.com/job/1');
+    expect(apply).toHaveAttribute('target', '_blank');
+    expect(apply).toHaveAttribute('rel', 'noopener noreferrer');
   });
 
   it('renders the company logo (resolved from job.company)', () => {
-    // Guards the CompanyLogo wiring: 'spacex' -> SpaceX -> /logos/icons/spacex.png.
-    render(<JobCard job={mockJob} />);
-    expect(screen.getByRole('img', { name: 'SpaceX' })).toHaveAttribute(
-      'src',
-      '/logos/icons/spacex.png'
-    );
+    // Guards the CompanyLogo wiring: 'spacex' -> /logos/icons/spacex.png. The logo
+    // is decorative (the company name is shown as adjacent text), so it has an
+    // empty alt and is queried by src rather than accessible name.
+    const { container } = render(<JobListingCard job={mockJob} />);
+    const img = container.querySelector('img');
+    expect(img).not.toBeNull();
+    expect(img).toHaveAttribute('src', '/logos/icons/spacex.png');
+    // It must not announce the company name a second time.
+    expect(screen.queryByRole('img', { name: 'SpaceX' })).not.toBeInTheDocument();
   });
 
   it('displays relative time posted', () => {
-    render(<JobCard job={mockJob} />);
+    render(<JobListingCard job={mockJob} />);
     expect(screen.getByText(/2 hours ago/i)).toBeInTheDocument();
   });
 
   it('displays department chip', () => {
-    render(<JobCard job={mockJob} />);
+    render(<JobListingCard job={mockJob} />);
     expect(screen.getByText('Engineering')).toBeInTheDocument();
   });
 
   it('displays location chip', () => {
-    render(<JobCard job={mockJob} />);
+    render(<JobListingCard job={mockJob} />);
     expect(screen.getByText('San Francisco, CA')).toBeInTheDocument();
   });
 
@@ -76,7 +86,7 @@ describe('JobCard', () => {
         },
       ],
     };
-    render(<JobCard job={multiLocationJob} />);
+    render(<JobListingCard job={multiLocationJob} />);
 
     // One chip per canonical tag...
     expect(screen.getByText('Austin, TX, US')).toBeInTheDocument();
@@ -91,7 +101,7 @@ describe('JobCard', () => {
       location: 'Remote - Worldwide',
       locations: [],
     };
-    render(<JobCard job={noTagsJob} />);
+    render(<JobListingCard job={noTagsJob} />);
     expect(screen.getByText('Remote - Worldwide')).toBeInTheDocument();
   });
 
@@ -101,28 +111,28 @@ describe('JobCard', () => {
       location: 'Hawthorne, CA',
       locations: undefined,
     };
-    render(<JobCard job={undefinedTagsJob} />);
+    render(<JobListingCard job={undefinedTagsJob} />);
     expect(screen.getByText('Hawthorne, CA')).toBeInTheDocument();
   });
 
   it('displays remote chip when job is remote', () => {
-    render(<JobCard job={mockJob} />);
+    render(<JobListingCard job={mockJob} />);
     expect(screen.getByText('Remote')).toBeInTheDocument();
   });
 
   it('does not display remote chip when job is not remote', () => {
     const nonRemoteJob = { ...mockJob, isRemote: false };
-    render(<JobCard job={nonRemoteJob} />);
+    render(<JobListingCard job={nonRemoteJob} />);
     expect(screen.queryByText('Remote')).not.toBeInTheDocument();
   });
 
   it('displays employment type chip', () => {
-    render(<JobCard job={mockJob} />);
+    render(<JobListingCard job={mockJob} />);
     expect(screen.getByText('Full-time')).toBeInTheDocument();
   });
 
   it('displays first 5 tags', () => {
-    render(<JobCard job={mockJob} />);
+    render(<JobListingCard job={mockJob} />);
     expect(screen.getByText('React')).toBeInTheDocument();
     expect(screen.getByText('TypeScript')).toBeInTheDocument();
     expect(screen.getByText('GraphQL')).toBeInTheDocument();
@@ -133,7 +143,7 @@ describe('JobCard', () => {
 
   it('handles job with no tags', () => {
     const jobWithoutTags = { ...mockJob, tags: undefined };
-    render(<JobCard job={jobWithoutTags} />);
+    render(<JobListingCard job={jobWithoutTags} />);
     // Should render without errors
     expect(screen.getByText('Senior Frontend Engineer')).toBeInTheDocument();
   });
@@ -143,7 +153,7 @@ describe('JobCard', () => {
       ...mockJob,
       tags: ['React', null, 'TypeScript', null, 'GraphQL'] as any,
     };
-    render(<JobCard job={jobWithNullTags} />);
+    render(<JobListingCard job={jobWithNullTags} />);
     expect(screen.getByText('React')).toBeInTheDocument();
     expect(screen.getByText('TypeScript')).toBeInTheDocument();
     expect(screen.getByText('GraphQL')).toBeInTheDocument();
@@ -155,7 +165,7 @@ describe('JobCard', () => {
       ...mockJob,
       tags: ['React', '', 'TypeScript', '', 'GraphQL'] as any,
     };
-    render(<JobCard job={jobWithEmptyTags} />);
+    render(<JobListingCard job={jobWithEmptyTags} />);
     expect(screen.getByText('React')).toBeInTheDocument();
     expect(screen.getByText('TypeScript')).toBeInTheDocument();
     expect(screen.getByText('GraphQL')).toBeInTheDocument();
@@ -172,7 +182,7 @@ describe('JobCard', () => {
       url: 'https://example.com/job/2',
       raw: {},
     };
-    render(<JobCard job={minimalJob} />);
+    render(<JobListingCard job={minimalJob} />);
     expect(screen.getByText('Engineer')).toBeInTheDocument();
     expect(screen.queryByText('Engineering')).not.toBeInTheDocument();
     expect(screen.queryByText('Remote')).not.toBeInTheDocument();

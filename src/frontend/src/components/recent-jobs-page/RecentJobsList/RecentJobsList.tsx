@@ -2,8 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Stack, Typography, Box } from '@mui/material';
 import { useAppSelector } from '../../../app/hooks';
 import { selectRecentJobsSorted } from '../../../features/filters/selectors/recentJobsSelectors.ts';
-import { getCompanyById } from '../../../config/companies';
-import { RecentJobCard } from '../RecentJobCard/RecentJobCard';
+import { JobListingCard } from '../../shared/JobCard/JobListingCard.tsx';
 import { LoadingSkeletons } from './LoadingSkeletons';
 import { BackToTopButton } from './BackToTopButton';
 import { EmptyJobListState } from '../../shared/EmptyJobListState.tsx';
@@ -87,17 +86,9 @@ export function RecentJobsList() {
         }}
       >
         <Stack spacing={0}>
-          {displayedJobs.map((job) => {
-            const company = getCompanyById(job.company);
-            return (
-              <RecentJobCard
-                key={job.id}
-                job={job}
-                companyName={company?.name || job.company}
-                recruiterLinkedInUrl={company?.recruiterLinkedInUrl}
-              />
-            );
-          })}
+          {displayedJobs.map((job) => (
+            <JobListingCard key={job.id} job={job} />
+          ))}
 
           {/* Loading skeletons */}
           {isLoadingMore && <LoadingSkeletons count={INFINITE_SCROLL_CONFIG.SKELETON_COUNT} />}

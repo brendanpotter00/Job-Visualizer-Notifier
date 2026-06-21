@@ -25,7 +25,7 @@ export function CompaniesPageHeader() {
     >
       <Stack>
         <Typography variant="h3" component="h1">
-          {companyNameHeaderTitle} - Job Posting Analytics
+          {companyNameHeaderTitle}
         </Typography>
         <Typography variant="body1" color="text.disabled">
           Source: {companyATSSource}
