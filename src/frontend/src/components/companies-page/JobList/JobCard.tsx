@@ -22,7 +22,7 @@ export function JobCard({ job }: JobCardProps) {
       <CardContent>
         <Stack spacing={1}>
           <Stack direction="row" spacing={1} alignItems="flex-start">
-            <CompanyLogo companyId={job.company} companyName={companyName} size={24} />
+            <CompanyLogo companyId={job.company} displayName={companyName} size={24} />
             <Box>
               <Link
                 href={job.url}

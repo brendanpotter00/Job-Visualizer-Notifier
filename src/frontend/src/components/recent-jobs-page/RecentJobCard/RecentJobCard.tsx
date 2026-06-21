@@ -43,7 +43,7 @@ export function RecentJobCard({ job, companyName, recruiterLinkedInUrl }: Recent
       <CardContent>
         {/* Company header */}
         <Stack direction="row" spacing={1} alignItems="center" mb={1}>
-          <CompanyLogo companyId={job.company} companyName={companyName} size={24} decorative />
+          <CompanyLogo companyId={job.company} displayName={companyName} size={24} decorative />
           <Typography variant="subtitle2" color="text.secondary" fontWeight="bold">
             {companyName}
           </Typography>

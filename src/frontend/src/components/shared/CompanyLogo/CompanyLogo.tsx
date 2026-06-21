@@ -6,7 +6,7 @@ interface CompanyLogoProps {
   /** Company id (matches `job.company` / `Company.id`); used to resolve the icon URL. */
   companyId: string;
   /** Display name, used for the `alt`/`aria-label` and the initials fallback. */
-  companyName?: string;
+  displayName?: string;
   /** Square edge length in pixels. */
   size?: number;
   /**
@@ -18,27 +18,37 @@ interface CompanyLogoProps {
 }
 
 /**
- * Square brand icon for a company, filling a rounded tile edge-to-edge.
+ * Square brand icon for a company, rendered inside a rounded tile.
  *
- * The icon art fills the tile (no inset padding) so the brand-color icon assets
- * read as solid tiles; the tile's `background.paper` only shows through for a
- * transparent mark or behind the initials fallback. `overflow: 'hidden'` plus
- * `borderRadius` clips the square art to the tile's rounded corners.
+ * The icon art is scaled to fit the tile (`objectFit: 'contain'`, no inset
+ * padding); square brand-color assets read as solid tiles, while the tile's
+ * `background.paper` shows through any letterboxing for off-ratio or transparent
+ * marks and behind the initials fallback. `overflow: 'hidden'` plus `borderRadius`
+ * clips the art to the tile's rounded corners.
  *
- * Uses a plain lazy `<img>` (not MUI `Avatar`) so that `loading="lazy"` actually
- * defers off-screen fetches, and so the fallback is driven by the rendered
- * element's own `onError`: when the icon is missing or fails to load (e.g. a
- * company added to the backend before its logo file is committed) the tile shows
- * the company's first initial instead of a broken image.
+ * Uses a plain lazy `<img>` so that `loading="lazy"` defers off-screen fetches and
+ * the fallback is driven by the rendered element's own `onError`: when the icon is
+ * missing or fails to load (e.g. a company added to the backend before its logo
+ * file is committed) the tile shows the company's first initial instead of a
+ * broken image.
  */
 export function CompanyLogo({
   companyId,
-  companyName,
+  displayName,
   size = 28,
   decorative = false,
 }: CompanyLogoProps) {
   const [failed, setFailed] = useState(false);
-  const label = companyName ?? companyId;
+  // Reset the failed state if the instance is reused for a different company
+  // (e.g. in a recycled/virtualized list), so a prior load failure doesn't
+  // suppress an icon that does exist for the new id. Adjusting state during
+  // render (rather than in an effect) avoids an extra cascading re-render.
+  const [trackedId, setTrackedId] = useState(companyId);
+  if (companyId !== trackedId) {
+    setTrackedId(companyId);
+    setFailed(false);
+  }
+  const label = displayName ?? companyId;
   const initial = label.trim().charAt(0).toUpperCase();
 
   const tileSx = {

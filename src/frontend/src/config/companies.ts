@@ -729,7 +729,7 @@ export function getCompanyById(id: string): Company | undefined {
  * to load (see the shared `CompanyLogo` component).
  */
 export function getCompanyLogoUrl(id: string): string {
-  return `/logos/icons/${id}.png`;
+  return `/logos/icons/${encodeURIComponent(id)}.png`;
 }
 
 /**
@@ -740,7 +740,7 @@ export function getCompanyLogoUrl(id: string): string {
  * when the image fails to load (see the shared `CompanyWordmark` component).
  */
 export function getCompanyWordmarkUrl(id: string): string {
-  return `/logos/wordmarks/${id}.png`;
+  return `/logos/wordmarks/${encodeURIComponent(id)}.png`;
 }
 
 /**

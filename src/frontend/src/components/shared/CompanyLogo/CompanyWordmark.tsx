@@ -25,6 +25,14 @@ interface CompanyWordmarkProps {
  */
 export function CompanyWordmark({ companyId, displayName, height = 32 }: CompanyWordmarkProps) {
   const [failed, setFailed] = useState(false);
+  // Reset the failed state if the instance is reused for a different company,
+  // so a prior load failure doesn't suppress a wordmark that exists for the new
+  // id. Adjusting state during render (not in an effect) avoids a cascading render.
+  const [trackedId, setTrackedId] = useState(companyId);
+  if (companyId !== trackedId) {
+    setTrackedId(companyId);
+    setFailed(false);
+  }
 
   return (
     <Typography
