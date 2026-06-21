@@ -1,0 +1,4 @@
+# Python deps for the fetch-company-logo skill (install into a throwaway venv).
+# cairosvg also needs the native libcairo: `brew install cairo` on macOS.
+Pillow
+cairosvg

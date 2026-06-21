@@ -3,6 +3,8 @@ import type { Job } from '../../../types';
 import { useJobMetadata } from '../../shared/JobCard/useJobMetadata.ts';
 import { JobChipsSection } from '../../shared/JobCard/JobChipsSection.tsx';
 import { CARD_HOVER_SX, CARD_VARIANT } from '../../shared/JobCard/jobCardStyles.ts';
+import { CompanyLogo } from '../../shared/CompanyLogo/CompanyLogo.tsx';
+import { getCompanyById } from '../../../config/companies.ts';
 
 interface JobCardProps {
   job: Job;
@@ -13,27 +15,31 @@ interface JobCardProps {
  */
 export function JobCard({ job }: JobCardProps) {
   const { postedAgo } = useJobMetadata(job.createdAt);
+  const companyName = getCompanyById(job.company)?.name;
 
   return (
     <Card variant={CARD_VARIANT} sx={CARD_HOVER_SX}>
       <CardContent>
         <Stack spacing={1}>
-          <Box>
-            <Link
-              href={job.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              underline="hover"
-              color="inherit"
-            >
-              <Typography variant="h6" component="h3">
-                {job.title}
+          <Stack direction="row" spacing={1} alignItems="flex-start">
+            <CompanyLogo companyId={job.company} displayName={companyName} size={24} />
+            <Box>
+              <Link
+                href={job.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                underline="hover"
+                color="inherit"
+              >
+                <Typography variant="h6" component="h3">
+                  {job.title}
+                </Typography>
+              </Link>
+              <Typography variant="body2" color="text.secondary">
+                {postedAgo}
               </Typography>
-            </Link>
-            <Typography variant="body2" color="text.secondary">
-              {postedAgo}
-            </Typography>
-          </Box>
+            </Box>
+          </Stack>
 
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
             {job.locations && job.locations.length > 0

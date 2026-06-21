@@ -10,7 +10,11 @@ function c(id: string, displayName: string, blurb: string | null = null): Curate
 }
 
 function names() {
-  return screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent);
+  // The card heading presents the company name via the wordmark image's `alt`
+  // (its accessible name); it falls back to text when no wordmark renders.
+  return screen
+    .getAllByRole('heading', { level: 3 })
+    .map((h) => h.querySelector('img')?.getAttribute('alt') ?? h.textContent);
 }
 
 describe('CuratedCompaniesGrid', () => {

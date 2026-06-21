@@ -64,3 +64,12 @@ docs/learning/
 
 # Location-eval run outputs (transient; the committed reference is eval-baseline.json)
 src/backend/api/eval/results/
+
+# e2e / verification screenshots (parallel to loc-e2e-*.png above)
+collapse-*.png
+curated-*.png
+iphone-*.png
+
+# lavish-axi editor + ad-hoc analysis artifacts (local, not committed)
+.lavish/
+.analysis/

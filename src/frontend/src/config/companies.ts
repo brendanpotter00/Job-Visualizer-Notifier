@@ -720,6 +720,30 @@ export function getCompanyById(id: string): Company | undefined {
 }
 
 /**
+ * Public URL for a company's brand icon (square mark).
+ *
+ * Icons are committed as static assets under `public/logos/icons/<id>.png`
+ * (served from the deploy root) and keyed by the company `id`. The file is not
+ * guaranteed to exist — companies added to the backend before a logo is dropped
+ * in won't have one — so consumers must render a fallback when the image fails
+ * to load (see the shared `CompanyLogo` component).
+ */
+export function getCompanyLogoUrl(id: string): string {
+  return `/logos/icons/${encodeURIComponent(id)}.png`;
+}
+
+/**
+ * Public URL for a company's brand wordmark (the wide logo that includes the
+ * company name). Committed as static assets under
+ * `public/logos/wordmarks/<id>.png` and keyed by the company `id`. As with the
+ * icon, the file is not guaranteed to exist, so consumers must render a fallback
+ * when the image fails to load (see the shared `CompanyWordmark` component).
+ */
+export function getCompanyWordmarkUrl(id: string): string {
+  return `/logos/wordmarks/${encodeURIComponent(id)}.png`;
+}
+
+/**
  * Coming soon companies for custom scrapers section
  */
 export const COMING_SOON_SCRAPERS: readonly { name: string; jobsUrl: string }[] = [];

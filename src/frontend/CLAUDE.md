@@ -101,7 +101,7 @@ New code must not add disables. If a new disable appears unavoidable, update thi
 ## Common Tasks
 
 **Adding a Company:**
-Edit `config/companies.ts` and use `createBackendScraperCompany()` for every new company (every ATS now flows through the backend `/api/jobs` endpoint). Greenhouse, Ashby, Lever, Gem, Eightfold/Netflix, and Workday boards are fetched by the backend Procrastinate worker and require a matching row in the backend `companies` table. Pass `{ sourceAts: 'greenhouse' | 'ashby' | 'lever' | 'gem' | 'eightfold' | 'workday' }` to tag the originating ATS for Why-page grouping (omit for the true Custom Web Scrapers — Google, Apple, Microsoft). Eightfold rows additionally need `provider_config={tenant_host, domain}` in the backend table, with `tenant_host` on the SSRF allowlist in `src/backend/api/services/eightfold_client.py`; Workday rows need `provider_config={base_url, tenant_slug, career_site_slug, default_facets?}`.
+Use the `add-company` skill (repo-root `.claude/skills/add-company/`, `/add-company`) for the full procedure — `config/companies.ts` entry + `COMPANY_IDS`, the backend `companies` seed migration, the `changelog.ts` entry, and logos. Architecture context that still matters here: every ATS flows through the backend `/api/jobs` endpoint, so each new company is a `createBackendScraperCompany()` entry backed by a row in the backend `companies` table (the true Custom Web Scrapers — Google, Apple, Microsoft — omit `sourceAts`).
 
 **Adding ATS Provider:**
 1. Create transformer in `api/transformers/[provider]Transformer.ts`

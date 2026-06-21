@@ -71,7 +71,7 @@ Backend-Scraper (src/frontend/src/api/clients/backendScraperClient.ts) is the on
 ## Common Tasks
 
 **Adding a Company:**
-Edit `src/frontend/src/config/companies.ts` and add a `createBackendScraperCompany(id, name, jobsUrl, { sourceAts: 'greenhouse' | 'ashby' | 'lever' | 'gem' | 'eightfold' | 'workday' })` entry. Then add a matching row to the backend `companies` table — see `docs/implementations/greenhouseBackendMigration/PLAN.md`, `docs/implementations/ashbyBackendMigration/PLAN.md`, `docs/implementations/leverBackendMigration/PLAN.md`, `docs/implementations/gemBackendMigration/PLAN.md`, `docs/implementations/eightfoldBackendMigration/PLAN.md`, or `docs/implementations/workdayBackendMigration/PLAN.md`. Eightfold rows require a `provider_config={tenant_host, domain}` JSONB blob with `tenant_host` on the SSRF allowlist in `src/backend/api/services/eightfold_client.py`; Workday rows require `provider_config={base_url, tenant_slug, career_site_slug, default_facets?}`. Omitting `sourceAts` drops the company into "Custom Web Scrapers".
+Use the `add-company` skill (`.claude/skills/add-company/`, `/add-company`) — the single source of truth for onboarding a company end-to-end: the `companies.ts` entry + `COMPANY_IDS`, the single-head-safe backend `companies` seed migration (Greenhouse/Ashby/Lever/Gem, plus the Eightfold/Workday `provider_config` variants), the `changelog.ts` announcement, and brand logos via the `fetch-company-logo` skill.
 
 **Adding ATS Provider:**
 1. Create transformer in `src/frontend/src/api/transformers/[provider]Transformer.ts`
