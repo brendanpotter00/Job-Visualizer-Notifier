@@ -1,5 +1,5 @@
 ---
-name: company-logos
+name: fetch-company-logo
 description: |
   Fetch and generate the three opaque brand-logo variants — symbol icon, text
   wordmark, and combined lockup — for companies in companies.ts using parallel
@@ -16,7 +16,8 @@ trigger_phrases:
   - backfill the missing logo
   - regenerate the logo set
   - get all three logos
-  - company logo skill
+  - fetch company logo skill
+  - fetch the company logo
 required_tools:
   - Bash
   - Read
@@ -25,7 +26,7 @@ required_tools:
 mode: read-write
 ---
 
-# Company Logos
+# Fetch Company Logo
 
 Generate, per company, **three opaque PNG logo variants** and place them in the
 repo's public asset dirs:
@@ -62,7 +63,7 @@ color, or white/black) for the most on-brand, legible result.
 ```bash
 brew install cairo                                  # native lib cairosvg needs
 python3 -m venv /tmp/logo-venv
-/tmp/logo-venv/bin/pip install -r .claude/skills/company-logos/scripts/requirements.txt
+/tmp/logo-venv/bin/pip install -r .claude/skills/fetch-company-logo/scripts/requirements.txt
 ```
 Use `/tmp/logo-venv/bin/python` to run every script below. Keep a scratch work dir
 for raw downloads + transparent masters (NOT committed), e.g. `/tmp/logo-work/`.
@@ -71,7 +72,7 @@ for raw downloads + transparent masters (NOT committed), e.g. `/tmp/logo-work/`.
 
 ### 0. Get the company list
 ```bash
-/tmp/logo-venv/bin/python .claude/skills/company-logos/scripts/list_companies.py --json
+/tmp/logo-venv/bin/python .claude/skills/fetch-company-logo/scripts/list_companies.py --json
 ```
 This is the exact id/name set the CI gate enumerates. For "add one company", just
 target that id.
@@ -111,7 +112,7 @@ For each company the agent chooses a **background hex** and a **knockout**:
 ### 3. Produce the three opaque variants
 ```bash
 PY=/tmp/logo-venv/bin/python
-S=.claude/skills/company-logos/scripts
+S=.claude/skills/fetch-company-logo/scripts
 OUT=src/frontend/public/logos
 M=/tmp/logo-work/masters/<id>
 # symbol icon (square)
@@ -128,7 +129,7 @@ If a brand has **no separate symbol**, reuse the wordmark for the icon slot (not
   contrast — not washed out), centered/not clipped, on-brand background.
 - Mechanical gate over the whole set:
   ```bash
-  /tmp/logo-venv/bin/python .claude/skills/company-logos/scripts/verify_assets.py
+  /tmp/logo-venv/bin/python .claude/skills/fetch-company-logo/scripts/verify_assets.py
   ```
   Checks presence (mirrors the CI gate), opacity, dimensions, and that the logo is
   actually visible against the background (not blank/flat).
@@ -142,7 +143,7 @@ mis-cropped, monochrome-where-color-exists. Then re-dispatch fix agents that
 ### 6. QA contact sheets
 ```bash
 for v in icons wordmarks lockups; do
-  /tmp/logo-venv/bin/python .claude/skills/company-logos/scripts/montage.py \
+  /tmp/logo-venv/bin/python .claude/skills/fetch-company-logo/scripts/montage.py \
     src/frontend/public/logos/$v /tmp/logo-work/$v-grid.png --title "$v"
 done
 ```
@@ -190,7 +191,7 @@ Final outputs:
 Return: id, bg_hex, knockout, and notes per variant.
 ```
 
-## Bundled scripts (`.claude/skills/company-logos/scripts/`)
+## Bundled scripts (`.claude/skills/fetch-company-logo/scripts/`)
 
 - **`list_companies.py`** — extract `{id,name}` for every company from `companies.ts`.
 - **`normalize.py`** — any source (SVG/PNG/JPG/ICO) → clean **transparent master** (autocropped, longest side `--max`). `--remove-white` for solid-white raster bgs.
