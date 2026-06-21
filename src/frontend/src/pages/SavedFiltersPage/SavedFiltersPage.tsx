@@ -15,6 +15,7 @@ import { ErrorState } from '../../components/shared/ErrorDisplay';
 import { extractErrorMessage } from '../../lib/errors';
 import { TimeWindowDefaults } from '../../components/saved-filters/TimeWindowDefaults';
 import { LocationDefaultsEditor } from '../../components/saved-filters/LocationDefaultsEditor';
+import { EnabledCompaniesSection } from '../../components/saved-filters/EnabledCompaniesSection';
 import { ActiveListSelector } from '../../components/saved-filters/ActiveListSelector';
 import { KeywordListsEditor } from '../../components/saved-filters/KeywordListsEditor';
 import { SavedFiltersSaveBar } from '../../components/saved-filters/SavedFiltersSaveBar';
@@ -224,6 +225,8 @@ export function SavedFiltersPage() {
                 patchDraft({ locations: draft.locations.filter((l) => l !== loc) })
               }
             />
+
+            <EnabledCompaniesSection />
 
             {listsReady ? (
               <ActiveListSelector

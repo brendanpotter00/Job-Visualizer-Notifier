@@ -101,16 +101,16 @@ export function EnabledCompaniesSection() {
 
   if (loading && ids === null) {
     return (
-      <Paper sx={{ p: 4, mt: 3 }}>
+      <Paper sx={{ p: 4 }}>
         <LoadingState />
       </Paper>
     );
   }
 
   return (
-    <Paper sx={{ p: 4, mt: 3 }}>
+    <Paper sx={{ p: 4 }}>
       <Typography variant="h6" gutterBottom>
-        Recent jobs page companies
+        Saved companies
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
         Pick which companies show up in your Recent Job Postings feed. Leave empty to see all.

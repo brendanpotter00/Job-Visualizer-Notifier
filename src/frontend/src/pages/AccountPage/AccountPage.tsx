@@ -14,7 +14,6 @@ import { setHideAdminFeatures } from '../../features/ui/uiSlice';
 import { useAuth } from '../../features/auth/useAuth';
 import { useCurrentUser } from '../../features/auth/useCurrentUser';
 import { updateCurrentUser } from '../../features/auth/authService';
-import { EnabledCompaniesSection } from '../../components/account/EnabledCompaniesSection';
 import { LoadingState } from '../../components/shared/LoadingIndicator';
 import { ErrorState } from '../../components/shared/ErrorDisplay';
 import { extractErrorMessage } from '../../lib/errors';
@@ -157,8 +156,6 @@ export function AccountPage() {
           {isSaving ? 'Saving...' : 'Save Changes'}
         </Button>
       </Paper>
-
-      <EnabledCompaniesSection />
 
       {user.isAdmin && (
         <Paper sx={{ p: 4, mt: 3 }}>

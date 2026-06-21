@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { EnabledCompaniesSection } from '../../../components/account/EnabledCompaniesSection';
+import { EnabledCompaniesSection } from '../../../components/saved-filters/EnabledCompaniesSection';
 import { COMPANIES } from '../../../config/companies';
 
 type MockEnabled = {
