@@ -598,7 +598,7 @@ export const COMPANIES: Company[] = [
   createBackendScraperCompany('workweave', 'Workweave', 'https://jobs.ashbyhq.com/workweave', {
     sourceAts: 'ashby',
     recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22100667636%22%5D',
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22102726930%22%5D',
   }),
   createBackendScraperCompany('reducto', 'Reducto', 'https://reducto.ai/careers', {
     sourceAts: 'ashby',
