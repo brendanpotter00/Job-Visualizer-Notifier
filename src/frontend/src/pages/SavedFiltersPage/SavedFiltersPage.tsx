@@ -240,29 +240,25 @@ export function SavedFiltersPage() {
             <LoadingState minHeight={140} caption="Loading your saved filters…" />
           </Paper>
         ) : (
-          <>
-            <LocationDefaultsEditor
-              locations={draft.locations}
-              onAdd={(loc) =>
-                patchDraft({
-                  locations: draft.locations.includes(loc)
-                    ? draft.locations
-                    : [...draft.locations, loc],
-                })
-              }
-              onRemove={(loc) =>
-                patchDraft({ locations: draft.locations.filter((l) => l !== loc) })
-              }
-              dirty={locationsDirty}
-              saving={savingSection === 'locations'}
-              success={successSection === 'locations'}
-              error={errorSection === 'locations' ? errorMessage : null}
-              onSave={() => handleSave('locations')}
-            />
-
-            <EnabledCompaniesSection />
-          </>
+          <LocationDefaultsEditor
+            locations={draft.locations}
+            onAdd={(loc) =>
+              patchDraft({
+                locations: draft.locations.includes(loc)
+                  ? draft.locations
+                  : [...draft.locations, loc],
+              })
+            }
+            onRemove={(loc) => patchDraft({ locations: draft.locations.filter((l) => l !== loc) })}
+            dirty={locationsDirty}
+            saving={savingSection === 'locations'}
+            success={successSection === 'locations'}
+            error={errorSection === 'locations' ? errorMessage : null}
+            onSave={() => handleSave('locations')}
+          />
         )}
+
+        <EnabledCompaniesSection />
 
         {listsQuery.isError ? (
           <ErrorState
@@ -270,7 +266,7 @@ export function SavedFiltersPage() {
             message={extractErrorMessage(listsQuery.error, 'Failed to load keyword lists')}
             onRetry={() => listsQuery.refetch()}
           />
-        ) : !listsReady || !draft ? (
+        ) : !listsReady ? (
           <Paper sx={{ p: 4 }}>
             <LoadingState minHeight={140} caption="Loading keyword lists…" />
           </Paper>
@@ -281,7 +277,7 @@ export function SavedFiltersPage() {
             onCardCreated={dropNewCard}
             onCardCancelNew={dropNewCard}
             onCardDeleted={handleCardDeleted}
-            activeKeywordListId={draft.recentActiveKeywordListId}
+            activeKeywordListId={draft?.recentActiveKeywordListId ?? null}
             onActiveChange={handleActiveListChange}
             activeDirty={keywordsDirty}
             activeSaving={savingSection === 'keywords'}
