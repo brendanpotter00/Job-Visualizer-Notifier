@@ -27,9 +27,13 @@
 --       || ') ON CONFLICT (id) DO NOTHING;', E'\n' ORDER BY id)
 --     FROM companies;
 --
---   Snapshot: 2026-06-14  |  rows: 127
---   id md5:   c497b1cb0e03a44541b530e32b9e7701
---   full md5: a377cb33ac7b4ce28018951a569f99f5
+--   Snapshot: 2026-06-14  |  rows: 126
+--   id md5:   c497b1cb0e03a44541b530e32b9e7701  (STALE since the surgical edit below)
+--   full md5: a377cb33ac7b4ce28018951a569f99f5  (STALE since the surgical edit below)
+--   NOTE: the 'stainlessapi' row was removed by hand (PR #169 removed that
+--   company end-to-end). The md5 checksums above are regenerated only by a full
+--   prod re-dump via the query above, so they no longer match this file — refresh
+--   them on the next re-dump.
 --
 -- APPLY (from repo root, with the Postgres container running)
 --   docker exec -i jobscraper-postgres psql -U postgres -d jobscraper \
@@ -144,7 +148,6 @@ INSERT INTO companies (id, display_name, ats, board_token, enabled, provider_con
 INSERT INTO companies (id, display_name, ats, board_token, enabled, provider_config) VALUES ('spacex', 'SpaceX', 'greenhouse', 'spacex', true, '{}'::jsonb) ON CONFLICT (id) DO NOTHING;
 INSERT INTO companies (id, display_name, ats, board_token, enabled, provider_config) VALUES ('spotify', 'Spotify', 'lever', 'spotify', true, '{}'::jsonb) ON CONFLICT (id) DO NOTHING;
 INSERT INTO companies (id, display_name, ats, board_token, enabled, provider_config) VALUES ('squarespace', 'Squarespace', 'greenhouse', 'squarespace', true, '{}'::jsonb) ON CONFLICT (id) DO NOTHING;
-INSERT INTO companies (id, display_name, ats, board_token, enabled, provider_config) VALUES ('stainlessapi', 'Stainless API', 'ashby', 'stainlessapi', true, '{}'::jsonb) ON CONFLICT (id) DO NOTHING;
 INSERT INTO companies (id, display_name, ats, board_token, enabled, provider_config) VALUES ('stripe', 'Stripe', 'greenhouse', 'stripe', true, '{}'::jsonb) ON CONFLICT (id) DO NOTHING;
 INSERT INTO companies (id, display_name, ats, board_token, enabled, provider_config) VALUES ('sunday', 'Sunday', 'ashby', 'sunday', true, '{}'::jsonb) ON CONFLICT (id) DO NOTHING;
 INSERT INTO companies (id, display_name, ats, board_token, enabled, provider_config) VALUES ('supabase', 'Supabase', 'ashby', 'supabase', true, '{}'::jsonb) ON CONFLICT (id) DO NOTHING;
