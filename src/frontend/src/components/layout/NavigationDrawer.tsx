@@ -23,7 +23,7 @@ import PeopleIcon from '@mui/icons-material/People';
 import PlaceIcon from '@mui/icons-material/Place';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
 import FeedbackIcon from '@mui/icons-material/Feedback';
-import TuneIcon from '@mui/icons-material/Tune';
+import SavedSearchIcon from '@mui/icons-material/SavedSearch';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ADMIN_NAV_ITEMS, ROUTES, USER_NAV_ITEMS } from '../../config/routes.ts';
 import { useAuth } from '../../features/auth/useAuth';
@@ -104,7 +104,7 @@ type IconName =
   | 'Place'
   | 'AccountTree'
   | 'Feedback'
-  | 'Tune';
+  | 'SavedSearch';
 const iconMap: Record<IconName, React.ComponentType> = {
   Schedule: ScheduleIcon,
   Info: InfoIcon,
@@ -117,7 +117,7 @@ const iconMap: Record<IconName, React.ComponentType> = {
   Place: PlaceIcon,
   AccountTree: AccountTreeIcon,
   Feedback: FeedbackIcon,
-  Tune: TuneIcon,
+  SavedSearch: SavedSearchIcon,
 };
 
 export function NavigationDrawer({

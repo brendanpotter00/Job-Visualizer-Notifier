@@ -195,7 +195,7 @@ export function KeywordListCard({
     }
   };
 
-  // ── Edit mode: Add-to-List input at the top, full width ───────────────────
+  // ── Edit mode: list name on top (matches the view layout), keywords below ──
   if (mode === 'edit') {
     return (
       <Box sx={CARD_SX}>
@@ -204,15 +204,6 @@ export function KeywordListCard({
             {error}
           </Alert>
         )}
-        <Box sx={{ width: '100%', mb: 2 }}>
-          <SearchTagsInput
-            value={draft.tags}
-            placeholder="Add a keyword and press Enter — prefix with - to exclude"
-            onAdd={(tag) => mutateDraft((d) => addTagToList(d, tag))}
-            onRemove={(text) => mutateDraft((d) => removeTagFromList(d, text))}
-            onToggleMode={(text) => mutateDraft((d) => toggleTagModeInList(d, text))}
-          />
-        </Box>
         <TextField
           label="List name"
           value={draft.name}
@@ -224,7 +215,17 @@ export function KeywordListCard({
           size="small"
           fullWidth
           slotProps={{ htmlInput: { maxLength: 100 } }}
+          sx={{ mb: 2 }}
         />
+        <Box sx={{ width: '100%' }}>
+          <SearchTagsInput
+            value={draft.tags}
+            placeholder="Add a keyword and press Enter — prefix with - to exclude"
+            onAdd={(tag) => mutateDraft((d) => addTagToList(d, tag))}
+            onRemove={(text) => mutateDraft((d) => removeTagFromList(d, text))}
+            onToggleMode={(text) => mutateDraft((d) => toggleTagModeInList(d, text))}
+          />
+        </Box>
         <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 2 }}>
           <Button variant="contained" onClick={handleSave} disabled={saving || !draft.name.trim()}>
             {saving ? 'Saving…' : 'Save'}
