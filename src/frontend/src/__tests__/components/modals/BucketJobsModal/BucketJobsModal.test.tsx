@@ -214,10 +214,12 @@ describe('BucketJobsModal', () => {
     });
     expect(screen.getByText('Backend Engineer')).toBeInTheDocument();
     expect(screen.queryByText('DevOps Engineer')).not.toBeInTheDocument();
-    // Each rendered bucket job card surfaces its company logo (wired via JobCard).
-    const logos = screen.getAllByRole('img', { name: 'SpaceX' });
+    // Each rendered bucket job card surfaces its company logo as a decorative image
+    // (empty alt, queried by src) — matches the JobListingCard/CompanyLogo pattern.
+    // The modal renders in a MUI Dialog portal, so query the document, not container.
+    const logos = document.querySelectorAll('img[src="/logos/icons/spacex.png"]');
     expect(logos).toHaveLength(2);
-    expect(logos[0]).toHaveAttribute('src', '/logos/icons/spacex.png');
+    expect(screen.queryByRole('img', { name: 'SpaceX' })).not.toBeInTheDocument();
   });
 
   it('displays job count', async () => {

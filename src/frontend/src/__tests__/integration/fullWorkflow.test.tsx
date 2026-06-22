@@ -135,8 +135,8 @@ describe('Full Application Workflow', () => {
   it('renders application structure', () => {
     renderApp();
 
-    // Main title should be visible
-    expect(screen.getByText(/Job Posting Analytics/i)).toBeInTheDocument();
+    // Main title (the selected company name; default is SpaceX) should be visible
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/SpaceX/i);
   });
 
   it('renders graph section', async () => {

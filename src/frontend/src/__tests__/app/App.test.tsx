@@ -107,9 +107,8 @@ describe('App', () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
-          /Job Posting Analytics/i
-        );
+        // Default selected company is SpaceX; the h1 shows the company name.
+        expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/SpaceX/i);
       });
     });
 
@@ -318,7 +317,7 @@ describe('App', () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByText(/Anthropic - Job Posting Analytics/i)).toBeInTheDocument();
+        expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/Anthropic/i);
       });
     });
   });
