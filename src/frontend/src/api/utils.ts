@@ -8,7 +8,7 @@ import { backendScraperClient } from './clients/backendScraperClient';
  *   Workday (#123) backend migrations the only supported value is
  *   `'backend-scraper'`. Greenhouse, Ashby, Lever, Gem, Eightfold, and
  *   Workday companies all flow through the backend `/api/jobs` endpoint
- *   and carry `sourceAts` for Why-page grouping (see atsGrouping.ts).
+ *   and carry `sourceAts` to resolve their true source (see config/atsSource.ts).
  * @returns The corresponding API client.
  * @throws Error if ATS type is unknown.
  *

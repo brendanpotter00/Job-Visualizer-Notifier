@@ -6,7 +6,7 @@ import {
   ATS_DISPLAY_NAMES,
   getATSGroupKey,
   type ATSGroupKey,
-} from '../../../pages/WhyPage/atsGrouping';
+} from '../../../config/atsSource';
 import { COMPANIES, COMING_SOON_SCRAPERS } from '../../../config/companies';
 import { ROUTES } from '../../../config/routes';
 import { COMPANY_PARAM } from '../../../lib/url';
