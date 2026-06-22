@@ -418,9 +418,6 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2297188584%22%5D',
   }),
-  createBackendScraperCompany('stainlessapi', 'Stainless API', 'https://careers.ashbyhq.com/stainlessapi', {
-    sourceAts: 'ashby',
-  }),
   createBackendScraperCompany('gigaml', 'GigaML', 'https://careers.ashbyhq.com/GigaML', {
     sourceAts: 'ashby',
     recruiterLinkedInUrl:
@@ -877,7 +874,6 @@ export const enum COMPANY_IDS {
   Spacex = 'spacex',
   Spotify = 'spotify',
   Squarespace = 'squarespace',
-  StainlessApi = 'stainlessapi',
   Stripe = 'stripe',
   Sunday = 'sunday',
   Supabase = 'supabase',
