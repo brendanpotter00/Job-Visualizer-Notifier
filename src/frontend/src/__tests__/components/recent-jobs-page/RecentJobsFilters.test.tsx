@@ -23,9 +23,7 @@ const pendingUntilAbort = (signal?: AbortSignal) =>
   });
 
 vi.mock('../../../api/utils', async () => {
-  const actual = await vi.importActual<typeof import('../../../api/utils')>(
-    '../../../api/utils'
-  );
+  const actual = await vi.importActual<typeof import('../../../api/utils')>('../../../api/utils');
   return {
     ...actual,
     getClientForATS: () => ({
@@ -39,9 +37,9 @@ vi.mock('../../../api/utils', async () => {
 });
 
 vi.mock('../../../api/clients/backendScraperClient', async () => {
-  const actual = await vi.importActual<
-    typeof import('../../../api/clients/backendScraperClient')
-  >('../../../api/clients/backendScraperClient');
+  const actual = await vi.importActual<typeof import('../../../api/clients/backendScraperClient')>(
+    '../../../api/clients/backendScraperClient'
+  );
   return {
     ...actual,
     fetchJobsForCompanies: (_ids: string[], opts: { signal?: AbortSignal } = {}) =>
@@ -112,10 +110,7 @@ interface PreloadedOverrides {
   softwareOnly?: boolean;
 }
 
-async function seedRecentStore(
-  overrides: PreloadedOverrides = {},
-  jobs: Job[] = seededJobs
-) {
+async function seedRecentStore(overrides: PreloadedOverrides = {}, jobs: Job[] = seededJobs) {
   const store = createTestStore({
     recentJobsFilters: {
       filters: {

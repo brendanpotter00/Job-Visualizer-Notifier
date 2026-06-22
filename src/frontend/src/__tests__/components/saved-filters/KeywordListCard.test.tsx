@@ -168,9 +168,7 @@ describe('KeywordListCard', () => {
     });
 
     it('shows the active indicator and a checked radio when active', () => {
-      render(
-        <KeywordListCard list={persisted} selectable isActive onSelectActive={vi.fn()} />
-      );
+      render(<KeywordListCard list={persisted} selectable isActive onSelectActive={vi.fn()} />);
       expect(
         screen.getByRole('radio', { name: 'Set Backend as the active keyword list' })
       ).toBeChecked();

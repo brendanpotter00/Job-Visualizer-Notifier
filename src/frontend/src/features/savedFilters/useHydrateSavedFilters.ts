@@ -11,7 +11,11 @@ import {
   resetRecentJobsFilters,
   setRecentJobsHydrated,
 } from '../filters/slices/recentJobsFiltersSlice';
-import { useGetSavedFiltersQuery, useGetKeywordListsQuery, savedFiltersApi } from './savedFiltersApi';
+import {
+  useGetSavedFiltersQuery,
+  useGetKeywordListsQuery,
+  savedFiltersApi,
+} from './savedFiltersApi';
 import { resolveActiveTags } from './resolveActiveTags';
 
 /**

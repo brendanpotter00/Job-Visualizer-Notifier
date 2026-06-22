@@ -53,9 +53,7 @@ describe('EnabledCompaniesSection', () => {
     render(<EnabledCompaniesSection />);
 
     expect(screen.getByRole('progressbar')).toBeInTheDocument();
-    expect(
-      screen.queryByRole('combobox', { name: /search companies/i })
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: /search companies/i })).not.toBeInTheDocument();
   });
 
   it('renders the picker with no selected chips when ids is null', () => {

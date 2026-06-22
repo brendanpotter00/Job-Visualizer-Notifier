@@ -69,9 +69,7 @@ describe('KeywordListsEditor active-list selection (Critique #3)', () => {
     const user = userEvent.setup();
     const onActiveChange = vi.fn();
     renderEditor({ onActiveChange });
-    await user.click(
-      screen.getByRole('radio', { name: 'Set Backend as the active keyword list' })
-    );
+    await user.click(screen.getByRole('radio', { name: 'Set Backend as the active keyword list' }));
     expect(onActiveChange).toHaveBeenCalledWith('list-1');
   });
 

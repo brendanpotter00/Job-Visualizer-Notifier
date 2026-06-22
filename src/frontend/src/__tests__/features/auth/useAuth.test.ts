@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 
-
 const mockLoginWithRedirect = vi.fn();
 const mockLogout = vi.fn();
 const mockGetAccessTokenSilently = vi.fn();

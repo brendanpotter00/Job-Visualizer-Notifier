@@ -135,7 +135,7 @@ describe('KeywordListSelect', () => {
       ).not.toBeInTheDocument();
     });
 
-    it('applies a user list\'s tags when selected', async () => {
+    it("applies a user list's tags when selected", async () => {
       const onChange = vi.fn();
       render(<KeywordListSelect value={undefined} onChange={onChange} />);
       const { user, listbox } = await openDropdown();
@@ -148,9 +148,7 @@ describe('KeywordListSelect', () => {
 
   it('clears tags when "None" is selected', async () => {
     const onChange = vi.fn();
-    render(
-      <KeywordListSelect value={[{ text: 'senior', mode: 'include' }]} onChange={onChange} />
-    );
+    render(<KeywordListSelect value={[{ text: 'senior', mode: 'include' }]} onChange={onChange} />);
     const { user, listbox } = await openDropdown();
 
     await user.click(within(listbox).getByRole('option', { name: 'None' }));

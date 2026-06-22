@@ -167,7 +167,9 @@ export const savedFiltersApi = createApi({
       query: () => '/saved-filters/keyword-lists',
       transformResponse: (res: unknown): KeywordList[] => {
         if (!isRecord(res) || !Array.isArray(res.lists)) {
-          throw new Error('Invalid /api/users/saved-filters/keyword-lists response: missing lists[]');
+          throw new Error(
+            'Invalid /api/users/saved-filters/keyword-lists response: missing lists[]'
+          );
         }
         return res.lists.map((l) =>
           validateKeywordList(l, '/api/users/saved-filters/keyword-lists response')

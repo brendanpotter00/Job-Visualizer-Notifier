@@ -36,8 +36,8 @@ export function LocationDefaultsEditor({
         Default locations
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        Shared across both the Recent Jobs and Company Trends pages. Leave empty
-        to see all locations.
+        Shared across both the Recent Jobs and Company Trends pages. Leave empty to see all
+        locations.
       </Typography>
 
       <AsyncMultiSelectAutocomplete

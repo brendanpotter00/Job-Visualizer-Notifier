@@ -38,7 +38,9 @@ describe('resolveActiveTags', () => {
   });
 
   it('resolves the built-in list from the provided lists', () => {
-    expect(resolveActiveTags('builtin-swe', lists)).toEqual([{ text: 'engineer', mode: 'include' }]);
+    expect(resolveActiveTags('builtin-swe', lists)).toEqual([
+      { text: 'engineer', mode: 'include' },
+    ]);
   });
 
   it('returns undefined when the active id no longer exists', () => {

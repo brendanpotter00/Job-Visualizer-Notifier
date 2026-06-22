@@ -16,7 +16,9 @@ export function GoogleOneTap() {
       }
     },
     onError: () => {
-      console.warn('[GoogleOneTap] Login failed — user may have dismissed the prompt or cookies are blocked');
+      console.warn(
+        '[GoogleOneTap] Login failed — user may have dismissed the prompt or cookies are blocked'
+      );
     },
     // Silently re-issue a credential for returning users on page load. Combined
     // with localStorage persistence in GoogleCredentialContext, this keeps

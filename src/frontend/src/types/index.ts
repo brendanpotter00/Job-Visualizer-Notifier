@@ -155,13 +155,7 @@ export interface Company {
    * Workday) under their own column instead of lumping them with the true
    * Custom Web Scrapers (Google/Apple/Microsoft).
    */
-  sourceAts?:
-    | 'ashby'
-    | 'eightfold'
-    | 'gem'
-    | 'greenhouse'
-    | 'lever'
-    | 'workday';
+  sourceAts?: 'ashby' | 'eightfold' | 'gem' | 'greenhouse' | 'lever' | 'workday';
 
   /** Optional URL to find recruiters on LinkedIn */
   recruiterLinkedInUrl?: string;

@@ -12,11 +12,7 @@ export interface CompanyChipGridProps {
   onToggle: (id: string) => void;
 }
 
-export function CompanyChipGrid({
-  companies,
-  selectedIds,
-  onToggle,
-}: CompanyChipGridProps) {
+export function CompanyChipGrid({ companies, selectedIds, onToggle }: CompanyChipGridProps) {
   return (
     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
       {companies.map((c) => {
