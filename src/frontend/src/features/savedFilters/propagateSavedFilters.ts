@@ -66,3 +66,30 @@ export function activeListContentPropagationActions(
   }
   return actions;
 }
+
+/**
+ * Build the redux actions that clear a just-deleted keyword list's tags from
+ * whichever filter pages currently have that list active. The delete counterpart
+ * to {@link activeListContentPropagationActions}: a deleted list can no longer be
+ * resolved to tags, so each page that was filtering by it is reset to "no keyword
+ * filter" (`setSearchTags(undefined)`), matching what hydration produces for a
+ * null active pointer.
+ *
+ * `activeIds` are the persisted per-page pointers (what each page is actually
+ * filtering by) — the backend NULLs them in the same delete transaction, so the
+ * cleared filter stays in sync with the refetched saved filters. Returns no
+ * actions when the deleted list is active on neither page, leaving them untouched.
+ */
+export function deletedListPropagationActions(
+  deletedListId: string,
+  activeIds: Pick<SavedFilters, 'recentActiveKeywordListId' | 'trendActiveKeywordListId'>
+): UnknownAction[] {
+  const actions: UnknownAction[] = [];
+  if (activeIds.trendActiveKeywordListId === deletedListId) {
+    actions.push(setGraphSearchTags(undefined));
+  }
+  if (activeIds.recentActiveKeywordListId === deletedListId) {
+    actions.push(setRecentJobsSearchTags(undefined));
+  }
+  return actions;
+}

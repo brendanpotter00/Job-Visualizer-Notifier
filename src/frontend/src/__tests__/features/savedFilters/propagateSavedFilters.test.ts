@@ -10,6 +10,7 @@ import recentJobsReducer, {
 import {
   savedFiltersPropagationActions,
   activeListContentPropagationActions,
+  deletedListPropagationActions,
 } from '../../../features/savedFilters/propagateSavedFilters';
 import type { SavedFilters, KeywordList } from '../../../types';
 
@@ -150,5 +151,64 @@ describe('activeListContentPropagationActions (live content-edit propagation)', 
     expect(actions).toEqual([]);
     expect(graph.filters.searchTags).toEqual([{ text: 'stale', mode: 'include' }]);
     expect(recent.filters.searchTags).toEqual([{ text: 'stale', mode: 'include' }]);
+  });
+});
+
+/** Apply delete-propagation actions to both reducers from a seeded base state. */
+function applyDeletePropagation(
+  deletedListId: string,
+  activeIds: Pick<SavedFilters, 'recentActiveKeywordListId' | 'trendActiveKeywordListId'>
+) {
+  // Seed both slices with the deleted list's tags + an untouched time window so
+  // we can prove only the search tags of the affected page(s) are cleared.
+  const seed = { text: 'golang', mode: 'include' as const };
+  let graph = graphReducer(undefined, setGraphSearchTags([seed]));
+  graph = graphReducer(graph, setGraphTimeWindow('90d'));
+  let recent = recentJobsReducer(undefined, setRecentJobsSearchTags([seed]));
+  recent = recentJobsReducer(recent, setRecentJobsTimeWindow('90d'));
+
+  const actions = deletedListPropagationActions(deletedListId, activeIds);
+  for (const action of actions) {
+    graph = graphReducer(graph, action);
+    recent = recentJobsReducer(recent, action);
+  }
+  return { graph, recent, actions };
+}
+
+describe('deletedListPropagationActions (live delete propagation)', () => {
+  it('clears search tags on both pages when the deleted list was active on both', () => {
+    const { graph, recent } = applyDeletePropagation('list-1', {
+      recentActiveKeywordListId: 'list-1',
+      trendActiveKeywordListId: 'list-1',
+    });
+
+    expect(graph.filters.searchTags).toBeUndefined();
+    expect(recent.filters.searchTags).toBeUndefined();
+    // Time windows untouched — only the keyword filter is cleared.
+    expect(graph.filters.timeWindow).toBe('90d');
+    expect(recent.filters.timeWindow).toBe('90d');
+  });
+
+  it('clears only the page the deleted list was active on, leaving the other untouched', () => {
+    const { graph, recent, actions } = applyDeletePropagation('list-1', {
+      recentActiveKeywordListId: 'list-1',
+      trendActiveKeywordListId: 'other-list',
+    });
+
+    expect(recent.filters.searchTags).toBeUndefined();
+    // Company (graph/trend) page had a different active list — left untouched.
+    expect(graph.filters.searchTags).toEqual([{ text: 'golang', mode: 'include' }]);
+    expect(actions).toHaveLength(1);
+  });
+
+  it('emits no actions when the deleted list was active on neither page', () => {
+    const { graph, recent, actions } = applyDeletePropagation('list-1', {
+      recentActiveKeywordListId: null,
+      trendActiveKeywordListId: 'other-list',
+    });
+
+    expect(actions).toEqual([]);
+    expect(graph.filters.searchTags).toEqual([{ text: 'golang', mode: 'include' }]);
+    expect(recent.filters.searchTags).toEqual([{ text: 'golang', mode: 'include' }]);
   });
 });

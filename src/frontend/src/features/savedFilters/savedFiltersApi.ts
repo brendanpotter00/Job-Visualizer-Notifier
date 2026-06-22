@@ -197,7 +197,11 @@ export const savedFiltersApi = createApi({
         url: `/saved-filters/keyword-lists/${id}`,
         method: 'DELETE',
       }),
-      invalidatesTags: ['KeywordLists'],
+      // The backend NULLs any active-list pointer to this list in the same delete
+      // transaction (saved_filters_service.delete_keyword_list), so refresh the
+      // scalar saved filters too — otherwise the cached pointer stays stale and
+      // the "Save active list" button reads spuriously dirty.
+      invalidatesTags: ['KeywordLists', 'SavedFilters'],
     }),
     searchLocations: builder.query<LocationSearchResult[], SearchLocationsArgs>({
       query: ({ q, limit, openOnly }) => ({

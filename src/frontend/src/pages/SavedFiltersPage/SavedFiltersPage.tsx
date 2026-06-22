@@ -14,6 +14,7 @@ import {
 import {
   savedFiltersPropagationActions,
   activeListContentPropagationActions,
+  deletedListPropagationActions,
 } from '../../features/savedFilters/propagateSavedFilters';
 import { LoadingState } from '../../components/shared/LoadingIndicator';
 import { ErrorState } from '../../components/shared/ErrorDisplay';
@@ -121,7 +122,15 @@ export function SavedFiltersPage() {
 
   // A deleted list's id must not linger as the active pointer; clear it locally
   // (the backend already NULLs it server-side in the same delete transaction).
+  // Mirror the content-edit fix: clear the deleted list's tags from whichever
+  // live pages were filtering by it (the persisted pointers — what each page
+  // actually applies), so the graph/recent views don't keep filtering by the
+  // gone list until a refresh. The deleteKeywordList mutation invalidates the
+  // SavedFilters cache too, so the refetched pointers agree with this clear.
   const handleCardDeleted = (id: string) => {
+    if (serverPrefs) {
+      deletedListPropagationActions(id, serverPrefs).forEach((action) => dispatch(action));
+    }
     setDraft((d) => {
       if (!d) return d;
       if (d.recentActiveKeywordListId !== id && d.trendActiveKeywordListId !== id) {
