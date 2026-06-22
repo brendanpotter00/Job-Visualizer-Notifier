@@ -177,7 +177,15 @@ export function SavedFiltersPage() {
   // refresh, using the authoritative server response (see
   // savedFiltersPropagationActions for why this is push-on-save, not re-hydrate).
   const propagateToPages = (saved: SavedFilters) => {
-    savedFiltersPropagationActions(saved, serverLists ?? []).forEach((action) => dispatch(action));
+    // `listsLoaded` gates the search-tag portion: if the keyword-lists query
+    // hasn't resolved yet (a scalar Time Windows / Locations save can fire
+    // before it does), a non-null active pointer can't be resolved to its tags,
+    // and propagating `undefined` would wipe a live keyword filter for a list
+    // that still exists. The helper still propagates the time-window/location
+    // values; it only skips clearing a non-null pointer it can't resolve.
+    savedFiltersPropagationActions(saved, serverLists ?? [], {
+      listsLoaded: Boolean(serverLists),
+    }).forEach((action) => dispatch(action));
   };
 
   // A per-card content edit (PATCH) doesn't change the active *selection*, so the

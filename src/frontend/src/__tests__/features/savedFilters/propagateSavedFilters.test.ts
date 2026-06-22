@@ -66,6 +66,68 @@ describe('savedFiltersPropagationActions (Critique #2: no-refresh propagation)',
     expect(recent.filters.searchTags).toEqual([{ text: 'golang', mode: 'include' }]);
   });
 
+  it('does NOT clear a non-null active list when lists are not loaded (propagate-on-save keyword-wipe bug)', () => {
+    // Repro for I1: a scalar Time Windows / Locations save can fire before the
+    // keyword-lists query resolves. With `listsLoaded: false` and a non-null
+    // active pointer, the helper must NOT emit setSearchTags(undefined) — that
+    // would wipe a live keyword filter for a list that still exists.
+    const saved: SavedFilters = {
+      recentTimeWindow: '24h',
+      trendTimeWindow: '30d',
+      locations: ['San Francisco, CA, US'],
+      recentActiveKeywordListId: 'list-1',
+      trendActiveKeywordListId: 'builtin-swe',
+    };
+
+    // Seed both slices with live tags that must survive the scalar save.
+    const live = { text: 'engineer', mode: 'include' as const };
+    let graph = graphReducer(undefined, setGraphSearchTags([live]));
+    let recent = recentJobsReducer(undefined, setRecentJobsSearchTags([live]));
+
+    const actions = savedFiltersPropagationActions(saved, [], { listsLoaded: false });
+    for (const action of actions) {
+      graph = graphReducer(graph, action);
+      recent = recentJobsReducer(recent, action);
+    }
+
+    // Time windows + locations still propagated.
+    expect(graph.filters.timeWindow).toBe('30d');
+    expect(recent.filters.timeWindow).toBe('24h');
+    expect(graph.filters.location).toEqual(['San Francisco, CA, US']);
+    expect(recent.filters.location).toEqual(['San Francisco, CA, US']);
+    // Live keyword tags are LEFT INTACT (not wiped to undefined).
+    expect(graph.filters.searchTags).toEqual([live]);
+    expect(recent.filters.searchTags).toEqual([live]);
+    // No setSearchTags action was emitted for the non-null pointers.
+    expect(actions).toHaveLength(4);
+  });
+
+  it('still clears an intentionally-null active list even when lists are not loaded', () => {
+    // A genuine null pointer means "no keyword filter" — that clear is intended
+    // and must still propagate regardless of whether the lists cache is loaded.
+    const saved: SavedFilters = {
+      recentTimeWindow: '7d',
+      trendTimeWindow: '7d',
+      locations: [],
+      recentActiveKeywordListId: null,
+      trendActiveKeywordListId: null,
+    };
+
+    const live = { text: 'engineer', mode: 'include' as const };
+    let graph = graphReducer(undefined, setGraphSearchTags([live]));
+    let recent = recentJobsReducer(undefined, setRecentJobsSearchTags([live]));
+
+    const actions = savedFiltersPropagationActions(saved, [], { listsLoaded: false });
+    for (const action of actions) {
+      graph = graphReducer(graph, action);
+      recent = recentJobsReducer(recent, action);
+    }
+
+    expect(graph.filters.searchTags).toBeUndefined();
+    expect(recent.filters.searchTags).toBeUndefined();
+    expect(actions).toHaveLength(6);
+  });
+
   it('clears search tags when the active list is null and treats [] as no location filter', () => {
     const saved: SavedFilters = {
       recentTimeWindow: '7d',

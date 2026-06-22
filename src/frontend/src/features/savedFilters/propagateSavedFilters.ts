@@ -24,19 +24,46 @@ import {
  * Locations are passed through unchanged (an empty array means "no location
  * filter", same as hydration), so propagation is byte-for-byte what a refresh
  * would produce.
+ *
+ * `options.listsLoaded` (default true) guards the search-tag actions: pass
+ * `false` when the keyword-lists cache has not resolved yet, so a non-null
+ * active pointer that can't be resolved to tags is NOT propagated as a spurious
+ * `setSearchTags(undefined)` clear (the propagate-on-save keyword-wipe bug). An
+ * intentional `null` pointer is always propagated (it clears the filter on
+ * purpose); the time-window/location values always propagate either way.
  */
 export function savedFiltersPropagationActions(
   saved: SavedFilters,
-  lists: KeywordList[]
+  lists: KeywordList[],
+  options: { listsLoaded?: boolean } = {}
 ): UnknownAction[] {
-  return [
+  // When the keyword-lists cache hasn't loaded yet, `lists` is empty for a
+  // reason orthogonal to the user's intent: we simply can't resolve a non-null
+  // active pointer to its tags. Emitting `setSearchTags(undefined)` in that case
+  // would clear a live keyword filter for a list that still exists (the
+  // propagate-on-save keyword-wipe bug). So when lists are NOT loaded we still
+  // propagate the time-window / location values, but skip the search-tag action
+  // for any page whose active pointer is non-null (unresolvable-because-not-
+  // loaded, distinct from an intentional `null` clear, which we DO propagate).
+  const { listsLoaded = true } = options;
+
+  const actions: UnknownAction[] = [
     setGraphTimeWindow(saved.trendTimeWindow),
     setGraphLocation(saved.locations),
-    setGraphSearchTags(resolveActiveTags(saved.trendActiveKeywordListId, lists)),
-    setRecentJobsTimeWindow(saved.recentTimeWindow),
-    setRecentJobsLocation(saved.locations),
-    setRecentJobsSearchTags(resolveActiveTags(saved.recentActiveKeywordListId, lists)),
   ];
+  if (listsLoaded || saved.trendActiveKeywordListId === null) {
+    actions.push(setGraphSearchTags(resolveActiveTags(saved.trendActiveKeywordListId, lists)));
+  }
+  actions.push(
+    setRecentJobsTimeWindow(saved.recentTimeWindow),
+    setRecentJobsLocation(saved.locations)
+  );
+  if (listsLoaded || saved.recentActiveKeywordListId === null) {
+    actions.push(
+      setRecentJobsSearchTags(resolveActiveTags(saved.recentActiveKeywordListId, lists))
+    );
+  }
+  return actions;
 }
 
 /**
