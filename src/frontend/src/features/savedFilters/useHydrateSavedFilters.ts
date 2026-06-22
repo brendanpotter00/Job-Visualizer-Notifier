@@ -12,26 +12,7 @@ import {
   setRecentJobsHydrated,
 } from '../filters/slices/recentJobsFiltersSlice';
 import { useGetSavedFiltersQuery, useGetKeywordListsQuery, savedFiltersApi } from './savedFiltersApi';
-import type { KeywordList, SearchTag } from '../../types';
-
-/**
- * Resolve a saved active-list id to the concrete `searchTags` to hydrate.
- * - `null` (no keyword filter) -> `undefined`
- * - any id (including the built-in "builtin-swe") -> the matching list's tags
- *   from the server-provided `lists`, or `undefined` if it no longer exists.
- *
- * The built-in list is resolved from `lists` (the backend includes it) rather
- * than a local constant, so the hydrated tags can never drift from what the
- * keyword-list dropdown compares the active selection against.
- */
-function resolveActiveTags(
-  activeId: string | null,
-  lists: KeywordList[]
-): SearchTag[] | undefined {
-  if (activeId === null) return undefined;
-  const match = lists.find((l) => l.id === activeId);
-  return match ? match.tags.map((tag) => ({ ...tag })) : undefined;
-}
+import { resolveActiveTags } from './resolveActiveTags';
 
 /**
  * Loads the signed-in user's saved filters once and hydrates the graph and

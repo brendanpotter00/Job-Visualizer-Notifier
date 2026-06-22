@@ -129,4 +129,43 @@ describe('KeywordListCard', () => {
     expect(onCancelNew).toHaveBeenCalledWith('temp-1');
     expect(createMock).not.toHaveBeenCalled();
   });
+
+  describe('active keyword-list selection', () => {
+    it('marks a saved list active via its radio', async () => {
+      const user = userEvent.setup();
+      const onSelectActive = vi.fn();
+      render(<KeywordListCard list={persisted} selectable onSelectActive={onSelectActive} />);
+      const radio = screen.getByRole('radio', { name: 'Set Backend as the active keyword list' });
+      expect(radio).not.toBeChecked();
+      await user.click(radio);
+      expect(onSelectActive).toHaveBeenCalledTimes(1);
+    });
+
+    it('shows the active indicator and a checked radio when active', () => {
+      render(
+        <KeywordListCard list={persisted} selectable isActive onSelectActive={vi.fn()} />
+      );
+      expect(
+        screen.getByRole('radio', { name: 'Set Backend as the active keyword list' })
+      ).toBeChecked();
+      expect(screen.getByText('Active')).toBeInTheDocument();
+    });
+
+    it('lets the built-in list be chosen as active', async () => {
+      const user = userEvent.setup();
+      const onSelectActive = vi.fn();
+      render(<KeywordListCard list={builtin} selectable onSelectActive={onSelectActive} />);
+      await user.click(
+        screen.getByRole('radio', { name: 'Set Software Engineering as the active keyword list' })
+      );
+      expect(onSelectActive).toHaveBeenCalledTimes(1);
+    });
+
+    it('disables the active radio when the card is not selectable', () => {
+      render(<KeywordListCard list={persisted} selectable={false} />);
+      expect(
+        screen.getByRole('radio', { name: 'Set Backend as the active keyword list' })
+      ).toBeDisabled();
+    });
+  });
 });

@@ -38,6 +38,25 @@ interface SavedFiltersApiExtra {
   getTokenOrNull: () => Promise<string | null>;
 }
 
+/**
+ * Serialize query params encoding spaces as `%20` rather than `+` (the
+ * `URLSearchParams` default that RTK Query uses out of the box).
+ *
+ * The `/api/users/*` request chain (browser → Vercel rewrite → `api/users.ts`
+ * proxy → FastAPI) does not reliably decode `+` back into a space, so a
+ * multi-word location query like "San Fran" would otherwise reach the backend
+ * `canonical_name ILIKE '%San+Fran%'` as a literal `+` and match nothing — even
+ * though "San" alone matches San Francisco. `%20` round-trips unambiguously at
+ * every hop. Only spaces are affected; numeric/boolean params are untouched.
+ */
+export function serializeParamsWithEncodedSpaces(params: Record<string, unknown>): string {
+  const usp = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined) usp.set(key, String(value));
+  }
+  return usp.toString().replace(/\+/g, '%20');
+}
+
 function isRecord(v: unknown): v is Record<string, unknown> {
   return v != null && typeof v === 'object' && !Array.isArray(v);
 }
@@ -118,6 +137,7 @@ export const savedFiltersApi = createApi({
   reducerPath: 'savedFiltersApi',
   baseQuery: fetchBaseQuery({
     baseUrl: '/api/users',
+    paramsSerializer: serializeParamsWithEncodedSpaces,
     prepareHeaders: async (headers, { extra }) => {
       const { getTokenOrNull } = extra as SavedFiltersApiExtra;
       const token = await getTokenOrNull();

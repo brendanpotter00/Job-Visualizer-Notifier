@@ -2,6 +2,7 @@ import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import Stack from '@mui/material/Stack';
 import { TimeWindowSelect } from '../shared/filters/TimeWindowSelect.tsx';
+import { SectionSaveButton } from './SectionSaveButton.tsx';
 import type { TimeWindow } from '../../types';
 
 export interface TimeWindowDefaultsProps {
@@ -9,6 +10,12 @@ export interface TimeWindowDefaultsProps {
   trendTimeWindow: TimeWindow;
   onChangeRecent: (tw: TimeWindow) => void;
   onChangeTrend: (tw: TimeWindow) => void;
+  /** Section-save state/handlers (the per-section Save button). */
+  dirty: boolean;
+  saving: boolean;
+  success: boolean;
+  error: string | null;
+  onSave: () => void;
 }
 
 /**
@@ -20,6 +27,11 @@ export function TimeWindowDefaults({
   trendTimeWindow,
   onChangeRecent,
   onChangeTrend,
+  dirty,
+  saving,
+  success,
+  error,
+  onSave,
 }: TimeWindowDefaultsProps) {
   return (
     <Paper sx={{ p: 4 }}>
@@ -42,6 +54,15 @@ export function TimeWindowDefaults({
           label="Company Trends default"
         />
       </Stack>
+
+      <SectionSaveButton
+        dirty={dirty}
+        saving={saving}
+        success={success}
+        error={error}
+        onSave={onSave}
+        label="Save time windows"
+      />
     </Paper>
   );
 }

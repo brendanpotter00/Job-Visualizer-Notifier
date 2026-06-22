@@ -1,11 +1,18 @@
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import { AsyncMultiSelectAutocomplete } from '../shared/filters/AsyncMultiSelectAutocomplete.tsx';
+import { SectionSaveButton } from './SectionSaveButton.tsx';
 
 export interface LocationDefaultsEditorProps {
   locations: string[];
   onAdd: (location: string) => void;
   onRemove: (location: string) => void;
+  /** Section-save state/handlers (the per-section Save button). */
+  dirty: boolean;
+  saving: boolean;
+  success: boolean;
+  error: string | null;
+  onSave: () => void;
 }
 
 /**
@@ -17,6 +24,11 @@ export function LocationDefaultsEditor({
   locations,
   onAdd,
   onRemove,
+  dirty,
+  saving,
+  success,
+  error,
+  onSave,
 }: LocationDefaultsEditorProps) {
   return (
     <Paper sx={{ p: 4 }}>
@@ -33,6 +45,15 @@ export function LocationDefaultsEditor({
         value={locations}
         onAdd={onAdd}
         onRemove={onRemove}
+      />
+
+      <SectionSaveButton
+        dirty={dirty}
+        saving={saving}
+        success={success}
+        error={error}
+        onSave={onSave}
+        label="Save locations"
       />
     </Paper>
   );
