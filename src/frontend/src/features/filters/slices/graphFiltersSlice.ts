@@ -10,6 +10,9 @@ export type GraphFiltersState = FiltersState<GraphFilters>;
 const initialFilters: GraphFilters = {
   timeWindow: '7d',
   searchTags: undefined,
+  location: undefined,
+  department: undefined,
+  employmentType: undefined,
   softwareOnly: false,
 };
 
