@@ -1,12 +1,29 @@
 import { useId, useMemo } from 'react';
 import { FormControl, InputLabel, Select, MenuItem } from '@mui/material';
+import LoginIcon from '@mui/icons-material/Login';
 import { useGetKeywordListsQuery } from '../../../features/savedFilters/savedFiltersApi';
 import { useAuth } from '../../../features/auth/useAuth';
+import { SOFTWARE_ENGINEERING_TAGS } from '../../../constants/tags';
 import type { KeywordList, SearchTag } from '../../../types';
 
-/** Sentinel values for the two synthetic, non-list options. */
+/** Sentinel values for the synthetic, non-list options. */
 const NONE_VALUE = '__none__';
 const CUSTOM_VALUE = '__custom__';
+const SIGN_IN_VALUE = '__signin__';
+
+/**
+ * Locally synthesized built-in "Software Engineering" list for anonymous
+ * viewers, who never hit the auth-gated keyword-lists query. Its id and tags
+ * mirror the backend's synthesized `builtin-swe` list, so a signed-out
+ * selection resolves identically to the server's once the user signs in.
+ */
+const ANON_BUILTIN_SWE_LIST: KeywordList = {
+  id: 'builtin-swe',
+  name: 'Software Engineering',
+  tags: SOFTWARE_ENGINEERING_TAGS.map((tag) => ({ ...tag })),
+  isBuiltin: true,
+  position: 0,
+};
 
 export interface KeywordListSelectProps {
   /** The slice's current search tags (drives which option reads as selected). */
@@ -54,12 +71,16 @@ export function KeywordListSelect({
 }: KeywordListSelectProps) {
   const labelId = useId();
   // Keyword lists are a logged-in feature; skip the authed request for anonymous
-  // viewers (the filter pages are public). They still get None / Custom and any
-  // hand-added tags read as "Custom".
-  const { isAuthenticated } = useAuth();
+  // viewers (the filter pages are public). They still get None / Custom, any
+  // hand-added tags read as "Custom", and a locally synthesized built-in SWE
+  // list so the one-click preset stays available to everyone.
+  const { isAuthenticated, login } = useAuth();
   const { data: lists } = useGetKeywordListsQuery(undefined, { skip: !isAuthenticated });
 
-  const ordered = useMemo(() => orderLists(lists ?? []), [lists]);
+  const ordered = useMemo(
+    () => orderLists(isAuthenticated ? (lists ?? []) : [ANON_BUILTIN_SWE_LIST]),
+    [lists, isAuthenticated]
+  );
 
   const currentTags = useMemo(() => value ?? [], [value]);
   const hasTags = currentTags.length > 0;
@@ -78,6 +99,12 @@ export function KeywordListSelect({
 
   const handleChange = (nextValue: string) => {
     if (nextValue === CUSTOM_VALUE) return; // disabled; not selectable
+    if (nextValue === SIGN_IN_VALUE) {
+      void login().catch((error) => {
+        console.error('[KeywordListSelect] Login failed:', error);
+      });
+      return;
+    }
     if (nextValue === NONE_VALUE) {
       onChange(undefined);
       return;
@@ -111,6 +138,24 @@ export function KeywordListSelect({
         {builtinList && (
           <MenuItem key={builtinList.id} value={builtinList.id}>
             Software Engineering (default)
+          </MenuItem>
+        )}
+        {/* Anonymous-only CTA. Routed through a sentinel so it triggers sign-in
+            without ever becoming the selected list value. */}
+        {!isAuthenticated && (
+          <MenuItem
+            value={SIGN_IN_VALUE}
+            sx={{
+              borderTop: 1,
+              borderColor: 'divider',
+              color: 'primary.main',
+              fontSize: '0.8125rem',
+              whiteSpace: 'normal',
+              gap: 1,
+            }}
+          >
+            <LoginIcon fontSize="small" />
+            Sign in to create custom lists
           </MenuItem>
         )}
       </Select>

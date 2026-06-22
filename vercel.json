@@ -69,6 +69,10 @@
       "destination": "/index.html"
     },
     {
+      "source": "/saved-filters",
+      "destination": "/index.html"
+    },
+    {
       "source": "/vote-features",
       "destination": "/index.html"
     },
