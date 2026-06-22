@@ -38,3 +38,31 @@ export function savedFiltersPropagationActions(
     setRecentJobsSearchTags(resolveActiveTags(saved.recentActiveKeywordListId, lists)),
   ];
 }
+
+/**
+ * Build the redux actions that re-push a just-edited keyword list's *contents*
+ * into whichever filter pages currently have that list active. Companion to
+ * {@link savedFiltersPropagationActions}, but scoped to search tags only: editing
+ * a list's keywords changes neither the time windows nor the locations, and the
+ * per-page active *selection* is unchanged, so only the resolved tags move.
+ *
+ * `activeIds` are the persisted per-page pointers (what each page is actually
+ * filtering by), so a staged-but-unsaved selection change won't propagate. The
+ * edited list's tags are passed through exactly as stored (include/exclude
+ * preserved). Returns no actions when the edited list is active on neither page,
+ * leaving those pages untouched.
+ */
+export function activeListContentPropagationActions(
+  editedList: KeywordList,
+  activeIds: Pick<SavedFilters, 'recentActiveKeywordListId' | 'trendActiveKeywordListId'>
+): UnknownAction[] {
+  const tags = editedList.tags.map((tag) => ({ ...tag }));
+  const actions: UnknownAction[] = [];
+  if (activeIds.trendActiveKeywordListId === editedList.id) {
+    actions.push(setGraphSearchTags(tags));
+  }
+  if (activeIds.recentActiveKeywordListId === editedList.id) {
+    actions.push(setRecentJobsSearchTags(tags));
+  }
+  return actions;
+}

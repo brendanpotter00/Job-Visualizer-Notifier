@@ -8,6 +8,7 @@ import AddIcon from '@mui/icons-material/Add';
 import { KeywordListCard } from './KeywordListCard.tsx';
 import { SectionSaveButton } from './SectionSaveButton.tsx';
 import type { DraftKeywordList } from './keywordListDraft.ts';
+import type { KeywordList } from '../../types';
 
 export interface KeywordListsEditorProps {
   /** All cards in display order: new (unsaved) first, then user lists, builtin last. */
@@ -16,6 +17,8 @@ export interface KeywordListsEditorProps {
   onCardCreated: (tempId: string) => void;
   onCardCancelNew: (tempId: string) => void;
   onCardDeleted: (id: string) => void;
+  /** A persisted list's contents were saved (PATCH) — surfaces the server list for live propagation. */
+  onCardContentSaved: (saved: KeywordList) => void;
   /** Staged active keyword list id (null = no keyword filter). */
   activeKeywordListId: string | null;
   /** Pick the active list (or null for "No keyword filter"). */
@@ -41,6 +44,7 @@ export function KeywordListsEditor({
   onCardCreated,
   onCardCancelNew,
   onCardDeleted,
+  onCardContentSaved,
   activeKeywordListId,
   onActiveChange,
   activeDirty,
@@ -98,6 +102,7 @@ export function KeywordListsEditor({
             onCreated={onCardCreated}
             onCancelNew={onCardCancelNew}
             onDeleted={onCardDeleted}
+            onSaved={onCardContentSaved}
             isActive={list.id === activeKeywordListId}
             selectable={!list.isNew}
             onSelectActive={() => onActiveChange(list.id)}

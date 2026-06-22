@@ -11,7 +11,10 @@ import {
   useGetKeywordListsQuery,
   useUpdateSavedFiltersMutation,
 } from '../../features/savedFilters/savedFiltersApi';
-import { savedFiltersPropagationActions } from '../../features/savedFilters/propagateSavedFilters';
+import {
+  savedFiltersPropagationActions,
+  activeListContentPropagationActions,
+} from '../../features/savedFilters/propagateSavedFilters';
 import { LoadingState } from '../../components/shared/LoadingIndicator';
 import { ErrorState } from '../../components/shared/ErrorDisplay';
 import { extractErrorMessage } from '../../lib/errors';
@@ -24,7 +27,7 @@ import {
   TEMP_ID_PREFIX,
   toDraftLists,
 } from '../../components/saved-filters/keywordListDraft';
-import type { TimeWindow, SavedFilters } from '../../types';
+import type { TimeWindow, SavedFilters, KeywordList } from '../../types';
 
 /** Draft of the scalar saved-filter fields (everything except keyword lists). */
 type SavedFiltersDraft = SavedFilters;
@@ -168,6 +171,15 @@ export function SavedFiltersPage() {
     savedFiltersPropagationActions(saved, serverLists ?? []).forEach((action) => dispatch(action));
   };
 
+  // A per-card content edit (PATCH) doesn't change the active *selection*, so the
+  // section Save buttons never run. Re-push the freshly-saved tags to whichever
+  // pages have this list active (against the persisted pointers — what each page
+  // is actually filtering by) so the live pages don't keep using the stale set.
+  const handleCardContentSaved = (saved: KeywordList) => {
+    if (!serverPrefs) return;
+    activeListContentPropagationActions(saved, serverPrefs).forEach((action) => dispatch(action));
+  };
+
   const handleSave = async (section: SaveSection) => {
     if (!draft) return;
     setSavingSection(section);
@@ -277,6 +289,7 @@ export function SavedFiltersPage() {
             onCardCreated={dropNewCard}
             onCardCancelNew={dropNewCard}
             onCardDeleted={handleCardDeleted}
+            onCardContentSaved={handleCardContentSaved}
             activeKeywordListId={draft?.recentActiveKeywordListId ?? null}
             onActiveChange={handleActiveListChange}
             activeDirty={keywordsDirty}

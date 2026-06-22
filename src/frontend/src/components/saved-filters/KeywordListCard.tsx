@@ -15,6 +15,7 @@ import LockIcon from '@mui/icons-material/Lock';
 import { Add as AddIcon, Remove as RemoveIcon } from '@mui/icons-material';
 import { SearchTagsInput } from '../shared/filters/SearchTagsInput.tsx';
 import { extractErrorMessage } from '../../lib/errors.ts';
+import type { KeywordList } from '../../types';
 import {
   useCreateKeywordListMutation,
   useUpdateKeywordListMutation,
@@ -38,6 +39,12 @@ export interface KeywordListCardProps {
   onCancelNew?: (tempId: string) => void;
   /** Called after a persisted list is deleted (page clears any active pointer to it). */
   onDeleted?: (id: string) => void;
+  /**
+   * Called with the server-saved list after a persisted list's *contents* are
+   * updated (PATCH), so the page can live-propagate the new tags to any filter
+   * page this list is active on. Not fired for brand-new lists (see onCreated).
+   */
+  onSaved?: (saved: KeywordList) => void;
   /** Whether this list is the staged active keyword list. */
   isActive?: boolean;
   /** Whether this card can be picked as active (false for unsaved new cards). */
@@ -70,6 +77,7 @@ export function KeywordListCard({
   onCreated,
   onCancelNew,
   onDeleted,
+  onSaved,
   isActive = false,
   selectable = false,
   onSelectActive,
@@ -167,8 +175,9 @@ export function KeywordListCard({
         await createKeywordList({ name, tags: draft.tags }).unwrap();
         onCreated?.(list.id); // refetch will surface the persisted card
       } else {
-        await updateKeywordList({ id: list.id, name, tags: draft.tags }).unwrap();
+        const saved = await updateKeywordList({ id: list.id, name, tags: draft.tags }).unwrap();
         setMode('view');
+        onSaved?.(saved);
       }
     } catch (err) {
       setError(extractErrorMessage(err, 'Failed to save list'));

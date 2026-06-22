@@ -89,6 +89,32 @@ describe('KeywordListCard', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument());
   });
 
+  it('notifies the parent with the server list after a content update (for live propagation)', async () => {
+    const user = userEvent.setup();
+    const serverSaved = { ...persisted, tags: [{ text: 'rust', mode: 'include' as const }] };
+    updateMock.mockReturnValue(okUnwrap(serverSaved));
+    const onSaved = vi.fn();
+    render(<KeywordListCard list={persisted} onSaved={onSaved} />);
+
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(serverSaved));
+  });
+
+  it('does not notify onSaved when creating a brand-new list', async () => {
+    const user = userEvent.setup();
+    createMock.mockReturnValue(okUnwrap({ ...newDraft, id: 'srv-9', name: 'My List' }));
+    const onSaved = vi.fn();
+    render(<KeywordListCard list={newDraft} startInEdit onSaved={onSaved} />);
+
+    await user.type(screen.getByLabelText('List name'), 'My List');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(createMock).toHaveBeenCalled());
+    expect(onSaved).not.toHaveBeenCalled();
+  });
+
   it('creates a new list (POST) with the keyword added from the top input', async () => {
     const user = userEvent.setup();
     createMock.mockReturnValue(okUnwrap({ ...newDraft, id: 'srv-9', name: 'My List' }));

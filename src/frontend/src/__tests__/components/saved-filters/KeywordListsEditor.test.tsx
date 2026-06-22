@@ -37,6 +37,7 @@ function renderEditor(overrides: Partial<React.ComponentProps<typeof KeywordList
     onCardCreated: vi.fn(),
     onCardCancelNew: vi.fn(),
     onCardDeleted: vi.fn(),
+    onCardContentSaved: vi.fn(),
     activeKeywordListId: null,
     onActiveChange: vi.fn(),
     activeDirty: false,

@@ -578,10 +578,10 @@ TimeWindow = Literal[
 ]
 KeywordMode = Literal["include", "exclude"]
 
-# Caps that defend the DB layer; mirrored in the service for the per-user list
-# count (which Pydantic cannot see).
+# Caps that defend the DB layer. The per-user list-count cap lives only in
+# saved_filters_service.MAX_KEYWORD_LISTS_PER_USER, where the existing row count
+# is visible — Pydantic can't enforce it at the request boundary.
 _MAX_LOCATIONS = 100
-_MAX_KEYWORD_LISTS_PER_USER = 50
 _MAX_TAGS_PER_LIST = 100
 _MAX_TAG_TEXT_LEN = 100
 _MAX_LIST_NAME_LEN = 100
