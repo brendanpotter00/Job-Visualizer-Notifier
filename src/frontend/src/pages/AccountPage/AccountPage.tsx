@@ -149,12 +149,7 @@ export function AccountPage() {
           </Alert>
         )}
 
-        <Button
-          variant="contained"
-          onClick={handleSave}
-          disabled={!isDirty || isSaving}
-          fullWidth
-        >
+        <Button variant="contained" onClick={handleSave} disabled={!isDirty || isSaving} fullWidth>
           {isSaving ? 'Saving...' : 'Save Changes'}
         </Button>
       </Paper>
@@ -175,8 +170,8 @@ export function AccountPage() {
               label="Hide all admin features"
             />
             <Typography variant="caption" color="text.secondary" display="block">
-              Demo only — hides the Admin section in the sidebar for this session.
-              Resets when you refresh the page.
+              Demo only — hides the Admin section in the sidebar for this session. Resets when you
+              refresh the page.
             </Typography>
           </Paper>
 

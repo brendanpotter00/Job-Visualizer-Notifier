@@ -1,8 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import uiReducer, {
-  setHideAdminFeatures,
-  setDemoModeEnabled,
-} from '../../../features/ui/uiSlice';
+import uiReducer, { setHideAdminFeatures, setDemoModeEnabled } from '../../../features/ui/uiSlice';
 
 describe('uiSlice — hideAdminFeatures (demo-only, ephemeral)', () => {
   it('defaults hideAdminFeatures to false', () => {

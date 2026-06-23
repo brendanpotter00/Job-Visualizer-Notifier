@@ -286,9 +286,7 @@ describe('AccountPage', () => {
         expect(screen.getByLabelText('Enable demo mode')).toBeInTheDocument();
       });
       // Caption explains the Recent-page swap so admins know what it does.
-      expect(
-        screen.getByText(/replaces the Recent Job Postings list/i)
-      ).toBeInTheDocument();
+      expect(screen.getByText(/replaces the Recent Job Postings list/i)).toBeInTheDocument();
     });
 
     it('does not show the "Demo mode" toggle for non-admin users', async () => {
