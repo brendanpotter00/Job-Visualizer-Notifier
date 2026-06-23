@@ -19,6 +19,67 @@ from google_jobs_scraper.config import (
     INCLUDE_TITLE_KEYWORDS as GOOGLE_INCLUDE_KEYWORDS,
     EXCLUDE_TITLE_KEYWORDS as GOOGLE_EXCLUDE_KEYWORDS,
 )
+from shared.utils import title_matches_keyword
+
+
+class TestTitleMatchesKeyword:
+    """Direct unit tests for the shared title_matches_keyword helper.
+
+    Pins BOTH branches independently of the scraper filters:
+    - "intern" is whole-word matched (not a substring), accepting the real
+      forms intern/interns/internship/internships but rejecting false friends
+      like internet/international/internal and verb forms interned/interning.
+    - Every OTHER keyword keeps plain case-insensitive SUBSTRING matching. The
+      substring assertions are the regression-catcher: if someone later makes
+      all keywords whole-word, "ML" in "HTML Designer" would stop matching and
+      these tests fail loudly.
+    """
+
+    # --- Whole-word "intern" branch -------------------------------------
+
+    def test_intern_real_forms_match(self):
+        # Exact base word plus the accepted plural/ship variants.
+        assert title_matches_keyword("intern", "Software Engineering Intern") is True
+        assert title_matches_keyword("intern", "Backend Interns Cohort") is True
+        assert title_matches_keyword("intern", "Quant Internship") is True
+        # Fully plural variant (intern + ship + s) must be covered explicitly.
+        assert title_matches_keyword("intern", "Summer Internships Program") is True
+
+    def test_intern_match_is_case_insensitive(self):
+        # All-caps and all-lower must both match.
+        assert title_matches_keyword("intern", "DATA SCIENCE INTERN") is True
+        assert title_matches_keyword("intern", "data science intern") is True
+        assert title_matches_keyword("intern", "summer INTERNSHIP role") is True
+
+    def test_intern_false_friends_do_not_match(self):
+        # Words that merely contain "intern" as a substring must NOT match.
+        assert title_matches_keyword("intern", "Internet Policy Lead") is False
+        assert title_matches_keyword("intern", "International Tax Analyst") is False
+        assert title_matches_keyword("intern", "Internal Communications Partner") is False
+
+    def test_intern_verb_forms_do_not_match(self):
+        # "interned" / "interning" are not the accepted noun forms.
+        assert title_matches_keyword("intern", "Previously Interned Here") is False
+        assert title_matches_keyword("intern", "Currently Interning Engineer") is False
+
+    def test_intern_word_boundary_punctuation_and_hyphen(self):
+        # Trailing-comma and leading-hyphen still bound the whole word.
+        assert title_matches_keyword("intern", "Software Engineer, Intern") is True
+        assert title_matches_keyword("intern", "Co-Intern") is True
+
+    # --- Substring-fallback branch (regression-catcher) -----------------
+
+    def test_non_intern_keyword_matches_as_substring(self):
+        # The whole that fails loudly if all keywords become whole-word.
+        assert title_matches_keyword("ML", "HTML Designer") is True
+        assert title_matches_keyword("software", "Senior Software Engineer") is True
+
+    def test_non_intern_keyword_substring_is_case_insensitive(self):
+        assert title_matches_keyword("ML", "html designer") is True
+        assert title_matches_keyword("SOFTWARE", "senior software engineer") is True
+
+    def test_non_intern_keyword_non_substring_returns_false(self):
+        assert title_matches_keyword("python", "Data Scientist") is False
 
 
 class TestShouldIncludeJob:
