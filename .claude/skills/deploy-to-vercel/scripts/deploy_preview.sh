@@ -36,7 +36,7 @@ ROOT="$(git rev-parse --show-toplevel)"
 # --- Resolve the Vercel token: env var first, then repo .env.local ---
 TOKEN="${VERCEL_TOKEN:-}"
 if [ -z "$TOKEN" ] && [ -f "$ROOT/.env.local" ]; then
-  TOKEN="$(grep -E '^[[:space:]]*VERCEL_TOKEN[[:space:]]*=' "$ROOT/.env.local" | head -1 | cut -d= -f2- | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^["'"'"']//' -e 's/["'"'"']$//')"
+  TOKEN="$(grep -E '^[[:space:]]*(export[[:space:]]+)?VERCEL_TOKEN[[:space:]]*=' "$ROOT/.env.local" | head -1 | cut -d= -f2- | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^["'"'"']//' -e 's/["'"'"']$//' || true)"
 fi
 if [ -z "$TOKEN" ]; then
   cat >&2 <<'EOF'
