@@ -85,6 +85,9 @@ Use the `add-company` skill (`.claude/skills/add-company/`, `/add-company`) — 
 3. Update filtering logic (src/frontend/src/features/filters/selectors/graphFiltersSelectors.ts)
 4. Add UI control (src/frontend/src/components/companies-page/GraphFilters.tsx)
 
+**Deploying a Vercel Preview:**
+Automatic per-PR preview deploys are **off** — root `vercel.json` sets `git.deploymentEnabled` to `{ "main": true, "**": false }`, so merging to `main` still auto-deploys production but no other branch auto-deploys on push. For a one-off preview that posts the native Vercel comment on the open PR, use the `deploy-to-vercel` skill (`.claude/skills/deploy-to-vercel/`, `/deploy-to-vercel`) — say "deploy to vercel".
+
 **Debugging:**
 - Redux DevTools for state inspection
 - Selector tests: src/frontend/src/__tests__/features/filters/
