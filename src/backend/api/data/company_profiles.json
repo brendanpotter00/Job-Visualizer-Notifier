@@ -456,10 +456,6 @@
     "accomplishment": "Squarespace is known for its design-forward, template-driven website builder that lets individuals and small businesses launch professional sites without coding.",
     "blurb": "Squarespace offers an all-in-one platform for building websites, online stores, and managing domains, scheduling, and digital marketing."
   },
-  "stainlessapi": {
-    "accomplishment": "Stainless powers the official client libraries for leading API providers including OpenAI, Anthropic, and Cloudflare across languages like TypeScript, Python, and Go.",
-    "blurb": "Stainless generates client SDKs, CLIs, and developer tooling for APIs directly from their OpenAPI specifications."
-  },
   "stripe": {
     "accomplishment": "Stripe is a foundational internet payments platform whose developer-friendly APIs power online checkout for millions of businesses worldwide.",
     "blurb": "Stripe builds payments infrastructure and financial APIs that let businesses accept payments and manage commerce online."
