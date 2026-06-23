@@ -277,5 +277,43 @@ describe('AccountPage', () => {
       await user.click(toggle);
       expect(store.getState().ui.hideAdminFeatures).toBe(true);
     });
+
+    it('shows the "Demo mode" toggle for admin users', async () => {
+      mockFetchCurrentUser.mockResolvedValue({ ...mockUser, isAdmin: true });
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByLabelText('Enable demo mode')).toBeInTheDocument();
+      });
+      // Caption explains the Recent-page swap so admins know what it does.
+      expect(
+        screen.getByText(/replaces the Recent Job Postings list/i)
+      ).toBeInTheDocument();
+    });
+
+    it('does not show the "Demo mode" toggle for non-admin users', async () => {
+      // mockUser.isAdmin is false by default
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByText('test@example.com')).toBeInTheDocument();
+      });
+      expect(screen.queryByLabelText('Enable demo mode')).not.toBeInTheDocument();
+    });
+
+    it('toggling the switch sets demoModeEnabled in the store (ephemeral, demo-only)', async () => {
+      mockFetchCurrentUser.mockResolvedValue({ ...mockUser, isAdmin: true });
+      const user = userEvent.setup();
+      const { store } = renderPage();
+
+      const toggle = await screen.findByLabelText('Enable demo mode');
+      expect(store.getState().ui.demoModeEnabled).toBe(false);
+
+      await user.click(toggle);
+      expect(store.getState().ui.demoModeEnabled).toBe(true);
+
+      await user.click(toggle);
+      expect(store.getState().ui.demoModeEnabled).toBe(false);
+    });
   });
 });
