@@ -154,7 +154,7 @@ Jobs are filtered by:
 **Location**: United States only
 
 **Title keywords** (must include):
-- software, engineer, developer, frontend, backend, data scientist, ML, AI, DevOps, SRE, platform, infrastructure, cloud, systems
+- software, engineer, developer, frontend, backend, data scientist, ML, AI, DevOps, SRE, platform, infrastructure, cloud, systems, intern
 
 **Excluded keywords** (filtered out):
 - recruiter, sales, marketing, legal, finance, HR, operations manager, support specialist
