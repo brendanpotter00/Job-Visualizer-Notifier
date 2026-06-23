@@ -138,9 +138,32 @@ class TestAdminUsersList:
             "displayName",
             "signupProvider",
             "createdAt",
+            "visitCount",
+            "lastVisitAt",
             "isAdmin",
         }
         assert set(row.keys()) == expected
+
+    def test_includes_visit_count_and_last_visit_at(self, client, db_conn):
+        """The roster surfaces each user's visit_count (a seeded value round-
+        trips as camelCase ``visitCount``) plus ``lastVisitAt`` (null until the
+        user's first visit after this feature shipped)."""
+        _insert_user(
+            db_conn,
+            _make_user({
+                "id": "v1",
+                "auth0_id": "auth0|v1",
+                "email": "v1@example.com",
+                "visit_count": 7,
+            }),
+        )
+        resp = client.get("/api/admin/users")
+        assert resp.status_code == 200
+        row = next(
+            u for u in resp.json()["users"] if u["email"] == "v1@example.com"
+        )
+        assert row["visitCount"] == 7
+        assert row["lastVisitAt"] is None
 
 
 class TestAdminUsersStats:

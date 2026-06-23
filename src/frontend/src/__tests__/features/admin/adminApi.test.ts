@@ -150,6 +150,8 @@ describe('adminApi', () => {
         displayName: null,
         signupProvider: 'google',
         createdAt: '2025-01-10T10:00:00Z',
+        visitCount: 12,
+        lastVisitAt: '2025-06-10T10:00:00Z',
         isAdmin: false,
       },
     ];
@@ -199,6 +201,35 @@ describe('adminApi', () => {
 
   it('surfaces an error when /api/admin/users 2xx body has users as a string', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ users: 'oops' }));
+    const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+    const result = await store.dispatch(
+      adminApi.endpoints.listAdminUsers.initiate()
+    );
+
+    expect(result.data).toBeUndefined();
+    expect(result.error).toBeDefined();
+  });
+
+  it('surfaces an error when a /api/admin/users row is missing numeric visitCount', async () => {
+    // Per-row guard: the roster reads visitCount as a number for the Visits
+    // column + sort. A row missing it (serializer regression / misrouted body)
+    // must trip the guard rather than render ``undefined`` and sort wrong.
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        users: [
+          {
+            id: 'u1',
+            email: 'a@example.com',
+            displayName: null,
+            signupProvider: 'google',
+            createdAt: '2025-01-10T10:00:00Z',
+            isAdmin: false,
+            // visitCount intentionally omitted
+          },
+        ],
+      })
+    );
     const store = makeStore(() => Promise.resolve('test-admin-token'));
 
     const result = await store.dispatch(

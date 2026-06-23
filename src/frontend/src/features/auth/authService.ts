@@ -111,6 +111,30 @@ export async function fetchCurrentUser(
   return parseUserResponse(await response.json());
 }
 
+/**
+ * Record one full-page-load visit for the authenticated user.
+ *
+ * Fire-and-forget telemetry called once per full page load / refresh by
+ * ``useRecordVisit`` — it backs the admin roster's "most frequent users"
+ * view. The backend increments ``visit_count`` and returns 204 with no body.
+ * Throws on a non-2xx so the caller can log-and-swallow (a failed visit count
+ * must never break the app).
+ */
+export async function recordVisit(token: string): Promise<void> {
+  const response = await fetch('/api/users/visit', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    const detail = await extractErrorDetail(response);
+    throw new Error(detail || `Failed to record visit (${response.status})`);
+  }
+}
+
 export async function updateCurrentUser(
   token: string,
   updates: { displayName: string | null }

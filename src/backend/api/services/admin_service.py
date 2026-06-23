@@ -86,6 +86,7 @@ def list_users_with_admin_flag(conn: Connection) -> list[dict]:
         cursor.execute(
             sql.SQL(
                 "SELECT u.id, u.email, u.display_name, u.auth0_id, u.created_at,"
+                " u.visit_count, u.last_visit_at,"
                 " (a.user_id IS NOT NULL) AS is_admin"
                 " FROM {users} u"
                 " LEFT JOIN {admins} a ON a.user_id = u.id"
@@ -100,6 +101,8 @@ def list_users_with_admin_flag(conn: Connection) -> list[dict]:
             "display_name": r.get("display_name"),
             "signup_provider": _signup_provider_from_auth0_id(r["auth0_id"]),
             "created_at": r["created_at"],
+            "visit_count": r["visit_count"],
+            "last_visit_at": r["last_visit_at"],
             "is_admin": bool(r["is_admin"]),
         }
         for r in rows

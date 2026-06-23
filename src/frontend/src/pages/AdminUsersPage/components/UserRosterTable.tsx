@@ -36,6 +36,7 @@ interface UserRosterTableProps {
 }
 
 type SortDir = 'asc' | 'desc';
+type SortField = 'createdAt' | 'visitCount' | 'lastVisitAt';
 
 function formatJoined(iso: string): string {
   if (!iso) return '—';
@@ -48,6 +49,9 @@ export function UserRosterTable({ users }: UserRosterTableProps) {
   const [rowsPerPage, setRowsPerPage] = useState(25);
   const [search, setSearch] = useState('');
   const [adminsOnly, setAdminsOnly] = useState(false);
+  // Default sort stays newest-joined first (createdAt desc) — unchanged
+  // behavior. Visits / Last active are opt-in via their column headers.
+  const [sortField, setSortField] = useState<SortField>('createdAt');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
   const [menuRow, setMenuRow] = useState<AdminUserRow | null>(null);
@@ -78,11 +82,35 @@ export function UserRosterTable({ users }: UserRosterTableProps) {
   const sorted = useMemo(() => {
     const copy = [...filtered];
     copy.sort((a, b) => {
-      const cmp = a.createdAt.localeCompare(b.createdAt);
+      let cmp: number;
+      switch (sortField) {
+        case 'visitCount':
+          cmp = (a.visitCount ?? 0) - (b.visitCount ?? 0);
+          break;
+        case 'lastVisitAt':
+          // Null last_visit_at (never visited) sorts to the bottom on desc.
+          cmp = (a.lastVisitAt ?? '').localeCompare(b.lastVisitAt ?? '');
+          break;
+        case 'createdAt':
+        default:
+          cmp = a.createdAt.localeCompare(b.createdAt);
+          break;
+      }
       return sortDir === 'asc' ? cmp : -cmp;
     });
     return copy;
-  }, [filtered, sortDir]);
+  }, [filtered, sortField, sortDir]);
+
+  // Click a column header: toggle direction if it's already the active sort
+  // field, else switch to it defaulting to descending (newest / most first).
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      setSortDir('desc');
+    }
+  };
 
   const sliced = useMemo(() => {
     const start = page * rowsPerPage;
@@ -202,13 +230,40 @@ export function UserRosterTable({ users }: UserRosterTableProps) {
             <TableRow>
               <TableCell>Email</TableCell>
               <TableCell>Name</TableCell>
-              <TableCell align="right" sortDirection={sortDir}>
+              <TableCell
+                align="right"
+                sortDirection={sortField === 'createdAt' ? sortDir : false}
+              >
                 <TableSortLabel
-                  active
-                  direction={sortDir}
-                  onClick={() => setSortDir(sortDir === 'asc' ? 'desc' : 'asc')}
+                  active={sortField === 'createdAt'}
+                  direction={sortField === 'createdAt' ? sortDir : 'asc'}
+                  onClick={() => handleSort('createdAt')}
                 >
                   Joined
+                </TableSortLabel>
+              </TableCell>
+              <TableCell
+                align="right"
+                sortDirection={sortField === 'visitCount' ? sortDir : false}
+              >
+                <TableSortLabel
+                  active={sortField === 'visitCount'}
+                  direction={sortField === 'visitCount' ? sortDir : 'asc'}
+                  onClick={() => handleSort('visitCount')}
+                >
+                  Visits
+                </TableSortLabel>
+              </TableCell>
+              <TableCell
+                align="right"
+                sortDirection={sortField === 'lastVisitAt' ? sortDir : false}
+              >
+                <TableSortLabel
+                  active={sortField === 'lastVisitAt'}
+                  direction={sortField === 'lastVisitAt' ? sortDir : 'asc'}
+                  onClick={() => handleSort('lastVisitAt')}
+                >
+                  Last active
                 </TableSortLabel>
               </TableCell>
               <TableCell>Provider</TableCell>
@@ -229,6 +284,12 @@ export function UserRosterTable({ users }: UserRosterTableProps) {
                   </TableCell>
                   <TableCell align="right" sx={{ color: 'text.secondary' }}>
                     {formatJoined(u.createdAt)}
+                  </TableCell>
+                  <TableCell align="right">
+                    {u.visitCount.toLocaleString()}
+                  </TableCell>
+                  <TableCell align="right" sx={{ color: 'text.secondary' }}>
+                    {formatJoined(u.lastVisitAt ?? '')}
                   </TableCell>
                   <TableCell>
                     <Chip
@@ -265,7 +326,7 @@ export function UserRosterTable({ users }: UserRosterTableProps) {
             {sliced.length === 0 && (
               <TableRow>
                 <TableCell
-                  colSpan={6}
+                  colSpan={8}
                   sx={{ py: 4, textAlign: 'center', color: 'text.secondary' }}
                 >
                   No matching users.

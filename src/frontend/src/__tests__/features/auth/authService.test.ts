@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { fetchCurrentUser, updateCurrentUser } from '../../../features/auth/authService';
+import {
+  fetchCurrentUser,
+  recordVisit,
+  updateCurrentUser,
+} from '../../../features/auth/authService';
 
 const mockUser = {
   id: 'abc123',
@@ -245,6 +249,42 @@ describe('authService', () => {
       await expect(
         updateCurrentUser('token', { displayName: 'X' })
       ).rejects.toThrow(/missing isAdmin field/);
+    });
+  });
+
+  describe('recordVisit', () => {
+    it('sends a POST to /api/users/visit with Bearer token and no body', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(null, { status: 204 })
+      );
+
+      await recordVisit('my-token');
+
+      expect(fetchSpy).toHaveBeenCalledWith('/api/users/visit', {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer my-token',
+          Accept: 'application/json',
+        },
+      });
+    });
+
+    it('resolves on 204 No Content', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(null, { status: 204 })
+      );
+
+      await expect(recordVisit('token')).resolves.toBeUndefined();
+    });
+
+    it('throws on a non-2xx response so the caller can log-and-swallow', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response('Server Error', { status: 500 })
+      );
+
+      await expect(recordVisit('token')).rejects.toThrow(
+        'Failed to record visit (500)'
+      );
     });
   });
 });

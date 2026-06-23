@@ -112,6 +112,13 @@ class User(Base):
     auto_enroll_new_companies = Column(
         Boolean, nullable=False, server_default=text("true")
     )
+    # Engagement counter for the admin roster's "most frequent users" view.
+    # Incremented once per full page load / refresh by the authenticated user
+    # via POST /api/users/visit (NOT on client-side SPA route navigation).
+    # Real timestamptz for last_visit_at — like company_enroll_watermark above,
+    # do NOT mimic the legacy Text-typed created_at/updated_at.
+    visit_count = Column(Integer, nullable=False, server_default=text("0"))
+    last_visit_at = Column(TIMESTAMP(timezone=True), nullable=True)
 
     __table_args__ = (
         UniqueConstraint("email", name="users_email_key"),

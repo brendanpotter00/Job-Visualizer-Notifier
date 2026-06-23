@@ -27,6 +27,10 @@ export interface AdminUserRow {
   displayName: string | null;
   signupProvider: SignupProvider;
   createdAt: string;
+  /** Times this user has loaded/refreshed the app (POST /api/users/visit). */
+  visitCount: number;
+  /** ISO timestamp of the user's most recent load; null until their first visit. */
+  lastVisitAt: string | null;
   isAdmin: boolean;
 }
 
@@ -319,6 +323,21 @@ export const adminApi = createApi({
           throw new Error(
             'Invalid /api/admin/users response: missing users[]'
           );
+        }
+        // Per-row guard: the roster reads ``visitCount`` as a number for the
+        // Visits column + sort. A row missing it (serializer regression,
+        // misrouted body) would render ``undefined`` and sort incorrectly —
+        // surface it as a hard failure instead, matching the envelope check.
+        for (const u of (res as { users: unknown[] }).users) {
+          if (
+            u == null ||
+            typeof u !== 'object' ||
+            typeof (u as { visitCount?: unknown }).visitCount !== 'number'
+          ) {
+            throw new Error(
+              'Invalid /api/admin/users response: row missing numeric visitCount'
+            );
+          }
         }
         return (res as AdminUsersListResponse).users;
       },
