@@ -73,8 +73,7 @@ export function UserRosterTable({ users }: UserRosterTableProps) {
       if (adminsOnly && !u.isAdmin) return false;
       if (!q) return true;
       return (
-        u.email.toLowerCase().includes(q) ||
-        (u.displayName?.toLowerCase().includes(q) ?? false)
+        u.email.toLowerCase().includes(q) || (u.displayName?.toLowerCase().includes(q) ?? false)
       );
     });
   }, [users, search, adminsOnly]);
@@ -135,9 +134,7 @@ export function UserRosterTable({ users }: UserRosterTableProps) {
     try {
       await grantAdmin({ userId: target.id }).unwrap();
     } catch (err) {
-      setActionError(
-        extractErrorMessage(err, `Failed to grant admin to ${target.email}`)
-      );
+      setActionError(extractErrorMessage(err, `Failed to grant admin to ${target.email}`));
     }
   };
 
@@ -149,9 +146,7 @@ export function UserRosterTable({ users }: UserRosterTableProps) {
     try {
       await revokeAdmin({ userId: target.id }).unwrap();
     } catch (err) {
-      setActionError(
-        extractErrorMessage(err, `Failed to revoke admin from ${target.email}`)
-      );
+      setActionError(extractErrorMessage(err, `Failed to revoke admin from ${target.email}`));
     }
   };
 
@@ -173,8 +168,7 @@ export function UserRosterTable({ users }: UserRosterTableProps) {
             User roster
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            {filtered.length.toLocaleString()}{' '}
-            {filtered.length === 1 ? 'user' : 'users'}
+            {filtered.length.toLocaleString()} {filtered.length === 1 ? 'user' : 'users'}
           </Typography>
         </Box>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
@@ -215,11 +209,7 @@ export function UserRosterTable({ users }: UserRosterTableProps) {
       </Box>
 
       {actionError && (
-        <Alert
-          severity="error"
-          onClose={() => setActionError(null)}
-          sx={{ mx: 2, mb: 2 }}
-        >
+        <Alert severity="error" onClose={() => setActionError(null)} sx={{ mx: 2, mb: 2 }}>
           {actionError}
         </Alert>
       )}
@@ -230,10 +220,7 @@ export function UserRosterTable({ users }: UserRosterTableProps) {
             <TableRow>
               <TableCell>Email</TableCell>
               <TableCell>Name</TableCell>
-              <TableCell
-                align="right"
-                sortDirection={sortField === 'createdAt' ? sortDir : false}
-              >
+              <TableCell align="right" sortDirection={sortField === 'createdAt' ? sortDir : false}>
                 <TableSortLabel
                   active={sortField === 'createdAt'}
                   direction={sortField === 'createdAt' ? sortDir : 'asc'}
@@ -242,10 +229,7 @@ export function UserRosterTable({ users }: UserRosterTableProps) {
                   Joined
                 </TableSortLabel>
               </TableCell>
-              <TableCell
-                align="right"
-                sortDirection={sortField === 'visitCount' ? sortDir : false}
-              >
+              <TableCell align="right" sortDirection={sortField === 'visitCount' ? sortDir : false}>
                 <TableSortLabel
                   active={sortField === 'visitCount'}
                   direction={sortField === 'visitCount' ? sortDir : 'asc'}
@@ -279,15 +263,11 @@ export function UserRosterTable({ users }: UserRosterTableProps) {
               return (
                 <TableRow key={u.id} hover>
                   <TableCell>{u.email}</TableCell>
-                  <TableCell sx={{ color: 'text.secondary' }}>
-                    {u.displayName ?? '—'}
-                  </TableCell>
+                  <TableCell sx={{ color: 'text.secondary' }}>{u.displayName ?? '—'}</TableCell>
                   <TableCell align="right" sx={{ color: 'text.secondary' }}>
                     {formatJoined(u.createdAt)}
                   </TableCell>
-                  <TableCell align="right">
-                    {u.visitCount.toLocaleString()}
-                  </TableCell>
+                  <TableCell align="right">{u.visitCount.toLocaleString()}</TableCell>
                   <TableCell align="right" sx={{ color: 'text.secondary' }}>
                     {formatJoined(u.lastVisitAt ?? '')}
                   </TableCell>
@@ -325,10 +305,7 @@ export function UserRosterTable({ users }: UserRosterTableProps) {
             })}
             {sliced.length === 0 && (
               <TableRow>
-                <TableCell
-                  colSpan={8}
-                  sx={{ py: 4, textAlign: 'center', color: 'text.secondary' }}
-                >
+                <TableCell colSpan={8} sx={{ py: 4, textAlign: 'center', color: 'text.secondary' }}>
                   No matching users.
                 </TableCell>
               </TableRow>
@@ -337,30 +314,17 @@ export function UserRosterTable({ users }: UserRosterTableProps) {
         </Table>
       </TableContainer>
 
-      <Menu
-        anchorEl={menuAnchor}
-        open={Boolean(menuAnchor)}
-        onClose={handleMenuClose}
-      >
-        <MenuItem
-          onClick={handleGrant}
-          disabled={!menuRow || menuRow.isAdmin}
-        >
+      <Menu anchorEl={menuAnchor} open={Boolean(menuAnchor)} onClose={handleMenuClose}>
+        <MenuItem onClick={handleGrant} disabled={!menuRow || menuRow.isAdmin}>
           Make admin
         </MenuItem>
         <MenuItem
           onClick={handleRevoke}
-          disabled={
-            !menuRow || !menuRow.isAdmin || (menuRow ? isSelf(menuRow) : false)
-          }
+          disabled={!menuRow || !menuRow.isAdmin || (menuRow ? isSelf(menuRow) : false)}
         >
           Revoke admin
           {menuRow && isSelf(menuRow) && (
-            <Typography
-              variant="caption"
-              color="text.secondary"
-              sx={{ ml: 1 }}
-            >
+            <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
               (you)
             </Typography>
           )}

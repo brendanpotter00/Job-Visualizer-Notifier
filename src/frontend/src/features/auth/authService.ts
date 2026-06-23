@@ -91,10 +91,7 @@ function parseUserResponse(raw: unknown): User {
   return obj as unknown as User;
 }
 
-export async function fetchCurrentUser(
-  token: string,
-  signal?: AbortSignal
-): Promise<User> {
+export async function fetchCurrentUser(token: string, signal?: AbortSignal): Promise<User> {
   const response = await fetch('/api/users', {
     headers: {
       Authorization: `Bearer ${token}`,

@@ -85,9 +85,7 @@ describe('AdminUsersPage', () => {
     // First call: both queries fail. Second call (after retry): they
     // succeed. The page only renders the error state when at least one
     // query has an error.
-    fetchMock.mockImplementation(() =>
-      Promise.resolve(jsonResponse({ detail: 'kaboom' }, 500))
-    );
+    fetchMock.mockImplementation(() => Promise.resolve(jsonResponse({ detail: 'kaboom' }, 500)));
 
     renderPage();
 
@@ -95,9 +93,7 @@ describe('AdminUsersPage', () => {
     // variant, which renders a Retry button (not "Try Again", which is
     // the card variant's label).
     const retry = await screen.findByRole('button', { name: /retry/i });
-    expect(
-      screen.getByText(/failed to load admin data|fetcherror|kaboom/i)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/failed to load admin data|fetcherror|kaboom/i)).toBeInTheDocument();
 
     const callsBeforeRetry = fetchMock.mock.calls.length;
     // Flip to success responses for both endpoints before clicking retry.

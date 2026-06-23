@@ -25,9 +25,9 @@ describe('authService', () => {
 
   describe('fetchCurrentUser', () => {
     it('sends GET request with Bearer token', async () => {
-      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-        new Response(JSON.stringify(mockUser), { status: 200 })
-      );
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(new Response(JSON.stringify(mockUser), { status: 200 }));
 
       await fetchCurrentUser('my-token');
 
@@ -88,22 +88,15 @@ describe('authService', () => {
         new Response(JSON.stringify(bodyMissingIsAdmin), { status: 200 })
       );
 
-      await expect(fetchCurrentUser('token')).rejects.toThrow(
-        /missing isAdmin field/
-      );
+      await expect(fetchCurrentUser('token')).rejects.toThrow(/missing isAdmin field/);
     });
 
     it('rejects a 2xx body whose isAdmin is not a boolean', async () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-        new Response(
-          JSON.stringify({ ...mockUser, isAdmin: 'true' }),
-          { status: 200 }
-        )
+        new Response(JSON.stringify({ ...mockUser, isAdmin: 'true' }), { status: 200 })
       );
 
-      await expect(fetchCurrentUser('token')).rejects.toThrow(
-        /missing isAdmin field/
-      );
+      await expect(fetchCurrentUser('token')).rejects.toThrow(/missing isAdmin field/);
     });
 
     it('extracts a readable message when the error body has a nested error object', async () => {
@@ -126,9 +119,7 @@ describe('authService', () => {
         )
       );
 
-      await expect(fetchCurrentUser('token')).rejects.toThrow(
-        /pool exhausted/
-      );
+      await expect(fetchCurrentUser('token')).rejects.toThrow(/pool exhausted/);
     });
 
     it('falls back through non-string detail/message to the generic message', async () => {
@@ -152,9 +143,9 @@ describe('authService', () => {
 
   describe('updateCurrentUser', () => {
     it('sends PUT request with body and Bearer token', async () => {
-      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-        new Response(JSON.stringify(mockUser), { status: 200 })
-      );
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(new Response(JSON.stringify(mockUser), { status: 200 }));
 
       await updateCurrentUser('my-token', { displayName: 'New Name' });
 
@@ -180,9 +171,11 @@ describe('authService', () => {
     });
 
     it('sends null displayName to clear it', async () => {
-      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-        new Response(JSON.stringify({ ...mockUser, displayName: null }), { status: 200 })
-      );
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(
+          new Response(JSON.stringify({ ...mockUser, displayName: null }), { status: 200 })
+        );
 
       await updateCurrentUser('token', { displayName: null });
 
@@ -191,9 +184,7 @@ describe('authService', () => {
     });
 
     it('throws on 404 response', async () => {
-      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-        new Response('Not Found', { status: 404 })
-      );
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('Not Found', { status: 404 }));
 
       await expect(updateCurrentUser('token', { displayName: 'X' })).rejects.toThrow(
         'Failed to update user (404)'
@@ -233,30 +224,27 @@ describe('authService', () => {
         new Response(JSON.stringify(bodyMissingIsAdmin), { status: 200 })
       );
 
-      await expect(
-        updateCurrentUser('token', { displayName: 'New Name' })
-      ).rejects.toThrow(/missing isAdmin field/);
+      await expect(updateCurrentUser('token', { displayName: 'New Name' })).rejects.toThrow(
+        /missing isAdmin field/
+      );
     });
 
     it('rejects a 2xx PUT body whose isAdmin is not a boolean', async () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-        new Response(
-          JSON.stringify({ ...mockUser, isAdmin: 1 }),
-          { status: 200 }
-        )
+        new Response(JSON.stringify({ ...mockUser, isAdmin: 1 }), { status: 200 })
       );
 
-      await expect(
-        updateCurrentUser('token', { displayName: 'X' })
-      ).rejects.toThrow(/missing isAdmin field/);
+      await expect(updateCurrentUser('token', { displayName: 'X' })).rejects.toThrow(
+        /missing isAdmin field/
+      );
     });
   });
 
   describe('recordVisit', () => {
     it('sends a POST to /api/users/visit with Bearer token and no body', async () => {
-      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-        new Response(null, { status: 204 })
-      );
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(new Response(null, { status: 204 }));
 
       await recordVisit('my-token');
 
@@ -270,9 +258,7 @@ describe('authService', () => {
     });
 
     it('resolves on 204 No Content', async () => {
-      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-        new Response(null, { status: 204 })
-      );
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 204 }));
 
       await expect(recordVisit('token')).resolves.toBeUndefined();
     });
@@ -282,9 +268,7 @@ describe('authService', () => {
         new Response('Server Error', { status: 500 })
       );
 
-      await expect(recordVisit('token')).rejects.toThrow(
-        'Failed to record visit (500)'
-      );
+      await expect(recordVisit('token')).rejects.toThrow('Failed to record visit (500)');
     });
   });
 });

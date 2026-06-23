@@ -118,9 +118,7 @@ describe('adminApi', () => {
     fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
     const store = makeStore(() => Promise.resolve('test-admin-token'));
 
-    await store.dispatch(
-      adminApi.endpoints.grantAdmin.initiate({ userId: 'target-1' })
-    );
+    await store.dispatch(adminApi.endpoints.grantAdmin.initiate({ userId: 'target-1' }));
 
     const call = fetchMock.mock.calls[0] as [unknown, unknown];
     expect(urlFromInput(call[0])).toMatch(/\/api\/admin\/users\/target-1\/admin$/);
@@ -132,9 +130,7 @@ describe('adminApi', () => {
     fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
     const store = makeStore(() => Promise.resolve('test-admin-token'));
 
-    await store.dispatch(
-      adminApi.endpoints.revokeAdmin.initiate({ userId: 'target-2' })
-    );
+    await store.dispatch(adminApi.endpoints.revokeAdmin.initiate({ userId: 'target-2' }));
 
     const call = fetchMock.mock.calls[0] as [unknown, unknown];
     expect(urlFromInput(call[0])).toMatch(/\/api\/admin\/users\/target-2\/admin$/);
@@ -172,9 +168,7 @@ describe('adminApi', () => {
     fetchMock.mockResolvedValue(jsonResponse({}));
     const store = makeStore(() => Promise.resolve('test-admin-token'));
 
-    const result = await store.dispatch(
-      adminApi.endpoints.listAdminUsers.initiate()
-    );
+    const result = await store.dispatch(adminApi.endpoints.listAdminUsers.initiate());
 
     // RTK Query surfaces the thrown error via the ``error`` field.
     expect(result.data).toBeUndefined();
@@ -191,9 +185,7 @@ describe('adminApi', () => {
     fetchMock.mockResolvedValue(jsonResponse({ users: null }));
     const store = makeStore(() => Promise.resolve('test-admin-token'));
 
-    const result = await store.dispatch(
-      adminApi.endpoints.listAdminUsers.initiate()
-    );
+    const result = await store.dispatch(adminApi.endpoints.listAdminUsers.initiate());
 
     expect(result.data).toBeUndefined();
     expect(result.error).toBeDefined();
@@ -203,9 +195,7 @@ describe('adminApi', () => {
     fetchMock.mockResolvedValue(jsonResponse({ users: 'oops' }));
     const store = makeStore(() => Promise.resolve('test-admin-token'));
 
-    const result = await store.dispatch(
-      adminApi.endpoints.listAdminUsers.initiate()
-    );
+    const result = await store.dispatch(adminApi.endpoints.listAdminUsers.initiate());
 
     expect(result.data).toBeUndefined();
     expect(result.error).toBeDefined();
@@ -232,9 +222,7 @@ describe('adminApi', () => {
     );
     const store = makeStore(() => Promise.resolve('test-admin-token'));
 
-    const result = await store.dispatch(
-      adminApi.endpoints.listAdminUsers.initiate()
-    );
+    const result = await store.dispatch(adminApi.endpoints.listAdminUsers.initiate());
 
     expect(result.data).toBeUndefined();
     expect(result.error).toBeDefined();
@@ -249,23 +237,17 @@ describe('adminApi', () => {
     fetchMock.mockResolvedValue(jsonResponse({ byProvider: {} }));
     const store = makeStore(() => Promise.resolve('test-admin-token'));
 
-    const result = await store.dispatch(
-      adminApi.endpoints.getAdminUsersStats.initiate()
-    );
+    const result = await store.dispatch(adminApi.endpoints.getAdminUsersStats.initiate());
 
     expect(result.data).toBeUndefined();
     expect(result.error).toBeDefined();
   });
 
   it('surfaces an error when /api/admin/users/stats 2xx body has totalUsers as a string', async () => {
-    fetchMock.mockResolvedValue(
-      jsonResponse({ totalUsers: '42', byProvider: {} })
-    );
+    fetchMock.mockResolvedValue(jsonResponse({ totalUsers: '42', byProvider: {} }));
     const store = makeStore(() => Promise.resolve('test-admin-token'));
 
-    const result = await store.dispatch(
-      adminApi.endpoints.getAdminUsersStats.initiate()
-    );
+    const result = await store.dispatch(adminApi.endpoints.getAdminUsersStats.initiate());
 
     expect(result.data).toBeUndefined();
     expect(result.error).toBeDefined();
@@ -275,9 +257,7 @@ describe('adminApi', () => {
     fetchMock.mockResolvedValue(jsonResponse({ totalUsers: 0 }));
     const store = makeStore(() => Promise.resolve('test-admin-token'));
 
-    const result = await store.dispatch(
-      adminApi.endpoints.getAdminUsersStats.initiate()
-    );
+    const result = await store.dispatch(adminApi.endpoints.getAdminUsersStats.initiate());
 
     expect(result.data).toBeUndefined();
     expect(result.error).toBeDefined();
@@ -299,9 +279,7 @@ describe('adminApi', () => {
     );
     const store = makeStore(() => Promise.resolve('test-admin-token'));
 
-    const result = await store.dispatch(
-      adminApi.endpoints.getAdminUsersStats.initiate()
-    );
+    const result = await store.dispatch(adminApi.endpoints.getAdminUsersStats.initiate());
 
     expect(result.data).toBeUndefined();
     expect(result.error).toBeDefined();
@@ -322,9 +300,7 @@ describe('adminApi', () => {
     );
     const store = makeStore(() => Promise.resolve('test-admin-token'));
 
-    const result = await store.dispatch(
-      adminApi.endpoints.getAdminUsersStats.initiate()
-    );
+    const result = await store.dispatch(adminApi.endpoints.getAdminUsersStats.initiate());
 
     expect(result.data).toBeUndefined();
     expect(result.error).toBeDefined();
@@ -341,9 +317,7 @@ describe('adminApi', () => {
     );
     const store = makeStore(() => Promise.resolve('test-admin-token'));
 
-    const result = await store.dispatch(
-      adminApi.endpoints.getAdminUsersStats.initiate()
-    );
+    const result = await store.dispatch(adminApi.endpoints.getAdminUsersStats.initiate());
 
     expect(result.data).toBeUndefined();
     expect(result.error).toBeDefined();
@@ -407,9 +381,7 @@ describe('adminApi', () => {
     fetchMock.mockResolvedValue(jsonResponse(body));
     const store = makeStore(() => Promise.resolve('test-admin-token'));
 
-    const result = await store.dispatch(
-      adminApi.endpoints.getLocationHealth.initiate()
-    );
+    const result = await store.dispatch(adminApi.endpoints.getLocationHealth.initiate());
 
     const call = fetchMock.mock.calls[0] as [unknown, unknown];
     expect(urlFromInput(call[0])).toMatch(/\/api\/admin\/locations\/health$/);
@@ -421,9 +393,7 @@ describe('adminApi', () => {
     fetchMock.mockResolvedValue(jsonResponse(makeHealthBody({ total: '100' })));
     const store = makeStore(() => Promise.resolve('test-admin-token'));
 
-    const result = await store.dispatch(
-      adminApi.endpoints.getLocationHealth.initiate()
-    );
+    const result = await store.dispatch(adminApi.endpoints.getLocationHealth.initiate());
 
     expect(result.data).toBeUndefined();
     expect(result.error).toBeDefined();
@@ -433,9 +403,7 @@ describe('adminApi', () => {
     fetchMock.mockResolvedValue(jsonResponse(makeHealthBody({ heartbeatAgeMinutes: 'soon' })));
     const store = makeStore(() => Promise.resolve('test-admin-token'));
 
-    const result = await store.dispatch(
-      adminApi.endpoints.getLocationHealth.initiate()
-    );
+    const result = await store.dispatch(adminApi.endpoints.getLocationHealth.initiate());
 
     expect(result.data).toBeUndefined();
     expect(result.error).toBeDefined();
@@ -447,23 +415,17 @@ describe('adminApi', () => {
     );
     const store = makeStore(() => Promise.resolve('test-admin-token'));
 
-    const result = await store.dispatch(
-      adminApi.endpoints.getLocationHealth.initiate()
-    );
+    const result = await store.dispatch(adminApi.endpoints.getLocationHealth.initiate());
 
     expect(result.error).toBeUndefined();
     expect(result.data?.heartbeatAgeMinutes).toBeNull();
   });
 
   it('getLocationHealth THROWS when normalizeQueue has a non-number value', async () => {
-    fetchMock.mockResolvedValue(
-      jsonResponse(makeHealthBody({ normalizeQueue: { todo: 'lots' } }))
-    );
+    fetchMock.mockResolvedValue(jsonResponse(makeHealthBody({ normalizeQueue: { todo: 'lots' } })));
     const store = makeStore(() => Promise.resolve('test-admin-token'));
 
-    const result = await store.dispatch(
-      adminApi.endpoints.getLocationHealth.initiate()
-    );
+    const result = await store.dispatch(adminApi.endpoints.getLocationHealth.initiate());
 
     expect(result.data).toBeUndefined();
     expect(result.error).toBeDefined();
@@ -479,9 +441,7 @@ describe('adminApi', () => {
     fetchMock.mockResolvedValue(jsonResponse({ schemaPresent: true, checks }));
     const store = makeStore(() => Promise.resolve('test-admin-token'));
 
-    const result = await store.dispatch(
-      adminApi.endpoints.getLocationIntegrity.initiate()
-    );
+    const result = await store.dispatch(adminApi.endpoints.getLocationIntegrity.initiate());
 
     const call = fetchMock.mock.calls[0] as [unknown, unknown];
     expect(urlFromInput(call[0])).toMatch(/\/api\/admin\/locations\/integrity$/);
@@ -493,9 +453,7 @@ describe('adminApi', () => {
     fetchMock.mockResolvedValue(jsonResponse({ schemaPresent: true, checks: 'nope' }));
     const store = makeStore(() => Promise.resolve('test-admin-token'));
 
-    const result = await store.dispatch(
-      adminApi.endpoints.getLocationIntegrity.initiate()
-    );
+    const result = await store.dispatch(adminApi.endpoints.getLocationIntegrity.initiate());
 
     expect(result.data).toBeUndefined();
     expect(result.error).toBeDefined();
@@ -510,9 +468,7 @@ describe('adminApi', () => {
     );
     const store = makeStore(() => Promise.resolve('test-admin-token'));
 
-    const result = await store.dispatch(
-      adminApi.endpoints.getLocationIntegrity.initiate()
-    );
+    const result = await store.dispatch(adminApi.endpoints.getLocationIntegrity.initiate());
 
     expect(result.data).toBeUndefined();
     expect(result.error).toBeDefined();
@@ -842,9 +798,7 @@ describe('adminApi', () => {
     fetchMock.mockResolvedValue(new Response(null, { status: 202 }));
     const store = makeStore(() => Promise.resolve('test-admin-token'));
 
-    await store.dispatch(
-      adminApi.endpoints.renormalizeJob.initiate({ jobId: 'job-42' })
-    );
+    await store.dispatch(adminApi.endpoints.renormalizeJob.initiate({ jobId: 'job-42' }));
 
     const call = fetchMock.mock.calls[0] as [unknown, unknown];
     expect(urlFromInput(call[0])).toMatch(/\/api\/admin\/jobs\/job-42\/normalize$/);
@@ -900,9 +854,7 @@ describe('adminApi', () => {
       fetchMock.mockResolvedValue(jsonResponse({ total: 0 }));
       const store = makeStore(() => Promise.resolve('test-admin-token'));
 
-      const result = await store.dispatch(
-        adminApi.endpoints.listAdminFeedback.initiate(pageArgs)
-      );
+      const result = await store.dispatch(adminApi.endpoints.listAdminFeedback.initiate(pageArgs));
 
       expect(result.data).toBeUndefined();
       expect(result.error).toBeDefined();
@@ -912,9 +864,7 @@ describe('adminApi', () => {
       fetchMock.mockResolvedValue(jsonResponse({ feedback: fakeFeedback }));
       const store = makeStore(() => Promise.resolve('test-admin-token'));
 
-      const result = await store.dispatch(
-        adminApi.endpoints.listAdminFeedback.initiate(pageArgs)
-      );
+      const result = await store.dispatch(adminApi.endpoints.listAdminFeedback.initiate(pageArgs));
 
       expect(result.data).toBeUndefined();
       expect(result.error).toBeDefined();
@@ -924,9 +874,7 @@ describe('adminApi', () => {
       fetchMock.mockResolvedValue(jsonResponse({ feedback: 'oops', total: 0 }));
       const store = makeStore(() => Promise.resolve('test-admin-token'));
 
-      const result = await store.dispatch(
-        adminApi.endpoints.listAdminFeedback.initiate(pageArgs)
-      );
+      const result = await store.dispatch(adminApi.endpoints.listAdminFeedback.initiate(pageArgs));
 
       expect(result.data).toBeUndefined();
       expect(result.error).toBeDefined();

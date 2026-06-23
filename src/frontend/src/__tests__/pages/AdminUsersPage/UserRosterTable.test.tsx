@@ -133,9 +133,7 @@ describe('UserRosterTable', () => {
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalled();
     });
-    const { url, method } = callDetails(
-      fetchMock.mock.calls[0] as [unknown, unknown]
-    );
+    const { url, method } = callDetails(fetchMock.mock.calls[0] as [unknown, unknown]);
     expect(url).toMatch(/\/api\/admin\/users\/plain-1\/admin$/);
     expect(method).toBe('POST');
   });
@@ -151,9 +149,7 @@ describe('UserRosterTable', () => {
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalled();
     });
-    const { url, method } = callDetails(
-      fetchMock.mock.calls[0] as [unknown, unknown]
-    );
+    const { url, method } = callDetails(fetchMock.mock.calls[0] as [unknown, unknown]);
     expect(url).toMatch(/\/api\/admin\/users\/admin-1\/admin$/);
     expect(method).toBe('DELETE');
   });
@@ -281,10 +277,7 @@ describe('UserRosterTable', () => {
     // Input order is admin-then-plain, but PLAIN_USER joined later
     // (2025-03-15 > 2025-01-20) so it must sort first under the default.
     renderTable([ADMIN_USER, PLAIN_USER]);
-    expect(dataRowEmails()).toEqual([
-      'plain@example.com',
-      'admin@example.com',
-    ]);
+    expect(dataRowEmails()).toEqual(['plain@example.com', 'admin@example.com']);
   });
 
   it('sorts by visits (most first) when the Visits header is clicked, and toggles', async () => {
@@ -293,17 +286,11 @@ describe('UserRosterTable', () => {
 
     // Freshly-selected column defaults to descending: 42 (admin) before 5 (plain).
     await user.click(screen.getByText('Visits'));
-    expect(dataRowEmails()).toEqual([
-      'admin@example.com',
-      'plain@example.com',
-    ]);
+    expect(dataRowEmails()).toEqual(['admin@example.com', 'plain@example.com']);
 
     // Clicking again toggles to ascending: 5 (plain) before 42 (admin).
     await user.click(screen.getByText('Visits'));
-    expect(dataRowEmails()).toEqual([
-      'plain@example.com',
-      'admin@example.com',
-    ]);
+    expect(dataRowEmails()).toEqual(['plain@example.com', 'admin@example.com']);
   });
 
   it('sorts by last active (most recent first) when that header is clicked', async () => {
@@ -312,17 +299,11 @@ describe('UserRosterTable', () => {
 
     // admin last active 2025-06-20 > plain 2025-06-01 → admin first on desc.
     await user.click(screen.getByText('Last active'));
-    expect(dataRowEmails()).toEqual([
-      'admin@example.com',
-      'plain@example.com',
-    ]);
+    expect(dataRowEmails()).toEqual(['admin@example.com', 'plain@example.com']);
   });
 
   it('renders an empty state spanning all columns when there are no users', () => {
     renderTable([]);
-    expect(screen.getByText('No matching users.')).toHaveAttribute(
-      'colspan',
-      '8'
-    );
+    expect(screen.getByText('No matching users.')).toHaveAttribute('colspan', '8');
   });
 });
