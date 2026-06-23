@@ -50,7 +50,7 @@ export function EditCompanyPreferencesLink() {
       <Link
         component="button"
         type="button"
-        onClick={() => navigate(ROUTES.ACCOUNT)}
+        onClick={() => navigate(ROUTES.SAVED_FILTERS)}
         underline="hover"
         data-testid="edit-company-preferences-link"
         sx={{ verticalAlign: 'baseline' }}

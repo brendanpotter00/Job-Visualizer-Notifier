@@ -56,6 +56,8 @@ export const {
   addRecentJobsCompany,
   removeRecentJobsCompany,
   clearRecentJobsCompanies,
+  hydrateRecentJobsFilters,
+  setRecentJobsHydrated,
   resetRecentJobsFilters,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 } = recentJobsFiltersSlice.actions as any;

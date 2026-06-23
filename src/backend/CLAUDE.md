@@ -45,7 +45,7 @@ clean before committing (mirrors the frontend's "Zero TypeScript Errors Required
 ## Prerequisites
 
 - PostgreSQL running on localhost:5432 (use `docker compose up -d postgres` from project root)
-- Database: `jobscraper` with bare-named tables `job_listings`, `scrape_runs`, `users`, `user_enabled_companies`, `admins`, `features`, `feature_upvotes` (created on first lifespan/migration run)
+- Database: `jobscraper` with bare-named tables `job_listings`, `scrape_runs`, `users`, `user_enabled_companies`, `user_saved_filters`, `user_keyword_lists`, `admins`, `features`, `feature_upvotes` (created on first lifespan/migration run)
 - Python 3.13+ with dependencies from `src/backend/api/requirements.txt`
 
 ## Configuration
@@ -88,6 +88,15 @@ All configuration via environment variables:
 - `GET /api/users/enabled-companies` - List user's enabled companies (requires Bearer token)
 - `PUT /api/users/enabled-companies` - Update user's enabled companies (requires Bearer token)
 
+**Saved Filters Router (`/api/users/saved-filters`):** all routes require a Bearer token.
+- `GET /api/users/saved-filters` - Scalar saved filters (per-page time windows, shared locations, active keyword-list pointers); never 404s — returns server defaults (`recent=3h`, `trend=7d`, no locations) when the user has no row
+- `PUT /api/users/saved-filters` - Full-replace (upsert) the scalar saved filters; 409 if an active keyword-list pointer is unknown or not owned
+- `GET /api/users/saved-filters/keyword-lists` - List the user's named keyword lists by position, with the read-only built-in "Software Engineering" list (`builtin-swe`) synthesized last
+- `POST /api/users/saved-filters/keyword-lists` - Create a keyword list (201); 409 on duplicate/reserved name, 422 at the per-user list cap
+- `PATCH /api/users/saved-filters/keyword-lists/{list_id}` - Rename / replace tags / reorder (partial); 404 if not owned, 409 on name collision, 422 on the built-in id
+- `DELETE /api/users/saved-filters/keyword-lists/{list_id}` - Delete a list (204; NULLs any active pointer referencing it); 404 if not owned, 422 on the built-in id
+- `GET /api/users/saved-filters/locations/search` - Substring autocomplete over canonical location names (params: `q`, `limit`, `openOnly`)
+
 **Admin Router (`/api/admin`):**
 - `GET /api/admin/users` - List all users with admin flag (requires admin)
 - `GET /api/admin/users/stats` - User statistics (requires admin)
@@ -120,12 +129,14 @@ src/backend/api/
 │   ├── jobs.py          # Jobs list and detail endpoints
 │   ├── jobs_qa.py       # Stats, scrape runs, trigger scrape
 │   ├── users.py         # User profile + enabled-companies endpoints (auth required)
+│   ├── saved_filters.py # Saved-filters, keyword-list CRUD, location search (auth required)
 │   ├── features.py      # Feature voting endpoints (list, upvote, remove upvote)
 │   └── admin.py         # Admin-only user management endpoints
 ├── services/
 │   ├── database.py      # API query functions (reuses scripts/shared/database.py)
 │   ├── user_service.py  # User CRUD operations (get_or_create, update)
 │   ├── user_preferences_service.py  # Enabled-companies CRUD
+│   ├── saved_filters_service.py     # Saved-filters + keyword-list CRUD, built-in SWE list, location search
 │   ├── admin_service.py # Admin grant/revoke and is_admin check
 │   ├── features_service.py  # Feature list and upvote logic
 │   ├── features_seed.py # Seed initial feature rows

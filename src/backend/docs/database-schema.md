@@ -18,6 +18,8 @@ not table renaming.
 ```mermaid
 erDiagram
     users ||--o{ user_enabled_companies : "enables (CASCADE)"
+    users ||--o| user_saved_filters : "has saved filters (CASCADE)"
+    users ||--o{ user_keyword_lists : "owns keyword lists (CASCADE)"
     users ||--o| admins : "is admin (CASCADE)"
     users ||--o{ admins : "granted_by (SET NULL)"
     users ||--o{ feature_upvotes : "casts (CASCADE)"
@@ -44,6 +46,27 @@ erDiagram
         text user_id PK "FK -> users.id CASCADE, indexed"
         text company_id PK "soft link -> companies.id"
         timestamptz created_at "NOT NULL default now()"
+    }
+
+    user_saved_filters {
+        text user_id PK "FK -> users.id CASCADE"
+        text recent_time_window "NOT NULL default '3h', TimeWindow Literal"
+        text trend_time_window "NOT NULL default '7d', TimeWindow Literal"
+        jsonb locations "NOT NULL default [] — canonical location strings"
+        text recent_active_keyword_list_id "nullable, soft link (may be 'builtin-swe')"
+        text trend_active_keyword_list_id "nullable, soft link (may be 'builtin-swe')"
+        timestamptz created_at "NOT NULL default now()"
+        timestamptz updated_at "NOT NULL default now()"
+    }
+
+    user_keyword_lists {
+        text id PK "uuid4 hex"
+        text user_id FK "-> users.id CASCADE, indexed"
+        text name "unique per user, case-insensitive"
+        jsonb tags "NOT NULL default [] — {text, mode} objects"
+        integer position "NOT NULL default 0"
+        timestamptz created_at "NOT NULL default now()"
+        timestamptz updated_at "NOT NULL default now()"
     }
 
     companies {
@@ -118,7 +141,11 @@ erDiagram
 > *not* a declared foreign key — there is no referential-integrity constraint or cascade.
 > `user_enabled_companies.company_id`, `job_listings.company`, and `scrape_runs.company`
 > are all plain `Text` matched by convention, so a company id can appear in these tables
-> without (or after) a corresponding `companies` row.
+> without (or after) a corresponding `companies` row. The
+> `user_saved_filters.recent_active_keyword_list_id` / `trend_active_keyword_list_id`
+> pointers are likewise plain `Text` (not FKs) because they may hold the synthetic
+> built-in id `'builtin-swe'`, which has no `user_keyword_lists` row; the service layer
+> enforces ownership and NULLs a pointer when its list is deleted.
 
 ## Tables
 
@@ -139,6 +166,23 @@ Authenticated accounts (Auth0 / Google One Tap). One row per person.
 Join table — which companies a user has explicitly enabled in their feed. Composite PK
 `(user_id, company_id)`. **Semantics:** *zero rows = "see all companies"* (implicit); ≥1 row
 = explicit allow-list. `company_id` is a soft link to `companies.id`.
+
+### `user_saved_filters`
+Scalar per-user saved filters — one row per user, PK `user_id` → `users.id` (CASCADE).
+`recent_time_window` / `trend_time_window` are plain `Text` validated to the `TimeWindow`
+Literal at the Pydantic boundary (same pattern as `job_listings.status`), defaulting to
+`'3h'` / `'7d'`. `locations` is a JSONB array of canonical location strings shared by the
+Recent and Trend pages. `recent_active_keyword_list_id` / `trend_active_keyword_list_id`
+are nullable `Text` soft links to `user_keyword_lists.id` (or the synthetic `'builtin-swe'`).
+
+### `user_keyword_lists`
+Reusable named keyword lists — many per user. `id` is an app-generated uuid4 hex; `user_id`
+→ `users.id` (CASCADE), indexed (`idx_user_keyword_lists_user_id`). `tags` is a JSONB array
+of `{text, mode}` objects (`mode` ∈ `include`/`exclude`), shape/caps validated by Pydantic on
+write. `name` is unique per user **case-insensitively** via the functional unique index
+`uq_user_keyword_lists_user_name` on `(user_id, lower(name))`. The built-in "Software
+Engineering" list (`builtin-swe`) is synthesized server-side and is NOT stored here, but its
+name is reserved against this index.
 
 ### `companies`
 The tracked-company catalogue. `ats` names the provider (greenhouse, ashby, lever, gem,

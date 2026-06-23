@@ -81,7 +81,7 @@ async function seedStore(jobs: Job[] = seededJobs) {
 }
 
 describe('GraphFilters', () => {
-  it('renders SearchTagsInput, TimeWindowSelect, Location, Department, SoftwareOnlyToggle', async () => {
+  it('renders SearchTagsInput, TimeWindowSelect, Location, Department, KeywordListSelect', async () => {
     const store = await seedStore();
     renderWithProviders(<GraphFilters />, { store });
 
@@ -89,9 +89,7 @@ describe('GraphFilters', () => {
     expect(screen.getAllByText('Time Window').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Location').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Department').length).toBeGreaterThan(0);
-    expect(
-      screen.getByRole('switch', { name: 'Software engineering roles only' })
-    ).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Keyword list' })).toBeInTheDocument();
   });
 
   it('does NOT render Location control when availableLocations is empty', async () => {
@@ -275,15 +273,43 @@ describe('GraphFilters', () => {
     expect(store.getState().graphFilters.filters.department).toContain(chosenDept);
   });
 
-  it('dispatches toggleGraphSoftwareOnly when switch clicked', async () => {
-    const store = await seedStore();
+  it('clears searchTags via KeywordListSelect "None" option', async () => {
+    // Seed with hand-added tags so the dropdown shows "Custom" + selectable
+    // "None". With no keyword lists loaded in the test store, "None" is the
+    // only enabled real choice and selecting it clears the slice's tags.
+    const store = createTestStore({
+      app: {
+        selectedCompanyId: 'spacex',
+        selectedATS: ATSConstants.BackendScraper as const,
+        isInitialized: true,
+      },
+      graphFilters: {
+        filters: {
+          timeWindow: '30d',
+          searchTags: [{ text: 'senior', mode: 'include' }],
+          softwareOnly: false,
+        },
+        hydrated: false,
+      },
+    });
+    await store.dispatch(
+      jobsApi.util.upsertQueryData(
+        'getJobsForCompany',
+        { companyId: 'spacex' },
+        {
+          jobs: seededJobs,
+          metadata: { totalCount: seededJobs.length, fetchedAt: '2026-04-12T00:00:00Z' },
+        }
+      )
+    );
     const user = userEvent.setup();
     renderWithProviders(<GraphFilters />, { store });
 
-    await user.click(screen.getByRole('switch', { name: 'Software engineering roles only' }));
+    await user.click(screen.getByRole('combobox', { name: 'Keyword list' }));
+    const listbox = await screen.findByRole('listbox');
+    await user.click(within(listbox).getByRole('option', { name: 'None' }));
 
-    const tags = store.getState().graphFilters.filters.searchTags ?? [];
-    // SOFTWARE_ENGINEERING_TAGS has 6 entries
-    expect(tags.length).toBe(6);
+    const tags = store.getState().graphFilters.filters.searchTags;
+    expect(tags === undefined || tags.length === 0).toBe(true);
   });
 });

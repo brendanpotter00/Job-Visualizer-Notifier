@@ -5,16 +5,13 @@ import {
   addGraphSearchTag,
   removeGraphSearchTag,
   toggleGraphSearchTagMode,
+  setGraphSearchTags,
   addGraphLocation,
   removeGraphLocation,
   addGraphDepartment,
   removeGraphDepartment,
-  toggleGraphSoftwareOnly,
 } from '../../features/filters/slices/graphFiltersSlice.ts';
-import {
-  selectGraphFilters,
-  selectGraphSoftwareOnlyState,
-} from '../../features/filters/selectors/graphFiltersSelectors.ts';
+import { selectGraphFilters } from '../../features/filters/selectors/graphFiltersSelectors.ts';
 import {
   selectAvailableLocations,
   selectAvailableDepartments,
@@ -22,7 +19,8 @@ import {
 import { SearchTagsInput } from '../shared/filters/SearchTagsInput.tsx';
 import { TimeWindowSelect } from '../shared/filters/TimeWindowSelect.tsx';
 import { MultiSelectAutocomplete } from '../shared/filters/MultiSelectAutocomplete.tsx';
-import { SoftwareOnlyToggle } from '../shared/filters/SoftwareOnlyToggle.tsx';
+import { KeywordListSelect } from '../shared/filters/KeywordListSelect.tsx';
+import type { SearchTag } from '../../types';
 
 /**
  * Filter controls for the company hiring-trend page.
@@ -33,7 +31,6 @@ import { SoftwareOnlyToggle } from '../shared/filters/SoftwareOnlyToggle.tsx';
 export function GraphFilters() {
   const dispatch = useAppDispatch();
   const filters = useAppSelector(selectGraphFilters);
-  const softwareOnlyChecked = useAppSelector(selectGraphSoftwareOnlyState);
   const availableLocations = useAppSelector(selectAvailableLocations);
   const availableDepartments = useAppSelector(selectAvailableDepartments);
 
@@ -71,10 +68,9 @@ export function GraphFilters() {
               onRemove={(dept) => dispatch(removeGraphDepartment(dept))}
             />
           )}
-          <SoftwareOnlyToggle
-            checked={softwareOnlyChecked}
-            onChange={() => dispatch(toggleGraphSoftwareOnly())}
-            label="Software engineering roles only"
+          <KeywordListSelect
+            value={filters.searchTags}
+            onChange={(tags: SearchTag[] | undefined) => dispatch(setGraphSearchTags(tags))}
           />
         </Stack>
       </Stack>

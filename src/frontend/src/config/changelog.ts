@@ -19,6 +19,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'saved-filters',
+    title: 'Save your default filters',
+    description:
+      'There’s a new Saved Filters page in the sidebar. Set the default time window for the Recent Jobs and Company Trends pages, pick a default set of locations once and have it apply to both, and build reusable keyword lists — named sets of include/exclude keywords that each save on their own with an Edit button when you want to change one. Choose a single active keyword list and it’s applied as your default filter across every page. Your defaults load automatically when you sign in and stay fully editable in the moment.',
+    tags: ['feature'],
+    date: '2026-06-21',
+    link: {
+      to: ROUTES.SAVED_FILTERS,
+      label: 'Set your saved filters',
+    },
+  },
+  {
     id: 'curated-companies',
     title: 'Browse the curated companies',
     description:
@@ -38,7 +50,7 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
     tags: ['new-companies'],
     date: '2026-06-18',
     link: {
-      to: ROUTES.ACCOUNT,
+      to: ROUTES.SAVED_FILTERS,
       label: 'Add Reducto to your company preferences',
     },
   },
@@ -86,7 +98,7 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
     tags: ['new-companies'],
     date: '2026-06-12',
     link: {
-      to: ROUTES.ACCOUNT,
+      to: ROUTES.SAVED_FILTERS,
       label: 'Add Workweave to your company preferences',
     },
   },
@@ -98,7 +110,7 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
     tags: ['new-companies'],
     date: '2026-06-11',
     link: {
-      to: ROUTES.ACCOUNT,
+      to: ROUTES.SAVED_FILTERS,
       label: 'Add them to your company preferences',
     },
   },
@@ -110,8 +122,8 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
     tags: ['feature'],
     date: '2026-06-07',
     link: {
-      to: ROUTES.ACCOUNT,
-      label: 'Turn auto-include on or off on your Account page',
+      to: ROUTES.SAVED_FILTERS,
+      label: 'Turn auto-include on or off on the Saved Filters page',
     },
   },
   {
@@ -122,7 +134,7 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
     tags: ['new-companies'],
     date: '2026-06-06',
     link: {
-      to: ROUTES.ACCOUNT,
+      to: ROUTES.SAVED_FILTERS,
       label: 'Add Poke to your company preferences',
     },
   },
@@ -134,7 +146,7 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
     tags: ['new-companies'],
     date: '2026-06-04',
     link: {
-      to: ROUTES.ACCOUNT,
+      to: ROUTES.SAVED_FILTERS,
       label: 'Add PostHog to your company preferences',
     },
   },
@@ -146,7 +158,7 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
     tags: ['new-companies'],
     date: '2026-05-30',
     link: {
-      to: ROUTES.ACCOUNT,
+      to: ROUTES.SAVED_FILTERS,
       label: 'Add fal to your company preferences',
     },
   },
@@ -158,7 +170,7 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
     tags: ['new-companies'],
     date: '2026-05-30',
     link: {
-      to: ROUTES.ACCOUNT,
+      to: ROUTES.SAVED_FILTERS,
       label: 'Add Vizcom to your company preferences',
     },
   },
@@ -170,7 +182,7 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
     tags: ['new-companies'],
     date: '2026-05-30',
     link: {
-      to: ROUTES.ACCOUNT,
+      to: ROUTES.SAVED_FILTERS,
       label: 'Add Krea to your company preferences',
     },
   },
@@ -182,7 +194,7 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
     tags: ['new-companies'],
     date: '2026-05-29',
     link: {
-      to: ROUTES.ACCOUNT,
+      to: ROUTES.SAVED_FILTERS,
       label: 'Add Trajectory to your company preferences',
     },
   },
@@ -194,7 +206,7 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
     tags: ['new-companies'],
     date: '2026-05-27',
     link: {
-      to: ROUTES.ACCOUNT,
+      to: ROUTES.SAVED_FILTERS,
       label: 'Add Sierra to your company preferences',
     },
   },
@@ -206,7 +218,7 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
     tags: ['new-companies'],
     date: '2026-05-21',
     link: {
-      to: ROUTES.ACCOUNT,
+      to: ROUTES.SAVED_FILTERS,
       label: 'Add Roblox to your company preferences',
     },
   },
@@ -218,7 +230,7 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
     tags: ['new-companies'],
     date: '2026-05-21',
     link: {
-      to: ROUTES.ACCOUNT,
+      to: ROUTES.SAVED_FILTERS,
       label: 'Add Exa to your company preferences',
     },
   },
@@ -262,7 +274,7 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
     tags: ['new-companies'],
     date: '2026-04-22',
     link: {
-      to: ROUTES.ACCOUNT,
+      to: ROUTES.SAVED_FILTERS,
       label: 'Add these to your company preferences',
     },
   },
