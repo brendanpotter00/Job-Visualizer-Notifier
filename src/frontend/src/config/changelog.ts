@@ -22,7 +22,7 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
     id: 'add-workos',
     title: 'Added WorkOS',
     description:
-      'WorkOS — a developer-platform company whose APIs (SSO/SAML, Directory Sync/SCIM, AuthKit, and audit logs) let B2B apps ship the enterprise-readiness features large customers require — is now tracked via its Ashby job board. It is currently hiring across engineering and product, including AuthKit, infrastructure, and SRE roles, primarily remote across the US & Canada.',
+      'WorkOS, a developer-platform company whose APIs (SSO/SAML, Directory Sync/SCIM, AuthKit, and audit logs) let B2B apps ship the enterprise-readiness features large customers require, is now tracked via its Ashby job board. It is currently hiring across engineering and product, including AuthKit, infrastructure, and SRE roles, primarily remote across the US & Canada.',
     tags: ['new-companies'],
     date: '2026-06-22',
     link: {
