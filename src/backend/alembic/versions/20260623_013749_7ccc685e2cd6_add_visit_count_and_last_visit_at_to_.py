@@ -1,7 +1,7 @@
 """add visit_count and last_visit_at to users
 
 Revision ID: 7ccc685e2cd6
-Revises: ebe8cd35b4cd
+Revises: 6df9297dcc67
 Create Date: 2026-06-23 01:37:49.458573+00:00
 
 """
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = '7ccc685e2cd6'
-down_revision: Union[str, None] = 'ebe8cd35b4cd'
+down_revision: Union[str, None] = '6df9297dcc67'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
