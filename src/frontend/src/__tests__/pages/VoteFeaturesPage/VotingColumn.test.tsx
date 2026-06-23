@@ -36,8 +36,10 @@ vi.mock('../../../features/features/featuresApi', () => ({
 // Keep FeatureVoteCard trivial so we can assert it rendered once per feature
 // without pulling in its auth/modal machinery.
 vi.mock('../../../pages/VoteFeaturesPage/FeatureVoteCard', () => ({
-  FeatureVoteCard: ({ feature }: { feature: FeatureListItem }) => (
-    <div data-testid={`feature-vote-card-${feature.id}`}>{feature.title}</div>
+  FeatureVoteCard: ({ feature, readOnly }: { feature: FeatureListItem; readOnly?: boolean }) => (
+    <div data-testid={`feature-vote-card-${feature.id}`} data-readonly={String(!!readOnly)}>
+      {feature.title}
+    </div>
   ),
 }));
 
@@ -56,6 +58,7 @@ const SAMPLE_FEATURES: FeatureListItem[] = [
     title: 'AI resume matching notifications',
     description: 'Upload your resume.',
     createdAt: '2026-04-10T00:00:00Z',
+    completedAt: null,
     upvoteCount: 3,
     hasUpvoted: false,
   },
@@ -64,6 +67,7 @@ const SAMPLE_FEATURES: FeatureListItem[] = [
     title: 'Location normalization',
     description: 'Normalize job-posting locations.',
     createdAt: '2026-04-11T00:00:00Z',
+    completedAt: null,
     upvoteCount: 7,
     hasUpvoted: true,
   },
@@ -85,9 +89,7 @@ describe('VotingColumn', () => {
       mockQueryResult = { ...mockQueryResult, isLoading: true };
       render(<VotingColumn />);
       expect(screen.getByRole('progressbar')).toBeInTheDocument();
-      expect(
-        screen.queryByRole('alert')
-      ).not.toBeInTheDocument();
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     });
   });
 
@@ -123,9 +125,7 @@ describe('VotingColumn', () => {
       mockQueryResult = { ...mockQueryResult, data: [] };
       render(<VotingColumn />);
       expect(screen.getByText(/no features yet/i)).toBeInTheDocument();
-      expect(
-        screen.queryByTestId(/feature-vote-card-/)
-      ).not.toBeInTheDocument();
+      expect(screen.queryByTestId(/feature-vote-card-/)).not.toBeInTheDocument();
     });
 
     it('renders the EmptyState when data is undefined and not loading/erroring', () => {
@@ -141,12 +141,8 @@ describe('VotingColumn', () => {
     it('renders one FeatureVoteCard per feature in the data array', () => {
       mockQueryResult = { ...mockQueryResult, data: SAMPLE_FEATURES };
       render(<VotingColumn />);
-      expect(
-        screen.getByTestId('feature-vote-card-resume-match-ai')
-      ).toBeInTheDocument();
-      expect(
-        screen.getByTestId('feature-vote-card-location-normalization')
-      ).toBeInTheDocument();
+      expect(screen.getByTestId('feature-vote-card-resume-match-ai')).toBeInTheDocument();
+      expect(screen.getByTestId('feature-vote-card-location-normalization')).toBeInTheDocument();
       // Header renders in every branch; ensure we're still in the data branch
       // and not leaking loading/error/empty UI.
       expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
@@ -161,6 +157,7 @@ describe('VotingColumn', () => {
           title: 'Low',
           description: '',
           createdAt: '2026-04-01T00:00:00Z',
+          completedAt: null,
           upvoteCount: 3,
           hasUpvoted: false,
         },
@@ -169,6 +166,7 @@ describe('VotingColumn', () => {
           title: 'High',
           description: '',
           createdAt: '2026-04-02T00:00:00Z',
+          completedAt: null,
           upvoteCount: 7,
           hasUpvoted: false,
         },
@@ -177,6 +175,7 @@ describe('VotingColumn', () => {
           title: 'Mid',
           description: '',
           createdAt: '2026-04-03T00:00:00Z',
+          completedAt: null,
           upvoteCount: 1,
           hasUpvoted: false,
         },
@@ -198,6 +197,7 @@ describe('VotingColumn', () => {
           title: 'Newer',
           description: '',
           createdAt: '2026-04-15T00:00:00Z',
+          completedAt: null,
           upvoteCount: 5,
           hasUpvoted: false,
         },
@@ -206,6 +206,7 @@ describe('VotingColumn', () => {
           title: 'Older',
           description: '',
           createdAt: '2026-04-01T00:00:00Z',
+          completedAt: null,
           upvoteCount: 5,
           hasUpvoted: false,
         },
@@ -217,6 +218,98 @@ describe('VotingColumn', () => {
         'feature-vote-card-older',
         'feature-vote-card-newer',
       ]);
+    });
+  });
+
+  describe('shipped / completed section', () => {
+    it('renders completed features read-only under the Shipped header', () => {
+      const features: FeatureListItem[] = [
+        {
+          id: 'open',
+          title: 'Open',
+          description: '',
+          createdAt: '2026-04-01T00:00:00Z',
+          completedAt: null,
+          upvoteCount: 2,
+          hasUpvoted: false,
+        },
+        {
+          id: 'shipped',
+          title: 'Shipped one',
+          description: '',
+          createdAt: '2026-03-01T00:00:00Z',
+          completedAt: '2026-05-01T00:00:00Z',
+          upvoteCount: 9,
+          hasUpvoted: false,
+        },
+      ];
+      mockQueryResult = { ...mockQueryResult, data: features };
+      render(<VotingColumn />);
+      expect(screen.getByText(/built with the community/i)).toBeInTheDocument();
+      // Completed card is read-only; open card is interactive.
+      expect(screen.getByTestId('feature-vote-card-shipped')).toHaveAttribute(
+        'data-readonly',
+        'true'
+      );
+      expect(screen.getByTestId('feature-vote-card-open')).toHaveAttribute(
+        'data-readonly',
+        'false'
+      );
+    });
+
+    it('hides the Shipped header when nothing is completed', () => {
+      mockQueryResult = { ...mockQueryResult, data: SAMPLE_FEATURES };
+      render(<VotingColumn />);
+      expect(screen.queryByText(/built with the community/i)).not.toBeInTheDocument();
+    });
+
+    it('orders completed features by completedAt descending', () => {
+      const features: FeatureListItem[] = [
+        {
+          id: 'older-ship',
+          title: 'Older ship',
+          description: '',
+          createdAt: '2026-01-01T00:00:00Z',
+          completedAt: '2026-02-01T00:00:00Z',
+          upvoteCount: 1,
+          hasUpvoted: false,
+        },
+        {
+          id: 'newer-ship',
+          title: 'Newer ship',
+          description: '',
+          createdAt: '2026-01-02T00:00:00Z',
+          completedAt: '2026-05-01T00:00:00Z',
+          upvoteCount: 1,
+          hasUpvoted: false,
+        },
+      ];
+      mockQueryResult = { ...mockQueryResult, data: features };
+      render(<VotingColumn />);
+      const rendered = screen.getAllByTestId(/^feature-vote-card-/);
+      expect(rendered.map((el) => el.dataset.testid)).toEqual([
+        'feature-vote-card-newer-ship',
+        'feature-vote-card-older-ship',
+      ]);
+    });
+
+    it('shows the all-shipped note (not EmptyState) when every feature is completed', () => {
+      const features: FeatureListItem[] = [
+        {
+          id: 'shipped',
+          title: 'Shipped one',
+          description: '',
+          createdAt: '2026-03-01T00:00:00Z',
+          completedAt: '2026-05-01T00:00:00Z',
+          upvoteCount: 9,
+          hasUpvoted: false,
+        },
+      ];
+      mockQueryResult = { ...mockQueryResult, data: features };
+      render(<VotingColumn />);
+      expect(screen.getByText(/nothing open to vote on right now/i)).toBeInTheDocument();
+      expect(screen.queryByText(/no features yet/i)).not.toBeInTheDocument();
+      expect(screen.getByTestId('feature-vote-card-shipped')).toBeInTheDocument();
     });
   });
 });

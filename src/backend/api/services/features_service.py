@@ -36,7 +36,7 @@ def list_features_with_upvotes(
     if user_id is None:
         cursor.execute(
             sql.SQL(
-                "SELECT f.id, f.title, f.description, f.created_at,"
+                "SELECT f.id, f.title, f.description, f.created_at, f.completed_at,"
                 "       COUNT(u.user_id) AS upvote_count,"
                 "       FALSE AS has_upvoted"
                 " FROM {features} AS f"
@@ -48,7 +48,7 @@ def list_features_with_upvotes(
     else:
         cursor.execute(
             sql.SQL(
-                "SELECT f.id, f.title, f.description, f.created_at,"
+                "SELECT f.id, f.title, f.description, f.created_at, f.completed_at,"
                 "       COUNT(u.user_id) AS upvote_count,"
                 "       BOOL_OR(u.user_id = %s) AS has_upvoted"
                 " FROM {features} AS f"
@@ -65,6 +65,7 @@ def list_features_with_upvotes(
             "title": row["title"],
             "description": row["description"],
             "created_at": row["created_at"],
+            "completed_at": row["completed_at"],
             "upvote_count": int(row["upvote_count"]),
             "has_upvoted": bool(row["has_upvoted"]) if row["has_upvoted"] is not None else False,
         }

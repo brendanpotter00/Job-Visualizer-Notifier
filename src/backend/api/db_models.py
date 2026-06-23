@@ -243,6 +243,9 @@ class Feature(Base):
     created_at = Column(
         TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
     )
+    # NULL = still an upcoming/candidate feature; non-null = shipped, and the
+    # timestamp doubles as the "shipped on" date used to order the completed list.
+    completed_at = Column(TIMESTAMP(timezone=True), nullable=True)
 
 
 class FeatureUpvote(Base):

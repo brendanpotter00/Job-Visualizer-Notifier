@@ -6,6 +6,8 @@ export interface FeatureListItem {
   title: string;
   description: string;
   createdAt: string;
+  /** ISO timestamp the feature shipped, or null while it's still a candidate. */
+  completedAt: string | null;
   upvoteCount: number;
   hasUpvoted: boolean;
 }
@@ -59,10 +61,7 @@ export const featuresApi = createApi({
           // consumers (e.g. FeatureVoteCard) also log via `.unwrap().catch`,
           // but the mutation layer is the only place that sees the raw
           // rejection before the cache is reverted.
-          logger.warn(
-            `[featuresApi] upvote failed for feature=${featureId}, reverting:`,
-            err
-          );
+          logger.warn(`[featuresApi] upvote failed for feature=${featureId}, reverting:`, err);
           patch.undo();
         }
       },
@@ -93,8 +92,5 @@ export const featuresApi = createApi({
   }),
 });
 
-export const {
-  useListFeaturesQuery,
-  useUpvoteFeatureMutation,
-  useRemoveUpvoteMutation,
-} = featuresApi;
+export const { useListFeaturesQuery, useUpvoteFeatureMutation, useRemoveUpvoteMutation } =
+  featuresApi;
