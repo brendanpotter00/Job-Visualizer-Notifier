@@ -282,11 +282,17 @@ export function createFilterSlice<T extends Filters>(name: FilterSliceName, init
     },
     extraReducers: (builder) => {
       // Any user-initiated edit to this slice flips `userModified`, which makes a
-      // late saved-filters hydration a no-op (see the hydrate reducer). Every
-      // generated reducer EXCEPT hydration / the hydrated flag / reset is a user
-      // edit, so we match the slice's actions and exclude those three. Using a
-      // matcher keeps this DRY across the ~20 generated edit reducers and stays
-      // correct automatically if new edit actions are added.
+      // late saved-filters hydration a no-op (see the hydrate reducer). The matcher
+      // is allow-by-DEFAULT: it flips the flag for EVERY action under
+      // `${name}Filters/` EXCEPT the non-edit actions listed in `nonEditTypes`
+      // (hydration / the hydrated flag / reset). Using a matcher keeps this DRY
+      // across all generated edit reducers.
+      //
+      // MAINTENANCE INVARIANT: this is correct only while every NON-edit action on
+      // this slice is listed in `nonEditTypes`. A new EDIT action is covered for
+      // free. But a new NON-edit action (e.g. a loading/error/another-flag setter)
+      // MUST be added to `nonEditTypes` too — otherwise it is wrongly treated as a
+      // user edit and silently suppresses saved-filters hydration.
       const slicePrefix = `${name}Filters/`;
       const nonEditTypes = new Set<string>([
         `${slicePrefix}hydrate${capitalizedName}Filters`,
