@@ -1,7 +1,7 @@
 """add user_saved_filters and user_keyword_lists
 
 Revision ID: 6df9297dcc67
-Revises: e015cd4d01a8
+Revises: ebe8cd35b4cd
 Create Date: 2026-06-21 05:23:49.560539+00:00
 
 """
@@ -13,7 +13,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision: str = '6df9297dcc67'
-down_revision: Union[str, None] = 'e015cd4d01a8'
+down_revision: Union[str, None] = 'ebe8cd35b4cd'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
