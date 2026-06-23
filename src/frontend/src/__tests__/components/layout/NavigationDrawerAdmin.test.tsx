@@ -108,6 +108,7 @@ describe('NavigationDrawer admin section', () => {
           globalLoading: false,
           notifications: [],
           hideAdminFeatures: true,
+          demoModeEnabled: false,
         },
       }
     );

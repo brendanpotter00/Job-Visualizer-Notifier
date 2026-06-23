@@ -7,8 +7,12 @@ import { isSoftwareOnlyEnabled } from '../../../constants/tags.ts';
 import { getCompanyById } from '../../../config/companies.ts';
 import { filterJobsByHours } from '../../../lib/date.ts';
 import { selectEnabledCompanyIds } from '../../preferences/enabledCompaniesSlice.ts';
+import { DEMO_JOBS } from '../../jobs/demoJobs.ts';
 
 export const selectRecentJobsFilters = (state: RootState) => state.recentJobsFilters.filters;
+
+/** Admin-only "Demo mode" flag (set on the Account page). UI-gated to admins. */
+const selectDemoModeEnabled = (state: RootState) => state.ui.demoModeEnabled;
 
 const selectByCompanyIdFromQuery = createSelector(
   [(state: RootState) => jobsApi.endpoints.getAllJobs.select()(state).data],
@@ -29,19 +33,32 @@ const selectEnabledByCompanyId = createSelector(
 );
 
 // Pre-filters by the user's enabled-companies preference (null or [] = all).
-export const selectAllJobsFromQuery = createSelector([selectEnabledByCompanyId], (byCompanyId) => {
-  const allJobs = Object.values(byCompanyId).flat();
+// When admin "Demo mode" is on, returns the curated DEMO_JOBS instead. This is the single
+// upstream source for the Recent page, so every downstream filter/sort/metric/dropdown
+// operates on demo data unchanged. Demo mode intentionally bypasses both the RTK Query cache
+// AND the enabled-companies prefilter (it shows all curated jobs regardless of the user's set).
+// Note: the flag is only set by the admin-gated Account toggle, but this selector does not
+// re-check admin status (admin lives in the useCurrentUser hook, not Redux) — same UI-only
+// enforcement as hideAdminFeatures. DEMO_JOBS is a stable module-level constant, so returning
+// it preserves reselect's reference-equality memoization.
+export const selectAllJobsFromQuery = createSelector(
+  [selectEnabledByCompanyId, selectDemoModeEnabled],
+  (byCompanyId, demoModeEnabled) => {
+    if (demoModeEnabled) return DEMO_JOBS;
 
-  // Deduplicate by job ID (in case same job appears multiple times)
-  const jobsMap = new Map<string, (typeof allJobs)[0]>();
-  allJobs.forEach((job) => {
-    if (!jobsMap.has(job.id)) {
-      jobsMap.set(job.id, job);
-    }
-  });
+    const allJobs = Object.values(byCompanyId).flat();
 
-  return Array.from(jobsMap.values());
-});
+    // Deduplicate by job ID (in case same job appears multiple times)
+    const jobsMap = new Map<string, (typeof allJobs)[0]>();
+    allJobs.forEach((job) => {
+      if (!jobsMap.has(job.id)) {
+        jobsMap.set(job.id, job);
+      }
+    });
+
+    return Array.from(jobsMap.values());
+  }
+);
 
 /**
  * Apply filters to all jobs

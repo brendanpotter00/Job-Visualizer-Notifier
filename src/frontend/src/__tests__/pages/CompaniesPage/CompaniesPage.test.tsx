@@ -80,6 +80,7 @@ describe('CompaniesPage', () => {
             globalLoading: true,
             notifications: [],
             hideAdminFeatures: false,
+            demoModeEnabled: false,
           },
         },
       });
