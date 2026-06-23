@@ -104,7 +104,7 @@ All configuration via environment variables:
 - `DELETE /api/admin/users/{user_id}/admin` - Revoke admin from user (requires admin)
 
 **Features Router (`/api/features`):**
-- `GET /api/features` - List all features with upvote counts and current user's vote state (optional auth)
+- `GET /api/features` - List all features with upvote counts, current user's vote state, and `completedAt` (null = open candidate, set = shipped) (optional auth)
 - `POST /api/features/{feature_id}/upvote` - Add upvote for a feature (requires Bearer token)
 - `DELETE /api/features/{feature_id}/upvote` - Remove upvote for a feature (requires Bearer token)
 
@@ -139,7 +139,7 @@ src/backend/api/
 │   ├── saved_filters_service.py     # Saved-filters + keyword-list CRUD, built-in SWE list, location search
 │   ├── admin_service.py # Admin grant/revoke and is_admin check
 │   ├── features_service.py  # Feature list and upvote logic
-│   ├── features_seed.py # Seed initial feature rows
+│   ├── features_seed.py # Seed starter features + reconcile shipped (completed_at) status
 │   ├── scraper_lock.py  # asyncio.Lock singleton shared by runner + auto-scraper
 │   ├── scraper_runner.py # Async subprocess runner for scrapers
 │   ├── auto_scraper.py  # Background scheduled scraping (Google/Apple/Microsoft)

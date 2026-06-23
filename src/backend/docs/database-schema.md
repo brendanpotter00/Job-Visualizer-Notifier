@@ -90,6 +90,7 @@ erDiagram
         text title
         text description
         timestamptz created_at "NOT NULL default now()"
+        timestamptz completed_at "nullable — NULL=open candidate, non-null=shipped (ship date)"
     }
 
     feature_upvotes {
@@ -195,8 +196,12 @@ Admin grants. PK `user_id` → `users.id` (CASCADE). `granted_by` → `users.id`
 deleting the granter keeps the grant.
 
 ### `features` / `feature_upvotes`
-Feature-request voting. `feature_upvotes` is a join table with composite PK
-`(feature_id, user_id)`, both FKs CASCADE.
+Feature-request voting. `features.completed_at` is nullable: `NULL` marks an open
+candidate users can still vote on; a non-null timestamp marks a shipped feature and
+doubles as the ship date the frontend's "Shipped" section sorts by (most-recent first).
+The startup seed reconcile (`features_seed.py`) stamps it idempotently for already-shipped
+features. `feature_upvotes` is a join table with composite PK `(feature_id, user_id)`,
+both FKs CASCADE.
 
 ### `job_listings`
 Scraped postings. Composite PK `(source_id, id)` — `source_id` namespaces ids per scraper.
