@@ -52,8 +52,13 @@ _FEATURES_TABLE = sql.Identifier("features")
 def seed_starter_features(conn: Connection) -> int:
     """Insert starter features if not already present. Returns rows inserted.
 
-    Idempotent; commits on success. Rolls back + re-raises on database error.
-    After seeding, reconciles the completed status of already-shipped features.
+    Runs in two independently-committed phases. First, idempotently inserts
+    the starter candidates and commits them (rolling back + re-raising only the
+    INSERT phase on a database error). Then calls
+    ``reconcile_completed_features``, which opens its own transaction and
+    commits/rolls back separately. The whole call is therefore NOT atomic: if
+    the reconcile phase raises, the already-committed inserts stay in place and
+    the error propagates. Both phases are idempotent, so re-runs are harmless.
     """
     cursor = conn.cursor()
     inserted = 0
@@ -91,19 +96,30 @@ def reconcile_completed_features(conn: Connection) -> int:
     Returns the number of rows newly marked completed. Idempotent: the
     ``completed_at IS NULL`` guard means re-runs are no-ops and never re-stamp
     (so the recorded ship date stays put). Commits on success; rolls back +
-    re-raises on database error. Unknown ids in ``COMPLETED_FEATURE_IDS`` simply
-    match nothing.
+    re-raises on database error. Any id in ``COMPLETED_FEATURE_IDS`` with no
+    matching row (a typo or a never-seeded id) matches nothing in the UPDATE and
+    is logged at WARNING so the silent no-op is debuggable rather than invisible.
     """
     cursor = conn.cursor()
+    completed_ids = list(COMPLETED_FEATURE_IDS)
     try:
         cursor.execute(
             sql.SQL(
                 "UPDATE {} SET completed_at = now()"
                 " WHERE id = ANY(%s) AND completed_at IS NULL"
             ).format(_FEATURES_TABLE),
-            (list(COMPLETED_FEATURE_IDS),),
+            (completed_ids,),
         )
         marked = int(cursor.rowcount)
+        # Surface configured ids that have no row to mark. Without this, a
+        # typo'd or never-seeded id silently no-ops forever and the boot logs
+        # are indistinguishable from a healthy idempotent re-run (both
+        # marked=0 at INFO) — an invisible silent failure.
+        cursor.execute(
+            sql.SQL("SELECT id FROM {} WHERE id = ANY(%s)").format(_FEATURES_TABLE),
+            (completed_ids,),
+        )
+        present_ids = {row["id"] for row in cursor.fetchall()}
         conn.commit()
     except psycopg2.Error as exc:
         conn.rollback()
@@ -113,5 +129,12 @@ def reconcile_completed_features(conn: Connection) -> int:
             exc_info=True,
         )
         raise
+    missing_ids = [fid for fid in completed_ids if fid not in present_ids]
+    if missing_ids:
+        logger.warning(
+            "reconcile_completed_features: completed id(s) not present in"
+            " features table: %s",
+            missing_ids,
+        )
     logger.info("reconcile_completed_features completed (marked=%d)", marked)
     return marked

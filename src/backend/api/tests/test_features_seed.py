@@ -1,5 +1,7 @@
 """Tests for idempotent starter-features seed + completion reconcile."""
 
+import logging
+
 from psycopg2 import sql
 
 from api.services.features_seed import (
@@ -126,3 +128,34 @@ def test_reconcile_is_idempotent_and_does_not_restamp(db_conn):
 def test_reconcile_with_no_matching_rows_is_noop(db_conn):
     marked = reconcile_completed_features(db_conn)
     assert marked == 0
+
+
+def test_reconcile_warns_when_completed_id_absent(db_conn, caplog, monkeypatch):
+    # A configured completed id with no matching row must surface a WARNING so a
+    # typo'd / never-seeded id isn't an invisible no-op (logs otherwise look
+    # identical to a healthy idempotent re-run).
+    monkeypatch.setattr(
+        "api.services.features_seed.COMPLETED_FEATURE_IDS",
+        ("ghost-feature",),
+    )
+    with caplog.at_level(logging.WARNING, logger="api.services.features_seed"):
+        marked = reconcile_completed_features(db_conn)
+    assert marked == 0
+    warnings = [
+        r
+        for r in caplog.records
+        if r.levelno == logging.WARNING and "ghost-feature" in r.getMessage()
+    ]
+    assert warnings, "expected a WARNING naming the missing completed id"
+
+
+def test_reconcile_does_not_warn_when_completed_id_present(db_conn, caplog):
+    # The real configured id exists once seeded, so no missing-id WARNING fires.
+    _insert_feature(db_conn, "location-normalization")
+    with caplog.at_level(logging.WARNING, logger="api.services.features_seed"):
+        reconcile_completed_features(db_conn)
+    assert not [
+        r
+        for r in caplog.records
+        if r.levelno == logging.WARNING and "not present" in r.getMessage()
+    ]
