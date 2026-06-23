@@ -80,18 +80,29 @@ class TestShouldIncludeJob:
 class TestGoogleConfigIncludesInterns:
     """Intern postings must pass the real Google config filter (not be dropped)."""
 
+    def _included(self, title):
+        return should_include_job(title, GOOGLE_INCLUDE_KEYWORDS, GOOGLE_EXCLUDE_KEYWORDS)
+
     def test_intern_titles_are_included(self):
         # Standard SWE intern title (also matches "software"/"engineer")
-        assert should_include_job(
-            "Software Engineer Intern", GOOGLE_INCLUDE_KEYWORDS, GOOGLE_EXCLUDE_KEYWORDS
-        ) is True
-        # Bare intern title with no other core keyword still passes via "intern"
-        assert should_include_job(
-            "STEP Intern", GOOGLE_INCLUDE_KEYWORDS, GOOGLE_EXCLUDE_KEYWORDS
-        ) is True
-        assert should_include_job(
-            "PhD Intern", GOOGLE_INCLUDE_KEYWORDS, GOOGLE_EXCLUDE_KEYWORDS
-        ) is True
+        assert self._included("Software Engineer Intern") is True
+        # Titles whose ONLY matching include keyword is the whole word "intern"
+        assert self._included("STEP Intern") is True
+        assert self._included("PhD Intern") is True
+
+    def test_internship_and_plural_forms_are_included(self):
+        # "intern" is matched as a whole word that also accepts the real
+        # variants intern / interns / internship — each of these titles has no
+        # other software include keyword, so it only passes via that keyword.
+        assert self._included("Quant Internship") is True
+        assert self._included("Summer Interns Program") is True
+
+    def test_intern_substring_false_friends_excluded(self):
+        # The whole-word match must NOT fire on words that merely contain
+        # "intern"; with no other software keyword these are dropped.
+        assert self._included("International Tax Analyst") is False
+        assert self._included("Internet Policy Lead") is False
+        assert self._included("Internal Communications Partner") is False
 
     def test_intern_keyword_present_and_not_excluded(self):
         assert "intern" in GOOGLE_INCLUDE_KEYWORDS
@@ -99,9 +110,7 @@ class TestGoogleConfigIncludesInterns:
 
     def test_non_tech_titles_still_excluded(self):
         # Adding "intern" must not weaken the existing exclude behavior.
-        assert should_include_job(
-            "Technical Recruiter", GOOGLE_INCLUDE_KEYWORDS, GOOGLE_EXCLUDE_KEYWORDS
-        ) is False
+        assert self._included("Technical Recruiter") is False
 
 
 class TestExtractJobIdFromUrl:
