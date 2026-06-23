@@ -41,6 +41,7 @@
     "@formkit/auto-animate": "^0.9.0",
     "@mui/icons-material": "^7.3.5",
     "@mui/material": "^7.3.5",
+    "@posthog/react": "^1.10.3",
     "@react-oauth/google": "^0.13.5",
     "@reduxjs/toolkit": "^2.10.1",
     "@vitejs/plugin-react": "^5.1.1",
@@ -49,6 +50,7 @@
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-redux": "^9.2.0",
+    "posthog-js": "^1.393.0",
     "react-router-dom": "^7.9.6",
     "recharts": "^3.4.1",
     "vite": "^7.2.4"
