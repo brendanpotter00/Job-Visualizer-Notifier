@@ -8,7 +8,7 @@ import {
   addRecentJobsSearchTag,
   removeRecentJobsSearchTag,
   toggleRecentJobsSearchTagMode,
-  toggleRecentJobsSoftwareOnly,
+  setRecentJobsSearchTags,
   resetRecentJobsFilters,
   addRecentJobsCompany,
   removeRecentJobsCompany,
@@ -16,13 +16,13 @@ import {
 import {
   selectRecentJobsFilters,
   selectRecentAvailableLocations,
-  selectRecentSoftwareOnlyState,
   selectRecentAvailableCompanies,
 } from '../../features/filters/selectors/recentJobsSelectors.ts';
 import { SearchTagsInput } from '../shared/filters/SearchTagsInput.tsx';
 import { TimeWindowSelect } from '../shared/filters/TimeWindowSelect.tsx';
 import { MultiSelectAutocomplete } from '../shared/filters/MultiSelectAutocomplete.tsx';
-import { SoftwareOnlyToggle } from '../shared/filters/SoftwareOnlyToggle.tsx';
+import { KeywordListSelect } from '../shared/filters/KeywordListSelect.tsx';
+import type { SearchTag } from '../../types';
 
 /**
  * Filter controls for Recent Job Postings page
@@ -32,7 +32,6 @@ import { SoftwareOnlyToggle } from '../shared/filters/SoftwareOnlyToggle.tsx';
 export function RecentJobsFilters() {
   const dispatch = useAppDispatch();
   const filters = useAppSelector(selectRecentJobsFilters);
-  const softwareOnlyChecked = useAppSelector(selectRecentSoftwareOnlyState);
   const availableLocations = useAppSelector(selectRecentAvailableLocations);
   const availableCompanies = useAppSelector(selectRecentAvailableCompanies);
 
@@ -111,10 +110,9 @@ export function RecentJobsFilters() {
             onRemove={(loc) => dispatch(removeRecentJobsLocation(loc))}
           />
 
-          <SoftwareOnlyToggle
-            checked={softwareOnlyChecked}
-            onChange={() => dispatch(toggleRecentJobsSoftwareOnly())}
-            label="Software engineering roles only"
+          <KeywordListSelect
+            value={filters.searchTags}
+            onChange={(tags: SearchTag[] | undefined) => dispatch(setRecentJobsSearchTags(tags))}
           />
         </Stack>
 

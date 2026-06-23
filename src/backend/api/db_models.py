@@ -164,6 +164,83 @@ class UserEnabledCompany(Base):
     )
 
 
+class UserSavedFilters(Base):
+    """Scalar per-user saved filters (one row per user).
+
+    Time windows are plain TEXT validated to the ``TimeWindow`` Literal at the
+    Pydantic boundary (matches how ``job_listings.status`` stays TEXT and is
+    validated in ``models``). ``locations`` is a JSONB array of canonical
+    location strings shared by both the Recent and Trend pages.
+
+    ``recent_active_keyword_list_id`` / ``trend_active_keyword_list_id`` are
+    plain TEXT (NOT a FK) because they may hold the synthetic built-in id
+    ``'builtin-swe'``, which has no row in ``user_keyword_lists``. Referential
+    integrity to user lists is enforced in the service layer, and a list
+    DELETE NULLs any pointer referencing it in the same transaction.
+    """
+
+    __tablename__ = "user_saved_filters"
+
+    user_id = Column(
+        Text,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    recent_time_window = Column(Text, nullable=False, server_default=text("'3h'"))
+    trend_time_window = Column(Text, nullable=False, server_default=text("'7d'"))
+    locations = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    recent_active_keyword_list_id = Column(Text, nullable=True)
+    trend_active_keyword_list_id = Column(Text, nullable=True)
+    created_at = Column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at = Column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class UserKeywordList(Base):
+    """One saved keyword list per row (one user owns many lists).
+
+    ``id`` is an app-generated uuid4 hex (matching the TEXT-PK convention used
+    elsewhere). ``tags`` is a JSONB array of ``{"text", "mode"}`` objects whose
+    shape + caps are validated by Pydantic on write. The built-in "Software
+    Engineering" list is NOT stored here — it is synthesized server-side and its
+    name is reserved case-insensitively against this table's unique index.
+    """
+
+    __tablename__ = "user_keyword_lists"
+
+    id = Column(Text, primary_key=True)
+    user_id = Column(
+        Text,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name = Column(Text, nullable=False)
+    tags = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    position = Column(Integer, nullable=False, server_default=text("0"))
+    created_at = Column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at = Column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        Index("idx_user_keyword_lists_user_id", "user_id"),
+        # Case-insensitive uniqueness of list name per user. Functional
+        # expression index on lower(name); the service pre-checks for a clean
+        # 409 and catches the UniqueViolation as a backstop.
+        Index(
+            "uq_user_keyword_lists_user_name",
+            "user_id",
+            text("lower(name)"),
+            unique=True,
+        ),
+    )
+
+
 class Feature(Base):
     __tablename__ = "features"
 

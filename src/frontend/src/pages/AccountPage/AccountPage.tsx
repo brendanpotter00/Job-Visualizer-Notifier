@@ -14,7 +14,6 @@ import { setHideAdminFeatures } from '../../features/ui/uiSlice';
 import { useAuth } from '../../features/auth/useAuth';
 import { useCurrentUser } from '../../features/auth/useCurrentUser';
 import { updateCurrentUser } from '../../features/auth/authService';
-import { EnabledCompaniesSection } from '../../components/account/EnabledCompaniesSection';
 import { LoadingState } from '../../components/shared/LoadingIndicator';
 import { ErrorState } from '../../components/shared/ErrorDisplay';
 import { extractErrorMessage } from '../../lib/errors';
@@ -148,17 +147,10 @@ export function AccountPage() {
           </Alert>
         )}
 
-        <Button
-          variant="contained"
-          onClick={handleSave}
-          disabled={!isDirty || isSaving}
-          fullWidth
-        >
+        <Button variant="contained" onClick={handleSave} disabled={!isDirty || isSaving} fullWidth>
           {isSaving ? 'Saving...' : 'Save Changes'}
         </Button>
       </Paper>
-
-      <EnabledCompaniesSection />
 
       {user.isAdmin && (
         <Paper sx={{ p: 4, mt: 3 }}>
@@ -173,8 +165,8 @@ export function AccountPage() {
             label="Hide all admin features"
           />
           <Typography variant="caption" color="text.secondary" display="block">
-            Demo only — hides the Admin section in the sidebar for this session.
-            Resets when you refresh the page.
+            Demo only — hides the Admin section in the sidebar for this session. Resets when you
+            refresh the page.
           </Typography>
         </Paper>
       )}

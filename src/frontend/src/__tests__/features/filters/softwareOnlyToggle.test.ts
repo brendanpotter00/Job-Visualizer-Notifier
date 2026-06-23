@@ -18,6 +18,7 @@ function createMockState(searchTags?: SearchTag[]): RootState {
         searchTags,
         softwareOnly: false,
       },
+      hydrated: false,
     },
   } as RootState;
 }
@@ -29,6 +30,7 @@ describe('Software Engineering Toggle - Graph Filters', () => {
       searchTags: undefined,
       softwareOnly: false,
     },
+    hydrated: false,
   };
 
   describe('toggleGraphSoftwareOnly', () => {
@@ -47,6 +49,7 @@ describe('Software Engineering Toggle - Graph Filters', () => {
           searchTags: [...SOFTWARE_ENGINEERING_TAGS],
           softwareOnly: true,
         },
+        hydrated: false,
       };
 
       const newState = graphFiltersReducer(stateWithTags, toggleGraphSoftwareOnly());
@@ -63,6 +66,7 @@ describe('Software Engineering Toggle - Graph Filters', () => {
           searchTags: [...SOFTWARE_ENGINEERING_TAGS, customTag],
           softwareOnly: true,
         },
+        hydrated: false,
       };
 
       const newState = graphFiltersReducer(stateWithMixedTags, toggleGraphSoftwareOnly());
@@ -81,6 +85,7 @@ describe('Software Engineering Toggle - Graph Filters', () => {
           ],
           softwareOnly: false,
         },
+        hydrated: false,
       };
 
       const newState = graphFiltersReducer(stateWithSomeTags, toggleGraphSoftwareOnly());
@@ -99,6 +104,7 @@ describe('Software Engineering Toggle - Graph Filters', () => {
           searchTags: [customTag],
           softwareOnly: false,
         },
+        hydrated: false,
       };
 
       const newState = graphFiltersReducer(stateWithCustomTag, toggleGraphSoftwareOnly());
@@ -124,6 +130,7 @@ describe('Software Engineering Toggle - Graph Filters', () => {
           searchTags: [...SOFTWARE_ENGINEERING_TAGS],
           softwareOnly: true,
         },
+        hydrated: false,
       };
 
       const newState = graphFiltersReducer(stateWithTags, setGraphSoftwareOnly(false));
@@ -221,6 +228,7 @@ describe('Edge cases', () => {
         searchTags: undefined,
         softwareOnly: false,
       },
+      hydrated: false,
     };
 
     const newState = graphFiltersReducer(initialState, toggleGraphSoftwareOnly());
@@ -236,6 +244,7 @@ describe('Edge cases', () => {
         searchTags: [...SOFTWARE_ENGINEERING_TAGS],
         softwareOnly: true,
       },
+      hydrated: false,
     };
 
     const newState = graphFiltersReducer(initialState, toggleGraphSoftwareOnly());

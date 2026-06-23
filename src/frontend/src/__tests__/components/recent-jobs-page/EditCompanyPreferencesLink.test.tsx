@@ -112,14 +112,14 @@ describe('EditCompanyPreferencesLink', () => {
       expect(screen.queryByRole('button')).not.toBeInTheDocument();
     });
 
-    it('navigates to /account on click', async () => {
+    it('navigates to /saved-filters on click', async () => {
       mockEnabledIds = ['a', 'b'];
       const user = userEvent.setup();
       renderWithRouter();
 
       await user.click(screen.getByTestId('edit-company-preferences-link'));
 
-      expect(mockNavigate).toHaveBeenCalledWith('/account');
+      expect(mockNavigate).toHaveBeenCalledWith('/saved-filters');
       expect(mockLogin).not.toHaveBeenCalled();
     });
   });

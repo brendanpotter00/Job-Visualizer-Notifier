@@ -9,13 +9,21 @@ export interface SearchTagsInputProps {
   onAdd: (tag: SearchTag) => void;
   onRemove: (text: string) => void;
   onToggleMode: (text: string) => void;
+  /** Override the input placeholder (defaults to the include/exclude hint). */
+  placeholder?: string;
 }
 
 /**
  * Autocomplete input for search tags with include/exclude mode toggling
  * Supports prefix detection: '-' for exclude, '+' for include
  */
-export function SearchTagsInput({ value, onAdd, onRemove, onToggleMode }: SearchTagsInputProps) {
+export function SearchTagsInput({
+  value,
+  onAdd,
+  onRemove,
+  onToggleMode,
+  placeholder,
+}: SearchTagsInputProps) {
   const [inputValue, setInputValue] = useState('');
 
   const handleKeyDown = (event: React.KeyboardEvent) => {
@@ -76,9 +84,10 @@ export function SearchTagsInput({ value, onAdd, onRemove, onToggleMode }: Search
         <TextField
           {...params}
           placeholder={
-            value.length > 0
+            placeholder ??
+            (value.length > 0
               ? 'Add another tag...'
-              : 'Type to add search tags: -senior (exclude) or senior (include)...'
+              : 'Type to add search tags: -senior (exclude) or senior (include)...')
           }
         />
       )}

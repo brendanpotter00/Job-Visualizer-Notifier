@@ -23,6 +23,7 @@ import PeopleIcon from '@mui/icons-material/People';
 import PlaceIcon from '@mui/icons-material/Place';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
 import FeedbackIcon from '@mui/icons-material/Feedback';
+import FilterListAltIcon from '@mui/icons-material/FilterListAlt';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ADMIN_NAV_ITEMS, ROUTES, USER_NAV_ITEMS } from '../../config/routes.ts';
 import { useAuth } from '../../features/auth/useAuth';
@@ -102,7 +103,8 @@ type IconName =
   | 'People'
   | 'Place'
   | 'AccountTree'
-  | 'Feedback';
+  | 'Feedback'
+  | 'FilterListAlt';
 const iconMap: Record<IconName, React.ComponentType> = {
   Schedule: ScheduleIcon,
   Info: InfoIcon,
@@ -115,6 +117,7 @@ const iconMap: Record<IconName, React.ComponentType> = {
   Place: PlaceIcon,
   AccountTree: AccountTreeIcon,
   Feedback: FeedbackIcon,
+  FilterListAlt: FilterListAltIcon,
 };
 
 export function NavigationDrawer({

@@ -102,13 +102,19 @@ describe('GoogleOneTap', () => {
     );
   });
 
-  it('calls useGoogleOneTapLogin with disabled=true when loading', async () => {
+  it('calls useGoogleOneTapLogin with disabled=false while Auth0 is loading (decoupled from isLoading)', async () => {
+    // Regression guard for the ~30s saved-filters-load delay: One Tap must run in
+    // parallel with Auth0's silent-auth, NOT wait on it. A Google-only user has
+    // no Auth0 refresh token, so gating One Tap on Auth0 `isLoading` blocked the
+    // Google credential — and therefore filter hydration — for the full
+    // silent-auth timeout. One Tap stays enabled while Auth0 loads (and is still
+    // disabled once authenticated, per the isAuthenticated case above).
     mockAuthState.isLoading = true;
     const { GoogleOneTap } = await import('../../../features/auth/GoogleOneTap');
     render(<GoogleOneTap />);
 
     expect(mockUseGoogleOneTapLogin).toHaveBeenCalledWith(
-      expect.objectContaining({ disabled: true })
+      expect.objectContaining({ disabled: false })
     );
   });
 

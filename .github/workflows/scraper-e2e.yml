@@ -12,8 +12,12 @@ name: Scraper E2E (live)
 
 on:
   schedule:
-    # Every 6 hours.
-    - cron: "0 */6 * * *"
+    # Twice a week, ~11 PM Central. GitHub cron is UTC and ignores DST, so
+    # "night Central" is the next day at 04:00 UTC (CDT=23:00, CST=22:00).
+    # Monday night (week start): Tue 04:00 UTC.
+    - cron: "0 4 * * 2"
+    # Friday night: Sat 04:00 UTC.
+    - cron: "0 4 * * 6"
   workflow_dispatch:
 
 concurrency:

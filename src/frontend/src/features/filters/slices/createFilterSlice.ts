@@ -77,10 +77,16 @@ function hasCompanyField<T extends Filters>(
 }
 
 /**
- * Filter state structure
+ * Filter state structure.
+ *
+ * `hydrated` guards the one-time hydration from saved filters (see the
+ * `hydrate{Name}Filters` reducer). Once true, saved-filters hydration is a no-op so
+ * later user edits to the filters are never clobbered by a re-run of the
+ * hydration effect. It is reset to false on logout via `set{Name}Hydrated`.
  */
 export interface FiltersState<T extends Filters> {
   filters: T;
+  hydrated: boolean;
 }
 
 /**
@@ -114,6 +120,7 @@ export function createFilterSlice<T extends Filters>(name: FilterSliceName, init
 
   const initialState: FiltersState<T> = {
     filters: initialFilters,
+    hydrated: false,
   };
 
   const slice = createSlice({
@@ -227,6 +234,22 @@ export function createFilterSlice<T extends Filters>(name: FilterSliceName, init
       },
       [`set${capitalizedName}SoftwareOnly`]: (state, action: PayloadAction<boolean>) => {
         setSoftwareOnlyInFilters(state.filters, action.payload);
+      },
+
+      // Hydration from saved filters (2 actions)
+      //
+      // `hydrate{Name}Filters` applies saved filter values ONCE: if the
+      // slice is already hydrated it returns untouched so a re-running effect
+      // (or a second mount) can't clobber edits the user has since made. The
+      // payload is a partial so only the saved-filter-backed fields (timeWindow,
+      // location, searchTags) are overwritten.
+      [`hydrate${capitalizedName}Filters`]: (state, action: PayloadAction<Partial<T>>) => {
+        if (state.hydrated) return;
+        Object.assign(state.filters, action.payload);
+        state.hydrated = true;
+      },
+      [`set${capitalizedName}Hydrated`]: (state, action: PayloadAction<boolean>) => {
+        state.hydrated = action.payload;
       },
 
       // Reset (1 action)

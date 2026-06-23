@@ -17,7 +17,16 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from .auth.internal_key import require_internal_key, warn_if_unset
 from .config import settings
 from .dependencies import get_db, init_pool, close_pool, pool_is_healthy
-from .routers import admin, companies, feedback, features, jobs, jobs_qa, users
+from .routers import (
+    admin,
+    companies,
+    feedback,
+    features,
+    jobs,
+    jobs_qa,
+    saved_filters,
+    users,
+)
 from .tasks import procrastinate_app
 from .tasks.procrastinate_app import ensure_schema_async
 from .migrations import apply_alembic_migrations
@@ -280,6 +289,9 @@ app.add_middleware(
 app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])
 app.include_router(jobs_qa.router, prefix="/api/jobs-qa", tags=["jobs-qa"])
 app.include_router(users.router, prefix="/api/users", tags=["users"])
+app.include_router(
+    saved_filters.router, prefix="/api/users/saved-filters", tags=["saved-filters"]
+)
 app.include_router(features.router, prefix="/api/features", tags=["features"])
 app.include_router(companies.router, prefix="/api/companies", tags=["companies"])
 app.include_router(feedback.router, prefix="/api/feedback", tags=["feedback"])
