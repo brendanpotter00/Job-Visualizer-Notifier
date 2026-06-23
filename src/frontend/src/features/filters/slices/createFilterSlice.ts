@@ -83,10 +83,20 @@ function hasCompanyField<T extends Filters>(
  * `hydrate{Name}Filters` reducer). Once true, saved-filters hydration is a no-op so
  * later user edits to the filters are never clobbered by a re-run of the
  * hydration effect. It is reset to false on logout via `set{Name}Hydrated`.
+ *
+ * `userModified` becomes true the moment the user changes any filter in this
+ * slice (set/add/remove/toggle/clear of any field). It exists to close a race:
+ * the saved-filters queries can resolve *seconds* after mount on a cold-started
+ * backend, so a signed-in user can edit the filters (e.g. add a keyword) BEFORE
+ * the first hydration runs. `hydrated` is still false at that point, so without
+ * this flag the late hydration would `Object.assign` the saved defaults over the
+ * user's in-progress edit and silently discard it. Hydration therefore treats a
+ * `userModified` slice as off-limits. Reset clears it (next sign-in re-hydrates).
  */
 export interface FiltersState<T extends Filters> {
   filters: T;
   hydrated: boolean;
+  userModified: boolean;
 }
 
 /**
@@ -121,6 +131,7 @@ export function createFilterSlice<T extends Filters>(name: FilterSliceName, init
   const initialState: FiltersState<T> = {
     filters: initialFilters,
     hydrated: false,
+    userModified: false,
   };
 
   const slice = createSlice({
@@ -238,15 +249,23 @@ export function createFilterSlice<T extends Filters>(name: FilterSliceName, init
 
       // Hydration from saved filters (2 actions)
       //
-      // `hydrate{Name}Filters` applies saved filter values ONCE: if the
-      // slice is already hydrated it returns untouched so a re-running effect
-      // (or a second mount) can't clobber edits the user has since made. The
-      // payload is a partial so only the saved-filter-backed fields (timeWindow,
-      // location, searchTags) are overwritten.
+      // `hydrate{Name}Filters` applies saved filter values ONCE. The payload is a
+      // partial so only the saved-filter-backed fields (timeWindow, location,
+      // searchTags) are overwritten.
+      //
+      // Two guards, both required:
+      //   1. `hydrated` — a re-running effect (or a second mount) is a no-op.
+      //   2. `userModified` — if the user already edited this slice before the
+      //      (possibly cold-started) saved-filters queries resolved, DON'T
+      //      overwrite their in-progress edits with the saved defaults. Without
+      //      this, a late hydration silently wiped a just-added keyword on the
+      //      Recent Jobs / Company pages. We still mark `hydrated` so the effect
+      //      won't keep retrying, but we seed nothing.
       [`hydrate${capitalizedName}Filters`]: (state, action: PayloadAction<Partial<T>>) => {
         if (state.hydrated) return;
-        Object.assign(state.filters, action.payload);
         state.hydrated = true;
+        if (state.userModified) return;
+        Object.assign(state.filters, action.payload);
       },
       [`set${capitalizedName}Hydrated`]: (state, action: PayloadAction<boolean>) => {
         state.hydrated = action.payload;
@@ -256,7 +275,33 @@ export function createFilterSlice<T extends Filters>(name: FilterSliceName, init
       [`reset${capitalizedName}Filters`]: (state) => {
         // Use Object.assign to work with Immer's Draft type
         Object.assign(state.filters, initialState.filters);
+        // Clear the user-edit flag so a subsequent sign-in re-hydrates from the
+        // (new) user's saved filters rather than treating the slice as touched.
+        state.userModified = false;
       },
+    },
+    extraReducers: (builder) => {
+      // Any user-initiated edit to this slice flips `userModified`, which makes a
+      // late saved-filters hydration a no-op (see the hydrate reducer). Every
+      // generated reducer EXCEPT hydration / the hydrated flag / reset is a user
+      // edit, so we match the slice's actions and exclude those three. Using a
+      // matcher keeps this DRY across the ~20 generated edit reducers and stays
+      // correct automatically if new edit actions are added.
+      const slicePrefix = `${name}Filters/`;
+      const nonEditTypes = new Set<string>([
+        `${slicePrefix}hydrate${capitalizedName}Filters`,
+        `${slicePrefix}set${capitalizedName}Hydrated`,
+        `${slicePrefix}reset${capitalizedName}Filters`,
+      ]);
+      builder.addMatcher(
+        (action): action is { type: string } =>
+          typeof (action as { type?: unknown }).type === 'string' &&
+          (action as { type: string }).type.startsWith(slicePrefix) &&
+          !nonEditTypes.has((action as { type: string }).type),
+        (state) => {
+          state.userModified = true;
+        }
+      );
     },
   });
 

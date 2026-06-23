@@ -3,6 +3,7 @@ import { renderHook } from '@testing-library/react';
 import React from 'react';
 import { Provider } from 'react-redux';
 import { createTestStore } from '../../../test/testUtils';
+import { addRecentJobsSearchTag } from '../../../features/filters/slices/recentJobsFiltersSlice';
 import type { SavedFilters, KeywordList } from '../../../types';
 
 // --- Mock the auth + RTK Query hooks the hydration hook depends on ----------
@@ -144,6 +145,44 @@ describe('useHydrateSavedFilters', () => {
     // A further logged-out re-render must NOT fire the reset again.
     rerender();
     expect(resetApiStateSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not clobber a filter edit the user made before the queries resolved', () => {
+    // Signed in, saved filters present, but the keyword-lists query is still
+    // pending — the cold-start window where the filter UI is already interactive
+    // but hydration has not run yet.
+    mockAuthState.isAuthenticated = true;
+    savedFiltersResult.data = makeSavedFilters();
+    keywordListsResult.data = undefined;
+
+    const store = createTestStore();
+    const { rerender } = renderHook(() => useHydrateSavedFilters(), {
+      wrapper: makeWrapper(store),
+    });
+
+    // Nothing hydrated yet (both queries must resolve first).
+    expect(store.getState().recentJobsFilters.hydrated).toBe(false);
+
+    // User adds a keyword on the Recent Jobs page during that window.
+    store.dispatch(addRecentJobsSearchTag({ text: 'rust', mode: 'include' }));
+    expect(store.getState().recentJobsFilters.filters.searchTags).toEqual([
+      { text: 'rust', mode: 'include' },
+    ]);
+
+    // Keyword lists finally resolve -> the hydration effect runs.
+    keywordListsResult.data = [LIST];
+    rerender();
+
+    // The user's keyword survives — it is NOT overwritten by the saved
+    // 'golang' list (the bug: a late hydration used to wipe it).
+    expect(store.getState().recentJobsFilters.filters.searchTags).toEqual([
+      { text: 'rust', mode: 'include' },
+    ]);
+    // The untouched graph slice still hydrates normally from saved filters.
+    expect(store.getState().graphFilters.hydrated).toBe(true);
+    expect(store.getState().graphFilters.filters.searchTags).toEqual([
+      { text: 'golang', mode: 'include' },
+    ]);
   });
 
   it('does not reset on the first render when already logged out', () => {
