@@ -40,7 +40,7 @@ export const USER_NAV_ITEMS = [
   {
     path: ROUTES.SAVED_FILTERS,
     label: 'Saved Filters',
-    icon: 'SavedSearch',
+    icon: 'FilterListAlt',
   },
   {
     path: ROUTES.VOTE_FEATURES,
