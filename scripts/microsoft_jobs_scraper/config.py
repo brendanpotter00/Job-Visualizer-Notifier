@@ -36,6 +36,7 @@ INCLUDE_TITLE_KEYWORDS = [
     "research",
     "SRE",
     "devops",
+    "intern",
 ]
 
 # Title keywords to exclude (non-tech roles)

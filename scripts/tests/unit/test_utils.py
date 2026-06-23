@@ -15,6 +15,10 @@ from google_jobs_scraper.utils import (
     extract_job_id_from_url,
     get_iso_timestamp
 )
+from google_jobs_scraper.config import (
+    INCLUDE_TITLE_KEYWORDS as GOOGLE_INCLUDE_KEYWORDS,
+    EXCLUDE_TITLE_KEYWORDS as GOOGLE_EXCLUDE_KEYWORDS,
+)
 
 
 class TestShouldIncludeJob:
@@ -71,6 +75,33 @@ class TestShouldIncludeJob:
         assert should_include_job("software-engineer-iii", include_keywords, exclude_keywords) is True
         # "developer" is in "developers"
         assert should_include_job("Android Developers Team Lead", include_keywords, exclude_keywords) is True
+
+
+class TestGoogleConfigIncludesInterns:
+    """Intern postings must pass the real Google config filter (not be dropped)."""
+
+    def test_intern_titles_are_included(self):
+        # Standard SWE intern title (also matches "software"/"engineer")
+        assert should_include_job(
+            "Software Engineer Intern", GOOGLE_INCLUDE_KEYWORDS, GOOGLE_EXCLUDE_KEYWORDS
+        ) is True
+        # Bare intern title with no other core keyword still passes via "intern"
+        assert should_include_job(
+            "STEP Intern", GOOGLE_INCLUDE_KEYWORDS, GOOGLE_EXCLUDE_KEYWORDS
+        ) is True
+        assert should_include_job(
+            "PhD Intern", GOOGLE_INCLUDE_KEYWORDS, GOOGLE_EXCLUDE_KEYWORDS
+        ) is True
+
+    def test_intern_keyword_present_and_not_excluded(self):
+        assert "intern" in GOOGLE_INCLUDE_KEYWORDS
+        assert "intern" not in GOOGLE_EXCLUDE_KEYWORDS
+
+    def test_non_tech_titles_still_excluded(self):
+        # Adding "intern" must not weaken the existing exclude behavior.
+        assert should_include_job(
+            "Technical Recruiter", GOOGLE_INCLUDE_KEYWORDS, GOOGLE_EXCLUDE_KEYWORDS
+        ) is False
 
 
 class TestExtractJobIdFromUrl:

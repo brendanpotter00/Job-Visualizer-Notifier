@@ -97,3 +97,19 @@ class TestNavigateToPage:
             await scraper.navigate_to_page(page, "https://jobs.apple.com/x")
 
         assert page.goto.await_count == 2
+
+
+class TestFilterJob:
+    """Intern postings must pass Apple's title filter (kept, not dropped)."""
+
+    def test_filter_job_includes_intern(self, scraper):
+        # Standard SWE intern title (also matches "software"/"engineer")
+        assert scraper.filter_job("Software Engineer Intern") is True
+        # Bare intern title with no other core keyword still passes via "intern"
+        assert scraper.filter_job("Hardware Intern") is True
+        assert scraper.filter_job("PhD Intern") is True
+
+    def test_filter_job_still_excludes_non_tech(self, scraper):
+        # The Apple exclude list still wins (e.g. "finance" excludes a Finance Intern).
+        assert scraper.filter_job("Finance Intern") is False
+        assert scraper.filter_job("Technical Recruiter") is False

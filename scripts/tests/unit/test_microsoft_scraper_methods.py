@@ -180,6 +180,16 @@ class TestFilterJob:
         assert scraper.filter_job("Full Stack Developer") is True
         assert scraper.filter_job("Senior Developer") is True
 
+    def test_filter_job_includes_intern(self):
+        """Intern titles pass filter (intern postings are intentionally kept)"""
+        scraper = MicrosoftJobsScraper(headless=True, detail_scrape=False)
+
+        # Standard SWE intern title (also matches "software"/"engineer")
+        assert scraper.filter_job("Software Engineer Intern") is True
+        # Bare intern title with no other core keyword still passes via "intern"
+        assert scraper.filter_job("Research Intern") is True
+        assert scraper.filter_job("PhD Intern") is True
+
     def test_filter_job_excludes_non_tech(self):
         """Non-tech titles are filtered out"""
         scraper = MicrosoftJobsScraper(headless=True, detail_scrape=False)
