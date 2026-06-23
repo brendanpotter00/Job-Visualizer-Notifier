@@ -22,7 +22,7 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
     id: 'add-console',
     title: 'Added Console',
     description:
-      'Console — an AI-native IT service management (ITSM) platform that automates 75%+ of service requests via natural language Playbooks and AI agents — is now tracked via its Ashby job board. The company is hiring across engineering, product, and GTM in San Francisco.',
+      'Console, an AI-native IT service management (ITSM) platform that automates 75%+ of service requests via natural language Playbooks and AI agents, is now tracked via its Ashby job board. The company is hiring across engineering, product, and GTM in San Francisco.',
     tags: ['new-companies'],
     date: '2026-06-22',
     link: { to: ROUTES.ACCOUNT, label: 'Add Console to your company preferences' },
