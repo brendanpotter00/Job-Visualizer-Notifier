@@ -54,7 +54,7 @@ Backend-Scraper (api/clients/backendScraperClient.ts) is the only production cli
 - `/qa` - QA (pages/QAPage/QAPage.tsx) - Admin page for triggering scrapers, viewing scrape runs, and debugging
 - `/account` - Account (pages/AccountPage/AccountPage.tsx)
 - `/vote-features` - Vote for Features (pages/VoteFeaturesPage/VoteFeaturesPage.tsx) - Feature voting page
-- `/admin/users` - Admin Users (pages/AdminUsersPage/AdminUsersPage.tsx) - Admin-only user management (grant/revoke admin)
+- `/admin/users` - Admin Users (pages/AdminUsersPage/AdminUsersPage.tsx) - Admin-only user management (grant/revoke admin); roster also shows per-user engagement (Visits / Last active, sortable columns) backed by `POST /api/users/visit`
 
 **Key Algorithms:**
 - Time Bucketing: lib/timeBucketing.ts (dynamic bucket sizing for graph visualization)

@@ -125,7 +125,7 @@ src/backend/api/
 │   └── admin.py         # Admin-only user management endpoints
 ├── services/
 │   ├── database.py      # API query functions (reuses scripts/shared/database.py)
-│   ├── user_service.py  # User CRUD operations (get_or_create, update)
+│   ├── user_service.py  # User CRUD operations (get_or_create, update, record_visit)
 │   ├── user_preferences_service.py  # Enabled-companies CRUD
 │   ├── admin_service.py # Admin grant/revoke and is_admin check
 │   ├── features_service.py  # Feature list and upvote logic
