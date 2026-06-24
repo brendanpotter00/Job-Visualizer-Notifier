@@ -19,6 +19,27 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'add-console',
+    title: 'Added Console',
+    description:
+      'Console — an AI-native IT service management (ITSM) platform that automates 75%+ of service requests via natural language Playbooks and AI agents — is now tracked via its Ashby job board. The company is hiring across engineering, product, and GTM in San Francisco.',
+    tags: ['new-companies'],
+    date: '2026-06-22',
+    link: { to: ROUTES.ACCOUNT, label: 'Add Console to your company preferences' },
+  },
+  {
+    id: 'add-workos',
+    title: 'Added WorkOS',
+    description:
+      'WorkOS — a developer-platform company whose APIs (SSO/SAML, Directory Sync/SCIM, AuthKit, and audit logs) let B2B apps ship the enterprise-readiness features large customers require — is now tracked via its Ashby job board. It is currently hiring across engineering and product, including AuthKit, infrastructure, and SRE roles, primarily remote across the US & Canada.',
+    tags: ['new-companies'],
+    date: '2026-06-22',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add WorkOS to your company preferences',
+    },
+  },
+  {
     id: 'saved-filters',
     title: 'Save your default filters',
     description:
