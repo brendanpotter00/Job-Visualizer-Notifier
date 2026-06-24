@@ -40,6 +40,8 @@ erDiagram
         text updated_at "legacy Text-typed"
         timestamptz company_enroll_watermark "NOT NULL default now()"
         boolean auto_enroll_new_companies "NOT NULL default true"
+        int visit_count "NOT NULL default 0"
+        timestamptz last_visit_at "nullable"
     }
 
     user_enabled_companies {
@@ -162,6 +164,8 @@ Authenticated accounts (Auth0 / Google One Tap). One row per person.
 | `created_at`, `updated_at` | **text** | Legacy string timestamps. Intentionally *not* `timestamptz`. |
 | `company_enroll_watermark` | timestamptz | "I've decided about every company that existed as of this time." Companies created after it auto-enroll on read; bumped to `now()` on every save. `NOT NULL DEFAULT now()`. |
 | `auto_enroll_new_companies` | boolean | Global per-user opt-out for auto-enroll. `NOT NULL DEFAULT true`. |
+| `visit_count` | integer | Page-load count for the admin roster's "most frequent users" view; incremented once per full load via `POST /api/users/visit`. `NOT NULL DEFAULT 0`. |
+| `last_visit_at` | timestamptz | Most recent page-load time; `NULL` until the user's first visit after this feature shipped. |
 
 ### `user_enabled_companies`
 Join table — which companies a user has explicitly enabled in their feed. Composite PK

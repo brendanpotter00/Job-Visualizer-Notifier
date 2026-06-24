@@ -55,6 +55,8 @@ class UserRow(TypedDict):
     updated_at: str
     company_enroll_watermark: datetime
     auto_enroll_new_companies: bool
+    visit_count: int
+    last_visit_at: datetime | None
 
 
 def get_or_create_user(
@@ -207,6 +209,45 @@ def update_user(
         raise
     row = cursor.fetchone()
     return cast(UserRow, dict(row)) if row else None
+
+
+def record_visit(conn: Connection, user_id: str) -> None:
+    """Record one page-load visit for a user (POST /api/users/visit).
+
+    A "visit" is one full page load / refresh by the authenticated user — NOT
+    a client-side SPA route navigation. The increment is a single atomic
+    ``UPDATE ... SET visit_count = visit_count + 1`` (read-modify-write in one
+    statement), so concurrent loads from multiple tabs can't lose an
+    increment. ``last_visit_at`` is stamped to ``now()`` in the same statement.
+
+    Keyed by ``users.id``; the caller upserts the row first, so a 0-row match
+    means the row was deleted mid-request — logged and treated as a no-op
+    rather than raised, because visit telemetry must never fail the request
+    that triggered it.
+    """
+    table = _USERS_TABLE
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            sql.SQL(
+                "UPDATE {} SET visit_count = visit_count + 1,"
+                " last_visit_at = now() WHERE id = %s"
+            ).format(table),
+            (user_id,),
+        )
+        matched = cursor.rowcount
+        conn.commit()
+    except psycopg2.Error as exc:
+        conn.rollback()
+        logger.error(
+            "Database error in record_visit for user_id=%s: %s",
+            user_id,
+            exc,
+            exc_info=True,
+        )
+        raise
+    if matched == 0:
+        logger.warning("record_visit matched no user row for user_id=%s", user_id)
 
 
 def get_user_by_email(

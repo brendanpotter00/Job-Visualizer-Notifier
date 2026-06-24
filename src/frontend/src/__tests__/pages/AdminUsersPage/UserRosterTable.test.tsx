@@ -39,6 +39,8 @@ const PLAIN_USER: AdminUserRow = {
   displayName: 'Plain User',
   signupProvider: 'google',
   createdAt: '2025-03-15T10:00:00Z',
+  visitCount: 5,
+  lastVisitAt: '2025-06-01T08:00:00Z',
   isAdmin: false,
 };
 
@@ -48,6 +50,8 @@ const ADMIN_USER: AdminUserRow = {
   displayName: 'Admin User',
   signupProvider: 'email',
   createdAt: '2025-01-20T10:00:00Z',
+  visitCount: 42,
+  lastVisitAt: '2025-06-20T08:00:00Z',
   isAdmin: true,
 };
 
@@ -68,6 +72,20 @@ function renderTable(users: AdminUserRow[]) {
       <UserRosterTable users={users} />
     </Provider>
   );
+}
+
+/** Emails of the data rows in their current visual (sorted) order. */
+function dataRowEmails(): string[] {
+  return screen
+    .getAllByRole('row')
+    .slice(1) // drop the header row
+    .map((row) => {
+      const text = row.textContent ?? '';
+      if (text.includes('plain@example.com')) return 'plain@example.com';
+      if (text.includes('admin@example.com')) return 'admin@example.com';
+      return '';
+    })
+    .filter(Boolean);
 }
 
 describe('UserRosterTable', () => {
@@ -115,9 +133,7 @@ describe('UserRosterTable', () => {
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalled();
     });
-    const { url, method } = callDetails(
-      fetchMock.mock.calls[0] as [unknown, unknown]
-    );
+    const { url, method } = callDetails(fetchMock.mock.calls[0] as [unknown, unknown]);
     expect(url).toMatch(/\/api\/admin\/users\/plain-1\/admin$/);
     expect(method).toBe('POST');
   });
@@ -133,9 +149,7 @@ describe('UserRosterTable', () => {
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalled();
     });
-    const { url, method } = callDetails(
-      fetchMock.mock.calls[0] as [unknown, unknown]
-    );
+    const { url, method } = callDetails(fetchMock.mock.calls[0] as [unknown, unknown]);
     expect(url).toMatch(/\/api\/admin\/users\/admin-1\/admin$/);
     expect(method).toBe('DELETE');
   });
@@ -247,5 +261,49 @@ describe('UserRosterTable', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(
       'Cannot revoke the last admin — promote another user first.'
     );
+  });
+
+  it('renders the Visits count and Last active date for each user', () => {
+    renderTable([PLAIN_USER, ADMIN_USER]);
+    // Visit counts (formatted via toLocaleString) ...
+    expect(screen.getByText('42')).toBeInTheDocument();
+    expect(screen.getByText('5')).toBeInTheDocument();
+    // ... and last-active dates (rendered as YYYY-MM-DD).
+    expect(screen.getByText('2025-06-20')).toBeInTheDocument();
+    expect(screen.getByText('2025-06-01')).toBeInTheDocument();
+  });
+
+  it('defaults to sorting by join date, newest first (unchanged behavior)', () => {
+    // Input order is admin-then-plain, but PLAIN_USER joined later
+    // (2025-03-15 > 2025-01-20) so it must sort first under the default.
+    renderTable([ADMIN_USER, PLAIN_USER]);
+    expect(dataRowEmails()).toEqual(['plain@example.com', 'admin@example.com']);
+  });
+
+  it('sorts by visits (most first) when the Visits header is clicked, and toggles', async () => {
+    const user = userEvent.setup();
+    renderTable([PLAIN_USER, ADMIN_USER]);
+
+    // Freshly-selected column defaults to descending: 42 (admin) before 5 (plain).
+    await user.click(screen.getByText('Visits'));
+    expect(dataRowEmails()).toEqual(['admin@example.com', 'plain@example.com']);
+
+    // Clicking again toggles to ascending: 5 (plain) before 42 (admin).
+    await user.click(screen.getByText('Visits'));
+    expect(dataRowEmails()).toEqual(['plain@example.com', 'admin@example.com']);
+  });
+
+  it('sorts by last active (most recent first) when that header is clicked', async () => {
+    const user = userEvent.setup();
+    renderTable([PLAIN_USER, ADMIN_USER]);
+
+    // admin last active 2025-06-20 > plain 2025-06-01 → admin first on desc.
+    await user.click(screen.getByText('Last active'));
+    expect(dataRowEmails()).toEqual(['admin@example.com', 'plain@example.com']);
+  });
+
+  it('renders an empty state spanning all columns when there are no users', () => {
+    renderTable([]);
+    expect(screen.getByText('No matching users.')).toHaveAttribute('colspan', '8');
   });
 });

@@ -3,6 +3,12 @@
   "buildCommand": "npm run build -w src/frontend",
   "installCommand": "npm install",
   "outputDirectory": "src/frontend/dist",
+  "git": {
+    "deploymentEnabled": {
+      "main": true,
+      "**": false
+    }
+  },
   "rewrites": [
     {
       "source": "/api/jobs-qa",

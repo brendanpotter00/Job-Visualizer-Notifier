@@ -3,7 +3,7 @@
 import logging
 
 import psycopg2
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from psycopg2.extensions import connection as Connection
 
 from ..auth.dependencies import TokenClaims, get_current_user
@@ -24,6 +24,7 @@ from ..services.user_service import (
     UserRow,
     get_or_create_user,
     get_user_by_email,
+    record_visit,
     update_user,
 )
 
@@ -99,6 +100,45 @@ async def get_current_user_profile(
         raise HTTPException(status_code=500, detail="Failed to load user profile")
     is_admin = is_admin_by_email(conn, email)
     return _row_to_user_response(result, is_admin=is_admin)
+
+
+@router.post("/visit", status_code=204)
+async def record_user_visit(
+    conn: Connection = Depends(get_db),
+    user: TokenClaims = Depends(get_current_user),
+) -> Response:
+    """Record one full-page-load visit for the authenticated user.
+
+    The frontend calls this once per full page load / refresh (see the
+    ``useRecordVisit`` hook); client-side SPA route navigation does NOT trigger
+    it. Upserts the user row first — so a brand-new user's very first load,
+    which can race ahead of ``GET /api/users``, is still counted — then
+    atomically increments ``visit_count`` and stamps ``last_visit_at``.
+
+    Subject/email resolution mirrors ``get_current_user_profile``. Only
+    ``psycopg2.Error`` is caught (→ 500); ``RuntimeError`` from
+    ``get_or_create_user`` on ambiguous identity must propagate, as in the GET.
+    """
+    auth0_id = get_normalized_subject(user)
+    if not auth0_id:
+        raise HTTPException(status_code=401, detail="Token missing required 'sub' claim")
+    email = user.get("email")
+    if not email:
+        raise HTTPException(status_code=401, detail="Token missing required 'email' claim")
+    try:
+        result = get_or_create_user(
+            conn,
+            auth0_id=auth0_id,
+            email=email,
+            given_name=user.get("given_name"),
+            family_name=user.get("family_name"),
+            picture_url=user.get("picture"),
+        )
+        record_visit(conn, result["id"])
+    except psycopg2.Error:
+        logger.exception("Failed to record visit for sub=%s", auth0_id)
+        raise HTTPException(status_code=500, detail="Failed to record visit")
+    return Response(status_code=204)
 
 
 @router.put("", response_model=UserResponse)
