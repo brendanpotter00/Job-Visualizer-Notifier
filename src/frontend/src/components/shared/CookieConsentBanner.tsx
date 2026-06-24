@@ -28,7 +28,6 @@ export function CookieConsentBanner() {
       sx={{
         position: 'fixed',
         bottom: 0,
-        left: 0,
         right: 0,
         zIndex: 1400,
         p: { xs: 1.5, sm: 2 },
@@ -38,8 +37,7 @@ export function CookieConsentBanner() {
       <Paper
         elevation={4}
         sx={{
-          maxWidth: 640,
-          mx: 'auto',
+          maxWidth: 360,
           p: { xs: 2, sm: 2.5 },
           display: 'flex',
           flexDirection: { xs: 'column', sm: 'row' },
@@ -52,8 +50,7 @@ export function CookieConsentBanner() {
         }}
       >
         <Typography variant="body2" color="text.secondary" sx={{ flex: 1 }}>
-          We use analytics cookies to understand how you use this site and improve it. Session
-          replays help us spot usability issues. You can decline and nothing will be stored.
+          We use analytics cookies to understand how you use this site. Decline if you prefer.
         </Typography>
         <Box sx={{ display: 'flex', gap: 1, flexShrink: 0 }}>
           <Button size="small" variant="outlined" onClick={handleDecline}>
