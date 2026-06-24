@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Job Market Insights · from your prod DB</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#0a0d14; --panel:#121724; --panel2:#0f1420; --line:#222a3a;
+    --ink:#e8edf6; --muted:#93a0b8; --dim:#6b7894;
+    --accent:#5b9dff; --green:#36d399; --red:#ff6b81; --amber:#ffc04d; --violet:#a78bfa; --cyan:#34d3e0;
+    --chip:#1b2433;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);overflow-x:hidden;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;line-height:1.5}
+  canvas{max-width:100%}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{max-width:1180px;margin:0 auto;padding:32px 22px 80px}
+  header.top{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:14px;margin-bottom:6px}
+  h1{font-size:26px;margin:0;letter-spacing:.2px}
+  h1 .accent{color:var(--accent)}
+  .h1sub{color:var(--dim);font-weight:400;font-size:18px}
+  .sub{color:var(--muted);font-size:13.5px;margin-top:4px}
+  .snap{font-size:12.5px;color:var(--dim);text-align:right;white-space:nowrap}
+  .snap b{color:var(--muted)}
+  .banner{margin:18px 0 26px;background:linear-gradient(180deg,#13192a,#0f1420);
+    border:1px solid var(--line);border-left:3px solid var(--amber);border-radius:12px;padding:14px 16px;font-size:13.5px;color:var(--muted)}
+  .banner b{color:var(--ink)}
+  .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:16px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 18px 16px;position:relative;min-width:0;overflow:hidden}
+  .card h2{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);margin:0 0 14px;font-weight:700}
+  .card h2 .n{color:var(--accent)}
+  .col12{grid-column:span 12}.col8{grid-column:span 8}.col6{grid-column:span 6}.col5{grid-column:span 5}.col7{grid-column:span 7}.col4{grid-column:span 4}
+  @media(max-width:900px){.col8,.col6,.col5,.col7,.col4{grid-column:span 12}}
+  /* stat tiles */
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+  .stat{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:14px 14px}
+  .stat .v{font-size:30px;font-weight:760;letter-spacing:-.5px}
+  .stat .l{font-size:12px;color:var(--muted);margin-top:2px}
+  .stat .s{font-size:11.5px;color:var(--dim);margin-top:3px}
+  .v.green{color:var(--green)}.v.red{color:var(--red)}.v.accent{color:var(--accent)}.v.violet{color:var(--violet)}
+  @media(max-width:640px){.stats{grid-template-columns:repeat(2,1fr)}}
+  /* phones */
+  @media(max-width:520px){
+    .wrap{padding:18px 12px 56px}
+    h1{font-size:20px;line-height:1.2}
+    .h1sub{display:none}
+    .sub{font-size:12.5px}
+    .snap{font-size:10.5px;text-align:left}
+    .banner{font-size:12.5px;padding:12px 13px}
+    .grid{gap:13px}
+    .card{padding:14px 13px 13px}
+    .card h2{font-size:11px;margin-bottom:12px}
+    .stats{gap:10px}
+    .stat{padding:12px 11px}
+    .stat .v{font-size:22px}
+    .stat .l{font-size:11.5px}
+    .bar{grid-template-columns:84px 1fr auto;gap:8px;font-size:12px}
+    .bar .vl{font-size:11px}
+    .bsub{display:none}
+    .twocol{gap:16px}
+    .twochart{gap:14px}
+    .kpi-inline{gap:14px}
+    .job{gap:8px}
+    .job .t{font-size:12.5px}
+    .job .loc .pill{font-size:9.5px;padding:2px 6px}
+    .mrow{font-size:12.5px}
+    .chartbox{height:220px}
+    .caught{font-size:12px;padding:11px 12px}
+    footer ul{padding-left:16px}
+    .row{flex-wrap:wrap;gap:6px 12px}
+    .volmeta{display:none}
+  }
+  @media(max-width:380px){
+    .stats{grid-template-columns:1fr}
+    .bar{grid-template-columns:78px 1fr auto}
+  }
+  /* bar list */
+  .bars{display:flex;flex-direction:column;gap:7px;min-width:0}
+  .bar{display:grid;grid-template-columns:120px 1fr auto;align-items:center;gap:10px;font-size:13px}
+  .bar .nm{color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bar .tk{height:16px;border-radius:5px;background:var(--accent);min-width:2px}
+  .bar .vl{text-align:right;color:var(--muted);font-variant-numeric:tabular-nums;font-size:12.5px;white-space:nowrap}
+  .bar.green .tk{background:var(--green)} .bar.red .tk{background:var(--red)}
+  .bar.violet .tk{background:var(--violet)} .bar.cyan .tk{background:var(--cyan)} .bar.amber .tk{background:var(--amber)}
+  /* two-col momentum */
+  .twocol{display:grid;grid-template-columns:1fr 1fr;gap:22px}
+  .twocol>*{min-width:0}
+  .twocol.personal{grid-template-columns:.85fr 1.15fr}
+  @media(max-width:760px){.twocol,.twocol.personal{grid-template-columns:1fr}}
+  .colhead{font-size:12px;font-weight:700;margin-bottom:9px;display:flex;align-items:center;gap:7px}
+  .dot{width:8px;height:8px;border-radius:50%}
+  .mlist{display:flex;flex-direction:column;gap:6px}
+  .mrow{display:flex;justify-content:space-between;font-size:13px;border-bottom:1px dashed var(--line);padding-bottom:5px}
+  .mrow .nm{color:var(--ink)} .mrow .sub{color:var(--dim);font-size:11px}
+  .mrow .vl{font-variant-numeric:tabular-nums;font-weight:680}
+  .pos{color:var(--green)} .neg{color:var(--red)}
+  /* tags / list rows */
+  .rows{display:flex;flex-direction:column}
+  .row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0;border-top:1px solid var(--line);font-size:13px}
+  .row:first-child{border-top:none}
+  .row .meta{color:var(--dim);font-size:11.5px}
+  .pill{display:inline-block;font-size:10.5px;padding:2px 7px;border-radius:20px;border:1px solid var(--line);color:var(--muted);background:var(--chip)}
+  .pill.ok{color:var(--green);border-color:#1f5e45} .pill.bad{color:var(--red);border-color:#5e2230} .pill.warn{color:var(--amber);border-color:#5e4a1f}
+  .pill.rem{color:var(--cyan);border-color:#1f4f57} .pill.bay{color:var(--violet);border-color:#3a2f63}
+  /* job list */
+  .jobs{display:flex;flex-direction:column;gap:0}
+  .job{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:9px 0;border-top:1px solid var(--line)}
+  .job:first-child{border-top:none}
+  .job .t{font-size:13px}
+  .job .co{color:var(--accent);font-weight:650}
+  .job .loc{color:var(--dim);font-size:11.5px;white-space:nowrap}
+  .note{font-size:12px;color:var(--dim);margin-top:12px;padding-top:10px;border-top:1px dashed var(--line)}
+  .legend{font-size:11.5px;color:var(--dim);margin-top:8px}
+  .kpi-inline{display:flex;gap:18px;flex-wrap:wrap;margin-bottom:12px}
+  .kpi-inline .k{font-size:12.5px;color:var(--muted)} .kpi-inline .k b{color:var(--ink);font-size:15px}
+  footer{margin-top:30px;color:var(--dim);font-size:12px;border-top:1px solid var(--line);padding-top:16px}
+  footer h3{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:0 0 8px}
+  footer ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:5px}
+  .chartbox{position:relative;height:240px;min-width:0}
+  .chartbox.sm{height:200px}
+  .caught{background:#16121a;border:1px solid #3a2330;border-left:3px solid var(--red);border-radius:10px;padding:12px 14px;font-size:12.5px;color:var(--muted);margin-top:14px}
+  .caught b{color:var(--red)}
+  .twochart{display:grid;grid-template-columns:1fr;gap:16px;min-width:0}
+  .twochart>*{min-width:0}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <div>
+      <h1><span class="accent">Job Market</span> Insights <span class="h1sub">· 131 companies you track</span></h1>
+      <div class="sub">Mined from your production database — every headline cross-checked against the scrape logs to separate real signal from pipeline artifacts.</div>
+    </div>
+    <div class="snap">snapshot <b>2026-06-20 · 03:22 UTC</b><br>50,383 listings · 190k scrape runs<br>archived <b>2026-06-23</b></div>
+  </header>
+
+  <div class="banner">
+    <b>Read this first — your real observation window.</b> Only <b>3</b> boards (Google, Apple, Microsoft) have been scraped since January.
+    The other <b>128</b> were bulk-onboarded in a single wave on <b>May 17–20</b> (~33 days ago), so each one's first day is a one-shot import of its whole board,
+    not real hiring. Every "new / surge / momentum" figure below therefore uses <b>clean post-onboarding windows (last 7–14 days)</b> and excludes those dumps.
+    Where a number could still be a scraper artifact, it's validated against <code style="color:var(--muted)">scrape_runs</code> — and two artifacts were caught and removed (flagged in red below).
+  </div>
+
+  <div class="grid">
+
+    <!-- 1. MARKET PULSE -->
+    <section class="card col12">
+      <h2>1 · Market pulse</h2>
+      <div class="stats" style="margin-bottom:18px">
+        <div class="stat"><div class="v accent">28,528</div><div class="l">Open roles</div><div class="s">across 131 companies</div></div>
+        <div class="stat"><div class="v">43.4%</div><div class="l">Already closed</div><div class="s">21,855 of 50,383 seen</div></div>
+        <div class="stat"><div class="v green">~510/day</div><div class="l">New postings</div><div class="s">weekday avg, clean window</div></div>
+        <div class="stat"><div class="v red">~520/day</div><div class="l">Closures</div><div class="s">market roughly at equilibrium</div></div>
+      </div>
+      <div class="chartbox"><canvas id="heartbeat"></canvas></div>
+      <div class="legend">Daily new vs. closed postings since May 25 (post-onboarding). The 3-day cadence dips are weekends. June 11's spike (1,118) is a single heavy posting day. New and closed track each other closely → the aggregate market is churning in place, not expanding.</div>
+    </section>
+
+    <!-- 2. HIRING NOW -->
+    <section class="card col7">
+      <h2>2 · Who's posting the most <span class="n">right now</span> (last 7 days)</h2>
+      <div class="bars" id="hiring"></div>
+      <div class="note">Genuine new postings in the trailing 7 days (onboarding excluded). Defense/space (Anduril, SpaceX, Blue Origin) and big enterprise (Capital One, GM, Disney) lead by raw volume — but high volume ≠ growth (see net momentum). Numbers in muted = 14-day / open-board totals.</div>
+    </section>
+
+    <!-- 3. NET MOMENTUM -->
+    <section class="card col5">
+      <h2>3 · Net momentum (14-day: new − closed)</h2>
+      <div class="twocol">
+        <div>
+          <div class="colhead"><span class="dot" style="background:var(--green)"></span>Expanding their board</div>
+          <div class="mlist" id="growers"></div>
+        </div>
+        <div>
+          <div class="colhead"><span class="dot" style="background:var(--red)"></span>Contracting</div>
+          <div class="mlist" id="shrinkers"></div>
+        </div>
+      </div>
+      <div class="caught">
+        <b>⚠ Artifact caught & excluded:</b> the quant firms <b>DRW (+148), IMC (+133), Sierra (+132), Hudson River Trading (+73), Jump (+61)</b> looked like explosive hirers — but their entire boards appeared in a <b>single week</b> (a delayed post-onboarding fill), then went silent. Not real demand; removed from the growth ranking.
+      </div>
+    </section>
+
+    <!-- 4. CLOSURES / FREEZE -->
+    <section class="card col7">
+      <h2>4 · Mass closures — real shed, or scraper artifact?</h2>
+      <div class="rows" id="closures"></div>
+      <div class="caught">
+        <b>⚠ False freeze caught:</b> on <b>2026-05-05</b> Google appeared to close <b>143</b> jobs in one day. But that day's scrape collapsed to <b>~24% of normal volume</b> (4 runs vs. ~15) — a degraded partial fetch that mass-marked live jobs as "missing." Excluded as a pipeline failure, not a hiring freeze.
+      </div>
+      <div class="note">Every big single-day closure in the clean window is <span class="pill ok">confirmed</span> — full-volume scrapes, zero errors. But they're matched by equally large <i>new</i> postings, so they're routine churn on big boards, <b>not</b> freezes. The genuine pullbacks live in panel 3: Astranis shed ~39% of its board, PayPal and Microsoft are clearly contracting.</div>
+    </section>
+
+    <!-- 5. TURNAROUND -->
+    <section class="card col5">
+      <h2>5 · How fast roles open → close</h2>
+      <div class="kpi-inline">
+        <div class="k"><b>17.1 days</b><br>median time on board</div>
+        <div class="k"><b>5.5%</b><br>close same day</div>
+      </div>
+      <div class="colhead" style="margin-top:6px"><span class="dot" style="background:var(--cyan)"></span>Fastest churn — apply quickly</div>
+      <div class="mlist" id="fast"></div>
+      <div class="colhead" style="margin-top:14px"><span class="dot" style="background:var(--amber)"></span>Hold listings longest (full-history)</div>
+      <div class="mlist" id="slow"></div>
+      <div class="note">Measured on jobs we watched both open <i>and</i> close. The "fastest" names are real but downward-biased: with only ~30 days of history for the May cohort, long-lived postings haven't closed yet. Apple / Google / Microsoft (full history) are the only unbiased measurements.</div>
+    </section>
+
+    <!-- 6. GEOGRAPHY -->
+    <section class="card col7">
+      <h2>6 · Where the open jobs are</h2>
+      <div class="bars" id="locs"></div>
+      <div class="note">San Francisco is #1 (2,856). The Bay Area cluster — SF + Cupertino + Sunnyvale + Santa Clara + Mountain View + San Jose — totals <b>~6,285</b> open roles. Costa Mesa = Anduril HQ; Hawthorne + Bastrop = SpaceX. Remote is just <b>12.7%</b> (3,628) of open roles; London is the only non-US city in the top tier.</div>
+    </section>
+
+    <!-- 7. ATS + SECTOR -->
+    <section class="card col5">
+      <h2>7 · Platform & sector landscape</h2>
+      <div class="twochart">
+        <div class="chartbox sm"><canvas id="sector"></canvas></div>
+        <div class="bars" id="ats"></div>
+      </div>
+      <div class="note">Greenhouse hosts the most companies & jobs; Workday concentrates the big enterprises. Sector mix of open roles on the right-hand chart legend.</div>
+    </section>
+
+    <!-- 8. PERSONAL -->
+    <section class="card col12" style="border-color:#2c3a63;background:linear-gradient(180deg,#10172a,#0f1420)">
+      <h2>8 · ★ Your matches — backend / full-stack · your level · SF Bay or remote-US</h2>
+      <div class="stats" style="margin-bottom:16px">
+        <div class="stat"><div class="v violet">846</div><div class="l">Open roles match</div><div class="s">title + level + location filtered</div></div>
+        <div class="stat"><div class="v">662</div><div class="l">In the SF Bay Area</div><div class="s">+ ~184 remote-US</div></div>
+        <div class="stat"><div class="v accent" style="font-size:17px;line-height:1.3;margin-top:3px">Apple · OpenAI · Google</div><div class="l" style="margin-top:6px">Deepest benches</div><div class="s">149 · 109 · 100 matches</div></div>
+        <div class="stat"><div class="v" style="font-size:15px;line-height:1.35;margin-top:2px">AI labs are<br>hiring your stack hard</div><div class="s" style="margin-top:6px">OpenAI, Anthropic, Sierra, Cursor, fal…</div></div>
+      </div>
+      <div class="twocol personal">
+        <div>
+          <div class="colhead"><span class="dot" style="background:var(--violet)"></span>Match depth by company</div>
+          <div class="bars" id="byco"></div>
+        </div>
+        <div>
+          <div class="colhead"><span class="dot" style="background:var(--accent)"></span>A clean sample — links go straight to apply</div>
+          <div class="jobs" id="jobs"></div>
+        </div>
+      </div>
+      <div class="note">Filtered to backend / full-stack / platform / infra / general SWE, excluding frontend-exclusive, mobile, and Senior/Staff/Principal/L5+. Level is inferred from the title only (your DB's <code style="color:var(--muted)">experience_level</code> field is empty), so numeric-level boards like Netflix "Engineer 5/6" can slip in — treat as a strong starting list, not gospel. Remote-only roles that lack an SF primary location are undercounted.</div>
+    </section>
+
+  </div>
+
+  <footer>
+    <h3>How to read this — methodology & honest caveats</h3>
+    <ul>
+      <li><b>Onboarding exclusion is everything.</b> 128 of 131 boards were imported in the May 17–20 wave, so a company's first day is its whole board, not new demand. All "new/surge/momentum" figures use last-7/14-day windows, which sit ~3 weeks clear of that wave.</li>
+      <li><b>first_seen_at ≠ true posting date.</b> It's when <i>your scraper</i> first saw a listing (posted_on is ~10% null and unused). Treat all dates as observation timestamps.</li>
+      <li><b>Turnaround is left/right-censored.</b> Jobs alive at onboarding are excluded (age unknown); long-lived May-cohort jobs haven't closed yet, biasing "fastest" low. The 17.1-day median is a floor.</li>
+      <li><b>Freezes are validated, not assumed.</b> Each mass-closure day is cross-checked against scrape volume & error count. One false freeze (Google 05-05) and one fake surge cluster (quant firms) were caught and removed.</li>
+      <li><b>Remote is undercounted.</b> Only ~25,772 open jobs carry a normalized primary location, and is_remote_eligible is null for ~6,400 — location-restricted cuts miss remote roles.</li>
+      <li>Read-only analysis. No writes to production. Generated from <code style="color:var(--muted)">job_listings</code>, <code style="color:var(--muted)">scrape_runs</code>, <code style="color:var(--muted)">job_locations</code>, <code style="color:var(--muted)">locations</code>, <code style="color:var(--muted)">companies</code>.</li>
+    </ul>
+  </footer>
+</div>
+
+<script>
+const DATA = {
+  heartbeat:[["05-25",112,149],["05-26",469,457],["05-27",572,604],["05-28",612,451],["05-29",548,508],["05-30",59,116],["05-31",18,55],["06-01",629,652],["06-02",590,578],["06-03",607,563],["06-04",568,562],["06-05",499,532],["06-06",53,122],["06-07",130,32],["06-08",548,509],["06-09",581,500],["06-10",590,548],["06-11",1118,532],["06-12",533,495],["06-13",38,75],["06-14",14,42],["06-15",474,556],["06-16",557,579],["06-17",482,536],["06-18",489,519],["06-19",285,322],["06-20",16,14]],
+  hiring:[ // display, new7, new14, new30, open
+    ["Anduril",185,437,892,2082],["Capital One",181,442,947,1577],["General Motors",167,406,925,871],
+    ["Google",156,411,794,826],["Disney",130,275,616,661],["SpaceX",130,242,629,1787],
+    ["Blue Origin",121,290,563,1124],["Apple",119,311,788,3717],["Snowflake",53,93,172,412],
+    ["Stripe",45,96,214,512],["Netflix",45,74,160,511],["OpenAI",44,99,255,712],["Harvey",41,63,125,287],["Databricks",34,104,203,758]
+  ],
+  growers:[ // display, net14, new14, closed14
+    ["Google",87,411,324],["Blue Origin",86,290,204],["Anduril",83,437,354],["SpaceX",43,242,199],
+    ["Cloudflare",30,56,26],["Capital One",22,442,420],["Disney",18,275,257],["Snowflake",17,93,76]
+  ],
+  shrinkers:[ // display, net14, new14, closed14, note
+    ["Apple",-110,311,421,""],["PayPal",-57,29,86,""],["General Motors",-55,406,461,"high churn"],
+    ["Microsoft",-55,62,117,""],["Astranis",-50,7,57,"shed ~39% of board"],["Netflix",-38,74,112,""],
+    ["Adobe",-28,42,70,""],["Spotify",-28,32,60,""],["Waymo",-24,36,60,""]
+  ],
+  closures:[ // display, day, closed, jobsSeen, medianSeen, verdict
+    ["Google","2026-06-01",181,12067,12736,"ok"],["Apple","2026-06-10",89,60133,60174,"ok"],
+    ["Apple","2026-06-11",71,63505,60174,"ok"],["Capital One","2026-06-04",65,74647,74626,"ok"],
+    ["Anduril","2026-06-15",64,99910,97284,"ok"],["Capital One","2026-06-05",61,73714,74626,"ok"],
+    ["Anduril","2026-06-01",57,94171,97284,"ok"],["General Motors","2026-06-16",53,41090,41194,"ok"]
+  ],
+  fast:[["Airbnb",5.9],["Expedia",6.1],["DoorDash",6.7],["NVIDIA",6.7],["Capital One",7.0],["Blue Origin",7.1],["OpenAI",7.3]],
+  slow:[["Apple",27.8],["Google",26.5],["Microsoft",17.8]],
+  locs:[ // city, open, kind
+    ["San Francisco",2856,"bay"],["New York",1597,""],["Austin",1507,""],["Costa Mesa",1235,"def"],
+    ["Cupertino",1054,"bay"],["Sunnyvale",729,"bay"],["London",689,""],["Santa Clara",675,"bay"],
+    ["Mountain View",670,"bay"],["Seattle",573,""],["Hawthorne",508,"def"],["Redmond",480,""],["Bastrop",428,"def"],["San Jose",301,"bay"]
+  ],
+  ats:[["Greenhouse",54,12208],["Workday",11,6081],["Custom scrapers",3,4849],["Ashby",55,4201],["Lever",4,588],["Eightfold",1,512],["Gem",3,89]],
+  companyOpen:[["apple",3717],["andurilindustries",2082],["spacex",1787],["capitalone",1578],["blueorigin",1124],["nvidia",921],["gm",873],["google",826],["databricks",758],["openai",712],["disney",663],["netflix",512],["stripe",512],["doordashusa",454],["mongodb",424],["snowflake",412],["datadog",402],["waymo",396],["adobe",385],["anthropic",373],["microsoft",306],["harvey",287],["saronic",278],["palantir",238],["brex",234],["roblox",232],["appliedintuition",228],["airbnb",226],["block",212],["xai",211],["unity3d",206],["zoox",203],["cloudflare",198],["pinterest",183],["scaleai",176],["paypal",173],["expedia",173],["gleanwork",166],["twilio",165],["figma",164],["instacart",163],["reddit",157],["affirm",154],["elevenlabs",154],["notion",148],["drw",148],["base-power",146],["robinhood",142],["gitlab",142],["lyft",138],["snap",137],["spotify",136],["imc",133],["sierra",132],["cohere",131],["ramp",112],["decagon",111],["langchain",107],["plaid",106],["eliseai",106]],
+  sector:{ // slug -> sector
+    apple:"Big Tech & Consumer",google:"Big Tech & Consumer",microsoft:"Big Tech & Consumer",nvidia:"Big Tech & Consumer",gm:"Big Tech & Consumer",disney:"Big Tech & Consumer",netflix:"Big Tech & Consumer",adobe:"Big Tech & Consumer",roblox:"Big Tech & Consumer",airbnb:"Big Tech & Consumer",pinterest:"Big Tech & Consumer",figma:"Big Tech & Consumer",instacart:"Big Tech & Consumer",reddit:"Big Tech & Consumer",lyft:"Big Tech & Consumer",snap:"Big Tech & Consumer",spotify:"Big Tech & Consumer",doordashusa:"Big Tech & Consumer",unity3d:"Big Tech & Consumer",expedia:"Big Tech & Consumer",
+    andurilindustries:"Defense · Space · AV",spacex:"Defense · Space · AV",blueorigin:"Defense · Space · AV",saronic:"Defense · Space · AV",appliedintuition:"Defense · Space · AV",waymo:"Defense · Space · AV",zoox:"Defense · Space · AV",palantir:"Defense · Space · AV","base-power":"Defense · Space · AV",
+    openai:"AI labs & AI products",anthropic:"AI labs & AI products",xai:"AI labs & AI products",harvey:"AI labs & AI products",gleanwork:"AI labs & AI products",cohere:"AI labs & AI products",sierra:"AI labs & AI products",decagon:"AI labs & AI products",langchain:"AI labs & AI products",elevenlabs:"AI labs & AI products",eliseai:"AI labs & AI products",scaleai:"AI labs & AI products",
+    stripe:"Fintech & Payments",capitalone:"Fintech & Payments",brex:"Fintech & Payments",block:"Fintech & Payments",affirm:"Fintech & Payments",paypal:"Fintech & Payments",robinhood:"Fintech & Payments",ramp:"Fintech & Payments",plaid:"Fintech & Payments",
+    databricks:"Data · Infra · Dev Tools",snowflake:"Data · Infra · Dev Tools",mongodb:"Data · Infra · Dev Tools",datadog:"Data · Infra · Dev Tools",cloudflare:"Data · Infra · Dev Tools",twilio:"Data · Infra · Dev Tools",gitlab:"Data · Infra · Dev Tools",notion:"Data · Infra · Dev Tools",
+    drw:"Quant & Trading",imc:"Quant & Trading"
+  },
+  byco:[["Apple",149,149],["OpenAI",109,105],["Google",100,74],["Netflix",34,0],["Applied Intuition",27,27],["Waymo",27,27],["Cursor",20,18],["Sierra",17,15],["SpaceX",17,17],["Glean",15,15],["Zoox",13,13],["Snowflake",12,7],["Baseten",12,12],["DoorDash",10,10]],
+  jobs:[
+    ["Anthropic","Software Engineer, Account Abuse","SF","https://job-boards.greenhouse.io/anthropic/jobs/5123039008"],
+    ["Anthropic","Software Engineer, RL Data","SF","https://job-boards.greenhouse.io/anthropic/jobs/5238606008"],
+    ["OpenAI","Software Engineer, Full Stack (People Innovation)","Remote US","https://jobs.ashbyhq.com/openai/d4780eac-03ad-4dae-861f-99af22b4287e"],
+    ["OpenAI","Software Engineer, Infrastructure Security","Remote US","https://jobs.ashbyhq.com/openai/98ad9beb-4f91-496c-bd16-ac0b2a8d5bb2"],
+    ["Affirm","Software Engineer II, Back-end (Card Mgmt)","Remote US","https://job-boards.greenhouse.io/affirm/jobs/7777094003"],
+    ["Block","Software Engineer, Cash App — Lending","Remote US","http://block.xyz/careers/jobs/5196175008?gh_jid=5196175008"],
+    ["ElevenLabs","Full-Stack Engineer (Back-End Leaning)","Remote US","https://jobs.ashbyhq.com/elevenlabs/c7d59014-b918-4c15-ae33-79f5c9f2cf9f"],
+    ["PostHog","Backend Engineer — Ingestion","Remote US","https://jobs.ashbyhq.com/posthog/3f190a45-7810-47f9-b77d-169b806ea266"],
+    ["fal","Software Engineer, Distributed Systems","Remote US","https://job-boards.greenhouse.io/fal/jobs/4183627009"],
+    ["Baseten","Cloud Platform Engineer","SF","https://jobs.ashbyhq.com/baseten/916e9d62-492a-4562-971f-3e97e3868392"],
+    ["Applied Intuition","Software Engineer — Backend","Sunnyvale","https://boards.greenhouse.io/appliedintuition/jobs/4669710005?gh_jid=4669710005"],
+    ["Cursor","Software Engineer, Billing","Remote US","https://jobs.ashbyhq.com/cursor/47994d20-cc6a-436b-8da0-2eceabfd413e"],
+    ["Adobe","Full-Stack Engineer, Enterprise GenAI","San Jose","https://adobe.wd5.myworkdayjobs.com/external_experienced/details/Full-Stack-Engineer--Enterprise-GenAI_R165370"],
+    ["Airtable","Software Engineer, Data","SF","https://job-boards.greenhouse.io/airtable/jobs/8124953002"]
+  ]
+};
+
+const $=(id)=>document.getElementById(id);
+const esc=(s)=>String(s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+function barList(el,rows,maxKey,opts){
+  const max=Math.max(...rows.map(maxKey));
+  el.innerHTML=rows.map(r=>{
+    const w=Math.max(2,Math.round(maxKey(r)/max*100));
+    return `<div class="bar ${opts.cls(r)}"><span class="nm">${esc(opts.name(r))}</span><span class="tk" style="width:${w}%"></span><span class="vl">${opts.val(r)}</span></div>`;
+  }).join("");
+}
+
+// 2 · hiring
+barList($("hiring"),DATA.hiring,r=>r[1],{cls:()=>"green",name:r=>r[0],val:r=>`${r[1]} <span class="bsub" style="color:var(--dim)">/ ${r[2]} / ${r[3]}</span>`});
+
+// 3 · momentum
+$("growers").innerHTML=DATA.growers.map(r=>`<div class="mrow"><div><div class="nm">${esc(r[0])}</div><div class="sub">+${r[2]} new · −${r[3]} closed</div></div><div class="vl pos">+${r[1]}</div></div>`).join("");
+$("shrinkers").innerHTML=DATA.shrinkers.map(r=>`<div class="mrow"><div><div class="nm">${esc(r[0])}</div><div class="sub">+${r[2]} new · −${r[3]} closed${r[4]?` · ${esc(r[4])}`:""}</div></div><div class="vl neg">${r[1]}</div></div>`).join("");
+
+// 4 · closures
+$("closures").innerHTML=DATA.closures.map(r=>{
+  const ratio=Math.round(r[3]/r[4]*100);
+  return `<div class="row"><div><span style="color:var(--ink)">${esc(r[0])}</span> <span class="meta">· ${r[1]}</span></div><div style="display:flex;align-items:center;gap:10px"><span class="meta volmeta">${ratio}% scrape vol</span><span style="color:var(--red);font-weight:680;font-variant-numeric:tabular-nums">${r[2]} closed</span><span class="pill ok">confirmed</span></div></div>`;
+}).join("");
+
+// 5 · turnaround
+$("fast").innerHTML=DATA.fast.map(r=>`<div class="mrow"><div class="nm">${esc(r[0])}</div><div class="vl" style="color:var(--cyan)">${r[1]} d</div></div>`).join("");
+$("slow").innerHTML=DATA.slow.map(r=>`<div class="mrow"><div class="nm">${esc(r[0])}</div><div class="vl" style="color:var(--amber)">${r[1]} d</div></div>`).join("");
+
+// 6 · locations
+barList($("locs"),DATA.locs,r=>r[1],{cls:r=>r[2]==="bay"?"violet":(r[2]==="def"?"amber":"accent"),name:r=>r[0],val:r=>r[1].toLocaleString()});
+
+// 7 · ats
+barList($("ats"),DATA.ats,r=>r[2],{cls:()=>"cyan",name:r=>r[0],val:r=>`${r[2].toLocaleString()}`});
+
+// 8 · personal
+barList($("byco"),DATA.byco,r=>r[1],{cls:()=>"violet",name:r=>r[0],val:r=>`${r[1]}${r[2]<r[1]?` <span style="color:var(--dim)">(${r[2]} bay)</span>`:""}`});
+$("jobs").innerHTML=DATA.jobs.map(j=>{
+  const rem=j[2].startsWith("Remote");
+  return `<div class="job"><div class="t"><a href="${j[3]}" target="_blank" rel="noopener"><span class="co">${esc(j[0])}</span> — ${esc(j[1])}</a></div><div class="loc"><span class="pill ${rem?"rem":"bay"}">${esc(j[2])}</span></div></div>`;
+}).join("");
+
+// charts
+const haveChart = typeof Chart!=="undefined";
+if(haveChart){
+  Chart.defaults.color="#93a0b8"; Chart.defaults.font.family="-apple-system,Segoe UI,Inter,sans-serif"; Chart.defaults.font.size=11;
+  new Chart($("heartbeat"),{type:"line",data:{labels:DATA.heartbeat.map(d=>d[0]),
+    datasets:[
+      {label:"New",data:DATA.heartbeat.map(d=>d[1]),borderColor:"#36d399",backgroundColor:"rgba(54,211,153,.12)",fill:true,tension:.3,pointRadius:0,borderWidth:2},
+      {label:"Closed",data:DATA.heartbeat.map(d=>d[2]),borderColor:"#ff6b81",backgroundColor:"rgba(255,107,129,.07)",fill:true,tension:.3,pointRadius:0,borderWidth:2}
+    ]},
+    options:{maintainAspectRatio:false,interaction:{mode:"index",intersect:false},
+      plugins:{legend:{labels:{boxWidth:10,boxHeight:10,usePointStyle:true}}},
+      scales:{x:{grid:{color:"#1a2030"},ticks:{maxRotation:0,autoSkip:true,maxTicksLimit:9}},y:{grid:{color:"#1a2030"},beginAtZero:true}}}});
+
+  const palette={"Big Tech & Consumer":"#5b9dff","Defense · Space · AV":"#ffc04d","AI labs & AI products":"#a78bfa","Fintech & Payments":"#36d399","Data · Infra · Dev Tools":"#34d3e0","Quant & Trading":"#ff6b81","Other":"#5b6679"};
+  const totals={}; let mapped=0,grand=0;
+  for(const [slug,open] of DATA.companyOpen){grand+=open; const s=DATA.sector[slug]; if(s){totals[s]=(totals[s]||0)+open; mapped+=open;}}
+  totals["Other"]=(28528-mapped); // remaining open jobs across untracked/smaller cos
+  const sectorLabels=Object.keys(palette).filter(k=>totals[k]);
+  const legendPos = "bottom";
+  new Chart($("sector"),{type:"doughnut",data:{labels:sectorLabels,
+    datasets:[{data:sectorLabels.map(k=>totals[k]),backgroundColor:sectorLabels.map(k=>palette[k]),borderColor:"#121724",borderWidth:2}]},
+    options:{maintainAspectRatio:false,cutout:"58%",plugins:{legend:{position:legendPos,labels:{boxWidth:10,boxHeight:10,usePointStyle:true,padding:7,font:{size:10}}}}}});
+}
+</script>
+</body>
+</html>
