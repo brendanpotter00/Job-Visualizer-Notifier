@@ -180,16 +180,6 @@ async def update_current_user_profile(
         # admin-lookup failure mode isn't conflated with "no row" and so
         # the previous dead ``is_admin = False`` branch is removed.
         raise HTTPException(status_code=404, detail="User not found")
-    auth0_id = get_normalized_subject(user)
-    ph = get_posthog()
-    if ph and auth0_id:
-        with new_context():
-            identify_context(auth0_id)
-            ph.capture(
-                "user_profile_updated",
-                distinct_id=auth0_id,
-                properties={"has_display_name": body.display_name is not None},
-            )
     # ``is_admin_by_email`` deliberately raises rather than silently
     # returning False on a driver error; let that propagate as 500 instead
     # of being caught above.
@@ -251,19 +241,6 @@ async def update_enabled_companies(
         raise HTTPException(
             status_code=500, detail="Failed to save enabled companies"
         )
-    auth0_id = get_normalized_subject(user)
-    ph = get_posthog()
-    if ph and auth0_id:
-        with new_context():
-            identify_context(auth0_id)
-            ph.capture(
-                "user_companies_updated",
-                distinct_id=auth0_id,
-                properties={
-                    "company_count": len(saved),
-                    "auto_enroll": body.auto_enroll_new_companies,
-                },
-            )
     return EnabledCompaniesResponse(
         company_ids=saved,
         auto_enroll_new_companies=body.auto_enroll_new_companies,
