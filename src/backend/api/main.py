@@ -30,6 +30,7 @@ from .routers import (
 from .tasks import procrastinate_app
 from .tasks.procrastinate_app import ensure_schema_async
 from .migrations import apply_alembic_migrations
+from .services.posthog_client import init_posthog, shutdown_posthog
 
 
 # Liveness threshold for `procrastinate_events` freshness. 35 min is a
@@ -115,6 +116,9 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Startup
     warn_if_unset()
+    if settings.posthog_project_token:
+        init_posthog(settings.posthog_project_token, settings.posthog_host)
+        logger.info("PostHog initialized")
     logger.info("Applying database migrations...")
     try:
         apply_alembic_migrations(settings.database_url)
@@ -267,6 +271,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         close_pool()
     except Exception:
         logger.warning("Error closing database pool during shutdown", exc_info=True)
+    shutdown_posthog()
     logger.info("Shutdown complete")
 
 

@@ -13,6 +13,7 @@ import logging
 
 import psycopg2
 from fastapi import APIRouter, Depends, HTTPException
+from posthog import identify_context, new_context
 from psycopg2.extensions import connection as Connection
 
 from ..auth.dependencies import TokenClaims, get_optional_user_lenient
@@ -20,6 +21,7 @@ from ..auth.jwt import get_normalized_subject
 from ..dependencies import get_db
 from ..models import FeedbackResponse, FeedbackSubmitRequest
 from ..services.feedback_service import submit_feedback
+from ..services.posthog_client import get_posthog
 from ..services.rate_limit import enforce_feedback_rate_limit
 from ..services.user_service import get_or_create_user
 
@@ -94,6 +96,21 @@ def post_feedback(
     except psycopg2.Error:
         logger.exception("Failed to submit feedback")
         raise HTTPException(status_code=500, detail="Failed to submit feedback")
+    ph = get_posthog()
+    if ph:
+        auth0_id = get_normalized_subject(user) if user else None
+        distinct_id = auth0_id or "anonymous"
+        with new_context():
+            if auth0_id:
+                identify_context(auth0_id)
+            ph.capture(
+                "feedback_submitted",
+                distinct_id=distinct_id,
+                properties={
+                    "is_authenticated": user_id is not None,
+                    "message_length": len(message),
+                },
+            )
     return FeedbackResponse(
         id=row["id"],
         message=row["message"],

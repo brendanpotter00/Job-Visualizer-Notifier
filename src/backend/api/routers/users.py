@@ -4,6 +4,7 @@ import logging
 
 import psycopg2
 from fastapi import APIRouter, Depends, HTTPException, Response
+from posthog import identify_context, new_context
 from psycopg2.extensions import connection as Connection
 
 from ..auth.dependencies import TokenClaims, get_current_user
@@ -16,6 +17,7 @@ from ..models import (
     UserUpdateRequest,
 )
 from ..services.admin_service import is_admin_by_email
+from ..services.posthog_client import get_posthog
 from ..services.user_preferences_service import (
     list_enabled_companies,
     set_enabled_companies,
@@ -98,6 +100,16 @@ async def get_current_user_profile(
     except psycopg2.Error:
         logger.exception("Failed to get/create user profile for sub=%s", auth0_id)
         raise HTTPException(status_code=500, detail="Failed to load user profile")
+    is_new_user = result["created_at"] == result["updated_at"]
+    ph = get_posthog()
+    if ph and is_new_user:
+        with new_context():
+            identify_context(auth0_id)
+            ph.capture(
+                "user_signed_up",
+                distinct_id=auth0_id,
+                properties={"$set": {"email": email}},
+            )
     is_admin = is_admin_by_email(conn, email)
     return _row_to_user_response(result, is_admin=is_admin)
 
@@ -168,6 +180,16 @@ async def update_current_user_profile(
         # admin-lookup failure mode isn't conflated with "no row" and so
         # the previous dead ``is_admin = False`` branch is removed.
         raise HTTPException(status_code=404, detail="User not found")
+    auth0_id = get_normalized_subject(user)
+    ph = get_posthog()
+    if ph and auth0_id:
+        with new_context():
+            identify_context(auth0_id)
+            ph.capture(
+                "user_profile_updated",
+                distinct_id=auth0_id,
+                properties={"has_display_name": body.display_name is not None},
+            )
     # ``is_admin_by_email`` deliberately raises rather than silently
     # returning False on a driver error; let that propagate as 500 instead
     # of being caught above.
@@ -229,6 +251,19 @@ async def update_enabled_companies(
         raise HTTPException(
             status_code=500, detail="Failed to save enabled companies"
         )
+    auth0_id = get_normalized_subject(user)
+    ph = get_posthog()
+    if ph and auth0_id:
+        with new_context():
+            identify_context(auth0_id)
+            ph.capture(
+                "user_companies_updated",
+                distinct_id=auth0_id,
+                properties={
+                    "company_count": len(saved),
+                    "auto_enroll": body.auto_enroll_new_companies,
+                },
+            )
     return EnabledCompaniesResponse(
         company_ids=saved,
         auto_enroll_new_companies=body.auto_enroll_new_companies,

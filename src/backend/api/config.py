@@ -50,6 +50,10 @@ class Settings(BaseSettings):
     # str|None to match internal_api_key (NOT SecretStr).
     anthropic_api_key: str | None = None
 
+    # PostHog analytics
+    posthog_project_token: str | None = None
+    posthog_host: str = "https://us.i.posthog.com"
+
     # Public feedback endpoint rate limit (per client IP, sliding window).
     # Defaults are generous for a human but hostile to a script: 5 submissions
     # per 60s. Enforced in-process by services/rate_limit.py — see that module

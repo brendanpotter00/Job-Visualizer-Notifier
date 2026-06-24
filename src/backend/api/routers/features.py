@@ -4,6 +4,7 @@ import logging
 
 import psycopg2
 from fastapi import APIRouter, Depends, HTTPException, Path
+from posthog import identify_context, new_context
 from psycopg2.extensions import connection as Connection
 
 from ..auth.dependencies import TokenClaims, get_current_user, get_optional_user
@@ -20,6 +21,7 @@ from ..services.features_service import (
     list_features_with_upvotes,
     remove_upvote,
 )
+from ..services.posthog_client import get_posthog
 from ..services.user_service import get_or_create_user, get_user_by_email
 
 logger = logging.getLogger(__name__)
@@ -107,6 +109,7 @@ def post_upvote(
     conn: Connection = Depends(get_db),
     user: TokenClaims = Depends(get_current_user),
 ) -> FeatureUpvoteStateResponse:
+    auth0_id = get_normalized_subject(user)
     user_id = _resolve_user_id_for_mutation(conn, user)
     try:
         result = add_upvote(conn, feature_id, user_id)
@@ -115,6 +118,18 @@ def post_upvote(
     except psycopg2.Error:
         logger.exception("Failed to add upvote for feature_id=%s", feature_id)
         raise HTTPException(status_code=500, detail="Failed to record upvote")
+    ph = get_posthog()
+    if ph and auth0_id:
+        with new_context():
+            identify_context(auth0_id)
+            ph.capture(
+                "feature_upvoted",
+                distinct_id=auth0_id,
+                properties={
+                    "feature_id": feature_id,
+                    "upvote_count": result["upvote_count"],
+                },
+            )
     return FeatureUpvoteStateResponse(
         feature_id=result["feature_id"],
         upvote_count=result["upvote_count"],
@@ -128,6 +143,7 @@ def delete_upvote(
     conn: Connection = Depends(get_db),
     user: TokenClaims = Depends(get_current_user),
 ) -> FeatureUpvoteStateResponse:
+    auth0_id = get_normalized_subject(user)
     user_id = _resolve_user_id_for_mutation(conn, user)
     try:
         result = remove_upvote(conn, feature_id, user_id)
@@ -136,6 +152,18 @@ def delete_upvote(
     except psycopg2.Error:
         logger.exception("Failed to remove upvote for feature_id=%s", feature_id)
         raise HTTPException(status_code=500, detail="Failed to remove upvote")
+    ph = get_posthog()
+    if ph and auth0_id:
+        with new_context():
+            identify_context(auth0_id)
+            ph.capture(
+                "feature_upvote_removed",
+                distinct_id=auth0_id,
+                properties={
+                    "feature_id": feature_id,
+                    "upvote_count": result["upvote_count"],
+                },
+            )
     return FeatureUpvoteStateResponse(
         feature_id=result["feature_id"],
         upvote_count=result["upvote_count"],
