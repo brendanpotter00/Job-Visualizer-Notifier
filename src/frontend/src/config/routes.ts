@@ -33,14 +33,14 @@ export const USER_NAV_ITEMS = [
     icon: 'TrendingUp',
   },
   {
-    path: ROUTES.CURATED_COMPANIES,
-    label: 'Curated Companies',
-    icon: 'Business',
-  },
-  {
     path: ROUTES.SAVED_FILTERS,
     label: 'Saved Filters',
     icon: 'FilterListAlt',
+  },
+  {
+    path: ROUTES.CURATED_COMPANIES,
+    label: 'Curated Companies',
+    icon: 'Business',
   },
   {
     path: ROUTES.VOTE_FEATURES,
