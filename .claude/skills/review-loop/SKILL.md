@@ -336,10 +336,13 @@ Brief it with:
   after the fixes, the fix agent must resolve it before committing — a red gate is
   itself a Critical finding.
 - **Commit once** with message `review-loop(<N>): <short summary>` (one logical
-  commit; split only if fixes span clearly separate concerns). Do **not** push,
-  do **not** open/merge a PR.
+  commit; split only if fixes span clearly separate concerns). Do **not** open/merge a PR.
 
 After the fix agent returns:
+
+- **Push the fix commit immediately** to the remote PR branch so each round's
+  fixes are visible incrementally: `git push origin HEAD:<branch-name>`. If the
+  branch name contains special characters (e.g. `+`), quote it appropriately.
 
 - Append to the log under Round N:
   ```markdown
@@ -539,7 +542,7 @@ subagent-output dumps:
 
 - It does not author plans or implement features — pair it with `e2eimplementation`
   for greenfield work; this skill only reviews-and-fixes existing diffs.
-- It does not push or merge. Commits land locally per round; the user ships them.
+- It pushes each fix commit immediately to the remote PR branch after committing, but does not merge.
 - It does not auto-fix Suggestions/Nits — those are recorded for human triage.
 - It does not silently reverse prior decisions — every reversal is a logged,
   evidence-backed superseding ledger entry, or it's frozen as contested.
