@@ -285,6 +285,20 @@ export function NavigationDrawer({
         </IconButton>
       </DrawerHeader>
       <Divider />
+      {open && (
+        <Box sx={{ px: 2.5, pt: 1.25, pb: 0.5 }}>
+          <Box
+            sx={{
+              fontSize: 11,
+              letterSpacing: '0.18em',
+              fontWeight: 700,
+              color: 'text.secondary',
+            }}
+          >
+            JOBS FROM THE SOURCE
+          </Box>
+        </Box>
+      )}
       <List>
         {USER_NAV_ITEMS.map((item) => renderNavItem(item.path, item.label, item.icon as IconName))}
       </List>
