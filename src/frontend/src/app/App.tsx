@@ -19,6 +19,8 @@ import { useEnabledCompanies } from '../features/preferences/useEnabledCompanies
 import { useHydrateSavedFilters } from '../features/savedFilters/useHydrateSavedFilters';
 import { useFeaturesAuthBridge } from '../features/features/useFeaturesAuthBridge';
 import { useRecordVisit } from '../features/auth/useRecordVisit';
+import { usePostHogPageview } from '../features/analytics/usePostHogPageview';
+import { usePostHogIdentify } from '../features/analytics/usePostHogIdentify';
 
 /**
  * App content component with routing and hooks
@@ -45,6 +47,8 @@ function AppContent() {
   // Hydrate the filter slices (time windows, locations, active keyword list)
   // from saved filters once on sign-in; reset on sign-out.
   useHydrateSavedFilters();
+  usePostHogPageview();
+  usePostHogIdentify();
 
   return (
     <>

@@ -39,5 +39,6 @@ module = [
     "google.*",
     "alembic.*",
     "jwt.*",
+    "posthog.*",
 ]
 ignore_missing_imports = true

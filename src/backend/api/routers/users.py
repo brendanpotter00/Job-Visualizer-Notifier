@@ -4,6 +4,7 @@ import logging
 
 import psycopg2
 from fastapi import APIRouter, Depends, HTTPException, Response
+from posthog import identify_context, new_context
 from psycopg2.extensions import connection as Connection
 
 from ..auth.dependencies import TokenClaims, get_current_user
@@ -16,6 +17,7 @@ from ..models import (
     UserUpdateRequest,
 )
 from ..services.admin_service import is_admin_by_email
+from ..services.posthog_client import get_posthog
 from ..services.user_preferences_service import (
     list_enabled_companies,
     set_enabled_companies,
@@ -98,6 +100,21 @@ async def get_current_user_profile(
     except psycopg2.Error:
         logger.exception("Failed to get/create user profile for sub=%s", auth0_id)
         raise HTTPException(status_code=500, detail="Failed to load user profile")
+    is_new_user = result["created_at"] == result["updated_at"]
+    ph = get_posthog()
+    if ph and is_new_user:
+        try:
+            with new_context():
+                identify_context(auth0_id)
+                ph.capture(
+                    "user_signed_up",
+                    distinct_id=auth0_id,
+                    properties={"$set": {"email": email}},
+                )
+        except Exception:
+            logger.warning(
+                "PostHog capture failed for user_signed_up", exc_info=True
+            )
     is_admin = is_admin_by_email(conn, email)
     return _row_to_user_response(result, is_admin=is_admin)
 

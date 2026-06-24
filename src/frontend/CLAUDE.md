@@ -60,6 +60,40 @@ Backend-Scraper (api/clients/backendScraperClient.ts) is the only production cli
 **Key Algorithms:**
 - Time Bucketing: lib/timeBucketing.ts (dynamic bucket sizing for graph visualization)
 
+## Analytics (PostHog)
+
+Opt-in-by-default product analytics. Entirely gated on `VITE_POSTHOG_KEY` — when it
+is unset, `POSTHOG_CONFIG.isEnabled` is `false`, `lib/posthog.ts` never calls
+`posthog.init()`, the consent banner never renders, and every hook early-returns.
+
+- **Opt-in by default:** `lib/posthog.ts` inits with `opt_out_capturing_by_default: true`
+  and `persistence: 'memory'` — PostHog captures nothing and writes no cookies until the
+  user clicks **Accept** in the consent banner. Manual SPA pageviews only
+  (`capture_pageview: false`).
+- **Consent state:** `ConsentStatus = 'pending' | 'granted' | 'denied'`, managed in
+  `lib/posthogConsent.ts`. `acceptTracking()` switches persistence to
+  `localStorage+cookie`, opts in, starts session recording, and fires a first
+  `$pageview`; `declineTracking()` opts out. localStorage/cookies are only written
+  after the user consents.
+- **Hooks (`features/analytics/`):** `usePostHogPageview` fires `$pageview` on every
+  route change (when enabled); `usePostHogIdentify` calls `posthog.identify()` when a
+  user is authenticated and `posthog.reset()` on sign-out.
+- **`/ingest` proxy:** PostHog API calls are proxied through `/ingest/*` (rewrites in
+  project-root `vercel.json`) to dodge ad-blockers. `VITE_POSTHOG_HOST` defaults to
+  `/ingest` — **do not** point it at `us.i.posthog.com` directly; the Vercel rewrite
+  handles routing.
+
+**Key files** (relative to `src/frontend/src/`):
+- `config/posthog.ts` — PostHog config; `isEnabled` gated on `VITE_POSTHOG_KEY`
+- `lib/posthog.ts` — module-scope init (once, StrictMode-safe)
+- `lib/posthogConsent.ts` — opt-in/opt-out + consent-status helpers
+- `components/shared/CookieConsentBanner.tsx` — consent UI
+- `features/analytics/` — `usePostHogPageview`, `usePostHogIdentify`
+
+**Env vars** (go in `src/frontend/.env.local` — see Gotcha #2):
+- `VITE_POSTHOG_KEY` — PostHog project key (optional; analytics off when unset)
+- `VITE_POSTHOG_HOST` — ingestion host (optional; defaults to `/ingest`)
+
 ## Frontend Foundations
 
 All paths below are relative to `src/frontend/src/`.
