@@ -285,6 +285,79 @@ describe('RecentJobPostingsPage', () => {
     });
   });
 
+  describe('demo mode branch', () => {
+    // Full UIState shape — RTK preloadedState replaces the slice's initial state
+    // for any slice provided, so we must supply every field, not just the flag.
+    const demoUiState = {
+      graphModal: { open: false },
+      globalLoading: false,
+      notifications: [],
+      hideAdminFeatures: false,
+      demoModeEnabled: true,
+    };
+
+    it('renders metrics/filters/list AND suppresses the error banner when demo mode is on and the live query errors', () => {
+      // Backend is down (live query errors) — demo mode must still render curated
+      // content and must NOT surface the live-error alert. (Ledger #1 regression guard.)
+      mockAllJobsQuery({
+        data: undefined,
+        error: { status: 500, data: 'boom' },
+        isLoading: false,
+        isFetching: false,
+      });
+      renderWithProviders(<RecentJobPostingsPage />, {
+        initialEntries: ['/'],
+        preloadedState: { ui: demoUiState },
+      });
+
+      expect(screen.getByTestId('recent-jobs-metrics')).toBeInTheDocument();
+      expect(screen.getByTestId('recent-jobs-filters')).toBeInTheDocument();
+      expect(screen.getByTestId('recent-jobs-list')).toBeInTheDocument();
+      // Error banner must be suppressed in demo mode.
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(screen.queryByText('boom')).not.toBeInTheDocument();
+    });
+
+    it('renders metrics/filters/list when demo mode is on and the live query is still loading', () => {
+      // Live query has not resolved (data undefined, no error) — demo mode bypasses
+      // the live-query loading gate and renders curated content immediately.
+      mockAllJobsQuery({
+        data: undefined,
+        error: undefined,
+        isLoading: true,
+        isFetching: true,
+      });
+      renderWithProviders(<RecentJobPostingsPage />, {
+        initialEntries: ['/'],
+        preloadedState: { ui: demoUiState },
+      });
+
+      expect(screen.getByTestId('recent-jobs-metrics')).toBeInTheDocument();
+      expect(screen.getByTestId('recent-jobs-filters')).toBeInTheDocument();
+      expect(screen.getByTestId('recent-jobs-list')).toBeInTheDocument();
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    });
+
+    it('does not render the FetchProgressBar in demo mode even when healthy live data is present', () => {
+      // Live fetch-progress is meaningless against curated demo data, so the bar
+      // (and its skeleton) must never render while demo mode is on.
+      mockAllJobsQuery({
+        data: emptyJobsData,
+        error: undefined,
+        isLoading: false,
+        isFetching: false,
+      });
+      renderWithProviders(<RecentJobPostingsPage />, {
+        initialEntries: ['/'],
+        preloadedState: { ui: demoUiState },
+      });
+
+      expect(screen.getByTestId('recent-jobs-metrics')).toBeInTheDocument();
+      expect(screen.queryByTestId('fetch-progress-bar')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('fetch-progress-bar-skeleton')).not.toBeInTheDocument();
+    });
+  });
+
   describe('initial / empty branch', () => {
     it('renders only the heading + preferences row when data is undefined and no error', () => {
       mockAllJobsQuery({
