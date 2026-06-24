@@ -274,7 +274,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         close_pool()
     except Exception:
         logger.warning("Error closing database pool during shutdown", exc_info=True)
-    shutdown_posthog()
+    try:
+        shutdown_posthog()
+    except Exception:
+        logger.warning("Error flushing PostHog during shutdown", exc_info=True)
     logger.info("Shutdown complete")
 
 
