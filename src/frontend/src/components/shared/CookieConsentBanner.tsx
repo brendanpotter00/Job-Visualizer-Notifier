@@ -28,7 +28,7 @@ export function CookieConsentBanner() {
       sx={{
         position: 'fixed',
         bottom: 0,
-        right: 0,
+        left: 0,
         zIndex: 1400,
         p: { xs: 1.5, sm: 2 },
         pointerEvents: 'none',
@@ -37,26 +37,25 @@ export function CookieConsentBanner() {
       <Paper
         elevation={4}
         sx={{
-          maxWidth: 320,
+          maxWidth: 280,
           p: { xs: 2, sm: 2.5 },
           display: 'flex',
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: 2,
+          flexDirection: 'column',
+          gap: 1.5,
           pointerEvents: 'auto',
           borderRadius: 2,
           border: '1px solid',
           borderColor: 'divider',
         }}
       >
-        <Typography variant="body2" color="text.secondary" sx={{ flex: 1 }}>
+        <Typography variant="body2" color="text.secondary">
           We use analytics cookies to understand how you use this site. Decline if you prefer.
         </Typography>
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, flexShrink: 0 }}>
-          <Button size="small" variant="contained" onClick={handleAccept}>
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <Button size="small" variant="contained" onClick={handleAccept} fullWidth>
             Accept
           </Button>
-          <Button size="small" variant="outlined" onClick={handleDecline}>
+          <Button size="small" variant="outlined" onClick={handleDecline} fullWidth>
             Decline
           </Button>
         </Box>
