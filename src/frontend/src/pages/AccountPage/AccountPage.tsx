@@ -10,7 +10,7 @@ import Alert from '@mui/material/Alert';
 import Switch from '@mui/material/Switch';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import { useAppDispatch, useAppSelector } from '../../app/hooks';
-import { setHideAdminFeatures } from '../../features/ui/uiSlice';
+import { setHideAdminFeatures, setDemoModeEnabled } from '../../features/ui/uiSlice';
 import { useAuth } from '../../features/auth/useAuth';
 import { useCurrentUser } from '../../features/auth/useCurrentUser';
 import { updateCurrentUser } from '../../features/auth/authService';
@@ -23,6 +23,7 @@ export function AccountPage() {
   const { user, setUser, loading, error, reload: loadProfile } = useCurrentUser();
   const dispatch = useAppDispatch();
   const hideAdminFeatures = useAppSelector((state) => state.ui.hideAdminFeatures);
+  const demoModeEnabled = useAppSelector((state) => state.ui.demoModeEnabled);
 
   const [displayName, setDisplayName] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -153,22 +154,41 @@ export function AccountPage() {
       </Paper>
 
       {user.isAdmin && (
-        <Paper sx={{ p: 4, mt: 3 }}>
-          <FormControlLabel
-            control={
-              <Switch
-                checked={hideAdminFeatures}
-                onChange={(e) => dispatch(setHideAdminFeatures(e.target.checked))}
-                slotProps={{ input: { 'aria-label': 'Hide all admin features' } }}
-              />
-            }
-            label="Hide all admin features"
-          />
-          <Typography variant="caption" color="text.secondary" display="block">
-            Demo only — hides the Admin section in the sidebar for this session. Resets when you
-            refresh the page.
-          </Typography>
-        </Paper>
+        <>
+          <Paper sx={{ p: 4, mt: 3 }}>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={hideAdminFeatures}
+                  onChange={(e) => dispatch(setHideAdminFeatures(e.target.checked))}
+                  slotProps={{ input: { 'aria-label': 'Hide all admin features' } }}
+                />
+              }
+              label="Hide all admin features"
+            />
+            <Typography variant="caption" color="text.secondary" display="block">
+              Demo only — hides the Admin section in the sidebar for this session. Resets when you
+              refresh the page.
+            </Typography>
+          </Paper>
+
+          <Paper sx={{ p: 4, mt: 3 }}>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={demoModeEnabled}
+                  onChange={(e) => dispatch(setDemoModeEnabled(e.target.checked))}
+                  slotProps={{ input: { 'aria-label': 'Enable demo mode' } }}
+                />
+              }
+              label="Demo mode"
+            />
+            <Typography variant="caption" color="text.secondary" display="block">
+              Demo only — replaces the Recent Job Postings list with ~100 sample
+              software-engineering roles from top companies. Resets when you refresh the page.
+            </Typography>
+          </Paper>
+        </>
       )}
     </Container>
   );

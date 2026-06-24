@@ -1,4 +1,5 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
+import type { RootState } from '../../app/store';
 
 /**
  * UI state (modals, notifications, etc.)
@@ -27,6 +28,13 @@ export interface UIState {
    * in the sidebar). Ephemeral and not persisted — resets to false on refresh.
    */
   hideAdminFeatures: boolean;
+
+  /**
+   * Demo-only: when true, the Recent Job Postings page swaps its live feed for a
+   * curated set of sample software-engineering listings (see features/jobs/demoJobs.ts).
+   * Ephemeral and not persisted — resets to false on refresh.
+   */
+  demoModeEnabled: boolean;
 }
 
 const initialState: UIState = {
@@ -36,6 +44,7 @@ const initialState: UIState = {
   globalLoading: false,
   notifications: [],
   hideAdminFeatures: false,
+  demoModeEnabled: false,
 };
 
 interface OpenGraphModalPayload {
@@ -72,6 +81,9 @@ const uiSlice = createSlice({
     setHideAdminFeatures(state, action: PayloadAction<boolean>) {
       state.hideAdminFeatures = action.payload;
     },
+    setDemoModeEnabled(state, action: PayloadAction<boolean>) {
+      state.demoModeEnabled = action.payload;
+    },
   },
 });
 
@@ -82,6 +94,14 @@ export const {
   addNotification,
   removeNotification,
   setHideAdminFeatures,
+  setDemoModeEnabled,
 } = uiSlice.actions;
+
+/**
+ * Admin-only "Demo mode" flag. When true, the Recent Job Postings page swaps its
+ * live feed for the curated DEMO_JOBS sample set (see features/jobs/demoJobs.ts).
+ * UI-gated to admins; ephemeral (not persisted, resets on refresh).
+ */
+export const selectDemoModeEnabled = (state: RootState) => state.ui.demoModeEnabled;
 
 export default uiSlice.reducer;

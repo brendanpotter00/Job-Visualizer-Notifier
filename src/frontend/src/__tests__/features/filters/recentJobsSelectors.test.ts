@@ -16,6 +16,7 @@ import {
   selectRecentJobsMetadata,
   selectRecentJobsTimeBasedCounts,
 } from '../../../features/filters/selectors/recentJobsSelectors';
+import { DEMO_JOBS } from '../../../features/jobs/demoJobs';
 
 // Helper to create mock jobs.
 // Derives a single canonical location tag from the raw `location` string
@@ -124,6 +125,55 @@ const createMockStoreWithJobs = (
 };
 
 describe('recentJobsSelectors', () => {
+  describe('demo mode (admin Demo toggle)', () => {
+    const realJobs = [createMockJob({ id: 'real-1', company: 'spacex' })];
+    const allWindow: RecentJobsFilters = { timeWindow: 'all', softwareOnly: false };
+
+    // The helper seeds `ui` from uiReducer defaults; flip demoModeEnabled on.
+    const enableDemo = (state: RootState): RootState =>
+      ({ ...state, ui: { ...state.ui, demoModeEnabled: true } }) as RootState;
+
+    it('returns the curated DEMO_JOBS (stable reference) and drops real data when enabled', () => {
+      const state = enableDemo(createMockStoreWithJobs(realJobs, allWindow));
+      const result = selectAllJobsFromQuery(state);
+      // Reference equality proves the memoization-safe stable constant is returned.
+      expect(result).toBe(DEMO_JOBS);
+      expect(result).toHaveLength(DEMO_JOBS.length);
+      expect(result.some((j) => j.id === 'real-1')).toBe(false);
+    });
+
+    it('returns real jobs (not demo data) when disabled', () => {
+      const state = createMockStoreWithJobs(realJobs, allWindow);
+      const result = selectAllJobsFromQuery(state);
+      expect(result).not.toBe(DEMO_JOBS);
+      expect(result.map((j) => j.id)).toEqual(['real-1']);
+    });
+
+    it('bypasses the enabled-companies prefilter when enabled', () => {
+      // enabledIds excludes every demo company, yet demo data is still returned in full.
+      const state = enableDemo(
+        createMockStoreWithJobs(realJobs, allWindow, ['some-company-not-in-demo'])
+      );
+      expect(selectAllJobsFromQuery(state)).toBe(DEMO_JOBS);
+    });
+
+    it('feeds demo data through downstream company/metric/recency selectors', () => {
+      const state = enableDemo(createMockStoreWithJobs(realJobs, allWindow));
+
+      const companies = selectRecentAvailableCompanies(state);
+      expect(companies.length).toBeGreaterThan(1);
+      expect(companies.map((c) => c.id)).toContain('google');
+      // Name resolves from config — proves logos/links will resolve for demo jobs too.
+      expect(companies.find((c) => c.id === 'google')?.name).toBe('Google');
+
+      expect(selectRecentJobsMetadata(state).totalJobs).toBe(DEMO_JOBS.length);
+
+      const counts = selectRecentJobsTimeBasedCounts(state);
+      expect(counts.jobsLast3Hours).toBeGreaterThan(0);
+      expect(counts.jobsLast24Hours).toBeGreaterThanOrEqual(counts.jobsLast3Hours);
+    });
+  });
+
   describe('selectRecentJobsFilteredWithoutLocation', () => {
     it('should filter jobs by all filters except location', () => {
       const now = Date.now();

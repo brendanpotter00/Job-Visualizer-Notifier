@@ -7,6 +7,7 @@ import {
   selectRecentJobsTimeBasedCounts,
 } from '../../features/filters/selectors/recentJobsSelectors';
 import { selectEnabledCompanyIds } from '../../features/preferences/enabledCompaniesSlice';
+import { selectDemoModeEnabled } from '../../features/ui/uiSlice';
 import { useAuth } from '../../features/auth/useAuth';
 import { RecentJobsMetrics } from '../../components/recent-jobs-page/RecentJobsMetrics/RecentJobsMetrics';
 import { RecentJobsFilters } from '../../components/recent-jobs-page/RecentJobsFilters';
@@ -36,6 +37,7 @@ export function RecentJobPostingsPage() {
   const metadata = useAppSelector(selectRecentJobsMetadata);
   const timeBasedCounts = useAppSelector(selectRecentJobsTimeBasedCounts);
   const enabledIds = useAppSelector(selectEnabledCompanyIds);
+  const demoModeEnabled = useAppSelector(selectDemoModeEnabled);
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   // Constrain the progress bar's chips/totals to the user's enabled set.
   // null/[] = "all enabled" (matches the recent-jobs selector semantics).
@@ -55,7 +57,10 @@ export function RecentJobPostingsPage() {
           Recent Job Postings
         </Typography>
         <EditCompanyPreferencesRow />
-        {error ? (
+        {/* Demo mode serves curated DEMO_JOBS from the selectors regardless of the
+            live query, so suppress the live-error banner while it is active — the
+            whole point of demo mode is to work when the backend is unavailable. */}
+        {error && !demoModeEnabled ? (
           <Box sx={{ mb: 2 }}>
             <ErrorState
               inline
@@ -64,14 +69,20 @@ export function RecentJobPostingsPage() {
           </Box>
         ) : null}
 
-        {!error && data && (
+        {/* Render the list whenever the live query succeeds OR demo mode is on.
+            In demo mode the selectors return curated data, so bypass the
+            live-query loading/error gate entirely. */}
+        {(demoModeEnabled || (!error && data)) && (
           <>
             <RecentJobsMetrics
               totalJobs={metadata.filteredCount}
               jobsLast24Hours={timeBasedCounts.jobsLast24Hours}
               jobsLast3Hours={timeBasedCounts.jobsLast3Hours}
             />
-            {data &&
+            {/* Live fetch-progress is meaningless in demo mode; only show it for
+                real data once the user's company preferences are ready. */}
+            {!demoModeEnabled &&
+              data &&
               (preferencesReady ? (
                 <FetchProgressBar companyIdFilter={progressFilter} />
               ) : (
