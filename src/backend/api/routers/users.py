@@ -103,12 +103,17 @@ async def get_current_user_profile(
     is_new_user = result["created_at"] == result["updated_at"]
     ph = get_posthog()
     if ph and is_new_user:
-        with new_context():
-            identify_context(auth0_id)
-            ph.capture(
-                "user_signed_up",
-                distinct_id=auth0_id,
-                properties={"$set": {"email": email}},
+        try:
+            with new_context():
+                identify_context(auth0_id)
+                ph.capture(
+                    "user_signed_up",
+                    distinct_id=auth0_id,
+                    properties={"$set": {"email": email}},
+                )
+        except Exception:
+            logger.warning(
+                "PostHog capture failed for user_signed_up", exc_info=True
             )
     is_admin = is_admin_by_email(conn, email)
     return _row_to_user_response(result, is_admin=is_admin)

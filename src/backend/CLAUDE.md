@@ -68,6 +68,8 @@ All configuration via environment variables:
 | `AUTH0_DOMAIN` | Auth0 tenant domain (e.g., `myapp.us.auth0.com`) | *(required for auth)* |
 | `AUTH0_AUDIENCE` | Auth0 API audience identifier | *(required for auth)* |
 | `GOOGLE_CLIENT_ID` | Google OAuth client ID for One Tap validation | *(optional)* |
+| `POSTHOG_PROJECT_TOKEN` | PostHog analytics API key — if unset, all analytics is disabled (`get_posthog()` returns `None`) | *(optional)* |
+| `POSTHOG_HOST` | PostHog ingestion host (US cloud endpoint) | `https://us.i.posthog.com` |
 
 **Table names are env-agnostic.** All environments share bare names (`job_listings`, `scrape_runs`, `users`, `user_enabled_companies`). Test isolation uses per-worker Postgres **schemas** via `PYTEST_SCHEMA=test_<hex>` + `SET search_path`; inside the schema the table names are the same as prod. See `docs/implementations/envAgnosticTables/PLAN.md`.
 
@@ -141,6 +143,7 @@ src/backend/api/
 │   ├── admin_service.py # Admin grant/revoke and is_admin check
 │   ├── features_service.py  # Feature list and upvote logic
 │   ├── features_seed.py # Seed starter features + reconcile shipped (completed_at) status
+│   ├── posthog_client.py    # Module-level singleton initialized at startup; get_posthog() returns None when token is unset (analytics-off graceful degradation)
 │   ├── scraper_lock.py  # asyncio.Lock singleton shared by runner + auto-scraper
 │   ├── scraper_runner.py # Async subprocess runner for scrapers
 │   ├── auto_scraper.py  # Background scheduled scraping (Google/Apple/Microsoft)

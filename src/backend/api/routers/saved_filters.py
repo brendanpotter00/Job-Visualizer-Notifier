@@ -141,18 +141,23 @@ def put_saved_filters(
     auth0_id = get_normalized_subject(user)
     ph = get_posthog()
     if ph and auth0_id:
-        with new_context():
-            identify_context(auth0_id)
-            ph.capture(
-                "saved_filters_updated",
-                distinct_id=auth0_id,
-                properties={
-                    "recent_time_window": body.recent_time_window,
-                    "trend_time_window": body.trend_time_window,
-                    "location_count": len(body.locations) if body.locations else 0,
-                    "has_recent_keyword_list": body.recent_active_keyword_list_id is not None,
-                    "has_trend_keyword_list": body.trend_active_keyword_list_id is not None,
-                },
+        try:
+            with new_context():
+                identify_context(auth0_id)
+                ph.capture(
+                    "saved_filters_updated",
+                    distinct_id=auth0_id,
+                    properties={
+                        "recent_time_window": body.recent_time_window,
+                        "trend_time_window": body.trend_time_window,
+                        "location_count": len(body.locations) if body.locations else 0,
+                        "has_recent_keyword_list": body.recent_active_keyword_list_id is not None,
+                        "has_trend_keyword_list": body.trend_active_keyword_list_id is not None,
+                    },
+                )
+        except Exception:
+            logger.warning(
+                "PostHog capture failed for saved_filters_updated", exc_info=True
             )
     return _saved_filters_response(prefs)
 
@@ -224,12 +229,17 @@ def post_keyword_list(
     auth0_id = get_normalized_subject(user)
     ph = get_posthog()
     if ph and auth0_id:
-        with new_context():
-            identify_context(auth0_id)
-            ph.capture(
-                "keyword_list_created",
-                distinct_id=auth0_id,
-                properties={"tag_count": len(tags)},
+        try:
+            with new_context():
+                identify_context(auth0_id)
+                ph.capture(
+                    "keyword_list_created",
+                    distinct_id=auth0_id,
+                    properties={"tag_count": len(tags)},
+                )
+        except Exception:
+            logger.warning(
+                "PostHog capture failed for keyword_list_created", exc_info=True
             )
     return _keyword_list_response(row)
 
@@ -277,16 +287,21 @@ def patch_keyword_list(
     auth0_id = get_normalized_subject(user)
     ph = get_posthog()
     if ph and auth0_id:
-        with new_context():
-            identify_context(auth0_id)
-            ph.capture(
-                "keyword_list_updated",
-                distinct_id=auth0_id,
-                properties={
-                    "renamed": body.name is not None,
-                    "tags_updated": body.tags is not None,
-                    "reordered": body.position is not None,
-                },
+        try:
+            with new_context():
+                identify_context(auth0_id)
+                ph.capture(
+                    "keyword_list_updated",
+                    distinct_id=auth0_id,
+                    properties={
+                        "renamed": body.name is not None,
+                        "tags_updated": body.tags is not None,
+                        "reordered": body.position is not None,
+                    },
+                )
+        except Exception:
+            logger.warning(
+                "PostHog capture failed for keyword_list_updated", exc_info=True
             )
     return _keyword_list_response(row)
 
@@ -319,9 +334,14 @@ def delete_keyword_list(
     auth0_id = get_normalized_subject(user)
     ph = get_posthog()
     if ph and auth0_id:
-        with new_context():
-            identify_context(auth0_id)
-            ph.capture("keyword_list_deleted", distinct_id=auth0_id)
+        try:
+            with new_context():
+                identify_context(auth0_id)
+                ph.capture("keyword_list_deleted", distinct_id=auth0_id)
+        except Exception:
+            logger.warning(
+                "PostHog capture failed for keyword_list_deleted", exc_info=True
+            )
 
 
 # --- Location search ----------------------------------------------------------

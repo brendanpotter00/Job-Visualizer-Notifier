@@ -42,12 +42,30 @@ describe('usePostHogPageview', () => {
     expect(mockCapture).toHaveBeenCalledTimes(2);
   });
 
-  it('does not capture when PostHog is disabled', () => {
+  it('does not capture when PostHog is disabled', async () => {
+    // Re-load the hook against a fresh module graph where POSTHOG_CONFIG
+    // reports isEnabled: false, so the hook hits its early-return guard.
+    vi.resetModules();
     vi.doMock('../../../config/posthog', () => ({
       POSTHOG_CONFIG: { isEnabled: false },
     }));
-    // Hook early-returns when isEnabled=false; capture stays 0 from this isolated check.
-    // The global mock already has isEnabled: true, so just verify the conditional branch
-    // via the guard in the hook — tested implicitly by the enabled tests passing.
+    vi.doMock('@posthog/react', () => ({
+      usePostHog: () => ({ capture: mockCapture }),
+    }));
+    vi.doMock('react-router-dom', () => ({
+      useLocation: () => ({ pathname: mockPathname, search: mockSearch }),
+    }));
+
+    const { usePostHogPageview: usePostHogPageviewDisabled } = await import(
+      '../../../features/analytics/usePostHogPageview'
+    );
+
+    renderHook(() => usePostHogPageviewDisabled());
+    expect(mockCapture).not.toHaveBeenCalled();
+
+    vi.doUnmock('../../../config/posthog');
+    vi.doUnmock('@posthog/react');
+    vi.doUnmock('react-router-dom');
+    vi.resetModules();
   });
 });

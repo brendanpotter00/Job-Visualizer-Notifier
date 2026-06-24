@@ -117,8 +117,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Startup
     warn_if_unset()
     if settings.posthog_project_token:
-        init_posthog(settings.posthog_project_token, settings.posthog_host)
-        logger.info("PostHog initialized")
+        try:
+            init_posthog(settings.posthog_project_token, settings.posthog_host)
+            logger.info("PostHog initialized")
+        except Exception:
+            logger.warning("PostHog init failed — analytics disabled", exc_info=True)
     logger.info("Applying database migrations...")
     try:
         apply_alembic_migrations(settings.database_url)

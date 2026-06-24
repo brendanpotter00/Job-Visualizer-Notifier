@@ -98,18 +98,23 @@ def post_feedback(
         raise HTTPException(status_code=500, detail="Failed to submit feedback")
     ph = get_posthog()
     if ph:
-        auth0_id = get_normalized_subject(user) if user else None
-        distinct_id = auth0_id or "anonymous"
-        with new_context():
-            if auth0_id:
-                identify_context(auth0_id)
-            ph.capture(
-                "feedback_submitted",
-                distinct_id=distinct_id,
-                properties={
-                    "is_authenticated": user_id is not None,
-                    "message_length": len(message),
-                },
+        try:
+            auth0_id = get_normalized_subject(user) if user else None
+            distinct_id = auth0_id or "anonymous"
+            with new_context():
+                if auth0_id:
+                    identify_context(auth0_id)
+                ph.capture(
+                    "feedback_submitted",
+                    distinct_id=distinct_id,
+                    properties={
+                        "is_authenticated": user_id is not None,
+                        "message_length": len(message),
+                    },
+                )
+        except Exception:
+            logger.warning(
+                "PostHog capture failed for feedback_submitted", exc_info=True
             )
     return FeedbackResponse(
         id=row["id"],

@@ -49,7 +49,7 @@ export function CookieConsentBanner() {
         }}
       >
         <Typography variant="caption" color="text.secondary">
-          We use analytics cookies to understand how you use this site. Decline if you prefer.
+          We'd like to use analytics cookies to understand how you use this site. Decline if you prefer.
         </Typography>
         <Box sx={{ display: 'flex', gap: 0.75 }}>
           <Button size="small" variant="contained" onClick={handleAccept} fullWidth sx={{ py: 0.25, fontSize: '0.7rem' }}>
