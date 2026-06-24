@@ -38,7 +38,7 @@ describe('saved-filters hydrate -> logout reset', () => {
     expect(state.filters).toEqual(initial.filters);
     expect(state.filters.location).toBeUndefined();
     expect(state.filters.searchTags).toBeUndefined();
-    expect(state.filters.timeWindow).toBe('7d');
+    expect(state.filters.timeWindow).toBe('14d');
   });
 
   it('clears every hydrated recent-jobs field on reset', () => {
@@ -60,6 +60,6 @@ describe('saved-filters hydrate -> logout reset', () => {
     expect(state.filters).toEqual(initial.filters);
     expect(state.filters.location).toBeUndefined();
     expect(state.filters.searchTags).toBeUndefined();
-    expect(state.filters.timeWindow).toBe('3h');
+    expect(state.filters.timeWindow).toBe('14d');
   });
 });

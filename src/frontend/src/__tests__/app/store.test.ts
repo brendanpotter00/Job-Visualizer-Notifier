@@ -31,7 +31,7 @@ describe('Redux Store', () => {
   it('should have correct initial filters state', () => {
     const state = store.getState();
 
-    expect(state.graphFilters.filters.timeWindow).toBe('7d');
+    expect(state.graphFilters.filters.timeWindow).toBe('14d');
     expect(state.graphFilters.filters.softwareOnly).toBe(false);
     expect(state.graphFilters.filters.searchTags).toBeUndefined();
   });

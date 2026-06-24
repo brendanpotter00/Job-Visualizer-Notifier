@@ -287,8 +287,6 @@ export function SavedFiltersPage() {
           />
         )}
 
-        <EnabledCompaniesSection />
-
         {listsQuery.isError ? (
           <ErrorState
             inline
@@ -316,6 +314,8 @@ export function SavedFiltersPage() {
             onSaveActive={() => handleSave('keywords')}
           />
         )}
+
+        <EnabledCompaniesSection />
 
         {/* Default time windows sit last per design. They read from the same
             prefs draft as the Locations section above, which already surfaces

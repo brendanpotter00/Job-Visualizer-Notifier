@@ -8,7 +8,7 @@ import { createFilterSlice, type FiltersState } from './createFilterSlice';
 export type GraphFiltersState = FiltersState<GraphFilters>;
 
 const initialFilters: GraphFilters = {
-  timeWindow: '7d',
+  timeWindow: '14d',
   searchTags: undefined,
   location: undefined,
   department: undefined,

@@ -269,9 +269,9 @@ describe('RecentJobsFilters', () => {
     await user.click(screen.getByRole('button', { name: /reset filters/i }));
 
     const filters = store.getState().recentJobsFilters.filters;
-    // After reset, the slice's initial state should be restored (timeWindow='3h',
+    // After reset, the slice's initial state should be restored (timeWindow='14d',
     // all other fields undefined/false).
-    expect(filters.timeWindow).toBe('3h');
+    expect(filters.timeWindow).toBe('14d');
     expect(filters.searchTags).toBeUndefined();
     expect(filters.location).toBeUndefined();
     expect(filters.company).toBeUndefined();
