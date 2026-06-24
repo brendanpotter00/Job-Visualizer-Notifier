@@ -28,34 +28,34 @@ export function CookieConsentBanner() {
       sx={{
         position: 'fixed',
         bottom: 0,
-        left: 0,
+        right: 0,
         zIndex: 1400,
-        p: { xs: 1.5, sm: 2 },
+        p: 1.5,
         pointerEvents: 'none',
       }}
     >
       <Paper
         elevation={4}
         sx={{
-          maxWidth: 280,
-          p: { xs: 2, sm: 2.5 },
+          maxWidth: 240,
+          p: 1.5,
           display: 'flex',
           flexDirection: 'column',
-          gap: 1.5,
+          gap: 1,
           pointerEvents: 'auto',
           borderRadius: 2,
           border: '1px solid',
           borderColor: 'divider',
         }}
       >
-        <Typography variant="body2" color="text.secondary">
+        <Typography variant="caption" color="text.secondary">
           We use analytics cookies to understand how you use this site. Decline if you prefer.
         </Typography>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button size="small" variant="contained" onClick={handleAccept} fullWidth>
+        <Box sx={{ display: 'flex', gap: 0.75 }}>
+          <Button size="small" variant="contained" onClick={handleAccept} fullWidth sx={{ py: 0.25, fontSize: '0.7rem' }}>
             Accept
           </Button>
-          <Button size="small" variant="outlined" onClick={handleDecline} fullWidth>
+          <Button size="small" variant="outlined" onClick={handleDecline} fullWidth sx={{ py: 0.25, fontSize: '0.7rem' }}>
             Decline
           </Button>
         </Box>
