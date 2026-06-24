@@ -4,6 +4,7 @@ import { getConsentStatus, acceptTracking, declineTracking } from '../../lib/pos
 
 describe('posthogConsent', () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     vi.mocked(posthog.get_explicit_consent_status).mockReturnValue('pending' as never);
   });
 
