@@ -72,6 +72,35 @@ describe('NavigationDrawer', () => {
     });
   });
 
+  describe('Info section', () => {
+    it('renders the "INFO" caption and info items when expanded', () => {
+      render(
+        <MemoryRouter>
+          <NavigationDrawer {...mockProps} open={true} />
+        </MemoryRouter>
+      );
+
+      // The INFO caption separates the functional tabs from the info tabs.
+      expect(screen.getByText('INFO')).toBeInTheDocument();
+      expect(screen.getByText('Curated Companies')).toBeInTheDocument();
+      expect(screen.getByText('Give Feedback')).toBeInTheDocument();
+      expect(screen.getByText('Why This Was Built')).toBeInTheDocument();
+    });
+
+    it('renders info item icons but hides the "INFO" caption when collapsed', () => {
+      render(
+        <MemoryRouter>
+          <NavigationDrawer {...mockProps} open={false} />
+        </MemoryRouter>
+      );
+
+      // Icons stay visible at collapsed width; the caption is hidden because
+      // text labels are not shown when the drawer is collapsed.
+      expect(screen.getByTestId('BusinessIcon')).toBeInTheDocument();
+      expect(screen.queryByText('INFO')).not.toBeInTheDocument();
+    });
+  });
+
   describe('Drawer Variants', () => {
     it('uses permanent variant when isMobile is false', () => {
       const { container } = render(

@@ -21,7 +21,11 @@ export const ROUTES = {
   ADMIN_FEEDBACK: '/admin/feedback',
 } as const;
 
-export const USER_NAV_ITEMS = [
+/**
+ * Functional tabs — the core app features. Rendered above the "INFO" divider
+ * in the sidebar.
+ */
+export const PRIMARY_NAV_ITEMS = [
   {
     path: ROUTES.RECENT_JOBS,
     label: 'Recent Job Postings',
@@ -37,6 +41,13 @@ export const USER_NAV_ITEMS = [
     label: 'Saved Filters',
     icon: 'FilterListAlt',
   },
+] as const;
+
+/**
+ * Info tabs — supplementary / informational pages. Rendered below the "INFO"
+ * divider in the sidebar, mirroring the ADMIN group's divider + caption.
+ */
+export const INFO_NAV_ITEMS = [
   {
     path: ROUTES.CURATED_COMPANIES,
     label: 'Curated Companies',
@@ -53,6 +64,12 @@ export const USER_NAV_ITEMS = [
     icon: 'Info',
   },
 ] as const;
+
+/**
+ * Combined customer-facing nav items (functional + info), in display order.
+ * Retained for incidental consumers that iterate the full non-admin sidebar.
+ */
+export const USER_NAV_ITEMS = [...PRIMARY_NAV_ITEMS, ...INFO_NAV_ITEMS] as const;
 
 export const ADMIN_NAV_ITEMS = [
   {
