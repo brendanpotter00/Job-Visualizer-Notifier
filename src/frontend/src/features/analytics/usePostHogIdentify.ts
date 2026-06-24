@@ -11,7 +11,7 @@ export function usePostHogIdentify(): void {
     if (!POSTHOG_CONFIG.isEnabled || !posthog) return;
 
     if (user) {
-      posthog.identify(user.id, {
+      posthog.identify(user.providerSubject, {
         email: user.email,
         name: user.displayName ?? undefined,
         isAdmin: user.isAdmin,

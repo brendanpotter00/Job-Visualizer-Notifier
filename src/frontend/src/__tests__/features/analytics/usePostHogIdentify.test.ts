@@ -44,10 +44,10 @@ describe('usePostHogIdentify', () => {
     mockCurrentUser = { user: null, loading: false, error: null };
   });
 
-  it('identifies user with id, email, and isAdmin when user is present', () => {
+  it('identifies user with providerSubject, email, and isAdmin when user is present', () => {
     mockCurrentUser = { user: mockUser, loading: false, error: null };
     renderHook(() => usePostHogIdentify());
-    expect(mockIdentify).toHaveBeenCalledWith('user-123', {
+    expect(mockIdentify).toHaveBeenCalledWith('auth0|abc', {
       email: 'test@example.com',
       name: 'Test User',
       isAdmin: false,
@@ -66,7 +66,7 @@ describe('usePostHogIdentify', () => {
 
     mockCurrentUser = { user: mockUser, loading: false, error: null };
     rerender();
-    expect(mockIdentify).toHaveBeenCalledWith('user-123', expect.any(Object));
+    expect(mockIdentify).toHaveBeenCalledWith('auth0|abc', expect.any(Object));
   });
 
   it('resets when user signs out', () => {
