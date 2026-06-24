@@ -177,6 +177,9 @@ class FeatureResponse(BaseModel):
     title: str
     description: str
     created_at: datetime
+    # NULL while the feature is an open candidate; set to the ship date once
+    # it's been delivered. Drives the "Shipped" section + badge on the frontend.
+    completed_at: datetime | None = None
     upvote_count: int = Field(ge=0)
     has_upvoted: bool
 

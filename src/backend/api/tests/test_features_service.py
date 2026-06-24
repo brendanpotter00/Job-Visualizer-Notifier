@@ -1,5 +1,7 @@
 """Unit tests for features_service.py."""
 
+from datetime import datetime, timezone
+
 import pytest
 from psycopg2 import sql
 
@@ -13,13 +15,14 @@ from api.services.features_service import (
 from .conftest import _insert_user, _make_user
 
 
-def _insert_feature(db_conn, feature_id, title="T", description="D"):
+def _insert_feature(db_conn, feature_id, title="T", description="D", completed_at=None):
     cursor = db_conn.cursor()
     cursor.execute(
-        sql.SQL("INSERT INTO {} (id, title, description) VALUES (%s, %s, %s)").format(
-            sql.Identifier("features")
-        ),
-        (feature_id, title, description),
+        sql.SQL(
+            "INSERT INTO {} (id, title, description, completed_at)"
+            " VALUES (%s, %s, %s, %s)"
+        ).format(sql.Identifier("features")),
+        (feature_id, title, description, completed_at),
     )
     db_conn.commit()
 
@@ -62,6 +65,20 @@ class TestListFeaturesWithUpvotes:
         assert rows_a[0]["upvote_count"] == 1
         assert rows_b[0]["has_upvoted"] is False
         assert rows_b[0]["upvote_count"] == 1
+
+    def test_completed_at_is_none_by_default(self, db_conn):
+        _insert_feature(db_conn, "f1")
+        [row] = list_features_with_upvotes(db_conn, user_id=None)
+        assert "completed_at" in row
+        assert row["completed_at"] is None
+
+    def test_completed_at_returned_when_set(self, db_conn):
+        shipped = datetime(2026, 6, 1, 12, 0, tzinfo=timezone.utc)
+        _insert_feature(db_conn, "f1", completed_at=shipped)
+        # Authed path exercises the BOOL_OR branch's SELECT too.
+        user_id = _seed_user(db_conn)
+        [row] = list_features_with_upvotes(db_conn, user_id)
+        assert row["completed_at"] == shipped
 
 
 class TestAddUpvote:

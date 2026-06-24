@@ -11,13 +11,14 @@ from api.auth.dependencies import get_current_user, get_optional_user
 from api.dependencies import get_db
 
 
-def _insert_feature(db_conn, feature_id, title="T", description="D"):
+def _insert_feature(db_conn, feature_id, title="T", description="D", completed_at=None):
     cursor = db_conn.cursor()
     cursor.execute(
-        sql.SQL("INSERT INTO {} (id, title, description) VALUES (%s, %s, %s)").format(
-            sql.Identifier("features")
-        ),
-        (feature_id, title, description),
+        sql.SQL(
+            "INSERT INTO {} (id, title, description, completed_at)"
+            " VALUES (%s, %s, %s, %s)"
+        ).format(sql.Identifier("features")),
+        (feature_id, title, description, completed_at),
     )
     db_conn.commit()
 
@@ -49,6 +50,7 @@ class TestListFeaturesAnonymous:
             assert feat["upvoteCount"] == 0
             assert feat["hasUpvoted"] is False
             assert "createdAt" in feat
+            assert feat["completedAt"] is None
         finally:
             test_app.dependency_overrides.pop(get_optional_user, None)
 
@@ -60,9 +62,25 @@ class TestListFeaturesAnonymous:
             data = client.get("/api/features").json()
             feat = data["features"][0]
             assert set(feat.keys()) == {
-                "id", "title", "description", "createdAt",
+                "id", "title", "description", "createdAt", "completedAt",
                 "upvoteCount", "hasUpvoted",
             }
+        finally:
+            test_app.dependency_overrides.pop(get_optional_user, None)
+
+    def test_completed_at_serialized_when_set(self, test_app, db_conn):
+        _insert_feature(
+            db_conn,
+            "f1",
+            completed_at="2026-06-01T12:00:00+00:00",
+        )
+        test_app.dependency_overrides[get_optional_user] = lambda: None
+        try:
+            client = TestClient(test_app)
+            data = client.get("/api/features").json()
+            feat = data["features"][0]
+            assert feat["completedAt"] is not None
+            assert feat["completedAt"].startswith("2026-06-01T12:00:00")
         finally:
             test_app.dependency_overrides.pop(get_optional_user, None)
 

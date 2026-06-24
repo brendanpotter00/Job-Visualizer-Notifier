@@ -92,6 +92,7 @@ def list_features(
             title=r["title"],
             description=r["description"],
             created_at=r["created_at"],
+            completed_at=r["completed_at"],
             upvote_count=r["upvote_count"],
             has_upvoted=r["has_upvoted"],
         )

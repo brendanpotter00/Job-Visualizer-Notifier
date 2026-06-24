@@ -26,14 +26,8 @@ let upvoteInFlight = false;
 let removeInFlight = false;
 
 vi.mock('../../../features/features/featuresApi', () => ({
-  useUpvoteFeatureMutation: () => [
-    mockUpvoteTrigger,
-    { isLoading: upvoteInFlight },
-  ],
-  useRemoveUpvoteMutation: () => [
-    mockRemoveTrigger,
-    { isLoading: removeInFlight },
-  ],
+  useUpvoteFeatureMutation: () => [mockUpvoteTrigger, { isLoading: upvoteInFlight }],
+  useRemoveUpvoteMutation: () => [mockRemoveTrigger, { isLoading: removeInFlight }],
 }));
 
 const SAMPLE: FeatureListItem = {
@@ -41,6 +35,7 @@ const SAMPLE: FeatureListItem = {
   title: 'AI resume matching notifications',
   description: 'Upload your resume and get matched to new postings.',
   createdAt: '2026-04-10T00:00:00Z',
+  completedAt: null,
   upvoteCount: 3,
   hasUpvoted: false,
 };
@@ -83,9 +78,7 @@ describe('FeatureVoteCard', () => {
       await user.click(findUpvoteButton());
       // The modal uses its default `aria-labelledby` wiring (pass-1 a11y
       // contract), so the accessible name resolves to the rendered title.
-      expect(
-        await screen.findByRole('dialog', { name: /sign in to vote/i })
-      ).toBeInTheDocument();
+      expect(await screen.findByRole('dialog', { name: /sign in to vote/i })).toBeInTheDocument();
     });
 
     it('clicking the upvote arrow does NOT dispatch any mutation', async () => {
@@ -131,16 +124,12 @@ describe('FeatureVoteCard', () => {
       const user = userEvent.setup();
       render(<FeatureVoteCard feature={SAMPLE} />);
       await user.click(findUpvoteButton());
-      expect(
-        screen.queryByRole('dialog', { name: /sign in to vote/i })
-      ).not.toBeInTheDocument();
+      expect(screen.queryByRole('dialog', { name: /sign in to vote/i })).not.toBeInTheDocument();
     });
 
     it('logs via logger.error when the upvote mutation rejects', async () => {
       const user = userEvent.setup();
-      const loggerErrorSpy = vi
-        .spyOn(logger, 'error')
-        .mockImplementation(() => {});
+      const loggerErrorSpy = vi.spyOn(logger, 'error').mockImplementation(() => {});
       const mockErr = new Error('boom');
       mockUpvoteTrigger.mockReturnValue({
         unwrap: () => Promise.reject(mockErr),
@@ -149,10 +138,7 @@ describe('FeatureVoteCard', () => {
         render(<FeatureVoteCard feature={SAMPLE} />);
         await user.click(findUpvoteButton());
         await waitFor(() => {
-          expect(loggerErrorSpy).toHaveBeenCalledWith(
-            expect.stringContaining('upvote'),
-            mockErr
-          );
+          expect(loggerErrorSpy).toHaveBeenCalledWith(expect.stringContaining('upvote'), mockErr);
         });
       } finally {
         loggerErrorSpy.mockRestore();
@@ -217,6 +203,48 @@ describe('FeatureVoteCard', () => {
       render(<FeatureVoteCard feature={SAMPLE} />);
       expect(screen.getByText(SAMPLE.title)).toBeInTheDocument();
       expect(screen.getByText(SAMPLE.description)).toBeInTheDocument();
+    });
+  });
+
+  describe('read-only / shipped variant', () => {
+    const shipped: FeatureListItem = {
+      ...SAMPLE,
+      completedAt: '2026-05-01T00:00:00Z',
+    };
+
+    it('renders the "Shipped" badge and the live dot', () => {
+      render(<FeatureVoteCard feature={shipped} readOnly />);
+      expect(screen.getByText('Shipped')).toBeInTheDocument();
+      expect(screen.getByTestId('live-dot')).toBeInTheDocument();
+    });
+
+    it('does NOT render an upvote/remove button', () => {
+      render(<FeatureVoteCard feature={shipped} readOnly />);
+      expect(screen.queryByRole('button', { name: /upvote/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /remove upvote/i })).not.toBeInTheDocument();
+    });
+
+    it('still shows the (read-only) vote count, title, and description', () => {
+      render(<FeatureVoteCard feature={shipped} readOnly />);
+      expect(screen.getByLabelText('3 upvotes')).toBeInTheDocument();
+      expect(screen.getByText(shipped.title)).toBeInTheDocument();
+      expect(screen.getByText(shipped.description)).toBeInTheDocument();
+    });
+
+    it('clicking the card dispatches no mutation', async () => {
+      mockAuthState.isAuthenticated = true;
+      const user = userEvent.setup();
+      render(<FeatureVoteCard feature={shipped} readOnly />);
+      await user.click(screen.getByText(shipped.title));
+      expect(mockUpvoteTrigger).not.toHaveBeenCalled();
+      expect(mockRemoveTrigger).not.toHaveBeenCalled();
+    });
+
+    it('does not open the sign-in modal (no interactive control)', async () => {
+      const user = userEvent.setup();
+      render(<FeatureVoteCard feature={shipped} readOnly />);
+      await user.click(screen.getByText(shipped.title));
+      expect(screen.queryByRole('dialog', { name: /sign in to vote/i })).not.toBeInTheDocument();
     });
   });
 });
