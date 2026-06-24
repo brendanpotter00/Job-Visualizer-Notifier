@@ -335,7 +335,7 @@ Brief it with:
   (`npm run type-check`, relevant `npm test`, backend `pytest`). If a gate is red
   after the fixes, the fix agent must resolve it before committing — a red gate is
   itself a Critical finding.
-- **Commit once** with message `Review round N: <short summary>` (one logical
+- **Commit once** with message `review-loop(<N>): <short summary>` (one logical
   commit; split only if fixes span clearly separate concerns). Do **not** push,
   do **not** open/merge a PR.
 
