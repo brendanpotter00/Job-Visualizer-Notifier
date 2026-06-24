@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { EnabledCompaniesSection } from '../../../components/account/EnabledCompaniesSection';
+import { EnabledCompaniesSection } from '../../../components/saved-filters/EnabledCompaniesSection';
 import { COMPANIES } from '../../../config/companies';
 
 type MockEnabled = {
@@ -53,9 +53,7 @@ describe('EnabledCompaniesSection', () => {
     render(<EnabledCompaniesSection />);
 
     expect(screen.getByRole('progressbar')).toBeInTheDocument();
-    expect(
-      screen.queryByRole('combobox', { name: /search companies/i })
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: /search companies/i })).not.toBeInTheDocument();
   });
 
   it('renders the picker with no selected chips when ids is null', () => {

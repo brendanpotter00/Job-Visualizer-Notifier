@@ -3,7 +3,14 @@
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 from pydantic.alias_generators import to_camel
 
 # Closed set of signup provider tokens derived from
@@ -170,6 +177,9 @@ class FeatureResponse(BaseModel):
     title: str
     description: str
     created_at: datetime
+    # NULL while the feature is an open candidate; set to the ship date once
+    # it's been delivered. Drives the "Shipped" section + badge on the frontend.
+    completed_at: datetime | None = None
     upvote_count: int = Field(ge=0)
     has_upvoted: bool
 
@@ -255,6 +265,12 @@ class AdminUserRow(BaseModel):
     display_name: str | None = None
     signup_provider: SignupProvider
     created_at: str
+    # Engagement fields for the "most frequent users" view. ``visit_count``
+    # is incremented once per full page load via POST /api/users/visit;
+    # ``last_visit_at`` is the most recent load (NULL until the user's first
+    # visit after this feature shipped). Serialized as visitCount / lastVisitAt.
+    visit_count: int = Field(ge=0)
+    last_visit_at: datetime | None = None
     is_admin: bool
 
 
@@ -557,3 +573,179 @@ class AdminProblemJobsResponse(BaseModel):
 
     jobs: list[AdminProblemJob]
     total: int = Field(ge=0)
+
+
+# --- User Saved Filters -------------------------------------------------------
+
+# The 13 allowed time-window tokens shared by the Recent and Trend pages.
+# Stored as TEXT in ``user_saved_filters`` but validated to this Literal at the
+# boundary, so any value outside the set yields a 422 (same mechanism as
+# ``ScrapeRunResponse.mode``).
+TimeWindow = Literal[
+    "30m", "1h", "3h", "6h", "12h", "24h",
+    "3d", "7d", "14d", "30d", "90d", "180d", "all",
+]
+KeywordMode = Literal["include", "exclude"]
+
+# Caps that defend the DB layer. The per-user list-count cap lives only in
+# saved_filters_service.MAX_KEYWORD_LISTS_PER_USER, where the existing row count
+# is visible — Pydantic can't enforce it at the request boundary.
+_MAX_LOCATIONS = 100
+_MAX_TAGS_PER_LIST = 100
+_MAX_TAG_TEXT_LEN = 100
+_MAX_LIST_NAME_LEN = 100
+_MAX_LOCATION_LEN = 200  # matches LocationSpec.canonical_name
+
+
+def _dedup_locations(locations: list[str]) -> list[str]:
+    """Collapse exact-duplicate location strings, preserving first-seen order."""
+    seen: set[str] = set()
+    result: list[str] = []
+    for loc in locations:
+        if loc not in seen:
+            seen.add(loc)
+            result.append(loc)
+    return result
+
+
+class SearchTag(BaseModel):
+    """One keyword tag: free text plus an include/exclude mode."""
+
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
+
+    text: str = Field(min_length=1, max_length=_MAX_TAG_TEXT_LEN)
+    mode: KeywordMode
+
+
+def _dedup_tags(tags: list[SearchTag]) -> list[SearchTag]:
+    """Collapse exact (text, mode) duplicates, preserving order.
+
+    The dedup key includes ``mode`` so the same text may legitimately appear
+    once as include and once as exclude — only an exact (text, mode) repeat is
+    dropped. Frontend resolves any include/exclude precedence.
+    """
+    seen: set[tuple[str, str]] = set()
+    result: list[SearchTag] = []
+    for tag in tags:
+        key = (tag.text, tag.mode)
+        if key not in seen:
+            seen.add(key)
+            result.append(tag)
+    return result
+
+
+class SavedFiltersResponse(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    recent_time_window: TimeWindow
+    trend_time_window: TimeWindow
+    locations: list[str]
+    recent_active_keyword_list_id: str | None = None
+    trend_active_keyword_list_id: str | None = None
+
+
+class SavedFiltersUpdateRequest(BaseModel):
+    """Full-replace body for PUT /api/users/saved-filters.
+
+    Locations are deduped (order-preserving) at the boundary. The active-list
+    pointers are bounded at 64 chars to match the uuid4-hex id shape and the
+    ``'builtin-swe'`` sentinel; service-layer ownership validation decides
+    whether a non-null pointer is accepted (409 otherwise).
+    """
+
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
+
+    recent_time_window: TimeWindow
+    trend_time_window: TimeWindow
+    locations: list[
+        Annotated[
+            str, StringConstraints(min_length=1, max_length=_MAX_LOCATION_LEN)
+        ]
+    ] = Field(default_factory=list, max_length=_MAX_LOCATIONS)
+    recent_active_keyword_list_id: str | None = Field(default=None, max_length=64)
+    trend_active_keyword_list_id: str | None = Field(default=None, max_length=64)
+
+    @field_validator("locations")
+    @classmethod
+    def _dedup_locations_field(cls, value: list[str]) -> list[str]:
+        return _dedup_locations(value)
+
+
+class KeywordListResponse(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    id: str
+    name: str
+    tags: list[SearchTag]
+    is_builtin: bool = False
+    position: int = 0
+
+
+class KeywordListsResponse(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    lists: list[KeywordListResponse]
+
+
+class KeywordListCreateRequest(BaseModel):
+    """Body for POST /api/users/saved-filters/keyword-lists.
+
+    Tags are deduped (order-preserving) on (text, mode) at the boundary.
+    """
+
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
+
+    name: str = Field(min_length=1, max_length=_MAX_LIST_NAME_LEN)
+    tags: list[SearchTag] = Field(
+        default_factory=list, max_length=_MAX_TAGS_PER_LIST
+    )
+
+    @field_validator("tags")
+    @classmethod
+    def _dedup_tags_field(cls, value: list[SearchTag]) -> list[SearchTag]:
+        return _dedup_tags(value)
+
+
+class KeywordListUpdateRequest(BaseModel):
+    """Body for PATCH /api/users/saved-filters/keyword-lists/{id}.
+
+    All fields optional (partial update): ``name`` renames, ``tags`` replaces
+    the whole array, ``position`` reorders. An empty body is a no-op. Tags are
+    deduped (order-preserving) on (text, mode) when present.
+    """
+
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
+
+    name: str | None = Field(
+        default=None, min_length=1, max_length=_MAX_LIST_NAME_LEN
+    )
+    tags: list[SearchTag] | None = Field(
+        default=None, max_length=_MAX_TAGS_PER_LIST
+    )
+    position: int | None = Field(default=None, ge=0)
+
+    @field_validator("tags")
+    @classmethod
+    def _dedup_tags_field(
+        cls, value: list[SearchTag] | None
+    ) -> list[SearchTag] | None:
+        return _dedup_tags(value) if value is not None else None
+
+
+class LocationSearchResult(BaseModel):
+    """One canonical location returned by the saved-filters location-search
+    autocomplete. Leaner than ``AdminLocationResponse`` (no ``position``)."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    id: int
+    canonical_name: str
+    kind: str

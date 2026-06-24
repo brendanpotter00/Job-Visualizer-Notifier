@@ -57,8 +57,7 @@ export function EnabledCompaniesSection() {
   const canonicalDraft = useMemo(() => [...new Set(draft)].sort(), [draft]);
   const canonicalSaved = useMemo(() => [...(ids ?? [])].sort(), [ids]);
   const isDirty =
-    canonicalDraft.join('|') !== canonicalSaved.join('|') ||
-    draftAutoEnroll !== savedAutoEnroll;
+    canonicalDraft.join('|') !== canonicalSaved.join('|') || draftAutoEnroll !== savedAutoEnroll;
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -101,16 +100,16 @@ export function EnabledCompaniesSection() {
 
   if (loading && ids === null) {
     return (
-      <Paper sx={{ p: 4, mt: 3 }}>
+      <Paper sx={{ p: 4 }}>
         <LoadingState />
       </Paper>
     );
   }
 
   return (
-    <Paper sx={{ p: 4, mt: 3 }}>
+    <Paper sx={{ p: 4 }}>
       <Typography variant="h6" gutterBottom>
-        Recent jobs page companies
+        Saved companies
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
         Pick which companies show up in your Recent Job Postings feed. Leave empty to see all.
@@ -156,26 +155,18 @@ export function EnabledCompaniesSection() {
           label="Auto-include newly added companies"
         />
         <Typography variant="caption" color="text.secondary" display="block">
-          When on, companies we add later show up in your feed automatically. You can remove any
-          you don&apos;t want.
+          When on, companies we add later show up in your feed automatically. You can remove any you
+          don&apos;t want.
         </Typography>
       </Box>
 
-      <SelectedCompaniesPanel
-        selectedCompanies={selectedCompanies}
-        onRemove={handleRemoveId}
-      />
+      <SelectedCompaniesPanel selectedCompanies={selectedCompanies} onRemove={handleRemoveId} />
 
       <Stack direction="row" spacing={1} sx={{ mb: 3 }}>
         <Button variant="outlined" size="small" onClick={handleSelectAll}>
           Select All
         </Button>
-        <Button
-          variant="outlined"
-          size="small"
-          onClick={handleClear}
-          disabled={draft.length === 0}
-        >
+        <Button variant="outlined" size="small" onClick={handleClear} disabled={draft.length === 0}>
           Clear
         </Button>
       </Stack>
@@ -192,12 +183,7 @@ export function EnabledCompaniesSection() {
         </Alert>
       )}
 
-      <Button
-        variant="contained"
-        onClick={handleSave}
-        disabled={!isDirty || isSaving}
-        fullWidth
-      >
+      <Button variant="contained" onClick={handleSave} disabled={!isDirty || isSaving} fullWidth>
         {isSaving ? 'Saving...' : 'Save Changes'}
       </Button>
     </Paper>

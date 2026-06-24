@@ -27,10 +27,23 @@ vi.mock('@react-oauth/google', () => ({
   ),
 }));
 
+// Capture the props AuthProviders passes to Auth0Provider so we can assert the
+// silent-auth timeout cap. `vi.hoisted` makes the ref available inside the
+// hoisted mock factory below.
+const { auth0ProviderProps } = vi.hoisted(() => ({
+  auth0ProviderProps: { current: {} as Record<string, unknown> },
+}));
+
 vi.mock('@auth0/auth0-react', () => ({
-  Auth0Provider: ({ children }: { children: ReactNode }) => (
-    <div data-testid="auth0-provider">{children}</div>
-  ),
+  Auth0Provider: ({
+    children,
+    ...props
+  }: {
+    children: ReactNode;
+  } & Record<string, unknown>) => {
+    auth0ProviderProps.current = props;
+    return <div data-testid="auth0-provider">{children}</div>;
+  },
 }));
 
 vi.mock('../../../features/auth/GoogleCredentialContext', () => ({
@@ -55,6 +68,7 @@ describe('AuthProviders', () => {
       isEnabled: true,
       bypassEnabled: false,
     };
+    auth0ProviderProps.current = {};
   });
 
   it('does NOT render GoogleOneTap when auth is disabled', async () => {
@@ -107,5 +121,21 @@ describe('AuthProviders', () => {
     // GoogleOneTap must be nested inside GoogleOAuthProvider so useGoogleOneTapLogin has context.
     expect(screen.getByTestId('google-oauth-provider')).toContainElement(oneTap);
     expect(screen.getByText('child')).toBeInTheDocument();
+  });
+
+  it('caps Auth0 background silent-auth via authorizeTimeoutInSeconds', async () => {
+    // A Google-One-Tap-only user has no Auth0 refresh token, so the
+    // /authorize?prompt=none silent-auth iframe always runs and stalls on
+    // blocked third-party cookies. Bounding it (default 60s) limits wasted
+    // background work and the transient authenticated-but-still-loading window.
+    const { AuthProviders } = await import('../../../components/shared/AuthProviders');
+
+    render(
+      <AuthProviders>
+        <div>child</div>
+      </AuthProviders>
+    );
+
+    expect(auth0ProviderProps.current.authorizeTimeoutInSeconds).toBe(8);
   });
 });

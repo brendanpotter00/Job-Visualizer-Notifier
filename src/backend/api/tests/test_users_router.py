@@ -623,3 +623,105 @@ class TestEnabledCompanies:
         finally:
             if saved_override is not None:
                 test_app.dependency_overrides[get_current_user] = saved_override
+
+
+class TestRecordVisit:
+    """POST /api/users/visit — the per-page-load visit counter that backs the
+    admin roster's "most frequent users" view."""
+
+    @staticmethod
+    def _read_visit_row(db_conn, auth0_id: str = "auth0|test_user_123"):
+        from psycopg2 import sql
+
+        cursor = db_conn.cursor()
+        cursor.execute(
+            sql.SQL(
+                "SELECT visit_count, last_visit_at, display_name"
+                " FROM {} WHERE auth0_id = %s"
+            ).format(sql.Identifier("users")),
+            (auth0_id,),
+        )
+        return cursor.fetchone()
+
+    def test_visit_returns_204(self, client):
+        """POST /api/users/visit returns 204 No Content."""
+        resp = client.post("/api/users/visit")
+        assert resp.status_code == 204
+        assert resp.content == b""
+
+    def test_visit_creates_row_and_counts_one(self, client, db_conn):
+        """The first visit upserts the user row (it can race ahead of
+        GET /api/users on a brand-new user's first load) and counts as 1."""
+        resp = client.post("/api/users/visit")
+        assert resp.status_code == 204
+        row = self._read_visit_row(db_conn)
+        assert row is not None, "visit should upsert the user row"
+        assert row["visit_count"] == 1
+
+    def test_visit_increments_each_call(self, client, db_conn):
+        """Each POST adds exactly one (one load/refresh), never N."""
+        client.post("/api/users/visit")
+        client.post("/api/users/visit")
+        client.post("/api/users/visit")
+        row = self._read_visit_row(db_conn)
+        assert row["visit_count"] == 3
+
+    def test_visit_sets_last_visit_at(self, client, db_conn):
+        """last_visit_at is NULL until the first visit, then stamped."""
+        assert self._read_visit_row(db_conn) is None
+        client.post("/api/users/visit")
+        row = self._read_visit_row(db_conn)
+        assert row["last_visit_at"] is not None
+
+    def test_visit_preserves_display_name(self, client, db_conn):
+        """The upsert inside the visit endpoint must not clobber a custom
+        display_name (mirrors GET /api/users semantics)."""
+        user = _make_user(
+            {"auth0_id": "auth0|test_user_123", "display_name": "Custom Name"}
+        )
+        _insert_user(db_conn, user)
+        resp = client.post("/api/users/visit")
+        assert resp.status_code == 204
+        row = self._read_visit_row(db_conn)
+        assert row["display_name"] == "Custom Name"
+        assert row["visit_count"] == 1
+
+    def test_visit_counts_against_an_existing_seeded_count(self, client, db_conn):
+        """A user who already has visits accrues from there, not from zero."""
+        user = _make_user(
+            {"auth0_id": "auth0|test_user_123", "visit_count": 5}
+        )
+        _insert_user(db_conn, user)
+        client.post("/api/users/visit")
+        row = self._read_visit_row(db_conn)
+        assert row["visit_count"] == 6
+
+    def test_visit_without_auth_returns_401(self, test_app):
+        """Anonymous POST is rejected — there's no user row to attribute it to."""
+        from fastapi.testclient import TestClient
+        from api.auth.dependencies import get_current_user
+
+        saved_override = test_app.dependency_overrides.pop(get_current_user, None)
+        try:
+            no_auth_client = TestClient(test_app)
+            resp = no_auth_client.post("/api/users/visit")
+            assert resp.status_code == 401
+        finally:
+            if saved_override is not None:
+                test_app.dependency_overrides[get_current_user] = saved_override
+
+    def test_visit_without_email_claim_returns_401(self, test_app):
+        """A token with a sub but no email can't resolve/upsert a user row."""
+        from fastapi.testclient import TestClient
+        from api.auth.dependencies import get_current_user
+
+        saved_override = test_app.dependency_overrides.get(get_current_user)
+        test_app.dependency_overrides[get_current_user] = lambda: {"sub": "auth0|no_email"}
+        try:
+            client = TestClient(test_app)
+            resp = client.post("/api/users/visit")
+            assert resp.status_code == 401
+            assert "email" in resp.json()["detail"].lower()
+        finally:
+            if saved_override is not None:
+                test_app.dependency_overrides[get_current_user] = saved_override

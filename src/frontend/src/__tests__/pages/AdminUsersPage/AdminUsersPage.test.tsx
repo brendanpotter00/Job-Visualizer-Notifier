@@ -85,9 +85,7 @@ describe('AdminUsersPage', () => {
     // First call: both queries fail. Second call (after retry): they
     // succeed. The page only renders the error state when at least one
     // query has an error.
-    fetchMock.mockImplementation(() =>
-      Promise.resolve(jsonResponse({ detail: 'kaboom' }, 500))
-    );
+    fetchMock.mockImplementation(() => Promise.resolve(jsonResponse({ detail: 'kaboom' }, 500)));
 
     renderPage();
 
@@ -95,9 +93,7 @@ describe('AdminUsersPage', () => {
     // variant, which renders a Retry button (not "Try Again", which is
     // the card variant's label).
     const retry = await screen.findByRole('button', { name: /retry/i });
-    expect(
-      screen.getByText(/failed to load admin data|fetcherror|kaboom/i)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/failed to load admin data|fetcherror|kaboom/i)).toBeInTheDocument();
 
     const callsBeforeRetry = fetchMock.mock.calls.length;
     // Flip to success responses for both endpoints before clicking retry.
@@ -122,6 +118,8 @@ describe('AdminUsersPage', () => {
               displayName: 'Retry User',
               signupProvider: 'google',
               createdAt: '2025-01-01T00:00:00Z',
+              visitCount: 0,
+              lastVisitAt: null,
               isAdmin: false,
             },
           ],
@@ -161,6 +159,8 @@ describe('AdminUsersPage', () => {
               displayName: 'Roster User',
               signupProvider: 'google',
               createdAt: '2025-01-01T00:00:00Z',
+              visitCount: 0,
+              lastVisitAt: null,
               isAdmin: false,
             },
           ],
@@ -283,6 +283,8 @@ describe('AdminUsersPage', () => {
               displayName: null,
               signupProvider: 'google',
               createdAt: '2025-01-01T00:00:00Z',
+              visitCount: 0,
+              lastVisitAt: null,
               isAdmin: false,
             },
             {
@@ -291,6 +293,8 @@ describe('AdminUsersPage', () => {
               displayName: null,
               signupProvider: 'google',
               createdAt: '2025-01-02T00:00:00Z',
+              visitCount: 0,
+              lastVisitAt: null,
               isAdmin: false,
             },
           ],
@@ -335,6 +339,8 @@ describe('AdminUsersPage', () => {
               displayName: 'Alice',
               signupProvider: 'google',
               createdAt: '2025-01-01T00:00:00Z',
+              visitCount: 12,
+              lastVisitAt: '2025-06-01T00:00:00Z',
               isAdmin: false,
             },
             {
@@ -343,6 +349,8 @@ describe('AdminUsersPage', () => {
               displayName: 'Bob',
               signupProvider: 'email',
               createdAt: '2025-02-01T00:00:00Z',
+              visitCount: 7,
+              lastVisitAt: '2025-06-02T00:00:00Z',
               isAdmin: true,
             },
           ],

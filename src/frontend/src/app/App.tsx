@@ -6,6 +6,7 @@ import { CuratedCompaniesPage } from '../pages/CuratedCompaniesPage';
 import { RecentJobPostingsPage } from '../pages/RecentJobPostingsPage/RecentJobPostingsPage';
 import { WhyPage } from '../pages/WhyPage/WhyPage.tsx';
 import { AccountPage } from '../pages/AccountPage/AccountPage.tsx';
+import { SavedFiltersPage } from '../pages/SavedFiltersPage';
 import { VoteFeaturesPage } from '../pages/VoteFeaturesPage';
 import { ROUTES } from '../config/routes';
 import { QAPage } from '../pages/QAPage/QAPage.tsx';
@@ -15,7 +16,9 @@ import { AdminLocationPipelinePage } from '../pages/AdminLocationPipelinePage/Ad
 import { AdminFeedbackPage } from '../pages/AdminFeedbackPage/AdminFeedbackPage.tsx';
 import { AdminRoute } from '../components/auth/AdminRoute.tsx';
 import { useEnabledCompanies } from '../features/preferences/useEnabledCompanies';
+import { useHydrateSavedFilters } from '../features/savedFilters/useHydrateSavedFilters';
 import { useFeaturesAuthBridge } from '../features/features/useFeaturesAuthBridge';
+import { useRecordVisit } from '../features/auth/useRecordVisit';
 
 /**
  * App content component with routing and hooks
@@ -26,10 +29,22 @@ import { useFeaturesAuthBridge } from '../features/features/useFeaturesAuthBridg
 function AppContent() {
   useURLSync();
   useBrowserNavigation();
+  // Record one visit per full page load for the signed-in user (no-op when
+  // anonymous). Mounted here so client-side route navigation doesn't re-fire.
+  useRecordVisit();
   // Hydrate enabled-companies at the app root so selectors have it before
   // any page reads them.
   useEnabledCompanies();
+  // Register the RTK Query token-getter BEFORE the hydrate hook below. On the
+  // render where auth flips true, the hydrate hook fires the saved-filters /
+  // keyword-lists requests; those must read a credential-bearing token getter
+  // (not the stale anonymous one) or they go out without an Authorization header,
+  // 401, and stick — the queries have no retry / refetchOnMountOrArgChange.
+  // React runs effects in declaration order, so the bridge must come first.
   useFeaturesAuthBridge();
+  // Hydrate the filter slices (time windows, locations, active keyword list)
+  // from saved filters once on sign-in; reset on sign-out.
+  useHydrateSavedFilters();
 
   return (
     <>
@@ -75,6 +90,7 @@ function AppContent() {
             }
           />
           <Route path={ROUTES.ACCOUNT} element={<AccountPage />} />
+          <Route path={ROUTES.SAVED_FILTERS} element={<SavedFiltersPage />} />
           <Route path={ROUTES.VOTE_FEATURES} element={<VoteFeaturesPage />} />
         </Route>
       </Routes>

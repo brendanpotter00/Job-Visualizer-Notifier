@@ -94,6 +94,7 @@ const SAMPLE_FEATURES: FeatureListItem[] = [
     title: 'AI resume matching notifications',
     description: 'Upload your resume and get notifications when jobs match.',
     createdAt: '2026-04-10T00:00:00Z',
+    completedAt: null,
     upvoteCount: 3,
     hasUpvoted: false,
   },
@@ -102,6 +103,7 @@ const SAMPLE_FEATURES: FeatureListItem[] = [
     title: 'Location normalization',
     description: 'Normalize job-posting locations.',
     createdAt: '2026-04-11T00:00:00Z',
+    completedAt: '2026-05-01T00:00:00Z',
     upvoteCount: 7,
     hasUpvoted: true,
   },
@@ -124,9 +126,7 @@ describe('featuresApi', () => {
       fetchMock.mockResolvedValue(jsonResponse({ features: SAMPLE_FEATURES }));
       const store = makeStore(async () => null);
 
-      const result = await store
-        .dispatch(featuresApi.endpoints.listFeatures.initiate())
-        .unwrap();
+      const result = await store.dispatch(featuresApi.endpoints.listFeatures.initiate()).unwrap();
 
       expect(result).toEqual(SAMPLE_FEATURES);
       const { input } = findCall(fetchMock, '/api/features');

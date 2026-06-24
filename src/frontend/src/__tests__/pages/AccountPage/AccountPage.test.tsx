@@ -44,16 +44,6 @@ vi.mock('../../../features/auth/authService', () => ({
   updateCurrentUser: (...args: unknown[]) => mockUpdateCurrentUser(...args),
 }));
 
-vi.mock('../../../features/preferences/useEnabledCompanies', () => ({
-  useEnabledCompanies: () => ({
-    ids: null,
-    loading: false,
-    error: null,
-    save: vi.fn().mockResolvedValue(undefined),
-    reload: vi.fn(),
-  }),
-}));
-
 function renderPage() {
   const store = createTestStore();
   return {

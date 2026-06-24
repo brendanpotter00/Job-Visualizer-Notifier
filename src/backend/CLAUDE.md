@@ -45,7 +45,7 @@ clean before committing (mirrors the frontend's "Zero TypeScript Errors Required
 ## Prerequisites
 
 - PostgreSQL running on localhost:5432 (use `docker compose up -d postgres` from project root)
-- Database: `jobscraper` with bare-named tables `job_listings`, `scrape_runs`, `users`, `user_enabled_companies`, `admins`, `features`, `feature_upvotes` (created on first lifespan/migration run)
+- Database: `jobscraper` with bare-named tables `job_listings`, `scrape_runs`, `users`, `user_enabled_companies`, `user_saved_filters`, `user_keyword_lists`, `admins`, `features`, `feature_upvotes` (created on first lifespan/migration run)
 - Python 3.13+ with dependencies from `src/backend/api/requirements.txt`
 
 ## Configuration
@@ -85,8 +85,18 @@ All configuration via environment variables:
 **Users Router (`/api/users`):**
 - `GET /api/users` - Get or create authenticated user's profile (requires Bearer token)
 - `PUT /api/users` - Update display name (requires Bearer token)
+- `POST /api/users/visit` - Record one full-page-load visit (204; upserts the row then increments `visit_count` + stamps `last_visit_at`; requires Bearer token)
 - `GET /api/users/enabled-companies` - List user's enabled companies (requires Bearer token)
 - `PUT /api/users/enabled-companies` - Update user's enabled companies (requires Bearer token)
+
+**Saved Filters Router (`/api/users/saved-filters`):** all routes require a Bearer token.
+- `GET /api/users/saved-filters` - Scalar saved filters (per-page time windows, shared locations, active keyword-list pointers); never 404s — returns server defaults (`recent=3h`, `trend=7d`, no locations) when the user has no row
+- `PUT /api/users/saved-filters` - Full-replace (upsert) the scalar saved filters; 409 if an active keyword-list pointer is unknown or not owned
+- `GET /api/users/saved-filters/keyword-lists` - List the user's named keyword lists by position, with the read-only built-in "Software Engineering" list (`builtin-swe`) synthesized last
+- `POST /api/users/saved-filters/keyword-lists` - Create a keyword list (201); 409 on duplicate/reserved name, 422 at the per-user list cap
+- `PATCH /api/users/saved-filters/keyword-lists/{list_id}` - Rename / replace tags / reorder (partial); 404 if not owned, 409 on name collision, 422 on the built-in id
+- `DELETE /api/users/saved-filters/keyword-lists/{list_id}` - Delete a list (204; NULLs any active pointer referencing it); 404 if not owned, 422 on the built-in id
+- `GET /api/users/saved-filters/locations/search` - Substring autocomplete over canonical location names (params: `q`, `limit`, `openOnly`)
 
 **Admin Router (`/api/admin`):**
 - `GET /api/admin/users` - List all users with admin flag (requires admin)
@@ -95,7 +105,7 @@ All configuration via environment variables:
 - `DELETE /api/admin/users/{user_id}/admin` - Revoke admin from user (requires admin)
 
 **Features Router (`/api/features`):**
-- `GET /api/features` - List all features with upvote counts and current user's vote state (optional auth)
+- `GET /api/features` - List all features with upvote counts, current user's vote state, and `completedAt` (null = open candidate, set = shipped) (optional auth)
 - `POST /api/features/{feature_id}/upvote` - Add upvote for a feature (requires Bearer token)
 - `DELETE /api/features/{feature_id}/upvote` - Remove upvote for a feature (requires Bearer token)
 
@@ -120,15 +130,17 @@ src/backend/api/
 │   ├── jobs.py          # Jobs list and detail endpoints
 │   ├── jobs_qa.py       # Stats, scrape runs, trigger scrape
 │   ├── users.py         # User profile + enabled-companies endpoints (auth required)
+│   ├── saved_filters.py # Saved-filters, keyword-list CRUD, location search (auth required)
 │   ├── features.py      # Feature voting endpoints (list, upvote, remove upvote)
 │   └── admin.py         # Admin-only user management endpoints
 ├── services/
 │   ├── database.py      # API query functions (reuses scripts/shared/database.py)
-│   ├── user_service.py  # User CRUD operations (get_or_create, update)
+│   ├── user_service.py  # User CRUD operations (get_or_create, update, record_visit)
 │   ├── user_preferences_service.py  # Enabled-companies CRUD
+│   ├── saved_filters_service.py     # Saved-filters + keyword-list CRUD, built-in SWE list, location search
 │   ├── admin_service.py # Admin grant/revoke and is_admin check
 │   ├── features_service.py  # Feature list and upvote logic
-│   ├── features_seed.py # Seed initial feature rows
+│   ├── features_seed.py # Seed starter features + reconcile shipped (completed_at) status
 │   ├── scraper_lock.py  # asyncio.Lock singleton shared by runner + auto-scraper
 │   ├── scraper_runner.py # Async subprocess runner for scrapers
 │   ├── auto_scraper.py  # Background scheduled scraping (Google/Apple/Microsoft)

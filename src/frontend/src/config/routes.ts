@@ -11,6 +11,7 @@ export const ROUTES = {
   WHY: '/why',
   QA: '/qa',
   ACCOUNT: '/account',
+  SAVED_FILTERS: '/saved-filters',
   VOTE_FEATURES: '/vote-features',
   ADMIN_USERS: '/admin/users',
   ADMIN_LOCATION_NORMALIZATION: '/admin/location-normalization',
@@ -30,6 +31,11 @@ export const USER_NAV_ITEMS = [
     path: ROUTES.COMPANIES,
     label: 'Company Hiring Trends',
     icon: 'TrendingUp',
+  },
+  {
+    path: ROUTES.SAVED_FILTERS,
+    label: 'Saved Filters',
+    icon: 'FilterListAlt',
   },
   {
     path: ROUTES.CURATED_COMPANIES,

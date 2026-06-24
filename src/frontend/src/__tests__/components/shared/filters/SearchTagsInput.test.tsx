@@ -64,6 +64,30 @@ describe('SearchTagsInput', () => {
     expect(onAdd).toHaveBeenCalledWith({ text: 'senior', mode: 'include' });
   });
 
+  it('on Enter with text, calls onAdd even when tags already exist (non-empty value)', async () => {
+    // Regression guard: every other Enter-to-add test renders with value={[]}.
+    // The "can't add keywords after a default list is set" report involved a
+    // populated value, so this asserts the add path works with existing chips.
+    const onAdd = vi.fn();
+    const user = userEvent.setup();
+    const value: SearchTag[] = [
+      { text: 'backend', mode: 'include' },
+      { text: 'python', mode: 'include' },
+    ];
+    render(
+      <SearchTagsInput
+        value={value}
+        onAdd={onAdd}
+        onRemove={vi.fn()}
+        onToggleMode={vi.fn()}
+      />
+    );
+    const input = screen.getByRole('combobox');
+    await user.click(input);
+    await user.type(input, 'rust{enter}');
+    expect(onAdd).toHaveBeenCalledWith({ text: 'rust', mode: 'include' });
+  });
+
   it('on Enter with "-" prefix, calls onAdd with mode:"exclude"', async () => {
     const onAdd = vi.fn();
     const user = userEvent.setup();
