@@ -25,7 +25,12 @@ import AccountTreeIcon from '@mui/icons-material/AccountTree';
 import FeedbackIcon from '@mui/icons-material/Feedback';
 import FilterListAltIcon from '@mui/icons-material/FilterListAlt';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ADMIN_NAV_ITEMS, ROUTES, USER_NAV_ITEMS } from '../../config/routes.ts';
+import {
+  ADMIN_NAV_ITEMS,
+  INFO_NAV_ITEMS,
+  PRIMARY_NAV_ITEMS,
+  ROUTES,
+} from '../../config/routes.ts';
 import { useAuth } from '../../features/auth/useAuth';
 import { useCurrentUser } from '../../features/auth/useCurrentUser';
 import { useAppSelector } from '../../app/hooks';
@@ -277,6 +282,51 @@ export function NavigationDrawer({
     );
   };
 
+  // Info group: divider + "INFO" caption above the supplementary tabs
+  // (Curated Companies, Give Feedback, Why This Was Built), separating them
+  // from the functional tabs above. Always rendered for every user — this
+  // mirrors renderAdminGroup()'s layout but without the admin gating.
+  const renderInfoGroup = () => {
+    // Collapsed drawer: render info items flat (icons only). The "INFO"
+    // caption would be invisible at collapsed width since text labels are
+    // hidden, so we drop it and keep just the divider + icons.
+    if (!open) {
+      return (
+        <>
+          <Divider sx={{ my: 1 }} />
+          <List>
+            {INFO_NAV_ITEMS.map((item) =>
+              renderNavItem(item.path, item.label, item.icon as IconName)
+            )}
+          </List>
+        </>
+      );
+    }
+
+    return (
+      <>
+        <Divider sx={{ my: 1 }} />
+        <Box sx={{ px: 2.5, pt: 1.25, pb: 0.5 }}>
+          <Box
+            sx={{
+              fontSize: 11,
+              letterSpacing: '0.18em',
+              fontWeight: 700,
+              color: 'text.secondary',
+            }}
+          >
+            INFO
+          </Box>
+        </Box>
+        <List component="div" disablePadding>
+          {INFO_NAV_ITEMS.map((item) =>
+            renderNavItem(item.path, item.label, item.icon as IconName)
+          )}
+        </List>
+      </>
+    );
+  };
+
   const renderDrawerContent = () => (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <DrawerHeader>
@@ -286,8 +336,11 @@ export function NavigationDrawer({
       </DrawerHeader>
       <Divider />
       <List>
-        {USER_NAV_ITEMS.map((item) => renderNavItem(item.path, item.label, item.icon as IconName))}
+        {PRIMARY_NAV_ITEMS.map((item) =>
+          renderNavItem(item.path, item.label, item.icon as IconName)
+        )}
       </List>
+      {renderInfoGroup()}
       {renderAdminGroup()}
       {/* Spacer pushes the Account section to the bottom of the drawer.
           Without this, `mt: 'auto'` on the Account divider would push every
