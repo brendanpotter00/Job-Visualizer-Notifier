@@ -262,6 +262,12 @@ class AdminUserRow(BaseModel):
     display_name: str | None = None
     signup_provider: SignupProvider
     created_at: str
+    # Engagement fields for the "most frequent users" view. ``visit_count``
+    # is incremented once per full page load via POST /api/users/visit;
+    # ``last_visit_at`` is the most recent load (NULL until the user's first
+    # visit after this feature shipped). Serialized as visitCount / lastVisitAt.
+    visit_count: int = Field(ge=0)
+    last_visit_at: datetime | None = None
     is_admin: bool
 
 

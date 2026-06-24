@@ -18,6 +18,7 @@ import { AdminRoute } from '../components/auth/AdminRoute.tsx';
 import { useEnabledCompanies } from '../features/preferences/useEnabledCompanies';
 import { useHydrateSavedFilters } from '../features/savedFilters/useHydrateSavedFilters';
 import { useFeaturesAuthBridge } from '../features/features/useFeaturesAuthBridge';
+import { useRecordVisit } from '../features/auth/useRecordVisit';
 
 /**
  * App content component with routing and hooks
@@ -28,6 +29,9 @@ import { useFeaturesAuthBridge } from '../features/features/useFeaturesAuthBridg
 function AppContent() {
   useURLSync();
   useBrowserNavigation();
+  // Record one visit per full page load for the signed-in user (no-op when
+  // anonymous). Mounted here so client-side route navigation doesn't re-fire.
+  useRecordVisit();
   // Hydrate enabled-companies at the app root so selectors have it before
   // any page reads them.
   useEnabledCompanies();

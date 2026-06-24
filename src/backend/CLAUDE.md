@@ -85,6 +85,7 @@ All configuration via environment variables:
 **Users Router (`/api/users`):**
 - `GET /api/users` - Get or create authenticated user's profile (requires Bearer token)
 - `PUT /api/users` - Update display name (requires Bearer token)
+- `POST /api/users/visit` - Record one full-page-load visit (204; upserts the row then increments `visit_count` + stamps `last_visit_at`; requires Bearer token)
 - `GET /api/users/enabled-companies` - List user's enabled companies (requires Bearer token)
 - `PUT /api/users/enabled-companies` - Update user's enabled companies (requires Bearer token)
 
@@ -134,7 +135,7 @@ src/backend/api/
 │   └── admin.py         # Admin-only user management endpoints
 ├── services/
 │   ├── database.py      # API query functions (reuses scripts/shared/database.py)
-│   ├── user_service.py  # User CRUD operations (get_or_create, update)
+│   ├── user_service.py  # User CRUD operations (get_or_create, update, record_visit)
 │   ├── user_preferences_service.py  # Enabled-companies CRUD
 │   ├── saved_filters_service.py     # Saved-filters + keyword-list CRUD, built-in SWE list, location search
 │   ├── admin_service.py # Admin grant/revoke and is_admin check

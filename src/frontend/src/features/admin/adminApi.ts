@@ -27,6 +27,10 @@ export interface AdminUserRow {
   displayName: string | null;
   signupProvider: SignupProvider;
   createdAt: string;
+  /** Times this user has loaded/refreshed the app (POST /api/users/visit). */
+  visitCount: number;
+  /** ISO timestamp of the user's most recent load; null until their first visit. */
+  lastVisitAt: string | null;
   isAdmin: boolean;
 }
 
@@ -273,10 +277,7 @@ export const adminApi = createApi({
     'LocationProblemJobs',
   ],
   endpoints: (builder) => ({
-    listAdminFeedback: builder.query<
-      AdminFeedbackListResponse,
-      AdminFeedbackPageArgs
-    >({
+    listAdminFeedback: builder.query<AdminFeedbackListResponse, AdminFeedbackPageArgs>({
       query: ({ page, rowsPerPage, sortDir }) =>
         `/feedback?limit=${rowsPerPage}&offset=${page * rowsPerPage}&sort_dir=${sortDir}`,
       transformResponse: (res: unknown): AdminFeedbackListResponse => {
@@ -289,9 +290,7 @@ export const adminApi = createApi({
           !Array.isArray((res as { feedback?: unknown }).feedback) ||
           typeof (res as { total?: unknown }).total !== 'number'
         ) {
-          throw new Error(
-            'Invalid /api/admin/feedback response: missing feedback[] or total'
-          );
+          throw new Error('Invalid /api/admin/feedback response: missing feedback[] or total');
         }
         const { feedback, total } = res as AdminFeedbackListResponse;
         return { feedback, total };
@@ -316,9 +315,20 @@ export const adminApi = createApi({
           typeof res !== 'object' ||
           !Array.isArray((res as { users?: unknown }).users)
         ) {
-          throw new Error(
-            'Invalid /api/admin/users response: missing users[]'
-          );
+          throw new Error('Invalid /api/admin/users response: missing users[]');
+        }
+        // Per-row guard: the roster reads ``visitCount`` as a number for the
+        // Visits column + sort. A row missing it (serializer regression,
+        // misrouted body) would render ``undefined`` and sort incorrectly —
+        // surface it as a hard failure instead, matching the envelope check.
+        for (const u of (res as { users: unknown[] }).users) {
+          if (
+            u == null ||
+            typeof u !== 'object' ||
+            typeof (u as { visitCount?: unknown }).visitCount !== 'number'
+          ) {
+            throw new Error('Invalid /api/admin/users response: row missing numeric visitCount');
+          }
         }
         return (res as AdminUsersListResponse).users;
       },
@@ -333,9 +343,7 @@ export const adminApi = createApi({
         // silently falls back to the loaded-roster count and shows the
         // wrong "Total users" number with no error signal.
         if (!res || typeof res !== 'object') {
-          throw new Error(
-            'Invalid /api/admin/users/stats response: body is not an object'
-          );
+          throw new Error('Invalid /api/admin/users/stats response: body is not an object');
         }
         const obj = res as Record<string, unknown>;
         if (typeof obj.totalUsers !== 'number') {
@@ -535,7 +543,9 @@ export const adminApi = createApi({
           throw new Error('Invalid /api/admin/locations/aliases response: total must be a number');
         }
         if (!Array.isArray(res.aliases)) {
-          throw new Error('Invalid /api/admin/locations/aliases response: aliases must be an array');
+          throw new Error(
+            'Invalid /api/admin/locations/aliases response: aliases must be an array'
+          );
         }
         for (const alias of res.aliases) {
           if (!isRecord(alias)) {
@@ -588,7 +598,9 @@ export const adminApi = createApi({
           throw new Error('Invalid /api/admin/locations/reverse response: body is not an object');
         }
         if (!Array.isArray(res.results)) {
-          throw new Error('Invalid /api/admin/locations/reverse response: results must be an array');
+          throw new Error(
+            'Invalid /api/admin/locations/reverse response: results must be an array'
+          );
         }
         for (const result of res.results) {
           if (!isRecord(result)) {
@@ -596,7 +608,11 @@ export const adminApi = createApi({
               'Invalid /api/admin/locations/reverse response: result entry is not an object'
             );
           }
-          validateCanonicalLocation(result.location, '/api/admin/locations/reverse response', false);
+          validateCanonicalLocation(
+            result.location,
+            '/api/admin/locations/reverse response',
+            false
+          );
           if (
             !Array.isArray(result.rawTexts) ||
             result.rawTexts.some((t) => typeof t !== 'string')
