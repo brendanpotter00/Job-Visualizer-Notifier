@@ -31,6 +31,7 @@ describe('Software Engineering Toggle - Graph Filters', () => {
       softwareOnly: false,
     },
     hydrated: false,
+    userModified: false,
   };
 
   describe('toggleGraphSoftwareOnly', () => {
@@ -50,6 +51,7 @@ describe('Software Engineering Toggle - Graph Filters', () => {
           softwareOnly: true,
         },
         hydrated: false,
+        userModified: false,
       };
 
       const newState = graphFiltersReducer(stateWithTags, toggleGraphSoftwareOnly());
@@ -67,6 +69,7 @@ describe('Software Engineering Toggle - Graph Filters', () => {
           softwareOnly: true,
         },
         hydrated: false,
+        userModified: false,
       };
 
       const newState = graphFiltersReducer(stateWithMixedTags, toggleGraphSoftwareOnly());
@@ -86,6 +89,7 @@ describe('Software Engineering Toggle - Graph Filters', () => {
           softwareOnly: false,
         },
         hydrated: false,
+        userModified: false,
       };
 
       const newState = graphFiltersReducer(stateWithSomeTags, toggleGraphSoftwareOnly());
@@ -105,6 +109,7 @@ describe('Software Engineering Toggle - Graph Filters', () => {
           softwareOnly: false,
         },
         hydrated: false,
+        userModified: false,
       };
 
       const newState = graphFiltersReducer(stateWithCustomTag, toggleGraphSoftwareOnly());
@@ -131,6 +136,7 @@ describe('Software Engineering Toggle - Graph Filters', () => {
           softwareOnly: true,
         },
         hydrated: false,
+        userModified: false,
       };
 
       const newState = graphFiltersReducer(stateWithTags, setGraphSoftwareOnly(false));
@@ -229,6 +235,7 @@ describe('Edge cases', () => {
         softwareOnly: false,
       },
       hydrated: false,
+      userModified: false,
     };
 
     const newState = graphFiltersReducer(initialState, toggleGraphSoftwareOnly());
@@ -245,6 +252,7 @@ describe('Edge cases', () => {
         softwareOnly: true,
       },
       hydrated: false,
+      userModified: false,
     };
 
     const newState = graphFiltersReducer(initialState, toggleGraphSoftwareOnly());

@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { createFilterSlice } from '../../../features/filters/slices/createFilterSlice';
-import type { GraphFilters, ListFilters, TimeWindow } from '../../../types';
+import { createFilterSlice, type FilterSliceName } from '../../../features/filters/slices/createFilterSlice';
+import type {
+  GraphFilters,
+  ListFilters,
+  RecentJobsFilters,
+  TimeWindow,
+} from '../../../types';
 
 describe('createFilterSlice', () => {
   describe('Factory Pattern', () => {
@@ -80,7 +85,7 @@ describe('createFilterSlice', () => {
       };
 
       const slice = createFilterSlice('graph', initialFilters);
-      const initialState = { filters: initialFilters, hydrated: false };
+      const initialState = { filters: initialFilters, hydrated: false, userModified: false };
 
       const newState = slice.reducer(initialState, {
         type: 'graphFilters/setGraphTimeWindow',
@@ -103,6 +108,7 @@ describe('createFilterSlice', () => {
       let state = {
         filters: { ...initialFilters, timeWindow: '7d' as TimeWindow },
         hydrated: false,
+        userModified: false,
       };
 
       // Reset
@@ -122,7 +128,7 @@ describe('createFilterSlice', () => {
       };
 
       const slice = createFilterSlice('list', initialFilters);
-      const initialState = { filters: initialFilters, hydrated: false };
+      const initialState = { filters: initialFilters, hydrated: false, userModified: false };
 
       const newState = slice.reducer(initialState, {
         type: 'listFilters/setListEmploymentType',
@@ -191,7 +197,7 @@ describe('createFilterSlice', () => {
       };
 
       const slice = createFilterSlice('graph', initialFilters);
-      const initialState = { filters: initialFilters, hydrated: false };
+      const initialState = { filters: initialFilters, hydrated: false, userModified: false };
 
       const newState = slice.reducer(initialState, {
         type: 'graphFilters/addGraphSearchTag',
@@ -210,7 +216,7 @@ describe('createFilterSlice', () => {
       };
 
       const slice = createFilterSlice('graph', initialFilters);
-      const initialState = { filters: initialFilters, hydrated: false };
+      const initialState = { filters: initialFilters, hydrated: false, userModified: false };
 
       const newState = slice.reducer(initialState, {
         type: 'graphFilters/addGraphSearchTag',
@@ -232,7 +238,7 @@ describe('createFilterSlice', () => {
       };
 
       const slice = createFilterSlice('graph', initialFilters);
-      const initialState = { filters: initialFilters, hydrated: false };
+      const initialState = { filters: initialFilters, hydrated: false, userModified: false };
 
       const newState = slice.reducer(initialState, {
         type: 'graphFilters/removeGraphSearchTag',
@@ -251,7 +257,7 @@ describe('createFilterSlice', () => {
       };
 
       const slice = createFilterSlice('graph', initialFilters);
-      const initialState = { filters: initialFilters, hydrated: false };
+      const initialState = { filters: initialFilters, hydrated: false, userModified: false };
 
       const newState = slice.reducer(initialState, {
         type: 'graphFilters/toggleGraphSearchTagMode',
@@ -272,7 +278,7 @@ describe('createFilterSlice', () => {
       };
 
       const slice = createFilterSlice('graph', initialFilters);
-      const initialState = { filters: initialFilters, hydrated: false };
+      const initialState = { filters: initialFilters, hydrated: false, userModified: false };
 
       const newState = slice.reducer(initialState, {
         type: 'graphFilters/clearGraphSearchTags',
@@ -292,7 +298,7 @@ describe('createFilterSlice', () => {
       };
 
       const slice = createFilterSlice('graph', initialFilters);
-      const initialState = { filters: initialFilters, hydrated: false };
+      const initialState = { filters: initialFilters, hydrated: false, userModified: false };
 
       const newState = slice.reducer(initialState, {
         type: 'graphFilters/addGraphLocation',
@@ -311,7 +317,7 @@ describe('createFilterSlice', () => {
       };
 
       const slice = createFilterSlice('graph', initialFilters);
-      const initialState = { filters: initialFilters, hydrated: false };
+      const initialState = { filters: initialFilters, hydrated: false, userModified: false };
 
       const newState = slice.reducer(initialState, {
         type: 'graphFilters/removeGraphLocation',
@@ -330,7 +336,7 @@ describe('createFilterSlice', () => {
       };
 
       const slice = createFilterSlice('graph', initialFilters);
-      const initialState = { filters: initialFilters, hydrated: false };
+      const initialState = { filters: initialFilters, hydrated: false, userModified: false };
 
       const newState = slice.reducer(initialState, {
         type: 'graphFilters/clearGraphLocations',
@@ -348,7 +354,7 @@ describe('createFilterSlice', () => {
       };
 
       const slice = createFilterSlice('graph', initialFilters);
-      const initialState = { filters: initialFilters, hydrated: false };
+      const initialState = { filters: initialFilters, hydrated: false, userModified: false };
 
       const newState = slice.reducer(initialState, {
         type: 'graphFilters/setGraphLocation',
@@ -368,7 +374,7 @@ describe('createFilterSlice', () => {
       };
 
       const slice = createFilterSlice('graph', initialFilters);
-      const initialState = { filters: initialFilters, hydrated: false };
+      const initialState = { filters: initialFilters, hydrated: false, userModified: false };
 
       const newState = slice.reducer(initialState, {
         type: 'graphFilters/addGraphDepartment',
@@ -387,7 +393,7 @@ describe('createFilterSlice', () => {
       };
 
       const slice = createFilterSlice('graph', initialFilters);
-      const initialState = { filters: initialFilters, hydrated: false };
+      const initialState = { filters: initialFilters, hydrated: false, userModified: false };
 
       const newState = slice.reducer(initialState, {
         type: 'graphFilters/removeGraphDepartment',
@@ -406,7 +412,7 @@ describe('createFilterSlice', () => {
       };
 
       const slice = createFilterSlice('graph', initialFilters);
-      const initialState = { filters: initialFilters, hydrated: false };
+      const initialState = { filters: initialFilters, hydrated: false, userModified: false };
 
       const newState = slice.reducer(initialState, {
         type: 'graphFilters/clearGraphDepartments',
@@ -424,7 +430,7 @@ describe('createFilterSlice', () => {
       };
 
       const slice = createFilterSlice('graph', initialFilters);
-      const initialState = { filters: initialFilters, hydrated: false };
+      const initialState = { filters: initialFilters, hydrated: false, userModified: false };
 
       const newState = slice.reducer(initialState, {
         type: 'graphFilters/setGraphDepartment',
@@ -444,7 +450,7 @@ describe('createFilterSlice', () => {
       };
 
       const slice = createFilterSlice('graph', initialFilters);
-      const initialState = { filters: initialFilters, hydrated: false };
+      const initialState = { filters: initialFilters, hydrated: false, userModified: false };
 
       const newState = slice.reducer(initialState, {
         type: 'graphFilters/toggleGraphSoftwareOnly',
@@ -464,7 +470,7 @@ describe('createFilterSlice', () => {
       };
 
       const slice = createFilterSlice('graph', initialFilters);
-      const initialState = { filters: initialFilters, hydrated: false };
+      const initialState = { filters: initialFilters, hydrated: false, userModified: false };
 
       const newState = slice.reducer(initialState, {
         type: 'graphFilters/setGraphSoftwareOnly',
@@ -486,7 +492,7 @@ describe('createFilterSlice', () => {
       };
 
       const slice = createFilterSlice('graph', initialFilters);
-      const initialState = { filters: initialFilters, hydrated: false };
+      const initialState = { filters: initialFilters, hydrated: false, userModified: false };
 
       const newState = slice.reducer(initialState, {
         type: 'graphFilters/setGraphSoftwareOnly',
@@ -507,7 +513,7 @@ describe('createFilterSlice', () => {
       };
 
       const slice = createFilterSlice('graph', initialFilters);
-      const state = { filters: initialFilters, hydrated: false };
+      const state = { filters: initialFilters, hydrated: false, userModified: false };
 
       slice.reducer(state, {
         type: 'graphFilters/resetGraphFilters',
@@ -533,6 +539,7 @@ describe('createFilterSlice', () => {
           softwareOnly: true,
         },
         hydrated: false,
+        userModified: false,
       };
 
       // Reset uses Object.assign for Immer compatibility
@@ -543,6 +550,203 @@ describe('createFilterSlice', () => {
 
       // Should successfully assign all properties back to the initial values
       expect(newState.filters).toEqual(initialFilters);
+    });
+  });
+
+  describe('userModified guard (saved-filters hydration race)', () => {
+    const baseFilters: GraphFilters = {
+      timeWindow: '7d',
+      searchTags: undefined,
+      softwareOnly: false,
+    };
+    const addRust = {
+      type: 'graphFilters/addGraphSearchTag',
+      payload: { text: 'rust', mode: 'include' as const },
+    };
+    const hydrate = {
+      type: 'graphFilters/hydrateGraphFilters',
+      payload: {
+        timeWindow: '30d' as TimeWindow,
+        searchTags: [{ text: 'golang', mode: 'include' as const }],
+      },
+    };
+
+    it('starts un-modified and flips userModified on any user edit', () => {
+      const slice = createFilterSlice('graph', baseFilters);
+      expect(slice.getInitialState().userModified).toBe(false);
+
+      const next = slice.reducer(slice.getInitialState(), addRust);
+      expect(next.userModified).toBe(true);
+    });
+
+    it('hydrates normally when the slice is pristine', () => {
+      const slice = createFilterSlice('graph', baseFilters);
+      const next = slice.reducer(slice.getInitialState(), hydrate);
+
+      expect(next.hydrated).toBe(true);
+      expect(next.filters.timeWindow).toBe('30d');
+      expect(next.filters.searchTags).toEqual([{ text: 'golang', mode: 'include' }]);
+    });
+
+    it('does NOT clobber a keyword the user added before a late hydration', () => {
+      const slice = createFilterSlice('graph', baseFilters);
+
+      // User adds a keyword while the saved-filters queries are still pending
+      // (hydrated is still false — this is the cold-start window).
+      let state = slice.reducer(slice.getInitialState(), addRust);
+      expect(state.userModified).toBe(true);
+      expect(state.hydrated).toBe(false);
+
+      // Hydration finally lands with the saved default list.
+      state = slice.reducer(state, hydrate);
+
+      // The user's in-progress edit survives; the saved defaults are NOT applied
+      // over it (this is the bug: a late hydration used to wipe "rust").
+      expect(state.filters.searchTags).toEqual([{ text: 'rust', mode: 'include' }]);
+      expect(state.filters.timeWindow).toBe('7d');
+      // ...but hydration is marked done so the effect won't keep retrying.
+      expect(state.hydrated).toBe(true);
+    });
+
+    it('reset clears userModified so the next sign-in can re-hydrate', () => {
+      const slice = createFilterSlice('graph', baseFilters);
+
+      let state = slice.reducer(slice.getInitialState(), addRust);
+      expect(state.userModified).toBe(true);
+
+      state = slice.reducer(state, {
+        type: 'graphFilters/resetGraphFilters',
+        payload: undefined,
+      });
+      expect(state.userModified).toBe(false);
+      expect(state.filters).toEqual(baseFilters);
+
+      // After reset, a hydration seeds defaults again (slice is pristine).
+      state = slice.reducer(state, hydrate);
+      expect(state.filters.searchTags).toEqual([{ text: 'golang', mode: 'include' }]);
+    });
+  });
+
+  // The matcher and its `nonEditTypes` denylist are regenerated per
+  // `createFilterSlice` call from name-derived action-type strings, so a
+  // name-derivation bug (or a dropped non-edit type) would be slice-specific.
+  // We therefore prove the same behavior directly for EVERY slice name the
+  // factory supports — not just `graph` — by building each slice via the factory
+  // (no store) and dispatching against a PRISTINE initial state.
+  //
+  // Per slice we assert:
+  //   (a) its OWN edit actions flip `userModified` → true (including a
+  //       no-op-guarded edit valid for that slice's filter shape), and
+  //   (b) its OWN hydrate / setHydrated / reset actions do NOT flip
+  //       `userModified` (the `!nonEditTypes.has(...)` exclusion branch). This is
+  //       the one matcher branch with no other behavioral coverage and it guards
+  //       the denylist-maintenance invariant documented on `extraReducers`.
+  describe('userModified matcher — per-slice coverage', () => {
+    function capitalize(s: string): string {
+      return s.charAt(0).toUpperCase() + s.slice(1);
+    }
+
+    type SliceCase = {
+      name: FilterSliceName;
+      // Build the slice's initial filters with the correct shape for this name.
+      makeSlice: () => ReturnType<typeof createFilterSlice>;
+      // Two representative EDIT actions, including a no-op-guarded one
+      // (add{Name}Department for graph/list; add{Name}Company for recentJobs).
+      editActions: { type: string; payload: unknown }[];
+    };
+
+    const graphInitial: GraphFilters = {
+      timeWindow: '7d',
+      searchTags: undefined,
+      softwareOnly: false,
+    };
+    const listInitial: ListFilters = {
+      timeWindow: '7d',
+      searchTags: undefined,
+      softwareOnly: false,
+    };
+    const recentJobsInitial: RecentJobsFilters = {
+      timeWindow: '3h',
+      searchTags: undefined,
+      softwareOnly: false,
+      company: undefined,
+    };
+
+    const cases: SliceCase[] = [
+      {
+        name: 'graph',
+        makeSlice: () => createFilterSlice('graph', graphInitial),
+        editActions: [
+          { type: 'graphFilters/setGraphTimeWindow', payload: '30d' as TimeWindow },
+          // No-op-guarded edit: graph owns `department`, so this mutates.
+          { type: 'graphFilters/addGraphDepartment', payload: 'Engineering' },
+        ],
+      },
+      {
+        name: 'list',
+        makeSlice: () => createFilterSlice('list', listInitial),
+        editActions: [
+          { type: 'listFilters/setListTimeWindow', payload: '30d' as TimeWindow },
+          // No-op-guarded edit: list owns `department`, so this mutates.
+          { type: 'listFilters/addListDepartment', payload: 'Engineering' },
+        ],
+      },
+      {
+        name: 'recentJobs',
+        makeSlice: () => createFilterSlice('recentJobs', recentJobsInitial),
+        editActions: [
+          { type: 'recentJobsFilters/setRecentJobsTimeWindow', payload: '24h' as TimeWindow },
+          // recentJobs has no `department`; it owns `company` instead. This is
+          // the no-op-guarded edit for this slice shape.
+          { type: 'recentJobsFilters/addRecentJobsCompany', payload: 'netflix' },
+        ],
+      },
+    ];
+
+    describe.each(cases)('$name slice', ({ name, makeSlice, editActions }) => {
+      const cap = capitalize(name);
+      const prefix = `${name}Filters/`;
+
+      it('starts un-modified', () => {
+        expect(makeSlice().getInitialState().userModified).toBe(false);
+      });
+
+      it.each(editActions)('flips userModified=true on edit $type', (action) => {
+        const slice = makeSlice();
+        const next = slice.reducer(slice.getInitialState(), action);
+        expect(next.userModified).toBe(true);
+      });
+
+      it(`does NOT flip userModified on hydrate${cap}Filters (and still hydrates)`, () => {
+        const slice = makeSlice();
+        const next = slice.reducer(slice.getInitialState(), {
+          type: `${prefix}hydrate${cap}Filters`,
+          payload: { timeWindow: '30d' as TimeWindow },
+        });
+        expect(next.userModified).toBe(false);
+        // Pristine slice → seeding is applied and the slice is marked hydrated.
+        expect(next.hydrated).toBe(true);
+        expect(next.filters.timeWindow).toBe('30d');
+      });
+
+      it(`does NOT flip userModified on set${cap}Hydrated(true)`, () => {
+        const slice = makeSlice();
+        const next = slice.reducer(slice.getInitialState(), {
+          type: `${prefix}set${cap}Hydrated`,
+          payload: true,
+        });
+        expect(next.userModified).toBe(false);
+        expect(next.hydrated).toBe(true);
+      });
+
+      it(`does NOT flip userModified on reset${cap}Filters`, () => {
+        const slice = makeSlice();
+        const next = slice.reducer(slice.getInitialState(), {
+          type: `${prefix}reset${cap}Filters`,
+          payload: undefined,
+        });
+        expect(next.userModified).toBe(false);
+      });
     });
   });
 });
