@@ -1,6 +1,7 @@
 [tool.pytest.ini_options]
 testpaths = ["api/tests"]
 pythonpath = [".", "../.."]
+timeout = 120
 
 [tool.mypy]
 python_version = "3.13"
