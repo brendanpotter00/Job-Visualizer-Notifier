@@ -1,4 +1,5 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
+import type { RootState } from '../../app/store';
 
 /**
  * UI state (modals, notifications, etc.)
@@ -95,5 +96,12 @@ export const {
   setHideAdminFeatures,
   setDemoModeEnabled,
 } = uiSlice.actions;
+
+/**
+ * Admin-only "Demo mode" flag. When true, the Recent Job Postings page swaps its
+ * live feed for the curated DEMO_JOBS sample set (see features/jobs/demoJobs.ts).
+ * UI-gated to admins; ephemeral (not persisted, resets on refresh).
+ */
+export const selectDemoModeEnabled = (state: RootState) => state.ui.demoModeEnabled;
 
 export default uiSlice.reducer;

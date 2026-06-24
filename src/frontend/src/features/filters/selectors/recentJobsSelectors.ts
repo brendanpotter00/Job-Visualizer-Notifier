@@ -7,12 +7,10 @@ import { isSoftwareOnlyEnabled } from '../../../constants/tags.ts';
 import { getCompanyById } from '../../../config/companies.ts';
 import { filterJobsByHours } from '../../../lib/date.ts';
 import { selectEnabledCompanyIds } from '../../preferences/enabledCompaniesSlice.ts';
+import { selectDemoModeEnabled } from '../../ui/uiSlice.ts';
 import { DEMO_JOBS } from '../../jobs/demoJobs.ts';
 
 export const selectRecentJobsFilters = (state: RootState) => state.recentJobsFilters.filters;
-
-/** Admin-only "Demo mode" flag (set on the Account page). UI-gated to admins. */
-const selectDemoModeEnabled = (state: RootState) => state.ui.demoModeEnabled;
 
 const selectByCompanyIdFromQuery = createSelector(
   [(state: RootState) => jobsApi.endpoints.getAllJobs.select()(state).data],
