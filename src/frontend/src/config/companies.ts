@@ -608,6 +608,9 @@ export const COMPANIES: Company[] = [
   createBackendScraperCompany('workos', 'WorkOS', 'https://jobs.ashbyhq.com/workos', {
     sourceAts: 'ashby',
   }),
+  createBackendScraperCompany('salient', 'Salient', 'https://jobs.ashbyhq.com/salient', {
+    sourceAts: 'ashby',
+  }),
 
   // Gem (backend-scraper) — backend Procrastinate worker fetches from
   // api.gem.com/job_board/v0/<id>/job_posts/ on a 30-min cron. See
@@ -869,6 +872,7 @@ export const enum COMPANY_IDS {
   Roadrunner = 'roadrunner',
   Robinhood = 'robinhood',
   Roblox = 'roblox',
+  Salient = 'salient',
   Saronic = 'saronic',
   Scaleai = 'scaleai',
   Sesame = 'sesame',
