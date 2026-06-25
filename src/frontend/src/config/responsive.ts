@@ -8,10 +8,10 @@
  *  - `{ compact, default }` numeric pairs for props that take a raw number
  *    (e.g. `CompanyLogo`'s `size`), selected via the `useIsMobile` hook.
  *  - Flat mobile-only values applied via `sx` blocks gated on `useIsMobile()`,
- *    used where the MUI desktop default is variant-fragile and can't be safely
- *    restated in an `sm` slot (e.g. the `jobCard` group and
- *    `chart.axisFontSizeCompact` / `chart.marginCompact`) — desktop gets no
- *    override at all.
+ *    used where the MUI/Recharts desktop default is variant-fragile and can't be
+ *    safely restated in an `sm` slot (e.g. the `jobCard` group and
+ *    `chart.axisFontSizeCompact` / `chart.yAxisWidthCompact`) — desktop passes
+ *    the inherited default (`undefined` / no override) and gets no override at all.
  *
  * Regression-safety convention: the `sm` slot ALWAYS restates the current
  * desktop value, so applying a token never changes layout at >= 600px. MUI sx
@@ -209,7 +209,11 @@ export const RESPONSIVE = {
   /**
    * Saved-filters keyword-list cards (`KeywordListCard`). Compact padding + the
    * include/exclude keyword chips shrink on mobile so the card stops eating a
-   * full screen. chip values are FLAT `{ compact, default }` (raw chip props).
+   * full screen. Mixed shapes: `contentPadding` is an `{ xs, sm }` sx token;
+   * `chipHeight`/`chipFontSize` are `{ compact, default }` raw chip props
+   * (selected via `useIsMobile`); and `chipLabelPaddingX`/`chipIconFontSize`/
+   * `chipIconMarginL` are flat mobile-only strings (desktop keeps MUI's
+   * variant-dependent chip defaults — no override).
    */
   keywordCard: {
     /**
@@ -251,14 +255,24 @@ export const RESPONSIVE = {
 } as const;
 
 /**
- * `sx` that makes a wide MUI `<TableContainer>` scroll horizontally on mobile
- * only, so an 8-column admin table is swipeable instead of clipped/overflowing.
- * Desktop (>= 600px) keeps `visible`, so the table renders byte-for-byte as
- * before. Reused by every wide admin table (admin/users, qa, feedback,
+ * `sx` for a wide MUI `<TableContainer>` so an 8-column admin table is swipeable
+ * on mobile instead of bleeding past its container. origin/main rendered these
+ * as bare `<TableContainer>` (no `sx`), relying on MUI's root default
+ * `overflowX: 'auto'` (the container scrolls horizontally and contains its own
+ * overflow at every width). This token RESTATES that exact default on every
+ * breakpoint — a true no-op at all widths, including desktop/tablet (>= 600px) —
+ * so its ONLY net effect is adding `WebkitOverflowScrolling: 'touch'` for iOS
+ * momentum scrolling on the already-scrollable container. (A flat `overflowX`
+ * is deliberate: `sm: 'visible'` would have changed desktop/tablet from `auto`
+ * to `visible`, letting wide tables overflow their container — a regression.)
+ * Reused by every wide admin table (admin/users, qa, feedback,
  * location-normalization) — the single source of the mobile-table-scroll rule.
  */
 export const TABLE_SCROLL_SX = {
-  overflowX: { xs: 'auto', sm: 'visible' },
+  // MUI TableContainer's default overflowX. Flat (same on every breakpoint) so
+  // the container keeps containing its overflow on desktop/tablet, exactly as
+  // origin's bare `<TableContainer>` did.
+  overflowX: 'auto',
   // Momentum scrolling on iOS so the swipe feels native.
   WebkitOverflowScrolling: 'touch',
 } as const;

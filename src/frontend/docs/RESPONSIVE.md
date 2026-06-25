@@ -32,7 +32,9 @@ import { RESPONSIVE } from '../config/responsive';
 MUI `sx` is **mobile-first**: an `xs` value applies at every width unless a larger
 breakpoint overrides it. So **every token's `sm` slot restates the current desktop
 value** → applying a token is a *no-op at >= 600px* by construction. This invariant
-is compiler-enforced (`satisfies Record<string, ResponsiveValue>`) and asserted in
+is compiler-enforced for the homogeneous token groups (via `satisfies Record<string,
+ResponsiveValue>`), and asserted for ALL `{ xs, sm }` tokens (including the
+mixed-shape groups, which carry no `satisfies`) by the pin-completeness test in
 `__tests__/config/responsive.test.ts`. When you add an `{ xs, sm }` token, the `sm`
 slot **must** equal whatever the call site renders today.
 
