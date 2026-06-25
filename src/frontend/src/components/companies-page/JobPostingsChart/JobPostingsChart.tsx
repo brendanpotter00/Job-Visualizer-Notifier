@@ -107,9 +107,13 @@ export function JobPostingsChart({
           stroke="#666"
           tick={tickStyle}
           // Keep date labels from colliding on the narrow phone plot.
-          minTickGap={isMobile ? 28 : 5}
+          minTickGap={isMobile ? RESPONSIVE.chart.minTickGapCompact : 5}
         />
-        <YAxis stroke="#666" tick={tickStyle} width={isMobile ? 28 : undefined} />
+        <YAxis
+          stroke="#666"
+          tick={tickStyle}
+          width={isMobile ? RESPONSIVE.chart.yAxisWidthCompact : undefined}
+        />
         <Tooltip content={<ChartTooltip />} />
         <Line
           type="monotone"

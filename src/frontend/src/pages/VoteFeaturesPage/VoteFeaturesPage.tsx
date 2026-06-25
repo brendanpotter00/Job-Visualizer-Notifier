@@ -12,7 +12,7 @@ export function VoteFeaturesPage() {
       </Typography>
       <GiveFeedbackBox />
       <Box sx={{ mt: RESPONSIVE.spacing.sectionMarginB }}>
-        <Grid container spacing={{ xs: 2, md: 3 }}>
+        <Grid container spacing={{ xs: 2, sm: 3 }}>
           <Grid size={{ xs: 12, md: 6 }} sx={{ order: { xs: 2, md: 1 } }}>
             <ChangelogColumn />
           </Grid>

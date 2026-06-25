@@ -35,6 +35,15 @@ export const MOBILE_BREAKPOINT = 'sm' as const satisfies Breakpoint;
  * Ledger #1 invariant: every token MUST carry both slots, so a future token
  * that omits `sm` (which would leak its `xs` value up into desktop, since MUI
  * sx is mobile-first) fails to compile instead of silently regressing >= 600px.
+ *
+ * NOTE: only the HOMOGENEOUS groups (`spacing`, `fontSize`, `control`, `statTile`)
+ * carry that `satisfies` annotation. The mixed-shape groups (`chart`,
+ * `curatedCard`, `keywordCard`, `jobCard`, `adminChart`) hold a blend of
+ * `{ xs, sm }`, `{ compact, default }`, and flat tokens, so they CANNOT carry it
+ * and are therefore NOT compiler-guarded. Their `{ xs, sm }` tokens are instead
+ * guarded by the reflective pin-completeness test in
+ * `__tests__/config/responsive.test.ts`, which fails if any `{ xs, sm }` (or
+ * `{ compact, default }`) token is missing from the desktop-value pin map.
  */
 type ResponsiveValue = { xs: number | string; sm: number | string };
 
@@ -154,6 +163,18 @@ export const RESPONSIVE = {
      * since restating Recharts' computed default is fragile.
      */
     axisFontSizeCompact: 11,
+    /**
+     * XAxis `minTickGap` on mobile only (px). Spreads the date labels apart so
+     * they don't collide on the narrow phone plot. Desktop keeps Recharts'
+     * default `minTickGap` of 5 (passed inline as `: 5`) — NOT overridden here.
+     */
+    minTickGapCompact: 28,
+    /**
+     * YAxis `width` on mobile only (px). Reclaims horizontal room for the plot
+     * on a narrow phone. Desktop keeps Recharts' default auto-width (passed
+     * inline as `: undefined`) — NOT overridden here.
+     */
+    yAxisWidthCompact: 28,
     /** Line dot radii. */
     dotR: { compact: 3, default: 4 },
     activeDotR: { compact: 5, default: 6 },
@@ -161,20 +182,26 @@ export const RESPONSIVE = {
   /** Admin dashboard charts (signup trend / per-day). Raw px via `useIsMobile`. */
   adminChart: { height: { compact: 200, default: 280 } },
   /**
-   * Curated-companies card (`CompanyCard`). One card per row on mobile (same as
-   * desktop's 1-up at xs), but compacted: smaller logo, tighter padding, and a
-   * smaller description font — so the cards are shorter while still showing the
-   * FULL blurb (no truncation). `gridItemSize` is the MUI Grid `size` object;
-   * the rest are `{ xs, sm }` sx tokens (sm restates the MUI defaults).
+   * Curated-companies card (`CompanyCard`). Stays in the single column it already
+   * rendered at `xs` (xs:12, unchanged), but compacted: smaller logo, tighter
+   * padding, and a smaller description font — so the cards are shorter while still
+   * showing the FULL blurb (no truncation). Mixed shapes: `gridItemSize` is the
+   * MUI Grid `size` object, `wordmarkHeight` is a `{ compact, default }` raw-px
+   * `useIsMobile` token, and the rest are `{ xs, sm }` sx tokens (sm restates the
+   * current desktop value).
    */
   curatedCard: {
-    /** MUI Grid `size`: 1-up on phones (restated), 2-up sm, 3-up md+. */
+    /** MUI Grid `size`: 1-up on phones (xs:12, unchanged), 2-up sm, 3-up md+. */
     gridItemSize: { xs: 12, sm: 6, md: 4 },
     /** Grid gap (sm restates the current 2 == 16px). */
     gridSpacing: { xs: 1, sm: 2 },
     /** Wordmark logo height (raw px via `useIsMobile`; default 32 unchanged). */
     wordmarkHeight: { compact: 24, default: 32 },
-    /** CardContent / CardActions padding (sm restates MUI's 16px default). */
+    /**
+     * CardContent base `p` + CardActions `px`/`pb` padding. sm restates the
+     * original 16px (CardContent's MUI default; CardActions' explicit `px:2`, not
+     * the MUI 8px CardActions default).
+     */
     contentPadding: { xs: 1.25, sm: 2 },
     /** Description font size (sm restates the body2 0.875rem desktop default). */
     descriptionFontSize: { xs: '0.78rem', sm: '0.875rem' },
@@ -185,7 +212,11 @@ export const RESPONSIVE = {
    * full screen. chip values are FLAT `{ compact, default }` (raw chip props).
    */
   keywordCard: {
-    /** CardContent padding (sm restates MUI's 16px default). */
+    /**
+     * `KeywordListCard` `CARD_SX` padding, applied to a `<Box>` (not a
+     * CardContent). A `<Box>` has no default padding of its own, so sm restates
+     * the original explicit `p: 2` (16px) that origin/main set on that `<Box>`.
+     */
     contentPadding: { xs: 1.25, sm: 2 },
     /** +/- keyword chip height (raw px via `useIsMobile`; default small chip 24). */
     chipHeight: { compact: 22, default: 24 },
