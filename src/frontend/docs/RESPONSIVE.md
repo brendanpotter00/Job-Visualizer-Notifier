@@ -16,7 +16,7 @@ everything **below 600px**. This is the *content* breakpoint. (The app **shell**
 `RootLayout` drawer/appbar — intentionally switches at `md`/900px instead; that is a
 separate, deliberate split for the tablet drawer and is documented in `RootLayout`.)
 
-## The two token shapes
+## The three token shapes
 
 Everything lives in the `RESPONSIVE` object in **`config/responsive.ts`**.
 
@@ -70,7 +70,7 @@ sx={{ ...(isMobile && { '& .MuiChip-root': { height: RESPONSIVE.jobCard.chipHeig
 | `jobCard.*` | the shared `JobListingCard` (logo, chips, Apply button) |
 | `chart.*` | the company hiring-trend `JobPostingsChart` (height, margins, axis font, dot radii) |
 | `adminChart.*` | admin signup charts height |
-| `curatedCard.*` | curated-companies 2-up mobile card (grid size, wordmark, padding) |
+| `curatedCard.*` | curated-companies 1-up mobile card (grid size, wordmark, padding) |
 | `keywordCard.*` | saved-filters keyword-list card (padding + +/- chips) |
 | `statTile.*` | admin stat tiles |
 | `logoSize` | `CompanyLogo` numeric `size` |

@@ -63,7 +63,7 @@ describe('CompanyCard', () => {
   describe('mobile (compact 1-up card)', () => {
     beforeEach(() => vi.mocked(useIsMobile).mockReturnValue(true));
 
-    it('still shows the description (kept, just smaller + clamped on mobile)', () => {
+    it('still shows the full description on mobile (smaller font, no clamp)', () => {
       renderWithProviders(<CompanyCard company={company()} />);
       expect(screen.getByText('Payments infra. Powers checkout.')).toBeInTheDocument();
     });

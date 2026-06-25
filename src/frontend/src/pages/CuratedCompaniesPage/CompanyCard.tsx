@@ -35,7 +35,12 @@ export function CompanyCard({ company }: CompanyCardProps) {
         sx={{
           flexGrow: 1,
           p: RESPONSIVE.curatedCard.contentPadding,
-          '&:last-child': { pb: RESPONSIVE.curatedCard.contentPadding },
+          // For a non-linkable company there is no CardActions, so CardContent is
+          // the card's last child. MUI's stock `:last-child` bottom padding is 24px
+          // (spacing 3) — restate that exactly (sm: 3) so desktop is byte-identical
+          // to origin/main; only mobile (xs: 1 == 8px) compacts. Using
+          // `contentPadding` here (sm: 2 == 16px) would silently regress desktop.
+          '&:last-child': { pb: RESPONSIVE.spacing.cardPaddingBottom },
         }}
       >
         <CompanyWordmark

@@ -12,7 +12,7 @@ interface CuratedCompaniesGridProps {
   companies: CuratedCompany[];
 }
 
-// 2-up on phones (was 1-up), 2-up sm, 3-up md+ (md restates the current value).
+// 1-up on phones (xs:12, restated/unchanged), 2-up at sm, 3-up at md+.
 const GRID_ITEM_SIZE = RESPONSIVE.curatedCard.gridItemSize;
 
 export function CuratedCompaniesGrid({ companies }: CuratedCompaniesGridProps) {

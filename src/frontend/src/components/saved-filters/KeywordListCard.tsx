@@ -108,9 +108,12 @@ export function KeywordListCard({
         height: RESPONSIVE.keywordCard.chipHeight.compact,
         '& .MuiChip-label': {
           fontSize: RESPONSIVE.keywordCard.chipFontSize.compact,
-          px: '6px',
+          px: RESPONSIVE.keywordCard.chipLabelPaddingX,
         },
-        '& .MuiChip-icon': { fontSize: '0.85rem', ml: '3px' },
+        '& .MuiChip-icon': {
+          fontSize: RESPONSIVE.keywordCard.chipIconFontSize,
+          ml: RESPONSIVE.keywordCard.chipIconMarginL,
+        },
       }
     : undefined;
 

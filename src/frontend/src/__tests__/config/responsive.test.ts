@@ -37,6 +37,11 @@ const SM_DESKTOP: Record<string, number | string> = {
   'control.buttonFontSize': '0.8125rem',
   'curatedCard.gridSpacing': 2,
   'curatedCard.contentPadding': 2,
+  // Restates the body2 desktop font; the ONLY no-op { xs, sm } token whose group
+  // is plain `as const` (mixed shapes), so the compiler can't guard it — pin it
+  // here so dropping `sm` (shrinking the desktop description, a Ledger #1
+  // violation) fails this test.
+  'curatedCard.descriptionFontSize': '0.875rem',
   'keywordCard.contentPadding': 2,
   'statTile.padding': 2.5,
   'statTile.gap': 1.5,
@@ -96,6 +101,19 @@ describe('RESPONSIVE token invariants', () => {
         expect(compact).toBeLessThanOrEqual(def);
       }
     }
+  });
+
+  // Object-shaped desktop tokens that don't fit the scalar `.sm`/`.default`
+  // lookups above. Pinned with dedicated assertions so a future edit to any of
+  // these desktop layout values fails a test.
+  describe('object-shaped desktop layout tokens', () => {
+    it('chart.marginDefault restates the desktop LineChart margins', () => {
+      expect(RESPONSIVE.chart.marginDefault).toEqual({ top: 5, right: 30, left: 20, bottom: 5 });
+    });
+
+    it('curatedCard.gridItemSize restates the desktop 1-up / 2-up / 3-up layout', () => {
+      expect(RESPONSIVE.curatedCard.gridItemSize).toEqual({ xs: 12, sm: 6, md: 4 });
+    });
   });
 
   describe('TABLE_SCROLL_SX', () => {

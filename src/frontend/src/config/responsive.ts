@@ -3,10 +3,15 @@
  * mobile layout. As more pages are made mobile-friendly, add tokens here and
  * consume them instead of hard-coding sizes at call sites.
  *
- * Two token shapes:
+ * Three token shapes:
  *  - MUI responsive sx objects (`{ xs, sm }`) for use directly in `sx` props.
  *  - `{ compact, default }` numeric pairs for props that take a raw number
  *    (e.g. `CompanyLogo`'s `size`), selected via the `useIsMobile` hook.
+ *  - Flat mobile-only values applied via `sx` blocks gated on `useIsMobile()`,
+ *    used where the MUI desktop default is variant-fragile and can't be safely
+ *    restated in an `sm` slot (e.g. the `jobCard` group and
+ *    `chart.axisFontSizeCompact` / `chart.marginCompact`) — desktop gets no
+ *    override at all.
  *
  * Regression-safety convention: the `sm` slot ALWAYS restates the current
  * desktop value, so applying a token never changes layout at >= 600px. MUI sx
@@ -186,6 +191,22 @@ export const RESPONSIVE = {
     chipHeight: { compact: 22, default: 24 },
     /** +/- keyword chip font size (raw via `useIsMobile`; default 0.8125rem). */
     chipFontSize: { compact: '0.6875rem', default: '0.8125rem' },
+    /**
+     * Chip label horizontal padding on mobile only (applied via a `useIsMobile`
+     * gate, like `jobCard.*`). String px to avoid MUI's spacing x8 trap. Desktop
+     * keeps MUI's variant-dependent small-chip label padding — NOT overridden here.
+     */
+    chipLabelPaddingX: '6px',
+    /**
+     * Chip leading-icon font size on mobile only (`useIsMobile`-gated). Shrinks the
+     * +/- icon to match the smaller chip. Desktop keeps MUI's default icon size.
+     */
+    chipIconFontSize: '0.85rem',
+    /**
+     * Chip leading-icon left margin on mobile only (`useIsMobile`-gated). String px
+     * to avoid the spacing x8 trap. Desktop keeps MUI's default icon margin.
+     */
+    chipIconMarginL: '3px',
   },
   /** Admin stat tiles (`StatTile`). `{ xs, sm }` sx tokens (sm restates current). */
   statTile: {
@@ -193,7 +214,7 @@ export const RESPONSIVE = {
     padding: { xs: 1.5, sm: 2.5 },
     /** Internal vertical gap (sm restates the current 1.5 == 12px). */
     gap: { xs: 0.75, sm: 1.5 },
-  },
+  } as const satisfies Record<string, ResponsiveValue>,
   /** Raw-pixel sizes for numeric props (e.g. `CompanyLogo` `size`). */
   logoSize: { compact: 32, default: 44 },
 } as const;
