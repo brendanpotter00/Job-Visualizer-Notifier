@@ -20,7 +20,7 @@ export function RecentJobsMetrics({
   return (
     <Paper sx={{ p: 3, mb: 3 }}>
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3} sx={{ mb: 3 }}>
-        <MetricCard value={totalJobs} label="Total Job Postings Displayed" />
+        <MetricCard value={totalJobs} label="Displayed Jobs" />
         <Divider orientation="vertical" flexItem />
         <MetricCard value={jobsLast24Hours} label="Past 24 Hours" />
         <Divider orientation="vertical" flexItem />
