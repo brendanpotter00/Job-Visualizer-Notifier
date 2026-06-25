@@ -28,14 +28,14 @@ interface FetchProgressBarProps {
  * Progress bar component for displaying incremental loading status
  * as companies are fetched in parallel.
  *
- * Shows:
- * - Linear progress bar with percentage during loading
- * - Count of loaded companies
- * - Chips for each company showing status (pending/success/error)
- * - Job counts for successfully loaded companies
+ * Always-visible summary header shows:
+ * - Linear progress bar with percentage while loading
+ * - Count of loaded companies, plus success/failed count chips when complete
  *
- * Collapses to a summary accordion when loading is complete.
- * Users can expand to see per-company details.
+ * The accordion always mounts collapsed and is purely user-controlled — it
+ * never auto-expands or auto-collapses based on loading state. The summary
+ * header above stays visible regardless of expand state.
+ * Users can expand to see per-company details (status chips + job counts).
  */
 export function FetchProgressBar({ companyIdFilter }: FetchProgressBarProps = {}) {
   const { progress, isLoading } = useAllJobsProgress();
