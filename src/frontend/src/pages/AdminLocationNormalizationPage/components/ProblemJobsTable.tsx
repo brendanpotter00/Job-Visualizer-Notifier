@@ -19,6 +19,7 @@ import { LoadingState } from '../../../components/shared/LoadingIndicator';
 import { ErrorState } from '../../../components/shared/ErrorDisplay';
 import { EmptyState } from '../../../components/shared/ErrorDisplay';
 import { extractErrorMessage } from '../../../lib/errors';
+import { TABLE_SCROLL_SX } from '../../../config/responsive';
 
 const PAGE_SIZE = 25;
 
@@ -75,7 +76,7 @@ export function ProblemJobsTable() {
   }
 
   return (
-    <TableContainer>
+    <TableContainer sx={TABLE_SCROLL_SX}>
       <Table size="small">
         <TableHead>
           <TableRow>

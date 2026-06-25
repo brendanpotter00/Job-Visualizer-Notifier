@@ -31,6 +31,7 @@ import { useAuth, NotAuthenticatedError } from '../../features/auth/useAuth';
 import type { SearchTag } from '../../types/index.ts';
 import type { BackendJobListing } from '../../api/types.ts';
 import { COMPANIES } from '../../config/companies';
+import { RESPONSIVE, TABLE_SCROLL_SX } from '../../config/responsive';
 
 // Backend scraper companies for QA filtering
 const BACKEND_SCRAPER_COMPANIES = COMPANIES.filter((c) => c.ats === 'backend-scraper');
@@ -370,8 +371,13 @@ export function QAPage() {
 
   return (
     <Container maxWidth={false} sx={{ px: { xs: 2, sm: 3, md: 4 } }}>
-      <Box sx={{ my: 4 }}>
-        <Typography variant="h3" component="h1" gutterBottom>
+      <Box sx={{ my: RESPONSIVE.spacing.pageMarginY }}>
+        <Typography
+          variant="h3"
+          component="h1"
+          gutterBottom
+          sx={{ fontSize: RESPONSIVE.fontSize.pageTitle }}
+        >
           QA - All Jobs
         </Typography>
         <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
@@ -447,7 +453,7 @@ export function QAPage() {
             </Box>
           )}
           {!scrapeRunsLoading && !scrapeRunsError && (
-            <TableContainer component={Paper}>
+            <TableContainer component={Paper} sx={TABLE_SCROLL_SX}>
               <Table size="small">
                 <TableHead>
                   <TableRow>
@@ -549,7 +555,7 @@ export function QAPage() {
         )}
 
         {!loading && !error && (
-          <TableContainer component={Paper}>
+          <TableContainer component={Paper} sx={TABLE_SCROLL_SX}>
             <Table size="small">
               <TableHead>
                 <TableRow>

@@ -31,6 +31,7 @@ import {
 } from '../../../features/admin/adminApi';
 import { useCurrentUser } from '../../../features/auth/useCurrentUser';
 import { extractErrorMessage } from '../../../lib/errors';
+import { TABLE_SCROLL_SX } from '../../../config/responsive';
 import { UserVisitsModal } from './UserVisitsModal';
 
 interface UserRosterTableProps {
@@ -220,7 +221,7 @@ export function UserRosterTable({ users }: UserRosterTableProps) {
         </Alert>
       )}
 
-      <TableContainer>
+      <TableContainer sx={TABLE_SCROLL_SX}>
         <Table size="small">
           <TableHead>
             <TableRow>

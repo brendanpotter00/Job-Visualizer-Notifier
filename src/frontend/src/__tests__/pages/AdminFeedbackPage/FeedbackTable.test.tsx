@@ -1,8 +1,13 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, within, waitForElementToBeRemoved } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { FeedbackTable } from '../../../pages/AdminFeedbackPage/components/FeedbackTable';
+import { useIsMobile } from '../../../hooks/useIsMobile';
 import type { FeedbackRow } from '../../../features/admin/adminApi';
+
+// FeedbackTable swaps the desktop table for a tappable list + modal on mobile.
+// Mock the hook; default to desktop so the table-based assertions below hold.
+vi.mock('../../../hooks/useIsMobile');
 
 const ROWS: FeedbackRow[] = [
   {
@@ -42,6 +47,8 @@ function bodyRowMessages(): string[] {
 }
 
 describe('FeedbackTable', () => {
+  beforeEach(() => vi.mocked(useIsMobile).mockReturnValue(false));
+
   it('renders an empty state when total is zero', () => {
     render(<FeedbackTable {...baseProps} feedback={[]} total={0} />);
     expect(screen.getByText(/no feedback has been submitted/i)).toBeInTheDocument();
@@ -74,5 +81,31 @@ describe('FeedbackTable', () => {
     render(<FeedbackTable {...baseProps} />);
     expect(screen.getByText('Anonymous')).toBeInTheDocument();
     expect(screen.getByText('Old User')).toBeInTheDocument();
+  });
+
+  describe('mobile (tappable list + modal)', () => {
+    beforeEach(() => vi.mocked(useIsMobile).mockReturnValue(true));
+
+    it('renders a tappable list instead of the wide table', () => {
+      render(<FeedbackTable {...baseProps} />);
+      // No data table on mobile…
+      expect(screen.queryByRole('table')).not.toBeInTheDocument();
+      // …and each item is a button that opens its detail.
+      expect(screen.getByRole('button', { name: /view feedback from old user/i })).toBeInTheDocument();
+    });
+
+    it('opens a modal with the full message when a row is tapped, and closes it', async () => {
+      const user = userEvent.setup();
+      render(<FeedbackTable {...baseProps} />);
+
+      await user.click(screen.getByRole('button', { name: /view feedback from old user/i }));
+      const dialog = screen.getByRole('dialog');
+      expect(within(dialog).getByText('oldest')).toBeInTheDocument();
+      expect(within(dialog).getByText('Old User')).toBeInTheDocument();
+
+      await user.click(within(dialog).getByRole('button', { name: /close/i }));
+      // MUI keeps the Dialog mounted through its exit transition — wait it out.
+      await waitForElementToBeRemoved(() => screen.queryByRole('dialog'));
+    });
   });
 });

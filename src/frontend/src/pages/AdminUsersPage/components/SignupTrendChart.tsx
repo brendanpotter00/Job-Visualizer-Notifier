@@ -13,6 +13,8 @@ import {
 } from 'recharts';
 import { format } from 'date-fns';
 import { bucketCumulative, type DayPoint } from '../lib/bucketSignups';
+import { useIsMobile } from '../../../hooks/useIsMobile';
+import { RESPONSIVE } from '../../../config/responsive';
 
 interface SignupTrendChartProps {
   /** ISO timestamps of every user's `createdAt`. */
@@ -23,13 +25,17 @@ interface SignupTrendChartProps {
 
 export function SignupTrendChart({ createdAts, height = 280 }: SignupTrendChartProps) {
   const theme = useTheme();
+  const isMobile = useIsMobile();
+  // Shorter on mobile so the chart card doesn't dominate the phone screen
+  // (desktop keeps the passed/default 280 == adminChart.height.default).
+  const h = isMobile ? RESPONSIVE.adminChart.height.compact : height;
   const data = useMemo(() => bucketCumulative(createdAts), [createdAts]);
 
   if (data.length === 0) {
     return (
       <Box
         sx={{
-          height,
+          height: h,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -41,7 +47,7 @@ export function SignupTrendChart({ createdAts, height = 280 }: SignupTrendChartP
   }
 
   return (
-    <Box sx={{ width: '100%', height }}>
+    <Box sx={{ width: '100%', height: h }}>
       <ResponsiveContainer>
         <AreaChart data={data} margin={{ top: 8, right: 16, bottom: 0, left: -8 }}>
           <defs>

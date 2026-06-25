@@ -1,5 +1,6 @@
 import { Paper, Divider } from '@mui/material';
 import { useMemo } from 'react';
+import { RESPONSIVE } from '../../../config/responsive';
 import { useAppSelector } from '../../../app/hooks';
 import {
   selectCurrentCompanyMetadataRtk,
@@ -26,7 +27,7 @@ export function MetricsDashboard() {
   const { jobsLast3Days, jobsLast24Hours, jobsLast12Hours } = useTimeBasedJobCounts(allJobs);
 
   return (
-    <Paper sx={{ p: 3, mb: 3 }}>
+    <Paper sx={{ p: RESPONSIVE.spacing.paperPadding, mb: RESPONSIVE.spacing.sectionMarginB }}>
       <MetricsRow
         totalJobs={metadata?.totalCount ?? 0}
         jobsLast3Days={jobsLast3Days}

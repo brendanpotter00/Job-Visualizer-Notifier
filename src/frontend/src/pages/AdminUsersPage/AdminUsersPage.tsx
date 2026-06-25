@@ -7,6 +7,7 @@ import Tab from '@mui/material/Tab';
 import Tabs from '@mui/material/Tabs';
 import Typography from '@mui/material/Typography';
 import { useGetAdminUsersStatsQuery, useListAdminUsersQuery } from '../../features/admin/adminApi';
+import { RESPONSIVE } from '../../config/responsive';
 import { LoadingState } from '../../components/shared/LoadingIndicator';
 import { ErrorState } from '../../components/shared/ErrorDisplay';
 import { extractErrorMessage } from '../../lib/errors';
@@ -56,7 +57,7 @@ export function AdminUsersPage() {
   // failure pattern this PR is meant to prevent).
   if (usersError && statsError) {
     return (
-      <Container maxWidth="xl" sx={{ py: 4 }}>
+      <Container maxWidth="xl" sx={{ py: RESPONSIVE.spacing.pageMarginY }}>
         <ErrorState
           inline
           message={extractErrorMessage(usersError ?? statsError, 'Failed to load admin data')}
@@ -79,7 +80,7 @@ export function AdminUsersPage() {
   const totalUsers = stats?.totalUsers ?? null;
 
   return (
-    <Container maxWidth="xl" sx={{ py: 4 }}>
+    <Container maxWidth="xl" sx={{ py: RESPONSIVE.spacing.pageMarginY }}>
       <Typography variant="h4" component="h1" gutterBottom>
         Admin · Users
       </Typography>
@@ -117,7 +118,7 @@ export function AdminUsersPage() {
             </Grid>
           </Grid>
 
-          <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
+          <Paper variant="outlined" sx={{ p: RESPONSIVE.spacing.paperPadding, mb: RESPONSIVE.spacing.sectionMarginB }}>
             <Box
               sx={{
                 display: 'flex',
@@ -147,7 +148,7 @@ export function AdminUsersPage() {
             )}
           </Paper>
 
-          <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
+          <Paper variant="outlined" sx={{ p: RESPONSIVE.spacing.paperPadding, mb: RESPONSIVE.spacing.sectionMarginB }}>
             <Typography variant="h6" component="h2" gutterBottom>
               Signup providers
             </Typography>

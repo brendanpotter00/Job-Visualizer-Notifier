@@ -4,6 +4,7 @@ import { LoadingState } from '../../components/shared/LoadingIndicator';
 import { ErrorState } from '../../components/shared/ErrorDisplay';
 import { extractErrorMessage } from '../../lib/errors';
 import { CuratedCompaniesGrid } from './CuratedCompaniesGrid';
+import { RESPONSIVE } from '../../config/responsive';
 
 /**
  * Public directory of every company this site tracks. Data is sourced from the
@@ -14,8 +15,8 @@ export function CuratedCompaniesPage() {
   const { data, isLoading, isError, error, refetch } = useListCuratedCompaniesQuery();
 
   return (
-    <Container maxWidth="xl" sx={{ py: 4 }}>
-      <Box sx={{ mb: 3 }}>
+    <Container maxWidth="xl" sx={{ py: RESPONSIVE.spacing.pageMarginY }}>
+      <Box sx={{ mb: RESPONSIVE.spacing.sectionMarginB }}>
         <Typography variant="h4" component="h1">
           Curated Companies
         </Typography>

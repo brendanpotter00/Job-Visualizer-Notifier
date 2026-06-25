@@ -17,6 +17,7 @@ import { updateCurrentUser } from '../../features/auth/authService';
 import { LoadingState } from '../../components/shared/LoadingIndicator';
 import { ErrorState } from '../../components/shared/ErrorDisplay';
 import { extractErrorMessage } from '../../lib/errors';
+import { RESPONSIVE } from '../../config/responsive';
 
 export function AccountPage() {
   const { isAuthenticated, isLoading: authLoading, login, getToken } = useAuth();
@@ -59,8 +60,8 @@ export function AccountPage() {
 
   if (!isAuthenticated) {
     return (
-      <Container maxWidth="sm" sx={{ py: 4 }}>
-        <Paper sx={{ p: 4, textAlign: 'center' }}>
+      <Container maxWidth="sm" sx={{ py: RESPONSIVE.spacing.pageMarginY }}>
+        <Paper sx={{ p: RESPONSIVE.spacing.paperPaddingLg, textAlign: 'center' }}>
           <Typography variant="h5" gutterBottom>
             Account
           </Typography>
@@ -81,7 +82,7 @@ export function AccountPage() {
 
   if (error) {
     return (
-      <Container maxWidth="sm" sx={{ py: 4 }}>
+      <Container maxWidth="sm" sx={{ py: RESPONSIVE.spacing.pageMarginY }}>
         <ErrorState inline message={error} onRetry={loadProfile} />
       </Container>
     );
@@ -95,12 +96,12 @@ export function AccountPage() {
   const avatarSize = { width: 80, height: 80, mb: 2 };
 
   return (
-    <Container maxWidth="sm" sx={{ py: 4 }}>
+    <Container maxWidth="sm" sx={{ py: RESPONSIVE.spacing.pageMarginY }}>
       <Typography variant="h4" component="h1" gutterBottom>
         Account
       </Typography>
 
-      <Paper sx={{ p: 4 }}>
+      <Paper sx={{ p: RESPONSIVE.spacing.paperPaddingLg }}>
         <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mb: 3 }}>
           {user.pictureUrl ? (
             <Avatar src={user.pictureUrl} alt={fullName || user.email} sx={avatarSize} />
@@ -155,7 +156,7 @@ export function AccountPage() {
 
       {user.isAdmin && (
         <>
-          <Paper sx={{ p: 4, mt: 3 }}>
+          <Paper sx={{ p: RESPONSIVE.spacing.paperPaddingLg, mt: 3 }}>
             <FormControlLabel
               control={
                 <Switch
@@ -172,7 +173,7 @@ export function AccountPage() {
             </Typography>
           </Paper>
 
-          <Paper sx={{ p: 4, mt: 3 }}>
+          <Paper sx={{ p: RESPONSIVE.spacing.paperPaddingLg, mt: 3 }}>
             <FormControlLabel
               control={
                 <Switch

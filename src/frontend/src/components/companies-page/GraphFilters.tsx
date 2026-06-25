@@ -1,4 +1,5 @@
 import { Box, Stack } from '@mui/material';
+import { RESPONSIVE } from '../../config/responsive';
 import { useAppDispatch, useAppSelector } from '../../app/hooks.ts';
 import {
   setGraphTimeWindow,
@@ -35,8 +36,25 @@ export function GraphFilters() {
   const availableDepartments = useAppSelector(selectAvailableDepartments);
 
   return (
-    <Box sx={{ mb: 3 }}>
-      <Stack spacing={2}>
+    <Box sx={{ mb: RESPONSIVE.spacing.sectionMarginB }}>
+      <Stack
+        spacing={RESPONSIVE.spacing.filterSpacing}
+        sx={{
+          // Mobile-only compaction of every filter control, mirroring the Recent
+          // page (RecentJobsFilters). These xs-scoped descendant overrides shrink
+          // the theme's 44px / 1rem controls to ~36px / 0.8125rem; every `sm` slot
+          // restates the current desktop value, so it's a no-op at >= 600px and
+          // never leaks to the shared controls' other consumers.
+          '& .MuiTextField-root': { minHeight: RESPONSIVE.control.minHeight },
+          '& .MuiOutlinedInput-root': { minHeight: RESPONSIVE.control.minHeight },
+          '& .MuiInputBase-input': {
+            fontSize: RESPONSIVE.control.fontSize,
+            paddingTop: RESPONSIVE.control.inputPaddingY,
+            paddingBottom: RESPONSIVE.control.inputPaddingY,
+          },
+          '& .MuiInputLabel-root': { fontSize: RESPONSIVE.control.fontSize },
+        }}
+      >
         <SearchTagsInput
           value={filters.searchTags || []}
           onAdd={(tag) => dispatch(addGraphSearchTag(tag))}
@@ -44,7 +62,7 @@ export function GraphFilters() {
           onToggleMode={(text) => dispatch(toggleGraphSearchTagMode(text))}
         />
 
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={RESPONSIVE.spacing.filterSpacing}>
           <TimeWindowSelect
             value={filters.timeWindow}
             onChange={(tw) => dispatch(setGraphTimeWindow(tw))}

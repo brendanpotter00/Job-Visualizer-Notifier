@@ -16,6 +16,7 @@ import { useAppDispatch } from '../../app/hooks';
 import { LoadingState } from '../../components/shared/LoadingIndicator';
 import { ErrorState } from '../../components/shared/ErrorDisplay';
 import { extractErrorMessage } from '../../lib/errors';
+import { RESPONSIVE } from '../../config/responsive';
 import { computeVerdict } from './verdict';
 import { HealthOverview } from './components/HealthOverview';
 import { IntegrityTable } from './components/IntegrityTable';
@@ -71,7 +72,7 @@ export function AdminLocationNormalizationPage() {
   const verdict = health && integrity ? computeVerdict(health, integrity) : null;
 
   return (
-    <Container maxWidth="xl" sx={{ py: 4 }}>
+    <Container maxWidth="xl" sx={{ py: RESPONSIVE.spacing.pageMarginY }}>
       <Box
         sx={{
           display: 'flex',
@@ -99,7 +100,12 @@ export function AdminLocationNormalizationPage() {
       {verdict ? (
         <Paper
           variant="outlined"
-          sx={{ p: 2.5, mb: 3, borderLeft: 6, borderLeftColor: `${verdict.color}.main` }}
+          sx={{
+            p: 2.5,
+            mb: RESPONSIVE.spacing.sectionMarginB,
+            borderLeft: 6,
+            borderLeftColor: `${verdict.color}.main`,
+          }}
         >
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap', mb: 1 }}>
             <Chip label={verdict.verdict} color={verdict.color} />
@@ -124,7 +130,12 @@ export function AdminLocationNormalizationPage() {
       ) : (
         <Paper
           variant="outlined"
-          sx={{ p: 2.5, mb: 3, borderLeft: 6, borderLeftColor: 'text.disabled' }}
+          sx={{
+            p: 2.5,
+            mb: RESPONSIVE.spacing.sectionMarginB,
+            borderLeft: 6,
+            borderLeftColor: 'text.disabled',
+          }}
         >
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
             <Chip label="VERDICT UNKNOWN" variant="outlined" />
@@ -136,7 +147,10 @@ export function AdminLocationNormalizationPage() {
       )}
 
       {/* 2. Health overview. */}
-      <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
+      <Paper
+        variant="outlined"
+        sx={{ p: RESPONSIVE.spacing.paperPadding, mb: RESPONSIVE.spacing.sectionMarginB }}
+      >
         <Typography variant="h6" component="h2" gutterBottom>
           Health overview
         </Typography>
@@ -154,7 +168,10 @@ export function AdminLocationNormalizationPage() {
       </Paper>
 
       {/* 3. Integrity invariants. */}
-      <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
+      <Paper
+        variant="outlined"
+        sx={{ p: RESPONSIVE.spacing.paperPadding, mb: RESPONSIVE.spacing.sectionMarginB }}
+      >
         <Typography variant="h6" component="h2" gutterBottom>
           Integrity invariants
         </Typography>
@@ -172,7 +189,10 @@ export function AdminLocationNormalizationPage() {
       </Paper>
 
       {/* 4. Alias cache browser (self-contained — owns its own queries/state). */}
-      <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
+      <Paper
+        variant="outlined"
+        sx={{ p: RESPONSIVE.spacing.paperPadding, mb: RESPONSIVE.spacing.sectionMarginB }}
+      >
         <Typography variant="h6" component="h2" gutterBottom>
           Alias cache browser
         </Typography>
@@ -180,7 +200,10 @@ export function AdminLocationNormalizationPage() {
       </Paper>
 
       {/* 6. Problem jobs (self-contained). */}
-      <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
+      <Paper
+        variant="outlined"
+        sx={{ p: RESPONSIVE.spacing.paperPadding, mb: RESPONSIVE.spacing.sectionMarginB }}
+      >
         <Typography variant="h6" component="h2" gutterBottom>
           Problem jobs
         </Typography>

@@ -1,6 +1,7 @@
 import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
+import { RESPONSIVE } from '../../../config/responsive';
 
 interface StatTileProps {
   label: string;
@@ -14,12 +15,12 @@ export function StatTile({ label, value, meta, decoration }: StatTileProps) {
     <Paper
       variant="outlined"
       sx={{
-        p: 2.5,
+        p: RESPONSIVE.statTile.padding,
         height: '100%',
         display: 'flex',
         flexDirection: 'column',
         justifyContent: 'space-between',
-        gap: 1.5,
+        gap: RESPONSIVE.statTile.gap,
       }}
     >
       <Typography
