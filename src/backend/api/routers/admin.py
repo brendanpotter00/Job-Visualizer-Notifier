@@ -118,8 +118,6 @@ def get_admin_user_visits(
     denormalized total ``visit_count`` so the modal can flag the count-vs-
     history gap (per-visit history only began when the ``user_visits`` table
     shipped; earlier visits beyond the seeded ``last_visit_at`` have no rows).
-    Registered after the static ``/users/stats`` route so the ``{user_id}``
-    path param can't shadow it.
     """
     try:
         count = get_user_visit_count(conn, user_id)
