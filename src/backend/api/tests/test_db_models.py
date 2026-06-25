@@ -17,6 +17,7 @@ def test_all_tables_present():
         "user_enabled_companies",
         "user_saved_filters",
         "user_keyword_lists",
+        "user_visits",
         "features",
         "feature_upvotes",
         "feedback",
