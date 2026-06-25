@@ -1,5 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import Paper from '@mui/material/Paper';
+import Accordion from '@mui/material/Accordion';
+import AccordionSummary from '@mui/material/AccordionSummary';
+import AccordionDetails from '@mui/material/AccordionDetails';
 import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
 import Alert from '@mui/material/Alert';
@@ -7,6 +10,7 @@ import Stack from '@mui/material/Stack';
 import Box from '@mui/material/Box';
 import Switch from '@mui/material/Switch';
 import FormControlLabel from '@mui/material/FormControlLabel';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { COMPANIES } from '../../config/companies';
 import { useEnabledCompanies } from '../../features/preferences/useEnabledCompanies';
 import { CompanySearchAddInput } from './CompanySearchAddInput';
@@ -107,85 +111,102 @@ export function EnabledCompaniesSection() {
   }
 
   return (
-    <Paper sx={{ p: 4 }}>
-      <Typography variant="h6" gutterBottom>
-        Saved companies
-      </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        Pick which companies show up in your Recent Job Postings feed. Leave empty to see all.
-      </Typography>
+    <Accordion
+      defaultExpanded
+      disableGutters
+      sx={{
+        borderRadius: 1,
+        '&:before': { display: 'none' },
+      }}
+    >
+      <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ px: 4, py: 1 }}>
+        <Typography variant="h6">Saved companies</Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ ml: 1, alignSelf: 'center' }}>
+          {selectedCompanies.length} selected
+        </Typography>
+      </AccordionSummary>
+      <AccordionDetails sx={{ px: 4, pb: 4, pt: 0 }}>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+          Pick which companies show up in your Recent Job Postings feed. Leave empty to see all.
+        </Typography>
 
-      <Box sx={{ mb: 2 }}>
-        <CompanySearchAddInput
-          companies={sortedCompanies}
-          selectedIds={draftSet}
-          inputValue={searchInputValue}
-          onInputChange={setSearchInputValue}
-          onAdd={handleAddId}
-        />
-      </Box>
-
-      <Box sx={{ mb: 3 }}>
-        <BrowseCompaniesAccordion
-          selectedCount={selectedCompanies.length}
-          totalCount={sortedCompanies.length}
-        >
-          <CompanyChipGrid
+        <Box sx={{ mb: 2 }}>
+          <CompanySearchAddInput
             companies={sortedCompanies}
             selectedIds={draftSet}
-            onToggle={handleToggleId}
+            inputValue={searchInputValue}
+            onInputChange={setSearchInputValue}
+            onAdd={handleAddId}
           />
-        </BrowseCompaniesAccordion>
-      </Box>
+        </Box>
 
-      <Box sx={{ mb: 2 }}>
-        <FormControlLabel
-          control={
-            <Switch
-              checked={draftAutoEnroll}
-              onChange={(e) => {
-                setSaveSuccess(false);
-                setDraftAutoEnroll(e.target.checked);
-              }}
-              slotProps={{
-                input: { 'aria-label': 'Auto-include newly added companies' },
-              }}
+        <Box sx={{ mb: 3 }}>
+          <BrowseCompaniesAccordion
+            selectedCount={selectedCompanies.length}
+            totalCount={sortedCompanies.length}
+          >
+            <CompanyChipGrid
+              companies={sortedCompanies}
+              selectedIds={draftSet}
+              onToggle={handleToggleId}
             />
-          }
-          label="Auto-include newly added companies"
-        />
-        <Typography variant="caption" color="text.secondary" display="block">
-          When on, companies we add later show up in your feed automatically. You can remove any you
-          don&apos;t want.
-        </Typography>
-      </Box>
+          </BrowseCompaniesAccordion>
+        </Box>
 
-      <SelectedCompaniesPanel selectedCompanies={selectedCompanies} onRemove={handleRemoveId} />
+        <Box sx={{ mb: 2 }}>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={draftAutoEnroll}
+                onChange={(e) => {
+                  setSaveSuccess(false);
+                  setDraftAutoEnroll(e.target.checked);
+                }}
+                slotProps={{
+                  input: { 'aria-label': 'Auto-include newly added companies' },
+                }}
+              />
+            }
+            label="Auto-include newly added companies"
+          />
+          <Typography variant="caption" color="text.secondary" display="block">
+            When on, companies we add later show up in your feed automatically. You can remove any
+            you don&apos;t want.
+          </Typography>
+        </Box>
 
-      <Stack direction="row" spacing={1} sx={{ mb: 3 }}>
-        <Button variant="outlined" size="small" onClick={handleSelectAll}>
-          Select All
+        <SelectedCompaniesPanel selectedCompanies={selectedCompanies} onRemove={handleRemoveId} />
+
+        <Stack direction="row" spacing={1} sx={{ mb: 3 }}>
+          <Button variant="outlined" size="small" onClick={handleSelectAll}>
+            Select All
+          </Button>
+          <Button
+            variant="outlined"
+            size="small"
+            onClick={handleClear}
+            disabled={draft.length === 0}
+          >
+            Clear
+          </Button>
+        </Stack>
+
+        {saveSuccess && (
+          <Alert severity="success" sx={{ mb: 2 }}>
+            Preferences saved.
+          </Alert>
+        )}
+
+        {(saveError || error) && (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {saveError ?? error}
+          </Alert>
+        )}
+
+        <Button variant="contained" onClick={handleSave} disabled={!isDirty || isSaving} fullWidth>
+          {isSaving ? 'Saving...' : 'Save Changes'}
         </Button>
-        <Button variant="outlined" size="small" onClick={handleClear} disabled={draft.length === 0}>
-          Clear
-        </Button>
-      </Stack>
-
-      {saveSuccess && (
-        <Alert severity="success" sx={{ mb: 2 }}>
-          Preferences saved.
-        </Alert>
-      )}
-
-      {(saveError || error) && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {saveError ?? error}
-        </Alert>
-      )}
-
-      <Button variant="contained" onClick={handleSave} disabled={!isDirty || isSaving} fullWidth>
-        {isSaving ? 'Saving...' : 'Save Changes'}
-      </Button>
-    </Paper>
+      </AccordionDetails>
+    </Accordion>
   );
 }

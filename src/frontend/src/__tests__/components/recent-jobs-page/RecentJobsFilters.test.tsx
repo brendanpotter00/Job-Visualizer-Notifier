@@ -114,7 +114,7 @@ async function seedRecentStore(overrides: PreloadedOverrides = {}, jobs: Job[] =
   const store = createTestStore({
     recentJobsFilters: {
       filters: {
-        // Preload a wide time window so the default '3h' doesn't filter
+        // Preload a wide time window so the default '14d' doesn't filter
         // seeded jobs out and make Location/Company dropdowns empty.
         timeWindow: '30d',
         softwareOnly: false,
@@ -269,9 +269,9 @@ describe('RecentJobsFilters', () => {
     await user.click(screen.getByRole('button', { name: /reset filters/i }));
 
     const filters = store.getState().recentJobsFilters.filters;
-    // After reset, the slice's initial state should be restored (timeWindow='3h',
+    // After reset, the slice's initial state should be restored (timeWindow='14d',
     // all other fields undefined/false).
-    expect(filters.timeWindow).toBe('3h');
+    expect(filters.timeWindow).toBe('14d');
     expect(filters.searchTags).toBeUndefined();
     expect(filters.location).toBeUndefined();
     expect(filters.company).toBeUndefined();
