@@ -6,6 +6,8 @@ import { JobChipsSection } from './JobChipsSection.tsx';
 import { CARD_HOVER_SX, CARD_VARIANT } from './jobCardStyles.ts';
 import { CompanyLogo } from '../CompanyLogo/CompanyLogo.tsx';
 import { getCompanyById } from '../../../config/companies.ts';
+import { RESPONSIVE } from '../../../config/responsive';
+import { useIsMobile } from '../../../hooks/useIsMobile';
 
 interface JobListingCardProps {
   job: Job;
@@ -24,6 +26,7 @@ interface JobListingCardProps {
  */
 export function JobListingCard({ job }: JobListingCardProps) {
   const { postedAgo } = useJobMetadata(job.createdAt);
+  const isMobile = useIsMobile();
   const company = getCompanyById(job.company);
   const companyName = company?.name ?? job.company;
   const recruiterLinkedInUrl = company?.recruiterLinkedInUrl;
@@ -38,11 +41,30 @@ export function JobListingCard({ job }: JobListingCardProps) {
   return (
     <Card
       variant={CARD_VARIANT}
-      sx={{ mb: 2, cursor: 'pointer', ...CARD_HOVER_SX }}
+      sx={{ mb: RESPONSIVE.spacing.cardMarginB, cursor: 'pointer', ...CARD_HOVER_SX }}
       onClick={openJob}
     >
-      <CardContent>
-        <Stack spacing={1}>
+      <CardContent
+        sx={{
+          p: RESPONSIVE.spacing.cardPadding,
+          '&:last-child': { pb: RESPONSIVE.spacing.cardPaddingBottom },
+          // Shrink every chip (location, dept/remote, tags) on mobile only.
+          // Gated on isMobile so desktop keeps MUI's defaults untouched
+          // (outlined chips use 7px label padding, filled use 8px — restating a
+          // single sm value would regress one of them, so we override nothing on
+          // desktop). height is a sizing prop (px); label padding is a string px
+          // to avoid the spacing-system x8 multiply.
+          ...(isMobile && {
+            '& .MuiChip-root': { height: RESPONSIVE.jobCard.chipHeight },
+            '& .MuiChip-label': {
+              fontSize: RESPONSIVE.jobCard.chipFontSize,
+              paddingLeft: RESPONSIVE.jobCard.chipLabelPaddingX,
+              paddingRight: RESPONSIVE.jobCard.chipLabelPaddingX,
+            },
+          }),
+        }}
+      >
+        <Stack spacing={RESPONSIVE.spacing.cardStackSpacing}>
           {/* Header: logo spanning company name + title, Apply button top-right */}
           <Stack
             direction="row"
@@ -51,12 +73,17 @@ export function JobListingCard({ job }: JobListingCardProps) {
             alignItems="flex-start"
           >
             <Stack direction="row" spacing={1.5} alignItems="center" sx={{ minWidth: 0 }}>
-              <CompanyLogo companyId={job.company} displayName={companyName} size={44} decorative />
+              <CompanyLogo
+                companyId={job.company}
+                displayName={companyName}
+                size={isMobile ? RESPONSIVE.logoSize.compact : RESPONSIVE.logoSize.default}
+                decorative
+              />
               <Box sx={{ minWidth: 0 }}>
                 <Typography variant="subtitle2" color="text.secondary" fontWeight="bold">
                   {companyName}
                 </Typography>
-                <Typography variant="h6" component="h3">
+                <Typography variant="h6" component="h3" sx={{ fontSize: RESPONSIVE.fontSize.cardTitle }}>
                   {job.title}
                 </Typography>
               </Box>
@@ -73,6 +100,16 @@ export function JobListingCard({ job }: JobListingCardProps) {
                 flexShrink: 0,
                 borderRadius: 2,
                 textTransform: 'none',
+                // Shrink the Apply button on mobile only (it otherwise forces the
+                // header to the theme's 44px button floor). Gated on isMobile so
+                // desktop keeps MUI's small-button defaults byte-for-byte. Kept
+                // >= 36px to stay an easy tap target. py/px are string px.
+                ...(isMobile && {
+                  minHeight: RESPONSIVE.jobCard.applyMinHeight,
+                  fontSize: RESPONSIVE.jobCard.applyFontSize,
+                  py: RESPONSIVE.jobCard.applyPaddingY,
+                  px: RESPONSIVE.jobCard.applyPaddingX,
+                }),
                 bgcolor: 'common.black',
                 color: 'common.white',
                 '&:hover': { bgcolor: 'grey.900' },
@@ -100,17 +137,6 @@ export function JobListingCard({ job }: JobListingCardProps) {
           </Stack>
 
           <JobChipsSection department={job.department} isRemote={job.isRemote} />
-
-          {job.tags && job.tags.length > 0 && (
-            <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
-              {job.tags
-                .filter((tag): tag is string => typeof tag === 'string' && tag.length > 0)
-                .slice(0, 5)
-                .map((tag, index) => (
-                  <Chip key={index} label={tag} size="small" variant="filled" />
-                ))}
-            </Stack>
-          )}
 
           {/* LinkedIn recruiter link */}
           {recruiterLinkedInUrl && (

@@ -131,45 +131,11 @@ describe('JobListingCard', () => {
     expect(screen.getByText('Full-time')).toBeInTheDocument();
   });
 
-  it('displays first 5 tags', () => {
-    render(<JobListingCard job={mockJob} />);
-    expect(screen.getByText('React')).toBeInTheDocument();
-    expect(screen.getByText('TypeScript')).toBeInTheDocument();
-    expect(screen.getByText('GraphQL')).toBeInTheDocument();
-    expect(screen.getByText('Testing')).toBeInTheDocument();
-    expect(screen.getByText('CI/CD')).toBeInTheDocument();
-    expect(screen.queryByText('Extra Tag')).not.toBeInTheDocument();
-  });
-
   it('handles job with no tags', () => {
     const jobWithoutTags = { ...mockJob, tags: undefined };
     render(<JobListingCard job={jobWithoutTags} />);
     // Should render without errors
     expect(screen.getByText('Senior Frontend Engineer')).toBeInTheDocument();
-  });
-
-  it('filters out null values from tags', () => {
-    const jobWithNullTags = {
-      ...mockJob,
-      tags: ['React', null, 'TypeScript', null, 'GraphQL'] as any,
-    };
-    render(<JobListingCard job={jobWithNullTags} />);
-    expect(screen.getByText('React')).toBeInTheDocument();
-    expect(screen.getByText('TypeScript')).toBeInTheDocument();
-    expect(screen.getByText('GraphQL')).toBeInTheDocument();
-    // Should not crash or display null chips
-  });
-
-  it('filters out empty strings from tags', () => {
-    const jobWithEmptyTags = {
-      ...mockJob,
-      tags: ['React', '', 'TypeScript', '', 'GraphQL'] as any,
-    };
-    render(<JobListingCard job={jobWithEmptyTags} />);
-    expect(screen.getByText('React')).toBeInTheDocument();
-    expect(screen.getByText('TypeScript')).toBeInTheDocument();
-    expect(screen.getByText('GraphQL')).toBeInTheDocument();
-    // Empty strings should be filtered out
   });
 
   it('handles job with no optional fields', () => {
