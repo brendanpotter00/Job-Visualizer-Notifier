@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render as rtlRender, screen, waitFor } from '@testing-library/react';
+import { render as rtlRender, screen } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
@@ -28,6 +28,14 @@ function renderAndRerender(ui: ReactElement) {
     ...result,
     rerender: (next: ReactElement) => result.rerender(<MemoryRouter>{next}</MemoryRouter>),
   };
+}
+
+// The bar mounts collapsed and stays user-controlled. While collapsed the
+// per-company detail chips are unmounted (`unmountOnExit`), so tests that
+// assert on those chips must first expand the accordion. The summary header is
+// the only button while collapsed, so clicking it reveals the detail.
+async function expandAccordion(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole('button'));
 }
 
 const mockDefaults = {
@@ -89,7 +97,8 @@ describe('FetchProgressBar', () => {
     expect(screen.getByText('50%')).toBeInTheDocument();
   });
 
-  it('should render success chips with job counts when expanded', () => {
+  it('should render success chips with job counts when expanded', async () => {
+    const user = userEvent.setup();
     mockHook({
       isLoading: true,
       progress: {
@@ -108,13 +117,15 @@ describe('FetchProgressBar', () => {
     });
 
     render(<FetchProgressBar />);
+    await expandAccordion(user);
 
     expect(screen.getByText('SpaceX (25)')).toBeInTheDocument();
     expect(screen.getByText('anduril (15)')).toBeInTheDocument();
     expect(screen.getByText('Notion')).toBeInTheDocument();
   });
 
-  it('should render error chips with error indicator', () => {
+  it('should render error chips with error indicator', async () => {
+    const user = userEvent.setup();
     mockHook({
       isLoading: true,
       progress: {
@@ -132,6 +143,7 @@ describe('FetchProgressBar', () => {
     });
 
     render(<FetchProgressBar />);
+    await expandAccordion(user);
 
     const errorChip = screen.getByText('company2').closest('.MuiChip-root');
     expect(errorChip).toHaveAttribute('title', 'Failed to fetch');
@@ -245,7 +257,8 @@ describe('FetchProgressBar', () => {
     expect(screen.getByText('0%')).toBeInTheDocument();
   });
 
-  it('should render loading status chips', () => {
+  it('should render loading status chips', async () => {
+    const user = userEvent.setup();
     mockHook({
       isLoading: true,
       progress: {
@@ -264,13 +277,15 @@ describe('FetchProgressBar', () => {
     });
 
     render(<FetchProgressBar />);
+    await expandAccordion(user);
 
     expect(screen.getByText('company1 (5)')).toBeInTheDocument();
     expect(screen.getByText('company2')).toBeInTheDocument();
     expect(screen.getByText('company3')).toBeInTheDocument();
   });
 
-  it('should handle mixed status companies', () => {
+  it('should handle mixed status companies', async () => {
+    const user = userEvent.setup();
     mockHook({
       isLoading: true,
       progress: {
@@ -292,8 +307,12 @@ describe('FetchProgressBar', () => {
 
     render(<FetchProgressBar />);
 
+    // Summary header is visible without expanding.
     expect(screen.getByText('Loading jobs from 3/5 companies')).toBeInTheDocument();
     expect(screen.getByText('60%')).toBeInTheDocument();
+
+    // Per-company chips live in the collapsed detail — expand to see them.
+    await expandAccordion(user);
     expect(screen.getByText('SpaceX (100)')).toBeInTheDocument();
     expect(screen.getByText('anduril (50)')).toBeInTheDocument();
     expect(screen.getByText('Notion')).toBeInTheDocument();
@@ -325,7 +344,7 @@ describe('FetchProgressBar', () => {
     expect(screen.getByText('23%')).toBeInTheDocument();
   });
 
-  it('should auto-collapse when loading transitions from true to false', async () => {
+  it('starts collapsed while loading and stays collapsed when loading completes', async () => {
     const companies = [
       { companyId: 'spacex', status: 'success' as const, jobCount: 100 },
       { companyId: 'anduril', status: 'success' as const, jobCount: 50 },
@@ -350,9 +369,9 @@ describe('FetchProgressBar', () => {
 
     const { rerender } = renderAndRerender(<FetchProgressBar />);
 
-    // Should be expanded - detail chips visible
+    // Mounts collapsed: summary progress is visible, detail chips are not.
     expect(screen.getByText('Loading jobs from 1/2 companies')).toBeInTheDocument();
-    expect(screen.getByText('SpaceX (100)')).toBeInTheDocument();
+    expect(screen.queryByText('SpaceX (100)')).not.toBeInTheDocument();
 
     // Loading finishes
     mockHook({
@@ -370,14 +389,10 @@ describe('FetchProgressBar', () => {
 
     rerender(<FetchProgressBar />);
 
-    // Should show collapsed summary
+    // Summary updates in place — no open→close flash. Detail chips stay hidden.
     expect(screen.getByText('Loaded 2/2 companies')).toBeInTheDocument();
     expect(screen.getByText('2 loaded (150 jobs)')).toBeInTheDocument();
-
-    // Detail chips should not be in DOM (unmountOnExit) - wait for transition
-    await waitFor(() => {
-      expect(screen.queryByText('SpaceX (100)')).not.toBeInTheDocument();
-    });
+    expect(screen.queryByText('SpaceX (100)')).not.toBeInTheDocument();
   });
 
   describe('companyIdFilter prop', () => {
@@ -411,7 +426,8 @@ describe('FetchProgressBar', () => {
       expect(screen.getByText('Loading jobs from 3/3 companies')).toBeInTheDocument();
     });
 
-    it('restricts visible counts to the filter intersection', () => {
+    it('restricts visible counts to the filter intersection', async () => {
+      const user = userEvent.setup();
       mockHook({
         isLoading: true,
         progress: {
@@ -432,6 +448,9 @@ describe('FetchProgressBar', () => {
       // Only 2 of 3 visible; both already completed → 100% of the subset.
       expect(screen.getByText('Loading jobs from 2/2 companies')).toBeInTheDocument();
       expect(screen.getByText('100%')).toBeInTheDocument();
+
+      // Detail chips reflect the filtered subset once expanded.
+      await expandAccordion(user);
       expect(screen.getByText('SpaceX (100)')).toBeInTheDocument();
       expect(screen.getByText('Notion (30)')).toBeInTheDocument();
       expect(screen.queryByText(/anduril/i)).not.toBeInTheDocument();
@@ -499,7 +518,7 @@ describe('FetchProgressBar', () => {
 
     render(<FetchProgressBar />);
 
-    // Starts collapsed (isLoading is false on mount)
+    // Starts collapsed (the bar always mounts collapsed, regardless of isLoading)
     expect(screen.queryByText('SpaceX (100)')).not.toBeInTheDocument();
 
     // Click to expand
@@ -539,6 +558,7 @@ describe('FetchProgressBar', () => {
       });
 
       render(<FetchProgressBar />);
+      await expandAccordion(user);
 
       await user.click(screen.getByText('SpaceX (100)'));
       expect(mockNavigate).toHaveBeenCalledWith('/companies?company=spacex');

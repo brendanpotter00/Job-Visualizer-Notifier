@@ -28,7 +28,7 @@ export function RecentJobsMetrics({
         divider={<Divider orientation="vertical" flexItem />}
         sx={{ mb: { xs: 0, sm: 3 } }}
       >
-        <MetricCard value={totalJobs} label="Total Job Postings Displayed" dense />
+        <MetricCard value={totalJobs} label="Displayed Jobs" dense />
         <MetricCard value={jobsLast24Hours} label="Past 24 Hours" dense />
         <MetricCard value={jobsLast3Hours} label="Past 3 Hours" dense />
       </Stack>
