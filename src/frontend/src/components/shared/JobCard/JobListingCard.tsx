@@ -48,12 +48,12 @@ export function JobListingCard({ job }: JobListingCardProps) {
         sx={{
           p: RESPONSIVE.spacing.cardPadding,
           '&:last-child': { pb: RESPONSIVE.spacing.cardPaddingBottom },
-          // Shrink every chip (location, dept/remote, tags) on mobile only.
-          // Gated on isMobile so desktop keeps MUI's defaults untouched
-          // (outlined chips use 7px label padding, filled use 8px — restating a
-          // single sm value would regress one of them, so we override nothing on
-          // desktop). height is a sizing prop (px); label padding is a string px
-          // to avoid the spacing-system x8 multiply.
+          // Shrink every chip (location, employment-type, dept/remote) on mobile
+          // only. Gated on isMobile so desktop keeps MUI's defaults untouched:
+          // MUI's small-chip label padding is variant-dependent, so restating a
+          // single sm value would regress some variant — we override nothing on
+          // desktop instead. height is a sizing prop (px); label padding is a
+          // string px to avoid the spacing-system x8 multiply.
           ...(isMobile && {
             '& .MuiChip-root': { height: RESPONSIVE.jobCard.chipHeight },
             '& .MuiChip-label': {

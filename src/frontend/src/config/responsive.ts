@@ -13,8 +13,25 @@
  * is mobile-first, so an `xs`-only value would otherwise leak up into desktop.
  */
 
-/** Breakpoint below which the UI switches to its compact mobile layout. */
-export const MOBILE_BREAKPOINT = 'sm' as const;
+import type { Breakpoint } from '@mui/material';
+
+/**
+ * Breakpoint below which the UI switches to its compact mobile layout.
+ *
+ * `satisfies Breakpoint` makes a typo (e.g. `'sn'`) fail to compile at this
+ * definition site, while `as const` preserves the literal `'sm'` type that
+ * `theme.breakpoints.down(MOBILE_BREAKPOINT)` relies on.
+ */
+export const MOBILE_BREAKPOINT = 'sm' as const satisfies Breakpoint;
+
+/**
+ * Shape of an MUI responsive `{ xs, sm }` sx token. Applying it via
+ * `satisfies Record<string, ResponsiveValue>` per group compiler-enforces the
+ * Ledger #1 invariant: every token MUST carry both slots, so a future token
+ * that omits `sm` (which would leak its `xs` value up into desktop, since MUI
+ * sx is mobile-first) fails to compile instead of silently regressing >= 600px.
+ */
+type ResponsiveValue = { xs: number | string; sm: number | string };
 
 /** Reusable responsive design tokens (see file header). */
 export const RESPONSIVE = {
@@ -38,7 +55,7 @@ export const RESPONSIVE = {
     cardMarginB: { xs: 1, sm: 2 },
     /** Gap between sections inside a card (xs: 0.25 == 2px compact; sm: 1 == 8px). */
     cardStackSpacing: { xs: 0.25, sm: 1 },
-  },
+  } as const satisfies Record<string, ResponsiveValue>,
   /** Font-size tokens as `{ xs, sm }` sx objects; sm restates the theme variant. */
   fontSize: {
     /** Page `<h1>` rendered with the h3 variant (theme h3 = 1.75rem). */
@@ -49,7 +66,7 @@ export const RESPONSIVE = {
     metricLabel: { xs: '0.75rem', sm: '0.875rem' },
     /** Job-card title, h6 variant (theme h6 = 1rem). */
     cardTitle: { xs: '0.9375rem', sm: '1rem' },
-  },
+  } as const satisfies Record<string, ResponsiveValue>,
   /**
    * Compact form-control tokens for mobile filter rows. Applied as descendant
    * `sx` overrides (e.g. `& .MuiOutlinedInput-root`) so they shrink shared
@@ -75,17 +92,18 @@ export const RESPONSIVE = {
     inputPaddingY: { xs: '5px', sm: '8.5px' },
     /** Reset button font size (sm = MUI small-button 0.8125rem default). */
     buttonFontSize: { xs: '0.75rem', sm: '0.8125rem' },
-  },
+  } as const satisfies Record<string, ResponsiveValue>,
   /**
    * Compact job-card values for the shared JobListingCard on mobile. Unlike the
    * `{ xs, sm }` tokens above, these are FLAT mobile-only values applied via
    * `sx` blocks gated behind `useIsMobile()` — so desktop (>= 600px) receives no
-   * override at all and keeps MUI's defaults byte-for-byte. This avoids having to
-   * restate fragile desktop baselines that differ by variant (e.g. outlined
-   * chips use 7px label padding while filled chips use 8px) or by component
-   * (small-button vertical padding). Applied as descendant selectors on the
-   * card's `CardContent`, so they cover every chip row (location, JobChipsSection
-   * dept/remote, tags) without editing the chip call sites or JobChipsSection.
+   * override at all and keeps MUI's defaults byte-for-byte. MUI's small-chip
+   * label padding is variant-dependent and its small-button vertical padding
+   * differs by component, so we gate these overrides on `isMobile` rather than
+   * restate fragile per-variant desktop baselines. Applied as descendant
+   * selectors on the card's `CardContent`, so they cover every chip row
+   * (location, employment-type, and JobChipsSection dept/remote) without editing
+   * the chip call sites or JobChipsSection.
    *
    * Units: `chipHeight`/`applyMinHeight` are sizing props (bare number -> px).
    * `chipLabelPaddingX`/`applyPaddingY`/`applyPaddingX` are spacing-system props
