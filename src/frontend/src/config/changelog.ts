@@ -19,6 +19,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'mobile-recent-jobs',
+    title: 'Recent Job Postings now works on your phone',
+    description:
+      'The Recent Job Postings page got a big mobile pass so it is actually usable on a phone in portrait. The metrics that used to eat a full screen are now a compact row of numbers, the filters stay visible but take far less room, and each job card is tighter so about five fit per screen instead of one. This also lays down a reusable responsive foundation (shared sizing tokens and an isMobile hook) for bringing the rest of the app to mobile next. Nothing changes on desktop or tablet, where the original layout is untouched.',
+    tags: ['improvement'],
+    date: '2026-06-25',
+    link: {
+      to: ROUTES.RECENT_JOBS,
+      label: 'Open Recent Job Postings on your phone',
+    },
+  },
+  {
     id: 'add-console',
     title: 'Added Console',
     description:
