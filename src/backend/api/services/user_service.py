@@ -27,6 +27,12 @@ from psycopg2.extensions import connection as Connection
 logger = logging.getLogger(__name__)
 
 _USERS_TABLE = sql.Identifier("users")
+_USER_VISITS_TABLE = sql.Identifier("user_visits")
+
+# Hard cap on a per-user visit-history page (root CLAUDE.md gotcha #7 — never
+# return an unbounded list). The admin modal shows the most recent visits;
+# 500 is generous for a human-readable list and keeps the response small.
+_USER_VISITS_LIMIT = 500
 
 
 class UserRow(TypedDict):
@@ -215,27 +221,43 @@ def record_visit(conn: Connection, user_id: str) -> None:
     """Record one page-load visit for a user (POST /api/users/visit).
 
     A "visit" is one full page load / refresh by the authenticated user — NOT
-    a client-side SPA route navigation. The increment is a single atomic
-    ``UPDATE ... SET visit_count = visit_count + 1`` (read-modify-write in one
-    statement), so concurrent loads from multiple tabs can't lose an
-    increment. ``last_visit_at`` is stamped to ``now()`` in the same statement.
+    a client-side SPA route navigation. Two writes in ONE transaction (a single
+    ``conn.commit()``):
 
-    Keyed by ``users.id``; the caller upserts the row first, so a 0-row match
-    means the row was deleted mid-request — logged and treated as a no-op
-    rather than raised, because visit telemetry must never fail the request
-    that triggered it.
+    1. ``UPDATE users SET visit_count = visit_count + 1, last_visit_at = now()``
+       — the denormalized counters the admin roster reads/sorts on. The
+       increment is read-modify-write in one statement, so concurrent loads
+       from multiple tabs can't lose an increment.
+    2. ``INSERT INTO user_visits (user_id)`` — the append-only per-visit log
+       that backs the admin roster's clickable "Visits" modal. ``visited_at``
+       defaults to ``now()``, so the newest log row matches ``last_visit_at``
+       to the same transaction timestamp.
+
+    Because both run on the same connection before one commit, the count and
+    the log can never diverge. The INSERT is gated on the UPDATE matching a row:
+    keyed by ``users.id``, the caller upserts the row first, so a 0-row match
+    means the row was deleted mid-request. In that case we skip the INSERT (it
+    would otherwise raise a ForeignKeyViolation against the now-missing user),
+    log a warning, and treat the whole thing as a no-op — visit telemetry must
+    never fail the request that triggered it.
     """
-    table = _USERS_TABLE
+    users = _USERS_TABLE
+    visits = _USER_VISITS_TABLE
     cursor = conn.cursor()
     try:
         cursor.execute(
             sql.SQL(
                 "UPDATE {} SET visit_count = visit_count + 1,"
                 " last_visit_at = now() WHERE id = %s"
-            ).format(table),
+            ).format(users),
             (user_id,),
         )
         matched = cursor.rowcount
+        if matched > 0:
+            cursor.execute(
+                sql.SQL("INSERT INTO {} (user_id) VALUES (%s)").format(visits),
+                (user_id,),
+            )
         conn.commit()
     except psycopg2.Error as exc:
         conn.rollback()
@@ -248,6 +270,64 @@ def record_visit(conn: Connection, user_id: str) -> None:
         raise
     if matched == 0:
         logger.warning("record_visit matched no user row for user_id=%s", user_id)
+
+
+def list_user_visits(
+    conn: Connection, user_id: str, limit: int | None = None
+) -> tuple[list[datetime], bool]:
+    """Return ``(visits, truncated)``: a user's visit timestamps, most-recent
+    first and capped at ``limit``, plus whether the cap actually dropped rows.
+
+    ``limit`` defaults to ``_USER_VISITS_LIMIT`` when not given — resolved at
+    call time (not bind time) so the module cap stays monkeypatchable in tests.
+    The ``LIMIT`` is always applied (root CLAUDE.md gotcha #7, unbounded-reads
+    memory rule).
+
+    The SERVICE — not the caller — owns the truncation decision. We fetch
+    ``limit + 1`` rows and report ``truncated`` only when MORE than ``limit``
+    came back, then slice the probe row off before returning. A user with
+    EXACTLY ``limit`` logged visits therefore reports ``truncated=False``
+    (nothing was dropped), fixing the off-by-one a caller-side
+    ``len(visits) >= limit`` check gets wrong at the boundary.
+
+    Pure SELECT against the ``(user_id, visited_at)`` index (the descending
+    order is served by a backward index scan) — no commit. A user with no row
+    and a user with zero visits both yield an empty list — the endpoint
+    distinguishes them via the user lookup.
+    """
+    if limit is None:
+        limit = _USER_VISITS_LIMIT
+    visits = _USER_VISITS_TABLE
+    with conn.cursor() as cursor:
+        cursor.execute(
+            sql.SQL(
+                "SELECT visited_at FROM {}"
+                " WHERE user_id = %s"
+                " ORDER BY visited_at DESC"
+                " LIMIT %s"
+            ).format(visits),
+            (user_id, limit + 1),
+        )
+        rows = cursor.fetchall()
+    truncated = len(rows) > limit
+    timestamps = [row["visited_at"] for row in rows[:limit]]
+    return timestamps, truncated
+
+
+def get_user_visit_count(conn: Connection, user_id: str) -> int | None:
+    """Return a user's denormalized ``visit_count``, or ``None`` if no such user.
+
+    Lets the admin visits endpoint tell "user does not exist" (→ 404) apart
+    from "user exists with zero visits" (→ 0). Pure SELECT, no commit.
+    """
+    users = _USERS_TABLE
+    with conn.cursor() as cursor:
+        cursor.execute(
+            sql.SQL("SELECT visit_count FROM {} WHERE id = %s").format(users),
+            (user_id,),
+        )
+        row = cursor.fetchone()
+    return int(row["visit_count"]) if row is not None else None
 
 
 def get_user_by_email(
