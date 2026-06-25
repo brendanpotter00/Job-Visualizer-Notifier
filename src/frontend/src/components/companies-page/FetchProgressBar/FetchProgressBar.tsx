@@ -28,14 +28,14 @@ interface FetchProgressBarProps {
  * Progress bar component for displaying incremental loading status
  * as companies are fetched in parallel.
  *
- * Shows:
- * - Linear progress bar with percentage during loading
- * - Count of loaded companies
- * - Chips for each company showing status (pending/success/error)
- * - Job counts for successfully loaded companies
+ * Always-visible summary header shows:
+ * - Linear progress bar with percentage while loading
+ * - Count of loaded companies, plus success/failed count chips when complete
  *
- * Collapses to a summary accordion when loading is complete.
- * Users can expand to see per-company details.
+ * The accordion always mounts collapsed and is purely user-controlled — it
+ * never auto-expands or auto-collapses based on loading state. The summary
+ * header above stays visible regardless of expand state.
+ * Users can expand to see per-company details (status chips + job counts).
  */
 export function FetchProgressBar({ companyIdFilter }: FetchProgressBarProps = {}) {
   const { progress, isLoading } = useAllJobsProgress();
@@ -67,18 +67,12 @@ export function FetchProgressBar({ companyIdFilter }: FetchProgressBarProps = {}
   const visiblePercentComplete =
     visibleTotal > 0 ? (visibleCompleted / visibleTotal) * 100 : 0;
 
-  const [expanded, setExpanded] = useState(isLoading);
-  const [prevIsLoading, setPrevIsLoading] = useState(isLoading);
-
-  // Adjust `expanded` during render when the `isLoading` prop transitions.
-  // This is React's documented "storing information from previous renders"
-  // pattern (https://react.dev/reference/react/useState#storing-information-from-previous-renders).
-  // React detects the render-phase setState on the currently-rendering
-  // component and restarts the render with the new state before committing.
-  if (prevIsLoading !== isLoading) {
-    setPrevIsLoading(isLoading);
-    setExpanded(isLoading);
-  }
+  // Always mount collapsed and stay user-controlled. The summary header still
+  // shows live loading progress (the LinearProgress bar + "Loading jobs from
+  // X/Y companies" + percentage), so collapsing only hides the per-company
+  // chip detail. Previously this tracked `isLoading`, which made the bar pop
+  // open while loading and snap shut on completion — a jarring transition.
+  const [expanded, setExpanded] = useState(false);
 
   if (progress.total === 0 || visibleTotal === 0) {
     return null;
