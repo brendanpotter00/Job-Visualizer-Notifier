@@ -4,9 +4,15 @@ import psycopg2
 import pytest
 from psycopg2 import sql
 
-from api.services.user_service import get_or_create_user, update_user
+from api.services.user_service import (
+    get_or_create_user,
+    get_user_visit_count,
+    list_user_visits,
+    record_visit,
+    update_user,
+)
 
-from .conftest import _make_user, _insert_user
+from .conftest import _insert_user, _insert_user_visit, _make_user
 
 
 class TestGetOrCreateUser:
@@ -307,3 +313,114 @@ class TestUpdateUser:
         with pytest.raises(psycopg2.OperationalError, match="connection lost"):
             update_user(mock_conn, email="err@example.com", display_name="x")
         mock_conn.rollback.assert_called_once()
+
+
+def _count_visit_rows(db_conn, user_id: str) -> int:
+    cursor = db_conn.cursor()
+    cursor.execute(
+        sql.SQL("SELECT count(*) AS n FROM {} WHERE user_id = %s").format(
+            sql.Identifier("user_visits")
+        ),
+        (user_id,),
+    )
+    return cursor.fetchone()["n"]
+
+
+class TestRecordVisitLog:
+    """record_visit writes the per-visit log alongside the denormalized counter."""
+
+    def test_inserts_one_log_row_and_increments_count(self, db_conn):
+        user = _make_user()
+        _insert_user(db_conn, user)
+        record_visit(db_conn, user["id"])
+        assert _count_visit_rows(db_conn, user["id"]) == 1
+        assert get_user_visit_count(db_conn, user["id"]) == 1
+
+    def test_appends_a_row_per_call_in_step_with_count(self, db_conn):
+        user = _make_user()
+        _insert_user(db_conn, user)
+        for _ in range(3):
+            record_visit(db_conn, user["id"])
+        assert _count_visit_rows(db_conn, user["id"]) == 3
+        assert get_user_visit_count(db_conn, user["id"]) == 3
+
+    def test_deleted_user_inserts_no_row_and_does_not_raise(self, db_conn):
+        """A 0-row UPDATE match (user deleted mid-request) must skip the INSERT
+        (no orphan FK violation) and be a logged no-op — telemetry must never
+        fail the request that triggered it."""
+        # No user inserted; this id matches no row.
+        record_visit(db_conn, "ghost-user-id")
+        assert _count_visit_rows(db_conn, "ghost-user-id") == 0
+
+    def test_database_error_triggers_rollback(self):
+        """A driver error on the UPDATE is rolled back and re-raised."""
+        from unittest.mock import MagicMock
+
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+        mock_cursor.execute.side_effect = psycopg2.OperationalError("connection lost")
+
+        with pytest.raises(psycopg2.OperationalError, match="connection lost"):
+            record_visit(mock_conn, "any-id")
+        mock_conn.rollback.assert_called_once()
+
+
+class TestListUserVisits:
+    def test_returns_timestamps_most_recent_first(self, db_conn):
+        user = _make_user()
+        _insert_user(db_conn, user)
+        _insert_user_visit(db_conn, user["id"], "2026-06-01T10:00:00Z")
+        _insert_user_visit(db_conn, user["id"], "2026-06-03T10:00:00Z")
+        _insert_user_visit(db_conn, user["id"], "2026-06-02T10:00:00Z")
+        visits, truncated = list_user_visits(db_conn, user["id"])
+        assert len(visits) == 3
+        assert truncated is False
+        assert visits == sorted(visits, reverse=True)
+        # Newest first.
+        assert visits[0].day == 3 and visits[-1].day == 1
+
+    def test_respects_limit_returning_newest_and_flags_truncation(self, db_conn):
+        user = _make_user()
+        _insert_user(db_conn, user)
+        for day in range(1, 6):  # 5 visits, days 1..5
+            _insert_user_visit(db_conn, user["id"], f"2026-06-0{day}T10:00:00Z")
+        visits, truncated = list_user_visits(db_conn, user["id"], limit=3)
+        assert len(visits) == 3
+        assert [v.day for v in visits] == [5, 4, 3]
+        # 5 rows logged but only 3 requested → the cap actually dropped rows.
+        assert truncated is True
+
+    def test_truncated_false_when_exactly_at_limit(self, db_conn):
+        """Boundary: EXACTLY ``limit`` logged visits is NOT truncated — nothing
+        was dropped. This is the off-by-one a caller-side ``len(visits) >=
+        limit`` check gets wrong (it would report truncated=True here)."""
+        user = _make_user()
+        _insert_user(db_conn, user)
+        for day in range(1, 4):  # exactly 3 visits, days 1..3
+            _insert_user_visit(db_conn, user["id"], f"2026-06-0{day}T10:00:00Z")
+        visits, truncated = list_user_visits(db_conn, user["id"], limit=3)
+        assert len(visits) == 3
+        assert truncated is False
+
+    def test_empty_for_user_with_no_visits(self, db_conn):
+        user = _make_user()
+        _insert_user(db_conn, user)
+        visits, truncated = list_user_visits(db_conn, user["id"])
+        assert visits == []
+        assert truncated is False
+
+
+class TestGetUserVisitCount:
+    def test_returns_count_for_existing_user(self, db_conn):
+        user = _make_user({"visit_count": 7})
+        _insert_user(db_conn, user)
+        assert get_user_visit_count(db_conn, user["id"]) == 7
+
+    def test_returns_zero_for_existing_user_with_no_visits(self, db_conn):
+        user = _make_user()  # visit_count defaults to 0 via the column default
+        _insert_user(db_conn, user)
+        assert get_user_visit_count(db_conn, user["id"]) == 0
+
+    def test_returns_none_for_missing_user(self, db_conn):
+        assert get_user_visit_count(db_conn, "no-such-id") is None

@@ -32,6 +32,7 @@ from ..models import (
     AdminReverseLocation,
     AdminUserRow,
     AdminUsersListResponse,
+    AdminUserVisitsResponse,
     AdminUsersStatsResponse,
     FeedbackResponse,
 )
@@ -55,7 +56,11 @@ from ..services.location_admin import (
 )
 from ..services.location_monitor import get_health, get_integrity
 from ..services.location_normalization import normalize_string
-from ..services.user_service import get_user_by_email
+from ..services.user_service import (
+    get_user_by_email,
+    get_user_visit_count,
+    list_user_visits,
+)
 from ..tasks.normalize_location import normalize_location
 from ..tasks.scan_unnormalized import scan_unnormalized
 
@@ -98,6 +103,38 @@ def get_admin_users_stats(
         logger.exception("Failed to compute user stats for admin dashboard")
         raise HTTPException(status_code=500, detail="Failed to load user stats")
     return AdminUsersStatsResponse(**stats)
+
+
+@router.get("/users/{user_id}/visits", response_model=AdminUserVisitsResponse)
+def get_admin_user_visits(
+    user_id: str,
+    conn: Connection = Depends(get_db),
+    _admin: TokenClaims = Depends(require_admin),
+) -> AdminUserVisitsResponse:
+    """A single user's individual visit timestamps, most-recent first.
+
+    Backs the roster's clickable Visits cell → modal. Server-side capped at
+    ``_USER_VISITS_LIMIT`` (unbounded-reads memory rule). Also returns the
+    denormalized total ``visit_count`` so the modal can flag the count-vs-
+    history gap (per-visit history only began when the ``user_visits`` table
+    shipped; earlier visits beyond the seeded ``last_visit_at`` have no rows).
+    """
+    try:
+        count = get_user_visit_count(conn, user_id)
+        if count is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        # The service owns the cap + truncation decision (fetches LIMIT+1 and
+        # reports whether rows were actually dropped), so the router doesn't
+        # re-derive it with an off-by-one ``>=`` against the private cap.
+        visits, truncated = list_user_visits(conn, user_id)
+    except psycopg2.Error:
+        logger.exception("Failed to load visits for user_id=%s", user_id)
+        raise HTTPException(status_code=500, detail="Failed to load user visits")
+    return AdminUserVisitsResponse(
+        visits=visits,
+        total_visit_count=count,
+        truncated=truncated,
+    )
 
 
 @router.get("/feedback", response_model=AdminFeedbackListResponse)

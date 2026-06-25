@@ -55,6 +55,20 @@ export interface AdminUsersListResponse {
 }
 
 /**
+ * One user's individual visit history, for the roster's clickable Visits modal
+ * (``GET /api/admin/users/{id}/visits``). ``visits`` is most-recent-first ISO
+ * timestamps, capped server-side. ``totalVisitCount`` is the denormalized
+ * ``visitCount`` so the modal can flag the count-vs-history gap (per-visit
+ * history only began when the backend started logging, so it can be shorter
+ * than the count). ``truncated`` is true when the list hit the server cap.
+ */
+export interface AdminUserVisitsResponse {
+  visits: string[];
+  totalVisitCount: number;
+  truncated: boolean;
+}
+
+/**
  * One row in the admin User Feedback table. Field names mirror the backend's
  * camelCased ``FeedbackResponse``. Null user fields ⇒ an anonymous submission.
  */
@@ -270,6 +284,7 @@ export const adminApi = createApi({
   tagTypes: [
     'AdminUsers',
     'AdminUsersStats',
+    'AdminUserVisits',
     'AdminFeedback',
     'LocationHealth',
     'LocationIntegrity',
@@ -399,6 +414,40 @@ export const adminApi = createApi({
         return obj as unknown as AdminUsersStats;
       },
       providesTags: ['AdminUsersStats'],
+    }),
+    getUserVisits: builder.query<AdminUserVisitsResponse, { userId: string }>({
+      // ``userId`` is a uuid hex with no ``/`` today, but encode defensively
+      // (matches ``overrideAlias``) so a future id format can't break routing.
+      query: ({ userId }) => `/users/${encodeURIComponent(userId)}/visits`,
+      transformResponse: (res: unknown): AdminUserVisitsResponse => {
+        // Throwing runtime guard, mirroring listAdminUsers / getAdminUsersStats:
+        // a 2xx body with the wrong shape (CDN error page, serializer drift)
+        // must surface as an error, not render a fabricated empty history.
+        if (!isRecord(res)) {
+          throw new Error('Invalid /api/admin/users/{id}/visits response: body is not an object');
+        }
+        if (
+          !Array.isArray(res.visits) ||
+          res.visits.some((v) => typeof v !== 'string')
+        ) {
+          throw new Error('Invalid user visits response: visits must be a string[]');
+        }
+        if (typeof res.totalVisitCount !== 'number') {
+          throw new Error('Invalid user visits response: totalVisitCount must be a number');
+        }
+        if (typeof res.truncated !== 'boolean') {
+          throw new Error('Invalid user visits response: truncated must be a boolean');
+        }
+        return {
+          visits: res.visits as string[],
+          totalVisitCount: res.totalVisitCount,
+          truncated: res.truncated,
+        };
+      },
+      // Per-user cache entry (RTK Query keys by the serialized arg).
+      providesTags: (_result, _error, { userId }) => [
+        { type: 'AdminUserVisits', id: userId },
+      ],
     }),
     grantAdmin: builder.mutation<void, { userId: string }>({
       query: ({ userId }) => ({
@@ -757,6 +806,7 @@ export const {
   useListAdminFeedbackQuery,
   useListAdminUsersQuery,
   useGetAdminUsersStatsQuery,
+  useGetUserVisitsQuery,
   useGrantAdminMutation,
   useRevokeAdminMutation,
   useGetLocationHealthQuery,
