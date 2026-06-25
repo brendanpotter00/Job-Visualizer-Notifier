@@ -373,25 +373,42 @@ class TestListUserVisits:
         _insert_user_visit(db_conn, user["id"], "2026-06-01T10:00:00Z")
         _insert_user_visit(db_conn, user["id"], "2026-06-03T10:00:00Z")
         _insert_user_visit(db_conn, user["id"], "2026-06-02T10:00:00Z")
-        visits = list_user_visits(db_conn, user["id"])
+        visits, truncated = list_user_visits(db_conn, user["id"])
         assert len(visits) == 3
+        assert truncated is False
         assert visits == sorted(visits, reverse=True)
         # Newest first.
         assert visits[0].day == 3 and visits[-1].day == 1
 
-    def test_respects_limit_returning_newest(self, db_conn):
+    def test_respects_limit_returning_newest_and_flags_truncation(self, db_conn):
         user = _make_user()
         _insert_user(db_conn, user)
         for day in range(1, 6):  # 5 visits, days 1..5
             _insert_user_visit(db_conn, user["id"], f"2026-06-0{day}T10:00:00Z")
-        visits = list_user_visits(db_conn, user["id"], limit=3)
+        visits, truncated = list_user_visits(db_conn, user["id"], limit=3)
         assert len(visits) == 3
         assert [v.day for v in visits] == [5, 4, 3]
+        # 5 rows logged but only 3 requested → the cap actually dropped rows.
+        assert truncated is True
+
+    def test_truncated_false_when_exactly_at_limit(self, db_conn):
+        """Boundary: EXACTLY ``limit`` logged visits is NOT truncated — nothing
+        was dropped. This is the off-by-one a caller-side ``len(visits) >=
+        limit`` check gets wrong (it would report truncated=True here)."""
+        user = _make_user()
+        _insert_user(db_conn, user)
+        for day in range(1, 4):  # exactly 3 visits, days 1..3
+            _insert_user_visit(db_conn, user["id"], f"2026-06-0{day}T10:00:00Z")
+        visits, truncated = list_user_visits(db_conn, user["id"], limit=3)
+        assert len(visits) == 3
+        assert truncated is False
 
     def test_empty_for_user_with_no_visits(self, db_conn):
         user = _make_user()
         _insert_user(db_conn, user)
-        assert list_user_visits(db_conn, user["id"]) == []
+        visits, truncated = list_user_visits(db_conn, user["id"])
+        assert visits == []
+        assert truncated is False
 
 
 class TestGetUserVisitCount:

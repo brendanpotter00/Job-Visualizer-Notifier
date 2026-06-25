@@ -95,6 +95,25 @@ describe('UserVisitsModal', () => {
     });
   });
 
+  it('shows the cap caption when truncated, even with no count-vs-history gap', async () => {
+    // Exactly-at-cap user: historyCount === totalVisitCount (no gap), but the
+    // server still capped the list. The cap caption must surface on its own,
+    // not nested under the gap branch.
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        visits: ['2026-06-03T12:00:00Z', '2026-06-02T12:00:00Z'],
+        totalVisitCount: 2,
+        truncated: true,
+      })
+    );
+    renderModal();
+    await waitFor(() => {
+      expect(screen.getByText(/capped at the 500 most recent/)).toBeInTheDocument();
+    });
+    // No count-vs-history gap caption (historyCount === totalVisitCount).
+    expect(screen.queryByText(/Showing/)).not.toBeInTheDocument();
+  });
+
   it('shows the empty-history message when no timestamps were logged', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ visits: [], totalVisitCount: 5, truncated: false }));
     renderModal();

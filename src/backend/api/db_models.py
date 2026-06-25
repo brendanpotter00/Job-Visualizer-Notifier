@@ -136,9 +136,9 @@ class UserVisit(Base):
     # denormalized users.visit_count / last_visit_at counters, which are KEPT).
     # Backs the admin roster's clickable "Visits" modal.
     #
-    # DB-assigned BIGINT identity PK (NOT a Python-generated uuid Text like
-    # users.id): the log has no natural client id and is write-heavy, so a
-    # monotonic surrogate keeps the (user_id, visited_at) index tight.
+    # DB-assigned BIGINT (BIGSERIAL) PK, NOT a Python-generated uuid Text like
+    # users.id: an append-only log has no natural client-supplied id, so a
+    # database-assigned surrogate is the right key.
     id = Column(BigInteger, primary_key=True)
     user_id = Column(
         Text,

@@ -273,17 +273,30 @@ def record_visit(conn: Connection, user_id: str) -> None:
 
 
 def list_user_visits(
-    conn: Connection, user_id: str, limit: int = _USER_VISITS_LIMIT
-) -> list[datetime]:
-    """Return a user's visit timestamps, most-recent first, capped at ``limit``.
+    conn: Connection, user_id: str, limit: int | None = None
+) -> tuple[list[datetime], bool]:
+    """Return ``(visits, truncated)``: a user's visit timestamps, most-recent
+    first and capped at ``limit``, plus whether the cap actually dropped rows.
+
+    ``limit`` defaults to ``_USER_VISITS_LIMIT`` when not given — resolved at
+    call time (not bind time) so the module cap stays monkeypatchable in tests.
+    The ``LIMIT`` is always applied (root CLAUDE.md gotcha #7, unbounded-reads
+    memory rule).
+
+    The SERVICE — not the caller — owns the truncation decision. We fetch
+    ``limit + 1`` rows and report ``truncated`` only when MORE than ``limit``
+    came back, then slice the probe row off before returning. A user with
+    EXACTLY ``limit`` logged visits therefore reports ``truncated=False``
+    (nothing was dropped), fixing the off-by-one a caller-side
+    ``len(visits) >= limit`` check gets wrong at the boundary.
 
     Pure SELECT against the ``(user_id, visited_at)`` index (the descending
-    order is served by a backward index scan) — no commit. The ``LIMIT`` is
-    always applied (root CLAUDE.md gotcha #7, unbounded-reads memory rule).
-    Returns the raw ``visited_at`` timestamps; the router wraps them in the
-    response model. A user with no row and a user with zero visits both yield
-    an empty list — the endpoint distinguishes them via the user lookup.
+    order is served by a backward index scan) — no commit. A user with no row
+    and a user with zero visits both yield an empty list — the endpoint
+    distinguishes them via the user lookup.
     """
+    if limit is None:
+        limit = _USER_VISITS_LIMIT
     visits = _USER_VISITS_TABLE
     with conn.cursor() as cursor:
         cursor.execute(
@@ -293,10 +306,12 @@ def list_user_visits(
                 " ORDER BY visited_at DESC"
                 " LIMIT %s"
             ).format(visits),
-            (user_id, limit),
+            (user_id, limit + 1),
         )
         rows = cursor.fetchall()
-    return [row["visited_at"] for row in rows]
+    truncated = len(rows) > limit
+    timestamps = [row["visited_at"] for row in rows[:limit]]
+    return timestamps, truncated
 
 
 def get_user_visit_count(conn: Connection, user_id: str) -> int | None:

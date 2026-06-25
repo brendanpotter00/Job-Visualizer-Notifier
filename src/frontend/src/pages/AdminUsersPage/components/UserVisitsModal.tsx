@@ -91,8 +91,19 @@ export function UserVisitsModal({ user, onClose }: UserVisitsModalProps) {
                 sx={{ display: 'block', mb: 1 }}
               >
                 Showing {historyCount.toLocaleString()} of {totalCount.toLocaleString()} visits.
-                Visits before this feature shipped have no recorded timestamp
-                {data?.truncated ? ' (and the list is capped at the 500 most recent)' : ''}.
+                Visits before this feature shipped have no recorded timestamp.
+              </Typography>
+            )}
+            {data?.truncated && (
+              // Driven by ``truncated`` alone, NOT nested under hasGap: a user
+              // exactly at the cap with no count-vs-history gap must still see
+              // the cap notice.
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ display: 'block', mb: 1 }}
+              >
+                This list is capped at the 500 most recent visits.
               </Typography>
             )}
             <List dense disablePadding>

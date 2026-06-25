@@ -57,7 +57,6 @@ from ..services.location_admin import (
 from ..services.location_monitor import get_health, get_integrity
 from ..services.location_normalization import normalize_string
 from ..services.user_service import (
-    _USER_VISITS_LIMIT,
     get_user_by_email,
     get_user_visit_count,
     list_user_visits,
@@ -126,14 +125,17 @@ def get_admin_user_visits(
         count = get_user_visit_count(conn, user_id)
         if count is None:
             raise HTTPException(status_code=404, detail="User not found")
-        visits = list_user_visits(conn, user_id, limit=_USER_VISITS_LIMIT)
+        # The service owns the cap + truncation decision (fetches LIMIT+1 and
+        # reports whether rows were actually dropped), so the router doesn't
+        # re-derive it with an off-by-one ``>=`` against the private cap.
+        visits, truncated = list_user_visits(conn, user_id)
     except psycopg2.Error:
         logger.exception("Failed to load visits for user_id=%s", user_id)
         raise HTTPException(status_code=500, detail="Failed to load user visits")
     return AdminUserVisitsResponse(
         visits=visits,
         total_visit_count=count,
-        truncated=len(visits) >= _USER_VISITS_LIMIT,
+        truncated=truncated,
     )
 
 

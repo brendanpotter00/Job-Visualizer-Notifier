@@ -1066,6 +1066,44 @@ class TestAdminUserVisits:
         assert body["totalVisitCount"] == 0
         assert body["truncated"] is False
 
+    def test_truncated_true_when_log_exceeds_cap(self, client, db_conn, monkeypatch):
+        """When the log has MORE rows than the server cap, the endpoint trims to
+        the cap and reports ``truncated: true``.
+
+        Monkeypatch the cap to 2 (instead of inserting 500+ rows). The router
+        calls ``list_user_visits(conn, user_id)`` with no explicit limit, and
+        the service resolves ``_USER_VISITS_LIMIT`` at call time — so patching
+        the module attribute the service actually reads (``api.services.
+        user_service._USER_VISITS_LIMIT``) takes effect."""
+        monkeypatch.setattr("api.services.user_service._USER_VISITS_LIMIT", 2)
+        user = _make_user({"id": "uv4", "auth0_id": "auth0|uv4",
+                           "email": "uv4@example.com", "visit_count": 3})
+        _insert_user(db_conn, user)
+        _insert_user_visit(db_conn, "uv4", "2026-06-01T10:00:00Z")
+        _insert_user_visit(db_conn, "uv4", "2026-06-02T10:00:00Z")
+        _insert_user_visit(db_conn, "uv4", "2026-06-03T10:00:00Z")
+
+        body = client.get("/api/admin/users/uv4/visits").json()
+        assert len(body["visits"]) == 2  # trimmed to the cap
+        assert body["truncated"] is True
+        # Newest-first, trimmed to the two most recent.
+        assert body["visits"] == sorted(body["visits"], reverse=True)
+
+    def test_truncated_false_when_exactly_at_cap(self, client, db_conn, monkeypatch):
+        """Boundary: EXACTLY ``cap`` logged rows is NOT truncated (nothing was
+        dropped) — the off-by-one a ``len(visits) >= cap`` re-derivation gets
+        wrong. Same cap monkeypatch as the truncated-true case."""
+        monkeypatch.setattr("api.services.user_service._USER_VISITS_LIMIT", 2)
+        user = _make_user({"id": "uv5", "auth0_id": "auth0|uv5",
+                           "email": "uv5@example.com", "visit_count": 2})
+        _insert_user(db_conn, user)
+        _insert_user_visit(db_conn, "uv5", "2026-06-01T10:00:00Z")
+        _insert_user_visit(db_conn, "uv5", "2026-06-02T10:00:00Z")
+
+        body = client.get("/api/admin/users/uv5/visits").json()
+        assert len(body["visits"]) == 2
+        assert body["truncated"] is False
+
     def test_visits_without_admin_grant_returns_403(self, test_app, db_conn):
         """Non-admin callers are gated, same as the other admin endpoints."""
         from api.auth.dependencies import require_admin
