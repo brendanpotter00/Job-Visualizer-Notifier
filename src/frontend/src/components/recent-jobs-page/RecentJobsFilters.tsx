@@ -1,5 +1,6 @@
 import { Box, Stack, Button } from '@mui/material';
 import { useMemo, useCallback } from 'react';
+import { RESPONSIVE } from '../../config/responsive';
 import { useAppDispatch, useAppSelector } from '../../app/hooks.ts';
 import {
   setRecentJobsTimeWindow,
@@ -79,8 +80,28 @@ export function RecentJobsFilters() {
   );
 
   return (
-    <Box sx={{ mb: 3 }}>
-      <Stack spacing={2}>
+    <Box sx={{ mb: RESPONSIVE.spacing.sectionMarginB }}>
+      <Stack
+        spacing={RESPONSIVE.spacing.filterSpacing}
+        sx={{
+          // Mobile-only compaction of every filter control (search input + the
+          // four selects/autocompletes). The theme floors form controls at 44px
+          // (on .MuiTextField-root / the Select root) with 1rem text; these
+          // xs-scoped descendant overrides shrink them to ~36px / 0.8125rem.
+          // Every `sm` slot restates the current desktop value, so this is a
+          // no-op at >= 600px and never leaks to the shared components' other
+          // consumers (companies-page GraphFilters, saved-filters, etc.) — the
+          // overrides live only on this Stack's subtree.
+          '& .MuiTextField-root': { minHeight: RESPONSIVE.control.minHeight },
+          '& .MuiOutlinedInput-root': { minHeight: RESPONSIVE.control.minHeight },
+          '& .MuiInputBase-input': {
+            fontSize: RESPONSIVE.control.fontSize,
+            paddingTop: RESPONSIVE.control.inputPaddingY,
+            paddingBottom: RESPONSIVE.control.inputPaddingY,
+          },
+          '& .MuiInputLabel-root': { fontSize: RESPONSIVE.control.fontSize },
+        }}
+      >
         <SearchTagsInput
           value={filters.searchTags || []}
           onAdd={(tag) => dispatch(addRecentJobsSearchTag(tag))}
@@ -88,7 +109,7 @@ export function RecentJobsFilters() {
           onToggleMode={(text) => dispatch(toggleRecentJobsSearchTagMode(text))}
         />
 
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={RESPONSIVE.spacing.filterSpacing}>
           <TimeWindowSelect
             value={filters.timeWindow}
             onChange={(tw) => dispatch(setRecentJobsTimeWindow(tw))}
@@ -121,6 +142,14 @@ export function RecentJobsFilters() {
             variant="outlined"
             size="small"
             onClick={() => dispatch(resetRecentJobsFilters())}
+            sx={{
+              // Shrink the Reset button on mobile too (kept >= 36px so it stays
+              // an easy tap target); sm restates the theme's 44px floor, 16px
+              // horizontal padding, and small-button 0.8125rem font.
+              minHeight: RESPONSIVE.control.minHeight,
+              px: { xs: 1.5, sm: 2 },
+              fontSize: RESPONSIVE.control.buttonFontSize,
+            }}
           >
             Reset Filters
           </Button>
