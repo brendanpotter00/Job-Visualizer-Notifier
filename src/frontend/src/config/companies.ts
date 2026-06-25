@@ -610,6 +610,8 @@ export const COMPANIES: Company[] = [
   }),
   createBackendScraperCompany('salient', 'Salient', 'https://jobs.ashbyhq.com/salient', {
     sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2298799140%22%5D',
   }),
 
   // Gem (backend-scraper) — backend Procrastinate worker fetches from
