@@ -3,7 +3,7 @@
 from fastapi.testclient import TestClient
 from psycopg2 import sql
 
-from .conftest import _insert_admin, _insert_user, _make_user
+from .conftest import _insert_admin, _insert_user, _insert_user_visit, _make_user
 
 
 class TestAdminGate:
@@ -1014,6 +1014,70 @@ class TestAdminFeedbackList:
             client = TestClient(test_app)
             resp = client.get("/api/admin/feedback", params={"limit": 201})
             assert resp.status_code == 422
+        finally:
+            if saved_override is not None:
+                test_app.dependency_overrides[require_admin] = saved_override
+
+
+class TestAdminUserVisits:
+    """GET /api/admin/users/{user_id}/visits — the roster's Visits modal feed."""
+
+    def test_returns_visits_desc_with_camel_case_keys(self, client, db_conn):
+        user = _make_user({"id": "uv1", "auth0_id": "auth0|uv1", "email": "uv1@example.com",
+                           "visit_count": 3})
+        _insert_user(db_conn, user)
+        _insert_user_visit(db_conn, "uv1", "2026-06-01T10:00:00Z")
+        _insert_user_visit(db_conn, "uv1", "2026-06-03T10:00:00Z")
+        _insert_user_visit(db_conn, "uv1", "2026-06-02T10:00:00Z")
+
+        resp = client.get("/api/admin/users/uv1/visits")
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert set(body.keys()) == {"visits", "totalVisitCount", "truncated"}
+        assert body["totalVisitCount"] == 3
+        assert body["truncated"] is False
+        assert len(body["visits"]) == 3
+        # Most-recent first (ISO strings sort lexically for a fixed format/tz).
+        assert body["visits"] == sorted(body["visits"], reverse=True)
+
+    def test_404_for_unknown_user(self, client):
+        resp = client.get("/api/admin/users/does-not-exist/visits")
+        assert resp.status_code == 404
+
+    def test_gap_when_count_exceeds_logged_history(self, client, db_conn):
+        """A pre-launch user can have visit_count > the number of logged rows;
+        the endpoint reports both so the modal can show the gap caption."""
+        user = _make_user({"id": "uv2", "auth0_id": "auth0|uv2", "email": "uv2@example.com",
+                           "visit_count": 10})
+        _insert_user(db_conn, user)
+        _insert_user_visit(db_conn, "uv2", "2026-06-01T10:00:00Z")
+        _insert_user_visit(db_conn, "uv2", "2026-06-02T10:00:00Z")
+
+        body = client.get("/api/admin/users/uv2/visits").json()
+        assert len(body["visits"]) == 2
+        assert body["totalVisitCount"] == 10
+        assert body["truncated"] is False
+
+    def test_empty_history_for_user_with_no_log_rows(self, client, db_conn):
+        user = _make_user({"id": "uv3", "auth0_id": "auth0|uv3", "email": "uv3@example.com"})
+        _insert_user(db_conn, user)
+        body = client.get("/api/admin/users/uv3/visits").json()
+        assert body["visits"] == []
+        assert body["totalVisitCount"] == 0
+        assert body["truncated"] is False
+
+    def test_visits_without_admin_grant_returns_403(self, test_app, db_conn):
+        """Non-admin callers are gated, same as the other admin endpoints."""
+        from api.auth.dependencies import require_admin
+
+        user = _make_user({"auth0_id": "auth0|test_user_123", "email": "test@example.com"})
+        _insert_user(db_conn, user)  # signed in, but no admin grant
+
+        saved_override = test_app.dependency_overrides.pop(require_admin, None)
+        try:
+            no_admin = TestClient(test_app)
+            resp = no_admin.get(f"/api/admin/users/{user['id']}/visits")
+            assert resp.status_code == 403
         finally:
             if saved_override is not None:
                 test_app.dependency_overrides[require_admin] = saved_override

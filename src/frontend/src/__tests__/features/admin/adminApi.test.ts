@@ -324,6 +324,65 @@ describe('adminApi', () => {
   });
 
   // ───────────────────────────────────────────────────────────────────────────
+  // getUserVisits — the roster's clickable Visits modal feed
+  // ───────────────────────────────────────────────────────────────────────────
+
+  it('GETs /api/admin/users/{id}/visits with the admin Bearer token', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ visits: [], totalVisitCount: 0, truncated: false })
+    );
+    const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+    await store.dispatch(adminApi.endpoints.getUserVisits.initiate({ userId: 'u1' }));
+
+    const call = fetchMock.mock.calls[0] as [unknown, unknown];
+    expect(urlFromInput(call[0])).toMatch(/\/api\/admin\/users\/u1\/visits$/);
+    expect(getAuthHeader(call)).toBe('Bearer test-admin-token');
+  });
+
+  it('parses a well-formed visits response', async () => {
+    const body = {
+      visits: ['2026-06-03T10:00:00Z', '2026-06-01T10:00:00Z'],
+      totalVisitCount: 5,
+      truncated: false,
+    };
+    fetchMock.mockResolvedValue(jsonResponse(body));
+    const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+    const result = await store.dispatch(
+      adminApi.endpoints.getUserVisits.initiate({ userId: 'u1' })
+    );
+
+    expect(result.data).toEqual(body);
+  });
+
+  it('surfaces an error when the visits body has visits as a non-array', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ visits: 'nope', totalVisitCount: 0, truncated: false })
+    );
+    const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+    const result = await store.dispatch(
+      adminApi.endpoints.getUserVisits.initiate({ userId: 'u1' })
+    );
+
+    expect(result.data).toBeUndefined();
+    expect(result.error).toBeDefined();
+  });
+
+  it('surfaces an error when the visits body is missing totalVisitCount', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ visits: [], truncated: false }));
+    const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+    const result = await store.dispatch(
+      adminApi.endpoints.getUserVisits.initiate({ userId: 'u1' })
+    );
+
+    expect(result.data).toBeUndefined();
+    expect(result.error).toBeDefined();
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
   // Location Normalization Monitor endpoints
   // ───────────────────────────────────────────────────────────────────────────
 

@@ -17,6 +17,7 @@ never by editing frozen migrations.
 from __future__ import annotations
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     Column,
     Float,
@@ -124,6 +125,41 @@ class User(Base):
         UniqueConstraint("email", name="users_email_key"),
         Index("idx_users_auth0_id", "auth0_id"),
         Index("idx_users_email", "email"),
+    )
+
+
+class UserVisit(Base):
+    __tablename__ = "user_visits"
+
+    # Append-only per-visit log: one row per POST /api/users/visit (one full
+    # page load / refresh, NOT SPA route navigation — same semantics as the
+    # denormalized users.visit_count / last_visit_at counters, which are KEPT).
+    # Backs the admin roster's clickable "Visits" modal.
+    #
+    # DB-assigned BIGINT identity PK (NOT a Python-generated uuid Text like
+    # users.id): the log has no natural client id and is write-heavy, so a
+    # monotonic surrogate keeps the (user_id, visited_at) index tight.
+    id = Column(BigInteger, primary_key=True)
+    user_id = Column(
+        Text,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    # Stamped server-side at insert. Real timestamptz — mirrors last_visit_at,
+    # do NOT mimic the legacy Text-typed created_at/updated_at.
+    visited_at = Column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        # Serves the modal query (WHERE user_id = %s ORDER BY visited_at DESC
+        # LIMIT N): a plain ascending composite btree supports the descending
+        # scan via a backward index walk, so no DESC index is needed.
+        Index(
+            "idx_user_visits_user_id_visited_at",
+            "user_id",
+            "visited_at",
+        ),
     )
 
 

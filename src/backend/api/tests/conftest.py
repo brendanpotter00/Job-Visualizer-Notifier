@@ -223,13 +223,16 @@ def _insert_user(conn, user: dict) -> None:
 def _clear_tables(conn) -> None:
     """Truncate test tables between tests."""
     cursor = conn.cursor()
-    cursor.execute(sql.SQL("TRUNCATE {}, {}, {}, {}, {}, {}, {}, {}, {}, {} CASCADE").format(
+    cursor.execute(sql.SQL("TRUNCATE {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {} CASCADE").format(
         sql.Identifier("feature_upvotes"),
         sql.Identifier("features"),
         # feedback FKs users with ON DELETE SET NULL, so a users CASCADE would
         # only null user_id rather than remove the row — truncate it explicitly.
         sql.Identifier("feedback"),
         sql.Identifier("user_enabled_companies"),
+        # user_visits FKs users with ON DELETE CASCADE, so a users CASCADE would
+        # already clear it; list it explicitly for clarity / future-proofing.
+        sql.Identifier("user_visits"),
         sql.Identifier("job_listings"),
         sql.Identifier("scrape_runs"),
         sql.Identifier("admins"),
@@ -246,6 +249,18 @@ def _insert_admin(conn, user_id: str) -> None:
     cursor.execute(
         sql.SQL("INSERT INTO {} (user_id) VALUES (%s)").format(sql.Identifier("admins")),
         (user_id,),
+    )
+    conn.commit()
+
+
+def _insert_user_visit(conn, user_id: str, visited_at: str) -> None:
+    """Insert one user_visits row at a specific timestamp (test seeding)."""
+    cursor = conn.cursor()
+    cursor.execute(
+        sql.SQL("INSERT INTO {} (user_id, visited_at) VALUES (%s, %s)").format(
+            sql.Identifier("user_visits")
+        ),
+        (user_id, visited_at),
     )
     conn.commit()
 
