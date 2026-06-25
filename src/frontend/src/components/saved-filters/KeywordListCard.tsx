@@ -28,6 +28,8 @@ import {
   cloneDraftList,
   type DraftKeywordList,
 } from './keywordListDraft.ts';
+import { RESPONSIVE } from '../../config/responsive';
+import { useIsMobile } from '../../hooks/useIsMobile';
 
 export interface KeywordListCardProps {
   list: DraftKeywordList;
@@ -53,7 +55,19 @@ export interface KeywordListCardProps {
   onSelectActive?: () => void;
 }
 
-const CARD_SX = { p: 2, border: 1, borderColor: 'divider', borderRadius: 1 } as const;
+const CARD_SX = {
+  p: RESPONSIVE.keywordCard.contentPadding,
+  border: 1,
+  borderColor: 'divider',
+  borderRadius: 1,
+} as const;
+/**
+ * Header-row layout. On mobile the row wraps (`flexWrap`) so the list name keeps
+ * the full first line and the controls (chip / Edit / Delete) drop to a second
+ * line — instead of the name being squeezed into a 5-line sliver. Desktop stays
+ * `nowrap` (one row), unchanged.
+ */
+const HEADER_STACK_SX = { flexWrap: { xs: 'wrap', sm: 'nowrap' } } as const;
 /** Visually mark the active card so the selection reads at a glance. */
 const ACTIVE_CARD_SX = {
   ...CARD_SX,
@@ -85,6 +99,20 @@ export function KeywordListCard({
   const [createKeywordList, createState] = useCreateKeywordListMutation();
   const [updateKeywordList, updateState] = useUpdateKeywordListMutation();
   const [deleteKeywordList, deleteState] = useDeleteKeywordListMutation();
+  const isMobile = useIsMobile();
+
+  // Shrink the include/exclude chips on mobile only (gated, since MUI's small-chip
+  // sizing is variant-dependent — desktop keeps its defaults untouched).
+  const chipSx = isMobile
+    ? {
+        height: RESPONSIVE.keywordCard.chipHeight.compact,
+        '& .MuiChip-label': {
+          fontSize: RESPONSIVE.keywordCard.chipFontSize.compact,
+          px: '6px',
+        },
+        '& .MuiChip-icon': { fontSize: '0.85rem', ml: '3px' },
+      }
+    : undefined;
 
   const [mode, setMode] = useState<'view' | 'edit'>(startInEdit ? 'edit' : 'view');
   const [draft, setDraft] = useState<DraftKeywordList>(() => cloneDraftList(list));
@@ -128,7 +156,7 @@ export function KeywordListCard({
   if (list.isBuiltin) {
     return (
       <Box sx={isActive ? ACTIVE_CARD_SX : CARD_SX}>
-        <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1.5 }}>
+        <Stack direction="row" useFlexGap alignItems="center" spacing={1} sx={{ ...HEADER_STACK_SX, mb: 1.5 }}>
           {activeRadio}
           <LockIcon fontSize="small" color="disabled" />
           <Typography variant="subtitle1">Software Engineering (default)</Typography>
@@ -138,7 +166,7 @@ export function KeywordListCard({
           <Box sx={{ flexGrow: 1 }} />
           {activeChip}
         </Stack>
-        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: { xs: 0.5, sm: 1 } }}>
           {list.tags.map((tag) => (
             <Chip
               key={tag.text}
@@ -146,6 +174,7 @@ export function KeywordListCard({
               color={tag.mode === 'include' ? 'success' : 'error'}
               icon={tag.mode === 'include' ? <AddIcon /> : <RemoveIcon />}
               label={tag.text}
+              sx={chipSx}
             />
           ))}
         </Box>
@@ -270,9 +299,9 @@ export function KeywordListCard({
           {error}
         </Alert>
       )}
-      <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1.5 }}>
+      <Stack direction="row" useFlexGap alignItems="center" spacing={1} sx={{ ...HEADER_STACK_SX, mb: 1.5 }}>
         {activeRadio}
-        <Typography variant="subtitle1" sx={{ flexGrow: 1 }}>
+        <Typography variant="subtitle1" sx={{ flexGrow: 1, minWidth: 0 }}>
           {list.name || '(unnamed list)'}
         </Typography>
         {activeChip}
@@ -292,7 +321,7 @@ export function KeywordListCard({
           </span>
         </Tooltip>
       </Stack>
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: { xs: 0.5, sm: 1 } }}>
         {list.tags.length === 0 ? (
           <Typography variant="body2" color="text.secondary">
             No keywords yet — click Edit to add some.
@@ -305,6 +334,7 @@ export function KeywordListCard({
               color={tag.mode === 'include' ? 'success' : 'error'}
               icon={tag.mode === 'include' ? <AddIcon /> : <RemoveIcon />}
               label={tag.text}
+              sx={chipSx}
             />
           ))
         )}

@@ -5,6 +5,7 @@ import {
   FEEDBACK_MAX_LENGTH,
 } from '../../features/feedback/feedbackApi';
 import { extractErrorMessage } from '../../lib/errors';
+import { RESPONSIVE } from '../../config/responsive';
 
 const FEEDBACK_EMAIL = 'brendanpotter00@gmail.com';
 
@@ -39,7 +40,10 @@ export function GiveFeedbackBox() {
   };
 
   return (
-    <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
+    <Paper
+      variant="outlined"
+      sx={{ p: RESPONSIVE.spacing.paperPadding, mb: RESPONSIVE.spacing.sectionMarginB }}
+    >
       <Typography variant="h6" component="h2" gutterBottom>
         Give Feedback
       </Typography>

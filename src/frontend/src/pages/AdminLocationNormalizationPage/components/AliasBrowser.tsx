@@ -34,6 +34,7 @@ import { ErrorState } from '../../../components/shared/ErrorDisplay';
 import { EmptyState } from '../../../components/shared/ErrorDisplay';
 import { extractErrorMessage } from '../../../lib/errors';
 import { useDebouncedValue } from '../../../hooks/useDebouncedValue';
+import { TABLE_SCROLL_SX } from '../../../config/responsive';
 
 interface AliasBrowserProps {
   onEdit: (alias: AliasRow) => void;
@@ -179,7 +180,7 @@ function ForwardTable({
   }
 
   return (
-    <TableContainer>
+    <TableContainer sx={TABLE_SCROLL_SX}>
       <Table size="small">
         <TableHead>
           <TableRow>
@@ -354,7 +355,7 @@ function ReverseTable({ query }: ReverseTableProps) {
   }
 
   return (
-    <TableContainer>
+    <TableContainer sx={TABLE_SCROLL_SX}>
       <Table size="small">
         <TableHead>
           <TableRow>

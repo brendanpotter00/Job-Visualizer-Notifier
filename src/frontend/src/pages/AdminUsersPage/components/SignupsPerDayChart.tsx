@@ -13,6 +13,8 @@ import {
 } from 'recharts';
 import { format } from 'date-fns';
 import { bucketPerDay, type DayPoint } from '../lib/bucketSignups';
+import { useIsMobile } from '../../../hooks/useIsMobile';
+import { RESPONSIVE } from '../../../config/responsive';
 
 interface SignupsPerDayChartProps {
   /** ISO timestamps of every user's `createdAt`. */
@@ -23,13 +25,16 @@ interface SignupsPerDayChartProps {
 
 export function SignupsPerDayChart({ createdAts, height = 280 }: SignupsPerDayChartProps) {
   const theme = useTheme();
+  const isMobile = useIsMobile();
+  // Shorter on mobile (desktop keeps the passed/default 280).
+  const h = isMobile ? RESPONSIVE.adminChart.height.compact : height;
   const data = useMemo(() => bucketPerDay(createdAts), [createdAts]);
 
   if (data.length === 0) {
     return (
       <Box
         sx={{
-          height,
+          height: h,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -41,7 +46,7 @@ export function SignupsPerDayChart({ createdAts, height = 280 }: SignupsPerDayCh
   }
 
   return (
-    <Box sx={{ width: '100%', height }}>
+    <Box sx={{ width: '100%', height: h }}>
       <ResponsiveContainer>
         <BarChart data={data} margin={{ top: 8, right: 16, bottom: 0, left: -8 }}>
           <CartesianGrid strokeDasharray="3 3" stroke={theme.palette.divider} />

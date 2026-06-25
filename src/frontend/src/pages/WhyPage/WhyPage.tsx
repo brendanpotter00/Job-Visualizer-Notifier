@@ -13,9 +13,10 @@ import {
   getATSGroupKey,
   type ATSGroupKey,
 } from '../../config/atsSource';
+import { RESPONSIVE } from '../../config/responsive';
 
 /** Shared styling for Paper sections */
-const sectionPaperSx: SxProps<Theme> = { p: 3, mb: 4 };
+const sectionPaperSx: SxProps<Theme> = { p: RESPONSIVE.spacing.paperPadding, mb: 4 };
 
 /** Inline "shipped" badge used to mark roadmap items that are already live. */
 function LiveMarker() {
@@ -70,8 +71,13 @@ export function WhyPage() {
 
   return (
     <Container maxWidth={false} sx={{ px: { xs: 2, sm: 3, md: 4 } }}>
-      <Box sx={{ my: 4 }}>
-        <Typography variant="h3" component="h1" gutterBottom>
+      <Box sx={{ my: RESPONSIVE.spacing.pageMarginY }}>
+        <Typography
+          variant="h3"
+          component="h1"
+          gutterBottom
+          sx={{ fontSize: RESPONSIVE.fontSize.pageTitle }}
+        >
           Why This Was Built
         </Typography>
 
@@ -128,7 +134,12 @@ export function WhyPage() {
             Reach out to Brendan Potter <OpenInNew sx={{ fontSize: '1rem' }} />
           </Link>
         </Paper>
-        <Typography variant="h3" component="h1" gutterBottom>
+        <Typography
+          variant="h3"
+          component="h1"
+          gutterBottom
+          sx={{ fontSize: RESPONSIVE.fontSize.pageTitle }}
+        >
           Future Plans
         </Typography>
 

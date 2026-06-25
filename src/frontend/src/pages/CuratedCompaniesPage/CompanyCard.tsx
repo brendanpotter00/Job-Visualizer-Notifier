@@ -4,6 +4,8 @@ import { CARD_VARIANT } from '../../components/shared/JobCard/jobCardStyles';
 import { CompanyWordmark } from '../../components/shared/CompanyLogo/CompanyWordmark';
 import { ROUTES } from '../../config/routes';
 import { getCompanyById } from '../../config/companies';
+import { RESPONSIVE } from '../../config/responsive';
+import { useIsMobile } from '../../hooks/useIsMobile';
 import type { CuratedCompany } from '../../features/companies/companiesApi';
 
 interface CompanyCardProps {
@@ -21,6 +23,7 @@ interface CompanyCardProps {
  * misleading one.
  */
 export function CompanyCard({ company }: CompanyCardProps) {
+  const isMobile = useIsMobile();
   const linkable = getCompanyById(company.id) !== undefined;
 
   // Blurb + accomplishment read as one cohesive paragraph (omit whichever is null).
@@ -28,16 +31,37 @@ export function CompanyCard({ company }: CompanyCardProps) {
 
   return (
     <Card variant={CARD_VARIANT} sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <CardContent sx={{ flexGrow: 1 }}>
-        <CompanyWordmark companyId={company.id} displayName={company.displayName} />
+      <CardContent
+        sx={{
+          flexGrow: 1,
+          p: RESPONSIVE.curatedCard.contentPadding,
+          '&:last-child': { pb: RESPONSIVE.curatedCard.contentPadding },
+        }}
+      >
+        <CompanyWordmark
+          companyId={company.id}
+          displayName={company.displayName}
+          height={
+            isMobile
+              ? RESPONSIVE.curatedCard.wordmarkHeight.compact
+              : RESPONSIVE.curatedCard.wordmarkHeight.default
+          }
+        />
+        {/* Keep the full blurb on every viewport — on mobile it just renders in
+            a smaller font (no clamp/truncation), so the company explanation is
+            always fully readable while the card stays more compact than before. */}
         {description && (
-          <Typography variant="body2" color="text.secondary">
+          <Typography
+            variant="body2"
+            color="text.secondary"
+            sx={{ fontSize: RESPONSIVE.curatedCard.descriptionFontSize }}
+          >
             {description}
           </Typography>
         )}
       </CardContent>
       {linkable && (
-        <CardActions sx={{ px: 2, pb: 2, pt: 0 }}>
+        <CardActions sx={{ px: RESPONSIVE.curatedCard.contentPadding, pb: RESPONSIVE.curatedCard.contentPadding, pt: 0 }}>
           <Link
             component={RouterLink}
             to={`${ROUTES.COMPANIES}?company=${encodeURIComponent(company.id)}`}

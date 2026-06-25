@@ -43,6 +43,9 @@ export const RESPONSIVE = {
     sectionMarginB: { xs: 2, sm: 3 },
     /** Padding inside a metrics/summary `<Paper>`. */
     paperPadding: { xs: 1.5, sm: 3 },
+    /** Padding inside a larger `<Paper>` that uses 4 (32px) on desktop (e.g. the
+     *  Saved-Filters / Account section papers). sm restates the current 4. */
+    paperPaddingLg: { xs: 2, sm: 4 },
     /** Gap between items in the metrics row (`<Stack spacing>`). */
     rowSpacing: { xs: 1, sm: 3 },
     /** Gap between stacked filter controls (`<Stack spacing>`). */
@@ -125,6 +128,85 @@ export const RESPONSIVE = {
     /** Apply button horizontal padding per side (string px). */
     applyPaddingX: '10px',
   },
+  /**
+   * Company hiring-trend chart (`JobPostingsChart`). FLAT `{ compact, default }`
+   * / mobile-only values selected via `useIsMobile()`, because Recharts props
+   * (`height`, `margin`, dot `r`, axis `tick.fontSize`) take raw numbers/objects,
+   * not `sx`. The squish on a ~360px phone is an aspect-ratio problem: a 400px-tall
+   * plot in ~360px width is portrait, so the line reads as a vertical scatter.
+   * `height.compact` restores a desktop-like landscape ratio (~360×210 ≈ 1.7:1),
+   * and the compact margins reclaim the narrow width for the plot.
+   */
+  chart: {
+    /** ResponsiveContainer height. Desktop 400 = the accepted landscape look. */
+    height: { compact: 210, default: 400 },
+    /** LineChart margins. `default` restates the current desktop values. */
+    marginDefault: { top: 5, right: 30, left: 20, bottom: 5 },
+    marginCompact: { top: 5, right: 12, left: -8, bottom: 0 },
+    /**
+     * Axis tick font size on mobile only (px). Desktop keeps Recharts' inherited
+     * default (≈12px) — we override nothing >= 600px (the `jobCard` gate pattern),
+     * since restating Recharts' computed default is fragile.
+     */
+    axisFontSizeCompact: 11,
+    /** Line dot radii. */
+    dotR: { compact: 3, default: 4 },
+    activeDotR: { compact: 5, default: 6 },
+  },
+  /** Admin dashboard charts (signup trend / per-day). Raw px via `useIsMobile`. */
+  adminChart: { height: { compact: 200, default: 280 } },
+  /**
+   * Curated-companies card (`CompanyCard`). One card per row on mobile (same as
+   * desktop's 1-up at xs), but compacted: smaller logo, tighter padding, and a
+   * smaller description font — so the cards are shorter while still showing the
+   * FULL blurb (no truncation). `gridItemSize` is the MUI Grid `size` object;
+   * the rest are `{ xs, sm }` sx tokens (sm restates the MUI defaults).
+   */
+  curatedCard: {
+    /** MUI Grid `size`: 1-up on phones (restated), 2-up sm, 3-up md+. */
+    gridItemSize: { xs: 12, sm: 6, md: 4 },
+    /** Grid gap (sm restates the current 2 == 16px). */
+    gridSpacing: { xs: 1, sm: 2 },
+    /** Wordmark logo height (raw px via `useIsMobile`; default 32 unchanged). */
+    wordmarkHeight: { compact: 24, default: 32 },
+    /** CardContent / CardActions padding (sm restates MUI's 16px default). */
+    contentPadding: { xs: 1.25, sm: 2 },
+    /** Description font size (sm restates the body2 0.875rem desktop default). */
+    descriptionFontSize: { xs: '0.78rem', sm: '0.875rem' },
+  },
+  /**
+   * Saved-filters keyword-list cards (`KeywordListCard`). Compact padding + the
+   * include/exclude keyword chips shrink on mobile so the card stops eating a
+   * full screen. chip values are FLAT `{ compact, default }` (raw chip props).
+   */
+  keywordCard: {
+    /** CardContent padding (sm restates MUI's 16px default). */
+    contentPadding: { xs: 1.25, sm: 2 },
+    /** +/- keyword chip height (raw px via `useIsMobile`; default small chip 24). */
+    chipHeight: { compact: 22, default: 24 },
+    /** +/- keyword chip font size (raw via `useIsMobile`; default 0.8125rem). */
+    chipFontSize: { compact: '0.6875rem', default: '0.8125rem' },
+  },
+  /** Admin stat tiles (`StatTile`). `{ xs, sm }` sx tokens (sm restates current). */
+  statTile: {
+    /** Paper padding (sm restates the current 2.5 == 20px). */
+    padding: { xs: 1.5, sm: 2.5 },
+    /** Internal vertical gap (sm restates the current 1.5 == 12px). */
+    gap: { xs: 0.75, sm: 1.5 },
+  },
   /** Raw-pixel sizes for numeric props (e.g. `CompanyLogo` `size`). */
   logoSize: { compact: 32, default: 44 },
+} as const;
+
+/**
+ * `sx` that makes a wide MUI `<TableContainer>` scroll horizontally on mobile
+ * only, so an 8-column admin table is swipeable instead of clipped/overflowing.
+ * Desktop (>= 600px) keeps `visible`, so the table renders byte-for-byte as
+ * before. Reused by every wide admin table (admin/users, qa, feedback,
+ * location-normalization) — the single source of the mobile-table-scroll rule.
+ */
+export const TABLE_SCROLL_SX = {
+  overflowX: { xs: 'auto', sm: 'visible' },
+  // Momentum scrolling on iOS so the swipe feels native.
+  WebkitOverflowScrolling: 'touch',
 } as const;

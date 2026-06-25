@@ -14,6 +14,7 @@ import { useInfiniteScroll } from '../../hooks/useInfiniteScroll';
 import { CHANGELOG_INFINITE_SCROLL_CONFIG, INFINITE_SCROLL_CONFIG } from '../../constants/ui';
 import { CHANGELOG_MESSAGES } from '../../constants/messages';
 import { ChangelogSkeletons } from './ChangelogSkeletons';
+import { RESPONSIVE } from '../../config/responsive';
 
 const BLACK_CHIP_SX: SxProps<Theme> = {
   bgcolor: 'common.black',
@@ -118,7 +119,12 @@ export function ChangelogColumn() {
         <Stack spacing={2}>
           {displayedEntries.map((entry) => (
             <Card key={entry.id} variant="outlined">
-              <CardContent>
+              <CardContent
+                sx={{
+                  p: RESPONSIVE.spacing.cardPadding,
+                  '&:last-child': { pb: RESPONSIVE.spacing.cardPaddingBottom },
+                }}
+              >
                 <Stack
                   direction="row"
                   justifyContent="space-between"

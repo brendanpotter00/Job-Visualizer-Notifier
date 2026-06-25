@@ -3,6 +3,7 @@ import Chip from '@mui/material/Chip';
 import Container from '@mui/material/Container';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
+import { RESPONSIVE } from '../../config/responsive';
 import { usePipelinePlayer, type Phase } from './usePipelinePlayer';
 import { PlaybackControls } from './components/PlaybackControls';
 import { PipelineRail } from './components/PipelineRail';
@@ -38,7 +39,7 @@ export function AdminLocationPipelinePage() {
   const isFailedStage = phase === 'failed' && currentStage.id === 'floor';
 
   return (
-    <Container maxWidth="xl" sx={{ py: 4 }}>
+    <Container maxWidth="xl" sx={{ py: RESPONSIVE.spacing.pageMarginY }}>
       <Box sx={{ mb: 3 }}>
         <Typography variant="h4" component="h1" gutterBottom>
           Location Pipeline
@@ -50,7 +51,10 @@ export function AdminLocationPipelinePage() {
       </Box>
 
       {/* 1. Player: controls + animated rail + branch legend. */}
-      <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
+      <Paper
+        variant="outlined"
+        sx={{ p: RESPONSIVE.spacing.paperPadding, mb: RESPONSIVE.spacing.sectionMarginB }}
+      >
         <PlaybackControls
           examples={player.examples}
           exampleIndex={player.exampleIndex}
@@ -120,7 +124,12 @@ export function AdminLocationPipelinePage() {
       {phase !== 'running' && (
         <Paper
           variant="outlined"
-          sx={{ p: 2.5, mb: 3, borderLeft: 6, borderLeftColor: `${status.color}.main` }}
+          sx={{
+            p: 2.5,
+            mb: RESPONSIVE.spacing.sectionMarginB,
+            borderLeft: 6,
+            borderLeftColor: `${status.color}.main`,
+          }}
         >
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
             <Chip
@@ -134,7 +143,7 @@ export function AdminLocationPipelinePage() {
       )}
 
       {/* 4. How to read this + safety-net context. */}
-      <Paper variant="outlined" sx={{ p: 3 }}>
+      <Paper variant="outlined" sx={{ p: RESPONSIVE.spacing.paperPadding }}>
         <Typography variant="h6" component="h2" gutterBottom>
           How to read this
         </Typography>

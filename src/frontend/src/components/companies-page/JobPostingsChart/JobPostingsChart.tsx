@@ -15,6 +15,8 @@ import { formatBucketLabel } from '../../../lib/date.ts';
 import type { TimeBucket, TimeWindow } from '../../../types';
 import { ChartTooltip } from './ChartTooltip';
 import { CustomDot } from './CustomDot';
+import { RESPONSIVE } from '../../../config/responsive';
+import { useIsMobile } from '../../../hooks/useIsMobile';
 
 interface JobPostingsChartProps {
   /** Bucketed data for the chart */
@@ -43,6 +45,7 @@ export function JobPostingsChart({
   isLoading = false,
   height = 400,
 }: JobPostingsChartProps) {
+  const isMobile = useIsMobile();
   // Transform TimeBucket[] to Recharts format (memoized to prevent unnecessary recalculations)
   const chartData = useMemo(
     () =>
@@ -78,9 +81,15 @@ export function JobPostingsChart({
     );
   }
 
+  // Mobile-only Recharts overrides via tokens. Desktop passes `undefined` for
+  // tick font / YAxis width so Recharts keeps its current defaults byte-for-byte.
+  const tickStyle = isMobile ? { fontSize: RESPONSIVE.chart.axisFontSizeCompact } : undefined;
   return (
     <ResponsiveContainer width="100%" height={height}>
-      <LineChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+      <LineChart
+        data={chartData}
+        margin={isMobile ? RESPONSIVE.chart.marginCompact : RESPONSIVE.chart.marginDefault}
+      >
         <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
         <XAxis
           dataKey="time"
@@ -96,16 +105,31 @@ export function JobPostingsChart({
             return formatBucketLabel(bucket, timeWindow);
           }}
           stroke="#666"
+          tick={tickStyle}
+          // Keep date labels from colliding on the narrow phone plot.
+          minTickGap={isMobile ? 28 : 5}
         />
-        <YAxis stroke="#666" />
+        <YAxis stroke="#666" tick={tickStyle} width={isMobile ? 28 : undefined} />
         <Tooltip content={<ChartTooltip />} />
         <Line
           type="monotone"
           dataKey="count"
           stroke="#000"
           strokeWidth={2}
-          dot={<CustomDot fill="#000" r={4} onPointClick={onPointClick} />}
-          activeDot={<CustomDot fill="#000" r={6} onPointClick={onPointClick} />}
+          dot={
+            <CustomDot
+              fill="#000"
+              r={isMobile ? RESPONSIVE.chart.dotR.compact : RESPONSIVE.chart.dotR.default}
+              onPointClick={onPointClick}
+            />
+          }
+          activeDot={
+            <CustomDot
+              fill="#000"
+              r={isMobile ? RESPONSIVE.chart.activeDotR.compact : RESPONSIVE.chart.activeDotR.default}
+              onPointClick={onPointClick}
+            />
+          }
         />
       </LineChart>
     </ResponsiveContainer>
