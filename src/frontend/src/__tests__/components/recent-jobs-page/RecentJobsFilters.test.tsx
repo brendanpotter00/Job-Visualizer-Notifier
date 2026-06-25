@@ -114,7 +114,7 @@ async function seedRecentStore(overrides: PreloadedOverrides = {}, jobs: Job[] =
   const store = createTestStore({
     recentJobsFilters: {
       filters: {
-        // Preload a wide time window so the default '3h' doesn't filter
+        // Preload a wide time window so the default '14d' doesn't filter
         // seeded jobs out and make Location/Company dropdowns empty.
         timeWindow: '30d',
         softwareOnly: false,
