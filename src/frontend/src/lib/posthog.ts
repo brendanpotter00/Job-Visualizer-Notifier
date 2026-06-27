@@ -17,10 +17,16 @@ if (POSTHOG_CONFIG.isEnabled) {
     // shows until the user makes an explicit choice (see lib/posthogConsent.ts).
     opt_out_capturing_by_default: false,
     persistence: 'memory',
-    // Anonymous pageviews are processed as anonymous events (no person profile, lower
-    // cost). A person profile is created on `identify()` and the prior anonymous events
-    // stitch to it — this is what connects an anonymous landing to its eventual backend
-    // `user_signed_up` event (both keyed on the same provider subject).
+    // Anonymous events carry no person profile (lower cost); a profile is created on
+    // `identify()`. PostHog only stitches prior anonymous events to that profile when the
+    // anonymous distinct_id survives until identify — which, with `persistence: 'memory'`,
+    // it does NOT across the Auth0 full-page redirect (`login()` = `loginWithRedirect()`):
+    // the in-memory id is discarded on reload, so a pre-redirect landing is orphaned and
+    // does NOT merge into the post-redirect person. The per-person landing→signup stitch
+    // therefore holds ONLY when the visitor accepted consent before signing in (id persisted
+    // to localStorage+cookie) or signs in via in-page Google One-Tap (no reload). The
+    // PRIMARY funnel metric is the aggregate count ratio (number of `signup_funnel_landing`
+    // events vs number of `user_signed_up` events), which does not depend on the stitch.
     person_profiles: 'identified_only',
     capture_pageview: false,
     disable_session_recording: true,

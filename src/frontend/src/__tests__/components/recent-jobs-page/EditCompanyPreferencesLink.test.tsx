@@ -22,6 +22,11 @@ vi.mock('../../../features/auth/useAuth', () => ({
   useAuth: () => mockAuthState,
 }));
 
+const mockTrackSignInClick = vi.fn();
+vi.mock('../../../features/analytics/events', () => ({
+  trackSignInClick: (...args: unknown[]) => mockTrackSignInClick(...args),
+}));
+
 let mockEnabledIds: string[] | null = null;
 vi.mock('../../../app/hooks', () => ({
   useAppSelector: () => mockEnabledIds,
@@ -142,6 +147,15 @@ describe('EditCompanyPreferencesLink', () => {
 
       expect(mockLogin).toHaveBeenCalledTimes(1);
       expect(mockNavigate).not.toHaveBeenCalled();
+    });
+
+    it('fires trackSignInClick with the "edit_prefs_link" location on click', async () => {
+      const user = userEvent.setup();
+      renderWithRouter();
+
+      await user.click(screen.getByTestId('sign-in-to-edit-preferences-link'));
+
+      expect(mockTrackSignInClick).toHaveBeenCalledWith('edit_prefs_link');
     });
 
     it('stays mounted when login rejects', async () => {

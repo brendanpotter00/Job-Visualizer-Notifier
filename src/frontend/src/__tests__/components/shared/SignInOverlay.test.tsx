@@ -30,10 +30,19 @@ vi.mock('../../../features/auth/useAuth', () => ({
   useAuth: () => mockAuthState,
 }));
 
+const mockTrackOverlayViewed = vi.fn();
+const mockTrackSignInClick = vi.fn();
+vi.mock('../../../features/analytics/events', () => ({
+  trackSignInOverlayViewed: (...args: unknown[]) => mockTrackOverlayViewed(...args),
+  trackSignInClick: (...args: unknown[]) => mockTrackSignInClick(...args),
+}));
+
 describe('SignInOverlay', () => {
   beforeEach(() => {
     mockLogin.mockReset();
     mockLogin.mockResolvedValue(undefined);
+    mockTrackOverlayViewed.mockClear();
+    mockTrackSignInClick.mockClear();
     mockAuthState = {
       isEnabled: true,
       isAuthenticated: false,
@@ -117,6 +126,30 @@ describe('SignInOverlay', () => {
       expect(
         screen.getByRole('region', { name: SIGN_IN_OVERLAY_MESSAGES.ARIA_LABEL })
       ).toBeInTheDocument();
+    });
+  });
+
+  describe('Funnel instrumentation', () => {
+    it('fires trackSignInOverlayViewed once with the given page when visible', () => {
+      const { rerender } = render(<SignInOverlay page="companies" />);
+
+      expect(mockTrackOverlayViewed).toHaveBeenCalledTimes(1);
+      expect(mockTrackOverlayViewed).toHaveBeenCalledWith('companies');
+
+      // A re-render with unchanged props must not re-fire (effect deps unchanged).
+      rerender(<SignInOverlay page="companies" />);
+      expect(mockTrackOverlayViewed).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not fire when no page prop is provided', () => {
+      render(<SignInOverlay />);
+      expect(mockTrackOverlayViewed).not.toHaveBeenCalled();
+    });
+
+    it('does not fire when the overlay is not visible (authenticated)', () => {
+      mockAuthState.isAuthenticated = true;
+      render(<SignInOverlay page="recent" />);
+      expect(mockTrackOverlayViewed).not.toHaveBeenCalled();
     });
   });
 

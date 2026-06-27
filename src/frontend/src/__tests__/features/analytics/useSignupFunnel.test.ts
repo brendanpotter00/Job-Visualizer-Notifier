@@ -4,8 +4,12 @@ import { renderHook } from '@testing-library/react';
 const mockTrackLanding = vi.fn();
 const mockSetAuthState = vi.fn();
 
+// Mutable so a test can flip `isEnabled` and exercise the no-op early-return without
+// resetting modules. The hook reads `POSTHOG_CONFIG.isEnabled` at effect-run time, so
+// mutating this object is observed by the loaded hook.
+const { mockPosthogConfig } = vi.hoisted(() => ({ mockPosthogConfig: { isEnabled: true } }));
 vi.mock('../../../config/posthog', () => ({
-  POSTHOG_CONFIG: { isEnabled: true },
+  POSTHOG_CONFIG: mockPosthogConfig,
 }));
 
 vi.mock('../../../features/analytics/events', () => ({
@@ -32,6 +36,7 @@ describe('useSignupFunnel', () => {
     vi.clearAllMocks();
     __resetSignupFunnelLandingForTests();
     mockAuth = { isEnabled: true, isLoading: false, isAuthenticated: false };
+    mockPosthogConfig.isEnabled = true;
   });
 
   afterEach(() => {
@@ -84,5 +89,16 @@ describe('useSignupFunnel', () => {
     rerender();
     vi.advanceTimersByTime(PAST_GRACE_MS);
     expect(mockTrackLanding).toHaveBeenCalledTimes(1);
+  });
+
+  // Non-vacuous: with the guard present neither side-effect runs; deleting the
+  // `if (!POSTHOG_CONFIG.isEnabled) return;` early-return would make setAuthState fire
+  // (it is reached before the isAuthenticated/grace branches), failing this test.
+  it('is a complete no-op when PostHog is disabled (guards the isEnabled early-return)', () => {
+    mockPosthogConfig.isEnabled = false;
+    renderHook(() => useSignupFunnel());
+    vi.advanceTimersByTime(PAST_GRACE_MS);
+    expect(mockSetAuthState).not.toHaveBeenCalled();
+    expect(mockTrackLanding).not.toHaveBeenCalled();
   });
 });

@@ -22,6 +22,11 @@ vi.mock('../../../features/auth/useAuth', () => ({
   useAuth: () => mockAuthState,
 }));
 
+const mockTrackSignInClick = vi.fn();
+vi.mock('../../../features/analytics/events', () => ({
+  trackSignInClick: (...args: unknown[]) => mockTrackSignInClick(...args),
+}));
+
 const mockUser = {
   id: 'abc123',
   providerSubject: 'auth0|test',
@@ -87,6 +92,14 @@ describe('UserMenu', () => {
 
       await user.click(screen.getByRole('button', { name: /sign in/i }));
       expect(mockLogin).toHaveBeenCalledTimes(1);
+    });
+
+    it('fires trackSignInClick with the "appbar" location on Sign In click', async () => {
+      const user = userEvent.setup();
+      renderWithRouter(<UserMenu />);
+
+      await user.click(screen.getByRole('button', { name: /sign in/i }));
+      expect(mockTrackSignInClick).toHaveBeenCalledWith('appbar');
     });
 
     it('surfaces login rejection in a Snackbar', async () => {

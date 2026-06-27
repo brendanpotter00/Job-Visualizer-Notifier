@@ -91,7 +91,9 @@ early-returns.
 ### Signup-conversion funnel (events)
 
 The metric: **of account-less visitors who reach the app, how many create an account.**
-Event taxonomy (custom events live in `features/analytics/events.ts`):
+This is measured as an **aggregate count ratio** (number of `signup_funnel_landing` events
+vs number of `user_signed_up` events) — it does not depend on stitching each landing to its
+own eventual signup. Event taxonomy (custom events live in `features/analytics/events.ts`):
 
 - `signup_funnel_landing` — **denominator.** Fired once per page load by `useSignupFunnel`
   only after auth resolves AND the visitor is unauthenticated, with a short grace delay so
@@ -106,8 +108,14 @@ Event taxonomy (custom events live in `features/analytics/events.ts`):
   visible, with `page` of `recent | companies | bucket_modal`.
 - `user_signed_up` — **conversion.** Fired **server-side** (`src/backend/api/routers/users.py`)
   with `distinct_id = auth0_id`, only for brand-new accounts. The frontend identifies with
-  the same `providerSubject` (= that `auth0_id`), so the anonymous landing and the
-  server-side signup stitch into one person.
+  the same `providerSubject` (= that `auth0_id`). Per-person stitching of a landing to its own
+  signup is **best-effort, not guaranteed**: with `persistence: 'memory'` the anonymous
+  distinct_id lives in memory and is discarded by the Auth0 full-page redirect
+  (`login()` = `loginWithRedirect()`), so a pre-redirect landing is orphaned and does NOT
+  merge into the identified person. The stitch holds only when consent was accepted before
+  sign-in (id persisted) or sign-in was via in-page Google One-Tap (no reload). The
+  aggregate landing-vs-signup count ratio above is unaffected by this and is the primary
+  metric.
 - `is_authenticated` — super-property registered by `useSignupFunnel` on every event, so the
   funnel can restrict the landing/pageview steps to anonymous traffic.
 
