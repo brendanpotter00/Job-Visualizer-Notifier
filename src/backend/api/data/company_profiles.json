@@ -389,7 +389,7 @@
     "blurb": "Reducto builds a document-parsing and ingestion API that turns complex PDFs, spreadsheets, and slides into structured data for AI systems."
   },
   "resolve-ai": {
-    "accomplishment": "Founded by co-creators of OpenTelemetry, Resolve AI is deployed in production at major technology, financial, and consumer companies to reduce incident resolution time.",
+    "accomplishment": "Founded by co-creators of OpenTelemetry, Resolve AI is deployed in production at major technology, financial, and consumer companies to reduce incident resolution time, and ranked #1 on Harmonic's Hot 25 Startups list for Q3 2026.",
     "blurb": "Resolve AI builds an agentic AI production engineer that autonomously investigates and resolves software incidents and SRE workflows."
   },
   "retool": {
@@ -407,6 +407,10 @@
   "roblox": {
     "accomplishment": "Roblox is one of the world's largest user-generated gaming platforms, where creators build experiences with its Studio tools and earn money via its Robux currency.",
     "blurb": "Roblox operates an online platform and marketplace where users play, create, and share immersive 3D games and experiences built by a global community."
+  },
+  "salient": {
+    "accomplishment": "Salient ranked #2 on Harmonic's Hot 25 Startups list for Q3 2026 and is backed by a16z and Y Combinator with a $65M Series A.",
+    "blurb": "Salient builds AI-native infrastructure for consumer lending and loan servicing, automating financial-operations workflows for lenders."
   },
   "saronic": {
     "accomplishment": "Saronic produces a family of autonomous naval surface vessels for the U.S. military, designed to operate unmanned for missions including surveillance and at-sea rescue.",

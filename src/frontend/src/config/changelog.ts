@@ -31,6 +31,15 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
     },
   },
   {
+    id: 'add-salient',
+    title: 'Added Salient',
+    description:
+      "Salient — an AI-native consumer-lending / loan-servicing platform (a16z- and Y Combinator-backed, $65M Series A) building the AI infrastructure behind financial operations — is now tracked via its Ashby job board. It ranked #2 on Harmonic's Hot 25 Startups list for Q3 2026, and is known for an exceptionally high talent density: a small, elite engineering team running the entire platform at scale.",
+    tags: ['new-companies'],
+    date: '2026-06-24',
+    link: { to: ROUTES.ACCOUNT, label: 'Add Salient to your company preferences' },
+  },
+  {
     id: 'add-console',
     title: 'Added Console',
     description:
