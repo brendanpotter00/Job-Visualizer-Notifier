@@ -95,7 +95,7 @@ export function BucketJobsModal() {
           }}
         >
           <JobList jobs={visibleJobs} isLoading={false} />
-          {showSignInOverlay && <SignInOverlay background="paper" />}
+          {showSignInOverlay && <SignInOverlay background="paper" page="bucket_modal" />}
         </Box>
       </DialogContent>
     </Dialog>

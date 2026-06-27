@@ -23,6 +23,11 @@ vi.mock('../../../features/auth/useAuth', () => ({
   useAuth: () => mockAuthState,
 }));
 
+const mockTrackSignInClick = vi.fn();
+vi.mock('../../../features/analytics/events', () => ({
+  trackSignInClick: (...args: unknown[]) => mockTrackSignInClick(...args),
+}));
+
 const mockUser = {
   id: 'abc123',
   providerSubject: 'auth0|test',
@@ -92,6 +97,14 @@ describe('AccountPage', () => {
 
       await user.click(screen.getByRole('button', { name: /sign in/i }));
       expect(mockLogin).toHaveBeenCalled();
+    });
+
+    it('fires trackSignInClick with the "account_page" location on Sign In click', async () => {
+      const user = userEvent.setup();
+      renderPage();
+
+      await user.click(screen.getByRole('button', { name: /sign in/i }));
+      expect(mockTrackSignInClick).toHaveBeenCalledWith('account_page');
     });
   });
 

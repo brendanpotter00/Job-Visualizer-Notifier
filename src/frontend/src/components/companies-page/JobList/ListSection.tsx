@@ -44,7 +44,7 @@ export function ListSection() {
         }}
       >
         <JobList jobs={visibleJobs} isLoading={isLoading} />
-        {showSignInOverlay && <SignInOverlay background="paper" />}
+        {showSignInOverlay && <SignInOverlay background="paper" page="companies" />}
       </Box>
     </>
   );
