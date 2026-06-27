@@ -10,6 +10,17 @@ import { setAuthStateProperty, trackSignupFunnelLanding } from './events';
 // storage) to preserve the cookieless-before-consent guarantee.
 let landingFired = false;
 
+// Module-level guard recording whether this page load was EVER observed authenticated. Set
+// the instant auth resolves to signed-in, it suppresses the landing if the visitor later
+// signs out IN-PAGE (Google One-Tap `logout()` = `setGoogleCredential(null)`, no reload — so
+// `isAuthenticated` flips true→false and the effect re-runs). Without it that re-run would
+// schedule the grace timer and fire `signup_funnel_landing` for someone who already had an
+// account, violating the "can't count people that already have an account" invariant.
+// Cookieless residual: an Auth0 `logout()` does a FULL page reload, which resets this module
+// — a post-logout anonymous visit is then indistinguishable from a never-had-an-account
+// visitor and will be counted. That's unavoidable without device storage, and accepted.
+let sessionWasAuthenticated = false;
+
 // Grace period before firing the landing event. Returning users whose session is being
 // silently restored (Auth0 silent-auth, or Google One-Tap `auto_select`) start a load as
 // unauthenticated and only flip to authenticated a beat later. Waiting briefly — and
@@ -20,20 +31,24 @@ let landingFired = false;
 const LANDING_GRACE_MS = 2500;
 
 /**
- * Test-only: reset the once-per-load guard between cases. Not used in app code.
+ * Test-only: reset the once-per-load guards between cases. Not used in app code.
  */
 export function __resetSignupFunnelLandingForTests(): void {
   landingFired = false;
+  sessionWasAuthenticated = false;
 }
 
 /**
  * Top of the signup-conversion funnel.
  *
- * Fires `signup_funnel_landing` exactly once per page load, but ONLY after auth has
- * resolved AND the visitor is not authenticated — i.e. an account-less person actually
- * reached the app. Returning signed-in users are excluded by construction (the event
- * never fires for them), which is the "can't count people that already have an account"
- * requirement.
+ * Fires `signup_funnel_landing` at most once per page load, but ONLY after auth has
+ * resolved AND the visitor is not — and was never — authenticated during this page load.
+ * Returning signed-in users are excluded by construction (the event never fires while
+ * authenticated), and a visitor who was authenticated earlier in the same load and then
+ * signs out in-page is suppressed too — both satisfy the "can't count people that already
+ * have an account" requirement. (Cookieless residual: an Auth0 `logout()` full reload resets
+ * the module, so a post-logout anonymous visit looks like a fresh never-had-an-account
+ * visitor — unavoidable without device storage; see `sessionWasAuthenticated` above.)
  *
  * Also keeps the `is_authenticated` super-property in sync with auth state so every
  * captured event (pageviews, CTA clicks) can be sliced by whether the visitor was signed
@@ -53,8 +68,14 @@ export function useSignupFunnel(): void {
 
     setAuthStateProperty(isAuthenticated);
 
-    if (isAuthenticated) return; // returning signed-in visitor — not a funnel entry
+    if (isAuthenticated) {
+      // Returning signed-in visitor — not a funnel entry. Remember it so an in-page
+      // sign-out later in this same load isn't miscounted as a fresh landing.
+      sessionWasAuthenticated = true;
+      return;
+    }
     if (landingFired) return;
+    if (sessionWasAuthenticated) return; // signed out in-page this load — already had an account
 
     // Defer briefly so a returning user whose session is still being silently restored
     // flips to authenticated first (which re-runs this effect, clears the timer below via

@@ -91,6 +91,39 @@ describe('useSignupFunnel', () => {
     expect(mockTrackLanding).toHaveBeenCalledTimes(1);
   });
 
+  // Genuine module-level `landingFired` guard: a SECOND fresh mount within the same page
+  // load (no __resetSignupFunnelLandingForTests() between them) must NOT fire a second
+  // landing. This exercises the `if (landingFired) return;` branch directly — deleting that
+  // guard makes the second mount fire again and this assertion goes to 2, failing.
+  it('fires at most once per page load even across separate mounts (module-level landingFired guard)', () => {
+    const first = renderHook(() => useSignupFunnel());
+    vi.advanceTimersByTime(PAST_GRACE_MS);
+    expect(mockTrackLanding).toHaveBeenCalledTimes(1);
+    first.unmount();
+
+    // Remount within the SAME page load — intentionally do NOT reset the module guard.
+    renderHook(() => useSignupFunnel());
+    vi.advanceTimersByTime(PAST_GRACE_MS);
+    expect(mockTrackLanding).toHaveBeenCalledTimes(1);
+  });
+
+  // N1 guard: a visitor authenticated on first resolve who then signs out IN-PAGE (Google
+  // One-Tap logout = setGoogleCredential(null), no reload → isAuthenticated flips true→false
+  // and the effect re-runs) must NOT fire the landing — they already had an account. Removing
+  // `if (sessionWasAuthenticated) return;` makes the post-sign-out re-run fire it, failing this.
+  it('does NOT fire the landing when an authenticated visitor signs out in-page in the same load', () => {
+    mockAuth = { isEnabled: true, isLoading: false, isAuthenticated: true };
+    const { rerender } = renderHook(() => useSignupFunnel());
+    // In-page sign-out within the same page load.
+    mockAuth = { isEnabled: true, isLoading: false, isAuthenticated: false };
+    rerender();
+    vi.advanceTimersByTime(PAST_GRACE_MS);
+    expect(mockTrackLanding).not.toHaveBeenCalled();
+    // The super-property still tracked both auth states.
+    expect(mockSetAuthState).toHaveBeenCalledWith(true);
+    expect(mockSetAuthState).toHaveBeenCalledWith(false);
+  });
+
   // Non-vacuous: with the guard present neither side-effect runs; deleting the
   // `if (!POSTHOG_CONFIG.isEnabled) return;` early-return would make setAuthState fire
   // (it is reached before the isAuthenticated/grace branches), failing this test.
