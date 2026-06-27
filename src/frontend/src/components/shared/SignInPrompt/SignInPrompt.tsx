@@ -1,6 +1,7 @@
 import { Box, Button, Stack, Typography } from '@mui/material';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import { useAuth } from '../../../features/auth/useAuth';
+import { trackSignInClick, type SignInLocation } from '../../../features/analytics/events';
 
 export interface SignInPromptMessageProps {
   title: string;
@@ -21,6 +22,12 @@ export interface SignInPromptProps extends SignInPromptMessageProps {
    * screen-reader title announcements.
    */
   titleId?: string;
+  /**
+   * Funnel attribution: which surface this prompt lives on. When set, a
+   * `signin_cta_clicked` analytics event with this `location` fires before
+   * `login()`, so the conversion funnel can attribute signups to the surface.
+   */
+  ctaLocation?: SignInLocation;
 }
 
 /**
@@ -35,6 +42,7 @@ export function SignInPrompt({
   buttonText,
   onRequestClose,
   titleId,
+  ctaLocation,
 }: SignInPromptProps) {
   const { isAuthenticated, isEnabled, isLoading, login } = useAuth();
 
@@ -43,6 +51,7 @@ export function SignInPrompt({
   }
 
   const handleSignIn = () => {
+    if (ctaLocation) trackSignInClick(ctaLocation);
     void login().catch((error) => {
       console.error('[SignInPrompt] Login failed:', error);
     });

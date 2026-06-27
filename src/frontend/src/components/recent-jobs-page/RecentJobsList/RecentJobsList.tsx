@@ -109,7 +109,7 @@ export function RecentJobsList() {
         </Stack>
 
         {/* Sign-in prompt for signed-out users with more jobs available */}
-        {showSignInOverlay && <SignInOverlay />}
+        {showSignInOverlay && <SignInOverlay page="recent" />}
       </Box>
 
       {/* Back to top button */}

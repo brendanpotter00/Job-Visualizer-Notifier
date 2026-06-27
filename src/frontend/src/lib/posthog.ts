@@ -8,9 +8,20 @@ if (POSTHOG_CONFIG.isEnabled) {
     api_host: POSTHOG_CONFIG.apiHost,
     ui_host: POSTHOG_CONFIG.uiHost,
     defaults: '2026-05-30',
-    // Capture nothing and write no cookies until the user opts in via the consent banner.
-    opt_out_capturing_by_default: true,
+    // Cookieless-by-default. We CAPTURE from the first page load so every visitor is
+    // counted (the signup-funnel denominator), but `persistence: 'memory'` keeps the
+    // distinct_id in memory only — no cookies or localStorage are written until the
+    // user clicks Accept, at which point `acceptTracking()` upgrades persistence to
+    // 'localStorage+cookie'. Clicking Decline opts out entirely (`declineTracking()`).
+    // `get_explicit_consent_status()` ignores this default, so the consent banner still
+    // shows until the user makes an explicit choice (see lib/posthogConsent.ts).
+    opt_out_capturing_by_default: false,
     persistence: 'memory',
+    // Anonymous pageviews are processed as anonymous events (no person profile, lower
+    // cost). A person profile is created on `identify()` and the prior anonymous events
+    // stitch to it — this is what connects an anonymous landing to its eventual backend
+    // `user_signed_up` event (both keyed on the same provider subject).
+    person_profiles: 'identified_only',
     capture_pageview: false,
     disable_session_recording: true,
     session_recording: {

@@ -62,22 +62,55 @@ Backend-Scraper (api/clients/backendScraperClient.ts) is the only production cli
 
 ## Analytics (PostHog)
 
-Opt-in-by-default product analytics. Entirely gated on `VITE_POSTHOG_KEY` — when it
+Cookieless-by-default product analytics. Entirely gated on `VITE_POSTHOG_KEY` — when it
 is unset, `POSTHOG_CONFIG.isEnabled` is `false`, `lib/posthog.ts` never calls
-`posthog.init()`, the consent banner never renders, and every hook early-returns.
+`posthog.init()`, the consent banner never renders, and every hook / event helper
+early-returns.
 
-- **Opt-in by default:** `lib/posthog.ts` inits with `opt_out_capturing_by_default: true`
-  and `persistence: 'memory'` — PostHog captures nothing and writes no cookies until the
-  user clicks **Accept** in the consent banner. Manual SPA pageviews only
-  (`capture_pageview: false`).
+- **Cookieless by default:** `lib/posthog.ts` inits with
+  `opt_out_capturing_by_default: false` + `persistence: 'memory'` +
+  `person_profiles: 'identified_only'`. PostHog **captures from the first page load** so
+  every visitor is counted (the signup-funnel denominator), but the distinct_id lives in
+  memory only — **no cookies / localStorage are written until the user clicks Accept**.
+  Manual SPA pageviews only (`capture_pageview: false`); session recording stays off until
+  consent. `get_explicit_consent_status()` ignores the capture default, so the banner
+  still shows until the user makes an explicit choice.
 - **Consent state:** `ConsentStatus = 'pending' | 'granted' | 'denied'`, managed in
-  `lib/posthogConsent.ts`. `acceptTracking()` switches persistence to
-  `localStorage+cookie`, opts in, starts session recording, and fires a first
-  `$pageview`; `declineTracking()` opts out. localStorage/cookies are only written
-  after the user consents.
+  `lib/posthogConsent.ts`. `acceptTracking()` upgrades persistence to
+  `localStorage+cookie`, opts in, and starts session recording (it does **not** re-fire
+  `$pageview` — the landing pageview already fired on load, so re-firing would
+  double-count). `declineTracking()` calls `opt_out_capturing()` — the only way a visitor
+  leaves analytics entirely. Visitors who never click either button keep being counted
+  cookielessly. (Product/legal note: cookieless, in-memory capture with no device storage
+  is the intended GDPR posture; revisit if requirements change.)
 - **Hooks (`features/analytics/`):** `usePostHogPageview` fires `$pageview` on every
-  route change (when enabled); `usePostHogIdentify` calls `posthog.identify()` when a
-  user is authenticated and `posthog.reset()` on sign-out.
+  route change; `usePostHogIdentify` calls `posthog.identify(providerSubject)` when a user
+  is authenticated and `posthog.reset()` on sign-out; `useSignupFunnel` owns the top of
+  the conversion funnel + the `is_authenticated` super-property.
+
+### Signup-conversion funnel (events)
+
+The metric: **of account-less visitors who reach the app, how many create an account.**
+Event taxonomy (custom events live in `features/analytics/events.ts`):
+
+- `signup_funnel_landing` — **denominator.** Fired once per page load by `useSignupFunnel`
+  only after auth resolves AND the visitor is unauthenticated, with a short grace delay so
+  returning users whose session is silently restored (Auth0 silent-auth / Google One-Tap
+  `auto_select`) are excluded. Existing account-holders never fire it. Props:
+  `landing_path`, `referrer`.
+- `signin_cta_clicked` — mid-funnel. Fired before `login()` from each sign-in CTA, with a
+  `location` of `appbar | job_overlay | edit_prefs_link | account_page`. (Google One-Tap is
+  intentionally excluded — its success callback can't distinguish a silent re-auth from a
+  real tap; One-Tap signups are attributed via the backend signup-provider split.)
+- `signin_overlay_viewed` — mid-funnel. Fired when the signed-out job-list overlay becomes
+  visible, with `page` of `recent | companies | bucket_modal`.
+- `user_signed_up` — **conversion.** Fired **server-side** (`src/backend/api/routers/users.py`)
+  with `distinct_id = auth0_id`, only for brand-new accounts. The frontend identifies with
+  the same `providerSubject` (= that `auth0_id`), so the anonymous landing and the
+  server-side signup stitch into one person.
+- `is_authenticated` — super-property registered by `useSignupFunnel` on every event, so the
+  funnel can restrict the landing/pageview steps to anonymous traffic.
+
 - **`/ingest` proxy:** PostHog API calls are proxied through `/ingest/*` (rewrites in
   project-root `vercel.json`) to dodge ad-blockers. `VITE_POSTHOG_HOST` defaults to
   `/ingest` — **do not** point it at `us.i.posthog.com` directly; the Vercel rewrite
@@ -88,7 +121,8 @@ is unset, `POSTHOG_CONFIG.isEnabled` is `false`, `lib/posthog.ts` never calls
 - `lib/posthog.ts` — module-scope init (once, StrictMode-safe)
 - `lib/posthogConsent.ts` — opt-in/opt-out + consent-status helpers
 - `components/shared/CookieConsentBanner.tsx` — consent UI
-- `features/analytics/` — `usePostHogPageview`, `usePostHogIdentify`
+- `features/analytics/` — `usePostHogPageview`, `usePostHogIdentify`, `useSignupFunnel`,
+  `events.ts` (funnel event taxonomy)
 
 **Env vars** (go in `src/frontend/.env.local` — see Gotcha #2):
 - `VITE_POSTHOG_KEY` — PostHog project key (optional; analytics off when unset)

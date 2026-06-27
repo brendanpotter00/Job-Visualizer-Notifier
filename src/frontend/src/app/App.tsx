@@ -21,6 +21,7 @@ import { useFeaturesAuthBridge } from '../features/features/useFeaturesAuthBridg
 import { useRecordVisit } from '../features/auth/useRecordVisit';
 import { usePostHogPageview } from '../features/analytics/usePostHogPageview';
 import { usePostHogIdentify } from '../features/analytics/usePostHogIdentify';
+import { useSignupFunnel } from '../features/analytics/useSignupFunnel';
 
 /**
  * App content component with routing and hooks
@@ -49,6 +50,9 @@ function AppContent() {
   useHydrateSavedFilters();
   usePostHogPageview();
   usePostHogIdentify();
+  // Top of the signup-conversion funnel: fires `signup_funnel_landing` once for
+  // account-less visitors and keeps the `is_authenticated` super-property in sync.
+  useSignupFunnel();
 
   return (
     <>
