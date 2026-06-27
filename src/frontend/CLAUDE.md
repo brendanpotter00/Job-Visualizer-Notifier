@@ -92,8 +92,8 @@ The following `eslint-disable` directives are allowed; all others must be justif
 
 **Other disables:**
 
-- `features/filters/slices/graphFiltersSlice.ts:54` — `@typescript-eslint/no-explicit-any`. `createFilterSlice` generates action creators via computed property names (`[set${CapitalizedName}TimeWindow]`), which TypeScript cannot infer through. The `as any` cast on `slice.actions` is the documented TS limitation (see https://github.com/reduxjs/redux-toolkit/issues/368). Types are still enforced at dispatch sites.
-- `features/filters/slices/recentJobsFiltersSlice.ts:60` — `@typescript-eslint/no-explicit-any`. Same rationale as `graphFiltersSlice.ts`.
+- `features/filters/slices/graphFiltersSlice.ts:58` — `@typescript-eslint/no-explicit-any`. `createFilterSlice` generates action creators via computed property names (`[set${CapitalizedName}TimeWindow]`), which TypeScript cannot infer through. The `as any` cast on `slice.actions` is the documented TS limitation (see https://github.com/reduxjs/redux-toolkit/issues/368). Types are still enforced at dispatch sites.
+- `features/filters/slices/recentJobsFiltersSlice.ts:62` — `@typescript-eslint/no-explicit-any`. Same rationale as `graphFiltersSlice.ts`.
 - `features/auth/GoogleCredentialContext.tsx:10` — `react-refresh/only-export-components`. The file exports both a React component (`GoogleCredentialProvider`) and the context object (`GoogleCredentialContext`) consumers need for `useContext`. Splitting into two files is possible but adds no runtime value; the disable is the established pattern for context modules.
 
 New code must not add disables. If a new disable appears unavoidable, update this list with the file, line, rule, and justification in the same PR.
