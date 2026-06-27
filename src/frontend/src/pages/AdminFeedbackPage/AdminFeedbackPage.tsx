@@ -9,6 +9,7 @@ import { LoadingState } from '../../components/shared/LoadingIndicator';
 import { ErrorState } from '../../components/shared/ErrorDisplay';
 import { extractErrorMessage } from '../../lib/errors';
 import { FeedbackTable } from './components/FeedbackTable';
+import { RESPONSIVE } from '../../config/responsive';
 
 export function AdminFeedbackPage() {
   // Pagination/sort state lives here because it drives the server query — each
@@ -40,7 +41,7 @@ export function AdminFeedbackPage() {
 
   if (query.error && !lastData) {
     return (
-      <Container maxWidth="lg" sx={{ py: 4 }}>
+      <Container maxWidth="lg" sx={{ py: RESPONSIVE.spacing.pageMarginY }}>
         <ErrorState
           inline
           message={extractErrorMessage(query.error, 'Failed to load feedback')}
@@ -51,7 +52,7 @@ export function AdminFeedbackPage() {
   }
 
   return (
-    <Container maxWidth="lg" sx={{ py: 4 }}>
+    <Container maxWidth="lg" sx={{ py: RESPONSIVE.spacing.pageMarginY }}>
       <Typography variant="h4" component="h1" gutterBottom>
         Admin · User Feedback
       </Typography>

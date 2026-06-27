@@ -6,6 +6,7 @@ import CircularProgress from '@mui/material/CircularProgress';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import IconButton from '@mui/material/IconButton';
 import InputAdornment from '@mui/material/InputAdornment';
+import Link from '@mui/material/Link';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
@@ -30,6 +31,8 @@ import {
 } from '../../../features/admin/adminApi';
 import { useCurrentUser } from '../../../features/auth/useCurrentUser';
 import { extractErrorMessage } from '../../../lib/errors';
+import { TABLE_SCROLL_SX } from '../../../config/responsive';
+import { UserVisitsModal } from './UserVisitsModal';
 
 interface UserRosterTableProps {
   users: AdminUserRow[];
@@ -56,6 +59,10 @@ export function UserRosterTable({ users }: UserRosterTableProps) {
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
   const [menuRow, setMenuRow] = useState<AdminUserRow | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  // The user whose visit-history modal is open, or null when closed. Local
+  // state (not the Redux uiSlice) because the modal is opened and consumed
+  // entirely within this table — no cross-component coordination needed.
+  const [visitsUser, setVisitsUser] = useState<AdminUserRow | null>(null);
 
   const { user: currentUser } = useCurrentUser();
   const [grantAdmin, grantState] = useGrantAdminMutation();
@@ -214,7 +221,7 @@ export function UserRosterTable({ users }: UserRosterTableProps) {
         </Alert>
       )}
 
-      <TableContainer>
+      <TableContainer sx={TABLE_SCROLL_SX}>
         <Table size="small">
           <TableHead>
             <TableRow>
@@ -267,7 +274,24 @@ export function UserRosterTable({ users }: UserRosterTableProps) {
                   <TableCell align="right" sx={{ color: 'text.secondary' }}>
                     {formatJoined(u.createdAt)}
                   </TableCell>
-                  <TableCell align="right">{u.visitCount.toLocaleString()}</TableCell>
+                  <TableCell align="right">
+                    {u.visitCount > 0 ? (
+                      <Link
+                        component="button"
+                        type="button"
+                        underline="hover"
+                        onClick={() => setVisitsUser(u)}
+                        sx={{ font: 'inherit' }}
+                        aria-label={`View ${u.visitCount} visit timestamps for ${u.email}`}
+                      >
+                        {u.visitCount.toLocaleString()}
+                      </Link>
+                    ) : (
+                      <Typography component="span" color="text.disabled">
+                        {u.visitCount.toLocaleString()}
+                      </Typography>
+                    )}
+                  </TableCell>
                   <TableCell align="right" sx={{ color: 'text.secondary' }}>
                     {formatJoined(u.lastVisitAt ?? '')}
                   </TableCell>
@@ -343,6 +367,10 @@ export function UserRosterTable({ users }: UserRosterTableProps) {
         }}
         rowsPerPageOptions={[25, 50, 100]}
       />
+
+      {visitsUser && (
+        <UserVisitsModal user={visitsUser} onClose={() => setVisitsUser(null)} />
+      )}
     </Paper>
   );
 }

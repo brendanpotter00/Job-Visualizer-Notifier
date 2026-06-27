@@ -81,7 +81,7 @@ export const SIGN_IN_OVERLAY_MESSAGES = {
   /**
    * Supporting subtitle emphasizing zero cost
    */
-  SUBTITLE: 'For free.',
+  SUBTITLE: 'No spam emails and free.',
 
   /**
    * Sign-in button label

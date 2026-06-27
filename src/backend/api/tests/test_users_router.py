@@ -643,6 +643,25 @@ class TestRecordVisit:
         )
         return cursor.fetchone()
 
+    @staticmethod
+    def _count_visit_log_rows(db_conn, auth0_id: str = "auth0|test_user_123") -> int:
+        """How many user_visits rows belong to the user with this auth0_id."""
+        from psycopg2 import sql
+
+        cursor = db_conn.cursor()
+        cursor.execute(
+            sql.SQL(
+                "SELECT count(*) AS n FROM {visits} v"
+                " JOIN {users} u ON u.id = v.user_id"
+                " WHERE u.auth0_id = %s"
+            ).format(
+                visits=sql.Identifier("user_visits"),
+                users=sql.Identifier("users"),
+            ),
+            (auth0_id,),
+        )
+        return cursor.fetchone()["n"]
+
     def test_visit_returns_204(self, client):
         """POST /api/users/visit returns 204 No Content."""
         resp = client.post("/api/users/visit")
@@ -695,6 +714,22 @@ class TestRecordVisit:
         client.post("/api/users/visit")
         row = self._read_visit_row(db_conn)
         assert row["visit_count"] == 6
+
+    def test_visit_writes_a_user_visits_log_row(self, client, db_conn):
+        """Each POST appends one timestamped row to user_visits (the per-visit
+        log that backs the admin Visits modal), not just the counter."""
+        resp = client.post("/api/users/visit")
+        assert resp.status_code == 204
+        assert self._count_visit_log_rows(db_conn) == 1
+
+    def test_visit_log_rows_track_the_counter(self, client, db_conn):
+        """The log and the denormalized counter stay in step: N posts ⇒ N rows
+        and visit_count == N (both committed in the same transaction)."""
+        client.post("/api/users/visit")
+        client.post("/api/users/visit")
+        client.post("/api/users/visit")
+        assert self._count_visit_log_rows(db_conn) == 3
+        assert self._read_visit_row(db_conn)["visit_count"] == 3
 
     def test_visit_without_auth_returns_401(self, test_app):
         """Anonymous POST is rejected — there's no user row to attribute it to."""

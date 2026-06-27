@@ -11,6 +11,7 @@ import { useAuth } from '../../features/auth/useAuth';
 import { SignInPromptModal } from '../../components/shared/SignInPrompt';
 import { SIGN_IN_MODAL_MESSAGES } from '../../constants/messages';
 import { logger } from '../../lib/logger';
+import { RESPONSIVE } from '../../config/responsive';
 
 // Live "we're listening" pulse — same cadence/colour as the recording dot in
 // GlobalAppBar so the shipped signal feels consistent across the app. Disabled
@@ -40,7 +41,12 @@ export function FeatureVoteCard({ feature, readOnly = false }: FeatureVoteCardPr
   if (readOnly) {
     return (
       <Card variant="outlined">
-        <CardContent>
+        <CardContent
+          sx={{
+            p: RESPONSIVE.spacing.cardPadding,
+            '&:last-child': { pb: RESPONSIVE.spacing.cardPaddingBottom },
+          }}
+        >
           <Stack direction="row" spacing={2} alignItems="flex-start">
             <Box
               sx={{
@@ -131,7 +137,12 @@ export function FeatureVoteCard({ feature, readOnly = false }: FeatureVoteCardPr
   return (
     <>
       <Card variant="outlined">
-        <CardContent>
+        <CardContent
+          sx={{
+            p: RESPONSIVE.spacing.cardPadding,
+            '&:last-child': { pb: RESPONSIVE.spacing.cardPaddingBottom },
+          }}
+        >
           <Stack direction="row" spacing={2} alignItems="flex-start">
             <Box
               sx={{

@@ -19,6 +19,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'mobile-friendly',
+    title: 'The whole app now works on your phone',
+    description:
+      'Every page got a big mobile pass so the app is genuinely usable on a phone in portrait, not just the desktop layout shrunk down. On Recent Job Postings the full-screen metrics collapse into a compact row of numbers, the filters take far less room, and job cards are tighter so about five fit per screen. The company hiring graph renders in proper landscape proportions instead of squished, curated company cards plus the saved-filters and feedback pages compact down, and wide admin tables scroll sideways instead of overflowing the screen. It all runs on one shared set of responsive sizing tokens, so desktop and tablet (600px and up) stay pixel-for-pixel identical to before.',
+    tags: ['improvement'],
+    date: '2026-06-25',
+    link: {
+      to: ROUTES.RECENT_JOBS,
+      label: 'Open the app on your phone',
+    },
+  },
+  {
     id: 'add-salient',
     title: 'Added Salient',
     description:

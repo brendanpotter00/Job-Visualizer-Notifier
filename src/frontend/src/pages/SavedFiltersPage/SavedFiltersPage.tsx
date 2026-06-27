@@ -4,6 +4,7 @@ import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
 import Stack from '@mui/material/Stack';
+import { RESPONSIVE } from '../../config/responsive';
 import { useAuth } from '../../features/auth/useAuth';
 import { useAppDispatch } from '../../app/hooks';
 import {
@@ -229,8 +230,8 @@ export function SavedFiltersPage() {
 
   if (!isAuthenticated) {
     return (
-      <Container maxWidth="sm" sx={{ py: 4 }}>
-        <Paper sx={{ p: 4, textAlign: 'center' }}>
+      <Container maxWidth="sm" sx={{ py: RESPONSIVE.spacing.pageMarginY }}>
+        <Paper sx={{ p: RESPONSIVE.spacing.paperPaddingLg, textAlign: 'center' }}>
           <Typography variant="h5" gutterBottom>
             Saved Filters
           </Typography>
@@ -252,7 +253,7 @@ export function SavedFiltersPage() {
   const listsReady = Boolean(serverLists);
 
   return (
-    <Container maxWidth="md" sx={{ py: 4 }}>
+    <Container maxWidth="md" sx={{ py: RESPONSIVE.spacing.pageMarginY }}>
       <Typography variant="h4" component="h1" gutterBottom>
         Saved Filters
       </Typography>
@@ -265,7 +266,7 @@ export function SavedFiltersPage() {
             onRetry={() => prefsQuery.refetch()}
           />
         ) : prefsLoading || !draft ? (
-          <Paper sx={{ p: 4 }}>
+          <Paper sx={{ p: RESPONSIVE.spacing.paperPaddingLg }}>
             <LoadingState minHeight={140} caption="Loading your saved filters…" />
           </Paper>
         ) : (
@@ -287,8 +288,6 @@ export function SavedFiltersPage() {
           />
         )}
 
-        <EnabledCompaniesSection />
-
         {listsQuery.isError ? (
           <ErrorState
             inline
@@ -296,7 +295,7 @@ export function SavedFiltersPage() {
             onRetry={() => listsQuery.refetch()}
           />
         ) : !listsReady ? (
-          <Paper sx={{ p: 4 }}>
+          <Paper sx={{ p: RESPONSIVE.spacing.paperPaddingLg }}>
             <LoadingState minHeight={140} caption="Loading keyword lists…" />
           </Paper>
         ) : (
@@ -316,6 +315,8 @@ export function SavedFiltersPage() {
             onSaveActive={() => handleSave('keywords')}
           />
         )}
+
+        <EnabledCompaniesSection />
 
         {/* Default time windows sit last per design. They read from the same
             prefs draft as the Locations section above, which already surfaces

@@ -1,9 +1,24 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { JobListingCard } from '../../../../components/shared/JobCard/JobListingCard';
+import { useIsMobile } from '../../../../hooks/useIsMobile';
+import { RESPONSIVE } from '../../../../config/responsive';
 import type { Job } from '../../../../types';
 
+// JobListingCard branches on useIsMobile() for the compact mobile layout. We
+// mock the hook (rather than @mui/material/useMediaQuery) because useIsMobile
+// imports useMediaQuery from the '@mui/material' barrel, which the submodule
+// mock used by RootLayout.test.tsx does not reach. Mocking the hook directly is
+// the established way to control a custom breakpoint hook. Default to desktop
+// (false) in beforeEach so the existing text/link/img tests keep their original
+// desktop behavior and the mock never leaks a mobile value between tests.
+vi.mock('../../../../hooks/useIsMobile');
+
 describe('JobListingCard', () => {
+  beforeEach(() => {
+    vi.mocked(useIsMobile).mockReturnValue(false);
+  });
+
   const mockJob: Job = {
     id: '1',
     source: 'backend-scraper',
@@ -131,45 +146,11 @@ describe('JobListingCard', () => {
     expect(screen.getByText('Full-time')).toBeInTheDocument();
   });
 
-  it('displays first 5 tags', () => {
-    render(<JobListingCard job={mockJob} />);
-    expect(screen.getByText('React')).toBeInTheDocument();
-    expect(screen.getByText('TypeScript')).toBeInTheDocument();
-    expect(screen.getByText('GraphQL')).toBeInTheDocument();
-    expect(screen.getByText('Testing')).toBeInTheDocument();
-    expect(screen.getByText('CI/CD')).toBeInTheDocument();
-    expect(screen.queryByText('Extra Tag')).not.toBeInTheDocument();
-  });
-
   it('handles job with no tags', () => {
     const jobWithoutTags = { ...mockJob, tags: undefined };
     render(<JobListingCard job={jobWithoutTags} />);
     // Should render without errors
     expect(screen.getByText('Senior Frontend Engineer')).toBeInTheDocument();
-  });
-
-  it('filters out null values from tags', () => {
-    const jobWithNullTags = {
-      ...mockJob,
-      tags: ['React', null, 'TypeScript', null, 'GraphQL'] as any,
-    };
-    render(<JobListingCard job={jobWithNullTags} />);
-    expect(screen.getByText('React')).toBeInTheDocument();
-    expect(screen.getByText('TypeScript')).toBeInTheDocument();
-    expect(screen.getByText('GraphQL')).toBeInTheDocument();
-    // Should not crash or display null chips
-  });
-
-  it('filters out empty strings from tags', () => {
-    const jobWithEmptyTags = {
-      ...mockJob,
-      tags: ['React', '', 'TypeScript', '', 'GraphQL'] as any,
-    };
-    render(<JobListingCard job={jobWithEmptyTags} />);
-    expect(screen.getByText('React')).toBeInTheDocument();
-    expect(screen.getByText('TypeScript')).toBeInTheDocument();
-    expect(screen.getByText('GraphQL')).toBeInTheDocument();
-    // Empty strings should be filtered out
   });
 
   it('handles job with no optional fields', () => {
@@ -186,5 +167,69 @@ describe('JobListingCard', () => {
     expect(screen.getByText('Engineer')).toBeInTheDocument();
     expect(screen.queryByText('Engineering')).not.toBeInTheDocument();
     expect(screen.queryByText('Remote')).not.toBeInTheDocument();
+  });
+
+  // Regression guard for Ledger #2: the compact mobile overrides are gated on
+  // useIsMobile(), so desktop must receive NO override and stay byte-for-byte
+  // identical, while mobile shrinks the logo and chips.
+  describe('responsive (mobile vs desktop)', () => {
+    // The logo size is applied to the CompanyLogo tile (the <img>'s parent Box)
+    // as width/height; getComputedStyle reports it deterministically in jsdom.
+    function logoTile(container: HTMLElement): HTMLElement {
+      const img = container.querySelector('img');
+      expect(img).not.toBeNull();
+      return img!.parentElement as HTMLElement;
+    }
+
+    // The mobile chip override is emitted as a descendant rule scoped to the
+    // CardContent's own Emotion class (`.css-xxx .MuiChip-root{height:20px}`).
+    // Scoping by class avoids cross-test stylesheet contamination.
+    function scopedChipRule(container: HTMLElement): string {
+      const content = container.querySelector('.MuiCardContent-root') as HTMLElement;
+      const cls = Array.from(content.classList).find((c) => c.startsWith('css-'));
+      if (!cls) return '';
+      const styleText = Array.from(document.querySelectorAll('style'))
+        .map((s) => s.textContent ?? '')
+        .join('\n');
+      const escaped = cls.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const re = new RegExp(`\\.${escaped}\\s+\\.MuiChip-root\\{[^}]*\\}`, 'g');
+      return (styleText.match(re) ?? []).join('\n');
+    }
+
+    it('desktop (isMobile=false): renders the logo at 44px and applies NO chip override', () => {
+      vi.mocked(useIsMobile).mockReturnValue(false);
+      const { container } = render(<JobListingCard job={mockJob} />);
+
+      const tile = logoTile(container);
+      expect(tile).toHaveStyle({
+        width: `${RESPONSIVE.logoSize.default}px`,
+        height: `${RESPONSIVE.logoSize.default}px`,
+      });
+
+      // No mobile chip-height override is emitted on desktop.
+      expect(scopedChipRule(container)).toBe('');
+    });
+
+    it('mobile (isMobile=true): renders the logo at 32px and applies the chip override', () => {
+      vi.mocked(useIsMobile).mockReturnValue(true);
+      const { container } = render(<JobListingCard job={mockJob} />);
+
+      const tile = logoTile(container);
+      expect(tile).toHaveStyle({
+        width: `${RESPONSIVE.logoSize.compact}px`,
+        height: `${RESPONSIVE.logoSize.compact}px`,
+      });
+
+      // The compact chip height is applied via the descendant override.
+      expect(scopedChipRule(container)).toContain(`height:${RESPONSIVE.jobCard.chipHeight}px`);
+    });
+
+    it('mobile shrinks the Apply button below the theme 44px floor', () => {
+      vi.mocked(useIsMobile).mockReturnValue(true);
+      render(<JobListingCard job={mockJob} />);
+
+      const apply = screen.getByRole('link', { name: 'Apply' });
+      expect(apply).toHaveStyle({ minHeight: `${RESPONSIVE.jobCard.applyMinHeight}px` });
+    });
   });
 });

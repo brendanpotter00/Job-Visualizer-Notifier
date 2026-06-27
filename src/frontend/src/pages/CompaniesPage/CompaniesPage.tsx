@@ -1,4 +1,5 @@
 import { Box, Container } from '@mui/material';
+import { RESPONSIVE } from '../../config/responsive';
 import { ErrorState } from '../../components/shared/ErrorDisplay';
 import { useAppSelector, useCompanyLoader } from '../../app/hooks';
 import { CompaniesPageHeader } from './CompaniesPageHeader';
@@ -26,7 +27,7 @@ export function CompaniesPage() {
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
       <Container maxWidth="xl" sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-        <Box sx={{ my: 4, flex: 1 }}>
+        <Box sx={{ my: RESPONSIVE.spacing.pageMarginY, flex: 1 }}>
           <CompaniesPageHeader />
 
           {error && (

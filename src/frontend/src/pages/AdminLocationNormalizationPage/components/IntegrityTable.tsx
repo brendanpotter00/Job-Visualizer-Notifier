@@ -9,6 +9,7 @@ import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import type { IntegrityCheck } from '../../../features/admin/adminApi';
+import { TABLE_SCROLL_SX } from '../../../config/responsive';
 import { integritySeverityToMuiColor } from '../verdict';
 
 interface IntegrityTableProps {
@@ -32,7 +33,7 @@ export function IntegrityTable({ checks }: IntegrityTableProps) {
           ? `⚠ ${issueCount} integrity ${issueCount === 1 ? 'issue' : 'issues'}`
           : 'All invariants clean'}
       </Typography>
-      <TableContainer>
+      <TableContainer sx={TABLE_SCROLL_SX}>
         <Table size="small">
           <TableHead>
             <TableRow>

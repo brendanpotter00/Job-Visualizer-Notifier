@@ -1,5 +1,6 @@
 import { Paper, Stack, Divider } from '@mui/material';
 import { MetricCard } from '../../companies-page/MetricsDashboard/MetricCard.tsx';
+import { RESPONSIVE } from '../../../config/responsive';
 
 interface RecentJobsMetricsProps {
   totalJobs: number;
@@ -18,13 +19,18 @@ export function RecentJobsMetrics({
   jobsLast3Hours,
 }: RecentJobsMetricsProps) {
   return (
-    <Paper sx={{ p: 3, mb: 3 }}>
-      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3} sx={{ mb: 3 }}>
-        <MetricCard value={totalJobs} label="Total Job Postings Displayed" />
-        <Divider orientation="vertical" flexItem />
-        <MetricCard value={jobsLast24Hours} label="Past 24 Hours" />
-        <Divider orientation="vertical" flexItem />
-        <MetricCard value={jobsLast3Hours} label="Past 3 Hours" />
+    <Paper sx={{ p: RESPONSIVE.spacing.paperPadding, mb: RESPONSIVE.spacing.sectionMarginB }}>
+      {/* Always a horizontal 3-up row (was column on xs, which stacked the three
+          numbers vertically and filled the whole phone screen). */}
+      <Stack
+        direction="row"
+        spacing={RESPONSIVE.spacing.rowSpacing}
+        divider={<Divider orientation="vertical" flexItem />}
+        sx={{ mb: { xs: 0, sm: 3 } }}
+      >
+        <MetricCard value={totalJobs} label="Displayed Jobs" dense />
+        <MetricCard value={jobsLast24Hours} label="Past 24 Hours" dense />
+        <MetricCard value={jobsLast3Hours} label="Past 3 Hours" dense />
       </Stack>
     </Paper>
   );

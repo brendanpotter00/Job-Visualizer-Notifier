@@ -280,6 +280,23 @@ class AdminUsersListResponse(BaseModel):
     users: list[AdminUserRow]
 
 
+class AdminUserVisitsResponse(BaseModel):
+    """One user's individual visit history for the roster's Visits modal."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    # Visit timestamps, most-recent first, capped server-side (LIMIT 500).
+    visits: list[datetime]
+    # The denormalized total visit_count for this user, so the modal can flag
+    # the count-vs-history gap: per-visit history only began when the
+    # user_visits table shipped, so for pre-launch visits ``totalVisitCount``
+    # exceeds ``len(visits)``. Serialized as ``totalVisitCount``.
+    total_visit_count: int = Field(ge=0)
+    # True when the list was truncated by the server-side cap, so the modal can
+    # say "showing the most recent 500".
+    truncated: bool
+
+
 class AdminUsersStatsResponse(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 

@@ -12,6 +12,8 @@ import {
 import { openGraphModal } from '../../../features/ui/uiSlice';
 import { ErrorDisplay } from '../../shared/ErrorDisplay.tsx';
 import type { TimeBucket } from '../../../types';
+import { RESPONSIVE } from '../../../config/responsive';
+import { useIsMobile } from '../../../hooks/useIsMobile';
 
 const CHART_REGION_ID = 'job-postings-chart-region';
 
@@ -40,6 +42,7 @@ export function GraphSection() {
   const graphFilters = useAppSelector((state) => state.graphFilters.filters);
 
   const [collapsed, setCollapsed] = useState(false);
+  const isMobile = useIsMobile();
 
   const handlePointClick = (bucket: TimeBucket) => {
     if (bucket.count > 0) {
@@ -129,7 +132,7 @@ export function GraphSection() {
               onPointClick={handlePointClick}
               timeWindow={graphFilters.timeWindow}
               isLoading={isLoading}
-              height={400}
+              height={isMobile ? RESPONSIVE.chart.height.compact : RESPONSIVE.chart.height.default}
             />
           )}
         </Box>

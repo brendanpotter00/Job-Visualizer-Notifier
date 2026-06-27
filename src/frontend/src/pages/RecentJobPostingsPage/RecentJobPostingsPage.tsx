@@ -18,6 +18,7 @@ import { FetchProgressBarSkeleton } from '../../components/companies-page/FetchP
 import { ERROR_MESSAGES } from '../../constants/messages';
 import { ErrorState } from '../../components/shared/ErrorDisplay';
 import { extractErrorMessage } from '../../lib/errors';
+import { RESPONSIVE } from '../../config/responsive';
 
 /**
  * Recent Job Postings page component
@@ -52,8 +53,13 @@ export function RecentJobPostingsPage() {
 
   return (
     <Container maxWidth="xl">
-      <Box sx={{ my: 4 }}>
-        <Typography variant="h3" component="h1" gutterBottom>
+      <Box sx={{ my: RESPONSIVE.spacing.pageMarginY }}>
+        <Typography
+          variant="h3"
+          component="h1"
+          gutterBottom
+          sx={{ fontSize: RESPONSIVE.fontSize.pageTitle }}
+        >
           Recent Job Postings
         </Typography>
         <EditCompanyPreferencesRow />

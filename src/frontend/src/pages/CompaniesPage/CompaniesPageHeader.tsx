@@ -1,4 +1,5 @@
 import { Stack, Typography } from '@mui/material';
+import { RESPONSIVE } from '../../config/responsive';
 import { CompanySelector } from '../../components/companies-page/CompanySelector/CompanySelector';
 import { useAppSelector } from '../../app/hooks';
 import { getCompanyById } from '../../config/companies';
@@ -23,10 +24,10 @@ export function CompaniesPageHeader() {
       spacing={2}
       alignItems={{ xs: 'flex-start', sm: 'center' }}
       justifyContent="space-between"
-      sx={{ mb: 4 }}
+      sx={{ mb: RESPONSIVE.spacing.pageMarginY }}
     >
       <Stack>
-        <Typography variant="h3" component="h1">
+        <Typography variant="h3" component="h1" sx={{ fontSize: RESPONSIVE.fontSize.pageTitle }}>
           {companyNameHeaderTitle}
         </Typography>
         <Typography variant="body1" color="text.disabled">

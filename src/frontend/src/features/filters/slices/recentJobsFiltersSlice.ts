@@ -3,11 +3,11 @@ import type { RecentJobsFilters } from '../../../types';
 
 /**
  * Initial filter state for Recent Jobs page
- * Default time window is 3 hours
+ * Default time window is 14 days
  * No department or roleCategory filters
  */
 const initialFilters: RecentJobsFilters = {
-  timeWindow: '3h',
+  timeWindow: '14d',
   searchTags: undefined,
   location: undefined,
   employmentType: undefined,

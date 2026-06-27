@@ -1,6 +1,9 @@
-import Paper from '@mui/material/Paper';
+import Accordion from '@mui/material/Accordion';
+import AccordionDetails from '@mui/material/AccordionDetails';
+import AccordionSummary from '@mui/material/AccordionSummary';
 import Typography from '@mui/material/Typography';
 import Stack from '@mui/material/Stack';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { TimeWindowSelect } from '../shared/filters/TimeWindowSelect.tsx';
 import { SectionSaveButton } from './SectionSaveButton.tsx';
 import type { TimeWindow } from '../../types';
@@ -34,35 +37,44 @@ export function TimeWindowDefaults({
   onSave,
 }: TimeWindowDefaultsProps) {
   return (
-    <Paper sx={{ p: 4 }}>
-      <Typography variant="h6" gutterBottom>
-        Default time windows
-      </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        Applied when you open each page. The two pages keep separate defaults.
-      </Typography>
+    <Accordion
+      defaultExpanded
+      disableGutters
+      sx={{
+        borderRadius: 1,
+        '&:before': { display: 'none' },
+      }}
+    >
+      <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ px: 4, py: 1 }}>
+        <Typography variant="h6">Default time windows</Typography>
+      </AccordionSummary>
+      <AccordionDetails sx={{ px: 4, pb: 4, pt: 0 }}>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+          Applied when you open each page. The two pages keep separate defaults.
+        </Typography>
 
-      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3}>
-        <TimeWindowSelect
-          value={recentTimeWindow}
-          onChange={onChangeRecent}
-          label="Recent Jobs default"
-        />
-        <TimeWindowSelect
-          value={trendTimeWindow}
-          onChange={onChangeTrend}
-          label="Company Trends default"
-        />
-      </Stack>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3}>
+          <TimeWindowSelect
+            value={recentTimeWindow}
+            onChange={onChangeRecent}
+            label="Recent Jobs default"
+          />
+          <TimeWindowSelect
+            value={trendTimeWindow}
+            onChange={onChangeTrend}
+            label="Company Trends default"
+          />
+        </Stack>
 
-      <SectionSaveButton
-        dirty={dirty}
-        saving={saving}
-        success={success}
-        error={error}
-        onSave={onSave}
-        label="Save time windows"
-      />
-    </Paper>
+        <SectionSaveButton
+          dirty={dirty}
+          saving={saving}
+          success={success}
+          error={error}
+          onSave={onSave}
+          label="Save time windows"
+        />
+      </AccordionDetails>
+    </Accordion>
   );
 }

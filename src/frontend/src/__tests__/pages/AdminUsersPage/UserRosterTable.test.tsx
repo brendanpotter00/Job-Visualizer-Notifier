@@ -306,4 +306,38 @@ describe('UserRosterTable', () => {
     renderTable([]);
     expect(screen.getByText('No matching users.')).toHaveAttribute('colspan', '8');
   });
+
+  it('renders the Visits cell as a clickable button when visitCount > 0', () => {
+    renderTable([PLAIN_USER]);
+    expect(
+      screen.getByRole('button', { name: /View 5 visit timestamps for plain@example.com/ })
+    ).toBeInTheDocument();
+  });
+
+  it('renders the Visits cell as plain text (not a button) when visitCount is 0', () => {
+    const zeroUser: AdminUserRow = { ...PLAIN_USER, id: 'zero-1', email: 'zero@example.com', visitCount: 0 };
+    renderTable([zeroUser]);
+    expect(
+      screen.queryByRole('button', { name: /visit timestamps for zero@example.com/ })
+    ).toBeNull();
+  });
+
+  it('opens the visit-history modal when the Visits number is clicked', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({ visits: ['2026-06-03T10:00:00Z'], totalVisitCount: 5, truncated: false }),
+        { status: 200, headers: { 'content-type': 'application/json' } }
+      )
+    );
+    const user = userEvent.setup();
+    renderTable([PLAIN_USER]);
+
+    await user.click(
+      screen.getByRole('button', { name: /View 5 visit timestamps for plain@example.com/ })
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Visit history')).toBeInTheDocument();
+    });
+  });
 });

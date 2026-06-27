@@ -1,9 +1,12 @@
-import Paper from '@mui/material/Paper';
+import Accordion from '@mui/material/Accordion';
+import AccordionDetails from '@mui/material/AccordionDetails';
+import AccordionSummary from '@mui/material/AccordionSummary';
 import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
 import Stack from '@mui/material/Stack';
 import Box from '@mui/material/Box';
 import Radio from '@mui/material/Radio';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import AddIcon from '@mui/icons-material/Add';
 import { KeywordListCard } from './KeywordListCard.tsx';
 import { SectionSaveButton } from './SectionSaveButton.tsx';
@@ -54,70 +57,79 @@ export function KeywordListsEditor({
   onSaveActive,
 }: KeywordListsEditorProps) {
   return (
-    <Paper sx={{ p: 4 }}>
-      <Typography variant="h6" gutterBottom>
-        Keyword lists
-      </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        Named sets of include/exclude keywords. Each list saves its contents on its own. Select one
-        below as the active list to apply it on all pages.
-      </Typography>
+    <Accordion
+      defaultExpanded
+      disableGutters
+      sx={{
+        borderRadius: 1,
+        '&:before': { display: 'none' },
+      }}
+    >
+      <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ px: 4, py: 1 }}>
+        <Typography variant="h6">Keyword lists</Typography>
+      </AccordionSummary>
+      <AccordionDetails sx={{ px: 4, pb: 4, pt: 0 }}>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+          Named sets of include/exclude keywords. Each list saves its contents on its own. Select one
+          below as the active list to apply it on all pages.
+        </Typography>
 
-      <Box sx={{ mb: 2 }}>
-        <Button variant="outlined" size="small" startIcon={<AddIcon />} onClick={onAddList}>
-          Add list
-        </Button>
-      </Box>
-
-      <Stack spacing={2}>
-        {/* "No keyword filter" clears the active selection. */}
-        <Box
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 1,
-            p: 1,
-            border: 1,
-            borderColor: activeKeywordListId === null ? 'primary.main' : 'divider',
-            borderRadius: 1,
-            bgcolor: activeKeywordListId === null ? 'action.selected' : undefined,
-          }}
-        >
-          <Radio
-            size="small"
-            name="active-keyword-list"
-            checked={activeKeywordListId === null}
-            onChange={() => onActiveChange(null)}
-            inputProps={{ 'aria-label': 'No keyword filter' }}
-            sx={{ p: 0.5 }}
-          />
-          <Typography variant="body2">No keyword filter</Typography>
+        <Box sx={{ mb: 2 }}>
+          <Button variant="outlined" size="small" startIcon={<AddIcon />} onClick={onAddList}>
+            Add list
+          </Button>
         </Box>
 
-        {lists.map((list) => (
-          <KeywordListCard
-            key={list.id}
-            list={list}
-            startInEdit={list.isNew}
-            onCreated={onCardCreated}
-            onCancelNew={onCardCancelNew}
-            onDeleted={onCardDeleted}
-            onSaved={onCardContentSaved}
-            isActive={list.id === activeKeywordListId}
-            selectable={!list.isNew}
-            onSelectActive={() => onActiveChange(list.id)}
-          />
-        ))}
-      </Stack>
+        <Stack spacing={2}>
+          {/* "No keyword filter" clears the active selection. */}
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1,
+              p: 1,
+              border: 1,
+              borderColor: activeKeywordListId === null ? 'primary.main' : 'divider',
+              borderRadius: 1,
+              bgcolor: activeKeywordListId === null ? 'action.selected' : undefined,
+            }}
+          >
+            <Radio
+              size="small"
+              name="active-keyword-list"
+              checked={activeKeywordListId === null}
+              onChange={() => onActiveChange(null)}
+              inputProps={{ 'aria-label': 'No keyword filter' }}
+              sx={{ p: 0.5 }}
+            />
+            <Typography variant="body2">No keyword filter</Typography>
+          </Box>
 
-      <SectionSaveButton
-        dirty={activeDirty}
-        saving={activeSaving}
-        success={activeSuccess}
-        error={activeError}
-        onSave={onSaveActive}
-        label="Save active list"
-      />
-    </Paper>
+          {lists.map((list) => (
+            <KeywordListCard
+              key={list.id}
+              list={list}
+              startInEdit={list.isNew}
+              onCreated={onCardCreated}
+              onCancelNew={onCardCancelNew}
+              onDeleted={onCardDeleted}
+              onSaved={onCardContentSaved}
+              isActive={list.id === activeKeywordListId}
+              selectable={!list.isNew}
+              onSelectActive={() => onActiveChange(list.id)}
+            />
+          ))}
+        </Stack>
+
+        <SectionSaveButton
+          dirty={activeDirty}
+          saving={activeSaving}
+          success={activeSuccess}
+          error={activeError}
+          onSave={onSaveActive}
+          label="Save active list"
+        />
+      </AccordionDetails>
+    </Accordion>
   );
 }

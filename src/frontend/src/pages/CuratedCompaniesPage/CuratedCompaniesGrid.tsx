@@ -6,12 +6,14 @@ import { CHANGELOG_INFINITE_SCROLL_CONFIG } from '../../constants/ui';
 import type { CuratedCompany } from '../../features/companies/companiesApi';
 import { CompanyCard } from './CompanyCard';
 import { SearchBar } from './SearchBar';
+import { RESPONSIVE } from '../../config/responsive';
 
 interface CuratedCompaniesGridProps {
   companies: CuratedCompany[];
 }
 
-const GRID_ITEM_SIZE = { xs: 12, sm: 6, md: 4 } as const;
+// 1-up on phones (xs:12, restated/unchanged), 2-up at sm, 3-up at md+.
+const GRID_ITEM_SIZE = RESPONSIVE.curatedCard.gridItemSize;
 
 export function CuratedCompaniesGrid({ companies }: CuratedCompaniesGridProps) {
   const [search, setSearch] = useState('');
@@ -98,7 +100,7 @@ export function CuratedCompaniesGrid({ companies }: CuratedCompaniesGridProps) {
         />
       ) : (
         <>
-          <Grid container spacing={2}>
+          <Grid container spacing={RESPONSIVE.curatedCard.gridSpacing}>
             {displayed.map((company) => (
               <Grid key={company.id} size={GRID_ITEM_SIZE}>
                 <CompanyCard company={company} />
