@@ -28,6 +28,10 @@ def test_all_tables_present():
         "location_aliases",
         "alias_locations",
         "job_locations",
+        "job_categories",
+        "job_levels",
+        "job_tags",
+        "job_enrichment",
     }, f"Unexpected metadata.tables: {sorted(names)}"
 
 

@@ -116,6 +116,15 @@ def test_locations_migration_upgrade_and_downgrade(
             "expected 'job_listings' in Base.metadata; got "
             f"{list(Base.metadata.tables.keys())}"
         )
+        # The ORM's job_listings has since grown enrichment_category /
+        # enrichment_level FK columns pointing at the job_categories / job_levels
+        # dimension tables (added by a LATER migration than the one under test).
+        # create_all-ing job_listings alone would emit those FKs against tables
+        # that don't exist yet and fail with UndefinedTable, so materialize the
+        # two FK-target dimensions first. They're harmless to this roundtrip —
+        # the locations migration never touches them.
+        job_categories = Base.metadata.tables["job_categories"]
+        job_levels = Base.metadata.tables["job_levels"]
         # The migration ADD COLUMNs job_listings.normalization_status. The ORM
         # model already declares that column, so creating job_listings from the
         # full model would collide with the migration's add_column. Build the
@@ -124,7 +133,9 @@ def test_locations_migration_upgrade_and_downgrade(
         normalization_col = job_listings.c["normalization_status"]
         job_listings._columns.remove(normalization_col)
         try:
-            Base.metadata.create_all(engine, tables=[job_listings])
+            Base.metadata.create_all(
+                engine, tables=[job_categories, job_levels, job_listings]
+            )
         finally:
             job_listings.append_column(normalization_col)
         engine.dispose()
