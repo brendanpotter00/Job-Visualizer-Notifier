@@ -81,7 +81,7 @@ pip install -r scripts/requirements-dev.txt      # Install dev dependencies (tes
 - `shared/incremental.py` - 5-phase incremental scraping algorithm (~301 lines)
 - `shared/models.py` - Database-aligned Pydantic models (JobListing, ScrapeRun) (~62 lines)
 - `shared/batch_writer.py` - Buffered batch writing utility (~157 lines)
-- `shared/utils.py` - Shared utilities (timestamps) (~13 lines)
+- `shared/utils.py` - Shared utilities (timestamps, whole-word title-keyword matching) (~38 lines)
 - `shared/constants.py` - Shared constants (table names, etc.)
 - Schema is managed by Alembic in `src/backend/alembic/` (see `src/backend/CLAUDE.md` § Schema migrations).
 
@@ -210,6 +210,8 @@ Edit company-specific `config.py`:
 - `EXCLUDE_TITLE_KEYWORDS` - Jobs matching these are filtered out
 - `LOCATION_FILTER` - Location filter (US-only for Google, configurable for Apple)
 
+All three scrapers route their title filters through `shared.utils.title_matches_keyword`. Most keywords match as case-insensitive substrings (e.g. `software`, `ML`, `iOS`), but whole-word keywords like `intern` (see `_WHOLE_WORD_KEYWORD_PATTERNS`) match only as whole words — so `intern` matches "Software Engineering Intern"/"Internship" but not "Internet"/"International"/"Internal".
+
 **Adding a New Company Scraper:**
 1. Create new directory: `scripts/<company>_jobs_scraper/`
 2. Implement scraper extending `BaseScraper` from `shared/base_scraper.py`
@@ -265,7 +267,7 @@ Edit company-specific `config.py`:
 - Incremental Algorithm: `scripts/shared/incremental.py` (~301 lines)
 - Data Models: `scripts/shared/models.py` (~62 lines)
 - Batch Writer: `scripts/shared/batch_writer.py` (~157 lines)
-- Utilities: `scripts/shared/utils.py` (~13 lines)
+- Utilities: `scripts/shared/utils.py` (~38 lines)
 
 **Testing:**
 - Test Config: `scripts/pytest.ini`
