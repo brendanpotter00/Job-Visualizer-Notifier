@@ -67,11 +67,24 @@ class JobListing(Base):
     details_scraped = Column(Boolean, server_default=text("false"))
     normalization_status = Column(Text, nullable=True)  # NULL (never attempted) | 'done' | 'failed'
 
+    # External enrichment (job-enricher pull integration). All nullable /
+    # catalog-only (no backfill) so the migration can't rewrite this large
+    # table — see docs/incidents/2026-04-18-migration-filled-postgres-volume/.
+    enrichment_status = Column(Text, nullable=True)      # NULL | 'claimed' | 'done' | 'needs_human'
+    enrichment_category = Column(Text, ForeignKey("job_categories.slug"), nullable=True)
+    enrichment_level = Column(Text, ForeignKey("job_levels.slug"), nullable=True)
+    enrichment_claimed_at = Column(TIMESTAMP(timezone=True), nullable=True)
+
     __table_args__ = (
         PrimaryKeyConstraint("source_id", "id"),
         Index("idx_job_listings_status", "status"),
         Index("idx_job_listings_company", "company"),
         Index("idx_job_listings_last_seen", "last_seen_at"),
+        # Drives the /pending claim scan (find NULL-status OPEN jobs fast) and
+        # the analytics/dashboard GROUP BYs on category within OPEN jobs.
+        Index("idx_job_listings_enrichment_status", "enrichment_status"),
+        Index("idx_job_listings_status_category", "status", "enrichment_category"),
+        Index("idx_job_listings_status_level", "status", "enrichment_level"),
     )
 
 
@@ -475,4 +488,77 @@ class JobLocation(Base):
     __table_args__ = (
         PrimaryKeyConstraint("job_listing_id", "normalized_location_id"),
         Index("idx_job_locations_job_listing_id", "job_listing_id"),
+    )
+
+
+class JobCategory(Base):
+    # Tiny seeded dimension for the enrichment category facet. Gives display
+    # labels + ordering + a real FK target for job_listings.enrichment_category
+    # (so the taxonomy is DB-enforced, not just a code convention).
+    __tablename__ = "job_categories"
+
+    slug = Column(Text, primary_key=True)                 # 'software_engineering', ...
+    label = Column(Text, nullable=False)                  # 'Software Engineering'
+    sort_order = Column(Integer, nullable=False, server_default=text("0"))
+
+
+class JobLevel(Base):
+    # Tiny seeded dimension for the leveling facet. `parent_slug` encodes the
+    # hierarchy — the whole system's load-bearing case is new_grad -> entry, so
+    # the "entry" filter can expand to {entry, new_grad} from data, not code.
+    __tablename__ = "job_levels"
+
+    slug = Column(Text, primary_key=True)                 # 'new_grad','entry','mid',...
+    label = Column(Text, nullable=False)
+    rank = Column(Integer, nullable=False)                # ordering (new_grad=0 ... manager=5)
+    parent_slug = Column(Text, ForeignKey("job_levels.slug"), nullable=True)  # new_grad -> entry
+
+
+class JobTag(Base):
+    # Many-to-many free-form tags. Carries source_id so the key is the COMPOSITE
+    # (source_id, job_listing_id, tag): job_listings' PK is (source_id, id) and
+    # `id` is NOT globally unique, so keying on job_listing_id alone could
+    # clobber/collapse a different source's tags once two sources share an id.
+    # Still no FK (the composite PK on job_listings blocks a single-col FK) —
+    # integrity at the app layer. Indexed on `tag` for reverse lookup
+    # ("all jobs tagged go").
+    __tablename__ = "job_tags"
+
+    source_id = Column(Text, nullable=False)
+    job_listing_id = Column(Text, nullable=False)
+    tag = Column(Text, nullable=False)
+
+    __table_args__ = (
+        PrimaryKeyConstraint("source_id", "job_listing_id", "tag"),
+        Index("idx_job_tags_tag", "tag"),
+    )
+
+
+class JobEnrichment(Base):
+    # 1:1 side table holding the heavy / audit payload so the hot job_listings
+    # tuple stays narrow. Keyed by the COMPOSITE (source_id, job_listing_id) —
+    # job_listings' PK is (source_id, id) and `id` is NOT globally unique, so
+    # keying on job_listing_id alone could clobber a different source's row once
+    # two sources share an id. Still no FK (composite PK blocks a single-col FK);
+    # integrity at the app layer. Written by the enrichment callback; the
+    # filterable facets (category/level/status) live as columns on job_listings,
+    # not here.
+    __tablename__ = "job_enrichment"
+
+    source_id = Column(Text, nullable=False)
+    job_listing_id = Column(Text, nullable=False)
+    clean_description = Column(Text, nullable=True)
+    classify_confidence = Column(Float, nullable=True)
+    classify_reasoning = Column(Text, nullable=True)
+    taxonomy_version = Column(Text, nullable=True)        # provenance for manual re-enrich
+    judged = Column(Boolean, nullable=False, server_default=text("false"))
+    judge_passed = Column(Boolean, nullable=True)         # NULL not judged | true | false(corrected)
+    judge_confidence = Column(Float, nullable=True)
+    judge_notes = Column(Text, nullable=True)
+    needs_human = Column(Boolean, nullable=False, server_default=text("false"))
+    enriched_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        PrimaryKeyConstraint("source_id", "job_listing_id"),
+        Index("idx_job_enrichment_needs_human", "needs_human"),
     )

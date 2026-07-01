@@ -13,6 +13,7 @@ EXPECTED_JOB_KEYS = {
     "sourceId", "details", "createdAt", "postedOn", "closedOn",
     "status", "hasMatched", "aiMetadata", "firstSeenAt", "lastSeenAt",
     "consecutiveMisses", "detailsScraped", "locations",
+    "category", "level", "tags", "enrichmentStatus",
 }
 
 # Expected camelCase keys from ScrapeRun (src/frontend/src/pages/QAPage/QAPage.tsx)

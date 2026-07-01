@@ -1,7 +1,7 @@
 """Pydantic response models with camelCase serialization for frontend compatibility."""
 
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import (
     BaseModel,
@@ -82,6 +82,14 @@ class JobListingResponse(BaseModel):
     last_seen_at: datetime
     consecutive_misses: int = Field(ge=0)
     details_scraped: bool
+    # External enrichment facets (job-enricher). All optional — NULL/absent for
+    # jobs not yet enriched. The enrichment flag gates claiming in /pending, NOT
+    # this response, so a row enriched while the flag was on keeps serializing
+    # its facets even after the flag is turned back off.
+    category: str | None = None            # job_categories.slug
+    level: str | None = None               # job_levels.slug (see the new_grad⊂entry hierarchy)
+    tags: list[str] = Field(default_factory=list)
+    enrichment_status: str | None = None   # NULL | 'claimed' | 'done' | 'needs_human'
 
 
 class ScrapeRunResponse(BaseModel):
@@ -766,3 +774,119 @@ class LocationSearchResult(BaseModel):
     id: int
     canonical_name: str
     kind: str
+
+
+# --- External enrichment (POST /results) request models ----------------------
+#
+# The job-enricher laptop POSTs enrichment results to
+# /api/internal/enrichment/results. These models validate that external,
+# untrusted body at the trust boundary. All accept snake_case field names (the
+# enricher's wire format) via ``populate_by_name`` alongside the camelCase alias.
+#
+# CRITICAL isolation rule: only the ENVELOPE is validated at the FastAPI
+# boundary (``EnrichmentResultsBody`` — a ``BaseModel`` whose ``results`` field is
+# a ``list[Any]``), and each ITEM is validated INSIDE the per-row SAVEPOINT in the
+# router. That keeps a single bad item confined to ``failed[]`` instead of 422-ing
+# the whole batch, while a mis-keyed or non-object envelope still 422s up front.
+
+
+class JudgeVerdict(BaseModel):
+    """The laptop judge's verdict for one result item. All fields optional so an
+    absent/partial ``judge`` object never fails item validation — the writer
+    reads ``needs_human`` to decide the publish gate."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    needs_human: bool = False
+    judged: bool = False
+    passed: bool | None = None
+    confidence: float | None = None
+    notes: str | None = None
+
+
+class EnrichmentLocationItem(BaseModel):
+    """DOCUMENTATION ONLY — the Contract-of-Record shape of one ``locations[]``
+    element. It is deliberately NOT used to validate ``EnrichmentResultItem``:
+    that field is typed ``list[Any]`` so BOTH a value-type-malformed location
+    (e.g. ``confidence: "high"``) AND a NON-DICT element (``["Berlin"]``,
+    ``[None]``, ``[123]``) are carried through unchanged and degraded by
+    ``CanonicalLocation(**loc)`` inside the writer's ``enr_loc`` savepoint
+    ("labels persisted, location skipped + warned"), rather than routing the
+    whole item to ``failed[]``. ``CanonicalLocation`` is the sole strict arbiter;
+    enforcing primitive types — or even ``dict``-ness (``list[dict[str, Any]]``,
+    which raises Pydantic ``dict_type`` on a non-dict) — here would instead fail
+    the whole item on a bad location (reversing F2's "location degrades
+    independently" intent). Kept as a typed reference of the fields the enricher
+    sends.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    canonical_name: str | None = None
+    kind: str | None = None
+    city: str | None = None
+    region: str | None = None
+    country: str | None = None
+    remote_scope: str | None = None
+    confidence: float | None = None
+
+
+class EnrichmentResultItem(BaseModel):
+    """One enrichment result for a single job.
+
+    ``job_listing_id`` AND ``source_id`` are REQUIRED and NON-EMPTY
+    (``min_length=1``): the writer keys the ``job_listings`` UPDATE on the
+    composite PK ``(source_id, id)`` (``id`` is not globally unique), so a missing
+    ``source_id`` must fail this item rather than risk flipping the wrong source's
+    row. An empty ``job_listing_id`` would update ZERO ``job_listings`` yet insert
+    orphan side-table rows and still count as ``written`` — so an empty id must
+    fail validation → per-row ``failed[]`` inside the SAVEPOINT.
+
+    ``category`` / ``level`` stay ``str | None`` (NOT a strict ``Literal``): the
+    writer's ``_valid()`` soft-nulls an out-of-taxonomy slug so a laptop-side
+    taxonomy drift degrades to "unlabelled", never a 422/dropped batch (CR-3).
+
+    ``locations`` is typed ``list[Any]`` (NOT ``list[dict[str, Any]]`` and NOT
+    ``EnrichmentLocationItem``) so BOTH a value-malformed location AND a NON-DICT
+    location element (``["Berlin"]``, ``[None]``, ``[123]``) are carried through
+    item validation and degraded by ``CanonicalLocation(**loc)`` in the writer's
+    ``enr_loc`` savepoint — a non-dict splat raises ``TypeError`` there, so the
+    location is skipped + warned while the row stays ``written``/``done``
+    (F2/F10/F12). ``CanonicalLocation`` is the sole strict arbiter; a stricter
+    type here (even ``dict``) would instead route the WHOLE item to ``failed[]``
+    at ``model_validate`` (Pydantic ``dict_type``), discarding the good
+    ``category``/``level``/``tags`` and re-opening the F2 reclaim churn.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    job_listing_id: Annotated[str, StringConstraints(min_length=1, strip_whitespace=True)]
+    source_id: Annotated[str, StringConstraints(min_length=1, strip_whitespace=True)]
+    category: str | None = None
+    level: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    clean_description: str | None = None
+    classify_confidence: float | None = None
+    classify_reasoning: str | None = None
+    taxonomy_version: str | None = None
+    raw_location: str | None = None
+    locations: list[Any] = Field(default_factory=list)
+    judge: JudgeVerdict | None = None
+
+
+class EnrichmentResultsBody(BaseModel):
+    """Envelope for POST /results: ``{"results": [...]}``.
+
+    ``results`` is REQUIRED (no default): a mis-keyed body (``{}``,
+    ``{"items": [...]}``) must 422 up front rather than silently return
+    ``200 {"written": 0}`` — with the enricher ignoring ``failed[]`` (CR-1) an
+    envelope-key drift would otherwise look like success. An explicit
+    ``{"results": []}`` is still accepted (a no-op poll).
+
+    The element type stays ``list[Any]`` — the top-level shape is validated here,
+    but each element is validated into an ``EnrichmentResultItem`` INSIDE the
+    per-row SAVEPOINT (router) so a null / non-dict / schema-invalid element lands
+    in ``failed[]`` and never 422s or 500s the whole batch.
+    """
+
+    results: list[Any]

@@ -56,6 +56,17 @@ def _row_to_job_dict(row: dict) -> dict:
     if isinstance(locations, str):
         locations = json.loads(locations)
     d["locations"] = locations or []
+    # Enrichment facets: the list query aliases to category/level, but the
+    # single-job SELECT * path returns the raw enrichment_* column names — map
+    # them so both paths feed JobListingResponse's category/level fields.
+    if "enrichment_category" in d and "category" not in d:
+        d["category"] = d.pop("enrichment_category")
+    if "enrichment_level" in d and "level" not in d:
+        d["level"] = d.pop("enrichment_level")
+    tags = d.get("tags")
+    if isinstance(tags, str):
+        tags = json.loads(tags)
+    d["tags"] = tags or []
     for field in _JOB_TIMESTAMP_FIELDS:
         value = d.get(field)
         if isinstance(value, datetime):
@@ -67,16 +78,25 @@ _JOBS_TABLE = sql.Identifier("job_listings")
 _RUNS_TABLE = sql.Identifier("scrape_runs")
 
 
+# Level filter expansion — the load-bearing new_grad⊂entry contract. Clicking
+# "entry" surfaces new-grad roles too; clicking "new_grad" stays exact. Kept in
+# code (fast, no join) as the read-side mirror of the job_levels.parent_slug data.
+_LEVEL_FILTER_EXPANSION: dict[str, list[str]] = {"entry": ["entry", "new_grad"]}
+
+
 def _build_where(
     company: str | None = None,
     status: str | None = None,
     companies: list[str] | None = None,
+    category: str | None = None,
+    level: str | None = None,
 ) -> tuple[sql.Composable, list]:
     """Build a WHERE clause and parameter list from optional filters.
 
     ``companies`` (set membership via ``company = ANY(%s::text[])``) takes
     precedence over the singular ``company``. Callers are expected to enforce
-    mutual-exclusivity at the request boundary.
+    mutual-exclusivity at the request boundary. ``level`` expands per the
+    new_grad⊂entry hierarchy (``entry`` -> {entry, new_grad}).
     """
     conditions: list[sql.Composable] = []
     params: list = []
@@ -89,6 +109,13 @@ def _build_where(
     if status:
         conditions.append(sql.SQL("status = %s"))
         params.append(status)
+    if category:
+        conditions.append(sql.SQL("enrichment_category = %s"))
+        params.append(category)
+    if level:
+        expanded = _LEVEL_FILTER_EXPANSION.get(level, [level])
+        conditions.append(sql.SQL("enrichment_level = ANY(%s::text[])"))
+        params.append(expanded)
     where = sql.SQL(" WHERE ") + sql.SQL(" AND ").join(conditions) if conditions else sql.SQL("")
     return where, params
 
@@ -117,6 +144,19 @@ _LOCATIONS_SUBQUERY = sql.SQL(
 # (experience_level, is_remote_eligible) and an empty ai_metadata,
 # cutting per-row size from ~10 KB to ~500 bytes.
 # Must be updated if the schema changes.
+# Free-form enrichment tags for a job, as a JSON array of strings. Correlated on
+# the FULL composite identity (source_id, id): job_tags is keyed by
+# (source_id, job_listing_id, tag) — `id` is NOT globally unique, so a job must
+# only see its OWN tags, not a same-id row from another source. The composite PK's
+# leading (source_id, job_listing_id) prefix serves this probe. '[]' when unenriched.
+_TAGS_SUBQUERY = sql.SQL(
+    "COALESCE(("
+    "  SELECT json_agg(tag ORDER BY tag) FROM job_tags"
+    "  WHERE job_tags.source_id = job_listings.source_id"
+    "    AND job_tags.job_listing_id = job_listings.id"
+    "), '[]'::json) AS tags"
+)
+
 _LIST_COLUMNS = sql.SQL(
     "id, title, company, location, url, source_id,"
     " jsonb_build_object("
@@ -125,8 +165,9 @@ _LIST_COLUMNS = sql.SQL(
     " ) AS details,"
     " created_at, posted_on, closed_on, status,"
     " has_matched, jsonb_build_object() AS ai_metadata,"
-    " first_seen_at, last_seen_at, consecutive_misses, details_scraped, "
-) + _LOCATIONS_SUBQUERY
+    " first_seen_at, last_seen_at, consecutive_misses, details_scraped,"
+    " enrichment_category AS category, enrichment_level AS level, enrichment_status, "
+) + _TAGS_SUBQUERY + sql.SQL(", ") + _LOCATIONS_SUBQUERY
 
 
 def get_jobs(
@@ -136,14 +177,20 @@ def get_jobs(
     limit: int = 5000,
     offset: int = 0,
     companies: list[str] | None = None,
+    category: str | None = None,
+    level: str | None = None,
 ) -> list[dict]:
     """List jobs with optional filters, ordered by last_seen_at DESC.
 
     Pass ``companies`` for batched per-company fetches (used by the Recent
     Jobs page to avoid fanning out N requests against the connection pool).
+    ``level`` expands per the new_grad⊂entry hierarchy.
     """
     with conn.cursor() as cursor:
-        where, params = _build_where(company=company, status=status, companies=companies)
+        where, params = _build_where(
+            company=company, status=status, companies=companies,
+            category=category, level=level,
+        )
 
         query = sql.SQL("SELECT {} FROM {} {} ORDER BY last_seen_at DESC LIMIT %s OFFSET %s").format(
             _LIST_COLUMNS, _JOBS_TABLE, where
@@ -167,8 +214,8 @@ def get_job_by_id(conn: Connection, source_id: str, job_id: str) -> dict | None:
         raise ValueError("get_job_by_id requires a non-empty source_id")
     with conn.cursor() as cursor:
         cursor.execute(
-            sql.SQL("SELECT *, {} FROM {} WHERE source_id = %s AND id = %s").format(
-                _LOCATIONS_SUBQUERY, _JOBS_TABLE
+            sql.SQL("SELECT *, {}, {} FROM {} WHERE source_id = %s AND id = %s").format(
+                _TAGS_SUBQUERY, _LOCATIONS_SUBQUERY, _JOBS_TABLE
             ),
             (source_id, job_id),
         )
