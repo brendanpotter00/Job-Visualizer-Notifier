@@ -121,8 +121,10 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Drop the job_listings columns first (cascades their inline FKs + the
-    # indexes), then the new tables. Scoped — touches nothing pre-existing.
+    # Drop the three enrichment indexes EXPLICITLY first (they are not cascaded by
+    # the column drops), then the job_listings columns (dropping a column does
+    # cascade its own inline FK), then the new tables. Scoped — touches nothing
+    # pre-existing.
     op.drop_index('idx_job_listings_status_level', table_name='job_listings')
     op.drop_index('idx_job_listings_status_category', table_name='job_listings')
     op.drop_index('idx_job_listings_enrichment_status', table_name='job_listings')

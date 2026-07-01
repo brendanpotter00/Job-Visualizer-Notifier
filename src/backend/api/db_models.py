@@ -70,7 +70,7 @@ class JobListing(Base):
     # External enrichment (job-enricher pull integration). All nullable /
     # catalog-only (no backfill) so the migration can't rewrite this large
     # table — see docs/incidents/2026-04-18-migration-filled-postgres-volume/.
-    enrichment_status = Column(Text, nullable=True)      # NULL | 'claimed' | 'done' | 'failed'
+    enrichment_status = Column(Text, nullable=True)      # NULL | 'claimed' | 'done' | 'needs_human'
     enrichment_category = Column(Text, ForeignKey("job_categories.slug"), nullable=True)
     enrichment_level = Column(Text, ForeignKey("job_levels.slug"), nullable=True)
     enrichment_claimed_at = Column(TIMESTAMP(timezone=True), nullable=True)

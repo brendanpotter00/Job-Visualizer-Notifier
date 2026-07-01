@@ -45,6 +45,13 @@ def apply_result(conn: Connection, result: dict[str, Any], *, require_judge_pass
     """Apply one enrichment result. Raises on malformed input so the caller's
     SAVEPOINT rolls back just this row."""
     job_id = result["job_listing_id"]
+    # job_listings' PK is the COMPOSITE (source_id, id); `id` is NOT globally
+    # unique, so every job_listings UPDATE below keys on BOTH columns. The
+    # enricher sends source_id in each /results item — a missing one is a
+    # per-row failure (rolled back by the caller's SAVEPOINT), never a guess.
+    source_id = result.get("source_id")
+    if not source_id:
+        raise ValueError(f"missing source_id for job_listing_id={job_id!r}")
     judge = result.get("judge") or {}
     needs_human = bool(judge.get("needs_human", False))
     # The judge already applied its corrections on the laptop; publish unless the
@@ -90,13 +97,14 @@ def apply_result(conn: Connection, result: dict[str, Any], *, require_judge_pass
             ),
         )
 
-        # 2. Facets on job_listings + tags — only when published.
+        # 2. Facets on job_listings + tags — only when published. Keyed on the
+        #    composite PK (source_id, id).
         if publish:
             cur.execute(
                 "UPDATE job_listings SET enrichment_category = %s, enrichment_level = %s, "
                 "enrichment_status = 'done', enrichment_claimed_at = NULL "
-                "WHERE id = %s",
-                (category, level, job_id),
+                "WHERE source_id = %s AND id = %s",
+                (category, level, source_id, job_id),
             )
             cur.execute("DELETE FROM job_tags WHERE job_listing_id = %s", (job_id,))
             tags = result.get("tags") or []
@@ -111,19 +119,50 @@ def apply_result(conn: Connection, result: dict[str, Any], *, require_judge_pass
                         (job_id, t),
                     )
         else:
+            # Demote to needs_human: also NULL the facets + drop the tags so a row
+            # previously published 'done' doesn't retain stale published facets
+            # after being re-flagged for a human.
             cur.execute(
-                "UPDATE job_listings SET enrichment_status = 'needs_human', "
-                "enrichment_claimed_at = NULL WHERE id = %s",
-                (job_id,),
+                "UPDATE job_listings SET enrichment_category = NULL, enrichment_level = NULL, "
+                "enrichment_status = 'needs_human', enrichment_claimed_at = NULL "
+                "WHERE source_id = %s AND id = %s",
+                (source_id, job_id),
             )
+            cur.execute("DELETE FROM job_tags WHERE job_listing_id = %s", (job_id,))
     finally:
         cur.close()
 
-    # 3. Locations — reuse the existing Tier-2 write path (own cursor inside).
-    #    This upserts locations/job_locations, refreshes the alias cache, and
-    #    sets job_listings.normalization_status='done' exactly like cloud Haiku.
+    # 3. Locations — reuse the existing Tier-2 write path in its OWN nested
+    #    savepoint, AFTER labels+status are committed to this row. A malformed or
+    #    failing locations[] element (CanonicalLocation validators, persist
+    #    errors) must degrade to "labels persisted, row still done, location
+    #    skipped + warning" — it must NEVER roll back the good facets/tags above.
     raw_location = result.get("raw_location")
     loc_dicts = result.get("locations") or []
     if raw_location and loc_dicts:
-        locations = [CanonicalLocation(**loc) for loc in loc_dicts]
-        persist_llm_result(conn, job_id, normalize_string(raw_location), locations)
+        loc_cur = conn.cursor()
+        try:
+            loc_cur.execute("SAVEPOINT enr_loc")
+            # `loc_dicts` is truthy here (non-empty), so persist_llm_result's
+            # avg-confidence divide never hits an empty sequence (ZeroDivision).
+            locations = [CanonicalLocation(**loc) for loc in loc_dicts]
+            persist_llm_result(conn, job_id, normalize_string(raw_location), locations)
+            loc_cur.execute("RELEASE SAVEPOINT enr_loc")
+        except Exception as exc:  # noqa: BLE001 — a bad location must not nuke labels
+            loc_cur.execute("ROLLBACK TO SAVEPOINT enr_loc")
+            logger.warning(
+                "enrichment: skipping locations for job %s (labels kept, row still "
+                "done): %s",
+                job_id, exc,
+            )
+        finally:
+            loc_cur.close()
+    elif bool(raw_location) != bool(loc_dicts):
+        # Exactly one of raw_location / locations[] is present — can't persist a
+        # location without both. Skip + warn (row still done with its labels)
+        # rather than silently dropping the half we got.
+        logger.warning(
+            "enrichment: partial location for job %s (raw_location=%s, locations=%s); "
+            "skipping location persist",
+            job_id, bool(raw_location), bool(loc_dicts),
+        )

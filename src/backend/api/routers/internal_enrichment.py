@@ -10,21 +10,27 @@ laptop makes only OUTBOUND calls to these routes:
     GET  /sample?n=&...     stratified raw sample for the eval golden set
     GET  /health            enrichment_status counts + stale/needs_human + metrics
 
-Everything is gated by settings.enrichment_use_external: OFF -> /pending returns
-nothing, so the cloud-Haiku location pipeline stays the sole floor and this code
-path is inert.
+Only /pending is gated by settings.enrichment_use_external: OFF -> /pending
+returns nothing (no jobs are claimed), so the cloud-Haiku location pipeline stays
+the sole floor. /results, /sample and /health run REGARDLESS of the flag — they
+are inert in practice only because nothing gets claimed to enrich while /pending
+is off.
 """
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, Query
+from fastapi import APIRouter, Depends, Query
 from psycopg2.extensions import connection as Connection
 
 from ..config import settings
 from ..dependencies import get_db
+from ..models import EnrichmentResultItem, EnrichmentResultsBody
 from ..services.enrichment_writer import apply_result
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -63,19 +69,30 @@ def pending(
     cur = conn.cursor()
     try:
         # Reclaim claims older than the TTL (a laptop that died mid-batch).
+        # Bounded + FOR UPDATE SKIP LOCKED (mirrors the claim below) so concurrent
+        # /pending polls never contend on the same stale rows; at most `limit`
+        # per tick, which self-heals over subsequent polls.
         cur.execute(
             "UPDATE job_listings SET enrichment_status = NULL, enrichment_claimed_at = NULL "
-            "WHERE enrichment_status = 'claimed' "
-            "AND enrichment_claimed_at < now() - make_interval(mins => %s)",
-            (settings.enrichment_claim_ttl_minutes,),
+            "WHERE (source_id, id) IN ("
+            "  SELECT source_id, id FROM job_listings "
+            "  WHERE enrichment_status = 'claimed' "
+            "  AND enrichment_claimed_at < now() - make_interval(mins => %s) "
+            "  ORDER BY enrichment_claimed_at "
+            "  LIMIT %s FOR UPDATE SKIP LOCKED"
+            ")",
+            (settings.enrichment_claim_ttl_minutes, limit),
         )
 
         company_filter = "AND company = ANY(%s::text[]) " if allowlist else ""
+        # Mirror /sample's guard: never claim a description-less row (nothing to
+        # classify) — it could never leave 'claimed' and would poison a claim slot.
         claim_sql = (
             "UPDATE job_listings SET enrichment_status = 'claimed', enrichment_claimed_at = now() "
             "WHERE (source_id, id) IN ("
             "  SELECT source_id, id FROM job_listings "
             "  WHERE enrichment_status IS NULL AND status = 'OPEN' "
+            "  AND details->>'description_html' IS NOT NULL "
             f"  {company_filter}"
             "  ORDER BY details_scraped DESC, last_seen_at DESC "
             "  LIMIT %s FOR UPDATE SKIP LOCKED"
@@ -93,26 +110,53 @@ def pending(
     return {"jobs": [_to_job(r) for r in rows], "enabled": True}
 
 
+def _item_ident(raw_item: Any) -> str:
+    """Best-effort identifier for a raw /results element, for logging a failure
+    whose item never validated (so we have no parsed job_listing_id)."""
+    if isinstance(raw_item, dict):
+        jid = raw_item.get("job_listing_id")
+        if jid is not None:
+            return str(jid)
+        return f"keys={sorted(raw_item.keys())}"
+    return f"type={type(raw_item).__name__}"
+
+
 @router.post("/results")
 def results(
+    payload: EnrichmentResultsBody,
     conn: Connection = Depends(get_db),
-    payload: dict[str, Any] = Body(...),
 ) -> dict[str, Any]:
-    items = payload.get("results", [])
+    # Only the ENVELOPE ({"results": [...]}) is validated by FastAPI. Each ITEM is
+    # validated into an EnrichmentResultItem INSIDE the per-row SAVEPOINT below,
+    # so a null / non-dict / schema-invalid element lands in `failed[]` instead of
+    # 422/500-ing the whole batch (per-row isolation contract).
     written = 0
     failed: list[dict[str, Any]] = []
     cur = conn.cursor()
     try:
-        for item in items:
-            job_id = item.get("job_listing_id")
+        for index, raw_item in enumerate(payload.results):
+            # Best-effort id captured BEFORE validation so a failed row still
+            # reports which job it was (the id survives even a missing source_id).
+            fallback_id = (
+                raw_item.get("job_listing_id") if isinstance(raw_item, dict) else None
+            )
             try:
                 cur.execute("SAVEPOINT enr_row")
-                apply_result(conn, item, require_judge_pass=settings.enrichment_require_judge_pass)
+                item = EnrichmentResultItem.model_validate(raw_item)
+                apply_result(
+                    conn,
+                    item.model_dump(),
+                    require_judge_pass=settings.enrichment_require_judge_pass,
+                )
                 cur.execute("RELEASE SAVEPOINT enr_row")
                 written += 1
             except Exception as exc:  # noqa: BLE001 — one bad row must not fail the batch
                 cur.execute("ROLLBACK TO SAVEPOINT enr_row")
-                failed.append({"job_listing_id": job_id, "error": str(exc)})
+                logger.warning(
+                    "enrichment /results: item %d (%s) failed: %s",
+                    index, fallback_id or _item_ident(raw_item), exc,
+                )
+                failed.append({"job_listing_id": fallback_id, "error": str(exc)})
         conn.commit()
     except Exception:
         conn.rollback()
