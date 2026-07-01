@@ -82,6 +82,12 @@ class JobListingResponse(BaseModel):
     last_seen_at: datetime
     consecutive_misses: int = Field(ge=0)
     details_scraped: bool
+    # External enrichment facets (job-enricher). All optional — NULL/absent for
+    # jobs not yet enriched, so the response is unchanged when the flag is off.
+    category: str | None = None            # job_categories.slug
+    level: str | None = None               # job_levels.slug (see the new_grad⊂entry hierarchy)
+    tags: list[str] = Field(default_factory=list)
+    enrichment_status: str | None = None   # NULL | 'claimed' | 'done' | 'failed' | 'needs_human'
 
 
 class ScrapeRunResponse(BaseModel):

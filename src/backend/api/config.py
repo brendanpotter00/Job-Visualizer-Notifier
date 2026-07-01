@@ -50,6 +50,16 @@ class Settings(BaseSettings):
     # str|None to match internal_api_key (NOT SecretStr).
     anthropic_api_key: str | None = None
 
+    # External enrichment (job-enricher pull integration). All default OFF, so
+    # with no env changes the code path is byte-identical to today: /pending
+    # hands out nothing and the cloud-Haiku location pipeline remains the floor.
+    # The laptop authenticates with the existing internal_api_key; JVN never
+    # calls the laptop (pull model).
+    enrichment_use_external: bool = False          # master flag; gates /pending
+    enrichment_company_allowlist: str = ""         # csv; "" = all companies (gradual rollout)
+    enrichment_claim_ttl_minutes: int = Field(default=15, gt=0)  # stale-claim reclaim window
+    enrichment_require_judge_pass: bool = False    # if True, /results drops rows the judge failed
+
     # PostHog analytics
     posthog_project_token: str | None = None
     posthog_host: str = "https://us.i.posthog.com"
@@ -72,6 +82,10 @@ class Settings(BaseSettings):
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def enrichment_company_allowlist_list(self) -> list[str]:
+        return [c.strip() for c in self.enrichment_company_allowlist.split(",") if c.strip()]
 
     model_config = {"env_file": (".env", ".env.local"), "extra": "ignore"}
 

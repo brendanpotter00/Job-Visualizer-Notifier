@@ -22,6 +22,7 @@ from .routers import (
     companies,
     feedback,
     features,
+    internal_enrichment,
     jobs,
     jobs_qa,
     saved_filters,
@@ -307,6 +308,11 @@ app.include_router(features.router, prefix="/api/features", tags=["features"])
 app.include_router(companies.router, prefix="/api/companies", tags=["companies"])
 app.include_router(feedback.router, prefix="/api/feedback", tags=["feedback"])
 app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
+app.include_router(
+    internal_enrichment.router,
+    prefix="/api/internal/enrichment",
+    tags=["internal-enrichment"],
+)
 
 
 @app.exception_handler(Exception)

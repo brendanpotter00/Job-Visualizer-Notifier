@@ -35,6 +35,14 @@ def list_jobs(
         max_length=4096,
     ),
     status: str | None = Query(default=None, pattern=r"^(OPEN|CLOSED)$"),
+    category: str | None = Query(
+        default=None, pattern=r"^[a-z_]{1,40}$",
+        description="Enrichment category slug (e.g. software_engineering).",
+    ),
+    level: str | None = Query(
+        default=None, pattern=r"^[a-z_]{1,20}$",
+        description="Enrichment level slug; 'entry' also matches new_grad (new_grad⊂entry).",
+    ),
     # Cap accommodates the Recent Jobs page's batched fetch across all
     # backend-scraper companies (~16k+ OPEN rows at the time of writing) in
     # one round trip. The per-company default remains 5000.
@@ -82,6 +90,8 @@ def list_jobs(
         status=status,
         limit=limit,
         offset=offset,
+        category=category,
+        level=level,
     )
     return [JobListingResponse(**job) for job in jobs]
 
