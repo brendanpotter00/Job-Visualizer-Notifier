@@ -548,6 +548,24 @@ class TestApplyResult:
         assert b["enrichment_status"] == "done"       # src-b still published
         assert b["enrichment_category"] == "business"
 
+    # --- F14: writer guards the job_listings UPDATE rowcount ----------------- #
+
+    def test_nonexistent_row_demote_branch_raises_no_orphan(self, db_conn):
+        """F14 (needs_human/demote branch): a judge-flagged result for a
+        nonexistent (source_id, id) matches 0 job_listings rows, so the demote
+        UPDATE's rowcount==0 guard raises. The caller's SAVEPOINT then rolls back
+        the already-inserted job_enrichment audit row → no orphan, no false write."""
+        with pytest.raises(ValueError, match="nothing updated"):
+            apply_result(
+                db_conn,
+                {"job_listing_id": "ghost-demote", "source_id": "ghost-src2",
+                 "category": "business", "level": "mid", "tags": [],
+                 "judge": {"judged": True, "needs_human": True}, "locations": []},
+                require_judge_pass=True,
+            )
+        db_conn.rollback()
+        assert _fetch_job_enrichment_by_pk(db_conn, "ghost-src2", "ghost-demote") is None
+
 
 # --------------------------------------------------------------------------- #
 # 3. Router: /pending, /results, /health                                       #
@@ -894,6 +912,102 @@ class TestResults:
         assert facets["normalization_status"] is None                # location skipped
         assert _fetch_tags(db_conn, "r-typeloc") == {"python"}
         assert _count_job_locations(db_conn, "r-typeloc") == 0
+
+    # --- F12: a NON-DICT location element degrades, does NOT fail the item --- #
+
+    def test_non_dict_location_degrades_row_still_written(
+        self, enrichment_client, db_conn, caplog
+    ):
+        """F12 (supersedes Ledger #12): a NON-DICT locations[] element (e.g.
+        "Berlin") must be carried through item validation (locations is
+        list[Any], NOT list[dict[str, Any]] which would raise Pydantic dict_type
+        at model_validate and route the WHOLE item to failed[]) and degraded by
+        CanonicalLocation(**loc) in the enr_loc savepoint — the non-dict splat
+        raises TypeError there, so the row is still written/'done', labels
+        persist, the location is skipped + warned, and it is NOT in failed[]."""
+        import logging as _logging
+
+        _insert_job(db_conn, _make_job({"id": "r-nondictloc"}))
+        with caplog.at_level(_logging.WARNING, logger="api.services.enrichment_writer"):
+            resp = enrichment_client.post(
+                "/api/internal/enrichment/results",
+                json={"results": [
+                    {
+                        "job_listing_id": "r-nondictloc",
+                        "source_id": "google_scraper",
+                        "category": "software_engineering",
+                        "level": "senior",
+                        "tags": ["python"],
+                        "raw_location": "Berlin",
+                        "locations": ["Berlin"],   # a bare string, not a dict
+                    }
+                ]},
+            )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["written"] == 1            # NOT a failed row
+        assert body["failed"] == []
+
+        facets = _fetch_listing_facets(db_conn, "r-nondictloc")
+        assert facets["enrichment_status"] == "done"                 # labels landed
+        assert facets["enrichment_category"] == "software_engineering"
+        assert facets["normalization_status"] is None                # location skipped
+        assert _fetch_tags(db_conn, "r-nondictloc") == {"python"}
+        assert _count_job_locations(db_conn, "r-nondictloc") == 0
+        assert any("skipping locations" in r.message for r in caplog.records)
+
+    # --- F13: whitespace-only ids are stripped -> min_length fail -> failed[] - #
+
+    def test_whitespace_only_ids_fail_no_orphans(self, enrichment_client, db_conn):
+        """F13: a whitespace-only id ("   ") is stripped to "" (strip_whitespace=
+        True) → min_length violation → per-row failed[], not a false-success
+        orphan write. Covers BOTH source_id and job_listing_id."""
+        _insert_job(db_conn, _make_job({"id": "r-ws", "source_id": "google_scraper"}))
+        resp = enrichment_client.post("/api/internal/enrichment/results", json={"results": [
+            {   # whitespace-only source_id
+                "job_listing_id": "r-ws", "source_id": "   ",
+                "category": "business", "level": "mid", "tags": ["ghost"], "locations": [],
+            },
+            {   # whitespace-only job_listing_id
+                "job_listing_id": "  ", "source_id": "google_scraper",
+                "category": "business", "level": "mid", "tags": ["ghost"], "locations": [],
+            },
+        ]})
+        assert resp.status_code == 200            # per-row isolation, NOT a batch 422
+        body = resp.json()
+        assert body["written"] == 0
+        assert len(body["failed"]) == 2
+        # Neither wrote anything: the seeded row keeps no facets, no orphan side rows.
+        assert _fetch_listing_facets(db_conn, "r-ws")["enrichment_status"] is None
+        assert _fetch_job_enrichment(db_conn, "r-ws") is None
+        cur = db_conn.cursor()
+        cur.execute("SELECT COUNT(*) AS n FROM job_tags WHERE job_listing_id IN ('r-ws', '  ')")
+        assert cur.fetchone()["n"] == 0
+
+    # --- F14: nonexistent (source_id, id) -> rowcount==0 guard -> failed[] ---- #
+
+    def test_nonexistent_source_id_id_is_a_failure_no_orphans(
+        self, enrichment_client, db_conn
+    ):
+        """F14 (publish branch): a well-formed but nonexistent (source_id, id)
+        matches 0 job_listings rows. The writer's rowcount==0 guard raises → the
+        SAVEPOINT rolls back the already-inserted job_enrichment audit row (+ any
+        tags) → written==0, one failed[], and ZERO orphan job_enrichment/job_tags
+        rows. (Deliberately does NOT seed the row.)"""
+        resp = enrichment_client.post("/api/internal/enrichment/results", json={"results": [
+            {
+                "job_listing_id": "ghost-id", "source_id": "ghost-src",
+                "category": "business", "level": "mid", "tags": ["ghost"], "locations": [],
+            }
+        ]})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["written"] == 0
+        assert len(body["failed"]) == 1
+        assert body["failed"][0]["job_listing_id"] == "ghost-id"
+        # The audit insert + tags were rolled back by the SAVEPOINT — no orphans.
+        assert _fetch_job_enrichment_by_pk(db_conn, "ghost-src", "ghost-id") is None
+        assert _fetch_tags_by_pk(db_conn, "ghost-src", "ghost-id") == set()
 
     # --- F11: envelope `results` required (mis-keyed body -> 422) ------------ #
 

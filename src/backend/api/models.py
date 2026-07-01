@@ -807,14 +807,17 @@ class JudgeVerdict(BaseModel):
 class EnrichmentLocationItem(BaseModel):
     """DOCUMENTATION ONLY — the Contract-of-Record shape of one ``locations[]``
     element. It is deliberately NOT used to validate ``EnrichmentResultItem``:
-    that field is typed ``list[dict[str, Any]]`` so even a value-type-malformed
-    location (e.g. ``confidence: "high"``) is carried through unchanged and
-    degraded by ``CanonicalLocation(**loc)`` inside the writer's ``enr_loc``
-    savepoint ("labels persisted, location skipped + warned"), rather than
-    routing the whole item to ``failed[]``. ``CanonicalLocation`` is the sole
-    strict arbiter; enforcing primitive types here would instead fail the item
-    on a bad location (reversing F2's "location degrades independently" intent).
-    Kept as a typed reference of the fields the enricher sends.
+    that field is typed ``list[Any]`` so BOTH a value-type-malformed location
+    (e.g. ``confidence: "high"``) AND a NON-DICT element (``["Berlin"]``,
+    ``[None]``, ``[123]``) are carried through unchanged and degraded by
+    ``CanonicalLocation(**loc)`` inside the writer's ``enr_loc`` savepoint
+    ("labels persisted, location skipped + warned"), rather than routing the
+    whole item to ``failed[]``. ``CanonicalLocation`` is the sole strict arbiter;
+    enforcing primitive types — or even ``dict``-ness (``list[dict[str, Any]]``,
+    which raises Pydantic ``dict_type`` on a non-dict) — here would instead fail
+    the whole item on a bad location (reversing F2's "location degrades
+    independently" intent). Kept as a typed reference of the fields the enricher
+    sends.
     """
 
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
@@ -843,16 +846,22 @@ class EnrichmentResultItem(BaseModel):
     writer's ``_valid()`` soft-nulls an out-of-taxonomy slug so a laptop-side
     taxonomy drift degrades to "unlabelled", never a 422/dropped batch (CR-3).
 
-    ``locations`` is typed ``list[dict[str, Any]]`` (NOT ``EnrichmentLocationItem``)
-    so a value-type-malformed location is carried through and degraded by
-    ``CanonicalLocation`` in the writer's ``enr_loc`` savepoint, keeping the row
-    ``written``/``done`` (F2/F10) instead of failing the whole item.
+    ``locations`` is typed ``list[Any]`` (NOT ``list[dict[str, Any]]`` and NOT
+    ``EnrichmentLocationItem``) so BOTH a value-malformed location AND a NON-DICT
+    location element (``["Berlin"]``, ``[None]``, ``[123]``) are carried through
+    item validation and degraded by ``CanonicalLocation(**loc)`` in the writer's
+    ``enr_loc`` savepoint — a non-dict splat raises ``TypeError`` there, so the
+    location is skipped + warned while the row stays ``written``/``done``
+    (F2/F10/F12). ``CanonicalLocation`` is the sole strict arbiter; a stricter
+    type here (even ``dict``) would instead route the WHOLE item to ``failed[]``
+    at ``model_validate`` (Pydantic ``dict_type``), discarding the good
+    ``category``/``level``/``tags`` and re-opening the F2 reclaim churn.
     """
 
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
-    job_listing_id: Annotated[str, StringConstraints(min_length=1)]
-    source_id: Annotated[str, StringConstraints(min_length=1)]
+    job_listing_id: Annotated[str, StringConstraints(min_length=1, strip_whitespace=True)]
+    source_id: Annotated[str, StringConstraints(min_length=1, strip_whitespace=True)]
     category: str | None = None
     level: str | None = None
     tags: list[str] = Field(default_factory=list)
@@ -861,7 +870,7 @@ class EnrichmentResultItem(BaseModel):
     classify_reasoning: str | None = None
     taxonomy_version: str | None = None
     raw_location: str | None = None
-    locations: list[dict[str, Any]] = Field(default_factory=list)
+    locations: list[Any] = Field(default_factory=list)
     judge: JudgeVerdict | None = None
 
 

@@ -109,6 +109,15 @@ def apply_result(conn: Connection, result: dict[str, Any], *, require_judge_pass
                 "WHERE source_id = %s AND id = %s",
                 (category, level, source_id, job_id),
             )
+            # A well-formed but nonexistent/stale (source_id, id) matches 0 rows.
+            # Raise so the caller's SAVEPOINT rolls back the already-inserted
+            # job_enrichment audit row (+ tags) — no orphan side-table rows, no
+            # false `written`; the item routes to per-row failed[] instead.
+            if cur.rowcount == 0:
+                raise ValueError(
+                    f"no job_listings row for (source_id={source_id!r}, "
+                    f"id={job_id!r}) — nothing updated"
+                )
             cur.execute(
                 "DELETE FROM job_tags WHERE source_id = %s AND job_listing_id = %s",
                 (source_id, job_id),
@@ -135,6 +144,14 @@ def apply_result(conn: Connection, result: dict[str, Any], *, require_judge_pass
                 "WHERE source_id = %s AND id = %s",
                 (source_id, job_id),
             )
+            # Same 0-row guard as the publish branch: a nonexistent/stale
+            # (source_id, id) must fail the row (rolling back the audit insert),
+            # not silently demote nothing while counting as `written`.
+            if cur.rowcount == 0:
+                raise ValueError(
+                    f"no job_listings row for (source_id={source_id!r}, "
+                    f"id={job_id!r}) — nothing updated"
+                )
             cur.execute(
                 "DELETE FROM job_tags WHERE source_id = %s AND job_listing_id = %s",
                 (source_id, job_id),
