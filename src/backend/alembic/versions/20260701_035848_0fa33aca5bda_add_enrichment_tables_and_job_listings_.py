@@ -66,13 +66,19 @@ def upgrade() -> None:
     )
     op.create_table(
         'job_tags',
+        sa.Column('source_id', sa.Text(), nullable=False),
         sa.Column('job_listing_id', sa.Text(), nullable=False),
         sa.Column('tag', sa.Text(), nullable=False),
-        sa.PrimaryKeyConstraint('job_listing_id', 'tag'),
+        # Composite key on (source_id, job_listing_id, tag): job_listings' PK is
+        # (source_id, id) and `id` is NOT globally unique, so tags must be keyed
+        # by the full composite to stay collision-safe when two sources share an
+        # id. No FK — the composite PK on job_listings blocks a single-col FK.
+        sa.PrimaryKeyConstraint('source_id', 'job_listing_id', 'tag'),
     )
     op.create_index('idx_job_tags_tag', 'job_tags', ['tag'], unique=False)
     op.create_table(
         'job_enrichment',
+        sa.Column('source_id', sa.Text(), nullable=False),
         sa.Column('job_listing_id', sa.Text(), nullable=False),
         sa.Column('clean_description', sa.Text(), nullable=True),
         sa.Column('classify_confidence', sa.Float(), nullable=True),
@@ -84,7 +90,9 @@ def upgrade() -> None:
         sa.Column('judge_notes', sa.Text(), nullable=True),
         sa.Column('needs_human', sa.Boolean(), server_default=sa.text('false'), nullable=False),
         sa.Column('enriched_at', sa.TIMESTAMP(timezone=True), server_default=sa.text('now()'), nullable=False),
-        sa.PrimaryKeyConstraint('job_listing_id'),
+        # Composite key on (source_id, job_listing_id) — same rationale as
+        # job_tags: `id` is not globally unique under the (source_id, id) PK.
+        sa.PrimaryKeyConstraint('source_id', 'job_listing_id'),
     )
     op.create_index('idx_job_enrichment_needs_human', 'job_enrichment', ['needs_human'], unique=False)
 
@@ -121,10 +129,11 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Drop the three enrichment indexes EXPLICITLY first (they are not cascaded by
-    # the column drops), then the job_listings columns (dropping a column does
-    # cascade its own inline FK), then the new tables. Scoped — touches nothing
-    # pre-existing.
+    # Drop the three enrichment indexes explicitly first for clarity — Postgres
+    # would also auto-drop them when their columns are dropped (an index is
+    # dropped when ANY of its columns is dropped, multicolumn included) — then the
+    # job_listings columns (dropping a column also cascades its own inline FK),
+    # then the dimension tables. Scoped — touches nothing pre-existing.
     op.drop_index('idx_job_listings_status_level', table_name='job_listings')
     op.drop_index('idx_job_listings_status_category', table_name='job_listings')
     op.drop_index('idx_job_listings_enrichment_status', table_name='job_listings')

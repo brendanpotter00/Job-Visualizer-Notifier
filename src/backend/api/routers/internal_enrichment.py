@@ -12,9 +12,11 @@ laptop makes only OUTBOUND calls to these routes:
 
 Only /pending is gated by settings.enrichment_use_external: OFF -> /pending
 returns nothing (no jobs are claimed), so the cloud-Haiku location pipeline stays
-the sole floor. /results, /sample and /health run REGARDLESS of the flag — they
-are inert in practice only because nothing gets claimed to enrich while /pending
-is off.
+the sole floor. /results, /sample and /health all run REGARDLESS of the flag.
+/results and /health are inert in practice only because nothing gets claimed to
+enrich while /pending is off. /sample is INDEPENDENT of the flag: it serves raw
+OPEN job samples for the eval golden set unconditionally (it neither claims nor
+depends on any enrichment state).
 """
 
 from __future__ import annotations
@@ -152,9 +154,14 @@ def results(
                 written += 1
             except Exception as exc:  # noqa: BLE001 — one bad row must not fail the batch
                 cur.execute("ROLLBACK TO SAVEPOINT enr_row")
+                # exc_info=True captures the traceback: most failures here are
+                # benign per-row ValidationErrors, but an unexpected psycopg2 /
+                # programming error hiding in the same subset must be debuggable,
+                # even though the row still lands in failed[] either way.
                 logger.warning(
                     "enrichment /results: item %d (%s) failed: %s",
                     index, fallback_id or _item_ident(raw_item), exc,
+                    exc_info=True,
                 )
                 failed.append({"job_listing_id": fallback_id, "error": str(exc)})
         conn.commit()

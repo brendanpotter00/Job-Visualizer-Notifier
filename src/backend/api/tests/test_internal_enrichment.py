@@ -153,6 +153,27 @@ def _fetch_tags(db_conn, job_id: str) -> set[str]:
     return {r["tag"] for r in cur.fetchall()}
 
 
+def _fetch_tags_by_pk(db_conn, source_id: str, job_id: str) -> set[str]:
+    """Tags for one row keyed on the FULL side-table composite (source_id,
+    job_listing_id) — needed when two sources share the same `id` (F8)."""
+    cur = db_conn.cursor()
+    cur.execute(
+        "SELECT tag FROM job_tags WHERE source_id = %s AND job_listing_id = %s",
+        (source_id, job_id),
+    )
+    return {r["tag"] for r in cur.fetchall()}
+
+
+def _fetch_job_enrichment_by_pk(db_conn, source_id: str, job_id: str) -> dict | None:
+    """Audit row keyed on the composite (source_id, job_listing_id) (F8)."""
+    cur = db_conn.cursor()
+    cur.execute(
+        "SELECT * FROM job_enrichment WHERE source_id = %s AND job_listing_id = %s",
+        (source_id, job_id),
+    )
+    return cur.fetchone()
+
+
 # --------------------------------------------------------------------------- #
 # 1. Config                                                                    #
 # --------------------------------------------------------------------------- #
@@ -462,6 +483,71 @@ class TestApplyResult:
         assert facets["enrichment_level"] is None
         assert _fetch_tags(db_conn, "enr-demote") == set()  # stale tags dropped
 
+    # --- F8: side tables keyed by (source_id, job_listing_id[, tag]) --------- #
+
+    def test_side_tables_isolated_by_source_id(self, db_conn):
+        """Two rows share id='dup' under src-a/src-b. Each must get its OWN
+        job_tags + job_enrichment rows keyed on the composite (source_id,
+        job_listing_id) — one source's write must never clobber the other's."""
+        _insert_job(db_conn, _make_job({"id": "dup", "source_id": "src-a"}))
+        _insert_job(db_conn, _make_job({"id": "dup", "source_id": "src-b"}))
+
+        apply_result(
+            db_conn,
+            {"job_listing_id": "dup", "source_id": "src-a",
+             "category": "business", "level": "mid",
+             "tags": ["a-only"], "clean_description": "A desc", "locations": []},
+            require_judge_pass=False,
+        )
+        apply_result(
+            db_conn,
+            {"job_listing_id": "dup", "source_id": "src-b",
+             "category": "data_scientist", "level": "senior",
+             "tags": ["b-only"], "clean_description": "B desc", "locations": []},
+            require_judge_pass=False,
+        )
+        db_conn.commit()
+
+        # Each source keeps its own tags — no collision, no union.
+        assert _fetch_tags_by_pk(db_conn, "src-a", "dup") == {"a-only"}
+        assert _fetch_tags_by_pk(db_conn, "src-b", "dup") == {"b-only"}
+        # Each source keeps its own audit row.
+        assert _fetch_job_enrichment_by_pk(db_conn, "src-a", "dup")["clean_description"] == "A desc"
+        assert _fetch_job_enrichment_by_pk(db_conn, "src-b", "dup")["clean_description"] == "B desc"
+
+    def test_demote_one_source_does_not_delete_other_source_tags(self, db_conn):
+        """Re-POSTing src-a as needs_human (which DELETEs its tags) must NOT touch
+        src-b's tags/enrichment for the same shared id='dup'."""
+        _insert_job(db_conn, _make_job({"id": "dup", "source_id": "src-a"}))
+        _insert_job(db_conn, _make_job({"id": "dup", "source_id": "src-b"}))
+        for src in ("src-a", "src-b"):
+            apply_result(
+                db_conn,
+                {"job_listing_id": "dup", "source_id": src,
+                 "category": "business", "level": "mid",
+                 "tags": [f"{src}-tag"], "locations": []},
+                require_judge_pass=False,
+            )
+        db_conn.commit()
+        assert _fetch_tags_by_pk(db_conn, "src-a", "dup") == {"src-a-tag"}
+        assert _fetch_tags_by_pk(db_conn, "src-b", "dup") == {"src-b-tag"}
+
+        # Demote src-a: its tags are DELETEd, facets nulled.
+        apply_result(
+            db_conn,
+            {"job_listing_id": "dup", "source_id": "src-a",
+             "category": "business", "level": "mid", "tags": ["src-a-tag"],
+             "judge": {"judged": True, "needs_human": True}, "locations": []},
+            require_judge_pass=True,
+        )
+        db_conn.commit()
+
+        assert _fetch_tags_by_pk(db_conn, "src-a", "dup") == set()   # src-a dropped
+        assert _fetch_tags_by_pk(db_conn, "src-b", "dup") == {"src-b-tag"}  # UNTOUCHED
+        b = _fetch_facets_by_pk(db_conn, "src-b", "dup")
+        assert b["enrichment_status"] == "done"       # src-b still published
+        assert b["enrichment_category"] == "business"
+
 
 # --------------------------------------------------------------------------- #
 # 3. Router: /pending, /results, /health                                       #
@@ -738,6 +824,97 @@ class TestResults:
         assert resp.status_code == 200
         assert resp.json() == {"written": 0, "failed": []}
 
+    # --- F9: empty job_listing_id fails at the boundary, no orphan rows ------ #
+
+    def test_empty_job_listing_id_is_a_failure_no_orphans(
+        self, enrichment_client, db_conn
+    ):
+        """job_listing_id="" (valid source_id) updates ZERO job_listings yet would
+        insert orphan side-table rows and count as `written`. min_length=1 must
+        fail it at validation → failed[], and the DB must hold NO orphan rows."""
+        resp = enrichment_client.post("/api/internal/enrichment/results", json={"results": [
+            {
+                "job_listing_id": "",
+                "source_id": "src-empty",
+                "category": "business",
+                "level": "mid",
+                "tags": ["ghost"],
+                "locations": [],
+            }
+        ]})
+        assert resp.status_code == 200            # per-row isolation, NOT a batch 422
+        body = resp.json()
+        assert body["written"] == 0
+        assert len(body["failed"]) == 1
+        # No orphan side-table rows were written.
+        assert _fetch_job_enrichment_by_pk(db_conn, "src-empty", "") is None
+        cur = db_conn.cursor()
+        cur.execute("SELECT COUNT(*) AS n FROM job_tags WHERE source_id = %s", ("src-empty",))
+        assert cur.fetchone()["n"] == 0
+
+    # --- F10: type-malformed location degrades, does NOT fail the item ------- #
+
+    def test_type_malformed_location_degrades_row_still_written(
+        self, enrichment_client, db_conn
+    ):
+        """A value-TYPE-malformed location (confidence:"high" — a str where a float
+        is required) is carried through item validation (locations is
+        list[dict[str, Any]]) and degraded by CanonicalLocation in the enr_loc
+        savepoint: the row is still written/'done', labels persist, the location is
+        skipped + warned — NOT routed to failed[]."""
+        _insert_job(db_conn, _make_job({"id": "r-typeloc"}))
+        resp = enrichment_client.post("/api/internal/enrichment/results", json={"results": [
+            {
+                "job_listing_id": "r-typeloc",
+                "source_id": "google_scraper",
+                "category": "software_engineering",
+                "level": "senior",
+                "tags": ["python"],
+                "raw_location": "Austin, TX",
+                "locations": [
+                    {
+                        "canonical_name": "Austin, TX, US",
+                        "kind": "city",
+                        "city": "Austin",
+                        "region": "TX",
+                        "country": "US",
+                        "confidence": "high",   # str, not a float -> degrades
+                    }
+                ],
+            }
+        ]})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["written"] == 1           # NOT a failed row
+        assert body["failed"] == []
+
+        facets = _fetch_listing_facets(db_conn, "r-typeloc")
+        assert facets["enrichment_status"] == "done"                 # labels landed
+        assert facets["enrichment_category"] == "software_engineering"
+        assert facets["normalization_status"] is None                # location skipped
+        assert _fetch_tags(db_conn, "r-typeloc") == {"python"}
+        assert _count_job_locations(db_conn, "r-typeloc") == 0
+
+    # --- F11: envelope `results` required (mis-keyed body -> 422) ------------ #
+
+    def test_miskeyed_body_returns_422(self, enrichment_client):
+        """A body missing `results` (`{}` or a mis-keyed `{"items": [...]}`) must
+        422 up front, not silently return 200 {"written": 0}."""
+        for bad_body in ({}, {"items": [{"job_listing_id": "x", "source_id": "s"}]}):
+            resp = enrichment_client.post(
+                "/api/internal/enrichment/results", json=bad_body
+            )
+            assert resp.status_code == 422, bad_body
+
+    def test_explicit_empty_results_still_accepted(self, enrichment_client):
+        """An explicit {"results": []} is a valid no-op poll (200), even though the
+        field is now required."""
+        resp = enrichment_client.post(
+            "/api/internal/enrichment/results", json={"results": []}
+        )
+        assert resp.status_code == 200
+        assert resp.json() == {"written": 0, "failed": []}
+
 
 class TestHealth:
     def test_reports_status_counts(self, enrichment_client, db_conn, monkeypatch):
@@ -746,11 +923,14 @@ class TestHealth:
         _insert_job(db_conn, _make_job({
             "id": "h-done", "status": "OPEN", "enrichment_status": "done",
         }))
-        # A needs_human audit row so the counter is non-zero.
+        # A needs_human audit row so the counter is non-zero. source_id is part of
+        # the composite PK (source_id, job_listing_id) and NOT NULL — use the job's
+        # default source_id ('google_scraper').
         cur = db_conn.cursor()
         cur.execute(
-            "INSERT INTO job_enrichment (job_listing_id, needs_human) VALUES (%s, true)",
-            ("h-done",),
+            "INSERT INTO job_enrichment (source_id, job_listing_id, needs_human) "
+            "VALUES (%s, %s, true)",
+            ("google_scraper", "h-done"),
         )
         db_conn.commit()
 
@@ -845,6 +1025,33 @@ class TestJobsFilterParams:
         )
         ids = {j["id"] for j in resp.json()}
         assert ids == {"f-c1"}
+
+    def test_jobs_response_tags_isolated_by_source_id(self, client, db_conn):
+        """F8 read-side: two rows share id='dup' under src-a/src-b. Each job in the
+        /api/jobs response must carry ONLY its own tags (the tags subquery joins on
+        the composite (source_id, id), not id alone)."""
+        _insert_job(db_conn, _make_job({"id": "dup", "source_id": "src-a"}))
+        _insert_job(db_conn, _make_job({"id": "dup", "source_id": "src-b"}))
+        apply_result(
+            db_conn,
+            {"job_listing_id": "dup", "source_id": "src-a",
+             "category": "business", "level": "mid", "tags": ["a-only"], "locations": []},
+            require_judge_pass=False,
+        )
+        apply_result(
+            db_conn,
+            {"job_listing_id": "dup", "source_id": "src-b",
+             "category": "business", "level": "mid", "tags": ["b-only"], "locations": []},
+            require_judge_pass=False,
+        )
+        db_conn.commit()
+
+        resp = client.get("/api/jobs")
+        assert resp.status_code == 200
+        tags_by_source = {
+            j["sourceId"]: set(j["tags"]) for j in resp.json() if j["id"] == "dup"
+        }
+        assert tags_by_source == {"src-a": {"a-only"}, "src-b": {"b-only"}}
 
 
 # --------------------------------------------------------------------------- #

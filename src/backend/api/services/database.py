@@ -145,11 +145,15 @@ _LOCATIONS_SUBQUERY = sql.SQL(
 # cutting per-row size from ~10 KB to ~500 bytes.
 # Must be updated if the schema changes.
 # Free-form enrichment tags for a job, as a JSON array of strings. Correlated on
-# job_listings.id (job_tags is keyed by job_listing_id + indexed). '[]' when unenriched.
+# the FULL composite identity (source_id, id): job_tags is keyed by
+# (source_id, job_listing_id, tag) — `id` is NOT globally unique, so a job must
+# only see its OWN tags, not a same-id row from another source. The composite PK's
+# leading (source_id, job_listing_id) prefix serves this probe. '[]' when unenriched.
 _TAGS_SUBQUERY = sql.SQL(
     "COALESCE(("
     "  SELECT json_agg(tag ORDER BY tag) FROM job_tags"
-    "  WHERE job_listing_id = job_listings.id"
+    "  WHERE job_tags.source_id = job_listings.source_id"
+    "    AND job_tags.job_listing_id = job_listings.id"
     "), '[]'::json) AS tags"
 )
 

@@ -515,28 +515,38 @@ class JobLevel(Base):
 
 
 class JobTag(Base):
-    # Many-to-many free-form tags. Mirrors job_locations: keyed by job_listing_id
-    # (no FK — composite PK on job_listings blocks a single-col FK), integrity at
-    # the app layer. Indexed on `tag` for reverse lookup ("all jobs tagged go").
+    # Many-to-many free-form tags. Carries source_id so the key is the COMPOSITE
+    # (source_id, job_listing_id, tag): job_listings' PK is (source_id, id) and
+    # `id` is NOT globally unique, so keying on job_listing_id alone could
+    # clobber/collapse a different source's tags once two sources share an id.
+    # Still no FK (the composite PK on job_listings blocks a single-col FK) —
+    # integrity at the app layer. Indexed on `tag` for reverse lookup
+    # ("all jobs tagged go").
     __tablename__ = "job_tags"
 
+    source_id = Column(Text, nullable=False)
     job_listing_id = Column(Text, nullable=False)
     tag = Column(Text, nullable=False)
 
     __table_args__ = (
-        PrimaryKeyConstraint("job_listing_id", "tag"),
+        PrimaryKeyConstraint("source_id", "job_listing_id", "tag"),
         Index("idx_job_tags_tag", "tag"),
     )
 
 
 class JobEnrichment(Base):
     # 1:1 side table holding the heavy / audit payload so the hot job_listings
-    # tuple stays narrow. Keyed by job_listing_id alone (no FK, same reason as
-    # job_locations). Written by the enrichment callback; the filterable facets
-    # (category/level/status) live as columns on job_listings, not here.
+    # tuple stays narrow. Keyed by the COMPOSITE (source_id, job_listing_id) —
+    # job_listings' PK is (source_id, id) and `id` is NOT globally unique, so
+    # keying on job_listing_id alone could clobber a different source's row once
+    # two sources share an id. Still no FK (composite PK blocks a single-col FK);
+    # integrity at the app layer. Written by the enrichment callback; the
+    # filterable facets (category/level/status) live as columns on job_listings,
+    # not here.
     __tablename__ = "job_enrichment"
 
-    job_listing_id = Column(Text, primary_key=True)
+    source_id = Column(Text, nullable=False)
+    job_listing_id = Column(Text, nullable=False)
     clean_description = Column(Text, nullable=True)
     classify_confidence = Column(Float, nullable=True)
     classify_reasoning = Column(Text, nullable=True)
@@ -549,5 +559,6 @@ class JobEnrichment(Base):
     enriched_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
 
     __table_args__ = (
+        PrimaryKeyConstraint("source_id", "job_listing_id"),
         Index("idx_job_enrichment_needs_human", "needs_human"),
     )

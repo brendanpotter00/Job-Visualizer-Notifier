@@ -63,15 +63,17 @@ def apply_result(conn: Connection, result: dict[str, Any], *, require_judge_pass
 
     cur = conn.cursor()
     try:
-        # 1. Audit / heavy payload (1:1 side table).
+        # 1. Audit / heavy payload (1:1 side table). Keyed on the composite
+        #    (source_id, job_listing_id) — `id` is not globally unique, so an
+        #    upsert on job_listing_id alone could collapse a different source's row.
         cur.execute(
             """
             INSERT INTO job_enrichment (
-                job_listing_id, clean_description, classify_confidence,
+                source_id, job_listing_id, clean_description, classify_confidence,
                 classify_reasoning, taxonomy_version, judged, judge_passed,
                 judge_confidence, judge_notes, needs_human, enriched_at
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now())
-            ON CONFLICT (job_listing_id) DO UPDATE SET
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now())
+            ON CONFLICT (source_id, job_listing_id) DO UPDATE SET
                 clean_description = EXCLUDED.clean_description,
                 classify_confidence = EXCLUDED.classify_confidence,
                 classify_reasoning = EXCLUDED.classify_reasoning,
@@ -84,6 +86,7 @@ def apply_result(conn: Connection, result: dict[str, Any], *, require_judge_pass
                 enriched_at = now()
             """,
             (
+                source_id,
                 job_id,
                 result.get("clean_description"),
                 result.get("classify_confidence"),
@@ -106,7 +109,10 @@ def apply_result(conn: Connection, result: dict[str, Any], *, require_judge_pass
                 "WHERE source_id = %s AND id = %s",
                 (category, level, source_id, job_id),
             )
-            cur.execute("DELETE FROM job_tags WHERE job_listing_id = %s", (job_id,))
+            cur.execute(
+                "DELETE FROM job_tags WHERE source_id = %s AND job_listing_id = %s",
+                (source_id, job_id),
+            )
             tags = result.get("tags") or []
             seen: set[str] = set()
             for tag in tags:
@@ -114,9 +120,10 @@ def apply_result(conn: Connection, result: dict[str, Any], *, require_judge_pass
                 if t and t not in seen:
                     seen.add(t)
                     cur.execute(
-                        "INSERT INTO job_tags (job_listing_id, tag) VALUES (%s, %s) "
-                        "ON CONFLICT (job_listing_id, tag) DO NOTHING",
-                        (job_id, t),
+                        "INSERT INTO job_tags (source_id, job_listing_id, tag) "
+                        "VALUES (%s, %s, %s) "
+                        "ON CONFLICT (source_id, job_listing_id, tag) DO NOTHING",
+                        (source_id, job_id, t),
                     )
         else:
             # Demote to needs_human: also NULL the facets + drop the tags so a row
@@ -128,7 +135,10 @@ def apply_result(conn: Connection, result: dict[str, Any], *, require_judge_pass
                 "WHERE source_id = %s AND id = %s",
                 (source_id, job_id),
             )
-            cur.execute("DELETE FROM job_tags WHERE job_listing_id = %s", (job_id,))
+            cur.execute(
+                "DELETE FROM job_tags WHERE source_id = %s AND job_listing_id = %s",
+                (source_id, job_id),
+            )
     finally:
         cur.close()
 
@@ -150,10 +160,13 @@ def apply_result(conn: Connection, result: dict[str, Any], *, require_judge_pass
             loc_cur.execute("RELEASE SAVEPOINT enr_loc")
         except Exception as exc:  # noqa: BLE001 — a bad location must not nuke labels
             loc_cur.execute("ROLLBACK TO SAVEPOINT enr_loc")
+            # exc_info=True captures the traceback: a CanonicalLocation validation
+            # error is expected/benign, but a psycopg2 or programming error hiding
+            # in this subset must be debuggable, not just str()'d away.
             logger.warning(
                 "enrichment: skipping locations for job %s (labels kept, row still "
                 "done): %s",
-                job_id, exc,
+                job_id, exc, exc_info=True,
             )
         finally:
             loc_cur.close()
