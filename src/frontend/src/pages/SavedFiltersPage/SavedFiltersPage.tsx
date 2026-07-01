@@ -259,6 +259,9 @@ export function SavedFiltersPage() {
       </Typography>
 
       <Stack spacing={3}>
+        {/* Default time windows lead the page. As the first prefs-backed section
+            they surface the shared prefs loading/error state; the Locations
+            section below reuses the same draft and just renders once it's in. */}
         {prefsQuery.isError ? (
           <ErrorState
             inline
@@ -270,6 +273,20 @@ export function SavedFiltersPage() {
             <LoadingState minHeight={140} caption="Loading your saved filters…" />
           </Paper>
         ) : (
+          <TimeWindowDefaults
+            recentTimeWindow={draft.recentTimeWindow}
+            trendTimeWindow={draft.trendTimeWindow}
+            onChangeRecent={(tw: TimeWindow) => patchDraft({ recentTimeWindow: tw })}
+            onChangeTrend={(tw: TimeWindow) => patchDraft({ trendTimeWindow: tw })}
+            dirty={timeWindowsDirty}
+            saving={savingSection === 'timeWindows'}
+            success={successSection === 'timeWindows'}
+            error={errorSection === 'timeWindows' ? errorMessage : null}
+            onSave={() => handleSave('timeWindows')}
+          />
+        )}
+
+        {draft && (
           <LocationDefaultsEditor
             locations={draft.locations}
             onAdd={(loc) =>
@@ -317,24 +334,6 @@ export function SavedFiltersPage() {
         )}
 
         <EnabledCompaniesSection />
-
-        {/* Default time windows sit last per design. They read from the same
-            prefs draft as the Locations section above, which already surfaces
-            the prefs loading/error state, so they render once the draft is in
-            rather than repeating a spinner/error here. */}
-        {draft && (
-          <TimeWindowDefaults
-            recentTimeWindow={draft.recentTimeWindow}
-            trendTimeWindow={draft.trendTimeWindow}
-            onChangeRecent={(tw: TimeWindow) => patchDraft({ recentTimeWindow: tw })}
-            onChangeTrend={(tw: TimeWindow) => patchDraft({ trendTimeWindow: tw })}
-            dirty={timeWindowsDirty}
-            saving={savingSection === 'timeWindows'}
-            success={successSection === 'timeWindows'}
-            error={errorSection === 'timeWindows' ? errorMessage : null}
-            onSave={() => handleSave('timeWindows')}
-          />
-        )}
       </Stack>
     </Container>
   );
