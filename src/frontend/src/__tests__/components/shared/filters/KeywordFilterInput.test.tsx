@@ -149,6 +149,36 @@ describe('KeywordFilterInput', () => {
       expect(props.onClear).not.toHaveBeenCalled();
     });
 
+    it('adds a typed keyword after a mouse list-pick (stale-highlight regression, C1)', async () => {
+      // C1 (live-browser e2e): a mouse click on a list option is preceded by a
+      // hover that fires onHighlightChange with reason 'mouse', arming
+      // highlightedRef. If the ref is never reset, every LATER typed keyword +
+      // Enter takes the `highlightedRef.current != null` defer-to-MUI branch;
+      // MUI has no live highlight, fires createOption (ignored by handleChange),
+      // and the typed keyword is SILENTLY DROPPED. Exact repro from the e2e:
+      // open dropdown → click "Software Engineering (default)" → type a keyword
+      // → Enter → the typed tag MUST be added, with no second list merge.
+      const props = renderInput(undefined);
+      const { user, listbox } = await openDropdown();
+
+      // Mouse-pick the built-in list: merges its 6 tags AND (via the preceding
+      // hover) arms the stale highlight the bug depends on.
+      await user.click(
+        within(listbox).getByRole('option', { name: 'Software Engineering (default)' })
+      );
+      expect(props.onAdd).toHaveBeenCalledTimes(SWE_TAGS.length);
+      const callsAfterMerge = props.onAdd.mock.calls.length;
+
+      // Now type a fresh keyword and press Enter.
+      const input = screen.getByRole('combobox', { name: 'Keywords' });
+      await user.type(input, 'beta{enter}');
+
+      // The typed tag is added (the stale-highlight bug silently dropped it).
+      expect(props.onAdd).toHaveBeenCalledWith({ text: 'beta', mode: 'include' });
+      // Exactly one more onAdd (the typed tag) — no accidental second list merge.
+      expect(props.onAdd).toHaveBeenCalledTimes(callsAfterMerge + 1);
+    });
+
     it('triggers login (no tag change) when the sign-in CTA is clicked', async () => {
       const props = renderInput(undefined);
       const { user, listbox } = await openDropdown();

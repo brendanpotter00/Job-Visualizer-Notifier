@@ -84,8 +84,11 @@ export function KeywordFilterInput({
 }: KeywordFilterInputProps) {
   const [inputValue, setInputValue] = useState('');
   // Tracks the currently highlighted listbox option so a typed keyword + Enter
-  // never accidentally applies a keyword list (it defers to MUI's selectOption
-  // only when a row is actually highlighted).
+  // never accidentally applies a keyword list — it defers to MUI's selectOption
+  // only when a row is actually highlighted. Reset whenever the input text
+  // changes or the popup closes (see onInputChange/onClose), so a stale
+  // mouse-hover highlight left over from a prior list pick can't outlive its
+  // popup and silently swallow the next typed Enter.
   const highlightedRef = useRef<KeywordOption | null>(null);
 
   const { isAuthenticated, login } = useAuth();
@@ -183,8 +186,19 @@ export function KeywordFilterInput({
       options={options}
       value={value ?? []}
       inputValue={inputValue}
-      onInputChange={(_, next) => setInputValue(next)}
+      onInputChange={(_, next) => {
+        setInputValue(next);
+        // Typing new text invalidates any prior highlight (including a stale
+        // mouse-hover highlight from an earlier list pick), so a typed keyword +
+        // Enter is never silently deferred to MUI's selectOption and dropped.
+        highlightedRef.current = null;
+      }}
       onChange={handleChange}
+      onClose={() => {
+        // A highlight cannot outlive its popup: reset so a hover-set highlight
+        // from a just-closed popup can't hijack the next typed Enter.
+        highlightedRef.current = null;
+      }}
       onHighlightChange={(_, option) => {
         highlightedRef.current =
           option && typeof option !== 'string' && 'kind' in option ? option : null;
