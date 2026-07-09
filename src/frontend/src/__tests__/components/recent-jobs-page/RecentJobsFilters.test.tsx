@@ -142,15 +142,14 @@ async function seedRecentStore(overrides: PreloadedOverrides = {}, jobs: Job[] =
 }
 
 describe('RecentJobsFilters', () => {
-  it('renders SearchTagsInput, TimeWindowSelect, Company, Location, KeywordListSelect, Reset button', async () => {
+  it('renders the merged KeywordFilterInput, TimeWindowSelect, Company, Location, Reset button', async () => {
     const store = await seedRecentStore();
     renderWithProviders(<RecentJobsFilters />, { store });
 
-    expect(screen.getByPlaceholderText(/Type to add search tags/)).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Keywords' })).toBeInTheDocument();
     expect(screen.getAllByText('Time Window').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Company').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Location').length).toBeGreaterThan(0);
-    expect(screen.getByRole('combobox', { name: 'Keyword list' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /reset filters/i })).toBeInTheDocument();
   });
 
@@ -173,7 +172,7 @@ describe('RecentJobsFilters', () => {
     const user = userEvent.setup();
     renderWithProviders(<RecentJobsFilters />, { store });
 
-    const input = screen.getByPlaceholderText(/Type to add search tags/);
+    const input = screen.getByRole('combobox', { name: 'Keywords' });
     await user.click(input);
     await user.type(input, 'senior{enter}');
 
@@ -188,7 +187,7 @@ describe('RecentJobsFilters', () => {
     const user = userEvent.setup();
     renderWithProviders(<RecentJobsFilters />, { store });
 
-    const input = screen.getByPlaceholderText('Add another tag...');
+    const input = screen.getByRole('combobox', { name: 'Keywords' });
     await user.click(input);
     await user.keyboard('{Backspace}');
 
@@ -240,16 +239,16 @@ describe('RecentJobsFilters', () => {
     expect(store.getState().recentJobsFilters.filters.location).toContain(chosenLocation);
   });
 
-  it('clears searchTags via KeywordListSelect "None" option', async () => {
-    // Seed hand-added tags so the dropdown offers a selectable "None"; with no
-    // keyword lists loaded, selecting it clears the slice's tags.
+  it('clears searchTags via the merged control\'s "None" option', async () => {
+    // Seed hand-added tags; opening the merged Keywords control offers a "None"
+    // row. With no keyword lists loaded, selecting it clears the slice's tags.
     const store = await seedRecentStore({
       searchTags: [{ text: 'senior', mode: 'include' }],
     });
     const user = userEvent.setup();
     renderWithProviders(<RecentJobsFilters />, { store });
 
-    await user.click(screen.getByRole('combobox', { name: 'Keyword list' }));
+    await user.click(screen.getByRole('combobox', { name: 'Keywords' }));
     const listbox = await screen.findByRole('listbox');
     await user.click(within(listbox).getByRole('option', { name: 'None' }));
 

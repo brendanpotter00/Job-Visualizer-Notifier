@@ -81,15 +81,14 @@ async function seedStore(jobs: Job[] = seededJobs) {
 }
 
 describe('GraphFilters', () => {
-  it('renders SearchTagsInput, TimeWindowSelect, Location, Department, KeywordListSelect', async () => {
+  it('renders the merged KeywordFilterInput, TimeWindowSelect, Location, Department', async () => {
     const store = await seedStore();
     renderWithProviders(<GraphFilters />, { store });
 
-    expect(screen.getByPlaceholderText(/Type to add search tags/)).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Keywords' })).toBeInTheDocument();
     expect(screen.getAllByText('Time Window').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Location').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Department').length).toBeGreaterThan(0);
-    expect(screen.getByRole('combobox', { name: 'Keyword list' })).toBeInTheDocument();
   });
 
   it('does NOT render Location control when availableLocations is empty', async () => {
@@ -162,7 +161,7 @@ describe('GraphFilters', () => {
     const user = userEvent.setup();
     renderWithProviders(<GraphFilters />, { store });
 
-    const input = screen.getByPlaceholderText(/Type to add search tags/);
+    const input = screen.getByRole('combobox', { name: 'Keywords' });
     await user.click(input);
     await user.type(input, 'senior{enter}');
 
@@ -198,7 +197,7 @@ describe('GraphFilters', () => {
     const user = userEvent.setup();
     renderWithProviders(<GraphFilters />, { store });
 
-    const input = screen.getByPlaceholderText('Add another tag...');
+    const input = screen.getByRole('combobox', { name: 'Keywords' });
     await user.click(input);
     await user.keyboard('{Backspace}');
 
@@ -273,10 +272,10 @@ describe('GraphFilters', () => {
     expect(store.getState().graphFilters.filters.department).toContain(chosenDept);
   });
 
-  it('clears searchTags via KeywordListSelect "None" option', async () => {
-    // Seed with hand-added tags so the dropdown shows "Custom" + selectable
-    // "None". With no keyword lists loaded in the test store, "None" is the
-    // only enabled real choice and selecting it clears the slice's tags.
+  it('clears searchTags via the merged control\'s "None" option', async () => {
+    // Seed with hand-added tags; opening the merged Keywords control lists the
+    // presets plus a "None" row. With no keyword lists loaded in the test store,
+    // selecting "None" clears the slice's tags.
     const store = createTestStore({
       app: {
         selectedCompanyId: 'spacex',
@@ -305,7 +304,7 @@ describe('GraphFilters', () => {
     const user = userEvent.setup();
     renderWithProviders(<GraphFilters />, { store });
 
-    await user.click(screen.getByRole('combobox', { name: 'Keyword list' }));
+    await user.click(screen.getByRole('combobox', { name: 'Keywords' }));
     const listbox = await screen.findByRole('listbox');
     await user.click(within(listbox).getByRole('option', { name: 'None' }));
 
