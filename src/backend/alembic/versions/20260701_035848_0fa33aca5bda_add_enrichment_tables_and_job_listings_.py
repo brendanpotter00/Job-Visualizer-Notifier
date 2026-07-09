@@ -30,10 +30,11 @@ depends_on: Union[str, Sequence[str], None] = None
 
 CATEGORY_SEED = [
     ("software_engineering", "Software Engineering", 0),
-    ("product_manager", "Product Manager", 1),
-    ("data_scientist", "Data Scientist", 2),
-    ("data_engineer", "Data Engineer", 3),
-    ("business", "Business", 4),
+    ("hardware_engineer", "Hardware Engineer", 1),
+    ("product_manager", "Product Manager", 2),
+    ("project_manager", "Project Manager", 3),
+    ("growth", "Growth", 4),
+    ("business_ops", "Business Ops", 5),
 ]
 
 # (slug, label, rank, parent_slug)

@@ -65,15 +65,15 @@ class TestBuildWhere:
         assert "enrichment_category" in _render(where)
 
     def test_category_and_level_combined(self):
-        where, params = _build_where(category="business", level="entry")
-        assert params == ["business", ["entry", "new_grad"]]
+        where, params = _build_where(category="business_ops", level="entry")
+        assert params == ["business_ops", ["entry", "new_grad"]]
 
     def test_combined_with_status_and_company(self):
         where, params = _build_where(
-            company="google", status="OPEN", category="data_scientist", level="new_grad"
+            company="google", status="OPEN", category="hardware_engineer", level="new_grad"
         )
         # Order mirrors the builder: company, status, category, level.
-        assert params == ["google", "OPEN", "data_scientist", ["new_grad"]]
+        assert params == ["google", "OPEN", "hardware_engineer", ["new_grad"]]
         rendered = _render(where)
         assert "company = %s" in rendered
         assert "status = %s" in rendered

@@ -35,10 +35,11 @@ from .conftest import _insert_job, _make_job
 # must be inserted before children for the job_levels self-FK (new_grad -> entry).
 _CATEGORY_SEED = [
     ("software_engineering", "Software Engineering", 0),
-    ("product_manager", "Product Manager", 1),
-    ("data_scientist", "Data Scientist", 2),
-    ("data_engineer", "Data Engineer", 3),
-    ("business", "Business", 4),
+    ("hardware_engineer", "Hardware Engineer", 1),
+    ("product_manager", "Product Manager", 2),
+    ("project_manager", "Project Manager", 3),
+    ("growth", "Growth", 4),
+    ("business_ops", "Business Ops", 5),
 ]
 _LEVEL_SEED = [
     ("entry", "Entry", 1, None),
@@ -254,7 +255,7 @@ class TestApplyResult:
         apply_result(
             db_conn,
             {"job_listing_id": "enr-idem", "source_id": "google_scraper",
-             "category": "business", "level": "entry",
+             "category": "business_ops", "level": "entry",
              "tags": ["alpha", "beta"], "locations": []},
             require_judge_pass=False,
         )
@@ -265,14 +266,14 @@ class TestApplyResult:
         apply_result(
             db_conn,
             {"job_listing_id": "enr-idem", "source_id": "google_scraper",
-             "category": "data_scientist", "level": "mid",
+             "category": "hardware_engineer", "level": "mid",
              "tags": ["beta", "gamma"], "locations": []},
             require_judge_pass=False,
         )
         db_conn.commit()
         assert _fetch_tags(db_conn, "enr-idem") == {"beta", "gamma"}
         facets = _fetch_listing_facets(db_conn, "enr-idem")
-        assert facets["enrichment_category"] == "data_scientist"
+        assert facets["enrichment_category"] == "hardware_engineer"
         assert facets["enrichment_level"] == "mid"
 
     def test_needs_human_gate_holds_back_facets(self, db_conn):
@@ -280,7 +281,7 @@ class TestApplyResult:
         result = {
             "job_listing_id": "enr-human",
             "source_id": "google_scraper",
-            "category": "data_scientist",
+            "category": "hardware_engineer",
             "level": "senior",
             "tags": ["ml"],
             "judge": {"judged": True, "needs_human": True, "passed": False},
@@ -368,14 +369,14 @@ class TestApplyResult:
         apply_result(
             db_conn,
             {"job_listing_id": "dup", "source_id": "src-a",
-             "category": "business", "level": "mid", "tags": [], "locations": []},
+             "category": "business_ops", "level": "mid", "tags": [], "locations": []},
             require_judge_pass=False,
         )
         db_conn.commit()
 
         a = _fetch_facets_by_pk(db_conn, "src-a", "dup")
         assert a["enrichment_status"] == "done"
-        assert a["enrichment_category"] == "business"
+        assert a["enrichment_category"] == "business_ops"
         # The other source's row with the SAME id is untouched.
         b = _fetch_facets_by_pk(db_conn, "src-b", "dup")
         assert b["enrichment_status"] is None
@@ -388,7 +389,7 @@ class TestApplyResult:
         with pytest.raises(ValueError, match="source_id"):
             apply_result(
                 db_conn,
-                {"job_listing_id": "enr-nosrc", "category": "business",
+                {"job_listing_id": "enr-nosrc", "category": "business_ops",
                  "level": "mid", "tags": [], "locations": []},
                 require_judge_pass=False,
             )
@@ -433,7 +434,7 @@ class TestApplyResult:
         result = {
             "job_listing_id": "enr-partial",
             "source_id": "google_scraper",
-            "category": "business",
+            "category": "business_ops",
             "level": "mid",
             "tags": [],
             "raw_location": "Austin, TX",   # set, but no locations[]
@@ -459,19 +460,19 @@ class TestApplyResult:
         apply_result(
             db_conn,
             {"job_listing_id": "enr-demote", "source_id": "google_scraper",
-             "category": "data_scientist", "level": "senior",
+             "category": "hardware_engineer", "level": "senior",
              "tags": ["ml", "python"], "locations": []},
             require_judge_pass=False,
         )
         db_conn.commit()
-        assert _fetch_listing_facets(db_conn, "enr-demote")["enrichment_category"] == "data_scientist"
+        assert _fetch_listing_facets(db_conn, "enr-demote")["enrichment_category"] == "hardware_engineer"
         assert _fetch_tags(db_conn, "enr-demote") == {"ml", "python"}
 
         # 2. Re-apply the SAME row flagged needs_human with the gate on.
         apply_result(
             db_conn,
             {"job_listing_id": "enr-demote", "source_id": "google_scraper",
-             "category": "data_scientist", "level": "senior", "tags": ["ml"],
+             "category": "hardware_engineer", "level": "senior", "tags": ["ml"],
              "judge": {"judged": True, "needs_human": True}, "locations": []},
             require_judge_pass=True,
         )
@@ -495,14 +496,14 @@ class TestApplyResult:
         apply_result(
             db_conn,
             {"job_listing_id": "dup", "source_id": "src-a",
-             "category": "business", "level": "mid",
+             "category": "business_ops", "level": "mid",
              "tags": ["a-only"], "clean_description": "A desc", "locations": []},
             require_judge_pass=False,
         )
         apply_result(
             db_conn,
             {"job_listing_id": "dup", "source_id": "src-b",
-             "category": "data_scientist", "level": "senior",
+             "category": "hardware_engineer", "level": "senior",
              "tags": ["b-only"], "clean_description": "B desc", "locations": []},
             require_judge_pass=False,
         )
@@ -524,7 +525,7 @@ class TestApplyResult:
             apply_result(
                 db_conn,
                 {"job_listing_id": "dup", "source_id": src,
-                 "category": "business", "level": "mid",
+                 "category": "business_ops", "level": "mid",
                  "tags": [f"{src}-tag"], "locations": []},
                 require_judge_pass=False,
             )
@@ -536,7 +537,7 @@ class TestApplyResult:
         apply_result(
             db_conn,
             {"job_listing_id": "dup", "source_id": "src-a",
-             "category": "business", "level": "mid", "tags": ["src-a-tag"],
+             "category": "business_ops", "level": "mid", "tags": ["src-a-tag"],
              "judge": {"judged": True, "needs_human": True}, "locations": []},
             require_judge_pass=True,
         )
@@ -546,7 +547,7 @@ class TestApplyResult:
         assert _fetch_tags_by_pk(db_conn, "src-b", "dup") == {"src-b-tag"}  # UNTOUCHED
         b = _fetch_facets_by_pk(db_conn, "src-b", "dup")
         assert b["enrichment_status"] == "done"       # src-b still published
-        assert b["enrichment_category"] == "business"
+        assert b["enrichment_category"] == "business_ops"
 
     # --- F14: writer guards the job_listings UPDATE rowcount ----------------- #
 
@@ -559,7 +560,7 @@ class TestApplyResult:
             apply_result(
                 db_conn,
                 {"job_listing_id": "ghost-demote", "source_id": "ghost-src2",
-                 "category": "business", "level": "mid", "tags": [],
+                 "category": "business_ops", "level": "mid", "tags": [],
                  "judge": {"judged": True, "needs_human": True}, "locations": []},
                 require_judge_pass=True,
             )
@@ -716,7 +717,7 @@ class TestResults:
                 {
                     "job_listing_id": "r-good",
                     "source_id": "google_scraper",
-                    "category": "business",
+                    "category": "business_ops",
                     "level": "mid",
                     "tags": ["ops"],
                     "locations": [],
@@ -766,7 +767,7 @@ class TestResults:
                 {
                     "job_listing_id": "r-ok",
                     "source_id": "google_scraper",
-                    "category": "business",
+                    "category": "business_ops",
                     "level": "mid",
                     "tags": [],
                     "locations": [],
@@ -800,15 +801,15 @@ class TestResults:
         # Publish (judge not flagged) -> done with facets.
         enrichment_client.post("/api/internal/enrichment/results", json={"results": [{
             "job_listing_id": "r-demote", "source_id": "google_scraper",
-            "category": "data_scientist", "level": "senior", "tags": ["ml"],
+            "category": "hardware_engineer", "level": "senior", "tags": ["ml"],
             "locations": [],
         }]})
-        assert _fetch_listing_facets(db_conn, "r-demote")["enrichment_category"] == "data_scientist"
+        assert _fetch_listing_facets(db_conn, "r-demote")["enrichment_category"] == "hardware_engineer"
 
         # Re-POST flagged needs_human -> facets nulled, tags gone.
         enrichment_client.post("/api/internal/enrichment/results", json={"results": [{
             "job_listing_id": "r-demote", "source_id": "google_scraper",
-            "category": "data_scientist", "level": "senior", "tags": ["ml"],
+            "category": "hardware_engineer", "level": "senior", "tags": ["ml"],
             "judge": {"judged": True, "needs_human": True}, "locations": [],
         }]})
         facets = _fetch_listing_facets(db_conn, "r-demote")
@@ -825,7 +826,7 @@ class TestResults:
         _insert_job(db_conn, _make_job({"id": "r-hold"}))
         enrichment_client.post("/api/internal/enrichment/results", json={"results": [{
             "job_listing_id": "r-hold", "source_id": "google_scraper",
-            "category": "business", "level": "mid", "tags": ["x"],
+            "category": "business_ops", "level": "mid", "tags": ["x"],
             "judge": {"judged": True, "needs_human": True}, "locations": [],
         }]})
         facets = _fetch_listing_facets(db_conn, "r-hold")
@@ -854,7 +855,7 @@ class TestResults:
             {
                 "job_listing_id": "",
                 "source_id": "src-empty",
-                "category": "business",
+                "category": "business_ops",
                 "level": "mid",
                 "tags": ["ghost"],
                 "locations": [],
@@ -966,11 +967,11 @@ class TestResults:
         resp = enrichment_client.post("/api/internal/enrichment/results", json={"results": [
             {   # whitespace-only source_id
                 "job_listing_id": "r-ws", "source_id": "   ",
-                "category": "business", "level": "mid", "tags": ["ghost"], "locations": [],
+                "category": "business_ops", "level": "mid", "tags": ["ghost"], "locations": [],
             },
             {   # whitespace-only job_listing_id
                 "job_listing_id": "  ", "source_id": "google_scraper",
-                "category": "business", "level": "mid", "tags": ["ghost"], "locations": [],
+                "category": "business_ops", "level": "mid", "tags": ["ghost"], "locations": [],
             },
         ]})
         assert resp.status_code == 200            # per-row isolation, NOT a batch 422
@@ -997,7 +998,7 @@ class TestResults:
         resp = enrichment_client.post("/api/internal/enrichment/results", json={"results": [
             {
                 "job_listing_id": "ghost-id", "source_id": "ghost-src",
-                "category": "business", "level": "mid", "tags": ["ghost"], "locations": [],
+                "category": "business_ops", "level": "mid", "tags": ["ghost"], "locations": [],
             }
         ]})
         assert resp.status_code == 200
@@ -1107,7 +1108,7 @@ def _seed_facet_job(db_conn, job_id, category, level):
 class TestJobsFilterParams:
     def test_category_param_filters(self, client, db_conn):
         _seed_facet_job(db_conn, "f-swe", "software_engineering", "senior")
-        _seed_facet_job(db_conn, "f-ds", "data_scientist", "senior")
+        _seed_facet_job(db_conn, "f-ds", "hardware_engineer", "senior")
         resp = client.get("/api/jobs", params={"category": "software_engineering"})
         assert resp.status_code == 200
         ids = {j["id"] for j in resp.json()}
@@ -1132,7 +1133,7 @@ class TestJobsFilterParams:
 
     def test_category_and_level_combined(self, client, db_conn):
         _seed_facet_job(db_conn, "f-c1", "software_engineering", "entry")
-        _seed_facet_job(db_conn, "f-c2", "business", "entry")
+        _seed_facet_job(db_conn, "f-c2", "business_ops", "entry")
         _seed_facet_job(db_conn, "f-c3", "software_engineering", "senior")
         resp = client.get(
             "/api/jobs", params={"category": "software_engineering", "level": "entry"}
@@ -1149,13 +1150,13 @@ class TestJobsFilterParams:
         apply_result(
             db_conn,
             {"job_listing_id": "dup", "source_id": "src-a",
-             "category": "business", "level": "mid", "tags": ["a-only"], "locations": []},
+             "category": "business_ops", "level": "mid", "tags": ["a-only"], "locations": []},
             require_judge_pass=False,
         )
         apply_result(
             db_conn,
             {"job_listing_id": "dup", "source_id": "src-b",
-             "category": "business", "level": "mid", "tags": ["b-only"], "locations": []},
+             "category": "business_ops", "level": "mid", "tags": ["b-only"], "locations": []},
             require_judge_pass=False,
         )
         db_conn.commit()

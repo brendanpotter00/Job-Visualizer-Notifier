@@ -27,7 +27,14 @@ logger = logging.getLogger(__name__)
 # taxonomy SKILL.md. An out-of-enum value is nulled (never 422s the batch) so a
 # taxonomy drift on the laptop degrades to "unlabelled", not a dropped batch.
 CATEGORY_SLUGS = frozenset(
-    {"software_engineering", "product_manager", "data_scientist", "data_engineer", "business"}
+    {
+        "software_engineering",
+        "hardware_engineer",
+        "product_manager",
+        "project_manager",
+        "growth",
+        "business_ops",
+    }
 )
 LEVEL_SLUGS = frozenset({"new_grad", "entry", "mid", "senior", "senior_plus", "manager"})
 

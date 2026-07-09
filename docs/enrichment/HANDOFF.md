@@ -23,8 +23,8 @@ New query params:
 - `GET /api/jobs?level=entry` — **note the hierarchy: `entry` also returns `new_grad`
   jobs; `new_grad` returns only new-grad jobs.** This is the load-bearing contract.
 
-The category enum is `software_engineering | product_manager | data_scientist |
-data_engineer | business`. The level enum is `new_grad | entry | mid | senior |
+The category enum is `software_engineering | hardware_engineer | product_manager |
+project_manager | growth | business_ops`. The level enum is `new_grad | entry | mid | senior |
 senior_plus | manager`, seeded (with labels + ordering + the `new_grad→entry`
 parent) in `job_levels` / `job_categories` so a dropdown can be **driven from data**.
 
