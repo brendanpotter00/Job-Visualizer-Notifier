@@ -6,6 +6,7 @@ import asyncio
 import random
 import json
 import logging
+import sys
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
@@ -16,6 +17,11 @@ from tenacity import (
     retry_if_exception_type,
     before_sleep_log,
 )
+
+# Ensure the scripts/ root is importable so `shared.*` resolves whether this
+# module is imported directly (tests) or via the scraper package.
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from shared.utils import title_matches_keyword
 
 from .config import (
     REQUEST_DELAY_MIN,
@@ -128,18 +134,18 @@ def extract_job_id_from_url(url: str) -> Optional[str]:
 
 def should_include_job(title: str, include_keywords: list, exclude_keywords: list) -> bool:
     """
-    Check if a job title should be included based on keyword filters
-    """
-    title_lower = title.lower()
+    Check if a job title should be included based on keyword filters.
 
+    Matching is case-insensitive substring matching, except for whole-word
+    keywords like "intern" (see shared.utils.title_matches_keyword) so that
+    "intern" does not over-match "internet" / "international" / "internal".
+    """
     # Check for exclusion keywords first
-    has_exclude = any(kw.lower() in title_lower for kw in exclude_keywords)
-    if has_exclude:
+    if any(title_matches_keyword(kw, title) for kw in exclude_keywords):
         return False
 
     # Check for inclusion keywords
-    has_include = any(kw.lower() in title_lower for kw in include_keywords)
-    return has_include
+    return any(title_matches_keyword(kw, title) for kw in include_keywords)
 
 
 def ensure_output_directory(output_path: str):
