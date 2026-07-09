@@ -196,6 +196,22 @@ describe('KeywordFilterInput', () => {
       expect(props.onAdd).toHaveBeenCalledTimes(userList.tags.length);
       expect(props.onAdd).toHaveBeenCalledWith(userList.tags[0]);
     });
+
+    it('keyboard: ArrowDown-highlight + Enter merges the list and adds no stray typed tag', async () => {
+      // Type a partial keyword, then arrow down to the first list option (a
+      // list, since user lists are ordered first) and press Enter. The
+      // highlighted-row branch in handleKeyDown defers to MUI's selectOption, so
+      // the list is merged and the typed text is NOT added as a stray tag.
+      const props = renderInput(undefined);
+      const { user } = await openDropdown();
+
+      await user.keyboard('prod');
+      await user.keyboard('{ArrowDown}{Enter}');
+
+      expect(props.onAdd).toHaveBeenCalledTimes(userList.tags.length);
+      expect(props.onAdd).toHaveBeenCalledWith(userList.tags[0]);
+      expect(props.onAdd).not.toHaveBeenCalledWith({ text: 'prod', mode: 'include' });
+    });
   });
 
   describe('existing chips', () => {
@@ -225,6 +241,31 @@ describe('KeywordFilterInput', () => {
       await user.click(within(listbox).getByRole('option', { name: 'None' }));
 
       expect(props.onClear).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('active-list indicator (checkmark)', () => {
+    it("marks a list with a checkmark when the current tags equal its tags (order-insensitive)", async () => {
+      // Seed the current tags equal to the built-in SWE list but reversed, to
+      // prove the match is order-insensitive (tagsEqual → isActive → CheckIcon).
+      const reversed = [...SWE_TAGS].reverse();
+      renderInput(reversed);
+      const { listbox } = await openDropdown();
+
+      const sweOption = within(listbox).getByRole('option', {
+        name: 'Software Engineering (default)',
+      });
+      expect(within(sweOption).getByTestId('CheckIcon')).toBeInTheDocument();
+    });
+
+    it('shows no checkmark when the current tags differ from every list', async () => {
+      renderInput([{ text: 'unrelated keyword', mode: 'include' }]);
+      const { listbox } = await openDropdown();
+
+      const sweOption = within(listbox).getByRole('option', {
+        name: 'Software Engineering (default)',
+      });
+      expect(within(sweOption).queryByTestId('CheckIcon')).not.toBeInTheDocument();
     });
   });
 });

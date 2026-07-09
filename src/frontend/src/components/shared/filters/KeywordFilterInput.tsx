@@ -6,6 +6,7 @@ import LoginIcon from '@mui/icons-material/Login';
 import { useGetKeywordListsQuery } from '../../../features/savedFilters/savedFiltersApi';
 import { useAuth } from '../../../features/auth/useAuth';
 import { SOFTWARE_ENGINEERING_TAGS } from '../../../constants/tags';
+import { extractErrorMessage } from '../../../lib/errors.ts';
 import {
   isSearchTag,
   renderSearchTagChips,
@@ -88,7 +89,20 @@ export function KeywordFilterInput({
   const highlightedRef = useRef<KeywordOption | null>(null);
 
   const { isAuthenticated, login } = useAuth();
-  const { data: lists } = useGetKeywordListsQuery(undefined, { skip: !isAuthenticated });
+  const {
+    data: lists,
+    isError: isListsError,
+    error: listsError,
+  } = useGetKeywordListsQuery(undefined, { skip: !isAuthenticated });
+
+  // No toast/snackbar infra in the repo, so both failure modes — a failed
+  // keyword-lists fetch and a failed sign-in redirect — surface inline through
+  // the TextField error/helperText channel (mirrors AsyncMultiSelectAutocomplete).
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const listsErrorMessage = isListsError
+    ? extractErrorMessage(listsError, 'Failed to load keyword lists')
+    : null;
+  const errorMessage = listsErrorMessage ?? loginError;
 
   const currentTags = useMemo(() => value ?? [], [value]);
   const hasTags = currentTags.length > 0;
@@ -148,8 +162,9 @@ export function KeywordFilterInput({
       if (opt.kind === 'none') {
         onClear();
       } else if (opt.kind === 'signin') {
+        setLoginError(null);
         void login().catch((error) => {
-          console.error('[KeywordFilterInput] Login failed:', error);
+          setLoginError(extractErrorMessage(error, 'Sign-in failed. Please try again.'));
         });
       } else {
         // Merge: one add per tag, reusing the slice's dedupe-by-text.
@@ -225,6 +240,8 @@ export function KeywordFilterInput({
               ? 'Add a keyword or pick a list…'
               : 'Pick a list or type a keyword (- to exclude)…'
           }
+          error={errorMessage != null}
+          helperText={errorMessage ?? undefined}
         />
       )}
       onKeyDown={handleKeyDown}
