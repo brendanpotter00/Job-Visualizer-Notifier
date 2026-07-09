@@ -13,13 +13,21 @@ import {
   resetRecentJobsFilters,
   addRecentJobsCompany,
   removeRecentJobsCompany,
+  setRecentJobsCategory,
+  setRecentJobsLevel,
 } from '../../features/filters/slices/recentJobsFiltersSlice.ts';
 import {
   selectRecentJobsFilters,
   selectRecentAvailableLocations,
   selectRecentAvailableCompanies,
 } from '../../features/filters/selectors/recentJobsSelectors.ts';
+import { useGetFacetsQuery } from '../../features/jobs/jobsApi.ts';
+import {
+  FALLBACK_CATEGORIES,
+  FALLBACK_LEVELS,
+} from '../../constants/enrichment.ts';
 import { SearchTagsInput } from '../shared/filters/SearchTagsInput.tsx';
+import { FacetSelect } from '../shared/filters/FacetSelect.tsx';
 import { TimeWindowSelect } from '../shared/filters/TimeWindowSelect.tsx';
 import { MultiSelectAutocomplete } from '../shared/filters/MultiSelectAutocomplete.tsx';
 import { KeywordListSelect } from '../shared/filters/KeywordListSelect.tsx';
@@ -35,6 +43,11 @@ export function RecentJobsFilters() {
   const filters = useAppSelector(selectRecentJobsFilters);
   const availableLocations = useAppSelector(selectRecentAvailableLocations);
   const availableCompanies = useAppSelector(selectRecentAvailableCompanies);
+  // Facet dropdown options are data-driven (seeded dimension tables); the
+  // fallback constants cover the pre-fetch frame and an endpoint outage.
+  const { data: facets } = useGetFacetsQuery();
+  const categoryOptions = facets?.categories ?? FALLBACK_CATEGORIES;
+  const levelOptions = facets?.levels ?? FALLBACK_LEVELS;
 
   /**
    * Memoized company options for dropdown
@@ -134,6 +147,20 @@ export function RecentJobsFilters() {
           <KeywordListSelect
             value={filters.searchTags}
             onChange={(tags: SearchTag[] | undefined) => dispatch(setRecentJobsSearchTags(tags))}
+          />
+          <FacetSelect
+            label="Category"
+            options={categoryOptions}
+            value={filters.category}
+            onChange={(slug) => dispatch(setRecentJobsCategory(slug))}
+            tooltip="AI-enriched job category. Only enriched jobs match while a category is selected."
+          />
+          <FacetSelect
+            label="Level"
+            options={levelOptions}
+            value={filters.level}
+            onChange={(slug) => dispatch(setRecentJobsLevel(slug))}
+            tooltip="Entry includes New Grad roles. Only enriched jobs match while a level is selected."
           />
         </Stack>
 

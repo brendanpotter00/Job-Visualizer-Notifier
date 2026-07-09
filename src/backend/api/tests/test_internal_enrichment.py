@@ -54,6 +54,7 @@ _LEVEL_SEED = [
 # them ourselves so writer state never leaks between tests. locations + its alias
 # cache are included so the one location test starts from a clean slate.
 _ENRICHMENT_TABLES = (
+    "enrichment_ticks",
     "job_tags",
     "job_enrichment",
     "job_locations",
@@ -841,7 +842,7 @@ class TestResults:
             "/api/internal/enrichment/results", json={"results": []}
         )
         assert resp.status_code == 200
-        assert resp.json() == {"written": 0, "failed": []}
+        assert resp.json() == {"written": 0, "failed": [], "warnings": []}
 
     # --- F9: empty job_listing_id fails at the boundary, no orphan rows ------ #
 
@@ -1028,7 +1029,7 @@ class TestResults:
             "/api/internal/enrichment/results", json={"results": []}
         )
         assert resp.status_code == 200
-        assert resp.json() == {"written": 0, "failed": []}
+        assert resp.json() == {"written": 0, "failed": [], "warnings": []}
 
 
 class TestHealth:
@@ -1227,3 +1228,333 @@ class TestTaxonomyParity:
         assert {r["slug"] for r in cur.fetchall()} == CATEGORY_SLUGS
         cur.execute("SELECT slug FROM job_levels")
         assert {r["slug"] for r in cur.fetchall()} == LEVEL_SLUGS
+
+
+class TestDescriptionCoalesce:
+    """/pending + /sample must see descriptions under ALL real per-ATS keys
+    (verified against prod 2026-07-08: Ashby/Lever use description_html,
+    Greenhouse uses content, custom scrapers use description, Workday carries a
+    JSON-null description_html). Without the COALESCE only ~17% of OPEN rows
+    were claimable."""
+
+    def _seed(self, db_conn):
+        _insert_job(db_conn, _make_job({
+            "id": "desc-html", "source_id": "ashby_api",
+            "details": json.dumps({"description_html": "<p>ashby</p>"}),
+        }))
+        _insert_job(db_conn, _make_job({
+            "id": "desc-content", "source_id": "greenhouse_api",
+            "details": json.dumps({"content": "<p>greenhouse</p>"}),
+        }))
+        _insert_job(db_conn, _make_job({
+            "id": "desc-plain", "source_id": "google_scraper",
+            "details": json.dumps({"description": "plain scraper text"}),
+        }))
+        _insert_job(db_conn, _make_job({
+            "id": "desc-null", "source_id": "workday_api",
+            # The Workday shape: the KEY exists but its VALUE is JSON null.
+            "details": json.dumps({"description_html": None}),
+        }))
+
+    def test_pending_claims_all_description_shapes(self, enrichment_client, db_conn, monkeypatch):
+        monkeypatch.setattr(settings, "enrichment_use_external", True)
+        self._seed(db_conn)
+        resp = enrichment_client.get("/api/internal/enrichment/pending?limit=10")
+        assert resp.status_code == 200
+        jobs = {j["job_id"]: j for j in resp.json()["jobs"]}
+        assert set(jobs) == {"desc-html", "desc-content", "desc-plain"}
+        # The projection presents whichever key matched AS description_html.
+        assert jobs["desc-content"]["description_html"] == "<p>greenhouse</p>"
+        assert jobs["desc-plain"]["description_html"] == "plain scraper text"
+
+    def test_sample_sees_all_description_shapes(self, enrichment_client, db_conn):
+        self._seed(db_conn)
+        resp = enrichment_client.get("/api/internal/enrichment/sample?n=10&stratify=none")
+        assert resp.status_code == 200
+        ids = {j["job_id"] for j in resp.json()["jobs"]}
+        assert ids == {"desc-html", "desc-content", "desc-plain"}
+
+
+class TestKillSwitchReclaim:
+    """The stale-claim reclaim must run even with the flag OFF — flipping the
+    kill switch is exactly when in-flight 'claimed' rows must drain back to
+    NULL (previously they stranded at 'claimed' forever)."""
+
+    def test_flag_off_still_reclaims_stale_claims(self, enrichment_client, db_conn, monkeypatch):
+        monkeypatch.setattr(settings, "enrichment_use_external", False)
+        _insert_job(db_conn, _make_job({
+            "id": "stale-1", "source_id": "src",
+            "details": json.dumps({"description_html": "<p>x</p>"}),
+        }))
+        cur = db_conn.cursor()
+        cur.execute(
+            "UPDATE job_listings SET enrichment_status='claimed', "
+            "enrichment_claimed_at = now() - interval '10 hours' WHERE id='stale-1'"
+        )
+        db_conn.commit()
+
+        resp = enrichment_client.get("/api/internal/enrichment/pending?limit=10")
+        assert resp.status_code == 200
+        assert resp.json() == {"jobs": [], "enabled": False}
+
+        cur.execute("SELECT enrichment_status FROM job_listings WHERE id='stale-1'")
+        assert cur.fetchone()["enrichment_status"] is None
+
+
+class TestResultsFeedback:
+    """The /results response's warnings channel + failed[].source_id + batch cap."""
+
+    def _seed_job(self, db_conn, job_id="fb-1", source_id="src-a"):
+        _insert_job(db_conn, _make_job({
+            "id": job_id, "source_id": source_id,
+            "details": json.dumps({"description_html": "<p>x</p>"}),
+        }))
+
+    def test_invalid_category_warns_and_nulls(self, enrichment_client, db_conn):
+        self._seed_job(db_conn)
+        resp = enrichment_client.post(
+            "/api/internal/enrichment/results",
+            json={"results": [{
+                "job_listing_id": "fb-1", "source_id": "src-a",
+                "category": "underwater_basket_weaving", "level": "mid",
+            }]},
+        )
+        body = resp.json()
+        assert body["written"] == 1
+        assert len(body["warnings"]) == 1
+        w = body["warnings"][0]
+        assert w["job_listing_id"] == "fb-1" and w["source_id"] == "src-a"
+        assert any("underwater_basket_weaving" in msg for msg in w["warnings"])
+        cur = db_conn.cursor()
+        cur.execute("SELECT enrichment_category, enrichment_level FROM job_listings WHERE id='fb-1'")
+        row = cur.fetchone()
+        assert row["enrichment_category"] is None and row["enrichment_level"] == "mid"
+
+    def test_failed_rows_carry_source_id(self, enrichment_client, db_conn):
+        resp = enrichment_client.post(
+            "/api/internal/enrichment/results",
+            json={"results": [{
+                "job_listing_id": "ghost", "source_id": "src-ghost", "level": "mid",
+            }]},
+        )
+        body = resp.json()
+        assert body["written"] == 0
+        assert body["failed"][0]["job_listing_id"] == "ghost"
+        assert body["failed"][0]["source_id"] == "src-ghost"
+
+    def test_tags_truncated_with_warning(self, enrichment_client, db_conn):
+        from api.services.enrichment_writer import MAX_TAGS_PER_JOB
+
+        self._seed_job(db_conn)
+        resp = enrichment_client.post(
+            "/api/internal/enrichment/results",
+            json={"results": [{
+                "job_listing_id": "fb-1", "source_id": "src-a",
+                "tags": [f"tag-{i}" for i in range(MAX_TAGS_PER_JOB + 5)],
+            }]},
+        )
+        body = resp.json()
+        assert body["written"] == 1
+        assert any("truncated" in msg for msg in body["warnings"][0]["warnings"])
+        cur = db_conn.cursor()
+        cur.execute(
+            "SELECT count(*) AS n FROM job_tags WHERE source_id='src-a' AND job_listing_id='fb-1'"
+        )
+        assert cur.fetchone()["n"] == MAX_TAGS_PER_JOB
+
+    def test_overlong_tag_dropped_with_warning(self, enrichment_client, db_conn):
+        self._seed_job(db_conn)
+        resp = enrichment_client.post(
+            "/api/internal/enrichment/results",
+            json={"results": [{
+                "job_listing_id": "fb-1", "source_id": "src-a",
+                "tags": ["ok-tag", "x" * 61],
+            }]},
+        )
+        body = resp.json()
+        assert body["written"] == 1
+        assert any("dropped" in msg for msg in body["warnings"][0]["warnings"])
+        cur = db_conn.cursor()
+        cur.execute(
+            "SELECT tag FROM job_tags WHERE source_id='src-a' AND job_listing_id='fb-1'"
+        )
+        assert [r["tag"] for r in cur.fetchall()] == ["ok-tag"]
+
+    def test_batch_over_cap_returns_413(self, enrichment_client):
+        from api.routers.internal_enrichment import MAX_RESULTS_PER_BATCH
+
+        resp = enrichment_client.post(
+            "/api/internal/enrichment/results",
+            json={"results": [{}] * (MAX_RESULTS_PER_BATCH + 1)},
+        )
+        assert resp.status_code == 413
+
+    def test_human_corrected_row_is_locked(self, enrichment_client, db_conn):
+        """A row an admin corrected must survive a later agent write untouched:
+        the item counts as written (so the enricher stops retrying) but carries
+        the skip warning, and the facets keep the human's values."""
+        self._seed_job(db_conn)
+        cur = db_conn.cursor()
+        cur.execute(
+            "UPDATE job_listings SET enrichment_category='growth', "
+            "enrichment_level='senior', enrichment_status='done' WHERE id='fb-1'"
+        )
+        cur.execute(
+            "INSERT INTO job_enrichment (source_id, job_listing_id, needs_human, "
+            "human_corrected_at, human_corrected_by) "
+            "VALUES ('src-a', 'fb-1', false, now(), 'admin@test')"
+        )
+        db_conn.commit()
+
+        resp = enrichment_client.post(
+            "/api/internal/enrichment/results",
+            json={"results": [{
+                "job_listing_id": "fb-1", "source_id": "src-a",
+                "category": "software_engineering", "level": "entry",
+                "tags": ["should-not-land"],
+            }]},
+        )
+        body = resp.json()
+        assert body["written"] == 1
+        assert any("human-corrected" in msg for msg in body["warnings"][0]["warnings"])
+        cur.execute(
+            "SELECT enrichment_category, enrichment_level FROM job_listings WHERE id='fb-1'"
+        )
+        row = cur.fetchone()
+        assert row["enrichment_category"] == "growth"
+        assert row["enrichment_level"] == "senior"
+        cur.execute(
+            "SELECT count(*) AS n FROM job_tags WHERE job_listing_id='fb-1'"
+        )
+        assert cur.fetchone()["n"] == 0
+
+
+class TestMetricsPush:
+    """POST /metrics — the laptop's per-tick observability channel."""
+
+    _PAYLOAD = {
+        "tick_uuid": "tick-abc",
+        "started_at": "2026-07-08T10:00:00Z",
+        "ended_at": "2026-07-08T10:05:00Z",
+        "status": "ok",
+        "counters": {"claimed": 12, "classified": 12, "sent": 11, "errors": 1},
+        "duration_s": 300.5,
+        "taxonomy_version": "v2+abc123",
+        "knobs": {"judge_scope": "low_confidence"},
+        "stage_timings": [{"stage": "classify", "ms": 91000, "items": 12, "retries": 0}],
+        "heartbeat_age_s": 12.5,
+        "drift_suspected": False,
+    }
+
+    def test_push_inserts_tick(self, enrichment_client, db_conn):
+        resp = enrichment_client.post(
+            "/api/internal/enrichment/metrics", json=self._PAYLOAD
+        )
+        assert resp.status_code == 200
+        assert resp.json() == {"ok": True}
+        cur = db_conn.cursor()
+        cur.execute("SELECT * FROM enrichment_ticks WHERE tick_uuid='tick-abc'")
+        row = cur.fetchone()
+        assert row["status"] == "ok"
+        assert row["claimed"] == 12 and row["sent"] == 11 and row["errors"] == 1
+        assert row["knobs"] == {"judge_scope": "low_confidence"}
+        assert row["stage_timings"][0]["stage"] == "classify"
+
+    def test_repush_same_uuid_upserts(self, enrichment_client, db_conn):
+        running = dict(self._PAYLOAD, status="running", ended_at=None)
+        enrichment_client.post("/api/internal/enrichment/metrics", json=running)
+        enrichment_client.post("/api/internal/enrichment/metrics", json=self._PAYLOAD)
+        cur = db_conn.cursor()
+        cur.execute(
+            "SELECT count(*) AS n, max(status) AS status FROM enrichment_ticks "
+            "WHERE tick_uuid='tick-abc'"
+        )
+        row = cur.fetchone()
+        assert row["n"] == 1 and row["status"] == "ok"
+
+    def test_bad_status_422s(self, enrichment_client):
+        resp = enrichment_client.post(
+            "/api/internal/enrichment/metrics",
+            json=dict(self._PAYLOAD, status="on-fire"),
+        )
+        assert resp.status_code == 422
+
+    def test_oversized_scorecard_422s(self, enrichment_client):
+        resp = enrichment_client.post(
+            "/api/internal/enrichment/metrics",
+            json=dict(self._PAYLOAD, scorecard={"pad": "x" * 17000}),
+        )
+        assert resp.status_code == 422
+
+
+class TestCorrectionsFeed:
+    """GET /corrections — human labels flowing back to the enricher's gold set."""
+
+    def test_empty_feed(self, enrichment_client):
+        resp = enrichment_client.get("/api/internal/enrichment/corrections")
+        assert resp.status_code == 200
+        assert resp.json() == {"corrections": [], "count": 0}
+
+    def test_correction_appears_in_feed(self, enrichment_client, db_conn):
+        from api.services.enrichment_monitor import apply_correction
+
+        _insert_job(db_conn, _make_job({
+            "id": "corr-1", "source_id": "src-a",
+            "details": json.dumps({"description_html": "<p>x</p>"}),
+        }))
+        apply_correction(
+            db_conn, source_id="src-a", job_listing_id="corr-1",
+            category="growth", level="mid", tags=["go", "sql"],
+            note="was mislabelled", admin_email="admin@test",
+        )
+        resp = enrichment_client.get("/api/internal/enrichment/corrections")
+        body = resp.json()
+        assert body["count"] == 1
+        c = body["corrections"][0]
+        assert c["job_listing_id"] == "corr-1" and c["source_id"] == "src-a"
+        assert c["category"] == "growth" and c["level"] == "mid"
+        assert c["tags"] == ["go", "sql"]
+        assert c["corrected_at"] is not None
+
+        # since= strictly after the correction -> empty again
+        resp = enrichment_client.get(
+            "/api/internal/enrichment/corrections",
+            params={"since": "2100-01-01T00:00:00Z"},
+        )
+        assert resp.json()["count"] == 0
+
+
+class TestHealthAdditions:
+    """eligible_unenriched + needs_human_open on the internal /health."""
+
+    def test_eligible_counts_only_claimable_rows(self, enrichment_client, db_conn):
+        _insert_job(db_conn, _make_job({
+            "id": "el-1", "source_id": "s",
+            "details": json.dumps({"description_html": "<p>x</p>"}),
+        }))
+        _insert_job(db_conn, _make_job({
+            "id": "el-2", "source_id": "s", "details": json.dumps({}),
+        }))
+        resp = enrichment_client.get("/api/internal/enrichment/health")
+        body = resp.json()
+        assert body["open_by_status"]["unenriched"] == 2
+        assert body["eligible_unenriched"] == 1
+
+    def test_needs_human_open_excludes_corrected_and_closed(self, enrichment_client, db_conn):
+        for jid, status in (("nh-open", "OPEN"), ("nh-closed", "CLOSED"), ("nh-fixed", "OPEN")):
+            _insert_job(db_conn, _make_job({
+                "id": jid, "source_id": "s", "status": status,
+                "details": json.dumps({"description_html": "<p>x</p>"}),
+            }))
+        cur = db_conn.cursor()
+        for jid, corrected in (("nh-open", False), ("nh-closed", False), ("nh-fixed", True)):
+            cur.execute(
+                "INSERT INTO job_enrichment (source_id, job_listing_id, needs_human, "
+                "human_corrected_at) VALUES ('s', %s, true, %s)",
+                (jid, "2026-01-01T00:00:00Z" if corrected else None),
+            )
+        db_conn.commit()
+        resp = enrichment_client.get("/api/internal/enrichment/health")
+        body = resp.json()
+        assert body["needs_human"] == 3          # raw count (backward compat)
+        assert body["needs_human_open"] == 1     # OPEN + uncorrected only

@@ -1,5 +1,6 @@
 """Pydantic response models with camelCase serialization for frontend compatibility."""
 
+import json
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
@@ -890,3 +891,289 @@ class EnrichmentResultsBody(BaseModel):
     """
 
     results: list[Any]
+
+
+class EnrichmentTickCounters(BaseModel):
+    """Per-tick pipeline counters pushed by the enricher. All default 0 so a
+    partial counters object degrades to zeros instead of failing the push —
+    metrics are best-effort observability, never a write path worth 422-ing."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    claimed: int = Field(default=0, ge=0)
+    cleaned: int = Field(default=0, ge=0)
+    classified: int = Field(default=0, ge=0)
+    judged: int = Field(default=0, ge=0)
+    corrected: int = Field(default=0, ge=0)
+    needs_human: int = Field(default=0, ge=0)
+    sent: int = Field(default=0, ge=0)
+    errors: int = Field(default=0, ge=0)
+    nulled_facets: int = Field(default=0, ge=0)
+
+
+class EnrichmentMetricsBody(BaseModel):
+    """Body for POST /api/internal/enrichment/metrics — one enricher tick
+    snapshot (see docs/enrichment/HANDOFF.md §3 and the enricher's
+    ``cli metrics-push``). Idempotent on ``tick_uuid`` (re-push upserts).
+
+    Size caps (``knobs`` ≤ 2 KB, ``stage_timings`` ≤ 20 rows, ``scorecard``
+    ≤ 16 KB when JSON-encoded) bound what an internal-key holder can persist
+    per row; the payloads land in JSONB and are echoed to the admin UI.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    tick_uuid: Annotated[str, StringConstraints(min_length=1, max_length=64, strip_whitespace=True)]
+    started_at: datetime
+    ended_at: datetime | None = None
+    status: Literal["ok", "error", "running"]
+    notes: str | None = Field(default=None, max_length=2000)
+    counters: EnrichmentTickCounters = Field(default_factory=EnrichmentTickCounters)
+    duration_s: float | None = Field(default=None, ge=0)
+    taxonomy_version: str | None = Field(default=None, max_length=100)
+    knobs: dict[str, Any] | None = None
+    stage_timings: list[dict[str, Any]] | None = Field(default=None, max_length=20)
+    heartbeat_age_s: float | None = Field(default=None, ge=0)
+    scorecard: dict[str, Any] | None = None
+    enricher_version: str | None = Field(default=None, max_length=100)
+    drift_suspected: bool = False
+
+    @field_validator("knobs")
+    @classmethod
+    def _cap_knobs(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        if value is not None and len(json.dumps(value)) > 2048:
+            raise ValueError("knobs payload exceeds 2KB")
+        return value
+
+    @field_validator("scorecard")
+    @classmethod
+    def _cap_scorecard(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        if value is not None and len(json.dumps(value)) > 16384:
+            raise ValueError("scorecard payload exceeds 16KB")
+        return value
+
+
+class FacetOption(BaseModel):
+    """One dropdown option from the seeded dimension tables (GET /api/jobs/facets)."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    slug: str
+    label: str
+    sort_order: int
+    # job_levels only: parent in the level hierarchy (new_grad -> entry). The
+    # frontend derives its client-side filter expansion from this, so the
+    # entry⊇new_grad contract stays data-driven end to end.
+    parent_slug: str | None = None
+
+
+class JobFacetsResponse(BaseModel):
+    """GET /api/jobs/facets — data-driven dropdown catalog for the enrichment
+    facets. Sourced from job_categories / job_levels so taxonomy changes ship as
+    a migration, never a frontend redeploy."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    categories: list[FacetOption]
+    levels: list[FacetOption]
+
+
+# --- Enrichment MONITOR models (admin oversight of the pull pipeline) ---------
+
+
+class AdminEnrichmentHealthResponse(BaseModel):
+    """Health snapshot for the admin enrichment page
+    (GET /api/admin/enrichment/health)."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    schema_present: bool
+    enabled: bool
+    # OPEN jobs by COALESCE(enrichment_status,'unenriched'). Keys:
+    # unenriched | claimed | done | needs_human (absent => 0).
+    open_by_status: dict[str, int]
+    # Of the unenriched OPEN rows, how many the /pending claim query could
+    # actually hand out (description present, allowlist respected). The gap
+    # (unenriched - eligible) is permanently invisible to the enricher — the
+    # dark-vs-idle distinction the bare 'unenriched' count can't make.
+    eligible_unenriched: int = Field(ge=0)
+    stale_claims: int = Field(ge=0)
+    claim_ttl_minutes: int = Field(ge=0)
+    # Open, un-corrected needs-human queue depth (the actionable number, unlike
+    # the internal /health's raw job_enrichment.needs_human count which includes
+    # CLOSED jobs and already-corrected rows).
+    needs_human_open: int = Field(ge=0)
+    human_corrected_total: int = Field(ge=0)
+    last_enriched_at: datetime | None = None
+    last_enriched_age_s: float | None = None
+    # Latest pushed tick (enrichment_ticks); all None when nothing pushed yet.
+    last_tick_uuid: str | None = None
+    last_tick_status: str | None = None
+    last_tick_started_at: datetime | None = None
+    last_tick_age_s: float | None = None
+    last_tick_drift_suspected: bool = False
+    # Aggregates over the trailing window (default 24h): enriched throughput
+    # from job_enrichment, tick error count from enrichment_ticks.
+    window_hours: int = Field(ge=1)
+    enriched_in_window: int = Field(ge=0)
+    error_ticks_in_window: int = Field(ge=0)
+
+
+class AdminEnrichmentNeedsHumanRow(BaseModel):
+    """One needs-human queue row (job_enrichment ⋈ job_listings)."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    source_id: str
+    job_listing_id: str
+    title: str | None = None
+    company: str | None = None
+    url: str | None = None
+    job_status: str | None = None            # job_listings.status (OPEN/CLOSED)
+    enrichment_status: str | None = None
+    category: str | None = None              # published facet (job_listings)
+    level: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    clean_description: str | None = None
+    classify_confidence: float | None = None
+    classify_reasoning: str | None = None
+    taxonomy_version: str | None = None
+    judged: bool = False
+    judge_passed: bool | None = None
+    judge_confidence: float | None = None
+    judge_notes: str | None = None
+    enriched_at: datetime | None = None
+    human_corrected_at: datetime | None = None
+    human_corrected_by: str | None = None
+
+
+class AdminEnrichmentNeedsHumanResponse(BaseModel):
+    """GET /api/admin/enrichment/needs-human — paginated queue."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    rows: list[AdminEnrichmentNeedsHumanRow]
+    total: int = Field(ge=0)
+    limit: int = Field(ge=1)
+    offset: int = Field(ge=0)
+
+
+class AdminEnrichmentTickRow(BaseModel):
+    """One pushed tick (GET /api/admin/enrichment/ticks)."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    tick_uuid: str
+    started_at: datetime
+    ended_at: datetime | None = None
+    status: str
+    notes: str | None = None
+    claimed: int = 0
+    cleaned: int = 0
+    classified: int = 0
+    judged: int = 0
+    corrected: int = 0
+    needs_human: int = 0
+    sent: int = 0
+    errors: int = 0
+    nulled_facets: int = 0
+    duration_s: float | None = None
+    taxonomy_version: str | None = None
+    stage_timings: list[dict[str, Any]] | None = None
+    heartbeat_age_s: float | None = None
+    drift_suspected: bool = False
+    received_at: datetime | None = None
+
+
+class AdminEnrichmentTicksResponse(BaseModel):
+    """GET /api/admin/enrichment/ticks — trailing-window tick series plus the
+    latest pushed scorecard/knobs (returned once, not per row, to keep the
+    series light)."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    ticks: list[AdminEnrichmentTickRow]
+    window_hours: int = Field(ge=1)
+    latest_scorecard: dict[str, Any] | None = None
+    latest_scorecard_tick_uuid: str | None = None
+    latest_knobs: dict[str, Any] | None = None
+
+
+class AdminEnrichmentRecentRow(BaseModel):
+    """One recently-enriched job (GET /api/admin/enrichment/recent)."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    source_id: str
+    job_listing_id: str
+    title: str | None = None
+    company: str | None = None
+    enrichment_status: str | None = None
+    category: str | None = None
+    level: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    classify_confidence: float | None = None
+    judged: bool = False
+    judge_passed: bool | None = None
+    needs_human: bool = False
+    human_corrected_at: datetime | None = None
+    enriched_at: datetime | None = None
+
+
+class AdminEnrichmentRecentResponse(BaseModel):
+    """GET /api/admin/enrichment/recent — latest enrichment writes."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    rows: list[AdminEnrichmentRecentRow]
+
+
+class AdminEnrichmentCorrectionRequest(BaseModel):
+    """Body for POST /api/admin/enrichment/jobs/{source_id}/{job_id}/correct.
+
+    ``category``/``level`` accept a slug or null (null = explicitly unlabelled);
+    ``tags`` replaces the tag set (empty list clears). Slugs are validated
+    against the live dimension tables in the service — a stale admin UI gets a
+    409, never a silent null (the agent gets soft-nulling because a drifted
+    laptop must degrade, not fail; a human in the admin UI deserves the error).
+    """
+
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
+
+    category: str | None = None
+    level: str | None = None
+    tags: list[str] = Field(default_factory=list, max_length=16)
+    note: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("tags")
+    @classmethod
+    def _clean_tags(cls, value: list[str]) -> list[str]:
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for tag in value:
+            t = tag.strip().lower()
+            if not t:
+                continue
+            if len(t) > 60:
+                raise ValueError("tag exceeds 60 characters")
+            if t not in seen:
+                seen.add(t)
+                cleaned.append(t)
+        return cleaned
+
+
+class AdminEnrichmentCorrectionResponse(BaseModel):
+    """Result of a correction/re-enrich action."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    source_id: str
+    job_listing_id: str
+    enrichment_status: str | None = None
+    category: str | None = None
+    level: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    human_corrected_at: datetime | None = None
+    human_corrected_by: str | None = None

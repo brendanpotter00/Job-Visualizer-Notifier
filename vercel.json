@@ -23,6 +23,10 @@
       "destination": "https://us.i.posthog.com/:path"
     },
     {
+      "source": "/api/jobs/:path(.*)",
+      "destination": "/api/jobs?path=:path"
+    },
+    {
       "source": "/api/jobs-qa",
       "destination": "/api/jobs-qa"
     },

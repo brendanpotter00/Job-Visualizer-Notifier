@@ -1,9 +1,12 @@
-# Enrichment — frontend + admin monitoring HANDOFF
+# Enrichment — frontend + admin monitoring
 
-This PR is **backend-only** (per the agreed scope). This document is the handoff
-for the two follow-up surfaces that are **documented here but not implemented**:
-a frontend for the new facets, and an admin monitoring dashboard for the pull
-integration. Everything below builds on the API this PR ships.
+> **Status update:** both follow-up surfaces described below are now BUILT in
+> this PR — the facet frontend (Category/Level dropdowns on the Recent + Trend
+> pages, tag chips on job cards, `GET /api/jobs/facets`) and the admin
+> dashboard (`/admin/enrichment`: verdict banner, backlog funnel, tick EKG +
+> charts via the new metrics push, eval scorecard, needs-human queue with
+> human corrections + re-enrich). This document remains the design record; the
+> per-section notes below flag what shipped and what changed.
 
 > Companion: the enrichment workflow itself lives in the separate **job-enricher**
 > repo (the laptop-side Claude Code agent that pulls, cleans, classifies, judges,
@@ -46,10 +49,14 @@ The laptop-side enricher exposes a richer per-stage metrics surface via its own
 
 ---
 
-## 2. Frontend follow-up (React dropdowns)
+## 2. Frontend (React dropdowns) — SHIPPED
 
-Scope: add **Category** and **Level** filter controls to the companies/recent-jobs
-views, mirroring the existing `GraphFilters` pattern (`createFilterSlice` factory).
+Implemented as specified below, with one delta: the Job model gained a separate
+`enrichmentTags` field (backend `tags`) because `Job.tags` was already occupied
+by ATS-derived tags feeding free-text search. Dropdown options are data-driven
+via `GET /api/jobs/facets` (with seed-mirroring fallbacks in
+`constants/enrichment.ts`), and the client-side level expansion is derivable
+from the facets' `parentSlug` (`buildLevelExpansion`).
 
 1. **Types** (`src/frontend/src/types/index.ts`): add `category?: JobCategory` and
    `level?: JobLevel` to `GraphFilters`; add the two union types + a `tags: string[]`
@@ -75,11 +82,16 @@ filter client-side, replicate it) or new-grad jobs vanish from the entry view.
 
 ---
 
-## 3. Admin monitoring dashboard follow-up
+## 3. Admin monitoring dashboard — SHIPPED (`/admin/enrichment`)
 
-Scope: an admin-only page (mirror `/api/admin` + the existing admin UI) that makes
-the pull integration observable — the whole point of the pull model is that JVN
-must notice when the unmanaged laptop goes dark.
+Implemented per the sketch below, plus the pieces it called out as missing:
+`POST /api/internal/enrichment/metrics` (per-tick push, idempotent on
+`tick_uuid`, stored in `enrichment_ticks`), `GET /api/admin/enrichment/*`
+(health / needs-human / ticks / recent), the correction + re-enrich actions,
+and `GET /api/internal/enrichment/corrections` so the enricher's
+`golden-merge` can turn human corrections into `label_source='human'` gold
+rows. Corrections LOCK a row against automated overwrite
+(`job_enrichment.human_corrected_at`); re-enrich is the sanctioned unlock.
 
 Surface these (all already available):
 - **Backlog funnel** from `/api/internal/enrichment/health` `open_by_status`
@@ -109,11 +121,13 @@ Auth: reuse `require_admin`. Do not expose enrichment internals on the public AP
   off, `/pending` hands out nothing and the cloud-Haiku location pipeline is the
   sole floor — the frontend fields are all null and nothing changes.
 - Turn on for a subset first with `ENRICHMENT_COMPANY_ALLOWLIST` (csv), watch
-  `/api/internal/enrichment/health` + the existing `/api/admin/locations/health`,
-  then widen.
+  `/admin/enrichment` (or `/api/internal/enrichment/health`), then widen.
 - Kill switch: set the flag off (or just stop the laptop). In-flight `claimed`
-  rows auto-reclaim to `NULL` after `ENRICHMENT_CLAIM_TTL_MINUTES` and the Haiku
-  floor keeps filling location. No data loss; `/results` is idempotent.
+  rows auto-reclaim to `NULL` after `ENRICHMENT_CLAIM_TTL_MINUTES` — the
+  reclaim runs inside `/pending` even with the flag OFF, so flipping the
+  switch cannot strand claims. The Haiku floor keeps filling location. No data
+  loss; `/results` is idempotent (and now returns per-row `warnings` so the
+  enricher sees nulled facets / truncated tags / human-correction skips).
 - `ENRICHMENT_REQUIRE_JUDGE_PASS=true` makes JVN refuse to publish facets for rows
   the judge flagged `needs_human` (they land as `enrichment_status='needs_human'`
   with the audit row, awaiting a human).

@@ -207,6 +207,16 @@ export function createFilterSlice<T extends Filters>(name: FilterSliceName, init
         state.filters.employmentType = action.payload;
       },
 
+      // Enrichment facets (2 actions). Single-value slugs; `undefined` clears
+      // (the "All" option). Every filter shape owns both fields, so no
+      // slice-name guard is needed (unlike department/company).
+      [`set${capitalizedName}Category`]: (state, action: PayloadAction<string | undefined>) => {
+        state.filters.category = action.payload;
+      },
+      [`set${capitalizedName}Level`]: (state, action: PayloadAction<string | undefined>) => {
+        state.filters.level = action.payload;
+      },
+
       // Company (4 actions)
       [`set${capitalizedName}Company`]: (state, action: PayloadAction<string[] | undefined>) => {
         if (hasCompanyField(name, state.filters)) {

@@ -41,6 +41,13 @@ export function transformBackendJob(raw: BackendJobListing, companyId: string): 
     createdAt: raw.postedOn || raw.firstSeenAt, // Use actual posted date, fallback to first seen
     url: raw.url,
     tags,
+    // Enrichment facets pass straight through (null/[] until enriched). The
+    // backend's `tags` are enrichment skill tags -> enrichmentTags; the ATS
+    // -derived `tags` above stay the free-text-search fodder they always were.
+    category: raw.category ?? null,
+    level: raw.level ?? null,
+    enrichmentTags: raw.tags ?? [],
+    enrichmentStatus: raw.enrichmentStatus ?? null,
     raw, // Preserve full backend response for debugging
   };
 }

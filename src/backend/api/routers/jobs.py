@@ -6,8 +6,15 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from psycopg2.extensions import connection as Connection
 
 from ..dependencies import get_db
-from ..models import COMPANY_PATTERN, ENABLED_COMPANY_ID_PATTERN, JobListingResponse
+from ..models import (
+    COMPANY_PATTERN,
+    ENABLED_COMPANY_ID_PATTERN,
+    FacetOption,
+    JobFacetsResponse,
+    JobListingResponse,
+)
 from ..services.database import get_jobs, get_job_by_id
+from ..services.enrichment_monitor import get_facets
 
 router = APIRouter()
 
@@ -94,6 +101,21 @@ def list_jobs(
         level=level,
     )
     return [JobListingResponse(**job) for job in jobs]
+
+
+@router.get("/facets", response_model=JobFacetsResponse)
+def list_facets(conn: Connection = Depends(get_db)) -> JobFacetsResponse:
+    """Dropdown catalog for the enrichment facets, straight from the seeded
+    job_categories / job_levels dimensions — labels, ordering and the
+    new_grad->entry parent all stay data-driven, so a taxonomy change ships as
+    a migration without a frontend redeploy. Declared above the parametrized
+    detail route by convention (different segment count, so no actual overlap).
+    """
+    data = get_facets(conn)
+    return JobFacetsResponse(
+        categories=[FacetOption(**row) for row in data["categories"]],
+        levels=[FacetOption(**row) for row in data["levels"]],
+    )
 
 
 @router.get("/{source_id}/{job_id}", response_model=JobListingResponse)

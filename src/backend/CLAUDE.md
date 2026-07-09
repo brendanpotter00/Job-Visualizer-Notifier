@@ -100,6 +100,12 @@ All configuration via environment variables:
 - `DELETE /api/users/saved-filters/keyword-lists/{list_id}` - Delete a list (204; NULLs any active pointer referencing it); 404 if not owned, 422 on the built-in id
 - `GET /api/users/saved-filters/locations/search` - Substring autocomplete over canonical location names (params: `q`, `limit`, `openOnly`)
 
+**Jobs facets:** `GET /api/jobs/facets` - enrichment dropdown catalog (categories + levels with labels/order/parent) from the seeded dimensions.
+
+**Internal Enrichment Router (`/api/internal/enrichment`, X-Internal-Key):** `GET /pending` (claim batch), `POST /results` (idempotent write-back; returns `written`/`failed[]`(+`source_id`)/`warnings[]`), `GET /sample`, `GET /health`, `POST /metrics` (per-tick push → `enrichment_ticks`, idempotent on `tick_uuid`), `GET /corrections` (human-correction feed for the enricher's golden-merge).
+
+**Admin Enrichment (`/api/admin/enrichment/*`, requires admin):** `GET /health`, `GET /needs-human` (paginated triage queue), `GET /ticks`, `GET /recent`, `POST /jobs/{source_id}/{job_id}/correct` (publish human labels + lock row), `POST /jobs/{source_id}/{job_id}/reenrich` (reset + unlock). Backing SQL in `services/enrichment_monitor.py`.
+
 **Admin Router (`/api/admin`):**
 - `GET /api/admin/users` - List all users with admin flag (requires admin)
 - `GET /api/admin/users/stats` - User statistics (requires admin)

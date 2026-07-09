@@ -22,6 +22,7 @@ import BusinessIcon from '@mui/icons-material/Business';
 import PeopleIcon from '@mui/icons-material/People';
 import PlaceIcon from '@mui/icons-material/Place';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
+import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import FeedbackIcon from '@mui/icons-material/Feedback';
 import FilterListAltIcon from '@mui/icons-material/FilterListAlt';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -108,6 +109,7 @@ type IconName =
   | 'People'
   | 'Place'
   | 'AccountTree'
+  | 'AutoAwesome'
   | 'Feedback'
   | 'FilterListAlt';
 const iconMap: Record<IconName, React.ComponentType> = {
@@ -121,6 +123,7 @@ const iconMap: Record<IconName, React.ComponentType> = {
   People: PeopleIcon,
   Place: PlaceIcon,
   AccountTree: AccountTreeIcon,
+  AutoAwesome: AutoAwesomeIcon,
   Feedback: FeedbackIcon,
   FilterListAlt: FilterListAltIcon,
 };

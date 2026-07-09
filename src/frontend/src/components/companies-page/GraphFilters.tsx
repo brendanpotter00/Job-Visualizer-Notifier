@@ -11,13 +11,21 @@ import {
   removeGraphLocation,
   addGraphDepartment,
   removeGraphDepartment,
+  setGraphCategory,
+  setGraphLevel,
 } from '../../features/filters/slices/graphFiltersSlice.ts';
 import { selectGraphFilters } from '../../features/filters/selectors/graphFiltersSelectors.ts';
 import {
   selectAvailableLocations,
   selectAvailableDepartments,
 } from '../../features/filters/selectors/commonFiltersSelectors.ts';
+import { useGetFacetsQuery } from '../../features/jobs/jobsApi.ts';
+import {
+  FALLBACK_CATEGORIES,
+  FALLBACK_LEVELS,
+} from '../../constants/enrichment.ts';
 import { SearchTagsInput } from '../shared/filters/SearchTagsInput.tsx';
+import { FacetSelect } from '../shared/filters/FacetSelect.tsx';
 import { TimeWindowSelect } from '../shared/filters/TimeWindowSelect.tsx';
 import { MultiSelectAutocomplete } from '../shared/filters/MultiSelectAutocomplete.tsx';
 import { KeywordListSelect } from '../shared/filters/KeywordListSelect.tsx';
@@ -34,6 +42,11 @@ export function GraphFilters() {
   const filters = useAppSelector(selectGraphFilters);
   const availableLocations = useAppSelector(selectAvailableLocations);
   const availableDepartments = useAppSelector(selectAvailableDepartments);
+  // Facet dropdown options are data-driven (seeded dimension tables); the
+  // fallback constants cover the pre-fetch frame and an endpoint outage.
+  const { data: facets } = useGetFacetsQuery();
+  const categoryOptions = facets?.categories ?? FALLBACK_CATEGORIES;
+  const levelOptions = facets?.levels ?? FALLBACK_LEVELS;
 
   return (
     <Box sx={{ mb: RESPONSIVE.spacing.sectionMarginB }}>
@@ -89,6 +102,20 @@ export function GraphFilters() {
           <KeywordListSelect
             value={filters.searchTags}
             onChange={(tags: SearchTag[] | undefined) => dispatch(setGraphSearchTags(tags))}
+          />
+          <FacetSelect
+            label="Category"
+            options={categoryOptions}
+            value={filters.category}
+            onChange={(slug) => dispatch(setGraphCategory(slug))}
+            tooltip="AI-enriched job category. Only enriched jobs match while a category is selected."
+          />
+          <FacetSelect
+            label="Level"
+            options={levelOptions}
+            value={filters.level}
+            onChange={(slug) => dispatch(setGraphLevel(slug))}
+            tooltip="Entry includes New Grad roles. Only enriched jobs match while a level is selected."
           />
         </Stack>
       </Stack>

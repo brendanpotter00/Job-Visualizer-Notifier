@@ -557,8 +557,56 @@ class JobEnrichment(Base):
     judge_notes = Column(Text, nullable=True)
     needs_human = Column(Boolean, nullable=False, server_default=text("false"))
     enriched_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    # Human correction provenance (admin needs-human queue). While
+    # human_corrected_at is set, apply_result refuses to overwrite this row's
+    # facets — a human label always outlives a later automated re-write; only an
+    # explicit admin re-enrich (which clears these) reopens the row to the agent.
+    human_corrected_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    human_corrected_by = Column(Text, nullable=True)      # admin email (JWT claim)
 
     __table_args__ = (
         PrimaryKeyConstraint("source_id", "job_listing_id"),
         Index("idx_job_enrichment_needs_human", "needs_human"),
+    )
+
+
+class EnrichmentTick(Base):
+    # One row per enricher tick, pushed by the laptop via
+    # POST /api/internal/enrichment/metrics (best-effort, idempotent on
+    # tick_uuid). This is the ONLY channel that makes the laptop-side pipeline
+    # observable from JVN — per-stage latency, throughput, heartbeat and eval
+    # scorecards live in the enricher's local SQLite and never appear in
+    # job_enrichment. Counters are real columns (not JSONB) so the admin charts
+    # can aggregate in SQL; the free-shape payloads (knobs, stage timings,
+    # scorecard) stay JSONB.
+    __tablename__ = "enrichment_ticks"
+
+    id = Column(Integer, primary_key=True)                # autoincrement surrogate
+    tick_uuid = Column(Text, nullable=False)              # idempotency key from the laptop
+    started_at = Column(TIMESTAMP(timezone=True), nullable=False)
+    ended_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    status = Column(Text, nullable=False)                 # 'ok' | 'error' | 'running'
+    notes = Column(Text, nullable=True)
+    claimed = Column(Integer, nullable=False, server_default=text("0"))
+    cleaned = Column(Integer, nullable=False, server_default=text("0"))
+    classified = Column(Integer, nullable=False, server_default=text("0"))
+    judged = Column(Integer, nullable=False, server_default=text("0"))
+    corrected = Column(Integer, nullable=False, server_default=text("0"))
+    needs_human = Column(Integer, nullable=False, server_default=text("0"))
+    sent = Column(Integer, nullable=False, server_default=text("0"))
+    errors = Column(Integer, nullable=False, server_default=text("0"))
+    nulled_facets = Column(Integer, nullable=False, server_default=text("0"))
+    duration_s = Column(Float, nullable=True)
+    taxonomy_version = Column(Text, nullable=True)
+    knobs = Column(JSONB, nullable=True)                  # runtime config snapshot
+    stage_timings = Column(JSONB, nullable=True)          # [{stage, ms, items, retries}]
+    heartbeat_age_s = Column(Float, nullable=True)
+    scorecard = Column(JSONB, nullable=True)              # latest eval scorecard (only when new)
+    enricher_version = Column(Text, nullable=True)
+    drift_suspected = Column(Boolean, nullable=False, server_default=text("false"))
+    received_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("tick_uuid", name="uq_enrichment_ticks_tick_uuid"),
+        Index("idx_enrichment_ticks_started_at", "started_at"),
     )

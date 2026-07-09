@@ -8,6 +8,7 @@ import type {
   RecentJobsFilters,
 } from '../../../types';
 import { getTimeWindowDuration } from '../../../lib/date.ts';
+import { LEVEL_FILTER_EXPANSION } from '../../../constants/enrichment.ts';
 import { US_STATE_NAME_TO_CODE, stripUsSuffix } from '../../../lib/location.ts';
 
 /**
@@ -261,6 +262,36 @@ export function matchesEmploymentType(job: Job, employmentType: string | undefin
 }
 
 /**
+ * Check if a job matches the enrichment category filter. An active filter
+ * matches only ENRICHED jobs with that category — unenriched jobs (category
+ * null) are intentionally excluded: the filter means "show me jobs known to
+ * be X", and early in the rollout most jobs are not yet enriched.
+ */
+export function matchesCategory(job: Job, category: string | undefined): boolean {
+  if (!category) {
+    return true;
+  }
+  return job.category === category;
+}
+
+/**
+ * Check if a job matches the enrichment level filter, honoring the
+ * new_grad ⊂ entry hierarchy: selecting 'entry' also surfaces new-grad jobs
+ * (the server's _LEVEL_FILTER_EXPANSION mirrored client-side — the HANDOFF's
+ * load-bearing contract; without it new-grad jobs vanish from the entry view).
+ */
+export function matchesLevel(job: Job, level: string | undefined): boolean {
+  if (!level) {
+    return true;
+  }
+  if (job.level == null) {
+    return false;
+  }
+  const expanded = LEVEL_FILTER_EXPANSION[level] ?? [level];
+  return expanded.includes(job.level);
+}
+
+/**
  * Check if a job matches company filter (multi-select with OR logic)
  */
 export function matchesCompany(job: Job, companies: string[] | undefined): boolean {
@@ -307,6 +338,14 @@ export function filterJobsByFilters(
 
     // Employment type filter
     if (!matchesEmploymentType(job, filters.employmentType)) {
+      return false;
+    }
+
+    // Enrichment facet filters (single-select; every filter shape owns both)
+    if (!matchesCategory(job, filters.category)) {
+      return false;
+    }
+    if (!matchesLevel(job, filters.level)) {
       return false;
     }
 

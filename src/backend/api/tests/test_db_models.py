@@ -32,6 +32,7 @@ def test_all_tables_present():
         "job_levels",
         "job_tags",
         "job_enrichment",
+        "enrichment_ticks",
     }, f"Unexpected metadata.tables: {sorted(names)}"
 
 

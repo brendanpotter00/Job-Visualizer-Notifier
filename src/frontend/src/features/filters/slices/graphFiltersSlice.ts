@@ -14,6 +14,8 @@ const initialFilters: GraphFilters = {
   department: undefined,
   employmentType: undefined,
   softwareOnly: false,
+  category: undefined,
+  level: undefined,
 };
 
 const graphFiltersSlice = createFilterSlice('graph', initialFilters);
@@ -50,6 +52,8 @@ export const {
   clearGraphDepartments,
   setGraphDepartment,
   setGraphEmploymentType,
+  setGraphCategory,
+  setGraphLevel,
   toggleGraphSoftwareOnly,
   setGraphSoftwareOnly,
   hydrateGraphFilters,

@@ -38,19 +38,40 @@ CATEGORY_SLUGS = frozenset(
 )
 LEVEL_SLUGS = frozenset({"new_grad", "entry", "mid", "senior", "senior_plus", "manager"})
 
+# Bounds on what one /results item may persist into the public read path
+# (job_tags feeds every /api/jobs row via the tags subquery). Extras are
+# truncated with a warning — degraded, never a dropped batch, mirroring the
+# facet soft-nulling contract.
+MAX_TAGS_PER_JOB = 16
+MAX_TAG_LENGTH = 60
 
-def _valid(value: Any, allowed: frozenset[str], job_id: str, facet: str) -> str | None:
+
+def _valid(
+    value: Any, allowed: frozenset[str], job_id: str, facet: str, warnings: list[str]
+) -> str | None:
     if value is None:
         return None
     if value in allowed:
         return str(value)
     logger.warning("enrichment: dropping invalid %s=%r for job %s", facet, value, job_id)
+    # Also surfaced in the /results response so the enricher SEES the
+    # degradation — silently-nulled facets are how taxonomy drift stays
+    # invisible for weeks.
+    warnings.append(f"invalid {facet} {value!r} nulled (not in taxonomy)")
     return None
 
 
-def apply_result(conn: Connection, result: dict[str, Any], *, require_judge_pass: bool) -> None:
+def apply_result(
+    conn: Connection, result: dict[str, Any], *, require_judge_pass: bool
+) -> list[str]:
     """Apply one enrichment result. Raises on malformed input so the caller's
-    SAVEPOINT rolls back just this row."""
+    SAVEPOINT rolls back just this row.
+
+    Returns the row's degradation warnings (facet nulled, tags truncated,
+    human-correction skip); the router echoes them in the /results response —
+    the write-side feedback channel that makes laptop-side drift observable
+    instead of silent."""
+    warnings: list[str] = []
     job_id = result["job_listing_id"]
     # job_listings' PK is the COMPOSITE (source_id, id); `id` is NOT globally
     # unique, so every job_listings UPDATE below keys on BOTH columns. The
@@ -65,11 +86,31 @@ def apply_result(conn: Connection, result: dict[str, Any], *, require_judge_pass
     # JVN-side gate is on AND this row is flagged for a human.
     publish = (not require_judge_pass) or (not needs_human)
 
-    category = _valid(result.get("category"), CATEGORY_SLUGS, job_id, "category")
-    level = _valid(result.get("level"), LEVEL_SLUGS, job_id, "level")
+    category = _valid(result.get("category"), CATEGORY_SLUGS, job_id, "category", warnings)
+    level = _valid(result.get("level"), LEVEL_SLUGS, job_id, "level", warnings)
 
     cur = conn.cursor()
     try:
+        # 0. Human-correction guard: a row an admin has corrected is LOCKED
+        #    against automated overwrite — a human label must outlive any later
+        #    agent re-write (reenrich sweeps, duplicate deliveries, taxonomy
+        #    re-runs). The item still counts as written (the enricher marks it
+        #    sent and stops retrying); the warning tells it why nothing changed.
+        #    Only the admin re-enrich action (which clears human_corrected_at)
+        #    reopens the row.
+        cur.execute(
+            "SELECT human_corrected_at FROM job_enrichment "
+            "WHERE source_id = %s AND job_listing_id = %s",
+            (source_id, job_id),
+        )
+        guard_row = cur.fetchone()
+        if guard_row and guard_row["human_corrected_at"] is not None:
+            logger.info(
+                "enrichment: skipping (source_id=%s, id=%s) — human-corrected at %s",
+                source_id, job_id, guard_row["human_corrected_at"],
+            )
+            warnings.append("skipped: human-corrected (facets locked)")
+            return warnings
         # 1. Audit / heavy payload (1:1 side table). Keyed on the composite
         #    (source_id, job_listing_id) — `id` is not globally unique, so an
         #    upsert on job_listing_id alone could collapse a different source's row.
@@ -133,14 +174,23 @@ def apply_result(conn: Connection, result: dict[str, Any], *, require_judge_pass
             seen: set[str] = set()
             for tag in tags:
                 t = str(tag).strip().lower()
-                if t and t not in seen:
-                    seen.add(t)
-                    cur.execute(
-                        "INSERT INTO job_tags (source_id, job_listing_id, tag) "
-                        "VALUES (%s, %s, %s) "
-                        "ON CONFLICT (source_id, job_listing_id, tag) DO NOTHING",
-                        (source_id, job_id, t),
+                if not t or t in seen:
+                    continue
+                if len(t) > MAX_TAG_LENGTH:
+                    warnings.append(f"tag dropped (> {MAX_TAG_LENGTH} chars): {t[:40]!r}…")
+                    continue
+                if len(seen) >= MAX_TAGS_PER_JOB:
+                    warnings.append(
+                        f"tags truncated to {MAX_TAGS_PER_JOB} (got {len(tags)})"
                     )
+                    break
+                seen.add(t)
+                cur.execute(
+                    "INSERT INTO job_tags (source_id, job_listing_id, tag) "
+                    "VALUES (%s, %s, %s) "
+                    "ON CONFLICT (source_id, job_listing_id, tag) DO NOTHING",
+                    (source_id, job_id, t),
+                )
         else:
             # Demote to needs_human: also NULL the facets + drop the tags so a row
             # previously published 'done' doesn't retain stale published facets
@@ -192,6 +242,7 @@ def apply_result(conn: Connection, result: dict[str, Any], *, require_judge_pass
                 "done): %s",
                 job_id, exc, exc_info=True,
             )
+            warnings.append("locations skipped (persist failed; labels kept)")
         finally:
             loc_cur.close()
     elif bool(raw_location) != bool(loc_dicts):
@@ -203,3 +254,5 @@ def apply_result(conn: Connection, result: dict[str, Any], *, require_judge_pass
             "skipping location persist",
             job_id, bool(raw_location), bool(loc_dicts),
         )
+        warnings.append("partial location (raw_location XOR locations[]) skipped")
+    return warnings
