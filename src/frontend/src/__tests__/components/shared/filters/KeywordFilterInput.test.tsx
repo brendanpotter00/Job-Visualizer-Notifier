@@ -244,6 +244,47 @@ describe('KeywordFilterInput', () => {
     });
   });
 
+  describe('error surfacing (helperText channel)', () => {
+    it('surfaces a keyword-lists fetch failure as error helperText', () => {
+      // Ledger #1: an authed user's lists fetch can fail, otherwise silently
+      // collapsing the dropdown to just "None". The failure must surface inline
+      // through the TextField error/helperText channel (mirrors
+      // AsyncMultiSelectAutocomplete). The shaped error matches what
+      // extractErrorMessage consumes ({ data: { detail } }).
+      mockAuthState.isAuthenticated = true;
+      mockUseGetKeywordListsQuery.mockReturnValue({
+        isError: true,
+        error: { data: { detail: 'Failed to load keyword lists' } },
+      });
+      renderInput(undefined);
+
+      const helperText = screen.getByText('Failed to load keyword lists');
+      expect(helperText).toBeInTheDocument();
+      // `Mui-error` lands on the helper text only when the TextField `error` prop
+      // is set, so this also asserts the field is in its error state.
+      expect(helperText).toHaveClass('Mui-error');
+    });
+
+    it('surfaces a sign-in failure as error helperText when login() rejects', async () => {
+      // Ledger #2: the anonymous "Sign in to create custom lists" CTA calls
+      // login(), which deliberately rethrows (pop-up-blocker / CSP / Auth0). The
+      // component's `void login().catch(...)` surfaces the rejection inline AND
+      // handles it, so no unhandled rejection leaks. A message-less Error falls
+      // back to the default copy.
+      mockLogin.mockRejectedValueOnce(new Error());
+      renderInput(undefined);
+      const { user, listbox } = await openDropdown();
+
+      await user.click(
+        within(listbox).getByRole('option', { name: /sign in to create custom lists/i })
+      );
+
+      expect(mockLogin).toHaveBeenCalledTimes(1);
+      const helperText = await screen.findByText('Sign-in failed. Please try again.');
+      expect(helperText).toHaveClass('Mui-error');
+    });
+  });
+
   describe('active-list indicator (checkmark)', () => {
     it("marks a list with a checkmark when the current tags equal its tags (order-insensitive)", async () => {
       // Seed the current tags equal to the built-in SWE list but reversed, to
