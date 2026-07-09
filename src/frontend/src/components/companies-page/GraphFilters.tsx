@@ -17,11 +17,9 @@ import {
   selectAvailableLocations,
   selectAvailableDepartments,
 } from '../../features/filters/selectors/commonFiltersSelectors.ts';
-import { SearchTagsInput } from '../shared/filters/SearchTagsInput.tsx';
+import { KeywordFilterInput } from '../shared/filters/KeywordFilterInput.tsx';
 import { TimeWindowSelect } from '../shared/filters/TimeWindowSelect.tsx';
 import { MultiSelectAutocomplete } from '../shared/filters/MultiSelectAutocomplete.tsx';
-import { KeywordListSelect } from '../shared/filters/KeywordListSelect.tsx';
-import type { SearchTag } from '../../types';
 
 /**
  * Filter controls for the company hiring-trend page.
@@ -55,11 +53,12 @@ export function GraphFilters() {
           '& .MuiInputLabel-root': { fontSize: RESPONSIVE.control.fontSize },
         }}
       >
-        <SearchTagsInput
-          value={filters.searchTags || []}
+        <KeywordFilterInput
+          value={filters.searchTags}
           onAdd={(tag) => dispatch(addGraphSearchTag(tag))}
           onRemove={(text) => dispatch(removeGraphSearchTag(text))}
           onToggleMode={(text) => dispatch(toggleGraphSearchTagMode(text))}
+          onClear={() => dispatch(setGraphSearchTags(undefined))}
         />
 
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={RESPONSIVE.spacing.filterSpacing}>
@@ -86,10 +85,6 @@ export function GraphFilters() {
               onRemove={(dept) => dispatch(removeGraphDepartment(dept))}
             />
           )}
-          <KeywordListSelect
-            value={filters.searchTags}
-            onChange={(tags: SearchTag[] | undefined) => dispatch(setGraphSearchTags(tags))}
-          />
         </Stack>
       </Stack>
     </Box>

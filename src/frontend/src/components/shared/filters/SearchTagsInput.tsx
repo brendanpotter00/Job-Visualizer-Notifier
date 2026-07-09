@@ -1,7 +1,6 @@
 import { useState } from 'react';
-import { TextField, Autocomplete, Chip } from '@mui/material';
-import { Add as AddIcon, Remove as RemoveIcon } from '@mui/icons-material';
-import { parseSearchTagInput } from '../../../features/filters/utils/filterUtils.ts';
+import { TextField, Autocomplete } from '@mui/material';
+import { renderSearchTagChips, makeSearchTagEnterHandler } from './searchTagInputShared.tsx';
 import type { SearchTag } from '../../../types';
 
 export interface SearchTagsInputProps {
@@ -26,17 +25,7 @@ export function SearchTagsInput({
 }: SearchTagsInputProps) {
   const [inputValue, setInputValue] = useState('');
 
-  const handleKeyDown = (event: React.KeyboardEvent) => {
-    if (event.key === 'Enter' && inputValue.trim()) {
-      event.preventDefault();
-
-      const parsed = parseSearchTagInput(inputValue);
-      if (parsed) {
-        onAdd(parsed);
-        setInputValue('');
-      }
-    }
-  };
+  const handleKeyDown = makeSearchTagEnterHandler(inputValue, onAdd, () => setInputValue(''));
 
   const handleChange = (_: unknown, newValue: (string | SearchTag)[]) => {
     // Handle chip removal via the X button
@@ -64,21 +53,7 @@ export function SearchTagsInput({
         (typeof tagValue === 'string' ? tagValue : tagValue.text)
       }
       renderValue={(currentValue, getItemProps) =>
-        currentValue.map((tag, index) => {
-          if (typeof tag === 'string') return null;
-          const { key, ...itemProps } = getItemProps({ index });
-          return (
-            <Chip
-              key={key}
-              color={tag.mode === 'include' ? 'success' : 'error'}
-              icon={tag.mode === 'include' ? <AddIcon /> : <RemoveIcon />}
-              label={tag.text}
-              size="small"
-              onClick={() => onToggleMode(tag.text)}
-              {...itemProps}
-            />
-          );
-        })
+        renderSearchTagChips(currentValue, getItemProps, onToggleMode)
       }
       renderInput={(params) => (
         <TextField
