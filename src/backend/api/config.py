@@ -62,8 +62,11 @@ class Settings(BaseSettings):
     # Stale-claim reclaim window. MUST exceed a full enricher tick (one /pending →
     # classify → /results batch round-trip); otherwise an in-flight batch's rows
     # are reclaimed mid-flight and double-handed (wasting laptop tokens; only made
-    # safe by the idempotent /results upsert).
-    enrichment_claim_ttl_minutes: int = Field(default=15, gt=0)
+    # safe by the idempotent /results upsert). 240 = the enricher's 3h tick
+    # watchdog (ENRICH_TICK_TIMEOUT_SECS) + an hour of slack — the old 15m
+    # default guaranteed false stale_claims alerts during every normal long
+    # tick and mid-flight reclaims on any tick past 15 minutes.
+    enrichment_claim_ttl_minutes: int = Field(default=240, gt=0)
     # If True, /results HOLDS judge-flagged rows as 'needs_human' (keyed on
     # judge.needs_human) instead of publishing them 'done'. Rows are held, NOT
     # dropped — the audit payload is still written either way.
