@@ -181,6 +181,9 @@ export function KeywordFilterInput({
     <Autocomplete<KeywordOption | SearchTag, true, false, true>
       multiple
       freeSolo
+      // freeSolo hides the popup indicator by default; force it so the arrow
+      // signals that pickable keyword lists live behind this input.
+      forcePopupIcon
       autoHighlight={false}
       size="small"
       options={options}
