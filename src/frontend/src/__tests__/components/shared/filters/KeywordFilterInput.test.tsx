@@ -339,4 +339,19 @@ describe('KeywordFilterInput', () => {
       expect(within(sweOption).queryByTestId('CheckIcon')).not.toBeInTheDocument();
     });
   });
+
+  describe('popup indicator (dropdown arrow)', () => {
+    it('renders the arrow despite freeSolo and opens the listbox when clicked', async () => {
+      // freeSolo hides the popup indicator by default; forcePopupIcon restores
+      // it so users can see there are pickable keyword lists behind the input.
+      renderInput(undefined);
+      const user = userEvent.setup();
+
+      const arrow = screen.getByRole('button', { name: 'Open' });
+      await user.click(arrow);
+
+      const listbox = await screen.findByRole('listbox');
+      expect(within(listbox).getByRole('option', { name: 'None' })).toBeInTheDocument();
+    });
+  });
 });
