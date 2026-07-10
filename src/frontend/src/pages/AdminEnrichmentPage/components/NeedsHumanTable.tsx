@@ -29,6 +29,7 @@ import { extractErrorMessage } from '../../../lib/errors';
 import { TABLE_SCROLL_SX } from '../../../config/responsive';
 import { format } from 'date-fns';
 import { CorrectionDialog } from './CorrectionDialog';
+import { JobDescriptionDialog } from './JobDescriptionDialog';
 
 function facetChip(slug: string | null) {
   if (!slug) {
@@ -51,6 +52,9 @@ export function NeedsHumanTable() {
   const [level, setLevel] = useState<string | undefined>(undefined);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [correcting, setCorrecting] = useState<EnrichmentNeedsHumanRow | null>(null);
+  const [viewingDescription, setViewingDescription] = useState<EnrichmentNeedsHumanRow | null>(
+    null
+  );
 
   const { data: facets } = useGetFacetsQuery();
   const { data, isLoading, error, refetch } = useListEnrichmentNeedsHumanQuery({
@@ -205,18 +209,23 @@ export function NeedsHumanTable() {
                                 </Box>
                               )}
                               {row.cleanDescription && (
-                                <Typography
-                                  variant="caption"
-                                  color="text.secondary"
-                                  sx={{
-                                    display: '-webkit-box',
-                                    WebkitLineClamp: 4,
-                                    WebkitBoxOrient: 'vertical',
-                                    overflow: 'hidden',
-                                  }}
-                                >
-                                  {row.cleanDescription}
-                                </Typography>
+                                <Box sx={{ mb: 0.5 }}>
+                                  <Typography
+                                    variant="caption"
+                                    color="text.secondary"
+                                    sx={{
+                                      display: '-webkit-box',
+                                      WebkitLineClamp: 4,
+                                      WebkitBoxOrient: 'vertical',
+                                      overflow: 'hidden',
+                                    }}
+                                  >
+                                    {row.cleanDescription}
+                                  </Typography>
+                                  <Button size="small" onClick={() => setViewingDescription(row)}>
+                                    View full description
+                                  </Button>
+                                </Box>
                               )}
                               <Typography variant="caption" color="text.secondary" display="block">
                                 taxonomy {row.taxonomyVersion ?? '—'} · judged{' '}
@@ -253,6 +262,12 @@ export function NeedsHumanTable() {
         open={correcting !== null}
         row={correcting}
         onClose={() => setCorrecting(null)}
+      />
+
+      <JobDescriptionDialog
+        open={viewingDescription !== null}
+        row={viewingDescription}
+        onClose={() => setViewingDescription(null)}
       />
     </Box>
   );
