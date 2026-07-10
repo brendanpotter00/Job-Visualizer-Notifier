@@ -19,6 +19,15 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'add-brainco',
+    title: 'Added Brain Co.',
+    description:
+      'Brain Co. — an applied-AI startup co-founded by Jared Kushner and Elad Gil that builds AI applications for institutions across government, healthcare, and other critical industries — is now tracked via its Ashby job board. The company recently emerged with backing from high-profile founders and is hiring across engineering, product, design, and operations in the San Francisco Bay Area.',
+    tags: ['new-companies'],
+    date: '2026-07-10',
+    link: { to: ROUTES.ACCOUNT, label: 'Add Brain Co. to your company preferences' },
+  },
+  {
     id: 'mobile-friendly',
     title: 'The whole app now works on your phone',
     description:
