@@ -120,8 +120,10 @@ Auth: reuse `require_admin`. Do not expose enrichment internals on the public AP
 - The whole path is gated by `ENRICHMENT_USE_EXTERNAL` (default **false**). With it
   off, `/pending` hands out nothing and the cloud-Haiku location pipeline is the
   sole floor — the frontend fields are all null and nothing changes.
-- Turn on for a subset first with `ENRICHMENT_COMPANY_ALLOWLIST` (csv), watch
-  `/admin/enrichment` (or `/api/internal/enrichment/health`), then widen.
+- `ENRICHMENT_USE_EXTERNAL` is the only switch — on covers every tracked
+  company. (A temporary `ENRICHMENT_COMPANY_ALLOWLIST` existed for the initial
+  staged rollout and was removed once the rollout completed.) Watch
+  `/admin/enrichment` (or `/api/internal/enrichment/health`) after flipping it.
 - Kill switch: set the flag off (or just stop the laptop). In-flight `claimed`
   rows auto-reclaim to `NULL` after `ENRICHMENT_CLAIM_TTL_MINUTES` — the
   reclaim runs inside `/pending` even with the flag OFF, so flipping the

@@ -2,7 +2,7 @@
 
 Covers three layers of the PR:
 
-* ``api.config.Settings`` — the new enrichment flags + allowlist property.
+* ``api.config.Settings`` — the enrichment flags.
 * ``api.services.enrichment_writer.apply_result`` — the per-row writer that
   lands facets on ``job_listings``, tags in ``job_tags``, the audit payload in
   ``job_enrichment``, and locations via the shared Tier-2 writer.
@@ -186,14 +186,6 @@ class TestConfig:
     def test_enrichment_use_external_defaults_false(self):
         # _env_file=None so a stray local .env can't flip the default.
         assert Settings(_env_file=None).enrichment_use_external is False
-
-    def test_allowlist_parses_csv_trimming_and_dropping_blanks(self):
-        s = Settings(_env_file=None, enrichment_company_allowlist="google, apple ,,microsoft")
-        assert s.enrichment_company_allowlist_list == ["google", "apple", "microsoft"]
-
-    def test_allowlist_empty_string_is_empty_list(self):
-        s = Settings(_env_file=None, enrichment_company_allowlist="")
-        assert s.enrichment_company_allowlist_list == []
 
 
 # --------------------------------------------------------------------------- #
