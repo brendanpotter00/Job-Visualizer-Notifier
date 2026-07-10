@@ -186,6 +186,13 @@ export function KeywordFilterInput({
       forcePopupIcon
       autoHighlight={false}
       size="small"
+      // The clear (X) + popup (▼) buttons are absolutely positioned and
+      // vertically centered by default; when chips wrap to multiple rows that
+      // center lands on top of the chips (visible on narrow/mobile widths).
+      // Pin the adornment to the top-right corner so it never overlaps wrapped
+      // chip rows. MUI's single-row default already resolves to ~this offset,
+      // so the one-row appearance is unchanged.
+      sx={{ '& .MuiAutocomplete-endAdornment': { top: 7 } }}
       options={options}
       value={value ?? []}
       inputValue={inputValue}
