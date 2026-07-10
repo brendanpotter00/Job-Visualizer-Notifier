@@ -69,6 +69,23 @@ export interface Job {
   /** Tags, keywords, or job families from ATS */
   tags?: string[];
 
+  /**
+   * Enrichment facets from the job-enricher pipeline (null/absent until a job
+   * is enriched). `enrichmentTags` is deliberately separate from `tags`: the
+   * latter is synthesized from ATS details (experience level / remote flag)
+   * and already feeds free-text search.
+   */
+  category?: string | null;
+
+  /** Level slug; filtering must honor the new_grad ⊂ entry hierarchy. */
+  level?: string | null;
+
+  /** Free-form enrichment skill tags (lowercase slugs). */
+  enrichmentTags?: string[];
+
+  /** NULL | 'claimed' | 'done' | 'needs_human'. */
+  enrichmentStatus?: string | null;
+
   /** Original ATS response for debugging */
   raw: unknown;
 }
@@ -210,6 +227,10 @@ export interface GraphFilters {
   department?: string[];
   employmentType?: string;
   softwareOnly: boolean;
+  /** Enrichment category slug filter (single-select; undefined = All). */
+  category?: string;
+  /** Enrichment level slug filter; 'entry' also matches new_grad jobs. */
+  level?: string;
 }
 
 /**
@@ -226,6 +247,10 @@ export interface ListFilters {
   department?: string[];
   employmentType?: string;
   softwareOnly: boolean;
+  /** Enrichment category slug filter (single-select; undefined = All). */
+  category?: string;
+  /** Enrichment level slug filter; 'entry' also matches new_grad jobs. */
+  level?: string;
 }
 
 /**
@@ -239,6 +264,10 @@ export interface RecentJobsFilters {
   employmentType?: string;
   softwareOnly: boolean;
   company?: string[];
+  /** Enrichment category slug filter (single-select; undefined = All). */
+  category?: string;
+  /** Enrichment level slug filter; 'entry' also matches new_grad jobs. */
+  level?: string;
 }
 
 /**
@@ -278,4 +307,23 @@ export interface FetchProgress {
 
   /** Per-company progress tracking */
   companies: CompanyFetchProgress[];
+}
+
+
+/**
+ * One dropdown option from GET /api/jobs/facets (job_categories / job_levels).
+ * `parentSlug` encodes the level hierarchy (new_grad -> entry) so the
+ * client-side filter expansion stays data-driven.
+ */
+export interface FacetOption {
+  slug: string;
+  label: string;
+  sortOrder: number;
+  parentSlug?: string | null;
+}
+
+/** GET /api/jobs/facets response. */
+export interface JobFacets {
+  categories: FacetOption[];
+  levels: FacetOption[];
 }

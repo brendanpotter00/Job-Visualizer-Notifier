@@ -939,4 +939,732 @@ describe('adminApi', () => {
       expect(result.error).toBeDefined();
     });
   });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Enrichment pipeline oversight endpoints
+  //
+  // The dashboard's ONLY ErrorBoundary is app-root, so any unguarded render
+  // throw (`.toFixed` on a stringified number, `new Date(<non-string>)`) blanks
+  // the whole SPA. These tests pin the transformResponse guards that turn a
+  // wrong-shaped 2xx into a localized ErrorState instead. Mirrors the
+  // location-guard idiom above.
+  // ───────────────────────────────────────────────────────────────────────────
+
+  describe('enrichment endpoints', () => {
+    function makeEnrichmentHealthBody(overrides: Record<string, unknown> = {}) {
+      return {
+        schemaPresent: true,
+        enabled: true,
+        openByStatus: { unenriched: 10, claimed: 1, done: 5, needs_human: 0 },
+        eligibleUnenriched: 8,
+        staleClaims: 0,
+        claimTtlMinutes: 240,
+        needsHumanOpen: 0,
+        humanCorrectedTotal: 0,
+        lastEnrichedAt: null,
+        lastEnrichedAgeS: null,
+        lastTickUuid: null,
+        lastTickStatus: null,
+        lastTickStartedAt: null,
+        lastTickAgeS: null,
+        lastTickDriftSuspected: false,
+        windowHours: 24,
+        enrichedInWindow: 5,
+        errorTicksInWindow: 0,
+        ...overrides,
+      };
+    }
+
+    function makeTickRow(overrides: Record<string, unknown> = {}) {
+      return {
+        tickUuid: 'tick-0',
+        startedAt: '2026-07-09T00:00:00Z',
+        endedAt: null,
+        status: 'ok',
+        notes: null,
+        claimed: 1,
+        cleaned: 1,
+        classified: 1,
+        judged: 0,
+        corrected: 0,
+        needsHuman: 0,
+        sent: 1,
+        errors: 0,
+        nulledFacets: 0,
+        durationS: null,
+        taxonomyVersion: null,
+        stageTimings: null,
+        heartbeatAgeS: null,
+        driftSuspected: false,
+        receivedAt: null,
+        ...overrides,
+      };
+    }
+
+    function makeTicksBody(overrides: Record<string, unknown> = {}) {
+      return {
+        ticks: [makeTickRow()],
+        windowHours: 24,
+        latestScorecard: null,
+        latestScorecardTickUuid: null,
+        latestKnobs: null,
+        ...overrides,
+      };
+    }
+
+    function makeRecentRow(overrides: Record<string, unknown> = {}) {
+      return {
+        sourceId: 'greenhouse_api',
+        jobListingId: 'j-1',
+        title: 'Engineer',
+        company: 'acme',
+        url: 'https://example.com/j-1',
+        enrichmentStatus: 'done',
+        category: 'software_engineering',
+        level: 'senior',
+        tags: ['python'],
+        classifyConfidence: 0.9,
+        classifyReasoning: null,
+        judged: true,
+        judgePassed: true,
+        judgeConfidence: 0.8,
+        judgeNotes: null,
+        taxonomyVersion: null,
+        needsHuman: false,
+        humanCorrectedAt: null,
+        enrichedAt: '2026-07-09T00:00:00Z',
+        ...overrides,
+      };
+    }
+
+    function makeNeedsHumanRow(overrides: Record<string, unknown> = {}) {
+      return {
+        sourceId: 'greenhouse_api',
+        jobListingId: 'j-1',
+        title: 'Engineer',
+        company: 'acme',
+        url: null,
+        jobStatus: 'OPEN',
+        enrichmentStatus: 'done',
+        category: 'growth',
+        level: 'mid',
+        tags: ['sql'],
+        cleanDescription: 'Own the funnel.',
+        classifyConfidence: 0.5,
+        classifyReasoning: null,
+        taxonomyVersion: null,
+        judged: true,
+        judgePassed: false,
+        judgeConfidence: 0.5,
+        judgeNotes: null,
+        enrichedAt: '2026-07-09T00:00:00Z',
+        humanCorrectedAt: null,
+        humanCorrectedBy: null,
+        ...overrides,
+      };
+    }
+
+    function makeNeedsHumanBody(overrides: Record<string, unknown> = {}) {
+      return { rows: [makeNeedsHumanRow()], total: 1, limit: 10, offset: 0, ...overrides };
+    }
+
+    // ── getEnrichmentHealth ────────────────────────────────────────────────
+
+    it('getEnrichmentHealth attaches auth and unwraps a valid health body', async () => {
+      const body = makeEnrichmentHealthBody();
+      fetchMock.mockResolvedValue(jsonResponse(body));
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(adminApi.endpoints.getEnrichmentHealth.initiate());
+
+      const call = fetchMock.mock.calls[0] as [unknown, unknown];
+      expect(urlFromInput(call[0])).toMatch(/\/api\/admin\/enrichment\/health/);
+      expect(getAuthHeader(call)).toBe('Bearer test-admin-token');
+      expect(result.data).toEqual(body);
+    });
+
+    it('getEnrichmentHealth THROWS when openByStatus has a non-number value', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse(makeEnrichmentHealthBody({ openByStatus: { unenriched: 'lots' } }))
+      );
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(adminApi.endpoints.getEnrichmentHealth.initiate());
+
+      expect(result.data).toBeUndefined();
+      expect(result.error).toBeDefined();
+    });
+
+    it('getEnrichmentHealth THROWS when a numeric field arrives as a string', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse(makeEnrichmentHealthBody({ needsHumanOpen: '2' }))
+      );
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(adminApi.endpoints.getEnrichmentHealth.initiate());
+
+      expect(result.data).toBeUndefined();
+      expect(result.error).toBeDefined();
+    });
+
+    // ── getEnrichmentTicks ─────────────────────────────────────────────────
+
+    it('getEnrichmentTicks unwraps a valid ticks body', async () => {
+      const body = makeTicksBody();
+      fetchMock.mockResolvedValue(jsonResponse(body));
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(adminApi.endpoints.getEnrichmentTicks.initiate());
+
+      const call = fetchMock.mock.calls[0] as [unknown, unknown];
+      expect(urlFromInput(call[0])).toMatch(/\/api\/admin\/enrichment\/ticks/);
+      expect(result.data).toEqual(body);
+    });
+
+    it('getEnrichmentTicks THROWS when windowHours is not a number', async () => {
+      fetchMock.mockResolvedValue(jsonResponse(makeTicksBody({ windowHours: '24' })));
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(adminApi.endpoints.getEnrichmentTicks.initiate());
+
+      expect(result.data).toBeUndefined();
+      expect(result.error).toBeDefined();
+    });
+
+    it('getEnrichmentTicks THROWS when a tick is missing tickUuid', async () => {
+      const badTick = makeTickRow();
+      delete (badTick as Record<string, unknown>).tickUuid;
+      fetchMock.mockResolvedValue(jsonResponse(makeTicksBody({ ticks: [badTick] })));
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(adminApi.endpoints.getEnrichmentTicks.initiate());
+
+      expect(result.data).toBeUndefined();
+      expect(result.error).toBeDefined();
+    });
+
+    it('getEnrichmentTicks THROWS when a tick.startedAt is not a string (Invalid Date crash path)', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse(makeTicksBody({ ticks: [makeTickRow({ startedAt: 1234567890 })] }))
+      );
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(adminApi.endpoints.getEnrichmentTicks.initiate());
+
+      expect(result.data).toBeUndefined();
+      expect(result.error).toBeDefined();
+    });
+
+    it('getEnrichmentTicks THROWS when a tick.stageTimings is a non-array (.find crash path)', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse(makeTicksBody({ ticks: [makeTickRow({ stageTimings: {} })] }))
+      );
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(adminApi.endpoints.getEnrichmentTicks.initiate());
+
+      expect(result.data).toBeUndefined();
+      expect(result.error).toBeDefined();
+    });
+
+    it('getEnrichmentTicks accepts stageTimings: null and a valid stageTimings array', async () => {
+      const validArray = [{ stage: 'classify', ms: 120, items: 3, retries: 0 }];
+      const body = makeTicksBody({
+        ticks: [makeTickRow({ stageTimings: null }), makeTickRow({ stageTimings: validArray })],
+      });
+      fetchMock.mockResolvedValue(jsonResponse(body));
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(adminApi.endpoints.getEnrichmentTicks.initiate());
+
+      expect(result.error).toBeUndefined();
+      expect(result.data).toEqual(body);
+    });
+
+    it('getEnrichmentTicks THROWS when a tick.notes is a non-string non-null value (React-child crash path)', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse(makeTicksBody({ ticks: [makeTickRow({ notes: {} })] }))
+      );
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(adminApi.endpoints.getEnrichmentTicks.initiate());
+
+      expect(result.data).toBeUndefined();
+      expect(result.error).toBeDefined();
+    });
+
+    it('getEnrichmentTicks THROWS when latestScorecardTickUuid is a non-string non-null value (React-child crash path)', async () => {
+      fetchMock.mockResolvedValue(jsonResponse(makeTicksBody({ latestScorecardTickUuid: {} })));
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(adminApi.endpoints.getEnrichmentTicks.initiate());
+
+      expect(result.data).toBeUndefined();
+      expect(result.error).toBeDefined();
+    });
+
+    it('getEnrichmentTicks accepts null notes + string notes and a string latestScorecardTickUuid', async () => {
+      const body = makeTicksBody({
+        ticks: [makeTickRow({ notes: null }), makeTickRow({ notes: 'reclaimed 2 stale' })],
+        latestScorecardTickUuid: 'tick-42',
+      });
+      fetchMock.mockResolvedValue(jsonResponse(body));
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(adminApi.endpoints.getEnrichmentTicks.initiate());
+
+      expect(result.error).toBeUndefined();
+      expect(result.data).toEqual(body);
+    });
+
+    // ── getEnrichmentRecent ────────────────────────────────────────────────
+
+    it('getEnrichmentRecent unwraps the rows[] array', async () => {
+      const rows = [makeRecentRow()];
+      fetchMock.mockResolvedValue(jsonResponse({ rows }));
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(adminApi.endpoints.getEnrichmentRecent.initiate());
+
+      const call = fetchMock.mock.calls[0] as [unknown, unknown];
+      expect(urlFromInput(call[0])).toMatch(/\/api\/admin\/enrichment\/recent/);
+      expect(getAuthHeader(call)).toBe('Bearer test-admin-token');
+      expect(result.data).toEqual(rows);
+    });
+
+    it('getEnrichmentRecent THROWS when rows is not an array', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ rows: 'nope' }));
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(adminApi.endpoints.getEnrichmentRecent.initiate());
+
+      expect(result.data).toBeUndefined();
+      expect(result.error).toBeDefined();
+    });
+
+    it('getEnrichmentRecent THROWS when a row is missing jobListingId', async () => {
+      const bad = makeRecentRow();
+      delete (bad as Record<string, unknown>).jobListingId;
+      fetchMock.mockResolvedValue(jsonResponse({ rows: [bad] }));
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(adminApi.endpoints.getEnrichmentRecent.initiate());
+
+      expect(result.data).toBeUndefined();
+      expect(result.error).toBeDefined();
+    });
+
+    it('getEnrichmentRecent THROWS when a row is missing sourceId', async () => {
+      const bad = makeRecentRow();
+      delete (bad as Record<string, unknown>).sourceId;
+      fetchMock.mockResolvedValue(jsonResponse({ rows: [bad] }));
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(adminApi.endpoints.getEnrichmentRecent.initiate());
+
+      expect(result.data).toBeUndefined();
+      expect(result.error).toBeDefined();
+    });
+
+    it('getEnrichmentRecent THROWS when row.tags is not an array (render crash path)', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ rows: [makeRecentRow({ tags: null })] }));
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(adminApi.endpoints.getEnrichmentRecent.initiate());
+
+      expect(result.data).toBeUndefined();
+      expect(result.error).toBeDefined();
+    });
+
+    it('getEnrichmentRecent THROWS when classifyConfidence is a stringified number', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({ rows: [makeRecentRow({ classifyConfidence: '0.9' })] })
+      );
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(adminApi.endpoints.getEnrichmentRecent.initiate());
+
+      expect(result.data).toBeUndefined();
+      expect(result.error).toBeDefined();
+    });
+
+    it('getEnrichmentRecent THROWS when enrichedAt is not a string', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ rows: [makeRecentRow({ enrichedAt: 0 })] }));
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(adminApi.endpoints.getEnrichmentRecent.initiate());
+
+      expect(result.data).toBeUndefined();
+      expect(result.error).toBeDefined();
+    });
+
+    it('getEnrichmentRecent accepts null nullable fields (title/company/url/enrichedAt/confidence)', async () => {
+      const rows = [
+        makeRecentRow({
+          title: null,
+          company: null,
+          url: null,
+          enrichedAt: null,
+          classifyConfidence: null,
+          judgeConfidence: null,
+        }),
+      ];
+      fetchMock.mockResolvedValue(jsonResponse({ rows }));
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(adminApi.endpoints.getEnrichmentRecent.initiate());
+
+      expect(result.error).toBeUndefined();
+      expect(result.data?.[0].title).toBeNull();
+    });
+
+    // ``category``/``level`` render as Chip labels (``FACET_LABELS[slug] ?? slug``
+    // — a non-string slug falls through to the raw object), so an object value is
+    // an "Objects are not valid as a React child" whole-SPA crash.
+    it('getEnrichmentRecent THROWS when category is a non-string non-null value (React-child crash path)', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ rows: [makeRecentRow({ category: {} })] }));
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(adminApi.endpoints.getEnrichmentRecent.initiate());
+
+      expect(result.data).toBeUndefined();
+      expect(result.error).toBeDefined();
+    });
+
+    it('getEnrichmentRecent THROWS when level is a non-string non-null value (React-child crash path)', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ rows: [makeRecentRow({ level: {} })] }));
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(adminApi.endpoints.getEnrichmentRecent.initiate());
+
+      expect(result.data).toBeUndefined();
+      expect(result.error).toBeDefined();
+    });
+
+    it('getEnrichmentRecent accepts null category/level/classifyReasoning/judgeNotes/taxonomyVersion', async () => {
+      const rows = [
+        makeRecentRow({
+          category: null,
+          level: null,
+          classifyReasoning: null,
+          judgeNotes: null,
+          taxonomyVersion: null,
+        }),
+      ];
+      fetchMock.mockResolvedValue(jsonResponse({ rows }));
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(adminApi.endpoints.getEnrichmentRecent.initiate());
+
+      expect(result.error).toBeUndefined();
+      expect(result.data?.[0].category).toBeNull();
+    });
+
+    // ── listEnrichmentNeedsHuman ───────────────────────────────────────────
+
+    it('listEnrichmentNeedsHuman unwraps a valid body', async () => {
+      const body = makeNeedsHumanBody();
+      fetchMock.mockResolvedValue(jsonResponse(body));
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(
+        adminApi.endpoints.listEnrichmentNeedsHuman.initiate({ limit: 10, offset: 0 })
+      );
+
+      expect(result.data).toEqual(body);
+    });
+
+    it('listEnrichmentNeedsHuman THROWS when rows is not an array', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ rows: 'nope', total: 0 }));
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(
+        adminApi.endpoints.listEnrichmentNeedsHuman.initiate({ limit: 10, offset: 0 })
+      );
+
+      expect(result.data).toBeUndefined();
+      expect(result.error).toBeDefined();
+    });
+
+    it('listEnrichmentNeedsHuman THROWS when a row is missing sourceId', async () => {
+      const bad = makeNeedsHumanRow();
+      delete (bad as Record<string, unknown>).sourceId;
+      fetchMock.mockResolvedValue(jsonResponse(makeNeedsHumanBody({ rows: [bad] })));
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(
+        adminApi.endpoints.listEnrichmentNeedsHuman.initiate({ limit: 10, offset: 0 })
+      );
+
+      expect(result.data).toBeUndefined();
+      expect(result.error).toBeDefined();
+    });
+
+    it('listEnrichmentNeedsHuman THROWS when row.tags is not an array', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse(makeNeedsHumanBody({ rows: [makeNeedsHumanRow({ tags: 'nope' })] }))
+      );
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(
+        adminApi.endpoints.listEnrichmentNeedsHuman.initiate({ limit: 10, offset: 0 })
+      );
+
+      expect(result.data).toBeUndefined();
+      expect(result.error).toBeDefined();
+    });
+
+    it('listEnrichmentNeedsHuman THROWS when judgeConfidence is a stringified number', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse(makeNeedsHumanBody({ rows: [makeNeedsHumanRow({ judgeConfidence: '0.5' })] }))
+      );
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(
+        adminApi.endpoints.listEnrichmentNeedsHuman.initiate({ limit: 10, offset: 0 })
+      );
+
+      expect(result.data).toBeUndefined();
+      expect(result.error).toBeDefined();
+    });
+
+    // ``title``/``company``/``url`` render directly into the NeedsHumanTable
+    // (title as text, url into a <Link href>); an object/number value is an
+    // "Objects are not valid as a React child" whole-SPA crash. Mirror the
+    // sibling recent guard.
+    it('listEnrichmentNeedsHuman THROWS when title is a non-string non-null value', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse(makeNeedsHumanBody({ rows: [makeNeedsHumanRow({ title: {} })] }))
+      );
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(
+        adminApi.endpoints.listEnrichmentNeedsHuman.initiate({ limit: 10, offset: 0 })
+      );
+
+      expect(result.data).toBeUndefined();
+      expect(result.error).toBeDefined();
+    });
+
+    it('listEnrichmentNeedsHuman THROWS when company is a non-string non-null value', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse(makeNeedsHumanBody({ rows: [makeNeedsHumanRow({ company: 123 })] }))
+      );
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(
+        adminApi.endpoints.listEnrichmentNeedsHuman.initiate({ limit: 10, offset: 0 })
+      );
+
+      expect(result.data).toBeUndefined();
+      expect(result.error).toBeDefined();
+    });
+
+    it('listEnrichmentNeedsHuman THROWS when url is a non-string non-null value', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse(makeNeedsHumanBody({ rows: [makeNeedsHumanRow({ url: {} })] }))
+      );
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(
+        adminApi.endpoints.listEnrichmentNeedsHuman.initiate({ limit: 10, offset: 0 })
+      );
+
+      expect(result.data).toBeUndefined();
+      expect(result.error).toBeDefined();
+    });
+
+    it('listEnrichmentNeedsHuman accepts null title/company/url', async () => {
+      const body = makeNeedsHumanBody({
+        rows: [makeNeedsHumanRow({ title: null, company: null, url: null })],
+      });
+      fetchMock.mockResolvedValue(jsonResponse(body));
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(
+        adminApi.endpoints.listEnrichmentNeedsHuman.initiate({ limit: 10, offset: 0 })
+      );
+
+      expect(result.error).toBeUndefined();
+      expect(result.data?.rows[0].title).toBeNull();
+    });
+
+    // ``category``/``level`` render as Chip labels via ``facetChip`` (an object
+    // slug falls through ``FACET_LABELS[slug] ?? slug`` to the raw object);
+    // ``classifyReasoning``/``judgeNotes`` render as expander text;
+    // ``taxonomyVersion`` renders as ``taxonomy {v ?? '—'}`` footer text. Each is
+    // an "Objects are not valid as a React child" whole-SPA crash when non-string.
+    it('listEnrichmentNeedsHuman THROWS when category is a non-string non-null value (React-child crash path)', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse(makeNeedsHumanBody({ rows: [makeNeedsHumanRow({ category: {} })] }))
+      );
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(
+        adminApi.endpoints.listEnrichmentNeedsHuman.initiate({ limit: 10, offset: 0 })
+      );
+
+      expect(result.data).toBeUndefined();
+      expect(result.error).toBeDefined();
+    });
+
+    it('listEnrichmentNeedsHuman THROWS when level is a non-string non-null value (React-child crash path)', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse(makeNeedsHumanBody({ rows: [makeNeedsHumanRow({ level: {} })] }))
+      );
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(
+        adminApi.endpoints.listEnrichmentNeedsHuman.initiate({ limit: 10, offset: 0 })
+      );
+
+      expect(result.data).toBeUndefined();
+      expect(result.error).toBeDefined();
+    });
+
+    it('listEnrichmentNeedsHuman THROWS when judgeNotes is a non-string non-null value (React-child crash path)', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse(makeNeedsHumanBody({ rows: [makeNeedsHumanRow({ judgeNotes: {} })] }))
+      );
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(
+        adminApi.endpoints.listEnrichmentNeedsHuman.initiate({ limit: 10, offset: 0 })
+      );
+
+      expect(result.data).toBeUndefined();
+      expect(result.error).toBeDefined();
+    });
+
+    it('listEnrichmentNeedsHuman THROWS when classifyReasoning is a non-string non-null value (React-child crash path)', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse(makeNeedsHumanBody({ rows: [makeNeedsHumanRow({ classifyReasoning: {} })] }))
+      );
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(
+        adminApi.endpoints.listEnrichmentNeedsHuman.initiate({ limit: 10, offset: 0 })
+      );
+
+      expect(result.data).toBeUndefined();
+      expect(result.error).toBeDefined();
+    });
+
+    it('listEnrichmentNeedsHuman THROWS when taxonomyVersion is a non-string non-null value (React-child crash path)', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse(makeNeedsHumanBody({ rows: [makeNeedsHumanRow({ taxonomyVersion: {} })] }))
+      );
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(
+        adminApi.endpoints.listEnrichmentNeedsHuman.initiate({ limit: 10, offset: 0 })
+      );
+
+      expect(result.data).toBeUndefined();
+      expect(result.error).toBeDefined();
+    });
+
+    it('listEnrichmentNeedsHuman accepts null category/level/classifyReasoning/judgeNotes/taxonomyVersion', async () => {
+      const body = makeNeedsHumanBody({
+        rows: [
+          makeNeedsHumanRow({
+            category: null,
+            level: null,
+            classifyReasoning: null,
+            judgeNotes: null,
+            taxonomyVersion: null,
+          }),
+        ],
+      });
+      fetchMock.mockResolvedValue(jsonResponse(body));
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(
+        adminApi.endpoints.listEnrichmentNeedsHuman.initiate({ limit: 10, offset: 0 })
+      );
+
+      expect(result.error).toBeUndefined();
+      expect(result.data?.rows[0].category).toBeNull();
+    });
+
+    it('listEnrichmentNeedsHuman emits onlyOpen (only when explicitly false) + conditional filters', async () => {
+      fetchMock.mockResolvedValue(jsonResponse(makeNeedsHumanBody()));
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      await store.dispatch(
+        adminApi.endpoints.listEnrichmentNeedsHuman.initiate({
+          limit: 10,
+          offset: 0,
+          company: 'acme',
+          category: 'growth',
+          level: 'mid',
+          includeCorrected: true,
+          onlyOpen: false,
+        })
+      );
+
+      const url = urlFromInput((fetchMock.mock.calls[0] as [unknown, unknown])[0]);
+      expect(url).toMatch(/limit=10/);
+      expect(url).toMatch(/offset=0/);
+      expect(url).toMatch(/company=acme/);
+      expect(url).toMatch(/category=growth/);
+      expect(url).toMatch(/level=mid/);
+      expect(url).toMatch(/includeCorrected=true/);
+      expect(url).toMatch(/onlyOpen=false/);
+    });
+
+    it('listEnrichmentNeedsHuman OMITS onlyOpen when true and omits absent filters', async () => {
+      fetchMock.mockResolvedValue(jsonResponse(makeNeedsHumanBody()));
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      await store.dispatch(
+        adminApi.endpoints.listEnrichmentNeedsHuman.initiate({
+          limit: 25,
+          offset: 50,
+          onlyOpen: true,
+        })
+      );
+
+      const url = urlFromInput((fetchMock.mock.calls[0] as [unknown, unknown])[0]);
+      expect(url).toMatch(/limit=25/);
+      expect(url).toMatch(/offset=50/);
+      expect(url).not.toMatch(/onlyOpen/);
+      expect(url).not.toMatch(/company=/);
+      expect(url).not.toMatch(/category=/);
+      expect(url).not.toMatch(/level=/);
+      expect(url).not.toMatch(/includeCorrected/);
+    });
+
+    // ── reenrichEnrichmentJob (T4) ─────────────────────────────────────────
+
+    it('reenrichEnrichmentJob POSTs to /enrichment/jobs/{sourceId}/{jobListingId}/reenrich with auth', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({
+          sourceId: 'greenhouse_api',
+          jobListingId: 'j-1',
+          enrichmentStatus: 'unenriched',
+          category: null,
+          level: null,
+          tags: [],
+          humanCorrectedAt: null,
+          humanCorrectedBy: null,
+        })
+      );
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      await store.dispatch(
+        adminApi.endpoints.reenrichEnrichmentJob.initiate({
+          sourceId: 'greenhouse_api',
+          jobListingId: 'j-1',
+        })
+      );
+
+      const call = fetchMock.mock.calls[0] as [unknown, unknown];
+      expect(urlFromInput(call[0])).toMatch(
+        /\/api\/admin\/enrichment\/jobs\/greenhouse_api\/j-1\/reenrich$/
+      );
+      expect(methodFromCall(call)).toBe('POST');
+      expect(getAuthHeader(call)).toBe('Bearer test-admin-token');
+    });
+  });
 });

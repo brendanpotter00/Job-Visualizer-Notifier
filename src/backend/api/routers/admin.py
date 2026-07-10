@@ -32,6 +32,15 @@ from ..models import (
     AdminReverseLocation,
     AdminUserRow,
     AdminUsersListResponse,
+    AdminEnrichmentCorrectionRequest,
+    AdminEnrichmentCorrectionResponse,
+    AdminEnrichmentHealthResponse,
+    AdminEnrichmentNeedsHumanResponse,
+    AdminEnrichmentNeedsHumanRow,
+    AdminEnrichmentRecentResponse,
+    AdminEnrichmentRecentRow,
+    AdminEnrichmentTickRow,
+    AdminEnrichmentTicksResponse,
     AdminUserVisitsResponse,
     AdminUsersStatsResponse,
     FeedbackResponse,
@@ -53,6 +62,15 @@ from ..services.location_admin import (
     reset_job_normalization,
     reverse_lookup_locations,
     upsert_manual_alias,
+)
+from ..services.enrichment_monitor import (
+    CorrectionError,
+    apply_correction,
+    get_admin_health,
+    list_needs_human,
+    list_recent,
+    list_ticks,
+    request_reenrich,
 )
 from ..services.location_monitor import get_health, get_integrity
 from ..services.location_normalization import normalize_string
@@ -622,3 +640,161 @@ async def admin_re_normalize_all(
         key_configured=key_configured,
         note=note,
     )
+
+
+# --- Enrichment pipeline oversight (admin mirror of the pull integration) -----
+#
+# Read endpoints back the AdminEnrichmentPage (verdict banner, funnel, tick
+# charts, needs-human queue, recent writes); the two POSTs are the human side
+# of the agent loop — corrections lock a row against automated overwrite (and
+# feed the enricher's golden set via GET /api/internal/enrichment/corrections),
+# re-enrich is the sanctioned unlock that hands a row back to the agent.
+
+
+@router.get("/enrichment/health", response_model=AdminEnrichmentHealthResponse)
+def admin_enrichment_health(
+    conn: Connection = Depends(get_db),
+    _admin: TokenClaims = Depends(require_admin),
+    window_hours: int = Query(default=24, ge=1, le=168, alias="windowHours"),
+) -> AdminEnrichmentHealthResponse:
+    """Pipeline health snapshot (pure SELECTs; sync def -> FastAPI threadpool)."""
+    try:
+        data = get_admin_health(conn, window_hours)
+    except psycopg2.Error:
+        conn.rollback()
+        logger.exception("Failed to load enrichment health")
+        raise HTTPException(status_code=500, detail="Failed to load enrichment health")
+    return AdminEnrichmentHealthResponse(**data)
+
+
+@router.get("/enrichment/needs-human", response_model=AdminEnrichmentNeedsHumanResponse)
+def admin_enrichment_needs_human(
+    conn: Connection = Depends(get_db),
+    _admin: TokenClaims = Depends(require_admin),
+    limit: int = Query(default=25, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    company: str | None = Query(default=None, max_length=100),
+    category: str | None = Query(default=None, pattern=r"^[a-z_]{1,40}$"),
+    level: str | None = Query(default=None, pattern=r"^[a-z_]{1,20}$"),
+    include_corrected: bool = Query(default=False, alias="includeCorrected"),
+    only_open: bool = Query(default=True, alias="onlyOpen"),
+) -> AdminEnrichmentNeedsHumanResponse:
+    """One page of the needs-human triage queue (ordered newest-first)."""
+    try:
+        rows, total = list_needs_human(
+            conn,
+            limit=limit,
+            offset=offset,
+            company=company,
+            category=category,
+            level=level,
+            include_corrected=include_corrected,
+            only_open=only_open,
+        )
+    except psycopg2.Error:
+        conn.rollback()
+        logger.exception("Failed to list needs-human queue")
+        raise HTTPException(status_code=500, detail="Failed to load needs-human queue")
+    return AdminEnrichmentNeedsHumanResponse(
+        rows=[AdminEnrichmentNeedsHumanRow(**r) for r in rows],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/enrichment/ticks", response_model=AdminEnrichmentTicksResponse)
+def admin_enrichment_ticks(
+    conn: Connection = Depends(get_db),
+    _admin: TokenClaims = Depends(require_admin),
+    window_hours: int = Query(default=24, ge=1, le=168, alias="windowHours"),
+) -> AdminEnrichmentTicksResponse:
+    """Pushed tick series for the charts + the latest scorecard/knobs."""
+    try:
+        data = list_ticks(conn, window_hours)
+    except psycopg2.Error:
+        conn.rollback()
+        logger.exception("Failed to list enrichment ticks")
+        raise HTTPException(status_code=500, detail="Failed to load enrichment ticks")
+    return AdminEnrichmentTicksResponse(
+        ticks=[AdminEnrichmentTickRow(**t) for t in data["ticks"]],
+        window_hours=data["window_hours"],
+        latest_scorecard=data["latest_scorecard"],
+        latest_scorecard_tick_uuid=data["latest_scorecard_tick_uuid"],
+        latest_knobs=data["latest_knobs"],
+    )
+
+
+@router.get("/enrichment/recent", response_model=AdminEnrichmentRecentResponse)
+def admin_enrichment_recent(
+    conn: Connection = Depends(get_db),
+    _admin: TokenClaims = Depends(require_admin),
+    limit: int = Query(default=25, ge=1, le=100),
+) -> AdminEnrichmentRecentResponse:
+    """Latest enrichment writes — eyeball the agent's output without SQL."""
+    try:
+        rows = list_recent(conn, limit)
+    except psycopg2.Error:
+        conn.rollback()
+        logger.exception("Failed to list recent enrichments")
+        raise HTTPException(status_code=500, detail="Failed to load recent enrichments")
+    return AdminEnrichmentRecentResponse(rows=[AdminEnrichmentRecentRow(**r) for r in rows])
+
+
+@router.post(
+    "/enrichment/jobs/{source_id}/{job_id}/correct",
+    response_model=AdminEnrichmentCorrectionResponse,
+)
+def admin_enrichment_correct(
+    source_id: str,
+    job_id: str,
+    body: AdminEnrichmentCorrectionRequest,
+    conn: Connection = Depends(get_db),
+    admin: TokenClaims = Depends(require_admin),
+) -> AdminEnrichmentCorrectionResponse:
+    """Apply a human facet correction: publishes the corrected facets, clears
+    the needs-human flag, and LOCKS the row against automated overwrite (the
+    writer refuses while human_corrected_at is set). Slugs are validated against
+    the live dimensions -> 409 for a stale admin UI, 404 for an unknown job."""
+    try:
+        result = apply_correction(
+            conn,
+            source_id=source_id,
+            job_listing_id=job_id,
+            category=body.category,
+            level=body.level,
+            tags=body.tags,
+            note=body.note,
+            admin_email=admin.get("email", "unknown"),
+        )
+    except CorrectionError as exc:
+        raise HTTPException(status_code=404 if exc.not_found else 409, detail=str(exc))
+    except psycopg2.Error:
+        conn.rollback()
+        logger.exception("Failed to apply enrichment correction")
+        raise HTTPException(status_code=500, detail="Failed to apply correction")
+    return AdminEnrichmentCorrectionResponse(**result)
+
+
+@router.post(
+    "/enrichment/jobs/{source_id}/{job_id}/reenrich",
+    response_model=AdminEnrichmentCorrectionResponse,
+)
+def admin_enrichment_reenrich(
+    source_id: str,
+    job_id: str,
+    conn: Connection = Depends(get_db),
+    _admin: TokenClaims = Depends(require_admin),
+) -> AdminEnrichmentCorrectionResponse:
+    """Reset a job to unenriched: facets/tags cleared, needs-human cleared, and
+    the human-correction lock LIFTED — the one sanctioned way to hand a
+    corrected row back to the agent. The next /pending poll re-claims it."""
+    try:
+        result = request_reenrich(conn, source_id=source_id, job_listing_id=job_id)
+    except CorrectionError as exc:
+        raise HTTPException(status_code=404 if exc.not_found else 409, detail=str(exc))
+    except psycopg2.Error:
+        conn.rollback()
+        logger.exception("Failed to request re-enrich")
+        raise HTTPException(status_code=500, detail="Failed to request re-enrich")
+    return AdminEnrichmentCorrectionResponse(**result)

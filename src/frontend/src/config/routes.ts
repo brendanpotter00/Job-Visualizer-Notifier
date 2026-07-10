@@ -18,6 +18,7 @@ export const ROUTES = {
   // Public route (not admin-gated). Admins still get a sidebar link via
   // ADMIN_NAV_ITEMS; everyone else reaches it from the Changelog card.
   LOCATION_PIPELINE: '/location-pipeline',
+  ADMIN_ENRICHMENT: '/admin/enrichment',
   ADMIN_FEEDBACK: '/admin/feedback',
 } as const;
 
@@ -86,6 +87,11 @@ export const ADMIN_NAV_ITEMS = [
     path: ROUTES.LOCATION_PIPELINE,
     label: 'Location Pipeline',
     icon: 'AccountTree',
+  },
+  {
+    path: ROUTES.ADMIN_ENRICHMENT,
+    label: 'Enrichment Pipeline',
+    icon: 'AutoAwesome',
   },
   {
     path: ROUTES.QA,

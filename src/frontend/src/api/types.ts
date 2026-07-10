@@ -56,6 +56,17 @@ export interface BackendJobListing {
   lastSeenAt: string; // ISO 8601
   consecutiveMisses: number;
   detailsScraped: boolean;
+  /**
+   * Enrichment facets (job-enricher pipeline); null/[] until a job is
+   * enriched. Optional (not just nullable) so pre-enrichment fixtures and any
+   * cached responses without the fields stay assignable — the transformer
+   * defaults every one of them.
+   */
+  category?: string | null;
+  level?: string | null;
+  /** Free-form enrichment skill tags (job_tags), distinct from ATS-derived Job.tags. */
+  tags?: string[];
+  enrichmentStatus?: string | null;
 }
 
 /**

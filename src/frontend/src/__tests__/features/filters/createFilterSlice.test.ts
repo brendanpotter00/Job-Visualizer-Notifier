@@ -60,6 +60,8 @@ describe('createFilterSlice', () => {
         'clearGraphDepartments',
         'setGraphDepartment',
         'setGraphEmploymentType',
+        'setGraphCategory',
+        'setGraphLevel',
         'toggleGraphSoftwareOnly',
         'setGraphSoftwareOnly',
         'hydrateGraphFilters',
@@ -72,7 +74,8 @@ describe('createFilterSlice', () => {
       });
 
       // 22 prior actions + hydrate{Name}Filters + set{Name}Hydrated
-      expect(actionNames).toHaveLength(24);
+      // + set{Name}Category + set{Name}Level (enrichment facets)
+      expect(actionNames).toHaveLength(26);
     });
   });
 

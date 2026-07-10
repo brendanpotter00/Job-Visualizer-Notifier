@@ -268,6 +268,168 @@ function validateCanonicalLocation(loc: unknown, ctx: string, withPosition: bool
   }
 }
 
+// --- Enrichment pipeline oversight types ---------------------------------
+
+/** GET /api/admin/enrichment/health response. */
+export interface EnrichmentHealth {
+  schemaPresent: boolean;
+  enabled: boolean;
+  /** OPEN jobs by enrichment bucket: unenriched | claimed | done | needs_human. */
+  openByStatus: Record<string, number>;
+  /** Unenriched OPEN rows /pending could actually hand out. */
+  eligibleUnenriched: number;
+  staleClaims: number;
+  claimTtlMinutes: number;
+  /** Actionable queue depth: OPEN + not yet human-corrected. */
+  needsHumanOpen: number;
+  humanCorrectedTotal: number;
+  lastEnrichedAt: string | null;
+  lastEnrichedAgeS: number | null;
+  lastTickUuid: string | null;
+  lastTickStatus: string | null;
+  lastTickStartedAt: string | null;
+  lastTickAgeS: number | null;
+  lastTickDriftSuspected: boolean;
+  windowHours: number;
+  enrichedInWindow: number;
+  errorTicksInWindow: number;
+}
+
+/**
+ * The fields the correction editor needs from a row — the structural subset
+ * shared by the needs-human queue and the recent-enrichments table, so any
+ * row an admin can see is also a row they can correct.
+ */
+export interface EnrichmentCorrectionTarget {
+  sourceId: string;
+  jobListingId: string;
+  title: string | null;
+  company: string | null;
+  category: string | null;
+  level: string | null;
+  tags: string[];
+  classifyConfidence: number | null;
+  classifyReasoning: string | null;
+  judgeNotes: string | null;
+}
+
+/** One needs-human queue row. */
+export interface EnrichmentNeedsHumanRow {
+  sourceId: string;
+  jobListingId: string;
+  title: string | null;
+  company: string | null;
+  url: string | null;
+  jobStatus: string | null;
+  enrichmentStatus: string | null;
+  category: string | null;
+  level: string | null;
+  tags: string[];
+  cleanDescription: string | null;
+  classifyConfidence: number | null;
+  classifyReasoning: string | null;
+  taxonomyVersion: string | null;
+  judged: boolean;
+  judgePassed: boolean | null;
+  judgeConfidence: number | null;
+  judgeNotes: string | null;
+  enrichedAt: string | null;
+  humanCorrectedAt: string | null;
+  humanCorrectedBy: string | null;
+}
+
+export interface EnrichmentNeedsHumanResponse {
+  rows: EnrichmentNeedsHumanRow[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface EnrichmentNeedsHumanArgs {
+  limit: number;
+  offset: number;
+  company?: string;
+  category?: string;
+  level?: string;
+  includeCorrected?: boolean;
+  onlyOpen?: boolean;
+}
+
+/** One pushed enricher tick. */
+export interface EnrichmentTickRow {
+  tickUuid: string;
+  startedAt: string;
+  endedAt: string | null;
+  status: string;
+  notes: string | null;
+  claimed: number;
+  cleaned: number;
+  classified: number;
+  judged: number;
+  corrected: number;
+  needsHuman: number;
+  sent: number;
+  errors: number;
+  nulledFacets: number;
+  durationS: number | null;
+  taxonomyVersion: string | null;
+  stageTimings: { stage: string; ms: number; items: number; retries: number }[] | null;
+  heartbeatAgeS: number | null;
+  driftSuspected: boolean;
+  receivedAt: string | null;
+}
+
+export interface EnrichmentTicksResponse {
+  ticks: EnrichmentTickRow[];
+  windowHours: number;
+  latestScorecard: Record<string, unknown> | null;
+  latestScorecardTickUuid: string | null;
+  latestKnobs: Record<string, unknown> | null;
+}
+
+/** One recently-enriched job. */
+export interface EnrichmentRecentRow {
+  sourceId: string;
+  jobListingId: string;
+  title: string | null;
+  company: string | null;
+  url: string | null;
+  enrichmentStatus: string | null;
+  category: string | null;
+  level: string | null;
+  tags: string[];
+  classifyConfidence: number | null;
+  classifyReasoning: string | null;
+  judged: boolean;
+  judgePassed: boolean | null;
+  judgeConfidence: number | null;
+  judgeNotes: string | null;
+  taxonomyVersion: string | null;
+  needsHuman: boolean;
+  humanCorrectedAt: string | null;
+  enrichedAt: string | null;
+}
+
+/** POST .../correct request body. */
+export interface EnrichmentCorrectionRequest {
+  category: string | null;
+  level: string | null;
+  tags: string[];
+  note?: string | null;
+}
+
+/** Correction / re-enrich response. */
+export interface EnrichmentCorrectionResult {
+  sourceId: string;
+  jobListingId: string;
+  enrichmentStatus: string | null;
+  category: string | null;
+  level: string | null;
+  tags: string[];
+  humanCorrectedAt: string | null;
+  humanCorrectedBy: string | null;
+}
+
 export const adminApi = createApi({
   reducerPath: 'adminApi',
   baseQuery: fetchBaseQuery({
@@ -290,6 +452,10 @@ export const adminApi = createApi({
     'LocationIntegrity',
     'LocationAliases',
     'LocationProblemJobs',
+    'EnrichmentHealth',
+    'EnrichmentNeedsHuman',
+    'EnrichmentTicks',
+    'EnrichmentRecent',
   ],
   endpoints: (builder) => ({
     listAdminFeedback: builder.query<AdminFeedbackListResponse, AdminFeedbackPageArgs>({
@@ -426,10 +592,7 @@ export const adminApi = createApi({
         if (!isRecord(res)) {
           throw new Error('Invalid /api/admin/users/{id}/visits response: body is not an object');
         }
-        if (
-          !Array.isArray(res.visits) ||
-          res.visits.some((v) => typeof v !== 'string')
-        ) {
+        if (!Array.isArray(res.visits) || res.visits.some((v) => typeof v !== 'string')) {
           throw new Error('Invalid user visits response: visits must be a string[]');
         }
         if (typeof res.totalVisitCount !== 'number') {
@@ -445,9 +608,7 @@ export const adminApi = createApi({
         };
       },
       // Per-user cache entry (RTK Query keys by the serialized arg).
-      providesTags: (_result, _error, { userId }) => [
-        { type: 'AdminUserVisits', id: userId },
-      ],
+      providesTags: (_result, _error, { userId }) => [{ type: 'AdminUserVisits', id: userId }],
     }),
     grantAdmin: builder.mutation<void, { userId: string }>({
       query: ({ userId }) => ({
@@ -799,6 +960,302 @@ export const adminApi = createApi({
       }),
       invalidatesTags: ['LocationProblemJobs', 'LocationHealth'],
     }),
+
+    // --- Enrichment pipeline oversight -----------------------------------
+
+    getEnrichmentHealth: builder.query<EnrichmentHealth, { windowHours?: number } | void>({
+      query: (args) => ({
+        url: '/enrichment/health',
+        params: args && args.windowHours ? { windowHours: args.windowHours } : undefined,
+      }),
+      transformResponse: (res: unknown): EnrichmentHealth => {
+        // Throwing guard (hard house rule): the verdict banner must never be
+        // computed from undefined fields of a wrong-shaped 2xx body.
+        if (!isRecord(res)) {
+          throw new Error('Invalid /api/admin/enrichment/health response: body is not an object');
+        }
+        for (const field of [
+          'eligibleUnenriched',
+          'staleClaims',
+          'claimTtlMinutes',
+          'needsHumanOpen',
+          'humanCorrectedTotal',
+          'windowHours',
+          'enrichedInWindow',
+          'errorTicksInWindow',
+        ] as const) {
+          if (typeof res[field] !== 'number') {
+            throw new Error(
+              `Invalid /api/admin/enrichment/health response: ${field} must be a number`
+            );
+          }
+        }
+        for (const field of ['schemaPresent', 'enabled', 'lastTickDriftSuspected'] as const) {
+          if (typeof res[field] !== 'boolean') {
+            throw new Error(
+              `Invalid /api/admin/enrichment/health response: ${field} must be a boolean`
+            );
+          }
+        }
+        if (!isRecord(res.openByStatus)) {
+          throw new Error(
+            'Invalid /api/admin/enrichment/health response: openByStatus must be an object'
+          );
+        }
+        for (const v of Object.values(res.openByStatus)) {
+          if (typeof v !== 'number') {
+            throw new Error(
+              'Invalid /api/admin/enrichment/health response: openByStatus contains a non-number'
+            );
+          }
+        }
+        for (const field of ['lastEnrichedAgeS', 'lastTickAgeS'] as const) {
+          if (res[field] !== null && typeof res[field] !== 'number') {
+            throw new Error(
+              `Invalid /api/admin/enrichment/health response: ${field} must be number or null`
+            );
+          }
+        }
+        return res as unknown as EnrichmentHealth;
+      },
+      providesTags: ['EnrichmentHealth'],
+    }),
+
+    listEnrichmentNeedsHuman: builder.query<EnrichmentNeedsHumanResponse, EnrichmentNeedsHumanArgs>(
+      {
+        query: ({ limit, offset, company, category, level, includeCorrected, onlyOpen }) => ({
+          url: '/enrichment/needs-human',
+          params: {
+            limit,
+            offset,
+            ...(company ? { company } : {}),
+            ...(category ? { category } : {}),
+            ...(level ? { level } : {}),
+            ...(includeCorrected ? { includeCorrected } : {}),
+            ...(onlyOpen === false ? { onlyOpen } : {}),
+          },
+        }),
+        transformResponse: (res: unknown): EnrichmentNeedsHumanResponse => {
+          // Throwing guard (mirrors the thorough location guards above): the only
+          // ErrorBoundary is app-root, so a render throw here blanks the whole
+          // SPA. Validate every render-critical value field per its DECLARED type
+          // so a wrong-shaped 2xx surfaces as a localized ErrorState, not a
+          // ``.toFixed is not a function`` / Invalid-Date crash in the table.
+          if (!isRecord(res) || !Array.isArray(res.rows) || typeof res.total !== 'number') {
+            throw new Error('Invalid /api/admin/enrichment/needs-human response');
+          }
+          for (const row of res.rows) {
+            if (
+              !isRecord(row) ||
+              typeof row.jobListingId !== 'string' ||
+              typeof row.sourceId !== 'string'
+            ) {
+              throw new Error('Invalid /api/admin/enrichment/needs-human response: malformed row');
+            }
+            if (!Array.isArray(row.tags)) {
+              throw new Error(
+                'Invalid /api/admin/enrichment/needs-human response: tags must be an array'
+              );
+            }
+            // Confidences render via ``.toFixed(2)`` behind only a ``!= null``
+            // check — a stringified number ("0.5") would crash the row.
+            for (const field of ['classifyConfidence', 'judgeConfidence'] as const) {
+              const val = row[field];
+              if (val !== null && val !== undefined && typeof val !== 'number') {
+                throw new Error(
+                  `Invalid /api/admin/enrichment/needs-human response: ${field} must be number or null`
+                );
+              }
+            }
+            // Every ``string | null`` field the NeedsHumanTable renders as a
+            // React child. An object value in any of them is an "Objects are not
+            // valid as a React child" (or Invalid-Date) crash — and the only
+            // ErrorBoundary is app-root, so it blanks the whole SPA. ``title``/
+            // ``company``/``url`` render directly (title as text, url into a
+            // <Link href>); ``enrichedAt`` feeds ``new Date(...)`` in the
+            // Enriched column; ``cleanDescription`` renders in the expander +
+            // full-description dialog; ``category``/``level`` render as Chip
+            // labels (``FACET_LABELS[slug] ?? slug`` — an object slug keys to
+            // undefined then falls through to the raw object);
+            // ``classifyReasoning``/``judgeNotes`` render as expander text;
+            // ``taxonomyVersion`` renders as ``taxonomy {v ?? '—'}`` footer text.
+            // (``jobStatus``/``enrichmentStatus`` are intentionally NOT validated
+            // per Ledger #1 — forward-compat status strings consumed via ``===``.)
+            for (const field of [
+              'title',
+              'company',
+              'url',
+              'cleanDescription',
+              'enrichedAt',
+              'category',
+              'level',
+              'classifyReasoning',
+              'judgeNotes',
+              'taxonomyVersion',
+            ] as const) {
+              const val = row[field];
+              if (val !== null && val !== undefined && typeof val !== 'string') {
+                throw new Error(
+                  `Invalid /api/admin/enrichment/needs-human response: ${field} must be string or null`
+                );
+              }
+            }
+          }
+          return res as unknown as EnrichmentNeedsHumanResponse;
+        },
+        providesTags: ['EnrichmentNeedsHuman'],
+      }
+    ),
+
+    getEnrichmentTicks: builder.query<EnrichmentTicksResponse, { windowHours?: number } | void>({
+      query: (args) => ({
+        url: '/enrichment/ticks',
+        params: args && args.windowHours ? { windowHours: args.windowHours } : undefined,
+      }),
+      transformResponse: (res: unknown): EnrichmentTicksResponse => {
+        if (!isRecord(res) || !Array.isArray(res.ticks) || typeof res.windowHours !== 'number') {
+          throw new Error('Invalid /api/admin/enrichment/ticks response');
+        }
+        // ``latestScorecardTickUuid`` is an envelope-level ``string | null`` that
+        // ScorecardPanel renders directly (``from tick {scorecardTickUuid}``) — an
+        // object value is an "Objects are not valid as a React child" whole-SPA
+        // crash via the app-root ErrorBoundary.
+        if (
+          res.latestScorecardTickUuid !== null &&
+          res.latestScorecardTickUuid !== undefined &&
+          typeof res.latestScorecardTickUuid !== 'string'
+        ) {
+          throw new Error(
+            'Invalid /api/admin/enrichment/ticks response: latestScorecardTickUuid must be string or null'
+          );
+        }
+        for (const tick of res.ticks) {
+          // ``startedAt`` feeds ``format(new Date(t.startedAt))`` in TickCharts'
+          // two useMemos — a missing/non-string value yields an Invalid Date →
+          // date-fns ``format`` ``RangeError`` in render, which the app-root
+          // ErrorBoundary turns into a whole-SPA blank. (A number would instead
+          // render a wrong epoch-ms date, not crash — so we reject non-strings.)
+          if (
+            !isRecord(tick) ||
+            typeof tick.tickUuid !== 'string' ||
+            typeof tick.status !== 'string' ||
+            typeof tick.startedAt !== 'string'
+          ) {
+            throw new Error('Invalid /api/admin/enrichment/ticks response: malformed tick');
+          }
+          // ``stageTimings`` (``{ stage; ms; items; retries }[] | null``) feeds
+          // ``t.stageTimings?.find((s) => s.stage === stage)`` in a TickCharts
+          // useMemo — a truthy NON-array value is a ``.find is not a function``
+          // crash in render (whole-SPA blank via the app-root ErrorBoundary).
+          if (tick.stageTimings != null && !Array.isArray(tick.stageTimings)) {
+            throw new Error(
+              'Invalid /api/admin/enrichment/ticks response: stageTimings must be an array or null'
+            );
+          }
+          // ``notes`` renders directly as a React child in TickStrip's per-tick
+          // tooltip (``{tick.notes && <div>{tick.notes}</div>}``) — a truthy
+          // object value is an "Objects are not valid as a React child" whole-SPA
+          // crash. ``string | null`` by contract. (``status`` is a required
+          // string already asserted above; per Ledger #1 it is NOT union-checked.)
+          if (tick.notes !== null && tick.notes !== undefined && typeof tick.notes !== 'string') {
+            throw new Error(
+              'Invalid /api/admin/enrichment/ticks response: notes must be string or null'
+            );
+          }
+        }
+        return res as unknown as EnrichmentTicksResponse;
+      },
+      providesTags: ['EnrichmentTicks'],
+    }),
+
+    getEnrichmentRecent: builder.query<EnrichmentRecentRow[], { limit?: number } | void>({
+      query: (args) => ({
+        url: '/enrichment/recent',
+        params: args && args.limit ? { limit: args.limit } : undefined,
+      }),
+      transformResponse: (res: unknown): EnrichmentRecentRow[] => {
+        if (!isRecord(res) || !Array.isArray(res.rows)) {
+          throw new Error('Invalid /api/admin/enrichment/recent response');
+        }
+        for (const row of res.rows) {
+          if (
+            !isRecord(row) ||
+            typeof row.jobListingId !== 'string' ||
+            typeof row.sourceId !== 'string'
+          ) {
+            throw new Error('Invalid /api/admin/enrichment/recent response: malformed row');
+          }
+          // RecentEnrichmentsTable reads ``row.tags.slice(0, 3)`` / ``.length``
+          // unconditionally — a non-array is an unguarded ``TypeError`` in
+          // render (whole-SPA crash via the app-root ErrorBoundary).
+          if (!Array.isArray(row.tags)) {
+            throw new Error('Invalid /api/admin/enrichment/recent response: tags must be an array');
+          }
+          // Confidences render via ``.toFixed(2)`` behind only a ``!= null``
+          // check; a stringified number would crash the row.
+          for (const field of ['classifyConfidence', 'judgeConfidence'] as const) {
+            const val = row[field];
+            if (val !== null && val !== undefined && typeof val !== 'number') {
+              throw new Error(
+                `Invalid /api/admin/enrichment/recent response: ${field} must be number or null`
+              );
+            }
+          }
+          // Every ``string | null`` field RecentEnrichmentsTable renders as a
+          // React child (app-root is the only ErrorBoundary, so any object value
+          // blanks the whole SPA). ``enrichedAt`` feeds ``new Date(...)``;
+          // ``title``/``company``/``url`` render directly (url into an <a href>);
+          // ``category``/``level`` render as Chip labels
+          // (``FACET_LABELS[slug] ?? slug`` falls through to the raw object for a
+          // non-string slug); ``classifyReasoning``/``judgeNotes`` render as
+          // expander text; ``taxonomyVersion`` renders as ``taxonomy {v ?? '—'}``.
+          // (``enrichmentStatus`` is intentionally NOT validated per Ledger #1.)
+          for (const field of [
+            'title',
+            'company',
+            'url',
+            'enrichedAt',
+            'category',
+            'level',
+            'classifyReasoning',
+            'judgeNotes',
+            'taxonomyVersion',
+          ] as const) {
+            const val = row[field];
+            if (val !== null && val !== undefined && typeof val !== 'string') {
+              throw new Error(
+                `Invalid /api/admin/enrichment/recent response: ${field} must be string or null`
+              );
+            }
+          }
+        }
+        return res.rows as unknown as EnrichmentRecentRow[];
+      },
+      providesTags: ['EnrichmentRecent'],
+    }),
+
+    correctEnrichment: builder.mutation<
+      EnrichmentCorrectionResult,
+      { sourceId: string; jobListingId: string; body: EnrichmentCorrectionRequest }
+    >({
+      query: ({ sourceId, jobListingId, body }) => ({
+        url: `/enrichment/jobs/${encodeURIComponent(sourceId)}/${encodeURIComponent(jobListingId)}/correct`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['EnrichmentNeedsHuman', 'EnrichmentHealth', 'EnrichmentRecent'],
+    }),
+
+    reenrichEnrichmentJob: builder.mutation<
+      EnrichmentCorrectionResult,
+      { sourceId: string; jobListingId: string }
+    >({
+      query: ({ sourceId, jobListingId }) => ({
+        url: `/enrichment/jobs/${encodeURIComponent(sourceId)}/${encodeURIComponent(jobListingId)}/reenrich`,
+        method: 'POST',
+      }),
+      invalidatesTags: ['EnrichmentNeedsHuman', 'EnrichmentHealth', 'EnrichmentRecent'],
+    }),
   }),
 });
 
@@ -817,4 +1274,10 @@ export const {
   useListProblemJobsQuery,
   useOverrideAliasMutation,
   useRenormalizeJobMutation,
+  useGetEnrichmentHealthQuery,
+  useListEnrichmentNeedsHumanQuery,
+  useGetEnrichmentTicksQuery,
+  useGetEnrichmentRecentQuery,
+  useCorrectEnrichmentMutation,
+  useReenrichEnrichmentJobMutation,
 } = adminApi;

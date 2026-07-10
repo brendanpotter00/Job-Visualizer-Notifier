@@ -13,6 +13,8 @@ const initialFilters: RecentJobsFilters = {
   employmentType: undefined,
   softwareOnly: false,
   company: undefined,
+  category: undefined,
+  level: undefined,
 };
 
 /**
@@ -50,6 +52,8 @@ export const {
   removeRecentJobsLocation,
   clearRecentJobsLocations,
   setRecentJobsEmploymentType,
+  setRecentJobsCategory,
+  setRecentJobsLevel,
   toggleRecentJobsSoftwareOnly,
   setRecentJobsSoftwareOnly,
   setRecentJobsCompany,

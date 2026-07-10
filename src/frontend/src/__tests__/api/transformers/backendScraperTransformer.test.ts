@@ -225,3 +225,59 @@ describe('transformBackendJob', () => {
     expect(metaJob.source).toBe('backend-scraper');
   });
 });
+
+describe('transformBackendJob — enrichment facets', () => {
+  const enrichedJob: BackendJobListing = {
+    id: 'job-enriched',
+    title: 'Growth Analyst',
+    company: 'openai',
+    location: 'SF',
+    locations: [],
+    url: 'https://example.com/jobs/1',
+    sourceId: 'ashby_api',
+    details: '{}',
+    createdAt: '2026-07-01T10:00:00Z',
+    postedOn: null,
+    closedOn: null,
+    status: 'OPEN',
+    hasMatched: false,
+    aiMetadata: '{}',
+    firstSeenAt: '2026-07-01T08:00:00Z',
+    lastSeenAt: '2026-07-01T10:00:00Z',
+    consecutiveMisses: 0,
+    detailsScraped: true,
+    category: 'growth',
+    level: 'mid',
+    tags: ['sql', 'gtm-strategy'],
+    enrichmentStatus: 'done',
+  };
+
+  it('passes enrichment facets through to the Job model', () => {
+    const job = transformBackendJob(enrichedJob, 'openai');
+    expect(job.category).toBe('growth');
+    expect(job.level).toBe('mid');
+    expect(job.enrichmentStatus).toBe('done');
+  });
+
+  it('keeps enrichment skill tags separate from ATS-derived tags', () => {
+    const job = transformBackendJob(enrichedJob, 'openai');
+    expect(job.enrichmentTags).toEqual(['sql', 'gtm-strategy']);
+    // ATS tags come from details (empty here), never from the backend tags field.
+    expect(job.tags).toEqual([]);
+  });
+
+  it('defaults cleanly for unenriched jobs and legacy responses missing the fields', () => {
+    const {
+      category: _category,
+      level: _level,
+      tags: _tags,
+      enrichmentStatus: _enrichmentStatus,
+      ...legacy
+    } = enrichedJob;
+    const job = transformBackendJob(legacy as BackendJobListing, 'openai');
+    expect(job.category).toBeNull();
+    expect(job.level).toBeNull();
+    expect(job.enrichmentTags).toEqual([]);
+    expect(job.enrichmentStatus).toBeNull();
+  });
+});

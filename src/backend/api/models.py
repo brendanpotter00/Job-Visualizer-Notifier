@@ -1,7 +1,8 @@
 """Pydantic response models with camelCase serialization for frontend compatibility."""
 
+import json
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import (
     BaseModel,
@@ -82,6 +83,14 @@ class JobListingResponse(BaseModel):
     last_seen_at: datetime
     consecutive_misses: int = Field(ge=0)
     details_scraped: bool
+    # External enrichment facets (job-enricher). All optional — NULL/absent for
+    # jobs not yet enriched. The enrichment flag gates claiming in /pending, NOT
+    # this response, so a row enriched while the flag was on keeps serializing
+    # its facets even after the flag is turned back off.
+    category: str | None = None            # job_categories.slug
+    level: str | None = None               # job_levels.slug (see the new_grad⊂entry hierarchy)
+    tags: list[str] = Field(default_factory=list)
+    enrichment_status: str | None = None   # NULL | 'claimed' | 'done' | 'needs_human'
 
 
 class ScrapeRunResponse(BaseModel):
@@ -766,3 +775,410 @@ class LocationSearchResult(BaseModel):
     id: int
     canonical_name: str
     kind: str
+
+
+# --- External enrichment (POST /results) request models ----------------------
+#
+# The job-enricher laptop POSTs enrichment results to
+# /api/internal/enrichment/results. These models validate that external,
+# untrusted body at the trust boundary. All accept snake_case field names (the
+# enricher's wire format) via ``populate_by_name`` alongside the camelCase alias.
+#
+# CRITICAL isolation rule: only the ENVELOPE is validated at the FastAPI
+# boundary (``EnrichmentResultsBody`` — a ``BaseModel`` whose ``results`` field is
+# a ``list[Any]``), and each ITEM is validated INSIDE the per-row SAVEPOINT in the
+# router. That keeps a single bad item confined to ``failed[]`` instead of 422-ing
+# the whole batch, while a mis-keyed or non-object envelope still 422s up front.
+
+
+class JudgeVerdict(BaseModel):
+    """The laptop judge's verdict for one result item. All fields optional so an
+    absent/partial ``judge`` object never fails item validation — the writer
+    reads ``needs_human`` to decide the publish gate."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    needs_human: bool = False
+    judged: bool = False
+    passed: bool | None = None
+    confidence: float | None = None
+    notes: str | None = None
+
+
+class EnrichmentLocationItem(BaseModel):
+    """DOCUMENTATION ONLY — the Contract-of-Record shape of one ``locations[]``
+    element. It is deliberately NOT used to validate ``EnrichmentResultItem``:
+    that field is typed ``list[Any]`` so BOTH a value-type-malformed location
+    (e.g. ``confidence: "high"``) AND a NON-DICT element (``["Berlin"]``,
+    ``[None]``, ``[123]``) are carried through unchanged and degraded by
+    ``CanonicalLocation(**loc)`` inside the writer's ``enr_loc`` savepoint
+    ("labels persisted, location skipped + warned"), rather than routing the
+    whole item to ``failed[]``. ``CanonicalLocation`` is the sole strict arbiter;
+    enforcing primitive types — or even ``dict``-ness (``list[dict[str, Any]]``,
+    which raises Pydantic ``dict_type`` on a non-dict) — here would instead fail
+    the whole item on a bad location (reversing F2's "location degrades
+    independently" intent). Kept as a typed reference of the fields the enricher
+    sends.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    canonical_name: str | None = None
+    kind: str | None = None
+    city: str | None = None
+    region: str | None = None
+    country: str | None = None
+    remote_scope: str | None = None
+    confidence: float | None = None
+
+
+class EnrichmentResultItem(BaseModel):
+    """One enrichment result for a single job.
+
+    ``job_listing_id`` AND ``source_id`` are REQUIRED and NON-EMPTY
+    (``min_length=1``): the writer keys the ``job_listings`` UPDATE on the
+    composite PK ``(source_id, id)`` (``id`` is not globally unique), so a missing
+    ``source_id`` must fail this item rather than risk flipping the wrong source's
+    row. An empty ``job_listing_id`` would update ZERO ``job_listings`` yet insert
+    orphan side-table rows and still count as ``written`` — so an empty id must
+    fail validation → per-row ``failed[]`` inside the SAVEPOINT.
+
+    ``category`` / ``level`` stay ``str | None`` (NOT a strict ``Literal``): the
+    writer's ``_valid()`` soft-nulls an out-of-taxonomy slug so a laptop-side
+    taxonomy drift degrades to "unlabelled", never a 422/dropped batch (CR-3).
+
+    ``locations`` is typed ``list[Any]`` (NOT ``list[dict[str, Any]]`` and NOT
+    ``EnrichmentLocationItem``) so BOTH a value-malformed location AND a NON-DICT
+    location element (``["Berlin"]``, ``[None]``, ``[123]``) are carried through
+    item validation and degraded by ``CanonicalLocation(**loc)`` in the writer's
+    ``enr_loc`` savepoint — a non-dict splat raises ``TypeError`` there, so the
+    location is skipped + warned while the row stays ``written``/``done``
+    (F2/F10/F12). ``CanonicalLocation`` is the sole strict arbiter; a stricter
+    type here (even ``dict``) would instead route the WHOLE item to ``failed[]``
+    at ``model_validate`` (Pydantic ``dict_type``), discarding the good
+    ``category``/``level``/``tags`` and re-opening the F2 reclaim churn.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    job_listing_id: Annotated[str, StringConstraints(min_length=1, strip_whitespace=True)]
+    source_id: Annotated[str, StringConstraints(min_length=1, strip_whitespace=True)]
+    category: str | None = None
+    level: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    clean_description: str | None = None
+    classify_confidence: float | None = None
+    classify_reasoning: str | None = None
+    taxonomy_version: str | None = None
+    raw_location: str | None = None
+    locations: list[Any] = Field(default_factory=list)
+    judge: JudgeVerdict | None = None
+
+
+class EnrichmentResultsBody(BaseModel):
+    """Envelope for POST /results: ``{"results": [...]}``.
+
+    ``results`` is REQUIRED (no default): a mis-keyed body (``{}``,
+    ``{"items": [...]}``) must 422 up front rather than silently return
+    ``200 {"written": 0}`` — with the enricher ignoring ``failed[]`` (CR-1) an
+    envelope-key drift would otherwise look like success. An explicit
+    ``{"results": []}`` is still accepted (a no-op poll).
+
+    The element type stays ``list[Any]`` — the top-level shape is validated here,
+    but each element is validated into an ``EnrichmentResultItem`` INSIDE the
+    per-row SAVEPOINT (router) so a null / non-dict / schema-invalid element lands
+    in ``failed[]`` and never 422s or 500s the whole batch.
+    """
+
+    results: list[Any]
+
+
+class EnrichmentTickCounters(BaseModel):
+    """Per-tick pipeline counters pushed by the enricher. All default 0 so a
+    partial counters object degrades to zeros instead of failing the push —
+    metrics are best-effort observability, never a write path worth 422-ing."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    claimed: int = Field(default=0, ge=0)
+    cleaned: int = Field(default=0, ge=0)
+    classified: int = Field(default=0, ge=0)
+    judged: int = Field(default=0, ge=0)
+    corrected: int = Field(default=0, ge=0)
+    needs_human: int = Field(default=0, ge=0)
+    sent: int = Field(default=0, ge=0)
+    errors: int = Field(default=0, ge=0)
+    nulled_facets: int = Field(default=0, ge=0)
+
+
+class EnrichmentMetricsBody(BaseModel):
+    """Body for POST /api/internal/enrichment/metrics — one enricher tick
+    snapshot (see docs/enrichment/HANDOFF.md §3 and the enricher's
+    ``cli metrics-push``). Idempotent on ``tick_uuid`` (re-push upserts).
+
+    Size caps (``knobs`` ≤ 2 KB, ``stage_timings`` ≤ 20 rows, ``scorecard``
+    ≤ 16 KB when JSON-encoded) bound what an internal-key holder can persist
+    per row; the payloads land in JSONB and are echoed to the admin UI.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    tick_uuid: Annotated[str, StringConstraints(min_length=1, max_length=64, strip_whitespace=True)]
+    started_at: datetime
+    ended_at: datetime | None = None
+    status: Literal["ok", "error", "running"]
+    notes: str | None = Field(default=None, max_length=2000)
+    counters: EnrichmentTickCounters = Field(default_factory=EnrichmentTickCounters)
+    duration_s: float | None = Field(default=None, ge=0)
+    taxonomy_version: str | None = Field(default=None, max_length=100)
+    knobs: dict[str, Any] | None = None
+    stage_timings: list[dict[str, Any]] | None = Field(default=None, max_length=20)
+    heartbeat_age_s: float | None = Field(default=None, ge=0)
+    scorecard: dict[str, Any] | None = None
+    enricher_version: str | None = Field(default=None, max_length=100)
+    drift_suspected: bool = False
+
+    @field_validator("knobs")
+    @classmethod
+    def _cap_knobs(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        if value is not None and len(json.dumps(value)) > 2048:
+            raise ValueError("knobs payload exceeds 2KB")
+        return value
+
+    @field_validator("scorecard")
+    @classmethod
+    def _cap_scorecard(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        if value is not None and len(json.dumps(value)) > 16384:
+            raise ValueError("scorecard payload exceeds 16KB")
+        return value
+
+
+class FacetOption(BaseModel):
+    """One dropdown option from the seeded dimension tables (GET /api/jobs/facets)."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    slug: str
+    label: str
+    sort_order: int
+    # job_levels only: parent in the level hierarchy (new_grad -> entry). The
+    # frontend derives its client-side filter expansion from this, so the
+    # entry⊇new_grad contract stays data-driven end to end.
+    parent_slug: str | None = None
+
+
+class JobFacetsResponse(BaseModel):
+    """GET /api/jobs/facets — data-driven dropdown catalog for the enrichment
+    facets. Sourced from job_categories / job_levels so taxonomy changes ship as
+    a migration, never a frontend redeploy."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    categories: list[FacetOption]
+    levels: list[FacetOption]
+
+
+# --- Enrichment MONITOR models (admin oversight of the pull pipeline) ---------
+
+
+class AdminEnrichmentHealthResponse(BaseModel):
+    """Health snapshot for the admin enrichment page
+    (GET /api/admin/enrichment/health)."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    schema_present: bool
+    enabled: bool
+    # OPEN jobs by COALESCE(enrichment_status,'unenriched'). Keys:
+    # unenriched | claimed | done | needs_human (absent => 0).
+    open_by_status: dict[str, int]
+    # Of the unenriched OPEN rows, how many the /pending claim query could
+    # actually hand out (description present, allowlist respected). The gap
+    # (unenriched - eligible) is permanently invisible to the enricher — the
+    # dark-vs-idle distinction the bare 'unenriched' count can't make.
+    eligible_unenriched: int = Field(ge=0)
+    stale_claims: int = Field(ge=0)
+    claim_ttl_minutes: int = Field(ge=0)
+    # Open, un-corrected needs-human queue depth (the actionable number, unlike
+    # the internal /health's raw job_enrichment.needs_human count which includes
+    # CLOSED jobs and already-corrected rows).
+    needs_human_open: int = Field(ge=0)
+    human_corrected_total: int = Field(ge=0)
+    last_enriched_at: datetime | None = None
+    last_enriched_age_s: float | None = None
+    # Latest pushed tick (enrichment_ticks); all None when nothing pushed yet.
+    last_tick_uuid: str | None = None
+    last_tick_status: str | None = None
+    last_tick_started_at: datetime | None = None
+    last_tick_age_s: float | None = None
+    last_tick_drift_suspected: bool = False
+    # Aggregates over the trailing window (default 24h): enriched throughput
+    # from job_enrichment, tick error count from enrichment_ticks.
+    window_hours: int = Field(ge=1)
+    enriched_in_window: int = Field(ge=0)
+    error_ticks_in_window: int = Field(ge=0)
+
+
+class AdminEnrichmentNeedsHumanRow(BaseModel):
+    """One needs-human queue row (job_enrichment ⋈ job_listings)."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    source_id: str
+    job_listing_id: str
+    title: str | None = None
+    company: str | None = None
+    url: str | None = None
+    job_status: str | None = None            # job_listings.status (OPEN/CLOSED)
+    enrichment_status: str | None = None
+    category: str | None = None              # published facet (job_listings)
+    level: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    clean_description: str | None = None
+    classify_confidence: float | None = None
+    classify_reasoning: str | None = None
+    taxonomy_version: str | None = None
+    judged: bool = False
+    judge_passed: bool | None = None
+    judge_confidence: float | None = None
+    judge_notes: str | None = None
+    enriched_at: datetime | None = None
+    human_corrected_at: datetime | None = None
+    human_corrected_by: str | None = None
+
+
+class AdminEnrichmentNeedsHumanResponse(BaseModel):
+    """GET /api/admin/enrichment/needs-human — paginated queue."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    rows: list[AdminEnrichmentNeedsHumanRow]
+    total: int = Field(ge=0)
+    limit: int = Field(ge=1)
+    offset: int = Field(ge=0)
+
+
+class AdminEnrichmentTickRow(BaseModel):
+    """One pushed tick (GET /api/admin/enrichment/ticks)."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    tick_uuid: str
+    started_at: datetime
+    ended_at: datetime | None = None
+    status: str
+    notes: str | None = None
+    claimed: int = 0
+    cleaned: int = 0
+    classified: int = 0
+    judged: int = 0
+    corrected: int = 0
+    needs_human: int = 0
+    sent: int = 0
+    errors: int = 0
+    nulled_facets: int = 0
+    duration_s: float | None = None
+    taxonomy_version: str | None = None
+    stage_timings: list[dict[str, Any]] | None = None
+    heartbeat_age_s: float | None = None
+    drift_suspected: bool = False
+    received_at: datetime | None = None
+
+
+class AdminEnrichmentTicksResponse(BaseModel):
+    """GET /api/admin/enrichment/ticks — trailing-window tick series plus the
+    latest pushed scorecard/knobs (returned once, not per row, to keep the
+    series light)."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    ticks: list[AdminEnrichmentTickRow]
+    window_hours: int = Field(ge=1)
+    latest_scorecard: dict[str, Any] | None = None
+    latest_scorecard_tick_uuid: str | None = None
+    latest_knobs: dict[str, Any] | None = None
+
+
+class AdminEnrichmentRecentRow(BaseModel):
+    """One recently-enriched job (GET /api/admin/enrichment/recent)."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    source_id: str
+    job_listing_id: str
+    title: str | None = None
+    company: str | None = None
+    url: str | None = None
+    enrichment_status: str | None = None
+    category: str | None = None
+    level: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    classify_confidence: float | None = None
+    classify_reasoning: str | None = None
+    judged: bool = False
+    judge_passed: bool | None = None
+    judge_confidence: float | None = None
+    judge_notes: str | None = None
+    taxonomy_version: str | None = None
+    needs_human: bool = False
+    human_corrected_at: datetime | None = None
+    enriched_at: datetime | None = None
+
+
+class AdminEnrichmentRecentResponse(BaseModel):
+    """GET /api/admin/enrichment/recent — latest enrichment writes."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    rows: list[AdminEnrichmentRecentRow]
+
+
+class AdminEnrichmentCorrectionRequest(BaseModel):
+    """Body for POST /api/admin/enrichment/jobs/{source_id}/{job_id}/correct.
+
+    ``category``/``level`` accept a slug or null (null = explicitly unlabelled);
+    ``tags`` replaces the tag set (empty list clears). Slugs are validated
+    against the live dimension tables in the service — a stale admin UI gets a
+    409, never a silent null (the agent gets soft-nulling because a drifted
+    laptop must degrade, not fail; a human in the admin UI deserves the error).
+    """
+
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
+
+    category: str | None = None
+    level: str | None = None
+    tags: list[str] = Field(default_factory=list, max_length=16)
+    note: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("tags")
+    @classmethod
+    def _clean_tags(cls, value: list[str]) -> list[str]:
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for tag in value:
+            t = tag.strip().lower()
+            if not t:
+                continue
+            if len(t) > 60:
+                raise ValueError("tag exceeds 60 characters")
+            if t not in seen:
+                seen.add(t)
+                cleaned.append(t)
+        return cleaned
+
+
+class AdminEnrichmentCorrectionResponse(BaseModel):
+    """Result of a correction/re-enrich action."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    source_id: str
+    job_listing_id: str
+    enrichment_status: str | None = None
+    category: str | None = None
+    level: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    human_corrected_at: datetime | None = None
+    human_corrected_by: str | None = None

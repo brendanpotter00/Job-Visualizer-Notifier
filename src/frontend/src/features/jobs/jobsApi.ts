@@ -1,5 +1,5 @@
 import { createApi, fakeBaseQuery } from '@reduxjs/toolkit/query/react';
-import type { Job, FetchProgress, Company } from '../../types';
+import type { Job, FetchProgress, Company, JobFacets } from '../../types';
 import { getCompanyById, COMPANIES } from '../../config/companies';
 import type { FetchJobsResult } from '../../api/types';
 import { getClientForATS } from '../../api/utils';
@@ -237,7 +237,35 @@ export const jobsApi = createApi({
 
       providesTags: ['Jobs'],
     }),
+
+    // Enrichment facet catalog (GET /api/jobs/facets via the Vercel proxy).
+    // Tiny, effectively static payload (changes only with a taxonomy
+    // migration) — cache for the session (keepUnusedDataFor override).
+    getFacets: builder.query<JobFacets, void>({
+      async queryFn(_arg, { signal }) {
+        try {
+          const response = await fetch('/api/jobs/facets', { signal });
+          if (!response.ok) {
+            return { error: { status: response.status, data: 'Failed to load facets' } };
+          }
+          const body: unknown = await response.json();
+          const facets = body as JobFacets;
+          if (!Array.isArray(facets?.categories) || !Array.isArray(facets?.levels)) {
+            return { error: { status: 'CUSTOM_ERROR', data: 'Malformed facets response' } };
+          }
+          return { data: facets };
+        } catch (error) {
+          return {
+            error: {
+              status: 'CUSTOM_ERROR',
+              data: error instanceof Error ? error.message : 'Unknown error',
+            },
+          };
+        }
+      },
+      keepUnusedDataFor: 3600,
+    }),
   }),
 });
 
-export const { useGetJobsForCompanyQuery, useGetAllJobsQuery } = jobsApi;
+export const { useGetJobsForCompanyQuery, useGetAllJobsQuery, useGetFacetsQuery } = jobsApi;

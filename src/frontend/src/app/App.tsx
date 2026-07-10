@@ -12,6 +12,7 @@ import { ROUTES } from '../config/routes';
 import { QAPage } from '../pages/QAPage/QAPage.tsx';
 import { AdminUsersPage } from '../pages/AdminUsersPage/AdminUsersPage.tsx';
 import { AdminLocationNormalizationPage } from '../pages/AdminLocationNormalizationPage/AdminLocationNormalizationPage.tsx';
+import { AdminEnrichmentPage } from '../pages/AdminEnrichmentPage/AdminEnrichmentPage.tsx';
 import { AdminLocationPipelinePage } from '../pages/AdminLocationPipelinePage/AdminLocationPipelinePage.tsx';
 import { AdminFeedbackPage } from '../pages/AdminFeedbackPage/AdminFeedbackPage.tsx';
 import { AdminRoute } from '../components/auth/AdminRoute.tsx';
@@ -89,6 +90,14 @@ function AppContent() {
           {/* Public route — not admin-gated. Admins get a sidebar link
               (ADMIN_NAV_ITEMS); everyone else arrives via the Changelog card. */}
           <Route path={ROUTES.LOCATION_PIPELINE} element={<AdminLocationPipelinePage />} />
+          <Route
+            path={ROUTES.ADMIN_ENRICHMENT}
+            element={
+              <AdminRoute>
+                <AdminEnrichmentPage />
+              </AdminRoute>
+            }
+          />
           <Route
             path={ROUTES.ADMIN_FEEDBACK}
             element={
