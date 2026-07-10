@@ -1,0 +1,959 @@
+"""job-enricher CLI — the single supported interface the slash commands call.
+
+Dispatch mirrors job-watcher: each subcommand stores its handler under
+args.func. Return codes: 0 ok, 1 uncaught error, 2 bad usage, 75 lock held.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import os
+import re
+import sys
+from datetime import datetime, timezone
+from typing import Any
+
+from job_enricher import enrich_config as ec
+from job_enricher import lock as lock_mod
+from job_enricher import taxonomy as tax
+from job_enricher.clean import clean_description, truncate_for_agent
+from job_enricher.store import (
+    HEARTBEAT_KEY,
+    LAST_SCORECARD_HASH_KEY,
+    Store,
+    now_iso,
+)
+
+logger = logging.getLogger(__name__)
+
+
+def configure_logging() -> None:
+    """Configure package logging once, at CLI entry.
+
+    Logs to STDERR (stdout stays reserved for the JSON/command output the slash
+    commands parse). Level comes from the LOG_LEVEL env var (default INFO).
+    Idempotent — safe to call more than once. Handlers are attached to the
+    package logger with propagate=False so records don't double-print via the
+    root lastResort handler."""
+    level_name = os.environ.get("LOG_LEVEL", "INFO").upper()
+    level = getattr(logging, level_name, logging.INFO)
+    pkg_logger = logging.getLogger("job_enricher")
+    pkg_logger.setLevel(level)
+    pkg_logger.propagate = False
+    if not pkg_logger.handlers:
+        handler = logging.StreamHandler(sys.stderr)
+        handler.setFormatter(
+            logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+        )
+        pkg_logger.addHandler(handler)
+
+
+def _read_json_arg(args: argparse.Namespace) -> Any:
+    """Read a JSON payload from --json, --json-file, or stdin."""
+    if getattr(args, "json", None):
+        return json.loads(args.json)
+    if getattr(args, "json_file", None):
+        with open(args.json_file, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    data = sys.stdin.read()
+    return json.loads(data) if data.strip() else []
+
+
+# ---- lifecycle -------------------------------------------------------------
+def _cmd_init(args: argparse.Namespace) -> int:
+    Store().init_schema()
+    print("init: schema ready")
+    return 0
+
+
+def _cmd_tick_acquire(args: argparse.Namespace) -> int:
+    store = Store()
+    lock_path = store.db_path.parent / ".tick.lock"
+    acquired, reason = lock_mod.try_acquire(lock_path)
+    if not acquired:
+        print(f"tick-acquire: skipped — {reason}")
+        return 75
+    try:
+        store.init_schema()
+        tick_id = store.start_tick()
+    except Exception:
+        lock_mod.release(lock_path)
+        raise
+    print(f"tick-acquire: acquired tick_id={tick_id}")
+    return 0
+
+
+def _env_int(name: str) -> int | None:
+    raw = os.environ.get(name)
+    return int(raw) if raw and raw.isdigit() else None
+
+
+def _cmd_tick_end(args: argparse.Namespace) -> int:
+    """Close the current tick + release the lock.
+
+    Stray-tick-end guard: when a tick id is supplied (`--tick-id` or the
+    ENRICH_TICK_ID env var the wrapper exports), refuse to close anything if
+    meta current_tick_id doesn't match — a stray tick-end from an overlapping
+    invocation must never close the RUNNING tick or free its lock.
+
+    Mass-nulling circuit breaker: a tick whose nulled-facet count exceeds 50%
+    of classified rows (with classified >= 10) closes status='error' regardless
+    of the requested status — that ratio means taxonomy drift, not per-row
+    hallucinations."""
+    from job_enricher.metrics import drift_suspected
+
+    store = Store()
+    expected = args.tick_id if args.tick_id is not None else _env_int("ENRICH_TICK_ID")
+    current = store.current_tick_id()
+    if expected is not None and current != expected:
+        print(
+            f"tick-end: REFUSED — expected tick_id={expected} but current_tick_id="
+            f"{current}; not closing another tick's state (stray tick-end guard)"
+        )
+        return 1
+
+    status = args.status
+    notes = args.notes
+    if current is not None:
+        tick = store.get_tick(current)
+        if tick is not None and drift_suspected(tick):
+            breaker = (
+                f"mass-nulling circuit breaker: nulled_facets={tick['nulled_facets']} "
+                f"of classified={tick['classified']} (>50%) — taxonomy drift suspected"
+            )
+            logger.error("tick-end: %s", breaker)
+            status = "error"
+            notes = f"{notes} | {breaker}" if notes else breaker
+
+    tick_id = store.end_tick(status=status, notes=notes)
+    lock_mod.release(
+        store.db_path.parent / ".tick.lock",
+        owner_pid=_env_int("ENRICH_LOCK_OWNER_PID"),
+    )
+    print(f"tick-end: closed tick_id={tick_id} status={status}")
+    return 0
+
+
+# ---- knobs -----------------------------------------------------------------
+def _cmd_taxonomy_version(args: argparse.Namespace) -> int:
+    print(tax.taxonomy_version())
+    return 0
+
+
+def _cmd_enrich_config(args: argparse.Namespace) -> int:
+    print(json.dumps(ec.config_snapshot(Store())))
+    return 0
+
+
+def _cmd_set_knob(args: argparse.Namespace) -> int:
+    store = Store()
+    result = args.setter(store, args.value)
+    print(f"{args.knob}: {result}")
+    return 0
+
+
+# ---- pull ------------------------------------------------------------------
+def _do_pull(store: Store, client: Any, limit: int | None) -> tuple[int, int, int]:
+    """Pull from JVN then persist. The heartbeat is stamped ONLY after a
+    successful pull (E6) so a failed pull can't mask a dead laptop with a fresh
+    'alive' timestamp. Returns (inserted, skipped_unchanged, received)."""
+    jobs = client.pull_pending(limit=limit)
+    store.heartbeat()
+    inserted, skipped = store.enqueue_inbox(jobs)
+    store.bump_tick_counters(claimed=inserted)
+    return inserted, skipped, len(jobs)
+
+
+def _cmd_pull(args: argparse.Namespace) -> int:
+    from job_enricher.jvn_client import JVNClient
+
+    store = Store()
+    store.init_schema()
+    inserted, skipped, received = _do_pull(store, JVNClient(), args.limit)
+    print(f"pull: claimed={inserted} skipped_unchanged={skipped} received={received}")
+    return 0
+
+
+# ---- clean (Stage A, deterministic) ---------------------------------------
+def _cmd_clean(args: argparse.Namespace) -> int:
+    store = Store()
+    started = now_iso()
+    import time as _t
+
+    t0 = _t.monotonic()
+    rows = store.jobs_needing_clean(limit=args.limit)
+    n = 0
+    for row in rows:
+        cleaned = clean_description(row["description_html"])
+        store.record_clean(row["source_id"], row["job_listing_id"], cleaned)
+        n += 1
+    dur = int((_t.monotonic() - t0) * 1000)
+    store.record_stage_timing("clean", started, now_iso(), dur, item_count=n)
+    store.bump_tick_counters(cleaned=n)
+    print(f"clean: cleaned={n}")
+    return 0
+
+
+# ---- classify queue + record (Stage B) ------------------------------------
+def _cmd_classify_queue(args: argparse.Namespace) -> int:
+    store = Store()
+    rows = store.jobs_needing_classify(limit=args.limit)
+    out = []
+    for r in rows:
+        out.append(
+            {
+                "job_listing_id": r["job_listing_id"],
+                "source_id": r["source_id"],
+                "title": r["title"],
+                "company": r["company"],
+                "raw_location": r["raw_location"],
+                "clean_description": truncate_for_agent(r["clean_description"] or ""),
+            }
+        )
+    print(json.dumps(out))
+    return 0
+
+
+def _coerce_json_field(value: Any) -> str:
+    return json.dumps(value if value is not None else [])
+
+
+def _nonempty(value: Any) -> bool:
+    return bool(value) and bool(str(value).strip())
+
+
+def _record_llm_stage_timing(store: Store, stage: str, items: int) -> None:
+    """Attribute wall time to an LLM stage (classify/judge) at record time: the
+    stage window runs from the current tick's previous stage event (or the tick
+    start) to now. No-ops outside a tick — record_stage_timing needs one."""
+    ended = now_iso()
+    started = store.last_stage_event_at() or ended
+    try:
+        dur_ms = int(
+            (datetime.fromisoformat(ended) - datetime.fromisoformat(started)).total_seconds()
+            * 1000
+        )
+    except ValueError:
+        dur_ms = 0
+    store.record_stage_timing(stage, started, ended, max(dur_ms, 0), item_count=items)
+
+
+def record_enrichment_items(
+    store: Store, items: list[dict[str, Any]], version: str,
+    classify_model: str | None = None,
+) -> dict[str, int]:
+    """Validate + persist classify results. Returns a counts dict:
+    ``{"recorded", "needs_human", "skipped", "skipped_unknown", "nulled_facets"}``.
+
+    Rows with an empty job_listing_id are skipped (E10). The composite identity
+    guard: an item must resolve to a CLAIMED (source_id, job_listing_id) inbox
+    pair — a hallucinated/typo'd job_listing_id or an echoed source_id that
+    doesn't match any inbox row is skipped + warned + counted as
+    ``skipped_unknown`` instead of aborting the whole wave with an FK
+    IntegrityError (the 'never raises' contract). An item without a source_id
+    is resolved from the inbox only when the bare id maps to exactly ONE
+    source. Rows with a category/level outside the canonical taxonomy get the
+    bad slug nulled (counted in ``nulled_facets``) and are flagged needs_human
+    so the hallucination is caught locally instead of shipped to JVN (E4).
+    Never raises on bad data."""
+    sources_by_id = store.inbox_sources_by_id(
+        [i.get("job_listing_id") for i in items if isinstance(i, dict) and i.get("job_listing_id")]
+    )
+    recorded = 0
+    needs_human_n = 0
+    skipped = 0
+    skipped_unknown = 0
+    nulled = 0
+    for item in items:
+        jid = item.get("job_listing_id")
+        if not _nonempty(jid):
+            skipped += 1
+            logger.warning("record-enrichment: skipping item with empty job_listing_id")
+            continue
+        claimed_sources = sources_by_id.get(jid, [])
+        source_id = item.get("source_id")
+        if _nonempty(source_id):
+            if source_id not in claimed_sources:
+                skipped_unknown += 1
+                logger.warning(
+                    "record-enrichment: (source_id=%r, job_listing_id=%r) matches no "
+                    "claimed inbox row (hallucinated id or wrong source echoed); "
+                    "skipping item instead of raising", source_id, jid,
+                )
+                continue
+        elif len(claimed_sources) == 1:
+            source_id = claimed_sources[0]
+        else:
+            skipped_unknown += 1
+            logger.warning(
+                "record-enrichment: job_listing_id=%r has no usable source_id "
+                "(%d inbox row(s) claim that id); skipping item",
+                jid, len(claimed_sources),
+            )
+            continue
+        category, level, bad = tax.validate_facets(item.get("category"), item.get("level"))
+        needs_human = False
+        if bad:
+            needs_human = True
+            nulled += 1
+            for facet, value in bad:
+                logger.warning(
+                    "record-enrichment: job_listing_id=%s has invalid %s=%r (not in taxonomy); "
+                    "nulled + flagged needs_human", jid, facet, value,
+                )
+        store.record_enrichment(
+            {
+                "job_listing_id": jid,
+                "source_id": source_id,
+                "category": category,
+                "level": level,
+                "level_includes": _coerce_json_field(item.get("level_includes")),
+                "tags": _coerce_json_field(item.get("tags")),
+                "locations": _coerce_json_field(item.get("locations")),
+                "classify_confidence": item.get("confidence"),
+                "classify_reasoning": item.get("reasoning"),
+                "taxonomy_version": version,
+                "needs_human": needs_human,
+                "classify_model": classify_model,
+            }
+        )
+        recorded += 1
+        needs_human_n += 1 if needs_human else 0
+    return {
+        "recorded": recorded,
+        "needs_human": needs_human_n,
+        "skipped": skipped,
+        "skipped_unknown": skipped_unknown,
+        "nulled_facets": nulled,
+    }
+
+
+def _cmd_record_enrichment(args: argparse.Namespace) -> int:
+    store = Store()
+    payload = _read_json_arg(args)
+    items = payload if isinstance(payload, list) else [payload]
+    version = tax.taxonomy_version()
+    res = record_enrichment_items(
+        store, items, version, classify_model=ec.get_classify_model(store)
+    )
+    store.bump_tick_counters(
+        classified=res["recorded"], needs_human=res["needs_human"],
+        nulled_facets=res["nulled_facets"],
+    )
+    _record_llm_stage_timing(store, "classify", res["recorded"])
+    print(
+        f"record-enrichment: recorded={res['recorded']} needs_human={res['needs_human']} "
+        f"skipped={res['skipped']} skipped_unknown={res['skipped_unknown']} "
+        f"nulled_facets={res['nulled_facets']}"
+    )
+    return 0
+
+
+# ---- judge queue + record (Stage C) ---------------------------------------
+def _needs_judge(e: Any, ceiling: float) -> bool:
+    """scope=low_confidence routing: judge only the rows where judging has a
+    measurable payoff — classify was unsure (confidence below the ceiling, or
+    missing), a facet was nulled at ingest (invalid slug), or the row is
+    already flagged needs_human. Confident rows ship as-is: the measured lift
+    of judging them was negative (level churn away from gold)."""
+    conf = e["classify_confidence"]
+    if conf is None or conf < ceiling:
+        return True
+    if e["needs_human"]:
+        return True
+    if e["category"] is None or e["level"] is None:
+        return True
+    return False
+
+
+def _cmd_judge_queue(args: argparse.Namespace) -> int:
+    store = Store()
+    if not ec.get_judge_enabled(store):
+        print("[]")
+        return 0
+    scope = ec.get_judge_scope(store)
+    ceiling = ec.get_judge_confidence_ceiling(store)
+    enr = store.enriched_unjudged(limit=args.limit)
+    out = []
+    for e in enr:
+        if scope == "low_confidence" and not _needs_judge(e, ceiling):
+            continue
+        out.append(
+            {
+                "job_listing_id": e["job_listing_id"],
+                "source_id": e["source_id"],
+                "title": e["title"] or "",
+                "company": e["company"] or "",
+                "raw_location": e["raw_location"],
+                "clean_description": truncate_for_agent(e["clean_description"] or ""),
+                "current": {
+                    "category": e["category"],
+                    "level": e["level"],
+                    "level_includes": json.loads(e["level_includes"] or "[]"),
+                    "tags": json.loads(e["tags"] or "[]"),
+                    "locations": json.loads(e["locations"] or "[]"),
+                    "confidence": e["classify_confidence"],
+                },
+            }
+        )
+    print(json.dumps(out))
+    return 0
+
+
+def apply_judge_verdicts(
+    store: Store, items: list[dict[str, Any]], floor: float,
+    judge_model: str | None = None,
+) -> dict[str, int]:
+    """Merge + persist judge verdicts. Returns a counts dict:
+    ``{"judged", "corrected", "needs_human", "skipped", "rejected_corrections"}``.
+
+    Verdicts are matched to their enrichment row by the composite
+    (source_id, job_listing_id) pair; a verdict without a source_id resolves
+    by bare id only when unambiguous. A verdict with no matching row is COUNTED
+    as skipped and warned rather than silently dropped (E13)."""
+    existing = _enrichment_map(
+        store, [i.get("job_listing_id") for i in items if isinstance(i, dict) and i.get("job_listing_id")]
+    )
+    by_id: dict[str, list[dict[str, Any]]] = {}
+    for (_, jid), row in existing.items():
+        by_id.setdefault(jid, []).append(row)
+    judged = 0
+    corrected = 0
+    needs_human = 0
+    skipped = 0
+    rejected_corrections = 0
+    for item in items:
+        jid = item.get("job_listing_id")
+        sid = item.get("source_id")
+        base: dict[str, Any] | None = None
+        if jid:
+            if sid:
+                base = existing.get((sid, jid))
+            else:
+                candidates = by_id.get(jid, [])
+                if len(candidates) == 1:
+                    base = candidates[0]
+                elif len(candidates) > 1:
+                    logger.warning(
+                        "record-judge: verdict for job_listing_id=%r has no source_id "
+                        "and %d rows share that id — skipping (ambiguous)",
+                        jid, len(candidates),
+                    )
+        if base is None:
+            skipped += 1
+            logger.warning(
+                "record-judge: skipping verdict for unknown (source_id=%r, "
+                "job_listing_id=%r) (no enrichment row)", sid, jid,
+            )
+            continue
+        merged = _merge_judge(base, item, floor)
+        rejected_corrections += merged.pop("rejected_corrections", 0)
+        merged["judge_model"] = judge_model
+        store.record_judge(merged)
+        judged += 1
+        corrected += 0 if merged["judge_pass"] else 1
+        needs_human += 1 if merged["needs_human"] else 0
+    return {
+        "judged": judged,
+        "corrected": corrected,
+        "needs_human": needs_human,
+        "skipped": skipped,
+        "rejected_corrections": rejected_corrections,
+    }
+
+
+def _cmd_record_judge(args: argparse.Namespace) -> int:
+    store = Store()
+    payload = _read_json_arg(args)
+    items = payload if isinstance(payload, list) else [payload]
+    floor = ec.get_judge_human_floor(store)
+    res = apply_judge_verdicts(
+        store, items, floor, judge_model=ec.get_judge_model(store)
+    )
+    store.bump_tick_counters(
+        judged=res["judged"], corrected=res["corrected"], needs_human=res["needs_human"]
+    )
+    _record_llm_stage_timing(store, "judge", res["judged"])
+    print(
+        f"record-judge: judged={res['judged']} corrected={res['corrected']} "
+        f"needs_human={res['needs_human']} skipped={res['skipped']} "
+        f"rejected_corrections={res['rejected_corrections']}"
+    )
+    return 0
+
+
+# the judge may only change level (outside the new_grad/entry equivalence)
+# when its OWN confidence clears this bar — enforced in code, not just prompt
+JUDGE_LEVEL_CONFIDENCE_MIN = 0.8
+_LEVEL_EQUIVALENCE = frozenset({"new_grad", "entry"})
+
+
+def _merge_judge(base: dict[str, Any], verdict: dict[str, Any], floor: float) -> dict[str, Any]:
+    """Apply a judge verdict in place: keep existing facets unless the judge
+    supplied a correction; stamp judge fields; flag needs_human below the floor.
+    A judge-supplied category/level outside the canonical taxonomy is nulled and
+    flags needs_human (E4) so a hallucinated correction is never shipped.
+
+    Level-change rails (code-enforced — the prompt states them, but a rail the
+    system doesn't enforce isn't a rail):
+      - a level correction WITHIN the {new_grad, entry} filter equivalence is
+        REJECTED: the label stays, needs_human is set, and the rejected change
+        lands in judge_notes (churn inside the equivalence changes nothing a
+        user sees, and measured judge level changes there were harmful);
+      - any other level correction is REJECTED when the judge's own confidence
+        is below JUDGE_LEVEL_CONFIDENCE_MIN (other corrections still apply).
+    Rejected corrections are counted in the returned dict's
+    ``rejected_corrections`` key (popped by the caller — not persisted)."""
+    corr = dict(verdict.get("corrections") or {})
+    proposed_any = bool(corr)
+    passed = bool(verdict.get("passed", verdict.get("judge_pass", True)))
+    conf = verdict.get("confidence", verdict.get("judge_confidence"))
+    notes = verdict.get("notes", verdict.get("judge_notes"))
+
+    rejected_notes: list[str] = []
+    force_needs_human = False
+    if corr.get("level") is not None and corr["level"] != base["level"]:
+        base_level, corr_level = base["level"], corr["level"]
+        if base_level in _LEVEL_EQUIVALENCE and corr_level in _LEVEL_EQUIVALENCE:
+            corr.pop("level")
+            corr.pop("level_includes", None)  # derived from the rejected level
+            force_needs_human = True
+            rejected_notes.append(
+                f"level correction {base_level}->{corr_level} rejected "
+                "(new_grad/entry filter equivalence); flagged needs_human"
+            )
+        elif conf is None or conf < JUDGE_LEVEL_CONFIDENCE_MIN:
+            corr.pop("level")
+            corr.pop("level_includes", None)
+            rejected_notes.append(
+                f"level correction {base_level}->{corr_level} rejected "
+                f"(judge confidence {conf} < {JUDGE_LEVEL_CONFIDENCE_MIN})"
+            )
+    for note in rejected_notes:
+        logger.warning(
+            "record-judge: job_listing_id=%s %s", base["job_listing_id"], note
+        )
+
+    def pick(field: str, current: Any) -> Any:
+        return corr[field] if field in corr and corr[field] is not None else current
+
+    category = pick("category", base["category"])
+    level = pick("level", base["level"])
+    level_includes = pick("level_includes", json.loads(base["level_includes"] or "[]"))
+    tags = pick("tags", json.loads(base["tags"] or "[]"))
+    locations = pick("locations", json.loads(base["locations"] or "[]"))
+
+    # OR in the pre-judge flag: a row classify flagged needs_human (e.g. an
+    # invalid slug nulled at ingest, E4) must STAY flagged even if a confident
+    # judge verdict says needs_human=false — never silently clear it (E16).
+    needs_human = (
+        bool(verdict.get("needs_human", False))
+        or bool(base.get("needs_human"))
+        or force_needs_human
+    )
+    if conf is not None and conf < floor:
+        needs_human = True
+
+    category, level, bad = tax.validate_facets(category, level)
+    if bad:
+        needs_human = True
+        for facet, value in bad:
+            logger.warning(
+                "record-judge: job_listing_id=%s judge produced invalid %s=%r "
+                "(not in taxonomy); nulled + flagged needs_human",
+                base["job_listing_id"], facet, value,
+            )
+
+    if rejected_notes:
+        suffix = " | ".join(rejected_notes)
+        notes = f"{notes} | {suffix}" if notes else suffix
+
+    return {
+        "job_listing_id": base["job_listing_id"],
+        "source_id": base.get("source_id"),
+        "category": category,
+        "level": level,
+        "level_includes": _coerce_json_field(level_includes),
+        "tags": _coerce_json_field(tags),
+        "locations": _coerce_json_field(locations),
+        # a proposed-but-rejected correction is still not a clean pass
+        "judge_pass": passed and not proposed_any,
+        "judge_confidence": conf,
+        "judge_notes": notes,
+        "needs_human": needs_human,
+        "rejected_corrections": len(rejected_notes),
+    }
+
+
+# ---- write-back (Stage D) --------------------------------------------------
+def _cmd_write_back(args: argparse.Namespace) -> int:
+    from job_enricher.writeback import write_back
+
+    result = write_back(Store())
+    print(f"write-back: {json.dumps(result)}")
+    # Distinguish "nothing to send" (a clean no-op) from "N rows still unsent
+    # after retries" (JVN rejects and/or failed batches). The latter is a tick
+    # error signal so /enrich-tick can close the tick with status=error (E7).
+    if result["unsent"] > 0:
+        logger.error(
+            "write-back: %d row(s) still unsent after retries (%d failed batch(es)); "
+            "they retry next tick", result["unsent"], result["errors"],
+        )
+        return 1
+    return 0
+
+
+# ---- observability ---------------------------------------------------------
+def _cmd_health(args: argparse.Namespace) -> int:
+    store = Store()
+    with store.connect() as conn:
+        inbox = dict(
+            (r["status"], r["n"])
+            for r in conn.execute(
+                "SELECT status, COUNT(*) AS n FROM inbox GROUP BY status"
+            ).fetchall()
+        )
+        # unsent mirrors what write-back will actually offer: terminal
+        # 'failed' (poison) rows are excluded here and surfaced separately
+        # via inbox['failed'] + the failed_rows key.
+        unsent = conn.execute(
+            "SELECT COUNT(*) AS n FROM enrichments e JOIN inbox i "
+            "ON i.source_id = e.source_id AND i.job_listing_id = e.job_listing_id "
+            "WHERE e.sent_at IS NULL AND i.status != 'failed'"
+        ).fetchone()["n"]
+        needs_human = conn.execute(
+            "SELECT COUNT(*) AS n FROM enrichments WHERE needs_human = 1"
+        ).fetchone()["n"]
+        timings = [
+            dict(r)
+            for r in conn.execute(
+                "SELECT stage, COUNT(*) AS runs, AVG(duration_ms) AS avg_ms, "
+                "SUM(item_count) AS items, SUM(retry_count) AS retries "
+                "FROM stage_timings GROUP BY stage"
+            ).fetchall()
+        ]
+    hb = store.get_meta(HEARTBEAT_KEY)
+    hb_age = None
+    if hb:
+        try:
+            hb_age = (datetime.now(timezone.utc) - datetime.fromisoformat(hb)).total_seconds()
+        except ValueError:
+            hb_age = None
+    print(
+        json.dumps(
+            {
+                "inbox": inbox,
+                "unsent": unsent,
+                "needs_human": needs_human,
+                "failed_rows": inbox.get("failed", 0),
+                "last_heartbeat_at": hb,
+                "last_heartbeat_age_s": hb_age,
+                "stage_timings": timings,
+                "latest_tick": store.latest_tick(),
+            }
+        )
+    )
+    return 0
+
+
+def _cmd_status(args: argparse.Namespace) -> int:
+    return _cmd_health(args)
+
+
+# ---- eval ------------------------------------------------------------------
+def _cmd_build_golden(args: argparse.Namespace) -> int:
+    from job_enricher.eval.golden import build_golden_set
+
+    path = build_golden_set(n=args.n, stratify="company")
+    print(f"build-golden-set: wrote {path}")
+    return 0
+
+
+def _cmd_eval(args: argparse.Namespace) -> int:
+    from job_enricher.eval.report import run_eval
+
+    code = run_eval(
+        golden_set=args.set, judge=args.judge, gate=args.gate, baseline=args.baseline,
+        allow_draft=args.allow_draft,
+    )
+    return code
+
+
+# ---- reenrich (MANUAL taxonomy re-processing) -----------------------------
+_TAXONOMY_VERSION_RE = re.compile(r"^v(\d+)\+(\S+)$")
+
+
+def _cmd_reenrich(args: argparse.Namespace) -> int:
+    """Re-queue rows whose taxonomy_version is strictly BELOW the given
+    'v<N>+<hash>' (smaller declared N). Rows at the same N with a different
+    hash are NOT below (hashes are unordered) — they are warned and left
+    alone. Unversioned rows count as below."""
+    if _TAXONOMY_VERSION_RE.match(args.taxonomy_below) is None:
+        print(
+            f"reenrich: --taxonomy-below must look like 'v<N>+<hash>' "
+            f"(e.g. v2+3f9a1c2b8e04), got {args.taxonomy_below!r}",
+            file=sys.stderr,
+        )
+        return 2
+    store = Store()
+    with store.connect() as conn:
+        rows = conn.execute(
+            "SELECT job_listing_id, source_id, taxonomy_version FROM enrichments"
+        ).fetchall()
+        target = 0
+        for r in rows:
+            if _version_below(r["taxonomy_version"], args.taxonomy_below):
+                conn.execute(
+                    "UPDATE inbox SET status='cleaned' "
+                    "WHERE source_id=? AND job_listing_id=? AND clean_description IS NOT NULL",
+                    (r["source_id"], r["job_listing_id"]),
+                )
+                conn.execute(
+                    "DELETE FROM enrichments WHERE source_id=? AND job_listing_id=?",
+                    (r["source_id"], r["job_listing_id"]),
+                )
+                target += 1
+    print(f"reenrich: reset {target} rows below taxonomy {args.taxonomy_below!r}")
+    return 0
+
+
+def _version_below(current: str | None, threshold: str) -> bool:
+    """True when `current` is strictly below `threshold` under the
+    'v<N>+<hash>' scheme (smaller declared N). Same-N-different-hash is NOT
+    below — content hashes carry no ordering — and logs a warning so a
+    hash-only drift is visible. Missing/unparseable `current` predates
+    versioning and counts as below."""
+    t = _TAXONOMY_VERSION_RE.match(threshold)
+    if t is None:
+        raise ValueError(f"invalid taxonomy version threshold {threshold!r}")
+    c = _TAXONOMY_VERSION_RE.match(current or "")
+    if c is None:
+        return True
+    current_n, current_hash = int(c.group(1)), c.group(2)
+    threshold_n, threshold_hash = int(t.group(1)), t.group(2)
+    if current_n < threshold_n:
+        return True
+    if current_n == threshold_n and current_hash != threshold_hash:
+        logger.warning(
+            "reenrich: %s has the same declared version as %s but a different "
+            "content hash — NOT below (hashes are unordered); row left alone",
+            current, threshold,
+        )
+    return False
+
+
+# ---- golden-merge (human corrections -> gold labels) -----------------------
+def _cmd_golden_merge(args: argparse.Namespace) -> int:
+    """Pull human admin corrections from JVN and fold them into the golden
+    seed as label_source='human' rows — the online path that turns triage work
+    into real ground truth for the regression gate."""
+    from job_enricher.eval.golden import merge_corrections
+    from job_enricher.jvn_client import JVNClient
+
+    corrections = JVNClient().get_corrections(since=args.since, limit=args.limit)
+    report = merge_corrections(corrections)
+    print(
+        f"golden-merge: matched={report['matched']} upgraded={report['upgraded']} "
+        f"unmatched={report['unmatched']}"
+    )
+    return 0
+
+
+# ---- metrics push (best-effort observability channel) ----------------------
+def _cmd_metrics_push(args: argparse.Namespace) -> int:
+    """Assemble + POST the latest (or given) tick's metrics to JVN.
+
+    BEST-EFFORT by contract: a metrics failure must NEVER fail a tick — any
+    error is logged and the command exits 0 (exit 2 only under --strict)."""
+    from job_enricher.jvn_client import JVNClient
+    from job_enricher.metrics import build_metrics_payload
+
+    store = Store()
+    try:
+        payload, scorecard_hash = build_metrics_payload(store, tick_id=args.tick_id)
+        if payload is None:
+            print("metrics-push: no tick to report")
+            return 0
+        JVNClient().post_metrics(payload)
+        if scorecard_hash is not None:
+            store.set_meta(LAST_SCORECARD_HASH_KEY, scorecard_hash)
+        print(
+            f"metrics-push: ok tick_uuid={payload['tick_uuid']} "
+            f"status={payload['status']}"
+        )
+        return 0
+    except Exception as exc:  # noqa: BLE001 — best-effort boundary by contract
+        logger.warning("metrics-push failed (best-effort, never fails a tick): %s", exc)
+        print(f"metrics-push: failed — {exc}", file=sys.stderr)
+        return 2 if args.strict else 0
+
+
+# ---- serve (optional edge) -------------------------------------------------
+def _cmd_serve(args: argparse.Namespace) -> int:
+    import uvicorn
+
+    from job_enricher.config import settings
+
+    uvicorn.run("job_enricher.server:app", host="127.0.0.1", port=settings.edge_port)
+    return 0
+
+
+# ---- small lookups ---------------------------------------------------------
+def _enrichment_map(store: Store, ids: list[str]) -> dict[tuple[str, str], dict[str, Any]]:
+    """Enrichment rows keyed by the composite (source_id, job_listing_id)."""
+    if not ids:
+        return {}
+    ph = ",".join("?" for _ in ids)
+    with store.connect() as conn:
+        rows = conn.execute(
+            f"SELECT * FROM enrichments WHERE job_listing_id IN ({ph})", ids
+        ).fetchall()
+    return {(r["source_id"], r["job_listing_id"]): dict(r) for r in rows}
+
+
+# ---- parser ----------------------------------------------------------------
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(prog="job_enricher.cli", description="Job-enricher pipeline CLI.")
+    subs = p.add_subparsers(dest="command", metavar="command")
+
+    subs.add_parser("init", help="create the SQLite schema").set_defaults(func=_cmd_init)
+
+    subs.add_parser("tick-acquire", help="acquire lock + open tick (exit 75 if held)").set_defaults(
+        func=_cmd_tick_acquire
+    )
+    pe = subs.add_parser("tick-end", help="close tick + release lock")
+    pe.add_argument("--status", default="ok", choices=["ok", "error"])
+    pe.add_argument("--notes", default=None)
+    pe.add_argument(
+        "--tick-id", type=int, default=None,
+        help="refuse unless this matches meta current_tick_id (stray tick-end "
+             "guard; also read from ENRICH_TICK_ID)",
+    )
+    pe.set_defaults(func=_cmd_tick_end)
+
+    subs.add_parser("taxonomy-version", help="print taxonomy version hash").set_defaults(
+        func=_cmd_taxonomy_version
+    )
+    subs.add_parser("enrich-config", help="print runtime knobs as JSON").set_defaults(
+        func=_cmd_enrich_config
+    )
+
+    # knob setters
+    for name, knob, setter, typ in [
+        ("set-classify-model", "classify:model", ec.set_classify_model, str),
+        ("set-classify-batch", "classify:batch_size", ec.set_classify_batch_size, int),
+        ("set-classify-fanout", "classify:fan_out", ec.set_classify_fan_out, int),
+        ("set-judge-model", "judge:model", ec.set_judge_model, str),
+        ("set-judge-floor", "judge:human_floor", ec.set_judge_human_floor, float),
+        ("set-judge-scope", "judge:scope", ec.set_judge_scope, str),
+        ("set-judge-ceiling", "judge:confidence_ceiling", ec.set_judge_confidence_ceiling, float),
+    ]:
+        sp = subs.add_parser(name, help=f"set {knob}")
+        sp.add_argument("value", type=typ)
+        sp.set_defaults(func=_cmd_set_knob, knob=knob, setter=setter)
+
+    jt = subs.add_parser("judge-toggle", help="turn the judge on/off")
+    jt.add_argument("value", choices=["on", "off"])
+    jt.set_defaults(func=_cmd_set_knob, knob="judge:enabled",
+                    setter=lambda s, v: ec.set_judge_enabled(s, v == "on"))
+
+    pp = subs.add_parser("pull", help="claim a batch of unenriched jobs from JVN")
+    pp.add_argument("--limit", type=int, default=None)
+    pp.set_defaults(func=_cmd_pull)
+
+    pc = subs.add_parser("clean", help="Stage A: deterministic description cleaning")
+    pc.add_argument("--limit", type=int, default=None)
+    pc.set_defaults(func=_cmd_clean)
+
+    cq = subs.add_parser("classify-queue", help="emit jobs needing classification as JSON")
+    cq.add_argument("--limit", type=int, default=None)
+    cq.set_defaults(func=_cmd_classify_queue)
+
+    re_ = subs.add_parser("record-enrichment", help="record classify results (JSON array)")
+    re_.add_argument("--json", default=None)
+    re_.add_argument("--json-file", default=None)
+    re_.set_defaults(func=_cmd_record_enrichment)
+
+    jq = subs.add_parser("judge-queue", help="emit enrichments needing judging as JSON")
+    jq.add_argument("--limit", type=int, default=None)
+    jq.set_defaults(func=_cmd_judge_queue)
+
+    rj = subs.add_parser("record-judge", help="apply judge verdicts (JSON array)")
+    rj.add_argument("--json", default=None)
+    rj.add_argument("--json-file", default=None)
+    rj.set_defaults(func=_cmd_record_judge)
+
+    subs.add_parser("write-back", help="Stage D: durable write-back to JVN").set_defaults(
+        func=_cmd_write_back
+    )
+
+    subs.add_parser("health", help="observability JSON").set_defaults(func=_cmd_health)
+    subs.add_parser("status", help="alias for health").set_defaults(func=_cmd_status)
+    subs.add_parser("serve", help="run the optional inbound edge").set_defaults(func=_cmd_serve)
+
+    bg = subs.add_parser("build-golden-set", help="sample JVN into golden/seed")
+    bg.add_argument("--n", type=int, default=150)
+    bg.set_defaults(func=_cmd_build_golden)
+
+    ev = subs.add_parser("eval", help="score against the golden set")
+    ev.add_argument("--set", default="golden")
+    ev.add_argument("--judge", default=None, choices=["on", "off"])
+    ev.add_argument("--gate", action="store_true")
+    ev.add_argument("--baseline", default=None)
+    ev.add_argument(
+        "--allow-draft", action="store_true",
+        help="score against draft labels too — ADVISORY ONLY (never gates, always exits 0)",
+    )
+    ev.set_defaults(func=_cmd_eval)
+
+    rn = subs.add_parser(
+        "reenrich",
+        help="manually re-queue rows whose taxonomy version is strictly below "
+             "v<N>+<hash> (smaller declared N; same-N different-hash is NOT below)",
+    )
+    rn.add_argument("--taxonomy-below", required=True)
+    rn.set_defaults(func=_cmd_reenrich)
+
+    gm = subs.add_parser(
+        "golden-merge",
+        help="pull JVN admin corrections into golden/seed as label_source='human'",
+    )
+    gm.add_argument("--since", default=None, help="ISO timestamp lower bound")
+    gm.add_argument("--limit", type=int, default=None)
+    gm.set_defaults(func=_cmd_golden_merge)
+
+    mp = subs.add_parser(
+        "metrics-push",
+        help="POST the latest (or given) tick's metrics to JVN (best-effort)",
+    )
+    mp.add_argument("--tick-id", type=int, default=None)
+    mp.add_argument(
+        "--strict", action="store_true",
+        help="exit 2 on failure instead of the default best-effort exit 0",
+    )
+    mp.set_defaults(func=_cmd_metrics_push)
+
+    return p
+
+
+def main(argv: list[str] | None = None) -> int:
+    configure_logging()
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    func = getattr(args, "func", None)
+    if func is None:
+        parser.print_help()
+        return 2
+    try:
+        return int(func(args))
+    except SystemExit:
+        raise
+    except Exception as exc:  # noqa: BLE001 — top-level boundary
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

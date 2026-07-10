@@ -1,0 +1,52 @@
+[project]
+name = "job-enricher"
+version = "0.1.0"
+description = "Local Claude-Code workflow that pulls unenriched jobs from JVN, cleans + classifies + levels + judges them under the Claude Code subscription, and writes results back."
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.27",
+    "html2text>=2024.2.26",
+    "beautifulsoup4>=4.12",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+]
+
+[project.scripts]
+job-enricher = "job_enricher.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "respx>=0.21",
+]
+
+[tool.uv]
+package = true
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/job_enricher"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--cov --cov-report=term-missing"
+
+[tool.coverage.run]
+source = ["src/job_enricher"]
+branch = false
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "def _cmd_serve",
+]

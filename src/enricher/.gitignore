@@ -1,0 +1,11 @@
+.venv/
+data/*.db
+data/*.db-*
+data/.tick.lock
+.env.local
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+golden/scorecards/predictions*.json
+golden/scorecards/scorecard*.json
