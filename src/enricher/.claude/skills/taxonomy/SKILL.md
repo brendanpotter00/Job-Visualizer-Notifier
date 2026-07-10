@@ -1,7 +1,7 @@
 ---
 name: taxonomy
 description: The single source of truth for classifying a job posting into a category, a leveling tier, and normalized tags. Read in full by every classify agent and every judge agent before producing or checking a label. Editing this file changes the taxonomy version hash recorded on each enrichment.
-version: v3
+version: v4
 ---
 
 # Job enrichment taxonomy
@@ -62,13 +62,14 @@ Emit the **single most specific tier that is true**, plus `level_includes` (the 
 |---|---|---|
 | `new_grad` | 0 | Explicitly targets **recent college grads**: "New Grad", "New Graduate 2026", "University Grad", "Campus", "Early Career" tied to a graduation year / degree-completion window, new-grad rotational programs. **Strict subset of `entry`.** |
 | `entry` | 1 | Junior / 0–2 yrs / "Engineer I" / "Associate" / open to early-career **without** requiring recent-grad status. |
-| `mid` | 2 | "Engineer II", ~2–5 yrs, "Software Engineer" with no seniority qualifier and >2 yrs implied. Default when a plain title implies real experience but not seniority. |
+| `mid` | 2 | "Engineer II", ~2–5 yrs, "Software Engineer" with no seniority qualifier and >2 yrs implied. **The default tier whenever a posting carries no explicit level or years-of-experience signal** (see the explicit-signal-or-mid tie-breaker). |
 | `senior` | 3 | "Senior", "Sr.", "Engineer III", ~5+ yrs, lead-ish but individual contributor. |
 | `senior_plus` | 4 | "Staff", "Principal", "Distinguished", "Senior Staff", "Fellow", "Architect" at staff+ scope. IC above senior. |
 | `manager` | 5 | People-management is the core of the role: "Manager", "Director", "Head of", "VP", "Eng Manager". Orthogonal to IC seniority — a "Senior Engineering Manager" is `manager`. |
 
 ### Leveling tie-breakers
 - **Years-of-experience overrides the title's default tier.** When the title carries **no** seniority qualifier, let the description's experience requirement set the level: a role whose description asks for **~5+ years** is `senior` (not the `mid` default), and **~8+ years / "Staff"/"Principal"/"Architect" scope** is `senior_plus` — even when the title is a bare "Software Engineer"/"Analyst"/"Manager of X"-type string. **Title seniority words still win when present:** an explicit "Senior"/"Staff"/"Principal" in the title sets the tier regardless of a lower stated YOE.
+- **No explicit signal -> default `mid`, never `senior` (the explicit-signal-or-mid rule; encodes a real production correction).** The ONLY seniority signals are explicit ones: a level word in the title or body ("Senior", "Staff", "Principal", "Junior", "New Grad", "Intern"), a stated years-of-experience requirement ("5+ years" -> senior territory; "2–4 years" -> mid; "0–1 years" -> entry), or people-management scope ("manage a team" -> manager). When a posting has NONE of these, emit `mid` with `confidence <= 0.6`. **Difficulty / intensity / agency language is NOT a seniority signal:** "own everything end-to-end", "extremely hard problems", "high agency", "extreme ownership", "wear many hats", cracked-engineer / missionary startup tone — startup postings are written to sound maximally hard by nature, and none of that justifies `senior` on its own. The judge applies the same standard: never bump `mid` -> `senior` (and never block a `senior` -> `mid` revision) based on difficulty/vibes alone.
 - **`new_grad` vs `entry` — the important distinction the whole system exists for:**
   - Role open to recent grads **and** experienced early-career people, no graduation-year gate -> **`entry`**.
   - Role that *specifically* targets recent college grads — "New Grad", a class year ("2026"), "university program", campus recruiting, degree-just-completed -> **`new_grad`** (and `level_includes` = `["new_grad", "entry"]`).
@@ -77,7 +78,6 @@ Emit the **single most specific tier that is true**, plus `level_includes` (the 
 - **Manager beats IC seniority:** if the person manages people, `level = manager` regardless of "Senior"/"Principal" in the title.
 - **Staff/Principal IC -> `senior_plus`, not `manager`** (Principal Engineer ICs lead technically without direct reports; Principal *Product Manager* is `senior_plus` too — it's an IC tier).
 - **Bilingual / dual-language titles** ("Développeur logiciel Sénior / Senior Software Developer"): read either language; "Sénior/Senior" -> `senior`.
-- Absent any signal, default `mid` with `confidence <= 0.6`.
 
 ---
 
@@ -140,9 +140,11 @@ Rules:
     `category=data_scientist` (**experimentation / causal inference — analysis and modeling, not pipeline building**), `level=mid` ("II"), `tags=[experimentation,causal-inference,ab-testing]`, location `San Francisco, CA, USA`.
 12. **"Applied Scientist III"** @ Amazon, "Seattle, WA", desc = "develop novel ML models and algorithms, publish research, prototype and evaluate new modeling techniques" ->
     `category=data_scientist` (**an applied *scientist* — model development and research is the deliverable**), `level=senior` ("III"), `tags=[ml,research,modeling]`, location `Seattle, WA, USA`. **Contrast with few-shot 3:** a Data *Engineer* who builds the pipelines that feed these models is `software_engineering`.
+13. **"Software Engineer (Core Infrastructure)"** @ Browserbase (startup), "San Francisco, CA", desc = "you'll own everything you ship end-to-end … tackle extremely hard problems in browser infrastructure at scale … high agency, move fast" — **no level word anywhere, no years-of-experience requirement** ->
+    `category=software_engineering`, `level=mid` (**explicit-signal-or-mid rule: hard-sounding, high-agency startup language is NOT a seniority cue**), `confidence <= 0.6`, `tags=[infrastructure,browsers,platform,backend]`, location `San Francisco, CA, USA`. **Trap:** this posting *sounds* senior — it was previously mislabeled `senior` for exactly that reason and human-corrected to `mid`. Intensity/ownership/mission language never sets the tier; only explicit level words, stated YOE, or management scope do. **Contrast (same company, same intense tone):** Browserbase's "Design Engineer" and "Product Designer" postings state "5+ years of product design experience" — an explicit YOE requirement, so they are `senior` under the YOE-override rule even with no level word in the title. The rule is explicit-signal-or-mid, not always-mid.
 
 ### Quick canonical mappings
-"Staff SWE" -> swe/senior_plus · "New Grad SWE 2026" -> swe/new_grad · "Software Engineer II" -> swe/mid · "Engineering Manager" -> swe/manager · "Data Engineer"/"Analytics Engineer"/"ML Engineer" -> software_engineering · "Data Scientist"/"Applied Scientist"/"ML Research Scientist"/"Research Scientist"/"Quantitative Researcher" -> data_scientist · "Firmware/Electrical/ASIC/Embedded/Mechanical Engineer" -> hardware_engineer · "Technical Program Manager"/"Program Manager"/"Scrum Master" -> project_manager · "Growth/Performance Marketer"/"PMM"/"Demand Gen" -> growth · "Data Analyst"/"BI Analyst" (no production code) -> business_ops · "Solutions/Sales Engineer" -> business_ops (unless core coding) · "MBA Rotational" -> business_ops/entry.
+"Staff SWE" -> swe/senior_plus · "New Grad SWE 2026" -> swe/new_grad · "Software Engineer II" -> swe/mid · bare "Software Engineer" (no level word, no YOE stated — however hard the posting sounds) -> swe/mid · "Engineering Manager" -> swe/manager · "Data Engineer"/"Analytics Engineer"/"ML Engineer" -> software_engineering · "Data Scientist"/"Applied Scientist"/"ML Research Scientist"/"Research Scientist"/"Quantitative Researcher" -> data_scientist · "Firmware/Electrical/ASIC/Embedded/Mechanical Engineer" -> hardware_engineer · "Technical Program Manager"/"Program Manager"/"Scrum Master" -> project_manager · "Growth/Performance Marketer"/"PMM"/"Demand Gen" -> growth · "Data Analyst"/"BI Analyst" (no production code) -> business_ops · "Solutions/Sales Engineer" -> business_ops (unless core coding) · "MBA Rotational" -> business_ops/entry.
 
 ---
 

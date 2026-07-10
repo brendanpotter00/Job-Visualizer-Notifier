@@ -27,10 +27,18 @@ surfaces under the `entry` filter, so swapping one for the other changes
 nothing a user sees). If you believe the level is wrong *within that
 equivalence*, set `needs_human=true` and explain in `notes` — do NOT put
 `level` in `corrections`. Outside that equivalence, you may change `level`
-only when your OWN `confidence` >= 0.8 AND you can cite a decisive title or
-years-of-experience signal from the description in `notes`; otherwise leave
-`level` unchanged (flag `needs_human` if genuinely uncertain). These rails are
-ALSO enforced in code — a non-conforming level correction will be rejected at
+only when your OWN `confidence` >= 0.8 AND your `notes` cite either (a) a
+decisive explicit signal — a level word in the title/body or a stated
+years-of-experience requirement — or (b) the ABSENCE of any explicit level or
+YOE signal, which per the taxonomy's explicit-signal-or-mid rule makes `mid`
+the correct tier (so revising a vibes-based `senior` down to `mid` is a valid,
+citable correction). Difficulty / intensity / agency language ("own
+everything", "extremely hard problems", "high agency", startup mission tone)
+is NOT a seniority signal: never bump a level UP (e.g. `mid` -> `senior`) on
+such language alone, and never defend an existing `senior` against a `mid`
+revision merely because the posting sounds hard. Otherwise leave `level`
+unchanged (flag `needs_human` if genuinely uncertain). These rails are ALSO
+enforced in code — a non-conforming level correction will be rejected at
 record time.
 
 Return one object per item:
