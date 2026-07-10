@@ -22,16 +22,11 @@ import {
   selectRecentAvailableCompanies,
 } from '../../features/filters/selectors/recentJobsSelectors.ts';
 import { useGetFacetsQuery } from '../../features/jobs/jobsApi.ts';
-import {
-  FALLBACK_CATEGORIES,
-  FALLBACK_LEVELS,
-} from '../../constants/enrichment.ts';
-import { SearchTagsInput } from '../shared/filters/SearchTagsInput.tsx';
+import { FALLBACK_CATEGORIES, FALLBACK_LEVELS } from '../../constants/enrichment.ts';
 import { FacetSelect } from '../shared/filters/FacetSelect.tsx';
+import { KeywordFilterInput } from '../shared/filters/KeywordFilterInput.tsx';
 import { TimeWindowSelect } from '../shared/filters/TimeWindowSelect.tsx';
 import { MultiSelectAutocomplete } from '../shared/filters/MultiSelectAutocomplete.tsx';
-import { KeywordListSelect } from '../shared/filters/KeywordListSelect.tsx';
-import type { SearchTag } from '../../types';
 
 /**
  * Filter controls for Recent Job Postings page
@@ -115,11 +110,12 @@ export function RecentJobsFilters() {
           '& .MuiInputLabel-root': { fontSize: RESPONSIVE.control.fontSize },
         }}
       >
-        <SearchTagsInput
-          value={filters.searchTags || []}
+        <KeywordFilterInput
+          value={filters.searchTags}
           onAdd={(tag) => dispatch(addRecentJobsSearchTag(tag))}
           onRemove={(text) => dispatch(removeRecentJobsSearchTag(text))}
           onToggleMode={(text) => dispatch(toggleRecentJobsSearchTagMode(text))}
+          onClear={() => dispatch(setRecentJobsSearchTags(undefined))}
         />
 
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={RESPONSIVE.spacing.filterSpacing}>
@@ -144,10 +140,6 @@ export function RecentJobsFilters() {
             onRemove={(loc) => dispatch(removeRecentJobsLocation(loc))}
           />
 
-          <KeywordListSelect
-            value={filters.searchTags}
-            onChange={(tags: SearchTag[] | undefined) => dispatch(setRecentJobsSearchTags(tags))}
-          />
           <FacetSelect
             label="Category"
             options={categoryOptions}

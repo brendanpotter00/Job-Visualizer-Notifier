@@ -26,12 +26,18 @@ describe('posthogConsent', () => {
   });
 
   describe('acceptTracking', () => {
-    it('switches persistence, opts in, starts recording, and captures pageview', () => {
+    it('switches persistence to cookies, opts in, and starts recording', () => {
       acceptTracking();
       expect(posthog.set_config).toHaveBeenCalledWith({ persistence: 'localStorage+cookie' });
       expect(posthog.opt_in_capturing).toHaveBeenCalled();
       expect(posthog.startSessionRecording).toHaveBeenCalled();
-      expect(posthog.capture).toHaveBeenCalledWith('$pageview');
+    });
+
+    it('does NOT fire a manual $pageview (it already fired under cookieless-by-default)', () => {
+      // Under the cookieless-by-default init the landing $pageview is captured on load by
+      // usePostHogPageview, so re-firing it here would double-count the landing.
+      acceptTracking();
+      expect(posthog.capture).not.toHaveBeenCalledWith('$pageview');
     });
   });
 

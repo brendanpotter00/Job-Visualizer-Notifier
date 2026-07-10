@@ -1,7 +1,9 @@
+import { useEffect } from 'react';
 import { Box } from '@mui/material';
 import { useAuth } from '../../features/auth/useAuth';
 import { SIGN_IN_OVERLAY_MESSAGES } from '../../constants/messages';
 import { SIGN_IN_OVERLAY_CONFIG } from '../../constants/ui';
+import { trackSignInOverlayViewed, type OverlayPage } from '../../features/analytics/events';
 import { SignInPrompt } from './SignInPrompt';
 
 /**
@@ -26,6 +28,14 @@ interface SignInOverlayProps {
    * @default 'default'
    */
   background?: SignInOverlayBackground;
+
+  /**
+   * Funnel attribution: which surface this overlay appears on. When set, a
+   * `signin_overlay_viewed` analytics event fires once the overlay becomes
+   * visible to a signed-out visitor (a mid-funnel "hit the sign-in wall"
+   * signal). Omit it on surfaces that should not be tracked.
+   */
+  page?: OverlayPage;
 }
 
 /**
@@ -49,10 +59,22 @@ interface SignInOverlayProps {
 export function SignInOverlay({
   gradientHeight = SIGN_IN_OVERLAY_CONFIG.GRADIENT_HEIGHT,
   background = 'default',
+  page,
 }: SignInOverlayProps = {}) {
   const { isAuthenticated, isEnabled, isLoading } = useAuth();
 
-  if (!isEnabled || isLoading || isAuthenticated) {
+  // True exactly when the overlay actually renders for a signed-out visitor.
+  const visible = isEnabled && !isLoading && !isAuthenticated;
+
+  // Mid-funnel signal: the signed-out visitor reached a list gated by the sign-in wall.
+  // Fired once per surface when it first becomes visible. (Rendered-when-signed-out is a
+  // proxy for "seen"; it does not require the overlay to be scrolled into view.)
+  useEffect(() => {
+    if (!visible || !page) return;
+    trackSignInOverlayViewed(page);
+  }, [visible, page]);
+
+  if (!visible) {
     return null;
   }
 
@@ -90,6 +112,7 @@ export function SignInOverlay({
           title={SIGN_IN_OVERLAY_MESSAGES.TITLE}
           subtitle={SIGN_IN_OVERLAY_MESSAGES.SUBTITLE}
           buttonText={SIGN_IN_OVERLAY_MESSAGES.BUTTON_TEXT}
+          ctaLocation="job_overlay"
         />
       </Box>
     </Box>

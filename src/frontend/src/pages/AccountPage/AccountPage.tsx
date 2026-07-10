@@ -17,6 +17,7 @@ import { updateCurrentUser } from '../../features/auth/authService';
 import { LoadingState } from '../../components/shared/LoadingIndicator';
 import { ErrorState } from '../../components/shared/ErrorDisplay';
 import { extractErrorMessage } from '../../lib/errors';
+import { trackSignInClick } from '../../features/analytics/events';
 import { RESPONSIVE } from '../../config/responsive';
 
 export function AccountPage() {
@@ -68,7 +69,13 @@ export function AccountPage() {
           <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
             Sign in to view your account.
           </Typography>
-          <Button variant="contained" onClick={login}>
+          <Button
+            variant="contained"
+            onClick={() => {
+              trackSignInClick('account_page');
+              void login();
+            }}
+          >
             Sign In
           </Button>
         </Paper>

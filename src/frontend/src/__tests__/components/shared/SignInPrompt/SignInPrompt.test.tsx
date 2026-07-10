@@ -29,6 +29,11 @@ vi.mock('../../../../features/auth/useAuth', () => ({
   useAuth: () => mockAuthState,
 }));
 
+const mockTrackSignInClick = vi.fn();
+vi.mock('../../../../features/analytics/events', () => ({
+  trackSignInClick: (...args: unknown[]) => mockTrackSignInClick(...args),
+}));
+
 const DEFAULT_PROPS = {
   title: 'Sign in to do the thing',
   subtitle: 'Helpful subtitle',
@@ -39,6 +44,7 @@ describe('SignInPrompt', () => {
   beforeEach(() => {
     mockLogin.mockReset();
     mockLogin.mockResolvedValue(undefined);
+    mockTrackSignInClick.mockClear();
     mockAuthState = {
       isEnabled: true,
       isAuthenticated: false,
@@ -86,6 +92,26 @@ describe('SignInPrompt', () => {
       await user.click(
         screen.getByRole('button', { name: DEFAULT_PROPS.buttonText })
       );
+      expect(mockLogin).toHaveBeenCalledTimes(1);
+    });
+
+    it('fires trackSignInClick with the given ctaLocation before login', async () => {
+      const user = userEvent.setup();
+      render(<SignInPrompt {...DEFAULT_PROPS} ctaLocation="account_page" />);
+      await user.click(
+        screen.getByRole('button', { name: DEFAULT_PROPS.buttonText })
+      );
+      expect(mockTrackSignInClick).toHaveBeenCalledWith('account_page');
+      expect(mockLogin).toHaveBeenCalledTimes(1);
+    });
+
+    it('does NOT fire trackSignInClick when ctaLocation is omitted', async () => {
+      const user = userEvent.setup();
+      render(<SignInPrompt {...DEFAULT_PROPS} />);
+      await user.click(
+        screen.getByRole('button', { name: DEFAULT_PROPS.buttonText })
+      );
+      expect(mockTrackSignInClick).not.toHaveBeenCalled();
       expect(mockLogin).toHaveBeenCalledTimes(1);
     });
 

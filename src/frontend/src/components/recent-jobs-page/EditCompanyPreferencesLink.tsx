@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAppSelector } from '../../app/hooks';
 import { useAuth } from '../../features/auth/useAuth';
 import { selectEnabledCompanyIds } from '../../features/preferences/enabledCompaniesSlice';
+import { trackSignInClick } from '../../features/analytics/events';
 import { ROUTES } from '../../config/routes';
 
 export function EditCompanyPreferencesLink() {
@@ -23,6 +24,7 @@ export function EditCompanyPreferencesLink() {
           component="button"
           type="button"
           onClick={() => {
+            trackSignInClick('edit_prefs_link');
             void login();
           }}
           underline="hover"

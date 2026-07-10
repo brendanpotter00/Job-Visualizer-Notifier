@@ -16,6 +16,7 @@ import { useAuth } from '../../features/auth/useAuth';
 import { useCurrentUser } from '../../features/auth/useCurrentUser';
 import { ROUTES } from '../../config/routes';
 import { extractErrorMessage } from '../../lib/errors';
+import { trackSignInClick } from '../../features/analytics/events';
 
 export function UserMenu() {
   const { isEnabled, isAuthenticated, isLoading, login, logout, user: auth0User } = useAuth();
@@ -31,6 +32,7 @@ export function UserMenu() {
   async function handleLogin() {
     try {
       setLoginError(null);
+      trackSignInClick('appbar');
       await login();
     } catch (err) {
       setLoginError(extractErrorMessage(err, 'Sign-in failed'));
