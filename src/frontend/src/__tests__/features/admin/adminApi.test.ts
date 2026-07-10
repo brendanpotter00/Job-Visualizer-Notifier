@@ -1155,6 +1155,32 @@ describe('adminApi', () => {
       expect(result.error).toBeDefined();
     });
 
+    it('getEnrichmentTicks THROWS when a tick.stageTimings is a non-array (.find crash path)', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse(makeTicksBody({ ticks: [makeTickRow({ stageTimings: {} })] }))
+      );
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(adminApi.endpoints.getEnrichmentTicks.initiate());
+
+      expect(result.data).toBeUndefined();
+      expect(result.error).toBeDefined();
+    });
+
+    it('getEnrichmentTicks accepts stageTimings: null and a valid stageTimings array', async () => {
+      const validArray = [{ stage: 'classify', ms: 120, items: 3, retries: 0 }];
+      const body = makeTicksBody({
+        ticks: [makeTickRow({ stageTimings: null }), makeTickRow({ stageTimings: validArray })],
+      });
+      fetchMock.mockResolvedValue(jsonResponse(body));
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(adminApi.endpoints.getEnrichmentTicks.initiate());
+
+      expect(result.error).toBeUndefined();
+      expect(result.data).toEqual(body);
+    });
+
     // ── getEnrichmentRecent ────────────────────────────────────────────────
 
     it('getEnrichmentRecent unwraps the rows[] array', async () => {
@@ -1322,6 +1348,67 @@ describe('adminApi', () => {
 
       expect(result.data).toBeUndefined();
       expect(result.error).toBeDefined();
+    });
+
+    // ``title``/``company``/``url`` render directly into the NeedsHumanTable
+    // (title as text, url into a <Link href>); an object/number value is an
+    // "Objects are not valid as a React child" whole-SPA crash. Mirror the
+    // sibling recent guard.
+    it('listEnrichmentNeedsHuman THROWS when title is a non-string non-null value', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse(makeNeedsHumanBody({ rows: [makeNeedsHumanRow({ title: {} })] }))
+      );
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(
+        adminApi.endpoints.listEnrichmentNeedsHuman.initiate({ limit: 10, offset: 0 })
+      );
+
+      expect(result.data).toBeUndefined();
+      expect(result.error).toBeDefined();
+    });
+
+    it('listEnrichmentNeedsHuman THROWS when company is a non-string non-null value', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse(makeNeedsHumanBody({ rows: [makeNeedsHumanRow({ company: 123 })] }))
+      );
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(
+        adminApi.endpoints.listEnrichmentNeedsHuman.initiate({ limit: 10, offset: 0 })
+      );
+
+      expect(result.data).toBeUndefined();
+      expect(result.error).toBeDefined();
+    });
+
+    it('listEnrichmentNeedsHuman THROWS when url is a non-string non-null value', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse(makeNeedsHumanBody({ rows: [makeNeedsHumanRow({ url: {} })] }))
+      );
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(
+        adminApi.endpoints.listEnrichmentNeedsHuman.initiate({ limit: 10, offset: 0 })
+      );
+
+      expect(result.data).toBeUndefined();
+      expect(result.error).toBeDefined();
+    });
+
+    it('listEnrichmentNeedsHuman accepts null title/company/url', async () => {
+      const body = makeNeedsHumanBody({
+        rows: [makeNeedsHumanRow({ title: null, company: null, url: null })],
+      });
+      fetchMock.mockResolvedValue(jsonResponse(body));
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(
+        adminApi.endpoints.listEnrichmentNeedsHuman.initiate({ limit: 10, offset: 0 })
+      );
+
+      expect(result.error).toBeUndefined();
+      expect(result.data?.rows[0].title).toBeNull();
     });
 
     it('listEnrichmentNeedsHuman emits onlyOpen (only when explicitly false) + conditional filters', async () => {

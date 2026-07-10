@@ -1067,10 +1067,19 @@ export const adminApi = createApi({
                 );
               }
             }
+            // ``title``/``company``/``url`` render directly (title as text, url
+            // into a <Link href>) — an object value is an "Objects are not valid
+            // as a React child" crash, exactly like the sibling recent guard;
             // ``enrichedAt`` feeds ``new Date(...)`` in the Enriched column and
             // ``cleanDescription`` renders in the expander + full-description
-            // dialog; both are ``string | null`` by contract.
-            for (const field of ['cleanDescription', 'enrichedAt'] as const) {
+            // dialog. All ``string | null`` by contract.
+            for (const field of [
+              'title',
+              'company',
+              'url',
+              'cleanDescription',
+              'enrichedAt',
+            ] as const) {
               const val = row[field];
               if (val !== null && val !== undefined && typeof val !== 'string') {
                 throw new Error(
@@ -1096,9 +1105,10 @@ export const adminApi = createApi({
         }
         for (const tick of res.ticks) {
           // ``startedAt`` feeds ``format(new Date(t.startedAt))`` in TickCharts'
-          // two useMemos — a non-string (missing/number) yields an Invalid Date
-          // ``RangeError`` in render, which the app-root ErrorBoundary turns
-          // into a whole-SPA blank. Reject it here (it is the crash path).
+          // two useMemos — a missing/non-string value yields an Invalid Date →
+          // date-fns ``format`` ``RangeError`` in render, which the app-root
+          // ErrorBoundary turns into a whole-SPA blank. (A number would instead
+          // render a wrong epoch-ms date, not crash — so we reject non-strings.)
           if (
             !isRecord(tick) ||
             typeof tick.tickUuid !== 'string' ||
@@ -1106,6 +1116,15 @@ export const adminApi = createApi({
             typeof tick.startedAt !== 'string'
           ) {
             throw new Error('Invalid /api/admin/enrichment/ticks response: malformed tick');
+          }
+          // ``stageTimings`` (``{ stage; ms; items; retries }[] | null``) feeds
+          // ``t.stageTimings?.find((s) => s.stage === stage)`` in a TickCharts
+          // useMemo — a truthy NON-array value is a ``.find is not a function``
+          // crash in render (whole-SPA blank via the app-root ErrorBoundary).
+          if (tick.stageTimings != null && !Array.isArray(tick.stageTimings)) {
+            throw new Error(
+              'Invalid /api/admin/enrichment/ticks response: stageTimings must be an array or null'
+            );
           }
         }
         return res as unknown as EnrichmentTicksResponse;

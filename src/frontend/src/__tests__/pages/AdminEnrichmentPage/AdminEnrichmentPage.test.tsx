@@ -207,9 +207,22 @@ const FACETS_BODY = {
   ],
 };
 
-function routedFetch(overrides: { health?: unknown } = {}) {
+function routedFetch(overrides: { health?: unknown; reenrichStatus?: number } = {}) {
   return (input: unknown) => {
     const url = input instanceof Request ? input.url : String(input);
+    // Re-enrich POST (…/enrichment/jobs/{sourceId}/{jobListingId}/reenrich).
+    // Default success returns a 200 (identical to the catch-all fall-through);
+    // a ``reenrichStatus`` >= 400 drives the failure path so the table's error
+    // Alert surfaces.
+    if (url.includes('/reenrich')) {
+      const status = overrides.reenrichStatus ?? 200;
+      if (status >= 400) {
+        return Promise.resolve(
+          jsonResponse({ detail: 'Re-enrich failed on the backend' }, status)
+        );
+      }
+      return Promise.resolve(jsonResponse({}));
+    }
     if (url.includes('/enrichment/health')) {
       return Promise.resolve(jsonResponse(overrides.health ?? HEALTHY_BODY));
     }
@@ -411,5 +424,54 @@ describe('AdminEnrichmentPage', () => {
     expect(body.level).toBeNull();
     expect(body.category).toBe('growth');
     expect(body.note).toBeNull();
+  });
+
+  // ── Re-enrich error surfacing (Round-1 I1 deliverable) ───────────────────
+  // A failed re-enrich must be visible (``.unwrap()`` + try/catch → error
+  // Alert), not fire-and-forget. Regressing to silent failure must break a test.
+
+  it('surfaces an error Alert when a needs-human re-enrich fails', async () => {
+    const user = userEvent.setup();
+    fetchMock.mockImplementation(routedFetch({ reenrichStatus: 500 }));
+    renderPage();
+
+    const queueTitle = await screen.findByText('Growth Marketing Lead');
+    const queueRow = queueTitle.closest('tr') as HTMLElement;
+    await user.click(within(queueRow).getByRole('button', { name: /re-enrich/i }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(/Re-enrich failed on the backend/);
+  });
+
+  it('surfaces an error Alert when a recent-row re-enrich fails', async () => {
+    const user = userEvent.setup();
+    fetchMock.mockImplementation(routedFetch({ reenrichStatus: 500 }));
+    renderPage();
+
+    const recentTitle = await screen.findByText('Senior Platform Engineer');
+    const recentRow = recentTitle.closest('tr') as HTMLElement;
+    await user.click(within(recentRow).getByRole('button', { name: /re-enrich/i }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(/Re-enrich failed on the backend/);
+  });
+
+  it('shows no error Alert when a needs-human re-enrich succeeds', async () => {
+    const user = userEvent.setup();
+    renderPage(); // default routedFetch → re-enrich returns 200
+
+    const queueTitle = await screen.findByText('Growth Marketing Lead');
+    const queueRow = queueTitle.closest('tr') as HTMLElement;
+    await user.click(within(queueRow).getByRole('button', { name: /re-enrich/i }));
+
+    // Wait for the re-enrich POST to have fired, then assert no error surfaced.
+    await waitFor(() => {
+      const posted = fetchMock.mock.calls.some((call) => {
+        const req = call[0];
+        return req instanceof Request && req.url.includes('/reenrich') && req.method === 'POST';
+      });
+      expect(posted).toBe(true);
+    });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 });
