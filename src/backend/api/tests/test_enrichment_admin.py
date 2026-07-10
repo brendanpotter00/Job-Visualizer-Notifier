@@ -265,7 +265,7 @@ class TestJobFacets:
         cats = [c["slug"] for c in body["categories"]]
         assert cats == [
             "software_engineering", "hardware_engineer", "product_manager",
-            "project_manager", "growth", "business_ops",
+            "project_manager", "data_scientist", "growth", "business_ops",
         ]
         levels = {l["slug"]: l for l in body["levels"]}
         assert levels["new_grad"]["parentSlug"] == "entry"

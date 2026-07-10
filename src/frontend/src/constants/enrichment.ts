@@ -42,8 +42,9 @@ export const FALLBACK_CATEGORIES: FacetOption[] = [
   { slug: 'hardware_engineer', label: 'Hardware Engineer', sortOrder: 1 },
   { slug: 'product_manager', label: 'Product Manager', sortOrder: 2 },
   { slug: 'project_manager', label: 'Project Manager', sortOrder: 3 },
-  { slug: 'growth', label: 'Growth', sortOrder: 4 },
-  { slug: 'business_ops', label: 'Business Ops', sortOrder: 5 },
+  { slug: 'data_scientist', label: 'Data Scientist', sortOrder: 4 },
+  { slug: 'growth', label: 'Growth', sortOrder: 5 },
+  { slug: 'business_ops', label: 'Business Ops', sortOrder: 6 },
 ];
 
 /** Fallback level options (mirrors the migration seed) until facets load. */

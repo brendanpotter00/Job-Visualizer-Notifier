@@ -33,8 +33,9 @@ CATEGORY_SEED = [
     ("hardware_engineer", "Hardware Engineer", 1),
     ("product_manager", "Product Manager", 2),
     ("project_manager", "Project Manager", 3),
-    ("growth", "Growth", 4),
-    ("business_ops", "Business Ops", 5),
+    ("data_scientist", "Data Scientist", 4),
+    ("growth", "Growth", 5),
+    ("business_ops", "Business Ops", 6),
 ]
 
 # (slug, label, rank, parent_slug)

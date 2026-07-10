@@ -70,10 +70,10 @@ class TestBuildWhere:
 
     def test_combined_with_status_and_company(self):
         where, params = _build_where(
-            company="google", status="OPEN", category="hardware_engineer", level="new_grad"
+            company="google", status="OPEN", category="data_scientist", level="new_grad"
         )
         # Order mirrors the builder: company, status, category, level.
-        assert params == ["google", "OPEN", "hardware_engineer", ["new_grad"]]
+        assert params == ["google", "OPEN", "data_scientist", ["new_grad"]]
         rendered = _render(where)
         assert "company = %s" in rendered
         assert "status = %s" in rendered
