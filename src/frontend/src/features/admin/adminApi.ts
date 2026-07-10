@@ -1067,18 +1067,31 @@ export const adminApi = createApi({
                 );
               }
             }
-            // ``title``/``company``/``url`` render directly (title as text, url
-            // into a <Link href>) — an object value is an "Objects are not valid
-            // as a React child" crash, exactly like the sibling recent guard;
-            // ``enrichedAt`` feeds ``new Date(...)`` in the Enriched column and
-            // ``cleanDescription`` renders in the expander + full-description
-            // dialog. All ``string | null`` by contract.
+            // Every ``string | null`` field the NeedsHumanTable renders as a
+            // React child. An object value in any of them is an "Objects are not
+            // valid as a React child" (or Invalid-Date) crash — and the only
+            // ErrorBoundary is app-root, so it blanks the whole SPA. ``title``/
+            // ``company``/``url`` render directly (title as text, url into a
+            // <Link href>); ``enrichedAt`` feeds ``new Date(...)`` in the
+            // Enriched column; ``cleanDescription`` renders in the expander +
+            // full-description dialog; ``category``/``level`` render as Chip
+            // labels (``FACET_LABELS[slug] ?? slug`` — an object slug keys to
+            // undefined then falls through to the raw object);
+            // ``classifyReasoning``/``judgeNotes`` render as expander text;
+            // ``taxonomyVersion`` renders as ``taxonomy {v ?? '—'}`` footer text.
+            // (``jobStatus``/``enrichmentStatus`` are intentionally NOT validated
+            // per Ledger #1 — forward-compat status strings consumed via ``===``.)
             for (const field of [
               'title',
               'company',
               'url',
               'cleanDescription',
               'enrichedAt',
+              'category',
+              'level',
+              'classifyReasoning',
+              'judgeNotes',
+              'taxonomyVersion',
             ] as const) {
               const val = row[field];
               if (val !== null && val !== undefined && typeof val !== 'string') {
@@ -1103,6 +1116,19 @@ export const adminApi = createApi({
         if (!isRecord(res) || !Array.isArray(res.ticks) || typeof res.windowHours !== 'number') {
           throw new Error('Invalid /api/admin/enrichment/ticks response');
         }
+        // ``latestScorecardTickUuid`` is an envelope-level ``string | null`` that
+        // ScorecardPanel renders directly (``from tick {scorecardTickUuid}``) — an
+        // object value is an "Objects are not valid as a React child" whole-SPA
+        // crash via the app-root ErrorBoundary.
+        if (
+          res.latestScorecardTickUuid !== null &&
+          res.latestScorecardTickUuid !== undefined &&
+          typeof res.latestScorecardTickUuid !== 'string'
+        ) {
+          throw new Error(
+            'Invalid /api/admin/enrichment/ticks response: latestScorecardTickUuid must be string or null'
+          );
+        }
         for (const tick of res.ticks) {
           // ``startedAt`` feeds ``format(new Date(t.startedAt))`` in TickCharts'
           // two useMemos — a missing/non-string value yields an Invalid Date →
@@ -1124,6 +1150,16 @@ export const adminApi = createApi({
           if (tick.stageTimings != null && !Array.isArray(tick.stageTimings)) {
             throw new Error(
               'Invalid /api/admin/enrichment/ticks response: stageTimings must be an array or null'
+            );
+          }
+          // ``notes`` renders directly as a React child in TickStrip's per-tick
+          // tooltip (``{tick.notes && <div>{tick.notes}</div>}``) — a truthy
+          // object value is an "Objects are not valid as a React child" whole-SPA
+          // crash. ``string | null`` by contract. (``status`` is a required
+          // string already asserted above; per Ledger #1 it is NOT union-checked.)
+          if (tick.notes !== null && tick.notes !== undefined && typeof tick.notes !== 'string') {
+            throw new Error(
+              'Invalid /api/admin/enrichment/ticks response: notes must be string or null'
             );
           }
         }
@@ -1165,9 +1201,26 @@ export const adminApi = createApi({
               );
             }
           }
-          // ``enrichedAt`` feeds ``new Date(...)``; ``title``/``company``/``url``
-          // render directly (url into an <a href>). All ``string | null``.
-          for (const field of ['title', 'company', 'url', 'enrichedAt'] as const) {
+          // Every ``string | null`` field RecentEnrichmentsTable renders as a
+          // React child (app-root is the only ErrorBoundary, so any object value
+          // blanks the whole SPA). ``enrichedAt`` feeds ``new Date(...)``;
+          // ``title``/``company``/``url`` render directly (url into an <a href>);
+          // ``category``/``level`` render as Chip labels
+          // (``FACET_LABELS[slug] ?? slug`` falls through to the raw object for a
+          // non-string slug); ``classifyReasoning``/``judgeNotes`` render as
+          // expander text; ``taxonomyVersion`` renders as ``taxonomy {v ?? '—'}``.
+          // (``enrichmentStatus`` is intentionally NOT validated per Ledger #1.)
+          for (const field of [
+            'title',
+            'company',
+            'url',
+            'enrichedAt',
+            'category',
+            'level',
+            'classifyReasoning',
+            'judgeNotes',
+            'taxonomyVersion',
+          ] as const) {
             const val = row[field];
             if (val !== null && val !== undefined && typeof val !== 'string') {
               throw new Error(
