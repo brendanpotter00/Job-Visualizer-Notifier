@@ -267,7 +267,13 @@ describe('transformBackendJob — enrichment facets', () => {
   });
 
   it('defaults cleanly for unenriched jobs and legacy responses missing the fields', () => {
-    const { category, level, tags, enrichmentStatus, ...legacy } = enrichedJob;
+    const {
+      category: _category,
+      level: _level,
+      tags: _tags,
+      enrichmentStatus: _enrichmentStatus,
+      ...legacy
+    } = enrichedJob;
     const job = transformBackendJob(legacy as BackendJobListing, 'openai');
     expect(job.category).toBeNull();
     expect(job.level).toBeNull();
