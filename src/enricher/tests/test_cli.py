@@ -1,12 +1,14 @@
 """CLI orchestration seams: pull heartbeat ordering (E6), taxonomy slug
 validation at ingest (E4), empty-id skip (E10), the composite-identity guard
 (skipped_unknown instead of FK IntegrityError), record-judge skip counting
-(E13), the code-enforced judge level rails, judge-queue scoping, a mocked
-pull->clean->record->write-back pipeline smoke, tick-end guards, and the
-run_eval gate return code."""
+(E13), the code-enforced judge level rails, judge-queue scoping, the
+chunk-file queue handoff (manifest shape, round-trip, batch-size chunking,
+stale-file hygiene), a mocked pull->clean->record->write-back pipeline smoke,
+tick-end guards, and the run_eval gate return code."""
 
 import argparse
 import json
+from pathlib import Path
 
 import httpx
 import pytest
@@ -293,10 +295,20 @@ def _seed_enriched(store, jid, conf, needs_human=False, category="software_engin
     })
 
 
+def _manifest_items(capsys):
+    """Parse a queue command's stdout manifest and flatten the chunk files'
+    contents back into one items list (the round-trip the sub-agents do)."""
+    manifest = json.loads(capsys.readouterr().out)
+    items = []
+    for entry in manifest:
+        items.extend(json.loads(Path(entry["chunk_file"]).read_text(encoding="utf-8")))
+    return manifest, items
+
+
 def test_judge_queue_low_confidence_scope(store, monkeypatch, capsys):
     """Default scope=low_confidence emits only rows below the ceiling, with a
-    nulled facet, or already flagged needs_human — and carries company +
-    raw_location + source_id for HQ verification."""
+    nulled facet, or already flagged needs_human — and the chunk files carry
+    company + raw_location + source_id for HQ verification."""
     _seed_enriched(store, "1", conf=0.95)                      # confident -> excluded
     _seed_enriched(store, "2", conf=0.5)                       # low conf -> included
     _seed_enriched(store, "3", conf=0.99, needs_human=True)    # flagged -> included
@@ -305,7 +317,7 @@ def test_judge_queue_low_confidence_scope(store, monkeypatch, capsys):
 
     rc = cli._cmd_judge_queue(argparse.Namespace(limit=None))
     assert rc == 0
-    items = json.loads(capsys.readouterr().out)
+    _, items = _manifest_items(capsys)
     assert sorted(i["job_listing_id"] for i in items) == ["2", "3", "4"]
     for i in items:
         assert i["source_id"] == "greenhouse"
@@ -322,8 +334,143 @@ def test_judge_queue_scope_all_emits_everything(store, monkeypatch, capsys):
     monkeypatch.setattr(cli, "Store", lambda: store)
 
     cli._cmd_judge_queue(argparse.Namespace(limit=None))
-    items = json.loads(capsys.readouterr().out)
+    _, items = _manifest_items(capsys)
     assert sorted(i["job_listing_id"] for i in items) == ["1", "2"]
+
+
+# ---- chunk-file handoff (queue -> sub-agents) --------------------------------
+def _seed_cleaned(store, jid):
+    store.enqueue_inbox([_inbox_row(jid)])
+    store.record_clean("greenhouse", jid, "clean text " + jid)
+
+
+def test_classify_queue_manifest_shape_and_roundtrip(store, monkeypatch, capsys):
+    """classify-queue writes chunk files and prints ONLY a [{chunk_file, count}]
+    manifest — no job text/ids in the orchestrator's stdout. The chunk files
+    round-trip the exact per-row fields the agents need."""
+    for jid in ("1", "2", "3", "4"):
+        _seed_cleaned(store, jid)
+    monkeypatch.setattr(cli, "Store", lambda: store)
+
+    rc = cli._cmd_classify_queue(argparse.Namespace(limit=None))
+    assert rc == 0
+    manifest, items = _manifest_items(capsys)
+    # manifest is small: exactly chunk_file + count per entry, nothing else
+    assert all(set(e) == {"chunk_file", "count"} for e in manifest)
+    # default batch_size=3 -> chunks of 3 + 1
+    assert [e["count"] for e in manifest] == [3, 1]
+    for e in manifest:
+        p = Path(e["chunk_file"])
+        assert p.is_absolute()
+        assert p.parent == (store.db_path.parent / "chunks").resolve()
+        assert p.name.startswith("classify-") and p.suffix == ".json"
+    # round-trip: full job objects, exactly the fields agents get today
+    assert sorted(i["job_listing_id"] for i in items) == ["1", "2", "3", "4"]
+    for i in items:
+        assert set(i) == {
+            "job_listing_id", "source_id", "title", "company",
+            "raw_location", "clean_description",
+        }
+        assert i["clean_description"] == "clean text " + i["job_listing_id"]
+
+
+def test_classify_queue_respects_batch_size_knob(store, monkeypatch, capsys):
+    from job_enricher import enrich_config as ec
+
+    for jid in ("1", "2", "3", "4", "5", "6", "7"):
+        _seed_cleaned(store, jid)
+    ec.set_classify_batch_size(store, 5)  # knob read fresh from meta
+    monkeypatch.setattr(cli, "Store", lambda: store)
+
+    cli._cmd_classify_queue(argparse.Namespace(limit=None))
+    manifest, items = _manifest_items(capsys)
+    assert [e["count"] for e in manifest] == [5, 2]
+    assert len(items) == 7
+
+
+def test_classify_queue_names_chunks_after_current_tick(store, monkeypatch, capsys):
+    tid = store.start_tick()
+    _seed_cleaned(store, "1")
+    monkeypatch.setattr(cli, "Store", lambda: store)
+
+    cli._cmd_classify_queue(argparse.Namespace(limit=None))
+    manifest, _ = _manifest_items(capsys)
+    assert Path(manifest[0]["chunk_file"]).name == f"classify-t{tid}-01.json"
+
+
+def test_queue_commands_clear_only_their_own_stale_chunks(store, monkeypatch, capsys):
+    """Each queue command deletes its OWN previous chunk files before writing
+    (classify-*.json vs judge-*.json) and leaves the other's alone."""
+    chunks = store.db_path.parent / "chunks"
+    chunks.mkdir()
+    stale_classify = chunks / "classify-t1-01.json"
+    stale_judge = chunks / "judge-t1-01.json"
+    stale_classify.write_text("[]")
+    stale_judge.write_text("[]")
+    _seed_cleaned(store, "1")
+    monkeypatch.setattr(cli, "Store", lambda: store)
+
+    cli._cmd_classify_queue(argparse.Namespace(limit=None))
+    manifest, _ = _manifest_items(capsys)
+    assert not stale_classify.exists()          # own stale file removed
+    assert stale_judge.exists()                 # other queue's file untouched
+    assert len(manifest) == 1
+
+
+def test_classify_queue_empty_queue_empty_manifest_no_files(store, monkeypatch, capsys):
+    chunks = store.db_path.parent / "chunks"
+    chunks.mkdir()
+    (chunks / "classify-t1-01.json").write_text("[]")  # stale from a prior run
+    monkeypatch.setattr(cli, "Store", lambda: store)
+
+    rc = cli._cmd_classify_queue(argparse.Namespace(limit=None))
+    assert rc == 0
+    assert json.loads(capsys.readouterr().out) == []
+    assert list(chunks.glob("classify-*.json")) == []  # nothing left behind
+
+
+def test_judge_queue_empty_and_disabled_leave_no_files(store, monkeypatch, capsys):
+    from job_enricher import enrich_config as ec
+
+    chunks = store.db_path.parent / "chunks"
+    chunks.mkdir()
+    monkeypatch.setattr(cli, "Store", lambda: store)
+
+    # empty queue -> [] and stale judge chunks removed
+    (chunks / "judge-t1-01.json").write_text("[]")
+    rc = cli._cmd_judge_queue(argparse.Namespace(limit=None))
+    assert rc == 0
+    assert json.loads(capsys.readouterr().out) == []
+    assert list(chunks.glob("judge-*.json")) == []
+
+    # judge disabled -> same contract
+    (chunks / "judge-t2-01.json").write_text("[]")
+    ec.set_judge_enabled(store, False)
+    rc = cli._cmd_judge_queue(argparse.Namespace(limit=None))
+    assert rc == 0
+    assert json.loads(capsys.readouterr().out) == []
+    assert list(chunks.glob("judge-*.json")) == []
+
+
+def test_judge_queue_chunk_files_carry_current_classification(store, monkeypatch, capsys):
+    """Judge chunk files preserve the per-row fields including the nested
+    `current` classification exactly as the inline queue emitted them."""
+    _seed_enriched(store, "1", conf=0.5)
+    monkeypatch.setattr(cli, "Store", lambda: store)
+
+    cli._cmd_judge_queue(argparse.Namespace(limit=None))
+    manifest, items = _manifest_items(capsys)
+    assert all(set(e) == {"chunk_file", "count"} for e in manifest)
+    assert Path(manifest[0]["chunk_file"]).name.startswith("judge-")
+    (item,) = items
+    assert set(item) == {
+        "job_listing_id", "source_id", "title", "company",
+        "raw_location", "clean_description", "current",
+    }
+    assert item["current"] == {
+        "category": "software_engineering", "level": "mid",
+        "level_includes": [], "tags": [], "locations": [], "confidence": 0.5,
+    }
 
 
 # ---- tick-end guards ---------------------------------------------------------

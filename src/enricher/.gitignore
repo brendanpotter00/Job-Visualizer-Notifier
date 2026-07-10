@@ -2,6 +2,7 @@
 data/*.db
 data/*.db-*
 data/.tick.lock
+data/chunks/
 .env.local
 __pycache__/
 *.pyc

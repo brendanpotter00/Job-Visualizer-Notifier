@@ -13,6 +13,7 @@ import os
 import re
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from job_enricher import enrich_config as ec
@@ -196,6 +197,58 @@ def _cmd_clean(args: argparse.Namespace) -> int:
     return 0
 
 
+# ---- chunk-file handoff (queue -> sub-agents) ------------------------------
+# The queue commands write the full job payloads to per-chunk files under
+# data/chunks/ and print only a SMALL manifest, so the orchestrator that fans
+# out sub-agents never holds job text in its own context (at PULL_LIMIT=60 the
+# old inline handoff put ~2x every clean description in the orchestrator
+# transcript and risked mid-tick compaction). Each sub-agent Reads its own
+# chunk file instead.
+CHUNK_DIR_NAME = "chunks"
+
+
+def _chunk_dir(store: Store) -> Path:
+    return store.db_path.parent / CHUNK_DIR_NAME
+
+
+def _clear_chunks(chunk_dir: Path, prefix: str) -> None:
+    """Delete this queue's previous chunk files (stale-chunk hygiene). Each
+    command only ever touches its OWN prefix (classify-*.json / judge-*.json),
+    and the single-flight tick lock guarantees no concurrent tick is reading
+    them, so unlinking is safe."""
+    for stale in sorted(chunk_dir.glob(f"{prefix}-*.json")):
+        stale.unlink(missing_ok=True)
+
+
+def _write_queue_chunks(
+    store: Store, rows: list[dict[str, Any]], prefix: str, batch_size: int
+) -> list[dict[str, Any]]:
+    """Chunk `rows` into files of `batch_size` jobs under data/chunks/ and
+    return the manifest ``[{"chunk_file": <abs path>, "count": N}, ...]`` —
+    no ids, titles, or descriptions ever appear in the manifest. Always clears
+    the prefix's stale chunk files first, so an empty queue returns [] and
+    leaves no files behind. Paths are absolute because the sub-agents' Read
+    tool requires absolute paths."""
+    chunk_dir = _chunk_dir(store)
+    chunk_dir.mkdir(parents=True, exist_ok=True)
+    _clear_chunks(chunk_dir, prefix)
+    if not rows:
+        return []
+    tick_id = store.current_tick_id()
+    run_id = (
+        f"t{tick_id}"
+        if tick_id is not None
+        else datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    )
+    manifest: list[dict[str, Any]] = []
+    for start in range(0, len(rows), batch_size):
+        chunk = rows[start : start + batch_size]
+        path = chunk_dir / f"{prefix}-{run_id}-{start // batch_size + 1:02d}.json"
+        path.write_text(json.dumps(chunk), encoding="utf-8")
+        manifest.append({"chunk_file": str(path.resolve()), "count": len(chunk)})
+    return manifest
+
+
 # ---- classify queue + record (Stage B) ------------------------------------
 def _cmd_classify_queue(args: argparse.Namespace) -> int:
     store = Store()
@@ -212,7 +265,10 @@ def _cmd_classify_queue(args: argparse.Namespace) -> int:
                 "clean_description": truncate_for_agent(r["clean_description"] or ""),
             }
         )
-    print(json.dumps(out))
+    manifest = _write_queue_chunks(
+        store, out, "classify", ec.get_classify_batch_size(store)
+    )
+    print(json.dumps(manifest))
     return 0
 
 
@@ -371,6 +427,9 @@ def _needs_judge(e: Any, ceiling: float) -> bool:
 def _cmd_judge_queue(args: argparse.Namespace) -> int:
     store = Store()
     if not ec.get_judge_enabled(store):
+        # still clear stale judge chunk files so a disabled judge leaves
+        # nothing behind for a later tick to pick up
+        _write_queue_chunks(store, [], "judge", 1)
         print("[]")
         return 0
     scope = ec.get_judge_scope(store)
@@ -398,7 +457,10 @@ def _cmd_judge_queue(args: argparse.Namespace) -> int:
                 },
             }
         )
-    print(json.dumps(out))
+    manifest = _write_queue_chunks(
+        store, out, "judge", ec.get_classify_batch_size(store)
+    )
+    print(json.dumps(manifest))
     return 0
 
 
@@ -867,7 +929,12 @@ def build_parser() -> argparse.ArgumentParser:
     pc.add_argument("--limit", type=int, default=None)
     pc.set_defaults(func=_cmd_clean)
 
-    cq = subs.add_parser("classify-queue", help="emit jobs needing classification as JSON")
+    cq = subs.add_parser(
+        "classify-queue",
+        help="write jobs needing classification to data/chunks/classify-*.json "
+             "files (classify:batch_size per file); emit a [{chunk_file, count}] "
+             "manifest",
+    )
     cq.add_argument("--limit", type=int, default=None)
     cq.set_defaults(func=_cmd_classify_queue)
 
@@ -876,7 +943,12 @@ def build_parser() -> argparse.ArgumentParser:
     re_.add_argument("--json-file", default=None)
     re_.set_defaults(func=_cmd_record_enrichment)
 
-    jq = subs.add_parser("judge-queue", help="emit enrichments needing judging as JSON")
+    jq = subs.add_parser(
+        "judge-queue",
+        help="write enrichments needing judging to data/chunks/judge-*.json "
+             "files (classify:batch_size per file); emit a [{chunk_file, count}] "
+             "manifest",
+    )
     jq.add_argument("--limit", type=int, default=None)
     jq.set_defaults(func=_cmd_judge_queue)
 
