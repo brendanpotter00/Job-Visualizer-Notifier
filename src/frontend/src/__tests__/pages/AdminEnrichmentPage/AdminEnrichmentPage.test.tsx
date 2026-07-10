@@ -355,4 +355,61 @@ describe('AdminEnrichmentPage', () => {
       expect(posted).toBe(true);
     });
   });
+
+  it('normalizes tags and nullifies cleared fields in the correction POST body', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    const queueTitle = await screen.findByText('Growth Marketing Lead');
+    const queueRow = queueTitle.closest('tr') as HTMLElement;
+    await user.click(within(queueRow).getByRole('button', { name: 'Correct' }));
+
+    expect(await screen.findByText('Correct labels')).toBeInTheDocument();
+
+    // Add a messy tag: mixed-case + surrounding whitespace. The Autocomplete
+    // onChange runs `map(toLowerCase().trim()).filter(Boolean)`, so it must land
+    // in the body lowercased + trimmed (and no blank ever survives).
+    const tagInput = screen.getByRole('combobox', { name: 'Tags' });
+    await user.type(tagInput, '  DevOps  {Enter}');
+
+    // Clear the Level facet ("All") → it must POST as null.
+    await user.click(screen.getByRole('combobox', { name: 'Level' }));
+    const levelListbox = await screen.findByRole('listbox');
+    await user.click(within(levelListbox).getByRole('option', { name: 'All' }));
+
+    // Note left empty → `note.trim() || null` posts null.
+    await user.click(screen.getByRole('button', { name: 'Save correction' }));
+
+    let correctCall: [unknown, unknown] | undefined;
+    await waitFor(() => {
+      correctCall = fetchMock.mock.calls.find((call) => {
+        const req = call[0];
+        return (
+          req instanceof Request &&
+          req.url.includes('/enrichment/jobs/greenhouse_api/j-1/correct') &&
+          req.method === 'POST'
+        );
+      }) as [unknown, unknown] | undefined;
+      expect(correctCall).toBeDefined();
+    });
+
+    const body = (await (correctCall![0] as Request).clone().json()) as {
+      category: string | null;
+      level: string | null;
+      tags: string[];
+      note: string | null;
+    };
+
+    // Tags: pre-existing sql/ab-testing preserved, the new tag lowercased +
+    // trimmed, and every entry is non-blank + already-normalized.
+    expect(body.tags).toContain('devops');
+    expect(body.tags).toContain('sql');
+    expect(body.tags).toContain('ab-testing');
+    expect(body.tags.every((t) => t.length > 0 && t === t.toLowerCase().trim())).toBe(true);
+
+    // Cleared level → null; untouched category stays 'growth'; empty note → null.
+    expect(body.level).toBeNull();
+    expect(body.category).toBe('growth');
+    expect(body.note).toBeNull();
+  });
 });

@@ -268,7 +268,6 @@ function validateCanonicalLocation(loc: unknown, ctx: string, withPosition: bool
   }
 }
 
-
 // --- Enrichment pipeline oversight types ---------------------------------
 
 /** GET /api/admin/enrichment/health response. */
@@ -593,10 +592,7 @@ export const adminApi = createApi({
         if (!isRecord(res)) {
           throw new Error('Invalid /api/admin/users/{id}/visits response: body is not an object');
         }
-        if (
-          !Array.isArray(res.visits) ||
-          res.visits.some((v) => typeof v !== 'string')
-        ) {
+        if (!Array.isArray(res.visits) || res.visits.some((v) => typeof v !== 'string')) {
           throw new Error('Invalid user visits response: visits must be a string[]');
         }
         if (typeof res.totalVisitCount !== 'number') {
@@ -612,9 +608,7 @@ export const adminApi = createApi({
         };
       },
       // Per-user cache entry (RTK Query keys by the serialized arg).
-      providesTags: (_result, _error, { userId }) => [
-        { type: 'AdminUserVisits', id: userId },
-      ],
+      providesTags: (_result, _error, { userId }) => [{ type: 'AdminUserVisits', id: userId }],
     }),
     grantAdmin: builder.mutation<void, { userId: string }>({
       query: ({ userId }) => ({
@@ -1027,37 +1021,69 @@ export const adminApi = createApi({
       providesTags: ['EnrichmentHealth'],
     }),
 
-    listEnrichmentNeedsHuman: builder.query<EnrichmentNeedsHumanResponse, EnrichmentNeedsHumanArgs>({
-      query: ({ limit, offset, company, category, level, includeCorrected, onlyOpen }) => ({
-        url: '/enrichment/needs-human',
-        params: {
-          limit,
-          offset,
-          ...(company ? { company } : {}),
-          ...(category ? { category } : {}),
-          ...(level ? { level } : {}),
-          ...(includeCorrected ? { includeCorrected } : {}),
-          ...(onlyOpen === false ? { onlyOpen } : {}),
+    listEnrichmentNeedsHuman: builder.query<EnrichmentNeedsHumanResponse, EnrichmentNeedsHumanArgs>(
+      {
+        query: ({ limit, offset, company, category, level, includeCorrected, onlyOpen }) => ({
+          url: '/enrichment/needs-human',
+          params: {
+            limit,
+            offset,
+            ...(company ? { company } : {}),
+            ...(category ? { category } : {}),
+            ...(level ? { level } : {}),
+            ...(includeCorrected ? { includeCorrected } : {}),
+            ...(onlyOpen === false ? { onlyOpen } : {}),
+          },
+        }),
+        transformResponse: (res: unknown): EnrichmentNeedsHumanResponse => {
+          // Throwing guard (mirrors the thorough location guards above): the only
+          // ErrorBoundary is app-root, so a render throw here blanks the whole
+          // SPA. Validate every render-critical value field per its DECLARED type
+          // so a wrong-shaped 2xx surfaces as a localized ErrorState, not a
+          // ``.toFixed is not a function`` / Invalid-Date crash in the table.
+          if (!isRecord(res) || !Array.isArray(res.rows) || typeof res.total !== 'number') {
+            throw new Error('Invalid /api/admin/enrichment/needs-human response');
+          }
+          for (const row of res.rows) {
+            if (
+              !isRecord(row) ||
+              typeof row.jobListingId !== 'string' ||
+              typeof row.sourceId !== 'string'
+            ) {
+              throw new Error('Invalid /api/admin/enrichment/needs-human response: malformed row');
+            }
+            if (!Array.isArray(row.tags)) {
+              throw new Error(
+                'Invalid /api/admin/enrichment/needs-human response: tags must be an array'
+              );
+            }
+            // Confidences render via ``.toFixed(2)`` behind only a ``!= null``
+            // check — a stringified number ("0.5") would crash the row.
+            for (const field of ['classifyConfidence', 'judgeConfidence'] as const) {
+              const val = row[field];
+              if (val !== null && val !== undefined && typeof val !== 'number') {
+                throw new Error(
+                  `Invalid /api/admin/enrichment/needs-human response: ${field} must be number or null`
+                );
+              }
+            }
+            // ``enrichedAt`` feeds ``new Date(...)`` in the Enriched column and
+            // ``cleanDescription`` renders in the expander + full-description
+            // dialog; both are ``string | null`` by contract.
+            for (const field of ['cleanDescription', 'enrichedAt'] as const) {
+              const val = row[field];
+              if (val !== null && val !== undefined && typeof val !== 'string') {
+                throw new Error(
+                  `Invalid /api/admin/enrichment/needs-human response: ${field} must be string or null`
+                );
+              }
+            }
+          }
+          return res as unknown as EnrichmentNeedsHumanResponse;
         },
-      }),
-      transformResponse: (res: unknown): EnrichmentNeedsHumanResponse => {
-        if (!isRecord(res) || !Array.isArray(res.rows) || typeof res.total !== 'number') {
-          throw new Error('Invalid /api/admin/enrichment/needs-human response');
-        }
-        for (const row of res.rows) {
-          if (!isRecord(row) || typeof row.jobListingId !== 'string' || typeof row.sourceId !== 'string') {
-            throw new Error(
-              'Invalid /api/admin/enrichment/needs-human response: malformed row'
-            );
-          }
-          if (!Array.isArray(row.tags)) {
-            throw new Error('Invalid /api/admin/enrichment/needs-human response: tags must be an array');
-          }
-        }
-        return res as unknown as EnrichmentNeedsHumanResponse;
-      },
-      providesTags: ['EnrichmentNeedsHuman'],
-    }),
+        providesTags: ['EnrichmentNeedsHuman'],
+      }
+    ),
 
     getEnrichmentTicks: builder.query<EnrichmentTicksResponse, { windowHours?: number } | void>({
       query: (args) => ({
@@ -1069,7 +1095,16 @@ export const adminApi = createApi({
           throw new Error('Invalid /api/admin/enrichment/ticks response');
         }
         for (const tick of res.ticks) {
-          if (!isRecord(tick) || typeof tick.tickUuid !== 'string' || typeof tick.status !== 'string') {
+          // ``startedAt`` feeds ``format(new Date(t.startedAt))`` in TickCharts'
+          // two useMemos — a non-string (missing/number) yields an Invalid Date
+          // ``RangeError`` in render, which the app-root ErrorBoundary turns
+          // into a whole-SPA blank. Reject it here (it is the crash path).
+          if (
+            !isRecord(tick) ||
+            typeof tick.tickUuid !== 'string' ||
+            typeof tick.status !== 'string' ||
+            typeof tick.startedAt !== 'string'
+          ) {
             throw new Error('Invalid /api/admin/enrichment/ticks response: malformed tick');
           }
         }
@@ -1088,8 +1123,38 @@ export const adminApi = createApi({
           throw new Error('Invalid /api/admin/enrichment/recent response');
         }
         for (const row of res.rows) {
-          if (!isRecord(row) || typeof row.jobListingId !== 'string') {
+          if (
+            !isRecord(row) ||
+            typeof row.jobListingId !== 'string' ||
+            typeof row.sourceId !== 'string'
+          ) {
             throw new Error('Invalid /api/admin/enrichment/recent response: malformed row');
+          }
+          // RecentEnrichmentsTable reads ``row.tags.slice(0, 3)`` / ``.length``
+          // unconditionally — a non-array is an unguarded ``TypeError`` in
+          // render (whole-SPA crash via the app-root ErrorBoundary).
+          if (!Array.isArray(row.tags)) {
+            throw new Error('Invalid /api/admin/enrichment/recent response: tags must be an array');
+          }
+          // Confidences render via ``.toFixed(2)`` behind only a ``!= null``
+          // check; a stringified number would crash the row.
+          for (const field of ['classifyConfidence', 'judgeConfidence'] as const) {
+            const val = row[field];
+            if (val !== null && val !== undefined && typeof val !== 'number') {
+              throw new Error(
+                `Invalid /api/admin/enrichment/recent response: ${field} must be number or null`
+              );
+            }
+          }
+          // ``enrichedAt`` feeds ``new Date(...)``; ``title``/``company``/``url``
+          // render directly (url into an <a href>). All ``string | null``.
+          for (const field of ['title', 'company', 'url', 'enrichedAt'] as const) {
+            const val = row[field];
+            if (val !== null && val !== undefined && typeof val !== 'string') {
+              throw new Error(
+                `Invalid /api/admin/enrichment/recent response: ${field} must be string or null`
+              );
+            }
           }
         }
         return res.rows as unknown as EnrichmentRecentRow[];

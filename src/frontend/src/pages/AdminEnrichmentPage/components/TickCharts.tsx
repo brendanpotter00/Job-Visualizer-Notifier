@@ -26,10 +26,11 @@ const STAGES = ['pull', 'clean', 'classify', 'judge', 'write_back'] as const;
 
 /**
  * Two Recharts panels over the pushed tick series:
- *  - Throughput: jobs sent (published) vs errors per tick.
- *  - Stage latency: stacked per-stage milliseconds per tick — where a slow
- *    tick actually spent its time (classify/judge fan-outs dominate healthy
- *    ticks; a fat write_back bar means JVN was slow or retrying).
+ *  - Throughput: jobs sent (published), needs-human, and errors stacked per tick.
+ *  - Stage latency: stacked per-stage seconds (rounded from the ms `stageTimings`)
+ *    per tick — where a slow tick actually spent its time (classify/judge
+ *    fan-outs dominate healthy ticks; a fat write_back bar means JVN was slow
+ *    or retrying).
  * Theme-driven colors, mirroring SignupsPerDayChart's conventions.
  */
 export function TickCharts({ ticks }: TickChartsProps) {

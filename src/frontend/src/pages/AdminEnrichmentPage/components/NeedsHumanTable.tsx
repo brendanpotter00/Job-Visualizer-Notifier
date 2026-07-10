@@ -1,4 +1,5 @@
 import { Fragment, useState } from 'react';
+import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
@@ -55,6 +56,7 @@ export function NeedsHumanTable() {
   const [viewingDescription, setViewingDescription] = useState<EnrichmentNeedsHumanRow | null>(
     null
   );
+  const [reenrichError, setReenrichError] = useState<string | null>(null);
 
   const { data: facets } = useGetFacetsQuery();
   const { data, isLoading, error, refetch } = useListEnrichmentNeedsHumanQuery({
@@ -100,6 +102,12 @@ export function NeedsHumanTable() {
           }}
         />
       </Box>
+
+      {reenrichError && (
+        <Alert severity="error" onClose={() => setReenrichError(null)} sx={{ mb: 2 }}>
+          {reenrichError}
+        </Alert>
+      )}
 
       {error ? (
         <ErrorState
@@ -162,9 +170,7 @@ export function NeedsHumanTable() {
                           </Box>
                         </TableCell>
                         <TableCell align="right">
-                          {row.classifyConfidence != null
-                            ? row.classifyConfidence.toFixed(2)
-                            : '—'}
+                          {row.classifyConfidence != null ? row.classifyConfidence.toFixed(2) : '—'}
                         </TableCell>
                         <TableCell align="right">
                           {row.enrichedAt ? format(new Date(row.enrichedAt), 'MMM d HH:mm') : '—'}
@@ -177,9 +183,22 @@ export function NeedsHumanTable() {
                             size="small"
                             color="inherit"
                             disabled={reenriching}
-                            onClick={() =>
-                              reenrich({ sourceId: row.sourceId, jobListingId: row.jobListingId })
-                            }
+                            onClick={async () => {
+                              // Mirror the Correct flow: a failed re-enrich must
+                              // be visible, not fire-and-forget. ``.unwrap()``
+                              // rethrows the RTK Query error so we can surface it.
+                              setReenrichError(null);
+                              try {
+                                await reenrich({
+                                  sourceId: row.sourceId,
+                                  jobListingId: row.jobListingId,
+                                }).unwrap();
+                              } catch (e) {
+                                setReenrichError(
+                                  extractErrorMessage(e, 'Failed to re-enrich this job')
+                                );
+                              }
+                            }}
                           >
                             Re-enrich
                           </Button>
