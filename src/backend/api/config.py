@@ -58,7 +58,6 @@ class Settings(BaseSettings):
     # The laptop authenticates with the existing internal_api_key; JVN never
     # calls the laptop (pull model).
     enrichment_use_external: bool = False          # master flag; gates /pending
-    enrichment_company_allowlist: str = ""         # csv; "" = all companies (gradual rollout)
     # Stale-claim reclaim window. MUST exceed a full enricher tick (one /pending →
     # classify → /results batch round-trip); otherwise an in-flight batch's rows
     # are reclaimed mid-flight and double-handed (wasting laptop tokens; only made
@@ -94,10 +93,6 @@ class Settings(BaseSettings):
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
-
-    @property
-    def enrichment_company_allowlist_list(self) -> list[str]:
-        return [c.strip() for c in self.enrichment_company_allowlist.split(",") if c.strip()]
 
     model_config = {"env_file": (".env", ".env.local"), "extra": "ignore"}
 

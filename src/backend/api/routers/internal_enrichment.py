@@ -82,7 +82,6 @@ def pending(
     conn: Connection = Depends(get_db),
     limit: int = Query(default=60, ge=1, le=500),
 ) -> dict[str, Any]:
-    allowlist = settings.enrichment_company_allowlist_list
     cur = conn.cursor()
     try:
         # Reclaim claims older than the TTL (a laptop that died mid-batch).
@@ -109,7 +108,6 @@ def pending(
             conn.commit()  # persist the reclaim even when handing out nothing
             return {"jobs": [], "enabled": False}
 
-        company_filter = "AND company = ANY(%s::text[]) " if allowlist else ""
         # Mirror /sample's guard: never claim a description-less row (nothing to
         # classify) — it could never leave 'claimed' and would poison a claim slot.
         claim_sql = (
@@ -118,13 +116,11 @@ def pending(
             "  SELECT source_id, id FROM job_listings "
             "  WHERE enrichment_status IS NULL AND status = 'OPEN' "
             f"  AND {DESCRIPTION_SQL} IS NOT NULL "
-            f"  {company_filter}"
             "  ORDER BY details_scraped DESC, last_seen_at DESC "
             "  LIMIT %s FOR UPDATE SKIP LOCKED"
             f") RETURNING {_JOB_PROJECTION}"
         )
-        params: tuple[Any, ...] = (allowlist, limit) if allowlist else (limit,)
-        cur.execute(claim_sql, params)
+        cur.execute(claim_sql, (limit,))
         rows = cur.fetchall()
         conn.commit()
     except Exception:
@@ -268,17 +264,13 @@ def health(conn: Connection = Depends(get_db)) -> dict[str, Any]:
         status_counts = {r["status"]: r["n"] for r in cur.fetchall()}
 
         # 'unenriched' above includes rows /pending can never hand out (no
-        # description under any known key, or outside the allowlist). Surface
-        # the CLAIMABLE count separately so a drained-but-capped pipeline is
-        # distinguishable from a genuinely idle one.
-        allowlist = settings.enrichment_company_allowlist_list
-        company_filter = "AND company = ANY(%s::text[]) " if allowlist else ""
-        params: tuple[Any, ...] = (allowlist,) if allowlist else ()
+        # description under any known key). Surface the CLAIMABLE count
+        # separately so a drained-but-capped pipeline is distinguishable from
+        # a genuinely idle one.
         cur.execute(
             "SELECT COUNT(*) AS n FROM job_listings "
             "WHERE enrichment_status IS NULL AND status = 'OPEN' "
-            f"AND {DESCRIPTION_SQL} IS NOT NULL {company_filter}",
-            params,
+            f"AND {DESCRIPTION_SQL} IS NOT NULL"
         )
         eligible_unenriched = cur.fetchone()["n"]
 

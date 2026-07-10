@@ -98,17 +98,13 @@ def get_admin_health(conn: Connection, window_hours: int = 24) -> dict[str, Any]
         open_by_status = {r["status"]: r["n"] for r in cur.fetchall()}
 
         # Of the unenriched OPEN rows, how many /pending could actually hand out
-        # (description present + allowlist). The gap vs 'unenriched' is the
+        # (description present). The gap vs 'unenriched' is the
         # permanently-invisible backlog — without this an idle laptop and a
         # starved one look identical.
-        allowlist = settings.enrichment_company_allowlist_list
-        company_filter = "AND company = ANY(%s::text[]) " if allowlist else ""
-        params: tuple[Any, ...] = (allowlist,) if allowlist else ()
         cur.execute(
             "SELECT COUNT(*) AS n FROM job_listings "
             "WHERE enrichment_status IS NULL AND status = 'OPEN' "
-            f"AND {DESCRIPTION_SQL} IS NOT NULL {company_filter}",
-            params,
+            f"AND {DESCRIPTION_SQL} IS NOT NULL"
         )
         eligible_unenriched = int(scalar(cur.fetchone(), "n") or 0)
 
