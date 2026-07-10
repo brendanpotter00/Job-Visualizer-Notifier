@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Provider } from 'react-redux';
 import { configureStore } from '@reduxjs/toolkit';
@@ -176,13 +176,18 @@ const RECENT_BODY = {
       jobListingId: 'j-2',
       title: 'Senior Platform Engineer',
       company: 'acme',
+      url: 'https://example.com/j-2',
       enrichmentStatus: 'done',
       category: 'software_engineering',
       level: 'senior',
       tags: ['python', 'kubernetes'],
       classifyConfidence: 0.94,
+      classifyReasoning: 'Kubernetes platform ownership implies senior IC scope.',
       judged: true,
       judgePassed: true,
+      judgeConfidence: 0.9,
+      judgeNotes: 'Senior fits: owns platform roadmap.',
+      taxonomyVersion: 'v2+abc',
       needsHuman: false,
       humanCorrectedAt: null,
       enrichedAt: '2026-07-09T00:00:00Z',
@@ -291,7 +296,8 @@ describe('AdminEnrichmentPage', () => {
     await waitFor(() => {
       expect(screen.getByText('Growth Marketing Lead')).toBeInTheDocument();
     });
-    await user.click(screen.getByRole('button', { name: 'Correct' }));
+    const queueRow = screen.getByText('Growth Marketing Lead').closest('tr') as HTMLElement;
+    await user.click(within(queueRow).getByRole('button', { name: 'Correct' }));
 
     expect(await screen.findByText('Correct labels')).toBeInTheDocument();
     // Judge evidence shown in the editor.
@@ -304,6 +310,45 @@ describe('AdminEnrichmentPage', () => {
         return (
           req instanceof Request &&
           req.url.includes('/enrichment/jobs/greenhouse_api/j-1/correct') &&
+          req.method === 'POST'
+        );
+      });
+      expect(posted).toBe(true);
+    });
+  });
+
+  it('expands a recent row to reveal the judge notes and classifier reasoning', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    const title = await screen.findByText('Senior Platform Engineer');
+    const row = title.closest('tr') as HTMLElement;
+    await user.click(within(row).getByRole('button', { name: 'Expand reasoning' }));
+
+    expect(
+      await screen.findByText(/Kubernetes platform ownership implies senior IC scope/)
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Senior fits: owns platform roadmap/)).toBeInTheDocument();
+  });
+
+  it('opens the correction dialog from a recent row and posts to that job', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    const title = await screen.findByText('Senior Platform Engineer');
+    const row = title.closest('tr') as HTMLElement;
+    await user.click(within(row).getByRole('button', { name: 'Correct' }));
+
+    expect(await screen.findByText('Correct labels')).toBeInTheDocument();
+    // The recent row's evidence is shown in the editor too.
+    expect(screen.getByText(/Senior fits: owns platform roadmap/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Save correction' }));
+    await waitFor(() => {
+      const posted = fetchMock.mock.calls.some((call) => {
+        const req = call[0];
+        return (
+          req instanceof Request &&
+          req.url.includes('/enrichment/jobs/greenhouse_api/j-2/correct') &&
           req.method === 'POST'
         );
       });

@@ -255,6 +255,12 @@ class TestAdminEnrichmentRecent:
         assert len(rows) == 1
         assert rows[0]["jobListingId"] == "q-1"
         assert rows[0]["needsHuman"] is True
+        # Evidence fields ride along so the dashboard can show the agent's
+        # rationale and open the correction editor from any recent row.
+        assert rows[0]["classifyReasoning"] == "because"
+        assert rows[0]["judgeNotes"] == "ambiguous level"
+        assert rows[0]["judgeConfidence"] == 0.5
+        assert "url" in rows[0]
 
 
 class TestJobFacets:

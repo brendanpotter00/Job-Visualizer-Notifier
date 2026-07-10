@@ -314,13 +314,14 @@ def list_recent(conn: Connection, limit: int = 25) -> list[dict[str, Any]]:
     cur = conn.cursor()
     try:
         cur.execute(
-            "SELECT je.source_id, je.job_listing_id, jl.title, jl.company, "
+            "SELECT je.source_id, je.job_listing_id, jl.title, jl.company, jl.url, "
             "jl.enrichment_status, jl.enrichment_category AS category, "
             "jl.enrichment_level AS level, "
             "COALESCE((SELECT json_agg(tag ORDER BY tag) FROM job_tags "
             "  WHERE job_tags.source_id = je.source_id "
             "  AND job_tags.job_listing_id = je.job_listing_id), '[]'::json) AS tags, "
-            "je.classify_confidence, je.judged, je.judge_passed, je.needs_human, "
+            "je.classify_confidence, je.classify_reasoning, je.judged, je.judge_passed, "
+            "je.judge_confidence, je.judge_notes, je.taxonomy_version, je.needs_human, "
             "je.human_corrected_at, je.enriched_at "
             "FROM job_enrichment je "
             "JOIN job_listings jl ON jl.source_id = je.source_id AND jl.id = je.job_listing_id "

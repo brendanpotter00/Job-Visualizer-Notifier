@@ -12,7 +12,7 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import {
   useCorrectEnrichmentMutation,
-  type EnrichmentNeedsHumanRow,
+  type EnrichmentCorrectionTarget,
 } from '../../../features/admin/adminApi';
 import { useGetFacetsQuery } from '../../../features/jobs/jobsApi';
 import { FALLBACK_CATEGORIES, FALLBACK_LEVELS } from '../../../constants/enrichment';
@@ -21,7 +21,7 @@ import { extractErrorMessage } from '../../../lib/errors';
 
 interface CorrectionDialogProps {
   open: boolean;
-  row: EnrichmentNeedsHumanRow | null;
+  row: EnrichmentCorrectionTarget | null;
   onClose: () => void;
 }
 
@@ -45,7 +45,7 @@ export function CorrectionDialog({ open, row, onClose }: CorrectionDialogProps) 
   );
 }
 
-function CorrectionForm({ row, onClose }: { row: EnrichmentNeedsHumanRow; onClose: () => void }) {
+function CorrectionForm({ row, onClose }: { row: EnrichmentCorrectionTarget; onClose: () => void }) {
   const { data: facets } = useGetFacetsQuery();
   const [correct, { isLoading, error }] = useCorrectEnrichmentMutation();
 

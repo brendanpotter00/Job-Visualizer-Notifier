@@ -296,6 +296,24 @@ export interface EnrichmentHealth {
   errorTicksInWindow: number;
 }
 
+/**
+ * The fields the correction editor needs from a row — the structural subset
+ * shared by the needs-human queue and the recent-enrichments table, so any
+ * row an admin can see is also a row they can correct.
+ */
+export interface EnrichmentCorrectionTarget {
+  sourceId: string;
+  jobListingId: string;
+  title: string | null;
+  company: string | null;
+  category: string | null;
+  level: string | null;
+  tags: string[];
+  classifyConfidence: number | null;
+  classifyReasoning: string | null;
+  judgeNotes: string | null;
+}
+
 /** One needs-human queue row. */
 export interface EnrichmentNeedsHumanRow {
   sourceId: string;
@@ -376,13 +394,18 @@ export interface EnrichmentRecentRow {
   jobListingId: string;
   title: string | null;
   company: string | null;
+  url: string | null;
   enrichmentStatus: string | null;
   category: string | null;
   level: string | null;
   tags: string[];
   classifyConfidence: number | null;
+  classifyReasoning: string | null;
   judged: boolean;
   judgePassed: boolean | null;
+  judgeConfidence: number | null;
+  judgeNotes: string | null;
+  taxonomyVersion: string | null;
   needsHuman: boolean;
   humanCorrectedAt: string | null;
   enrichedAt: string | null;

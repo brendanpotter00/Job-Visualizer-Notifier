@@ -1108,13 +1108,18 @@ class AdminEnrichmentRecentRow(BaseModel):
     job_listing_id: str
     title: str | None = None
     company: str | None = None
+    url: str | None = None
     enrichment_status: str | None = None
     category: str | None = None
     level: str | None = None
     tags: list[str] = Field(default_factory=list)
     classify_confidence: float | None = None
+    classify_reasoning: str | None = None
     judged: bool = False
     judge_passed: bool | None = None
+    judge_confidence: float | None = None
+    judge_notes: str | None = None
+    taxonomy_version: str | None = None
     needs_human: bool = False
     human_corrected_at: datetime | None = None
     enriched_at: datetime | None = None
