@@ -1,17 +1,5 @@
 import { createSelector } from '@reduxjs/toolkit';
 import { selectCurrentCompanyJobsRtk } from '../../jobs/jobsSelectors.ts';
-import { buildLocationOptions } from '../../../lib/location.ts';
-
-/**
- * Get the selectable location options for the current company.
- * Built from normalized canonical tags via `buildLocationOptions`, which
- * collapses variants and SYNTHESIZES pickable parents ("United States", each
- * "<State>, US") so the hierarchy is navigable. Matching containment lives in
- * `matchesLocation`.
- */
-export const selectAvailableLocations = createSelector([selectCurrentCompanyJobsRtk], (jobs) =>
-  buildLocationOptions(jobs)
-);
 
 /**
  * Get unique departments from current company jobs

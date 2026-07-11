@@ -25,6 +25,7 @@ from .routers import (
     internal_enrichment,
     jobs,
     jobs_qa,
+    locations,
     saved_filters,
     users,
 )
@@ -300,6 +301,7 @@ app.add_middleware(
 
 app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])
 app.include_router(jobs_qa.router, prefix="/api/jobs-qa", tags=["jobs-qa"])
+app.include_router(locations.router, prefix="/api/locations", tags=["locations"])
 app.include_router(users.router, prefix="/api/users", tags=["users"])
 app.include_router(
     saved_filters.router, prefix="/api/users/saved-filters", tags=["saved-filters"]

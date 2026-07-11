@@ -1,25 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import type { JobLocation } from '../../types';
 import {
   isUnitedStatesLocation,
   US_STATE_CODES,
   US_STATE_NAME_TO_CODE,
-  stateOptionLabel,
   stripUsSuffix,
-  buildLocationOptions,
 } from '../../lib/location';
-
-const cityTag = (overrides: Partial<JobLocation>): JobLocation => ({
-  canonicalName: 'X',
-  kind: 'city',
-  city: null,
-  region: null,
-  country: null,
-  remoteScope: null,
-  isPrimary: false,
-  ...overrides,
-});
-const jobWith = (...locations: JobLocation[]) => ({ locations });
 
 describe('locationUtils', () => {
   describe('isUnitedStatesLocation', () => {
@@ -104,84 +89,10 @@ describe('locationUtils', () => {
       expect(US_STATE_NAME_TO_CODE['NEW YORK']).toBe('NY');
     });
 
-    it('stateOptionLabel renders "<State>, US"', () => {
-      expect(stateOptionLabel('CA')).toBe('California, US');
-      expect(stateOptionLabel('TX')).toBe('Texas, US');
-    });
-
     it('stripUsSuffix removes a trailing ", US" and upper-cases', () => {
       expect(stripUsSuffix('California, US')).toBe('CALIFORNIA');
       expect(stripUsSuffix('Texas,US')).toBe('TEXAS');
       expect(stripUsSuffix('Ontario')).toBe('ONTARIO');
-    });
-  });
-
-  describe('buildLocationOptions', () => {
-    it('synthesizes "United States" + a state parent for US cities (tiered order)', () => {
-      const result = buildLocationOptions([
-        jobWith(
-          cityTag({
-            canonicalName: 'Cupertino, CA, US',
-            city: 'Cupertino',
-            region: 'CA',
-            country: 'US',
-          })
-        ),
-        jobWith(
-          cityTag({
-            canonicalName: 'Sunnyvale, CA, US',
-            city: 'Sunnyvale',
-            region: 'CA',
-            country: 'US',
-          })
-        ),
-      ]);
-
-      // country -> states -> cities, alphabetical within tier.
-      expect(result).toEqual([
-        'United States',
-        'California, US',
-        'Cupertino, CA, US',
-        'Sunnyvale, CA, US',
-      ]);
-    });
-
-    it('dedupes a synthesized state against a real region tag of the same name', () => {
-      const result = buildLocationOptions([
-        jobWith(
-          cityTag({ canonicalName: 'California, US', kind: 'region', region: 'CA', country: 'US' }),
-          cityTag({
-            canonicalName: 'Cupertino, CA, US',
-            city: 'Cupertino',
-            region: 'CA',
-            country: 'US',
-          })
-        ),
-      ]);
-
-      expect(result.filter((l) => l === 'California, US')).toHaveLength(1);
-      expect(result).toEqual(['United States', 'California, US', 'Cupertino, CA, US']);
-    });
-
-    it('does not synthesize US options for non-US locations', () => {
-      const result = buildLocationOptions([
-        jobWith(
-          cityTag({
-            canonicalName: 'Toronto, ON, CA',
-            city: 'Toronto',
-            region: 'ON',
-            country: 'CA',
-          })
-        ),
-        jobWith(cityTag({ canonicalName: 'London, GB', city: 'London', country: 'GB' })),
-      ]);
-
-      expect(result).toEqual(['London, GB', 'Toronto, ON, CA']);
-      expect(result).not.toContain('United States');
-    });
-
-    it('returns an empty array for jobs with no tags', () => {
-      expect(buildLocationOptions([{ locations: [] }, {}])).toEqual([]);
     });
   });
 });

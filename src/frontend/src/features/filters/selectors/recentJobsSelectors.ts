@@ -2,7 +2,7 @@ import { createSelector } from '@reduxjs/toolkit';
 import type { RootState } from '../../../app/store.ts';
 import { jobsApi } from '../../jobs/jobsApi.ts';
 import { filterJobsByFilters } from '../utils/jobFilteringUtils.ts';
-import { buildLocationOptions } from '../../../lib/location.ts';
+import { selectLocationCatalog } from '../../locations/locationCatalogSlice.ts';
 import { isSoftwareOnlyEnabled } from '../../../constants/tags.ts';
 import { getCompanyById } from '../../../config/companies.ts';
 import { filterJobsByHours } from '../../../lib/date.ts';
@@ -63,8 +63,8 @@ export const selectAllJobsFromQuery = createSelector(
  * Leverages existing filterJobsByFilters which gracefully handles missing department/roleCategory
  */
 export const selectRecentFilteredJobs = createSelector(
-  [selectAllJobsFromQuery, selectRecentJobsFilters],
-  (allJobs, filters) => filterJobsByFilters(allJobs, filters)
+  [selectAllJobsFromQuery, selectRecentJobsFilters, selectLocationCatalog],
+  (allJobs, filters, locationCatalog) => filterJobsByFilters(allJobs, filters, locationCatalog)
 );
 
 /**
@@ -81,52 +81,12 @@ export const selectRecentJobsSorted = createSelector([selectRecentFilteredJobs],
  * This is used to determine which companies should appear in the company dropdown
  */
 export const selectRecentJobsFilteredWithoutCompany = createSelector(
-  [selectAllJobsFromQuery, selectRecentJobsFilters],
-  (allJobs, filters) => {
+  [selectAllJobsFromQuery, selectRecentJobsFilters, selectLocationCatalog],
+  (allJobs, filters, locationCatalog) => {
     // Create a copy of filters WITHOUT the company field
     const filtersWithoutCompany = { ...filters, company: undefined };
-    return filterJobsByFilters(allJobs, filtersWithoutCompany);
+    return filterJobsByFilters(allJobs, filtersWithoutCompany, locationCatalog);
   }
-);
-
-/**
- * Apply all filters EXCEPT location filter
- * Used to determine which locations should appear in the location dropdown
- *
- * Filters applied (in order):
- * 1. Time Window - required, always applied
- * 2. Company - if selected (multi-select OR logic)
- * 3. Search Tags - if any tags added (include/exclude logic)
- * 4. Employment Type - if selected
- * 5. Software-Only - if enabled
- * 6. Location - EXCLUDED (determining availability for this filter)
- */
-export const selectRecentJobsFilteredWithoutLocation = createSelector(
-  [selectAllJobsFromQuery, selectRecentJobsFilters],
-  (allJobs, filters) => {
-    // Create a copy of filters WITHOUT the location field
-    const filtersWithoutLocation = { ...filters, location: undefined };
-    return filterJobsByFilters(allJobs, filtersWithoutLocation);
-  }
-);
-
-/**
- * Get available locations from filtered jobs (excluding location filter)
- * Only shows locations that have jobs matching all OTHER active filters
- * Creates dynamic, context-aware dropdown
- *
- * Example scenarios:
- * - If time window=1h, only shows locations with jobs in past hour
- * - If company selected, only shows locations for that company
- * - If employment type=Full-time, only shows locations with full-time jobs
- * - If software-only enabled, only shows locations with software eng. roles
- */
-export const selectRecentAvailableLocations = createSelector(
-  [selectRecentJobsFilteredWithoutLocation],
-  // Build options from normalized canonical tags via `buildLocationOptions`:
-  // variants collapse into single tags, and pickable parents ("United States",
-  // each "<State>, US") are synthesized so the hierarchy is navigable.
-  (jobs) => buildLocationOptions(jobs)
 );
 
 /**

@@ -18,7 +18,6 @@ import {
 } from '../../features/filters/slices/recentJobsFiltersSlice.ts';
 import {
   selectRecentJobsFilters,
-  selectRecentAvailableLocations,
   selectRecentAvailableCompanies,
 } from '../../features/filters/selectors/recentJobsSelectors.ts';
 import { useGetFacetsQuery } from '../../features/jobs/jobsApi.ts';
@@ -27,6 +26,7 @@ import { FacetMultiSelect } from '../shared/filters/FacetMultiSelect.tsx';
 import { KeywordFilterInput } from '../shared/filters/KeywordFilterInput.tsx';
 import { TimeWindowSelect } from '../shared/filters/TimeWindowSelect.tsx';
 import { MultiSelectAutocomplete } from '../shared/filters/MultiSelectAutocomplete.tsx';
+import { AsyncMultiSelectAutocomplete } from '../shared/filters/AsyncMultiSelectAutocomplete.tsx';
 
 /**
  * Filter controls for Recent Job Postings page
@@ -36,7 +36,6 @@ import { MultiSelectAutocomplete } from '../shared/filters/MultiSelectAutocomple
 export function RecentJobsFilters() {
   const dispatch = useAppDispatch();
   const filters = useAppSelector(selectRecentJobsFilters);
-  const availableLocations = useAppSelector(selectRecentAvailableLocations);
   const availableCompanies = useAppSelector(selectRecentAvailableCompanies);
   // Facet dropdown options are data-driven (seeded dimension tables); the
   // fallback constants cover the pre-fetch frame and an endpoint outage.
@@ -132,9 +131,8 @@ export function RecentJobsFilters() {
             onRemove={handleRemoveCompany}
           />
 
-          <MultiSelectAutocomplete
+          <AsyncMultiSelectAutocomplete
             label="Location"
-            options={availableLocations}
             value={filters.location || []}
             onAdd={(loc) => dispatch(addRecentJobsLocation(loc))}
             onRemove={(loc) => dispatch(removeRecentJobsLocation(loc))}

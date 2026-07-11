@@ -258,31 +258,6 @@ class TestKeywordLists:
         assert prefs["trendActiveKeywordListId"] is None
 
 
-# --- Location search ----------------------------------------------------------
-
-
-class TestLocationSearch:
-    def test_requires_q(self, sf_client):
-        resp = sf_client.get(f"{PREFIX}/locations/search")
-        assert resp.status_code == 422
-
-    def test_returns_matches(self, sf_client, db_conn):
-        from psycopg2 import sql
-
-        cur = db_conn.cursor()
-        cur.execute(
-            sql.SQL(
-                "INSERT INTO {} (canonical_name, kind) VALUES (%s, %s)"
-            ).format(sql.Identifier("locations")),
-            ("San Francisco, CA, US", "city"),
-        )
-        db_conn.commit()
-        resp = sf_client.get(f"{PREFIX}/locations/search", params={"q": "San Fran"})
-        assert resp.status_code == 200
-        names = [r["canonicalName"] for r in resp.json()]
-        assert "San Francisco, CA, US" in names
-
-
 # --- Auth gate: every route rejects unauthenticated requests with 401 ---------
 
 
@@ -323,8 +298,4 @@ class TestAuthRequired:
 
     def test_delete_keyword_list_401(self, no_auth_client):
         resp = no_auth_client.delete(f"{PREFIX}/keyword-lists/some-id")
-        assert resp.status_code == 401
-
-    def test_location_search_401(self, no_auth_client):
-        resp = no_auth_client.get(f"{PREFIX}/locations/search", params={"q": "x"})
         assert resp.status_code == 401

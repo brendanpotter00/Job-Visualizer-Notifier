@@ -4,6 +4,7 @@ import { selectCurrentCompanyJobsRtk } from '../../jobs/jobsSelectors.ts';
 import { bucketJobsByTime } from '../../../lib/timeBucketing.ts';
 import { isSoftwareOnlyEnabled } from '../../../constants/tags.ts';
 import { filterJobsByFilters } from '../utils/jobFilteringUtils';
+import { selectLocationCatalog } from '../../locations/locationCatalogSlice.ts';
 
 /**
  * Select graph filters
@@ -22,9 +23,9 @@ export const selectGraphSoftwareOnlyState = createSelector([selectGraphFilters],
  * Filter jobs based on graph filters
  */
 export const selectGraphFilteredJobs = createSelector(
-  [selectCurrentCompanyJobsRtk, selectGraphFilters],
-  (jobs, filters) => {
-    return filterJobsByFilters(jobs, filters);
+  [selectCurrentCompanyJobsRtk, selectGraphFilters, selectLocationCatalog],
+  (jobs, filters, locationCatalog) => {
+    return filterJobsByFilters(jobs, filters, locationCatalog);
   }
 );
 

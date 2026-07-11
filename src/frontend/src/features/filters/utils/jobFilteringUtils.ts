@@ -91,6 +91,25 @@ export interface LocationIndex {
   descriptors: Map<string, LocationDescriptor>;
 }
 
+/**
+ * Structured fields of one canonical location, cached when the user picks it
+ * from the server-side location search. Mirrors the columns of the `locations`
+ * table (minus the display name / id). Seeded into the `LocationIndex` so a
+ * selected location resolves hierarchically even when NO currently-loaded job
+ * carries that exact tag — e.g. selecting "Japan" filters city-only Tokyo jobs,
+ * which the label-only fallbacks (US-state names) could never resolve.
+ */
+export interface LocationCatalogEntry {
+  kind: string;
+  city: string | null;
+  region: string | null;
+  country: string | null;
+  remoteScope: string | null;
+}
+
+/** canonicalName -> structured fields, for every location the user has picked. */
+export type LocationCatalog = Record<string, LocationCatalogEntry>;
+
 /** Trim + upper-case a code; empty becomes null so comparisons stay strict. */
 const normCode = (value: string | null | undefined): string | null =>
   value == null ? null : value.trim().toUpperCase() || null;
@@ -104,17 +123,29 @@ const UNITED_STATES_DESCRIPTOR: LocationDescriptor = {
   remoteScope: null,
 };
 
-/** Map a raw JobLocation tag to a normalized descriptor. */
-function tagToDescriptor(tag: JobLocation): LocationDescriptor {
+/** Normalize the structured fields of a location into a descriptor. Shared by
+ * job tags and catalog entries so both derive tier + codes identically. */
+function fieldsToDescriptor(
+  kind: string,
+  city: string | null | undefined,
+  region: string | null | undefined,
+  country: string | null | undefined,
+  remoteScope: string | null | undefined
+): LocationDescriptor {
   const tier: LocationTier =
-    tag.kind === 'country' || tag.kind === 'region' || tag.kind === 'remote' ? tag.kind : 'city';
+    kind === 'country' || kind === 'region' || kind === 'remote' ? kind : 'city';
   return {
     tier,
-    city: tag.city ? tag.city.trim() : null,
-    region: normCode(tag.region),
-    country: normCode(tag.country),
-    remoteScope: normCode(tag.remoteScope),
+    city: city ? city.trim() : null,
+    region: normCode(region),
+    country: normCode(country),
+    remoteScope: normCode(remoteScope),
   };
+}
+
+/** Map a raw JobLocation tag to a normalized descriptor. */
+function tagToDescriptor(tag: JobLocation): LocationDescriptor {
+  return fieldsToDescriptor(tag.kind, tag.city, tag.region, tag.country, tag.remoteScope);
 }
 
 /**
@@ -136,11 +167,34 @@ export function buildLocationIndex(jobs: Job[]): LocationIndex {
 }
 
 /**
+ * Seed `index` with descriptors for locations the user picked from search that
+ * aren't already present as a loaded-job tag. Loaded-job tags win (they're the
+ * ground truth for jobs actually on the page); catalog entries only fill gaps —
+ * a selection whose jobs are outside the current time window, or a parent
+ * (country/region) selection no loaded job carries as an exact tag. This is
+ * what lets a selection filter correctly BEFORE its jobs are loaded and lets
+ * non-US / irregular locations resolve at all.
+ */
+export function mergeCatalogIntoIndex(index: LocationIndex, catalog: LocationCatalog): void {
+  for (const [canonicalName, entry] of Object.entries(catalog)) {
+    if (!index.descriptors.has(canonicalName)) {
+      index.descriptors.set(
+        canonicalName,
+        fieldsToDescriptor(entry.kind, entry.city, entry.region, entry.country, entry.remoteScope)
+      );
+    }
+  }
+}
+
+/**
  * Resolve a selected filter string to a structured descriptor:
  *  1. "United States" meta-option -> US country descriptor.
- *  2. A real tag's canonicalName -> its descriptor (from the index).
- *  3. A synthesized "<State>, US" option (no exact tag) -> derived US region
- *     descriptor via the state-name lookup.
+ *  2. A canonicalName in the index -> its descriptor. The index holds every
+ *     loaded-job tag PLUS any location the user picked from search (seeded via
+ *     `mergeCatalogIntoIndex`), so this path now resolves non-US countries and
+ *     irregular regions the string-only fallback below can't.
+ *  3. A "<State>, US" option (no index entry) -> derived US region descriptor
+ *     via the state-name lookup.
  * Returns null when unresolvable, so that token matches nothing.
  */
 export function resolveSelectedDescriptor(
@@ -312,14 +366,23 @@ export function matchesCompany(job: Job, companies: string[] | undefined): boole
 /**
  * Filter jobs based on provided filters
  * Works with GraphFilters, ListFilters, and RecentJobsFilters
+ *
+ * `locationCatalog` (optional) carries structured fields for locations the user
+ * picked from the server-side search but that may not exist as a tag on any
+ * currently-loaded job; seeding them into the index lets those selections
+ * filter correctly (see `mergeCatalogIntoIndex`).
  */
 export function filterJobsByFilters(
   jobs: Job[],
-  filters: GraphFilters | ListFilters | RecentJobsFilters
+  filters: GraphFilters | ListFilters | RecentJobsFilters,
+  locationCatalog?: LocationCatalog
 ): Job[] {
   // Build the hierarchical location index ONCE from the full candidate set so a
   // region/country selection resolves against every available tag.
   const locationIndex = buildLocationIndex(jobs);
+  if (locationCatalog) {
+    mergeCatalogIntoIndex(locationIndex, locationCatalog);
+  }
 
   return jobs.filter((job: Job) => {
     // Time window filter

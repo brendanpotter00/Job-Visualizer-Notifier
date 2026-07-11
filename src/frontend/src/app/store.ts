@@ -10,6 +10,8 @@ import { companiesApi } from '../features/companies/companiesApi';
 import { feedbackApi } from '../features/feedback/feedbackApi';
 import { adminApi } from '../features/admin/adminApi';
 import { savedFiltersApi } from '../features/savedFilters/savedFiltersApi';
+import { locationsApi } from '../features/locations/locationsApi';
+import locationCatalogReducer from '../features/locations/locationCatalogSlice';
 import { getTokenOrNull } from '../features/features/getTokenOrNull';
 
 export const store = configureStore({
@@ -19,12 +21,14 @@ export const store = configureStore({
     recentJobsFilters: recentJobsFiltersReducer,
     ui: uiReducer,
     enabledCompanies: enabledCompaniesReducer,
+    locationCatalog: locationCatalogReducer,
     [jobsApi.reducerPath]: jobsApi.reducer,
     [featuresApi.reducerPath]: featuresApi.reducer,
     [companiesApi.reducerPath]: companiesApi.reducer,
     [feedbackApi.reducerPath]: feedbackApi.reducer,
     [adminApi.reducerPath]: adminApi.reducer,
     [savedFiltersApi.reducerPath]: savedFiltersApi.reducer,
+    [locationsApi.reducerPath]: locationsApi.reducer,
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({
@@ -35,7 +39,8 @@ export const store = configureStore({
       .concat(companiesApi.middleware)
       .concat(feedbackApi.middleware)
       .concat(adminApi.middleware)
-      .concat(savedFiltersApi.middleware),
+      .concat(savedFiltersApi.middleware)
+      .concat(locationsApi.middleware),
 });
 
 /**

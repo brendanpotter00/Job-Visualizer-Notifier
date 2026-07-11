@@ -8,6 +8,8 @@ import {
   matchesEmploymentType,
   filterJobsByFilters,
   buildLocationIndex,
+  mergeCatalogIntoIndex,
+  type LocationCatalog,
 } from '../../features/filters/utils/jobFilteringUtils';
 
 // Helper to create mock jobs.
@@ -636,6 +638,157 @@ describe('jobFilteringUtils', () => {
       const result = filterJobsByFilters(jobs, filters);
 
       expect(result).toHaveLength(0);
+    });
+  });
+
+  // The location catalog carries structured fields for locations the user picked
+  // from server-side search that may not be a tag on any loaded job. Seeding them
+  // into the index makes hierarchical containment resolve selections the label-
+  // only fallbacks (US-state names) can't — the whole point of the feature.
+  describe('filterJobsByFilters with locationCatalog', () => {
+    // A non-US, city-ONLY job (the common shape: avg ~1 tag/job, no country tag).
+    const tokyoJob = createMockJob({
+      id: 'tokyo',
+      location: 'Tokyo, JP',
+      locations: [
+        {
+          canonicalName: 'Tokyo, JP',
+          kind: 'city',
+          city: 'Tokyo',
+          region: null,
+          country: 'JP',
+          remoteScope: null,
+          isPrimary: true,
+        },
+      ],
+    });
+    // A US city in an "irregular" state whose region canonical_name isn't "<State>, US".
+    const brooklynJob = createMockJob({
+      id: 'bk',
+      location: 'Brooklyn, NY, US',
+      locations: [
+        {
+          canonicalName: 'Brooklyn, NY, US',
+          kind: 'city',
+          city: 'Brooklyn',
+          region: 'NY',
+          country: 'US',
+          remoteScope: null,
+          isPrimary: true,
+        },
+      ],
+    });
+
+    const filterFor = (location: string[]): GraphFilters => ({
+      timeWindow: 'all',
+      searchTags: [],
+      softwareOnly: false,
+      location,
+    });
+
+    it('matches a city-only non-US job when its COUNTRY is selected (needs the catalog)', () => {
+      const jobs = [tokyoJob];
+      const filters = filterFor(['Japan']);
+
+      // Without the catalog "Japan" resolves to nothing (no country->code map).
+      expect(filterJobsByFilters(jobs, filters)).toHaveLength(0);
+
+      // With the catalog descriptor, country containment matches the Tokyo tag.
+      const catalog: LocationCatalog = {
+        Japan: { kind: 'country', city: null, region: null, country: 'JP', remoteScope: null },
+      };
+      const result = filterJobsByFilters(jobs, filters, catalog);
+      expect(result.map((j) => j.id)).toEqual(['tokyo']);
+    });
+
+    it('matches a US city via an irregular region label only with the catalog', () => {
+      const jobs = [brooklynJob];
+      const filters = filterFor(['New York, NY, US']);
+
+      // "New York, NY, US" isn't the "<State>, US" shape the fallback expects.
+      expect(filterJobsByFilters(jobs, filters)).toHaveLength(0);
+
+      const catalog: LocationCatalog = {
+        'New York, NY, US': {
+          kind: 'region',
+          city: null,
+          region: 'NY',
+          country: 'US',
+          remoteScope: null,
+        },
+      };
+      expect(filterJobsByFilters(jobs, filters, catalog).map((j) => j.id)).toEqual(['bk']);
+    });
+
+    it('does not falsely match a different country selection', () => {
+      const catalog: LocationCatalog = {
+        Germany: { kind: 'country', city: null, region: null, country: 'DE', remoteScope: null },
+      };
+      const result = filterJobsByFilters([tokyoJob], filterFor(['Germany']), catalog);
+      expect(result).toHaveLength(0);
+    });
+
+    it('still resolves US states and "United States" WITHOUT a catalog (no regression)', () => {
+      const austinJob = createMockJob({
+        id: 'atx',
+        location: 'Austin, TX, US',
+        locations: [
+          {
+            canonicalName: 'Austin, TX, US',
+            kind: 'city',
+            city: 'Austin',
+            region: 'TX',
+            country: 'US',
+            remoteScope: null,
+            isPrimary: true,
+          },
+        ],
+      });
+      expect(filterJobsByFilters([austinJob], filterFor(['Texas, US']))).toHaveLength(1);
+      expect(filterJobsByFilters([austinJob], filterFor(['United States']))).toHaveLength(1);
+    });
+  });
+
+  describe('mergeCatalogIntoIndex', () => {
+    it('adds descriptors for catalog names not already present as a job tag', () => {
+      const index = buildLocationIndex([]);
+      const catalog: LocationCatalog = {
+        Japan: { kind: 'country', city: null, region: null, country: 'jp', remoteScope: null },
+      };
+      mergeCatalogIntoIndex(index, catalog);
+      // country code is upper-cased into the descriptor (normCode).
+      expect(index.descriptors.get('Japan')).toEqual({
+        tier: 'country',
+        city: null,
+        region: null,
+        country: 'JP',
+        remoteScope: null,
+      });
+    });
+
+    it('does not override a loaded-job tag of the same canonicalName', () => {
+      const job = createMockJob({
+        id: 'x',
+        location: 'Remote',
+        locations: [
+          {
+            canonicalName: 'Remote',
+            kind: 'remote',
+            city: null,
+            region: null,
+            country: null,
+            remoteScope: 'global',
+            isPrimary: true,
+          },
+        ],
+      });
+      const index = buildLocationIndex([job]);
+      // A catalog entry claiming a different shape for the same name must NOT win.
+      mergeCatalogIntoIndex(index, {
+        Remote: { kind: 'city', city: 'Nope', region: null, country: null, remoteScope: null },
+      });
+      expect(index.descriptors.get('Remote')?.tier).toBe('remote');
+      expect(index.descriptors.get('Remote')?.remoteScope).toBe('GLOBAL');
     });
   });
 });

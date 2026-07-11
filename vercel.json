@@ -35,6 +35,10 @@
       "destination": "/api/jobs-qa?path=:path"
     },
     {
+      "source": "/api/locations/:path(.*)",
+      "destination": "/api/locations?path=:path"
+    },
+    {
       "source": "/api/users",
       "destination": "/api/users"
     },
