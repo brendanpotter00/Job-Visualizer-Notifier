@@ -87,7 +87,7 @@ pip install -r scripts/requirements-dev.txt      # Install dev dependencies (tes
 
 **Testing:**
 - `tests/conftest.py` - Shared pytest fixtures
-- `tests/unit/` - Unit tests (14 files)
+- `tests/unit/` - Unit tests (16 files)
 - `tests/integration/` - Integration tests (10 files)
 - `pytest.ini` - Test configuration
 
@@ -270,7 +270,7 @@ Edit company-specific `config.py`:
 **Testing:**
 - Test Config: `scripts/pytest.ini`
 - Fixtures: `scripts/tests/conftest.py`
-- Unit Tests (14 files):
+- Unit Tests (16 files):
   - `tests/unit/test_models.py`
   - `tests/unit/test_utils.py`
   - `tests/unit/test_parser_helpers.py`
@@ -285,6 +285,8 @@ Edit company-specific `config.py`:
   - `tests/unit/test_microsoft_api_client.py`
   - `tests/unit/test_microsoft_scraper_methods.py`
   - `tests/unit/test_augment_db_url.py`
+  - `tests/unit/test_pytest_config_excludes_e2e.py`
+  - `tests/unit/test_scraper_specs_complete.py`
 - Integration Tests (10 files):
   - `tests/integration/test_database.py`
   - `tests/integration/test_incremental.py`
