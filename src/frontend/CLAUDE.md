@@ -50,6 +50,7 @@ Backend-Scraper (api/clients/backendScraperClient.ts) is the only production cli
 **Routes/Pages:**
 - `/` - Recent Job Postings (pages/RecentJobPostingsPage/RecentJobPostingsPage.tsx) - Aggregated recent jobs across all companies
 - `/companies` - Company Job Postings (pages/CompaniesPage/CompaniesPage.tsx) - Per-company job visualization with graph
+- `/curated-companies` - Curated Companies (pages/CuratedCompaniesPage/CuratedCompaniesPage.tsx) - Searchable directory of all tracked companies with brand info
 - `/why` - Why This Was Built (pages/WhyPage/WhyPage.tsx) - About page
 - `/qa` - QA (pages/QAPage/QAPage.tsx) - Admin page for triggering scrapers, viewing scrape runs, and debugging
 - `/account` - Account (pages/AccountPage/AccountPage.tsx)
@@ -57,6 +58,9 @@ Backend-Scraper (api/clients/backendScraperClient.ts) is the only production cli
 - `/vote-features` - Vote for Features (pages/VoteFeaturesPage/VoteFeaturesPage.tsx) - Feature voting page; shipped features move out of the vote list into a read-only "Shipped — built with the community" section
 - `/admin/enrichment` - Admin Enrichment Pipeline (pages/AdminEnrichmentPage/AdminEnrichmentPage.tsx) - Admin-only oversight of the laptop enrichment agent: liveness verdict, backlog funnel, tick EKG/charts (metrics push), eval scorecard, needs-human queue with human corrections
 - `/admin/users` - Admin Users (pages/AdminUsersPage/AdminUsersPage.tsx) - Admin-only user management (grant/revoke admin); roster also shows per-user engagement (Visits / Last active, sortable columns) backed by `POST /api/users/visit`
+- `/admin/location-normalization` - Admin Location Normalization (pages/AdminLocationNormalizationPage/AdminLocationNormalizationPage.tsx) - Admin-only location alias browser, health overview, integrity check, and problem-jobs table
+- `/location-pipeline` - Location Pipeline (pages/AdminLocationPipelinePage/AdminLocationPipelinePage.tsx) - Public pipeline visualization; admins get a sidebar link, everyone else reaches it via the Changelog
+- `/admin/feedback` - Admin Feedback (pages/AdminFeedbackPage/AdminFeedbackPage.tsx) - Admin-only table of user feedback submissions
 
 **Key Algorithms:**
 - Time Bucketing: lib/timeBucketing.ts (dynamic bucket sizing for graph visualization)
@@ -241,6 +245,8 @@ Located in project root `api/` directory (proxies to avoid CORS):
 - `users.ts` - Backend users API proxy (forwards Authorization header)
 - `features.ts` - Feature voting API proxy (forwards Authorization header)
 - `admin.ts` - Admin API proxy (forwards Authorization header; admin-only endpoints)
+- `companies.ts` - Curated-companies directory proxy (public, unauthenticated)
+- `feedback.ts` - Admin feedback proxy (forwards Authorization header)
 
 ## See Also
 

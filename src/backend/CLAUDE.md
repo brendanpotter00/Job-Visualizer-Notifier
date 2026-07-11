@@ -109,8 +109,19 @@ All configuration via environment variables:
 **Admin Router (`/api/admin`):**
 - `GET /api/admin/users` - List all users with admin flag (requires admin)
 - `GET /api/admin/users/stats` - User statistics (requires admin)
+- `GET /api/admin/users/{user_id}/visits` - Per-user visit history (requires admin)
+- `GET /api/admin/feedback` - List user feedback submissions (requires admin)
 - `POST /api/admin/users/{user_id}/admin` - Grant admin to user (requires admin)
 - `DELETE /api/admin/users/{user_id}/admin` - Revoke admin from user (requires admin)
+- `POST /api/admin/jobs/{job_id}/normalize` - Re-normalize a single job's location via Claude Haiku (requires admin)
+- `PUT /api/admin/locations/aliases/{raw_text}` - Create or update a location alias (requires admin)
+- `GET /api/admin/locations/aliases` - List all location aliases (requires admin)
+- `GET /api/admin/locations/health` - Location normalization health overview (requires admin)
+- `GET /api/admin/locations/integrity` - Location integrity check (requires admin)
+- `GET /api/admin/locations/reverse` - Reverse-lookup canonical → raw texts (requires admin)
+- `GET /api/admin/locations/alias-originals` - Raw texts that alias to a canonical (requires admin)
+- `GET /api/admin/locations/problem-jobs` - Jobs with problematic location data (requires admin)
+- `POST /api/admin/locations/re-normalize-all` - Break-glass: reset all normalization_status to NULL and re-queue (requires admin)
 
 **Features Router (`/api/features`):**
 - `GET /api/features` - List all features with upvote counts, current user's vote state, and `completedAt` (null = open candidate, set = shipped) (optional auth)
@@ -163,7 +174,9 @@ src/backend/api/
     ├── procrastinate_app.py         # Procrastinate App instance + schema setup
     ├── heartbeat.py                 # Heartbeat task (liveness probe for /health/worker)
     ├── enqueue_*_fan_out.py (×6)    # Fan-out tasks: enqueue per-company fetch for each ATS
-    └── fetch_*_company.py (×6)      # Leaf tasks: fetch + upsert one company's jobs
+    ├── fetch_*_company.py (×6)      # Leaf tasks: fetch + upsert one company's jobs
+    ├── normalize_location.py        # Leaf task: normalize one job's free-text location via Claude Haiku
+    └── scan_unnormalized.py         # Periodic safety-net task: find NULL-status jobs and defer normalize_location
 ```
 
 ## Evals

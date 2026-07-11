@@ -126,6 +126,8 @@ Automatic per-PR preview deploys are **off** — root `vercel.json` sets `git.de
 - `api/users.ts` - Backend users API proxy (forwards Authorization header)
 - `api/features.ts` - Feature voting API proxy (forwards Authorization header)
 - `api/admin.ts` - Admin API proxy (forwards Authorization header; admin-only endpoints)
+- `api/companies.ts` - Curated-companies directory proxy (public, unauthenticated)
+- `api/feedback.ts` - Admin feedback proxy (forwards Authorization header)
 
 ## See Also
 
