@@ -85,6 +85,17 @@ class JobListing(Base):
         Index("idx_job_listings_enrichment_status", "enrichment_status"),
         Index("idx_job_listings_status_category", "status", "enrichment_category"),
         Index("idx_job_listings_status_level", "status", "enrichment_level"),
+        # Partial index on the join key used by the open_only location-search
+        # path (saved_filters_service.search_locations): the EXISTS semijoin
+        # probes job_listings by id restricted to OPEN rows. A partial index on
+        # id WHERE status='OPEN' lets that probe use an index instead of a full
+        # seq-scan of the ~57k-row table. (job_listings' PK is the composite
+        # (source_id, id), so there is no standalone index on id alone.)
+        Index(
+            "idx_job_listings_open_id",
+            "id",
+            postgresql_where=text("status = 'OPEN'"),
+        ),
     )
 
 
@@ -488,6 +499,12 @@ class JobLocation(Base):
     __table_args__ = (
         PrimaryKeyConstraint("job_listing_id", "normalized_location_id"),
         Index("idx_job_locations_job_listing_id", "job_listing_id"),
+        # Standalone index on the semijoin key used by the open_only
+        # location-search path (saved_filters_service.search_locations): the
+        # EXISTS subquery filters job_locations by normalized_location_id. The
+        # PK leads with job_listing_id, so it can't serve this probe — without
+        # this index the open_only path seq-scans the ~54k-row table.
+        Index("idx_job_locations_norm_loc", "normalized_location_id"),
     )
 
 

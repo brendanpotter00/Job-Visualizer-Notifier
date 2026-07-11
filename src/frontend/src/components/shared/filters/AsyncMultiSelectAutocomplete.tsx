@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Autocomplete, TextField, Chip, CircularProgress } from '@mui/material';
 import { getArrayDiff } from '../../../features/filters/utils/filterUtils.ts';
-import { useSearchLocationsQuery } from '../../../features/savedFilters/savedFiltersApi.ts';
+import {
+  useSearchLocationsQuery,
+  type LocationSearchResult,
+} from '../../../features/locations/locationsApi.ts';
+import { upsertLocationDescriptors } from '../../../features/locations/locationCatalogSlice.ts';
+import { useAppDispatch } from '../../../app/hooks.ts';
 import { extractErrorMessage } from '../../../lib/errors.ts';
 
 export interface AsyncMultiSelectAutocompleteProps {
@@ -24,11 +29,18 @@ const DEBOUNCE_MS = 300;
 const MIN_QUERY_LEN = 2;
 
 /**
- * Multi-select autocomplete backed by the server-side location search endpoint.
- * Mirrors `MultiSelectAutocomplete` (string array, add/remove callbacks) but
- * sources its options from a debounced `useSearchLocationsQuery` rather than a
- * static `options` prop. Used only by the Saved Filters page for default
- * locations — the in-page filter dropdowns build options from loaded jobs.
+ * Multi-select autocomplete backed by the public server-side location search
+ * endpoint. Mirrors `MultiSelectAutocomplete` (string array, add/remove
+ * callbacks) but sources its options from a debounced `useSearchLocationsQuery`
+ * over the FULL canonical `locations` table rather than a static `options`
+ * prop. Used by the Recent Jobs + company hiring-trend filter dropdowns and the
+ * Saved Filters page — so a user can pick any location, even one no currently-
+ * displayed job matches.
+ *
+ * On selection it caches the picked location's structured descriptor
+ * (`upsertLocationDescriptors`) so the job-location filter can resolve it
+ * hierarchically. Seeding on selection (not per keystroke) keeps the filtered-
+ * jobs selectors from recomputing while the user is merely typing.
  *
  * A failed search must never be silent: the query's error is surfaced both as
  * the dropdown's no-options text and as the field's `helperText`, so an empty
@@ -45,6 +57,7 @@ export function AsyncMultiSelectAutocomplete({
   openOnly,
   limit,
 }: AsyncMultiSelectAutocompleteProps) {
+  const dispatch = useAppDispatch();
   const [inputValue, setInputValue] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
 
@@ -77,11 +90,21 @@ export function AsyncMultiSelectAutocomplete({
     : (errorMessage ?? 'No matching locations');
 
   const handleChange = (_: unknown, newValue: string[]) => {
-    if (Array.isArray(newValue)) {
-      const { added, removed } = getArrayDiff(value, newValue);
-      removed.forEach((item) => onRemove(item));
-      added.forEach((item) => onAdd(item));
+    if (!Array.isArray(newValue)) return;
+    const { added, removed } = getArrayDiff(value, newValue);
+    // Cache the structured descriptor of each newly-added location (it's in the
+    // current search results) so the job filter can resolve it even after the
+    // search cache evicts or its jobs load later. Seeding here — only on add —
+    // keeps the filtered-jobs selectors from recomputing while merely typing.
+    if (added.length > 0 && data) {
+      const byName = new Map<string, LocationSearchResult>(data.map((r) => [r.canonicalName, r]));
+      const addedRows = added
+        .map((name) => byName.get(name))
+        .filter((r): r is LocationSearchResult => r != null);
+      if (addedRows.length > 0) dispatch(upsertLocationDescriptors(addedRows));
     }
+    removed.forEach((item) => onRemove(item));
+    added.forEach((item) => onAdd(item));
   };
 
   return (

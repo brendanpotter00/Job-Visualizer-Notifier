@@ -15,16 +15,14 @@ import {
   setGraphLevel,
 } from '../../features/filters/slices/graphFiltersSlice.ts';
 import { selectGraphFilters } from '../../features/filters/selectors/graphFiltersSelectors.ts';
-import {
-  selectAvailableLocations,
-  selectAvailableDepartments,
-} from '../../features/filters/selectors/commonFiltersSelectors.ts';
+import { selectAvailableDepartments } from '../../features/filters/selectors/commonFiltersSelectors.ts';
 import { useGetFacetsQuery } from '../../features/jobs/jobsApi.ts';
 import { FALLBACK_CATEGORIES, FALLBACK_LEVELS } from '../../constants/enrichment.ts';
 import { FacetMultiSelect } from '../shared/filters/FacetMultiSelect.tsx';
 import { KeywordFilterInput } from '../shared/filters/KeywordFilterInput.tsx';
 import { TimeWindowSelect } from '../shared/filters/TimeWindowSelect.tsx';
 import { MultiSelectAutocomplete } from '../shared/filters/MultiSelectAutocomplete.tsx';
+import { AsyncMultiSelectAutocomplete } from '../shared/filters/AsyncMultiSelectAutocomplete.tsx';
 
 /**
  * Filter controls for the company hiring-trend page.
@@ -35,7 +33,6 @@ import { MultiSelectAutocomplete } from '../shared/filters/MultiSelectAutocomple
 export function GraphFilters() {
   const dispatch = useAppDispatch();
   const filters = useAppSelector(selectGraphFilters);
-  const availableLocations = useAppSelector(selectAvailableLocations);
   const availableDepartments = useAppSelector(selectAvailableDepartments);
   // Facet dropdown options are data-driven (seeded dimension tables); the
   // fallback constants cover the pre-fetch frame and an endpoint outage.
@@ -92,15 +89,12 @@ export function GraphFilters() {
             tooltip="Choose any number; Entry also includes New Grad. Jobs not yet enriched still appear."
           />
 
-          {availableLocations.length > 0 && (
-            <MultiSelectAutocomplete
-              label="Location"
-              options={availableLocations}
-              value={filters.location || []}
-              onAdd={(loc) => dispatch(addGraphLocation(loc))}
-              onRemove={(loc) => dispatch(removeGraphLocation(loc))}
-            />
-          )}
+          <AsyncMultiSelectAutocomplete
+            label="Location"
+            value={filters.location || []}
+            onAdd={(loc) => dispatch(addGraphLocation(loc))}
+            onRemove={(loc) => dispatch(removeGraphLocation(loc))}
+          />
           {availableDepartments.length > 0 && (
             <MultiSelectAutocomplete
               label="Department"

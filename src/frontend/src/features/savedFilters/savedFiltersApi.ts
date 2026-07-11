@@ -1,25 +1,6 @@
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
 import type { KeywordList, SearchTag, SavedFilters } from '../../types';
 
-/**
- * One location suggestion returned by the saved-filters location-search endpoint.
- * NOTE: `id` is a NUMBER (canonical-location PK), matching the admin
- * location-normalization types; `canonicalName` is the display label written
- * into the shared `locations` saved filter.
- */
-export interface LocationSearchResult {
-  id: number;
-  canonicalName: string;
-  kind: string;
-}
-
-/** Args for the debounced location autocomplete on the Saved Filters page. */
-export interface SearchLocationsArgs {
-  q: string;
-  limit?: number;
-  openOnly?: boolean;
-}
-
 /** Body for creating a new keyword list. */
 export interface CreateKeywordListArgs {
   name: string;
@@ -205,36 +186,6 @@ export const savedFiltersApi = createApi({
       // the "Save active list" button reads spuriously dirty.
       invalidatesTags: ['KeywordLists', 'SavedFilters'],
     }),
-    searchLocations: builder.query<LocationSearchResult[], SearchLocationsArgs>({
-      query: ({ q, limit, openOnly }) => ({
-        url: '/saved-filters/locations/search',
-        params: {
-          q,
-          ...(limit !== undefined ? { limit } : {}),
-          ...(openOnly !== undefined ? { openOnly } : {}),
-        },
-      }),
-      transformResponse: (res: unknown): LocationSearchResult[] => {
-        if (!Array.isArray(res)) {
-          throw new Error(
-            'Invalid /api/users/saved-filters/locations/search response: body is not an array'
-          );
-        }
-        for (const row of res) {
-          if (
-            !isRecord(row) ||
-            typeof row.id !== 'number' ||
-            typeof row.canonicalName !== 'string' ||
-            typeof row.kind !== 'string'
-          ) {
-            throw new Error(
-              'Invalid /api/users/saved-filters/locations/search response: bad row shape'
-            );
-          }
-        }
-        return res as LocationSearchResult[];
-      },
-    }),
   }),
 });
 
@@ -245,5 +196,4 @@ export const {
   useCreateKeywordListMutation,
   useUpdateKeywordListMutation,
   useDeleteKeywordListMutation,
-  useSearchLocationsQuery,
 } = savedFiltersApi;

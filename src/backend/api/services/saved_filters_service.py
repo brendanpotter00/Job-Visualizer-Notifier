@@ -573,7 +573,10 @@ def search_locations(
     commit). On ``psycopg2.Error`` rolls back so the pooled connection isn't
     left mid-transaction, then re-raises for the router to map to a 500.
 
-    Returns a list of ``{"id", "canonical_name", "kind"}`` dicts.
+    Returns a list of ``{"id", "canonical_name", "kind", "city", "region",
+    "country", "remote_scope"}`` dicts. The structured columns let the frontend
+    filter cache a full descriptor so it can resolve any selected location, not
+    just the US states/cities it re-derives from the display string.
     """
     pat = f"%{q}%"
     prefix = f"{q}%"
@@ -582,7 +585,8 @@ def search_locations(
             if open_only:
                 cur.execute(
                     sql.SQL(
-                        "SELECT l.id, l.canonical_name, l.kind"
+                        "SELECT l.id, l.canonical_name, l.kind, l.city,"
+                        " l.region, l.country, l.remote_scope"
                         " FROM {locations} AS l"
                         " WHERE l.canonical_name ILIKE %(pat)s"
                         " AND EXISTS ("
@@ -599,7 +603,8 @@ def search_locations(
             else:
                 cur.execute(
                     sql.SQL(
-                        "SELECT id, canonical_name, kind"
+                        "SELECT id, canonical_name, kind, city, region,"
+                        " country, remote_scope"
                         " FROM {locations}"
                         " WHERE canonical_name ILIKE %(pat)s"
                         " ORDER BY (canonical_name ILIKE %(prefix)s) DESC,"
@@ -618,6 +623,10 @@ def search_locations(
             "id": int(r["id"]),
             "canonical_name": r["canonical_name"],
             "kind": r["kind"],
+            "city": r["city"],
+            "region": r["region"],
+            "country": r["country"],
+            "remote_scope": r["remote_scope"],
         }
         for r in rows
     ]

@@ -1,9 +1,11 @@
 """User saved-filters endpoints.
 
 Self-contained router (mounted at ``/api/users/saved-filters``) covering scalar
-saved filters, the keyword-list CRUD sub-resource, and canonical-location search.
-All routes require a logged-in user (``get_current_user``) and resolve the DB
-user by email (``get_user_by_email``), mirroring ``routers/users.py``.
+saved filters and the keyword-list CRUD sub-resource. All routes require a
+logged-in user (``get_current_user``) and resolve the DB user by email
+(``get_user_by_email``), mirroring ``routers/users.py``. (Canonical-location
+search moved to the public ``routers/locations.py`` — the Recent/Trend filter
+dropdowns it feeds must work signed-out.)
 
 Service exceptions are mapped to HTTP status codes here:
 
@@ -17,7 +19,7 @@ Service exceptions are mapped to HTTP status codes here:
 import logging
 
 import psycopg2
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Path, status
 from posthog import identify_context, new_context
 from psycopg2.extensions import connection as Connection
 
@@ -29,7 +31,6 @@ from ..models import (
     KeywordListResponse,
     KeywordListsResponse,
     KeywordListUpdateRequest,
-    LocationSearchResult,
     SavedFiltersResponse,
     SavedFiltersUpdateRequest,
 )
@@ -342,32 +343,3 @@ def delete_keyword_list(
             logger.warning(
                 "PostHog capture failed for keyword_list_deleted", exc_info=True
             )
-
-
-# --- Location search ----------------------------------------------------------
-
-
-@router.get("/locations/search", response_model=list[LocationSearchResult])
-def search_locations(
-    conn: Connection = Depends(get_db),
-    user: TokenClaims = Depends(get_current_user),
-    q: str = Query(min_length=1, max_length=200),
-    limit: int = Query(default=20, ge=1, le=50),
-    open_only: bool = Query(default=False, alias="openOnly"),
-) -> list[LocationSearchResult]:
-    """Substring autocomplete over canonical location names (auth required)."""
-    # ``user`` is required purely to gate the endpoint to logged-in callers.
-    _require_email(user)
-    try:
-        rows = saved_filters_service.search_locations(conn, q, limit, open_only)
-    except psycopg2.Error:
-        logger.exception("Failed to search locations for q=%r", q)
-        raise HTTPException(status_code=500, detail="Failed to search locations")
-    return [
-        LocationSearchResult(
-            id=r["id"],
-            canonical_name=r["canonical_name"],
-            kind=r["kind"],
-        )
-        for r in rows
-    ]

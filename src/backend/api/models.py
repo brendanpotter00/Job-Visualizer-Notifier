@@ -767,14 +767,25 @@ class KeywordListUpdateRequest(BaseModel):
 
 
 class LocationSearchResult(BaseModel):
-    """One canonical location returned by the saved-filters location-search
-    autocomplete. Leaner than ``AdminLocationResponse`` (no ``position``)."""
+    """One canonical location returned by the public location-search autocomplete.
+
+    Leaner than ``AdminLocationResponse`` (no ``position``), but carries the
+    structured ``city``/``region``/``country``/``remote_scope`` columns in
+    addition to the display ``canonical_name``. The frontend caches these as a
+    descriptor so its hierarchical location filter can resolve ANY selected
+    canonical location (non-US countries, irregular regions) — not just the US
+    states / cities it can re-derive from the string alone.
+    """
 
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
     id: int
     canonical_name: str
     kind: str
+    city: str | None = None
+    region: str | None = None
+    country: str | None = None
+    remote_scope: str | None = None
 
 
 # --- External enrichment (POST /results) request models ----------------------
