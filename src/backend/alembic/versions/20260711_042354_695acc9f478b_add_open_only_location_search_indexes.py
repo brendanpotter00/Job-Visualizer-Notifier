@@ -1,7 +1,7 @@
 """add open_only location-search indexes
 
 Revision ID: 695acc9f478b
-Revises: 74ef55837f12
+Revises: 0b61e444ea25
 Create Date: 2026-07-11 04:23:54.241768+00:00
 
 Two additive indexes that let the ``open_only=true`` location-search path
@@ -31,7 +31,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = '695acc9f478b'
-down_revision: Union[str, None] = '74ef55837f12'
+down_revision: Union[str, None] = '0b61e444ea25'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

@@ -74,6 +74,21 @@ export function GraphFilters() {
             onChange={(tw) => dispatch(setGraphTimeWindow(tw))}
           />
 
+          <FacetMultiSelect
+            label="Category"
+            options={categoryOptions}
+            value={filters.category}
+            onChange={(slugs) => dispatch(setGraphCategory(slugs))}
+            tooltip="AI-enriched job category (choose any number). Jobs not yet enriched still appear."
+          />
+          <FacetMultiSelect
+            label="Level"
+            options={levelOptions}
+            value={filters.level}
+            onChange={(slugs) => dispatch(setGraphLevel(slugs))}
+            tooltip="Choose any number; Entry also includes New Grad. Jobs not yet enriched still appear."
+          />
+
           <AsyncMultiSelectAutocomplete
             label="Location"
             value={filters.location || []}
@@ -89,20 +104,6 @@ export function GraphFilters() {
               onRemove={(dept) => dispatch(removeGraphDepartment(dept))}
             />
           )}
-          <FacetMultiSelect
-            label="Category"
-            options={categoryOptions}
-            value={filters.category}
-            onChange={(slugs) => dispatch(setGraphCategory(slugs))}
-            tooltip="AI-enriched job category (choose any number). Jobs not yet enriched still appear."
-          />
-          <FacetMultiSelect
-            label="Level"
-            options={levelOptions}
-            value={filters.level}
-            onChange={(slugs) => dispatch(setGraphLevel(slugs))}
-            tooltip="Choose any number; Entry also includes New Grad. Jobs not yet enriched still appear."
-          />
         </Stack>
       </Stack>
     </Box>

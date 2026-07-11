@@ -123,21 +123,6 @@ export function RecentJobsFilters() {
             onChange={(tw) => dispatch(setRecentJobsTimeWindow(tw))}
           />
 
-          <MultiSelectAutocomplete
-            label="Company"
-            options={companyOptions}
-            value={selectedCompanyNames}
-            onAdd={handleAddCompany}
-            onRemove={handleRemoveCompany}
-          />
-
-          <AsyncMultiSelectAutocomplete
-            label="Location"
-            value={filters.location || []}
-            onAdd={(loc) => dispatch(addRecentJobsLocation(loc))}
-            onRemove={(loc) => dispatch(removeRecentJobsLocation(loc))}
-          />
-
           <FacetMultiSelect
             label="Category"
             options={categoryOptions}
@@ -151,6 +136,21 @@ export function RecentJobsFilters() {
             value={filters.level}
             onChange={(slugs) => dispatch(setRecentJobsLevel(slugs))}
             tooltip="Choose any number; Entry also includes New Grad. Jobs not yet enriched still appear."
+          />
+
+          <AsyncMultiSelectAutocomplete
+            label="Location"
+            value={filters.location || []}
+            onAdd={(loc) => dispatch(addRecentJobsLocation(loc))}
+            onRemove={(loc) => dispatch(removeRecentJobsLocation(loc))}
+          />
+
+          <MultiSelectAutocomplete
+            label="Company"
+            options={companyOptions}
+            value={selectedCompanyNames}
+            onAdd={handleAddCompany}
+            onRemove={handleRemoveCompany}
           />
         </Stack>
 

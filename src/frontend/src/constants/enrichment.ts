@@ -47,14 +47,19 @@ export const FALLBACK_CATEGORIES: FacetOption[] = [
   { slug: 'business_ops', label: 'Business Ops', sortOrder: 6 },
 ];
 
-/** Fallback level options (mirrors the migration seed) until facets load. */
+/**
+ * Fallback level options (mirrors the migration seed) until facets load.
+ * `intern` is standalone (parentSlug null) — it sorts first and does NOT expand
+ * into any other filter, so LEVEL_FILTER_EXPANSION above is unchanged.
+ */
 export const FALLBACK_LEVELS: FacetOption[] = [
-  { slug: 'new_grad', label: 'New Grad', sortOrder: 0, parentSlug: 'entry' },
-  { slug: 'entry', label: 'Entry', sortOrder: 1, parentSlug: null },
-  { slug: 'mid', label: 'Mid', sortOrder: 2, parentSlug: null },
-  { slug: 'senior', label: 'Senior', sortOrder: 3, parentSlug: null },
-  { slug: 'senior_plus', label: 'Staff / Principal', sortOrder: 4, parentSlug: null },
-  { slug: 'manager', label: 'Manager', sortOrder: 5, parentSlug: null },
+  { slug: 'intern', label: 'Intern', sortOrder: 0, parentSlug: null },
+  { slug: 'new_grad', label: 'New Grad', sortOrder: 1, parentSlug: 'entry' },
+  { slug: 'entry', label: 'Entry', sortOrder: 2, parentSlug: null },
+  { slug: 'mid', label: 'Mid', sortOrder: 3, parentSlug: null },
+  { slug: 'senior', label: 'Senior', sortOrder: 4, parentSlug: null },
+  { slug: 'senior_plus', label: 'Staff / Principal', sortOrder: 5, parentSlug: null },
+  { slug: 'manager', label: 'Manager', sortOrder: 6, parentSlug: null },
 ];
 
 /** Quick slug -> label lookup across both fallback sets (chip rendering). */
