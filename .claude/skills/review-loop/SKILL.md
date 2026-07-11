@@ -2,8 +2,9 @@
 name: review-loop
 description: |
   Iteratively review-and-fix a PR or branch until it converges. A main
-  orchestrator thread spawns fresh-context Opus review subagents (the
-  pr-review-toolkit suite + the prod verifiers), collects their findings into a
+  orchestrator thread spawns fresh-context, model-tiered review subagents (the
+  pr-review-toolkit suite + the prod verifiers — Opus for the two deep reviewers,
+  Sonnet for the rest; pass --thorough for all-Opus), collects their findings into a
   durable REVIEW_LOOP_LOG.md, spawns a fresh fix subagent to resolve every
   Critical/Important issue (committing once per round), then spawns brand-new
   review subagents to re-review with zero memory of the prior round. The loop
@@ -61,6 +62,32 @@ why." This is what stops the loop from chasing its own tail.
    report the remaining findings honestly, and hand back to the user. Never
    claim convergence that didn't happen.
 
+## Token efficiency (defaults)
+
+This skill is tuned to spend as few tokens as possible **by default** while keeping
+the Critical-catching reviewers on Opus. Everything below is on automatically — you
+pass no flag to get it. (Rationale: fresh subagents re-loading large contexts are the
+dominant cost of this pattern, so the levers all target model tier, how much each
+subagent reads, and how many subagents run.)
+
+- **Tiered reviewers.** Only the two deep-reasoning reviewers run on Opus
+  (`code-reviewer`, `silent-failure-hunter`); the other analyzers and the prod
+  verifiers run on Sonnet. See the [Model summary](#model-summary).
+- **Bounded reads.** Every subagent reads only the `## Reviewer Brief` at the top of
+  `REVIEW_LOOP_LOG.md`, not the whole growing file. See
+  [Setting up the durable record](#setting-up-the-durable-record).
+- **Diff-gated dispatch.** A tiny diff gets 2 reviewers instead of the full crew.
+- **Cheap confirmation round.** The second (confirming) clean round runs a reduced crew.
+- **Smoke-always / flow-gated e2e.** The always-on Playwright pass is a cheap smoke; the
+  heavy click-by-click feature flow runs only when the diff touches the frontend/api.
+- **Terse subagent returns.** Reviewers return one-line findings, not essays.
+
+**Escape hatch — `--thorough` (alias `--all-opus`).** Pass it as an extra arg
+(`/review-loop 149 --thorough`) to restore maximal-coverage behavior for a high-stakes
+PR: every reviewer and verifier on Opus, the full crew every round (no diff-gating, no
+reduced confirmation round), and the full feature-flow e2e regardless of the diff.
+Whenever a step below is gated "unless `--thorough`," that flag turns the gate off.
+
 ## Inputs
 
 - `$1` (optional) — a GitHub PR number (`149` or `#149`). If given, the loop
@@ -68,6 +95,10 @@ why." This is what stops the loop from chasing its own tail.
 - If `$1` is empty, the loop reviews the **current branch** diffed against its
   base (default `main`).
 - The orchestrator auto-detects the base branch; if it can't, it asks once.
+- `--thorough` (alias `--all-opus`) — an optional flag in any arg position. When
+  present, disable every token-saving gate (see [Token efficiency](#token-efficiency-defaults)):
+  all reviewers/verifiers on Opus, full crew every round, full feature-flow e2e.
+  Record `thorough=on` in the run header so every step knows. Default is off.
 
 ## Severity taxonomy
 
@@ -121,22 +152,33 @@ The loop's memory lives in **`REVIEW_LOOP_LOG.md`** at the repo root.
 - If the file already exists from a prior run on this branch, **append a new run
   header** rather than wiping it — prior ledger entries still apply.
 
+The file has **two parts** so fresh subagents never re-read a growing history:
+
+- **`## Reviewer Brief`** at the top — the RULES, the **active** ledger entries
+  (one line each), and the previous round's still-open findings. This is the ONLY
+  section subagents read, and the orchestrator keeps it current every round.
+- **`## Full History`** below — every prior round in full, the ledger archive
+  (superseded/rejected/contested entries), and the fingerprint list. The
+  orchestrator maintains this; subagents open it only to look up one specific
+  ledger `#id` a finding conflicts with.
+
 Create it (if absent) with this skeleton:
 
 ```markdown
 # Review Loop — <branch or PR #N>
 
-**Purpose:** Single source of truth for this review loop. EVERY agent (reviewer
-and fixer) MUST read this file before doing anything, and append to it before
-finishing. The Decision Ledger below is authoritative: do not silently reverse a
-ledger decision — see the rules at the top of the ledger.
+**Purpose:** Single source of truth for this review loop. Subagents read ONLY the
+Reviewer Brief (plus a specific ledger #id when a finding conflicts with one) and
+append their findings before finishing. The orchestrator appends everything and
+keeps the Brief current. The ledger is authoritative: do not silently reverse a
+ledger decision — see the RULES in the Brief.
 
-**Base:** origin/<base> · **Head:** <branch> · **Started:** <YYYY-MM-DD>
+**Base:** origin/<base> · **Head:** <branch> · **Started:** <YYYY-MM-DD> · **Thorough:** <on/off>
 **Prod verifiers available this run:** vercel=<y/n> postgres=<y/n> railway=<y/n>
 
 ---
 
-## Decision Ledger (append-only, authoritative)
+## Reviewer Brief — READ ONLY THIS  (subagents: do not read below this section)
 
 > RULES FOR ALL AGENTS:
 > 1. Before flagging or changing anything, read every ACTIVE ledger entry below.
@@ -150,18 +192,36 @@ ledger decision — see the rules at the top of the ledger.
 >    reversed (an A→B→A oscillation), STOP and flag it `status: CONTESTED` — the
 >    orchestrator will escalate it to the human instead of auto-fixing.
 
-<!-- entries appended here as: -->
-<!-- ### Ledger #N — <file:line> — <short title> -->
-<!-- - **Round:** N  **Status:** active -->
-<!-- - **Decision:** changed <X> → <Y> -->
-<!-- - **Why:** <rationale> -->
-<!-- - **Evidence:** <test result / line ref / prod fact> -->
+### Active ledger (one line each — the only decisions in force)
+
+<!-- ### Ledger #N — <file:line> — <title> · Round N · active -->
+<!--   Decision: <X> → <Y>  ·  Why: <rationale>  ·  Evidence: <test/line/prod fact> -->
+<!-- When an entry is superseded/rejected, MOVE it to Full History › Ledger archive -->
+<!-- so only active entries remain here. -->
+
+### Last round's open findings (surviving Critical/Important only)
+
+<!-- orchestrator refreshes this each round so a fresh reviewer sees what the -->
+<!-- previous round left open, without reading every prior round -->
 
 ---
 
-## Rounds
+## Full History  (orchestrator-maintained — subagents do NOT read unless a finding cites a specific ledger #id)
 
-<!-- one `### Round N — <date>` section appended per round -->
+### Ledger archive (superseded / rejected / contested)
+
+<!-- full-form entries moved out of the Active list: -->
+<!-- ### Ledger #N — <file:line> — <title> -->
+<!-- - **Round:** N  **Status:** superseded by #<id> | rejected | CONTESTED -->
+<!-- - **Decision / Why / Evidence:** … -->
+
+### Fingerprints seen (oscillation tracking)
+
+<!-- running list of finding fingerprints across rounds — see Anti-oscillation -->
+
+### Rounds
+
+<!-- one `### Round N — <date>` section appended per round, with full findings -->
 ```
 
 ## The loop
@@ -173,7 +233,7 @@ For each round **N**:
 
 ### Step 1 — Open the round
 
-Append to `REVIEW_LOOP_LOG.md`:
+Append a new round section under **Full History › Rounds** in `REVIEW_LOOP_LOG.md`:
 
 ```markdown
 ### Round N — <YYYY-MM-DD>
@@ -181,52 +241,87 @@ Append to `REVIEW_LOOP_LOG.md`:
 **Diff at round start:** <output of `git diff --stat origin/<base>...HEAD`>
 ```
 
+Then **refresh the Reviewer Brief** so the fresh reviewers you're about to spawn see
+only current state: update `### Active ledger` to list exactly the active entries, and
+set `### Last round's open findings` to the Critical/Important items round N−1 left open
+(empty for round 1). This keeps each reviewer's read bounded regardless of round count.
+
 Report to the user: `Round N: dispatching reviewers…`
 
 ### Step 2 — Pick the reviewers (by diff)
 
-Always dispatch the three universal pr-review-toolkit agents; add the others and
-the prod verifiers only when the diff justifies them:
+Each agent runs at a fixed **model tier** — Opus only for the two deep-reasoning
+reviewers, Sonnet for the rest (they're pattern/rubric/tool-driven). The `Model`
+column below is authoritative; pass it explicitly in Step 3.
 
-| Agent | Dispatch when… |
-|---|---|
-| `pr-review-toolkit:code-reviewer` | always |
-| `pr-review-toolkit:silent-failure-hunter` | always |
-| `pr-review-toolkit:pr-test-analyzer` | always |
-| `pr-review-toolkit:type-design-analyzer` | diff adds/modifies types, interfaces, dataclasses, Pydantic/SQLAlchemy models |
-| `pr-review-toolkit:comment-analyzer` | diff adds/changes comments or docstrings |
-| `vercel-prod-verifier` | diff touches `api/*.ts`, `vercel.json`, `vercel.ts`, `next.config.*`, `middleware.ts`, anything reading `process.env.*`, or frontend build config — AND vercel was available at pre-flight |
-| `postgres-prod-verifier` | diff touches `scripts/shared/migrations/**`, `**/models.py`, raw SQL, ORM query code, or anything importing SQLAlchemy/Alembic — AND postgres was available at pre-flight |
-| `railway-prod-verifier` | diff touches `src/backend/**`, `Dockerfile`, `railway.toml`, `railway.json`, `Procfile`, or backend env-var references — AND railway was available at pre-flight |
+Always dispatch the two universal Opus reviewers plus `pr-test-analyzer`; add the
+others and the prod verifiers only when the diff justifies them:
+
+| Agent | Model | Dispatch when… |
+|---|---|---|
+| `pr-review-toolkit:code-reviewer` | **opus** | always |
+| `pr-review-toolkit:silent-failure-hunter` | **opus** | always |
+| `pr-review-toolkit:pr-test-analyzer` | sonnet | always |
+| `pr-review-toolkit:type-design-analyzer` | sonnet | diff adds/modifies types, interfaces, dataclasses, Pydantic/SQLAlchemy models |
+| `pr-review-toolkit:comment-analyzer` | sonnet | diff adds/changes comments or docstrings |
+| `vercel-prod-verifier` | sonnet | diff touches `api/*.ts`, `vercel.json`, `vercel.ts`, `next.config.*`, `middleware.ts`, anything reading `process.env.*`, or frontend build config — AND vercel was available at pre-flight |
+| `postgres-prod-verifier` | sonnet | diff touches `scripts/shared/migrations/**`, `**/models.py`, raw SQL, ORM query code, or anything importing SQLAlchemy/Alembic — AND postgres was available at pre-flight |
+| `railway-prod-verifier` | sonnet | diff touches `src/backend/**`, `Dockerfile`, `railway.toml`, `railway.json`, `Procfile`, or backend env-var references — AND railway was available at pre-flight |
 
 If a verifier matches the diff but was unavailable at pre-flight, record under
 the round: `- <verifier>: **Could not verify** — <reason>.` If it simply doesn't
 match the diff: `- <verifier>: not dispatched (no matching diff signal).`
 
-### Step 3 — Dispatch all reviewers in parallel (fresh Opus)
+**Two dispatch reductions (skip both if `--thorough`):**
+
+- **Tiny-diff gate.** If `git diff --stat origin/<base>...HEAD` shows the diff is
+  small — **≤ ~40 changed lines AND ≤ 2 files AND no prod-signal paths** (none of
+  the verifier path globs above) — dispatch only `code-reviewer` (opus) +
+  `silent-failure-hunter` (opus). Skip the marginal analyzers; a change this small
+  doesn't justify the full crew. Record `- Dispatch: tiny-diff (2 opus reviewers).`
+- **Confirmation round.** If this round was entered with `clean_streak == 1` (the
+  previous round was clean and there is nothing to fix — see Step 5), dispatch only
+  `code-reviewer` (opus) + `silent-failure-hunter` (opus) + any prod verifier the
+  diff still matches (sonnet). The dropped analyzers (test/type/comment) almost never
+  emit Critical/Important, so they don't add convergence signal on a confirming pass.
+  Record `- Dispatch: confirmation round (reduced crew).`
+
+Otherwise (normal round, non-tiny diff): dispatch the full matched crew from the table.
+
+### Step 3 — Dispatch all reviewers in parallel (fresh, tiered)
 
 Send every selected agent in **one tool-call batch** so they run concurrently.
 Each is a fresh `Agent` call.
 
-- pr-review-toolkit agents: pass **`model: opus`** (the user wants Opus reviews).
-- prod verifiers: let them inherit their own definitions (their tooling, not the
-  model, is what matters); Opus preferred if overridable.
+- **Model per agent = the `Model` column in the Step 2 table** (override with
+  `--thorough` → all `opus`). Concretely: pass `model: opus` to `code-reviewer`
+  and `silent-failure-hunter`; pass `model: sonnet` to `pr-test-analyzer`,
+  `type-design-analyzer`, `comment-analyzer`, and all three prod verifiers.
+  (`silent-failure-hunter` and the verifiers are `inherit` in their definitions, so
+  the tier only takes effect if you pass it explicitly — do so.)
 
 Brief **every** reviewer with:
 
 - The diff scope command: `git diff origin/<base>...HEAD` (and the file list).
 - The **absolute path to `REVIEW_LOOP_LOG.md`**, with these instructions
   verbatim:
-  - "Read this entire file first, especially the Decision Ledger."
+  - "Read ONLY the `## Reviewer Brief` section at the top of this file — stop at the
+    `## Full History` heading. The Brief holds every active ledger decision and the
+    previous round's open findings; you do not need anything below it. Open Full
+    History only to look up one specific `Ledger #id` if you are about to flag
+    something that might conflict with it."
   - "Do NOT re-flag any ACTIVE ledger decision unless you have NEW evidence it is
     wrong (failing test, runtime error, spec citation, prod fact). If you have
     such evidence, say so explicitly and cite the ledger entry number."
   - "Do NOT propose reverting a change a prior round deliberately made; if you
     think it must be reverted, label the finding `REVERTS Ledger #<id>` and
     attach your new evidence."
-- The severity taxonomy (Critical / Important / Suggestion / Nit) and a request
-  to return findings as a list, each with: `severity · file:line · what · why ·
-  (optional) REVERTS Ledger #id + evidence`.
+- The severity taxonomy (Critical / Important / Suggestion / Nit) and this **terse
+  return contract**: "Return findings as a plain list, ONE line each — `severity ·
+  file:line · what · why · (optional) REVERTS Ledger #id + evidence`. No prose walls,
+  no 'here is everything I checked' preamble, no restating the diff. If you found zero
+  Critical and zero Important, return exactly `CLEAN — no Critical/Important` followed
+  by any Suggestions/Nits as one-liners (or nothing)."
 - For prod verifiers: the diff scope, current branch, base branch, and any known
   resource names (Vercel project slug, Railway service `Job-Visualizer-Notifier`,
   prod DB). Remind them: **read-only against production — no writes/deploys/env
@@ -303,18 +398,26 @@ and rejected ones don't count).
   round.** `clean_streak += 1`.
   - If `clean_streak == 2` → **CONVERGED.** Go to [Completion](#completion).
   - Else → record `Round N: clean (streak 1/2). Re-reviewing with fresh agents to
-    confirm.` and loop to round N+1 with **brand-new** reviewers. (No fix agent
-    this round — there's nothing to fix.)
+    confirm.` and loop to round N+1 with **brand-new** reviewers. Round N+1 is a
+    **confirmation round**: because it is entered with `clean_streak == 1`, Step 2
+    dispatches the reduced crew (`code-reviewer` + `silent-failure-hunter` + matched
+    verifiers), not the full set. (No fix agent this round — there's nothing to fix.)
+    If that confirmation round surfaces a surviving Critical/Important, `clean_streak`
+    resets to 0 and normal full (tiered) rounds resume.
 - **Any surviving Critical/Important** → `clean_streak = 0`. Proceed to Step 6.
 
 ### Step 6 — Dispatch ONE fix agent (fresh Opus)
 
-Spawn a single `general-purpose` agent with **`model: opus`**, fresh context.
+Spawn a single `general-purpose` agent with **`model: opus`**, fresh context. The fix
+agent stays on Opus regardless of `--thorough` — applying fixes correctly is the
+reasoning-heavy step where a downgrade would cost more in re-review than it saves.
 Brief it with:
 
-- The absolute path to `REVIEW_LOOP_LOG.md`. Instructions:
-  - "Read the whole file first, especially the Decision Ledger and this round's
-    findings."
+- The absolute path to `REVIEW_LOOP_LOG.md`, plus **this round's fix list pasted
+  inline** so it needs no history. Instructions:
+  - "Read the `## Reviewer Brief` at the top of the log (active ledger + this round's
+    open findings) and the fix list I pasted. Do not read `## Full History` unless a
+    fix conflicts with a specific `Ledger #id`."
   - "Fix ONLY the surviving Critical and Important findings in this round's fix
     list. Do not touch Suggestions, Nits, Rejected, or CONTESTED items."
   - "For every fix, append a Decision Ledger entry: file:line, what you changed
@@ -416,8 +519,19 @@ how they want to proceed.
 A static review passing is necessary but **not sufficient**. Before the loop is
 declared done, the app is driven **end-to-end in a real browser against a running
 local dev environment**. This runs **every time the loop terminates** — after
-convergence (two clean rounds) and also after a 6-round cap — and **regardless of
-what the diff touched** (always run it; do not diff-gate it).
+convergence (two clean rounds) and also after a 6-round cap.
+
+**Two tiers, split to save the heavy browser tokens (accessibility snapshots +
+screenshots are among the most expensive things in the main thread):**
+
+- The **smoke** tier (below) runs **always**, regardless of what the diff touched —
+  it's cheap and catches build/load breaks.
+- The **feature-flow** tier (the click-by-click driving) runs **only when the diff
+  touches frontend/api surfaces** (`src/frontend/**`, `api/**`, or frontend
+  routing/build config). For a backend-only or docs-only diff, skip it and record the
+  skip — there's no changed user-facing behavior to drive.
+
+Under `--thorough`, run the full feature-flow tier regardless of the diff.
 
 **Who drives it:** the **orchestrator thread drives this directly.** It is
 verification, not code-editing, so it does not violate invariant #1. Do NOT
@@ -426,6 +540,11 @@ browser session must outlive any single subagent, and the screenshots/results
 should be first-class evidence in the main thread for the user to see.
 
 ### Step E1 — Start the local dev environment
+
+If this is a **smoke-only** run (feature-flow tier gated off by the diff), you can skip
+standing up the local backend and seeding entirely — just bring up the frontend (item 2)
+and confirm it loads. Only do the full backend topology below when you'll run the
+feature-flow tier.
 
 1. **Decide the backend topology first.** Read `api/jobs.ts` and check the Vercel
    dev env to learn where the frontend's `/api/jobs` (and `/api/admin`) proxy
@@ -455,21 +574,17 @@ Load the Playwright MCP tools in ONE ToolSearch call (`browser_navigate`,
 `browser_snapshot`, `browser_click`, `browser_type`, `browser_take_screenshot`,
 `browser_console_messages`, `browser_wait_for`, `browser_select_option`). Then:
 
-- **Smoke (always):** navigate to the app, wait for load, snapshot, and read the
-  console — require **zero uncaught errors / failed network requests** on the
-  surfaces under test. Confirm the primary navigation works (e.g. selecting a
-  company renders the graph and the job list).
-- **Feature flow(s) (match the diff):** drive the specific user-facing behavior
-  the PR changed, click-by-click, asserting the visible result. Capture a
-  labelled screenshot at each key assertion as durable evidence.
-
-> **For this branch (location normalization)** the feature flow is the
-> **location-hierarchy filter** plus the new **Admin → Location Normalization**
-> page: pick a company, open the location filter, confirm the normalized
-> country→state→city hierarchy renders, filter by a state (e.g. California) and a
-> city (e.g. Texas → Austin) and assert the job list narrows correctly; then open
-> the admin page and confirm its health / alias-browser / problem-jobs panels
-> render without errors. Save screenshots as `loc-e2e-*.png`.
+- **Smoke (always):** navigate to the app, wait for load, and read the console —
+  require **zero uncaught errors / failed network requests**. Take **one** labelled
+  screenshot of the loaded app and confirm the primary navigation works (e.g. selecting
+  a company renders the graph and the job list). Keep this cheap: one snapshot, one
+  screenshot — do not click through the app here.
+- **Feature flow(s) — only if the diff touched frontend/api (or `--thorough`):**
+  derive the flow **from the diff** — read the changed frontend/api files and drive the
+  specific user-facing behavior they add or change, click-by-click, asserting the
+  visible result. Capture a labelled screenshot **only at each key assertion** (not
+  every step). Save screenshots as `e2e-*.png`. If the diff didn't touch frontend/api,
+  skip this tier and record `Feature flow: skipped (diff touched no frontend/api).`
 
 Severity mapping: a broken **primary** flow or a console error on a tested
 surface is **Critical**; a degraded-but-working surface is **Important**.
@@ -481,9 +596,9 @@ Append an `## End-to-end verification` section to `REVIEW_LOOP_LOG.md`:
 ```markdown
 ## End-to-end verification — <YYYY-MM-DD>
 
-- Topology: local-frontend → <local|prod> backend
+- Topology: local-frontend → <local|prod> backend (or: smoke-only, no backend)
 - Smoke: <pass/fail> — <notes, console error count>
-- Feature flow(s): <pass/fail per flow> — <notes>
+- Feature flow(s): <pass/fail per flow | skipped: diff touched no frontend/api> — <notes>
 - Screenshots: <paths>
 - New findings: <none | list with severity>
 ```
@@ -498,7 +613,7 @@ Append an `## End-to-end verification` section to `REVIEW_LOOP_LOG.md`:
 ### Step E4 — Tear down
 
 Stop the background dev servers (frontend, and backend/postgres if you started
-them) via their task IDs. Leave the `loc-e2e-*.png` screenshots in place as
+them) via their task IDs. Leave the `e2e-*.png` screenshots in place as
 evidence and cite their paths in the final report. Note any server you
 intentionally leave running (e.g. the user asked to keep the app up).
 
@@ -507,23 +622,30 @@ intentionally leave running (e.g. the user asked to keep the app up).
 This skill runs long with many subagents. One sentence per milestone, no
 subagent-output dumps:
 
-- `Round N: dispatching <k> reviewers…`
+- `Round N: dispatching <o> opus + <s> sonnet reviewers…` (or `tiny-diff: 2 opus` /
+  `confirmation round: reduced crew`).
 - `Round N: <c> Critical, <i> Important, <s> Suggestions; <r> rejected/contested by ledger screen.`
 - `Round N: fixing <m> issues (fix agent)…` → `Round N: fixed, commit <sha>.`
 - `Round N: clean (streak X/2).`
 - On a frozen locus: `Round N: <file:line> is oscillating — frozen for your decision.`
 - `Converged — starting local dev env for end-to-end Playwright verification…`
-- `E2e: smoke <pass/fail>, location filter <pass/fail>, admin page <pass/fail>.`
+- `E2e: smoke <pass/fail>; feature flow <pass/fail | skipped (no frontend/api in diff)>.`
 - At the end: the Completion summary (including the e2e result).
 
 ## Model summary
 
+Tiered by default; `--thorough` forces every row to **opus**.
+
 | Role | Agent type | Model |
 |---|---|---|
 | Orchestrator | (this thread) | — |
-| Reviewers — code | `pr-review-toolkit:*` | **opus** |
-| Reviewers — prod | `vercel/postgres/railway-prod-verifier` | inherit (definition) |
-| Fix agent | `general-purpose` | **opus** |
+| Reviewer — correctness | `pr-review-toolkit:code-reviewer` | **opus** |
+| Reviewer — error handling | `pr-review-toolkit:silent-failure-hunter` | **opus** (pass explicitly) |
+| Reviewer — tests | `pr-review-toolkit:pr-test-analyzer` | sonnet |
+| Reviewer — types | `pr-review-toolkit:type-design-analyzer` | sonnet |
+| Reviewer — comments | `pr-review-toolkit:comment-analyzer` | sonnet |
+| Reviewers — prod | `vercel/postgres/railway-prod-verifier` | sonnet |
+| Fix agent | `general-purpose` | **opus** (always) |
 
 ## Failure modes & safeguards
 
@@ -552,6 +674,8 @@ subagent-output dumps:
 ## Invocation
 
 ```
-/review-loop            # review + fix the current branch vs main, loop to convergence
-/review-loop 149        # review + fix GitHub PR #149, loop to convergence
+/review-loop                  # current branch vs main, loop to convergence (token-efficient defaults)
+/review-loop 149              # review + fix GitHub PR #149, loop to convergence
+/review-loop 149 --thorough   # same, but all-Opus + full crew every round + full e2e (no token gates)
+/review-loop --all-opus       # current branch, thorough mode (alias of --thorough)
 ```
