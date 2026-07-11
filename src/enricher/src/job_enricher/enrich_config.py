@@ -14,6 +14,7 @@ from typing import Protocol
 class _MetaStore(Protocol):
     def get_meta(self, key: str) -> str | None: ...
     def set_meta(self, key: str, value: str, ts: str | None = ...) -> None: ...
+    def delete_meta(self, key: str) -> None: ...
 
 
 # classify model
@@ -185,3 +186,28 @@ def config_snapshot(store: _MetaStore) -> dict[str, object]:
         "judge_scope": get_judge_scope(store),
         "judge_confidence_ceiling": get_judge_confidence_ceiling(store),
     }
+
+
+# The full set of runtime-knob meta keys. `reset_knob` deletes one of these so its
+# getter falls back to the committed default — the way to make an already-running
+# prod follow a newly-deployed default instead of a stale explicit override.
+KNOB_META_KEYS: frozenset[str] = frozenset(
+    {
+        CLASSIFY_MODEL_META_KEY,
+        CLASSIFY_BATCH_META_KEY,
+        CLASSIFY_FANOUT_META_KEY,
+        JUDGE_ENABLED_META_KEY,
+        JUDGE_MODEL_META_KEY,
+        JUDGE_HUMAN_FLOOR_META_KEY,
+        JUDGE_SCOPE_META_KEY,
+        JUDGE_CONFIDENCE_CEILING_META_KEY,
+    }
+)
+
+
+def reset_knob(store: _MetaStore, key: str) -> str:
+    """Clear an explicit knob override so its getter returns the committed default."""
+    if key not in KNOB_META_KEYS:
+        raise ValueError(f"unknown knob {key!r}; expected one of {sorted(KNOB_META_KEYS)}")
+    store.delete_meta(key)
+    return key

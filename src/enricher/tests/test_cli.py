@@ -14,6 +14,7 @@ import httpx
 import pytest
 
 from job_enricher import cli
+from job_enricher import enrich_config as ec
 from job_enricher.clean import clean_description
 from job_enricher.store import HEARTBEAT_KEY
 from job_enricher.writeback import write_back
@@ -704,6 +705,22 @@ def test_health_reports_failed_rows_and_excludes_them_from_unsent(store, monkeyp
     assert health["unsent"] == 1                 # only the live row
     assert health["failed_rows"] == 1
     assert health["inbox"].get("failed") == 1
+    # health surfaces the live models so the deploy sanity check reveals them
+    assert health["classify_model"] == "haiku"
+    assert health["judge_model"] == "sonnet"
+
+
+# ---- reset-knob clears an override back to the committed default ------------
+def test_reset_knob_clears_override(store, monkeypatch, capsys):
+    monkeypatch.setattr(cli, "Store", lambda: store)
+    cli._cmd_set_knob(
+        argparse.Namespace(knob="classify:model", setter=ec.set_classify_model, value="sonnet")
+    )
+    assert ec.get_classify_model(store) == "sonnet"
+    rc = cli._cmd_reset_knob(argparse.Namespace(knob="classify:model"))
+    assert rc == 0
+    assert ec.get_classify_model(store) == "haiku"  # back to committed default
+    assert "reset to committed default" in capsys.readouterr().out
 
 
 # ---- run_eval gate return code (no network) --------------------------------

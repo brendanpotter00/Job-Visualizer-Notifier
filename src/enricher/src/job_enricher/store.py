@@ -233,6 +233,12 @@ class Store:
             row = conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
         return row["value"] if row is not None else None
 
+    def delete_meta(self, key: str) -> None:
+        """Remove a meta row so its enrich_config getter falls back to the committed
+        default. Deleting an absent key is a harmless no-op."""
+        with self.connect() as conn:
+            conn.execute("DELETE FROM meta WHERE key = ?", (key,))
+
     def all_meta(self) -> dict[str, str]:
         with self.connect() as conn:
             rows = conn.execute("SELECT key, value FROM meta").fetchall()

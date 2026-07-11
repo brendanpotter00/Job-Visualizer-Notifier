@@ -87,6 +87,13 @@ changes; `git fetch` + fast-forward/checkout; `uv sync`; reloads the worker; run
 `cli health`. The single-flight lock is a second guard — a tick that starts during a checkout
 exits 75 ("lock held") rather than reading a half-updated tree.
 
+> **Deploying a changed default does NOT change a running knob.** Runtime knobs live in
+> prod's `meta` table (not git). An explicit knob (e.g. `classify:model`) overrides the
+> committed code default forever, so merging a new `*_DEFAULT` and deploying leaves prod on
+> the old value. The deploy's `cli health` now prints the live `classify_model`/`judge_model`
+> so you can see what prod actually runs; to make prod follow the newly-deployed default,
+> `cli reset-knob <meta:key>` clears the override (or `set-<knob>` sets it explicitly).
+
 **Rollback:**
 ```bash
 cd ~/developer/personal/app

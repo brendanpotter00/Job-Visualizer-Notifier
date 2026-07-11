@@ -41,10 +41,12 @@ in `<job_data>` delimiters). Never hand scraped postings to a `general-purpose` 
 Key commands: `tick-acquire`/`tick-end` (tick-end takes `--tick-id`/`ENRICH_TICK_ID` — it
 refuses to close a tick it doesn't own), `pull`, `clean`, `classify-queue`/`record-enrichment`,
 `judge-queue`/`record-judge`, `write-back`, `metrics-push` (best-effort; `--strict` to fail),
-`health`, `eval` (`--gate`, `--allow-draft` = advisory only), `reenrich`, `build-golden-set`,
+`health` (its JSON reports the live `classify_model`/`judge_model` — the deploy sanity check),
+`eval` (`--gate`, `--allow-draft` = advisory only), `reenrich`, `build-golden-set`,
 `golden-merge` (pull JVN admin corrections into golden/seed as `label_source='human'`),
 knob setters (`set-classify-model`, `judge-toggle on|off`, `set-judge-floor`,
-`set-judge-scope all|low_confidence`, `set-judge-ceiling`, ...).
+`set-judge-scope all|low_confidence`, `set-judge-ceiling`, ...) and `reset-knob <meta:key>`
+(clear an override so it follows the committed default).
 Schema versioning: `PRAGMA user_version` (v1 = composite keys + provenance columns);
 `init_schema` migrates older DBs automatically in one transaction.
 
@@ -54,7 +56,10 @@ Schema versioning: `PRAGMA user_version` (v1 = composite keys + provenance colum
 `judge:scope` (**low_confidence** — judge only rows with classify confidence below
 `judge:confidence_ceiling` (0.85), a nulled facet, or needs_human; `all` restores
 judge-everything), Change via CLI setters; never hardcode. Models are the Agent `model`
-arg — subscription auth, no ANTHROPIC_API_KEY.
+arg — subscription auth, no ANTHROPIC_API_KEY. An explicit knob **overrides the committed
+default forever**, so changing a `*_DEFAULT` in code and deploying does NOT move an
+already-running prod — `cli reset-knob <meta:key>` clears the override so prod follows the
+new default (or set the knob explicitly). `cli health` shows the live model to confirm.
 
 ## Taxonomy is the single source of truth
 `.claude/skills/taxonomy/SKILL.md` — categories, the seven levels (incl. the standalone

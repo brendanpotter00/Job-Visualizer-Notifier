@@ -155,6 +155,13 @@ def _cmd_set_knob(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_reset_knob(args: argparse.Namespace) -> int:
+    store = Store()
+    ec.reset_knob(store, args.knob)
+    print(f"{args.knob}: reset to committed default")
+    return 0
+
+
 # ---- pull ------------------------------------------------------------------
 def _do_pull(store: Store, client: Any, limit: int | None) -> tuple[int, int, int]:
     """Pull from JVN then persist. The heartbeat is stamped ONLY after a
@@ -713,6 +720,8 @@ def _cmd_health(args: argparse.Namespace) -> int:
                 "last_heartbeat_at": hb,
                 "last_heartbeat_age_s": hb_age,
                 "stage_timings": timings,
+                "classify_model": ec.get_classify_model(store),
+                "judge_model": ec.get_judge_model(store),
                 "latest_tick": store.latest_tick(),
             }
         )
@@ -920,6 +929,13 @@ def build_parser() -> argparse.ArgumentParser:
     jt.add_argument("value", choices=["on", "off"])
     jt.set_defaults(func=_cmd_set_knob, knob="judge:enabled",
                     setter=lambda s, v: ec.set_judge_enabled(s, v == "on"))
+
+    rk = subs.add_parser(
+        "reset-knob",
+        help="clear a runtime knob so it follows the committed default",
+    )
+    rk.add_argument("knob", choices=sorted(ec.KNOB_META_KEYS))
+    rk.set_defaults(func=_cmd_reset_knob)
 
     pp = subs.add_parser("pull", help="claim a batch of unenriched jobs from JVN")
     pp.add_argument("--limit", type=int, default=None)

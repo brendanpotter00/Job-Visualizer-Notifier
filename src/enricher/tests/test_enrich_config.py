@@ -62,3 +62,28 @@ def test_judge_ceiling_defaults_and_clamping(store):
     assert ec.set_judge_confidence_ceiling(store, 7.0) == 1.0  # clamped
     store.set_meta("judge:confidence_ceiling", "not-a-float")
     assert ec.get_judge_confidence_ceiling(store) == 0.85
+
+
+def test_reset_knob_clears_override_to_committed_default(store):
+    ec.set_classify_model(store, "sonnet")
+    assert ec.get_classify_model(store) == "sonnet"
+    assert ec.reset_knob(store, ec.CLASSIFY_MODEL_META_KEY) == ec.CLASSIFY_MODEL_META_KEY
+    assert ec.get_classify_model(store) == "haiku"  # falls back to the committed default
+
+
+def test_reset_knob_rejects_unknown_key(store):
+    with pytest.raises(ValueError):
+        ec.reset_knob(store, "bogus:key")
+
+
+def test_knob_meta_keys_cover_all_setters():
+    assert ec.KNOB_META_KEYS == {
+        ec.CLASSIFY_MODEL_META_KEY,
+        ec.CLASSIFY_BATCH_META_KEY,
+        ec.CLASSIFY_FANOUT_META_KEY,
+        ec.JUDGE_ENABLED_META_KEY,
+        ec.JUDGE_MODEL_META_KEY,
+        ec.JUDGE_HUMAN_FLOOR_META_KEY,
+        ec.JUDGE_SCOPE_META_KEY,
+        ec.JUDGE_CONFIDENCE_CEILING_META_KEY,
+    }

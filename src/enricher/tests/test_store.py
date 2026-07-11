@@ -343,3 +343,13 @@ def test_last_stage_event_at(store):
         "clean", "2026-01-01T00:00:00+00:00", "2026-01-01T00:00:05+00:00", 5000, item_count=3
     )
     assert store.last_stage_event_at() == "2026-01-01T00:00:05+00:00"
+
+
+def test_delete_meta_round_trip(store):
+    store.set_meta("classify:model", "sonnet")
+    assert store.get_meta("classify:model") == "sonnet"
+    store.delete_meta("classify:model")
+    assert store.get_meta("classify:model") is None
+    # deleting an absent key is a harmless no-op
+    store.delete_meta("classify:model")
+    assert store.get_meta("classify:model") is None
