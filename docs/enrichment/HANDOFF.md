@@ -27,9 +27,11 @@ New query params:
   jobs; `new_grad` returns only new-grad jobs.** This is the load-bearing contract.
 
 The category enum is `software_engineering | hardware_engineer | product_manager |
-project_manager | data_scientist | growth | business_ops`. The level enum is `new_grad | entry | mid | senior |
-senior_plus | manager`, seeded (with labels + ordering + the `new_grad→entry`
+project_manager | data_scientist | growth | business_ops`. The level enum is `intern | new_grad | entry | mid |
+senior | senior_plus | manager`, seeded (with labels + ordering + the `new_grad→entry`
 parent) in `job_levels` / `job_categories` so a dropdown can be **driven from data**.
+`intern` is standalone (no parent) — an internship is its own filter and does not
+surface under `entry`/`new_grad`.
 
 ### Monitoring (internal)
 `GET /api/internal/enrichment/health` (internal-key) returns:

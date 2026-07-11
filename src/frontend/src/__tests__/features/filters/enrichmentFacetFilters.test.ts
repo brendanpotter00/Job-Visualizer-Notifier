@@ -80,6 +80,15 @@ describe('matchesLevel (multi-select) — the new_grad ⊂ entry contract', () =
     expect(matchesLevel(makeJob({ level: 'mid' }), ['entry', 'senior'])).toBe(false);
   });
 
+  it("'intern' is standalone — its own filter, never surfaced by entry/new_grad", () => {
+    expect(matchesLevel(makeJob({ level: 'intern' }), 'intern')).toBe(true);
+    // interns must NOT leak into the early-career filters, and vice versa
+    expect(matchesLevel(makeJob({ level: 'intern' }), 'entry')).toBe(false);
+    expect(matchesLevel(makeJob({ level: 'intern' }), 'new_grad')).toBe(false);
+    expect(matchesLevel(makeJob({ level: 'new_grad' }), 'intern')).toBe(false);
+    expect(matchesLevel(makeJob({ level: 'entry' }), 'intern')).toBe(false);
+  });
+
   it('other levels match exactly', () => {
     expect(matchesLevel(makeJob({ level: 'senior' }), ['senior'])).toBe(true);
     expect(matchesLevel(makeJob({ level: 'mid' }), ['senior'])).toBe(false);
@@ -164,5 +173,14 @@ describe('buildLevelExpansion', () => {
 
   it('falls back to the static expansion when no edges exist', () => {
     expect(buildLevelExpansion([])).toEqual(LEVEL_FILTER_EXPANSION);
+  });
+
+  it('a standalone intern (parentSlug null) adds no expansion edge', () => {
+    const levels: FacetOption[] = [
+      { slug: 'intern', label: 'Intern', sortOrder: 0, parentSlug: null },
+      { slug: 'new_grad', label: 'New Grad', sortOrder: 1, parentSlug: 'entry' },
+      { slug: 'entry', label: 'Entry', sortOrder: 2, parentSlug: null },
+    ];
+    expect(buildLevelExpansion(levels)).toEqual({ entry: ['entry', 'new_grad'] });
   });
 });
