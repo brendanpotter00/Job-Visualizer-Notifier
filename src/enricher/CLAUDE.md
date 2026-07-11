@@ -57,8 +57,8 @@ judge-everything), Change via CLI setters; never hardcode. Models are the Agent 
 arg — subscription auth, no ANTHROPIC_API_KEY.
 
 ## Taxonomy is the single source of truth
-`.claude/skills/taxonomy/SKILL.md` — categories, the six levels, the `new_grad ⊂ entry`
-hierarchy, tags, location rules, few-shots. Every classify + judge agent reads it. Editing it
+`.claude/skills/taxonomy/SKILL.md` — categories, the seven levels (incl. the standalone
+`intern` tier), the `new_grad ⊂ entry` hierarchy, tags, location rules, few-shots. Every classify + judge agent reads it. Editing it
 bumps the taxonomy version hash recorded per enrichment; bump the frontmatter `version:`
 (v1 -> v2 -> ...) on BREAKING changes so provenance is human-readable. Re-enrichment is
 **manual**: `cli reenrich --taxonomy-below v<N>+<hash>` resets only rows with a strictly

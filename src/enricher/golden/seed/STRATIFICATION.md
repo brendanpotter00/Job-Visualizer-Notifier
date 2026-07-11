@@ -24,12 +24,19 @@ Total rows: **252**  ·  Distinct companies: **75**  ·  label_source = `draft` 
 
 ## Per-level (rare-level oversampling targets: new_grad/manager/senior_plus each >= 15)
 
-- `new_grad`: 25
+- `intern`: 12  *(taxonomy v5 — carved out of `new_grad`; all internships/co-ops with the degree still in progress. Standalone tier, `level_includes = ["intern"]`.)*
+- `new_grad`: 13  *(was 25 before the intern split; now full-time recent-grad roles only)*
 - `entry`: 3
 - `mid`: 88
 - `senior`: 42
 - `senior_plus`: 56
 - `manager`: 38
+
+> **Note (taxonomy v5):** the `intern` tier is new. These 12 draft-labeled intern rows give
+> advisory eval coverage; the regression gate stays inert until >= 50 rows are promoted to
+> `label_source = "human"`. The Category × Level matrix above predates both the intern split and
+> the category consolidation (`data_engineer`/`business` are no longer enum slugs) — treat the
+> Per-level list as the current source of truth.
 
 ## Per-hard_case
 

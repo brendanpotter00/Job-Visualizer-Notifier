@@ -1304,10 +1304,9 @@
     "label_source": "draft",
     "hard_case": "none",
     "category": "software_engineering",
-    "level": "new_grad",
+    "level": "intern",
     "level_includes": [
-      "new_grad",
-      "entry"
+      "intern"
     ],
     "tags": [
       "software",
@@ -3019,10 +3018,9 @@
     "label_source": "draft",
     "hard_case": "ml_vs_ds",
     "category": "data_scientist",
-    "level": "new_grad",
+    "level": "intern",
     "level_includes": [
-      "new_grad",
-      "entry"
+      "intern"
     ],
     "tags": [
       "trust-and-safety"
@@ -3125,10 +3123,9 @@
     "label_source": "draft",
     "hard_case": "none",
     "category": "data_scientist",
-    "level": "new_grad",
+    "level": "intern",
     "level_includes": [
-      "new_grad",
-      "entry"
+      "intern"
     ],
     "tags": [
       "genai",
@@ -3159,10 +3156,9 @@
     "label_source": "draft",
     "hard_case": "ml_vs_ds",
     "category": "data_scientist",
-    "level": "new_grad",
+    "level": "intern",
     "level_includes": [
-      "new_grad",
-      "entry"
+      "intern"
     ],
     "tags": [
       "applied",
@@ -3191,10 +3187,9 @@
     "label_source": "draft",
     "hard_case": "none",
     "category": "data_scientist",
-    "level": "new_grad",
+    "level": "intern",
     "level_includes": [
-      "new_grad",
-      "entry"
+      "intern"
     ],
     "tags": [
       "data",
@@ -3223,10 +3218,9 @@
     "label_source": "draft",
     "hard_case": "none",
     "category": "data_scientist",
-    "level": "new_grad",
+    "level": "intern",
     "level_includes": [
-      "new_grad",
-      "entry"
+      "intern"
     ],
     "tags": [
       "llm"
@@ -4709,10 +4703,9 @@
     "label_source": "draft",
     "hard_case": "none",
     "category": "software_engineering",
-    "level": "new_grad",
+    "level": "intern",
     "level_includes": [
-      "new_grad",
-      "entry"
+      "intern"
     ],
     "tags": [
       "data-pipelines",
@@ -5739,10 +5732,9 @@
     "label_source": "draft",
     "hard_case": "none",
     "category": "product_manager",
-    "level": "new_grad",
+    "level": "intern",
     "level_includes": [
-      "new_grad",
-      "entry"
+      "intern"
     ],
     "tags": [
       "product",
@@ -5771,10 +5763,9 @@
     "label_source": "draft",
     "hard_case": "none",
     "category": "product_manager",
-    "level": "new_grad",
+    "level": "intern",
     "level_includes": [
-      "new_grad",
-      "entry"
+      "intern"
     ],
     "tags": [
       "product",
@@ -5804,10 +5795,9 @@
     "label_source": "draft",
     "hard_case": "none",
     "category": "product_manager",
-    "level": "new_grad",
+    "level": "intern",
     "level_includes": [
-      "new_grad",
-      "entry"
+      "intern"
     ],
     "tags": [
       "product",
@@ -5837,10 +5827,9 @@
     "label_source": "draft",
     "hard_case": "none",
     "category": "product_manager",
-    "level": "new_grad",
+    "level": "intern",
     "level_includes": [
-      "new_grad",
-      "entry"
+      "intern"
     ],
     "tags": [
       "product",
@@ -6533,10 +6522,9 @@
     "label_source": "draft",
     "hard_case": "early_career_trap",
     "category": "business_ops",
-    "level": "new_grad",
+    "level": "intern",
     "level_includes": [
-      "new_grad",
-      "entry"
+      "intern"
     ],
     "tags": [
       "business-analysis",

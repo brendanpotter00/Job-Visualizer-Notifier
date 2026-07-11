@@ -1,0 +1,27 @@
+{
+  "eval": "intern_boundary_advisory",
+  "taxonomy_version": "v5+610e9d39c423",
+  "note": "Focused advisory spot-check over the 25 golden boundary rows (12 intern + 13 new_grad) using the restricted `classifier` subagent against taxonomy v5. Draft labels; not a gating run.",
+  "n_rows": 25,
+  "level_exact_accuracy": 1.0,
+  "intern": {
+    "tp": 12,
+    "fp": 0,
+    "fn": 0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1": 1.0
+  },
+  "new_grad": {
+    "tp": 13,
+    "fp": 0,
+    "fn": 0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1": 1.0
+  },
+  "confusion_gold_to_pred": {
+    "intern->intern": 12,
+    "new_grad->new_grad": 13
+  }
+}

@@ -38,8 +38,10 @@ from typing import Any, Iterable
 # validator can never drift apart.
 from job_enricher.taxonomy import CATEGORIES, LEVELS  # noqa: F401  (LEVELS re-exported)
 
-# level -> the filter set it should satisfy (mirrors SKILL.md level_includes)
+# level -> the filter set it should satisfy (mirrors SKILL.md level_includes).
+# `intern` is standalone (its own filter only) — NOT a subset of new_grad/entry.
 LEVEL_INCLUDES: dict[str, set[str]] = {
+    "intern": {"intern"},
     "new_grad": {"new_grad", "entry"},
     "entry": {"entry"},
     "mid": {"mid"},

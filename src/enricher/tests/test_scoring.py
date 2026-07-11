@@ -2,6 +2,7 @@ from job_enricher.eval.scoring import (
     cohens_kappa, judge_kappa_prejudge, judge_lift, regression_gate, score,
     _filter_consistent,
 )
+from job_enricher.taxonomy import LEVELS
 
 
 def _row(jid, cat, lvl, tags=None, locs=None, conf=None, jp=None):
@@ -29,6 +30,17 @@ def test_filter_consistency_rules():
     assert _filter_consistent("new_grad", "entry") is False
     assert _filter_consistent("senior", "senior") is True
     assert _filter_consistent("mid", "senior") is False
+
+
+def test_intern_is_a_valid_standalone_level():
+    """intern is a first-class tier and, being standalone, is filter-consistent
+    only with itself — it must NOT cross-credit with new_grad/entry either way."""
+    assert "intern" in LEVELS
+    assert _filter_consistent("intern", "intern") is True
+    assert _filter_consistent("new_grad", "intern") is False
+    assert _filter_consistent("intern", "new_grad") is False
+    assert _filter_consistent("entry", "intern") is False
+    assert _filter_consistent("intern", "entry") is False
 
 
 def test_tags_prf():

@@ -231,6 +231,20 @@ def test_merge_judge_applies_confident_level_change_outside_equivalence(store):
     assert merged["rejected_corrections"] == 0
 
 
+def test_merge_judge_applies_new_grad_to_intern_correction(store):
+    """intern is a standalone tier OUTSIDE the new_grad/entry equivalence, so a
+    confident new_grad->intern fix (an internship previously folded into
+    new_grad) must be APPLIED, not rejected as filter-equivalent churn."""
+    merged = cli._merge_judge(
+        _rail_base("new_grad"),
+        {"passed": False, "confidence": 0.9,
+         "corrections": {"level": "intern", "level_includes": ["intern"]}},
+        floor=0.6,
+    )
+    assert merged["level"] == "intern"
+    assert merged["rejected_corrections"] == 0
+
+
 # ---- E13: record-judge counts skipped verdicts for unknown ids -------------
 def test_record_judge_counts_skipped_unknown_ids(store):
     store.enqueue_inbox([_inbox_row("1")])

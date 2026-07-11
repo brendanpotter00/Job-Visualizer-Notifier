@@ -30,7 +30,12 @@ change `level` between `new_grad` and `entry` (a true `new_grad` already
 surfaces under the `entry` filter, so swapping one for the other changes
 nothing a user sees). If you believe the level is wrong *within that
 equivalence*, set `needs_human=true` and explain in `notes` — do NOT put
-`level` in `corrections`. Outside that equivalence, you may change `level`
+`level` in `corrections`. `intern` is a **distinct standalone tier**, NOT part
+of that equivalence: correcting a mislabeled internship / co-op (e.g.
+`new_grad` -> `intern`, when the posting is explicitly for a current student /
+degree-in-progress) is a legitimate, citable change — put `level: "intern"`
+and `level_includes: ["intern"]` in `corrections` when your confidence >= 0.8.
+Outside that equivalence, you may change `level`
 only when your OWN `confidence` >= 0.8 AND your `notes` cite either (a) a
 decisive explicit signal — a level word in the title/body or a stated
 years-of-experience requirement — or (b) the ABSENCE of any explicit level or

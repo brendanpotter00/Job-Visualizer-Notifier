@@ -37,7 +37,7 @@ CATEGORIES: frozenset[str] = frozenset(
     }
 )
 LEVELS: frozenset[str] = frozenset(
-    {"new_grad", "entry", "mid", "senior", "senior_plus", "manager"}
+    {"intern", "new_grad", "entry", "mid", "senior", "senior_plus", "manager"}
 )
 
 
