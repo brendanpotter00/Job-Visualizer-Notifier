@@ -128,6 +128,12 @@ All configuration via environment variables:
 - `POST /api/features/{feature_id}/upvote` - Add upvote for a feature (requires Bearer token)
 - `DELETE /api/features/{feature_id}/upvote` - Remove upvote for a feature (requires Bearer token)
 
+**Feedback Router (`/api/feedback`):**
+- `POST /api/feedback` - Submit user feedback (public; optional Bearer token — stores anonymous if token missing/invalid)
+
+**Companies Router (`/api/companies`):**
+- `GET /api/companies` - List all enabled companies with directory profiles (public, no auth; alphabetical order)
+
 **Health:**
 - `GET /health` - Health check (returns "OK" 200, or "UNAVAILABLE" 503 if pool is down)
 - `GET /health/worker` - Procrastinate worker liveness probe; checks `procrastinate_events` and `worker_heartbeats` freshness windows; returns 200 OK or 503; used as Railway's `healthcheckPath`
@@ -146,12 +152,15 @@ src/backend/api/
 │   ├── jwt.py           # JWT validation dispatcher (Auth0 + Google issuer routing)
 │   └── google_jwt.py    # Google One Tap token validation via Google JWKS
 ├── routers/
-│   ├── jobs.py          # Jobs list and detail endpoints
-│   ├── jobs_qa.py       # Stats, scrape runs, trigger scrape
-│   ├── users.py         # User profile + enabled-companies endpoints (auth required)
-│   ├── saved_filters.py # Saved-filters, keyword-list CRUD, location search (auth required)
-│   ├── features.py      # Feature voting endpoints (list, upvote, remove upvote)
-│   └── admin.py         # Admin-only user management endpoints
+│   ├── jobs.py                  # Jobs list and detail endpoints
+│   ├── jobs_qa.py               # Stats, scrape runs, trigger scrape
+│   ├── users.py                 # User profile + enabled-companies endpoints (auth required)
+│   ├── saved_filters.py         # Saved-filters, keyword-list CRUD, location search (auth required)
+│   ├── features.py              # Feature voting endpoints (list, upvote, remove upvote)
+│   ├── admin.py                 # Admin-only user management endpoints
+│   ├── feedback.py              # Public user-feedback submission (POST /api/feedback; optional auth)
+│   ├── companies.py             # Public curated-companies directory (GET /api/companies; no auth)
+│   └── internal_enrichment.py  # Internal enrichment API (X-Internal-Key; GET /pending, POST /results, etc.)
 ├── services/
 │   ├── database.py      # API query functions (reuses scripts/shared/database.py)
 │   ├── user_service.py  # User CRUD operations (get_or_create, update, record_visit)

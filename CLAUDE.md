@@ -51,7 +51,7 @@ PYTHONPATH=. uvicorn src.backend.api.main:app --host 0.0.0.0 --port 8000 --reloa
 - Traditional Redux slices for filters, app, and ui state
 - Factory patterns: `createAPIClient` (src/frontend/src/api/clients/baseClient.ts) and `createFilterSlice` (src/frontend/src/features/filters/slices/createFilterSlice.ts)
 - The company hiring-trend page has a single filter source (`graphFilters`) that drives both the graph and the job list — the list reflects the graph
-- Jobs normalized by company ID in `byCompany` map for O(1) lookup
+- Jobs normalized by company ID in `byCompanyId` map for O(1) lookup
 
 **Data Flow:**
 User selects company → `getJobsForCompany` RTK Query endpoint (src/frontend/src/features/jobs/jobsApi.ts) → Factory selects API client → Transform to normalized Job model → RTK Query cache update → Memoized selectors filter data → Components render
@@ -127,7 +127,7 @@ Automatic per-PR preview deploys are **off** — root `vercel.json` sets `git.de
 - `api/features.ts` - Feature voting API proxy (forwards Authorization header)
 - `api/admin.ts` - Admin API proxy (forwards Authorization header; admin-only endpoints)
 - `api/companies.ts` - Curated-companies directory proxy (public, unauthenticated)
-- `api/feedback.ts` - Admin feedback proxy (forwards Authorization header)
+- `api/feedback.ts` - User feedback submission proxy (public, optional auth — stores anonymous if token missing/invalid)
 
 ## See Also
 
