@@ -6,6 +6,11 @@ postings for **JVN** (Job-Visualizer-Notifier) — adding a **normalized locatio
 **subscription** (no per-token API cost), gated by an **adversarial Sonnet LLM-as-judge**. The category and
 level enums (the single source of truth) live in `.claude/skills/taxonomy/SKILL.md`.
 
+> **Prod vs dev:** this repo is checked out twice — `~/developer/personal/app` (**prod**,
+> where the launchd worker runs against real JVN) and `~/developer/personal/job-enricher`
+> (**dev**, where you edit). Run `cat .checkout-role` to see which you're in, and read
+> [`docs/ENVIRONMENTS.md`](docs/ENVIRONMENTS.md) before editing or deploying.
+
 ## Why a second path?
 JVN already normalizes locations via **cloud Haiku** on the paid API. This workflow adds richer
 enrichment on the laptop for free, and JVN can switch to it behind a feature flag. Because the

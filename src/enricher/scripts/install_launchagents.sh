@@ -2,7 +2,10 @@
 # Install the StartInterval enrichment worker as a launchd agent.
 set -eu
 PLIST="$HOME/Library/LaunchAgents/com.bp.job-enricher.plist"
-PROJECT="/Users/bpotter/developer/personal/job-enricher"
+# Anchor to the checkout this script is run FROM (its parent dir), so the generated plist
+# points the launchd worker at whichever checkout you install from — run it from the prod
+# checkout (~/developer/personal/app). See docs/ENVIRONMENTS.md.
+PROJECT="$(cd "$(dirname "$0")/.." && pwd)"
 INTERVAL="${ENRICH_INTERVAL_SECS:-600}"
 
 cat > "$PLIST" <<PLEOF

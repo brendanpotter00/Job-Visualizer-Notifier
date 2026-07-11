@@ -1,6 +1,6 @@
 # /enrich-eval — run the SAME pipeline over the golden set and score it
 
-Drives clean -> classify -> (optional) judge over the committed golden seed, writes predictions, then scores with the pure scorer. Runs the exact same CLASSIFY/JUDGE prompts AND the same restricted sub-agents (`subagent_type: "classifier"` / `"judge"` — Read/Grep/WebSearch only, no Bash/Write/Edit) as /enrich-tick so evals measure the real pipeline. `PROJECT=/Users/bpotter/developer/personal/job-enricher`.
+Drives clean -> classify -> (optional) judge over the committed golden seed, writes predictions, then scores with the pure scorer. Runs the exact same CLASSIFY/JUDGE prompts AND the same restricted sub-agents (`subagent_type: "classifier"` / `"judge"` — Read/Grep/WebSearch only, no Bash/Write/Edit) as /enrich-tick so evals measure the real pipeline. Resolve the checkout root with `PROJECT="$(git rev-parse --show-toplevel)"` (never hardcode the path).
 
 ## Step 1 — load the golden seed
 Read `golden/seed/golden.json`. Each row has `{job_listing_id, source_id, title, company, raw_location, description_html, ...labels}`. The labels are ground truth (only `label_source=="human"` rows gate; `cli golden-merge` upgrades rows from JVN admin corrections).

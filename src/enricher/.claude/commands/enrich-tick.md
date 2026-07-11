@@ -2,7 +2,7 @@
 
 Runs ONE cycle then schedules the next. All state lives in SQLite via
 `uv run python -m job_enricher.cli`. Never write the DB with raw sqlite3 — the
-CLI is the only supported path. `PROJECT=/Users/bpotter/developer/personal/job-enricher`.
+CLI is the only supported path. Resolve the checkout root with `PROJECT="$(git rev-parse --show-toplevel)"` (works in the prod or dev checkout — never hardcode the path).
 
 ## Step 0 — acquire the single-flight lock + open a tick
 Run: `cd $PROJECT && uv run python -m job_enricher.cli tick-acquire`

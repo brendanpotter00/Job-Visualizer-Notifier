@@ -4,6 +4,7 @@ data/*.db-*
 data/.tick.lock
 data/chunks/
 .env.local
+.checkout-role
 __pycache__/
 *.pyc
 .pytest_cache/

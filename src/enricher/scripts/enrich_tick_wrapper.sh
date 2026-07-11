@@ -15,7 +15,10 @@
 set -u
 
 CLAUDE_BIN="/Users/bpotter/.local/bin/claude"
-PROJECT_DIR="/Users/bpotter/developer/personal/job-enricher"
+# Anchor to THIS checkout, not a hardcoded path: the wrapper lives at <root>/scripts/,
+# so its parent is the repo root. Derived so prod and dev each target their own tree and
+# relocating a checkout needs no edit here (see docs/ENVIRONMENTS.md).
+PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 UV_BIN="/opt/homebrew/bin/uv"
 LOCK_FILE="$PROJECT_DIR/data/.tick.lock"
 TIMEOUT_SECS="${ENRICH_TICK_TIMEOUT_SECS:-10800}"

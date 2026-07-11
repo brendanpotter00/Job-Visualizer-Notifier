@@ -5,6 +5,18 @@ It runs under the Claude Code **subscription** (no per-token API cost) and integ
 with JVN by **PULL**: the laptop polls JVN, enriches locally, and writes results back.
 JVN never depends on this laptop being up (the cloud Haiku location pipeline is the floor).
 
+## ⚠️ Which checkout am I in? (prod vs dev — check FIRST)
+This repo is checked out **twice** on the laptop, and this file is identical in both. The
+per-directory truth is the untracked marker `.checkout-role` — run `cat .checkout-role`:
+- **`prod`** → the LIVE checkout at `~/developer/personal/app`. The launchd worker runs a
+  real tick here every 10 min against real JVN + the authoritative DB. Do **NOT** edit files
+  or run ticks by hand here — make changes in dev, PR, then `scripts/deploy.sh`.
+- **`dev`** → `~/developer/personal/job-enricher`. Safe to edit; DB + `.env.local` are
+  throwaway/staging. This is where you and agents work (or in a worktree of it).
+- **Missing** → assume dev, but confirm you're not in `~/developer/personal/app`.
+
+Full details + deploy/rollback runbook: **`docs/ENVIRONMENTS.md`**.
+
 ## Pipeline (one /enrich-tick)
 `pull` (claim OPEN unenriched jobs from JVN) -> `clean` (deterministic HTML->text, no LLM)
 -> **classify** (fan-out Sonnet sub-agents: category + level + tags + locations from one clean
