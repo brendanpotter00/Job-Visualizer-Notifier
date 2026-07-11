@@ -22,7 +22,7 @@ depends on this machine.
 JVN (Railway/local)                        Laptop (Claude Code subscription)
   GET  /api/internal/enrichment/pending     <──  cli pull         (claim OPEN unenriched jobs)
                                                  cli clean        (deterministic HTML->text)
-                                                 /enrich-tick     (Sonnet classify -> Sonnet judge)
+                                                 /enrich-tick     (Haiku classify -> Sonnet judge)
   POST /api/internal/enrichment/results     <──  cli write-back   (durable, idempotent)
   POST /api/internal/enrichment/metrics     <──  cli metrics-push (per-tick observability, best-effort)
   GET  /api/internal/enrichment/corrections <──  cli golden-merge (human corrections -> gold labels)

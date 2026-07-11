@@ -19,7 +19,7 @@ Full details + deploy/rollback runbook: **`docs/ENVIRONMENTS.md`**.
 
 ## Pipeline (one /enrich-tick)
 `pull` (claim OPEN unenriched jobs from JVN) -> `clean` (deterministic HTML->text, no LLM)
--> **classify** (fan-out Sonnet sub-agents: category + level + tags + locations from one clean
+-> **classify** (fan-out Haiku sub-agents: category + level + tags + locations from one clean
 description) -> **judge** (fan-out Sonnet sub-agents, scope-routed — see knobs; revises in place,
 flags `needs_human` below the floor; level-change rails enforced in code) -> `write-back`
 (durable, idempotent POST to JVN) -> `metrics-push` (best-effort per-tick observability POST).
@@ -49,7 +49,7 @@ Schema versioning: `PRAGMA user_version` (v1 = composite keys + provenance colum
 `init_schema` migrates older DBs automatically in one transaction.
 
 ## Runtime knobs (meta table, read fresh each tick)
-`classify:model` (default sonnet), `classify:batch_size` (3), `classify:fan_out` (12),
+`classify:model` (default haiku), `classify:batch_size` (3), `classify:fan_out` (12),
 `judge:enabled` (on), `judge:model` (sonnet), `judge:human_floor` (0.60),
 `judge:scope` (**low_confidence** — judge only rows with classify confidence below
 `judge:confidence_ceiling` (0.85), a nulled facet, or needs_human; `all` restores

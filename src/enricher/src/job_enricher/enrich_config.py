@@ -17,7 +17,7 @@ class _MetaStore(Protocol):
 
 
 # classify model
-CLASSIFY_MODEL_DEFAULT = "sonnet"
+CLASSIFY_MODEL_DEFAULT = "haiku"
 CLASSIFY_MODEL_META_KEY = "classify:model"
 MODEL_CHOICES: tuple[str, ...] = ("haiku", "sonnet", "opus")
 

@@ -4,7 +4,7 @@ from job_enricher import enrich_config as ec
 
 
 def test_classify_defaults(store):
-    assert ec.get_classify_model(store) == "sonnet"
+    assert ec.get_classify_model(store) == "haiku"
     assert ec.get_classify_batch_size(store) == 3
     assert ec.get_classify_fan_out(store) == 12
 
@@ -40,7 +40,7 @@ def test_bad_meta_values_fall_back(store):
 
 def test_snapshot(store):
     snap = ec.config_snapshot(store)
-    assert snap["classify_model"] == "sonnet" and snap["judge_enabled"] is True
+    assert snap["classify_model"] == "haiku" and snap["judge_enabled"] is True
     assert snap["judge_scope"] == "low_confidence"
     assert snap["judge_confidence_ceiling"] == 0.85
 

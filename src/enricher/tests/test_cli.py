@@ -575,7 +575,7 @@ def test_record_enrichment_cmd_records_classify_stage_timing(store, monkeypatch)
         rows = c.execute("SELECT stage, item_count FROM stage_timings").fetchall()
     assert [(r["stage"], r["item_count"]) for r in rows] == [("classify", 1)]
     # classify_model provenance stamped from the active knob
-    assert _enrichment(store, "1")["classify_model"] == "sonnet"
+    assert _enrichment(store, "1")["classify_model"] == "haiku"
 
 
 def test_record_judge_cmd_records_judge_stage_timing(store, monkeypatch):
