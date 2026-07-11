@@ -33,6 +33,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const response = await fetch(url, { headers: getInternalKeyHeader() });
     await forwardResponse(response, res);
   } catch (error) {
+    console.error('[api/locations] Upstream fetch failed:', error);
     res.status(500).json({ error: "Failed to fetch from backend" });
   }
 }

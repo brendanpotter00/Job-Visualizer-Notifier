@@ -38,16 +38,53 @@ def loc_client(loc_app):
     return TestClient(loc_app)
 
 
-def _insert_location(db_conn, **cols):
-    """Insert one canonical locations row from keyword columns."""
+def _insert_location(db_conn, **cols) -> int:
+    """Insert one canonical locations row from keyword columns; return its id."""
     keys = list(cols)
-    stmt = sql.SQL("INSERT INTO {} ({}) VALUES ({})").format(
+    stmt = sql.SQL("INSERT INTO {} ({}) VALUES ({}) RETURNING id").format(
         sql.Identifier("locations"),
         sql.SQL(", ").join(sql.Identifier(k) for k in keys),
         sql.SQL(", ").join(sql.Placeholder() for _ in keys),
     )
     cur = db_conn.cursor()
     cur.execute(stmt, [cols[k] for k in keys])
+    location_id = cur.fetchone()["id"]
+    db_conn.commit()
+    return int(location_id)
+
+
+def _link_open_job(db_conn, location_id, status="OPEN"):
+    """Seed one job_listings row (default status OPEN) and a job_locations row
+    linking it to ``location_id`` — so the open_only EXISTS join can find it."""
+    import uuid
+
+    job_id = f"job-{uuid.uuid4().hex[:8]}"
+    cur = db_conn.cursor()
+    cur.execute(
+        sql.SQL(
+            "INSERT INTO {} (id, title, company, url, source_id, created_at,"
+            " first_seen_at, last_seen_at, status) VALUES"
+            " (%s, %s, %s, %s, %s, %s, %s, %s, %s)"
+        ).format(sql.Identifier("job_listings")),
+        (
+            job_id,
+            "Software Engineer",
+            "google",
+            "https://careers.example.com/1",
+            "test_scraper",
+            "2025-01-10T10:00:00Z",
+            "2025-01-10T10:00:00Z",
+            "2025-01-15T10:00:00Z",
+            status,
+        ),
+    )
+    cur.execute(
+        sql.SQL(
+            "INSERT INTO {} (job_listing_id, normalized_location_id, is_primary)"
+            " VALUES (%s, %s, %s)"
+        ).format(sql.Identifier("job_locations")),
+        (job_id, location_id, True),
+    )
     db_conn.commit()
 
 
@@ -104,3 +141,99 @@ class TestPublicLocationSearch:
             ).json()
         ]
         assert "Nowheresville, ZZ, US" not in open_only_names
+
+    def test_prefix_match_ranks_before_midstring(self, loc_client, db_conn):
+        # Pins the ORDER BY contract:
+        #   (canonical_name ILIKE 'q%') DESC, length(canonical_name) ASC, name ASC
+        # i.e. prefix matches first, then shorter names, then alphabetical.
+        # Uses a "Zephyria" token no other test seeds (locations aren't
+        # truncated between tests in this module).
+        _insert_location(
+            db_conn, canonical_name="New Zephyria, NY, US", kind="city",
+            city="New Zephyria", region="NY", country="US",
+        )
+        _insert_location(
+            db_conn, canonical_name="Zephyria Heights, CA, US", kind="city",
+            city="Zephyria Heights", region="CA", country="US",
+        )
+        _insert_location(
+            db_conn, canonical_name="Zephyria, CA, US", kind="city",
+            city="Zephyria", region="CA", country="US",
+        )
+        names = [
+            r["canonicalName"]
+            for r in loc_client.get(
+                f"{PREFIX}/search", params={"q": "Zephyria"}
+            ).json()
+        ]
+        # Prefix + shortest canonical_name ranks first.
+        assert names[0] == "Zephyria, CA, US"
+        # Shorter prefix match precedes the longer prefix match...
+        assert names.index("Zephyria, CA, US") < names.index("Zephyria Heights, CA, US")
+        # ...and both prefix matches precede the mid-string ("New Zephyria") match.
+        assert names.index("Zephyria Heights, CA, US") < names.index("New Zephyria, NY, US")
+
+    def test_limit_zero_is_rejected(self, loc_client):
+        # limit has a hard floor of 1 (the only in-code result-size guardrail).
+        resp = loc_client.get(f"{PREFIX}/search", params={"q": "a", "limit": 0})
+        assert resp.status_code == 422
+
+    def test_limit_above_max_is_rejected(self, loc_client):
+        # limit has a hard ceiling of 50 — 51 must be rejected before any query.
+        resp = loc_client.get(f"{PREFIX}/search", params={"q": "a", "limit": 51})
+        assert resp.status_code == 422
+
+    def test_limit_caps_returned_rows(self, loc_client, db_conn):
+        # A small limit actually caps the number of returned rows.
+        for i in range(4):
+            _insert_location(
+                db_conn, canonical_name=f"Caphold {i}, XX, US", kind="city",
+                city=f"Caphold {i}", region="XX", country="US",
+            )
+        resp = loc_client.get(
+            f"{PREFIX}/search", params={"q": "Caphold", "limit": 2}
+        )
+        assert resp.status_code == 200
+        assert len(resp.json()) == 2
+
+    def test_open_only_includes_location_with_open_job(self, loc_client, db_conn):
+        # Positive open_only case: a location WITH an OPEN job is RETURNED. A
+        # broken EXISTS join (always-false) would silently pass the excludes-only
+        # test above, so this pins the join actually matches.
+        loc_id = _insert_location(
+            db_conn, canonical_name="Openton, WA, US", kind="city",
+            city="Openton", region="WA", country="US",
+        )
+        _link_open_job(db_conn, loc_id)
+        names = [
+            r["canonicalName"]
+            for r in loc_client.get(
+                f"{PREFIX}/search",
+                params={"q": "Openton", "openOnly": "true"},
+            ).json()
+        ]
+        assert "Openton, WA, US" in names
+
+    def test_open_only_excludes_location_with_only_closed_job(self, loc_client, db_conn):
+        # The EXISTS join is gated on j.status = 'OPEN': a location whose only
+        # job is CLOSED is excluded under openOnly but present by default.
+        loc_id = _insert_location(
+            db_conn, canonical_name="Closedton, OR, US", kind="city",
+            city="Closedton", region="OR", country="US",
+        )
+        _link_open_job(db_conn, loc_id, status="CLOSED")
+        open_only_names = [
+            r["canonicalName"]
+            for r in loc_client.get(
+                f"{PREFIX}/search",
+                params={"q": "Closedton", "openOnly": "true"},
+            ).json()
+        ]
+        assert "Closedton, OR, US" not in open_only_names
+        default_names = [
+            r["canonicalName"]
+            for r in loc_client.get(
+                f"{PREFIX}/search", params={"q": "Closedton"}
+            ).json()
+        ]
+        assert "Closedton, OR, US" in default_names
