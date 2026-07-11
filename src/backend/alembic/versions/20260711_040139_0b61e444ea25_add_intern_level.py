@@ -1,7 +1,7 @@
 """add intern level
 
 Revision ID: 0b61e444ea25
-Revises: 288764e337a4
+Revises: 74ef55837f12
 Create Date: 2026-07-11 04:01:39.145331+00:00
 
 Scaffolded by `alembic revision --autogenerate` (id, down_revision, and the
@@ -35,7 +35,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = '0b61e444ea25'
-down_revision: Union[str, None] = '288764e337a4'
+down_revision: Union[str, None] = '74ef55837f12'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

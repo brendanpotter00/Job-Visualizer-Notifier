@@ -81,12 +81,12 @@ describe('matchesLevel (multi-select) — the new_grad ⊂ entry contract', () =
   });
 
   it("'intern' is standalone — its own filter, never surfaced by entry/new_grad", () => {
-    expect(matchesLevel(makeJob({ level: 'intern' }), 'intern')).toBe(true);
+    expect(matchesLevel(makeJob({ level: 'intern' }), ['intern'])).toBe(true);
     // interns must NOT leak into the early-career filters, and vice versa
-    expect(matchesLevel(makeJob({ level: 'intern' }), 'entry')).toBe(false);
-    expect(matchesLevel(makeJob({ level: 'intern' }), 'new_grad')).toBe(false);
-    expect(matchesLevel(makeJob({ level: 'new_grad' }), 'intern')).toBe(false);
-    expect(matchesLevel(makeJob({ level: 'entry' }), 'intern')).toBe(false);
+    expect(matchesLevel(makeJob({ level: 'intern' }), ['entry'])).toBe(false);
+    expect(matchesLevel(makeJob({ level: 'intern' }), ['new_grad'])).toBe(false);
+    expect(matchesLevel(makeJob({ level: 'new_grad' }), ['intern'])).toBe(false);
+    expect(matchesLevel(makeJob({ level: 'entry' }), ['intern'])).toBe(false);
   });
 
   it('other levels match exactly', () => {
