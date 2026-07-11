@@ -354,5 +354,8 @@ class TestJobFacets:
         levels = {l["slug"]: l for l in body["levels"]}
         assert levels["new_grad"]["parentSlug"] == "entry"
         assert levels["entry"]["parentSlug"] is None
-        # rank ordering: new_grad first
-        assert [l["slug"] for l in body["levels"]][0] == "new_grad"
+        # intern is standalone (its own filter), never a child of another tier
+        assert levels["intern"]["parentSlug"] is None
+        # rank ordering: intern first (rank 0), then new_grad (the intern
+        # migration renumbered the six pre-existing tiers +1)
+        assert [l["slug"] for l in body["levels"]][0] == "intern"

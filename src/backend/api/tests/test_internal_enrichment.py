@@ -42,7 +42,7 @@ _CATEGORY_SEED = [
     ("growth", "Growth", 5),
     ("business_ops", "Business Ops", 6),
 ]
-# Mirrors the post-migration DB state (0fa33aca5bda seed + the b2e4a17c9f30
+# Mirrors the post-migration DB state (0fa33aca5bda seed + the 0b61e444ea25
 # intern migration, which adds `intern` at rank 0 and renumbers the rest +1).
 _LEVEL_SEED = [
     ("intern", "Intern", 0, None),
