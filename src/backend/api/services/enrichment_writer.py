@@ -37,7 +37,7 @@ CATEGORY_SLUGS = frozenset(
         "business_ops",
     }
 )
-LEVEL_SLUGS = frozenset({"new_grad", "entry", "mid", "senior", "senior_plus", "manager"})
+LEVEL_SLUGS = frozenset({"intern", "new_grad", "entry", "mid", "senior", "senior_plus", "manager"})
 
 # Bounds on what one /results item may persist into the public read path
 # (job_tags feeds every /api/jobs row via the tags subquery). Extras are

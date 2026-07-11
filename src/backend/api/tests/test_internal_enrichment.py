@@ -42,13 +42,16 @@ _CATEGORY_SEED = [
     ("growth", "Growth", 5),
     ("business_ops", "Business Ops", 6),
 ]
+# Mirrors the post-migration DB state (0fa33aca5bda seed + the 0b61e444ea25
+# intern migration, which adds `intern` at rank 0 and renumbers the rest +1).
 _LEVEL_SEED = [
-    ("entry", "Entry", 1, None),
-    ("mid", "Mid", 2, None),
-    ("senior", "Senior", 3, None),
-    ("senior_plus", "Staff / Principal", 4, None),
-    ("manager", "Manager", 5, None),
-    ("new_grad", "New Grad", 0, "entry"),  # child last (self-FK)
+    ("intern", "Intern", 0, None),
+    ("entry", "Entry", 2, None),
+    ("mid", "Mid", 3, None),
+    ("senior", "Senior", 4, None),
+    ("senior_plus", "Staff / Principal", 5, None),
+    ("manager", "Manager", 6, None),
+    ("new_grad", "New Grad", 1, "entry"),  # child last (self-FK)
 ]
 
 # Enrichment-side tables that conftest's clean_tables does NOT truncate. Truncate
@@ -243,6 +246,27 @@ class TestApplyResult:
         assert facets["enrichment_category"] is None  # dropped
         assert facets["enrichment_level"] == "mid"    # valid, kept
         assert facets["enrichment_status"] == "done"
+
+    def test_intern_level_is_accepted_not_nulled(self, db_conn):
+        """`intern` is a first-class level: it must be in LEVEL_SLUGS AND seeded
+        in job_levels (the FK target), so an incoming intern result persists
+        instead of being soft-nulled or FK-rejected."""
+        _insert_job(db_conn, _make_job({"id": "enr-intern"}))
+        result = {
+            "job_listing_id": "enr-intern",
+            "source_id": "google_scraper",
+            "category": "software_engineering",
+            "level": "intern",
+            "tags": [],
+            "locations": [],
+        }
+        warnings = apply_result(db_conn, result, require_judge_pass=False)
+        db_conn.commit()
+
+        facets = _fetch_listing_facets(db_conn, "enr-intern")
+        assert facets["enrichment_level"] == "intern"   # accepted, not nulled
+        assert facets["enrichment_status"] == "done"
+        assert not any("level" in w for w in warnings)   # no soft-null warning
 
     def test_reapply_replaces_tags(self, db_conn):
         _insert_job(db_conn, _make_job({"id": "enr-idem"}))
@@ -1170,15 +1194,16 @@ class TestJobsFilterParams:
 # --------------------------------------------------------------------------- #
 
 
-def _load_enrichment_migration():
-    """Import the frozen enrichment migration module by revision id, without
-    depending on Alembic's runtime, to read its CATEGORY_SEED / LEVEL_SEED."""
+def _load_enrichment_migration(pattern: str = "*0fa33aca5bda*.py"):
+    """Import a frozen enrichment migration module by filename glob, without
+    depending on Alembic's runtime, to read its seed constants (CATEGORY_SEED /
+    LEVEL_SEED on the base migration, ADDED_LEVELS on later ones)."""
     import importlib.util
     from pathlib import Path
 
     versions_dir = Path(__file__).resolve().parents[2] / "alembic" / "versions"
-    path = next(versions_dir.glob("*0fa33aca5bda*.py"))
-    spec = importlib.util.spec_from_file_location("_enr_migration", path)
+    path = next(versions_dir.glob(pattern))
+    spec = importlib.util.spec_from_file_location(path.stem, path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -1190,8 +1215,13 @@ class TestTaxonomyParity:
         from api.services.enrichment_writer import CATEGORY_SLUGS, LEVEL_SLUGS
 
         mig = _load_enrichment_migration()
+        intern_mig = _load_enrichment_migration("*add_intern_level*.py")
         seed_categories = {slug for slug, _label, _order in mig.CATEGORY_SEED}
+        # Levels = the base seed UNION every later migration's ADDED_LEVELS, so a
+        # tier added by a follow-up migration (e.g. `intern`) stays in lock-step
+        # with the code constants instead of tripping this parity guard.
         seed_levels = {slug for slug, _label, _rank, _parent in mig.LEVEL_SEED}
+        seed_levels |= {slug for slug, _label, _rank, _parent in intern_mig.ADDED_LEVELS}
 
         assert CATEGORY_SLUGS == seed_categories
         assert LEVEL_SLUGS == seed_levels
