@@ -21,7 +21,12 @@ from .test_internal_enrichment import _enrichment_isolation  # noqa: F401 — au
 
 
 def _seed_flagged_job(db_conn, job_id="q-1", source_id="src-a", *, status="OPEN",
-                      company="google", confidence=0.4, corrected=False):
+                      company="google", confidence=0.4, corrected=False,
+                      category=None, level=None):
+    """Seed a needs-human row. By default the published facets are NULL (a row
+    demoted under require_judge_pass — nothing to one-click confirm). Pass
+    ``category``/``level`` to seed a row that kept its proposal (the flag-off
+    case), which is what a Confirm can validate."""
     _insert_job(db_conn, _make_job({
         "id": job_id, "source_id": source_id, "status": status, "company": company,
         "details": json.dumps({"description_html": "<p>x</p>"}),
@@ -32,6 +37,12 @@ def _seed_flagged_job(db_conn, job_id="q-1", source_id="src-a", *, status="OPEN"
         "WHERE source_id=%s AND id=%s",
         (source_id, job_id),
     )
+    if category is not None or level is not None:
+        cur.execute(
+            "UPDATE job_listings SET enrichment_category=%s, enrichment_level=%s "
+            "WHERE source_id=%s AND id=%s",
+            (category, level, source_id, job_id),
+        )
     cur.execute(
         "INSERT INTO job_enrichment (source_id, job_listing_id, clean_description, "
         "classify_confidence, classify_reasoning, judged, judge_passed, "
@@ -60,6 +71,9 @@ class TestAdminEnrichmentGate:
                 assert client.get(path).status_code in (401, 403), path
             assert client.post(
                 "/api/admin/enrichment/jobs/s/j/correct", json={}
+            ).status_code in (401, 403)
+            assert client.post(
+                "/api/admin/enrichment/jobs/s/j/confirm"
             ).status_code in (401, 403)
             assert client.post(
                 "/api/admin/enrichment/jobs/s/j/reenrich"
@@ -133,15 +147,17 @@ class TestAdminEnrichmentCorrect:
         assert body["tags"] == ["gtm", "sql"]           # normalized
         assert body["enrichmentStatus"] == "done"
         assert body["humanCorrectedBy"] == "test@example.com"
+        assert body["humanDecision"] == "corrected"
 
         cur = db_conn.cursor()
         cur.execute(
-            "SELECT needs_human, human_corrected_at, judge_notes FROM job_enrichment "
-            "WHERE source_id='src-a' AND job_listing_id='q-1'"
+            "SELECT needs_human, human_corrected_at, human_decision, judge_notes "
+            "FROM job_enrichment WHERE source_id='src-a' AND job_listing_id='q-1'"
         )
         row = cur.fetchone()
         assert row["needs_human"] is False
         assert row["human_corrected_at"] is not None
+        assert row["human_decision"] == "corrected"
         assert "[human] actually growth" in row["judge_notes"]
 
         # queue no longer lists it
@@ -200,13 +216,75 @@ class TestAdminEnrichmentCorrect:
         row = cur.fetchone()
         assert row["enrichment_status"] is None and row["enrichment_category"] is None
         cur.execute(
-            "SELECT human_corrected_at, needs_human FROM job_enrichment "
+            "SELECT human_corrected_at, needs_human, human_decision FROM job_enrichment "
             "WHERE source_id='src-a' AND job_listing_id='q-1'"
         )
         row = cur.fetchone()
         assert row["human_corrected_at"] is None and row["needs_human"] is False
+        assert row["human_decision"] is None       # re-enrich clears the human verdict
         cur.execute("SELECT count(*) AS n FROM job_tags WHERE job_listing_id='q-1'")
         assert cur.fetchone()["n"] == 0
+
+
+class TestAdminEnrichmentConfirm:
+    def test_confirm_validates_and_locks(self, client, db_conn):
+        # A flagged row that kept its proposal (facets published) — confirmable.
+        _seed_flagged_job(db_conn, category="growth", level="mid")
+        resp = client.post("/api/admin/enrichment/jobs/src-a/q-1/confirm")
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["category"] == "growth"          # proposal unchanged
+        assert body["level"] == "mid"
+        assert body["enrichmentStatus"] == "done"
+        assert body["humanDecision"] == "confirmed_correct"
+        assert body["humanCorrectedBy"] == "test@example.com"
+
+        cur = db_conn.cursor()
+        cur.execute(
+            "SELECT needs_human, human_corrected_at, human_decision, judge_notes "
+            "FROM job_enrichment WHERE source_id='src-a' AND job_listing_id='q-1'"
+        )
+        row = cur.fetchone()
+        assert row["needs_human"] is False
+        assert row["human_corrected_at"] is not None
+        assert row["human_decision"] == "confirmed_correct"
+        # Confirm keeps the row's evidence intact — no [human] note appended.
+        assert "[human]" not in (row["judge_notes"] or "")
+
+        cur.execute(
+            "SELECT enrichment_category, enrichment_level, enrichment_status "
+            "FROM job_listings WHERE source_id='src-a' AND id='q-1'"
+        )
+        jl = cur.fetchone()
+        assert jl["enrichment_category"] == "growth"   # facets untouched
+        assert jl["enrichment_level"] == "mid"
+        assert jl["enrichment_status"] == "done"
+
+        # leaves the needs-human queue
+        assert client.get("/api/admin/enrichment/needs-human").json()["total"] == 0
+
+    def test_confirm_without_proposed_labels_409(self, client, db_conn):
+        # A demoted needs_human row has NULL facets — nothing to validate.
+        _seed_flagged_job(db_conn)
+        resp = client.post("/api/admin/enrichment/jobs/src-a/q-1/confirm")
+        assert resp.status_code == 409, resp.text
+        assert "Correct" in resp.json()["detail"]
+
+        # untouched: still flagged, no decision recorded, still in the queue
+        cur = db_conn.cursor()
+        cur.execute(
+            "SELECT needs_human, human_corrected_at, human_decision FROM job_enrichment "
+            "WHERE source_id='src-a' AND job_listing_id='q-1'"
+        )
+        row = cur.fetchone()
+        assert row["needs_human"] is True
+        assert row["human_corrected_at"] is None
+        assert row["human_decision"] is None
+        assert client.get("/api/admin/enrichment/needs-human").json()["total"] == 1
+
+    def test_confirm_unknown_job_404(self, client, db_conn):
+        resp = client.post("/api/admin/enrichment/jobs/ghost-src/ghost-id/confirm")
+        assert resp.status_code == 404
 
 
 class TestAdminEnrichmentTicks:

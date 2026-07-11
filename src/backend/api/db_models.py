@@ -563,6 +563,13 @@ class JobEnrichment(Base):
     # explicit admin re-enrich (which clears these) reopens the row to the agent.
     human_corrected_at = Column(TIMESTAMP(timezone=True), nullable=True)
     human_corrected_by = Column(Text, nullable=True)      # admin email (JWT claim)
+    # The human's verdict, distinct from the judge's (judged/judge_passed): what
+    # the reviewer decided when they resolved a needs-human row. NULL = not yet
+    # reviewed | 'corrected' (labels were wrong, human fixed them) |
+    # 'confirmed_correct' (row was flagged but the human validated the AI's
+    # proposal as-is). Both decisions stamp human_corrected_at (the lock); this
+    # column is what lets the learning feed tell a fix from a validated raise.
+    human_decision = Column(Text, nullable=True)
 
     __table_args__ = (
         PrimaryKeyConstraint("source_id", "job_listing_id"),

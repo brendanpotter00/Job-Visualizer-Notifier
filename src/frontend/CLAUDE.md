@@ -55,7 +55,7 @@ Backend-Scraper (api/clients/backendScraperClient.ts) is the only production cli
 - `/account` - Account (pages/AccountPage/AccountPage.tsx)
 - `/saved-filters` - Saved Filters (pages/SavedFiltersPage/SavedFiltersPage.tsx) - Login-gated page to set default time windows (per page), shared locations, the saved-companies picker, and reusable keyword lists that auto-apply (but stay editable) on the Recent and Trend pages
 - `/vote-features` - Vote for Features (pages/VoteFeaturesPage/VoteFeaturesPage.tsx) - Feature voting page; shipped features move out of the vote list into a read-only "Shipped — built with the community" section
-- `/admin/enrichment` - Admin Enrichment Pipeline (pages/AdminEnrichmentPage/AdminEnrichmentPage.tsx) - Admin-only oversight of the laptop enrichment agent: liveness verdict, backlog funnel, tick EKG/charts (metrics push), eval scorecard, needs-human queue with human corrections
+- `/admin/enrichment` - Admin Enrichment Pipeline (pages/AdminEnrichmentPage/AdminEnrichmentPage.tsx) - Admin-only oversight of the laptop enrichment agent: liveness verdict, backlog funnel, tick EKG/charts (metrics push), eval scorecard, needs-human queue. Each queue row carries a one-click **Confirm** (validate the AI's proposal as-is → `human_decision='confirmed_correct'`), the **Correct** dialog (fix labels → `'corrected'`), and **Re-enrich**. The "confirmed correct" vs "human-corrected" outcome chip is a shared pure helper in `pages/AdminEnrichmentPage/outcomeChip.ts`
 - `/admin/users` - Admin Users (pages/AdminUsersPage/AdminUsersPage.tsx) - Admin-only user management (grant/revoke admin); roster also shows per-user engagement (Visits / Last active, sortable columns) backed by `POST /api/users/visit`
 
 **Key Algorithms:**

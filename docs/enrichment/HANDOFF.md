@@ -87,11 +87,30 @@ filter client-side, replicate it) or new-grad jobs vanish from the entry view.
 Implemented per the sketch below, plus the pieces it called out as missing:
 `POST /api/internal/enrichment/metrics` (per-tick push, idempotent on
 `tick_uuid`, stored in `enrichment_ticks`), `GET /api/admin/enrichment/*`
-(health / needs-human / ticks / recent), the correction + re-enrich actions,
-and `GET /api/internal/enrichment/corrections` so the enricher's
-`golden-merge` can turn human corrections into `label_source='human'` gold
-rows. Corrections LOCK a row against automated overwrite
+(health / needs-human / ticks / recent), the correct / **confirm** / re-enrich
+actions, and `GET /api/internal/enrichment/corrections` so the enricher's
+`golden-merge` can turn human-resolved rows into `label_source='human'` gold
+rows. Correct AND confirm both LOCK a row against automated overwrite
 (`job_enrichment.human_corrected_at`); re-enrich is the sanctioned unlock.
+
+### The human decision (`job_enrichment.human_decision`)
+
+Every needs-human row an admin resolves records a single verdict, distinct from
+the judge's (`judged` / `judge_passed`):
+- `NULL` — not yet reviewed by a human.
+- `'corrected'` — the labels were wrong; the admin fixed them via the **Correct**
+  dialog (`POST …/correct`).
+- `'confirmed_correct'` — the row was flagged, but the admin validated the AI's
+  proposal as-is via the one-click **Confirm** button (`POST …/confirm`). Confirm
+  keeps the published facets/tags untouched and refuses (409) a demoted row with
+  no proposed labels (use Correct to set them).
+
+Both decisions stamp `human_corrected_at` (the lock) and flow through the
+`/corrections` feed, which now carries a `decision` field per row. That is the
+"raised but correct" signal a future memory/learning layer wants: it can tell a
+human FIX from a flagged-but-VALIDATED label instead of treating every
+human-touched row as a correction. Re-enrich clears `human_decision` along with
+the lock.
 
 Surface these (all already available):
 - **Backlog funnel** from `/api/internal/enrichment/health` `open_by_status`

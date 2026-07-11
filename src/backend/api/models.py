@@ -1045,6 +1045,7 @@ class AdminEnrichmentNeedsHumanRow(BaseModel):
     enriched_at: datetime | None = None
     human_corrected_at: datetime | None = None
     human_corrected_by: str | None = None
+    human_decision: str | None = None        # NULL | 'corrected' | 'confirmed_correct'
 
 
 class AdminEnrichmentNeedsHumanResponse(BaseModel):
@@ -1122,6 +1123,7 @@ class AdminEnrichmentRecentRow(BaseModel):
     taxonomy_version: str | None = None
     needs_human: bool = False
     human_corrected_at: datetime | None = None
+    human_decision: str | None = None        # NULL | 'corrected' | 'confirmed_correct'
     enriched_at: datetime | None = None
 
 
@@ -1170,7 +1172,7 @@ class AdminEnrichmentCorrectionRequest(BaseModel):
 
 
 class AdminEnrichmentCorrectionResponse(BaseModel):
-    """Result of a correction/re-enrich action."""
+    """Result of a correct / confirm / re-enrich action."""
 
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
@@ -1182,3 +1184,4 @@ class AdminEnrichmentCorrectionResponse(BaseModel):
     tags: list[str] = Field(default_factory=list)
     human_corrected_at: datetime | None = None
     human_corrected_by: str | None = None
+    human_decision: str | None = None        # NULL | 'corrected' | 'confirmed_correct'

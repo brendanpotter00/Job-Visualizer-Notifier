@@ -338,10 +338,12 @@ def corrections(
     since: datetime | None = Query(default=None),
     limit: int = Query(default=500, ge=1, le=2000),
 ) -> dict[str, Any]:
-    """Human-correction feed (admin needs-human queue output). Consumed by the
+    """Human-review feed (admin needs-human queue output). Consumed by the
     enricher's ``cli golden-merge`` to upgrade matching golden-set rows to
     ``label_source='human'`` — the loop that turns admin triage into real gold
-    labels for the eval gate."""
+    labels for the eval gate. Each row's ``decision`` ('corrected' |
+    'confirmed_correct') lets the consumer tell a human fix from a
+    flagged-but-validated label (the raised-yet-correct signal)."""
     rows = list_corrections_since(conn, since=since, limit=limit)
     return {
         "corrections": [
@@ -353,6 +355,7 @@ def corrections(
                 "category": r["category"],
                 "level": r["level"],
                 "tags": r["tags"],
+                "decision": r["decision"],
                 "corrected_at": r["corrected_at"].isoformat() if r["corrected_at"] else None,
             }
             for r in rows

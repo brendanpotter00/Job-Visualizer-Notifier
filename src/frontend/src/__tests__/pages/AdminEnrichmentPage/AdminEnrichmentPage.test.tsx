@@ -162,6 +162,7 @@ const NEEDS_HUMAN_BODY = {
       enrichedAt: '2026-07-09T00:00:00Z',
       humanCorrectedAt: null,
       humanCorrectedBy: null,
+      humanDecision: null,
     },
   ],
   total: 1,
@@ -190,6 +191,7 @@ const RECENT_BODY = {
       taxonomyVersion: 'v2+abc',
       needsHuman: false,
       humanCorrectedAt: null,
+      humanDecision: null,
       enrichedAt: '2026-07-09T00:00:00Z',
     },
   ],
@@ -207,9 +209,26 @@ const FACETS_BODY = {
   ],
 };
 
-function routedFetch(overrides: { health?: unknown; reenrichStatus?: number } = {}) {
+function routedFetch(
+  overrides: {
+    health?: unknown;
+    reenrichStatus?: number;
+    confirmStatus?: number;
+    needsHumanBody?: unknown;
+    recentBody?: unknown;
+  } = {}
+) {
   return (input: unknown) => {
     const url = input instanceof Request ? input.url : String(input);
+    // Confirm POST (…/enrichment/jobs/{sourceId}/{jobListingId}/confirm). Checked
+    // before the substring routes below (none of which match ``/confirm``).
+    if (url.includes('/confirm')) {
+      const status = overrides.confirmStatus ?? 200;
+      if (status >= 400) {
+        return Promise.resolve(jsonResponse({ detail: 'Confirm failed on the backend' }, status));
+      }
+      return Promise.resolve(jsonResponse({}));
+    }
     // Re-enrich POST (…/enrichment/jobs/{sourceId}/{jobListingId}/reenrich).
     // Default success returns a 200 (identical to the catch-all fall-through);
     // a ``reenrichStatus`` >= 400 drives the failure path so the table's error
@@ -230,10 +249,10 @@ function routedFetch(overrides: { health?: unknown; reenrichStatus?: number } = 
       return Promise.resolve(jsonResponse(TICKS_BODY));
     }
     if (url.includes('/enrichment/needs-human')) {
-      return Promise.resolve(jsonResponse(NEEDS_HUMAN_BODY));
+      return Promise.resolve(jsonResponse(overrides.needsHumanBody ?? NEEDS_HUMAN_BODY));
     }
     if (url.includes('/enrichment/recent')) {
-      return Promise.resolve(jsonResponse(RECENT_BODY));
+      return Promise.resolve(jsonResponse(overrides.recentBody ?? RECENT_BODY));
     }
     if (url.includes('/jobs/facets')) {
       return Promise.resolve(jsonResponse(FACETS_BODY));
@@ -473,5 +492,72 @@ describe('AdminEnrichmentPage', () => {
       expect(posted).toBe(true);
     });
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  // ── Confirm (one-click "this is correct") ────────────────────────────────
+
+  it('confirms a queue row in one click, posting to the confirm endpoint', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    const queueTitle = await screen.findByText('Growth Marketing Lead');
+    const queueRow = queueTitle.closest('tr') as HTMLElement;
+    await user.click(within(queueRow).getByRole('button', { name: 'Confirm' }));
+
+    await waitFor(() => {
+      const posted = fetchMock.mock.calls.some((call) => {
+        const req = call[0];
+        return (
+          req instanceof Request &&
+          req.url.includes('/enrichment/jobs/greenhouse_api/j-1/confirm') &&
+          req.method === 'POST'
+        );
+      });
+      expect(posted).toBe(true);
+    });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('disables Confirm on a queue row with no proposed labels', async () => {
+    const noProposalBody = {
+      ...NEEDS_HUMAN_BODY,
+      rows: [{ ...NEEDS_HUMAN_BODY.rows[0], category: null, level: null }],
+    };
+    fetchMock.mockImplementation(routedFetch({ needsHumanBody: noProposalBody }));
+    renderPage();
+
+    const queueTitle = await screen.findByText('Growth Marketing Lead');
+    const queueRow = queueTitle.closest('tr') as HTMLElement;
+    // A demoted row can't be one-click confirmed — the human must open Correct.
+    expect(within(queueRow).getByRole('button', { name: 'Confirm' })).toBeDisabled();
+  });
+
+  it('surfaces an error Alert when a confirm fails', async () => {
+    const user = userEvent.setup();
+    fetchMock.mockImplementation(routedFetch({ confirmStatus: 500 }));
+    renderPage();
+
+    const queueTitle = await screen.findByText('Growth Marketing Lead');
+    const queueRow = queueTitle.closest('tr') as HTMLElement;
+    await user.click(within(queueRow).getByRole('button', { name: 'Confirm' }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(/Confirm failed on the backend/);
+  });
+
+  it('renders a "confirmed correct" outcome chip in the recent table', async () => {
+    const confirmedRecent = {
+      rows: [
+        {
+          ...RECENT_BODY.rows[0],
+          humanCorrectedAt: '2026-07-09T01:00:00Z',
+          humanDecision: 'confirmed_correct',
+        },
+      ],
+    };
+    fetchMock.mockImplementation(routedFetch({ recentBody: confirmedRecent }));
+    renderPage();
+
+    expect(await screen.findByText('confirmed correct')).toBeInTheDocument();
   });
 });

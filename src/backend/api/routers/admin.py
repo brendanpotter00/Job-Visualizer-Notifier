@@ -65,6 +65,7 @@ from ..services.location_admin import (
 )
 from ..services.enrichment_monitor import (
     CorrectionError,
+    apply_confirmation,
     apply_correction,
     get_admin_health,
     list_needs_human,
@@ -773,6 +774,38 @@ def admin_enrichment_correct(
         conn.rollback()
         logger.exception("Failed to apply enrichment correction")
         raise HTTPException(status_code=500, detail="Failed to apply correction")
+    return AdminEnrichmentCorrectionResponse(**result)
+
+
+@router.post(
+    "/enrichment/jobs/{source_id}/{job_id}/confirm",
+    response_model=AdminEnrichmentCorrectionResponse,
+)
+def admin_enrichment_confirm(
+    source_id: str,
+    job_id: str,
+    conn: Connection = Depends(get_db),
+    admin: TokenClaims = Depends(require_admin),
+) -> AdminEnrichmentCorrectionResponse:
+    """Confirm a needs-human row's proposal as correct in one click: keeps the
+    published facets, clears the needs-human flag, and LOCKS the row (same lock
+    as a correction) while recording human_decision='confirmed_correct' — the
+    'flagged but the AI was right' signal for the golden-merge feed. 409 for a
+    row with no proposed labels (a demoted row — use Correct), 404 for an
+    unknown job."""
+    try:
+        result = apply_confirmation(
+            conn,
+            source_id=source_id,
+            job_listing_id=job_id,
+            admin_email=admin.get("email", "unknown"),
+        )
+    except CorrectionError as exc:
+        raise HTTPException(status_code=404 if exc.not_found else 409, detail=str(exc))
+    except psycopg2.Error:
+        conn.rollback()
+        logger.exception("Failed to confirm enrichment")
+        raise HTTPException(status_code=500, detail="Failed to confirm enrichment")
     return AdminEnrichmentCorrectionResponse(**result)
 
 

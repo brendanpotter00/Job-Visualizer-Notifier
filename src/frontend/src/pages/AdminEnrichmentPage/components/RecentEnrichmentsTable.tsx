@@ -26,6 +26,7 @@ import { extractErrorMessage } from '../../../lib/errors';
 import { TABLE_SCROLL_SX } from '../../../config/responsive';
 import { format } from 'date-fns';
 import { CorrectionDialog } from './CorrectionDialog';
+import { humanOutcomeChip } from '../outcomeChip';
 
 /**
  * The last N enrichment writes — eyeball the agent's live output (labels,
@@ -86,6 +87,7 @@ export function RecentEnrichmentsTable() {
             {rows.map((row) => {
               const key = `${row.sourceId}:${row.jobListingId}`;
               const isOpen = expanded === key;
+              const outcome = humanOutcomeChip(row);
               return (
                 <Fragment key={key}>
                   <TableRow hover>
@@ -130,28 +132,12 @@ export function RecentEnrichmentsTable() {
                       {row.classifyConfidence != null ? row.classifyConfidence.toFixed(2) : '—'}
                     </TableCell>
                     <TableCell>
-                      {row.humanCorrectedAt ? (
-                        <Chip
-                          size="small"
-                          color="info"
-                          variant="outlined"
-                          label="human-corrected"
-                        />
-                      ) : row.needsHuman ? (
-                        <Chip size="small" color="warning" variant="outlined" label="needs human" />
-                      ) : (
-                        <Chip
-                          size="small"
-                          variant="outlined"
-                          label={
-                            row.judged
-                              ? row.judgePassed
-                                ? 'judge passed'
-                                : 'judge corrected'
-                              : 'unjudged'
-                          }
-                        />
-                      )}
+                      <Chip
+                        size="small"
+                        color={outcome.color}
+                        variant="outlined"
+                        label={outcome.label}
+                      />
                     </TableCell>
                     <TableCell align="right">
                       {row.enrichedAt ? format(new Date(row.enrichedAt), 'MMM d HH:mm') : '—'}
