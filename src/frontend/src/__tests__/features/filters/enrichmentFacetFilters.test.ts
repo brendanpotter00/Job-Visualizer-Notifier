@@ -33,42 +33,61 @@ const baseFilters: GraphFilters = {
   softwareOnly: false,
 };
 
-describe('matchesCategory', () => {
+describe('matchesCategory (multi-select)', () => {
   it('matches everything when no category filter is set', () => {
     expect(matchesCategory(makeJob(), undefined)).toBe(true);
+    expect(matchesCategory(makeJob(), [])).toBe(true);
     expect(matchesCategory(makeJob({ category: null }), undefined)).toBe(true);
   });
 
-  it('matches only jobs with the selected category', () => {
-    expect(matchesCategory(makeJob({ category: 'growth' }), 'growth')).toBe(true);
-    expect(matchesCategory(makeJob({ category: 'software_engineering' }), 'growth')).toBe(false);
+  it('matches only jobs whose category is in the selection (OR logic)', () => {
+    expect(matchesCategory(makeJob({ category: 'growth' }), ['growth'])).toBe(true);
+    expect(matchesCategory(makeJob({ category: 'software_engineering' }), ['growth'])).toBe(false);
+    // OR across multiple selected categories
+    expect(
+      matchesCategory(makeJob({ category: 'software_engineering' }), [
+        'growth',
+        'software_engineering',
+      ])
+    ).toBe(true);
+    expect(
+      matchesCategory(makeJob({ category: 'hardware_engineer' }), ['growth', 'software_engineering'])
+    ).toBe(false);
   });
 
-  it('excludes unenriched jobs while a category filter is active', () => {
-    expect(matchesCategory(makeJob({ category: null }), 'growth')).toBe(false);
-    expect(matchesCategory(makeJob(), 'growth')).toBe(false);
+  it('ALWAYS includes unenriched jobs while a category filter is active', () => {
+    // The enrichment pipeline lags days behind; not-yet-tagged jobs must not
+    // disappear from a filtered view.
+    expect(matchesCategory(makeJob({ category: null }), ['growth'])).toBe(true);
+    expect(matchesCategory(makeJob(), ['growth'])).toBe(true);
   });
 });
 
-describe('matchesLevel — the new_grad ⊂ entry contract', () => {
+describe('matchesLevel (multi-select) — the new_grad ⊂ entry contract', () => {
   it("selecting 'entry' also surfaces new_grad jobs (expansion)", () => {
-    expect(matchesLevel(makeJob({ level: 'entry' }), 'entry')).toBe(true);
-    expect(matchesLevel(makeJob({ level: 'new_grad' }), 'entry')).toBe(true);
+    expect(matchesLevel(makeJob({ level: 'entry' }), ['entry'])).toBe(true);
+    expect(matchesLevel(makeJob({ level: 'new_grad' }), ['entry'])).toBe(true);
   });
 
   it("selecting 'new_grad' stays exact — no upward expansion", () => {
-    expect(matchesLevel(makeJob({ level: 'new_grad' }), 'new_grad')).toBe(true);
-    expect(matchesLevel(makeJob({ level: 'entry' }), 'new_grad')).toBe(false);
+    expect(matchesLevel(makeJob({ level: 'new_grad' }), ['new_grad'])).toBe(true);
+    expect(matchesLevel(makeJob({ level: 'entry' }), ['new_grad'])).toBe(false);
+  });
+
+  it('matches across multiple selected levels (OR + per-level expansion)', () => {
+    expect(matchesLevel(makeJob({ level: 'senior' }), ['entry', 'senior'])).toBe(true);
+    expect(matchesLevel(makeJob({ level: 'new_grad' }), ['entry', 'senior'])).toBe(true);
+    expect(matchesLevel(makeJob({ level: 'mid' }), ['entry', 'senior'])).toBe(false);
   });
 
   it('other levels match exactly', () => {
-    expect(matchesLevel(makeJob({ level: 'senior' }), 'senior')).toBe(true);
-    expect(matchesLevel(makeJob({ level: 'mid' }), 'senior')).toBe(false);
+    expect(matchesLevel(makeJob({ level: 'senior' }), ['senior'])).toBe(true);
+    expect(matchesLevel(makeJob({ level: 'mid' }), ['senior'])).toBe(false);
   });
 
-  it('excludes unenriched jobs while a level filter is active', () => {
-    expect(matchesLevel(makeJob({ level: null }), 'entry')).toBe(false);
-    expect(matchesLevel(makeJob(), 'entry')).toBe(false);
+  it('ALWAYS includes unenriched jobs while a level filter is active', () => {
+    expect(matchesLevel(makeJob({ level: null }), ['entry'])).toBe(true);
+    expect(matchesLevel(makeJob(), ['entry'])).toBe(true);
   });
 });
 
@@ -80,18 +99,29 @@ describe('filterJobsByFilters with facet filters', () => {
     makeJob({ id: 'd' }), // unenriched
   ];
 
-  it('level=entry returns entry AND new_grad jobs across categories', () => {
-    const out = filterJobsByFilters(jobs, { ...baseFilters, level: 'entry' });
-    expect(out.map((j) => j.id).sort()).toEqual(['a', 'c']);
+  it('level=[entry] returns entry AND new_grad jobs, PLUS unenriched jobs', () => {
+    const out = filterJobsByFilters(jobs, { ...baseFilters, level: ['entry'] });
+    // a (new_grad) + c (entry) match; d (unenriched) is always kept; b (senior) is excluded
+    expect(out.map((j) => j.id).sort()).toEqual(['a', 'c', 'd']);
   });
 
-  it('category + level compose with AND', () => {
+  it('multi-select category returns the union, PLUS unenriched jobs', () => {
     const out = filterJobsByFilters(jobs, {
       ...baseFilters,
-      category: 'software_engineering',
-      level: 'entry',
+      category: ['software_engineering', 'growth'],
     });
-    expect(out.map((j) => j.id)).toEqual(['a']);
+    // a, b (SWE) + c (growth) match; d (unenriched) always kept
+    expect(out.map((j) => j.id).sort()).toEqual(['a', 'b', 'c', 'd']);
+  });
+
+  it('category + level compose with AND (still keeping unenriched jobs)', () => {
+    const out = filterJobsByFilters(jobs, {
+      ...baseFilters,
+      category: ['software_engineering'],
+      level: ['entry'],
+    });
+    // a matches both facets; d is unenriched so it passes both; b/c fail one facet
+    expect(out.map((j) => j.id).sort()).toEqual(['a', 'd']);
   });
 
   it('no facet filters -> unenriched jobs still flow through', () => {
@@ -100,18 +130,24 @@ describe('filterJobsByFilters with facet filters', () => {
   });
 });
 
-describe('graphFilters slice facet actions', () => {
-  it('sets and clears category/level (undefined = All)', () => {
-    let state = graphFiltersReducer(undefined, setGraphCategory('growth'));
-    expect(state.filters.category).toBe('growth');
-    state = graphFiltersReducer(state, setGraphLevel('entry'));
-    expect(state.filters.level).toBe('entry');
-    state = graphFiltersReducer(state, setGraphCategory(undefined));
+describe('graphFilters slice facet actions (multi-select)', () => {
+  it('sets category/level to slug arrays', () => {
+    let state = graphFiltersReducer(undefined, setGraphCategory(['growth']));
+    expect(state.filters.category).toEqual(['growth']);
+    state = graphFiltersReducer(state, setGraphLevel(['entry', 'senior']));
+    expect(state.filters.level).toEqual(['entry', 'senior']);
+  });
+
+  it('normalizes an empty selection (and undefined) back to undefined = All', () => {
+    let state = graphFiltersReducer(undefined, setGraphCategory(['growth']));
+    state = graphFiltersReducer(state, setGraphCategory([]));
     expect(state.filters.category).toBeUndefined();
+    state = graphFiltersReducer(state, setGraphLevel(undefined));
+    expect(state.filters.level).toBeUndefined();
   });
 
   it('facet edits mark the slice user-modified (hydration guard)', () => {
-    const state = graphFiltersReducer(undefined, setGraphLevel('mid'));
+    const state = graphFiltersReducer(undefined, setGraphLevel(['mid']));
     expect(state.userModified).toBe(true);
   });
 });

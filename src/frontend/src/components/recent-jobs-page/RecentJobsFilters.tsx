@@ -23,7 +23,7 @@ import {
 } from '../../features/filters/selectors/recentJobsSelectors.ts';
 import { useGetFacetsQuery } from '../../features/jobs/jobsApi.ts';
 import { FALLBACK_CATEGORIES, FALLBACK_LEVELS } from '../../constants/enrichment.ts';
-import { FacetSelect } from '../shared/filters/FacetSelect.tsx';
+import { FacetMultiSelect } from '../shared/filters/FacetMultiSelect.tsx';
 import { KeywordFilterInput } from '../shared/filters/KeywordFilterInput.tsx';
 import { TimeWindowSelect } from '../shared/filters/TimeWindowSelect.tsx';
 import { MultiSelectAutocomplete } from '../shared/filters/MultiSelectAutocomplete.tsx';
@@ -140,19 +140,19 @@ export function RecentJobsFilters() {
             onRemove={(loc) => dispatch(removeRecentJobsLocation(loc))}
           />
 
-          <FacetSelect
+          <FacetMultiSelect
             label="Category"
             options={categoryOptions}
             value={filters.category}
-            onChange={(slug) => dispatch(setRecentJobsCategory(slug))}
-            tooltip="AI-enriched job category. Only enriched jobs match while a category is selected."
+            onChange={(slugs) => dispatch(setRecentJobsCategory(slugs))}
+            tooltip="AI-enriched job category (choose any number). Jobs not yet enriched still appear."
           />
-          <FacetSelect
+          <FacetMultiSelect
             label="Level"
             options={levelOptions}
             value={filters.level}
-            onChange={(slug) => dispatch(setRecentJobsLevel(slug))}
-            tooltip="Entry includes New Grad roles. Only enriched jobs match while a level is selected."
+            onChange={(slugs) => dispatch(setRecentJobsLevel(slugs))}
+            tooltip="Choose any number; Entry also includes New Grad. Jobs not yet enriched still appear."
           />
         </Stack>
 
