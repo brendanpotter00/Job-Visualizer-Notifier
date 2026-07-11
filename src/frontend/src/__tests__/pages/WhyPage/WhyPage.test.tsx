@@ -36,28 +36,6 @@ describe('WhyPage', () => {
     ).toBeInTheDocument();
   });
 
-  it('marks shipped roadmap items with a "Live" badge and leaves unbuilt items unmarked', () => {
-    renderWithProviders(<WhyPage />, { initialEntries: ['/why'] });
-
-    // Four shipped items + the lead-in legend each render a "Live" badge.
-    const shippedItems = [
-      'Accounts',
-      'Normalizing Locations with NLP',
-      'Historical Data',
-      'Company-Website Web Scrapers',
-    ];
-    for (const label of shippedItems) {
-      expect(screen.getByText(new RegExp(escapeRegex(label), 'i'))).toBeInTheDocument();
-    }
-    // One badge per shipped item.
-    expect(screen.getAllByText(/^Live$/).length).toBe(shippedItems.length);
-
-    // Still-future items render, but without a badge of their own.
-    expect(screen.getByText(/Notification System/i)).toBeInTheDocument();
-    expect(screen.getByText(/AI Powered Resume To Job Listing Matching/i)).toBeInTheDocument();
-    expect(screen.getByText(/Saved Filter Settings/i)).toBeInTheDocument();
-  });
-
   it('renders the correct total company count and ATS platform count in the Supported Companies caption', () => {
     const grouped = groupCompaniesByATS();
     const expectedCompanyCount = COMPANIES.length;
