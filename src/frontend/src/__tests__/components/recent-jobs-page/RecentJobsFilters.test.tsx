@@ -1,10 +1,26 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders, createTestStore } from '../../../test/testUtils';
 import { RecentJobsFilters } from '../../../components/recent-jobs-page/RecentJobsFilters';
 import { jobsApi } from '../../../features/jobs/jobsApi';
 import type { Job } from '../../../types';
+
+const { searchMock } = vi.hoisted(() => ({ searchMock: vi.fn() }));
+
+// The Location control is the server-backed AsyncMultiSelectAutocomplete; keep
+// the real `locationsApi` object (store wiring needs its reducer/middleware)
+// but override the hook so option-selection tests don't depend on a real
+// network round-trip.
+vi.mock('../../../features/locations/locationsApi', async (importActual) => {
+  const actual = await importActual<typeof import('../../../features/locations/locationsApi')>();
+  return { ...actual, useSearchLocationsQuery: (...args: unknown[]) => searchMock(...args) };
+});
+
+beforeEach(() => {
+  searchMock.mockReset();
+  searchMock.mockReturnValue({ data: [], isFetching: false, isError: false, error: undefined });
+});
 
 // getAllJobs has an onCacheEntryAdded side effect that iterates ALL companies
 // and fetches via getClientForATS (non-backend-scraper) and
@@ -224,11 +240,38 @@ describe('RecentJobsFilters', () => {
   });
 
   it('dispatches addRecentJobsLocation when location option selected', async () => {
+    // The Location control sources its options from the server-backed search
+    // hook, not from loaded jobs — mock it with a couple of canned rows.
+    searchMock.mockReturnValue({
+      data: [
+        {
+          id: 1,
+          canonicalName: 'Hawthorne, CA, US',
+          kind: 'city',
+          city: 'Hawthorne',
+          region: 'CA',
+          country: 'US',
+          remoteScope: null,
+        },
+        {
+          id: 2,
+          canonicalName: 'Remote (US)',
+          kind: 'remote',
+          city: null,
+          region: null,
+          country: 'US',
+          remoteScope: 'us',
+        },
+      ],
+      isFetching: false,
+      isError: false,
+      error: undefined,
+    });
     const store = await seedRecentStore();
     const user = userEvent.setup();
     renderWithProviders(<RecentJobsFilters />, { store });
 
-    const locationInput = screen.getByPlaceholderText('Select location...');
+    const locationInput = screen.getByPlaceholderText('Search location...');
     await user.click(locationInput);
     const listbox = await screen.findByRole('listbox');
     const firstOption = within(listbox).getAllByRole('option')[0];

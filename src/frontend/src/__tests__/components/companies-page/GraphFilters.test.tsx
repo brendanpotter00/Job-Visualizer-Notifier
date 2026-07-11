@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders, createTestStore } from '../../../test/testUtils';
@@ -6,6 +6,22 @@ import { GraphFilters } from '../../../components/companies-page/GraphFilters';
 import { jobsApi } from '../../../features/jobs/jobsApi';
 import { ATSConstants } from '../../../api/types';
 import type { Job } from '../../../types';
+
+const { searchMock } = vi.hoisted(() => ({ searchMock: vi.fn() }));
+
+// The Location control is the server-backed AsyncMultiSelectAutocomplete; keep
+// the real `locationsApi` object (store wiring needs its reducer/middleware)
+// but override the hook so option-selection tests don't depend on a real
+// network round-trip.
+vi.mock('../../../features/locations/locationsApi', async (importActual) => {
+  const actual = await importActual<typeof import('../../../features/locations/locationsApi')>();
+  return { ...actual, useSearchLocationsQuery: (...args: unknown[]) => searchMock(...args) };
+});
+
+beforeEach(() => {
+  searchMock.mockReset();
+  searchMock.mockReturnValue({ data: [], isFetching: false, isError: false, error: undefined });
+});
 
 const seededJobs: Job[] = [
   {
@@ -91,7 +107,7 @@ describe('GraphFilters', () => {
     expect(screen.getAllByText('Department').length).toBeGreaterThan(0);
   });
 
-  it('does NOT render Location control when availableLocations is empty', async () => {
+  it('renders Location control unconditionally, even when no job has location data', async () => {
     const jobsNoLocation: Job[] = [
       {
         id: 'x1',
@@ -107,7 +123,10 @@ describe('GraphFilters', () => {
     const store = await seedStore(jobsNoLocation);
     renderWithProviders(<GraphFilters />, { store });
 
-    expect(screen.queryByText('Location')).not.toBeInTheDocument();
+    // Unlike Department (still gated on availableDepartments), Location is the
+    // server-backed AsyncMultiSelectAutocomplete: it doesn't depend on any
+    // locally-derived "available locations" set, so it always renders.
+    expect(screen.getByPlaceholderText('Search location...')).toBeInTheDocument();
     expect(screen.getAllByText('Department').length).toBeGreaterThan(0);
   });
 
@@ -239,15 +258,41 @@ describe('GraphFilters', () => {
   });
 
   it('dispatches addGraphLocation when location option selected', async () => {
+    // The Location control sources its options from the server-backed search
+    // hook, not from loaded jobs — mock it with a couple of canned rows.
+    searchMock.mockReturnValue({
+      data: [
+        {
+          id: 1,
+          canonicalName: 'Hawthorne, CA, US',
+          kind: 'city',
+          city: 'Hawthorne',
+          region: 'CA',
+          country: 'US',
+          remoteScope: null,
+        },
+        {
+          id: 2,
+          canonicalName: 'Remote (US)',
+          kind: 'remote',
+          city: null,
+          region: null,
+          country: 'US',
+          remoteScope: 'us',
+        },
+      ],
+      isFetching: false,
+      isError: false,
+      error: undefined,
+    });
     const store = await seedStore();
     const user = userEvent.setup();
     renderWithProviders(<GraphFilters />, { store });
 
-    // Find the Location autocomplete by its text-input placeholder.
-    const locationInput = screen.getByPlaceholderText('Select location...');
+    // Find the Location autocomplete by its (async) text-input placeholder.
+    const locationInput = screen.getByPlaceholderText('Search location...');
     await user.click(locationInput);
     const listbox = await screen.findByRole('listbox');
-    // Click the first non-US meta option. 'Hawthorne, CA' and 'Remote' are available.
     const options = within(listbox).getAllByRole('option');
     const firstOption = options[0];
     expect(firstOption).toBeDefined();
