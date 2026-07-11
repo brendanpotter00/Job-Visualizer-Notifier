@@ -13,11 +13,14 @@ import TableHead from '@mui/material/TableHead';
 import TablePagination from '@mui/material/TablePagination';
 import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
+import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import {
   useListEnrichmentNeedsHumanQuery,
+  useConfirmEnrichmentMutation,
   useReenrichEnrichmentJobMutation,
   type EnrichmentNeedsHumanRow,
 } from '../../../features/admin/adminApi';
@@ -57,6 +60,7 @@ export function NeedsHumanTable() {
     null
   );
   const [reenrichError, setReenrichError] = useState<string | null>(null);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
 
   const { data: facets } = useGetFacetsQuery();
   const { data, isLoading, error, refetch } = useListEnrichmentNeedsHumanQuery({
@@ -67,6 +71,7 @@ export function NeedsHumanTable() {
     level,
   });
   const [reenrich, { isLoading: reenriching }] = useReenrichEnrichmentJobMutation();
+  const [confirm, { isLoading: confirming }] = useConfirmEnrichmentMutation();
 
   const rowKey = (row: EnrichmentNeedsHumanRow) => `${row.sourceId}:${row.jobListingId}`;
 
@@ -106,6 +111,12 @@ export function NeedsHumanTable() {
       {reenrichError && (
         <Alert severity="error" onClose={() => setReenrichError(null)} sx={{ mb: 2 }}>
           {reenrichError}
+        </Alert>
+      )}
+
+      {confirmError && (
+        <Alert severity="error" onClose={() => setConfirmError(null)} sx={{ mb: 2 }}>
+          {confirmError}
         </Alert>
       )}
 
@@ -176,6 +187,41 @@ export function NeedsHumanTable() {
                           {row.enrichedAt ? format(new Date(row.enrichedAt), 'MMM d HH:mm') : '—'}
                         </TableCell>
                         <TableCell align="right">
+                          <Tooltip
+                            title={
+                              row.category == null
+                                ? 'No proposed labels — use Correct to set them'
+                                : ''
+                            }
+                          >
+                            {/* span wrapper: a disabled MUI button swallows the
+                                events the Tooltip needs to fire. */}
+                            <span>
+                              <Button
+                                size="small"
+                                color="success"
+                                startIcon={<CheckCircleOutlineIcon />}
+                                disabled={confirming || row.category == null}
+                                onClick={async () => {
+                                  // Mirror the Correct/Re-enrich flows: surface a
+                                  // failed confirm instead of failing silently.
+                                  setConfirmError(null);
+                                  try {
+                                    await confirm({
+                                      sourceId: row.sourceId,
+                                      jobListingId: row.jobListingId,
+                                    }).unwrap();
+                                  } catch (e) {
+                                    setConfirmError(
+                                      extractErrorMessage(e, 'Failed to confirm this row')
+                                    );
+                                  }
+                                }}
+                              >
+                                Confirm
+                              </Button>
+                            </span>
+                          </Tooltip>
                           <Button size="small" onClick={() => setCorrecting(row)}>
                             Correct
                           </Button>

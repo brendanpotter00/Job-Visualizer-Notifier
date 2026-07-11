@@ -199,7 +199,8 @@ _NEEDS_HUMAN_COLUMNS = (
     "  AND job_tags.job_listing_id = je.job_listing_id), '[]'::json) AS tags, "
     "je.clean_description, je.classify_confidence, je.classify_reasoning, "
     "je.taxonomy_version, je.judged, je.judge_passed, je.judge_confidence, "
-    "je.judge_notes, je.enriched_at, je.human_corrected_at, je.human_corrected_by"
+    "je.judge_notes, je.enriched_at, je.human_corrected_at, je.human_corrected_by, "
+    "je.human_decision"
 )
 
 
@@ -318,7 +319,7 @@ def list_recent(conn: Connection, limit: int = 25) -> list[dict[str, Any]]:
             "  AND job_tags.job_listing_id = je.job_listing_id), '[]'::json) AS tags, "
             "je.classify_confidence, je.classify_reasoning, je.judged, je.judge_passed, "
             "je.judge_confidence, je.judge_notes, je.taxonomy_version, je.needs_human, "
-            "je.human_corrected_at, je.enriched_at "
+            "je.human_corrected_at, je.human_decision, je.enriched_at "
             "FROM job_enrichment je "
             "JOIN job_listings jl ON jl.source_id = je.source_id AND jl.id = je.job_listing_id "
             "ORDER BY je.enriched_at DESC LIMIT %s",
@@ -398,11 +399,13 @@ def apply_correction(
         )
         cur.execute(
             "INSERT INTO job_enrichment (source_id, job_listing_id, needs_human, "
-            "human_corrected_at, human_corrected_by, judge_notes) "
-            "VALUES (%s, %s, false, now(), %s, CASE WHEN %s::text IS NULL THEN NULL "
+            "human_corrected_at, human_corrected_by, human_decision, judge_notes) "
+            "VALUES (%s, %s, false, now(), %s, 'corrected', "
+            "CASE WHEN %s::text IS NULL THEN NULL "
             "ELSE '[human] ' || %s::text END) "
             "ON CONFLICT (source_id, job_listing_id) DO UPDATE SET "
             "needs_human = false, human_corrected_at = now(), human_corrected_by = %s, "
+            "human_decision = 'corrected', "
             f"judge_notes = {note_sql}",
             (
                 source_id, job_listing_id, admin_email, note, note,
@@ -411,7 +414,8 @@ def apply_correction(
         )
         cur.execute(
             "SELECT jl.enrichment_status, jl.enrichment_category AS category, "
-            "jl.enrichment_level AS level, je.human_corrected_at, je.human_corrected_by "
+            "jl.enrichment_level AS level, je.human_corrected_at, je.human_corrected_by, "
+            "je.human_decision "
             "FROM job_listings jl "
             "JOIN job_enrichment je ON je.source_id = jl.source_id AND je.job_listing_id = jl.id "
             "WHERE jl.source_id = %s AND jl.id = %s",
@@ -428,6 +432,89 @@ def apply_correction(
             "tags": tags,
             "human_corrected_at": row["human_corrected_at"],
             "human_corrected_by": row["human_corrected_by"],
+            "human_decision": row["human_decision"],
+        }
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+
+
+def apply_confirmation(
+    conn: Connection,
+    *,
+    source_id: str,
+    job_listing_id: str,
+    admin_email: str,
+) -> dict[str, Any]:
+    """Confirm a needs-human row's proposal as correct WITHOUT changing labels —
+    the one-click "this is right" action. Keeps the enricher's published facets,
+    clears needs_human, and stamps human_corrected_at/by + human_decision=
+    'confirmed_correct'. That stamp locks the row exactly like a correction (the
+    writer's guard keys on human_corrected_at) and records, for the golden-merge
+    feed, that a flagged row was VALIDATED rather than fixed. Refuses (409) a row
+    with no published facets — a demoted needs_human row has NULL facets, so
+    there is nothing to validate; the human must use Correct to set them. Owns
+    commit/rollback (apply_correction convention)."""
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "SELECT enrichment_category FROM job_listings "
+            "WHERE source_id = %s AND id = %s",
+            (source_id, job_listing_id),
+        )
+        current = cur.fetchone()
+        if current is None:
+            raise CorrectionError(
+                f"no job_listings row for (source_id={source_id!r}, id={job_listing_id!r})",
+                not_found=True,
+            )
+        if current["enrichment_category"] is None:
+            raise CorrectionError(
+                "no proposed labels to confirm — use Correct to set them"
+            )
+        # Facets/tags are left exactly as the enricher published them; we only
+        # promote the lifecycle to 'done' (a flag-off needs_human row is already
+        # 'done', but be explicit) and clear any stale claim stamp.
+        cur.execute(
+            "UPDATE job_listings SET enrichment_status = 'done', "
+            "enrichment_claimed_at = NULL WHERE source_id = %s AND id = %s",
+            (source_id, job_listing_id),
+        )
+        cur.execute(
+            "INSERT INTO job_enrichment (source_id, job_listing_id, needs_human, "
+            "human_corrected_at, human_corrected_by, human_decision) "
+            "VALUES (%s, %s, false, now(), %s, 'confirmed_correct') "
+            "ON CONFLICT (source_id, job_listing_id) DO UPDATE SET "
+            "needs_human = false, human_corrected_at = now(), "
+            "human_corrected_by = %s, human_decision = 'confirmed_correct'",
+            (source_id, job_listing_id, admin_email, admin_email),
+        )
+        cur.execute(
+            "SELECT jl.enrichment_status, jl.enrichment_category AS category, "
+            "jl.enrichment_level AS level, "
+            "COALESCE((SELECT json_agg(tag ORDER BY tag) FROM job_tags "
+            "  WHERE job_tags.source_id = jl.source_id "
+            "  AND job_tags.job_listing_id = jl.id), '[]'::json) AS tags, "
+            "je.human_corrected_at, je.human_corrected_by, je.human_decision "
+            "FROM job_listings jl "
+            "JOIN job_enrichment je ON je.source_id = jl.source_id AND je.job_listing_id = jl.id "
+            "WHERE jl.source_id = %s AND jl.id = %s",
+            (source_id, job_listing_id),
+        )
+        row = cur.fetchone()
+        conn.commit()
+        return {
+            "source_id": source_id,
+            "job_listing_id": job_listing_id,
+            "enrichment_status": row["enrichment_status"],
+            "category": row["category"],
+            "level": row["level"],
+            "tags": row["tags"],
+            "human_corrected_at": row["human_corrected_at"],
+            "human_corrected_by": row["human_corrected_by"],
+            "human_decision": row["human_decision"],
         }
     except Exception:
         conn.rollback()
@@ -463,7 +550,8 @@ def request_reenrich(
         )
         cur.execute(
             "UPDATE job_enrichment SET needs_human = false, "
-            "human_corrected_at = NULL, human_corrected_by = NULL "
+            "human_corrected_at = NULL, human_corrected_by = NULL, "
+            "human_decision = NULL "
             "WHERE source_id = %s AND job_listing_id = %s",
             (source_id, job_listing_id),
         )
@@ -477,6 +565,7 @@ def request_reenrich(
             "tags": [],
             "human_corrected_at": None,
             "human_corrected_by": None,
+            "human_decision": None,
         }
     except Exception:
         conn.rollback()
@@ -488,9 +577,13 @@ def request_reenrich(
 def list_corrections_since(
     conn: Connection, *, since: datetime | None, limit: int = 500
 ) -> list[dict[str, Any]]:
-    """Human corrections feed for the enricher's ``cli golden-merge`` — admin
-    labels become ``label_source='human'`` gold rows, closing the loop between
-    the needs-human queue and the eval harness."""
+    """Human-review feed for the enricher's ``cli golden-merge`` — admin-resolved
+    rows become ``label_source='human'`` gold rows, closing the loop between the
+    needs-human queue and the eval harness. Each row carries ``decision``
+    ('corrected' | 'confirmed_correct') so the consumer can weight a fixed label
+    differently from a flagged-but-validated one (the raised-yet-correct signal
+    a future memory layer wants). Both decisions set human_corrected_at, so both
+    flow through this feed."""
     conditions = ["je.human_corrected_at IS NOT NULL"]
     params: list[Any] = []
     if since is not None:
@@ -504,7 +597,7 @@ def list_corrections_since(
             "COALESCE((SELECT json_agg(tag ORDER BY tag) FROM job_tags "
             "  WHERE job_tags.source_id = je.source_id "
             "  AND job_tags.job_listing_id = je.job_listing_id), '[]'::json) AS tags, "
-            "je.human_corrected_at AS corrected_at "
+            "je.human_corrected_at AS corrected_at, je.human_decision AS decision "
             "FROM job_enrichment je "
             "JOIN job_listings jl ON jl.source_id = je.source_id AND jl.id = je.job_listing_id "
             f"WHERE {' AND '.join(conditions)} "

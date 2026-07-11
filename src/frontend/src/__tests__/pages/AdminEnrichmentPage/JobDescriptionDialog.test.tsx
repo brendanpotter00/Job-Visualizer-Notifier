@@ -28,6 +28,7 @@ const BASE_ROW: EnrichmentNeedsHumanRow = {
   enrichedAt: '2026-07-09T00:00:00Z',
   humanCorrectedAt: null,
   humanCorrectedBy: null,
+  humanDecision: null,
 };
 
 function makeRow(overrides: Partial<EnrichmentNeedsHumanRow> = {}): EnrichmentNeedsHumanRow {

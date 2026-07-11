@@ -1508,6 +1508,7 @@ class TestCorrectionsFeed:
         assert c["category"] == "growth" and c["level"] == "mid"
         assert c["tags"] == ["go", "sql"]
         assert c["corrected_at"] is not None
+        assert c["decision"] == "corrected"
 
         # since= strictly after the correction -> empty again
         resp = enrichment_client.get(
@@ -1515,6 +1516,37 @@ class TestCorrectionsFeed:
             params={"since": "2100-01-01T00:00:00Z"},
         )
         assert resp.json()["count"] == 0
+
+    def test_confirmation_appears_in_feed_with_decision(self, enrichment_client, db_conn):
+        """A confirmed-correct row also flows to the golden-merge feed, tagged
+        so the enricher can weight a validated raise apart from a fix."""
+        from api.services.enrichment_monitor import apply_confirmation
+
+        _insert_job(db_conn, _make_job({
+            "id": "conf-1", "source_id": "src-a",
+            "details": json.dumps({"description_html": "<p>x</p>"}),
+        }))
+        cur = db_conn.cursor()
+        # Publish a proposal so there is something to confirm.
+        cur.execute(
+            "UPDATE job_listings SET enrichment_category='growth', "
+            "enrichment_level='mid', enrichment_status='done' "
+            "WHERE source_id='src-a' AND id='conf-1'"
+        )
+        cur.execute(
+            "INSERT INTO job_enrichment (source_id, job_listing_id, needs_human) "
+            "VALUES ('src-a', 'conf-1', true)"
+        )
+        db_conn.commit()
+        apply_confirmation(
+            db_conn, source_id="src-a", job_listing_id="conf-1", admin_email="admin@test",
+        )
+        body = enrichment_client.get("/api/internal/enrichment/corrections").json()
+        assert body["count"] == 1
+        c = body["corrections"][0]
+        assert c["job_listing_id"] == "conf-1"
+        assert c["decision"] == "confirmed_correct"
+        assert c["category"] == "growth" and c["level"] == "mid"
 
 
 class TestHealthAdditions:

@@ -336,6 +336,8 @@ export interface EnrichmentNeedsHumanRow {
   enrichedAt: string | null;
   humanCorrectedAt: string | null;
   humanCorrectedBy: string | null;
+  /** NULL not reviewed | 'corrected' | 'confirmed_correct'. */
+  humanDecision: string | null;
 }
 
 export interface EnrichmentNeedsHumanResponse {
@@ -407,6 +409,8 @@ export interface EnrichmentRecentRow {
   taxonomyVersion: string | null;
   needsHuman: boolean;
   humanCorrectedAt: string | null;
+  /** NULL not reviewed | 'corrected' | 'confirmed_correct'. */
+  humanDecision: string | null;
   enrichedAt: string | null;
 }
 
@@ -428,6 +432,8 @@ export interface EnrichmentCorrectionResult {
   tags: string[];
   humanCorrectedAt: string | null;
   humanCorrectedBy: string | null;
+  /** NULL not reviewed | 'corrected' | 'confirmed_correct'. */
+  humanDecision: string | null;
 }
 
 export const adminApi = createApi({
@@ -1246,6 +1252,20 @@ export const adminApi = createApi({
       invalidatesTags: ['EnrichmentNeedsHuman', 'EnrichmentHealth', 'EnrichmentRecent'],
     }),
 
+    // One-click "this is correct": keeps the enricher's proposed labels, clears
+    // needs-human, and stamps human_decision='confirmed_correct'. No body — the
+    // whole point is zero friction versus the Correct dialog.
+    confirmEnrichment: builder.mutation<
+      EnrichmentCorrectionResult,
+      { sourceId: string; jobListingId: string }
+    >({
+      query: ({ sourceId, jobListingId }) => ({
+        url: `/enrichment/jobs/${encodeURIComponent(sourceId)}/${encodeURIComponent(jobListingId)}/confirm`,
+        method: 'POST',
+      }),
+      invalidatesTags: ['EnrichmentNeedsHuman', 'EnrichmentHealth', 'EnrichmentRecent'],
+    }),
+
     reenrichEnrichmentJob: builder.mutation<
       EnrichmentCorrectionResult,
       { sourceId: string; jobListingId: string }
@@ -1279,5 +1299,6 @@ export const {
   useGetEnrichmentTicksQuery,
   useGetEnrichmentRecentQuery,
   useCorrectEnrichmentMutation,
+  useConfirmEnrichmentMutation,
   useReenrichEnrichmentJobMutation,
 } = adminApi;
