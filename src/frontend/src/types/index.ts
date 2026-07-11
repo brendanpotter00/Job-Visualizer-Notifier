@@ -227,10 +227,10 @@ export interface GraphFilters {
   department?: string[];
   employmentType?: string;
   softwareOnly: boolean;
-  /** Enrichment category slug filter (single-select; undefined = All). */
-  category?: string;
-  /** Enrichment level slug filter; 'entry' also matches new_grad jobs. */
-  level?: string;
+  /** Enrichment category slugs (multi-select OR; empty/undefined = All). Jobs not yet enriched (category null) are always shown. */
+  category?: string[];
+  /** Enrichment level slugs (multi-select OR; 'entry' also matches new_grad). Jobs not yet enriched (level null) are always shown. */
+  level?: string[];
 }
 
 /**
@@ -247,10 +247,10 @@ export interface ListFilters {
   department?: string[];
   employmentType?: string;
   softwareOnly: boolean;
-  /** Enrichment category slug filter (single-select; undefined = All). */
-  category?: string;
-  /** Enrichment level slug filter; 'entry' also matches new_grad jobs. */
-  level?: string;
+  /** Enrichment category slugs (multi-select OR; empty/undefined = All). Jobs not yet enriched (category null) are always shown. */
+  category?: string[];
+  /** Enrichment level slugs (multi-select OR; 'entry' also matches new_grad). Jobs not yet enriched (level null) are always shown. */
+  level?: string[];
 }
 
 /**
@@ -264,10 +264,10 @@ export interface RecentJobsFilters {
   employmentType?: string;
   softwareOnly: boolean;
   company?: string[];
-  /** Enrichment category slug filter (single-select; undefined = All). */
-  category?: string;
-  /** Enrichment level slug filter; 'entry' also matches new_grad jobs. */
-  level?: string;
+  /** Enrichment category slugs (multi-select OR; empty/undefined = All). Jobs not yet enriched (category null) are always shown. */
+  category?: string[];
+  /** Enrichment level slugs (multi-select OR; 'entry' also matches new_grad). Jobs not yet enriched (level null) are always shown. */
+  level?: string[];
 }
 
 /**

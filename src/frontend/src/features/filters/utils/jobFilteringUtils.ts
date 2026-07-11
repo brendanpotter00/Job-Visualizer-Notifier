@@ -262,33 +262,40 @@ export function matchesEmploymentType(job: Job, employmentType: string | undefin
 }
 
 /**
- * Check if a job matches the enrichment category filter. An active filter
- * matches only ENRICHED jobs with that category — unenriched jobs (category
- * null) are intentionally excluded: the filter means "show me jobs known to
- * be X", and early in the rollout most jobs are not yet enriched.
+ * Check if a job matches the enrichment category filter (multi-select, OR
+ * logic). An empty/undefined selection means "All". Unenriched jobs
+ * (category null) are ALWAYS shown even while a filter is active: the AI
+ * enrichment pipeline takes days to work through the backlog, so hiding
+ * not-yet-tagged jobs would make users miss perfectly good postings. The
+ * filter therefore only narrows among jobs that HAVE a category.
  */
-export function matchesCategory(job: Job, category: string | undefined): boolean {
-  if (!category) {
+export function matchesCategory(job: Job, categories: string[] | undefined): boolean {
+  if (!categories || categories.length === 0) {
     return true;
   }
-  return job.category === category;
+  if (job.category == null) {
+    return true;
+  }
+  return categories.includes(job.category);
 }
 
 /**
- * Check if a job matches the enrichment level filter, honoring the
- * new_grad ⊂ entry hierarchy: selecting 'entry' also surfaces new-grad jobs
- * (the server's _LEVEL_FILTER_EXPANSION mirrored client-side — the HANDOFF's
- * load-bearing contract; without it new-grad jobs vanish from the entry view).
+ * Check if a job matches the enrichment level filter (multi-select, OR logic),
+ * honoring the new_grad ⊂ entry hierarchy: selecting 'entry' also surfaces
+ * new-grad jobs (the server's _LEVEL_FILTER_EXPANSION mirrored client-side —
+ * the HANDOFF's load-bearing contract; without it new-grad jobs vanish from
+ * the entry view). Like the category filter, unenriched jobs (level null) are
+ * ALWAYS shown; the filter only narrows among jobs that HAVE a level.
  */
-export function matchesLevel(job: Job, level: string | undefined): boolean {
-  if (!level) {
+export function matchesLevel(job: Job, levels: string[] | undefined): boolean {
+  if (!levels || levels.length === 0) {
     return true;
   }
   if (job.level == null) {
-    return false;
+    return true;
   }
-  const expanded = LEVEL_FILTER_EXPANSION[level] ?? [level];
-  return expanded.includes(job.level);
+  const jobLevel = job.level;
+  return levels.some((level) => (LEVEL_FILTER_EXPANSION[level] ?? [level]).includes(jobLevel));
 }
 
 /**
@@ -341,7 +348,8 @@ export function filterJobsByFilters(
       return false;
     }
 
-    // Enrichment facet filters (single-select; every filter shape owns both)
+    // Enrichment facet filters (multi-select OR; every filter shape owns both).
+    // Unenriched jobs pass both — they're never hidden by an active facet.
     if (!matchesCategory(job, filters.category)) {
       return false;
     }
