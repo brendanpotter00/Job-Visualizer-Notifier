@@ -58,11 +58,11 @@ describe('matchesCategory (multi-select)', () => {
     ).toBe(false);
   });
 
-  it('ALWAYS includes unenriched jobs while a category filter is active', () => {
-    // The enrichment pipeline lags days behind; not-yet-tagged jobs must not
-    // disappear from a filtered view.
-    expect(matchesCategory(makeJob({ category: null }), ['growth'])).toBe(true);
-    expect(matchesCategory(makeJob(), ['growth'])).toBe(true);
+  it('hides unenriched jobs once a category filter is active', () => {
+    // A filter must actually narrow the results; a not-yet-tagged job doesn't
+    // match any selected category, so it's hidden like any other non-match.
+    expect(matchesCategory(makeJob({ category: null }), ['growth'])).toBe(false);
+    expect(matchesCategory(makeJob(), ['growth'])).toBe(false);
   });
 });
 
@@ -97,9 +97,9 @@ describe('matchesLevel (multi-select) — the new_grad ⊂ entry contract', () =
     expect(matchesLevel(makeJob({ level: 'mid' }), ['senior'])).toBe(false);
   });
 
-  it('ALWAYS includes unenriched jobs while a level filter is active', () => {
-    expect(matchesLevel(makeJob({ level: null }), ['entry'])).toBe(true);
-    expect(matchesLevel(makeJob(), ['entry'])).toBe(true);
+  it('hides unenriched jobs once a level filter is active', () => {
+    expect(matchesLevel(makeJob({ level: null }), ['entry'])).toBe(false);
+    expect(matchesLevel(makeJob(), ['entry'])).toBe(false);
   });
 });
 
@@ -111,29 +111,29 @@ describe('filterJobsByFilters with facet filters', () => {
     makeJob({ id: 'd' }), // unenriched
   ];
 
-  it('level=[entry] returns entry AND new_grad jobs, PLUS unenriched jobs', () => {
+  it('level=[entry] returns entry AND new_grad jobs, excluding unenriched jobs', () => {
     const out = filterJobsByFilters(jobs, { ...baseFilters, level: ['entry'] });
-    // a (new_grad) + c (entry) match; d (unenriched) is always kept; b (senior) is excluded
-    expect(out.map((j) => j.id).sort()).toEqual(['a', 'c', 'd']);
+    // a (new_grad) + c (entry) match; d (unenriched) and b (senior) are excluded
+    expect(out.map((j) => j.id).sort()).toEqual(['a', 'c']);
   });
 
-  it('multi-select category returns the union, PLUS unenriched jobs', () => {
+  it('multi-select category returns the union, excluding unenriched jobs', () => {
     const out = filterJobsByFilters(jobs, {
       ...baseFilters,
       category: ['software_engineering', 'growth'],
     });
-    // a, b (SWE) + c (growth) match; d (unenriched) always kept
-    expect(out.map((j) => j.id).sort()).toEqual(['a', 'b', 'c', 'd']);
+    // a, b (SWE) + c (growth) match; d (unenriched) is excluded
+    expect(out.map((j) => j.id).sort()).toEqual(['a', 'b', 'c']);
   });
 
-  it('category + level compose with AND (still keeping unenriched jobs)', () => {
+  it('category + level compose with AND (still excluding unenriched jobs)', () => {
     const out = filterJobsByFilters(jobs, {
       ...baseFilters,
       category: ['software_engineering'],
       level: ['entry'],
     });
-    // a matches both facets; d is unenriched so it passes both; b/c fail one facet
-    expect(out.map((j) => j.id).sort()).toEqual(['a', 'd']);
+    // only a matches both facets; d is unenriched so it fails both; b/c fail one facet
+    expect(out.map((j) => j.id).sort()).toEqual(['a']);
   });
 
   it('no facet filters -> unenriched jobs still flow through', () => {
