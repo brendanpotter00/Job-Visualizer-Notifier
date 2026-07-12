@@ -182,8 +182,9 @@ const HOUR_MS = 60 * MINUTE_MS;
 const NOW = Date.now();
 
 /**
- * Spread `createdAt` toward the very recent past so the page looks alive at the default
- * 3h window and the recency metrics (last 3h / last 24h) and wider windows all demo well:
+ * Spread the discovery time (`firstSeenAt`, and the display `createdAt`) toward the very
+ * recent past so the page looks alive at the default 3h window and the recency metrics
+ * (last 3h / last 24h) and wider windows all demo well:
  *   - indices 0–49  → within the last ~3 hours (kept comfortably under 3h)
  *   - indices 50–74 → ~3h to ~22h ago
  *   - indices 75–99 → ~1 day to ~6 days ago
@@ -222,6 +223,9 @@ export const DEMO_JOBS: Job[] = Array.from({ length: DEMO_JOB_COUNT }, (_, i): J
     isRemote: tag.kind === 'remote',
     employmentType: 'Full-time',
     createdAt: demoCreatedAt(i),
+    // Recency logic (window/sort/buckets/counts) keys off firstSeenAt; anchor it
+    // to the same spread so the demo looks alive at the default 3h window.
+    firstSeenAt: demoCreatedAt(i),
     // Real careers page for the company so a card click lands somewhere sensible.
     url: getCompanyById(company)?.jobsUrl ?? 'https://www.linkedin.com/jobs/',
     tags: ['Engineering', lang],

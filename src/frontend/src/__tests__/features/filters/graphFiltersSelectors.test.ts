@@ -17,6 +17,7 @@ const jobs: Job[] = [
     company: 'spacex',
     title: 'Frontend Engineer',
     createdAt: '2026-02-01T00:00:00Z',
+    firstSeenAt: '2026-02-01T00:00:00Z',
     url: 'https://example.com/j-feb',
     location: 'Hawthorne, CA',
     department: 'Engineering',
@@ -28,6 +29,7 @@ const jobs: Job[] = [
     company: 'spacex',
     title: 'Backend Engineer',
     createdAt: '2026-01-01T00:00:00Z',
+    firstSeenAt: '2026-01-01T00:00:00Z',
     url: 'https://example.com/j-jan',
     location: 'Hawthorne, CA',
     department: 'Engineering',
@@ -39,6 +41,7 @@ const jobs: Job[] = [
     company: 'spacex',
     title: 'Recruiter',
     createdAt: '2026-03-01T00:00:00Z',
+    firstSeenAt: '2026-03-01T00:00:00Z',
     url: 'https://example.com/j-mar',
     location: 'Remote',
     department: 'People',
@@ -105,5 +108,70 @@ describe('selectGraphFilteredJobsSorted', () => {
 
     // And the sorted output is a distinct array, not an alias of the base array.
     expect(sorted).not.toBe(baseBefore);
+  });
+
+  it('orders by firstSeenAt desc even when createdAt order disagrees', async () => {
+    // The list ranks by when WE first saw a job, not its (display-only) posted
+    // date. `j-newest-seen` has the OLDEST createdAt but the NEWEST firstSeenAt,
+    // so it must sort first — proving the sort keys off firstSeenAt.
+    const mixedJobs: Job[] = [
+      {
+        id: 'j-mid',
+        source: 'backend-scraper',
+        company: 'spacex',
+        title: 'Backend Engineer',
+        createdAt: '2026-02-01T00:00:00Z',
+        firstSeenAt: '2026-02-01T00:00:00Z',
+        url: 'https://example.com/j-mid',
+        location: 'Hawthorne, CA',
+        department: 'Engineering',
+        raw: {},
+      },
+      {
+        id: 'j-newest-seen',
+        source: 'backend-scraper',
+        company: 'spacex',
+        title: 'Staff Engineer',
+        createdAt: '2020-01-01T00:00:00Z', // stale posted date (display only)
+        firstSeenAt: '2026-03-15T00:00:00Z', // newest discovery — sorts first
+        url: 'https://example.com/j-newest-seen',
+        location: 'Remote',
+        department: 'Engineering',
+        raw: {},
+      },
+      {
+        id: 'j-earliest-seen',
+        source: 'backend-scraper',
+        company: 'spacex',
+        title: 'Frontend Engineer',
+        createdAt: '2026-01-01T00:00:00Z',
+        firstSeenAt: '2026-01-01T00:00:00Z',
+        url: 'https://example.com/j-earliest-seen',
+        location: 'Hawthorne, CA',
+        department: 'Engineering',
+        raw: {},
+      },
+    ];
+
+    const store = createTestStore({
+      app: {
+        selectedCompanyId: 'spacex',
+        selectedATS: ATSConstants.BackendScraper as const,
+        isInitialized: true,
+      },
+      graphFilters: { filters: { timeWindow: 'all', softwareOnly: false } },
+    });
+    await store.dispatch(
+      jobsApi.util.upsertQueryData(
+        'getJobsForCompany',
+        { companyId: 'spacex' },
+        { jobs: mixedJobs, metadata: { totalCount: mixedJobs.length, fetchedAt: '2026-04-01T00:00:00Z' } }
+      )
+    );
+
+    const sorted = selectGraphFilteredJobsSorted(store.getState());
+
+    // firstSeenAt order: j-newest-seen (Mar) > j-mid (Feb) > j-earliest-seen (Jan)
+    expect(sorted.map((j) => j.id)).toEqual(['j-newest-seen', 'j-mid', 'j-earliest-seen']);
   });
 });

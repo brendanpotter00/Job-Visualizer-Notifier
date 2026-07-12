@@ -23,6 +23,11 @@ import { DEMO_JOBS } from '../../../features/jobs/demoJobs';
 // option) unless the caller passes `locations` explicitly. Lets the existing
 // dropdown fixtures keep asserting on the same strings under the tag model.
 const createMockJob = (overrides: Partial<Job> = {}): Job => {
+  // Recency (time windows, last-3h/24h counts) keys off firstSeenAt; default it
+  // to mirror the (possibly-overridden) createdAt so fixtures that set createdAt
+  // to control recency keep working, while a test can still override firstSeenAt.
+  const createdAt = overrides.createdAt ?? new Date().toISOString();
+  const firstSeenAt = overrides.firstSeenAt ?? createdAt;
   const job: Job = {
     id: '1',
     source: 'backend-scraper',
@@ -32,7 +37,8 @@ const createMockJob = (overrides: Partial<Job> = {}): Job => {
     team: 'Backend',
     location: 'San Francisco, CA',
     employmentType: 'Full-time',
-    createdAt: new Date().toISOString(),
+    createdAt,
+    firstSeenAt,
     url: 'https://example.com/job/1',
     raw: {},
     ...overrides,

@@ -9,7 +9,7 @@ interface RecentJobsTimeBasedCounts {
 
 /**
  * Custom hook to calculate time-based job counts for Recent Jobs page
- * Calculations are deterministic based on job.createdAt timestamps
+ * Calculations are deterministic based on job.firstSeenAt timestamps
  * Uses shared filterJobsByHours utility for consistency with other filtering logic
  *
  * @param allJobs - Array of all jobs across all companies

@@ -60,8 +60,11 @@ export function roundToBucketStart(date: Date, bucketSizeMs: number): Date {
 }
 
 /**
- * Filter jobs by a time window in hours
- * Returns jobs created within the specified number of hours from now
+ * Filter jobs by a time window in hours.
+ * Returns jobs FIRST SEEN within the specified number of hours from now.
+ *
+ * Keyed on `firstSeenAt` (when we first saw the job), matching the recency
+ * filter/sort — not the ATS posted date. See `Job.firstSeenAt`.
  *
  * @param jobs - Array of jobs to filter
  * @param hours - Number of hours to look back from now
@@ -75,26 +78,29 @@ export function roundToBucketStart(date: Date, bucketSizeMs: number): Date {
  */
 export function filterJobsByHours(jobs: Job[], hours: number): Job[] {
   const cutoffTime = Date.now() - hours * TIME_UNITS.HOUR;
-  return jobs.filter((job) => new Date(job.createdAt).getTime() >= cutoffTime);
+  return jobs.filter((job) => new Date(job.firstSeenAt).getTime() >= cutoffTime);
 }
 
 /**
- * Calculate the date range (oldest and newest) for a collection of jobs
+ * Calculate the date range (oldest and newest) for a collection of jobs.
  *
- * @param jobs - Array of jobs with createdAt timestamps
+ * Uses `firstSeenAt` (when we first saw each job) so the range matches the
+ * activity-over-time buckets it feeds — not the ATS posted date.
+ *
+ * @param jobs - Array of jobs with firstSeenAt timestamps
  * @returns Object with oldestJobDate and newestJobDate (undefined if no jobs)
  *
  * @example
  * ```typescript
  * const jobs = [
- *   { id: '1', createdAt: '2025-01-01T10:00:00Z', ... },
- *   { id: '2', createdAt: '2025-01-05T15:30:00Z', ... },
+ *   { id: '1', firstSeenAt: '2025-01-01T10:00:00Z', ... },
+ *   { id: '2', firstSeenAt: '2025-01-05T15:30:00Z', ... },
  * ];
  * const range = calculateJobDateRange(jobs);
  * // { oldestJobDate: '2025-01-01T10:00:00.000Z', newestJobDate: '2025-01-05T15:30:00.000Z' }
  * ```
  */
-export function calculateJobDateRange(jobs: Array<{ createdAt: string }>): {
+export function calculateJobDateRange(jobs: Array<{ firstSeenAt: string }>): {
   oldestJobDate?: string;
   newestJobDate?: string;
 } {
@@ -102,7 +108,7 @@ export function calculateJobDateRange(jobs: Array<{ createdAt: string }>): {
     return { oldestJobDate: undefined, newestJobDate: undefined };
   }
 
-  const timestamps = jobs.map((job) => new Date(job.createdAt).getTime());
+  const timestamps = jobs.map((job) => new Date(job.firstSeenAt).getTime());
   return {
     oldestJobDate: new Date(Math.min(...timestamps)).toISOString(),
     newestJobDate: new Date(Math.max(...timestamps)).toISOString(),

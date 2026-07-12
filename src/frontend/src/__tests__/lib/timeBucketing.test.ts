@@ -18,6 +18,9 @@ describe('timeBucketing', () => {
     company: 'spacex',
     title: 'Software Engineer',
     createdAt,
+    // Bucketing keys off firstSeenAt; mirror the passed timestamp so bucket
+    // placement matches the intent of each fixture's createdAt.
+    firstSeenAt: createdAt,
     url: `https://example.com/job/${id}`,
     raw: {},
   });
@@ -133,6 +136,24 @@ describe('timeBucketing', () => {
 
     it('should return empty array for "all" window with no jobs', () => {
       expect(bucketJobsByTime([], 'all')).toEqual([]);
+    });
+
+    it('buckets by firstSeenAt, not createdAt (stale posted date, recent discovery)', () => {
+      // Posted (createdAt) 2 days ago — that would fall outside the 24h window —
+      // but we first saw it 30 min ago, so it must land in the 11:00–12:00 bucket.
+      const reopenedJob: Job = {
+        ...createMockJob('reopened', '2025-11-18T12:00:00Z'),
+        firstSeenAt: '2025-11-20T11:30:00Z',
+      };
+
+      const buckets = bucketJobsByTime([reopenedJob], '24h');
+
+      const bucket11 = buckets.find((b) => b.bucketStart === '2025-11-20T11:00:00.000Z');
+      expect(bucket11?.count).toBe(1);
+      expect(bucket11?.jobIds).toEqual(['reopened']);
+
+      const totalJobs = buckets.reduce((sum, b) => sum + b.count, 0);
+      expect(totalJobs).toBe(1);
     });
 
     it('should span from oldest job to now for "all" window', () => {

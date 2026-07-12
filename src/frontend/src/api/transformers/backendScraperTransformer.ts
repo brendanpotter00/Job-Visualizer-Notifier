@@ -38,7 +38,13 @@ export function transformBackendJob(raw: BackendJobListing, companyId: string): 
     locations: raw.locations ?? [],
     isRemote: details.is_remote_eligible,
     // employmentType not available from scraper
-    createdAt: raw.postedOn || raw.firstSeenAt, // Use actual posted date, fallback to first seen
+    // Display-only "posted" date: ATS posted date, fallback to first-seen. NOT a
+    // recency signal (postedOn can be years stale on reposted listings) — recency
+    // filtering/sorting/bucketing keys off `firstSeenAt` below instead.
+    createdAt: raw.postedOn || raw.firstSeenAt,
+    // Reliable "new to us" timestamp, preserved across close→reopen (backend
+    // first_seen_at). Canonical recency field for time windows, sort, and buckets.
+    firstSeenAt: raw.firstSeenAt,
     url: raw.url,
     tags,
     // Enrichment facets pass straight through (null/[] until enriched). The

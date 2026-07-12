@@ -29,6 +29,7 @@ describe('JobListingCard', () => {
     isRemote: true,
     employmentType: 'Full-time',
     createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(), // 2 hours ago
+    firstSeenAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(), // 2 hours ago
     url: 'https://example.com/job/1',
     tags: ['React', 'TypeScript', 'GraphQL', 'Testing', 'CI/CD', 'Extra Tag'],
     raw: {},
@@ -160,6 +161,7 @@ describe('JobListingCard', () => {
       company: 'spotify',
       title: 'Engineer',
       createdAt: new Date().toISOString(),
+      firstSeenAt: new Date().toISOString(),
       url: 'https://example.com/job/2',
       raw: {},
     };

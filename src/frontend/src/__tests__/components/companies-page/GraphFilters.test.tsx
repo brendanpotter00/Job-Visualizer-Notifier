@@ -30,6 +30,7 @@ const seededJobs: Job[] = [
     company: 'spacex',
     title: 'Senior Software Engineer',
     createdAt: '2026-04-10T10:00:00Z',
+    firstSeenAt: '2026-04-10T10:00:00Z',
     url: 'https://example.com/j1',
     location: 'Hawthorne, CA',
     locations: [
@@ -52,6 +53,7 @@ const seededJobs: Job[] = [
     company: 'spacex',
     title: 'Recruiter',
     createdAt: '2026-04-11T10:00:00Z',
+    firstSeenAt: '2026-04-11T10:00:00Z',
     url: 'https://example.com/j2',
     location: 'Remote',
     locations: [
@@ -115,6 +117,7 @@ describe('GraphFilters', () => {
         company: 'spacex',
         title: 'Engineer',
         createdAt: '2026-04-10T10:00:00Z',
+        firstSeenAt: '2026-04-10T10:00:00Z',
         url: 'https://example.com/x1',
         department: 'Engineering',
         raw: {},
@@ -138,6 +141,7 @@ describe('GraphFilters', () => {
         company: 'spacex',
         title: 'Engineer',
         createdAt: '2026-04-10T10:00:00Z',
+        firstSeenAt: '2026-04-10T10:00:00Z',
         url: 'https://example.com/y1',
         location: 'SF',
         locations: [
