@@ -62,11 +62,13 @@ export interface Job {
 
   /**
    * ATS-supplied posted date, falling back to `firstSeenAt` when the ATS gives
-   * none (`postedOn || firstSeenAt`; see `backendScraperTransformer`). This is a
-   * DISPLAY field ("Posted X ago") — it is NOT a reliable recency signal because
-   * companies reuse/repost old listings, so `postedOn` can be years stale. For
-   * anything that ranks/filters by recency (time windows, "most recent" sort,
-   * activity-over-time buckets, last-24h/3h counts) use `firstSeenAt` instead.
+   * none (`postedOn || firstSeenAt`; see `backendScraperTransformer`). It is NOT a
+   * reliable recency signal because companies reuse/repost old listings, so
+   * `postedOn` can be years stale. Anything user-facing that ranks/filters/labels
+   * by recency — time windows, "most recent" sort, activity-over-time buckets,
+   * last-24h/3h counts, AND the "Posted X ago" card label — uses `firstSeenAt`
+   * instead. `createdAt` now only backs the client-side `since` fetch filter
+   * (backendScraperClient / baseClient).
    */
   createdAt: string;
 

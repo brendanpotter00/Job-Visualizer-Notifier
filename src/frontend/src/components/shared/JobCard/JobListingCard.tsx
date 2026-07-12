@@ -25,7 +25,12 @@ interface JobListingCardProps {
  * are resolved from the company config via `job.company`.
  */
 export function JobListingCard({ job }: JobListingCardProps) {
-  const { postedAgo } = useJobMetadata(job.createdAt);
+  // "Posted X ago" is keyed off `firstSeenAt` (when WE first saw the listing), so
+  // the label matches the recency sort/time-window/enricher-claim ordering. Using
+  // the ATS posted date (`createdAt` = postedOn || firstSeenAt) instead made the
+  // top-ranked recent-page cards read "Posted 3 months ago" on reposted listings
+  // whose postedOn is stale — inconsistent with why they rank first.
+  const { postedAgo } = useJobMetadata(job.firstSeenAt);
   const isMobile = useIsMobile();
   const company = getCompanyById(job.company);
   const companyName = company?.name ?? job.company;

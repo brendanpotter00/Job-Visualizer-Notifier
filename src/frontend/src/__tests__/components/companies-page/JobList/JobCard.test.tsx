@@ -67,6 +67,20 @@ describe('JobListingCard', () => {
     expect(screen.getByText(/2 hours ago/i)).toBeInTheDocument();
   });
 
+  it('keys the "Posted X ago" label off firstSeenAt, not the stale ATS createdAt', () => {
+    // Reposted-listing case: postedOn (createdAt) is months stale while the job was
+    // first seen an hour ago. The label must reflect firstSeenAt so the top-of-recent
+    // cards read consistently with why they rank first.
+    const repostedJob: Job = {
+      ...mockJob,
+      createdAt: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString(), // ~3 months ago
+      firstSeenAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(), // 1 hour ago
+    };
+    render(<JobListingCard job={repostedJob} />);
+    expect(screen.getByText(/about 1 hour ago/i)).toBeInTheDocument();
+    expect(screen.queryByText(/months ago/i)).not.toBeInTheDocument();
+  });
+
   it('displays department chip', () => {
     render(<JobListingCard job={mockJob} />);
     expect(screen.getByText('Engineering')).toBeInTheDocument();
