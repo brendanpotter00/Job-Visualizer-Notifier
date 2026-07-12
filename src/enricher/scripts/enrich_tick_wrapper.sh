@@ -1,7 +1,10 @@
 #!/bin/sh
 # Headless wrapper for the launchd StartInterval worker. Mirrors job-watcher:
-# pre-acquire the lock, pre-pull + pre-clean deterministically, THEN hand off to
-# `claude -p /enrich-tick-once` for the agentic classify/judge/write-back.
+# pre-acquire the lock, pre-pull + pre-clean deterministically, then run the
+# classify -> judge -> write-back -> tick-end pipeline. For the local in-process
+# engines (ollama/opencode) that pipeline runs HERE in the shell (deterministic
+# CLI calling the local model; see the engine branch below); only the
+# `claude-code` fan-out engine hands off to `claude -p /enrich-tick-once`.
 #
 # Lock ownership: tick-acquire's own PID dies immediately (it is a short-lived
 # subprocess), so after a successful acquire the wrapper REWRITES the lock with
@@ -81,17 +84,80 @@ if [ -n "$TICK_ID" ]; then
   export ENRICH_TICK_ID
 fi
 
-# Deterministic pre-work (safe to fail softly; the agent can retry inside)
+# Deterministic pre-work (safe to fail softly; retried next tick)
 "$UV_BIN" run python -m job_enricher.cli pull  || echo "[wrapper] pull failed (continuing)"
 "$UV_BIN" run python -m job_enricher.cli clean || echo "[wrapper] clean failed (continuing)"
 
-"$CLAUDE_BIN" -p /enrich-tick-once --dangerously-skip-permissions &
-PID=$!
-( sleep "$TIMEOUT_SECS"; kill -TERM "$PID" 2>/dev/null; sleep 10; kill -KILL "$PID" 2>/dev/null ) &
-WATCHDOG=$!
-wait "$PID"
-STATUS=$?
-kill "$WATCHDOG" 2>/dev/null
+# Which engine drives classify? The local in-process engines (ollama/opencode)
+# run the whole classify -> judge -> write-back -> tick-end pipeline as
+# deterministic CLI that calls the local model directly — NO agent is needed,
+# and a single `classify-run` can take ~1h, FAR longer than the `claude -p`
+# agent's per-Bash-call ceiling. Delegating it to the agent orphaned every tick
+# (the agent backgrounds the long run, its headless turn ends, and the wrapper
+# returns before judge/write-back/tick-end ever happen). So run those engines
+# HERE in the shell, under the same 3h watchdog. Only the `claude-code` fan-out
+# engine needs `claude -p` (it drives sub-agents within its own turn).
+# Read the resolved engines with a stable prefix so stray uv/stdout lines can't
+# be mistaken for a value (same defensive parse as tick_id= above). 2>/dev/null
+# drops uv's progress chatter; the getters fall back to the committed defaults.
+ENGINE_CFG=$("$UV_BIN" run python - <<'PY' 2>/dev/null
+from job_enricher.store import Store
+import job_enricher.enrich_config as ec
+s = Store()
+print("CLASSIFY_ENGINE=" + ec.get_classify_engine(s))
+print("JUDGE_ENGINE=" + ec.get_judge_engine(s))
+PY
+)
+CLASSIFY_ENGINE=$(printf '%s\n' "$ENGINE_CFG" | sed -n 's/^CLASSIFY_ENGINE=//p' | head -1)
+JUDGE_ENGINE=$(printf '%s\n' "$ENGINE_CFG" | sed -n 's/^JUDGE_ENGINE=//p' | head -1)
+
+run_inprocess_llm_stages() {
+  # classify-queue / judge-queue cap the slice at enrich:per_tick_limit and write
+  # the chunk files that classify-run / judge-run read (which call the local
+  # model). judge-queue self-gates on judge:enabled + judge:scope (a no-op when
+  # judge is off), so no extra gating is needed here.
+  "$UV_BIN" run python -m job_enricher.cli classify-queue || echo "[wrapper] classify-queue failed (continuing)"
+  "$UV_BIN" run python -m job_enricher.cli classify-run   || echo "[wrapper] classify-run failed (continuing)"
+  case "$JUDGE_ENGINE" in
+    ollama|opencode)
+      "$UV_BIN" run python -m job_enricher.cli judge-queue || echo "[wrapper] judge-queue failed (continuing)"
+      "$UV_BIN" run python -m job_enricher.cli judge-run   || echo "[wrapper] judge-run failed (continuing)"
+      ;;
+    *)
+      echo "[wrapper] judge engine '$JUDGE_ENGINE' is not in-process — skipping judge this tick"
+      ;;
+  esac
+}
+
+case "$CLASSIFY_ENGINE" in
+  ollama|opencode)
+    echo "[wrapper] in-process engine (classify=$CLASSIFY_ENGINE judge=$JUDGE_ENGINE) — running the pipeline in the shell (no claude -p)"
+    run_inprocess_llm_stages &
+    PID=$!
+    ( sleep "$TIMEOUT_SECS"; kill -TERM "$PID" 2>/dev/null; sleep 10; kill -KILL "$PID" 2>/dev/null ) &
+    WATCHDOG=$!
+    wait "$PID"
+    STATUS=$?
+    kill "$WATCHDOG" 2>/dev/null
+    # Delivery-first: ALWAYS write back what got enriched and close the tick, even
+    # if the watchdog killed the stages above. write-back marks a row sent only on
+    # a 2xx (unsent rows retry next tick, JVN is idempotent); tick-end refuses to
+    # close a tick it doesn't own. Both are safe after a partial/killed run.
+    "$UV_BIN" run python -m job_enricher.cli write-back || echo "[wrapper] write-back failed (continuing)"
+    "$UV_BIN" run python -m job_enricher.cli tick-end   || echo "[wrapper] tick-end failed (continuing)"
+    ;;
+  *)
+    # claude-code fan-out (or unknown engine): the agent orchestrates classify /
+    # judge sub-agents and calls write-back + tick-end itself, inside its turn.
+    "$CLAUDE_BIN" -p /enrich-tick-once --dangerously-skip-permissions &
+    PID=$!
+    ( sleep "$TIMEOUT_SECS"; kill -TERM "$PID" 2>/dev/null; sleep 10; kill -KILL "$PID" 2>/dev/null ) &
+    WATCHDOG=$!
+    wait "$PID"
+    STATUS=$?
+    kill "$WATCHDOG" 2>/dev/null
+    ;;
+esac
 
 # Best-effort metrics push to JVN — always runs, even after a timeout/kill
 # (the tick may report status running/error). Never fails the wrapper.

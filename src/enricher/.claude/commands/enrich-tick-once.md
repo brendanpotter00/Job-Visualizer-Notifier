@@ -1,5 +1,13 @@
 # /enrich-tick-once — headless single cycle (no self-scheduling)
 
+> **Only the `claude-code` fan-out engine reaches this command.** The wrapper
+> (`scripts/enrich_tick_wrapper.sh`) checks the classify engine first: for the
+> in-process open-model engines (`ollama`/`opencode`) it runs the entire
+> `classify-queue → classify-run → judge-queue → judge-run → write-back → tick-end`
+> pipeline itself in the shell (a single `classify-run` runs far longer than an
+> agent Bash call may, so it cannot live inside `claude -p`) and never invokes
+> this command. Everything below therefore describes the `claude-code` fan-out path.
+
 Identical to `/enrich-tick` **Steps 0–6.5**, but:
 - **Omit Step 7** (`ScheduleWakeup`) — launchd (`StartInterval`) owns cadence.
 - Use the absolute `uv` path (`/opt/homebrew/bin/uv`); the wrapper has already `cd`'d into the checkout root, so relative paths work — resolve it explicitly with `PROJECT="$(git rev-parse --show-toplevel)"` if needed (never hardcode the path — prod and dev are different checkouts).
@@ -9,6 +17,6 @@ Identical to `/enrich-tick` **Steps 0–6.5**, but:
 
 Follow enrich-tick.md Steps 3, 4, 5, 6 exactly (classify fan-out with `subagent_type: "classifier"` -> judge fan-out with `subagent_type: "judge"` -> write-back -> tick-end). Record results between waves. Do not schedule a wakeup.
 
-**Delivery-first (this is a headless one-shot — no re-invocation).** Run every stage synchronously to completion, then ALWAYS reach Step 5 (`write-back`) and Step 6 (`tick-end`). Do NOT spawn background jobs, launch helper agents, or "pause here and wait to be re-invoked on completion" — when this invocation's turn ends the process exits, so anything left running is killed and the tick never closes. For the in-process (`ollama`/`opencode`) engines, `classify-queue`/`judge-queue` already cap the queue at `enrich:per_tick_limit` so `classify-run`/`judge-run` finish inside the watchdog; just run them and move on. A tick that classifies rows but never writes back or closes is a FAILED tick — each fire must classify a bounded slice AND deliver it.
+**Delivery-first (this is a headless one-shot — no re-invocation).** Run every stage synchronously to completion, then ALWAYS reach Step 5 (`write-back`) and Step 6 (`tick-end`). Do NOT spawn background jobs, launch helper agents, or "pause here and wait to be re-invoked on completion" — when this invocation's turn ends the process exits, so anything left running is killed and the tick never closes. The fan-out sub-agents run inference inside THIS turn, so keep them synchronous and let each wave finish. A tick that classifies rows but never writes back or closes is a FAILED tick — each fire must classify a bounded slice AND deliver it.
 
 Steps 3 and 4 use the **chunk-file handoff**: `classify-queue` / `judge-queue` print only a small `[{chunk_file, count}]` manifest and write the actual job text to files under `data/chunks/` (stale ones are deleted server-side first). Fan out one Agent per manifest entry in waves of up to `CLASSIFY_FAN_OUT`, passing each entry's `chunk_file` path into the CLASSIFY/JUDGE PROMPT from enrich-tick.md — the sub-agent Reads the file itself. **Never Read a chunk file into your own context**: this headless run must survive a 60-job tick without compaction, and the manifest keeps all job text out of your transcript.
