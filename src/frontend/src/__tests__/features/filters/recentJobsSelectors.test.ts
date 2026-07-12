@@ -11,6 +11,7 @@ import enabledCompaniesReducer from '../../../features/preferences/enabledCompan
 import {
   selectAllJobsFromQuery,
   selectRecentFilteredJobs,
+  selectRecentJobsSorted,
   selectRecentAvailableCompanies,
   selectRecentJobsMetadata,
   selectRecentJobsTimeBasedCounts,
@@ -259,6 +260,104 @@ describe('recentJobsSelectors', () => {
       const r2 = selectAllJobsFromQuery(state);
 
       expect(r1).toBe(r2);
+    });
+  });
+
+  describe('selectRecentJobsSorted (recency ordering)', () => {
+    const allWindow: RecentJobsFilters = { timeWindow: 'all', softwareOnly: false };
+
+    it('orders by firstSeenAt desc even when createdAt order disagrees', () => {
+      // The Recent page ranks by when WE first saw a job (firstSeenAt), not its
+      // display-only ATS posted date (createdAt). `newest-seen` has the OLDEST
+      // createdAt but the NEWEST firstSeenAt, so it must sort FIRST. If the sort
+      // reverted to createdAt this order would flip and the assertion would fail.
+      const mixedJobs: Job[] = [
+        createMockJob({
+          id: 'mid',
+          company: 'spacex',
+          createdAt: '2026-02-01T00:00:00Z', // middle posted date
+          firstSeenAt: '2026-02-01T00:00:00Z', // middle discovery
+        }),
+        createMockJob({
+          id: 'newest-seen',
+          company: 'spacex',
+          createdAt: '2020-01-01T00:00:00Z', // oldest posted date (display only)
+          firstSeenAt: '2026-03-15T00:00:00Z', // newest discovery — sorts first
+        }),
+        createMockJob({
+          id: 'earliest-seen',
+          company: 'spacex',
+          createdAt: '2026-01-01T00:00:00Z', // newest-but-one posted date
+          firstSeenAt: '2026-01-01T00:00:00Z', // oldest discovery — sorts last
+        }),
+      ];
+
+      const state = createMockStoreWithJobs(mixedJobs, allWindow);
+      const sorted = selectRecentJobsSorted(state);
+
+      // firstSeenAt order: newest-seen (Mar) > mid (Feb) > earliest-seen (Jan).
+      // A revert to createdAt would give ['mid', 'earliest-seen', 'newest-seen'].
+      expect(sorted.map((j) => j.id)).toEqual(['newest-seen', 'mid', 'earliest-seen']);
+
+      // Ordering invariant asserted directly on firstSeenAt timestamps.
+      const times = sorted.map((j) => new Date(j.firstSeenAt).getTime());
+      for (let i = 1; i < times.length; i++) {
+        expect(times[i - 1]).toBeGreaterThanOrEqual(times[i]);
+      }
+    });
+  });
+
+  describe('selectRecentJobsTimeBasedCounts (firstSeenAt vs createdAt divergence)', () => {
+    const allWindow: RecentJobsFilters = { timeWindow: 'all', softwareOnly: false };
+
+    it('buckets last-3h / last-24h counts by firstSeenAt, not createdAt', () => {
+      const now = Date.now();
+      const hoursAgo = (h: number) => new Date(now - h * 60 * 60 * 1000).toISOString();
+      const daysAgo = (d: number) => new Date(now - d * 24 * 60 * 60 * 1000).toISOString();
+
+      // Divergence fixture: for every job, createdAt and firstSeenAt fall in
+      // DIFFERENT time buckets, so the counts only match reality if the code
+      // keys off firstSeenAt.
+      const jobs: Job[] = [
+        // firstSeen 1h ago (in 3h + 24h); posted 100d ago (in neither).
+        createMockJob({
+          id: 'seen-1h',
+          company: 'spacex',
+          createdAt: daysAgo(100),
+          firstSeenAt: hoursAgo(1),
+        }),
+        // firstSeen 2h ago (in 3h + 24h); posted 100d ago (in neither).
+        createMockJob({
+          id: 'seen-2h',
+          company: 'spotify',
+          createdAt: daysAgo(100),
+          firstSeenAt: hoursAgo(2),
+        }),
+        // firstSeen 10h ago (in 24h, NOT 3h); posted 100d ago (in neither).
+        createMockJob({
+          id: 'seen-10h',
+          company: 'airbnb',
+          createdAt: daysAgo(100),
+          firstSeenAt: hoursAgo(10),
+        }),
+        // firstSeen 100d ago (in neither); posted 1h ago (in 3h + 24h).
+        // A createdAt-based count would wrongly include this row.
+        createMockJob({
+          id: 'posted-1h',
+          company: 'stripe',
+          createdAt: hoursAgo(1),
+          firstSeenAt: daysAgo(100),
+        }),
+      ];
+
+      const state = createMockStoreWithJobs(jobs, allWindow);
+      const counts = selectRecentJobsTimeBasedCounts(state);
+
+      // By firstSeenAt: last-3h = {seen-1h, seen-2h} = 2; last-24h = {seen-1h,
+      // seen-2h, seen-10h} = 3. By createdAt both would be 1 (only posted-1h),
+      // so this assertion fails if the count logic reverts to createdAt.
+      expect(counts.jobsLast3Hours).toBe(2);
+      expect(counts.jobsLast24Hours).toBe(3);
     });
   });
 
