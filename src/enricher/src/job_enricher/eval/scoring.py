@@ -109,6 +109,11 @@ class Scorecard:
     # PRE-judge (classify-only) labels matched gold. Requires the judge-off
     # prediction file; None when unavailable.
     judge_kappa_prejudge: float | None = None
+    # per-item latency samples (ms) captured upstream by the engine. Descriptive
+    # only (never gated) — the scorer stays pure, so these arrive as prediction
+    # data and we just summarize them.
+    classify_latencies_ms: list[int] = field(default_factory=list)
+    judge_latencies_ms: list[int] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -142,6 +147,8 @@ class Scorecard:
                 None if self.judge_kappa_prejudge is None
                 else round(self.judge_kappa_prejudge, 4)
             ),
+            "classify_latency_ms": _latency_stats(self.classify_latencies_ms),
+            "judge_latency_ms": _latency_stats(self.judge_latencies_ms),
             "n": self.category.n,
         }
 
@@ -182,6 +189,26 @@ def _primary_location_key(locations: list[dict[str, Any]] | None) -> str | None:
     return (primary.get("canonicalName") or primary.get("canonical_name") or "").strip().lower() or None
 
 
+def _latency_stats(samples: list[int]) -> dict[str, Any] | None:
+    """Summarize per-item latency samples (ms). None when no engine attached
+    latency (e.g. the legacy agent-produced predictions). Descriptive only."""
+    if not samples:
+        return None
+    ordered = sorted(samples)
+    n = len(ordered)
+
+    def pct(q: float) -> int:
+        return ordered[min(n - 1, int(q * (n - 1) + 0.5))]
+
+    return {
+        "n": n,
+        "mean": round(sum(ordered) / n, 1),
+        "p50": pct(0.50),
+        "p95": pct(0.95),
+        "max": ordered[-1],
+    }
+
+
 def score(
     predictions: list[dict[str, Any]],
     truth: list[dict[str, Any]],
@@ -201,6 +228,14 @@ def score(
         gold = truth_by_id.get(pred["job_listing_id"])
         if gold is None:
             continue
+
+        # latency (descriptive; captured upstream by the engine, may be absent)
+        cl = pred.get("classify_latency_ms")
+        if isinstance(cl, (int, float)):
+            sc.classify_latencies_ms.append(int(cl))
+        jl = pred.get("judge_latency_ms")
+        if isinstance(jl, (int, float)):
+            sc.judge_latencies_ms.append(int(jl))
 
         # category
         sc.category.n += 1

@@ -91,8 +91,12 @@ def test_to_inbox_row_id_fallback_and_description_fallback():
     assert row["description_html"] == "plain text"
 
 
-def test_headers_require_key():
+def test_headers_require_key(monkeypatch):
     import pytest
+    # The constructor falls back to settings.internal_api_key when internal_key is
+    # None, so a populated .env.local / INTERNAL_API_KEY would mask the guard. Null
+    # the singleton to assert "no key configured" raises regardless of ambient config.
+    monkeypatch.setattr("job_enricher.jvn_client.settings.internal_api_key", None)
     c = JVNClient(base_url="http://x", internal_key=None)
     with pytest.raises(RuntimeError):
         c._headers()

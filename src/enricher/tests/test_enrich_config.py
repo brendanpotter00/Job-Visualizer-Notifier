@@ -78,12 +78,15 @@ def test_reset_knob_rejects_unknown_key(store):
 
 def test_knob_meta_keys_cover_all_setters():
     assert ec.KNOB_META_KEYS == {
+        ec.CLASSIFY_ENGINE_META_KEY,
         ec.CLASSIFY_MODEL_META_KEY,
         ec.CLASSIFY_BATCH_META_KEY,
         ec.CLASSIFY_FANOUT_META_KEY,
         ec.JUDGE_ENABLED_META_KEY,
+        ec.JUDGE_ENGINE_META_KEY,
         ec.JUDGE_MODEL_META_KEY,
         ec.JUDGE_HUMAN_FLOOR_META_KEY,
         ec.JUDGE_SCOPE_META_KEY,
         ec.JUDGE_CONFIDENCE_CEILING_META_KEY,
+        ec.OPENCODE_MODEL_META_KEY,
     }

@@ -6,7 +6,13 @@ PLIST="$HOME/Library/LaunchAgents/com.bp.job-enricher.plist"
 # points the launchd worker at whichever checkout you install from — run it from the prod
 # checkout (~/developer/personal/app). See docs/ENVIRONMENTS.md.
 PROJECT="$(cd "$(dirname "$0")/.." && pwd)"
-INTERVAL="${ENRICH_INTERVAL_SECS:-600}"
+# 60s = "continuous worker": the local (ollama) engine has no fan-out, so a batch
+# tick runs for many minutes. The single-flight O_EXCL lock makes every fire during
+# a running tick a cheap exit-75 no-op, so a short interval just means the next
+# batch starts within ~60s of the previous finishing — effectively always-working,
+# with zero changes to the lock/tick lifecycle. Override with ENRICH_INTERVAL_SECS
+# (e.g. 600 for the old Claude 10-min cadence). See the handoff doc.
+INTERVAL="${ENRICH_INTERVAL_SECS:-60}"
 
 cat > "$PLIST" <<PLEOF
 <?xml version="1.0" encoding="UTF-8"?>

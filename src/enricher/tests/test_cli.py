@@ -365,6 +365,7 @@ def test_classify_queue_manifest_shape_and_roundtrip(store, monkeypatch, capsys)
     round-trip the exact per-row fields the agents need."""
     for jid in ("1", "2", "3", "4"):
         _seed_cleaned(store, jid)
+    ec.set_classify_engine(store, "claude-code")  # batch_size chunking is the claude path
     monkeypatch.setattr(cli, "Store", lambda: store)
 
     rc = cli._cmd_classify_queue(argparse.Namespace(limit=None))
@@ -372,7 +373,7 @@ def test_classify_queue_manifest_shape_and_roundtrip(store, monkeypatch, capsys)
     manifest, items = _manifest_items(capsys)
     # manifest is small: exactly chunk_file + count per entry, nothing else
     assert all(set(e) == {"chunk_file", "count"} for e in manifest)
-    # default batch_size=3 -> chunks of 3 + 1
+    # claude-code batch_size=3 -> chunks of 3 + 1
     assert [e["count"] for e in manifest] == [3, 1]
     for e in manifest:
         p = Path(e["chunk_file"])
@@ -394,6 +395,7 @@ def test_classify_queue_respects_batch_size_knob(store, monkeypatch, capsys):
 
     for jid in ("1", "2", "3", "4", "5", "6", "7"):
         _seed_cleaned(store, jid)
+    ec.set_classify_engine(store, "claude-code")  # batch_size only applies to claude-code
     ec.set_classify_batch_size(store, 5)  # knob read fresh from meta
     monkeypatch.setattr(cli, "Store", lambda: store)
 
@@ -486,6 +488,55 @@ def test_judge_queue_chunk_files_carry_current_classification(store, monkeypatch
         "category": "software_engineering", "level": "mid",
         "level_includes": [], "tags": [], "locations": [], "confidence": 0.5,
     }
+
+
+# ---- batch=1 forced for local (non claude-code) engines at queue time --------
+def test_classify_queue_forces_batch1_for_local_engine(store, monkeypatch, capsys):
+    """A non-claude-code classify engine writes ONE job per chunk file so the
+    engine's positional id-recovery can engage; Claude keeps its fan-out batch."""
+    for jid in ("1", "2", "3", "4"):
+        _seed_cleaned(store, jid)
+    ec.set_classify_engine(store, "ollama")
+    monkeypatch.setattr(cli, "Store", lambda: store)
+
+    cli._cmd_classify_queue(argparse.Namespace(limit=None))
+    manifest, items = _manifest_items(capsys)
+    assert [e["count"] for e in manifest] == [1, 1, 1, 1]   # one job per chunk
+    assert len(items) == 4
+
+
+def test_classify_queue_keeps_batch_size_for_claude_engine(store, monkeypatch, capsys):
+    for jid in ("1", "2", "3", "4"):
+        _seed_cleaned(store, jid)
+    ec.set_classify_engine(store, "claude-code")   # explicit default engine
+    monkeypatch.setattr(cli, "Store", lambda: store)
+
+    cli._cmd_classify_queue(argparse.Namespace(limit=None))
+    manifest, _ = _manifest_items(capsys)
+    assert [e["count"] for e in manifest] == [3, 1]   # classify:batch_size=3
+
+
+def test_judge_queue_forces_batch1_for_local_engine(store, monkeypatch, capsys):
+    for jid in ("1", "2", "3", "4"):
+        _seed_enriched(store, jid, conf=0.5)   # low conf -> in default judge scope
+    ec.set_judge_engine(store, "ollama")
+    monkeypatch.setattr(cli, "Store", lambda: store)
+
+    cli._cmd_judge_queue(argparse.Namespace(limit=None))
+    manifest, items = _manifest_items(capsys)
+    assert [e["count"] for e in manifest] == [1, 1, 1, 1]
+    assert len(items) == 4
+
+
+def test_judge_queue_keeps_batch_size_for_claude_engine(store, monkeypatch, capsys):
+    for jid in ("1", "2", "3", "4"):
+        _seed_enriched(store, jid, conf=0.5)
+    ec.set_judge_engine(store, "claude-code")
+    monkeypatch.setattr(cli, "Store", lambda: store)
+
+    cli._cmd_judge_queue(argparse.Namespace(limit=None))
+    manifest, _ = _manifest_items(capsys)
+    assert [e["count"] for e in manifest] == [3, 1]
 
 
 # ---- tick-end guards ---------------------------------------------------------
@@ -730,3 +781,108 @@ def test_run_eval_returns_one_without_human_truth():
     # The seeded golden set has no human-labeled rows, so the gate cannot run
     # and run_eval returns a non-zero code without touching the network.
     assert run_eval(gate=True) == 1
+
+
+# ---- eval-run classify coverage/drops counter ------------------------------
+# _cmd_eval_run prints "eval-run: classify coverage N/total (drops=D)" where N is
+# the number of golden rows whose OWN (source_id, job_listing_id) landed in
+# classify_by_key — deliberately a MEMBERSHIP count, not len(classify_by_key),
+# so at batch>1 a hallucinated/mis-echoed key can't misreport the drop count.
+# This is the exact number the docs cite as proof the row-drop fix works.
+class _FakeEvalEngine:
+    """Deterministic stand-in for build_engine(...) inside _cmd_eval_run, giving
+    full control over which input keys end up in classify_by_key:
+      - "all"     every row echoed under its own key       -> full coverage
+      - "misecho" `target` echoed under a WRONG source_id  -> its input key is
+                  absent, yet classify_by_key still holds `total` entries, so a
+                  len()-based counter would wrongly report drops=0 (the case that
+                  proves the counter counts membership, not raw returned length)
+      - "drop"    `target` omitted from the returned list   -> input key absent
+    """
+
+    def __init__(self, mode, target_key):
+        self.name = "fake"
+        self._mode = mode
+        self._target = target_key
+
+    @staticmethod
+    def _pred(source_id, job_listing_id):
+        return {
+            "job_listing_id": job_listing_id, "source_id": source_id,
+            "category": "software_engineering", "level": "mid",
+            "level_includes": ["mid"], "tags": ["backend"], "locations": [],
+            "confidence": 0.8, "reasoning": "fake", "classify_latency_ms": 1,
+        }
+
+    def classify(self, jobs):
+        out = []
+        for j in jobs:
+            key = (j["source_id"], j["job_listing_id"])
+            if key == self._target:
+                if self._mode == "drop":
+                    continue  # row vanishes -> its input key never recorded
+                if self._mode == "misecho":
+                    out.append(self._pred("WRONG", j["job_listing_id"]))
+                    continue
+            out.append(self._pred(j["source_id"], j["job_listing_id"]))
+        return out
+
+    def judge(self, items):  # unused with --judge off; present for contract parity
+        return [{"job_listing_id": it["job_listing_id"], "source_id": it["source_id"],
+                 "passed": True, "confidence": 0.9, "corrections": {}} for it in items]
+
+
+_EVAL_GOLDEN_ROWS = [
+    {"source_id": "gh", "job_listing_id": "1", "clean_description": "desc one",
+     "title": "SWE", "company": "Acme", "raw_location": "SF", "label_source": "human"},
+    {"source_id": "gh", "job_listing_id": "2", "clean_description": "desc two",
+     "title": "SWE", "company": "Acme", "raw_location": "SF", "label_source": "human"},
+    # same job_listing_id "1" as the first row but a different source -> forces the
+    # counter to key on the composite (source_id, job_listing_id) pair, not the bare id.
+    {"source_id": "lever", "job_listing_id": "1", "clean_description": "desc three",
+     "title": "SWE", "company": "Beta", "raw_location": "NY", "label_source": "human"},
+]
+
+
+@pytest.mark.parametrize("mode,expected_covered,expected_drops", [
+    ("all", 3, 0),
+    ("misecho", 2, 1),
+    ("drop", 2, 1),
+])
+def test_eval_run_classify_coverage_counts_input_key_membership(
+    store, monkeypatch, capsys, tmp_path, mode, expected_covered, expected_drops
+):
+    """The 'classify coverage N/total (drops=D)' line counts golden rows whose own
+    input key made it into classify_by_key. `all` -> 3/3 drops=0; `drop`/`misecho`
+    -> 2/3 drops=1. `misecho` is the discriminator: the engine returns 3 dicts (one
+    keyed under a bogus source_id), so a len(classify_by_key) counter would say
+    drops=0 — membership correctly reports drops=1."""
+    target = ("lever", "1")
+    # build_engine is imported inside _cmd_eval_run from job_enricher.engines, so
+    # patch it at that module; load_seed / _predictions_path are likewise re-imported
+    # in-function, so patch them at their source modules too.
+    monkeypatch.setattr(cli, "Store", lambda: store)
+    monkeypatch.setattr(
+        "job_enricher.eval.golden.load_seed", lambda: [dict(r) for r in _EVAL_GOLDEN_ROWS]
+    )
+    monkeypatch.setattr(
+        "job_enricher.engines.build_engine",
+        lambda kind, model=None: _FakeEvalEngine(mode, target),
+    )
+    monkeypatch.setattr(
+        "job_enricher.eval.report._predictions_path",
+        lambda judge, engine=None: tmp_path
+        / f"predictions.{engine}{'.judge_off' if judge == 'off' else ''}.json",
+    )
+
+    args = argparse.Namespace(
+        engine="ollama", set="golden", judge="off", batch=2, limit=None,
+        human_only=False, classify_model="fake-model", judge_model="fake-model",
+    )
+    rc = cli._cmd_eval_run(args)
+
+    assert rc == 0
+    err = capsys.readouterr().err
+    assert (
+        f"eval-run: classify coverage {expected_covered}/3 (drops={expected_drops})" in err
+    )

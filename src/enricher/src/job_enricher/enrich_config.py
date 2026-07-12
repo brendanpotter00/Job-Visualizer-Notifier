@@ -55,10 +55,42 @@ JUDGE_SCOPE_CHOICES: tuple[str, ...] = ("all", "low_confidence")
 JUDGE_CONFIDENCE_CEILING_DEFAULT = 0.85
 JUDGE_CONFIDENCE_CEILING_META_KEY = "judge:confidence_ceiling"
 
+# inference engine — WHICH harness runs classify/judge, independent of the model
+# tier. 'claude-code' = the sandboxed Claude sub-agent fan-out (subscription, the
+# default and the only path used for untrusted production text); 'ollama' = the
+# local open model over Ollama's HTTP API; 'opencode' = the same local weights
+# driven through the OpenCode CLI harness. The open engines read `opencode:model`
+# for the Ollama tag (e.g. qwen3:32b). See docs/LOCAL-OPEN-MODEL.md.
+ENGINE_CHOICES: tuple[str, ...] = ("claude-code", "ollama", "opencode")
+
+# Default engine for both stages is the fully-local, subscription-free open model
+# (qwen3:32b via Ollama). Chosen for $0 marginal cost; the tradeoff is throughput
+# (a single GPU serializes — no fan-out — so run OFF the 10-min tick as a
+# continuous worker) and ~a few points of accuracy vs Claude. See
+# docs/handoffs/2026-07-12-local-ollama-cutover.md. An explicit `classify:engine`/
+# `judge:engine` knob still overrides this per-deployment.
+CLASSIFY_ENGINE_DEFAULT = "ollama"
+CLASSIFY_ENGINE_META_KEY = "classify:engine"
+
+JUDGE_ENGINE_DEFAULT = "ollama"
+JUDGE_ENGINE_META_KEY = "judge:engine"
+
+# Ollama model tag the open engines classify/judge with (free-form; whatever is
+# pulled locally). Not a fixed choice set — `ollama list` is the source of truth.
+OPENCODE_MODEL_DEFAULT = "qwen3:32b"
+OPENCODE_MODEL_META_KEY = "opencode:model"
+
 
 def _get_choice(store: _MetaStore, key: str, default: str, choices: tuple[str, ...]) -> str:
     raw = store.get_meta(key)
     return raw if raw in choices else default
+
+
+def _get_str(store: _MetaStore, key: str, default: str) -> str:
+    """Free-form string knob (no fixed choice set): return the stored value if
+    present and non-blank, else the committed default."""
+    raw = store.get_meta(key)
+    return raw if raw not in (None, "") else default
 
 
 def _get_bounded_int(store: _MetaStore, key: str, default: int, bounds: tuple[int, int]) -> int:
@@ -122,6 +154,18 @@ def get_judge_confidence_ceiling(store: _MetaStore) -> float:
     return v if 0.0 <= v <= 1.0 else JUDGE_CONFIDENCE_CEILING_DEFAULT
 
 
+def get_classify_engine(store: _MetaStore) -> str:
+    return _get_choice(store, CLASSIFY_ENGINE_META_KEY, CLASSIFY_ENGINE_DEFAULT, ENGINE_CHOICES)
+
+
+def get_judge_engine(store: _MetaStore) -> str:
+    return _get_choice(store, JUDGE_ENGINE_META_KEY, JUDGE_ENGINE_DEFAULT, ENGINE_CHOICES)
+
+
+def get_opencode_model(store: _MetaStore) -> str:
+    return _get_str(store, OPENCODE_MODEL_META_KEY, OPENCODE_MODEL_DEFAULT)
+
+
 def set_classify_model(store: _MetaStore, value: str) -> str:
     if value not in MODEL_CHOICES:
         raise ValueError(f"invalid model {value!r}; expected one of {MODEL_CHOICES}")
@@ -174,17 +218,42 @@ def set_judge_confidence_ceiling(store: _MetaStore, value: float) -> float:
     return clamped
 
 
+def set_classify_engine(store: _MetaStore, value: str) -> str:
+    if value not in ENGINE_CHOICES:
+        raise ValueError(f"invalid engine {value!r}; expected one of {ENGINE_CHOICES}")
+    store.set_meta(CLASSIFY_ENGINE_META_KEY, value)
+    return value
+
+
+def set_judge_engine(store: _MetaStore, value: str) -> str:
+    if value not in ENGINE_CHOICES:
+        raise ValueError(f"invalid engine {value!r}; expected one of {ENGINE_CHOICES}")
+    store.set_meta(JUDGE_ENGINE_META_KEY, value)
+    return value
+
+
+def set_opencode_model(store: _MetaStore, value: str) -> str:
+    value = str(value).strip()
+    if not value:
+        raise ValueError("opencode model must be a non-empty Ollama tag (e.g. qwen3:32b)")
+    store.set_meta(OPENCODE_MODEL_META_KEY, value)
+    return value
+
+
 def config_snapshot(store: _MetaStore) -> dict[str, object]:
     """The JSON the /enrich-tick command reads at Step 0.6."""
     return {
+        "classify_engine": get_classify_engine(store),
         "classify_model": get_classify_model(store),
         "classify_batch_size": get_classify_batch_size(store),
         "classify_fan_out": get_classify_fan_out(store),
         "judge_enabled": get_judge_enabled(store),
+        "judge_engine": get_judge_engine(store),
         "judge_model": get_judge_model(store),
         "judge_human_floor": get_judge_human_floor(store),
         "judge_scope": get_judge_scope(store),
         "judge_confidence_ceiling": get_judge_confidence_ceiling(store),
+        "opencode_model": get_opencode_model(store),
     }
 
 
@@ -193,14 +262,17 @@ def config_snapshot(store: _MetaStore) -> dict[str, object]:
 # prod follow a newly-deployed default instead of a stale explicit override.
 KNOB_META_KEYS: frozenset[str] = frozenset(
     {
+        CLASSIFY_ENGINE_META_KEY,
         CLASSIFY_MODEL_META_KEY,
         CLASSIFY_BATCH_META_KEY,
         CLASSIFY_FANOUT_META_KEY,
         JUDGE_ENABLED_META_KEY,
+        JUDGE_ENGINE_META_KEY,
         JUDGE_MODEL_META_KEY,
         JUDGE_HUMAN_FLOOR_META_KEY,
         JUDGE_SCOPE_META_KEY,
         JUDGE_CONFIDENCE_CEILING_META_KEY,
+        OPENCODE_MODEL_META_KEY,
     }
 )
 

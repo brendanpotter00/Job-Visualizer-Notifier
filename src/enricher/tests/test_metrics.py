@@ -38,7 +38,7 @@ def test_build_metrics_payload_shape(store):
     ]
     assert payload["heartbeat_age_s"] is not None and payload["heartbeat_age_s"] >= 0
     assert payload["knobs"]["judge_scope"] == "low_confidence"
-    assert payload["taxonomy_version"].startswith("v5+")
+    assert payload["taxonomy_version"].startswith("v6+")
     assert payload["enricher_version"]
     assert payload["drift_suspected"] is False
     assert payload["scorecard"] is None or scorecard_hash  # depends on repo scorecard state

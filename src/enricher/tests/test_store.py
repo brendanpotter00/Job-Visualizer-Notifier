@@ -203,16 +203,19 @@ def test_migration_v0_to_v1_preserves_data(tmp_path):
     conn.close()
 
     store = Store(db_path=db)
-    store.init_schema()  # migrates v0 -> v1
+    store.init_schema()  # migrates v0 -> v1 -> v2
     store.init_schema()  # idempotent second run
 
     with store.connect() as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 1
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 2
         inbox = c.execute("SELECT * FROM inbox").fetchone()
         assert inbox["job_listing_id"] == "1" and inbox["attempts"] == 0
         enr = c.execute("SELECT * FROM enrichments").fetchone()
         assert enr["category"] == "software_engineering"
         assert enr["pre_judge_category"] is None and enr["tick_id"] is None
+        # v2 columns exist and default to NULL on a migrated row
+        assert enr["classify_latency_ms"] is None
+        assert enr["judge_reasoning"] is None and enr["judge_latency_ms"] is None
         tick = c.execute("SELECT * FROM ticks").fetchone()
         assert tick["uuid"] is None and tick["nulled_facets"] == 0
         assert c.execute("SELECT value FROM meta WHERE key='heartbeat:last_poll_at'").fetchone()[0] == "t0"
@@ -221,6 +224,51 @@ def test_migration_v0_to_v1_preserves_data(tmp_path):
     assert store.get_tick(tid)["uuid"]
     assert store.ensure_tick_uuid(1)  # backfills the legacy row
     assert store.get_tick(1)["uuid"]
+
+
+def test_migration_v1_to_v2_adds_columns(tmp_path):
+    """A v1-stamped DB (composite PKs, no reasoning/latency columns) gains the v2
+    columns on init_schema — and guards crash-recovery: v0->v1 stamps 1, so a
+    crash before v1->v2 re-runs the ALTERs rather than skipping them."""
+    import sqlite3
+
+    from job_enricher.store import Store
+
+    db = tmp_path / "v1.db"
+    conn = sqlite3.connect(db)
+    conn.executescript(
+        """
+        CREATE TABLE inbox (
+          job_listing_id TEXT NOT NULL, source_id TEXT NOT NULL, title TEXT NOT NULL,
+          company TEXT NOT NULL, raw_location TEXT, description_html TEXT, details_json TEXT,
+          content_hash TEXT NOT NULL, claimed_at TEXT NOT NULL, cleaned_at TEXT,
+          clean_description TEXT, status TEXT NOT NULL DEFAULT 'claimed', attempts INTEGER DEFAULT 0,
+          PRIMARY KEY (source_id, job_listing_id));
+        CREATE TABLE enrichments (
+          job_listing_id TEXT NOT NULL, source_id TEXT NOT NULL, category TEXT, level TEXT,
+          level_includes TEXT, tags TEXT, locations TEXT, classify_confidence REAL,
+          classify_reasoning TEXT, taxonomy_version TEXT, judged INTEGER DEFAULT 0,
+          judge_pass INTEGER, judge_confidence REAL, judge_notes TEXT, needs_human INTEGER DEFAULT 0,
+          pre_judge_category TEXT, pre_judge_level TEXT, pre_judge_tags TEXT, classify_model TEXT,
+          judge_model TEXT, tick_id INTEGER, enriched_at TEXT NOT NULL, sent_at TEXT,
+          PRIMARY KEY (source_id, job_listing_id));
+        INSERT INTO inbox VALUES ('1','gh','SWE','acme','SF','<p>x</p>',NULL,'h1','t0','t1','clean','enriched',0);
+        INSERT INTO enrichments (job_listing_id, source_id, category, level, enriched_at)
+          VALUES ('1','gh','software_engineering','senior','t2');
+        PRAGMA user_version = 1;
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    store = Store(db_path=db)
+    store.init_schema()
+    with store.connect() as c:
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 2
+        cols = {r["name"] for r in c.execute("PRAGMA table_info(enrichments)")}
+        assert {"classify_latency_ms", "judge_reasoning", "judge_latency_ms"} <= cols
+        # existing data preserved
+        assert c.execute("SELECT category FROM enrichments").fetchone()["category"] == "software_engineering"
 
 
 def test_reenrich_handshake_resets_sent_row(store):

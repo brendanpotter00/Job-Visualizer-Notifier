@@ -30,7 +30,6 @@ CATEGORIES: frozenset[str] = frozenset(
         "software_engineering",
         "hardware_engineer",
         "product_manager",
-        "project_manager",
         "data_scientist",
         "growth",
         "business_ops",

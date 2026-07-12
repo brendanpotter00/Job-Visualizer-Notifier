@@ -44,7 +44,7 @@ HEARTBEAT_KEY = "heartbeat:last_poll_at"
 CURRENT_TICK_KEY = "current_tick_id"
 LAST_SCORECARD_HASH_KEY = "metrics:last_scorecard_hash"
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # poison-row lifecycle: after this many per-row JVN rejections the inbox row is
 # moved to the terminal 'failed' status (excluded from every queue + write-back)
@@ -87,11 +87,14 @@ CREATE TABLE IF NOT EXISTS enrichments (
   locations        TEXT,        -- JSON array, byte-compatible with JVN _LOCATIONS_SCHEMA
   classify_confidence REAL,
   classify_reasoning  TEXT,
+  classify_latency_ms INTEGER,  -- v2: per-item wall time of the classify call
   taxonomy_version TEXT,
   judged           INTEGER NOT NULL DEFAULT 0,
   judge_pass       INTEGER,     -- 1 pass / 0 corrected-or-judge-failed / NULL not judged
   judge_confidence REAL,
   judge_notes      TEXT,
+  judge_reasoning  TEXT,        -- v2: the judge's "why" (fuller than the terse notes)
+  judge_latency_ms INTEGER,     -- v2: per-item wall time of the judge call
   needs_human      INTEGER NOT NULL DEFAULT 0,
   -- provenance (schema v1): pre-judge snapshot taken ONCE before the first
   -- judge merge, plus which models/tick produced the row
@@ -212,6 +215,8 @@ class Store:
             ).fetchone() is not None
             if version < 1 and has_inbox:
                 _migrate_v0_to_v1(conn)
+            if version < 2 and has_inbox:
+                _migrate_v1_to_v2(conn)
             conn.executescript(_SCHEMA_SQL)
             conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         finally:
@@ -371,18 +376,21 @@ class Store:
             conn.execute(
                 "INSERT INTO enrichments (job_listing_id, source_id, category, level, "
                 "level_includes, tags, locations, classify_confidence, classify_reasoning, "
-                "taxonomy_version, needs_human, classify_model, tick_id, enriched_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "classify_latency_ms, taxonomy_version, needs_human, classify_model, "
+                "tick_id, enriched_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(source_id, job_listing_id) DO UPDATE SET "
                 "category=excluded.category, level=excluded.level, "
                 "level_includes=excluded.level_includes, tags=excluded.tags, "
                 "locations=excluded.locations, "
                 "classify_confidence=excluded.classify_confidence, "
                 "classify_reasoning=excluded.classify_reasoning, "
+                "classify_latency_ms=excluded.classify_latency_ms, "
                 "taxonomy_version=excluded.taxonomy_version, "
                 "classify_model=excluded.classify_model, tick_id=excluded.tick_id, "
                 "enriched_at=excluded.enriched_at, "
                 "judged=0, judge_pass=NULL, judge_confidence=NULL, judge_notes=NULL, "
+                "judge_reasoning=NULL, judge_latency_ms=NULL, "
                 "judge_model=NULL, pre_judge_category=NULL, pre_judge_level=NULL, "
                 "pre_judge_tags=NULL, "
                 "needs_human=excluded.needs_human, sent_at=NULL",
@@ -390,6 +398,7 @@ class Store:
                     e["job_listing_id"], e["source_id"], e.get("category"), e.get("level"),
                     e.get("level_includes"), e.get("tags"), e.get("locations"),
                     e.get("classify_confidence"), e.get("classify_reasoning"),
+                    e.get("classify_latency_ms"),
                     e.get("taxonomy_version"), needs_human, e.get("classify_model"),
                     tick_id, now_iso(),
                 ),
@@ -439,13 +448,16 @@ class Store:
             conn.execute(
                 "UPDATE enrichments SET category=?, level=?, level_includes=?, tags=?, "
                 "locations=?, judged=1, judge_pass=?, judge_confidence=?, judge_notes=?, "
+                "judge_reasoning=?, judge_latency_ms=?, "
                 "judge_model=?, needs_human=?" + snapshot_sql
                 + (", sent_at=NULL" if reopen else "") + " "
                 "WHERE source_id = ? AND job_listing_id = ?",
                 (
                     j.get("category"), j.get("level"), j.get("level_includes"),
                     j.get("tags"), j.get("locations"), 1 if j.get("judge_pass") else 0,
-                    j.get("judge_confidence"), j.get("judge_notes"), j.get("judge_model"),
+                    j.get("judge_confidence"), j.get("judge_notes"),
+                    j.get("judge_reasoning"), j.get("judge_latency_ms"),
+                    j.get("judge_model"),
                     1 if j.get("needs_human") else 0, *snapshot_params, sid, jid,
                 ),
             )
@@ -665,6 +677,118 @@ class Store:
             ).fetchall()
         return [dict(r) for r in rows]
 
+    def latency_summary_for_tick(self, tick_id: int) -> dict[str, Any]:
+        """Per-tick engine latency (avg/max ms + sample count) for classify and
+        judge, from the v2 per-item latency columns. None per side when nothing
+        recorded latency (e.g. a claude-code sub-agent tick, which doesn't self-time)."""
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT AVG(classify_latency_ms) AS c_avg, MAX(classify_latency_ms) AS c_max, "
+                "COUNT(classify_latency_ms) AS c_n, AVG(judge_latency_ms) AS j_avg, "
+                "MAX(judge_latency_ms) AS j_max, COUNT(judge_latency_ms) AS j_n "
+                "FROM enrichments WHERE tick_id = ?",
+                (tick_id,),
+            ).fetchone()
+
+        def side(avg: Any, mx: Any, n: Any) -> dict[str, Any] | None:
+            return {"avg_ms": round(float(avg), 1), "max_ms": int(mx), "n": int(n)} if n else None
+
+        return {
+            "classify": side(row["c_avg"], row["c_max"], row["c_n"]),
+            "judge": side(row["j_avg"], row["j_max"], row["j_n"]),
+        }
+
+    def recent_ticks(self, limit: int = 50) -> list[dict[str, Any]]:
+        """Most recent ticks (newest first) for the dashboard's tick history."""
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM ticks ORDER BY id DESC LIMIT ?", (limit,)
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def list_jobs(
+        self,
+        status: str | None = None,
+        needs_human: bool | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Paginated inbox LEFT JOIN enrichments (a claimed/cleaned job may have
+        no enrichment yet). Filter by inbox.status and/or the enrichment
+        needs_human flag. Returns (rows, total) where total is the match count
+        before LIMIT/OFFSET. Job text is returned verbatim (untrusted scraper
+        input) — the caller renders it as escaped data, never HTML."""
+        where: list[str] = []
+        params: list[Any] = []
+        if status is not None:
+            where.append("i.status = ?")
+            params.append(status)
+        if needs_human is not None:
+            where.append("COALESCE(e.needs_human, 0) = ?")
+            params.append(1 if needs_human else 0)
+        clause = (" WHERE " + " AND ".join(where)) if where else ""
+        join = (
+            "FROM inbox i LEFT JOIN enrichments e "
+            "ON e.source_id = i.source_id AND e.job_listing_id = i.job_listing_id"
+        )
+        with self.connect() as conn:
+            total = conn.execute(
+                f"SELECT COUNT(*) AS n {join}{clause}", params
+            ).fetchone()["n"]
+            rows = conn.execute(
+                "SELECT i.source_id, i.job_listing_id, i.title, i.company, "
+                "i.raw_location, i.status, i.claimed_at, e.category, e.level, "
+                "e.classify_confidence, e.judged, e.judge_pass, "
+                "COALESCE(e.needs_human, 0) AS needs_human, e.tick_id, "
+                f"e.enriched_at, e.sent_at {join}{clause} "
+                "ORDER BY i.claimed_at DESC LIMIT ? OFFSET ?",
+                (*params, limit, offset),
+            ).fetchall()
+        return [dict(r) for r in rows], int(total)
+
+    def job_detail(self, source_id: str, job_listing_id: str) -> dict[str, Any] | None:
+        """Full drill-down for one job (inbox columns + the enrichment verdict)
+        keyed on the composite identity, or None if the pair is unknown."""
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT i.*, e.category, e.level, e.level_includes, e.tags, "
+                "e.locations, e.classify_confidence, e.classify_reasoning, "
+                "e.judged, e.judge_pass, e.judge_confidence, e.judge_notes, "
+                "e.needs_human AS enr_needs_human, e.pre_judge_category, "
+                "e.pre_judge_level, e.pre_judge_tags, e.classify_model, "
+                "e.judge_model, e.tick_id, e.enriched_at, e.sent_at "
+                "FROM inbox i LEFT JOIN enrichments e "
+                "ON e.source_id = i.source_id AND e.job_listing_id = i.job_listing_id "
+                "WHERE i.source_id = ? AND i.job_listing_id = ?",
+                (source_id, job_listing_id),
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+
+def _migrate_v1_to_v2(conn: sqlite3.Connection) -> None:
+    """Add the v2 reasoning + latency columns to enrichments.
+
+    ALTER-only (the primary key is unchanged, so no table rebuild) and idempotent
+    — each column is added only if absent, so a half-applied migration re-runs
+    cleanly. Wrapped in one transaction with the version stamp deferred to
+    init_schema's final PRAGMA."""
+    logger.info("store: migrating schema v1 -> v2 (judge_reasoning + latency columns)")
+    existing = {row["name"] for row in conn.execute("PRAGMA table_info(enrichments)")}
+    additions = [
+        ("classify_latency_ms", "INTEGER"),
+        ("judge_reasoning", "TEXT"),
+        ("judge_latency_ms", "INTEGER"),
+    ]
+    conn.execute("BEGIN")
+    try:
+        for name, coltype in additions:
+            if name not in existing:
+                conn.execute(f"ALTER TABLE enrichments ADD COLUMN {name} {coltype}")
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+
 
 def _migrate_v0_to_v1(conn: sqlite3.Connection) -> None:
     """Rebuild inbox + enrichments on the composite (source_id, job_listing_id)
@@ -745,8 +869,13 @@ def _migrate_v0_to_v1(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE ticks ADD COLUMN uuid TEXT")
         conn.execute("ALTER TABLE ticks ADD COLUMN nulled_facets INTEGER NOT NULL DEFAULT 0")
 
-        # indexes dropped with the old tables; _SCHEMA_SQL recreates them
-        conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        # indexes dropped with the old tables; _SCHEMA_SQL recreates them.
+        # Stamp v1 (this step only builds v1 structures) — NOT SCHEMA_VERSION:
+        # _migrate_v1_to_v2 runs next and advances it, and init_schema stamps the
+        # final SCHEMA_VERSION only after ALL steps succeed. Stamping the final
+        # version here would let a crash before v1->v2 leave a v2-stamped DB that
+        # lacks the v2 columns, permanently skipping the ALTERs.
+        conn.execute("PRAGMA user_version = 1")
         conn.execute("COMMIT")
     except Exception:
         conn.execute("ROLLBACK")

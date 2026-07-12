@@ -2,7 +2,7 @@ from job_enricher.eval.scoring import (
     cohens_kappa, judge_kappa_prejudge, judge_lift, regression_gate, score,
     _filter_consistent,
 )
-from job_enricher.taxonomy import LEVELS
+from job_enricher.taxonomy import CATEGORIES, LEVELS, validate_facets
 
 
 def _row(jid, cat, lvl, tags=None, locs=None, conf=None, jp=None):
@@ -152,6 +152,24 @@ def test_regression_gate_refuses_below_min_n():
     tiny = score([_row("1", "a", "mid")], truth)
     fails = regression_gate(tiny, {"category_accuracy": 0.5})  # default min_n=50
     assert len(fails) == 1 and "min_n" in fails[0]
+
+
+def test_project_manager_removed_and_scoring_tolerates_shrunk_categories():
+    """v6 taxonomy dropped the project_manager category. It must be gone from
+    CATEGORIES, treated as a hallucination by validate_facets, and the scorer
+    (whose macro-F1 iterates CATEGORIES) must run cleanly over the shrunk set."""
+    assert "project_manager" not in CATEGORIES
+    assert "product_manager" in CATEGORIES  # the retained PM slug is unaffected
+    # validate_facets nulls + flags the removed slug, and passes a valid one through
+    cat, _lvl, bad = validate_facets("project_manager", "mid")
+    assert cat is None and ("category", "project_manager") in bad
+    assert validate_facets("product_manager", "mid") == ("product_manager", "mid", [])
+    # category macro-F1 / accuracy compute over the current CATEGORIES without error
+    truth = [_row("1", "product_manager", "mid"), _row("2", "business_ops", "senior")]
+    preds = [_row("1", "product_manager", "mid"), _row("2", "business_ops", "senior")]
+    sc = score(preds, truth).to_dict()
+    assert sc["category_f1_macro"] == 1.0
+    assert sc["category_accuracy"] == 1.0
 
 
 def test_regression_gate_ignores_strict_tags_f1():

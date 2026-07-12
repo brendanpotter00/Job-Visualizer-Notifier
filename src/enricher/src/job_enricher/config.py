@@ -28,6 +28,17 @@ class Settings(BaseSettings):
     edge_hmac_secret: str | None = None           # EDGE_HMAC_SECRET
     tunnel_name: str | None = None                # TUNNEL_NAME (e.g. "jobnorm")
 
+    # --- local dashboard (separate app; defaults to 127.0.0.1, and a non-loopback
+    #     --host is refused unless --allow-remote — it edits knobs unauthenticated) ---
+    dashboard_port: int = Field(default=8788, gt=0)   # DASHBOARD_PORT
+
+    # --- local open-model engines (opencode/ollama) — process-level infra, not a
+    #     per-tick dial. The Ollama tag itself is the `opencode:model` runtime knob. ---
+    ollama_base_url: str = "http://localhost:11434"   # OLLAMA_BASE_URL
+    opencode_binary: str = "opencode"                 # OPENCODE_BINARY (PATH name or abs path)
+    claude_binary: str = "claude"                     # CLAUDE_BINARY (headless `claude -p`)
+    engine_timeout_seconds: float = Field(default=300.0, gt=0)  # ENGINE_TIMEOUT_SECONDS
+
     @model_validator(mode="after")
     def _validate_edge(self) -> "Settings":
         if self.edge_enabled and not self.edge_hmac_secret:

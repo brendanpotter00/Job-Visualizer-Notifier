@@ -272,9 +272,9 @@ def _cmd_classify_queue(args: argparse.Namespace) -> int:
                 "clean_description": truncate_for_agent(r["clean_description"] or ""),
             }
         )
-    manifest = _write_queue_chunks(
-        store, out, "classify", ec.get_classify_batch_size(store)
-    )
+    engine = ec.get_classify_engine(store)
+    batch = 1 if engine != "claude-code" else ec.get_classify_batch_size(store)
+    manifest = _write_queue_chunks(store, out, "classify", batch)
     print(json.dumps(manifest))
     return 0
 
@@ -377,6 +377,7 @@ def record_enrichment_items(
                 "locations": _coerce_json_field(item.get("locations")),
                 "classify_confidence": item.get("confidence"),
                 "classify_reasoning": item.get("reasoning"),
+                "classify_latency_ms": item.get("classify_latency_ms"),
                 "taxonomy_version": version,
                 "needs_human": needs_human,
                 "classify_model": classify_model,
@@ -464,9 +465,9 @@ def _cmd_judge_queue(args: argparse.Namespace) -> int:
                 },
             }
         )
-    manifest = _write_queue_chunks(
-        store, out, "judge", ec.get_classify_batch_size(store)
-    )
+    engine = ec.get_judge_engine(store)
+    batch = 1 if engine != "claude-code" else ec.get_classify_batch_size(store)
+    manifest = _write_queue_chunks(store, out, "judge", batch)
     print(json.dumps(manifest))
     return 0
 
@@ -553,6 +554,296 @@ def _cmd_record_judge(args: argparse.Namespace) -> int:
     return 0
 
 
+# ---- engine-driven classify/judge (Python inference path) ------------------
+# When classify:engine / judge:engine is not 'claude-code', /enrich-tick runs
+# these INSTEAD of the sandboxed Claude sub-agent fan-out: same chunk files, same
+# recorder contract (so validation, level rails, provenance, durability are all
+# reused), but inference happens in-process via the engines/ package.
+def _stage_engine_model(
+    store: Store, stage: str, engine_override: str | None = None,
+    model_override: str | None = None,
+) -> tuple[str, str]:
+    """Resolve (engine_kind, model) for a stage. `model` is the Claude tier for
+    the claude-code engine, else the Ollama tag (opencode:model). Overrides win
+    (used by eval-run to pin an explicit tier/tag)."""
+    if stage == "classify":
+        engine_kind = engine_override or ec.get_classify_engine(store)
+        claude_model = ec.get_classify_model(store)
+    else:
+        engine_kind = engine_override or ec.get_judge_engine(store)
+        claude_model = ec.get_judge_model(store)
+    if engine_kind == "claude-code":
+        return engine_kind, (model_override or claude_model)
+    return engine_kind, (model_override or ec.get_opencode_model(store))
+
+
+def _resolve_chunk_files(store: Store, prefix: str, chunk_file: str | None) -> list[str]:
+    if chunk_file:
+        return [chunk_file]
+    return [str(p) for p in sorted(_chunk_dir(store).glob(f"{prefix}-*.json"))]
+
+
+def _cmd_classify_run(args: argparse.Namespace) -> int:
+    from job_enricher.engines import EngineError, build_engine
+
+    store = Store()
+    engine_kind, model = _stage_engine_model(store, "classify", args.engine)
+    engine = build_engine(engine_kind, model=model)
+    version = tax.taxonomy_version()
+    chunk_files = _resolve_chunk_files(store, "classify", args.chunk_file)
+    totals = {"recorded": 0, "needs_human": 0, "skipped": 0, "skipped_unknown": 0, "nulled_facets": 0}
+    for cf in chunk_files:
+        try:
+            jobs = json.loads(Path(cf).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.error("classify-run: unreadable chunk %s: %s", cf, exc)
+            continue
+        try:
+            items = engine.classify(jobs)
+        except EngineError as exc:
+            logger.error("classify-run: %s failed on %s: %s", engine.name, cf, exc)
+            continue
+        res = record_enrichment_items(store, items, version, classify_model=model)
+        for k in totals:
+            totals[k] += res.get(k, 0)
+    store.bump_tick_counters(
+        classified=totals["recorded"], needs_human=totals["needs_human"],
+        nulled_facets=totals["nulled_facets"],
+    )
+    _record_llm_stage_timing(store, "classify", totals["recorded"])
+    print(
+        f"classify-run: engine={engine_kind} model={model} "
+        f"recorded={totals['recorded']} needs_human={totals['needs_human']} "
+        f"skipped={totals['skipped']} skipped_unknown={totals['skipped_unknown']} "
+        f"nulled_facets={totals['nulled_facets']} chunks={len(chunk_files)}"
+    )
+    return 0
+
+
+def _cmd_judge_run(args: argparse.Namespace) -> int:
+    from job_enricher.engines import EngineError, build_engine
+
+    store = Store()
+    engine_kind, model = _stage_engine_model(store, "judge", args.engine)
+    engine = build_engine(engine_kind, model=model)
+    floor = ec.get_judge_human_floor(store)
+    chunk_files = _resolve_chunk_files(store, "judge", args.chunk_file)
+    totals = {"judged": 0, "corrected": 0, "needs_human": 0, "skipped": 0, "rejected_corrections": 0}
+    for cf in chunk_files:
+        try:
+            items = json.loads(Path(cf).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.error("judge-run: unreadable chunk %s: %s", cf, exc)
+            continue
+        try:
+            verdicts = engine.judge(items)
+        except EngineError as exc:
+            logger.error("judge-run: %s failed on %s: %s", engine.name, cf, exc)
+            continue
+        res = apply_judge_verdicts(store, verdicts, floor, judge_model=model)
+        for k in totals:
+            totals[k] += res.get(k, 0)
+    store.bump_tick_counters(
+        judged=totals["judged"], corrected=totals["corrected"],
+        needs_human=totals["needs_human"],
+    )
+    _record_llm_stage_timing(store, "judge", totals["judged"])
+    print(
+        f"judge-run: engine={engine_kind} model={model} judged={totals['judged']} "
+        f"corrected={totals['corrected']} needs_human={totals['needs_human']} "
+        f"skipped={totals['skipped']} rejected_corrections={totals['rejected_corrections']} "
+        f"chunks={len(chunk_files)}"
+    )
+    return 0
+
+
+# ---- eval-run (headless per-engine prediction generator) -------------------
+def _eval_classify_pred(item: dict[str, Any], clean_desc: str) -> dict[str, Any]:
+    """A classify prediction row (the judge-off artifact)."""
+    return {
+        "job_listing_id": item.get("job_listing_id"),
+        "source_id": item.get("source_id"),
+        "category": item.get("category"),
+        "level": item.get("level"),
+        "level_includes": item.get("level_includes") or [],
+        "tags": item.get("tags") or [],
+        "locations": item.get("locations") or [],
+        "confidence": item.get("confidence"),
+        "reasoning": item.get("reasoning"),
+        "classify_latency_ms": item.get("classify_latency_ms"),
+        "clean_description": clean_desc,
+    }
+
+
+def _eval_post_judge_pred(cp: dict[str, Any], verdict: dict[str, Any], floor: float) -> dict[str, Any]:
+    """Apply a judge verdict to a classify prediction via the SAME code-enforced
+    rails as production (`_merge_judge`), then flatten to a judged prediction row."""
+    base = {
+        "job_listing_id": cp["job_listing_id"],
+        "source_id": cp.get("source_id"),
+        "category": cp.get("category"),
+        "level": cp.get("level"),
+        "level_includes": json.dumps(cp.get("level_includes") or []),
+        "tags": json.dumps(cp.get("tags") or []),
+        "locations": json.dumps(cp.get("locations") or []),
+        "needs_human": False,
+    }
+    merged = _merge_judge(base, verdict, floor)
+    return {
+        "job_listing_id": cp["job_listing_id"],
+        "source_id": cp.get("source_id"),
+        "category": merged["category"],
+        "level": merged["level"],
+        "level_includes": json.loads(merged["level_includes"]),
+        "tags": json.loads(merged["tags"]),
+        "locations": json.loads(merged["locations"]),
+        "confidence": cp.get("confidence"),
+        "reasoning": cp.get("reasoning"),
+        "classify_latency_ms": cp.get("classify_latency_ms"),
+        "judge_pass": bool(merged["judge_pass"]),
+        "judge_reasoning": merged.get("judge_reasoning") or merged.get("judge_notes"),
+        "judge_latency_ms": merged.get("judge_latency_ms"),
+        "clean_description": cp.get("clean_description"),
+    }
+
+
+def _cmd_eval_run(args: argparse.Namespace) -> int:
+    """Generate per-engine golden predictions headlessly (classify [+ judge]),
+    with per-item latency + reasoning, for `cli eval --engine <e>` to score.
+    Trusted golden text, so both open and Claude engines run in-process (unlike
+    production, where Claude keeps the sandboxed sub-agent path)."""
+    from job_enricher import clean
+    from job_enricher.engines import EngineError, build_engine
+    from job_enricher.eval.golden import load_seed
+    from job_enricher.eval.report import _predictions_path
+
+    store = Store()
+    engine_kind = args.engine
+    is_claude = engine_kind == "claude-code"
+    classify_model = args.classify_model or (
+        ec.get_classify_model(store) if is_claude else ec.get_opencode_model(store)
+    )
+    judge_model = args.judge_model or (
+        ec.get_judge_model(store) if is_claude else ec.get_opencode_model(store)
+    )
+    floor = ec.get_judge_human_floor(store)
+
+    rows = load_seed()
+    if args.human_only:
+        rows = [r for r in rows if r.get("label_source") == "human"]
+    if args.limit:
+        rows = rows[: args.limit]
+    if not rows:
+        which = "human-labeled " if args.human_only else ""
+        print(f"eval-run: no {which}golden rows — run `cli build-golden-set`/`golden-merge` first.",
+              file=sys.stderr)
+        return 1
+    batch = max(1, args.batch)
+    do_judge = args.judge != "off"
+
+    jobs: list[dict[str, Any]] = []
+    clean_by_key: dict[tuple[str, str], str] = {}
+    for r in rows:
+        # prefer an already-cleaned description (prod exports carry clean_description);
+        # otherwise clean the raw HTML the same way the pipeline does.
+        raw = r.get("clean_description") or clean.clean_description(r.get("description_html"))
+        cd = clean.truncate_for_agent(raw or "")
+        key = (r["source_id"], r["job_listing_id"])
+        clean_by_key[key] = cd
+        jobs.append({
+            "job_listing_id": r["job_listing_id"], "source_id": r["source_id"],
+            "title": r.get("title"), "company": r.get("company"),
+            "raw_location": r.get("raw_location"), "clean_description": cd,
+        })
+
+    # ---- classify ----
+    classify_engine = build_engine(engine_kind, model=classify_model)
+    classify_by_key: dict[tuple[str, str], dict[str, Any]] = {}
+    total = len(jobs)
+    for i in range(0, total, batch):
+        chunk = jobs[i : i + batch]
+        try:
+            items = classify_engine.classify(chunk)
+        except EngineError as exc:
+            logger.error("eval-run: classify chunk @%d failed: %s", i, exc)
+            items = []
+        for it in items:
+            classify_by_key[(it.get("source_id"), it.get("job_listing_id"))] = it
+        print(f"  classify {min(i + batch, total)}/{total} [{engine_kind}/{classify_model}]",
+              file=sys.stderr)
+
+    # count golden rows that actually got a prediction (keys are the known input
+    # ids after positional stamping) — NOT len(classify_by_key), which at batch>1
+    # could hold hallucinated/mis-echoed keys and misreport the drop count.
+    covered = sum(
+        1 for r in rows if (r["source_id"], r["job_listing_id"]) in classify_by_key
+    )
+    print(f"eval-run: classify coverage {covered}/{total} (drops={total - covered}) "
+          f"[{engine_kind}]", file=sys.stderr)
+
+    judge_off = [
+        _eval_classify_pred(classify_by_key[k], clean_by_key[k])
+        for k in (( r["source_id"], r["job_listing_id"]) for r in rows)
+        if k in classify_by_key
+    ]
+    off_path = _predictions_path("off", engine_kind)
+    off_path.parent.mkdir(parents=True, exist_ok=True)
+    off_path.write_text(json.dumps(judge_off, indent=2), encoding="utf-8")
+    print(f"eval-run: wrote {len(judge_off)} classify predictions -> {off_path.name}")
+
+    if not do_judge:
+        return 0
+
+    # ---- judge ----
+    judge_engine = build_engine(engine_kind, model=judge_model)
+    judge_items: list[dict[str, Any]] = []
+    for r in rows:
+        k = (r["source_id"], r["job_listing_id"])
+        it = classify_by_key.get(k)
+        if it is None:
+            continue
+        cp = _eval_classify_pred(it, clean_by_key[k])
+        judge_items.append({
+            "job_listing_id": r["job_listing_id"], "source_id": r["source_id"],
+            "title": r.get("title"), "company": r.get("company"),
+            "raw_location": r.get("raw_location"), "clean_description": clean_by_key[k],
+            "current": {
+                "category": cp["category"], "level": cp["level"],
+                "level_includes": cp["level_includes"], "tags": cp["tags"],
+                "locations": cp["locations"], "confidence": cp["confidence"],
+            },
+        })
+    verdict_by_key: dict[tuple[str, str], dict[str, Any]] = {}
+    jt = len(judge_items)
+    for i in range(0, jt, batch):
+        chunk = judge_items[i : i + batch]
+        try:
+            verdicts = judge_engine.judge(chunk)
+        except EngineError as exc:
+            logger.error("eval-run: judge chunk @%d failed: %s", i, exc)
+            verdicts = []
+        for v in verdicts:
+            verdict_by_key[(v.get("source_id"), v.get("job_listing_id"))] = v
+        print(f"  judge {min(i + batch, jt)}/{jt} [{engine_kind}/{judge_model}]", file=sys.stderr)
+
+    judged: list[dict[str, Any]] = []
+    for r in rows:
+        k = (r["source_id"], r["job_listing_id"])
+        it = classify_by_key.get(k)
+        if it is None:
+            continue
+        cp = _eval_classify_pred(it, clean_by_key[k])
+        verdict = verdict_by_key.get(k)
+        if verdict is None:
+            # judge dropped the row — carry the classify label through as a pass
+            verdict = {"passed": True, "confidence": cp.get("confidence"), "corrections": {}}
+        judged.append(_eval_post_judge_pred(cp, verdict, floor))
+    on_path = _predictions_path(None, engine_kind)
+    on_path.write_text(json.dumps(judged, indent=2), encoding="utf-8")
+    print(f"eval-run: wrote {len(judged)} judged predictions -> {on_path.name}")
+    return 0
+
+
 # the judge may only change level (outside the new_grad/entry equivalence)
 # when its OWN confidence clears this bar — enforced in code, not just prompt
 JUDGE_LEVEL_CONFIDENCE_MIN = 0.8
@@ -580,6 +871,8 @@ def _merge_judge(base: dict[str, Any], verdict: dict[str, Any], floor: float) ->
     passed = bool(verdict.get("passed", verdict.get("judge_pass", True)))
     conf = verdict.get("confidence", verdict.get("judge_confidence"))
     notes = verdict.get("notes", verdict.get("judge_notes"))
+    reasoning = verdict.get("reasoning", verdict.get("judge_reasoning"))
+    judge_latency_ms = verdict.get("judge_latency_ms")
 
     rejected_notes: list[str] = []
     force_needs_human = False
@@ -651,6 +944,8 @@ def _merge_judge(base: dict[str, Any], verdict: dict[str, Any], floor: float) ->
         "judge_pass": passed and not proposed_any,
         "judge_confidence": conf,
         "judge_notes": notes,
+        "judge_reasoning": reasoning,
+        "judge_latency_ms": judge_latency_ms,
         "needs_human": needs_human,
         "rejected_corrections": len(rejected_notes),
     }
@@ -747,7 +1042,7 @@ def _cmd_eval(args: argparse.Namespace) -> int:
 
     code = run_eval(
         golden_set=args.set, judge=args.judge, gate=args.gate, baseline=args.baseline,
-        allow_draft=args.allow_draft,
+        allow_draft=args.allow_draft, engine=args.engine, reasoning=args.reasoning,
     )
     return code
 
@@ -871,6 +1166,40 @@ def _cmd_serve(args: argparse.Namespace) -> int:
     return 0
 
 
+# ---- dashboard (local read+edit observability UI) --------------------------
+def _cmd_dashboard(args: argparse.Namespace) -> int:
+    """Run the local dashboard (JSON API + built SPA). LOCALHOST ONLY by default:
+    it can edit the runtime knobs over an unauthenticated endpoint, so a
+    non-loopback --host is REFUSED (exit 2) unless --allow-remote is passed — and
+    even then it must never be tunneled. --api-only serves just the API (pair with
+    the Vite dev server on :5173 for front-end iteration)."""
+    import uvicorn
+
+    from job_enricher.config import settings
+
+    host = args.host
+    is_loopback = host in ("127.0.0.1", "localhost")
+    if not is_loopback and not args.allow_remote:
+        logger.error(
+            "dashboard: refusing to bind %s — this exposes the unauthenticated "
+            "knob editor beyond localhost. Pass --allow-remote to override "
+            "(and never place the dashboard behind a tunnel).",
+            host,
+        )
+        return 2
+    if not is_loopback:
+        logger.warning(
+            "dashboard: binding %s exposes the knob editor beyond localhost — "
+            "only do this on a trusted network and never tunnel it",
+            host,
+        )
+    if args.api_only:
+        os.environ["DASHBOARD_SERVE_STATIC"] = "0"
+    port = args.port or settings.dashboard_port
+    uvicorn.run("job_enricher.dashboard:app", host=host, port=port)
+    return 0
+
+
 # ---- small lookups ---------------------------------------------------------
 def _enrichment_map(store: Store, ids: list[str]) -> dict[tuple[str, str], dict[str, Any]]:
     """Enrichment rows keyed by the composite (source_id, job_listing_id)."""
@@ -913,13 +1242,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     # knob setters
     for name, knob, setter, typ in [
+        ("set-classify-engine", "classify:engine", ec.set_classify_engine, str),
         ("set-classify-model", "classify:model", ec.set_classify_model, str),
         ("set-classify-batch", "classify:batch_size", ec.set_classify_batch_size, int),
         ("set-classify-fanout", "classify:fan_out", ec.set_classify_fan_out, int),
+        ("set-judge-engine", "judge:engine", ec.set_judge_engine, str),
         ("set-judge-model", "judge:model", ec.set_judge_model, str),
         ("set-judge-floor", "judge:human_floor", ec.set_judge_human_floor, float),
         ("set-judge-scope", "judge:scope", ec.set_judge_scope, str),
         ("set-judge-ceiling", "judge:confidence_ceiling", ec.set_judge_confidence_ceiling, float),
+        ("set-opencode-model", "opencode:model", ec.set_opencode_model, str),
     ]:
         sp = subs.add_parser(name, help=f"set {knob}")
         sp.add_argument("value", type=typ)
@@ -959,6 +1291,16 @@ def build_parser() -> argparse.ArgumentParser:
     re_.add_argument("--json-file", default=None)
     re_.set_defaults(func=_cmd_record_enrichment)
 
+    cr = subs.add_parser(
+        "classify-run",
+        help="run classify IN-PROCESS via the classify:engine (ollama/opencode/"
+             "claude-code) over the classify-*.json chunks + record results",
+    )
+    cr.add_argument("--engine", default=None, choices=list(ec.ENGINE_CHOICES),
+                    help="override the classify:engine knob for this run")
+    cr.add_argument("--chunk-file", default=None, help="run one chunk file (default: all)")
+    cr.set_defaults(func=_cmd_classify_run)
+
     jq = subs.add_parser(
         "judge-queue",
         help="write enrichments needing judging to data/chunks/judge-*.json "
@@ -973,6 +1315,16 @@ def build_parser() -> argparse.ArgumentParser:
     rj.add_argument("--json-file", default=None)
     rj.set_defaults(func=_cmd_record_judge)
 
+    jr = subs.add_parser(
+        "judge-run",
+        help="run judge IN-PROCESS via the judge:engine over the judge-*.json "
+             "chunks + record verdicts",
+    )
+    jr.add_argument("--engine", default=None, choices=list(ec.ENGINE_CHOICES),
+                    help="override the judge:engine knob for this run")
+    jr.add_argument("--chunk-file", default=None, help="run one chunk file (default: all)")
+    jr.set_defaults(func=_cmd_judge_run)
+
     subs.add_parser("write-back", help="Stage D: durable write-back to JVN").set_defaults(
         func=_cmd_write_back
     )
@@ -980,6 +1332,23 @@ def build_parser() -> argparse.ArgumentParser:
     subs.add_parser("health", help="observability JSON").set_defaults(func=_cmd_health)
     subs.add_parser("status", help="alias for health").set_defaults(func=_cmd_status)
     subs.add_parser("serve", help="run the optional inbound edge").set_defaults(func=_cmd_serve)
+
+    pd = subs.add_parser("dashboard", help="run the local read+edit dashboard (127.0.0.1)")
+    pd.add_argument("--port", type=int, default=None, help="override DASHBOARD_PORT")
+    pd.add_argument("--host", default="127.0.0.1")
+    pd.add_argument(
+        "--allow-remote",
+        action="store_true",
+        help="permit a non-loopback --host (exposes the unauthenticated knob "
+             "editor beyond localhost; never tunnel it). Without this a "
+             "non-loopback --host is refused.",
+    )
+    pd.add_argument(
+        "--api-only",
+        action="store_true",
+        help="serve the JSON API only (pair with `npm run dev` on :5173)",
+    )
+    pd.set_defaults(func=_cmd_dashboard)
 
     bg = subs.add_parser("build-golden-set", help="sample JVN into golden/seed")
     bg.add_argument("--n", type=int, default=150)
@@ -994,7 +1363,34 @@ def build_parser() -> argparse.ArgumentParser:
         "--allow-draft", action="store_true",
         help="score against draft labels too — ADVISORY ONLY (never gates, always exits 0)",
     )
+    ev.add_argument(
+        "--engine", default=None,
+        help="score the per-engine predictions.<engine>.json (from `eval-run`)",
+    )
+    ev.add_argument(
+        "--reasoning", action="store_true",
+        help="also print the per-row 'why' (predicted vs gold + classify/judge rationale)",
+    )
     ev.set_defaults(func=_cmd_eval)
+
+    er = subs.add_parser(
+        "eval-run",
+        help="headlessly generate per-engine golden predictions (classify [+judge]) "
+             "with per-item latency + reasoning, for `cli eval --engine <e>`",
+    )
+    er.add_argument("--engine", required=True, choices=list(ec.ENGINE_CHOICES))
+    er.add_argument("--set", default="golden")
+    er.add_argument("--judge", default=None, choices=["on", "off"],
+                    help="off = classify only; default runs the judge too")
+    er.add_argument("--batch", type=int, default=1,
+                    help="jobs per model call (1 = exact per-item latency; higher = faster)")
+    er.add_argument("--limit", type=int, default=None, help="first N golden rows")
+    er.add_argument("--human-only", action="store_true",
+                    help="only generate predictions for label_source='human' rows")
+    er.add_argument("--classify-model", default=None,
+                    help="override classify model/tier (default: knob for claude-code, else opencode:model)")
+    er.add_argument("--judge-model", default=None, help="override judge model/tier")
+    er.set_defaults(func=_cmd_eval_run)
 
     rn = subs.add_parser(
         "reenrich",

@@ -147,6 +147,7 @@ def build_metrics_payload(
         "taxonomy_version": taxonomy_version,
         "knobs": ec.config_snapshot(store),
         "stage_timings": stage_timings,
+        "engine_latency_ms": store.latency_summary_for_tick(int(tick["id"])),
         "heartbeat_age_s": _heartbeat_age_s(store),
         "scorecard": scorecard,
         "enricher_version": __version__,
