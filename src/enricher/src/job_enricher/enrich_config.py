@@ -80,6 +80,19 @@ JUDGE_ENGINE_META_KEY = "judge:engine"
 OPENCODE_MODEL_DEFAULT = "qwen3:32b"
 OPENCODE_MODEL_META_KEY = "opencode:model"
 
+# Per-tick queue cap for the IN-PROCESS engines (ollama/opencode). These run
+# serially on one local GPU (~100 s/job), so a tick that queued the ENTIRE cleaned
+# backlog into `classify-run`/`judge-run` would grind for many hours and be killed
+# by the wrapper's 3 h watchdog BEFORE ever reaching judge -> write-back -> tick-end
+# — delivering nothing and never closing the tick. Bounding each in-process stage to
+# a slice makes every tick finish and write its results back to JVN; the backlog
+# drains a slice at a time across ticks. Does NOT apply to the `claude-code` fan-out
+# (parallel sub-agents clear a whole batch fast, so it stays unbounded). Tunable via
+# `set-enrich-per-tick-limit`; the ceiling keeps a full stage well under the watchdog.
+ENRICH_PER_TICK_LIMIT_DEFAULT = 40
+ENRICH_PER_TICK_LIMIT_META_KEY = "enrich:per_tick_limit"
+ENRICH_PER_TICK_LIMIT_BOUNDS = (1, 500)
+
 
 def _get_choice(store: _MetaStore, key: str, default: str, choices: tuple[str, ...]) -> str:
     raw = store.get_meta(key)
@@ -166,6 +179,13 @@ def get_opencode_model(store: _MetaStore) -> str:
     return _get_str(store, OPENCODE_MODEL_META_KEY, OPENCODE_MODEL_DEFAULT)
 
 
+def get_enrich_per_tick_limit(store: _MetaStore) -> int:
+    return _get_bounded_int(
+        store, ENRICH_PER_TICK_LIMIT_META_KEY,
+        ENRICH_PER_TICK_LIMIT_DEFAULT, ENRICH_PER_TICK_LIMIT_BOUNDS,
+    )
+
+
 def set_classify_model(store: _MetaStore, value: str) -> str:
     if value not in MODEL_CHOICES:
         raise ValueError(f"invalid model {value!r}; expected one of {MODEL_CHOICES}")
@@ -240,6 +260,13 @@ def set_opencode_model(store: _MetaStore, value: str) -> str:
     return value
 
 
+def set_enrich_per_tick_limit(store: _MetaStore, value: int) -> int:
+    lo, hi = ENRICH_PER_TICK_LIMIT_BOUNDS
+    clamped = max(lo, min(hi, int(value)))
+    store.set_meta(ENRICH_PER_TICK_LIMIT_META_KEY, str(clamped))
+    return clamped
+
+
 def config_snapshot(store: _MetaStore) -> dict[str, object]:
     """The JSON the /enrich-tick command reads at Step 0.6."""
     return {
@@ -254,6 +281,7 @@ def config_snapshot(store: _MetaStore) -> dict[str, object]:
         "judge_scope": get_judge_scope(store),
         "judge_confidence_ceiling": get_judge_confidence_ceiling(store),
         "opencode_model": get_opencode_model(store),
+        "enrich_per_tick_limit": get_enrich_per_tick_limit(store),
     }
 
 
@@ -273,6 +301,7 @@ KNOB_META_KEYS: frozenset[str] = frozenset(
         JUDGE_SCOPE_META_KEY,
         JUDGE_CONFIDENCE_CEILING_META_KEY,
         OPENCODE_MODEL_META_KEY,
+        ENRICH_PER_TICK_LIMIT_META_KEY,
     }
 )
 

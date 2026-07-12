@@ -257,9 +257,28 @@ def _write_queue_chunks(
 
 
 # ---- classify queue + record (Stage B) ------------------------------------
+def _resolve_per_tick_limit(store: Store, engine: str, explicit: int | None) -> int | None:
+    """Bound how many rows an IN-PROCESS engine (ollama/opencode) queues per tick.
+
+    These engines run serially on one local GPU, so queueing the whole cleaned
+    backlog would make `classify-run`/`judge-run` grind for hours and get killed by
+    the wrapper's 3 h watchdog BEFORE write-back + tick-end ever run — the tick
+    delivers nothing and never closes. Capping the queue to `enrich:per_tick_limit`
+    makes every tick finish and write its slice back; the backlog drains over ticks.
+    An explicit `--limit` still wins, and the `claude-code` parallel fan-out is left
+    unbounded (it clears a batch fast)."""
+    if explicit is not None:
+        return explicit
+    if engine == "claude-code":
+        return None
+    return ec.get_enrich_per_tick_limit(store)
+
+
 def _cmd_classify_queue(args: argparse.Namespace) -> int:
     store = Store()
-    rows = store.jobs_needing_classify(limit=args.limit)
+    engine = ec.get_classify_engine(store)
+    limit = _resolve_per_tick_limit(store, engine, args.limit)
+    rows = store.jobs_needing_classify(limit=limit)
     out = []
     for r in rows:
         out.append(
@@ -272,7 +291,6 @@ def _cmd_classify_queue(args: argparse.Namespace) -> int:
                 "clean_description": truncate_for_agent(r["clean_description"] or ""),
             }
         )
-    engine = ec.get_classify_engine(store)
     batch = 1 if engine != "claude-code" else ec.get_classify_batch_size(store)
     manifest = _write_queue_chunks(store, out, "classify", batch)
     print(json.dumps(manifest))
@@ -442,7 +460,14 @@ def _cmd_judge_queue(args: argparse.Namespace) -> int:
         return 0
     scope = ec.get_judge_scope(store)
     ceiling = ec.get_judge_confidence_ceiling(store)
-    enr = store.enriched_unjudged(limit=args.limit)
+    engine = ec.get_judge_engine(store)
+    # Cap AFTER the scope filter, not via a SQL LIMIT: under scope=low_confidence,
+    # already-sent high-confidence rows stay judged=0 forever (scope never judges
+    # them) and pile up at the front of enriched_unjudged. A pre-filter LIMIT would
+    # let that backlog starve the actual low-confidence work; filtering first, then
+    # truncating, always yields up to `limit` genuinely judge-eligible rows.
+    limit = _resolve_per_tick_limit(store, engine, args.limit)
+    enr = store.enriched_unjudged()
     out = []
     for e in enr:
         if scope == "low_confidence" and not _needs_judge(e, ceiling):
@@ -465,7 +490,8 @@ def _cmd_judge_queue(args: argparse.Namespace) -> int:
                 },
             }
         )
-    engine = ec.get_judge_engine(store)
+        if limit is not None and len(out) >= limit:
+            break
     batch = 1 if engine != "claude-code" else ec.get_classify_batch_size(store)
     manifest = _write_queue_chunks(store, out, "judge", batch)
     print(json.dumps(manifest))
@@ -1252,6 +1278,7 @@ def build_parser() -> argparse.ArgumentParser:
         ("set-judge-scope", "judge:scope", ec.set_judge_scope, str),
         ("set-judge-ceiling", "judge:confidence_ceiling", ec.set_judge_confidence_ceiling, float),
         ("set-opencode-model", "opencode:model", ec.set_opencode_model, str),
+        ("set-enrich-per-tick-limit", "enrich:per_tick_limit", ec.set_enrich_per_tick_limit, int),
     ]:
         sp = subs.add_parser(name, help=f"set {knob}")
         sp.add_argument("value", type=typ)

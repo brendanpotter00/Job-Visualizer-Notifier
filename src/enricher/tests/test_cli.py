@@ -405,6 +405,85 @@ def test_classify_queue_respects_batch_size_knob(store, monkeypatch, capsys):
     assert len(items) == 7
 
 
+# ---- per-tick queue cap for the serial in-process engines --------------------
+def test_classify_queue_bounds_in_process_engine(store, monkeypatch, capsys):
+    """A serial in-process engine (ollama) must NOT queue the whole cleaned
+    backlog in one tick — classify-queue caps it at enrich:per_tick_limit so
+    classify-run finishes inside the wrapper watchdog and the tick still reaches
+    write-back. Regression guard for the 'ticks never deliver' cutover bug."""
+    for jid in ("1", "2", "3", "4", "5"):
+        _seed_cleaned(store, jid)
+    ec.set_classify_engine(store, "ollama")
+    ec.set_enrich_per_tick_limit(store, 2)
+    monkeypatch.setattr(cli, "Store", lambda: store)
+
+    cli._cmd_classify_queue(argparse.Namespace(limit=None))
+    _, items = _manifest_items(capsys)
+    assert len(items) == 2  # a bounded slice, not all 5
+
+
+def test_classify_queue_unbounded_for_claude_code(store, monkeypatch, capsys):
+    """The claude-code parallel fan-out clears a whole batch fast, so the per-tick
+    cap does NOT apply — every cleaned row is still queued."""
+    for jid in ("1", "2", "3", "4", "5"):
+        _seed_cleaned(store, jid)
+    ec.set_classify_engine(store, "claude-code")
+    ec.set_enrich_per_tick_limit(store, 2)  # ignored for claude-code
+    monkeypatch.setattr(cli, "Store", lambda: store)
+
+    cli._cmd_classify_queue(argparse.Namespace(limit=None))
+    _, items = _manifest_items(capsys)
+    assert len(items) == 5
+
+
+def test_classify_queue_explicit_limit_overrides_per_tick_cap(store, monkeypatch, capsys):
+    """An explicit --limit always wins over the knob (eval / manual runs)."""
+    for jid in ("1", "2", "3", "4", "5"):
+        _seed_cleaned(store, jid)
+    ec.set_classify_engine(store, "ollama")
+    ec.set_enrich_per_tick_limit(store, 2)
+    monkeypatch.setattr(cli, "Store", lambda: store)
+
+    cli._cmd_classify_queue(argparse.Namespace(limit=4))
+    _, items = _manifest_items(capsys)
+    assert len(items) == 4
+
+
+def test_judge_queue_bounds_in_process_engine(store, monkeypatch, capsys):
+    """judge-queue applies the same per-tick cap for in-process engines so the
+    serial judge-run also stays inside the watchdog (scope=all here → all seeded
+    rows are judge-eligible, isolating the cap)."""
+    for jid in ("1", "2", "3", "4", "5"):
+        _seed_enriched(store, jid, conf=0.5)
+    ec.set_judge_engine(store, "ollama")
+    ec.set_judge_scope(store, "all")
+    ec.set_enrich_per_tick_limit(store, 2)
+    monkeypatch.setattr(cli, "Store", lambda: store)
+
+    cli._cmd_judge_queue(argparse.Namespace(limit=None))
+    _, items = _manifest_items(capsys)
+    assert len(items) == 2
+
+
+def test_judge_queue_cap_is_post_scope_not_starved(store, monkeypatch, capsys):
+    """The per-tick cap is applied AFTER the scope filter. Under scope=low_confidence
+    the confident rows (which the judge never touches) sit at the FRONT of the
+    unjudged queue; they must not consume the cap and starve the low-confidence rows
+    that DO need judging — a naive pre-filter SQL LIMIT would emit zero here."""
+    for jid in ("h1", "h2", "h3"):        # confident, enriched first -> scope skips
+        _seed_enriched(store, jid, conf=0.95)
+    for jid in ("l1", "l2", "l3"):        # low confidence -> these need judging
+        _seed_enriched(store, jid, conf=0.5)
+    ec.set_judge_engine(store, "ollama")
+    ec.set_enrich_per_tick_limit(store, 2)   # scope stays low_confidence (default)
+    monkeypatch.setattr(cli, "Store", lambda: store)
+
+    cli._cmd_judge_queue(argparse.Namespace(limit=None))
+    _, items = _manifest_items(capsys)
+    assert len(items) == 2                                          # capped, not starved to 0
+    assert all(i["job_listing_id"].startswith("l") for i in items)  # only the low-conf rows
+
+
 def test_classify_queue_names_chunks_after_current_tick(store, monkeypatch, capsys):
     tid = store.start_tick()
     _seed_cleaned(store, "1")

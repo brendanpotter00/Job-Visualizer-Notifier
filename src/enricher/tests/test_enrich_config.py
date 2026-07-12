@@ -89,4 +89,18 @@ def test_knob_meta_keys_cover_all_setters():
         ec.JUDGE_SCOPE_META_KEY,
         ec.JUDGE_CONFIDENCE_CEILING_META_KEY,
         ec.OPENCODE_MODEL_META_KEY,
+        ec.ENRICH_PER_TICK_LIMIT_META_KEY,
     }
+
+
+def test_enrich_per_tick_limit_default_set_clamp_and_bad_meta(store):
+    assert ec.get_enrich_per_tick_limit(store) == 40           # committed default
+    assert ec.set_enrich_per_tick_limit(store, 25) == 25
+    assert ec.get_enrich_per_tick_limit(store) == 25
+    assert ec.set_enrich_per_tick_limit(store, 0) == 1         # clamped to lower bound
+    assert ec.set_enrich_per_tick_limit(store, 9999) == 500    # clamped to upper bound
+    store.set_meta(ec.ENRICH_PER_TICK_LIMIT_META_KEY, "not-an-int")
+    assert ec.get_enrich_per_tick_limit(store) == 40           # bad meta -> default
+    assert ec.reset_knob(store, ec.ENRICH_PER_TICK_LIMIT_META_KEY)
+    assert ec.get_enrich_per_tick_limit(store) == 40
+    assert ec.config_snapshot(store)["enrich_per_tick_limit"] == 40

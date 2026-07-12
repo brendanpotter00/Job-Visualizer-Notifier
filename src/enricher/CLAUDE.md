@@ -55,7 +55,10 @@ Schema versioning: `PRAGMA user_version` (v1 = composite keys + provenance colum
 `judge:enabled` (on), `judge:model` (sonnet), `judge:human_floor` (0.60),
 `judge:scope` (**low_confidence** — judge only rows with classify confidence below
 `judge:confidence_ceiling` (0.85), a nulled facet, or needs_human; `all` restores
-judge-everything), Change via CLI setters; never hardcode. Models are the Agent `model`
+judge-everything), `enrich:per_tick_limit` (40 — per-tick cap on rows an IN-PROCESS
+engine (`ollama`/`opencode`) queues for `classify-run`/`judge-run`, so the serial local
+run finishes inside the wrapper's 3 h watchdog and every tick still reaches write-back +
+tick-end; `claude-code` fan-out is unbounded). Change via CLI setters; never hardcode. Models are the Agent `model`
 arg — subscription auth, no ANTHROPIC_API_KEY. An explicit knob **overrides the committed
 default forever**, so changing a `*_DEFAULT` in code and deploying does NOT move an
 already-running prod — `cli reset-knob <meta:key>` clears the override so prod follows the

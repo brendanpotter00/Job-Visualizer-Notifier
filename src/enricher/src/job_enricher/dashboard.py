@@ -62,6 +62,7 @@ _KNOB_SETTERS = {
     "judge_scope": lambda s, v: ec.set_judge_scope(s, str(v)),
     "judge_confidence_ceiling": lambda s, v: ec.set_judge_confidence_ceiling(s, float(v)),
     "opencode_model": lambda s, v: ec.set_opencode_model(s, str(v)),
+    "enrich_per_tick_limit": lambda s, v: ec.set_enrich_per_tick_limit(s, int(v)),
 }
 
 
