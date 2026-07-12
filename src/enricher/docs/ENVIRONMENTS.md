@@ -88,10 +88,12 @@ changes; `git fetch` + fast-forward/checkout; `uv sync`; reloads the worker; run
 exits 75 ("lock held") rather than reading a half-updated tree.
 
 > **Deploying a changed default does NOT change a running knob.** Runtime knobs live in
-> prod's `meta` table (not git). An explicit knob (e.g. `classify:model`) overrides the
-> committed code default forever, so merging a new `*_DEFAULT` and deploying leaves prod on
-> the old value. The deploy's `cli health` now prints the live `classify_model`/`judge_model`
-> so you can see what prod actually runs; to make prod follow the newly-deployed default,
+> prod's `meta` table (not git). An explicit knob (e.g. `classify:engine`, `classify:model`)
+> overrides the committed code default forever, so merging a new `*_DEFAULT` and deploying
+> leaves prod on the old value. The deploy's `cli health` prints the live `classify_engine`/
+> `judge_engine`/`opencode_model` alongside `classify_model`/`judge_model` so you can see what
+> prod actually runs — the **engine** is authoritative; the Claude-tier model fields are inert
+> unless the matching engine is `claude-code`. To make prod follow the newly-deployed default,
 > `cli reset-knob <meta:key>` clears the override (or `set-<knob>` sets it explicitly).
 
 **Rollback:**
@@ -116,6 +118,16 @@ launchctl list | grep job-enricher          # is the worker loaded?
 tail -f ~/Library/Logs/job-enricher.log     # watch ticks
 cd ~/developer/personal/app && uv run python -m job_enricher.cli health
 ```
+
+## Dashboard (dev-only, not deployed)
+
+The local dashboard (`dashboard/` SPA + `src/job_enricher/dashboard.py`) is a **dev tool**,
+not part of the prod deploy surface — `scripts/deploy.sh` never touches it. Launch it with
+`scripts/run_dashboard.sh` from the dev checkout: it updates to the latest `main`, rebuilds
+`dashboard/dist` (gitignored — never travels via git or deploy), and serves on
+`127.0.0.1:8788`. `cli dashboard` refuses to serve from a `.claude/worktrees/` path, so a
+stale scratch worktree can't quietly keep serving an old build. Never run it from the prod
+checkout, and never place it behind the Cloudflare tunnel.
 
 ## First-time prod setup (how `app/` was created)
 

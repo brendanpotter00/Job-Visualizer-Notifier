@@ -34,7 +34,11 @@ function TickRow({ tick }: { tick: TickView }) {
     <Fragment>
       <TableRow hover sx={{ "& > *": { borderBottom: "unset" } }}>
         <TableCell padding="checkbox">
-          <IconButton size="small" onClick={() => setOpen((o) => !o)}>
+          <IconButton
+            size="small"
+            onClick={() => setOpen((o) => !o)}
+            aria-label={open ? `Collapse tick #${tick.id} details` : `Expand tick #${tick.id} details`}
+          >
             {open ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
           </IconButton>
         </TableCell>

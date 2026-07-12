@@ -48,10 +48,16 @@ def test_health_reports_all_keys(store):
     body = _client(store).get("/api/health").json()
     assert set(body) == {
         "inbox", "unsent", "needs_human", "failed_rows", "last_heartbeat_at",
-        "last_heartbeat_age_s", "stage_timings", "latest_tick",
+        "last_heartbeat_age_s", "stage_timings", "classify_engine", "classify_model",
+        "judge_engine", "judge_model", "opencode_model", "latest_tick",
     }
     assert body["inbox"].get("enriched") == 1
     assert body["unsent"] == 1  # enriched-but-unsent row is write-back backlog
+    # the engine is what's actually running — must not be dropped by the API the
+    # way the Claude-tier model alone would mislead an ollama deployment
+    assert body["classify_engine"] == "ollama"
+    assert body["judge_engine"] == "ollama"
+    assert body["opencode_model"] == "qwen3:32b"
 
 
 def test_ticks_include_stage_timings_and_drift_flag(store):
@@ -108,7 +114,13 @@ def test_job_detail_and_404(store):
 def test_knobs_get_defaults(store):
     body = _client(store).get("/api/knobs").json()
     assert body["snapshot"]["classify_model"] == "haiku"
+    assert body["snapshot"]["classify_engine"] == "ollama"
+    assert body["snapshot"]["judge_engine"] == "ollama"
+    assert body["snapshot"]["opencode_model"] == "qwen3:32b"
+    assert body["snapshot"]["enrich_per_tick_limit"] == 40
     assert "haiku" in body["meta"]["models"]
+    assert "ollama" in body["meta"]["engines"]
+    assert body["meta"]["enrich_per_tick_limit_bounds"] == [1, 500]
     assert "software_engineering" in body["meta"]["categories"]
 
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { KnobsPanel } from "./KnobsPanel";
 import { mockFetch, renderWithTheme } from "../test/utils";
@@ -17,6 +17,7 @@ const KNOBS = {
     judge_scope: "low_confidence",
     judge_confidence_ceiling: 0.85,
     opencode_model: "qwen3:32b",
+    enrich_per_tick_limit: 40,
   },
   meta: {
     models: ["haiku", "sonnet", "opus"],
@@ -24,6 +25,7 @@ const KNOBS = {
     judge_scopes: ["all", "low_confidence"],
     classify_batch_bounds: [1, 10],
     classify_fanout_bounds: [1, 20],
+    enrich_per_tick_limit_bounds: [1, 500],
     categories: ["software_engineering"],
     levels: ["senior"],
     taxonomy_version: "v1+test",
@@ -251,5 +253,97 @@ describe("KnobsPanel", () => {
     // (useApi's `error`) is cleared.
     await userEvent.click(toggle);
     await waitFor(() => expect(screen.queryByText(/Updates paused/)).toBeNull());
+  });
+
+  // The Claude-tier Model dropdown has no effect while the engine is ollama —
+  // it must read as inert (disabled), not as an editable-but-no-op control.
+  it("disables the Claude-tier Model dropdown when the engine is not claude-code", async () => {
+    mockFetch({
+      "/api/knobs": (_url, init) => {
+        if (init?.method === "POST") return { json: { snapshot: KNOBS.snapshot } };
+        return {
+          json: {
+            snapshot: { ...KNOBS.snapshot, classify_engine: "ollama", judge_engine: "claude-code" },
+            meta: KNOBS.meta,
+          },
+        };
+      },
+    });
+    renderWithTheme(<KnobsPanel />);
+    await screen.findByText("Classify");
+
+    const modelLabels = screen.getAllByText(
+      "Model (Claude tier — used when engine is claude-code)",
+    );
+    expect(modelLabels).toHaveLength(2); // Classify, then Judge
+
+    const classifyModelBox = within(modelLabels[0].parentElement as HTMLElement);
+    expect(classifyModelBox.getByRole("combobox")).toHaveAttribute("aria-disabled", "true");
+
+    const judgeModelBox = within(modelLabels[1].parentElement as HTMLElement);
+    expect(judgeModelBox.getByRole("combobox")).not.toHaveAttribute("aria-disabled");
+  });
+
+  it("persists the per-tick row limit slider", async () => {
+    const { fetchFn } = knobsRoutes();
+    renderWithTheme(<KnobsPanel />);
+    await screen.findByText("Classify");
+
+    const perTickLabel = () =>
+      screen.getByText((t) => t.startsWith("Per-tick row limit") && t.endsWith("40"));
+    expect(perTickLabel()).toBeInTheDocument();
+
+    // Classify sliders in DOM order: batch size(0), fan-out(1), per-tick limit(2)
+    const perTick = screen.getAllByRole("slider")[2];
+    fireEvent.change(perTick, { target: { value: "80" } });
+
+    await waitFor(() => expect(posts(fetchFn)).toHaveLength(1));
+    expect(JSON.parse(posts(fetchFn)[0][1]!.body as string)).toMatchObject({
+      key: "enrich_per_tick_limit",
+      value: 80,
+    });
+  });
+
+  // opencode_model must save exactly once per real edit — not once for Enter
+  // AND again for the blur it triggers, and not at all when the field is
+  // focused and blurred without any change.
+  it("saves the open-model tag once on Enter and not at all on a no-op blur", async () => {
+    const { fetchFn } = knobsRoutes();
+    renderWithTheme(<KnobsPanel />);
+    await screen.findByText("Classify");
+
+    const openModelLabel = screen.getByText(
+      "Open-model tag (Ollama — used by the ollama/opencode engines)",
+    );
+    const input = within(openModelLabel.parentElement as HTMLElement).getByRole("textbox");
+
+    // focus + tab away with no change -> no POST.
+    await userEvent.click(input);
+    await userEvent.tab();
+    expect(posts(fetchFn)).toHaveLength(0);
+
+    // jsdom doesn't synchronously dispatch a blur event from a programmatic
+    // element.blur() call the way real browsers do (real browsers do, per
+    // spec — that's what the product code's onKeyDown Enter handler relies on
+    // to route through the single onBlur save path). Bridge that jsdom gap so
+    // this test still exercises the real onKeyDown -> blur() -> onBlur chain.
+    Object.defineProperty(input, "blur", {
+      value: () => fireEvent.blur(input),
+      configurable: true,
+    });
+
+    // edit + Enter -> exactly one POST (Enter triggers the field's own blur;
+    // the changed-value guard on blur fires the single save — no separate
+    // handler for Enter itself)
+    await userEvent.click(input);
+    await userEvent.clear(input);
+    await userEvent.type(input, "qwen3:14b");
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await waitFor(() => expect(posts(fetchFn)).toHaveLength(1));
+    expect(JSON.parse(posts(fetchFn)[0][1]!.body as string)).toMatchObject({
+      key: "opencode_model",
+      value: "qwen3:14b",
+    });
   });
 });

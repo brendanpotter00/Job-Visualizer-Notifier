@@ -838,6 +838,11 @@ def test_health_reports_failed_rows_and_excludes_them_from_unsent(store, monkeyp
     # health surfaces the live models so the deploy sanity check reveals them
     assert health["classify_model"] == "haiku"
     assert health["judge_model"] == "sonnet"
+    # ...and the engine, which is authoritative — the Claude-tier model fields
+    # above are inert unless the matching engine is claude-code
+    assert health["classify_engine"] == "ollama"
+    assert health["judge_engine"] == "ollama"
+    assert health["opencode_model"] == "qwen3:32b"
 
 
 # ---- reset-knob clears an override back to the committed default ------------
@@ -965,3 +970,29 @@ def test_eval_run_classify_coverage_counts_input_key_membership(
     assert (
         f"eval-run: classify coverage {expected_covered}/3 (drops={expected_drops})" in err
     )
+
+
+# ---- dashboard: refuses to serve from a scratch git worktree ----------------
+def test_dashboard_refuses_worktree_checkout(monkeypatch, caplog):
+    monkeypatch.setattr(
+        cli, "REPO_ROOT", Path("/Users/x/job-enricher/.claude/worktrees/scratch")
+    )
+    args = argparse.Namespace(host="127.0.0.1", port=None, allow_remote=False, api_only=False)
+    rc = cli._cmd_dashboard(args)
+    assert rc == 2
+    assert "worktree" in caplog.text
+
+
+def test_dashboard_warns_off_main_but_still_serves(monkeypatch, caplog):
+    monkeypatch.setattr(cli, "REPO_ROOT", Path("/Users/x/job-enricher"))
+    monkeypatch.setattr(
+        "subprocess.run",
+        lambda *a, **k: argparse.Namespace(stdout="feature/foo\n"),
+    )
+    calls = {}
+    monkeypatch.setattr("uvicorn.run", lambda *a, **k: calls.setdefault("ran", True))
+    args = argparse.Namespace(host="127.0.0.1", port=8788, allow_remote=False, api_only=False)
+    rc = cli._cmd_dashboard(args)
+    assert rc == 0
+    assert calls.get("ran") is True
+    assert "not main" in caplog.text

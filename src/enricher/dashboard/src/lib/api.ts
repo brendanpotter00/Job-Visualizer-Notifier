@@ -44,6 +44,11 @@ export interface Health {
   last_heartbeat_at: string | null;
   last_heartbeat_age_s: number | null;
   stage_timings: StageTimingAgg[];
+  classify_engine: string;
+  classify_model: string;
+  judge_engine: string;
+  judge_model: string;
+  opencode_model: string;
   latest_tick: TickRow | null;
 }
 
@@ -90,6 +95,7 @@ export interface KnobsResponse {
     judge_scope: string;
     judge_confidence_ceiling: number;
     opencode_model: string;
+    enrich_per_tick_limit: number;
   };
   meta: {
     models: string[];
@@ -97,6 +103,7 @@ export interface KnobsResponse {
     judge_scopes: string[];
     classify_batch_bounds: [number, number];
     classify_fanout_bounds: [number, number];
+    enrich_per_tick_limit_bounds: [number, number];
     categories: string[];
     levels: string[];
     taxonomy_version: string | null;

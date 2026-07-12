@@ -190,6 +190,7 @@ export function JobsPanel() {
         onPaginationModelChange={setPagination}
         pageSizeOptions={[10, 25, 50]}
         disableColumnFilter
+        disableColumnSorting
         disableRowSelectionOnClick
         onRowClick={openDetail}
         autoHeight

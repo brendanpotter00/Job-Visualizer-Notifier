@@ -41,7 +41,10 @@ in `<job_data>` delimiters). Never hand scraped postings to a `general-purpose` 
 Key commands: `tick-acquire`/`tick-end` (tick-end takes `--tick-id`/`ENRICH_TICK_ID` — it
 refuses to close a tick it doesn't own), `pull`, `clean`, `classify-queue`/`record-enrichment`,
 `judge-queue`/`record-judge`, `write-back`, `metrics-push` (best-effort; `--strict` to fail),
-`health` (its JSON reports the live `classify_model`/`judge_model` — the deploy sanity check),
+`health` (its JSON reports the live `classify_engine`/`judge_engine`/`opencode_model` alongside
+`classify_model`/`judge_model` — the engine is authoritative for what's actually running;
+the Claude-tier model fields are inert unless the matching engine is `claude-code` —
+the deploy sanity check),
 `eval` (`--gate`, `--allow-draft` = advisory only), `reenrich`, `build-golden-set`,
 `golden-merge` (pull JVN admin corrections into golden/seed as `label_source='human'`),
 knob setters (`set-classify-model`, `judge-toggle on|off`, `set-judge-floor`,
@@ -93,6 +96,18 @@ smaller declared version (same-N different-hash is NOT below).
 `.env.local` (gitignored): `JVN_BASE_URL` (Railway backend or http://localhost:8080 for local
 JVN), `INTERNAL_API_KEY` (shared with JVN's existing internal-key middleware). The optional
 inbound edge (`server.py` + Cloudflare tunnel) is OFF by default and not needed for pull.
+
+## Dashboard (local dev tool — not part of prod)
+A React/Vite SPA (`dashboard/`) + FastAPI JSON API (`src/job_enricher/dashboard.py`) for
+reading health/ticks/jobs and editing runtime knobs. Launch with **`scripts/run_dashboard.sh`**
+— it pulls `main`, rebuilds `dashboard/dist` (gitignored, so every checkout must build it
+locally), and serves at `http://127.0.0.1:8788`. `cli dashboard` itself **refuses to run from
+a `.claude/worktrees/` checkout** (exit 2) and warns if not on `main`, so a stale worktree
+build can't silently keep serving an old UI (this happened once — see
+`docs/handoffs/2026-07-12-prod-monitoring-after-ollama-cutover.md`). Binds `127.0.0.1` only;
+a non-loopback `--host` is refused unless `--allow-remote`, and even then it must NEVER be
+placed behind the Cloudflare tunnel (`server.py`'s edge) — the knob-edit endpoint is
+unauthenticated. Never run it against the prod checkout.
 
 ## Evals
 `golden/seed/golden.json` (labels; only `label_source='human'` rows are ground truth — grow

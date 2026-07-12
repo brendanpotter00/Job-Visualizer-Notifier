@@ -43,6 +43,36 @@ export function HealthPanel() {
   return (
     <>
       {error && <UpdatesPaused msg={error} />}
+      <SectionTitle>Inference · what's actually running</SectionTitle>
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Stack direction="row" spacing={4} flexWrap="wrap" useFlexGap alignItems="center">
+            <div>
+              <Typography variant="caption" color="text.secondary">
+                classify
+              </Typography>
+              <Typography sx={{ fontFamily: MONO }}>
+                {data.classify_engine}
+                {data.classify_engine === "claude-code"
+                  ? ` · ${data.classify_model}`
+                  : ` · ${data.opencode_model}`}
+              </Typography>
+            </div>
+            <div>
+              <Typography variant="caption" color="text.secondary">
+                judge
+              </Typography>
+              <Typography sx={{ fontFamily: MONO }}>
+                {data.judge_engine}
+                {data.judge_engine === "claude-code"
+                  ? ` · ${data.judge_model}`
+                  : ` · ${data.opencode_model}`}
+              </Typography>
+            </div>
+          </Stack>
+        </CardContent>
+      </Card>
+
       <SectionTitle>Pipeline · inbox by state</SectionTitle>
       <TileGrid>
         {INBOX_STATES.map((s) => (

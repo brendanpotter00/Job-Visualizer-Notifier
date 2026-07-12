@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { screen, act } from "@testing-library/react";
+import { screen, act, within } from "@testing-library/react";
 import { HealthPanel } from "./HealthPanel";
 import { mockFetch, renderWithTheme } from "../test/utils";
 
@@ -15,6 +15,11 @@ const HEALTH = {
   last_heartbeat_at: "2026-01-01T00:00:00Z",
   last_heartbeat_age_s: 12,
   stage_timings: [{ stage: "classify", runs: 3, avg_ms: 1200, items: 30, retries: 1 }],
+  classify_engine: "ollama",
+  classify_model: "haiku",
+  judge_engine: "ollama",
+  judge_model: "sonnet",
+  opencode_model: "qwen3:32b",
   latest_tick: {
     id: 7,
     status: "ok",
@@ -36,10 +41,23 @@ describe("HealthPanel", () => {
 
     // needs-human tile value from the payload
     expect(screen.getByText("4")).toBeInTheDocument();
-    // cumulative stage-timings table row
-    expect(screen.getByText("classify")).toBeInTheDocument();
+    // cumulative stage-timings table row (scoped: "classify" also appears in
+    // the Inference row's engine label above)
+    expect(within(screen.getByRole("table")).getByText("classify")).toBeInTheDocument();
     // latest-tick summary chip/id
     expect(screen.getByText("#7")).toBeInTheDocument();
+  });
+
+  // The Inference row is the one place an operator can confirm what's actually
+  // running — must show the ENGINE, not just the (possibly-inert) Claude-tier
+  // model, so an ollama deployment doesn't look like it's on Anthropic models.
+  it("shows the live engine + open-model tag in the Inference row", async () => {
+    mockFetch({ "/api/health": { json: HEALTH } });
+    renderWithTheme(<HealthPanel />);
+
+    await screen.findByText("Inference · what's actually running");
+    // classify and judge each render their own engine/model pairing
+    expect(screen.getAllByText("ollama · qwen3:32b")).toHaveLength(2);
   });
 
   // Guards Ledger #2: after a successful first load, a later failed poll must

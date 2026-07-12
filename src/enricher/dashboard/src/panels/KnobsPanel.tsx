@@ -85,6 +85,7 @@ export function KnobsPanel() {
 
   const [batchLo, batchHi] = meta.classify_batch_bounds;
   const [fanLo, fanHi] = meta.classify_fanout_bounds;
+  const [perTickLo, perTickHi] = meta.enrich_per_tick_limit_bounds;
 
   return (
     <>
@@ -131,6 +132,7 @@ export function KnobsPanel() {
                 select
                 size="small"
                 fullWidth
+                disabled={snap.classify_engine !== "claude-code"}
                 value={snap.classify_model}
                 onChange={(e) => save("classify_model", e.target.value)}
               >
@@ -147,9 +149,17 @@ export function KnobsPanel() {
                 fullWidth
                 value={snap.opencode_model}
                 onChange={(e) => setLocal("opencode_model", e.target.value)}
-                onBlur={(e) => save("opencode_model", e.target.value)}
+                onBlur={() => {
+                  if (committed && snap.opencode_model !== committed.opencode_model) {
+                    save("opencode_model", snap.opencode_model);
+                  }
+                }}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") save("opencode_model", snap.opencode_model);
+                  // MUI forwards unclaimed handler props like onKeyDown to the
+                  // TextField's root FormControl div, not the native input, so
+                  // e.currentTarget is the wrong node to blur — e.target is
+                  // always the actual input the keydown originated on.
+                  if (e.key === "Enter") (e.target as HTMLInputElement).blur();
                 }}
                 helperText="e.g. qwen3:32b — must be pulled locally (ollama list)"
               />
@@ -175,6 +185,19 @@ export function KnobsPanel() {
                 valueLabelDisplay="auto"
                 onChange={(_, v) => setLocal("classify_fan_out", v as number)}
                 onChangeCommitted={(_, v) => save("classify_fan_out", v as number)}
+              />
+            </Labeled>
+            <Labeled
+              label={`Per-tick row limit (shared by classify+judge on ollama/opencode) — ${snap.enrich_per_tick_limit}`}
+            >
+              <Slider
+                value={snap.enrich_per_tick_limit}
+                min={perTickLo}
+                max={perTickHi}
+                step={1}
+                valueLabelDisplay="auto"
+                onChange={(_, v) => setLocal("enrich_per_tick_limit", v as number)}
+                onChangeCommitted={(_, v) => save("enrich_per_tick_limit", v as number)}
               />
             </Labeled>
           </CardContent>
@@ -216,6 +239,7 @@ export function KnobsPanel() {
                 select
                 size="small"
                 fullWidth
+                disabled={snap.judge_engine !== "claude-code"}
                 value={snap.judge_model}
                 onChange={(e) => save("judge_model", e.target.value)}
               >

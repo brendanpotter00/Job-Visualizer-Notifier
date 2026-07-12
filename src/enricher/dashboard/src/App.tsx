@@ -80,7 +80,11 @@ export function App() {
             }
           />
           <Tooltip title={`Switch to ${mode === "dark" ? "light" : "dark"} mode`}>
-            <IconButton onClick={toggleMode} size="small">
+            <IconButton
+              onClick={toggleMode}
+              size="small"
+              aria-label={`Switch to ${mode === "dark" ? "light" : "dark"} mode`}
+            >
               {mode === "dark" ? <LightModeIcon /> : <DarkModeIcon />}
             </IconButton>
           </Tooltip>

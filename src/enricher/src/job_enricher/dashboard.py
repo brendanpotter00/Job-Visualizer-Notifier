@@ -143,6 +143,7 @@ def create_app(serve_static: bool | None = None) -> FastAPI:
                 "judge_scopes": list(ec.JUDGE_SCOPE_CHOICES),
                 "classify_batch_bounds": list(ec.CLASSIFY_BATCH_BOUNDS),
                 "classify_fanout_bounds": list(ec.CLASSIFY_FANOUT_BOUNDS),
+                "enrich_per_tick_limit_bounds": list(ec.ENRICH_PER_TICK_LIMIT_BOUNDS),
                 "categories": sorted(tax.CATEGORIES),
                 "levels": sorted(tax.LEVELS),
                 "taxonomy_version": tv,

@@ -20,9 +20,10 @@ from job_enricher import enrich_config as ec
 from job_enricher import lock as lock_mod
 from job_enricher import taxonomy as tax
 from job_enricher.clean import clean_description, truncate_for_agent
+from job_enricher.health import collect_health
 from job_enricher.store import (
-    HEARTBEAT_KEY,
     LAST_SCORECARD_HASH_KEY,
+    REPO_ROOT,
     Store,
     now_iso,
 )
@@ -998,55 +999,7 @@ def _cmd_write_back(args: argparse.Namespace) -> int:
 # ---- observability ---------------------------------------------------------
 def _cmd_health(args: argparse.Namespace) -> int:
     store = Store()
-    with store.connect() as conn:
-        inbox = dict(
-            (r["status"], r["n"])
-            for r in conn.execute(
-                "SELECT status, COUNT(*) AS n FROM inbox GROUP BY status"
-            ).fetchall()
-        )
-        # unsent mirrors what write-back will actually offer: terminal
-        # 'failed' (poison) rows are excluded here and surfaced separately
-        # via inbox['failed'] + the failed_rows key.
-        unsent = conn.execute(
-            "SELECT COUNT(*) AS n FROM enrichments e JOIN inbox i "
-            "ON i.source_id = e.source_id AND i.job_listing_id = e.job_listing_id "
-            "WHERE e.sent_at IS NULL AND i.status != 'failed'"
-        ).fetchone()["n"]
-        needs_human = conn.execute(
-            "SELECT COUNT(*) AS n FROM enrichments WHERE needs_human = 1"
-        ).fetchone()["n"]
-        timings = [
-            dict(r)
-            for r in conn.execute(
-                "SELECT stage, COUNT(*) AS runs, AVG(duration_ms) AS avg_ms, "
-                "SUM(item_count) AS items, SUM(retry_count) AS retries "
-                "FROM stage_timings GROUP BY stage"
-            ).fetchall()
-        ]
-    hb = store.get_meta(HEARTBEAT_KEY)
-    hb_age = None
-    if hb:
-        try:
-            hb_age = (datetime.now(timezone.utc) - datetime.fromisoformat(hb)).total_seconds()
-        except ValueError:
-            hb_age = None
-    print(
-        json.dumps(
-            {
-                "inbox": inbox,
-                "unsent": unsent,
-                "needs_human": needs_human,
-                "failed_rows": inbox.get("failed", 0),
-                "last_heartbeat_at": hb,
-                "last_heartbeat_age_s": hb_age,
-                "stage_timings": timings,
-                "classify_model": ec.get_classify_model(store),
-                "judge_model": ec.get_judge_model(store),
-                "latest_tick": store.latest_tick(),
-            }
-        )
-    )
+    print(json.dumps(collect_health(store)))
     return 0
 
 
@@ -1198,10 +1151,45 @@ def _cmd_dashboard(args: argparse.Namespace) -> int:
     it can edit the runtime knobs over an unauthenticated endpoint, so a
     non-loopback --host is REFUSED (exit 2) unless --allow-remote is passed — and
     even then it must never be tunneled. --api-only serves just the API (pair with
-    the Vite dev server on :5173 for front-end iteration)."""
+    the Vite dev server on :5173 for front-end iteration).
+
+    Refuses to serve from a `.claude/worktrees/` checkout (exit 2): worktrees are
+    scratch/ephemeral, so a dashboard started from one silently freezes at
+    whatever commit that worktree happened to be on — see
+    docs/handoffs/2026-07-12-prod-monitoring-after-ollama-cutover.md for the
+    incident this guards against. Prefer `scripts/run_dashboard.sh`, which always
+    runs from the main checkout on an up-to-date `main`."""
+    import subprocess
     import uvicorn
 
     from job_enricher.config import settings
+
+    if ".claude/worktrees" in str(REPO_ROOT):
+        logger.error(
+            "dashboard: refusing to serve from a git worktree (%s) — worktrees "
+            "are scratch/ephemeral and go stale silently. Run the dashboard from "
+            "the main checkout instead, e.g. scripts/run_dashboard.sh.",
+            REPO_ROOT,
+        )
+        return 2
+    try:
+        branch = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=True,
+        ).stdout.strip()
+    except (subprocess.SubprocessError, OSError):
+        branch = None
+    if branch and branch != "main":
+        logger.warning(
+            "dashboard: serving from branch %r, not main — the UI may be stale "
+            "or missing merged fixes. `git switch main && git pull --ff-only` "
+            "first unless you're intentionally iterating on a feature branch.",
+            branch,
+        )
 
     host = args.host
     is_loopback = host in ("127.0.0.1", "localhost")

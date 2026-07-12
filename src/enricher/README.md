@@ -51,6 +51,9 @@ claude -p /enrich-tick                         # classify -> judge -> write-back
 Run the loop continuously with `claude` + `/loop /enrich-tick`, or install the launchd worker:
 `scripts/install_launchagents.sh` (StartInterval=600s).
 
+For a local read+edit UI (health, ticks, jobs, runtime knobs), run `scripts/run_dashboard.sh`
+— `http://127.0.0.1:8788`. Dev-only; not part of the prod deploy.
+
 ## Tests
 ```bash
 uv run pytest

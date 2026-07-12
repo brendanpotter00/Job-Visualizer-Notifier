@@ -3,8 +3,7 @@
 Both ``cli health`` / ``cli status`` and the dashboard's ``GET /api/health``
 call ``collect_health`` so the two never drift. Pure assembly over a Store — no
 network, no I/O beyond the DB (mirrors metrics.py's shape: takes a Store, returns
-a dict). The output blob is byte-compatible with the JSON ``_cmd_health`` printed
-before this refactor.
+a dict).
 """
 
 from __future__ import annotations
@@ -12,6 +11,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+import job_enricher.enrich_config as ec
 from job_enricher.store import HEARTBEAT_KEY, Store
 
 
@@ -60,5 +60,10 @@ def collect_health(store: Store) -> dict[str, Any]:
         "last_heartbeat_at": hb,
         "last_heartbeat_age_s": hb_age,
         "stage_timings": timings,
+        "classify_engine": ec.get_classify_engine(store),
+        "classify_model": ec.get_classify_model(store),
+        "judge_engine": ec.get_judge_engine(store),
+        "judge_model": ec.get_judge_model(store),
+        "opencode_model": ec.get_opencode_model(store),
         "latest_tick": store.latest_tick(),
     }
