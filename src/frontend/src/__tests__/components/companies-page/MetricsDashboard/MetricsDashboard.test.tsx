@@ -21,6 +21,7 @@ describe('MetricsDashboard', () => {
     location: 'San Francisco, CA',
     employmentType: 'Full-time',
     createdAt: new Date(MOCK_NOW - 6 * 60 * 60 * 1000).toISOString(), // 6 hours ago
+    firstSeenAt: new Date(MOCK_NOW - 6 * 60 * 60 * 1000).toISOString(), // 6 hours ago
     url: 'https://example.com/job/1',
     raw: {},
   };
@@ -34,6 +35,7 @@ describe('MetricsDashboard', () => {
     location: 'Remote',
     employmentType: 'Full-time',
     createdAt: new Date(MOCK_NOW - 18 * 60 * 60 * 1000).toISOString(), // 18 hours ago
+    firstSeenAt: new Date(MOCK_NOW - 18 * 60 * 60 * 1000).toISOString(), // 18 hours ago
     url: 'https://example.com/job/2',
     raw: {},
   };
@@ -47,6 +49,7 @@ describe('MetricsDashboard', () => {
     location: 'Austin, TX',
     employmentType: 'Full-time',
     createdAt: new Date(MOCK_NOW - 30 * 60 * 60 * 1000).toISOString(), // 30 hours ago (outside 24h window)
+    firstSeenAt: new Date(MOCK_NOW - 30 * 60 * 60 * 1000).toISOString(), // 30 hours ago (outside 24h window)
     url: 'https://example.com/job/3',
     raw: {},
   };
@@ -60,6 +63,7 @@ describe('MetricsDashboard', () => {
     location: 'Seattle, WA',
     employmentType: 'Full-time',
     createdAt: new Date(MOCK_NOW - 2 * 24 * 60 * 60 * 1000).toISOString(), // 2 days ago (within 3 days)
+    firstSeenAt: new Date(MOCK_NOW - 2 * 24 * 60 * 60 * 1000).toISOString(), // 2 days ago (within 3 days)
     url: 'https://example.com/job/4',
     raw: {},
   };
@@ -73,6 +77,7 @@ describe('MetricsDashboard', () => {
     location: 'Remote',
     employmentType: 'Full-time',
     createdAt: new Date(MOCK_NOW - 4 * 24 * 60 * 60 * 1000).toISOString(), // 4 days ago (outside 3 days)
+    firstSeenAt: new Date(MOCK_NOW - 4 * 24 * 60 * 60 * 1000).toISOString(), // 4 days ago (outside 3 days)
     url: 'https://example.com/job/5',
     raw: {},
   };

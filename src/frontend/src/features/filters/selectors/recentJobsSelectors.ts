@@ -68,11 +68,15 @@ export const selectRecentFilteredJobs = createSelector(
 );
 
 /**
- * Sort filtered jobs chronologically (most recent first)
+ * Sort filtered jobs chronologically (most recent first).
+ *
+ * Ordered by `firstSeenAt` (when WE first saw the job), matching the time-window
+ * filter — NOT the ATS posted date, which can be years stale on reposted
+ * listings and would sink genuinely-fresh jobs to the bottom.
  */
 export const selectRecentJobsSorted = createSelector([selectRecentFilteredJobs], (jobs) => {
   return [...jobs].sort((a, b) => {
-    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    return new Date(b.firstSeenAt).getTime() - new Date(a.firstSeenAt).getTime();
   });
 });
 

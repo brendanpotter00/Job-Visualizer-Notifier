@@ -60,8 +60,23 @@ export interface Job {
   /** Employment type (full-time, contract, intern, etc.) */
   employmentType?: string;
 
-  /** Job creation/posting timestamp (ISO 8601) */
+  /**
+   * ATS-supplied posted date, falling back to `firstSeenAt` when the ATS gives
+   * none (`postedOn || firstSeenAt`; see `backendScraperTransformer`). This is a
+   * DISPLAY field ("Posted X ago") — it is NOT a reliable recency signal because
+   * companies reuse/repost old listings, so `postedOn` can be years stale. For
+   * anything that ranks/filters by recency (time windows, "most recent" sort,
+   * activity-over-time buckets, last-24h/3h counts) use `firstSeenAt` instead.
+   */
   createdAt: string;
+
+  /**
+   * When our scraper FIRST saw this listing (ISO 8601). Set once at discovery
+   * and preserved across close→reopen, so it is the reliable "new to us" signal
+   * and the canonical recency field for all filtering/sorting/bucketing. Mirrors
+   * the backend `first_seen_at` column (see backend `docs/database-schema.md`).
+   */
+  firstSeenAt: string;
 
   /** Direct link to job posting */
   url: string;

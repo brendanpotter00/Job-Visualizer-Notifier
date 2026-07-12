@@ -18,6 +18,11 @@ import {
 // explicitly — so the many location-bearing fixtures keep working against the
 // tag-based location matcher.
 const createMockJob = (overrides: Partial<Job> = {}): Job => {
+  // Recency now keys off firstSeenAt; default it to mirror createdAt (possibly
+  // overridden) so fixtures that set createdAt to control a time window keep
+  // working, while a test can still override firstSeenAt explicitly.
+  const createdAt = overrides.createdAt ?? new Date().toISOString();
+  const firstSeenAt = overrides.firstSeenAt ?? createdAt;
   const job: Job = {
     id: '1',
     source: 'backend-scraper',
@@ -27,7 +32,8 @@ const createMockJob = (overrides: Partial<Job> = {}): Job => {
     team: 'Backend',
     location: 'San Francisco',
     employmentType: 'Full-time',
-    createdAt: new Date().toISOString(),
+    createdAt,
+    firstSeenAt,
     url: 'https://example.com/job/1',
     raw: {},
     ...overrides,
@@ -636,6 +642,43 @@ describe('jobFilteringUtils', () => {
       };
 
       const result = filterJobsByFilters(jobs, filters);
+
+      expect(result).toHaveLength(0);
+    });
+  });
+
+  // Regression: the time-window filter must key off firstSeenAt (when WE first
+  // saw the listing), NOT the display-only createdAt/postedOn, which can be years
+  // stale on a reopened/reposted listing.
+  describe('filterJobsByFilters keys recency off firstSeenAt, not createdAt', () => {
+    const threeHourFilter: GraphFilters = {
+      timeWindow: '3h',
+      searchTags: undefined,
+      softwareOnly: false,
+    };
+
+    it('includes a job with a stale createdAt but a recent firstSeenAt', () => {
+      const now = Date.now();
+      const reopenedJob = createMockJob({
+        id: 'reopened',
+        createdAt: new Date(now - 2 * 365 * 24 * 60 * 60 * 1000).toISOString(), // ~2 years ago (display only)
+        firstSeenAt: new Date(now - 60 * 60 * 1000).toISOString(), // 1 hour ago (recency)
+      });
+
+      const result = filterJobsByFilters([reopenedJob], threeHourFilter);
+
+      expect(result.map((j) => j.id)).toEqual(['reopened']);
+    });
+
+    it('excludes a job with a recent createdAt but a stale firstSeenAt', () => {
+      const now = Date.now();
+      const repostedJob = createMockJob({
+        id: 'reposted',
+        createdAt: new Date(now - 60 * 60 * 1000).toISOString(), // 1 hour ago (display only)
+        firstSeenAt: new Date(now - 2 * 365 * 24 * 60 * 60 * 1000).toISOString(), // ~2 years ago (recency)
+      });
+
+      const result = filterJobsByFilters([repostedJob], threeHourFilter);
 
       expect(result).toHaveLength(0);
     });

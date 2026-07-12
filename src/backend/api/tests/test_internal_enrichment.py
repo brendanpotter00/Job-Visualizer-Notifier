@@ -654,6 +654,66 @@ class TestPending:
         assert resp.status_code == 200
         assert len(resp.json()["jobs"]) == 2
 
+    def test_claims_most_recently_first_seen_first(
+        self, enrichment_client, db_conn, monkeypatch
+    ):
+        """The claim prioritizes the jobs we saw most recently (ORDER BY
+        first_seen_at DESC). With a backlog deeper than the limit, the newest
+        arrivals win."""
+        monkeypatch.setattr(settings, "enrichment_use_external", True)
+        first_seen = {
+            "f-old": "2025-01-01T00:00:00Z",
+            "f-mid": "2025-06-01T00:00:00Z",
+            "f-new": "2026-06-01T00:00:00Z",
+            "f-newest": "2026-07-01T00:00:00Z",
+        }
+        for jid, ts in first_seen.items():
+            _insert_job(db_conn, _make_job({
+                "id": jid, "status": "OPEN", "first_seen_at": ts,
+                "details": json.dumps({"description_html": "<p>x</p>"}),
+            }))
+
+        resp = enrichment_client.get(
+            "/api/internal/enrichment/pending", params={"limit": 2}
+        )
+        assert resp.status_code == 200
+        ids = {j["job_id"] for j in resp.json()["jobs"]}
+        # The two most recently first-seen are claimed; the two older ones are not.
+        assert ids == {"f-newest", "f-new"}
+        for stale in ("f-old", "f-mid"):
+            assert _fetch_listing_facets(db_conn, stale)["enrichment_status"] is None
+
+    def test_ordering_ignores_posted_on(
+        self, enrichment_client, db_conn, monkeypatch
+    ):
+        """posted_on is an unreliable recency signal (companies repost old
+        listings), so it must NOT drive the claim order. A job seen recently but
+        with an OLD posted_on (a re-listed role) is claimed BEFORE a job with a
+        brand-new posted_on we first saw long ago."""
+        monkeypatch.setattr(settings, "enrichment_use_external", True)
+        rows = [
+            # Recently first-seen, but ATS reports a 2-year-old posted_on (re-list).
+            {"id": "r-freshseen-oldpost", "first_seen_at": "2026-07-11T00:00:00Z",
+             "posted_on": "2024-01-01T00:00:00Z"},
+            # Brand-new posted_on, but we first saw it long ago.
+            {"id": "r-oldseen-freshpost", "first_seen_at": "2025-01-01T00:00:00Z",
+             "posted_on": "2026-07-12T00:00:00Z"},
+        ]
+        for r in rows:
+            _insert_job(db_conn, _make_job({
+                **r, "status": "OPEN",
+                "details": json.dumps({"description_html": "<p>x</p>"}),
+            }))
+
+        resp = enrichment_client.get(
+            "/api/internal/enrichment/pending", params={"limit": 1}
+        )
+        assert resp.status_code == 200
+        ids = {j["job_id"] for j in resp.json()["jobs"]}
+        # The recently-seen re-listing wins despite its stale posted_on.
+        assert ids == {"r-freshseen-oldpost"}
+        assert _fetch_listing_facets(db_conn, "r-oldseen-freshpost")["enrichment_status"] is None
+
     def test_skips_description_null_rows(self, enrichment_client, db_conn, monkeypatch):
         """F7 / CR-5: a row whose details has no description_html can't be
         classified, so /pending must NOT claim it (mirrors /sample's guard)."""

@@ -79,6 +79,7 @@ const seededJobs: Job[] = [
     company: 'spacex',
     title: 'Senior Software Engineer',
     createdAt: recentISO(ONE_DAY_MS),
+    firstSeenAt: recentISO(ONE_DAY_MS),
     url: 'https://example.com/j1',
     location: 'Hawthorne, CA',
     locations: [
@@ -101,6 +102,7 @@ const seededJobs: Job[] = [
     company: 'spacex',
     title: 'Recruiter',
     createdAt: recentISO(ONE_DAY_MS - ONE_HOUR_MS),
+    firstSeenAt: recentISO(ONE_DAY_MS - ONE_HOUR_MS),
     url: 'https://example.com/j2',
     location: 'Remote',
     locations: [

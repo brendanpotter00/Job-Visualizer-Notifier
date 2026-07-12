@@ -48,11 +48,14 @@ function pickAllTimeBucketSize(spanMs: number): number {
  * @param timeWindow - Time window determining bucket size (e.g., '24h', '7d')
  * @returns Array of TimeBucket objects sorted chronologically, including empty buckets
  *
+ * Jobs are placed by `firstSeenAt` (when we first saw them), so the chart plots
+ * when postings entered our view — not the ATS posted date.
+ *
  * @example
  * ```typescript
  * const jobs = [
- *   { id: '1', createdAt: '2025-11-26T10:30:00Z', ... },
- *   { id: '2', createdAt: '2025-11-26T11:45:00Z', ... },
+ *   { id: '1', firstSeenAt: '2025-11-26T10:30:00Z', ... },
+ *   { id: '2', firstSeenAt: '2025-11-26T11:45:00Z', ... },
  * ];
  *
  * const buckets = bucketJobsByTime(jobs, '24h');
@@ -84,9 +87,10 @@ export function bucketJobsByTime(jobs: Job[], timeWindow: TimeWindow): TimeBucke
   // Create map to store jobs by bucket
   const bucketMap = new Map<string, { jobIds: string[]; bucketStart: Date }>();
 
-  // Assign jobs to buckets
+  // Assign jobs to buckets by when we first saw them (firstSeenAt), matching the
+  // recency filter/sort — not the ATS posted date.
   jobs.forEach((job) => {
-    const jobDate = new Date(job.createdAt);
+    const jobDate = new Date(job.firstSeenAt);
 
     // Skip jobs outside the time window
     if (jobDate < windowStart) {

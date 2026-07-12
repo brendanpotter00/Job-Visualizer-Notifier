@@ -96,6 +96,20 @@ class JobListing(Base):
             "id",
             postgresql_where=text("status = 'OPEN'"),
         ),
+        # Drives the /pending claim ORDER BY (freshest first_seen_at first) so the
+        # enricher labels fresh jobs first even with a deep backlog. Partial index
+        # that mirrors the claim's predicate exactly (enrichment_status IS NULL AND
+        # status='OPEN' — the claimable set), keyed on first_seen_at so Postgres
+        # scans it backward for the DESC + LIMIT instead of sorting the ~19k-row
+        # backlog per tick. Partial so it stays small (only claimable rows) and
+        # cheap to build (no rewrite of the large table — see the 2026-04-18
+        # volume incident). Not last_seen_at/posted_on — see the /pending claim
+        # comment and docs/database-schema.md "recency fields".
+        Index(
+            "idx_job_listings_enrichment_claim",
+            "first_seen_at",
+            postgresql_where=text("enrichment_status IS NULL AND status = 'OPEN'"),
+        ),
     )
 
 

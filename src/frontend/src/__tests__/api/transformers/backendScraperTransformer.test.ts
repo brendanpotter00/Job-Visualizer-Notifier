@@ -50,11 +50,37 @@ describe('transformBackendJob', () => {
     expect(job.company).toBe('apple');
   });
 
-  it('should use firstSeenAt for createdAt field', () => {
+  it('should use firstSeenAt for createdAt field (display fallback when postedOn is null)', () => {
     const job = transformBackendJob(mockBackendJob, 'google');
 
+    // postedOn is null here, so the display createdAt falls back to firstSeenAt.
     expect(job.createdAt).toBe('2025-01-07T08:00:00Z');
+    expect(job.createdAt).toBe(mockBackendJob.postedOn || mockBackendJob.firstSeenAt);
     expect(job.createdAt).not.toBe(mockBackendJob.createdAt);
+  });
+
+  it('passes firstSeenAt straight through as the canonical recency field', () => {
+    const job = transformBackendJob(mockBackendJob, 'google');
+
+    expect(job.firstSeenAt).toBe('2025-01-07T08:00:00Z');
+    expect(job.firstSeenAt).toBe(mockBackendJob.firstSeenAt);
+  });
+
+  it('uses postedOn (not firstSeenAt) for the display createdAt when postedOn is present', () => {
+    // A reposted listing: postedOn is a recent display date, but firstSeenAt (when
+    // WE first saw it) is the older, canonical recency signal — the two must split.
+    const repostedJob: BackendJobListing = {
+      ...mockBackendJob,
+      postedOn: '2025-01-08T09:00:00Z',
+      firstSeenAt: '2025-01-05T08:00:00Z',
+    };
+
+    const job = transformBackendJob(repostedJob, 'google');
+
+    // createdAt is the display date (postedOn) ...
+    expect(job.createdAt).toBe('2025-01-08T09:00:00Z');
+    // ... while firstSeenAt stays the reliable discovery timestamp.
+    expect(job.firstSeenAt).toBe('2025-01-05T08:00:00Z');
   });
 
   it('should extract department from experience_level', () => {

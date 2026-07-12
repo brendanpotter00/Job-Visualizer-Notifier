@@ -12,6 +12,7 @@ const mockJob: Job = {
   isRemote: false,
   employmentType: 'Full-time',
   createdAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+  firstSeenAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
   url: 'https://example.com/job/1',
   raw: {},
 };

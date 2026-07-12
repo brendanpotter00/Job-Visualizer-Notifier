@@ -210,7 +210,33 @@ both FKs CASCADE.
 ### `job_listings`
 Scraped postings. Composite PK `(source_id, id)` — `source_id` namespaces ids per scraper.
 `status` (`OPEN`/`CLOSED`), `first_seen_at`/`last_seen_at`/`consecutive_misses` drive the
-open→closed lifecycle. Indexed on `status`, `company`, `last_seen_at`.
+open→closed lifecycle. Indexed on `status`, `company`, `last_seen_at`, and a partial
+`(first_seen_at)` for the enrichment claim (see below).
+
+**Recency fields — which to trust (READ THIS before sorting/filtering by "recency"):**
+- **`first_seen_at`** — when the scraper FIRST saw this listing. Set once at discovery and
+  **preserved across close→reopen** (`upsert_job` ON CONFLICT keeps it; `database.py`). This
+  is our **reliable "new to us" signal** and the field to order by for "freshest first"
+  (e.g. the `/api/internal/enrichment/pending` claim orders `first_seen_at DESC`).
+- **`last_seen_at`** — last scrape that still saw the job; **bumped to now() on every pass a
+  job is still OPEN**, and drives close-detection (`consecutive_misses`). It signals "still
+  actively listed," NOT freshness: it clusters at ~now across the whole open backlog, so it
+  **cannot rank a job posted today above one open for months**. Good for "is it live," bad
+  for prioritizing new work.
+- **`posted_on`** — the ATS-supplied posting date. **UNRELIABLE: do not use it as a recency
+  signal.** Companies reuse/repost old listings, so ~8.6% of OPEN rows carry a `posted_on`
+  >180 days (some >16 years) before we first saw them, and ~2.6% are NULL. Sorting by it
+  buries freshly re-listed jobs.
+- **`created_at`** — DB row-insert time (`server_default now()`); ~equal to `first_seen_at`
+  (within a day) today. Not a recency signal to prefer over `first_seen_at`. The frontend
+  does not surface this column directly: the normalized `Job.createdAt` is built as
+  `posted_on || first_seen_at` and used ONLY for the "Posted X ago" display label. Every
+  frontend recency operation — the time-window filter, the "most recent" sort, the
+  activity-over-time graph buckets, and the last-24h/3h counts — keys off `first_seen_at`
+  (see `src/frontend/src/features/filters/utils/jobFilteringUtils.ts`, `lib/timeBucketing.ts`,
+  `lib/date.ts`, and `Job.firstSeenAt` in `src/frontend/src/types/index.ts`). The backend
+  `/api/jobs` list itself is ordered by `last_seen_at DESC` ("still live") — a separate
+  concern from "new to us," which is `first_seen_at`.
 
 ### `scrape_runs`
 One row per scrape execution — bookkeeping/metrics (`jobs_seen`, `new_jobs`, `closed_jobs`,

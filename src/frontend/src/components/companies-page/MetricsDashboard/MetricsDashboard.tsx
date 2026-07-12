@@ -23,7 +23,7 @@ export function MetricsDashboard() {
   const company = useMemo(() => getCompanyById(selectedCompanyId), [selectedCompanyId]);
 
   // Get time-based job counts using custom hook
-  // Calculations are deterministic based on job.createdAt timestamps
+  // Calculations are deterministic based on job.firstSeenAt timestamps
   const { jobsLast3Days, jobsLast24Hours, jobsLast12Hours } = useTimeBasedJobCounts(allJobs);
 
   return (

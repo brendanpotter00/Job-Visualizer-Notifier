@@ -12,12 +12,15 @@ import graphFiltersReducer, {
 import type { GraphFilters, Job, FacetOption } from '../../../types';
 
 function makeJob(overrides: Partial<Job> = {}): Job {
+  const createdAt = overrides.createdAt ?? new Date().toISOString();
+  const firstSeenAt = overrides.firstSeenAt ?? createdAt;
   return {
     id: 'j1',
     source: 'backend-scraper',
     company: 'google',
     title: 'Software Engineer',
-    createdAt: new Date().toISOString(),
+    createdAt,
+    firstSeenAt,
     url: 'https://example.com',
     raw: {},
     ...overrides,

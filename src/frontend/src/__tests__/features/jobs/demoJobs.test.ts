@@ -22,6 +22,10 @@ describe('demoJobs (DEMO_JOBS fixture)', () => {
       expect(job.url).toBeTruthy();
       expect(job.raw).toBeDefined();
       expect(Number.isNaN(Date.parse(job.createdAt))).toBe(false);
+      // firstSeenAt is the canonical recency field; it must be a valid date and
+      // (per demoJobs) anchored to the same spread as the display createdAt.
+      expect(Number.isNaN(Date.parse(job.firstSeenAt))).toBe(false);
+      expect(job.firstSeenAt).toBe(job.createdAt);
     }
   });
 

@@ -17,15 +17,20 @@ import { US_STATE_NAME_TO_CODE, stripUsSuffix } from '../../../lib/location.ts';
  */
 
 /**
- * Check if a job is within a specific time window
+ * Check if a job is within a specific time window.
+ *
+ * Keyed on `firstSeenAt` (when WE first saw the listing), NOT the ATS posted
+ * date — companies reuse/repost old listings, so posted-date windowing buries
+ * freshly re-listed jobs. See `Job.firstSeenAt` and backend
+ * `docs/database-schema.md` ("Recency fields — which to trust").
  */
-export function isJobWithinTimeWindow(jobCreatedAt: string, timeWindow: TimeWindow): boolean {
+export function isJobWithinTimeWindow(jobFirstSeenAt: string, timeWindow: TimeWindow): boolean {
   if (timeWindow === 'all') {
     return true;
   }
 
   const now = new Date();
-  const jobDate = new Date(jobCreatedAt);
+  const jobDate = new Date(jobFirstSeenAt);
   const durationMs = getTimeWindowDuration(timeWindow);
   const cutoffTime = now.getTime() - durationMs;
 
@@ -385,8 +390,8 @@ export function filterJobsByFilters(
   }
 
   return jobs.filter((job: Job) => {
-    // Time window filter
-    if (!isJobWithinTimeWindow(job.createdAt, filters.timeWindow)) {
+    // Time window filter (recency = when we first saw the job, not ATS posted date)
+    if (!isJobWithinTimeWindow(job.firstSeenAt, filters.timeWindow)) {
       return false;
     }
 

@@ -110,13 +110,31 @@ def pending(
 
         # Mirror /sample's guard: never claim a description-less row (nothing to
         # classify) — it could never leave 'claimed' and would poison a claim slot.
+        #
+        # Claim the freshest jobs first: ORDER BY first_seen_at DESC — the date the
+        # scraper FIRST saw this listing, which is our reliable recency signal.
+        # This matters most behind a low-throughput local model: the claimable
+        # backlog is deep (~19k OPEN unenriched rows in prod) and only ~limit are
+        # drained per tick, so ordering decides which jobs get labelled while fresh.
+        #
+        # Why first_seen_at and not the alternatives (see docs/database-schema.md
+        # "recency fields", which this MUST stay in sync with):
+        #   - posted_on is the ATS-supplied posting date and is UNRELIABLE: companies
+        #     reuse/repost old listings, so ~8.6% of OPEN rows carry a posted_on >180d
+        #     (some >16y) before we ever saw them. Ordering by it buries freshly
+        #     re-listed jobs — the exact opposite of the goal.
+        #   - last_seen_at is bumped to now() on every scrape a job is still OPEN, so
+        #     it clusters at ~now across the whole active backlog and cannot rank a
+        #     job posted today above one open for months.
+        # first_seen_at is set once at discovery and preserved across close/reopen,
+        # so DESC cleanly floats the newest arrivals to the front.
         claim_sql = (
             "UPDATE job_listings SET enrichment_status = 'claimed', enrichment_claimed_at = now() "
             "WHERE (source_id, id) IN ("
             "  SELECT source_id, id FROM job_listings "
             "  WHERE enrichment_status IS NULL AND status = 'OPEN' "
             f"  AND {DESCRIPTION_SQL} IS NOT NULL "
-            "  ORDER BY details_scraped DESC, last_seen_at DESC "
+            "  ORDER BY first_seen_at DESC "
             "  LIMIT %s FOR UPDATE SKIP LOCKED"
             f") RETURNING {_JOB_PROJECTION}"
         )

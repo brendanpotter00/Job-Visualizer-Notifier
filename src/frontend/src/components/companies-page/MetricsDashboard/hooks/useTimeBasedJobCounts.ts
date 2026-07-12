@@ -10,7 +10,8 @@ interface TimeBasedCounts {
 
 /**
  * Custom hook to calculate time-based job counts
- * Calculations are deterministic based on job.createdAt timestamps
+ * Calculations are deterministic based on job.firstSeenAt timestamps (when we
+ * first saw each job) — matching the recency filter/sort, not the ATS posted date.
  * @param allJobs - Array of all jobs for the company
  * @returns Memoized object with counts for different time windows
  */
@@ -28,10 +29,11 @@ export function useTimeBasedJobCounts(allJobs: Job[]): TimeBasedCounts {
     const last12Hours = now - 12 * TIME_UNITS.HOUR;
 
     return {
-      jobsLast3Days: allJobs.filter((job) => new Date(job.createdAt).getTime() >= last3Days).length,
-      jobsLast24Hours: allJobs.filter((job) => new Date(job.createdAt).getTime() >= last24Hours)
+      jobsLast3Days: allJobs.filter((job) => new Date(job.firstSeenAt).getTime() >= last3Days)
         .length,
-      jobsLast12Hours: allJobs.filter((job) => new Date(job.createdAt).getTime() >= last12Hours)
+      jobsLast24Hours: allJobs.filter((job) => new Date(job.firstSeenAt).getTime() >= last24Hours)
+        .length,
+      jobsLast12Hours: allJobs.filter((job) => new Date(job.firstSeenAt).getTime() >= last12Hours)
         .length,
     };
   }, [allJobs]);

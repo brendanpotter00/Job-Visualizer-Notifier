@@ -225,7 +225,7 @@ describe('dateUtils', () => {
     });
 
     it('should calculate date range for single job', () => {
-      const jobs = [{ createdAt: '2025-01-15T10:30:00Z' }];
+      const jobs = [{ firstSeenAt: '2025-01-15T10:30:00Z' }];
       const result = calculateJobDateRange(jobs);
 
       expect(result.oldestJobDate).toBe('2025-01-15T10:30:00.000Z');
@@ -234,9 +234,9 @@ describe('dateUtils', () => {
 
     it('should calculate date range for multiple jobs', () => {
       const jobs = [
-        { createdAt: '2025-01-15T10:30:00Z' },
-        { createdAt: '2025-01-10T08:00:00Z' },
-        { createdAt: '2025-01-20T16:45:00Z' },
+        { firstSeenAt: '2025-01-15T10:30:00Z' },
+        { firstSeenAt: '2025-01-10T08:00:00Z' },
+        { firstSeenAt: '2025-01-20T16:45:00Z' },
       ];
       const result = calculateJobDateRange(jobs);
 
@@ -245,7 +245,10 @@ describe('dateUtils', () => {
     });
 
     it('should handle jobs with same timestamp', () => {
-      const jobs = [{ createdAt: '2025-01-15T10:30:00Z' }, { createdAt: '2025-01-15T10:30:00Z' }];
+      const jobs = [
+        { firstSeenAt: '2025-01-15T10:30:00Z' },
+        { firstSeenAt: '2025-01-15T10:30:00Z' },
+      ];
       const result = calculateJobDateRange(jobs);
 
       expect(result.oldestJobDate).toBe('2025-01-15T10:30:00.000Z');
@@ -254,8 +257,8 @@ describe('dateUtils', () => {
 
     it('should work with millisecond precision', () => {
       const jobs = [
-        { createdAt: '2025-01-15T10:30:00.123Z' },
-        { createdAt: '2025-01-15T10:30:00.456Z' },
+        { firstSeenAt: '2025-01-15T10:30:00.123Z' },
+        { firstSeenAt: '2025-01-15T10:30:00.456Z' },
       ];
       const result = calculateJobDateRange(jobs);
 
@@ -264,7 +267,10 @@ describe('dateUtils', () => {
     });
 
     it('should handle jobs across different years', () => {
-      const jobs = [{ createdAt: '2024-12-31T23:59:59Z' }, { createdAt: '2025-01-01T00:00:00Z' }];
+      const jobs = [
+        { firstSeenAt: '2024-12-31T23:59:59Z' },
+        { firstSeenAt: '2025-01-01T00:00:00Z' },
+      ];
       const result = calculateJobDateRange(jobs);
 
       expect(result.oldestJobDate).toBe('2024-12-31T23:59:59.000Z');

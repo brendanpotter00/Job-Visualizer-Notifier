@@ -54,21 +54,25 @@ beforeEach(() => {
 
 // Helper to create mock jobs
 function createMockJobs(count: number): Job[] {
-  return Array.from({ length: count }, (_, i) => ({
-    id: `job-${i}`,
-    title: `Software Engineer ${i}`,
-    company: 'test-company',
-    location: 'Remote',
-    employmentType: 'Full-time',
-    createdAt: new Date(Date.now() - i * 1000).toISOString(),
-    url: `https://example.com/job-${i}`,
-    department: 'Engineering',
-    team: 'Backend',
-    tags: [],
-    isRemote: true,
-    source: 'backend-scraper' as const,
-    raw: {},
-  }));
+  return Array.from({ length: count }, (_, i) => {
+    const createdAt = new Date(Date.now() - i * 1000).toISOString();
+    return {
+      id: `job-${i}`,
+      title: `Software Engineer ${i}`,
+      company: 'test-company',
+      location: 'Remote',
+      employmentType: 'Full-time',
+      createdAt,
+      firstSeenAt: createdAt,
+      url: `https://example.com/job-${i}`,
+      department: 'Engineering',
+      team: 'Backend',
+      tags: [],
+      isRemote: true,
+      source: 'backend-scraper' as const,
+      raw: {},
+    };
+  });
 }
 
 // Helper to create mock store
