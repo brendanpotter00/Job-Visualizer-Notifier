@@ -144,6 +144,14 @@ _LOCATIONS_SUBQUERY = sql.SQL(
 # (experience_level, is_remote_eligible) and an empty ai_metadata,
 # cutting per-row size from ~10 KB to ~500 bytes.
 # Must be updated if the schema changes.
+#
+# The two sub-fields are read from the denormalized ``experience_level`` /
+# ``is_remote_eligible`` columns, NOT from ``details->'…'``: a JSONB key access
+# detoasts the full ~10 KB ``details`` value per row, and on the batched list
+# query (~12k rows) that ~100 MB of TOAST reads timed out (2026-07-13 outage).
+# This SELECT therefore never touches ``details``/TOAST. Keep the output shape
+# ({experience_level, is_remote_eligible}) identical so the frontend contract
+# is unchanged.
 # Free-form enrichment tags for a job, as a JSON array of strings. Correlated on
 # the FULL composite identity (source_id, id): job_tags is keyed by
 # (source_id, job_listing_id, tag) — `id` is NOT globally unique, so a job must
@@ -160,8 +168,8 @@ _TAGS_SUBQUERY = sql.SQL(
 _LIST_COLUMNS = sql.SQL(
     "id, title, company, location, url, source_id,"
     " jsonb_build_object("
-    "   'experience_level', details->'experience_level',"
-    "   'is_remote_eligible', details->'is_remote_eligible'"
+    "   'experience_level', experience_level,"
+    "   'is_remote_eligible', is_remote_eligible"
     " ) AS details,"
     " created_at, posted_on, closed_on, status,"
     " has_matched, jsonb_build_object() AS ai_metadata,"
