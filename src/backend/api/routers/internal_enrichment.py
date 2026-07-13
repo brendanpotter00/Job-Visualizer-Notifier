@@ -58,6 +58,10 @@ MAX_RESULTS_PER_BATCH = 500
 _JOB_PROJECTION = (
     "id, source_id, title, company, location, "
     f"{DESCRIPTION_SQL} AS description_html, "
+    # first_seen_at (the claim's ORDER BY key) is echoed so the enricher can order
+    # its own local classify queue newest-first too — otherwise it re-FIFOs by
+    # local arrival and buries freshly-posted jobs behind its backlog.
+    "first_seen_at, "
     "jsonb_build_object("
     "  'department', details->'department', "
     "  'experience_level', details->'experience_level'"
@@ -66,6 +70,7 @@ _JOB_PROJECTION = (
 
 
 def _to_job(row: dict[str, Any]) -> dict[str, Any]:
+    first_seen = row["first_seen_at"]
     return {
         "job_id": row["id"],
         "source_id": row["source_id"],
@@ -73,6 +78,7 @@ def _to_job(row: dict[str, Any]) -> dict[str, Any]:
         "company": row["company"],
         "location": row["location"],
         "description_html": row["description_html"],
+        "first_seen_at": first_seen.isoformat() if first_seen is not None else None,
         "details": row["details"],
     }
 
@@ -110,6 +116,16 @@ def pending(
 
         # Mirror /sample's guard: never claim a description-less row (nothing to
         # classify) — it could never leave 'claimed' and would poison a claim slot.
+        # EXCEPTION: when enrichment_claim_without_description is ON, drop the guard
+        # and claim description-less rows too (workday_api/eightfold_api capture no
+        # description) — the enricher labels them title-only at low confidence. The
+        # partial index idx_job_listings_enrichment_claim (predicate: enrichment_status
+        # IS NULL AND status='OPEN', no description clause) serves BOTH the guarded and
+        # unguarded query, so no index change is needed either way.
+        desc_guard = (
+            "" if settings.enrichment_claim_without_description
+            else f"  AND {DESCRIPTION_SQL} IS NOT NULL "
+        )
         #
         # Claim the freshest jobs first: ORDER BY first_seen_at DESC — the date the
         # scraper FIRST saw this listing, which is our reliable recency signal.
@@ -133,7 +149,7 @@ def pending(
             "WHERE (source_id, id) IN ("
             "  SELECT source_id, id FROM job_listings "
             "  WHERE enrichment_status IS NULL AND status = 'OPEN' "
-            f"  AND {DESCRIPTION_SQL} IS NOT NULL "
+            f"{desc_guard}"
             "  ORDER BY first_seen_at DESC "
             "  LIMIT %s FOR UPDATE SKIP LOCKED"
             f") RETURNING {_JOB_PROJECTION}"
@@ -284,11 +300,18 @@ def health(conn: Connection = Depends(get_db)) -> dict[str, Any]:
         # 'unenriched' above includes rows /pending can never hand out (no
         # description under any known key). Surface the CLAIMABLE count
         # separately so a drained-but-capped pipeline is distinguishable from
-        # a genuinely idle one.
+        # a genuinely idle one. Mirror /pending's desc_guard so this stays equal
+        # to what /pending actually claims: when title-only claiming is ON,
+        # description-less rows ARE claimable and must be counted here too
+        # (otherwise a title-only-draining pipeline reads as idle/starved).
+        desc_guard = (
+            "" if settings.enrichment_claim_without_description
+            else f"AND {DESCRIPTION_SQL} IS NOT NULL"
+        )
         cur.execute(
             "SELECT COUNT(*) AS n FROM job_listings "
             "WHERE enrichment_status IS NULL AND status = 'OPEN' "
-            f"AND {DESCRIPTION_SQL} IS NOT NULL"
+            f"{desc_guard}"
         )
         eligible_unenriched = cur.fetchone()["n"]
 

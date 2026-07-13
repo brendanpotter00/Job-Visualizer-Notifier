@@ -70,6 +70,13 @@ class Settings(BaseSettings):
     # judge.needs_human) instead of publishing them 'done'. Rows are held, NOT
     # dropped — the audit payload is still written either way.
     enrichment_require_judge_pass: bool = False
+    # If True, /pending drops the "row must have a description" guard and claims
+    # description-less rows too (workday_api/eightfold_api capture no description
+    # under any known key). The enricher classifies these title-only at low
+    # confidence — an interim stopgap until their scrapers capture real text.
+    # Default OFF: flip ON only AFTER the enricher's title-only handling ships,
+    # so description-less rows aren't classified at full confidence in the gap.
+    enrichment_claim_without_description: bool = False
 
     # PostHog analytics
     posthog_project_token: str | None = None
