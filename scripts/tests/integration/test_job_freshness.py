@@ -99,6 +99,47 @@ class TestFreshnessTrigger:
         assert row["consecutive_misses"] == 0
         assert row["last_seen_at"] == datetime(2024, 1, 15, 10, 30, tzinfo=timezone.utc)
 
+    def test_reupsert_does_not_reset_advanced_freshness(self, in_memory_db):
+        """A re-upsert of an existing listing must NOT clobber an advanced
+        freshness row.
+
+        The AFTER INSERT trigger fires only for genuinely new rows, so an
+        ``ON CONFLICT DO UPDATE`` re-upsert of an existing listing leaves the
+        freshness row alone. This is the exact property the Unit 2-3 write/read
+        split relies on: once the write path advances ``last_seen_at``, a later
+        re-scrape of the same job must not reset it back to ``first_seen_at``.
+        Simulate the future write path by advancing the freshness row by hand,
+        then re-upsert and assert it is untouched.
+        """
+        job = _make_job(
+            "reup-1", first_seen="2024-01-15T10:30:00Z", last_seen="2024-01-15T10:30:00Z", misses=0
+        )
+        db.insert_job(in_memory_db, job)
+
+        advanced = datetime(2024, 9, 1, 12, 0, tzinfo=timezone.utc)
+        with in_memory_db.cursor() as cur:
+            cur.execute(
+                "UPDATE job_freshness SET last_seen_at = %s, consecutive_misses = 4 "
+                "WHERE source_id = %s AND id = %s",
+                (advanced, SourceId.GOOGLE, "reup-1"),
+            )
+        in_memory_db.commit()
+
+        # Re-upsert the same listing: hits ON CONFLICT DO UPDATE on job_listings,
+        # which does not fire the AFTER INSERT trigger and (in Unit 1) does not
+        # touch job_freshness.
+        db.upsert_jobs_batch(in_memory_db, [job])
+
+        row = _freshness_row(in_memory_db, SourceId.GOOGLE, "reup-1")
+        assert row["last_seen_at"] == advanced, "re-upsert clobbered the advanced last_seen_at"
+        assert row["consecutive_misses"] == 4, "re-upsert reset consecutive_misses"
+        with in_memory_db.cursor() as cur:
+            cur.execute(
+                "SELECT count(*) AS n FROM job_freshness WHERE source_id = %s AND id = %s",
+                (SourceId.GOOGLE, "reup-1"),
+            )
+            assert cur.fetchone()["n"] == 1
+
     def test_conflicting_insert_does_not_duplicate_freshness(self, in_memory_db):
         """A DO NOTHING conflict re-inserting an existing listing keeps one row."""
         job = _make_job(

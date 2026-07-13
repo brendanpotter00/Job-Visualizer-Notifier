@@ -32,6 +32,7 @@ def test_all_tables_present():
         "job_levels",
         "job_tags",
         "job_enrichment",
+        "job_freshness",
         "enrichment_ticks",
     }, f"Unexpected metadata.tables: {sorted(names)}"
 
@@ -77,6 +78,30 @@ def test_user_enabled_companies_fk_to_users_cascade():
     assert referred_cols == ["id"], f"FK points to {referred_cols}, expected ['id']"
     ondelete = fk.ondelete or fk.elements[0].ondelete
     assert (ondelete or "").upper() == "CASCADE", f"Expected ondelete=CASCADE, got {ondelete!r}"
+
+
+def test_job_freshness_composite_fk_to_job_listings_cascade():
+    """The sidecar's drift guarantee: a real composite FK onto job_listings'
+    (source_id, id) PK with ON DELETE CASCADE (no orphaned freshness rows)."""
+    table = db_models.Base.metadata.tables["job_freshness"]
+    fks = [c for c in table.constraints if isinstance(c, ForeignKeyConstraint)]
+    assert len(fks) == 1, f"Expected exactly one FK, found {len(fks)}"
+    fk = fks[0]
+    assert fk.referred_table.name == "job_listings"
+    referred_cols = [el.column.name for el in fk.elements]
+    assert referred_cols == ["source_id", "id"], (
+        f"FK points to {referred_cols}, expected ['source_id', 'id']"
+    )
+    ondelete = fk.ondelete or fk.elements[0].ondelete
+    assert (ondelete or "").upper() == "CASCADE", f"Expected ondelete=CASCADE, got {ondelete!r}"
+
+
+def test_job_freshness_last_seen_index_present():
+    table = db_models.Base.metadata.tables["job_freshness"]
+    index_names = {ix.name for ix in table.indexes}
+    assert "idx_job_freshness_last_seen" in index_names, (
+        f"Missing idx_job_freshness_last_seen; present: {index_names}"
+    )
 
 
 def test_expected_indexes_on_job_listings():
