@@ -118,10 +118,22 @@ run_inprocess_llm_stages() {
   # judge is off), so no extra gating is needed here.
   "$UV_BIN" run python -m job_enricher.cli classify-queue || echo "[wrapper] classify-queue failed (continuing)"
   "$UV_BIN" run python -m job_enricher.cli classify-run   || echo "[wrapper] classify-run failed (continuing)"
+  # Intra-tick heartbeat: classify-run alone can run for the better part of an
+  # hour with a local engine (ollama/opencode), and the ONLY other metrics-push
+  # is the one at the very end of the tick. Without this, JVN's "last tick" age
+  # (verdict.ts DARK_TICK_AGE_S) climbs the whole time classify/judge are
+  # running and falsely flags a live, mid-tick laptop as DARK. tick_id is None
+  # here (metrics-push defaults to the latest tick), and a running tick reports
+  # status="running" with partial counters — JVN's /metrics POST is idempotent
+  # on tick_uuid, so re-posting the same in-progress tick is safe.
+  "$UV_BIN" run python -m job_enricher.cli metrics-push || echo "[wrapper] metrics-push (post-classify) failed (continuing)"
   case "$JUDGE_ENGINE" in
     ollama|opencode)
       "$UV_BIN" run python -m job_enricher.cli judge-queue || echo "[wrapper] judge-queue failed (continuing)"
       "$UV_BIN" run python -m job_enricher.cli judge-run   || echo "[wrapper] judge-run failed (continuing)"
+      # Same rationale as the post-classify push above — judge-run can run
+      # just as long, and is the last thing before write-back/tick-end.
+      "$UV_BIN" run python -m job_enricher.cli metrics-push || echo "[wrapper] metrics-push (post-judge) failed (continuing)"
       ;;
     *)
       echo "[wrapper] judge engine '$JUDGE_ENGINE' is not in-process — skipping judge this tick"

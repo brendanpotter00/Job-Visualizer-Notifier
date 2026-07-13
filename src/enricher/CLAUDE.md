@@ -126,4 +126,8 @@ here, in the personal dir, and in JVN identically.
 `nulled_facets`), `duration_s`, per-stage timings, heartbeat age, knobs, taxonomy version,
 `drift_suspected`, and the eval scorecard when its content hash is new (tracked via meta
 `metrics:last_scorecard_hash`). Called by the wrapper after every claude run and as
-Step 6.5 of /enrich-tick. BEST-EFFORT by contract: failures log a warning and exit 0.
+Step 6.5 of /enrich-tick for the `claude-code` fan-out engine; for the in-process local
+engines (`ollama`/`opencode`) the wrapper also pushes after `classify-run` and after
+`judge-run` (not just once at tick end) so JVN's "last tick" freshness doesn't go stale
+for the 1–2h+ a single local-engine tick can run — see `verdict.ts` `DARK_TICK_AGE_S` in
+JVN. BEST-EFFORT by contract: failures log a warning and exit 0.
