@@ -146,7 +146,6 @@ export function JobListingCard({ job }: JobListingCardProps) {
             isRemote={job.isRemote}
             category={job.category}
             level={job.level}
-            enrichmentTags={job.enrichmentTags}
           />
 
           {/* LinkedIn recruiter link */}
