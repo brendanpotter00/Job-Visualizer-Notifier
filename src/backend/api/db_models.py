@@ -20,14 +20,17 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     Column,
+    DDL,
     Float,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     PrimaryKeyConstraint,
     TIMESTAMP,
     Text,
     UniqueConstraint,
+    event,
     func,
     text,
 )
@@ -111,6 +114,121 @@ class JobListing(Base):
             postgresql_where=text("enrichment_status IS NULL AND status = 'OPEN'"),
         ),
     )
+
+
+class JobFreshness(Base):
+    """High-churn "freshness" sidecar for ``job_listings`` (see the 2026-07-13
+    ``/api/jobs`` outage postmortem).
+
+    ``last_seen_at`` is re-stamped on *every* open job on *every* hourly scrape
+    cycle. Because it lives on ``job_listings`` — a ~600 MB table with a
+    TOAST-heavy ``details`` JSONB — and is indexed, each of those ~millions of
+    updates is a non-HOT update that bloats both the heap and
+    ``idx_job_listings_last_seen`` (the index reached 100 MB for 58k rows and the
+    ``ORDER BY last_seen_at DESC`` read blew past the 30 s statement timeout).
+
+    Moving the two churny columns (``last_seen_at``, ``consecutive_misses``) onto
+    this narrow ~50-byte/row sidecar means the wide parent stops being rewritten
+    on every cycle, and this table's own ``last_seen_at`` index stays small enough
+    that the aggressive autovacuum settings applied in the migration keep it tight
+    (the mechanism that could not keep up on the 600 MB parent).
+
+    Unlike the other side tables (``job_enrichment``/``job_tags``, keyed on
+    ``job_listing_id`` alone — which cannot FK to ``job_listings``' *composite*
+    ``(source_id, id)`` PK), this table is keyed on the full ``(source_id, id)``,
+    so it carries a REAL composite FK with ``ON DELETE CASCADE`` (no orphaned
+    freshness rows). Paired with the ``AFTER INSERT`` trigger installed in the
+    migration — which creates the matching freshness row for every new
+    ``job_listings`` row regardless of insert path — the read-side INNER JOIN is
+    guaranteed lossless: the two tables cannot drift. The
+    ``fillfactor``/autovacuum storage params and the trigger + backfill are set
+    in the migration (SQLAlchemy metadata cannot express them), not here.
+    """
+
+    __tablename__ = "job_freshness"
+
+    source_id = Column(Text, nullable=False)
+    id = Column(Text, nullable=False)
+    last_seen_at = Column(TIMESTAMP(timezone=True), nullable=False)
+    consecutive_misses = Column(Integer, nullable=False, server_default=text("0"))
+
+    __table_args__ = (
+        PrimaryKeyConstraint("source_id", "id"),
+        # Composite FK onto job_listings' composite PK. ON DELETE CASCADE means a
+        # deleted listing drops its freshness row automatically — no orphans.
+        ForeignKeyConstraint(
+            ["source_id", "id"],
+            ["job_listings.source_id", "job_listings.id"],
+            ondelete="CASCADE",
+            name="job_freshness_job_listings_fkey",
+        ),
+        # Serves the /api/jobs ORDER BY last_seen_at DESC (LIMIT n) — a backward
+        # index scan on this tiny table instead of on the bloated parent index.
+        Index("idx_job_freshness_last_seen", "last_seen_at"),
+    )
+
+
+# --- Anti-drift trigger, as model metadata --------------------------------
+# The migration (01fef5c9c582) installs this same trigger via op.execute for the
+# prod deploy path. It is ALSO wired here as an ``after_create`` DDL event so the
+# create_all-based test/parity bootstrap (see api/tests/conftest.py and
+# scripts/tests/conftest.py, which create_all + stamp rather than run migration
+# bodies) installs identical behavior — otherwise a create_all schema would have
+# the table but not the trigger, and the Unit 3 read-side INNER JOIN would behave
+# differently in tests than in prod. The two paths never both run: prod applies
+# the migration (no create_all); tests use create_all (stamp, not upgrade).
+#
+# References are intentionally unqualified so they resolve through the caller's
+# search_path — correct in prod (public) and in the per-worker ``test_<hex>``
+# schema (search_path pinned by the conftest fixtures). Seeds last_seen_at from
+# NEW.first_seen_at and a literal 0 (never NEW.last_seen_at/consecutive_misses)
+# so it keeps working after the Unit 4 contract migration drops those columns.
+# Physical tuning (fillfactor/autovacuum) stays migration-only — it has no
+# behavioral effect, so create_all test DBs don't need it.
+_JOB_FRESHNESS_SYNC_FUNCTION = DDL(
+    """
+    CREATE OR REPLACE FUNCTION job_freshness_sync() RETURNS trigger
+    LANGUAGE plpgsql AS $$
+    BEGIN
+        INSERT INTO job_freshness (source_id, id, last_seen_at, consecutive_misses)
+        VALUES (NEW.source_id, NEW.id, NEW.first_seen_at, 0)
+        ON CONFLICT (source_id, id) DO NOTHING;
+        RETURN NULL;  -- AFTER trigger: return value is ignored
+    END;
+    $$;
+    """
+)
+_JOB_FRESHNESS_SYNC_TRIGGER = DDL(
+    """
+    CREATE TRIGGER job_freshness_sync_after_insert
+        AFTER INSERT ON job_listings
+        FOR EACH ROW
+        EXECUTE FUNCTION job_freshness_sync();
+    """
+)
+
+event.listen(
+    JobFreshness.__table__,
+    "after_create",
+    _JOB_FRESHNESS_SYNC_FUNCTION.execute_if(dialect="postgresql"),
+)
+event.listen(
+    JobFreshness.__table__,
+    "after_create",
+    _JOB_FRESHNESS_SYNC_TRIGGER.execute_if(dialect="postgresql"),
+)
+event.listen(
+    JobFreshness.__table__,
+    "before_drop",
+    DDL(
+        "DROP TRIGGER IF EXISTS job_freshness_sync_after_insert ON job_listings"
+    ).execute_if(dialect="postgresql"),
+)
+event.listen(
+    JobFreshness.__table__,
+    "before_drop",
+    DDL("DROP FUNCTION IF EXISTS job_freshness_sync()").execute_if(dialect="postgresql"),
+)
 
 
 class ScrapeRun(Base):
