@@ -84,7 +84,16 @@ _JOB_COLUMNS = """
     first_seen_at, last_seen_at, consecutive_misses, details_scraped
 """.strip()
 
-# ON CONFLICT clause for upsert operations
+# ON CONFLICT clause for upsert operations.
+#
+# Freshness (``last_seen_at`` / ``consecutive_misses``) is deliberately NOT
+# updated here anymore — it lives in the ``job_freshness`` sidecar (see the
+# 2026-07-13 migration). Re-stamping those two columns on ``job_listings`` every
+# scrape cycle is exactly what bloated ``idx_job_listings_last_seen`` and took
+# ``/api/jobs`` down; the sidecar owns them now. The re-seen freshness write is
+# applied separately via ``_upsert_freshness`` in the same transaction. We still
+# reactivate here (``status='OPEN'``, ``closed_on=NULL``) because status is a
+# ``job_listings`` column, and still refresh the content columns.
 _UPSERT_ON_CONFLICT = """
     ON CONFLICT (source_id, id) DO UPDATE SET
         title = EXCLUDED.title,
@@ -94,10 +103,52 @@ _UPSERT_ON_CONFLICT = """
         posted_on = EXCLUDED.posted_on,
         status = 'OPEN',
         closed_on = NULL,
-        last_seen_at = EXCLUDED.last_seen_at,
-        consecutive_misses = 0,
         details_scraped = EXCLUDED.details_scraped
 """.strip()
+
+# Sidecar (job_freshness) table + its re-seen upsert.
+#
+# The AFTER INSERT trigger on job_listings already materializes a freshness row
+# for every *genuinely new* listing (seeded from first_seen_at), so plain INSERT
+# paths (insert_job / insert_jobs_batch) need no freshness write. The upsert
+# paths, however, cover two cases the trigger does NOT fire for:
+#   * an existing OPEN listing re-scraped (ON CONFLICT DO UPDATE) — advance its
+#     last_seen_at and clear misses, and
+#   * a previously-CLOSED listing reappearing and being reactivated by the same
+#     ON CONFLICT — same thing.
+# So after upserting job_listings we upsert job_freshness in the SAME transaction
+# (the composite FK requires the job_listings row to exist first). ON CONFLICT DO
+# UPDATE makes this idempotent against the trigger's just-inserted row.
+_FRESHNESS_TABLE = "job_freshness"
+
+_FRESHNESS_UPSERT = f"""
+    INSERT INTO {_FRESHNESS_TABLE} (source_id, id, last_seen_at, consecutive_misses)
+    VALUES %s
+    ON CONFLICT (source_id, id) DO UPDATE SET
+        last_seen_at = EXCLUDED.last_seen_at,
+        consecutive_misses = 0
+""".strip()
+
+
+def _upsert_freshness(cursor: Any, jobs: List[JobListing]) -> None:
+    """Advance ``job_freshness`` for the re-seen/reactivated ``jobs``.
+
+    MUST be called after the matching ``job_listings`` rows are written in the
+    SAME transaction (the composite FK ``(source_id, id) -> job_listings``
+    requires the parent rows to exist). Does not commit — the caller owns the
+    transaction boundary so a listing and its freshness commit atomically.
+
+    Re-seen means "seen in this scrape", so ``consecutive_misses`` is reset to 0
+    on conflict; the INSERT branch (only reachable if the trigger's row is
+    somehow absent) seeds 0 as well.
+    """
+    if not jobs:
+        return
+    freshness_values = [
+        (job.source_id, job.id, job.last_seen_at, 0)
+        for job in jobs
+    ]
+    execute_values(cursor, _FRESHNESS_UPSERT, freshness_values, page_size=100)
 
 
 def _build_job_values(job: JobListing) -> Tuple:
@@ -348,8 +399,17 @@ def get_job_by_id(
         )
     cursor = conn.cursor()
 
+    # Freshness (last_seen_at / consecutive_misses) lives in the job_freshness
+    # sidecar; join it so this reader returns the authoritative values, not the
+    # now-stale job_listings columns (which Unit 4 will drop entirely). The
+    # appended f.* columns come after job_listings.* in the select list, so on
+    # the duplicate column name RealDictCursor keeps the sidecar value.
     cursor.execute(
-        f"SELECT * FROM {_JOBS_TABLE} WHERE source_id = %s AND id = %s",
+        f"SELECT {_JOBS_TABLE}.*, f.last_seen_at, f.consecutive_misses "
+        f"FROM {_JOBS_TABLE} "
+        f"JOIN {_FRESHNESS_TABLE} f "
+        f"  ON f.source_id = {_JOBS_TABLE}.source_id AND f.id = {_JOBS_TABLE}.id "
+        f"WHERE {_JOBS_TABLE}.source_id = %s AND {_JOBS_TABLE}.id = %s",
         (source_id, job_id),
     )
     row = cursor.fetchone()
@@ -407,6 +467,12 @@ def upsert_job(conn: Connection, job: JobListing) -> bool:
 
     result = cursor.fetchone()
     was_inserted = result['inserted'] if result else True
+
+    # Keep the sidecar fresh in the same transaction. For a brand-new insert the
+    # AFTER INSERT trigger already created the freshness row (from first_seen_at);
+    # this upsert then advances it to the scrape's last_seen_at. For a re-seen /
+    # reactivated row the trigger does not fire, so this is the only freshness write.
+    _upsert_freshness(cursor, [job])
 
     conn.commit()
 
@@ -481,6 +547,12 @@ def upsert_jobs_batch(conn: Connection, jobs: List[JobListing]) -> int:
     # The right defense against per-row source_id misfiling is the per-row
     # `_build_job_values(job)` construction itself, which reads source_id
     # straight off the JobListing.
+
+    # Advance the sidecar for every upserted row in the same transaction (the
+    # job_listings rows above satisfy the composite FK). New rows already got a
+    # trigger-seeded freshness row; re-seen / reactivated rows get theirs here.
+    _upsert_freshness(cursor, jobs)
+
     conn.commit()
     source_ids = sorted({job.source_id for job in jobs})
     logger.info(
@@ -547,8 +619,11 @@ def update_last_seen(
     cursor = conn.cursor()
     placeholders = _build_id_placeholders(job_ids)
 
+    # Freshness lives in the job_freshness sidecar now, not on job_listings.
+    # Every OPEN listing has a freshness row (AFTER INSERT trigger + backfill),
+    # so this UPDATE matches the same rows the old job_listings UPDATE did.
     cursor.execute(
-        f"UPDATE {_JOBS_TABLE} SET last_seen_at = %s, consecutive_misses = 0 "
+        f"UPDATE {_FRESHNESS_TABLE} SET last_seen_at = %s, consecutive_misses = 0 "
         f"WHERE source_id = %s AND id IN ({placeholders})",
         [timestamp, source_id] + job_ids
     )
@@ -590,8 +665,11 @@ def increment_consecutive_misses(
     cursor = conn.cursor()
     placeholders = _build_id_placeholders(job_ids)
 
+    # consecutive_misses lives in the job_freshness sidecar now (see
+    # update_last_seen). Bumping it here no longer rewrites the wide job_listings
+    # row / its indexes.
     cursor.execute(
-        f"UPDATE {_JOBS_TABLE} SET consecutive_misses = consecutive_misses + 1 "
+        f"UPDATE {_FRESHNESS_TABLE} SET consecutive_misses = consecutive_misses + 1 "
         f"WHERE source_id = %s AND id IN ({placeholders})",
         [source_id] + job_ids
     )
@@ -684,8 +762,11 @@ def get_jobs_exceeding_miss_threshold(
     cursor = conn.cursor()
     placeholders = _build_id_placeholders(job_ids)
 
+    # consecutive_misses is read from the job_freshness sidecar now. Every
+    # listing has a freshness row (trigger + FK), so this sees the same ids the
+    # old job_listings read did.
     cursor.execute(
-        f"SELECT id FROM {_JOBS_TABLE} "
+        f"SELECT id FROM {_FRESHNESS_TABLE} "
         f"WHERE source_id = %s AND id IN ({placeholders}) "
         f"AND consecutive_misses >= %s",
         [source_id] + job_ids + [threshold]
@@ -726,14 +807,25 @@ def reactivate_job(
         )
     cursor = conn.cursor()
 
+    # Status/closed_on stay on job_listings; freshness moved to the sidecar.
+    # Both writes share one transaction so the row's OPEN state and its refreshed
+    # last_seen_at commit atomically. `affected` is measured on the job_listings
+    # UPDATE because that is the row whose existence the caller contract governs;
+    # the sidecar row is guaranteed present by the trigger/FK.
     cursor.execute(
-        f"UPDATE {_JOBS_TABLE} SET status = 'OPEN', closed_on = NULL, "
-        f"last_seen_at = %s, consecutive_misses = 0 "
+        f"UPDATE {_JOBS_TABLE} SET status = 'OPEN', closed_on = NULL "
+        f"WHERE source_id = %s AND id = %s",
+        (source_id, job_id)
+    )
+
+    affected = cursor.rowcount
+
+    cursor.execute(
+        f"UPDATE {_FRESHNESS_TABLE} SET last_seen_at = %s, consecutive_misses = 0 "
         f"WHERE source_id = %s AND id = %s",
         (timestamp, source_id, job_id)
     )
 
-    affected = cursor.rowcount
     conn.commit()
     if affected != 1:
         logger.warning(

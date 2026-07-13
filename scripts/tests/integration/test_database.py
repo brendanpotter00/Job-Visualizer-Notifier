@@ -90,11 +90,12 @@ class TestUpdateLastSeen:
 
     def test_update_last_seen_resets_misses(self, in_memory_db, sample_job_listing):
         """Updates timestamp and resets consecutive_misses"""
-        # Insert job with some misses
-        sample_job_listing.consecutive_misses = 1
         db.insert_job(in_memory_db, sample_job_listing)
 
-        # Increment misses to simulate missed runs
+        # Accrue misses through the real path: the job_freshness sidecar is
+        # seeded at 0 misses by the AFTER INSERT trigger (not from the model's
+        # consecutive_misses), so we increment twice to reach 2.
+        db.increment_consecutive_misses(in_memory_db, sample_job_listing.source_id, [sample_job_listing.id])
         db.increment_consecutive_misses(in_memory_db, sample_job_listing.source_id, [sample_job_listing.id])
 
         # Verify misses incremented

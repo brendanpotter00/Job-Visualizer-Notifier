@@ -157,13 +157,28 @@ def _make_job(overrides: dict | None = None) -> dict:
 
 
 def _insert_job(conn, job: dict) -> None:
-    """Insert a job row into the test table."""
+    """Insert a job row into the test table.
+
+    Freshness (``last_seen_at`` / ``consecutive_misses``) now lives in the
+    ``job_freshness`` sidecar. The ``AFTER INSERT`` trigger on ``job_listings``
+    materializes the sidecar row seeded from ``first_seen_at`` with 0 misses, so
+    after the insert we mirror this job dict's requested ``last_seen_at`` /
+    ``consecutive_misses`` into the sidecar — the read paths (``get_jobs``,
+    problem-jobs, etc.) join it, so it must hold the values the test asked for.
+    """
     cursor = conn.cursor()
     table = sql.Identifier("job_listings")
     cols = sql.SQL(", ").join(sql.Identifier(k) for k in job.keys())
     placeholders = sql.SQL(", ").join(sql.Placeholder() for _ in job)
     query = sql.SQL("INSERT INTO {} ({}) VALUES ({})").format(table, cols, placeholders)
     cursor.execute(query, list(job.values()))
+    if {"id", "source_id", "last_seen_at"} <= set(job.keys()):
+        cursor.execute(
+            "UPDATE job_freshness SET last_seen_at = %s, consecutive_misses = %s "
+            "WHERE source_id = %s AND id = %s",
+            (job["last_seen_at"], job.get("consecutive_misses", 0),
+             job["source_id"], job["id"]),
+        )
     conn.commit()
 
 

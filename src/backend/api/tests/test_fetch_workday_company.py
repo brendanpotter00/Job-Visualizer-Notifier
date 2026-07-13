@@ -96,14 +96,29 @@ def _seed_job(
         ),
     )
     conn.commit()
+    # The AFTER INSERT trigger seeded job_freshness at consecutive_misses=0;
+    # mirror the seeded value into the sidecar (freshness is authoritative there).
+    if consecutive_misses:
+        cur.execute(
+            "UPDATE job_freshness SET consecutive_misses = %s "
+            "WHERE source_id = %s AND id = %s",
+            (consecutive_misses, SourceId.WORKDAY, job_id),
+        )
+        conn.commit()
 
 
 def _job_row(conn, job_id: str, source_id: str = SourceId.WORKDAY) -> dict | None:
     cur = conn.cursor()
     cur.execute(
-        sql.SQL("SELECT * FROM {} WHERE source_id = %s AND id = %s").format(
-            sql.Identifier("job_listings")
-        ),
+        # f.last_seen_at/f.consecutive_misses follow {0}.* in the select list,
+        # so on the duplicate column names the RealDictCursor row keeps the
+        # sidecar (authoritative) values, not the stale job_listings columns.
+        sql.SQL(
+            "SELECT {0}.*, f.last_seen_at, f.consecutive_misses "
+            "FROM {0} JOIN job_freshness f "
+            "ON f.source_id = {0}.source_id AND f.id = {0}.id "
+            "WHERE {0}.source_id = %s AND {0}.id = %s"
+        ).format(sql.Identifier("job_listings")),
         (source_id, job_id),
     )
     return cur.fetchone()

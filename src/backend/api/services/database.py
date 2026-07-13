@@ -157,17 +157,29 @@ _TAGS_SUBQUERY = sql.SQL(
     "), '[]'::json) AS tags"
 )
 
+# ``last_seen_at`` / ``consecutive_misses`` are sourced from the ``job_freshness``
+# sidecar (aliased ``f`` in the query) — see get_jobs. ``id`` and ``source_id``
+# are qualified to ``job_listings`` because the sidecar carries same-named join
+# keys and a bare reference would be ambiguous.
 _LIST_COLUMNS = sql.SQL(
-    "id, title, company, location, url, source_id,"
+    "job_listings.id, title, company, location, url, job_listings.source_id,"
     " jsonb_build_object("
     "   'experience_level', details->'experience_level',"
     "   'is_remote_eligible', details->'is_remote_eligible'"
     " ) AS details,"
     " created_at, posted_on, closed_on, status,"
     " has_matched, jsonb_build_object() AS ai_metadata,"
-    " first_seen_at, last_seen_at, consecutive_misses, details_scraped,"
+    " first_seen_at, f.last_seen_at, f.consecutive_misses, details_scraped,"
     " enrichment_category AS category, enrichment_level AS level, enrichment_status, "
 ) + _TAGS_SUBQUERY + sql.SQL(", ") + _LOCATIONS_SUBQUERY
+
+# INNER JOIN onto the freshness sidecar. Lossless by construction: the AFTER
+# INSERT trigger + backfill + composite FK guarantee every job_listings row has
+# exactly one job_freshness row, so this never drops a listing.
+_FRESHNESS_JOIN = sql.SQL(
+    " JOIN job_freshness f"
+    " ON f.source_id = job_listings.source_id AND f.id = job_listings.id"
+)
 
 
 def get_jobs(
@@ -192,9 +204,9 @@ def get_jobs(
             category=category, level=level,
         )
 
-        query = sql.SQL("SELECT {} FROM {} {} ORDER BY last_seen_at DESC LIMIT %s OFFSET %s").format(
-            _LIST_COLUMNS, _JOBS_TABLE, where
-        )
+        query = sql.SQL(
+            "SELECT {} FROM {}{} {} ORDER BY f.last_seen_at DESC LIMIT %s OFFSET %s"
+        ).format(_LIST_COLUMNS, _JOBS_TABLE, _FRESHNESS_JOIN, where)
         params.extend([limit, offset])
         cursor.execute(query, params)
 
@@ -213,10 +225,17 @@ def get_job_by_id(conn: Connection, source_id: str, job_id: str) -> dict | None:
     if not source_id:
         raise ValueError("get_job_by_id requires a non-empty source_id")
     with conn.cursor() as cursor:
+        # ``job_listings.*`` still carries the (now-stale) last_seen_at /
+        # consecutive_misses columns until the Unit-4 contract migration drops
+        # them; the appended ``f.last_seen_at`` / ``f.consecutive_misses`` come
+        # later in the select list, so RealDictCursor's row dict keeps the
+        # sidecar (fresh) values on the duplicate key. After Unit 4 the
+        # duplicates disappear and only the sidecar columns remain.
         cursor.execute(
-            sql.SQL("SELECT *, {}, {} FROM {} WHERE source_id = %s AND id = %s").format(
-                _TAGS_SUBQUERY, _LOCATIONS_SUBQUERY, _JOBS_TABLE
-            ),
+            sql.SQL(
+                "SELECT job_listings.*, f.last_seen_at, f.consecutive_misses, {}, {} "
+                "FROM {}{} WHERE job_listings.source_id = %s AND job_listings.id = %s"
+            ).format(_TAGS_SUBQUERY, _LOCATIONS_SUBQUERY, _JOBS_TABLE, _FRESHNESS_JOIN),
             (source_id, job_id),
         )
         row = cursor.fetchone()
