@@ -70,6 +70,19 @@ class JobListing(Base):
     details_scraped = Column(Boolean, server_default=text("false"))
     normalization_status = Column(Text, nullable=True)  # NULL (never attempted) | 'done' | 'failed'
 
+    # Denormalized copies of the only two ``details`` JSONB sub-fields the API
+    # list path serves (frontend ``job.department`` + "Remote" chip). Reading
+    # ``details->'…'`` forces Postgres to detoast the full ~10 KB ``details``
+    # value per row; on the batched ``/api/jobs`` list query (~12k rows) that
+    # ~100 MB of TOAST reads blew past the 30 s statement timeout (2026-07-13
+    # outage). These columns let the list query read the two values WITHOUT
+    # touching ``details``/TOAST. Nullable, no backfill — populated by the upsert
+    # write path on the next scrape (mirrors the enrichment-column precedent
+    # below so the migration stays metadata-only; see the 2026-04-18 volume
+    # incident). The single-row detail path still returns the full ``details``.
+    experience_level = Column(Text, nullable=True)
+    is_remote_eligible = Column(Boolean, nullable=True)
+
     # External enrichment (job-enricher pull integration). All nullable /
     # catalog-only (no backfill) so the migration can't rewrite this large
     # table — see docs/incidents/2026-04-18-migration-filled-postgres-volume/.

@@ -77,11 +77,17 @@ _JOBS_TABLE = "job_listings"
 _RUNS_TABLE = "scrape_runs"
 
 # Column list for job_listings table (used in INSERT statements)
+# NOTE: experience_level / is_remote_eligible are denormalized copies of the two
+# details JSONB sub-fields the API list path serves — written here so that path
+# never has to detoast `details` (see the 2026-07-13 /api/jobs outage and
+# db_models.JobListing). Keep this list, the _build_job_values tuple, and the
+# VALUES (%s, …) placeholder strings in insert_job/upsert_job in lockstep.
 _JOB_COLUMNS = """
     id, title, company, location, url, source_id,
     details, posted_on, created_at, closed_on, status,
     has_matched, ai_metadata,
-    first_seen_at, last_seen_at, consecutive_misses, details_scraped
+    first_seen_at, last_seen_at, consecutive_misses, details_scraped,
+    experience_level, is_remote_eligible
 """.strip()
 
 # ON CONFLICT clause for upsert operations
@@ -96,7 +102,9 @@ _UPSERT_ON_CONFLICT = """
         closed_on = NULL,
         last_seen_at = EXCLUDED.last_seen_at,
         consecutive_misses = 0,
-        details_scraped = EXCLUDED.details_scraped
+        details_scraped = EXCLUDED.details_scraped,
+        experience_level = EXCLUDED.experience_level,
+        is_remote_eligible = EXCLUDED.is_remote_eligible
 """.strip()
 
 
@@ -114,7 +122,8 @@ def _build_job_values(job: JobListing) -> Tuple:
         job.id, job.title, job.company, job.location, job.url, job.source_id,
         json.dumps(job.details), job.posted_on, job.created_at, job.closed_on, job.status,
         job.has_matched, json.dumps(job.ai_metadata),
-        job.first_seen_at, job.last_seen_at, job.consecutive_misses, job.details_scraped
+        job.first_seen_at, job.last_seen_at, job.consecutive_misses, job.details_scraped,
+        job.details.get("experience_level"), job.details.get("is_remote_eligible", False)
     )
 
 
@@ -370,7 +379,7 @@ def insert_job(conn: Connection, job: JobListing) -> None:
     cursor = conn.cursor()
 
     cursor.execute(
-        f"INSERT INTO {_JOBS_TABLE} ({_JOB_COLUMNS}) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        f"INSERT INTO {_JOBS_TABLE} ({_JOB_COLUMNS}) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
         _build_job_values(job)
     )
 
@@ -398,7 +407,7 @@ def upsert_job(conn: Connection, job: JobListing) -> bool:
     cursor.execute(
         f"""
         INSERT INTO {_JOBS_TABLE} ({_JOB_COLUMNS})
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         {_UPSERT_ON_CONFLICT}
         RETURNING (xmax = 0) AS inserted
         """,
