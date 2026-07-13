@@ -18,11 +18,19 @@ import type { EnrichmentHealth } from '../../features/admin/adminApi';
 export const EXPECTED_TICK_INTERVAL_S = 600;
 
 /**
- * "Dark" threshold: no tick heard for 6× the cadence (an hour) — generous
- * enough that one slow 3h tick doesn't page, because a RUNNING tick pushes a
- * metrics snapshot at start too.
+ * "Dark" threshold: no tick heard for 90 minutes.
+ *
+ * The `claude-code` fan-out engine ticks fast (well under the old 6×-cadence
+ * 1h threshold), but the local `ollama`/`opencode` engines can spend
+ * 1.5-2.5h in a single tick (classify-run/judge-run against a local GPU, no
+ * fan-out). The job-enricher wrapper pushes a metrics snapshot after
+ * classify-run and after judge-run (not just once at tick end) specifically
+ * so a live mid-tick laptop keeps refreshing this — 90 minutes is a buffer
+ * above the longest single stage-to-stage gap that produces, not the whole
+ * tick length. A laptop that's actually gone quiet for 90+ minutes with no
+ * stage completing is a real DARK, not a false alarm from a slow tick.
  */
-export const DARK_TICK_AGE_S = EXPECTED_TICK_INTERVAL_S * 6;
+export const DARK_TICK_AGE_S = 90 * 60;
 
 /**
  * Fallback dark threshold when the enricher has never pushed metrics: no
