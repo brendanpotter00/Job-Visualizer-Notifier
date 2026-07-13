@@ -128,6 +128,8 @@ def put_saved_filters(
             recent_time_window=body.recent_time_window,
             trend_time_window=body.trend_time_window,
             locations=body.locations,
+            category=body.category,
+            level=body.level,
             recent_active_keyword_list_id=body.recent_active_keyword_list_id,
             trend_active_keyword_list_id=body.trend_active_keyword_list_id,
         )
@@ -152,6 +154,8 @@ def put_saved_filters(
                         "recent_time_window": body.recent_time_window,
                         "trend_time_window": body.trend_time_window,
                         "location_count": len(body.locations) if body.locations else 0,
+                        "category_count": len(body.category) if body.category else 0,
+                        "level_count": len(body.level) if body.level else 0,
                         "has_recent_keyword_list": body.recent_active_keyword_list_id is not None,
                         "has_trend_keyword_list": body.trend_active_keyword_list_id is not None,
                     },

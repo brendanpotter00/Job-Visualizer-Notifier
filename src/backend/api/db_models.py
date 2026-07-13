@@ -244,7 +244,9 @@ class UserSavedFilters(Base):
     Time windows are plain TEXT validated to the ``TimeWindow`` Literal at the
     Pydantic boundary (matches how ``job_listings.status`` stays TEXT and is
     validated in ``models``). ``locations`` is a JSONB array of canonical
-    location strings shared by both the Recent and Trend pages.
+    location strings shared by both the Recent and Trend pages; ``category`` and
+    ``level`` are JSONB arrays of enrichment facet slugs, likewise shared by
+    both pages.
 
     ``recent_active_keyword_list_id`` / ``trend_active_keyword_list_id`` are
     plain TEXT (NOT a FK) because they may hold the synthetic built-in id
@@ -263,6 +265,8 @@ class UserSavedFilters(Base):
     recent_time_window = Column(Text, nullable=False, server_default=text("'3h'"))
     trend_time_window = Column(Text, nullable=False, server_default=text("'7d'"))
     locations = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    category = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    level = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     recent_active_keyword_list_id = Column(Text, nullable=True)
     trend_active_keyword_list_id = Column(Text, nullable=True)
     created_at = Column(

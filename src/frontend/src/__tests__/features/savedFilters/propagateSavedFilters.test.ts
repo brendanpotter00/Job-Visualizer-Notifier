@@ -44,11 +44,13 @@ function applyPropagation(saved: SavedFilters, kwLists: KeywordList[]) {
 }
 
 describe('savedFiltersPropagationActions (Critique #2: no-refresh propagation)', () => {
-  it('snaps both slices to the saved time windows, locations, and active lists', () => {
+  it('snaps both slices to the saved time windows, locations, category, level, and active lists', () => {
     const saved: SavedFilters = {
       recentTimeWindow: '24h',
       trendTimeWindow: '30d',
       locations: ['San Francisco, CA, US'],
+      category: ['software_engineering'],
+      level: ['senior', 'mid'],
       recentActiveKeywordListId: 'list-1',
       trendActiveKeywordListId: 'builtin-swe',
     };
@@ -64,6 +66,12 @@ describe('savedFiltersPropagationActions (Critique #2: no-refresh propagation)',
     expect(recent.filters.timeWindow).toBe('24h');
     expect(recent.filters.location).toEqual(['San Francisco, CA, US']);
     expect(recent.filters.searchTags).toEqual([{ text: 'golang', mode: 'include' }]);
+
+    // Category + level are shared defaults pushed to BOTH pages.
+    expect(graph.filters.category).toEqual(['software_engineering']);
+    expect(graph.filters.level).toEqual(['senior', 'mid']);
+    expect(recent.filters.category).toEqual(['software_engineering']);
+    expect(recent.filters.level).toEqual(['senior', 'mid']);
   });
 
   it('does NOT clear a non-null active list when lists are not loaded (propagate-on-save keyword-wipe bug)', () => {
@@ -75,6 +83,8 @@ describe('savedFiltersPropagationActions (Critique #2: no-refresh propagation)',
       recentTimeWindow: '24h',
       trendTimeWindow: '30d',
       locations: ['San Francisco, CA, US'],
+      category: [],
+      level: [],
       recentActiveKeywordListId: 'list-1',
       trendActiveKeywordListId: 'builtin-swe',
     };
@@ -98,8 +108,9 @@ describe('savedFiltersPropagationActions (Critique #2: no-refresh propagation)',
     // Live keyword tags are LEFT INTACT (not wiped to undefined).
     expect(graph.filters.searchTags).toEqual([live]);
     expect(recent.filters.searchTags).toEqual([live]);
-    // No setSearchTags action was emitted for the non-null pointers.
-    expect(actions).toHaveLength(4);
+    // No setSearchTags action was emitted for the non-null pointers; the 8
+    // emitted are time-window/location/category/level for each of the 2 pages.
+    expect(actions).toHaveLength(8);
   });
 
   it('still clears an intentionally-null active list even when lists are not loaded', () => {
@@ -109,6 +120,8 @@ describe('savedFiltersPropagationActions (Critique #2: no-refresh propagation)',
       recentTimeWindow: '7d',
       trendTimeWindow: '7d',
       locations: [],
+      category: [],
+      level: [],
       recentActiveKeywordListId: null,
       trendActiveKeywordListId: null,
     };
@@ -125,7 +138,8 @@ describe('savedFiltersPropagationActions (Critique #2: no-refresh propagation)',
 
     expect(graph.filters.searchTags).toBeUndefined();
     expect(recent.filters.searchTags).toBeUndefined();
-    expect(actions).toHaveLength(6);
+    // 10 = time-window/location/category/level/searchTags for each of 2 pages.
+    expect(actions).toHaveLength(10);
   });
 
   it('clears search tags when the active list is null and treats [] as no location filter', () => {
@@ -133,6 +147,8 @@ describe('savedFiltersPropagationActions (Critique #2: no-refresh propagation)',
       recentTimeWindow: '7d',
       trendTimeWindow: '7d',
       locations: [],
+      category: [],
+      level: [],
       recentActiveKeywordListId: null,
       trendActiveKeywordListId: null,
     };
@@ -143,6 +159,11 @@ describe('savedFiltersPropagationActions (Critique #2: no-refresh propagation)',
     expect(recent.filters.searchTags).toBeUndefined();
     expect(graph.filters.location).toEqual([]);
     expect(recent.filters.location).toEqual([]);
+    // Empty category/level normalize to "no filter" (undefined) in both slices.
+    expect(graph.filters.category).toBeUndefined();
+    expect(graph.filters.level).toBeUndefined();
+    expect(recent.filters.category).toBeUndefined();
+    expect(recent.filters.level).toBeUndefined();
   });
 });
 

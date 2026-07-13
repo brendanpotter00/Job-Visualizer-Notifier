@@ -55,6 +55,8 @@ export function useHydrateSavedFilters(): void {
         hydrateGraphFilters({
           timeWindow: savedFilters.trendTimeWindow,
           location: savedFilters.locations,
+          category: savedFilters.category,
+          level: savedFilters.level,
           searchTags: trendTags,
         })
       );
@@ -62,6 +64,8 @@ export function useHydrateSavedFilters(): void {
         hydrateRecentJobsFilters({
           timeWindow: savedFilters.recentTimeWindow,
           location: savedFilters.locations,
+          category: savedFilters.category,
+          level: savedFilters.level,
           searchTags: recentTags,
         })
       );

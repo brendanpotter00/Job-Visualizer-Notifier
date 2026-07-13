@@ -230,6 +230,10 @@ export interface SavedFilters {
   recentTimeWindow: TimeWindow;
   trendTimeWindow: TimeWindow;
   locations: string[];
+  /** Enrichment category facet slugs, shared by the Recent and Trend pages. */
+  category: string[];
+  /** Enrichment level facet slugs, shared by the Recent and Trend pages. */
+  level: string[];
   recentActiveKeywordListId: string | null;
   trendActiveKeywordListId: string | null;
 }

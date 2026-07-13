@@ -65,6 +65,8 @@ function makeSavedFilters(overrides: Partial<SavedFilters> = {}): SavedFilters {
     recentTimeWindow: '24h',
     trendTimeWindow: '30d',
     locations: ['San Francisco, CA, US'],
+    category: [],
+    level: [],
     recentActiveKeywordListId: 'list-1',
     trendActiveKeywordListId: 'list-1',
     ...overrides,
@@ -97,7 +99,10 @@ describe('useHydrateSavedFilters', () => {
 
   it('hydrates both slices from server data once both queries resolve', () => {
     mockAuthState.isAuthenticated = true;
-    savedFiltersResult.data = makeSavedFilters();
+    savedFiltersResult.data = makeSavedFilters({
+      category: ['software_engineering'],
+      level: ['senior'],
+    });
     keywordListsResult.data = [LIST];
 
     const store = createTestStore();
@@ -116,6 +121,11 @@ describe('useHydrateSavedFilters', () => {
     // Active pointer resolved to the matching list's tags.
     expect(graph.filters.searchTags).toEqual([{ text: 'golang', mode: 'include' }]);
     expect(recent.filters.searchTags).toEqual([{ text: 'golang', mode: 'include' }]);
+    // Category + level are shared defaults hydrated onto BOTH slices.
+    expect(graph.filters.category).toEqual(['software_engineering']);
+    expect(graph.filters.level).toEqual(['senior']);
+    expect(recent.filters.category).toEqual(['software_engineering']);
+    expect(recent.filters.level).toEqual(['senior']);
   });
 
   it('fires the logout reset exactly once on the auth true->false transition and resets API cache', () => {

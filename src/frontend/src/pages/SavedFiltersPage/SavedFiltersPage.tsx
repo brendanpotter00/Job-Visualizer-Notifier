@@ -21,6 +21,7 @@ import { LoadingState } from '../../components/shared/LoadingIndicator';
 import { ErrorState } from '../../components/shared/ErrorDisplay';
 import { extractErrorMessage } from '../../lib/errors';
 import { TimeWindowDefaults } from '../../components/saved-filters/TimeWindowDefaults';
+import { CategoryLevelDefaults } from '../../components/saved-filters/CategoryLevelDefaults';
 import { LocationDefaultsEditor } from '../../components/saved-filters/LocationDefaultsEditor';
 import { EnabledCompaniesSection } from '../../components/saved-filters/EnabledCompaniesSection';
 import { KeywordListsEditor } from '../../components/saved-filters/KeywordListsEditor';
@@ -35,11 +36,11 @@ import type { TimeWindow, SavedFilters, KeywordList } from '../../types';
 type SavedFiltersDraft = SavedFilters;
 
 /** Which section's Save button is mid-flight / showing feedback. */
-type SaveSection = 'timeWindows' | 'locations' | 'keywords';
+type SaveSection = 'timeWindows' | 'categoryLevel' | 'locations' | 'keywords';
 
-/** Stable key for comparing location sets regardless of order. */
-function locationsKey(locations: string[]): string {
-  return [...locations].sort().join('\n');
+/** Stable key for comparing string-list values regardless of order. */
+function listKey(values: string[]): string {
+  return [...values].sort().join('\n');
 }
 
 function draftFromServer(p: SavedFilters): SavedFiltersDraft {
@@ -47,6 +48,8 @@ function draftFromServer(p: SavedFilters): SavedFiltersDraft {
     recentTimeWindow: p.recentTimeWindow,
     trendTimeWindow: p.trendTimeWindow,
     locations: [...p.locations],
+    category: [...p.category],
+    level: [...p.level],
     recentActiveKeywordListId: p.recentActiveKeywordListId,
     trendActiveKeywordListId: p.trendActiveKeywordListId,
   };
@@ -163,7 +166,15 @@ export function SavedFiltersPage() {
 
   const locationsDirty = useMemo(() => {
     if (!draft || !serverPrefs) return false;
-    return locationsKey(draft.locations) !== locationsKey(serverPrefs.locations);
+    return listKey(draft.locations) !== listKey(serverPrefs.locations);
+  }, [draft, serverPrefs]);
+
+  const categoryLevelDirty = useMemo(() => {
+    if (!draft || !serverPrefs) return false;
+    return (
+      listKey(draft.category) !== listKey(serverPrefs.category) ||
+      listKey(draft.level) !== listKey(serverPrefs.level)
+    );
   }, [draft, serverPrefs]);
 
   const keywordsDirty = useMemo(() => {
@@ -209,6 +220,8 @@ export function SavedFiltersPage() {
         recentTimeWindow: draft.recentTimeWindow,
         trendTimeWindow: draft.trendTimeWindow,
         locations: draft.locations,
+        category: draft.category,
+        level: draft.level,
         recentActiveKeywordListId: draft.recentActiveKeywordListId,
         trendActiveKeywordListId: draft.trendActiveKeywordListId,
       }).unwrap();
@@ -283,6 +296,20 @@ export function SavedFiltersPage() {
             success={successSection === 'timeWindows'}
             error={errorSection === 'timeWindows' ? errorMessage : null}
             onSave={() => handleSave('timeWindows')}
+          />
+        )}
+
+        {draft && (
+          <CategoryLevelDefaults
+            category={draft.category}
+            level={draft.level}
+            onChangeCategory={(slugs) => patchDraft({ category: slugs })}
+            onChangeLevel={(slugs) => patchDraft({ level: slugs })}
+            dirty={categoryLevelDirty}
+            saving={savingSection === 'categoryLevel'}
+            success={successSection === 'categoryLevel'}
+            error={errorSection === 'categoryLevel' ? errorMessage : null}
+            onSave={() => handleSave('categoryLevel')}
           />
         )}
 

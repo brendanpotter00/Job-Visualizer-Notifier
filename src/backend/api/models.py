@@ -621,17 +621,27 @@ _MAX_TAGS_PER_LIST = 100
 _MAX_TAG_TEXT_LEN = 100
 _MAX_LIST_NAME_LEN = 100
 _MAX_LOCATION_LEN = 200  # matches LocationSpec.canonical_name
+# Enrichment facet slugs (category/level). The slug is a short snake_case token
+# (e.g. "software_engineering", "senior"); 64 chars is generous headroom, and 50
+# values comfortably exceeds the seeded catalog while bounding the payload.
+_MAX_FACET_VALUES = 50
+_MAX_FACET_SLUG_LEN = 64
+
+
+def _dedup_strings(values: list[str]) -> list[str]:
+    """Collapse exact-duplicate strings, preserving first-seen order."""
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        if value not in seen:
+            seen.add(value)
+            result.append(value)
+    return result
 
 
 def _dedup_locations(locations: list[str]) -> list[str]:
     """Collapse exact-duplicate location strings, preserving first-seen order."""
-    seen: set[str] = set()
-    result: list[str] = []
-    for loc in locations:
-        if loc not in seen:
-            seen.add(loc)
-            result.append(loc)
-    return result
+    return _dedup_strings(locations)
 
 
 class SearchTag(BaseModel):
@@ -668,6 +678,8 @@ class SavedFiltersResponse(BaseModel):
     recent_time_window: TimeWindow
     trend_time_window: TimeWindow
     locations: list[str]
+    category: list[str]
+    level: list[str]
     recent_active_keyword_list_id: str | None = None
     trend_active_keyword_list_id: str | None = None
 
@@ -675,7 +687,9 @@ class SavedFiltersResponse(BaseModel):
 class SavedFiltersUpdateRequest(BaseModel):
     """Full-replace body for PUT /api/users/saved-filters.
 
-    Locations are deduped (order-preserving) at the boundary. The active-list
+    Locations, category, and level are deduped (order-preserving) at the
+    boundary. ``category`` / ``level`` hold enrichment facet slugs shared by both
+    the Recent and Trend pages (an empty list means "no filter"). The active-list
     pointers are bounded at 64 chars to match the uuid4-hex id shape and the
     ``'builtin-swe'`` sentinel; service-layer ownership validation decides
     whether a non-null pointer is accepted (409 otherwise).
@@ -692,6 +706,16 @@ class SavedFiltersUpdateRequest(BaseModel):
             str, StringConstraints(min_length=1, max_length=_MAX_LOCATION_LEN)
         ]
     ] = Field(default_factory=list, max_length=_MAX_LOCATIONS)
+    category: list[
+        Annotated[
+            str, StringConstraints(min_length=1, max_length=_MAX_FACET_SLUG_LEN)
+        ]
+    ] = Field(default_factory=list, max_length=_MAX_FACET_VALUES)
+    level: list[
+        Annotated[
+            str, StringConstraints(min_length=1, max_length=_MAX_FACET_SLUG_LEN)
+        ]
+    ] = Field(default_factory=list, max_length=_MAX_FACET_VALUES)
     recent_active_keyword_list_id: str | None = Field(default=None, max_length=64)
     trend_active_keyword_list_id: str | None = Field(default=None, max_length=64)
 
@@ -699,6 +723,11 @@ class SavedFiltersUpdateRequest(BaseModel):
     @classmethod
     def _dedup_locations_field(cls, value: list[str]) -> list[str]:
         return _dedup_locations(value)
+
+    @field_validator("category", "level")
+    @classmethod
+    def _dedup_facet_field(cls, value: list[str]) -> list[str]:
+        return _dedup_strings(value)
 
 
 class KeywordListResponse(BaseModel):
