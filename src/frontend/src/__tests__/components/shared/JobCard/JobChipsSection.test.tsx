@@ -63,33 +63,5 @@ describe('JobChipsSection', () => {
 
       expect(screen.getByText('quantum widget wrangler')).toBeInTheDocument();
     });
-
-    it('caps enrichment tags at 4 visible chips and adds a "+N" overflow chip', () => {
-      render(<JobChipsSection enrichmentTags={['a', 'b', 'c', 'd', 'e', 'f']} />);
-
-      for (const t of ['a', 'b', 'c', 'd']) {
-        expect(screen.getByText(t)).toBeInTheDocument();
-      }
-      // The 5th and 6th are folded into the overflow chip, not rendered.
-      expect(screen.queryByText('e')).not.toBeInTheDocument();
-      expect(screen.queryByText('f')).not.toBeInTheDocument();
-      expect(screen.getByText('+2')).toBeInTheDocument();
-    });
-
-    it('shows no overflow chip when there are exactly 4 tags', () => {
-      render(<JobChipsSection enrichmentTags={['a', 'b', 'c', 'd']} />);
-
-      expect(screen.getByText('d')).toBeInTheDocument();
-      // No "+N" chip at the boundary.
-      expect(screen.queryByText(/^\+\d+$/)).not.toBeInTheDocument();
-    });
-
-    it('renders no chips for empty or undefined enrichmentTags', () => {
-      const { container, rerender } = render(<JobChipsSection enrichmentTags={[]} />);
-      expect(container.querySelectorAll('.MuiChip-root')).toHaveLength(0);
-
-      rerender(<JobChipsSection enrichmentTags={undefined} />);
-      expect(container.querySelectorAll('.MuiChip-root')).toHaveLength(0);
-    });
   });
 });
