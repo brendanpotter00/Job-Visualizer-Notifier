@@ -506,11 +506,16 @@ def list_problem_jobs(conn: Connection, limit: int, offset: int) -> dict:
     )
     try:
         with conn.cursor() as cur:
+            # last_seen_at is sourced from the job_freshness sidecar (INNER JOIN
+            # is lossless: trigger + FK guarantee one freshness row per listing).
+            # id is qualified because the sidecar carries a same-named join key.
             cur.execute(
                 sql.SQL(
-                    "SELECT id, title, company, location, normalization_status, "
-                    "last_seen_at FROM {} WHERE " + _filter +
-                    " ORDER BY last_seen_at DESC LIMIT %s OFFSET %s"
+                    "SELECT job_listings.id, title, company, location, "
+                    "normalization_status, f.last_seen_at FROM {} "
+                    "JOIN job_freshness f ON f.source_id = job_listings.source_id "
+                    "AND f.id = job_listings.id WHERE " + _filter +
+                    " ORDER BY f.last_seen_at DESC LIMIT %s OFFSET %s"
                 ).format(_JOB_LISTINGS),
                 (limit, offset),
             )
