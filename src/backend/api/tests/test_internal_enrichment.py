@@ -732,6 +732,79 @@ class TestPending:
         # The description-less row was never claimed.
         assert _fetch_listing_facets(db_conn, "p-nodesc")["enrichment_status"] is None
 
+    def test_gem_and_google_description_shapes_are_claimable(
+        self, enrichment_client, db_conn, monkeypatch
+    ):
+        """gem_api stores the description under 'content_html' and google_scraper
+        under 'about_the_job' — the extended COALESCE must now find both and return
+        them as description_html (regression for the ~826 permanently-stuck rows)."""
+        monkeypatch.setattr(settings, "enrichment_use_external", True)
+        _insert_job(db_conn, _make_job({
+            "id": "gem", "status": "OPEN", "source_id": "gem_api",
+            "details": json.dumps({"content_html": "<p>gem body</p>"}),
+        }))
+        _insert_job(db_conn, _make_job({
+            "id": "goog", "status": "OPEN", "source_id": "google_scraper",
+            "details": json.dumps({"about_the_job": "About this Google role"}),
+        }))
+        resp = enrichment_client.get("/api/internal/enrichment/pending")
+        assert resp.status_code == 200
+        by_id = {j["job_id"]: j for j in resp.json()["jobs"]}
+        assert set(by_id) == {"gem", "goog"}
+        assert by_id["gem"]["description_html"] == "<p>gem body</p>"
+        assert by_id["goog"]["description_html"] == "About this Google role"
+
+    def test_empty_about_the_job_not_claimable_when_flag_off(
+        self, enrichment_client, db_conn, monkeypatch
+    ):
+        """NULLIF(...,''): an empty about_the_job is not a usable description, so
+        the row stays unclaimable while the title-only flag is off (falls through
+        to the title-only path only when that flag is on)."""
+        monkeypatch.setattr(settings, "enrichment_use_external", True)
+        _insert_job(db_conn, _make_job({
+            "id": "goog-empty", "status": "OPEN", "source_id": "google_scraper",
+            "details": json.dumps({"about_the_job": ""}),
+        }))
+        resp = enrichment_client.get("/api/internal/enrichment/pending")
+        assert resp.status_code == 200
+        assert resp.json()["jobs"] == []
+        assert _fetch_listing_facets(db_conn, "goog-empty")["enrichment_status"] is None
+
+    def test_pending_echoes_first_seen_at(
+        self, enrichment_client, db_conn, monkeypatch
+    ):
+        """The claim echoes first_seen_at (ISO) so the enricher can order its own
+        local classify queue newest-first instead of re-FIFOing by local arrival."""
+        monkeypatch.setattr(settings, "enrichment_use_external", True)
+        _insert_job(db_conn, _make_job({
+            "id": "fs", "status": "OPEN", "first_seen_at": "2026-07-12T18:00:00Z",
+            "details": json.dumps({"description_html": "<p>x</p>"}),
+        }))
+        resp = enrichment_client.get("/api/internal/enrichment/pending")
+        assert resp.status_code == 200
+        job = resp.json()["jobs"][0]
+        assert job["first_seen_at"] is not None
+        assert job["first_seen_at"].startswith("2026-07-12T18:00:00")
+
+    def test_claims_description_less_rows_when_titleonly_flag_on(
+        self, enrichment_client, db_conn, monkeypatch
+    ):
+        """With enrichment_claim_without_description ON, a row with no description
+        under any key IS claimed (title-only interim path) and its description
+        projects to null; the default OFF still skips it (see
+        test_skips_description_null_rows)."""
+        monkeypatch.setattr(settings, "enrichment_use_external", True)
+        monkeypatch.setattr(settings, "enrichment_claim_without_description", True)
+        _insert_job(db_conn, _make_job({
+            "id": "wd-nodesc", "status": "OPEN", "source_id": "workday_api",
+            "details": json.dumps({"description_html": None, "team": "Risk"}),
+        }))
+        resp = enrichment_client.get("/api/internal/enrichment/pending")
+        assert resp.status_code == 200
+        job = next(j for j in resp.json()["jobs"] if j["job_id"] == "wd-nodesc")
+        assert job["description_html"] is None  # enricher will classify title-only
+        assert _fetch_listing_facets(db_conn, "wd-nodesc")["enrichment_status"] == "claimed"
+
     def test_stale_claim_is_reclaimed_and_rehanded(
         self, enrichment_client, db_conn, monkeypatch
     ):
@@ -1654,6 +1727,25 @@ class TestHealthAdditions:
         body = resp.json()
         assert body["open_by_status"]["unenriched"] == 2
         assert body["eligible_unenriched"] == 1
+
+    def test_eligible_includes_description_less_when_titleonly_flag_on(
+        self, enrichment_client, db_conn, monkeypatch
+    ):
+        """With title-only claiming ON, description-less rows ARE claimable, so
+        eligible_unenriched must count them too — otherwise a title-only-draining
+        pipeline reads as idle/starved. Keeps the metric equal to what /pending hands out."""
+        _insert_job(db_conn, _make_job({
+            "id": "el-desc", "source_id": "s",
+            "details": json.dumps({"description_html": "<p>x</p>"}),
+        }))
+        _insert_job(db_conn, _make_job({
+            "id": "el-nodesc", "source_id": "s", "details": json.dumps({}),
+        }))
+        monkeypatch.setattr(settings, "enrichment_claim_without_description", True)
+        resp = enrichment_client.get("/api/internal/enrichment/health")
+        body = resp.json()
+        assert body["open_by_status"]["unenriched"] == 2
+        assert body["eligible_unenriched"] == 2  # both claimable under title-only
 
     def test_needs_human_open_excludes_corrected_and_closed(self, enrichment_client, db_conn):
         for jid, status in (("nh-open", "OPEN"), ("nh-closed", "CLOSED"), ("nh-fixed", "OPEN")):

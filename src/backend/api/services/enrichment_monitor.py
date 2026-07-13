@@ -28,16 +28,19 @@ from .enrichment_writer import CATEGORY_SLUGS, LEVEL_SLUGS, MAX_TAGS_PER_JOB
 logger = logging.getLogger(__name__)
 
 # The claimable-description predicate, shared by /pending, /sample and the
-# eligible-backlog health count. COALESCE across the three real per-ATS shapes
-# (verified against prod 2026-07-08): Ashby/Lever store description_html,
-# Greenhouse stores HTML under 'content', the custom scrapers (Apple/Microsoft/
-# Google) use 'description', and Workday carries a description_html key whose
-# VALUE is JSON null (->> maps it to SQL NULL, falling through the COALESCE).
-# Without the COALESCE only ~17% of OPEN prod rows were claimable — the
-# pipeline would silently never see the rest.
+# eligible-backlog health count. COALESCE across the real per-ATS storage shapes
+# (verified against prod 2026-07-12): Ashby/Lever store description_html,
+# Greenhouse under 'content', Gem under 'content_html', the Apple/Microsoft
+# scrapers under 'description', and the Google scraper's "About the job" narrative
+# under 'about_the_job' (NULLIF drops the empties so they fall through to
+# title-only rather than a blank description). Workday carries a description_html
+# key whose VALUE is JSON null (->> maps it to SQL NULL, falling through).
+# Without the COALESCE only ~17% of OPEN prod rows were claimable; missing
+# content_html/about_the_job left gem_api + google_scraper permanently invisible.
 DESCRIPTION_SQL = (
     "COALESCE(details->>'description_html', details->>'content', "
-    "details->>'description')"
+    "details->>'content_html', details->>'description', "
+    "NULLIF(details->>'about_the_job', ''))"
 )
 
 
@@ -97,14 +100,20 @@ def get_admin_health(conn: Connection, window_hours: int = 24) -> dict[str, Any]
         )
         open_by_status = {r["status"]: r["n"] for r in cur.fetchall()}
 
-        # Of the unenriched OPEN rows, how many /pending could actually hand out
-        # (description present). The gap vs 'unenriched' is the
-        # permanently-invisible backlog — without this an idle laptop and a
-        # starved one look identical.
+        # Of the unenriched OPEN rows, how many /pending could actually hand out.
+        # Mirrors /pending's claim guard: description-present when title-only
+        # claiming is OFF, else ALL OPEN unenriched (description-less rows are
+        # claimable title-only). The gap vs 'unenriched' is the
+        # permanently-invisible backlog when the flag is OFF — without this an
+        # idle laptop and a starved one look identical.
+        desc_guard = (
+            "" if settings.enrichment_claim_without_description
+            else f"AND {DESCRIPTION_SQL} IS NOT NULL"
+        )
         cur.execute(
             "SELECT COUNT(*) AS n FROM job_listings "
             "WHERE enrichment_status IS NULL AND status = 'OPEN' "
-            f"AND {DESCRIPTION_SQL} IS NOT NULL"
+            f"{desc_guard}"
         )
         eligible_unenriched = int(scalar(cur.fetchone(), "n") or 0)
 
