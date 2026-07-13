@@ -60,6 +60,53 @@ def test_failed_pull_does_not_stamp_heartbeat(store):
     assert store.get_meta(HEARTBEAT_KEY) is None
 
 
+def _install_capture_client(monkeypatch, store):
+    """Patch cli.Store + JVNClient so _cmd_pull runs against `store` and records
+    the limit it claims with. Returns the mutable capture dict."""
+    import job_enricher.jvn_client as jc
+
+    captured: dict = {}
+
+    class _CapClient:
+        def pull_pending(self, limit=None):
+            captured["limit"] = limit
+            return []
+
+    monkeypatch.setattr(cli, "Store", lambda: store)
+    monkeypatch.setattr(jc, "JVNClient", _CapClient)
+    return captured
+
+
+def test_pull_caps_to_per_tick_limit_for_in_process_engine(store, monkeypatch):
+    """A serial in-process engine must not over-claim: _cmd_pull caps the claim to
+    enrich:per_tick_limit so inflow can't outrun classify throughput and grow the
+    local backlog (which would also bury freshly-posted jobs)."""
+    captured = _install_capture_client(monkeypatch, store)
+    ec.set_classify_engine(store, "ollama")
+    ec.set_enrich_per_tick_limit(store, 25)
+    cli._cmd_pull(argparse.Namespace(limit=None))
+    assert captured["limit"] == 25
+
+
+def test_pull_unbounded_for_claude_code(store, monkeypatch):
+    """claude-code fan-out clears a batch fast, so the per-tick cap does NOT apply
+    to pull — the limit stays None (JVNClient falls back to settings.pull_limit)."""
+    captured = _install_capture_client(monkeypatch, store)
+    ec.set_classify_engine(store, "claude-code")
+    ec.set_enrich_per_tick_limit(store, 25)  # ignored for claude-code
+    cli._cmd_pull(argparse.Namespace(limit=None))
+    assert captured["limit"] is None
+
+
+def test_pull_explicit_limit_overrides_cap(store, monkeypatch):
+    """An explicit --limit wins over the per-tick cap (operator override)."""
+    captured = _install_capture_client(monkeypatch, store)
+    ec.set_classify_engine(store, "ollama")
+    ec.set_enrich_per_tick_limit(store, 25)
+    cli._cmd_pull(argparse.Namespace(limit=100))
+    assert captured["limit"] == 100
+
+
 # ---- E4: taxonomy slug validation at record-enrichment ---------------------
 def test_bad_category_flagged_needs_human_not_shipped(store):
     store.enqueue_inbox([_inbox_row("1")])
@@ -90,6 +137,65 @@ def test_good_slugs_not_flagged(store):
     )
     assert (res["recorded"], res["needs_human"], res["nulled_facets"]) == (1, 0, 0)
     assert _enrichment(store, "1")["needs_human"] == 0
+
+
+# ---- title-only stopgap: empty description -> low-confidence, marked ---------
+def test_title_only_marks_and_clamps_empty_description(store):
+    """A row whose source captured no description (empty clean_description) is
+    marked title_only and its confidence clamped below the judge ceiling, whatever
+    the agent claimed — a code-level guarantee that routes it through the judge."""
+    store.enqueue_inbox([_inbox_row("1")])
+    store.record_clean("greenhouse", "1", "")   # no description captured
+    res = cli.record_enrichment_items(
+        store,
+        [{"job_listing_id": "1", "source_id": "greenhouse",
+          "category": "software_engineering", "level": "senior",
+          "confidence": 0.95, "reasoning": "from title"}],
+        version="v1",
+    )
+    assert res["recorded"] == 1 and res["title_only"] == 1
+    row = _enrichment(store, "1")
+    assert row["title_only"] == 1
+    assert row["classify_confidence"] == cli.TITLE_ONLY_MAX_CONFIDENCE  # clamped from 0.95
+    assert row["needs_human"] == 0  # NOT flagged to the human queue, only low-confidence
+
+
+def test_title_only_tolerates_non_numeric_confidence(store):
+    """A local model can emit a non-numeric confidence ("medium"/"0.5"); the
+    title-only clamp must coerce it to the cap, not raise (the record loop's
+    'never raises on bad data' contract). Regression for the min(str, float)
+    TypeError on the title-only path."""
+    store.enqueue_inbox([_inbox_row("1"), _inbox_row("2")])
+    store.record_clean("greenhouse", "1", "")
+    store.record_clean("greenhouse", "2", "")
+    res = cli.record_enrichment_items(
+        store,
+        [
+            {"job_listing_id": "1", "source_id": "greenhouse",
+             "category": "software_engineering", "level": "mid", "confidence": "medium"},
+            {"job_listing_id": "2", "source_id": "greenhouse",
+             "category": "software_engineering", "level": "mid", "confidence": "0.5"},
+        ],
+        version="v1",
+    )
+    assert res["recorded"] == 2 and res["title_only"] == 2  # neither raised
+    assert _enrichment(store, "1")["classify_confidence"] == cli.TITLE_ONLY_MAX_CONFIDENCE
+    assert _enrichment(store, "2")["classify_confidence"] == cli.TITLE_ONLY_MAX_CONFIDENCE
+
+
+def test_non_empty_description_is_not_title_only(store):
+    """A normal row (real description) keeps its confidence and title_only=0."""
+    store.enqueue_inbox([_inbox_row("1")])
+    store.record_clean("greenhouse", "1", "real cleaned description text")
+    res = cli.record_enrichment_items(
+        store,
+        [{"job_listing_id": "1", "source_id": "greenhouse",
+          "category": "software_engineering", "level": "mid", "confidence": 0.9}],
+        version="v1",
+    )
+    assert res["title_only"] == 0
+    row = _enrichment(store, "1")
+    assert row["title_only"] == 0 and row["classify_confidence"] == 0.9
 
 
 # ---- E10: empty job_listing_id / unresolvable source_id skipped ------------

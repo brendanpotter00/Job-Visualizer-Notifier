@@ -226,4 +226,8 @@ class JVNClient:
             "description_html": desc,
             "details_json": details_json,
             "content_hash": content_hash,
+            # Posting-recency signal (JVN /pending orders first_seen_at DESC);
+            # persisted so the local queues stay newest-first. Absent on older
+            # JVN builds -> None -> row sorts last, same as a legacy row.
+            "first_seen_at": j.get("first_seen_at"),
         }

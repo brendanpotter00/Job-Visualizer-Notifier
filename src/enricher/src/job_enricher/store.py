@@ -44,7 +44,7 @@ HEARTBEAT_KEY = "heartbeat:last_poll_at"
 CURRENT_TICK_KEY = "current_tick_id"
 LAST_SCORECARD_HASH_KEY = "metrics:last_scorecard_hash"
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 # poison-row lifecycle: after this many per-row JVN rejections the inbox row is
 # moved to the terminal 'failed' status (excluded from every queue + write-back)
@@ -65,6 +65,10 @@ CREATE TABLE IF NOT EXISTS inbox (
   description_html TEXT,
   details_json     TEXT,
   content_hash     TEXT NOT NULL,
+  -- v3: the job's posting-recency signal from JVN (first_seen_at, ISO). Ordered
+  -- DESC (nulls last) by the clean/classify queues so the local pipeline honors
+  -- JVN's newest-first claim order instead of local FIFO. NULL on pre-v3 rows.
+  first_seen_at    TEXT,
   claimed_at       TEXT NOT NULL,
   cleaned_at       TEXT,
   clean_description TEXT,
@@ -96,6 +100,11 @@ CREATE TABLE IF NOT EXISTS enrichments (
   judge_reasoning  TEXT,        -- v2: the judge's "why" (fuller than the terse notes)
   judge_latency_ms INTEGER,     -- v2: per-item wall time of the judge call
   needs_human      INTEGER NOT NULL DEFAULT 0,
+  -- v3: this row was classified from title+company+location alone because the
+  -- source captured no description (a low-confidence STOPGAP label). Local-only
+  -- marker for finding the cohort to re-enrich once real descriptions land; not
+  -- sent to JVN.
+  title_only       INTEGER NOT NULL DEFAULT 0,
   -- provenance (schema v1): pre-judge snapshot taken ONCE before the first
   -- judge merge, plus which models/tick produced the row
   pre_judge_category TEXT,
@@ -217,6 +226,8 @@ class Store:
                 _migrate_v0_to_v1(conn)
             if version < 2 and has_inbox:
                 _migrate_v1_to_v2(conn)
+            if version < 3 and has_inbox:
+                _migrate_v2_to_v3(conn)
             conn.executescript(_SCHEMA_SQL)
             conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         finally:
@@ -298,25 +309,33 @@ class Store:
                 conn.execute(
                     "INSERT INTO inbox (job_listing_id, source_id, title, company, "
                     "raw_location, description_html, details_json, content_hash, "
-                    "claimed_at, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'claimed') "
+                    "first_seen_at, claimed_at, status) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'claimed') "
                     "ON CONFLICT(source_id, job_listing_id) DO UPDATE SET "
                     "title=excluded.title, "
                     "company=excluded.company, raw_location=excluded.raw_location, "
                     "description_html=excluded.description_html, "
                     "details_json=excluded.details_json, content_hash=excluded.content_hash, "
+                    "first_seen_at=excluded.first_seen_at, "
                     "claimed_at=excluded.claimed_at, cleaned_at=NULL, "
                     "clean_description=NULL, status='claimed', attempts=0",
                     (
                         j["job_listing_id"], j["source_id"], j["title"], j["company"],
                         j.get("raw_location"), j.get("description_html"),
-                        j.get("details_json"), j["content_hash"], ts,
+                        j.get("details_json"), j["content_hash"], j.get("first_seen_at"), ts,
                     ),
                 )
                 inserted += 1
         return inserted, skipped
 
     def jobs_needing_clean(self, limit: int | None = None) -> list[sqlite3.Row]:
-        sql = "SELECT * FROM inbox WHERE status = 'claimed' ORDER BY claimed_at"
+        # Newest posting first (first_seen_at DESC), pre-v3/legacy null-recency
+        # rows last, claimed_at as a stable tiebreak — mirrors JVN's claim order
+        # so the local pipeline stays newest-first instead of local FIFO.
+        sql = (
+            "SELECT * FROM inbox WHERE status = 'claimed' "
+            "ORDER BY first_seen_at IS NULL, first_seen_at DESC, claimed_at"
+        )
         params: tuple[Any, ...] = ()
         if limit is not None:
             sql += " LIMIT ?"
@@ -333,7 +352,13 @@ class Store:
             )
 
     def jobs_needing_classify(self, limit: int | None = None) -> list[sqlite3.Row]:
-        sql = "SELECT * FROM inbox WHERE status = 'cleaned' ORDER BY cleaned_at"
+        # Newest posting first (see jobs_needing_clean): the per-tick cap only
+        # takes `limit` rows, so this ORDER BY decides WHICH rows get labelled
+        # while fresh. cleaned_at is the stable tiebreak within a first_seen_at.
+        sql = (
+            "SELECT * FROM inbox WHERE status = 'cleaned' "
+            "ORDER BY first_seen_at IS NULL, first_seen_at DESC, cleaned_at"
+        )
         params: tuple[Any, ...] = ()
         if limit is not None:
             sql += " LIMIT ?"
@@ -360,6 +385,27 @@ class Store:
             out.setdefault(r["job_listing_id"], []).append(r["source_id"])
         return out
 
+    def empty_clean_description_pairs(
+        self, job_listing_ids: list[str]
+    ) -> set[tuple[str, str]]:
+        """Return the (source_id, job_listing_id) pairs among `job_listing_ids`
+        whose inbox row has an empty cleaned description — i.e. the source
+        captured no description, so the classification is title-only. Used to
+        mark those rows low-confidence at record time (a code-level guarantee
+        that doesn't rely on the classify agent honoring the taxonomy guidance)."""
+        ids = [i for i in job_listing_ids if i]
+        if not ids:
+            return set()
+        ph = ",".join("?" for _ in ids)
+        with self.connect() as conn:
+            rows = conn.execute(
+                f"SELECT source_id, job_listing_id FROM inbox "
+                f"WHERE job_listing_id IN ({ph}) "
+                f"AND (clean_description IS NULL OR TRIM(clean_description) = '')",
+                ids,
+            ).fetchall()
+        return {(r["source_id"], r["job_listing_id"]) for r in rows}
+
     # ---- enrichments (durable artifact) ----------------------------------
     def record_enrichment(self, e: dict[str, Any]) -> None:
         """Idempotent upsert of a classify result. Marks inbox row 'enriched'.
@@ -371,14 +417,15 @@ class Store:
         current_tick_id at record time; a re-classify resets the judge fields
         AND the pre-judge snapshot (a fresh classification has no judge yet)."""
         needs_human = 1 if e.get("needs_human") else 0
+        title_only = 1 if e.get("title_only") else 0
         tick_id = self.current_tick_id()
         with self.connect() as conn:
             conn.execute(
                 "INSERT INTO enrichments (job_listing_id, source_id, category, level, "
                 "level_includes, tags, locations, classify_confidence, classify_reasoning, "
-                "classify_latency_ms, taxonomy_version, needs_human, classify_model, "
+                "classify_latency_ms, taxonomy_version, needs_human, title_only, classify_model, "
                 "tick_id, enriched_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(source_id, job_listing_id) DO UPDATE SET "
                 "category=excluded.category, level=excluded.level, "
                 "level_includes=excluded.level_includes, tags=excluded.tags, "
@@ -393,13 +440,14 @@ class Store:
                 "judge_reasoning=NULL, judge_latency_ms=NULL, "
                 "judge_model=NULL, pre_judge_category=NULL, pre_judge_level=NULL, "
                 "pre_judge_tags=NULL, "
-                "needs_human=excluded.needs_human, sent_at=NULL",
+                "needs_human=excluded.needs_human, title_only=excluded.title_only, "
+                "sent_at=NULL",
                 (
                     e["job_listing_id"], e["source_id"], e.get("category"), e.get("level"),
                     e.get("level_includes"), e.get("tags"), e.get("locations"),
                     e.get("classify_confidence"), e.get("classify_reasoning"),
                     e.get("classify_latency_ms"),
-                    e.get("taxonomy_version"), needs_human, e.get("classify_model"),
+                    e.get("taxonomy_version"), needs_human, title_only, e.get("classify_model"),
                     tick_id, now_iso(),
                 ),
             )
@@ -763,6 +811,32 @@ class Store:
                 (source_id, job_listing_id),
             ).fetchone()
         return dict(row) if row is not None else None
+
+
+def _migrate_v2_to_v3(conn: sqlite3.Connection) -> None:
+    """Add inbox.first_seen_at (JVN posting-recency signal, for newest-first
+    ordering) and enrichments.title_only (the description-less stopgap marker).
+
+    ALTER-only (both PKs unchanged, no rebuild) and idempotent — each column is
+    added only if absent, so a half-applied migration re-runs cleanly. Existing
+    rows get NULL first_seen_at (sorted last by the queues) and title_only=0.
+    Wrapped in one transaction; the version stamp is deferred to init_schema's
+    final PRAGMA."""
+    logger.info("store: migrating schema v2 -> v3 (inbox.first_seen_at + enrichments.title_only)")
+    inbox_cols = {row["name"] for row in conn.execute("PRAGMA table_info(inbox)")}
+    enr_cols = {row["name"] for row in conn.execute("PRAGMA table_info(enrichments)")}
+    conn.execute("BEGIN")
+    try:
+        if "first_seen_at" not in inbox_cols:
+            conn.execute("ALTER TABLE inbox ADD COLUMN first_seen_at TEXT")
+        if "title_only" not in enr_cols:
+            conn.execute(
+                "ALTER TABLE enrichments ADD COLUMN title_only INTEGER NOT NULL DEFAULT 0"
+            )
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
 
 
 def _migrate_v1_to_v2(conn: sqlite3.Connection) -> None:

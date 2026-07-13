@@ -26,6 +26,39 @@ def test_clean_and_classify_flow(store):
     assert len(store.jobs_needing_classify()) == 1
 
 
+def test_enqueue_persists_first_seen_at(store):
+    job = _job("1")
+    job["first_seen_at"] = "2026-07-12T18:00:00+00:00"
+    store.enqueue_inbox([job])
+    with store.connect() as c:
+        row = c.execute("SELECT first_seen_at FROM inbox WHERE job_listing_id='1'").fetchone()
+    assert row["first_seen_at"] == "2026-07-12T18:00:00+00:00"
+
+
+def test_jobs_needing_classify_newest_first_nulls_last(store):
+    # older, newer, and a legacy row with no recency signal
+    old = _job("old", h="ho"); old["first_seen_at"] = "2026-01-01T00:00:00+00:00"
+    new = _job("new", h="hn"); new["first_seen_at"] = "2026-07-12T00:00:00+00:00"
+    legacy = _job("legacy", h="hl")  # no first_seen_at
+    store.enqueue_inbox([old, legacy, new])
+    for jid in ("old", "new", "legacy"):
+        store.record_clean("greenhouse", jid, "clean")
+    order = [r["job_listing_id"] for r in store.jobs_needing_classify()]
+    # newest first_seen_at first, legacy (null recency) last
+    assert order == ["new", "old", "legacy"]
+    # the per-tick cap takes the newest rows
+    assert [r["job_listing_id"] for r in store.jobs_needing_classify(limit=1)] == ["new"]
+
+
+def test_empty_clean_description_pairs(store):
+    store.enqueue_inbox([_job("has", h="h1"), _job("empty", h="h2"), _job("blank", h="h3")])
+    store.record_clean("greenhouse", "has", "real description text")
+    store.record_clean("greenhouse", "empty", "")
+    store.record_clean("greenhouse", "blank", "   ")
+    pairs = store.empty_clean_description_pairs(["has", "empty", "blank"])
+    assert pairs == {("greenhouse", "empty"), ("greenhouse", "blank")}
+
+
 def test_record_enrichment_and_unsent(store):
     store.enqueue_inbox([_job("1")])
     store.record_clean("greenhouse", "1", "clean")
@@ -203,19 +236,23 @@ def test_migration_v0_to_v1_preserves_data(tmp_path):
     conn.close()
 
     store = Store(db_path=db)
-    store.init_schema()  # migrates v0 -> v1 -> v2
+    store.init_schema()  # migrates v0 -> v1 -> v2 -> v3
     store.init_schema()  # idempotent second run
 
     with store.connect() as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 3
         inbox = c.execute("SELECT * FROM inbox").fetchone()
         assert inbox["job_listing_id"] == "1" and inbox["attempts"] == 0
+        # v3 column exists and defaults to NULL on a migrated row
+        assert inbox["first_seen_at"] is None
         enr = c.execute("SELECT * FROM enrichments").fetchone()
         assert enr["category"] == "software_engineering"
         assert enr["pre_judge_category"] is None and enr["tick_id"] is None
         # v2 columns exist and default to NULL on a migrated row
         assert enr["classify_latency_ms"] is None
         assert enr["judge_reasoning"] is None and enr["judge_latency_ms"] is None
+        # v3 column exists and defaults to 0 on a migrated row
+        assert enr["title_only"] == 0
         tick = c.execute("SELECT * FROM ticks").fetchone()
         assert tick["uuid"] is None and tick["nulled_facets"] == 0
         assert c.execute("SELECT value FROM meta WHERE key='heartbeat:last_poll_at'").fetchone()[0] == "t0"
@@ -264,11 +301,31 @@ def test_migration_v1_to_v2_adds_columns(tmp_path):
     store = Store(db_path=db)
     store.init_schema()
     with store.connect() as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 3
         cols = {r["name"] for r in c.execute("PRAGMA table_info(enrichments)")}
-        assert {"classify_latency_ms", "judge_reasoning", "judge_latency_ms"} <= cols
+        assert {"classify_latency_ms", "judge_reasoning", "judge_latency_ms", "title_only"} <= cols
+        inbox_cols = {r["name"] for r in c.execute("PRAGMA table_info(inbox)")}
+        assert "first_seen_at" in inbox_cols
         # existing data preserved
         assert c.execute("SELECT category FROM enrichments").fetchone()["category"] == "software_engineering"
+
+
+def test_migration_v2_to_v3_is_idempotent(tmp_path):
+    """Re-running init_schema on a v3 DB (columns already present) is a no-op —
+    the _migrate_v2_to_v3 column-existence guards must not error on the ALTERs."""
+    from job_enricher.store import Store, _migrate_v2_to_v3
+
+    db = tmp_path / "v3.db"
+    store = Store(db_path=db)
+    store.init_schema()  # fresh -> v3 directly
+    store.init_schema()  # second run: version already 3, no migration
+    # calling the migration directly on an already-migrated DB is also a no-op
+    with store.connect() as c:
+        _migrate_v2_to_v3(c)
+        cols = {r["name"] for r in c.execute("PRAGMA table_info(inbox)")}
+        assert "first_seen_at" in cols
+        enr_cols = {r["name"] for r in c.execute("PRAGMA table_info(enrichments)")}
+        assert "title_only" in enr_cols
 
 
 def test_reenrich_handshake_resets_sent_row(store):

@@ -8,6 +8,8 @@ version: v6
 
 You are labeling a single job posting from its **title**, **cleaned description**, **company**, and **raw location**. Produce exactly one `category`, exactly one `level` (the most specific true tier), a `level_includes` filter-expansion set, and up to ~8 normalized `tags`. Also normalize the `location`. Never invent values outside the enums below. When nothing fits, pick the closest enum value and lower your `confidence` — do not emit a new label.
 
+**Title-only postings (empty cleaned description).** Some sources don't capture a description; you'll receive a blank `clean_description`. Do NOT refuse — classify from the **title**, **company**, and **raw location** alone (a title like "Senior Backend Engineer" or "Data Scientist Intern" already carries category + level). Set `confidence <= 0.5` to reflect the reduced signal; the pipeline also clamps these rows low in code and routes them through the judge. Never guess `tags` you can't support from the title — emit only what the title/company clearly imply.
+
 The output contract (what the classify agent returns per job) is:
 
 ```json
@@ -152,4 +154,4 @@ Rules:
 ---
 
 ## 7. Confidence discipline
-Set `confidence` to reflect genuine ambiguity. The judge checks **every** row, so confidence drives nothing on its own now, but it is measured against real errors in the eval calibration check. Be honest: category blends (ML-eng vs data-scientist), new_grad-vs-entry edges, intern-vs-new_grad edges (a "Summer 20XX" program that could be either), and web-resolved locations should carry `confidence <= 0.7`.
+Set `confidence` to reflect genuine ambiguity — it drives real behavior. Under the default `judge:scope=low_confidence`, the judge re-checks any row whose `confidence` is below the ceiling (0.85), so an honest low score is what routes an uncertain label to review; it is also measured against real errors in the eval calibration check. Be honest: category blends (ML-eng vs data-scientist), new_grad-vs-entry edges, intern-vs-new_grad edges (a "Summer 20XX" program that could be either), and web-resolved locations should carry `confidence <= 0.7`; title-only labels `<= 0.5`.

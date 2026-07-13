@@ -30,6 +30,11 @@ from job_enricher.store import (
 
 logger = logging.getLogger(__name__)
 
+# Confidence ceiling for a title-only classification (source captured no
+# description). Kept below the default judge:confidence_ceiling (0.85) so these
+# rows always route through the judge under the low_confidence scope.
+TITLE_ONLY_MAX_CONFIDENCE = 0.5
+
 
 def configure_logging() -> None:
     """Configure package logging once, at CLI entry.
@@ -180,7 +185,14 @@ def _cmd_pull(args: argparse.Namespace) -> int:
 
     store = Store()
     store.init_schema()
-    inserted, skipped, received = _do_pull(store, JVNClient(), args.limit)
+    # Cap the claim to the per-tick classify budget for IN-PROCESS engines: pulling
+    # more than the serial local engine can classify per tick only grows the local
+    # backlog (inflow > outflow) and buries freshly-posted jobs behind it. Matching
+    # inflow to outflow keeps the backlog flat (drains in lulls) and preserves JVN's
+    # newest-first claim order. `claude-code` fan-out resolves to None (unbounded).
+    engine = ec.get_classify_engine(store)
+    cap = _resolve_per_tick_limit(store, engine, args.limit)
+    inserted, skipped, received = _do_pull(store, JVNClient(), cap)
     print(f"pull: claimed={inserted} skipped_unchanged={skipped} received={received}")
     return 0
 
@@ -327,7 +339,8 @@ def record_enrichment_items(
     classify_model: str | None = None,
 ) -> dict[str, int]:
     """Validate + persist classify results. Returns a counts dict:
-    ``{"recorded", "needs_human", "skipped", "skipped_unknown", "nulled_facets"}``.
+    ``{"recorded", "needs_human", "title_only", "skipped", "skipped_unknown",
+    "nulled_facets"}``.
 
     Rows with an empty job_listing_id are skipped (E10). The composite identity
     guard: an item must resolve to a CLAIMED (source_id, job_listing_id) inbox
@@ -340,11 +353,20 @@ def record_enrichment_items(
     bad slug nulled (counted in ``nulled_facets``) and are flagged needs_human
     so the hallucination is caught locally instead of shipped to JVN (E4).
     Never raises on bad data."""
-    sources_by_id = store.inbox_sources_by_id(
-        [i.get("job_listing_id") for i in items if isinstance(i, dict) and i.get("job_listing_id")]
-    )
+    item_ids = [
+        i.get("job_listing_id")
+        for i in items
+        if isinstance(i, dict) and i.get("job_listing_id")
+    ]
+    sources_by_id = store.inbox_sources_by_id(item_ids)
+    # Rows whose source captured no description -> classified from title alone.
+    # Marked title_only + confidence-clamped at record time so the low-signal
+    # label is a code-level guarantee (routes through the judge under the
+    # low_confidence scope), not dependent on the classify agent complying.
+    title_only_pairs = store.empty_clean_description_pairs(item_ids)
     recorded = 0
     needs_human_n = 0
+    title_only_n = 0
     skipped = 0
     skipped_unknown = 0
     nulled = 0
@@ -385,6 +407,21 @@ def record_enrichment_items(
                     "record-enrichment: job_listing_id=%s has invalid %s=%r (not in taxonomy); "
                     "nulled + flagged needs_human", jid, facet, value,
                 )
+        title_only = (source_id, jid) in title_only_pairs
+        confidence = item.get("confidence")
+        if title_only:
+            # Reduced-signal label (title only): clamp below the judge ceiling so
+            # it is always re-checked, whatever the agent claimed. None OR a
+            # non-numeric agent value (a local model may emit "0.5" or "medium")
+            # -> the cap; coerced, never raised, to keep this function's
+            # "never raises on bad data" contract on the title-only path.
+            try:
+                conf_num = (
+                    float(confidence) if confidence is not None else TITLE_ONLY_MAX_CONFIDENCE
+                )
+            except (TypeError, ValueError):
+                conf_num = TITLE_ONLY_MAX_CONFIDENCE
+            confidence = min(conf_num, TITLE_ONLY_MAX_CONFIDENCE)
         store.record_enrichment(
             {
                 "job_listing_id": jid,
@@ -394,19 +431,22 @@ def record_enrichment_items(
                 "level_includes": _coerce_json_field(item.get("level_includes")),
                 "tags": _coerce_json_field(item.get("tags")),
                 "locations": _coerce_json_field(item.get("locations")),
-                "classify_confidence": item.get("confidence"),
+                "classify_confidence": confidence,
                 "classify_reasoning": item.get("reasoning"),
                 "classify_latency_ms": item.get("classify_latency_ms"),
                 "taxonomy_version": version,
                 "needs_human": needs_human,
+                "title_only": title_only,
                 "classify_model": classify_model,
             }
         )
         recorded += 1
         needs_human_n += 1 if needs_human else 0
+        title_only_n += 1 if title_only else 0
     return {
         "recorded": recorded,
         "needs_human": needs_human_n,
+        "title_only": title_only_n,
         "skipped": skipped,
         "skipped_unknown": skipped_unknown,
         "nulled_facets": nulled,
@@ -428,6 +468,7 @@ def _cmd_record_enrichment(args: argparse.Namespace) -> int:
     _record_llm_stage_timing(store, "classify", res["recorded"])
     print(
         f"record-enrichment: recorded={res['recorded']} needs_human={res['needs_human']} "
+        f"title_only={res['title_only']} "
         f"skipped={res['skipped']} skipped_unknown={res['skipped_unknown']} "
         f"nulled_facets={res['nulled_facets']}"
     )
@@ -618,7 +659,10 @@ def _cmd_classify_run(args: argparse.Namespace) -> int:
     engine = build_engine(engine_kind, model=model)
     version = tax.taxonomy_version()
     chunk_files = _resolve_chunk_files(store, "classify", args.chunk_file)
-    totals = {"recorded": 0, "needs_human": 0, "skipped": 0, "skipped_unknown": 0, "nulled_facets": 0}
+    totals = {
+        "recorded": 0, "needs_human": 0, "title_only": 0,
+        "skipped": 0, "skipped_unknown": 0, "nulled_facets": 0,
+    }
     for cf in chunk_files:
         try:
             jobs = json.loads(Path(cf).read_text(encoding="utf-8"))
@@ -641,6 +685,7 @@ def _cmd_classify_run(args: argparse.Namespace) -> int:
     print(
         f"classify-run: engine={engine_kind} model={model} "
         f"recorded={totals['recorded']} needs_human={totals['needs_human']} "
+        f"title_only={totals['title_only']} "
         f"skipped={totals['skipped']} skipped_unknown={totals['skipped_unknown']} "
         f"nulled_facets={totals['nulled_facets']} chunks={len(chunk_files)}"
     )
