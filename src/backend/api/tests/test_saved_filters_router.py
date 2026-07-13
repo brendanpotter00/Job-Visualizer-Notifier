@@ -79,6 +79,8 @@ class TestGetSavedFilters:
         assert body["recentTimeWindow"] == "3h"
         assert body["trendTimeWindow"] == "7d"
         assert body["locations"] == []
+        assert body["category"] == []
+        assert body["level"] == []
         assert body["recentActiveKeywordListId"] is None
 
     def test_returns_defaults_after_user_created_no_row(self, sf_client):
@@ -100,11 +102,35 @@ class TestPutSavedFilters:
                 "recentTimeWindow": "24h",
                 "trendTimeWindow": "30d",
                 "locations": ["San Francisco, CA, US"],
+                "category": ["software_engineering"],
+                "level": ["senior", "mid"],
             },
         )
         assert resp.status_code == 200, resp.text
         assert resp.json()["recentTimeWindow"] == "24h"
         assert resp.json()["locations"] == ["San Francisco, CA, US"]
+        assert resp.json()["category"] == ["software_engineering"]
+        assert resp.json()["level"] == ["senior", "mid"]
+        # Persisted: a follow-up GET returns the saved facets.
+        got = sf_client.get(PREFIX)
+        assert got.json()["category"] == ["software_engineering"]
+        assert got.json()["level"] == ["senior", "mid"]
+
+    def test_dedupes_category_and_level(self, sf_client):
+        _create_user_row(sf_client)
+        resp = sf_client.put(
+            PREFIX,
+            json={
+                "recentTimeWindow": "3h",
+                "trendTimeWindow": "7d",
+                "locations": [],
+                "category": ["software_engineering", "software_engineering"],
+                "level": ["senior", "senior", "mid"],
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["category"] == ["software_engineering"]
+        assert resp.json()["level"] == ["senior", "mid"]
 
     def test_unknown_active_pointer_409(self, sf_client):
         _create_user_row(sf_client)

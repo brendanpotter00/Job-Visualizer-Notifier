@@ -53,6 +53,8 @@ def _upsert_defaults(db_conn, user_id, **overrides):
         "recent_time_window": "3h",
         "trend_time_window": "7d",
         "locations": [],
+        "category": [],
+        "level": [],
         "recent_active_keyword_list_id": None,
         "trend_active_keyword_list_id": None,
     }
@@ -76,11 +78,27 @@ class TestGetSavedFilters:
             recent_time_window="24h",
             trend_time_window="30d",
             locations=["San Francisco, CA, US"],
+            category=["software_engineering"],
+            level=["senior", "mid"],
         )
         got = get_saved_filters(db_conn, user_id)
         assert got["recent_time_window"] == "24h"
         assert got["trend_time_window"] == "30d"
         assert got["locations"] == ["San Francisco, CA, US"]
+        assert got["category"] == ["software_engineering"]
+        assert got["level"] == ["senior", "mid"]
+
+    def test_upsert_overwrites_category_and_level(self, db_conn):
+        # Full-replace semantics: a later upsert with empty facet lists clears
+        # the previously saved category/level (not a merge).
+        user_id = _seed_user(db_conn)
+        _upsert_defaults(
+            db_conn, user_id, category=["software_engineering"], level=["senior"]
+        )
+        _upsert_defaults(db_conn, user_id, category=[], level=[])
+        got = get_saved_filters(db_conn, user_id)
+        assert got["category"] == []
+        assert got["level"] == []
 
     def test_isolates_users(self, db_conn):
         a, b = _two_users(db_conn)

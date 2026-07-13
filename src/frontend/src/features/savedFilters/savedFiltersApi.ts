@@ -101,6 +101,12 @@ function validateSavedFilters(res: unknown): SavedFilters {
   if (!Array.isArray(res.locations) || res.locations.some((l) => typeof l !== 'string')) {
     throw new Error('Invalid /api/users/saved-filters response: locations must be a string array');
   }
+  if (!Array.isArray(res.category) || res.category.some((c) => typeof c !== 'string')) {
+    throw new Error('Invalid /api/users/saved-filters response: category must be a string array');
+  }
+  if (!Array.isArray(res.level) || res.level.some((l) => typeof l !== 'string')) {
+    throw new Error('Invalid /api/users/saved-filters response: level must be a string array');
+  }
   if (res.recentActiveKeywordListId !== null && typeof res.recentActiveKeywordListId !== 'string') {
     throw new Error(
       'Invalid /api/users/saved-filters response: recentActiveKeywordListId must be string or null'

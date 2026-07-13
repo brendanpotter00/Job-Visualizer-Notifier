@@ -5,11 +5,15 @@ import {
   setGraphTimeWindow,
   setGraphLocation,
   setGraphSearchTags,
+  setGraphCategory,
+  setGraphLevel,
 } from '../filters/slices/graphFiltersSlice';
 import {
   setRecentJobsTimeWindow,
   setRecentJobsLocation,
   setRecentJobsSearchTags,
+  setRecentJobsCategory,
+  setRecentJobsLevel,
 } from '../filters/slices/recentJobsFiltersSlice';
 
 /**
@@ -47,16 +51,22 @@ export function savedFiltersPropagationActions(
   // loaded, distinct from an intentional `null` clear, which we DO propagate).
   const { listsLoaded = true } = options;
 
+  // Category / level are shared lists (like locations): pushed to both pages
+  // unchanged. An empty array normalizes to "no filter" in the slice reducers.
   const actions: UnknownAction[] = [
     setGraphTimeWindow(saved.trendTimeWindow),
     setGraphLocation(saved.locations),
+    setGraphCategory(saved.category),
+    setGraphLevel(saved.level),
   ];
   if (listsLoaded || saved.trendActiveKeywordListId === null) {
     actions.push(setGraphSearchTags(resolveActiveTags(saved.trendActiveKeywordListId, lists)));
   }
   actions.push(
     setRecentJobsTimeWindow(saved.recentTimeWindow),
-    setRecentJobsLocation(saved.locations)
+    setRecentJobsLocation(saved.locations),
+    setRecentJobsCategory(saved.category),
+    setRecentJobsLevel(saved.level)
   );
   if (listsLoaded || saved.recentActiveKeywordListId === null) {
     actions.push(

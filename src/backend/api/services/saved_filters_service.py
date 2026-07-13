@@ -75,6 +75,8 @@ class SavedFiltersRow(TypedDict):
     recent_time_window: str
     trend_time_window: str
     locations: list[str]
+    category: list[str]
+    level: list[str]
     recent_active_keyword_list_id: str | None
     trend_active_keyword_list_id: str | None
 
@@ -131,20 +133,27 @@ def default_saved_filters() -> SavedFiltersRow:
         "recent_time_window": _DEFAULT_RECENT_TIME_WINDOW,
         "trend_time_window": _DEFAULT_TREND_TIME_WINDOW,
         "locations": [],
+        "category": [],
+        "level": [],
         "recent_active_keyword_list_id": None,
         "trend_active_keyword_list_id": None,
     }
 
 
+def _coerce_str_list(raw: Any) -> list[str]:
+    """Guard a JSONB array column against an unexpected NULL/non-list."""
+    return list(raw) if isinstance(raw, list) else []
+
+
 def _row_to_saved_filters(row: dict[str, Any]) -> SavedFiltersRow:
-    # ``locations`` round-trips as a Python list via the JSONB column; guard
-    # against an unexpected NULL/non-list by coercing to [].
-    raw_locations = row["locations"]
-    locations = list(raw_locations) if isinstance(raw_locations, list) else []
+    # ``locations`` / ``category`` / ``level`` round-trip as Python lists via the
+    # JSONB columns; guard against an unexpected NULL/non-list by coercing to [].
     return {
         "recent_time_window": row["recent_time_window"],
         "trend_time_window": row["trend_time_window"],
-        "locations": locations,
+        "locations": _coerce_str_list(row["locations"]),
+        "category": _coerce_str_list(row["category"]),
+        "level": _coerce_str_list(row["level"]),
         "recent_active_keyword_list_id": row["recent_active_keyword_list_id"],
         "trend_active_keyword_list_id": row["trend_active_keyword_list_id"],
     }
@@ -161,6 +170,7 @@ def get_saved_filters(conn: Connection, user_id: str) -> SavedFiltersRow:
     cursor.execute(
         sql.SQL(
             "SELECT recent_time_window, trend_time_window, locations,"
+            " category, level,"
             " recent_active_keyword_list_id, trend_active_keyword_list_id"
             " FROM {} WHERE user_id = %s"
         ).format(_SAVED_FILTERS),
@@ -200,6 +210,8 @@ def upsert_saved_filters(
     recent_time_window: str,
     trend_time_window: str,
     locations: list[str],
+    category: list[str],
+    level: list[str],
     recent_active_keyword_list_id: str | None,
     trend_active_keyword_list_id: str | None,
 ) -> SavedFiltersRow:
@@ -218,18 +230,22 @@ def upsert_saved_filters(
             sql.SQL(
                 "INSERT INTO {} ("
                 " user_id, recent_time_window, trend_time_window, locations,"
+                " category, level,"
                 " recent_active_keyword_list_id, trend_active_keyword_list_id"
-                ") VALUES (%s, %s, %s, %s, %s, %s)"
+                ") VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"
                 " ON CONFLICT (user_id) DO UPDATE SET"
                 " recent_time_window = EXCLUDED.recent_time_window,"
                 " trend_time_window = EXCLUDED.trend_time_window,"
                 " locations = EXCLUDED.locations,"
+                " category = EXCLUDED.category,"
+                " level = EXCLUDED.level,"
                 " recent_active_keyword_list_id ="
                 " EXCLUDED.recent_active_keyword_list_id,"
                 " trend_active_keyword_list_id ="
                 " EXCLUDED.trend_active_keyword_list_id,"
                 " updated_at = now()"
                 " RETURNING recent_time_window, trend_time_window, locations,"
+                " category, level,"
                 " recent_active_keyword_list_id, trend_active_keyword_list_id"
             ).format(_SAVED_FILTERS),
             (
@@ -237,6 +253,8 @@ def upsert_saved_filters(
                 recent_time_window,
                 trend_time_window,
                 Json(locations),
+                Json(category),
+                Json(level),
                 recent_active_keyword_list_id,
                 trend_active_keyword_list_id,
             ),
