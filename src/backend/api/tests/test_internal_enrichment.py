@@ -714,6 +714,155 @@ class TestPending:
         assert ids == {"r-freshseen-oldpost"}
         assert _fetch_listing_facets(db_conn, "r-oldseen-freshpost")["enrichment_status"] is None
 
+    def test_entry_level_titles_claimed_before_newer_misc(
+        self, enrichment_client, db_conn, monkeypatch
+    ):
+        """Title-priority tiers: an entry-level/intern title is claimed ahead of a
+        newer non-matching ("everything else") title. Tier beats recency."""
+        monkeypatch.setattr(settings, "enrichment_use_external", True)
+        # OLD intern (tier 0) vs NEW misc (tier 2).
+        _insert_job(db_conn, _make_job({
+            "id": "t-intern-old", "status": "OPEN", "title": "Software Engineer Intern",
+            "first_seen_at": "2025-01-01T00:00:00Z",
+            "details": json.dumps({"description_html": "<p>x</p>"}),
+        }))
+        _insert_job(db_conn, _make_job({
+            "id": "t-misc-new", "status": "OPEN", "title": "Marketing Manager",
+            "first_seen_at": "2026-07-01T00:00:00Z",
+            "details": json.dumps({"description_html": "<p>x</p>"}),
+        }))
+        resp = enrichment_client.get(
+            "/api/internal/enrichment/pending", params={"limit": 1}
+        )
+        assert resp.status_code == 200
+        ids = {j["job_id"] for j in resp.json()["jobs"]}
+        # The older intern wins over the newer non-matching role.
+        assert ids == {"t-intern-old"}
+        assert _fetch_listing_facets(db_conn, "t-misc-new")["enrichment_status"] is None
+
+    def test_tier_order_is_entry_then_swe_then_rest(
+        self, enrichment_client, db_conn, monkeypatch
+    ):
+        """Full tier sequence: entry-level (tier 0) -> software-engineering (tier 1)
+        -> everything else (tier 2), even when the lower tiers were first seen more
+        recently. Drained one at a time across successive /pending calls."""
+        monkeypatch.setattr(settings, "enrichment_use_external", True)
+        # Deliberately inverted recency: the LOWER-priority tiers are NEWER, so only
+        # the tier CASE (not first_seen_at) can produce the intern -> swe -> misc order.
+        _insert_job(db_conn, _make_job({
+            "id": "t-intern", "status": "OPEN", "title": "Data Science Intern",
+            "first_seen_at": "2025-01-01T00:00:00Z",
+            "details": json.dumps({"description_html": "<p>x</p>"}),
+        }))
+        _insert_job(db_conn, _make_job({
+            "id": "t-swe", "status": "OPEN", "title": "Senior Software Engineer",
+            "first_seen_at": "2025-06-01T00:00:00Z",
+            "details": json.dumps({"description_html": "<p>x</p>"}),
+        }))
+        _insert_job(db_conn, _make_job({
+            "id": "t-misc", "status": "OPEN", "title": "Account Executive",
+            "first_seen_at": "2026-07-01T00:00:00Z",
+            "details": json.dumps({"description_html": "<p>x</p>"}),
+        }))
+
+        def claim_one() -> set[str]:
+            resp = enrichment_client.get(
+                "/api/internal/enrichment/pending", params={"limit": 1}
+            )
+            assert resp.status_code == 200
+            return {j["job_id"] for j in resp.json()["jobs"]}
+
+        assert claim_one() == {"t-intern"}   # tier 0 first (oldest, but top tier)
+        assert claim_one() == {"t-swe"}      # tier 1 next (before the newer misc)
+        assert claim_one() == {"t-misc"}     # tier 2 last
+
+    def test_within_tier_orders_by_first_seen_desc(
+        self, enrichment_client, db_conn, monkeypatch
+    ):
+        """Recency is the WITHIN-tier tie-breaker: among two entry-level roles, the
+        one we first saw most recently is claimed first."""
+        monkeypatch.setattr(settings, "enrichment_use_external", True)
+        _insert_job(db_conn, _make_job({
+            "id": "t-intern-older", "status": "OPEN", "title": "Software Intern",
+            "first_seen_at": "2025-01-01T00:00:00Z",
+            "details": json.dumps({"description_html": "<p>x</p>"}),
+        }))
+        _insert_job(db_conn, _make_job({
+            "id": "t-intern-newer", "status": "OPEN", "title": "Machine Learning Intern",
+            "first_seen_at": "2026-07-01T00:00:00Z",
+            "details": json.dumps({"description_html": "<p>x</p>"}),
+        }))
+        resp = enrichment_client.get(
+            "/api/internal/enrichment/pending", params={"limit": 1}
+        )
+        assert resp.status_code == 200
+        ids = {j["job_id"] for j in resp.json()["jobs"]}
+        assert ids == {"t-intern-newer"}
+        assert _fetch_listing_facets(db_conn, "t-intern-older")["enrichment_status"] is None
+
+    def test_intern_false_friend_not_prioritized(
+        self, enrichment_client, db_conn, monkeypatch
+    ):
+        """Whole-word (\\y) matching: 'International' / 'Internal' titles must NOT be
+        treated as intern (tier 0). A NEWER false-friend must not be claimed ahead of
+        an OLDER real intern — which only holds if the false-friend falls to tier 2."""
+        monkeypatch.setattr(settings, "enrichment_use_external", True)
+        _insert_job(db_conn, _make_job({
+            "id": "t-real-intern", "status": "OPEN", "title": "Backend Intern",
+            "first_seen_at": "2025-01-01T00:00:00Z",
+            "details": json.dumps({"description_html": "<p>x</p>"}),
+        }))
+        # Newer, but NOT intern — 'International'/'Internal' must not false-match.
+        _insert_job(db_conn, _make_job({
+            "id": "t-intl", "status": "OPEN", "title": "International Operations Lead",
+            "first_seen_at": "2026-07-01T00:00:00Z",
+            "details": json.dumps({"description_html": "<p>x</p>"}),
+        }))
+        _insert_job(db_conn, _make_job({
+            "id": "t-internal", "status": "OPEN", "title": "Internal Communications Manager",
+            "first_seen_at": "2026-07-02T00:00:00Z",
+            "details": json.dumps({"description_html": "<p>x</p>"}),
+        }))
+        resp = enrichment_client.get(
+            "/api/internal/enrichment/pending", params={"limit": 1}
+        )
+        assert resp.status_code == 200
+        ids = {j["job_id"] for j in resp.json()["jobs"]}
+        # The older REAL intern wins; the newer false-friends are tier 2.
+        assert ids == {"t-real-intern"}
+        for ff in ("t-intl", "t-internal"):
+            assert _fetch_listing_facets(db_conn, ff)["enrichment_status"] is None
+
+    def test_new_grad_and_junior_are_entry_tier(
+        self, enrichment_client, db_conn, monkeypatch
+    ):
+        """'New Grad' and 'Junior' titles are entry-level (tier 0), claimed ahead of a
+        newer non-matching role."""
+        monkeypatch.setattr(settings, "enrichment_use_external", True)
+        _insert_job(db_conn, _make_job({
+            "id": "t-newgrad", "status": "OPEN", "title": "New Grad Software Engineer",
+            "first_seen_at": "2025-02-01T00:00:00Z",
+            "details": json.dumps({"description_html": "<p>x</p>"}),
+        }))
+        _insert_job(db_conn, _make_job({
+            "id": "t-junior", "status": "OPEN", "title": "Junior Developer",
+            "first_seen_at": "2025-01-01T00:00:00Z",
+            "details": json.dumps({"description_html": "<p>x</p>"}),
+        }))
+        _insert_job(db_conn, _make_job({
+            "id": "t-mgr-new", "status": "OPEN", "title": "Product Manager",
+            "first_seen_at": "2026-07-01T00:00:00Z",
+            "details": json.dumps({"description_html": "<p>x</p>"}),
+        }))
+        resp = enrichment_client.get(
+            "/api/internal/enrichment/pending", params={"limit": 2}
+        )
+        assert resp.status_code == 200
+        ids = {j["job_id"] for j in resp.json()["jobs"]}
+        # Both entry-level roles beat the newer non-matching manager role.
+        assert ids == {"t-newgrad", "t-junior"}
+        assert _fetch_listing_facets(db_conn, "t-mgr-new")["enrichment_status"] is None
+
     def test_skips_description_null_rows(self, enrichment_client, db_conn, monkeypatch):
         """F7 / CR-5: a row whose details has no description_html can't be
         classified, so /pending must NOT claim it (mirrors /sample's guard)."""
