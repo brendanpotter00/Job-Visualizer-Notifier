@@ -5,7 +5,10 @@ require_internal_key middleware (X-Internal-Key), so no per-route auth here. The
 laptop makes only OUTBOUND calls to these routes:
 
     GET  /pending?limit=N   claim a batch of unenriched OPEN jobs (server-side
-                            claim so concurrent polls never hand out the same rows)
+                            claim so concurrent polls never hand out the same rows).
+                            Ordered by title-priority tier — entry-level/intern,
+                            then software-engineering, then everything else — with
+                            newest first_seen_at as the within-tier tie-breaker.
     POST /results           idempotent per-row upsert of enrichment results
     GET  /sample?n=&...     stratified raw sample for the eval golden set
     GET  /health            enrichment_status counts + stale/needs_human + metrics
@@ -68,6 +71,24 @@ _JOB_PROJECTION = (
     ") AS details"
 )
 
+# Title-keyword priority tiers for the /pending claim (interpolated into the
+# ORDER BY below). Purpose: behind a low-throughput enricher the claimable
+# backlog is far deeper than one tick can drain, so we label the roles we care
+# about MOST while they're still fresh — entry-level/intern first, then
+# software-engineering, then everything else — with recency (first_seen_at DESC)
+# as the within-tier tie-breaker.
+#
+# Matching is whole-word via Postgres word boundaries (\y), mirroring the
+# scrapers' shared title_matches_keyword helper (regex \bintern(?:ship)?s?\b) so
+# 'internal' / 'international' / 'internet' never false-match 'intern'. NOTE:
+# Postgres ARE spells the word boundary \y (\b is backspace). These are trusted
+# literal constants (no user input), so f-string interpolation into SQL is safe.
+_ENTRY_LEVEL_TITLE_RE = r"\y(intern(ship)?s?|junior|jr|entry[ -]?level|new[ -]?grad(uate)?)\y"
+# No trailing \y on the software root so "Software Engineering" / "…Development"
+# also match; the acronym is matched whole-word separately.
+_SWE_TITLE_RE = r"\ysoftware (engineer|develop)"
+_SWE_ACRONYM_RE = r"\yswe\y"
+
 
 def _to_job(row: dict[str, Any]) -> dict[str, Any]:
     first_seen = row["first_seen_at"]
@@ -127,14 +148,21 @@ def pending(
             else f"  AND {DESCRIPTION_SQL} IS NOT NULL "
         )
         #
-        # Claim the freshest jobs first: ORDER BY first_seen_at DESC — the date the
-        # scraper FIRST saw this listing, which is our reliable recency signal.
-        # This matters most behind a low-throughput local model: the claimable
-        # backlog is deep (~19k OPEN unenriched rows in prod) and only ~limit are
-        # drained per tick, so ordering decides which jobs get labelled while fresh.
+        # Claim order = title-priority TIER first, then recency within the tier.
+        # The backlog is far deeper than one tick can drain (~19k OPEN unenriched
+        # rows in prod, only ~limit claimed per tick), so ordering decides which
+        # jobs get labelled while still fresh. We front-load the roles we care
+        # about most (see _ENTRY_LEVEL_TITLE_RE / _SWE_TITLE_RE above):
+        #   tier 0 — entry-level / internships (intern, new grad, junior, entry-level)
+        #   tier 1 — software-engineering (software engineer/dev, SWE)
+        #   tier 2 — everything else
+        # An entry-level SWE role (e.g. "Software Engineer Intern") lands in tier 0
+        # because tier 0 is tested first — exactly "entry-level before all else".
         #
-        # Why first_seen_at and not the alternatives (see docs/database-schema.md
-        # "recency fields", which this MUST stay in sync with):
+        # Within each tier we ORDER BY first_seen_at DESC — the date the scraper
+        # FIRST saw this listing, our reliable recency signal. Why first_seen_at
+        # and not the alternatives (see docs/database-schema.md "recency fields",
+        # which this MUST stay in sync with):
         #   - posted_on is the ATS-supplied posting date and is UNRELIABLE: companies
         #     reuse/repost old listings, so ~8.6% of OPEN rows carry a posted_on >180d
         #     (some >16y) before we ever saw them. Ordering by it buries freshly
@@ -143,14 +171,26 @@ def pending(
         #     it clusters at ~now across the whole active backlog and cannot rank a
         #     job posted today above one open for months.
         # first_seen_at is set once at discovery and preserved across close/reopen,
-        # so DESC cleanly floats the newest arrivals to the front.
+        # so DESC cleanly floats the newest arrivals to the front of each tier.
+        #
+        # Index note: the partial index idx_job_listings_enrichment_claim still
+        # serves the WHERE predicate; the tier CASE makes Postgres sort the matched
+        # set (~19k rows) by (tier, first_seen_at) rather than doing a bounded
+        # index-only scan. At this row count that sort is trivial (tens of ms) and
+        # runs once per tick, so no schema/index change is needed.
         claim_sql = (
             "UPDATE job_listings SET enrichment_status = 'claimed', enrichment_claimed_at = now() "
             "WHERE (source_id, id) IN ("
             "  SELECT source_id, id FROM job_listings "
             "  WHERE enrichment_status IS NULL AND status = 'OPEN' "
             f"{desc_guard}"
-            "  ORDER BY first_seen_at DESC "
+            "  ORDER BY "
+            "    CASE "
+            f"      WHEN title ~* '{_ENTRY_LEVEL_TITLE_RE}' THEN 0 "
+            f"      WHEN title ~* '{_SWE_TITLE_RE}' OR title ~* '{_SWE_ACRONYM_RE}' THEN 1 "
+            "      ELSE 2 "
+            "    END, "
+            "    first_seen_at DESC "
             "  LIMIT %s FOR UPDATE SKIP LOCKED"
             f") RETURNING {_JOB_PROJECTION}"
         )
