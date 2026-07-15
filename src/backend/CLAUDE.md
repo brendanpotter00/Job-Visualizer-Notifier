@@ -92,7 +92,7 @@ All configuration via environment variables:
 - `PUT /api/users/enabled-companies` - Update user's enabled companies (requires Bearer token)
 
 **Saved Filters Router (`/api/users/saved-filters`):** all routes require a Bearer token.
-- `GET /api/users/saved-filters` - Scalar saved filters (per-page time windows, shared locations, active keyword-list pointers); never 404s — returns server defaults (`recent=3h`, `trend=7d`, no locations) when the user has no row
+- `GET /api/users/saved-filters` - Scalar saved filters (per-page time windows, shared locations, active keyword-list pointers); never 404s — returns server defaults (`recent=90d`, `trend=90d`, no locations) when the user has no row
 - `PUT /api/users/saved-filters` - Full-replace (upsert) the scalar saved filters; 409 if an active keyword-list pointer is unknown or not owned
 - `GET /api/users/saved-filters/keyword-lists` - List the user's named keyword lists by position, with the read-only built-in "Software Engineering" list (`builtin-swe`) synthesized last
 - `POST /api/users/saved-filters/keyword-lists` - Create a keyword list (201); 409 on duplicate/reserved name, 422 at the per-user list cap

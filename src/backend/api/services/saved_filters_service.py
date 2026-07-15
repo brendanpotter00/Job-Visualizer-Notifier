@@ -65,8 +65,16 @@ BUILTIN_SWE_LIST: dict[str, Any] = {
 }
 
 # Server defaults returned when a user has no ``user_saved_filters`` row.
-_DEFAULT_RECENT_TIME_WINDOW = "3h"
-_DEFAULT_TREND_TIME_WINDOW = "7d"
+#
+# 90 days for both pages so a signed-in user who has never saved a filter lands
+# on the same default view as a logged-out visitor (whose default lives in the
+# frontend filter slices, `graphFiltersSlice` / `recentJobsFiltersSlice`). The
+# ``user_saved_filters`` columns still carry their original '3h'/'7d' DB
+# ``server_default``, but that is dead weight: every insert goes through
+# ``upsert_saved_filters`` with explicit values, so the DB default never
+# surfaces — this constant is the authoritative no-row default.
+_DEFAULT_RECENT_TIME_WINDOW = "90d"
+_DEFAULT_TREND_TIME_WINDOW = "90d"
 
 
 class SavedFiltersRow(TypedDict):
