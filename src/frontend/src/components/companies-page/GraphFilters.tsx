@@ -74,12 +74,23 @@ export function GraphFilters() {
             onChange={(tw) => dispatch(setGraphTimeWindow(tw))}
           />
 
+          {/*
+            The label says "Job title" but the data model underneath is
+            "category" all the way down — the `filters.category` slice field, the
+            `setGraphCategory` action, the API param, and the DB column are all
+            "category". This is a deliberate UI-only rename: users engage with a
+            "Job title" filter far more than a "Category" one. It stays a category
+            under the hood because these values will subdivide over time (e.g.
+            "Software Engineering" → "Frontend SWE" / "Backend SWE"), at which
+            point they read as categories again. Rename the label only — never the
+            data model.
+          */}
           <FacetMultiSelect
-            label="Category"
+            label="Job title"
             options={categoryOptions}
             value={filters.category}
             onChange={(slugs) => dispatch(setGraphCategory(slugs))}
-            tooltip="AI-enriched job category (choose any number). Only jobs matching your selection are shown."
+            tooltip="AI-enriched job title (choose any number). Only jobs matching your selection are shown."
           />
           <FacetMultiSelect
             label="Level"

@@ -76,8 +76,8 @@ class TestGetSavedFilters:
         resp = sf_client.get(PREFIX)
         assert resp.status_code == 200
         body = resp.json()
-        assert body["recentTimeWindow"] == "3h"
-        assert body["trendTimeWindow"] == "7d"
+        assert body["recentTimeWindow"] == "90d"
+        assert body["trendTimeWindow"] == "90d"
         assert body["locations"] == []
         assert body["category"] == []
         assert body["level"] == []
@@ -87,7 +87,7 @@ class TestGetSavedFilters:
         _create_user_row(sf_client)
         resp = sf_client.get(PREFIX)
         assert resp.status_code == 200
-        assert resp.json()["trendTimeWindow"] == "7d"
+        assert resp.json()["trendTimeWindow"] == "90d"
 
 
 # --- PUT scalar saved filters -------------------------------------------------

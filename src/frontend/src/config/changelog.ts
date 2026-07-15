@@ -19,6 +19,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'default-90d-and-job-title',
+    title: 'Pages now open to the last 90 days, and “Category” is now “Job title”',
+    description:
+      "Two tweaks to how the job views open. First, if you don't have saved filters — whether you're signed out or just haven't set your own defaults — both the Recent Job Postings and Company Hiring Trends pages now start on a 90-day window instead of a shorter one, so there's more to see on the first load. Your saved time-window defaults, if you've set them, still take precedence. Second, the filter that used to be labeled “Category” is now labeled “Job title” on both pages (and in your saved-filter defaults) — it's the same filter, just a clearer name.",
+    tags: ['improvement'],
+    date: '2026-07-14',
+    link: {
+      to: ROUTES.RECENT_JOBS,
+      label: 'See the last 90 days',
+    },
+  },
+  {
     id: 'mobile-friendly',
     title: 'The whole app now works on your phone',
     description:

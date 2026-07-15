@@ -29,6 +29,15 @@ export interface CategoryLevelDefaultsProps {
  * Options are the data-driven facet catalog (GET /api/jobs/facets); the fallback
  * constants cover the pre-fetch frame and an endpoint outage, exactly as the
  * live filter bars do. An empty selection means "no filter" on that page.
+ *
+ * NAMING: the "category" facet is surfaced to users as "Job title" (heading,
+ * label, save button). The data model — the `category` prop/field, the API
+ * param, the DB column — stays "category"; this is a UI-only rename because
+ * users click a "Job title" filter far more than a "Category" one, and the
+ * values will subdivide over time (e.g. "Software Engineering" → "Frontend
+ * SWE" / "Backend SWE") and read as categories again. Matches the live filter
+ * bars in GraphFilters.tsx / RecentJobsFilters.tsx. Rename copy only — never
+ * the data model.
  */
 export function CategoryLevelDefaults({
   category,
@@ -55,7 +64,7 @@ export function CategoryLevelDefaults({
       }}
     >
       <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ px: 4, py: 1 }}>
-        <Typography variant="h6">Default category &amp; level</Typography>
+        <Typography variant="h6">Default job title &amp; level</Typography>
       </AccordionSummary>
       <AccordionDetails sx={{ px: 4, pb: 4, pt: 0 }}>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
@@ -65,11 +74,11 @@ export function CategoryLevelDefaults({
 
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3}>
           <FacetMultiSelect
-            label="Category"
+            label="Job title"
             options={categoryOptions}
             value={category}
             onChange={onChangeCategory}
-            tooltip="AI-enriched job category (choose any number). Jobs not yet enriched still appear."
+            tooltip="AI-enriched job title (choose any number). Jobs not yet enriched still appear."
           />
           <FacetMultiSelect
             label="Level"
@@ -86,7 +95,7 @@ export function CategoryLevelDefaults({
           success={success}
           error={error}
           onSave={onSave}
-          label="Save category & level"
+          label="Save job title & level"
         />
       </AccordionDetails>
     </Accordion>
