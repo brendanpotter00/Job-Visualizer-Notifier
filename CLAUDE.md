@@ -9,7 +9,7 @@ Job Posting Analytics - A monorepo containing a TypeScript + React frontend, Pyt
 ├── src/backend/api/       # FastAPI backend (see src/backend/CLAUDE.md)
 ├── scripts/               # Python scrapers (see scripts/CLAUDE.md)
 ├── api/                   # Vercel serverless functions (ATS proxies)
-└── docs/                  # Architecture documentation
+└── docs/                  # Docs: local setup, architecture, implementations, incidents, analysis
 ```
 
 ## Commands (run from project root)
@@ -128,6 +128,7 @@ Automatic per-PR preview deploys are **off** — root `vercel.json` sets `git.de
 - `api/admin.ts` - Admin API proxy (forwards Authorization header; admin-only endpoints)
 - `api/companies.ts` - Curated-companies directory proxy (public, unauthenticated)
 - `api/feedback.ts` - User feedback submission proxy (public, optional auth — stores anonymous if token missing/invalid)
+- `api/locations.ts` - Canonical-location search proxy (public, internal-key auth; feeds Location filter dropdowns)
 
 ## See Also
 

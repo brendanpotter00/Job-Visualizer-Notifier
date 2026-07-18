@@ -287,7 +287,7 @@ Edit company-specific `config.py`:
   - `tests/unit/test_augment_db_url.py`
   - `tests/unit/test_pytest_config_excludes_e2e.py`
   - `tests/unit/test_scraper_specs_complete.py`
-- Integration Tests (10 files):
+- Integration Tests (11 files):
   - `tests/integration/test_database.py`
   - `tests/integration/test_incremental.py`
   - `tests/integration/test_apple_scraper.py`
@@ -298,6 +298,7 @@ Edit company-specific `config.py`:
   - `tests/integration/test_microsoft_detail_fetch.py`
   - `tests/integration/test_scraper_transform.py`
   - `tests/integration/test_alembic_parity.py`
+  - `tests/integration/test_job_freshness.py`
 
 **Output:**
 - JSON: `scripts/output/google_jobs.json` (`scripts/output/` is created at runtime by `ensure_output_directory()` — not committed to the repo)

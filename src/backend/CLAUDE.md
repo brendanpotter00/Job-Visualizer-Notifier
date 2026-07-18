@@ -45,7 +45,7 @@ clean before committing (mirrors the frontend's "Zero TypeScript Errors Required
 ## Prerequisites
 
 - PostgreSQL running on localhost:5432 (use `docker compose up -d postgres` from project root)
-- Database: `jobscraper` with bare-named tables `job_listings`, `scrape_runs`, `users`, `user_enabled_companies`, `user_saved_filters`, `user_keyword_lists`, `admins`, `features`, `feature_upvotes` (created on first lifespan/migration run)
+- Database: `jobscraper` (created on first lifespan/migration run). Key tables include `job_listings`, `scrape_runs`, `users`, `user_enabled_companies`, `user_saved_filters`, `user_keyword_lists`, `admins`, `features`, `feature_upvotes`, `companies`, `locations`, `job_locations`, `job_enrichment`, `feedback`, `worker_heartbeats`, and others — see `src/backend/docs/database-schema.md` for the full schema.
 - Python 3.13+ with dependencies from `src/backend/api/requirements.txt`
 
 ## Configuration
@@ -134,6 +134,9 @@ All configuration via environment variables:
 **Companies Router (`/api/companies`):**
 - `GET /api/companies` - List all enabled companies with directory profiles (public, no auth; alphabetical order)
 
+**Locations Router (`/api/locations`):**
+- `GET /api/locations/search` - Substring autocomplete over canonical location names (params: `q`, `limit`, `openOnly`; public, internal-key auth; feeds Location filter dropdowns on Recent Jobs and company hiring-trend pages)
+
 **Health:**
 - `GET /health` - Health check (returns "OK" 200, or "UNAVAILABLE" 503 if pool is down)
 - `GET /health/worker` - Procrastinate worker liveness probe; checks `procrastinate_events` and `worker_heartbeats` freshness windows; returns 200 OK or 503; used as Railway's `healthcheckPath`
@@ -150,7 +153,9 @@ src/backend/api/
 ├── auth/
 │   ├── dependencies.py  # FastAPI auth dependencies (get_current_user, get_optional_user)
 │   ├── jwt.py           # JWT validation dispatcher (Auth0 + Google issuer routing)
-│   └── google_jwt.py    # Google One Tap token validation via Google JWKS
+│   ├── google_jwt.py    # Google One Tap token validation via Google JWKS
+│   ├── internal_key.py  # X-Internal-Key middleware (server-to-server auth for proxied routes)
+│   └── claims.py        # Typed claim helpers extracted from validated JWT payloads
 ├── routers/
 │   ├── jobs.py                  # Jobs list and detail endpoints
 │   ├── jobs_qa.py               # Stats, scrape runs, trigger scrape
@@ -160,6 +165,7 @@ src/backend/api/
 │   ├── admin.py                 # Admin-only user management endpoints
 │   ├── feedback.py              # Public user-feedback submission (POST /api/feedback; optional auth)
 │   ├── companies.py             # Public curated-companies directory (GET /api/companies; no auth)
+│   ├── locations.py             # Public canonical-location search (GET /api/locations/search; internal-key auth)
 │   └── internal_enrichment.py  # Internal enrichment API (X-Internal-Key; GET /pending, POST /results, etc.)
 ├── services/
 │   ├── database.py      # API query functions (reuses scripts/shared/database.py)

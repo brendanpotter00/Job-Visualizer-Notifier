@@ -171,12 +171,12 @@ The following `eslint-disable` directives are allowed; all others must be justif
 
 - `hooks/useFetchWithStatus.ts:141` — `react-hooks/exhaustive-deps`. The hook spreads the caller-provided `deps` array into its internal `useEffect` dep list. ESLint's exhaustive-deps rule cannot prove the spread is stable-by-convention across renders. The hook contract requires callers to pass a stable `fetcher` (via `useCallback`) and a deps array, mirroring `useEffect` semantics. The disable is localized to the single `useEffect` line.
 - `components/layout/RootLayout.tsx:56` — `react-hooks/set-state-in-effect`. Auto-syncs `drawerOpen` local state with the `isMobile` MUI `useMediaQuery` breakpoint. `isMobile` is an external subscription (MUI wraps `matchMedia`), so mirroring it into local state via an effect is the React-recommended pattern. A `useSyncExternalStore` rewrite against `matchMedia` would be net-neutral for behavior and adds visual-regression risk around drawer-width transitions.
-- `components/companies-page/MetricsDashboard/hooks/useTimeBasedJobCounts.ts:24` — `react-hooks/purity`. Samples `Date.now()` inside `useMemo` to compute rolling time-window counts (last 12h / 24h / 3d). Injecting `now` as an argument would relocate the `Date.now()` call into every caller in `MetricsDashboard/*`. Keeping the disable localizes the impurity to one line.
+- `components/companies-page/MetricsDashboard/hooks/useTimeBasedJobCounts.ts:25` — `react-hooks/purity`. Samples `Date.now()` inside `useMemo` to compute rolling time-window counts (last 12h / 24h / 3d). Injecting `now` as an argument would relocate the `Date.now()` call into every caller in `MetricsDashboard/*`. Keeping the disable localizes the impurity to one line.
 
 **Other disables:**
 
-- `features/filters/slices/graphFiltersSlice.ts:62` — `@typescript-eslint/no-explicit-any`. `createFilterSlice` generates action creators via computed property names (`[set${CapitalizedName}TimeWindow]`), which TypeScript cannot infer through. The `as any` cast on `slice.actions` is the documented TS limitation (see https://github.com/reduxjs/redux-toolkit/issues/368). Types are still enforced at dispatch sites.
-- `features/filters/slices/recentJobsFiltersSlice.ts:66` — `@typescript-eslint/no-explicit-any`. Same rationale as `graphFiltersSlice.ts`.
+- `features/filters/slices/graphFiltersSlice.ts:67` — `@typescript-eslint/no-explicit-any`. `createFilterSlice` generates action creators via computed property names (`[set${CapitalizedName}TimeWindow]`), which TypeScript cannot infer through. The `as any` cast on `slice.actions` is the documented TS limitation (see https://github.com/reduxjs/redux-toolkit/issues/368). Types are still enforced at dispatch sites.
+- `features/filters/slices/recentJobsFiltersSlice.ts:71` — `@typescript-eslint/no-explicit-any`. Same rationale as `graphFiltersSlice.ts`.
 - `features/auth/GoogleCredentialContext.tsx:10` — `react-refresh/only-export-components`. The file exports both a React component (`GoogleCredentialProvider`) and the context object (`GoogleCredentialContext`) consumers need for `useContext`. Splitting into two files is possible but adds no runtime value; the disable is the established pattern for context modules.
 
 New code must not add disables. If a new disable appears unavoidable, update this list with the file, line, rule, and justification in the same PR.
@@ -247,6 +247,7 @@ Located in project root `api/` directory (proxies to avoid CORS):
 - `admin.ts` - Admin API proxy (forwards Authorization header; admin-only endpoints)
 - `companies.ts` - Curated-companies directory proxy (public, unauthenticated)
 - `feedback.ts` - User feedback submission proxy (public, optional auth — stores anonymous if token missing/invalid)
+- `locations.ts` - Canonical-location search proxy (public, internal-key auth; feeds Location filter dropdowns)
 
 ## See Also
 
