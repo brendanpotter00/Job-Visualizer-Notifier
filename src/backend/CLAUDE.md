@@ -162,20 +162,32 @@ src/backend/api/
 │   ├── users.py                 # User profile + enabled-companies endpoints (auth required)
 │   ├── saved_filters.py         # Saved-filters, keyword-list CRUD, location search (auth required)
 │   ├── features.py              # Feature voting endpoints (list, upvote, remove upvote)
-│   ├── admin.py                 # Admin-only user management endpoints
+│   ├── admin.py                 # Admin-only endpoints: user management, enrichment oversight, location normalization, and feedback
 │   ├── feedback.py              # Public user-feedback submission (POST /api/feedback; optional auth)
 │   ├── companies.py             # Public curated-companies directory (GET /api/companies; no auth)
 │   ├── locations.py             # Public canonical-location search (GET /api/locations/search; internal-key auth)
 │   └── internal_enrichment.py  # Internal enrichment API (X-Internal-Key; GET /pending, POST /results, etc.)
 ├── services/
 │   ├── database.py      # API query functions (reuses scripts/shared/database.py)
+│   ├── db_rows.py       # TypedDict definitions for raw DB row shapes
 │   ├── user_service.py  # User CRUD operations (get_or_create, update, record_visit)
 │   ├── user_preferences_service.py  # Enabled-companies CRUD
 │   ├── saved_filters_service.py     # Saved-filters + keyword-list CRUD, built-in SWE list, location search
 │   ├── admin_service.py # Admin grant/revoke and is_admin check
 │   ├── features_service.py  # Feature list and upvote logic
 │   ├── features_seed.py # Seed starter features + reconcile shipped (completed_at) status
+│   ├── feedback_service.py  # User feedback submission persistence
+│   ├── companies_service.py # Curated-companies directory queries
+│   ├── companies_seed.py    # Seed/reconcile the companies table from static config
+│   ├── enrichment_monitor.py    # Admin enrichment triage queries (needs-human queue, ticks, recent)
+│   ├── enrichment_writer.py     # Write-back path for enrichment results and corrections
+│   ├── llm_client.py        # Shared Anthropic API client wrapper
+│   ├── location_normalization.py  # Tier-1/Tier-2 normalization pipeline entry point
+│   ├── location_canonicalize.py   # Claude Haiku prompt + schema for Tier-2 canonicalization
+│   ├── location_admin.py          # Admin location alias CRUD and health/integrity queries
+│   ├── location_monitor.py        # Location normalization health/integrity monitoring queries
 │   ├── posthog_client.py    # Module-level singleton initialized at startup; get_posthog() returns None when token is unset (analytics-off graceful degradation)
+│   ├── rate_limit.py        # Per-key async rate limiter (used by ATS clients)
 │   ├── scraper_lock.py  # asyncio.Lock singleton shared by runner + auto-scraper
 │   ├── scraper_runner.py # Async subprocess runner for scrapers
 │   ├── auto_scraper.py  # Background scheduled scraping (Google/Apple/Microsoft)
