@@ -540,12 +540,75 @@ class Company(Base):
     # is the source of truth, re-applied each boot).
     blurb = Column(Text, nullable=True)
     accomplishment = Column(Text, nullable=True)
+    # ``listed`` controls whether a company shows on the public
+    # ``GET /api/companies`` curated directory. Curated (maintainer-added) rows
+    # are TRUE; companies added at runtime by a user via the "add your own
+    # company" flow are FALSE, so a niche user-submitted board never pollutes
+    # the public directory. A FALSE row is still scraped by the worker (the
+    # fan-out filters only on ``ats``/``enabled``) and is visible in the jobs UI
+    # to any user who has it in ``user_enabled_companies``.
+    listed = Column(Boolean, nullable=False, server_default=text("true"))
+    # First user who submitted this company via the add-company flow, for
+    # attribution / abuse accounting. NULL for curated rows. ON DELETE SET NULL
+    # so deleting a user never cascades away a shared scrape target.
+    added_by_user_id = Column(
+        Text, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    # Scrape health for runtime-added sources (chiefly ``custom_json`` recipes,
+    # which can silently break when a site changes its API). ``ok`` normally;
+    # the per-company fetch task flips it to ``degraded`` when the
+    # low-yield safety guard trips, and an operator/regeneration flow can set
+    # ``disabled``. Curated ATS rows stay ``ok``.
+    health_status = Column(
+        Text, nullable=False, server_default=text("'ok'")
+    )
     created_at = Column(
         TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
     )
 
     __table_args__ = (
         Index("ix_companies_ats_enabled", "ats", "enabled"),
+    )
+
+
+class CompanySubmission(Base):
+    """One user's request to add a company by careers-page URL.
+
+    Backs the async onboarding flow. A ``POST /api/users/companies`` that cannot
+    be resolved synchronously (i.e. the URL is not a known ATS board) inserts a
+    ``pending`` row and enqueues the ``onboard_custom_company`` Procrastinate
+    task; the task performs the one-time Playwright capture + Haiku recipe
+    generation, then flips the row to ``succeeded`` (with ``company_id`` set) or
+    ``failed`` (with a user-safe ``error``). The frontend polls
+    ``GET /api/users/companies/submissions/{id}`` until a terminal status.
+
+    Also the source of truth for the per-user add-company rate limit / audit
+    trail. ``company_id`` is intentionally NOT a FK to ``companies`` — a failed
+    submission never creates a company, and we keep the audit row even if a
+    company is later deleted.
+    """
+
+    __tablename__ = "company_submissions"
+
+    id = Column(Text, primary_key=True)
+    user_id = Column(
+        Text, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    url = Column(Text, nullable=False)
+    # 'pending' | 'succeeded' | 'failed'. Validated at the Pydantic boundary,
+    # kept as TEXT here (matches how ``job_listings.status`` stays TEXT).
+    status = Column(Text, nullable=False, server_default=text("'pending'"))
+    company_id = Column(Text, nullable=True)
+    error = Column(Text, nullable=True)
+    created_at = Column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at = Column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        Index("ix_company_submissions_user_created", "user_id", "created_at"),
     )
 
 
