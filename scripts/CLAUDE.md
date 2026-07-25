@@ -78,7 +78,7 @@ pip install -r scripts/requirements-dev.txt      # Install dev dependencies (tes
 **Shared Modules:**
 - `shared/base_scraper.py` - Abstract base class for all company scrapers (~442 lines)
 - `shared/database.py` - PostgreSQL database layer with CRUD operations (~834 lines)
-- `shared/incremental.py` - 5-phase incremental scraping algorithm (~301 lines)
+- `shared/incremental.py` - 5-phase incremental scraping algorithm (~315 lines)
 - `shared/models.py` - Database-aligned Pydantic models (JobListing, ScrapeRun) (~62 lines)
 - `shared/batch_writer.py` - Buffered batch writing utility (~157 lines)
 - `shared/utils.py` - Shared utilities (timestamps) (~13 lines)
@@ -88,7 +88,7 @@ pip install -r scripts/requirements-dev.txt      # Install dev dependencies (tes
 **Testing:**
 - `tests/conftest.py` - Shared pytest fixtures
 - `tests/unit/` - Unit tests (16 files)
-- `tests/integration/` - Integration tests (10 files)
+- `tests/integration/` - Integration tests (11 files)
 - `pytest.ini` - Test configuration
 
 **Data Flow:**
@@ -262,7 +262,7 @@ Edit company-specific `config.py`:
 **Shared Modules:**
 - Abstract Base: `scripts/shared/base_scraper.py` (~442 lines)
 - Database Layer: `scripts/shared/database.py` (~834 lines)
-- Incremental Algorithm: `scripts/shared/incremental.py` (~301 lines)
+- Incremental Algorithm: `scripts/shared/incremental.py` (~315 lines)
 - Data Models: `scripts/shared/models.py` (~62 lines)
 - Batch Writer: `scripts/shared/batch_writer.py` (~157 lines)
 - Utilities: `scripts/shared/utils.py` (~13 lines)
