@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { useAppDispatch, useAppSelector } from '../app/hooks';
 import { setSelectedCompanyId } from '../features/app/appSlice';
 import { useGetJobsForCompanyQuery } from '../features/jobs/jobsApi';
+import { useGetCompanyById } from '../features/userCompanies/useCompanyRegistry';
 import { getInitialCompanyId } from '../lib/url';
 import { ROUTES } from '../config/routes';
 import { extractErrorMessage } from '../lib/errors';
@@ -26,6 +27,8 @@ export function useCompanyLoader() {
   const dispatch = useAppDispatch();
   const selectedCompanyId = useAppSelector((state) => state.app.selectedCompanyId);
 
+  const getCompanyById = useGetCompanyById();
+
   // Only run on Companies page
   const isCompaniesPage = location.pathname === ROUTES.COMPANIES;
 
@@ -42,10 +45,13 @@ export function useCompanyLoader() {
     dispatch(setSelectedCompanyId(getInitialCompanyId()));
   }, [isCompaniesPage, dispatch]);
 
-  // RTK Query hook - automatically fetches on mount and when companyId changes
-  // Skip fetching if not on Companies page
+  // RTK Query hook - automatically fetches on mount and when companyId changes.
+  // Resolve the company from the dynamic registry and pass it so runtime
+  // user-added companies (absent from the static COMPANIES list) load instead of
+  // 404ing. `company` is excluded from the cache key (keyed by companyId only).
+  // Skip fetching if not on Companies page.
   const { data, isLoading, error, refetch } = useGetJobsForCompanyQuery(
-    { companyId: selectedCompanyId },
+    { companyId: selectedCompanyId, company: getCompanyById(selectedCompanyId) },
     { skip: !isCompaniesPage }
   );
 

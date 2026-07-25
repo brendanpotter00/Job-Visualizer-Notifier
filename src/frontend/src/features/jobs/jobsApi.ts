@@ -1,12 +1,22 @@
-import { createApi, fakeBaseQuery } from '@reduxjs/toolkit/query/react';
+import { createApi, fakeBaseQuery, defaultSerializeQueryArgs } from '@reduxjs/toolkit/query/react';
 import type { Job, FetchProgress, Company, JobFacets } from '../../types';
-import { getCompanyById, COMPANIES } from '../../config/companies';
+import { getCompanyById } from '../../config/companies';
+import { getEffectiveCompanies } from '../userCompanies/companyRegistryBridge';
 import type { FetchJobsResult } from '../../api/types';
 import { getClientForATS } from '../../api/utils';
 import { fetchJobsForCompanies } from '../../api/clients/backendScraperClient';
 import { calculateJobDateRange } from '../../lib/date';
 import { updateCompanyProgress } from './progressHelpers';
 import { logger } from '../../lib/logger';
+
+/**
+ * Tag that scopes cache invalidation to the aggregated `getAllJobs` entry only
+ * (not the per-company `getJobsForCompany` entries, which are keyed by
+ * `{ type: 'Jobs', id: <companyId> }`). `useSyncRuntimeCompanies` invalidates
+ * this when the runtime company set changes so the Recent feed refetches with
+ * the wider universe without disturbing open per-company trend pages.
+ */
+export const ALL_JOBS_TAG = { type: 'Jobs' as const, id: 'ALL_JOBS' };
 
 interface JobsQueryResult {
   jobs: Job[];
@@ -40,11 +50,25 @@ export const jobsApi = createApi({
   tagTypes: ['Jobs'],
   keepUnusedDataFor: 600, // 10 minutes TTL
   endpoints: (builder) => ({
-    // Individual company endpoint
-    getJobsForCompany: builder.query<JobsQueryResult, { companyId: string }>({
-      async queryFn({ companyId }, { signal }) {
+    // Individual company endpoint.
+    //
+    // The caller passes the already-resolved `company` from the dynamic registry
+    // (`useCompanyRegistry`), which is what lets runtime user-added companies —
+    // absent from the static `COMPANIES` list — load on the trend page instead
+    // of 404ing. `company` is intentionally EXCLUDED from the cache key (see
+    // `serializeQueryArgs` below) so the entry stays keyed by `companyId` only,
+    // matching every `getJobsForCompany.select({ companyId })` reader. It falls
+    // back to the static `getCompanyById` for callers that don't resolve one.
+    getJobsForCompany: builder.query<JobsQueryResult, { companyId: string; company?: Company }>({
+      serializeQueryArgs: ({ queryArgs, endpointName, endpointDefinition }) =>
+        defaultSerializeQueryArgs({
+          queryArgs: { companyId: queryArgs.companyId },
+          endpointName,
+          endpointDefinition,
+        }),
+      async queryFn({ companyId, company: resolvedCompany }, { signal }) {
         try {
-          const company = getCompanyById(companyId);
+          const company = resolvedCompany ?? getCompanyById(companyId);
 
           if (!company) {
             return { error: { status: 404, data: `Company not found: ${companyId}` } };
@@ -82,9 +106,16 @@ export const jobsApi = createApi({
       providesTags: (_result, _error, { companyId }) => [{ type: 'Jobs', id: companyId }],
     }),
 
-    // All companies endpoint (parallel fetch with streaming progress updates)
+    // All companies endpoint (parallel fetch with streaming progress updates).
+    //
+    // The fetch universe comes from `getEffectiveCompanies()` (static COMPANIES
+    // + the signed-in user's runtime-added companies, via the module bridge)
+    // rather than a query arg, so the cache key stays void/stable for the many
+    // no-arg readers (`getAllJobs.select()`, `useAllJobsProgress`). For anonymous
+    // users the bridge is empty, so this is the exact static `COMPANIES` set.
     getAllJobs: builder.query<AllJobsQueryResult, void>({
       async queryFn() {
+        const companies = getEffectiveCompanies();
         // Return initial skeleton data immediately
         return {
           data: {
@@ -93,8 +124,8 @@ export const jobsApi = createApi({
             errors: {},
             progress: {
               completed: 0,
-              total: COMPANIES.length,
-              companies: COMPANIES.map((c) => ({
+              total: companies.length,
+              companies: companies.map((c) => ({
                 companyId: c.id,
                 status: 'pending' as const,
               })),
@@ -169,9 +200,11 @@ export const jobsApi = createApi({
           // Partition: backend-scraper companies share a single batched
           // backend call (one /api/jobs?companies=... request) to avoid
           // exhausting the API's 15-slot Postgres pool. All other ATS
-          // companies hit external Vercel proxies and still fan out.
-          const backendScraperCompanies = COMPANIES.filter((c) => c.ats === 'backend-scraper');
-          const otherCompanies = COMPANIES.filter((c) => c.ats !== 'backend-scraper');
+          // companies hit external Vercel proxies and still fan out. Resolve the
+          // universe once (static + runtime) so it matches the skeleton above.
+          const companies = getEffectiveCompanies();
+          const backendScraperCompanies = companies.filter((c) => c.ats === 'backend-scraper');
+          const otherCompanies = companies.filter((c) => c.ats !== 'backend-scraper');
 
           const batchedFetch = (async () => {
             if (backendScraperCompanies.length === 0) return;
@@ -235,7 +268,7 @@ export const jobsApi = createApi({
         }
       },
 
-      providesTags: ['Jobs'],
+      providesTags: [ALL_JOBS_TAG],
     }),
 
     // Enrichment facet catalog (GET /api/jobs/facets via the Vercel proxy).

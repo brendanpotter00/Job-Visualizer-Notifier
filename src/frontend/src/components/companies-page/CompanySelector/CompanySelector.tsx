@@ -1,7 +1,10 @@
 import { FormControl, InputLabel, Select, MenuItem, SelectChangeEvent } from '@mui/material';
 import { useAppDispatch, useAppSelector } from '../../../app/hooks';
 import { setSelectedATS, setSelectedCompanyId } from '../../../features/app/appSlice';
-import { COMPANIES, getCompanyById } from '../../../config/companies';
+import {
+  useCompanyRegistry,
+  useGetCompanyById,
+} from '../../../features/userCompanies/useCompanyRegistry';
 import { ATSConstants } from '../../../api/types';
 
 /**
@@ -10,6 +13,8 @@ import { ATSConstants } from '../../../api/types';
 export function CompanySelector() {
   const dispatch = useAppDispatch();
   const selectedCompanyId = useAppSelector((state) => state.app.selectedCompanyId);
+  const companies = useCompanyRegistry();
+  const getCompanyById = useGetCompanyById();
 
   const handleCompanyChange = (event: SelectChangeEvent) => {
     const newCompanyId = event.target.value;
@@ -28,7 +33,7 @@ export function CompanySelector() {
         label="Company"
         onChange={handleCompanyChange}
       >
-        {[...COMPANIES].sort((a, b) => a.name.localeCompare(b.name)).map((company) => (
+        {[...companies].sort((a, b) => a.name.localeCompare(b.name)).map((company) => (
           <MenuItem key={company.id} value={company.id}>
             {company.name}
           </MenuItem>

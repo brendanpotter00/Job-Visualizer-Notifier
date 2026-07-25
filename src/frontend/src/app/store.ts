@@ -10,6 +10,7 @@ import { companiesApi } from '../features/companies/companiesApi';
 import { feedbackApi } from '../features/feedback/feedbackApi';
 import { adminApi } from '../features/admin/adminApi';
 import { savedFiltersApi } from '../features/savedFilters/savedFiltersApi';
+import { userCompaniesApi } from '../features/userCompanies/userCompaniesApi';
 import { locationsApi } from '../features/locations/locationsApi';
 import locationCatalogReducer from '../features/locations/locationCatalogSlice';
 import { getTokenOrNull } from '../features/features/getTokenOrNull';
@@ -28,6 +29,7 @@ export const store = configureStore({
     [feedbackApi.reducerPath]: feedbackApi.reducer,
     [adminApi.reducerPath]: adminApi.reducer,
     [savedFiltersApi.reducerPath]: savedFiltersApi.reducer,
+    [userCompaniesApi.reducerPath]: userCompaniesApi.reducer,
     [locationsApi.reducerPath]: locationsApi.reducer,
   },
   middleware: (getDefaultMiddleware) =>
@@ -40,6 +42,7 @@ export const store = configureStore({
       .concat(feedbackApi.middleware)
       .concat(adminApi.middleware)
       .concat(savedFiltersApi.middleware)
+      .concat(userCompaniesApi.middleware)
       .concat(locationsApi.middleware),
 });
 
