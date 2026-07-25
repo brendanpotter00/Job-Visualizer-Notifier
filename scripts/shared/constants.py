@@ -22,3 +22,6 @@ class SourceId:
     # ``_api`` suffix mirrors Greenhouse + Ashby + Lever + Gem (frozen contract).
     EIGHTFOLD: Final[str] = "eightfold_api"
     WORKDAY: Final[str] = "workday_api"
+    # Runtime user-added custom sites scraped via a stored JSON "recipe"
+    # (endpoint + pagination + field map) rather than a first-class ATS client.
+    CUSTOM_JSON: Final[str] = "custom_json_api"
