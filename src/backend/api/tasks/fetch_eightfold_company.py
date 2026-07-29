@@ -49,7 +49,7 @@ from scripts.shared.incremental import (
     SAFETY_GUARD_RATIO,
     SCRAPER_GUARD_MIN_ABS_DROP,
     SCRAPER_GUARD_MIN_RATIO,
-    evaluate_safety_guard,
+    resolve_safety_guard,
 )
 from scripts.shared.models import ScrapeRun
 from scripts.shared.utils import get_iso_timestamp
@@ -165,7 +165,14 @@ async def fetch_eightfold_company(
                     db.count_active_jobs, conn, SOURCE_ID, company_id
                 )
 
-                guard_reason = evaluate_safety_guard(jobs_seen, active_count)
+                # resolve_ (not evaluate_) so the bounded auto-release is in
+                # play: it reads the company's recent scrape_runs history ONLY
+                # when rule (b) would otherwise trip, so the healthy path pays
+                # nothing. to_thread because the helper is sync psycopg2, like
+                # every other db call in this task.
+                guard_reason = await asyncio.to_thread(
+                    resolve_safety_guard, conn, company_id, jobs_seen, active_count
+                )
                 if guard_reason is not None:
                     # ERROR routes to stderr → Railway @level:error queries.
                     logger.error(

@@ -885,6 +885,60 @@ def record_scrape_run(conn: Connection, run_data: ScrapeRun) -> None:
     logger.info(f"Recorded scrape run: {run_data.run_id}")
 
 
+def count_consecutive_partial_skips(
+    conn: Connection, company: str, limit: int = 3
+) -> int:
+    """Count how many of the company's MOST RECENT runs were guard-skipped.
+
+    Backs the bounded auto-release in
+    ``shared.incremental.resolve_safety_guard``: N identical truncations in
+    a row means the board really shrank, not that the scraper hiccuped.
+
+    Only the leading run of ``skipped_update IS TRUE`` counts — the first
+    row that is ``FALSE`` (a healthy run) or ``NULL`` stops the count. NULL
+    is deliberately treated as a stop, not as a skip: it means the row was
+    written before the ``skipped_update`` column existed, so it is
+    *unknown*, and an unknown must never be counted as evidence toward
+    releasing a destructive guard.
+
+    Only ever called on a run that already tripped rule (b) — see
+    ``resolve_safety_guard`` — so it is off the hot path. ``LIMIT`` is
+    bounded by the caller's threshold because the only question is
+    "are there at least ``limit`` in a row?", making this strictly cheaper
+    than the long-standing ``get_scrape_runs`` query of the same shape.
+
+    Args:
+        conn: Database connection (read-only use; never commits).
+        company: Company id as written to ``scrape_runs.company``.
+        limit: How many recent rows to inspect. Values < 1 are coerced to
+            1 so the query can never degenerate into a full-table read.
+
+    Returns:
+        Length of the leading all-True run, capped at ``limit``.
+    """
+    cursor = conn.cursor()
+
+    # started_at is ISO-8601 Text with a trailing Z, so lexicographic DESC
+    # is chronological DESC. (Matches get_scrape_runs' ordering.)
+    cursor.execute(
+        f"""
+        SELECT skipped_update FROM {_RUNS_TABLE}
+        WHERE company = %s
+        ORDER BY started_at DESC
+        LIMIT %s
+        """,
+        (company, max(1, limit)),
+    )
+
+    streak = 0
+    for row in cursor.fetchall():
+        if row["skipped_update"] is not True:
+            break
+        streak += 1
+
+    return streak
+
+
 def get_all_active_jobs(conn: Connection, company: str) -> List[JobListing]:
     """
     Get all active jobs for a company

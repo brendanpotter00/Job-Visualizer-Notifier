@@ -274,6 +274,76 @@ class TestScrapeRun:
         assert cursor.fetchone()["skipped_update"] is False
 
 
+class TestCountConsecutivePartialSkips:
+    """Tests for the history read backing the bounded auto-release."""
+
+    @staticmethod
+    def _run(in_memory_db, run_id, company, started_at, skipped):
+        cursor = in_memory_db.cursor()
+        cursor.execute(
+            "INSERT INTO scrape_runs (run_id, company, started_at, mode, "
+            "jobs_seen, skipped_update) VALUES (%s, %s, %s, 'incremental', 1, %s)",
+            (run_id, company, started_at, skipped),
+        )
+        in_memory_db.commit()
+
+    def test_no_history_is_zero(self, in_memory_db):
+        assert db.count_consecutive_partial_skips(in_memory_db, "nobody") == 0
+
+    def test_counts_the_leading_streak_only(self, in_memory_db):
+        # Chronological: False, True, True, True. Newest-first the leading
+        # streak is 3; the older False must not be counted.
+        self._run(in_memory_db, "r1", "apple", "2026-07-01T00:00:00Z", False)
+        self._run(in_memory_db, "r2", "apple", "2026-07-02T00:00:00Z", True)
+        self._run(in_memory_db, "r3", "apple", "2026-07-03T00:00:00Z", True)
+        self._run(in_memory_db, "r4", "apple", "2026-07-04T00:00:00Z", True)
+
+        assert db.count_consecutive_partial_skips(in_memory_db, "apple", limit=10) == 3
+
+    def test_a_healthy_newest_run_breaks_the_streak(self, in_memory_db):
+        """The streak is anchored at the NEWEST run. One healthy run resets
+        it to zero no matter how many skips precede it."""
+        self._run(in_memory_db, "r1", "apple", "2026-07-01T00:00:00Z", True)
+        self._run(in_memory_db, "r2", "apple", "2026-07-02T00:00:00Z", True)
+        self._run(in_memory_db, "r3", "apple", "2026-07-03T00:00:00Z", False)
+
+        assert db.count_consecutive_partial_skips(in_memory_db, "apple", limit=10) == 0
+
+    def test_null_breaks_the_streak(self, in_memory_db):
+        """NULL means "written before the column existed" — unknown, not
+        skipped. An unknown must never count as evidence toward releasing a
+        destructive guard."""
+        self._run(in_memory_db, "r1", "apple", "2026-07-01T00:00:00Z", True)
+        self._run(in_memory_db, "r2", "apple", "2026-07-02T00:00:00Z", None)
+        self._run(in_memory_db, "r3", "apple", "2026-07-03T00:00:00Z", True)
+
+        assert db.count_consecutive_partial_skips(in_memory_db, "apple", limit=10) == 1
+
+    def test_is_scoped_per_company(self, in_memory_db):
+        self._run(in_memory_db, "g1", "google", "2026-07-01T00:00:00Z", True)
+        self._run(in_memory_db, "g2", "google", "2026-07-02T00:00:00Z", True)
+        self._run(in_memory_db, "a1", "apple", "2026-07-03T00:00:00Z", False)
+
+        assert db.count_consecutive_partial_skips(in_memory_db, "apple", limit=10) == 0
+        assert db.count_consecutive_partial_skips(in_memory_db, "google", limit=10) == 2
+
+    def test_result_is_capped_by_limit(self, in_memory_db):
+        """The caller only asks "are there at least ``limit`` in a row?", so
+        the query must never read more rows than that."""
+        for i in range(6):
+            self._run(in_memory_db, f"r{i}", "apple", f"2026-07-0{i + 1}T00:00:00Z", True)
+
+        assert db.count_consecutive_partial_skips(in_memory_db, "apple", limit=3) == 3
+
+    def test_limit_below_one_is_coerced(self, in_memory_db):
+        """A zero/negative limit would make Postgres reject the query (or,
+        worse, invite someone to "fix" it by dropping the LIMIT and reading
+        the whole 455k-row table)."""
+        self._run(in_memory_db, "r1", "apple", "2026-07-01T00:00:00Z", True)
+
+        assert db.count_consecutive_partial_skips(in_memory_db, "apple", limit=0) == 1
+
+
 class TestUpsertJob:
     """Tests for upsert_job function (handles reappearing closed jobs)"""
 

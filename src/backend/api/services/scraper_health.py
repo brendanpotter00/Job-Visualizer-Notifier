@@ -19,11 +19,27 @@ write-side evidence: it advances only when a scrape actually observed a
 job. So this catches both "the task stopped running" AND "the task reports
 success but writes nothing."
 
-Cost
-----
-One query. The ``companies`` side is ~130 rows; the ``job_listings`` side
-rides the existing ``idx_job_listings_company`` index. No new index is
-required, and none is added.
+Cost — read this before calling it more often
+---------------------------------------------
+One query, but not a cheap one. Prod ``EXPLAIN`` shows **Seq Scan on
+job_listings** -> Hash Right Join -> HashAggregate (cost ~11,472; ~64k
+rows / ~812 MB at time of writing). ``idx_job_listings_company`` exists
+but is NOT used and could not be: the query aggregates over EVERY row —
+there is no selective predicate for an index to satisfy, so a full scan is
+the correct plan, and adding an index would not change it.
+
+No new index is required — but the reason is "an index cannot help this
+shape", not "an index already covers it". An earlier version of this
+docstring claimed the latter, which would have misled anyone deciding
+whether this is safe to call more frequently.
+
+Practical consequence: this is sized for the ONCE-DAILY scheduled check
+(.github/workflows/scraper-health.yml). It is not safe as a per-request or
+polled endpoint — each call is a full-table aggregate holding a pooled
+backend connection for its duration; cf.
+``docs/incidents/2026-05-17-recent-jobs-pool-exhaustion.md``. The
+anonymous-request gate in ``api/jobs-qa.ts`` is what keeps an unauthenticated
+caller from turning that into a trivial resource-exhaustion lever.
 
 Connection contract (SELECT-only): the single statement is a ``SELECT`` and
 this module never commits. ``conn.rollback()`` runs in a ``finally`` so the

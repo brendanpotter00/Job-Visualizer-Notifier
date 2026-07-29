@@ -28,9 +28,16 @@ rows for this company:
                                                         -> "partial_scrape"
 
 Either reason records the run with ``error_count=1`` and
-``skipped_update=True`` and returns without destructive writes. Rule (b)
-was added because the 0.10-only guard let six of Apple's seven 21-day
-truncations execute the close phase against partial data; see the
+``skipped_update=True`` and returns immediately — note that this skips the
+upsert too, so a tripped run performs NO writes to ``job_listings`` at all
+(no ingestion, no ``last_seen_at`` refresh, no misses, no closures).
+
+Rule (b) was added because the 0.10-only guard let six of Apple's seven
+21-day truncations execute the close phase against partial data. Rule (b)
+also carries a bounded auto-release, which is why the call goes through
+``resolve_safety_guard`` rather than ``evaluate_safety_guard``: after N
+consecutive ``partial_scrape`` skips the company is presumed to have
+genuinely shrunk and one run is let through to reconcile. See the
 calibration notes in ``scripts/shared/incremental.py``.
 
 Bookkeeping
@@ -58,7 +65,7 @@ from scripts.shared.incremental import (
     SAFETY_GUARD_RATIO,
     SCRAPER_GUARD_MIN_ABS_DROP,
     SCRAPER_GUARD_MIN_RATIO,
-    evaluate_safety_guard,
+    resolve_safety_guard,
 )
 from scripts.shared.models import ScrapeRun
 from scripts.shared.utils import get_iso_timestamp
@@ -127,7 +134,14 @@ async def fetch_ashby_company(
                     db.count_active_jobs, conn, SOURCE_ID, company_id
                 )
 
-                guard_reason = evaluate_safety_guard(jobs_seen, active_count)
+                # resolve_ (not evaluate_) so the bounded auto-release is in
+                # play: it reads the company's recent scrape_runs history ONLY
+                # when rule (b) would otherwise trip, so the healthy path pays
+                # nothing. to_thread because the helper is sync psycopg2, like
+                # every other db call in this task.
+                guard_reason = await asyncio.to_thread(
+                    resolve_safety_guard, conn, company_id, jobs_seen, active_count
+                )
                 if guard_reason is not None:
                     # ERROR (not WARNING) so Railway routes this to stderr — the
                     # platform's @level field is derived from the OS stream

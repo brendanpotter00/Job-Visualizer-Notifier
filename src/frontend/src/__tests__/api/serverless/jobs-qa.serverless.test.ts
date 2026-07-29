@@ -43,8 +43,66 @@ describe('/api/jobs-qa serverless function', () => {
     vi.clearAllMocks();
   });
 
+  describe('anonymous-request gate', () => {
+    /**
+     * SECURITY BOUNDARY. This function is a public internet endpoint
+     * (vercel.json maps `/api/jobs-qa/:path(.*)` here) and it attaches
+     * `X-Internal-Key` unconditionally, so it always satisfies the backend's
+     * `require_internal_key` middleware. Before this gate existed, the only
+     * thing stopping anonymous access was that every jobs-qa route happened
+     * to carry `Depends(require_admin)` — so adding one route without it
+     * (`GET /scraper-health`, which the scheduled GitHub Action needs to
+     * reach with a static header) silently published the internal company
+     * roster, per-company open-job counts, and scraper staleness to anyone
+     * with curl.
+     *
+     * These tests must fail loudly if that gate is ever removed or narrowed
+     * to specific paths.
+     */
+    it('rejects an anonymous request with 401 and never calls upstream', async () => {
+      mockReq.query = { path: 'scraper-health', thresholdHours: '720' };
+      mockReq.headers = {};
+
+      await handler(mockReq as VercelRequest, mockRes as VercelResponse);
+
+      expect(mockRes.status).toHaveBeenCalledWith(401);
+      expect(mockRes.json).toHaveBeenCalledWith({ detail: 'Unauthorized' });
+      // The upstream call must not happen at all — the proxy holds the
+      // internal key, so forwarding first and relying on the backend to
+      // refuse is exactly the hole being closed.
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('rejects anonymous requests to every jobs-qa path, not just scraper-health', async () => {
+      // The gate is path-agnostic on purpose: it must protect future routes
+      // that forget `require_admin`, not just the one that exposed the bug.
+      for (const path of ['scraper-health', 'scrape-runs', 'stats', 'trigger-scrape']) {
+        vi.clearAllMocks();
+        mockReq.query = { path };
+        mockReq.headers = {};
+
+        await handler(mockReq as VercelRequest, mockRes as VercelResponse);
+
+        expect(mockRes.status).toHaveBeenCalledWith(401);
+        expect(fetchMock).not.toHaveBeenCalled();
+      }
+    });
+
+    it('lets an authenticated request through to the backend', async () => {
+      mockReq.query = { path: 'scraper-health' };
+      mockReq.headers = { authorization: 'Bearer admin-token' };
+      fetchMock.mockResolvedValue(mockJsonResponse(200, { staleCount: 0 }));
+
+      await handler(mockReq as VercelRequest, mockRes as VercelResponse);
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+    });
+  });
+
   it('proxies GET /api/jobs-qa/scrape-runs with query params preserved', async () => {
     mockReq.query = { path: 'scrape-runs', limit: '100', company: 'google' };
+    mockReq.headers = { authorization: 'Bearer admin-token' };
     fetchMock.mockResolvedValue(mockJsonResponse(200, []));
 
     await handler(mockReq as VercelRequest, mockRes as VercelResponse);
@@ -94,6 +152,7 @@ describe('/api/jobs-qa serverless function', () => {
 
   it('returns 502 when the upstream fetch throws', async () => {
     mockReq.query = { path: 'stats' };
+    mockReq.headers = { authorization: 'Bearer admin-token' };
     fetchMock.mockRejectedValue(new Error('ECONNREFUSED'));
 
     await handler(mockReq as VercelRequest, mockRes as VercelResponse);
@@ -108,6 +167,7 @@ describe('/api/jobs-qa serverless function', () => {
 
   it('forwards the backend status code and body', async () => {
     mockReq.query = { path: 'stats' };
+    mockReq.headers = { authorization: 'Bearer admin-token' };
     fetchMock.mockResolvedValue(mockJsonResponse(403, { detail: 'Admin access required' }));
 
     await handler(mockReq as VercelRequest, mockRes as VercelResponse);

@@ -13,10 +13,11 @@ Algorithm phases:
 
 Safety guard
 ------------
-Phases 4-5 are destructive (they can mark thousands of jobs CLOSED), so
-they run only when the scrape result passes ``evaluate_safety_guard`` —
-the one shared, pure helper every caller uses (this module AND the six
-``src/backend/api/tasks/fetch_*_company.py`` leaf tasks).
+Phases 3-5 are gated (4-5 are destructive — they can mark thousands of
+jobs CLOSED), so they run only when the scrape result passes
+``evaluate_safety_guard`` — the one shared, pure helper every caller uses
+(this module AND the six ``src/backend/api/tasks/fetch_*_company.py`` leaf
+tasks). ``resolve_safety_guard`` wraps it with the bounded auto-release.
 
 Two rules, both keyed off the count of currently-OPEN rows:
 
@@ -24,17 +25,28 @@ Two rules, both keyed off the count of currently-OPEN rows:
   (b) ``jobs_seen < 0.85 * active`` AND
       ``(active - jobs_seen) >= 15``                    -> "partial_scrape"
 
-Rule (b) was added after a prod audit of 134,777 successful runs over 129
-companies (2026-07-07 -> 2026-07-28) found Apple truncating **7 times in
-21 days** — returning 5%, 21%, 22%, 29%, 31%, 73% and 80% of its normal
-board — while the 0.1-only guard caught only the 5% run. The other six
-executed the close phase against partial data; only a lucky clean run
-landing between two truncations kept ~2,800 Apple jobs from being
-mass-closed. On that same dataset rule (b) fires exactly 7 times, all of
-them those Apple truncations, with zero false positives.
+Rule (b) was added after a prod audit found Apple truncating **7 times in
+21 days** (2026-07-07 -> 2026-07-28) — returning 5%, 21%, 22%, 29%, 31%,
+73% and 80% of its normal board — while the 0.1-only guard caught only the
+5% run. The other six executed the close phase against partial data; only
+a lucky clean run landing between two truncations kept ~2,800 Apple jobs
+from being mass-closed.
 
-See the constant block below for the full calibration notes and the
-accepted "no auto-release" trade-off.
+WHAT A GUARD TRIP ACTUALLY SKIPS (be precise — this is wider than
+"update/close"): the caller returns before Phase 3 as well, so on a
+tripped run **no new jobs are ingested and no ``last_seen_at`` is
+refreshed**, in addition to no misses being incremented and nothing being
+closed. The run is a complete no-op against ``job_listings``.
+
+That is deliberate, not an oversight: leaving ``last_seen_at`` frozen is
+what lets the Unit-3 staleness probe
+(``src/backend/api/services/scraper_health.py``) see a latched company at
+all. If a tripped run still refreshed ``last_seen_at`` for the jobs it did
+return, a frozen company would look freshly-scraped and the daily alert
+would go green on it.
+
+See the constant block below for the calibration and the bounded
+auto-release that keeps a *permanent* board shrink from latching forever.
 """
 
 import logging
@@ -63,20 +75,33 @@ MISSED_RUN_THRESHOLD = 2
 # apart from a partial truncation in logs and in scrape_runs.
 SAFETY_GUARD_RATIO = 0.1
 
-# Safety guard rule (b) — "partial scrape". Env-overridable so an operator
-# can widen the gate without a redeploy (see the no-auto-release trade-off
-# below). Read HERE, in this module, so the scraper subprocess
+# Safety guard rule (b) — "partial scrape", plus the bounded auto-release.
+#
+# Read HERE, in this module, so the scraper subprocess
 # (scripts/run_scraper.py) and the backend Procrastinate worker
 # (src/backend/api/tasks/fetch_*_company.py) share ONE source of truth.
 #
-# Calibration (empirical, do NOT retune without re-running the numbers):
-# derived from 134,777 successful prod scrape runs across 129 companies
-# between 2026-07-07 and 2026-07-28. The pair
-# `jobs_seen < 0.85 * active AND (active - jobs_seen) >= 15` trips exactly
-# 7 times over that window — and all 7 are the real Apple truncations
-# (runs returning 5%, 21%, 22%, 29%, 31%, 73% and 80% of the normal board
-# size). Zero false positives. Notably it does NOT trip on Google's
-# 769-of-798 run (96%) nor on genuine day-to-day hiring drift.
+# Calibration (empirical, do NOT retune without re-running the numbers).
+# Two passes agree:
+#   * 3-week window (134,777 successful runs, 129 companies, 2026-07-07 ->
+#     07-28): the pair `jobs_seen < 0.85 * active AND
+#     (active - jobs_seen) >= 15` trips exactly 7 times, and all 7 are the
+#     real Apple truncations. Zero false positives.
+#   * Full history (455,317 runs, 2026-01-04 -> 07-29): 33 trips total —
+#     27 apple, 6 google, and ZERO for the other 128 companies.
+#
+# 0.85 is the knee: it is the last threshold at which no company other than
+# apple/google trips at all. The tightest REAL truncation in the full
+# history is apple 3111/3798 on 2026-05-14 = 0.8191, so the working margin
+# is 3.1 points, not the ~4.5 an "0.805 worst case" reading suggests. 0.80
+# is unusable: 0.80 * 3565 = 2852 < 2859, i.e. it misses a real Apple
+# truncation outright.
+#
+# Microsoft is the instructive non-trip. Its board ratio reaches 0.616 over
+# 30 days and sits below 0.85 in 72 of 115 windows — yet it never trips,
+# because `active_count` tracks the shrink down with a ~2-run lag, so no
+# SINGLE run ever presents a >15% drop. The guard measures per-run deltas,
+# not multi-day drift. That is the whole reason it can be this tight.
 #
 # The two conditions are ANDed on purpose:
 #   * the ratio alone would fire constantly on small boards (a 30-job board
@@ -89,22 +114,118 @@ SAFETY_GUARD_RATIO = 0.1
 # only because a clean run happened to land between two truncations. Two
 # back-to-back truncations would have mass-closed ~2,800 Apple jobs.
 #
-# ACCEPTED TRADE-OFF — the guard has NO auto-release. A company that
-# genuinely shrinks by more than 15% in one shot (on a board of >= ~100
-# jobs) trips rule (b) on every subsequent run too, because the stale DB
-# rows keep `active_count` high. That company stays locked out of the
-# update/close phases until a human widens SCRAPER_GUARD_MIN_RATIO (or
-# clears the stale rows). This is deliberate: silently mass-closing
-# thousands of live jobs is far worse than freezing one company's
-# lifecycle. The daily scraper-health check
-# (src/backend/api/services/scraper_health.py, surfaced by
-# .github/workflows/scraper-health.yml) makes such a lockout visible
-# within 24h.
-SCRAPER_GUARD_MIN_RATIO = float(os.environ.get("SCRAPER_GUARD_MIN_RATIO", "0.85"))
-SCRAPER_GUARD_MIN_ABS_DROP = int(os.environ.get("SCRAPER_GUARD_MIN_ABS_DROP", "15"))
+# BOUNDED AUTO-RELEASE (SCRAPER_GUARD_MAX_CONSECUTIVE_SKIPS)
+# ---------------------------------------------------------
+# Rule (b) alone cannot tell a *transient* truncation (scraper crashed
+# mid-pagination; the next run is fine) from a *permanent* board shrink (a
+# company really did cut 25% of its reqs). Both look identical on any
+# single run. Without a release, the permanent case latches FOREVER: the
+# stale OPEN rows keep `active_count` high, so every subsequent run trips,
+# and the company is frozen out of ingestion and lifecycle entirely.
+#
+# That is not a rare corner. Measured on prod, the probability that a
+# company's first recovered run latches (i.e. its board legitimately
+# shrank while the scraper was down) is 0.9% at 7 days dead, 4.3% at 14,
+# 10.8% at 30 and 18.5% at 56. It also interacts perversely with Unit 3:
+# the daily stale-scraper alert exists to get a human to repair a dead
+# scraper, and on the very first repaired run this guard would have had a
+# ~10-18% chance of instantly re-latching it — looking, to the alert,
+# exactly like "still broken". `appliedintuition` (228 open, 56d dead) and
+# `unity3d` (173 open, 28d) are live instances of that shape today.
+#
+# Resolution: repetition is the signal that separates the two cases. A
+# transient truncation is followed by a healthy run; a permanent shrink
+# returns the SAME reduced number over and over. So after
+# SCRAPER_GUARD_MAX_CONSECUTIVE_SKIPS consecutive `partial_scrape` trips
+# for the same company, we let ONE run through under rule (a) only.
+#
+# This is safe by construction, not by luck. Closure needs 2 *consecutive*
+# misses, and the run immediately after a release trips again (the release
+# run did not close anything, so `active_count` is unchanged). So a single
+# released run can NEVER close a job by itself — it can only take the
+# missing rows to consecutive_misses=1, and any genuinely healthy run in
+# between resets them to 0 via update_last_seen. Reconciling a real
+# permanent shrink therefore takes two full release cycles
+# (~2 * (N + 1) runs), which is slow on purpose.
+#
+# Rule (a) is NEVER released. A scrape returning under 10% of the board is
+# never a legitimate shrink — that is an outage, and freezing is correct.
+SCRAPER_GUARD_DEFAULTS: Dict[str, float] = {
+    "SCRAPER_GUARD_MIN_RATIO": 0.85,
+    "SCRAPER_GUARD_MIN_ABS_DROP": 15,
+    "SCRAPER_GUARD_MAX_CONSECUTIVE_SKIPS": 3,
+}
 
 
-def evaluate_safety_guard(jobs_seen: int, active_count: int) -> str | None:
+def _guard_env(name: str, lo: float, hi: float, *, cast: type) -> Any:
+    """Read one guard override from the environment, defensively.
+
+    These env vars are the operator's escape hatch, and the single moment
+    someone reaches for them is a live incident at 3am. Two failure modes
+    are therefore handled instead of being allowed to propagate:
+
+    * **Unparseable** (``SCRAPER_GUARD_MIN_RATIO=oops``). A bare
+      ``float()`` raises ``ValueError`` at MODULE IMPORT, and every one of
+      the six leaf tasks imports this module — so FastAPI would fail to
+      start and Railway would crash-loop the whole API over a typo in a
+      scraper tuning knob. We log an ERROR and fall back to the default.
+    * **Out of range** (``SCRAPER_GUARD_MIN_RATIO=85`` — percent instead
+      of ratio, an easy mistake). Unclamped, that would make
+      ``jobs_seen < 85 * active`` true for every company on every run and
+      freeze all 129 scrapers at once. We clamp into ``[lo, hi]`` and log.
+
+    ERROR (not WARNING) on both paths: see the routing note on the guard
+    log line below — Railway derives ``@level`` from the OS stream, and
+    stdout WARNINGs do not reach the ``@level:error`` filter operators
+    actually watch.
+    """
+    default = cast(SCRAPER_GUARD_DEFAULTS[name])
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+
+    try:
+        value = cast(raw)
+    except (TypeError, ValueError):
+        logger.error(
+            "%s=%r is not a valid %s — falling back to the calibrated "
+            "default %r. Fix the env var; the guard is running UNTUNED.",
+            name, raw, cast.__name__, default,
+        )
+        return default
+
+    if not lo <= value <= hi:
+        clamped = cast(min(max(value, lo), hi))
+        logger.error(
+            "%s=%r is outside the sane range [%s, %s] — clamping to %r. "
+            "(A ratio is a fraction, not a percentage: use 0.75, not 75.)",
+            name, value, lo, hi, clamped,
+        )
+        return clamped
+
+    return value
+
+
+# NOTE: these are bound at import time, so changing the env var requires a
+# process RESTART — it is not a live-reload lever. And note the direction:
+# to make the guard LESS eager (unfreeze a company) you must LOWER
+# SCRAPER_GUARD_MIN_RATIO toward 0.1, not raise it.
+SCRAPER_GUARD_MIN_RATIO: float = _guard_env(
+    "SCRAPER_GUARD_MIN_RATIO", 0.0, 1.0, cast=float
+)
+SCRAPER_GUARD_MIN_ABS_DROP: int = _guard_env(
+    "SCRAPER_GUARD_MIN_ABS_DROP", 1, 1_000_000, cast=int
+)
+SCRAPER_GUARD_MAX_CONSECUTIVE_SKIPS: int = _guard_env(
+    "SCRAPER_GUARD_MAX_CONSECUTIVE_SKIPS", 1, 1_000, cast=int
+)
+
+
+def evaluate_safety_guard(
+    jobs_seen: int,
+    active_count: int,
+    consecutive_partial_skips: int = 0,
+) -> str | None:
     """Decide whether a scrape result is too small to trust.
 
     THE single source of truth for the scraper safety guard. Pure and sync
@@ -116,16 +237,25 @@ def evaluate_safety_guard(jobs_seen: int, active_count: int) -> str | None:
         jobs_seen: Number of jobs the scrape actually returned.
         active_count: Number of rows currently OPEN in the DB for this
             company/source.
+        consecutive_partial_skips: How many runs in a row have ALREADY
+            been skipped for this company under ``"partial_scrape"``.
+            Callers normally get this from
+            ``database.count_consecutive_partial_skips``; ``resolve_
+            safety_guard`` does that plumbing. Left at 0 the function is
+            the plain stateless rule pair.
 
     Returns:
         ``None`` when the run looks healthy and the caller should proceed
-        with the update/close phases; otherwise a short machine-readable
-        reason string:
+        with the ingest/update/close phases; otherwise a short
+        machine-readable reason string:
 
         * ``"empty_scrape"``  — rule (a): jobs_seen < SAFETY_GUARD_RATIO
-          (10%) of active. A total or near-total scraper failure.
+          (10%) of active. A total or near-total scraper failure. Never
+          auto-released.
         * ``"partial_scrape"`` — rule (b): jobs_seen < 85% of active AND
           the absolute drop is at least 15 jobs. An Apple-style truncation.
+          Auto-released for one run once ``consecutive_partial_skips``
+          reaches ``SCRAPER_GUARD_MAX_CONSECUTIVE_SKIPS``.
 
         A cold start (``active_count == 0``) always returns ``None`` — with
         nothing in the DB there is nothing to protect and nothing to close.
@@ -140,9 +270,67 @@ def evaluate_safety_guard(jobs_seen: int, active_count: int) -> str | None:
         jobs_seen < SCRAPER_GUARD_MIN_RATIO * active_count
         and (active_count - jobs_seen) >= SCRAPER_GUARD_MIN_ABS_DROP
     ):
+        if consecutive_partial_skips >= SCRAPER_GUARD_MAX_CONSECUTIVE_SKIPS:
+            # Bounded auto-release: N identical truncations in a row is a
+            # permanent board shrink, not a transient scraper fault. Let
+            # this ONE run through so active_count can reconcile. See the
+            # constant block for why a single released run can't close
+            # anything on its own.
+            logger.error(
+                "SAFETY GUARD auto-release: %d consecutive partial_scrape "
+                "skips (limit %d) — allowing this run to reconcile "
+                "(seen=%d active=%d). A permanent board shrink is the only "
+                "thing that repeats identically; if this is actually a "
+                "persistently broken scraper, fix it — one released run "
+                "cannot close jobs by itself, two in a row can.",
+                consecutive_partial_skips,
+                SCRAPER_GUARD_MAX_CONSECUTIVE_SKIPS,
+                jobs_seen,
+                active_count,
+            )
+            return None
         return "partial_scrape"
 
     return None
+
+
+def resolve_safety_guard(
+    db_conn,
+    company: str,
+    jobs_seen: int,
+    active_count: int,
+) -> str | None:
+    """``evaluate_safety_guard`` plus the bounded auto-release lookup.
+
+    This is what all seven call sites use. Sync (async callers wrap it in
+    ``asyncio.to_thread``) so the pure rule logic above stays free of I/O
+    and trivially unit-testable.
+
+    The ``scrape_runs`` history read happens ONLY when rule (b) would
+    otherwise trip, never on the healthy path. That matters: a truncation
+    is rare (33 times in 7 months across the whole fleet), so this adds
+    zero cost to the ~3,100 healthy scrape runs per day and its query
+    shape is the same as the long-standing ``get_scrape_runs`` admin query.
+
+    Args:
+        db_conn: Database connection (read-only use).
+        company: Company id, as written to ``scrape_runs.company``.
+        jobs_seen: Number of jobs this scrape returned.
+        active_count: Number of currently-OPEN rows for the company.
+
+    Returns:
+        Same contract as ``evaluate_safety_guard``.
+    """
+    reason = evaluate_safety_guard(jobs_seen, active_count)
+    if reason != "partial_scrape":
+        return reason
+
+    prior_skips = db.count_consecutive_partial_skips(
+        db_conn, company, limit=SCRAPER_GUARD_MAX_CONSECUTIVE_SKIPS
+    )
+    return evaluate_safety_guard(
+        jobs_seen, active_count, consecutive_partial_skips=prior_skips
+    )
 
 
 class ScrapeResult:
@@ -363,12 +551,22 @@ async def run_incremental_scrape(
         # failures (0 jobs) and Apple-style truncations (crash after page N).
         # Logic lives in evaluate_safety_guard so this module and the six
         # backend ATS leaf tasks can never drift apart.
-        guard_reason = evaluate_safety_guard(result.jobs_seen, len(active_known_ids))
+        guard_reason = resolve_safety_guard(
+            db_conn, company, result.jobs_seen, len(active_known_ids)
+        )
         if guard_reason is not None:
-            logger.warning(
+            # ERROR (not WARNING) so Railway routes this to stderr — the
+            # platform's @level field is derived from the OS stream (see
+            # _configure_logging in main.py, which caps the stdout handler
+            # below ERROR). This is the SAME routing requirement the six ATS
+            # leaf tasks have always honored. It was a WARNING here, which
+            # meant the 126 ATS companies surfaced under @level:error and
+            # google/apple/microsoft — the script-scraped companies, i.e.
+            # the exact ones this change exists for — silently did not.
+            logger.error(
                 "SAFETY GUARD (%s) for %s: scraper returned %d jobs but %d active "
                 "jobs in database (empty<%.0f%%, partial<%.0f%% with drop>=%d). "
-                "Skipping update/close phases to prevent mass closure. "
+                "Skipping ingest/update/close phases to prevent mass closure. "
                 "Investigate scraper health.",
                 guard_reason, company, result.jobs_seen, len(active_known_ids),
                 SAFETY_GUARD_RATIO * 100, SCRAPER_GUARD_MIN_RATIO * 100,

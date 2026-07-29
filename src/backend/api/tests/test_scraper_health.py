@@ -229,9 +229,18 @@ class TestScraperHealthRoute:
 
         app = FastAPI()
         app.middleware("http")(require_internal_key)
-        # NOTE: no ``require_admin`` override is registered. If the route ever
-        # grows a ``Depends(require_admin)`` this fixture fails outright,
-        # which is the point.
+        # No ``require_admin`` override is registered, because this route
+        # deliberately does not use ``require_admin`` — the scheduled GitHub
+        # Action can present a static header but cannot mint an admin JWT.
+        #
+        # That is NOT the whole authorization story, and an earlier version of
+        # this comment wrongly implied it was. ``api/jobs-qa.ts`` is a public
+        # Vercel function that attaches ``X-Internal-Key`` unconditionally, so
+        # the internal-key middleware alone would leave this route reachable
+        # anonymously from the internet. The proxy refuses anonymous requests
+        # outright — see the gate at the top of ``api/jobs-qa.ts`` and
+        # ``jobs-qa.serverless.test.ts::rejects an anonymous request with 401``,
+        # which is the test that actually pins the public-exposure boundary.
         app.include_router(jobs_qa.router, prefix="/api/jobs-qa")
 
         def override_get_db():

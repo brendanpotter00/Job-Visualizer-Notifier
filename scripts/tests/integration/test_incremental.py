@@ -4,6 +4,8 @@ Integration tests for incremental scraping algorithm (shared/incremental.py)
 Tests the 5-phase algorithm with mocked scraper and real database.
 """
 
+import logging
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -21,6 +23,7 @@ from shared.incremental import (
     ScrapeResult,
     MISSED_RUN_THRESHOLD,
     SAFETY_GUARD_RATIO,
+    SCRAPER_GUARD_MAX_CONSECUTIVE_SKIPS,
 )
 
 
@@ -647,6 +650,255 @@ class TestRunIncrementalScrape:
         assert row is not None
         assert row["skipped_update"] is True
         assert row["error_count"] == 1
+
+
+class TestGuardLogRouting:
+    """The guard trip must reach Railway's ``@level:error`` filter."""
+
+    @pytest.mark.asyncio
+    async def test_guard_trip_logs_at_error_level(
+        self, in_memory_db, mock_scraper, caplog
+    ):
+        """Must be ERROR, not WARNING.
+
+        ``_configure_logging`` in ``src/backend/api/main.py`` caps the
+        stdout handler below ERROR and sends ERROR+ to stderr, and Railway
+        derives its ``@level`` field from the OS stream. A WARNING here
+        therefore never appears in the ``@level:error`` query operators
+        actually watch.
+
+        This mattered specifically: the six ATS leaf tasks have always
+        logged the guard at ERROR (with a load-bearing comment saying why),
+        while THIS path — the one used by the script-scraped companies,
+        i.e. google/apple/microsoft — logged at WARNING. Apple, the company
+        this entire change exists for, was the one silently outside the
+        filter.
+        """
+        for i in range(200):
+            db.insert_job(
+                in_memory_db,
+                JobListing(
+                    id=f"job-{i}",
+                    title=f"Job {i}",
+                    company="apple",
+                    url=f"https://example.com/job-{i}",
+                    source_id=SourceId.GOOGLE,
+                    created_at="2024-01-10T10:00:00Z",
+                    first_seen_at="2024-01-10T10:00:00Z",
+                    last_seen_at="2024-01-10T10:00:00Z",
+                ),
+            )
+
+        mock_scraper.scrape_all_queries = AsyncMock(return_value=[
+            {"id": f"job-{i}", "title": f"Job {i}", "job_url": f"https://example.com/job-{i}"}
+            for i in range(100)
+        ])
+
+        with caplog.at_level(logging.WARNING, logger="shared.incremental"):
+            await run_incremental_scrape(
+                mock_scraper, in_memory_db, company="apple", detail_scrape=False
+            )
+
+        guard_records = [
+            r for r in caplog.records if "SAFETY GUARD" in r.getMessage()
+        ]
+        assert guard_records, "no SAFETY GUARD log line was emitted at all"
+        assert all(r.levelno == logging.ERROR for r in guard_records), (
+            "the safety-guard log must be ERROR so Railway routes it to "
+            "stderr and it shows up under @level:error; got "
+            f"{[r.levelname for r in guard_records]}"
+        )
+
+
+class TestBoundedAutoReleaseEndToEnd:
+    """The auto-release, exercised through the real DB history read.
+
+    ``TestBoundedAutoRelease`` in ``tests/unit/test_incremental_diff.py``
+    pins the pure decision. These tests prove the wiring: that
+    ``resolve_safety_guard`` actually reads ``scrape_runs.skipped_update``,
+    that the streak is counted correctly, and — the part that matters
+    operationally — that a released run still cannot mass-close anything.
+    """
+
+    @staticmethod
+    def _seed(in_memory_db, total, company="apple"):
+        jobs = [
+            JobListing(
+                id=f"job-{i}",
+                title=f"Job {i}",
+                company=company,
+                url=f"https://example.com/job-{i}",
+                source_id=SourceId.GOOGLE,
+                created_at="2024-01-10T10:00:00Z",
+                first_seen_at="2024-01-10T10:00:00Z",
+                last_seen_at="2024-01-10T10:00:00Z",
+                consecutive_misses=0,
+            )
+            for i in range(total)
+        ]
+        db.insert_jobs_batch(in_memory_db, jobs)
+
+    @staticmethod
+    def _cards(returned):
+        return [
+            {"id": f"job-{i}", "title": f"Job {i}", "job_url": f"https://example.com/job-{i}"}
+            for i in range(returned)
+        ]
+
+    @pytest.mark.asyncio
+    async def test_permanent_shrink_releases_after_n_consecutive_skips(
+        self, in_memory_db, mock_scraper
+    ):
+        """The reviewer's scenario: a company permanently cuts its board
+        from 200 to 150 and keeps returning 150 forever.
+
+        Runs 1..N are skipped (the guard cannot yet tell a permanent shrink
+        from a transient truncation). Run N+1 is released so the DB can
+        reconcile — otherwise the company is frozen out of ingestion and
+        lifecycle indefinitely, which is what shipped before this fix.
+        """
+        self._seed(in_memory_db, 200)
+        mock_scraper.scrape_all_queries = AsyncMock(return_value=self._cards(150))
+
+        skipped_flags = []
+        for _ in range(SCRAPER_GUARD_MAX_CONSECUTIVE_SKIPS + 1):
+            result = await run_incremental_scrape(
+                mock_scraper, in_memory_db, company="apple", detail_scrape=False
+            )
+            skipped_flags.append(result.skipped_update)
+
+        assert skipped_flags[:SCRAPER_GUARD_MAX_CONSECUTIVE_SKIPS] == [True] * (
+            SCRAPER_GUARD_MAX_CONSECUTIVE_SKIPS
+        ), "the guard must latch first — releasing immediately would defeat it"
+        assert skipped_flags[-1] is False, (
+            "after N consecutive partial skips the guard must release one run; "
+            "without this the company is frozen forever"
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_single_released_run_closes_nothing(
+        self, in_memory_db, mock_scraper
+    ):
+        """The safety property that makes the release acceptable.
+
+        Closure needs MISSED_RUN_THRESHOLD (2) *consecutive* misses, and
+        the run right after a release trips again (the release closed
+        nothing, so active_count is unchanged). So one released run can
+        only take the missing rows to consecutive_misses=1 — never to
+        CLOSED. A genuinely healthy run in between resets them to 0.
+        """
+        self._seed(in_memory_db, 200)
+        mock_scraper.scrape_all_queries = AsyncMock(return_value=self._cards(150))
+
+        for _ in range(SCRAPER_GUARD_MAX_CONSECUTIVE_SKIPS + 1):
+            await run_incremental_scrape(
+                mock_scraper, in_memory_db, company="apple", detail_scrape=False
+            )
+
+        cursor = in_memory_db.cursor()
+        cursor.execute(
+            "SELECT count(*) AS n FROM job_listings "
+            "WHERE company = 'apple' AND status = 'CLOSED'"
+        )
+        assert cursor.fetchone()["n"] == 0, (
+            "a single released run closed jobs — the release is only safe "
+            "because closure requires two consecutive non-guarded misses"
+        )
+
+        cursor.execute(
+            "SELECT max(consecutive_misses) AS m FROM job_listings "
+            "WHERE company = 'apple'"
+        )
+        assert cursor.fetchone()["m"] == 1
+
+    @pytest.mark.asyncio
+    async def test_a_healthy_run_resets_the_streak(
+        self, in_memory_db, mock_scraper
+    ):
+        """A transient truncation must NOT accumulate toward a release.
+
+        Two skips, then one healthy run, then two more skips = five runs
+        but never N in a row, so the guard stays latched. This is the case
+        the release must not fire on: an intermittent scraper, not a real
+        shrink.
+        """
+        self._seed(in_memory_db, 200)
+
+        truncated = AsyncMock(return_value=self._cards(150))
+        healthy = AsyncMock(return_value=self._cards(200))
+
+        flags = []
+        for scrape in (truncated, truncated, healthy, truncated, truncated):
+            mock_scraper.scrape_all_queries = scrape
+            result = await run_incremental_scrape(
+                mock_scraper, in_memory_db, company="apple", detail_scrape=False
+            )
+            flags.append(result.skipped_update)
+
+        assert flags == [True, True, False, True, True], (
+            "an intervening healthy run must reset the consecutive-skip "
+            "streak; otherwise a flaky scraper eventually earns a release"
+        )
+
+    @pytest.mark.asyncio
+    async def test_null_skipped_update_rows_do_not_count_toward_release(
+        self, in_memory_db, mock_scraper
+    ):
+        """Pre-column rows are NULL = "unknown", and an unknown must never
+        be counted as evidence for releasing a destructive guard.
+
+        Seeds N historical runs with skipped_update IS NULL (exactly what
+        every row written before migration ae99a1939dc1 looks like) and
+        asserts the very next truncated run still latches.
+        """
+        self._seed(in_memory_db, 200)
+
+        cursor = in_memory_db.cursor()
+        for i in range(SCRAPER_GUARD_MAX_CONSECUTIVE_SKIPS + 2):
+            cursor.execute(
+                "INSERT INTO scrape_runs (run_id, company, started_at, mode, "
+                "jobs_seen, skipped_update) VALUES (%s, 'apple', %s, 'incremental', 150, NULL)",
+                (f"legacy-{i}", f"2020-01-0{i + 1}T00:00:00Z"),
+            )
+        in_memory_db.commit()
+
+        mock_scraper.scrape_all_queries = AsyncMock(return_value=self._cards(150))
+        result = await run_incremental_scrape(
+            mock_scraper, in_memory_db, company="apple", detail_scrape=False
+        )
+
+        assert result.skipped_update is True
+
+    @pytest.mark.asyncio
+    async def test_streak_is_scoped_per_company(self, in_memory_db, mock_scraper):
+        """One company's skips must not release another's guard."""
+        self._seed(in_memory_db, 200, company="apple")
+        self._seed(in_memory_db, 200, company="google")
+
+        cursor = in_memory_db.cursor()
+        for i in range(SCRAPER_GUARD_MAX_CONSECUTIVE_SKIPS + 2):
+            cursor.execute(
+                "INSERT INTO scrape_runs (run_id, company, started_at, mode, "
+                "jobs_seen, skipped_update) VALUES (%s, 'google', %s, 'incremental', 150, TRUE)",
+                (f"g-{i}", f"2020-01-0{i + 1}T00:00:00Z"),
+            )
+        in_memory_db.commit()
+
+        mock_scraper.scrape_all_queries = AsyncMock(
+            return_value=[
+                {"id": f"job-{i}", "title": f"Job {i}",
+                 "job_url": f"https://example.com/job-{i}"}
+                for i in range(150)
+            ]
+        )
+        result = await run_incremental_scrape(
+            mock_scraper, in_memory_db, company="apple", detail_scrape=False
+        )
+
+        assert result.skipped_update is True, (
+            "google's skip streak released apple's guard — the history read "
+            "is not filtered by company"
+        )
 
 
 class TestScrapeResult:
