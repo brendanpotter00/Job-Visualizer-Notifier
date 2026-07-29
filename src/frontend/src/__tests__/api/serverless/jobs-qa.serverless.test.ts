@@ -43,55 +43,92 @@ describe('/api/jobs-qa serverless function', () => {
     vi.clearAllMocks();
   });
 
-  describe('anonymous-request gate', () => {
+  describe('scraper-health is not routable through the public proxy', () => {
     /**
-     * SECURITY BOUNDARY. This function is a public internet endpoint
-     * (vercel.json maps `/api/jobs-qa/:path(.*)` here) and it attaches
-     * `X-Internal-Key` unconditionally, so it always satisfies the backend's
-     * `require_internal_key` middleware. Before this gate existed, the only
-     * thing stopping anonymous access was that every jobs-qa route happened
-     * to carry `Depends(require_admin)` — so adding one route without it
-     * (`GET /scraper-health`, which the scheduled GitHub Action needs to
-     * reach with a static header) silently published the internal company
-     * roster, per-company open-job counts, and scraper staleness to anyone
-     * with curl.
+     * SECURITY BOUNDARY.
      *
-     * These tests must fail loudly if that gate is ever removed or narrowed
-     * to specific paths.
+     * This function is a public internet endpoint and attaches
+     * `X-Internal-Key` unconditionally, so it always clears the backend's
+     * `require_internal_key` middleware. The only real identity check on any
+     * jobs-qa route is `Depends(require_admin)` on the backend, and
+     * `GET /scraper-health` deliberately has none (the scheduled Action
+     * cannot mint an admin JWT). So for that route the proxy IS the
+     * perimeter, and it cannot verify a token.
+     *
+     * A previous fix here checked only that an `Authorization` header was
+     * present. Driving the real handler proved that useless:
+     * `Authorization: garbage` and `Authorization: 0` both reached upstream
+     * and returned the internal roster. The tests below are written as
+     * falsification attempts against exactly that mistake — every one of
+     * them supplies a credential and still demands a 404.
      */
-    it('rejects an anonymous request with 401 and never calls upstream', async () => {
-      mockReq.query = { path: 'scraper-health', thresholdHours: '720' };
+    const FABRICATED_CREDENTIALS = [
+      'garbage',
+      'Bearer x',
+      'Bearer admin-token',
+      '0',
+      'Basic YWRtaW46YWRtaW4=',
+      'Bearer eyJhbGciOiJub25lIn0.eyJzdWIiOiJhZG1pbiJ9.',
+    ];
+
+    it.each(FABRICATED_CREDENTIALS)(
+      'returns 404 and never calls upstream with Authorization: %s',
+      async (authorization) => {
+        mockReq.query = { path: 'scraper-health', thresholdHours: '720' };
+        mockReq.headers = { authorization };
+
+        await handler(mockReq as VercelRequest, mockRes as VercelResponse);
+
+        expect(mockRes.status).toHaveBeenCalledWith(404);
+        expect(mockRes.json).toHaveBeenCalledWith({ detail: 'Not Found' });
+        // The upstream call must not happen AT ALL — the proxy holds the
+        // internal key, so forwarding and letting the backend decide is
+        // precisely the hole being closed.
+        expect(fetchMock).not.toHaveBeenCalled();
+      }
+    );
+
+    it('returns 404 with no Authorization header at all', async () => {
+      mockReq.query = { path: 'scraper-health' };
+      mockReq.headers = {};
+
+      await handler(mockReq as VercelRequest, mockRes as VercelResponse);
+
+      expect(mockRes.status).toHaveBeenCalledWith(404);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('404s before the anonymous pre-filter, so the path is indistinguishable from unrouted', async () => {
+      // Ordering matters: if the presence check ran first, an anonymous
+      // request would get 401 and a credentialed one 404, and the
+      // difference would advertise that the path exists.
+      mockReq.query = { path: 'scraper-health' };
+      mockReq.headers = {};
+      await handler(mockReq as VercelRequest, mockRes as VercelResponse);
+      expect(mockRes.status).toHaveBeenCalledWith(404);
+      expect(mockRes.status).not.toHaveBeenCalledWith(401);
+    });
+  });
+
+  describe('anonymous pre-filter on proxied routes', () => {
+    it('rejects a credential-less request without calling upstream', async () => {
+      // Not a security boundary — these routes are admin-gated on the
+      // backend and would 401 there anyway. This just avoids a pointless
+      // upstream round trip.
+      mockReq.query = { path: 'scrape-runs' };
       mockReq.headers = {};
 
       await handler(mockReq as VercelRequest, mockRes as VercelResponse);
 
       expect(mockRes.status).toHaveBeenCalledWith(401);
-      expect(mockRes.json).toHaveBeenCalledWith({ detail: 'Unauthorized' });
-      // The upstream call must not happen at all — the proxy holds the
-      // internal key, so forwarding first and relying on the backend to
-      // refuse is exactly the hole being closed.
       expect(fetchMock).not.toHaveBeenCalled();
     });
 
-    it('rejects anonymous requests to every jobs-qa path, not just scraper-health', async () => {
-      // The gate is path-agnostic on purpose: it must protect future routes
-      // that forget `require_admin`, not just the one that exposed the bug.
-      for (const path of ['scraper-health', 'scrape-runs', 'stats', 'trigger-scrape']) {
-        vi.clearAllMocks();
-        mockReq.query = { path };
-        mockReq.headers = {};
-
-        await handler(mockReq as VercelRequest, mockRes as VercelResponse);
-
-        expect(mockRes.status).toHaveBeenCalledWith(401);
-        expect(fetchMock).not.toHaveBeenCalled();
-      }
-    });
-
-    it('lets an authenticated request through to the backend', async () => {
-      mockReq.query = { path: 'scraper-health' };
+    it('forwards a credentialed request to an admin-gated route', async () => {
+      // The backend, not this proxy, decides whether the token is real.
+      mockReq.query = { path: 'scrape-runs' };
       mockReq.headers = { authorization: 'Bearer admin-token' };
-      fetchMock.mockResolvedValue(mockJsonResponse(200, { staleCount: 0 }));
+      fetchMock.mockResolvedValue(mockJsonResponse(200, []));
 
       await handler(mockReq as VercelRequest, mockRes as VercelResponse);
 

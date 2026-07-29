@@ -5,49 +5,73 @@ import { getInternalKeyHeader } from './utils/internalKey';
 
 const METHODS_WITH_BODY = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // ===================================================================
-  // Anonymous requests are refused HERE, before any upstream call.
-  //
-  // This function is a *public* internet endpoint (vercel.json maps
-  // `/api/jobs-qa/:path(.*)` to it) and it attaches X-Internal-Key
-  // UNCONDITIONALLY via getInternalKeyHeader(). So the proxy always holds
-  // the key that satisfies the backend's require_internal_key middleware —
-  // it is a second front door that is already inside the building.
-  //
-  // Until now that was safe only by accident: every route behind
-  // /api/jobs-qa also carried `Depends(require_admin)`, so a request
-  // arriving without an Authorization header got a 401 from the backend.
-  // `GET /scraper-health` is deliberately NOT admin-gated (the scheduled
-  // GitHub Action can present a static header but cannot mint an admin
-  // JWT), which removed that last line of defence for that one route —
-  // exposing the full internal company roster, each company's ATS, its
-  // open-job count and exactly how stale its scraper is, to
-  // `curl https://<app>/api/jobs-qa/scraper-health?thresholdHours=720`
-  // from anywhere. CORS does not help: it is browser-side and curl
-  // ignores it. Secondary cost: that endpoint runs a full aggregate over
-  // job_listings while holding a pooled backend connection — cf.
-  // docs/incidents/2026-05-17-recent-jobs-pool-exhaustion.md.
-  //
-  // Gating at the proxy rather than per-route fixes it for every present
-  // AND future jobs-qa route, and keeps the fix in one place. The GitHub
-  // Action is unaffected: it calls the Railway backend directly with the
-  // internal key and never transits this function.
-  //
-  // Every legitimate browser caller is admin-authenticated already —
-  // QAPage is wrapped in AdminRoute and attaches `Bearer <token>` to both
-  // of its /api/jobs-qa fetches.
-  // ===================================================================
-  if (!req.headers.authorization) {
-    res.status(401).json({ detail: 'Unauthorized' });
-    return;
-  }
+/**
+ * Backend jobs-qa paths this proxy refuses to forward, at any time, with
+ * or without credentials.
+ *
+ * WHY A DENYLIST AND NOT AN AUTH CHECK. This function is a *public*
+ * internet endpoint (vercel.json maps `/api/jobs-qa/:path(.*)` here) and
+ * it attaches X-Internal-Key UNCONDITIONALLY, so it always satisfies the
+ * backend's `require_internal_key` middleware. It is a second front door
+ * that is already inside the building. The only thing that has ever
+ * protected these routes is `Depends(require_admin)` on the backend,
+ * which verifies a real Auth0 JWT.
+ *
+ * `GET /scraper-health` deliberately has no `require_admin` — the
+ * scheduled GitHub Action can present a static header but cannot mint an
+ * admin JWT. So for that one route the backend performs NO identity
+ * check, and anything this proxy forwards is served.
+ *
+ * A previous attempt gated on "is an Authorization header present?".
+ * That does not work and was proven not to: the proxy cannot *verify* a
+ * token, so `curl -H "Authorization: x"` sailed straight through and
+ * returned the full internal company roster — every company id, ATS,
+ * openJobs, lastSeenAt, hoursStale. Presence is not authentication.
+ *
+ * Verifying the JWT here was the alternative. Rejected: it would mean a
+ * second, independently-maintained Auth0 verification path (JWKS fetch,
+ * caching, clock skew, algorithm pinning) in a serverless function, i.e.
+ * a second place to get auth subtly wrong, to protect routes the backend
+ * already authenticates correctly.
+ *
+ * So: routes with no backend identity check are simply not reachable
+ * through the public proxy. Nothing needs them here — QAPage only calls
+ * `scrape-runs` and `trigger-scrape`, and the GitHub Action hits Railway
+ * directly with the internal key and never transits Vercel.
+ *
+ * 404, not 401/403: from the public internet this path genuinely is not
+ * routed, and saying so leaks nothing about what exists behind the proxy.
+ *
+ * KEEPING THIS HONEST: `test_proxy_denies_non_admin_jobs_qa_routes` in
+ * src/backend/api/tests/test_scraper_health.py enumerates every route on
+ * the backend `jobs_qa` router, finds the ones lacking `require_admin`,
+ * and asserts each one appears in this list. Add an internal-key-only
+ * route to that router and the backend test suite fails until it is
+ * denied here too.
+ */
+const NOT_PROXIED_PATHS = new Set(['scraper-health']);
 
+export default async function handler(req: VercelRequest, res: VercelResponse) {
   const { path, ...queryParams } = req.query;
 
   // Build the path from the catch-all route
   const pathParts = Array.isArray(path) ? path : [path].filter(Boolean);
   const targetPath = pathParts.join('/');
+
+  if (NOT_PROXIED_PATHS.has(targetPath)) {
+    res.status(404).json({ detail: 'Not Found' });
+    return;
+  }
+
+  // Cheap pre-filter, NOT an authorization decision. Every route that IS
+  // proxied is admin-gated on the backend and would 401 anyway; rejecting
+  // here just avoids a pointless upstream round trip. Deliberately not
+  // relied on for security — see NOT_PROXIED_PATHS above for why presence
+  // of a header proves nothing.
+  if (!req.headers.authorization) {
+    res.status(401).json({ detail: 'Unauthorized' });
+    return;
+  }
 
   // Build query string from remaining params
   const params = new URLSearchParams();

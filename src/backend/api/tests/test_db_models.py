@@ -77,6 +77,7 @@ def test_scrape_runs_columns():
         "details_fetched",
         "error_count",
         "skipped_update",
+        "guard_reason",
     }
 
 
@@ -96,6 +97,30 @@ def test_scrape_runs_skipped_update_is_nullable_with_no_server_default():
     assert col.nullable is True
     assert col.server_default is None
     assert col.default is None
+
+
+def test_scrape_runs_guard_reason_is_nullable_text():
+    """``guard_reason`` records WHICH rule tripped. Not redundant with
+    ``skipped_update``: both rules set that boolean, so counting it let a
+    dead scraper's ``empty_scrape`` runs release the next truncated run."""
+    col = db_models.Base.metadata.tables["scrape_runs"].c["guard_reason"]
+    assert col.nullable is True
+    assert col.server_default is None
+    assert col.default is None
+
+
+def test_scrape_runs_has_company_started_at_index():
+    """Without it, ``count_consecutive_partial_skips`` is a Parallel Seq
+    Scan over ~452k rows (~70 MB buffers) — the LIMIT bounds the top-N
+    heapsort, not the scan."""
+    table = db_models.Base.metadata.tables["scrape_runs"]
+    by_name = {idx.name: idx for idx in table.indexes}
+    assert "idx_scrape_runs_company_started_at" in by_name, sorted(by_name)
+    cols = [c.name for c in by_name["idx_scrape_runs_company_started_at"].columns]
+    assert cols == ["company", "started_at"], (
+        "company must lead — the query filters on company and only then "
+        f"orders by started_at; got {cols}"
+    )
 
 
 def test_users_email_unique_constraint_named():

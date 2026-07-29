@@ -3,7 +3,7 @@
 Per-company unit of work for the eightfold fan-out cron (see Unit 5).
 Fetches the live Eightfold Job Board API for one company, upserts rows
 into ``job_listings``, advances the consecutive-misses lifecycle, marks
-jobs CLOSED once misses exceed ``MISSED_RUN_THRESHOLD``, and records a
+jobs CLOSED once misses reach the run's miss threshold, and records a
 single ``scrape_runs`` row.
 
 Structurally identical to ``fetch_ashby_company.py`` (and so to
@@ -45,7 +45,7 @@ from procrastinate import exceptions as procrastinate_exceptions
 
 from scripts.shared import database as db
 from scripts.shared.incremental import (
-    MISSED_RUN_THRESHOLD,
+    GuardReason,
     SAFETY_GUARD_RATIO,
     SCRAPER_GUARD_MIN_ABS_DROP,
     SCRAPER_GUARD_MIN_RATIO,
@@ -137,6 +137,7 @@ async def fetch_eightfold_company(
     closed_jobs_count = 0
     error_count = 0
     skipped_update = False
+    guard_reason: GuardReason | None = None
     new_ids: Set[str] = set()
     scrape_error: BaseException | None = None
 
@@ -155,7 +156,7 @@ async def fetch_eightfold_company(
         try:
             async def _work() -> None:
                 nonlocal jobs_seen, new_jobs_count, closed_jobs_count, error_count
-                nonlocal new_ids, skipped_update
+                nonlocal new_ids, skipped_update, guard_reason
                 async with httpx.AsyncClient() as http:
                     raw_jobs = await fetch_jobs(tenant_host, domain, http)
                 jobs = transform_to_job_listings(company_id, raw_jobs)
@@ -170,9 +171,10 @@ async def fetch_eightfold_company(
                 # when rule (b) would otherwise trip, so the healthy path pays
                 # nothing. to_thread because the helper is sync psycopg2, like
                 # every other db call in this task.
-                guard_reason = await asyncio.to_thread(
+                decision = await asyncio.to_thread(
                     resolve_safety_guard, conn, company_id, jobs_seen, active_count
                 )
+                guard_reason = decision.reason
                 if guard_reason is not None:
                     # ERROR routes to stderr → Railway @level:error queries.
                     logger.error(
@@ -223,13 +225,30 @@ async def fetch_eightfold_company(
                         conn,
                         SOURCE_ID,
                         list(missing_ids),
-                        MISSED_RUN_THRESHOLD,
+                        # decision.miss_threshold, NOT MISSED_RUN_THRESHOLD:
+                        # an auto-released run closes one miss later, which is
+                        # what makes "a single released run cannot close
+                        # anything" provable rather than hopeful.
+                        decision.miss_threshold,
                     )
                     if to_close:
                         await asyncio.to_thread(
                             db.mark_jobs_closed, conn, SOURCE_ID, list(to_close), timestamp,
                         )
                         closed_jobs_count = len(to_close)
+                        if decision.released:
+                            # Whatever an auto-released run closes, a human
+                            # should see. ERROR for the same stderr /
+                            # @level:error routing reason as the guard log.
+                            logger.error(
+                                "AUTO-RELEASED run for %s closed %d job(s) at "
+                                "threshold %d (seen=%d active=%d). If the "
+                                "scraper is broken rather than the board "
+                                "genuinely smaller, fix it — these rows "
+                                "reactivate on the next healthy scrape.",
+                                company_id, closed_jobs_count,
+                                decision.miss_threshold, jobs_seen, active_count,
+                            )
 
                 logger.info(
                     "fetch_eightfold_company %s: seen=%d new=%d closed=%d",
@@ -305,6 +324,7 @@ async def fetch_eightfold_company(
             details_fetched=0,
             error_count=error_count,
             skipped_update=skipped_update,
+            guard_reason=guard_reason,
         )
         try:
             await asyncio.to_thread(db.record_scrape_run, conn, run_record)

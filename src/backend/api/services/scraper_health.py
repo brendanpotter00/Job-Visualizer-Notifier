@@ -37,9 +37,26 @@ Practical consequence: this is sized for the ONCE-DAILY scheduled check
 (.github/workflows/scraper-health.yml). It is not safe as a per-request or
 polled endpoint — each call is a full-table aggregate holding a pooled
 backend connection for its duration; cf.
-``docs/incidents/2026-05-17-recent-jobs-pool-exhaustion.md``. The
-anonymous-request gate in ``api/jobs-qa.ts`` is what keeps an unauthenticated
-caller from turning that into a trivial resource-exhaustion lever.
+``docs/incidents/2026-05-17-recent-jobs-pool-exhaustion.md``.
+
+Reachability
+------------
+The route in front of this (``GET /api/jobs-qa/scraper-health``) carries
+NO ``require_admin`` — the scheduled GitHub Action can present a static
+header but cannot mint an admin JWT — so ``require_internal_key`` is its
+only gate, and the public Vercel proxy holds that key unconditionally.
+
+The proxy therefore refuses to route this path at all: ``scraper-health``
+is in ``NOT_PROXIED_PATHS`` in ``api/jobs-qa.ts`` and returns 404 from the
+public internet regardless of credentials. Reaching this endpoint means
+talking to Railway directly with ``X-Internal-Key``.
+
+Do NOT read that as "the proxy authenticates callers". It cannot: an
+earlier attempt only checked that an ``Authorization`` header was
+*present*, which ``curl -H "Authorization: x"`` trivially satisfied.
+``test_proxy_denies_non_admin_jobs_qa_routes`` (in
+``api/tests/test_scraper_health.py``) is what keeps the denylist in sync
+with the routes that lack ``require_admin``.
 
 Connection contract (SELECT-only): the single statement is a ``SELECT`` and
 this module never commits. ``conn.rollback()`` runs in a ``finally`` so the

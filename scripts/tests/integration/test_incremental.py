@@ -24,6 +24,7 @@ from shared.incremental import (
     MISSED_RUN_THRESHOLD,
     SAFETY_GUARD_RATIO,
     SCRAPER_GUARD_MAX_CONSECUTIVE_SKIPS,
+    RELEASED_RUN_MISS_THRESHOLD,
 )
 
 
@@ -776,16 +777,15 @@ class TestBoundedAutoReleaseEndToEnd:
         )
 
     @pytest.mark.asyncio
-    async def test_a_single_released_run_closes_nothing(
+    async def test_a_single_released_run_closes_nothing_on_a_pristine_board(
         self, in_memory_db, mock_scraper
     ):
-        """The safety property that makes the release acceptable.
+        """Baseline (weak) case: no job carries prior miss evidence.
 
-        Closure needs MISSED_RUN_THRESHOLD (2) *consecutive* misses, and
-        the run right after a release trips again (the release closed
-        nothing, so active_count is unchanged). So one released run can
-        only take the missing rows to consecutive_misses=1 — never to
-        CLOSED. A genuinely healthy run in between resets them to 0.
+        Kept, but do NOT mistake it for proof — it is a confirming instance.
+        The falsifying case is the next test, where jobs enter the freeze
+        already at misses=1; that is what exposed the original
+        "can never close anything" claim as false.
         """
         self._seed(in_memory_db, 200)
         mock_scraper.scrape_all_queries = AsyncMock(return_value=self._cards(150))
@@ -800,16 +800,219 @@ class TestBoundedAutoReleaseEndToEnd:
             "SELECT count(*) AS n FROM job_listings "
             "WHERE company = 'apple' AND status = 'CLOSED'"
         )
-        assert cursor.fetchone()["n"] == 0, (
-            "a single released run closed jobs — the release is only safe "
-            "because closure requires two consecutive non-guarded misses"
-        )
+        assert cursor.fetchone()["n"] == 0
 
         cursor.execute(
             "SELECT max(consecutive_misses) AS m FROM job_listings "
             "WHERE company = 'apple'"
         )
         assert cursor.fetchone()["m"] == 1
+
+    @pytest.mark.asyncio
+    async def test_released_run_closes_nothing_when_jobs_carry_prior_misses(
+        self, in_memory_db, mock_scraper
+    ):
+        """FALSIFICATION TEST — this is the one that matters.
+
+        ``consecutive_misses`` PERSISTS across guard trips, because a tripped
+        run is a total no-op on ``job_listings``. So jobs that already carry
+        a miss from an earlier healthy run walk into the freeze one step from
+        closure, and the released run finishes them off.
+
+        Replays the reviewer's A/B exactly: a 1000-job board where every job
+        stays live throughout. Run 1 is a sub-threshold hiccup returning 870
+        (87% — correctly does NOT trip, and correctly records one miss for
+        the 130 jobs it did not return). Runs 2..N+1 truncate to 500. With
+        the released run using the ordinary MISSED_RUN_THRESHOLD, run N+1
+        closed all 130 live jobs. It must close zero.
+        """
+        total, hiccup, truncated = 1000, 870, 500
+        self._seed(in_memory_db, total)
+
+        # Run 1: sub-threshold hiccup. 870/1000 = 87% > 85%, and this is
+        # exactly the shape the guard is designed NOT to catch.
+        mock_scraper.scrape_all_queries = AsyncMock(return_value=self._cards(hiccup))
+        first = await run_incremental_scrape(
+            mock_scraper, in_memory_db, company="apple", detail_scrape=False
+        )
+        assert first.skipped_update is False, "hiccup should not trip the guard"
+        assert first.closed_jobs == 0
+
+        cursor = in_memory_db.cursor()
+        cursor.execute(
+            "SELECT count(*) AS n FROM job_listings "
+            "WHERE company = 'apple' AND consecutive_misses = 1"
+        )
+        primed = cursor.fetchone()["n"]
+        assert primed == total - hiccup == 130, (
+            "test setup failed to prime any jobs with a prior miss — without "
+            "that this degenerates into the weak pristine-board case"
+        )
+
+        # Runs 2..N+1: sustained truncation, ending on the released run.
+        mock_scraper.scrape_all_queries = AsyncMock(return_value=self._cards(truncated))
+        flags = []
+        for _ in range(SCRAPER_GUARD_MAX_CONSECUTIVE_SKIPS + 1):
+            result = await run_incremental_scrape(
+                mock_scraper, in_memory_db, company="apple", detail_scrape=False
+            )
+            flags.append(result.skipped_update)
+
+        assert flags[-1] is False, "the run under test must be the released one"
+
+        cursor.execute(
+            "SELECT count(*) AS n FROM job_listings "
+            "WHERE company = 'apple' AND status = 'CLOSED'"
+        )
+        closed = cursor.fetchone()["n"]
+        assert closed == 0, (
+            f"{closed} live jobs were closed by a single released run. Jobs "
+            "entering a freeze can already carry MISSED_RUN_THRESHOLD-1 "
+            "misses, so the released run must close at "
+            "RELEASED_RUN_MISS_THRESHOLD, not MISSED_RUN_THRESHOLD."
+        )
+
+    @pytest.mark.asyncio
+    async def test_two_release_cycles_do_reconcile_a_permanent_shrink(
+        self, in_memory_db, mock_scraper
+    ):
+        """The stricter released-run threshold must not break liveness.
+
+        Raising the bar so one release can't close anything is only correct
+        if repeated releases still reconcile — otherwise the freeze is
+        permanent again, just with extra steps. Drives enough cycles to
+        reach RELEASED_RUN_MISS_THRESHOLD and asserts the vanished jobs do
+        finally close.
+        """
+        self._seed(in_memory_db, 200)
+        mock_scraper.scrape_all_queries = AsyncMock(return_value=self._cards(150))
+
+        releases = 0
+        # Each cycle is N skips + 1 release; RELEASED_RUN_MISS_THRESHOLD
+        # releases are needed to accumulate that many misses.
+        for _ in range((SCRAPER_GUARD_MAX_CONSECUTIVE_SKIPS + 1)
+                       * RELEASED_RUN_MISS_THRESHOLD):
+            result = await run_incremental_scrape(
+                mock_scraper, in_memory_db, company="apple", detail_scrape=False
+            )
+            if result.skipped_update is False:
+                releases += 1
+
+        assert releases >= RELEASED_RUN_MISS_THRESHOLD
+
+        cursor = in_memory_db.cursor()
+        cursor.execute(
+            "SELECT count(*) AS n FROM job_listings "
+            "WHERE company = 'apple' AND status = 'CLOSED'"
+        )
+        assert cursor.fetchone()["n"] == 50, (
+            "a permanent 200->150 shrink never reconciled — the release is "
+            "now so strict it has become the freeze it was meant to fix"
+        )
+
+    @pytest.mark.asyncio
+    async def test_released_run_can_close_an_anomalous_row(
+        self, in_memory_db, mock_scraper
+    ):
+        """Pins the ONE gap in the safety argument, honestly.
+
+        The proof that a single released run cannot close anything rests on
+        "a healthy run closes any job reaching MISSED_RUN_THRESHOLD, so an
+        OPEN job entering a freeze carries at most THRESHOLD-1 misses". A row
+        that is somehow already at/above the threshold while still OPEN
+        (legacy data, or a close interrupted between increment and
+        mark_jobs_closed) violates that premise and IS closable by the first
+        release.
+
+        Asserted rather than hidden so the bound in the module docstring
+        stays honest, and so anyone who later claims blanket immunity has to
+        confront this test.
+        """
+        self._seed(in_memory_db, 200)
+        cursor = in_memory_db.cursor()
+        cursor.execute(
+            "UPDATE job_listings SET consecutive_misses = %s "
+            "WHERE company = 'apple' AND id = 'job-199'",
+            (RELEASED_RUN_MISS_THRESHOLD,),
+        )
+        in_memory_db.commit()
+
+        mock_scraper.scrape_all_queries = AsyncMock(return_value=self._cards(150))
+        for _ in range(SCRAPER_GUARD_MAX_CONSECUTIVE_SKIPS + 1):
+            await run_incremental_scrape(
+                mock_scraper, in_memory_db, company="apple", detail_scrape=False
+            )
+
+        cursor.execute(
+            "SELECT status FROM job_listings "
+            "WHERE company = 'apple' AND id = 'job-199'"
+        )
+        assert cursor.fetchone()["status"] == "CLOSED"
+
+    @pytest.mark.asyncio
+    async def test_empty_scrape_skips_do_not_earn_a_release(
+        self, in_memory_db, mock_scraper
+    ):
+        """FALSIFICATION TEST — rule (a) must not feed the rule (b) counter.
+
+        The streak used to be counted on ``skipped_update``, which BOTH rules
+        set. So a totally dead scraper returning 0, 0, 0 accumulated three
+        "skips" and released the very FIRST truncated run that followed —
+        with zero repetition evidence, and in exactly the
+        repaired-dead-scraper scenario (appliedintuition, unity3d) the
+        release exists to protect.
+
+        Three empty scrapes, then one truncated run: the truncated run must
+        still latch.
+        """
+        self._seed(in_memory_db, 200)
+
+        mock_scraper.scrape_all_queries = AsyncMock(return_value=[])
+        for _ in range(SCRAPER_GUARD_MAX_CONSECUTIVE_SKIPS):
+            result = await run_incremental_scrape(
+                mock_scraper, in_memory_db, company="apple", detail_scrape=False
+            )
+            assert result.guard_reason == "empty_scrape"
+
+        mock_scraper.scrape_all_queries = AsyncMock(return_value=self._cards(150))
+        result = await run_incremental_scrape(
+            mock_scraper, in_memory_db, company="apple", detail_scrape=False
+        )
+
+        assert result.skipped_update is True, (
+            "a dead scraper's empty_scrape skips released the first "
+            "partial_scrape run — rule (a) is documented as never "
+            "auto-released and must not supply release evidence either"
+        )
+        assert result.guard_reason == "partial_scrape"
+
+    @pytest.mark.asyncio
+    async def test_alternating_outage_and_truncation_never_releases(
+        self, in_memory_db, mock_scraper
+    ):
+        """The reviewer's 'Regime I': 0, 0, 0, 150 repeating, with no real
+        shrink anywhere. Counting the boolean, run 8 closed 50 of 200. With
+        the streak counted on partial_scrape only, nothing may ever close —
+        no two partial runs are ever consecutive."""
+        self._seed(in_memory_db, 200)
+
+        empty = AsyncMock(return_value=[])
+        truncated = AsyncMock(return_value=self._cards(150))
+
+        for cycle in range(3):
+            for scrape in (empty, empty, empty, truncated):
+                mock_scraper.scrape_all_queries = scrape
+                result = await run_incremental_scrape(
+                    mock_scraper, in_memory_db, company="apple", detail_scrape=False
+                )
+                assert result.skipped_update is True, f"cycle {cycle}"
+
+        cursor = in_memory_db.cursor()
+        cursor.execute(
+            "SELECT count(*) AS n FROM job_listings "
+            "WHERE company = 'apple' AND status = 'CLOSED'"
+        )
+        assert cursor.fetchone()["n"] == 0
 
     @pytest.mark.asyncio
     async def test_a_healthy_run_resets_the_streak(

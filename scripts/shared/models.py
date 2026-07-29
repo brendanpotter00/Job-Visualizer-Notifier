@@ -66,3 +66,9 @@ class ScrapeRun(BaseModel):
     # Defaults to False here (the writer always knows); the DB column is
     # nullable so pre-existing rows stay honestly NULL = "unknown".
     skipped_update: bool = False
+    # WHICH rule tripped: None | "empty_scrape" | "partial_scrape".
+    # ``skipped_update`` alone cannot answer that — both rules set it — and
+    # the bounded auto-release must count ONLY partial_scrape, or a total
+    # outage (rule (a), explicitly never released) would supply the
+    # repetition evidence that releases the next truncated run.
+    guard_reason: Optional[Literal["empty_scrape", "partial_scrape"]] = None

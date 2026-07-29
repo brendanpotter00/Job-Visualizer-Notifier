@@ -871,13 +871,14 @@ def record_scrape_run(conn: Connection, run_data: ScrapeRun) -> None:
         INSERT INTO {_RUNS_TABLE} (
             run_id, company, started_at, completed_at, mode,
             jobs_seen, new_jobs, closed_jobs, details_fetched, error_count,
-            skipped_update
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            skipped_update, guard_reason
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (
             run_data.run_id, run_data.company, run_data.started_at, run_data.completed_at,
             run_data.mode, run_data.jobs_seen, run_data.new_jobs, run_data.closed_jobs,
-            run_data.details_fetched, run_data.error_count, run_data.skipped_update
+            run_data.details_fetched, run_data.error_count, run_data.skipped_update,
+            run_data.guard_reason
         )
     )
 
@@ -894,45 +895,74 @@ def count_consecutive_partial_skips(
     ``shared.incremental.resolve_safety_guard``: N identical truncations in
     a row means the board really shrank, not that the scraper hiccuped.
 
-    Only the leading run of ``skipped_update IS TRUE`` counts — the first
-    row that is ``FALSE`` (a healthy run) or ``NULL`` stops the count. NULL
-    is deliberately treated as a stop, not as a skip: it means the row was
-    written before the ``skipped_update`` column existed, so it is
-    *unknown*, and an unknown must never be counted as evidence toward
-    releasing a destructive guard.
+    Counts on ``guard_reason = 'partial_scrape'``, NOT on the
+    ``skipped_update`` boolean. That distinction is load-bearing: BOTH
+    guard rules set ``skipped_update``, so counting the boolean meant a
+    total outage — rule (a) ``empty_scrape``, which is documented as never
+    auto-released — supplied the repetition evidence. A dead scraper
+    returning ``0, 0, 0`` then released the very first truncated run that
+    followed, with zero actual repetition behind it. That is precisely the
+    repaired-dead-scraper case (appliedintuition, unity3d) the release was
+    written to protect.
+
+    Only the leading run counts; the first row that is anything else — a
+    healthy run, an ``empty_scrape``, or ``NULL`` — stops the count. NULL
+    is deliberately a stop, not a skip: it means the row predates the
+    column, so it is *unknown*, and an unknown must never count as
+    evidence toward releasing a destructive guard.
 
     Only ever called on a run that already tripped rule (b) — see
-    ``resolve_safety_guard`` — so it is off the hot path. ``LIMIT`` is
-    bounded by the caller's threshold because the only question is
-    "are there at least ``limit`` in a row?", making this strictly cheaper
-    than the long-standing ``get_scrape_runs`` query of the same shape.
+    ``resolve_safety_guard`` — so it is off the hot path (33 truncations
+    fleet-wide in 7 months vs ~3,100 healthy runs per day).
+
+    Cost: with ``idx_scrape_runs_company_started_at`` (migration
+    ``b4e1c9d77a02``) this is an index scan reading at most ``limit`` rows.
+    Before that index it was measured on prod as a Parallel Seq Scan over
+    452,610 rows / ~70 MB of buffers / ~32 ms — the ``LIMIT`` bounded the
+    top-N heapsort but NOT the scan volume, so it did not make the query
+    cheap. An earlier version of this docstring claimed the ``limit``
+    coercion stopped it "degenerating into a full-table read"; it was
+    always a full-table read, and the index is what actually fixed it.
 
     Args:
-        conn: Database connection (read-only use; never commits).
+        conn: Database connection. SELECT-only: this never writes and
+            always leaves the connection out of a transaction (see the
+            ``finally`` below), matching the contract documented in
+            ``api/services/scraper_health.py``.
         company: Company id as written to ``scrape_runs.company``.
         limit: How many recent rows to inspect. Values < 1 are coerced to
-            1 so the query can never degenerate into a full-table read.
+            1 — Postgres rejects a negative LIMIT outright, and 0 would
+            silently always answer "no streak", disabling the release.
 
     Returns:
-        Length of the leading all-True run, capped at ``limit``.
+        Length of the leading all-``partial_scrape`` run, capped at
+        ``limit``.
     """
-    cursor = conn.cursor()
+    try:
+        cursor = conn.cursor()
 
-    # started_at is ISO-8601 Text with a trailing Z, so lexicographic DESC
-    # is chronological DESC. (Matches get_scrape_runs' ordering.)
-    cursor.execute(
-        f"""
-        SELECT skipped_update FROM {_RUNS_TABLE}
-        WHERE company = %s
-        ORDER BY started_at DESC
-        LIMIT %s
-        """,
-        (company, max(1, limit)),
-    )
+        # started_at is ISO-8601 Text with a trailing Z, so lexicographic DESC
+        # is chronological DESC. (Matches get_scrape_runs' ordering.)
+        cursor.execute(
+            f"""
+            SELECT guard_reason FROM {_RUNS_TABLE}
+            WHERE company = %s
+            ORDER BY started_at DESC
+            LIMIT %s
+            """,
+            (company, max(1, limit)),
+        )
+        rows = cursor.fetchall()
+    finally:
+        # Never leave the caller's connection idle-in-transaction — that
+        # pins the xmin horizon and blocks vacuum. This helper runs on a
+        # long-lived scraper/worker connection, so the leak would persist
+        # for the life of the process.
+        conn.rollback()
 
     streak = 0
-    for row in cursor.fetchall():
-        if row["skipped_update"] is not True:
+    for row in rows:
+        if row["guard_reason"] != "partial_scrape":
             break
         streak += 1
 

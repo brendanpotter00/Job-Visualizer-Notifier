@@ -70,7 +70,7 @@ from procrastinate import exceptions as procrastinate_exceptions
 
 from scripts.shared import database as db
 from scripts.shared.incremental import (
-    MISSED_RUN_THRESHOLD,
+    GuardReason,
     SAFETY_GUARD_RATIO,
     SCRAPER_GUARD_MIN_ABS_DROP,
     SCRAPER_GUARD_MIN_RATIO,
@@ -134,6 +134,7 @@ async def fetch_workday_company(
     closed_jobs_count = 0
     error_count = 0
     skipped_update = False
+    guard_reason: GuardReason | None = None
     new_ids: Set[str] = set()
     scrape_error: BaseException | None = None
 
@@ -152,7 +153,7 @@ async def fetch_workday_company(
         try:
             async def _work() -> None:
                 nonlocal jobs_seen, new_jobs_count, closed_jobs_count, error_count
-                nonlocal new_ids, skipped_update
+                nonlocal new_ids, skipped_update, guard_reason
 
                 # Validate provider_config BEFORE doing any IO so a bad row
                 # doesn't waste an HTTP round-trip. ValueError lands in the
@@ -175,9 +176,10 @@ async def fetch_workday_company(
                 # when rule (b) would otherwise trip, so the healthy path pays
                 # nothing. to_thread because the helper is sync psycopg2, like
                 # every other db call in this task.
-                guard_reason = await asyncio.to_thread(
+                decision = await asyncio.to_thread(
                     resolve_safety_guard, conn, company_id, jobs_seen, active_count
                 )
+                guard_reason = decision.reason
                 if guard_reason is not None:
                     # ERROR (not WARNING): Railway routes by Python level —
                     # see _configure_logging in main.py. A persistently-
@@ -256,7 +258,11 @@ async def fetch_workday_company(
                         conn,
                         SOURCE_ID,
                         list(missing_ids),
-                        MISSED_RUN_THRESHOLD,
+                        # decision.miss_threshold, NOT MISSED_RUN_THRESHOLD:
+                        # an auto-released run closes one miss later, which is
+                        # what makes "a single released run cannot close
+                        # anything" provable rather than hopeful.
+                        decision.miss_threshold,
                     )
                     if to_close:
                         await asyncio.to_thread(
@@ -264,6 +270,19 @@ async def fetch_workday_company(
                             conn, SOURCE_ID, list(to_close), timestamp,
                         )
                         closed_jobs_count = len(to_close)
+                        if decision.released:
+                            # Whatever an auto-released run closes, a human
+                            # should see. ERROR for the same stderr /
+                            # @level:error routing reason as the guard log.
+                            logger.error(
+                                "AUTO-RELEASED run for %s closed %d job(s) at "
+                                "threshold %d (seen=%d active=%d). If the "
+                                "scraper is broken rather than the board "
+                                "genuinely smaller, fix it — these rows "
+                                "reactivate on the next healthy scrape.",
+                                company_id, closed_jobs_count,
+                                decision.miss_threshold, jobs_seen, active_count,
+                            )
 
                 logger.info(
                     "fetch_workday_company %s: seen=%d new=%d closed=%d",
@@ -341,6 +360,7 @@ async def fetch_workday_company(
             details_fetched=0,
             error_count=error_count,
             skipped_update=skipped_update,
+            guard_reason=guard_reason,
         )
         try:
             await asyncio.to_thread(db.record_scrape_run, conn, run_record)

@@ -52,7 +52,7 @@ auto-release that keeps a *permanent* board shrink from latching forever.
 import logging
 import os
 import uuid
-from typing import Set, List, Dict, Any, Tuple
+from typing import Any, Dict, List, Literal, NamedTuple, Optional, Set, Tuple
 
 from .models import JobListing, ScrapeRun
 from . import database as db
@@ -61,8 +61,21 @@ from .utils import get_iso_timestamp
 
 logger = logging.getLogger(__name__)
 
+# Closed set of safety-guard reason codes. A Literal rather than a bare
+# ``str`` so mypy rejects a typo'd or invented reason at the call site —
+# these strings are persisted to ``scrape_runs.guard_reason`` AND compared
+# for equality by the release counter, so a silent typo would disable the
+# auto-release rather than fail loudly.
+GuardReason = Literal["empty_scrape", "partial_scrape"]
+
 # Threshold for marking jobs as closed (number of consecutive misses)
 MISSED_RUN_THRESHOLD = 2
+
+# Miss threshold applied ONLY on a run let through by the bounded
+# auto-release. One higher than the normal threshold, which is what makes
+# "a single released run cannot close anything" a provable statement
+# instead of a hopeful one — see the long note in the constant block below.
+RELEASED_RUN_MISS_THRESHOLD = MISSED_RUN_THRESHOLD + 1
 
 # Safety guard rule (a) — "empty scrape". If scraped jobs fall below this
 # ratio of active DB jobs, skip update/close phases. Catches full failures
@@ -137,19 +150,53 @@ SAFETY_GUARD_RATIO = 0.1
 # transient truncation is followed by a healthy run; a permanent shrink
 # returns the SAME reduced number over and over. So after
 # SCRAPER_GUARD_MAX_CONSECUTIVE_SKIPS consecutive `partial_scrape` trips
-# for the same company, we let ONE run through under rule (a) only.
+# for the same company, we let ONE run through — and that released run
+# closes jobs using a STRICTER miss threshold
+# (RELEASED_RUN_MISS_THRESHOLD, see below).
 #
-# This is safe by construction, not by luck. Closure needs 2 *consecutive*
-# misses, and the run immediately after a release trips again (the release
-# run did not close anything, so `active_count` is unchanged). So a single
-# released run can NEVER close a job by itself — it can only take the
-# missing rows to consecutive_misses=1, and any genuinely healthy run in
-# between resets them to 0 via update_last_seen. Reconciling a real
-# permanent shrink therefore takes two full release cycles
-# (~2 * (N + 1) runs), which is slow on purpose.
+# Rule (a) is NEVER released, and — critically — rule (a) skips do not
+# even COUNT toward the release. The streak is counted on
+# ``scrape_runs.guard_reason = 'partial_scrape'``, not on the
+# ``skipped_update`` boolean, which BOTH rules set. Counting the boolean
+# meant a total outage (0, 0, 0) followed by one truncated run released
+# that run immediately — precisely the repaired-dead-scraper case
+# (appliedintuition / unity3d) the release exists to protect, firing with
+# zero repetition evidence behind it.
 #
-# Rule (a) is NEVER released. A scrape returning under 10% of the board is
-# never a legitimate shrink — that is an outage, and freezing is correct.
+# WHAT A RELEASED RUN CAN AND CANNOT CLOSE — the real bound
+# ---------------------------------------------------------
+# An earlier version of this comment claimed a released run "can NEVER
+# close a job by itself". That was FALSE, and the falsifying case is not
+# exotic: ``consecutive_misses`` PERSISTS across guard trips (a tripped
+# run is a total no-op on ``job_listings``), so any job already sitting at
+# ``misses >= MISSED_RUN_THRESHOLD - 1`` from some earlier healthy run was
+# closed outright by the first released run. On a 1000-job board where one
+# sub-threshold hiccup (870/1000 — correctly not a trip) left 130 jobs at
+# misses=1, the release then closed all 130 live jobs.
+#
+# Fix: a released run closes at RELEASED_RUN_MISS_THRESHOLD
+# (= MISSED_RUN_THRESHOLD + 1) instead of MISSED_RUN_THRESHOLD. That makes
+# the invariant TRUE and provable rather than hopeful:
+#
+#   A healthy run closes any job that reaches MISSED_RUN_THRESHOLD, so a
+#   job that is still OPEN when a freeze begins can carry at most
+#   MISSED_RUN_THRESHOLD - 1 misses. One released run adds exactly 1,
+#   reaching at most MISSED_RUN_THRESHOLD — strictly below the released
+#   run's own threshold. Therefore a single released run cannot close
+#   anything; closure needs TWO released runs, i.e. two independent
+#   N-truncation streaks.
+#
+# The one gap, stated honestly rather than hidden: a row that is somehow
+# already at misses >= MISSED_RUN_THRESHOLD while still OPEN (legacy data,
+# or a close that was interrupted between increment and mark_jobs_closed)
+# is NOT protected by that argument and can be closed by the first
+# released run. ``_UPSERT_ON_CONFLICT`` reactivates such a row on the next
+# healthy scrape, so the failure mode is self-healing churn, not
+# permanent loss — but it is real, and ``test_released_run_can_close_an_
+# anomalous_row`` pins it so nobody rediscovers it as a surprise.
+#
+# Reconciling a genuine permanent shrink therefore takes three release
+# cycles (~3 * (N + 1) runs). Slow on purpose.
 SCRAPER_GUARD_DEFAULTS: Dict[str, float] = {
     "SCRAPER_GUARD_MIN_RATIO": 0.85,
     "SCRAPER_GUARD_MIN_ABS_DROP": 15,
@@ -194,6 +241,24 @@ def _guard_env(name: str, lo: float, hi: float, *, cast: type) -> Any:
         )
         return default
 
+    # NaN must be caught BEFORE the range check, not by it. ``float("nan")``
+    # parses fine, and every comparison against NaN is False — so
+    # ``lo <= nan <= hi`` is False (looks out of range) but
+    # ``min(max(nan, lo), hi)`` returns NaN right back, and the clamp
+    # branch would log "clamping to nan" while changing nothing. NaN in
+    # SCRAPER_GUARD_MIN_RATIO then makes ``jobs_seen < nan * active`` False
+    # for every company on every run — silently disabling rule (b)
+    # fleet-wide, which is the exact failure this whole change exists to
+    # prevent, dressed up as a successful clamp.
+    if value != value:
+        logger.error(
+            "%s=%r parsed as NaN — falling back to the calibrated default "
+            "%r. A NaN threshold makes every comparison False, which would "
+            "silently disable the guard for every company.",
+            name, raw, default,
+        )
+        return default
+
     if not lo <= value <= hi:
         clamped = cast(min(max(value, lo), hi))
         logger.error(
@@ -225,7 +290,7 @@ def evaluate_safety_guard(
     jobs_seen: int,
     active_count: int,
     consecutive_partial_skips: int = 0,
-) -> str | None:
+) -> Optional[GuardReason]:
     """Decide whether a scrape result is too small to trust.
 
     THE single source of truth for the scraper safety guard. Pure and sync
@@ -294,12 +359,38 @@ def evaluate_safety_guard(
     return None
 
 
+class GuardDecision(NamedTuple):
+    """Outcome of the safety guard for one run.
+
+    ``reason is None`` means "proceed". ``released`` distinguishes the two
+    very different ways that can happen — a genuinely healthy run versus a
+    run the bounded auto-release let through despite rule (b) firing. The
+    caller MUST branch on it: a released run is low-confidence data and
+    closes at ``RELEASED_RUN_MISS_THRESHOLD``, not
+    ``MISSED_RUN_THRESHOLD``.
+
+    Returning a bare ``str | None`` (as this did originally) made that
+    distinction unrepresentable, which is how a released run silently
+    inherited the normal threshold and mass-closed 130 live jobs in the
+    reviewer's A/B.
+    """
+
+    reason: Optional[GuardReason]
+    released: bool = False
+
+    @property
+    def miss_threshold(self) -> int:
+        """Miss threshold this run may close at. Only meaningful when
+        ``reason is None``."""
+        return RELEASED_RUN_MISS_THRESHOLD if self.released else MISSED_RUN_THRESHOLD
+
+
 def resolve_safety_guard(
     db_conn,
     company: str,
     jobs_seen: int,
     active_count: int,
-) -> str | None:
+) -> GuardDecision:
     """``evaluate_safety_guard`` plus the bounded auto-release lookup.
 
     This is what all seven call sites use. Sync (async callers wrap it in
@@ -309,8 +400,7 @@ def resolve_safety_guard(
     The ``scrape_runs`` history read happens ONLY when rule (b) would
     otherwise trip, never on the healthy path. That matters: a truncation
     is rare (33 times in 7 months across the whole fleet), so this adds
-    zero cost to the ~3,100 healthy scrape runs per day and its query
-    shape is the same as the long-standing ``get_scrape_runs`` admin query.
+    zero cost to the ~3,100 healthy scrape runs per day.
 
     Args:
         db_conn: Database connection (read-only use).
@@ -319,18 +409,22 @@ def resolve_safety_guard(
         active_count: Number of currently-OPEN rows for the company.
 
     Returns:
-        Same contract as ``evaluate_safety_guard``.
+        A ``GuardDecision``. ``reason`` follows ``evaluate_safety_guard``;
+        ``released`` is True only on the run the auto-release let through.
     """
     reason = evaluate_safety_guard(jobs_seen, active_count)
     if reason != "partial_scrape":
-        return reason
+        return GuardDecision(reason=reason, released=False)
 
     prior_skips = db.count_consecutive_partial_skips(
         db_conn, company, limit=SCRAPER_GUARD_MAX_CONSECUTIVE_SKIPS
     )
-    return evaluate_safety_guard(
+    resolved = evaluate_safety_guard(
         jobs_seen, active_count, consecutive_partial_skips=prior_skips
     )
+    # reason flipped from "partial_scrape" to None => this is a release,
+    # not a healthy run. Everything downstream keys off that.
+    return GuardDecision(reason=resolved, released=resolved is None)
 
 
 class ScrapeResult:
@@ -345,6 +439,7 @@ class ScrapeResult:
         error_count: int = 0,
         run_id: str = None,
         skipped_update: bool = False,
+        guard_reason: Optional[GuardReason] = None,
     ):
         self.jobs_seen = jobs_seen
         self.new_jobs = new_jobs
@@ -353,6 +448,11 @@ class ScrapeResult:
         self.error_count = error_count
         self.run_id = run_id or str(uuid.uuid4())
         self.skipped_update = skipped_update
+        # Which rule tripped, if any: None | "empty_scrape" | "partial_scrape".
+        # Persisted so the release counter can distinguish them — counting the
+        # skipped_update boolean (which BOTH rules set) let a total outage
+        # release the very next truncated run.
+        self.guard_reason = guard_reason
 
 
 def calculate_job_diff(
@@ -551,9 +651,11 @@ async def run_incremental_scrape(
         # failures (0 jobs) and Apple-style truncations (crash after page N).
         # Logic lives in evaluate_safety_guard so this module and the six
         # backend ATS leaf tasks can never drift apart.
-        guard_reason = resolve_safety_guard(
+        decision = resolve_safety_guard(
             db_conn, company, result.jobs_seen, len(active_known_ids)
         )
+        guard_reason = decision.reason
+        result.guard_reason = guard_reason
         if guard_reason is not None:
             # ERROR (not WARNING) so Railway routes this to stderr — the
             # platform's @level field is derived from the OS stream (see
@@ -587,11 +689,34 @@ async def run_incremental_scrape(
             )
             result.new_jobs = len(new_ids)
 
-            # Phase 4 & 5: Update existing jobs and mark closed
-            logger.info("Phase 4 & 5: Updating job status...")
-            result.closed_jobs = update_existing_jobs(
-                db_conn, source_id, still_active_ids, missing_ids
+            # Phase 4 & 5: Update existing jobs and mark closed.
+            #
+            # decision.miss_threshold — NOT the bare MISSED_RUN_THRESHOLD.
+            # On a run the auto-release let through it is one higher, which
+            # is what makes "a single released run cannot close anything" a
+            # provable statement. Passing the normal threshold here is
+            # exactly the bug that closed 130 live jobs in review.
+            logger.info(
+                "Phase 4 & 5: Updating job status (miss threshold %d%s)...",
+                decision.miss_threshold,
+                ", AUTO-RELEASED run" if decision.released else "",
             )
+            result.closed_jobs = update_existing_jobs(
+                db_conn, source_id, still_active_ids, missing_ids,
+                threshold=decision.miss_threshold,
+            )
+            if decision.released:
+                # Whatever a released run does close, a human should see.
+                # ERROR for the same stderr/@level:error routing reason as
+                # the guard log itself.
+                logger.error(
+                    "AUTO-RELEASED run for %s closed %d job(s) at threshold %d "
+                    "(seen=%d active=%d). If this scraper is broken rather "
+                    "than its board genuinely smaller, fix it — these rows "
+                    "reactivate on the next healthy scrape.",
+                    company, result.closed_jobs, decision.miss_threshold,
+                    result.jobs_seen, len(active_known_ids),
+                )
 
     except Exception as e:
         logger.error(f"Incremental scrape failed for {company}: {e}")
@@ -611,6 +736,7 @@ async def run_incremental_scrape(
             details_fetched=result.details_fetched,
             error_count=result.error_count,
             skipped_update=result.skipped_update,
+            guard_reason=result.guard_reason,
         )
         try:
             db.record_scrape_run(db_conn, run_record)

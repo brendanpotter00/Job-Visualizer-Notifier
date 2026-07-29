@@ -278,12 +278,21 @@ class TestCountConsecutivePartialSkips:
     """Tests for the history read backing the bounded auto-release."""
 
     @staticmethod
-    def _run(in_memory_db, run_id, company, started_at, skipped):
+    def _run(in_memory_db, run_id, company, started_at, skipped, reason="__auto__"):
+        """Insert one scrape_runs row.
+
+        ``reason`` defaults to the value a real writer would pair with
+        ``skipped``; pass it explicitly to construct the divergent rows the
+        release counter must handle (an empty_scrape skip, a legacy NULL).
+        """
+        if reason == "__auto__":
+            reason = "partial_scrape" if skipped else None
         cursor = in_memory_db.cursor()
         cursor.execute(
             "INSERT INTO scrape_runs (run_id, company, started_at, mode, "
-            "jobs_seen, skipped_update) VALUES (%s, %s, %s, 'incremental', 1, %s)",
-            (run_id, company, started_at, skipped),
+            "jobs_seen, skipped_update, guard_reason) "
+            "VALUES (%s, %s, %s, 'incremental', 1, %s, %s)",
+            (run_id, company, started_at, skipped, reason),
         )
         in_memory_db.commit()
 
@@ -314,10 +323,47 @@ class TestCountConsecutivePartialSkips:
         skipped. An unknown must never count as evidence toward releasing a
         destructive guard."""
         self._run(in_memory_db, "r1", "apple", "2026-07-01T00:00:00Z", True)
-        self._run(in_memory_db, "r2", "apple", "2026-07-02T00:00:00Z", None)
+        self._run(in_memory_db, "r2", "apple", "2026-07-02T00:00:00Z", None, reason=None)
         self._run(in_memory_db, "r3", "apple", "2026-07-03T00:00:00Z", True)
 
         assert db.count_consecutive_partial_skips(in_memory_db, "apple", limit=10) == 1
+
+    def test_empty_scrape_skips_do_not_count(self, in_memory_db):
+        """FALSIFICATION TEST. Both guard rules set ``skipped_update``, so a
+        counter keyed on that boolean treated a dead scraper's empty runs as
+        evidence of a permanent shrink and released the next truncated run
+        immediately. Only ``partial_scrape`` may count."""
+        for i in range(3):
+            self._run(
+                in_memory_db, f"e{i}", "apple", f"2026-07-0{i + 1}T00:00:00Z",
+                True, reason="empty_scrape",
+            )
+
+        assert db.count_consecutive_partial_skips(in_memory_db, "apple", limit=10) == 0
+
+    def test_an_empty_scrape_breaks_a_partial_streak(self, in_memory_db):
+        """A total outage in the middle of a truncation run is not
+        repetition of the same shrink — it resets the evidence."""
+        self._run(in_memory_db, "r1", "apple", "2026-07-01T00:00:00Z", True)
+        self._run(
+            in_memory_db, "r2", "apple", "2026-07-02T00:00:00Z",
+            True, reason="empty_scrape",
+        )
+        self._run(in_memory_db, "r3", "apple", "2026-07-03T00:00:00Z", True)
+
+        assert db.count_consecutive_partial_skips(in_memory_db, "apple", limit=10) == 1
+
+    def test_leaves_no_open_transaction(self, in_memory_db):
+        """SELECT-only contract. This helper runs on a long-lived scraper /
+        worker connection, so an idle-in-transaction leak here persists for
+        the life of the process, pinning the xmin horizon and blocking
+        vacuum."""
+        import psycopg2.extensions
+
+        self._run(in_memory_db, "r1", "apple", "2026-07-01T00:00:00Z", True)
+        db.count_consecutive_partial_skips(in_memory_db, "apple")
+
+        assert in_memory_db.status == psycopg2.extensions.STATUS_READY
 
     def test_is_scoped_per_company(self, in_memory_db):
         self._run(in_memory_db, "g1", "google", "2026-07-01T00:00:00Z", True)

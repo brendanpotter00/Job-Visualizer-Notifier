@@ -348,6 +348,30 @@ class ScrapeRun(Base):
     # existed", which is the truth, whereas a `false` default would assert
     # that the seven real Apple truncations were clean runs.
     skipped_update = Column(Boolean, nullable=True)
+    # WHICH guard rule tripped: NULL | 'empty_scrape' | 'partial_scrape'.
+    # Not redundant with skipped_update: both rules set that boolean, so it
+    # cannot distinguish a total outage (rule (a), never auto-released) from
+    # an Apple-style truncation (rule (b), the only thing the bounded
+    # auto-release may count). Counting the boolean let three dead-scraper
+    # runs release the next truncated run outright.
+    #
+    # Nullable, no server default, no backfill — same catalog-only shape as
+    # skipped_update above.
+    guard_reason = Column(Text, nullable=True)
+
+    __table_args__ = (
+        # Drives count_consecutive_partial_skips' "most recent N runs for
+        # this company" probe. Without it that query was a Parallel Seq Scan
+        # over 452,610 rows (~70 MB buffers, ~32 ms) — the LIMIT bounds the
+        # top-N heapsort, not the scan.
+        #
+        # Ascending on started_at, not DESC: Postgres reads a btree backwards
+        # at no cost, so (company, started_at) fully serves
+        # ORDER BY started_at DESC LIMIT n, and a plain column index keeps
+        # test_alembic_parity's autogenerate comparison exact (an expression
+        # index would risk a spurious diff).
+        Index("idx_scrape_runs_company_started_at", "company", "started_at"),
+    )
 
 
 class User(Base):

@@ -17,8 +17,10 @@ nothing anywhere noticed.
 
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import psycopg2.extensions
 import pytest
@@ -26,6 +28,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from psycopg2 import sql
 
+from api.auth.dependencies import require_admin
 from api.auth.internal_key import require_internal_key
 from api.config import settings
 from api.dependencies import get_db
@@ -233,14 +236,20 @@ class TestScraperHealthRoute:
         # deliberately does not use ``require_admin`` — the scheduled GitHub
         # Action can present a static header but cannot mint an admin JWT.
         #
-        # That is NOT the whole authorization story, and an earlier version of
-        # this comment wrongly implied it was. ``api/jobs-qa.ts`` is a public
-        # Vercel function that attaches ``X-Internal-Key`` unconditionally, so
-        # the internal-key middleware alone would leave this route reachable
-        # anonymously from the internet. The proxy refuses anonymous requests
-        # outright — see the gate at the top of ``api/jobs-qa.ts`` and
-        # ``jobs-qa.serverless.test.ts::rejects an anonymous request with 401``,
-        # which is the test that actually pins the public-exposure boundary.
+        # Which means ``require_internal_key`` is this route's ONLY gate, and
+        # anyone holding the internal key is fully authorized. The public
+        # Vercel proxy holds it unconditionally, so the route must simply not
+        # be reachable through the proxy: ``scraper-health`` is in
+        # ``NOT_PROXIED_PATHS`` in ``api/jobs-qa.ts`` and 404s from the public
+        # internet. ``test_proxy_denies_non_admin_jobs_qa_routes`` below is
+        # what keeps those two facts in sync.
+        #
+        # Two earlier versions of this comment were wrong and are worth
+        # remembering: the first implied internal-key alone was sufficient;
+        # the second pointed at a proxy gate that merely required an
+        # ``Authorization`` header to be PRESENT, which
+        # ``curl -H "Authorization: x"`` satisfied. Presence is not
+        # authentication.
         app.include_router(jobs_qa.router, prefix="/api/jobs-qa")
 
         def override_get_db():
@@ -312,3 +321,86 @@ class TestScraperHealthRoute:
 
         assert resp.status_code == 200
         assert resp.json()["staleCount"] == 2
+
+
+class TestProxyDenylistInvariant:
+    """Cross-layer guard: the public Vercel proxy must not forward any
+    jobs-qa route that the backend does not independently authenticate.
+
+    The proxy (``api/jobs-qa.ts``) attaches ``X-Internal-Key``
+    unconditionally, so it always clears ``require_internal_key``. The only
+    real identity check on any jobs-qa route is ``Depends(require_admin)``,
+    which verifies an Auth0 JWT. A route without it is, from the proxy's
+    perspective, fully public — which is exactly how ``scraper-health``
+    ended up returning the internal company roster to plain ``curl``.
+
+    The proxy cannot fix this by checking credentials (it cannot verify a
+    JWT), so instead it refuses to route such paths at all. This test is
+    what keeps the two layers from drifting: add an internal-key-only route
+    to the jobs_qa router and this fails until it is denied at the proxy.
+    """
+
+    PROXY = (
+        Path(__file__).resolve().parents[4] / "api" / "jobs-qa.ts"
+    )
+
+    @staticmethod
+    def _route_has_require_admin(route) -> bool:
+        for dep in route.dependant.dependencies:
+            if getattr(dep, "call", None) is require_admin:
+                return True
+        return False
+
+    def _proxy_denylist(self) -> set[str]:
+        src = self.PROXY.read_text()
+        match = re.search(
+            r"const NOT_PROXIED_PATHS = new Set\(\[(.*?)\]\)", src, re.S
+        )
+        assert match, (
+            "NOT_PROXIED_PATHS is missing from api/jobs-qa.ts — the public "
+            "proxy would forward every jobs-qa route again"
+        )
+        return set(re.findall(r"'([^']+)'", match.group(1)))
+
+    def test_proxy_file_exists(self):
+        assert self.PROXY.exists(), self.PROXY
+
+    def test_proxy_denies_non_admin_jobs_qa_routes(self):
+        """THE invariant. Every jobs-qa route lacking ``require_admin`` must
+        be listed in the proxy's ``NOT_PROXIED_PATHS``."""
+        denylist = self._proxy_denylist()
+
+        unprotected = {
+            route.path.lstrip("/")
+            for route in jobs_qa.router.routes
+            if not self._route_has_require_admin(route)
+        }
+
+        assert unprotected, (
+            "expected at least one internal-key-only route (scraper-health); "
+            "if that changed, this test needs revisiting rather than deleting"
+        )
+        missing = unprotected - denylist
+        assert not missing, (
+            "these jobs_qa routes have no require_admin and are NOT denied by "
+            f"the public Vercel proxy, so they are reachable anonymously: "
+            f"{sorted(missing)}. Add them to NOT_PROXIED_PATHS in "
+            "api/jobs-qa.ts, or give them require_admin."
+        )
+
+    def test_scraper_health_is_specifically_denied(self):
+        """Named explicitly so the invariant test above can't be satisfied by
+        accidentally making every route unprotected."""
+        assert "scraper-health" in self._proxy_denylist()
+
+    def test_admin_gated_routes_are_not_denied(self):
+        """The denylist must stay minimal — denying an admin-gated route
+        would silently break QAPage rather than protect anything."""
+        denylist = self._proxy_denylist()
+        admin_routes = {
+            route.path.lstrip("/")
+            for route in jobs_qa.router.routes
+            if self._route_has_require_admin(route)
+        }
+        assert "scrape-runs" in admin_routes, "test wiring assumption broke"
+        assert not (denylist & admin_routes), sorted(denylist & admin_routes)

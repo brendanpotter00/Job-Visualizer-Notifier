@@ -446,6 +446,43 @@ class TestGuardEnvOverrides:
 
         assert value == 1
 
+    @pytest.mark.parametrize("hostile", ["nan", "NaN", "-nan"])
+    def test_nan_falls_back_instead_of_being_clamped(self, hostile, caplog):
+        """FALSIFICATION TEST for the clamp.
+
+        NaN parses fine as a float, and EVERY comparison against NaN is
+        False — so ``lo <= nan <= hi`` reads as out-of-range while
+        ``min(max(nan, lo), hi)`` hands NaN straight back. The clamp branch
+        therefore logged "clamping to nan" and changed nothing.
+
+        The consequence is the worst possible one: ``jobs_seen < nan *
+        active`` is False for every company on every run, silently
+        disabling rule (b) fleet-wide — the exact failure this change
+        exists to prevent, wearing a successful-clamp costume.
+        """
+        import os
+        from unittest import mock
+
+        with mock.patch.dict(os.environ, {"SCRAPER_GUARD_MIN_RATIO": hostile}):
+            with caplog.at_level("ERROR"):
+                value = _guard_env("SCRAPER_GUARD_MIN_RATIO", 0.0, 1.0, cast=float)
+
+        assert value == 0.85, f"{hostile!r} survived as {value!r}"
+        assert value == value, "returned a NaN"
+        assert "NaN" in caplog.text
+
+    @pytest.mark.parametrize("hostile", ["inf", "-inf", "Infinity"])
+    def test_infinities_are_clamped(self, hostile):
+        """Infinities DO clamp correctly (unlike NaN) — pinned so a future
+        rewrite of the NaN guard doesn't accidentally break them."""
+        import os
+        from unittest import mock
+
+        with mock.patch.dict(os.environ, {"SCRAPER_GUARD_MIN_RATIO": hostile}):
+            value = _guard_env("SCRAPER_GUARD_MIN_RATIO", 0.0, 1.0, cast=float)
+
+        assert value in (0.0, 1.0)
+
     def test_valid_override_is_honored(self):
         """The hatch must actually work when used correctly."""
         import os
