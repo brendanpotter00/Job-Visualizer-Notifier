@@ -323,26 +323,26 @@ class TestScraperHealthRoute:
         assert resp.json()["staleCount"] == 2
 
 
-class TestProxyDenylistInvariant:
-    """Cross-layer guard: the public Vercel proxy must not forward any
-    jobs-qa route that the backend does not independently authenticate.
+class TestProxyAllowlistInvariant:
+    """Cross-layer guard: the public Vercel proxy must forward ONLY routes the
+    backend independently authenticates.
 
     The proxy (``api/jobs-qa.ts``) attaches ``X-Internal-Key``
     unconditionally, so it always clears ``require_internal_key``. The only
     real identity check on any jobs-qa route is ``Depends(require_admin)``,
     which verifies an Auth0 JWT. A route without it is, from the proxy's
-    perspective, fully public — which is exactly how ``scraper-health``
-    ended up returning the internal company roster to plain ``curl``.
+    perspective, fully public — which is how ``scraper-health`` returned the
+    internal company roster to plain ``curl``.
 
-    The proxy cannot fix this by checking credentials (it cannot verify a
-    JWT), so instead it refuses to route such paths at all. This test is
-    what keeps the two layers from drifting: add an internal-key-only route
-    to the jobs_qa router and this fails until it is denied at the proxy.
+    This was a DENYLIST for one round and got bypassed six different ways
+    (``scraper-health/``, ``/scraper-health``, ``scraper-health//``,
+    ``./scraper-health``, ``scraper%2Dhealth``, and the array form). A
+    denylist on a key-injecting proxy fails open by construction: every path
+    nobody enumerated is forwarded. The allowlist inverts the default, and
+    these tests pin both directions of the invariant so it cannot rot back.
     """
 
-    PROXY = (
-        Path(__file__).resolve().parents[4] / "api" / "jobs-qa.ts"
-    )
+    PROXY = Path(__file__).resolve().parents[4] / "api" / "jobs-qa.ts"
 
     @staticmethod
     def _route_has_require_admin(route) -> bool:
@@ -351,56 +351,103 @@ class TestProxyDenylistInvariant:
                 return True
         return False
 
-    def _proxy_denylist(self) -> set[str]:
+    def _proxy_allowlist(self) -> set[str]:
         src = self.PROXY.read_text()
-        match = re.search(
-            r"const NOT_PROXIED_PATHS = new Set\(\[(.*?)\]\)", src, re.S
-        )
+        match = re.search(r"const PROXIED_PATHS = new Set\(\[(.*?)\]\)", src, re.S)
         assert match, (
-            "NOT_PROXIED_PATHS is missing from api/jobs-qa.ts — the public "
-            "proxy would forward every jobs-qa route again"
+            "PROXIED_PATHS is missing from api/jobs-qa.ts. If it was replaced "
+            "by a denylist, read the class docstring first — that shape was "
+            "bypassed six ways in review."
         )
         return set(re.findall(r"'([^']+)'", match.group(1)))
+
+    def _routes_by_admin_gating(self) -> tuple[set[str], set[str]]:
+        gated, ungated = set(), set()
+        for route in jobs_qa.router.routes:
+            (gated if self._route_has_require_admin(route) else ungated).add(
+                route.path.lstrip("/")
+            )
+        return gated, ungated
 
     def test_proxy_file_exists(self):
         assert self.PROXY.exists(), self.PROXY
 
-    def test_proxy_denies_non_admin_jobs_qa_routes(self):
-        """THE invariant. Every jobs-qa route lacking ``require_admin`` must
-        be listed in the proxy's ``NOT_PROXIED_PATHS``."""
-        denylist = self._proxy_denylist()
+    def test_every_allowlisted_path_is_admin_gated(self):
+        """Direction 1: nothing reachable through the proxy may rely on the
+        internal key alone for authorization."""
+        allowlist = self._proxy_allowlist()
+        gated, ungated = self._routes_by_admin_gating()
 
-        unprotected = {
-            route.path.lstrip("/")
-            for route in jobs_qa.router.routes
-            if not self._route_has_require_admin(route)
-        }
+        assert allowlist, "the allowlist is empty — QAPage would be broken"
+        leaked = allowlist & ungated
+        assert not leaked, (
+            f"these paths are proxied to the public internet but have no "
+            f"require_admin, so the proxy's injected X-Internal-Key fully "
+            f"authorizes any caller: {sorted(leaked)}"
+        )
+        unknown = allowlist - gated
+        assert not unknown, (
+            f"allowlisted paths that are not admin-gated routes on the "
+            f"jobs_qa router at all: {sorted(unknown)}"
+        )
 
-        assert unprotected, (
+    def test_every_non_admin_route_is_unreachable_through_the_proxy(self):
+        """Direction 2: the inverse, stated explicitly rather than implied.
+
+        Fails the moment someone adds another internal-key-only route to the
+        jobs_qa router and also adds it to PROXIED_PATHS.
+        """
+        allowlist = self._proxy_allowlist()
+        _, ungated = self._routes_by_admin_gating()
+
+        assert ungated, (
             "expected at least one internal-key-only route (scraper-health); "
-            "if that changed, this test needs revisiting rather than deleting"
+            "if that changed, revisit this test rather than delete it"
         )
-        missing = unprotected - denylist
-        assert not missing, (
-            "these jobs_qa routes have no require_admin and are NOT denied by "
-            f"the public Vercel proxy, so they are reachable anonymously: "
-            f"{sorted(missing)}. Add them to NOT_PROXIED_PATHS in "
-            "api/jobs-qa.ts, or give them require_admin."
+        reachable = ungated & allowlist
+        assert not reachable, sorted(reachable)
+
+    def test_scraper_health_is_not_proxied(self):
+        """Named explicitly so the invariants above cannot be satisfied by
+        some accident of how routes are classified."""
+        assert "scraper-health" not in self._proxy_allowlist()
+
+    def test_allowlist_is_minimal(self):
+        """The allowlist must stay at exactly what the browser needs.
+
+        QAPage makes two /api/jobs-qa calls. Every operator runbook
+        (docs/implementations/*/DEPLOY.md) curls Railway directly, and so
+        does the scheduled Action — so no trigger-*-fetch / -fan-out route
+        needs a public door. Growing this set is a security decision and
+        should have to edit a test that says so.
+        """
+        assert self._proxy_allowlist() == {"scrape-runs", "trigger-scrape"}
+
+    def test_proxy_does_not_follow_redirects(self):
+        """``redirect: 'manual'`` is load-bearing.
+
+        Node's fetch defaults to following redirects and preserves headers
+        across a same-origin 3xx — including the injected X-Internal-Key.
+        The backend app uses Starlette's default ``redirect_slashes=True``,
+        so a trailing slash 307s to the canonical path; with the default
+        follow behaviour the proxy would chase that redirect into a path it
+        had just refused.
+        """
+        src = self.PROXY.read_text()
+        assert "redirect: 'manual'" in src, (
+            "api/jobs-qa.ts must set redirect: 'manual' on its upstream fetch"
         )
 
-    def test_scraper_health_is_specifically_denied(self):
-        """Named explicitly so the invariant test above can't be satisfied by
-        accidentally making every route unprotected."""
-        assert "scraper-health" in self._proxy_denylist()
+    def test_proxy_normalizes_before_matching(self):
+        """The allowlist comparison must run on a canonical path.
 
-    def test_admin_gated_routes_are_not_denied(self):
-        """The denylist must stay minimal — denying an admin-gated route
-        would silently break QAPage rather than protect anything."""
-        denylist = self._proxy_denylist()
-        admin_routes = {
-            route.path.lstrip("/")
-            for route in jobs_qa.router.routes
-            if self._route_has_require_admin(route)
-        }
-        assert "scrape-runs" in admin_routes, "test wiring assumption broke"
-        assert not (denylist & admin_routes), sorted(denylist & admin_routes)
+        Without normalization the six known bypass spellings each miss the
+        allowlist too — which fails CLOSED, so it is not a vulnerability —
+        but ``scrape-runs/`` would then 404 a legitimate caller. The
+        canonicalizer is what makes both directions correct.
+        """
+        src = self.PROXY.read_text()
+        assert "function canonicalizeProxyPath" in src
+        assert "decodeURIComponent" in src
+        for guard in ("'..'", "'.'", "\\0"):
+            assert guard in src, f"canonicalizeProxyPath is missing {guard}"

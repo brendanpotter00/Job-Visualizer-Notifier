@@ -46,17 +46,21 @@ NO ``require_admin`` — the scheduled GitHub Action can present a static
 header but cannot mint an admin JWT — so ``require_internal_key`` is its
 only gate, and the public Vercel proxy holds that key unconditionally.
 
-The proxy therefore refuses to route this path at all: ``scraper-health``
-is in ``NOT_PROXIED_PATHS`` in ``api/jobs-qa.ts`` and returns 404 from the
-public internet regardless of credentials. Reaching this endpoint means
-talking to Railway directly with ``X-Internal-Key``.
+The proxy therefore refuses to route this path at all. ``api/jobs-qa.ts``
+forwards ONLY an allowlist (``PROXIED_PATHS`` = ``scrape-runs`` and
+``trigger-scrape``, QAPage's two calls); everything else returns 404 from
+the public internet regardless of credentials. Reaching this endpoint
+means talking to Railway directly with ``X-Internal-Key``.
 
-Do NOT read that as "the proxy authenticates callers". It cannot: an
-earlier attempt only checked that an ``Authorization`` header was
-*present*, which ``curl -H "Authorization: x"`` trivially satisfied.
-``test_proxy_denies_non_admin_jobs_qa_routes`` (in
-``api/tests/test_scraper_health.py``) is what keeps the denylist in sync
-with the routes that lack ``require_admin``.
+Do NOT read that as "the proxy authenticates callers". It cannot, and two
+earlier shapes proved it: requiring an ``Authorization`` header to merely
+be *present* was satisfied by ``curl -H "Authorization: x"``, and a
+denylist keyed on the raw path was bypassed by ``scraper-health/``,
+``/scraper-health``, ``./scraper-health``, ``scraper%2Dhealth`` and the
+array form. A denylist on a key-injecting proxy fails open by
+construction. ``TestProxyAllowlistInvariant`` (in
+``api/tests/test_scraper_health.py``) pins both directions of the
+allowlist against the router's actual ``require_admin`` gating.
 
 Connection contract (SELECT-only): the single statement is a ``SELECT`` and
 this module never commits. ``conn.rollback()`` runs in a ``finally`` so the
