@@ -139,7 +139,8 @@ All configuration via environment variables:
 
 **QA Router (`/api/jobs-qa`):**
 - `GET /api/jobs-qa/stats` - Job statistics (params: company; returns total, open, closed, by company)
-- `GET /api/jobs-qa/scrape-runs` - Scrape run history (params: company, limit)
+- `GET /api/jobs-qa/scrape-runs` - Scrape run history (params: company, limit; `skippedUpdate` is tri-state — `true`/`false` from the writer, `null` for rows written before the column existed)
+- `GET /api/jobs-qa/scraper-health` - Stale-scraper report (params: `thresholdHours`, default 24). Enabled companies whose newest `job_listings.last_seen_at` is older than the threshold (a company with no job rows at all counts as stale). Internal-key auth only — **not** `require_admin` — so the daily `.github/workflows/scraper-health.yml` Action can call it with one header. Always 200; the caller decides red/green. Deliberately NOT folded into `/health/worker` (that is Railway's `healthcheckPath`; a stale company would restart-loop the container).
 - `POST /api/jobs-qa/trigger-scrape` - Manually trigger scraper (params: company; default: google)
 
 **Users Router (`/api/users`):**

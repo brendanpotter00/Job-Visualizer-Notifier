@@ -16,9 +16,22 @@ cron worker. Do NOT copy this pattern to request handlers.
 
 Safety guard
 ------------
-If the API returns suspiciously few jobs (< SAFETY_GUARD_RATIO * active
-count), record the run with error_count=1 and exit without destructive
-writes. Mirrors ``scripts/shared/incremental.py``.
+Before any destructive write, the run is checked by the ONE shared helper
+``scripts.shared.incremental.evaluate_safety_guard`` — never a local copy
+of the arithmetic (it used to be duplicated inline in all six ATS leaf
+tasks and drifted). Two rules, both keyed off the count of currently-OPEN
+rows for this company:
+
+  (a) ``jobs_seen < 0.10 * active``                     -> "empty_scrape"
+  (b) ``jobs_seen < SCRAPER_GUARD_MIN_RATIO (0.85) * active`` AND
+      ``(active - jobs_seen) >= SCRAPER_GUARD_MIN_ABS_DROP (15)``
+                                                        -> "partial_scrape"
+
+Either reason records the run with ``error_count=1`` and
+``skipped_update=True`` and returns without destructive writes. Rule (b)
+was added because the 0.10-only guard let six of Apple's seven 21-day
+truncations execute the close phase against partial data; see the
+calibration notes in ``scripts/shared/incremental.py``.
 
 Bookkeeping
 -----------
@@ -43,6 +56,9 @@ from scripts.shared import database as db
 from scripts.shared.incremental import (
     MISSED_RUN_THRESHOLD,
     SAFETY_GUARD_RATIO,
+    SCRAPER_GUARD_MIN_ABS_DROP,
+    SCRAPER_GUARD_MIN_RATIO,
+    evaluate_safety_guard,
 )
 from scripts.shared.models import ScrapeRun
 from scripts.shared.utils import get_iso_timestamp
@@ -82,6 +98,7 @@ async def fetch_lever_company(
     new_jobs_count = 0
     closed_jobs_count = 0
     error_count = 0
+    skipped_update = False
     new_ids: Set[str] = set()
     scrape_error: BaseException | None = None
 
@@ -99,7 +116,8 @@ async def fetch_lever_company(
     try:
         try:
             async def _work() -> None:
-                nonlocal jobs_seen, new_jobs_count, closed_jobs_count, error_count, new_ids
+                nonlocal jobs_seen, new_jobs_count, closed_jobs_count, error_count
+                nonlocal new_ids, skipped_update
                 async with httpx.AsyncClient() as http:
                     raw_jobs = await fetch_jobs(board_token, http)
                 jobs = transform_to_job_listings(company_id, raw_jobs)
@@ -109,19 +127,23 @@ async def fetch_lever_company(
                     db.count_active_jobs, conn, SOURCE_ID, company_id
                 )
 
-                if active_count > 0 and jobs_seen < SAFETY_GUARD_RATIO * active_count:
+                guard_reason = evaluate_safety_guard(jobs_seen, active_count)
+                if guard_reason is not None:
                     # ERROR (not WARNING) so Railway routes this to stderr — the
                     # platform's @level field is derived from the OS stream
                     # (see _configure_logging in main.py). A persistently-tripping
                     # safety guard would otherwise be invisible in Railway's
                     # @level:error filter.
                     logger.error(
-                        "SAFETY GUARD for %s: returned %d jobs but %d active in DB "
-                        "(threshold %.0f%% = %.0f). Skipping update/close phases.",
-                        company_id, jobs_seen, active_count,
-                        SAFETY_GUARD_RATIO * 100, SAFETY_GUARD_RATIO * active_count,
+                        "SAFETY GUARD (%s) for %s: returned %d jobs but %d "
+                        "active in DB (empty<%.0f%%, partial<%.0f%% with "
+                        "drop>=%d). Skipping update/close phases.",
+                        guard_reason, company_id, jobs_seen, active_count,
+                        SAFETY_GUARD_RATIO * 100, SCRAPER_GUARD_MIN_RATIO * 100,
+                        SCRAPER_GUARD_MIN_ABS_DROP,
                     )
                     error_count = 1
+                    skipped_update = True
                     return
 
                 timestamp = get_iso_timestamp()
@@ -268,6 +290,7 @@ async def fetch_lever_company(
             closed_jobs=closed_jobs_count,
             details_fetched=0,
             error_count=error_count,
+            skipped_update=skipped_update,
         )
         try:
             await asyncio.to_thread(db.record_scrape_run, conn, run_record)

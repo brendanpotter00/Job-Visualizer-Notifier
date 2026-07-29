@@ -138,6 +138,7 @@ erDiagram
         integer closed_jobs "default 0"
         integer details_fetched "default 0"
         integer error_count "default 0"
+        boolean skipped_update "nullable, no default (NULL = pre-column row)"
     }
 
     worker_heartbeats {

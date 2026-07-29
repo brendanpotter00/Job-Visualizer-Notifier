@@ -10,9 +10,35 @@ Algorithm phases:
 3. Fetch details ONLY for new job IDs (variable time, depends on new jobs)
 4. Update last_seen for existing, increment misses for missing
 5. Mark as closed if consecutive_misses >= 2
+
+Safety guard
+------------
+Phases 4-5 are destructive (they can mark thousands of jobs CLOSED), so
+they run only when the scrape result passes ``evaluate_safety_guard`` —
+the one shared, pure helper every caller uses (this module AND the six
+``src/backend/api/tasks/fetch_*_company.py`` leaf tasks).
+
+Two rules, both keyed off the count of currently-OPEN rows:
+
+  (a) ``jobs_seen < 0.10 * active``                     -> "empty_scrape"
+  (b) ``jobs_seen < 0.85 * active`` AND
+      ``(active - jobs_seen) >= 15``                    -> "partial_scrape"
+
+Rule (b) was added after a prod audit of 134,777 successful runs over 129
+companies (2026-07-07 -> 2026-07-28) found Apple truncating **7 times in
+21 days** — returning 5%, 21%, 22%, 29%, 31%, 73% and 80% of its normal
+board — while the 0.1-only guard caught only the 5% run. The other six
+executed the close phase against partial data; only a lucky clean run
+landing between two truncations kept ~2,800 Apple jobs from being
+mass-closed. On that same dataset rule (b) fires exactly 7 times, all of
+them those Apple truncations, with zero false positives.
+
+See the constant block below for the full calibration notes and the
+accepted "no auto-release" trade-off.
 """
 
 import logging
+import os
 import uuid
 from typing import Set, List, Dict, Any, Tuple
 
@@ -26,11 +52,97 @@ logger = logging.getLogger(__name__)
 # Threshold for marking jobs as closed (number of consecutive misses)
 MISSED_RUN_THRESHOLD = 2
 
-# Safety guard: if scraped jobs fall below this ratio of active DB jobs,
-# skip update/close phases. Catches full failures (0 jobs) and partial
-# failures (e.g., scraper crashed after first page). With 0.1, a company
-# with 5000 active jobs must return at least 500 to proceed.
+# Safety guard rule (a) — "empty scrape". If scraped jobs fall below this
+# ratio of active DB jobs, skip update/close phases. Catches full failures
+# (0 jobs) and catastrophic partial failures. With 0.1, a company with 5000
+# active jobs must return at least 500 to proceed.
+#
+# Kept at 0.1 deliberately. It is NOT the primary guard any more (rule (b)
+# below subsumes it numerically), but it survives as the distinct
+# "empty_scrape" reason code so operators can tell a total scraper outage
+# apart from a partial truncation in logs and in scrape_runs.
 SAFETY_GUARD_RATIO = 0.1
+
+# Safety guard rule (b) — "partial scrape". Env-overridable so an operator
+# can widen the gate without a redeploy (see the no-auto-release trade-off
+# below). Read HERE, in this module, so the scraper subprocess
+# (scripts/run_scraper.py) and the backend Procrastinate worker
+# (src/backend/api/tasks/fetch_*_company.py) share ONE source of truth.
+#
+# Calibration (empirical, do NOT retune without re-running the numbers):
+# derived from 134,777 successful prod scrape runs across 129 companies
+# between 2026-07-07 and 2026-07-28. The pair
+# `jobs_seen < 0.85 * active AND (active - jobs_seen) >= 15` trips exactly
+# 7 times over that window — and all 7 are the real Apple truncations
+# (runs returning 5%, 21%, 22%, 29%, 31%, 73% and 80% of the normal board
+# size). Zero false positives. Notably it does NOT trip on Google's
+# 769-of-798 run (96%) nor on genuine day-to-day hiring drift.
+#
+# The two conditions are ANDed on purpose:
+#   * the ratio alone would fire constantly on small boards (a 30-job board
+#     dropping to 22 is 73% — noise, not a truncation);
+#   * the absolute drop alone would fire on large healthy boards.
+#
+# Why this matters: the OLD 0.1-only guard let SIX of those seven Apple
+# truncations run the destructive close phase against partial data. Closure
+# needs MISSED_RUN_THRESHOLD (2) *consecutive* misses, and prod was saved
+# only because a clean run happened to land between two truncations. Two
+# back-to-back truncations would have mass-closed ~2,800 Apple jobs.
+#
+# ACCEPTED TRADE-OFF — the guard has NO auto-release. A company that
+# genuinely shrinks by more than 15% in one shot (on a board of >= ~100
+# jobs) trips rule (b) on every subsequent run too, because the stale DB
+# rows keep `active_count` high. That company stays locked out of the
+# update/close phases until a human widens SCRAPER_GUARD_MIN_RATIO (or
+# clears the stale rows). This is deliberate: silently mass-closing
+# thousands of live jobs is far worse than freezing one company's
+# lifecycle. The daily scraper-health check
+# (src/backend/api/services/scraper_health.py, surfaced by
+# .github/workflows/scraper-health.yml) makes such a lockout visible
+# within 24h.
+SCRAPER_GUARD_MIN_RATIO = float(os.environ.get("SCRAPER_GUARD_MIN_RATIO", "0.85"))
+SCRAPER_GUARD_MIN_ABS_DROP = int(os.environ.get("SCRAPER_GUARD_MIN_ABS_DROP", "15"))
+
+
+def evaluate_safety_guard(jobs_seen: int, active_count: int) -> str | None:
+    """Decide whether a scrape result is too small to trust.
+
+    THE single source of truth for the scraper safety guard. Pure and sync
+    so both the scraper subprocess (``run_incremental_scrape`` below) and
+    the six backend ATS leaf tasks call the exact same logic — the guard
+    used to be copy-pasted inline in seven places and drifted.
+
+    Args:
+        jobs_seen: Number of jobs the scrape actually returned.
+        active_count: Number of rows currently OPEN in the DB for this
+            company/source.
+
+    Returns:
+        ``None`` when the run looks healthy and the caller should proceed
+        with the update/close phases; otherwise a short machine-readable
+        reason string:
+
+        * ``"empty_scrape"``  — rule (a): jobs_seen < SAFETY_GUARD_RATIO
+          (10%) of active. A total or near-total scraper failure.
+        * ``"partial_scrape"`` — rule (b): jobs_seen < 85% of active AND
+          the absolute drop is at least 15 jobs. An Apple-style truncation.
+
+        A cold start (``active_count == 0``) always returns ``None`` — with
+        nothing in the DB there is nothing to protect and nothing to close.
+    """
+    if active_count <= 0:
+        return None
+
+    if jobs_seen < SAFETY_GUARD_RATIO * active_count:
+        return "empty_scrape"
+
+    if (
+        jobs_seen < SCRAPER_GUARD_MIN_RATIO * active_count
+        and (active_count - jobs_seen) >= SCRAPER_GUARD_MIN_ABS_DROP
+    ):
+        return "partial_scrape"
+
+    return None
 
 
 class ScrapeResult:
@@ -246,19 +358,28 @@ async def run_incremental_scrape(
         active_known_ids = db.get_active_job_ids(db_conn, source_id, company)
         new_ids, still_active_ids, missing_ids = calculate_job_diff(current_ids, active_known_ids)
 
-        # Safety guard: skip update/close phases if scraper returned
-        # suspiciously few jobs relative to active DB count. Catches full
-        # failures (0 jobs) and partial failures (e.g., crash after page 1).
-        min_expected = len(active_known_ids) * SAFETY_GUARD_RATIO
-        if active_known_ids and result.jobs_seen < min_expected:
+        # Safety guard: skip update/close phases if the scraper returned
+        # suspiciously few jobs relative to the active DB count. Catches full
+        # failures (0 jobs) and Apple-style truncations (crash after page N).
+        # Logic lives in evaluate_safety_guard so this module and the six
+        # backend ATS leaf tasks can never drift apart.
+        guard_reason = evaluate_safety_guard(result.jobs_seen, len(active_known_ids))
+        if guard_reason is not None:
             logger.warning(
-                "SAFETY GUARD for %s: scraper returned %d jobs but %d active "
-                "jobs in database (threshold %.0f%% = %d). Skipping update/close "
-                "phases to prevent mass closure. Investigate scraper health.",
-                company, result.jobs_seen, len(active_known_ids),
-                SAFETY_GUARD_RATIO * 100, int(min_expected),
+                "SAFETY GUARD (%s) for %s: scraper returned %d jobs but %d active "
+                "jobs in database (empty<%.0f%%, partial<%.0f%% with drop>=%d). "
+                "Skipping update/close phases to prevent mass closure. "
+                "Investigate scraper health.",
+                guard_reason, company, result.jobs_seen, len(active_known_ids),
+                SAFETY_GUARD_RATIO * 100, SCRAPER_GUARD_MIN_RATIO * 100,
+                SCRAPER_GUARD_MIN_ABS_DROP,
             )
             result.skipped_update = True
+            # error_count=1 harmonizes with the six ATS leaf tasks, which
+            # have always recorded a tripped guard as an error. Without it a
+            # truncated run is written to scrape_runs as error_count=0 —
+            # literally indistinguishable from a perfect run.
+            result.error_count = 1
         else:
             # Phase 3: Fetch details ONLY for new jobs
             logger.info("Phase 3: Fetching details for new jobs...")
@@ -291,6 +412,7 @@ async def run_incremental_scrape(
             closed_jobs=result.closed_jobs,
             details_fetched=result.details_fetched,
             error_count=result.error_count,
+            skipped_update=result.skipped_update,
         )
         try:
             db.record_scrape_run(db_conn, run_record)
@@ -309,7 +431,7 @@ async def run_incremental_scrape(
         f"Incremental scrape complete - "
         f"Seen: {result.jobs_seen}, New: {result.new_jobs}, "
         f"Closed: {result.closed_jobs}, Details: {result.details_fetched}"
-        f"{', SKIPPED UPDATE (empty scrape guard)' if result.skipped_update else ''}"
+        f"{', SKIPPED UPDATE (safety guard)' if result.skipped_update else ''}"
     )
 
     return result

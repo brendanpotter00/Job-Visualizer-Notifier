@@ -47,6 +47,9 @@ from scripts.shared import database as db
 from scripts.shared.incremental import (
     MISSED_RUN_THRESHOLD,
     SAFETY_GUARD_RATIO,
+    SCRAPER_GUARD_MIN_ABS_DROP,
+    SCRAPER_GUARD_MIN_RATIO,
+    evaluate_safety_guard,
 )
 from scripts.shared.models import ScrapeRun
 from scripts.shared.utils import get_iso_timestamp
@@ -133,6 +136,7 @@ async def fetch_eightfold_company(
     new_jobs_count = 0
     closed_jobs_count = 0
     error_count = 0
+    skipped_update = False
     new_ids: Set[str] = set()
     scrape_error: BaseException | None = None
 
@@ -150,7 +154,8 @@ async def fetch_eightfold_company(
     try:
         try:
             async def _work() -> None:
-                nonlocal jobs_seen, new_jobs_count, closed_jobs_count, error_count, new_ids
+                nonlocal jobs_seen, new_jobs_count, closed_jobs_count, error_count
+                nonlocal new_ids, skipped_update
                 async with httpx.AsyncClient() as http:
                     raw_jobs = await fetch_jobs(tenant_host, domain, http)
                 jobs = transform_to_job_listings(company_id, raw_jobs)
@@ -160,15 +165,19 @@ async def fetch_eightfold_company(
                     db.count_active_jobs, conn, SOURCE_ID, company_id
                 )
 
-                if active_count > 0 and jobs_seen < SAFETY_GUARD_RATIO * active_count:
+                guard_reason = evaluate_safety_guard(jobs_seen, active_count)
+                if guard_reason is not None:
                     # ERROR routes to stderr → Railway @level:error queries.
                     logger.error(
-                        "SAFETY GUARD for %s: returned %d jobs but %d active in "
-                        "DB (threshold %.0f%% = %.0f). Skipping update/close phases.",
-                        company_id, jobs_seen, active_count,
-                        SAFETY_GUARD_RATIO * 100, SAFETY_GUARD_RATIO * active_count,
+                        "SAFETY GUARD (%s) for %s: returned %d jobs but %d "
+                        "active in DB (empty<%.0f%%, partial<%.0f%% with "
+                        "drop>=%d). Skipping update/close phases.",
+                        guard_reason, company_id, jobs_seen, active_count,
+                        SAFETY_GUARD_RATIO * 100, SCRAPER_GUARD_MIN_RATIO * 100,
+                        SCRAPER_GUARD_MIN_ABS_DROP,
                     )
                     error_count = 1
+                    skipped_update = True
                     return
 
                 timestamp = get_iso_timestamp()
@@ -288,6 +297,7 @@ async def fetch_eightfold_company(
             closed_jobs=closed_jobs_count,
             details_fetched=0,
             error_count=error_count,
+            skipped_update=skipped_update,
         )
         try:
             await asyncio.to_thread(db.record_scrape_run, conn, run_record)

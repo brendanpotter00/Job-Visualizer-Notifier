@@ -413,8 +413,25 @@ class TestRunIncrementalScrape:
         assert result.closed_jobs == 0
 
     @pytest.mark.asyncio
-    async def test_scrape_at_threshold_does_not_trigger_guard(self, in_memory_db, mock_scraper):
-        """Scraper returning exactly at SAFETY_GUARD_RATIO does NOT trigger guard"""
+    async def test_scrape_at_threshold_now_trips_the_partial_guard(self, in_memory_db, mock_scraper):
+        """SEMANTIC CHANGE (was ``test_scrape_at_threshold_does_not_trigger_guard``).
+
+        10-of-100 sits exactly ON the legacy ``SAFETY_GUARD_RATIO`` (0.1)
+        boundary, so rule (a) — which is a strict ``<`` — still does not
+        fire. It used to be the whole guard, and this test asserted the
+        run proceeded into the destructive close phase.
+
+        That expectation was wrong for the real world: losing 90% of a
+        100-job board is a catastrophic truncation, not "normal operation."
+        Rule (b) now catches it (10 < 0.85*100 = 85, and the 90-job drop
+        clears the 15-job floor), so the correct expectation flips to
+        ``skipped_update is True``.
+
+        The test is KEPT (not deleted) precisely because it pins that
+        boundary: rule (a) must remain a strict ``<`` at 0.1, and the run
+        must still be blocked — just under the ``partial_scrape`` reason
+        rather than ``empty_scrape``.
+        """
         # Insert 100 jobs in DB
         for i in range(100):
             job = JobListing(
@@ -430,7 +447,8 @@ class TestRunIncrementalScrape:
             )
             db.insert_job(in_memory_db, job)
 
-        # Return 10 jobs (10% = threshold, not below) — normal operation proceeds
+        # Return 10 jobs (exactly 10% — rule (a) is `<` so it does NOT fire,
+        # but rule (b) does).
         mock_scraper.scrape_all_queries = AsyncMock(return_value=[
             {"id": f"job-{i}", "title": f"Job {i}", "job_url": f"https://example.com/job-{i}"}
             for i in range(10)
@@ -440,7 +458,195 @@ class TestRunIncrementalScrape:
             mock_scraper, in_memory_db, company="google", detail_scrape=False
         )
 
-        assert result.skipped_update is False
+        assert result.skipped_update is True
+        assert result.closed_jobs == 0
+        assert result.error_count == 1
+
+    @pytest.mark.asyncio
+    async def test_apple_style_partial_scrape_does_not_increment_misses(
+        self, in_memory_db, mock_scraper
+    ):
+        """THE regression test for this whole change.
+
+        Replays the real Apple truncation profile: 3,550 OPEN rows in the
+        DB, the scrape returns 2,585 (72.8% of the board). Under the old
+        0.1-only guard this ran the full update/close phase — every one of
+        the 965 unseen jobs got ``consecutive_misses`` incremented, one
+        miss away from mass closure. Six of Apple's seven truncations in
+        21 days did exactly this in production.
+
+        The assertions cover BOTH halves of the fix:
+          * the guard trips and the run is recorded as an error, and
+          * critically, the DB is untouched — nothing may drift toward
+            CLOSED. Asserting only ``skipped_update`` would still pass if
+            the guard flag were set but the phases ran anyway.
+        """
+        active_total = 3550
+        returned = 2585
+
+        jobs = [
+            JobListing(
+                id=f"apple-{i}",
+                title=f"Job {i}",
+                company="apple",
+                url=f"https://example.com/apple-{i}",
+                source_id=SourceId.GOOGLE,
+                created_at="2024-01-10T10:00:00Z",
+                first_seen_at="2024-01-10T10:00:00Z",
+                last_seen_at="2024-01-10T10:00:00Z",
+                consecutive_misses=0,
+            )
+            for i in range(active_total)
+        ]
+        # NOTE: don't assert on insert_jobs_batch's return value — it reports
+        # psycopg2's rowcount for the LAST execute_values page only (page_size
+        # =100), so it under-counts any batch over 100. Verify with a COUNT.
+        db.insert_jobs_batch(in_memory_db, jobs)
+        seed_cursor = in_memory_db.cursor()
+        seed_cursor.execute(
+            "SELECT count(*) AS n FROM job_listings WHERE company = 'apple'"
+        )
+        assert seed_cursor.fetchone()['n'] == active_total
+
+        mock_scraper.scrape_all_queries = AsyncMock(return_value=[
+            {"id": f"apple-{i}", "title": f"Job {i}", "job_url": f"https://example.com/apple-{i}"}
+            for i in range(returned)
+        ])
+
+        result = await run_incremental_scrape(
+            mock_scraper, in_memory_db, company="apple", detail_scrape=False
+        )
+
+        assert result.skipped_update is True
+        assert result.error_count == 1
+        assert result.closed_jobs == 0
+
+        cursor = in_memory_db.cursor()
+        cursor.execute(
+            "SELECT count(*) AS n FROM job_listings "
+            "WHERE company = 'apple' AND (consecutive_misses <> 0 OR status <> 'OPEN')"
+        )
+        drifted = cursor.fetchone()["n"]
+        assert drifted == 0, (
+            f"{drifted} rows drifted toward closure on a truncated scrape — "
+            "the destructive phases ran despite the safety guard"
+        )
+
+        cursor.execute(
+            "SELECT count(*) AS n FROM job_listings "
+            "WHERE company = 'apple' AND status = 'OPEN'"
+        )
+        assert cursor.fetchone()["n"] == active_total
+
+    @pytest.mark.asyncio
+    async def test_two_consecutive_partials_close_nothing(
+        self, in_memory_db, mock_scraper
+    ):
+        """The literal mass-closure scenario, end to end.
+
+        Closure requires MISSED_RUN_THRESHOLD (2) *consecutive* misses. In
+        production, two back-to-back Apple truncations would have closed
+        ~2,800 live jobs; prod escaped only because a clean run happened to
+        land between two of the seven truncations. That is luck, not a
+        control — so run the truncation TWICE and assert zero closures.
+
+        Deliberately smaller than the 3,550-row test above (300/200 keeps
+        this fast) while staying well past both guard conditions:
+        200 < 0.85*300 = 255, and the 100-job drop clears the 15 floor.
+        """
+        active_total = 300
+        returned = 200
+
+        jobs = [
+            JobListing(
+                id=f"job-{i}",
+                title=f"Job {i}",
+                company="apple",
+                url=f"https://example.com/job-{i}",
+                source_id=SourceId.GOOGLE,
+                created_at="2024-01-10T10:00:00Z",
+                first_seen_at="2024-01-10T10:00:00Z",
+                last_seen_at="2024-01-10T10:00:00Z",
+                consecutive_misses=0,
+            )
+            for i in range(active_total)
+        ]
+        # NOTE: don't assert on insert_jobs_batch's return value — it reports
+        # psycopg2's rowcount for the LAST execute_values page only (page_size
+        # =100), so it under-counts any batch over 100. Verify with a COUNT.
+        db.insert_jobs_batch(in_memory_db, jobs)
+        seed_cursor = in_memory_db.cursor()
+        seed_cursor.execute(
+            "SELECT count(*) AS n FROM job_listings WHERE company = 'apple'"
+        )
+        assert seed_cursor.fetchone()['n'] == active_total
+
+        mock_scraper.scrape_all_queries = AsyncMock(return_value=[
+            {"id": f"job-{i}", "title": f"Job {i}", "job_url": f"https://example.com/job-{i}"}
+            for i in range(returned)
+        ])
+
+        for run_number in (1, 2):
+            result = await run_incremental_scrape(
+                mock_scraper, in_memory_db, company="apple", detail_scrape=False
+            )
+            assert result.skipped_update is True, f"run {run_number}"
+            assert result.closed_jobs == 0, f"run {run_number}"
+
+        cursor = in_memory_db.cursor()
+        cursor.execute(
+            "SELECT count(*) AS n FROM job_listings "
+            "WHERE company = 'apple' AND status = 'CLOSED'"
+        )
+        closed = cursor.fetchone()["n"]
+        assert closed == 0, (
+            f"{closed} jobs mass-closed by two consecutive truncated scrapes"
+        )
+
+    @pytest.mark.asyncio
+    async def test_guard_trip_is_persisted_on_the_scrape_run_row(
+        self, in_memory_db, mock_scraper
+    ):
+        """A tripped guard must be legible in ``scrape_runs`` afterwards.
+
+        Before this change ``skipped_update`` was computed and thrown away,
+        so a truncated run was persisted with ``error_count=0`` — byte for
+        byte identical to a perfect run. That is why seven real Apple
+        truncations sat unnoticed in the table for three weeks.
+        """
+        jobs = [
+            JobListing(
+                id=f"job-{i}",
+                title=f"Job {i}",
+                company="apple",
+                url=f"https://example.com/job-{i}",
+                source_id=SourceId.GOOGLE,
+                created_at="2024-01-10T10:00:00Z",
+                first_seen_at="2024-01-10T10:00:00Z",
+                last_seen_at="2024-01-10T10:00:00Z",
+            )
+            for i in range(200)
+        ]
+        db.insert_jobs_batch(in_memory_db, jobs)
+
+        mock_scraper.scrape_all_queries = AsyncMock(return_value=[
+            {"id": f"job-{i}", "title": f"Job {i}", "job_url": f"https://example.com/job-{i}"}
+            for i in range(100)
+        ])
+
+        result = await run_incremental_scrape(
+            mock_scraper, in_memory_db, company="apple", detail_scrape=False
+        )
+
+        cursor = in_memory_db.cursor()
+        cursor.execute(
+            "SELECT skipped_update, error_count FROM scrape_runs WHERE run_id = %s",
+            (result.run_id,),
+        )
+        row = cursor.fetchone()
+        assert row is not None
+        assert row["skipped_update"] is True
+        assert row["error_count"] == 1
 
 
 class TestScrapeResult:

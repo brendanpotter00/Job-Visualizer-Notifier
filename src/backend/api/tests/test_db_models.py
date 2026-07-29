@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import TIMESTAMP
+from sqlalchemy import TIMESTAMP, Boolean
 from sqlalchemy.schema import ForeignKeyConstraint, UniqueConstraint
 
 from api import db_models
@@ -53,6 +53,49 @@ def test_job_listings_nullability():
     assert table.c["created_at"].nullable is False
     assert table.c["closed_on"].nullable is True
     assert table.c["first_seen_at"].nullable is False
+
+
+def test_scrape_runs_columns():
+    """Pin the full ``scrape_runs`` column set.
+
+    ``skipped_update`` is the difference between "a truncated scrape is
+    visible in the table" and "a truncated scrape is byte-for-byte
+    identical to a perfect run" — which is exactly how seven real Apple
+    truncations went unnoticed for three weeks. Dropping it must fail
+    loudly, not silently degrade the QA table to guesswork.
+    """
+    table = db_models.Base.metadata.tables["scrape_runs"]
+    assert set(table.c.keys()) == {
+        "run_id",
+        "company",
+        "started_at",
+        "completed_at",
+        "mode",
+        "jobs_seen",
+        "new_jobs",
+        "closed_jobs",
+        "details_fetched",
+        "error_count",
+        "skipped_update",
+    }
+
+
+def test_scrape_runs_skipped_update_is_nullable_with_no_server_default():
+    """Nullable + no server default is load-bearing on two axes.
+
+    Migration safety: a nullable column with no default is a catalog-only
+    ADD COLUMN — Postgres does not rewrite the ~455k-row table (see
+    docs/incidents/2026-04-18-migration-filled-postgres-volume/).
+
+    Data honesty: NULL means "written before this column existed". A
+    ``server_default='false'`` would retroactively claim the seven real
+    Apple truncations were clean runs.
+    """
+    col = db_models.Base.metadata.tables["scrape_runs"].c["skipped_update"]
+    assert isinstance(col.type, Boolean)
+    assert col.nullable is True
+    assert col.server_default is None
+    assert col.default is None
 
 
 def test_users_email_unique_constraint_named():

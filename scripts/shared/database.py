@@ -870,13 +870,14 @@ def record_scrape_run(conn: Connection, run_data: ScrapeRun) -> None:
         f"""
         INSERT INTO {_RUNS_TABLE} (
             run_id, company, started_at, completed_at, mode,
-            jobs_seen, new_jobs, closed_jobs, details_fetched, error_count
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            jobs_seen, new_jobs, closed_jobs, details_fetched, error_count,
+            skipped_update
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (
             run_data.run_id, run_data.company, run_data.started_at, run_data.completed_at,
             run_data.mode, run_data.jobs_seen, run_data.new_jobs, run_data.closed_jobs,
-            run_data.details_fetched, run_data.error_count
+            run_data.details_fetched, run_data.error_count, run_data.skipped_update
         )
     )
 

@@ -215,6 +215,64 @@ class TestScrapeRun:
         assert dict(row)["jobs_seen"] == 100
         assert dict(row)["new_jobs"] == 10
 
+    def test_record_scrape_run_persists_skipped_update(self, in_memory_db):
+        """``skipped_update`` must survive the round-trip to Postgres.
+
+        The flag was computed by the scraper for a long time and then
+        silently dropped on the floor by ``record_scrape_run`` — which is
+        why a truncated run and a perfect run were indistinguishable in the
+        table. Both values are asserted: writing ``True`` proves the column
+        is wired, and writing ``False`` proves the writer isn't just
+        defaulting everything to the same value.
+        """
+        for skipped in (True, False):
+            run = ScrapeRun(
+                run_id=f"guard-run-{skipped}",
+                company="apple",
+                started_at="2026-07-28T10:00:00Z",
+                completed_at="2026-07-28T10:05:00Z",
+                mode="incremental",
+                jobs_seen=2585,
+                new_jobs=0,
+                closed_jobs=0,
+                details_fetched=0,
+                error_count=1 if skipped else 0,
+                skipped_update=skipped,
+            )
+            db.record_scrape_run(in_memory_db, run)
+
+            cursor = in_memory_db.cursor()
+            cursor.execute(
+                "SELECT skipped_update FROM scrape_runs WHERE run_id = %s",
+                (run.run_id,),
+            )
+            row = cursor.fetchone()
+            assert row is not None
+            assert row["skipped_update"] is skipped
+
+    def test_scrape_run_defaults_skipped_update_to_false(self, in_memory_db):
+        """A caller that doesn't pass the flag records ``False``, not NULL.
+
+        NULL in this column has a specific meaning — "row written before
+        the column existed" — so live writers must never produce it.
+        """
+        run = ScrapeRun(
+            run_id="guard-run-default",
+            company="google",
+            started_at="2026-07-28T10:00:00Z",
+            completed_at="2026-07-28T10:05:00Z",
+            mode="full",
+            jobs_seen=798,
+        )
+        db.record_scrape_run(in_memory_db, run)
+
+        cursor = in_memory_db.cursor()
+        cursor.execute(
+            "SELECT skipped_update FROM scrape_runs WHERE run_id = %s",
+            (run.run_id,),
+        )
+        assert cursor.fetchone()["skipped_update"] is False
+
 
 class TestUpsertJob:
     """Tests for upsert_job function (handles reappearing closed jobs)"""
