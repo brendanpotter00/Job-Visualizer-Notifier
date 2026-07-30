@@ -132,11 +132,6 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%222135371%22%5D',
   }),
-  createBackendScraperCompany('appliedintuition', 'Applied Intuition', 'https://boards.greenhouse.io/appliedintuition', {
-    sourceAts: 'greenhouse',
-    recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?keywords=hiring+software+engineer&origin=FACETED_SEARCH',
-  }),
   createBackendScraperCompany('discord', 'Discord', 'https://boards.greenhouse.io/discord', {
     sourceAts: 'greenhouse',
     recruiterLinkedInUrl:
@@ -207,11 +202,6 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2274882602%22%5D',
   }),
-  createBackendScraperCompany('merge', 'Merge', 'https://boards.greenhouse.io/merge', {
-    sourceAts: 'greenhouse',
-    recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2253197721%22%5D',
-  }),
   createBackendScraperCompany('databricks', 'Databricks', 'https://boards.greenhouse.io/databricks', {
     sourceAts: 'greenhouse',
     recruiterLinkedInUrl:
@@ -252,11 +242,6 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%225101804%22%5D',
   }),
-  createBackendScraperCompany('unity3d', 'Unity', 'https://boards.greenhouse.io/unity3d', {
-    sourceAts: 'greenhouse',
-    recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22212669%22%5D',
-  }),
   createBackendScraperCompany('vercel', 'Vercel', 'https://boards.greenhouse.io/vercel', {
     sourceAts: 'greenhouse',
     recruiterLinkedInUrl:
@@ -281,11 +266,6 @@ export const COMPANIES: Company[] = [
     sourceAts: 'greenhouse',
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22147977%22%5D',
-  }),
-  createBackendScraperCompany('fal', 'fal', 'https://boards.greenhouse.io/fal', {
-    sourceAts: 'greenhouse',
-    recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2277745852%22%5D',
   }),
   // Quant / proprietary trading firms (Greenhouse)
   createBackendScraperCompany('jumptrading', 'Jump Trading', 'https://boards.greenhouse.io/jumptrading', {
@@ -613,6 +593,28 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2298799140%22%5D',
   }),
+  // Migrated off Greenhouse to Ashby (2026-07-30). The Greenhouse boards
+  // 404'd/emptied after the companies moved ATS; the JVN `id` is unchanged
+  // (it is the PK + logo key), only the board token moved:
+  //   appliedintuition -> ashby token `applied`
+  //   fal              -> ashby token `fal-ai`
+  //   merge            -> ashby token `merge`
+  // Backend counterpart: the repoint migration in src/backend/alembic/versions/.
+  createBackendScraperCompany('appliedintuition', 'Applied Intuition', 'https://jobs.ashbyhq.com/applied', {
+    sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring+software+engineer&origin=FACETED_SEARCH',
+  }),
+  createBackendScraperCompany('fal', 'fal', 'https://jobs.ashbyhq.com/fal-ai', {
+    sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2277745852%22%5D',
+  }),
+  createBackendScraperCompany('merge', 'Merge', 'https://jobs.ashbyhq.com/merge', {
+    sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2253197721%22%5D',
+  }),
 
   // Gem (backend-scraper) — backend Procrastinate worker fetches from
   // api.gem.com/job_board/v0/<id>/job_posts/ on a 30-min cron. See
@@ -897,7 +899,6 @@ export const enum COMPANY_IDS {
   Twilio = 'twilio',
   Turo = 'turo',
   Twitch = 'twitch',
-  Unity = 'unity3d',
   Vercel = 'vercel',
   Vizcom = 'vizcom',
   Waymo = 'waymo',
