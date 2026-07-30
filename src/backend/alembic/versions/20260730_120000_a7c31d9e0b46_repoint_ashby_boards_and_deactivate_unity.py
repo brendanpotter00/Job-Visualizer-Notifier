@@ -94,10 +94,14 @@ are deliberately kept so the retirement is lossless and reversible.
 Source of truth for the frontend entries:
   src/frontend/src/config/companies.ts
 """
+import logging
 from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+
+
+logger = logging.getLogger("alembic.runtime.migration")
 
 
 # revision identifiers, used by Alembic.
@@ -131,9 +135,25 @@ def upgrade() -> None:
         "closed_on = CAST(:closed_on AS timestamptz) "
         "WHERE company = :id AND source_id = :source_id AND status = 'OPEN'"
     )
+    # Rowcounts are logged, not asserted. A no-op here is a legitimate state
+    # (fresh DB with no job_listings, or a re-run), so raising would be wrong.
+    # But a SILENT no-op is how a drifted id ships as "migrated" while the
+    # boards stay dead, so every statement reports what it actually touched.
+    # Expected in prod on first run: 1 row repointed per company, and
+    # 228 / 38 / 21 rows closed respectively.
     for row in REPOINTED:
-        bind.execute(repoint, {'id': row['id'], 'new_token': row['new_token']})
-        bind.execute(
+        res = bind.execute(repoint, {'id': row['id'], 'new_token': row['new_token']})
+        if res.rowcount == 0:
+            logger.warning(
+                "repoint: no companies row matched id=%s — board NOT repointed",
+                row['id'],
+            )
+        else:
+            logger.info(
+                "repoint: %s -> ashby/%s (%d row)",
+                row['id'], row['new_token'], res.rowcount,
+            )
+        closed = bind.execute(
             close_stale,
             {
                 'id': row['id'],
@@ -141,12 +161,23 @@ def upgrade() -> None:
                 'closed_on': _BACKFILL_CLOSED_ON,
             },
         )
+        logger.info(
+            "backfill: closed %d stale %s rows for %s",
+            closed.rowcount, STALE_SOURCE_ID, row['id'],
+        )
+
     # Soft-deactivation only — Unity's job_listings / scrape_runs /
     # user_enabled_companies rows all stay.
-    bind.execute(
+    disabled = bind.execute(
         sa.text("UPDATE companies SET enabled = FALSE WHERE id = :id"),
         {'id': UNITY_ID},
     )
+    if disabled.rowcount == 0:
+        logger.warning(
+            "deactivate: no companies row matched id=%s — still enabled", UNITY_ID
+        )
+    else:
+        logger.info("deactivate: %s enabled=FALSE (%d row)", UNITY_ID, disabled.rowcount)
 
 
 def downgrade() -> None:

@@ -104,9 +104,11 @@ _LEVEL_FILTER_EXPANSION: dict[str, list[str]] = {"entry": ["entry", "new_grad"]}
 # ``companies`` before each test, so its seeded job rows have no companies row
 # at all.
 #
-# ``companies`` is ~133 rows and ``companies_pkey`` serves the correlated
-# probe, so this collapses to a hash anti-join against a handful of rows. It is
-# applied to the list and detail reads ONLY.
+# ``companies`` is ~133 rows, and the planner satisfies the probe from
+# ``ix_companies_ats_enabled`` (``Index Cond: enabled = false``), so this
+# collapses to a hash anti-join against the handful of deactivated rows.
+# Measured on prod against the real 50-company batched query: 355ms -> 427ms
+# over 15,544 rows, no plan regression. Applied to the list and detail reads ONLY.
 #
 # DO NOT pass ``exclude_hidden_companies=True`` from ``get_scrape_runs()``:
 # that query's FROM is ``scrape_runs``, so the correlated
@@ -114,6 +116,13 @@ _LEVEL_FILTER_EXPANSION: dict[str, list[str]] = {"entry": ["entry", "new_grad"]}
 # from ``get_stats()``: ``/api/jobs-qa/stats`` and ``/scrape-runs`` are
 # ``require_admin`` diagnostics — deactivation hides a company from users, it
 # does not erase it from operator tooling.
+#
+# CAVEAT, so nobody is misled by the line above: the exemption covers the
+# jobs-qa *stats* and *scrape-runs* endpoints only. The admin QA page's Jobs
+# table (``QAPage.tsx``) fetches the public ``/api/jobs``, so it IS subject to
+# this filter. An operator therefore sees a deactivated company's rows in the
+# stats card but not in the table beneath it. Deliberate for now — closing that
+# gap means an admin-gated jobs read, which is out of scope here.
 _HIDDEN_COMPANY_PREDICATE = sql.SQL(
     "NOT EXISTS ("
     " SELECT 1 FROM companies c"
