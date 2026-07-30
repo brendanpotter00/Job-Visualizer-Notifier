@@ -51,12 +51,24 @@ describe('getCompanySourceLabel', () => {
       google: 'Custom Web Scraper',
       apple: 'Custom Web Scraper',
       microsoft: 'Custom Web Scraper',
+      // Migrated off Greenhouse to Ashby on 2026-07-30 — the Why-page grouping
+      // is computed from `sourceAts`, so these pin the re-point.
+      appliedintuition: 'Ashby',
+      fal: 'Ashby',
+      merge: 'Ashby',
     };
     for (const [id, expected] of Object.entries(cases)) {
       const company = getCompanyById(id);
       expect(company, `expected company "${id}" to exist in config`).toBeDefined();
       expect(getCompanySourceLabel(company!)).toBe(expected);
     }
+  });
+
+  it('unity3d is no longer a configured company', () => {
+    // Unity moved to Workday, which this app deliberately does not read for
+    // them, so it was retired from the config (backend row soft-deactivated
+    // via companies.enabled = FALSE, history preserved).
+    expect(getCompanyById('unity3d')).toBeUndefined();
   });
 
   it('stays in sync with the ATS_DISPLAY_NAMES map for every configured company', () => {

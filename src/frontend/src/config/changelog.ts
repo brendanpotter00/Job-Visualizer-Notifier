@@ -19,6 +19,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'ats-migrations-2026-07',
+    title: 'Applied Intuition, fal, and Merge are live again — Unity is retired',
+    description:
+      'Three companies quietly moved their job boards from Greenhouse to Ashby, which meant this site had been showing months-old, already-filled listings for them. They now read from their new Ashby boards, and the stale Greenhouse-era postings have been closed out, so what you see for Applied Intuition, fal, and Merge is current again. Unity moved to Workday, which this site does not read for them, so Unity has been retired from the tracked list rather than left showing stale jobs — its history is preserved and it can be brought back if that changes. If Unity was in your saved companies you can safely leave it there; it simply no longer appears.',
+    tags: ['improvement'],
+    date: '2026-07-30',
+    link: {
+      to: ROUTES.SAVED_FILTERS,
+      label: 'Review your saved companies',
+    },
+  },
+  {
     id: 'default-90d-and-job-title',
     title: 'Pages now open to the last 90 days, and “Category” is now “Job title”',
     description:

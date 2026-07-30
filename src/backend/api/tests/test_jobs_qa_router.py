@@ -1743,3 +1743,22 @@ def test_trigger_workday_fan_out_without_auth_returns_401(test_app):
         if saved_user is not None:
             test_app.dependency_overrides[get_current_user] = saved_user
 
+
+
+def test_stats_still_counts_disabled_company_jobs(client, db_conn):
+    """Deliberate asymmetry, pinned: `/api/jobs-qa/stats` is a require_admin
+    diagnostic, so it keeps counting a soft-deactivated company's jobs even
+    though the public `/api/jobs` read paths now filter them out via
+    `_HIDDEN_COMPANY_PREDICATE`. Deactivation hides a company from users; it
+    does not erase it from operator tooling."""
+    _seed_company(db_conn, "retired", enabled=False)
+    _insert_job(db_conn, _make_job({
+        "id": "qa-retired-1", "company": "retired",
+        "source_id": SourceId.GREENHOUSE, "status": "OPEN",
+    }))
+
+    stats = client.get("/api/jobs-qa/stats").json()
+    assert stats["totalJobs"] == 1
+    assert stats["openJobs"] == 1
+    assert any(c["company"] == "retired" and c["count"] == 1
+               for c in stats["companyCounts"])

@@ -79,3 +79,31 @@ class TestBuildWhere:
         assert "status = %s" in rendered
         assert "enrichment_category" in rendered
         assert "enrichment_level" in rendered
+
+    def test_hidden_company_predicate_absent_by_default(self):
+        # Admin/diagnostic callers (get_stats, get_scrape_runs) rely on the
+        # default staying off — a deactivated company must stay visible there.
+        where, params = _build_where(company="google")
+        assert params == ["google"]
+        assert "NOT EXISTS" not in _render(where)
+
+    def test_hidden_company_predicate_added_when_requested(self):
+        where, params = _build_where(exclude_hidden_companies=True)
+        rendered = _render(where)
+        assert "WHERE" in rendered
+        assert "NOT EXISTS" in rendered
+        assert "c.enabled" in rendered
+        # The predicate is a static correlated subquery — it must not add
+        # placeholders, or every caller's param ordering would shift.
+        assert params == []
+
+    def test_hidden_company_predicate_composes_with_other_filters(self):
+        where, params = _build_where(
+            company="google", status="OPEN", exclude_hidden_companies=True
+        )
+        # Param order and count are unchanged by the guard.
+        assert params == ["google", "OPEN"]
+        rendered = _render(where)
+        assert "company = %s" in rendered
+        assert "status = %s" in rendered
+        assert "NOT EXISTS" in rendered

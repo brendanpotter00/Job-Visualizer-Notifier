@@ -194,6 +194,14 @@ The tracked-company catalogue. `ats` names the provider (greenhouse, ashby, leve
 eightfold, workday). `provider_config` JSONB carries per-ATS settings (Eightfold:
 `{tenant_host, domain}`; Workday: `{base_url, tenant_slug, career_site_slug, default_facets?}`).
 `created_at` is what the auto-enroll watermark compares against.
+`enabled = FALSE` is the soft-deactivation switch: the row and all of its historical
+`job_listings` / `scrape_runs` are preserved, but the company is skipped by the worker
+fan-out, omitted from `GET /api/companies`, excluded from auto-enroll, and — since the
+2026-07-30 Unity retirement — its jobs are filtered out of the public `GET /api/jobs`
+read paths (`services/database.py::_HIDDEN_COMPANY_PREDICATE`). The `/api/jobs-qa/stats`
+and `/api/jobs-qa/scrape-runs` diagnostics deliberately still see it. Note the QA page's
+Jobs table reads the public `/api/jobs`, so it does **not** — an operator sees a
+deactivated company counted in the stats card but absent from the table below it.
 
 ### `admins`
 Admin grants. PK `user_id` → `users.id` (CASCADE). `granted_by` → `users.id` (SET NULL) so
