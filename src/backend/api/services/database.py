@@ -84,12 +84,50 @@ _RUNS_TABLE = sql.Identifier("scrape_runs")
 _LEVEL_FILTER_EXPANSION: dict[str, list[str]] = {"entry": ["entry", "new_grad"]}
 
 
+# Hidden-company guard for the PUBLIC job read paths.
+#
+# ``companies.enabled = FALSE`` is this codebase's soft-deactivation switch
+# (``db_models.py`` ``Company.enabled``). It already gates the worker fan-out
+# (``scripts/shared/database.py`` ``list_enabled_companies``), the curated
+# directory (``services/companies_service.py``) and auto-enroll
+# (``services/user_preferences_service.py``) — but NOT ``/api/jobs``, which
+# reads ``job_listings`` with no reference to ``companies``. Before this guard,
+# ``GET /api/jobs?company=<deactivated-id>`` (public, forwarded verbatim by
+# ``api/jobs.ts``) still served every row of a retired company.
+#
+# ANTI-join (``NOT EXISTS ... AND NOT enabled``), deliberately, NOT
+# ``company IN (SELECT id FROM companies WHERE enabled)``: a job whose company
+# has NO ``companies`` row must stay VISIBLE. This makes the predicate mean
+# "explicitly deactivated", not "registered", which (a) preserves today's
+# behavior for any legacy/unregistered company value and (b) leaves every
+# existing test fixture untouched — ``api/tests/conftest.py`` truncates
+# ``companies`` before each test, so its seeded job rows have no companies row
+# at all.
+#
+# ``companies`` is ~133 rows and ``companies_pkey`` serves the correlated
+# probe, so this collapses to a hash anti-join against a handful of rows. It is
+# applied to the list and detail reads ONLY.
+#
+# DO NOT pass ``exclude_hidden_companies=True`` from ``get_scrape_runs()``:
+# that query's FROM is ``scrape_runs``, so the correlated
+# ``job_listings.company`` reference would not resolve. And deliberately NOT
+# from ``get_stats()``: ``/api/jobs-qa/stats`` and ``/scrape-runs`` are
+# ``require_admin`` diagnostics — deactivation hides a company from users, it
+# does not erase it from operator tooling.
+_HIDDEN_COMPANY_PREDICATE = sql.SQL(
+    "NOT EXISTS ("
+    " SELECT 1 FROM companies c"
+    " WHERE c.id = job_listings.company AND NOT c.enabled)"
+)
+
+
 def _build_where(
     company: str | None = None,
     status: str | None = None,
     companies: list[str] | None = None,
     category: str | None = None,
     level: str | None = None,
+    exclude_hidden_companies: bool = False,
 ) -> tuple[sql.Composable, list]:
     """Build a WHERE clause and parameter list from optional filters.
 
@@ -97,6 +135,9 @@ def _build_where(
     precedence over the singular ``company``. Callers are expected to enforce
     mutual-exclusivity at the request boundary. ``level`` expands per the
     new_grad⊂entry hierarchy (``entry`` -> {entry, new_grad}).
+    ``exclude_hidden_companies`` appends :data:`_HIDDEN_COMPANY_PREDICATE`,
+    dropping jobs whose company row is soft-deactivated (``enabled = FALSE``);
+    it defaults to ``False`` so admin/diagnostic callers keep seeing them.
     """
     conditions: list[sql.Composable] = []
     params: list = []
@@ -116,6 +157,9 @@ def _build_where(
         expanded = _LEVEL_FILTER_EXPANSION.get(level, [level])
         conditions.append(sql.SQL("enrichment_level = ANY(%s::text[])"))
         params.append(expanded)
+    if exclude_hidden_companies:
+        # Contributes no params — a static correlated subquery.
+        conditions.append(_HIDDEN_COMPANY_PREDICATE)
     where = sql.SQL(" WHERE ") + sql.SQL(" AND ").join(conditions) if conditions else sql.SQL("")
     return where, params
 
@@ -193,11 +237,16 @@ def get_jobs(
     Pass ``companies`` for batched per-company fetches (used by the Recent
     Jobs page to avoid fanning out N requests against the connection pool).
     ``level`` expands per the new_grad⊂entry hierarchy.
+
+    This is a PUBLIC read path, so jobs belonging to a soft-deactivated
+    company (``companies.enabled = FALSE``) are filtered out — see
+    :data:`_HIDDEN_COMPANY_PREDICATE`.
     """
     with conn.cursor() as cursor:
         where, params = _build_where(
             company=company, status=status, companies=companies,
             category=category, level=level,
+            exclude_hidden_companies=True,
         )
 
         query = sql.SQL("SELECT {} FROM {} {} ORDER BY last_seen_at DESC LIMIT %s OFFSET %s").format(
@@ -217,13 +266,23 @@ def get_job_by_id(conn: Connection, source_id: str, job_id: str) -> dict | None:
     The router's ``Path`` matcher already prevents ``/api/jobs//<id>``
     from routing here, but we guard at the service boundary to catch any
     future caller that bypasses the router.
+
+    This is a PUBLIC read path, so a job belonging to a soft-deactivated
+    company (``companies.enabled = FALSE``) reads as missing and the router
+    turns that into a 404 — see :data:`_HIDDEN_COMPANY_PREDICATE`.
     """
     if not source_id:
         raise ValueError("get_job_by_id requires a non-empty source_id")
     with conn.cursor() as cursor:
         cursor.execute(
-            sql.SQL("SELECT *, {}, {} FROM {} WHERE source_id = %s AND id = %s").format(
-                _TAGS_SUBQUERY, _LOCATIONS_SUBQUERY, _JOBS_TABLE
+            sql.SQL(
+                "SELECT *, {}, {} FROM {} "
+                "WHERE source_id = %s AND id = %s AND {}"
+            ).format(
+                _TAGS_SUBQUERY,
+                _LOCATIONS_SUBQUERY,
+                _JOBS_TABLE,
+                _HIDDEN_COMPANY_PREDICATE,
             ),
             (source_id, job_id),
         )

@@ -427,3 +427,102 @@ def test_get_job_by_id_includes_location_tags(client, db_conn):
     assert tags[0]["kind"] == "remote"
     assert tags[0]["city"] is None
     assert tags[0]["remoteScope"] == "us"
+
+
+# --- soft-deactivated ("hidden") companies -----------------------------------
+#
+# `companies.enabled = FALSE` is the soft-deactivation switch. It already gated
+# the worker fan-out, GET /api/companies and auto-enroll, but NOT /api/jobs —
+# which reads job_listings with no reference to `companies`, so a retired
+# company's rows were still served publicly. `_HIDDEN_COMPANY_PREDICATE`
+# (services/database.py) closes that on the list + detail reads.
+#
+# Local copy of the companies-row helper: test_companies_router.py has an
+# equivalent `_insert_company`, but the two modules do not share helpers today
+# and the shared conftest deliberately only owns job/user/run seeding.
+
+
+def _insert_company(conn, company_id, *, enabled=True, ats="greenhouse"):
+    """Insert a `companies` row (the deactivation switch lives here)."""
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO companies (id, display_name, ats, board_token, enabled)"
+        " VALUES (%s, %s, %s, %s, %s)",
+        (company_id, company_id.title(), ats, company_id, enabled),
+    )
+    conn.commit()
+
+
+def test_disabled_company_jobs_are_hidden_from_list(client, db_conn):
+    """An explicit ?company= for a deactivated company returns nothing."""
+    _insert_company(db_conn, "retired", enabled=False)
+    _insert_job(db_conn, _make_job({
+        "id": "retired-1", "company": "retired", "source_id": SourceId.GREENHOUSE,
+        "status": "OPEN",
+    }))
+
+    resp = client.get("/api/jobs", params={"company": "retired", "status": "OPEN"})
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
+def test_disabled_company_jobs_are_hidden_from_companies_batch(client, db_conn):
+    """The batched ?companies= path drops the deactivated id, keeps the rest."""
+    _insert_company(db_conn, "retired", enabled=False)
+    _insert_job(db_conn, _make_job({
+        "id": "retired-2", "company": "retired", "source_id": SourceId.GREENHOUSE,
+    }))
+
+    resp = client.get("/api/jobs", params={"companies": "google,retired"})
+    assert resp.status_code == 200
+    companies = {j["company"] for j in resp.json()}
+    assert companies == {"google"}
+
+
+def test_disabled_company_jobs_are_hidden_from_unfiltered_list(client, db_conn):
+    """A bare GET still returns exactly the 4 seeded rows, not the hidden one."""
+    _insert_company(db_conn, "retired", enabled=False)
+    _insert_job(db_conn, _make_job({
+        "id": "retired-3", "company": "retired", "source_id": SourceId.GREENHOUSE,
+    }))
+
+    jobs = client.get("/api/jobs").json()
+    assert len(jobs) == 4
+    assert all(j["company"] != "retired" for j in jobs)
+
+
+def test_enabled_company_jobs_still_visible(client, db_conn):
+    """A company row with enabled=True is untouched by the anti-join."""
+    _insert_company(db_conn, "stillhere", enabled=True)
+    _insert_job(db_conn, _make_job({
+        "id": "stillhere-1", "company": "stillhere", "source_id": SourceId.GREENHOUSE,
+    }))
+
+    jobs = client.get("/api/jobs", params={"company": "stillhere"}).json()
+    assert [j["id"] for j in jobs] == ["stillhere-1"]
+
+
+def test_job_with_no_companies_row_still_visible(client, db_conn):
+    """Load-bearing back-compat: the guard means "explicitly deactivated", not
+    "registered". A job whose company has NO `companies` row (every row seeded
+    by this module, plus any legacy/unregistered company value in prod) must
+    stay visible — an `IN (SELECT id FROM companies WHERE enabled)` formulation
+    would have silently blanked all of them."""
+    cur = db_conn.cursor()
+    cur.execute("SELECT count(*) AS c FROM companies")
+    assert cur.fetchone()["c"] == 0
+
+    jobs = client.get("/api/jobs", params={"company": "google"}).json()
+    assert {j["id"] for j in jobs} == {"google-123", "google-456"}
+
+
+def test_disabled_company_job_detail_returns_404(client, db_conn):
+    """The detail route 404s for a hidden company's job (get_job_by_id returns
+    None and routers/jobs.py turns that into a 404)."""
+    _insert_company(db_conn, "retired", enabled=False)
+    _insert_job(db_conn, _make_job({
+        "id": "retired-4", "company": "retired", "source_id": SourceId.GREENHOUSE,
+    }))
+
+    resp = client.get(f"/api/jobs/{SourceId.GREENHOUSE}/retired-4")
+    assert resp.status_code == 404
