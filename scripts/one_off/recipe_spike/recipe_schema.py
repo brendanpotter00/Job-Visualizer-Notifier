@@ -94,6 +94,19 @@ def validate_recipe(recipe: dict[str, Any]) -> dict[str, Any]:
         "expected_min_jobs must be a positive int",
     )
 
+    # Optional but strongly recommended: a dotted path to the payload's OWN
+    # declared total. expected_min_jobs only catches collapse; total_path is
+    # what turns a silent partial scrape — the 2026-03-29 failure class — into
+    # a loud one, because the source itself tells us how many there should be.
+    total_path = recipe.get("total_path")
+    if total_path is not None:
+        _require(isinstance(total_path, str) and total_path, "total_path must be a non-empty string")
+        tolerance = recipe.get("completeness_tolerance", 0.05)
+        _require(
+            isinstance(tolerance, (int, float)) and 0 <= tolerance < 1,
+            "completeness_tolerance must be a number in [0, 1)",
+        )
+
     if kind == "http_json":
         _require(
             isinstance(recipe.get("records_path"), str),

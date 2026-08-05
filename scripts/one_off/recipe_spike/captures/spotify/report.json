@@ -1,0 +1,568 @@
+{
+  "target": "spotify",
+  "entry_url": "https://www.lifeatspotify.com/jobs",
+  "page_title": "All Jobs | Life at Spotify",
+  "nav_error": null,
+  "wall_seconds": 9.7,
+  "browser_seconds": 9.7,
+  "dollars": 0.0,
+  "responses_total": 106,
+  "job_like_json_responses": [
+    {
+      "method": "GET",
+      "url": "https://www.lifeatspotify.com/_next/data/YbQwJEU8p-REnSGn1w8LV/the-way-we-play.json",
+      "status": 200,
+      "content_type": "application/json",
+      "resource_type": "fetch",
+      "bytes": 13547,
+      "record_arrays": [
+        {
+          "path": "pageProps.frontpageData.fresh_content",
+          "count": 4,
+          "job_score": 5,
+          "sample_keys": [
+            "category",
+            "date",
+            "is_podcast",
+            "thumbnail",
+            "title",
+            "type",
+            "url"
+          ],
+          "sample": {
+            "category": "Podcast",
+            "title": "NerdOut@Spotify, 36: How the BBC Experiments at Scale: Learning Since 1922",
+            "url": "https://open.spotify.com/episode/20r7KEgDVLPuhZAXia385E",
+            "thumbnail": "https://i.scdn.co/image/ab6765630000ba8a7e09f1891b3617c6daa794c8",
+            "date": 1781136000000,
+            "is_podcast": true,
+            "type": "post"
+          }
+        },
+        {
+          "path": "pageProps.frontpageData.latest_jobs",
+          "count": 5,
+          "job_score": 4,
+          "sample_keys": [
+            "category",
+            "id",
+            "locations",
+            "text"
+          ],
+          "sample": {
+            "id": "creative-director-social",
+            "text": "Creative Director, Social",
+            "category": "{\"name\": \"Marketing\", \"slug\": \"marketing\"}\u2026",
+            "locations": "[{\"location\": \"Los Angeles\", \"slug\": \"los-angeles\", \"num_jobs\": 2}, {\"location\": \"New York\", \"slug\": \"new-york\", \"num_jo\u2026"
+          }
+        },
+        {
+          "path": "pageProps.frontpageData.featured_jobs",
+          "count": 5,
+          "job_score": 4,
+          "sample_keys": [
+            "category",
+            "id",
+            "locations",
+            "text"
+          ],
+          "sample": {
+            "id": "global-associate-director-experiential-content-production",
+            "category": "{\"name\": \"Public Affairs\", \"slug\": \"public-affairs\"}\u2026",
+            "text": "Global Associate Director, Experiential &amp; Content Production",
+            "locations": "[{\"location\": \"New York\", \"slug\": \"new-york\", \"num_jobs\": 31}]\u2026"
+          }
+        }
+      ],
+      "counts": {},
+      "top_level_keys": [
+        "__N_SSG",
+        "pageProps"
+      ],
+      "raw_file": "raw/000.json"
+    },
+    {
+      "method": "GET",
+      "url": "https://www.lifeatspotify.com/_next/data/YbQwJEU8p-REnSGn1w8LV/index.json",
+      "status": 200,
+      "content_type": "application/json",
+      "resource_type": "fetch",
+      "bytes": 18235,
+      "record_arrays": [
+        {
+          "path": "pageProps.frontpageData.fresh_content",
+          "count": 4,
+          "job_score": 5,
+          "sample_keys": [
+            "category",
+            "date",
+            "is_podcast",
+            "thumbnail",
+            "title",
+            "type",
+            "url"
+          ],
+          "sample": {
+            "category": "Podcast",
+            "title": "NerdOut@Spotify, 36: How the BBC Experiments at Scale: Learning Since 1922",
+            "url": "https://open.spotify.com/episode/20r7KEgDVLPuhZAXia385E",
+            "thumbnail": "https://i.scdn.co/image/ab6765630000ba8a7e09f1891b3617c6daa794c8",
+            "date": 1781136000000,
+            "is_podcast": true,
+            "type": "post"
+          }
+        },
+        {
+          "path": "pageProps.frontpageData.latest_jobs",
+          "count": 5,
+          "job_score": 4,
+          "sample_keys": [
+            "category",
+            "id",
+            "locations",
+            "text"
+          ],
+          "sample": {
+            "id": "creative-director-social",
+            "text": "Creative Director, Social",
+            "category": "{\"name\": \"Marketing\", \"slug\": \"marketing\"}\u2026",
+            "locations": "[{\"location\": \"Los Angeles\", \"slug\": \"los-angeles\", \"num_jobs\": 2}, {\"location\": \"New York\", \"slug\": \"new-york\", \"num_jo\u2026"
+          }
+        },
+        {
+          "path": "pageProps.frontpageData.featured_jobs",
+          "count": 5,
+          "job_score": 4,
+          "sample_keys": [
+            "category",
+            "id",
+            "locations",
+            "text"
+          ],
+          "sample": {
+            "id": "global-associate-director-experiential-content-production",
+            "category": "{\"name\": \"Public Affairs\", \"slug\": \"public-affairs\"}\u2026",
+            "text": "Global Associate Director, Experiential &amp; Content Production",
+            "locations": "[{\"location\": \"New York\", \"slug\": \"new-york\", \"num_jobs\": 31}]\u2026"
+          }
+        }
+      ],
+      "counts": {},
+      "top_level_keys": [
+        "__N_SSG",
+        "pageProps"
+      ],
+      "raw_file": "raw/001.json"
+    },
+    {
+      "method": "GET",
+      "url": "https://www.lifeatspotify.com/_next/data/YbQwJEU8p-REnSGn1w8LV/find-your-team.json",
+      "status": 200,
+      "content_type": "application/json",
+      "resource_type": "fetch",
+      "bytes": 7159,
+      "record_arrays": [
+        {
+          "path": "pageProps.frontpageData.fresh_content",
+          "count": 4,
+          "job_score": 5,
+          "sample_keys": [
+            "category",
+            "date",
+            "is_podcast",
+            "thumbnail",
+            "title",
+            "type",
+            "url"
+          ],
+          "sample": {
+            "category": "Podcast",
+            "title": "NerdOut@Spotify, 36: How the BBC Experiments at Scale: Learning Since 1922",
+            "url": "https://open.spotify.com/episode/20r7KEgDVLPuhZAXia385E",
+            "thumbnail": "https://i.scdn.co/image/ab6765630000ba8a7e09f1891b3617c6daa794c8",
+            "date": 1781136000000,
+            "is_podcast": true,
+            "type": "post"
+          }
+        },
+        {
+          "path": "pageProps.frontpageData.latest_jobs",
+          "count": 5,
+          "job_score": 4,
+          "sample_keys": [
+            "category",
+            "id",
+            "locations",
+            "text"
+          ],
+          "sample": {
+            "id": "creative-director-social",
+            "text": "Creative Director, Social",
+            "category": "{\"name\": \"Marketing\", \"slug\": \"marketing\"}\u2026",
+            "locations": "[{\"location\": \"Los Angeles\", \"slug\": \"los-angeles\", \"num_jobs\": 2}, {\"location\": \"New York\", \"slug\": \"new-york\", \"num_jo\u2026"
+          }
+        },
+        {
+          "path": "pageProps.frontpageData.featured_jobs",
+          "count": 5,
+          "job_score": 4,
+          "sample_keys": [
+            "category",
+            "id",
+            "locations",
+            "text"
+          ],
+          "sample": {
+            "id": "global-associate-director-experiential-content-production",
+            "category": "{\"name\": \"Public Affairs\", \"slug\": \"public-affairs\"}\u2026",
+            "text": "Global Associate Director, Experiential &amp; Content Production",
+            "locations": "[{\"location\": \"New York\", \"slug\": \"new-york\", \"num_jobs\": 31}]\u2026"
+          }
+        }
+      ],
+      "counts": {},
+      "top_level_keys": [
+        "__N_SSG",
+        "pageProps"
+      ],
+      "raw_file": "raw/002.json"
+    },
+    {
+      "method": "GET",
+      "url": "https://www.lifeatspotify.com/_next/data/YbQwJEU8p-REnSGn1w8LV/latest.json",
+      "status": 200,
+      "content_type": "application/json",
+      "resource_type": "fetch",
+      "bytes": 14824,
+      "record_arrays": [
+        {
+          "path": "pageProps.newsfeed.feed",
+          "count": 41,
+          "job_score": 5,
+          "sample_keys": [
+            "category",
+            "date",
+            "featured",
+            "is_podcast",
+            "thumbnail",
+            "title",
+            "type",
+            "url"
+          ],
+          "sample": {
+            "category": "{\"name\": \"Podcast\", \"slug\": \"podcast\"}\u2026",
+            "title": "NerdOut@Spotify, 36: How the BBC Experiments at Scale: Learning Since 1922",
+            "url": "https://open.spotify.com/episode/20r7KEgDVLPuhZAXia385E",
+            "thumbnail": "https://i.scdn.co/image/ab6765630000ba8a7e09f1891b3617c6daa794c8",
+            "featured": false,
+            "date": 1781136000000,
+            "is_podcast": true,
+            "type": "post"
+          }
+        }
+      ],
+      "counts": {},
+      "top_level_keys": [
+        "__N_SSG",
+        "pageProps"
+      ],
+      "raw_file": "raw/003.json"
+    },
+    {
+      "method": "GET",
+      "url": "https://www.lifeatspotify.com/_next/data/YbQwJEU8p-REnSGn1w8LV/start-your-journey/students.json",
+      "status": 200,
+      "content_type": "application/json",
+      "resource_type": "fetch",
+      "bytes": 21790,
+      "record_arrays": [
+        {
+          "path": "pageProps.fairsAndEvents",
+          "count": 19,
+          "job_score": 5,
+          "sample_keys": [
+            "date",
+            "location",
+            "tagText",
+            "title"
+          ],
+          "sample": {
+            "title": "RTC Career Fair",
+            "location": "Virtual",
+            "date": "2022-08-12",
+            "tagText": "1 day"
+          }
+        }
+      ],
+      "counts": {},
+      "top_level_keys": [
+        "__N_SSG",
+        "pageProps"
+      ],
+      "raw_file": "raw/004.json"
+    }
+  ],
+  "embedded_json": [],
+  "dom_repetition": [
+    {
+      "class": "accordionlinks_link__L7deU",
+      "occurrences": 15
+    },
+    {
+      "class": "accordionlinks_arrow__C5K9q",
+      "occurrences": 15
+    },
+    {
+      "class": "no-underline mr-xxxxs mr-mobile-xxxxxs",
+      "occurrences": 9
+    },
+    {
+      "class": "ma-0 detail-5",
+      "occurrences": 9
+    },
+    {
+      "class": "ot-label-txt",
+      "occurrences": 8
+    },
+    {
+      "class": "ot-label-status",
+      "occurrences": 7
+    },
+    {
+      "class": "color-text-subdued",
+      "occurrences": 6
+    },
+    {
+      "class": "body-2 mr-s footer_link__jfCKV",
+      "occurrences": 6
+    },
+    {
+      "class": "body-2 footer_link__jfCKV",
+      "occurrences": 6
+    },
+    {
+      "class": "ot-subgrp-cntr",
+      "occurrences": 6
+    },
+    {
+      "class": "ot-subgrps",
+      "occurrences": 6
+    },
+    {
+      "class": "ot-subgrp",
+      "occurrences": 6
+    },
+    {
+      "class": "ot-subgrp-desc",
+      "occurrences": 6
+    },
+    {
+      "class": "row",
+      "occurrences": 5
+    },
+    {
+      "class": "mb-xxxxs mb-mobile-xxxxxs entry_cols__Qmz_O entry_header__rW6hK",
+      "occurrences": 5
+    }
+  ],
+  "all_xhr": [
+    {
+      "method": "GET",
+      "url": "https://www.lifeatspotify.com/_next/data/YbQwJEU8p-REnSGn1w8LV/the-way-we-play.json",
+      "status": 200,
+      "type": "application/json"
+    },
+    {
+      "method": "GET",
+      "url": "https://www.lifeatspotify.com/_next/data/YbQwJEU8p-REnSGn1w8LV/index.json",
+      "status": 200,
+      "type": "application/json"
+    },
+    {
+      "method": "GET",
+      "url": "https://www.lifeatspotify.com/_next/data/YbQwJEU8p-REnSGn1w8LV/start-your-journey.json",
+      "status": 200,
+      "type": "application/json"
+    },
+    {
+      "method": "GET",
+      "url": "https://www.lifeatspotify.com/_next/data/YbQwJEU8p-REnSGn1w8LV/find-your-team.json",
+      "status": 200,
+      "type": "application/json"
+    },
+    {
+      "method": "GET",
+      "url": "https://www.lifeatspotify.com/_next/data/YbQwJEU8p-REnSGn1w8LV/latest.json",
+      "status": 200,
+      "type": "application/json"
+    },
+    {
+      "method": "GET",
+      "url": "https://api.lifeatspotify.com/wp-json/animal/v1/job/search",
+      "status": 200,
+      "type": "application/json"
+    },
+    {
+      "method": "GET",
+      "url": "https://api.lifeatspotify.com/wp-json/animal/v1/job/search",
+      "status": 200,
+      "type": "application/json"
+    },
+    {
+      "method": "GET",
+      "url": "https://cdn.cookielaw.org/consent/4e896e5a-d423-467f-b569-7489efcb0e04/4e896e5a-d423-467f-b569-7489efcb0e04.json",
+      "status": 200,
+      "type": "application/json"
+    },
+    {
+      "method": "GET",
+      "url": "https://geolocation.onetrust.com/cookieconsentpub/v1/geo/location",
+      "status": 200,
+      "type": "application/json"
+    },
+    {
+      "method": "GET",
+      "url": "https://cdn.cookielaw.org/consent/4e896e5a-d423-467f-b569-7489efcb0e04/019df341-54d8-70a0-989d-eced0feae4a3/en.json",
+      "status": 200,
+      "type": "application/json"
+    },
+    {
+      "method": "GET",
+      "url": "https://cdn.cookielaw.org/scripttemplates/202601.2.0/assets/otCommonStyles.css",
+      "status": 200,
+      "type": "text/css"
+    },
+    {
+      "method": "GET",
+      "url": "https://cdn.cookielaw.org/scripttemplates/202601.2.0/assets/v2/otPcPanel.json",
+      "status": 200,
+      "type": "application/json"
+    },
+    {
+      "method": "GET",
+      "url": "https://cdn.cookielaw.org/logos/static/ot_guard_logo.svg",
+      "status": 200,
+      "type": "image/svg+xml"
+    },
+    {
+      "method": "GET",
+      "url": "https://www.lifeatspotify.com/_next/static/css/b8797874bac087d1.css",
+      "status": 200,
+      "type": "text/css"
+    },
+    {
+      "method": "GET",
+      "url": "https://www.lifeatspotify.com/_next/static/css/6cba1fc92019dee4.css",
+      "status": 200,
+      "type": "text/css"
+    },
+    {
+      "method": "POST",
+      "url": "https://www.google-analytics.com/g/collect?v=2&tid=G-BNHLC9EVM1&gtm=45je6831v9101025051z8835218105za20gzb835218105zd835218105&_p=1785906723429&gcd=13l3l3l3l1l1&npa=0&dma=0&are=1&cid=390478370.1785906725&frm=0&ngs=1&pscdl=noapi&rcb=12&sr=1920x1080&uaa=x86&uab=64&uafvl=HeadlessChrome%3B149.0.7827.55%7",
+      "status": 204,
+      "type": "text/plain"
+    },
+    {
+      "method": "GET",
+      "url": "https://www.lifeatspotify.com/_next/static/css/8e7ab2f32c8cef1d.css",
+      "status": 200,
+      "type": "text/css"
+    },
+    {
+      "method": "GET",
+      "url": "https://www.lifeatspotify.com/_next/static/css/6dd160560b2d1fae.css",
+      "status": 200,
+      "type": "text/css"
+    },
+    {
+      "method": "POST",
+      "url": "https://www.google-analytics.com/j/collect?v=1&_v=j102&a=1378996068&t=pageview&_s=1&dl=https%3A%2F%2Fwww.lifeatspotify.com%2Fjobs&ul=en-us&dt=All%20Jobs%20%7C%20Life%20at%20Spotify&sr=1920x1080&vp=1920x1080&_u=YADAAEABAAAAACAAI~&jid=2083081237&gjid=418700062&cid=390478370.1785906725&tid=UA-119836656",
+      "status": 200,
+      "type": "text/plain"
+    },
+    {
+      "method": "GET",
+      "url": "https://www.lifeatspotify.com/_next/static/css/d797b4ab0030770f.css",
+      "status": 200,
+      "type": "text/css"
+    },
+    {
+      "method": "GET",
+      "url": "https://www.lifeatspotify.com/_next/static/css/6b3928b229f68f9a.css",
+      "status": 200,
+      "type": "text/css"
+    },
+    {
+      "method": "GET",
+      "url": "https://www.lifeatspotify.com/_next/static/css/504941b68f6e4d8e.css",
+      "status": 200,
+      "type": "text/css"
+    },
+    {
+      "method": "GET",
+      "url": "https://www.lifeatspotify.com/_next/static/css/30032ecabc3c65b3.css",
+      "status": 200,
+      "type": "text/css"
+    },
+    {
+      "method": "GET",
+      "url": "https://www.lifeatspotify.com/_next/static/css/cf0a34aae50916f9.css",
+      "status": 200,
+      "type": "text/css"
+    },
+    {
+      "method": "GET",
+      "url": "https://www.lifeatspotify.com/_next/static/css/b543f46301d12393.css",
+      "status": 200,
+      "type": "text/css"
+    },
+    {
+      "method": "GET",
+      "url": "https://www.lifeatspotify.com/_next/static/css/ffdde9010ead91e6.css",
+      "status": 200,
+      "type": "text/css"
+    },
+    {
+      "method": "GET",
+      "url": "https://www.lifeatspotify.com/_next/static/css/a6e3958e008f4a9e.css",
+      "status": 200,
+      "type": "text/css"
+    },
+    {
+      "method": "GET",
+      "url": "https://www.lifeatspotify.com/_next/static/css/c3ec3215bc5ba9c0.css",
+      "status": 200,
+      "type": "text/css"
+    },
+    {
+      "method": "GET",
+      "url": "https://www.lifeatspotify.com/_next/data/YbQwJEU8p-REnSGn1w8LV/start-your-journey/faq.json",
+      "status": 200,
+      "type": "application/json"
+    },
+    {
+      "method": "GET",
+      "url": "https://www.lifeatspotify.com/_next/data/YbQwJEU8p-REnSGn1w8LV/start-your-journey/students.json",
+      "status": 200,
+      "type": "application/json"
+    },
+    {
+      "method": "GET",
+      "url": "https://www.lifeatspotify.com/_next/static/css/dd86ea53b0cea9ab.css",
+      "status": 200,
+      "type": "text/css"
+    },
+    {
+      "method": "GET",
+      "url": "https://www.lifeatspotify.com/_next/data/YbQwJEU8p-REnSGn1w8LV/jobs.json",
+      "status": 200,
+      "type": "application/json"
+    },
+    {
+      "method": "GET",
+      "url": "https://www.lifeatspotify.com/_next/static/css/9d86515fdd4f95c2.css",
+      "status": 200,
+      "type": "text/css"
+    }
+  ]
+}

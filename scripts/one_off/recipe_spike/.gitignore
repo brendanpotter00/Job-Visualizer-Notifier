@@ -4,6 +4,12 @@ captures/*/raw/
 captures/*/page.html
 captures/*/embedded_*.json
 
+# Never commit session state harvested while probing anti-bot defenses:
+# browser profiles are tens of MB of junk, and cookie dumps are credentials.
+captures/*/chrome_profile*/
+captures/*/*cookies*.json
+captures/*/browserbase/
+
 # scripts/.gitignore blanket-ignores *.json, which would silently drop this
 # spike's actual deliverables. Re-include them.
 !recipes/*.json

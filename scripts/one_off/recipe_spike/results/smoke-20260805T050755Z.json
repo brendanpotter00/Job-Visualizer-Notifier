@@ -1,0 +1,15 @@
+{
+  "label": "smoke",
+  "utc": "20260805T050755Z",
+  "results": [
+    {
+      "recipe": "ycombinator.json",
+      "target": "ycombinator",
+      "kind": "http_html",
+      "ok": false,
+      "error": "ConnectTimeout: [Errno 60] Operation timed out",
+      "job_count": 0,
+      "seconds": 18.4
+    }
+  ]
+}

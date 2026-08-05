@@ -1,0 +1,32 @@
+{
+  "label": "discover",
+  "utc": "20260805T051521Z",
+  "results": [
+    {
+      "recipe": "spotify.json",
+      "target": "spotify",
+      "kind": "http_json",
+      "ok": true,
+      "job_count": 90,
+      "sample": [
+        {
+          "id": "creative-director-social",
+          "title": "Creative Director, Social",
+          "location": "Los Angeles",
+          "url": "https://www.lifeatspotify.com/jobs/creative-director-social",
+          "department": "Marketing",
+          "job_type": "Permanent"
+        },
+        {
+          "id": "data-scientist",
+          "title": "Data Scientist",
+          "location": "Dubai",
+          "url": "https://www.lifeatspotify.com/jobs/data-scientist",
+          "department": "Data, Research & Insights",
+          "job_type": "Permanent"
+        }
+      ],
+      "seconds": 0.3
+    }
+  ]
+}

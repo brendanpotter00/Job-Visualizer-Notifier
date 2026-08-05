@@ -1,0 +1,150 @@
+{
+  "label": "verify-independent",
+  "utc": "20260805T051638Z",
+  "results": [
+    {
+      "recipe": "amazon.json",
+      "target": "amazon",
+      "kind": "http_json",
+      "ok": true,
+      "job_count": 76,
+      "sample": [
+        {
+          "id": "10490514",
+          "uuid": "90c85870-b7ea-4165-bb09-552b3f360a35",
+          "title": "Software Development Engineer, AWS OpenSearch Service",
+          "url": "https://www.amazon.jobs/en/jobs/10490514/software-development-engineer-aws-opensearch-service",
+          "location": "Austin, Texas, USA",
+          "posted_at": "August  3, 2026",
+          "department": "Software Development",
+          "company": "Amazon Development Center U.S., Inc."
+        },
+        {
+          "id": "10487354",
+          "uuid": "7584dec8-28cc-4419-bb77-3da165179aa7",
+          "title": "IT App Dev Engr II - AMZ10061220",
+          "url": "https://www.amazon.jobs/en/jobs/10487354/it-app-dev-engr-ii-amz10061220",
+          "location": "Austin, Texas, USA",
+          "posted_at": "July 29, 2026",
+          "department": "Corporate Operations",
+          "company": "Amazon.com Services LLC - A57"
+        }
+      ],
+      "seconds": 1.1
+    },
+    {
+      "recipe": "janestreet.json",
+      "target": "janestreet",
+      "kind": "http_json",
+      "ok": true,
+      "job_count": 225,
+      "sample": [
+        {
+          "id": "8594416002",
+          "title": "\ua4dfachine \ua4e1earning \ua4e3esearcher",
+          "location": "LDN",
+          "url": "https://www.janestreet.com/join-jane-street/position/8594416002/",
+          "department": "Trading, Research, and Machine Learning",
+          "team": "Machine Learning",
+          "employment_type": "Summer Internship",
+          "min_salary": null,
+          "max_salary": null
+        },
+        {
+          "id": "8596771002",
+          "title": "\ua4dfachine \ua4e1earning \ua4e3esearcher",
+          "location": "HKG",
+          "url": "https://www.janestreet.com/join-jane-street/position/8596771002/",
+          "department": "Trading, Research, and Machine Learning",
+          "team": "Machine Learning",
+          "employment_type": "Summer Internship",
+          "min_salary": null,
+          "max_salary": null
+        }
+      ],
+      "seconds": 0.4
+    },
+    {
+      "recipe": "spotify.json",
+      "target": "spotify",
+      "kind": "http_json",
+      "ok": true,
+      "job_count": 90,
+      "sample": [
+        {
+          "id": "creative-director-social",
+          "title": "Creative Director, Social",
+          "location": "Los Angeles",
+          "url": "https://www.lifeatspotify.com/jobs/creative-director-social",
+          "department": "Marketing",
+          "job_type": "Permanent"
+        },
+        {
+          "id": "data-scientist",
+          "title": "Data Scientist",
+          "location": "Dubai",
+          "url": "https://www.lifeatspotify.com/jobs/data-scientist",
+          "department": "Data, Research & Insights",
+          "job_type": "Permanent"
+        }
+      ],
+      "seconds": 0.2
+    },
+    {
+      "recipe": "tiktok.json",
+      "target": "tiktok",
+      "kind": "http_json",
+      "ok": true,
+      "job_count": 3799,
+      "sample": [
+        {
+          "id": "7668827379083823413",
+          "title": "Backend Software Engineer Graduate (Global E-commerce) - 2027 Start",
+          "url": "https://lifeattiktok.com/search/7668827379083823413",
+          "location": "Seattle",
+          "department": "R&D",
+          "recruit_type": "Regular",
+          "subject": "Bachelor/Master Graduate - 2027 Start",
+          "req_code": "A94284A"
+        },
+        {
+          "id": "7668694998066252037",
+          "title": "EU New Market Mass Acquisition and Incubation Manager - TikTok Shop",
+          "url": "https://lifeattiktok.com/search/7668694998066252037",
+          "location": "London",
+          "department": "Operations",
+          "recruit_type": "Regular",
+          "subject": null,
+          "req_code": "A116876"
+        }
+      ],
+      "seconds": 4.8
+    },
+    {
+      "recipe": "ycombinator.json",
+      "target": "ycombinator",
+      "kind": "http_html",
+      "ok": true,
+      "job_count": 8,
+      "sample": [
+        {
+          "id": "102883",
+          "title": "Account Executive",
+          "location": "San Francisco, CA, US",
+          "url": "https://www.ycombinator.com/companies/raindrop/jobs/bSz5bJR-account-executive",
+          "posted_at": "about 12 hours",
+          "department": "Sales"
+        },
+        {
+          "id": "97728",
+          "title": "Forward Deployed Engineer (FDE)",
+          "location": "San Francisco, CA, US",
+          "url": "https://www.ycombinator.com/companies/raindrop/jobs/jYbAqIG-forward-deployed-engineer-fde",
+          "posted_at": "about 1 month",
+          "department": "Engineering"
+        }
+      ],
+      "seconds": 0.4
+    }
+  ]
+}

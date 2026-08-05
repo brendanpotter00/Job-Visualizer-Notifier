@@ -1,0 +1,185 @@
+{
+  "target": "janestreet",
+  "entry_url": "https://www.janestreet.com/join-jane-street/open-roles/",
+  "page_title": "Open Roles :: Jane Street",
+  "nav_error": null,
+  "wall_seconds": 7.9,
+  "browser_seconds": 7.9,
+  "dollars": 0.0,
+  "responses_total": 44,
+  "job_like_json_responses": [
+    {
+      "method": "GET",
+      "url": "https://www.janestreet.com/jobs/main.json",
+      "status": 200,
+      "content_type": "application/json",
+      "resource_type": "xhr",
+      "bytes": 688974,
+      "record_arrays": [
+        {
+          "path": "",
+          "count": 225,
+          "job_score": 6,
+          "sample_keys": [
+            "availability",
+            "category",
+            "city",
+            "duration",
+            "id",
+            "max_salary",
+            "min_salary",
+            "overview",
+            "position",
+            "team"
+          ],
+          "sample": {
+            "id": 8594416002,
+            "position": "\ua4dfachine \ua4e1earning \ua4e3esearcher",
+            "category": "Trading, Research, and Machine Learning",
+            "availability": "Summer Internship",
+            "city": "LDN",
+            "overview": "<h3>About the Position</h3>\n<p>Our goals are to give you a real sense of what it&#39;s like to work at Jane Street as a \u2026",
+            "team": "Machine Learning",
+            "duration": "June-September",
+            "min_salary": null,
+            "max_salary": null
+          }
+        }
+      ],
+      "counts": {},
+      "top_level_keys": "<list len=225>",
+      "raw_file": "raw/000.json"
+    },
+    {
+      "method": "GET",
+      "url": "https://www.janestreet.com/jobs/internships.json",
+      "status": 200,
+      "content_type": "application/json",
+      "resource_type": "xhr",
+      "bytes": 11115,
+      "record_arrays": [
+        {
+          "path": "",
+          "count": 46,
+          "job_score": 6,
+          "sample_keys": [
+            "department",
+            "duration",
+            "location",
+            "position",
+            "status",
+            "team",
+            "type"
+          ],
+          "sample": {
+            "position": "Cybersecurity Analyst",
+            "location": "NYC",
+            "department": "Cybersecurity",
+            "team": "Cybersecurity",
+            "duration": "May-August",
+            "type": "Internship",
+            "status": "closed"
+          }
+        }
+      ],
+      "counts": {},
+      "top_level_keys": "<list len=46>",
+      "raw_file": "raw/001.json"
+    }
+  ],
+  "embedded_json": [],
+  "dom_repetition": [
+    {
+      "class": "dropdown-item",
+      "occurrences": 54
+    },
+    {
+      "class": "tab-label",
+      "occurrences": 14
+    },
+    {
+      "class": "mobile-secondary-nav-item",
+      "occurrences": 13
+    },
+    {
+      "class": "label-text body-sm",
+      "occurrences": 11
+    },
+    {
+      "class": "arrow",
+      "occurrences": 10
+    },
+    {
+      "class": "font-weight-medium",
+      "occurrences": 8
+    },
+    {
+      "class": "label-text",
+      "occurrences": 5
+    },
+    {
+      "class": "mobile-nav-item",
+      "occurrences": 5
+    },
+    {
+      "class": "row",
+      "occurrences": 5
+    },
+    {
+      "class": "col-12",
+      "occurrences": 5
+    },
+    {
+      "class": "desktop-nav",
+      "occurrences": 4
+    },
+    {
+      "class": "breadcrumb-text",
+      "occurrences": 4
+    },
+    {
+      "class": "divider",
+      "occurrences": 4
+    },
+    {
+      "class": "has-secondary-nav",
+      "occurrences": 3
+    },
+    {
+      "class": "mobile-nav-heading",
+      "occurrences": 3
+    }
+  ],
+  "all_xhr": [
+    {
+      "method": "GET",
+      "url": "https://www.janestreet.com/jobs/main.json",
+      "status": 200,
+      "type": "application/json"
+    },
+    {
+      "method": "GET",
+      "url": "https://www.janestreet.com/static/position-directories.json",
+      "status": 200,
+      "type": "application/json"
+    },
+    {
+      "method": "GET",
+      "url": "https://www.janestreet.com/jobs/internships.json",
+      "status": 200,
+      "type": "application/json"
+    },
+    {
+      "method": "POST",
+      "url": "https://www.google-analytics.com/g/collect?v=2&tid=G-1R7QL7MQRB&gtm=45je6831v880783141z89100963779za20gzb9100963779zd9100963779&_p=1785906740806&gcs=G100&gcd=13p3p3p3p5l1&npa=1&dma_cps=-&dma=0&_eu=AAAAACAC&are=1&cid=1024625704.1785906741&frm=0&ibt=1&ngs=1&pscdl=denied&rcb=12&sr=1920x1080&uaa=x86&uab",
+      "status": 204,
+      "type": "text/plain"
+    },
+    {
+      "method": "POST",
+      "url": "https://www.google-analytics.com/g/collect?v=2&tid=G-1R7QL7MQRB&gtm=45je6831v880783141za20gzb9100963779zd9100963779&_p=1785906740806&gcs=G100&gcd=13p3p3p3p5l1&npa=1&dma_cps=-&dma=0&_eu=AAACACAC&are=1&cid=1024625704.1785906741&frm=0&ibt=1&ngs=1&pscdl=denied&rcb=12&sr=1920x1080&uaa=x86&uab=64&uafvl=He",
+      "status": 204,
+      "type": "text/plain"
+    }
+  ]
+}

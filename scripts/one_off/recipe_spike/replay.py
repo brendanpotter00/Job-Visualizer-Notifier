@@ -98,7 +98,15 @@ def _request(client: httpx.Client, entry: dict, params: dict | None) -> httpx.Re
             merged_body.update(params)
         response = client.post(entry["url"], json=merged_body, headers=headers)
     else:
-        response = client.get(entry["url"], params=params, headers=headers)
+        # MERGE the cursor into the URL's existing query rather than passing
+        # params= — httpx replaces the whole query string, which silently
+        # dropped every filter on a filtered board and turned a 76-job search
+        # into the global 10,000-job one. Silent scope changes are exactly the
+        # failure class this spike exists to eliminate.
+        target = httpx.URL(entry["url"])
+        if params:
+            target = target.copy_merge_params(params)
+        response = client.get(target, headers=headers)
     if response.status_code >= 400:
         raise RecipeExecutionError(
             f"HTTP {response.status_code} from {response.request.url} "
@@ -115,16 +123,45 @@ def _parse_json(response: httpx.Response) -> Any:
         raise RecipeExecutionError(f"unparseable JSON from {response.request.url}: {exc}") from exc
 
 
+def check_completeness(recipe: dict, payload: Any, got: int) -> None:
+    """Compare the harvest against the payload's own declared total.
+
+    expected_min_jobs catches a collapse to near-zero. This catches the far
+    more dangerous case: a scrape that quietly returns 100 of 4,000 jobs and
+    looks perfectly healthy. The source told us the real number — use it.
+    """
+    total_path = recipe.get("total_path")
+    if not total_path:
+        return
+    try:
+        declared = dig(payload, total_path)
+    except RecipeError as exc:
+        raise RecipeExecutionError(
+            f"total_path {total_path!r} did not resolve — the completeness oracle "
+            f"moved, so this run cannot be trusted: {exc}"
+        ) from exc
+    if not isinstance(declared, int) or declared < 0:
+        raise RecipeExecutionError(f"total_path {total_path!r} resolved to {declared!r}, not a count")
+    tolerance = recipe.get("completeness_tolerance", 0.05)
+    floor = declared * (1 - tolerance)
+    if got < floor:
+        raise RecipeExecutionError(
+            f"incomplete harvest: got {got} records but the source declares {declared} "
+            f"(floor {floor:.0f} at {tolerance:.0%} tolerance) — refusing to report a partial board"
+        )
+
+
 def run_http_json(recipe: dict) -> list[dict]:
     entry = recipe["entrypoint"]
     pagination = recipe.get("pagination") or {"style": "none"}
     style = pagination.get("style", "none")
     records: list[Any] = []
+    first_payload: Any = None
     seen_pages = 0
 
     with httpx.Client(timeout=TIMEOUT_SECONDS, follow_redirects=False) as client:
         if style == "none":
-            payload = _parse_json(_request(client, entry, None))
+            payload = first_payload = _parse_json(_request(client, entry, None))
             records = dig(payload, recipe["records_path"])
             if not isinstance(records, list):
                 raise RecipeExecutionError(
@@ -137,6 +174,8 @@ def run_http_json(recipe: dict) -> list[dict]:
             cursor = 0 if style == "offset" else int(pagination.get("start_page", 1))
             while seen_pages < max_pages:
                 payload = _parse_json(_request(client, entry, {param: cursor}))
+                if first_payload is None:
+                    first_payload = payload
                 page_records = dig(payload, recipe["records_path"])
                 if not isinstance(page_records, list):
                     raise RecipeExecutionError(
@@ -147,6 +186,8 @@ def run_http_json(recipe: dict) -> list[dict]:
                 if len(page_records) < page_size:
                     break
                 cursor += page_size if style == "offset" else 1
+
+    check_completeness(recipe, first_payload, len(records))
     return map_records(records, recipe["fields"])
 
 

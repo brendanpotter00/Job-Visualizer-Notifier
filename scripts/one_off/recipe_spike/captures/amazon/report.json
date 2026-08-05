@@ -1,0 +1,330 @@
+{
+  "target": "amazon",
+  "entry_url": "https://www.amazon.jobs/en/search?offset=0&result_limit=10&sort=recent&distanceType=Mi&radius=24km&latitude=30.26759&longitude=-97.74299&loc_group_id=&loc_query=Austin%2C%20TX%2C%20United%20States&base_query=software%20engineer&city=Austin&country=USA&region=Texas&county=Travis&query_options=",
+  "page_title": "Job search | Amazon.jobs",
+  "nav_error": "Page.goto: Timeout 60000ms exceeded.\nCall log:\n  - navigating to \"https://www.amazon.jobs/en/search?offset=0&result_limit=10&sort=recent&distanceType=Mi&radius=24km&latitude=30.26759&longitude=-97.74299&loc_group_id=&loc_query=Austin%2C%20TX%2C%20United%20States&base_query=software%20engineer&city=A",
+  "wall_seconds": 66.3,
+  "browser_seconds": 66.3,
+  "dollars": 0.0,
+  "responses_total": 88,
+  "job_like_json_responses": [
+    {
+      "method": "GET",
+      "url": "https://www.amazon.jobs/en/search.json?radius=24km&facets%5B%5D=normalized_country_code&facets%5B%5D=normalized_state_name&facets%5B%5D=normalized_city_name&facets%5B%5D=location&facets%5B%5D=business_category&facets%5B%5D=category&facets%5B%5D=schedule_type_id&facets%5B%5D=employee_class&facets%5B%5D=normalized_location&facets%5B%5D=job_function_id&facets%5B%5D=is_manager&facets%5B%5D=is_intern&offset=0&result_limit=10&sort=recent&latitude=30.26759&longitude=-97.74299&loc_group_id=&loc_query=Austin%2C%20TX%2C%20United%20States&base_query=software%20engineer&city=Austin&country=USA&region=Texas&county=Travis&query_options=&",
+      "status": 200,
+      "content_type": "application/json",
+      "resource_type": "xhr",
+      "bytes": 85580,
+      "record_arrays": [
+        {
+          "path": "jobs",
+          "count": 10,
+          "job_score": 15,
+          "sample_keys": [
+            "basic_qualifications",
+            "business_category",
+            "city",
+            "company_name",
+            "country_code",
+            "department_cost_center",
+            "description",
+            "description_short",
+            "display_distance",
+            "id",
+            "id_icims",
+            "is_intern",
+            "is_manager",
+            "job_category",
+            "job_family",
+            "job_function_id",
+            "job_path",
+            "job_schedule_type",
+            "location",
+            "locations",
+            "normalized_location",
+            "optional_search_labels",
+            "posted_date",
+            "preferred_qualifications",
+            "primary_search_label",
+            "source_system",
+            "state",
+            "team",
+            "title",
+            "university_job"
+          ],
+          "sample": {
+            "basic_qualifications": "- 3+ years of non-internship professional software development experience<br/>- 2+ years of non-internship design or arc\u2026",
+            "business_category": "aws",
+            "city": "Austin",
+            "company_name": "Amazon Development Center U.S., Inc.",
+            "country_code": "USA",
+            "description": "Imagine running search and analytics at any scale without thinking about clusters, capacity, or version upgrades. Where \u2026",
+            "department_cost_center": null,
+            "description_short": "Imagine running search and analytics at any scale without thinking about clusters, capacity, or version upgrades. Where \u2026",
+            "display_distance": null,
+            "id": "90c85870-b7ea-4165-bb09-552b3f360a35",
+            "id_icims": "10490514",
+            "is_intern": null
+          }
+        }
+      ],
+      "counts": {
+        "hits": 76
+      },
+      "top_level_keys": [
+        "content",
+        "error",
+        "facets",
+        "hits",
+        "job_posting_search_request",
+        "jobs"
+      ],
+      "raw_file": "raw/000.json"
+    }
+  ],
+  "embedded_json": [],
+  "dom_repetition": [
+    {
+      "class": "sr-only",
+      "occurrences": 116
+    },
+    {
+      "class": "label-text",
+      "occurrences": 116
+    },
+    {
+      "class": "job-count",
+      "occurrences": 102
+    },
+    {
+      "class": "checkbox-option btn",
+      "occurrences": 98
+    },
+    {
+      "class": "checkbox-icon-container",
+      "occurrences": 98
+    },
+    {
+      "class": "checkbox-icon",
+      "occurrences": 98
+    },
+    {
+      "class": "row",
+      "occurrences": 30
+    },
+    {
+      "class": "search-filter",
+      "occurrences": 20
+    },
+    {
+      "class": "link",
+      "occurrences": 20
+    },
+    {
+      "class": "arrow-up",
+      "occurrences": 19
+    },
+    {
+      "class": "options-title btn",
+      "occurrences": 18
+    },
+    {
+      "class": "filter-skip-link",
+      "occurrences": 18
+    },
+    {
+      "class": "option-wrapper",
+      "occurrences": 18
+    },
+    {
+      "class": "options-title-text",
+      "occurrences": 18
+    },
+    {
+      "class": "filter-count",
+      "occurrences": 18
+    }
+  ],
+  "all_xhr": [
+    {
+      "method": "GET",
+      "url": "https://dpm.demdex.net/id?d_visid_ver=5.5.0&d_fieldgroup=MC&d_rtbd=json&d_ver=2&d_orgid=CCBC879D5572070E7F000101%40AdobeOrg&d_nsid=0&ts=1785906608176",
+      "status": 200,
+      "type": "application/json"
+    },
+    {
+      "method": "POST",
+      "url": "https://cognito-identity.us-east-1.amazonaws.com/",
+      "status": 200,
+      "type": "application/x-amz-json-1.1"
+    },
+    {
+      "method": "POST",
+      "url": "https://www.google.com/ccm/collect?rcb=16&frm=0&apvc=1&auid=1431095357.1785906609&dt=Job%20search%20%7C%20Amazon.jobs&tid=DC-11435057&en=page_view&dl=https%3A%2F%2Fwww.amazon.jobs%2Fen%2Fsearch%3Foffset%3D0%26result_limit%3D10%26sort%3Drecent%26distanceType%3DMi%26radius%3D24km%26latitude%3D30.26759",
+      "status": 200,
+      "type": ""
+    },
+    {
+      "method": "POST",
+      "url": "https://www.google.com/ccm/collect?rcb=0&frm=0&apvc=0&ae=g&auid=1431095357.1785906609&dt=Job%20search%20%7C%20Amazon.jobs&en=page_view&dl=https%3A%2F%2Fwww.amazon.jobs%2Fen%2Fsearch%3Foffset%3D0%26result_limit%3D10%26sort%3Drecent%26distanceType%3DMi%26radius%3D24km%26latitude%3D30.26759%26longitude",
+      "status": 200,
+      "type": ""
+    },
+    {
+      "method": "POST",
+      "url": "https://ad.doubleclick.net/ccm/s/collect?auid=1431095357.1785906609&gtm=45fe6831v9188087943za200zd9188087943xec&fmt=8",
+      "status": 204,
+      "type": ""
+    },
+    {
+      "method": "GET",
+      "url": "https://amazonhr.sc.omtrdc.net/id?d_visid_ver=5.5.0&d_fieldgroup=A&mcorgid=CCBC879D5572070E7F000101%40AdobeOrg&mid=13825683442101022131613920229132944520&ts=1785906608467",
+      "status": 200,
+      "type": "application/x-javascript"
+    },
+    {
+      "method": "POST",
+      "url": "https://cognito-identity.us-east-1.amazonaws.com/",
+      "status": 200,
+      "type": "application/x-amz-json-1.1"
+    },
+    {
+      "method": "POST",
+      "url": "https://cognito-identity.us-east-1.amazonaws.com/",
+      "status": 200,
+      "type": "application/x-amz-json-1.1"
+    },
+    {
+      "method": "POST",
+      "url": "https://amazonhr.sc.omtrdc.net/b/ss/amazonhrprod,amazonhramazonhub/1/JS-2.27.0-LGU4/s1915400541107",
+      "status": 200,
+      "type": "image/gif"
+    },
+    {
+      "method": "POST",
+      "url": "https://www.google.com/ccm/collect?rcb=15&frm=0&apvc=0&auid=1431095357.1785906609&dt=Job%20search%20%7C%20Amazon.jobs&tid=AW-864753695&en=page_view&dl=https%3A%2F%2Fwww.amazon.jobs%2Fen%2Fsearch%3Foffset%3D0%26result_limit%3D10%26sort%3Drecent%26distanceType%3DMi%26radius%3D24km%26latitude%3D30.2675",
+      "status": 200,
+      "type": ""
+    },
+    {
+      "method": "POST",
+      "url": "https://www.google.com/rmkt/collect/864753695/?random=1785906608814&cv=11&fst=1785906608814&fmt=8&bg=ffffff&guid=ON&async=1&en=gtag.config&gtm=45be6831v9105723848z89228431377za20gzb9228431377zd9228431377xec&gcd=13t3t3t3t5l1&dma=0&tag_exp=115616985~115938465~115938468~118897920~118897930~119317811~11",
+      "status": 200,
+      "type": ""
+    },
+    {
+      "method": "POST",
+      "url": "https://www.google.com/ccm/collect?rcb=3&frm=0&apvc=0&auid=1431095357.1785906609&dt=Job%20search%20%7C%20Amazon.jobs&tid=DC-11074375&en=page_view&dl=https%3A%2F%2Fwww.amazon.jobs%2Fen%2Fsearch%3Foffset%3D0%26result_limit%3D10%26sort%3Drecent%26distanceType%3DMi%26radius%3D24km%26latitude%3D30.26759%",
+      "status": 200,
+      "type": ""
+    },
+    {
+      "method": "POST",
+      "url": "https://www.google-analytics.com/g/collect?v=2&tid=G-XB330LEGLS&gtm=45je6831v9231218220z89228431377za20gzb9228431377zd9228431377&_p=1785906608051&gcs=G111&gcd=13t3t3Z3t5l1&npa=0&dma=0&are=1&cid=2004868849.1785906608&frm=0&ngs=1&pscdl=noapi&rcb=9&sr=1920x1080&uaa=x86&uab=64&uafvl=HeadlessChrome%3B149",
+      "status": 204,
+      "type": "text/plain"
+    },
+    {
+      "method": "POST",
+      "url": "https://sts.us-east-1.amazonaws.com/",
+      "status": 200,
+      "type": "text/xml"
+    },
+    {
+      "method": "GET",
+      "url": "https://www.amazon.jobs/en/search.json?radius=24km&facets%5B%5D=normalized_country_code&facets%5B%5D=normalized_state_name&facets%5B%5D=normalized_city_name&facets%5B%5D=location&facets%5B%5D=business_category&facets%5B%5D=category&facets%5B%5D=schedule_type_id&facets%5B%5D=employee_class&facets%5B%",
+      "status": 200,
+      "type": "application/json"
+    },
+    {
+      "method": "POST",
+      "url": "https://cognito-identity.us-east-1.amazonaws.com/",
+      "status": 200,
+      "type": "application/x-amz-json-1.1"
+    },
+    {
+      "method": "POST",
+      "url": "https://amazonhr.sc.omtrdc.net/b/ss/amazonhrprod,amazonhramazonhub/1/JS-2.27.0-LGU4/s15651778568510",
+      "status": 200,
+      "type": "image/gif"
+    },
+    {
+      "method": "POST",
+      "url": "https://www.amazon.jobs/auth/token",
+      "status": 401,
+      "type": "application/json"
+    },
+    {
+      "method": "GET",
+      "url": "https://px.ads.linkedin.com/attribution_trigger?pid=2897721&time=1785906608952&url=https%3A%2F%2Fwww.amazon.jobs%2Fen%2Fsearch%3Foffset%3D0%26result_limit%3D10%26sort%3Drecent%26distanceType%3DMi%26radius%3D24km%26latitude%3D30.26759%26longitude%3D-97.74299%26loc_group_id%3D%26loc_query%3DAustin%252",
+      "status": 200,
+      "type": "application/json"
+    },
+    {
+      "method": "POST",
+      "url": "https://px.ads.linkedin.com/wa/?medium=fetch&fmt=g",
+      "status": 204,
+      "type": ""
+    },
+    {
+      "method": "POST",
+      "url": "https://dataplane.rum.us-east-1.amazonaws.com/appmonitors/a6a9e9d8-80ac-4740-b12f-ebd15cafb1b5/",
+      "status": 200,
+      "type": "application/json"
+    },
+    {
+      "method": "POST",
+      "url": "https://dataplane.rum.us-east-1.amazonaws.com/appmonitors/a6a9e9d8-80ac-4740-b12f-ebd15cafb1b5/",
+      "status": 200,
+      "type": "application/json"
+    },
+    {
+      "method": "POST",
+      "url": "https://dataplane.rum.us-east-1.amazonaws.com/appmonitors/a6a9e9d8-80ac-4740-b12f-ebd15cafb1b5/",
+      "status": 200,
+      "type": "application/json"
+    },
+    {
+      "method": "POST",
+      "url": "https://ad.doubleclick.net/activity;src=11074375;type=tests0;cat=amazo0;rcb=3;ord=7973137705799;npa=0;auiddc=1431095357.1785906609;u1=undefined;u2=undefined;u3=undefined;u4=undefined;uaa=x86;uab=64;uafvl=HeadlessChrome%3B149.0.7827.55%7CChromium%3B149.0.7827.55%7CNot)A%253BBrand%3B24.0.0.0;uamb=0;ua",
+      "status": 302,
+      "type": "text/html"
+    },
+    {
+      "method": "GET",
+      "url": "https://ad.doubleclick.net/activity;dc_pre=COvvw8jciJYDFenclAkdeMQnbQ;src=11074375;type=tests0;cat=amazo0;rcb=3;ord=7973137705799;npa=0;auiddc=1431095357.1785906609;u1=undefined;u2=undefined;u3=undefined;u4=undefined;uaa=x86;uab=64;uafvl=HeadlessChrome%3B149.0.7827.55%7CChromium%3B149.0.7827.55%7CNo",
+      "status": 200,
+      "type": "image/gif"
+    },
+    {
+      "method": "GET",
+      "url": "https://fls-na.amazon.com/1/batch/1/OP/mkt=aiwnacsm:456-0728570-8133831:I1FUMOL56FQNOB2L509E:www.amazon.jobs$uedata=s:%2Fuedata%2F456-0728570-8133831%2F%3Fld%26v%3Da02%26id%3DI1FUMOL56FQNOB2L509E%26m%3D1%26sc%3DI1FUMOL56FQNOB2L509E%26ue%3D0%26cf%3D34%26pc%3D1201%26tc%3D-805%26na_%3D-805%26fe_%3D-805",
+      "status": 200,
+      "type": "image/gif"
+    },
+    {
+      "method": "POST",
+      "url": "https://dataplane.rum.us-east-1.amazonaws.com/appmonitors/a727750b-28d3-4e1d-81fe-8eece247d35b",
+      "status": 200,
+      "type": "application/json"
+    },
+    {
+      "method": "POST",
+      "url": "https://www.google-analytics.com/g/collect?v=2&tid=G-XB330LEGLS&gtm=45je6831v9231218220z89228431377za20gzb9228431377zd9228431377&_p=1785906608051&gcs=G111&gcd=13t3t3Z3t5l1&npa=0&dma=0&_eu=AAAAAAQ&are=1&cid=2004868849.1785906608&frm=0&ngs=1&pscdl=noapi&rcb=9&sr=1920x1080&uaa=x86&uab=64&uafvl=Headless",
+      "status": 204,
+      "type": "text/plain"
+    },
+    {
+      "method": "POST",
+      "url": "https://dataplane.rum.us-east-1.amazonaws.com/appmonitors/a727750b-28d3-4e1d-81fe-8eece247d35b",
+      "status": 200,
+      "type": "application/json"
+    },
+    {
+      "method": "POST",
+      "url": "https://dataplane.rum.us-east-1.amazonaws.com/appmonitors/a727750b-28d3-4e1d-81fe-8eece247d35b",
+      "status": 200,
+      "type": "application/json"
+    }
+  ]
+}
