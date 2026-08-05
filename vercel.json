@@ -39,6 +39,10 @@
       "destination": "/api/locations?path=:path"
     },
     {
+      "source": "/api/companies/:path(.*)",
+      "destination": "/api/companies?path=:path"
+    },
+    {
       "source": "/api/users",
       "destination": "/api/users"
     },

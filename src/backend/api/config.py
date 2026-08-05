@@ -78,6 +78,15 @@ class Settings(BaseSettings):
     # so description-less rows aren't classified at full confidence in the gap.
     enrichment_claim_without_description: bool = False
 
+    # Custom company sources (E7). Gates the whole user-pasted-careers-URL
+    # feature: today only ``POST /api/companies/resolve`` (which 503s with the
+    # flag off), later the recipe runtime and the self-serve add path. Default
+    # OFF so the code can ship dark; rollback is flipping this back to False.
+    # NOTE: ``Settings.model_config`` sets ``extra="ignore"``, so a typo'd env
+    # var name would silently leave this False — the name is pinned by
+    # ``api/tests/test_companies_resolve_endpoint.py``.
+    custom_company_sources_enabled: bool = False
+
     # PostHog analytics
     posthog_project_token: str | None = None
     posthog_host: str = "https://us.i.posthog.com"
