@@ -527,8 +527,10 @@ class TestRunIncrementalScrape:
 
         cursor = in_memory_db.cursor()
         cursor.execute(
-            "SELECT count(*) AS n FROM job_listings "
-            "WHERE company = 'apple' AND (consecutive_misses <> 0 OR status <> 'OPEN')"
+            "SELECT count(*) AS n FROM job_listings j "
+            "JOIN job_freshness f ON f.source_id = j.source_id AND f.id = j.id "
+            "WHERE j.company = 'apple' "
+            "AND (f.consecutive_misses <> 0 OR j.status <> 'OPEN')"
         )
         drifted = cursor.fetchone()["n"]
         assert drifted == 0, (
@@ -802,8 +804,8 @@ class TestBoundedAutoReleaseEndToEnd:
         )
         assert cursor.fetchone()["n"] == 0
 
-        # Freshness lives in the job_freshness sidecar (post-cutover);
-        # job_listings.consecutive_misses is legacy and no longer written.
+        # Freshness lives in the job_freshness sidecar — job_listings has
+        # no consecutive_misses column at all since 18fe9c20a8fd (#239).
         cursor.execute(
             "SELECT max(f.consecutive_misses) AS m FROM job_freshness f "
             "JOIN job_listings j ON j.source_id = f.source_id AND j.id = f.id "
@@ -934,9 +936,9 @@ class TestBoundedAutoReleaseEndToEnd:
         """
         self._seed(in_memory_db, 200)
         cursor = in_memory_db.cursor()
-        # Seed the anomaly in the sidecar — the authoritative store the
-        # close path reads; writing job_listings.consecutive_misses would
-        # be invisible post-cutover.
+        # Seed the anomaly in the sidecar — the only store there is: the
+        # close path reads it, and job_listings has carried no
+        # consecutive_misses column since 18fe9c20a8fd (#239).
         cursor.execute(
             "UPDATE job_freshness SET consecutive_misses = %s "
             "WHERE (source_id, id) IN "

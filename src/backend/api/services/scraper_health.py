@@ -22,14 +22,14 @@ success but writes nothing."
 Why the ``job_freshness`` sidecar and NOT ``job_listings.last_seen_at``
 -----------------------------------------------------------------------
 Since the job_freshness cutover (#224, Units 2-3), re-seen scrapes advance
-``job_freshness.last_seen_at`` ONLY — ``job_listings.last_seen_at`` is
-legacy, frozen at whatever value each row carried when the write path was
-repointed (verified against prod on 2026-08-05: job_listings values froze
-at the deploy while sidecar values kept advancing). Reading the legacy
-column here would mark nearly every healthy company stale within a day of
-the cutover. ``COALESCE`` falls back to the legacy column only for rows
-with no sidecar row (pre-trigger data that the backfill missed), where the
-legacy value is the best evidence that exists.
+``job_freshness.last_seen_at`` ONLY — and as of ``18fe9c20a8fd`` (#239,
+Unit 4) the legacy ``job_listings.last_seen_at`` / ``consecutive_misses``
+columns are DROPPED outright, so the sidecar is not merely authoritative
+but the only freshness store that exists. Every ``job_listings`` row is
+expected to have a sidecar row (AFTER INSERT trigger + the ``a3c32c2aa4d3``
+resync backfill); a row without one surfaces here as ``last_seen_at IS
+NULL`` via the LEFT JOIN — grouped into its company's MAX, that is exactly
+the "no evidence of life" signal this probe exists to raise.
 
 Cost — read this before calling it more often
 ---------------------------------------------
@@ -110,8 +110,8 @@ _STALE_QUERY = """
     SELECT
         c.id  AS company,
         c.ats AS ats,
-        MAX(COALESCE(f.last_seen_at, j.last_seen_at)) AS last_seen_at,
-        EXTRACT(EPOCH FROM (now() - MAX(COALESCE(f.last_seen_at, j.last_seen_at)))) / 3600.0
+        MAX(f.last_seen_at) AS last_seen_at,
+        EXTRACT(EPOCH FROM (now() - MAX(f.last_seen_at))) / 3600.0
             AS hours_stale,
         COUNT(*) FILTER (WHERE j.status = 'OPEN') AS open_jobs
     FROM companies c

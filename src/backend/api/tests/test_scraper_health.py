@@ -55,13 +55,21 @@ def _seed_job(
     last_seen_at: datetime,
     status: str = "OPEN",
 ) -> str:
+    """Seed one job row "last seen" at the given time.
+
+    ``job_listings`` has carried no freshness columns since ``18fe9c20a8fd``
+    (#239) — the timestamp is routed through ``first_seen_at``, which the
+    ``job_freshness_sync`` AFTER INSERT trigger copies into the sidecar's
+    ``last_seen_at``. Tests that need last-seen to diverge from first-seen
+    UPDATE ``job_freshness`` directly afterwards.
+    """
     job_id = f"job-{uuid.uuid4().hex[:8]}"
     cur = conn.cursor()
     cur.execute(
         sql.SQL(
             "INSERT INTO {} (id, title, company, url, source_id, created_at, "
-            "first_seen_at, last_seen_at, status) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)"
+            "first_seen_at, status) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"
         ).format(sql.Identifier("job_listings")),
         (
             job_id,
@@ -69,7 +77,6 @@ def _seed_job(
             company,
             "https://example.com/1",
             "test_scraper",
-            last_seen_at,
             last_seen_at,
             last_seen_at,
             status,
@@ -120,13 +127,13 @@ class TestGetStaleCompanies:
         # MAX(last_seen_at) is the 30h row, not the 31h one.
         assert 29.5 < entry["hoursStale"] < 30.5
 
-    def test_sidecar_freshness_outranks_frozen_job_listings_column(self, db_conn):
-        """Post-cutover (#224), re-seen scrapes advance ``job_freshness``
-        ONLY — ``job_listings.last_seen_at`` froze at the deploy. A company
-        whose legacy column is stale but whose sidecar row is fresh is
-        healthy; reading the legacy column would false-alarm nearly every
-        company within a day. And the inverse: a fresh legacy value must not
-        hide a genuinely stale sidecar."""
+    def test_freshness_reads_the_job_freshness_sidecar(self, db_conn):
+        """Since ``18fe9c20a8fd`` (#239) the sidecar is the ONLY freshness
+        store — ``job_listings`` has no last_seen_at at all. A job whose row
+        was inserted 48h ago but whose sidecar row has been advanced (the
+        ``update_last_seen`` write-path shape) must read fresh with no
+        ``job_listings`` write; winding the sidecar back must read stale at
+        the sidecar's age, not the insert's."""
         _seed_company(db_conn, "sidecarco")
         job_id = _seed_job(db_conn, "sidecarco", last_seen_at=_hours_ago(48))
         cur = db_conn.cursor()
@@ -141,7 +148,7 @@ class TestGetStaleCompanies:
 
         result = get_stale_companies(db_conn, threshold_hours=24)
         assert _entry(result, "sidecarco") is None, (
-            "fresh sidecar row must win over the frozen legacy column"
+            "an advanced sidecar row alone must make the company fresh"
         )
 
         cur.execute(
@@ -151,25 +158,19 @@ class TestGetStaleCompanies:
             ).format(sql.Identifier("job_freshness")),
             (_hours_ago(48), "test_scraper", job_id),
         )
-        cur.execute(
-            sql.SQL("UPDATE {} SET last_seen_at = %s WHERE id = %s").format(
-                sql.Identifier("job_listings")
-            ),
-            (_hours_ago(1), job_id),
-        )
         db_conn.commit()
 
         result = get_stale_companies(db_conn, threshold_hours=24)
         entry = _entry(result, "sidecarco")
         assert entry is not None, (
-            "a stale sidecar must not be hidden by a fresh legacy column"
+            "a stale sidecar row must flag the company"
         )
         assert 47.5 < entry["hoursStale"] < 48.5
 
     def test_freshness_uses_last_seen_at_not_scrape_runs(self, db_conn):
         """A company can be writing perfectly healthy ``scrape_runs`` rows
         while writing zero jobs — several of the four dead prod scrapers did
-        exactly that. Only ``job_listings.last_seen_at`` catches it, so a
+        exactly that. Only ``job_freshness.last_seen_at`` catches it, so a
         recent successful run must NOT make a stale company look fresh."""
         _seed_company(db_conn, "liarco")
         _seed_job(db_conn, "liarco", last_seen_at=_hours_ago(48))
