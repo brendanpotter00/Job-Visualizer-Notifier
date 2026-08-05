@@ -67,11 +67,6 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22309694%22%5D',
   }),
-  createBackendScraperCompany('fireworksai', 'Fireworks AI', 'https://boards.greenhouse.io/fireworksai', {
-    sourceAts: 'greenhouse',
-    recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2291174981%22%5D',
-  }),
   createBackendScraperCompany('figma', 'Figma', 'https://boards.greenhouse.io/figma', {
     sourceAts: 'greenhouse',
     recruiterLinkedInUrl:
@@ -246,11 +241,6 @@ export const COMPANIES: Company[] = [
     sourceAts: 'greenhouse',
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2216181286%22%5D',
-  }),
-  createBackendScraperCompany('thinkingmachines', 'Thinking Machines', 'https://boards.greenhouse.io/thinkingmachines', {
-    sourceAts: 'greenhouse',
-    recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22105913171%22%5D',
   }),
   createBackendScraperCompany('togetherai', 'Together AI', 'https://boards.greenhouse.io/togetherai', {
     sourceAts: 'greenhouse',
@@ -593,13 +583,15 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2298799140%22%5D',
   }),
-  // Migrated off Greenhouse to Ashby (2026-07-30). The Greenhouse boards
-  // 404'd/emptied after the companies moved ATS; the JVN `id` is unchanged
-  // (it is the PK + logo key), only the board token moved:
-  //   appliedintuition -> ashby token `applied`
-  //   fal              -> ashby token `fal-ai`
-  //   merge            -> ashby token `merge`
-  // Backend counterpart: the repoint migration in src/backend/alembic/versions/.
+  // Migrated off Greenhouse to Ashby (2026-07-30 and 2026-08-05). The
+  // Greenhouse boards 404'd/emptied after the companies moved ATS; the JVN
+  // `id` is unchanged (it is the PK + logo key), only the board token moved:
+  //   appliedintuition -> ashby token `applied`           (2026-07-30)
+  //   fal              -> ashby token `fal-ai`            (2026-07-30)
+  //   merge            -> ashby token `merge`             (2026-07-30)
+  //   fireworksai      -> ashby token `fireworks`         (2026-08-05)
+  //   thinkingmachines -> ashby token `thinkingmachines`  (2026-08-05)
+  // Backend counterpart: the repoint migrations in src/backend/alembic/versions/.
   createBackendScraperCompany('appliedintuition', 'Applied Intuition', 'https://jobs.ashbyhq.com/applied', {
     sourceAts: 'ashby',
     recruiterLinkedInUrl:
@@ -614,6 +606,16 @@ export const COMPANIES: Company[] = [
     sourceAts: 'ashby',
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2253197721%22%5D',
+  }),
+  createBackendScraperCompany('fireworksai', 'Fireworks AI', 'https://jobs.ashbyhq.com/fireworks', {
+    sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2291174981%22%5D',
+  }),
+  createBackendScraperCompany('thinkingmachines', 'Thinking Machines', 'https://jobs.ashbyhq.com/thinkingmachines', {
+    sourceAts: 'ashby',
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22105913171%22%5D',
   }),
 
   // Gem (backend-scraper) — backend Procrastinate worker fetches from

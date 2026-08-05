@@ -19,6 +19,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'ats-migrations-2026-08',
+    title: 'Fireworks AI and Thinking Machines are live again',
+    description:
+      'Both companies quietly moved their job boards from Greenhouse to Ashby, so this site had been showing stale, already-filled listings for them — Fireworks AI since late July and Thinking Machines for about a day. They now read from their new Ashby boards, and the stale Greenhouse-era postings have been closed out, so what you see for both is current again. This one was caught by the new automated scraper-health watchdog rather than by someone stumbling on it, which is exactly what it exists for.',
+    tags: ['improvement'],
+    date: '2026-08-05',
+    link: {
+      to: ROUTES.RECENT_JOBS,
+      label: 'See their current openings',
+    },
+  },
+  {
     id: 'ats-migrations-2026-07',
     title: 'Applied Intuition, fal, and Merge are live again — Unity is retired',
     description:
