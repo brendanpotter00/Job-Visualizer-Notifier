@@ -1,7 +1,7 @@
 """repoint fireworksai and thinkingmachines to ashby
 
 Revision ID: e2835a568ade
-Revises: a3c32c2aa4d3
+Revises: 08765ce81d35
 Create Date: 2026-08-05 05:42:15.000000+00:00
 
 Hand-written data migration (the documented exception to the autogenerate-only
@@ -43,7 +43,10 @@ must be closed here rather than left to age out.
 
 Chain position
 --------------
-Chains off the current single head ``a3c32c2aa4d3``. Frozen per-ATS seed
+Chains off the current single head ``08765ce81d35`` (originally authored
+against ``a3c32c2aa4d3``; re-parented 2026-08-05 after ``18fe9c20a8fd`` —
+which dropped the legacy ``job_listings`` freshness columns this migration
+never touches — and ``08765ce81d35`` landed on main). Frozen per-ATS seed
 migrations are never edited — a provider change is a new event, expressed as a
 new migration (same rationale as ``a7c31d9e0b46``, the 2026-07-30 repoint).
 
@@ -82,7 +85,7 @@ logger = logging.getLogger("alembic.runtime.migration")
 
 # revision identifiers, used by Alembic.
 revision: str = 'e2835a568ade'
-down_revision: Union[str, None] = 'a3c32c2aa4d3'
+down_revision: Union[str, None] = '08765ce81d35'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
