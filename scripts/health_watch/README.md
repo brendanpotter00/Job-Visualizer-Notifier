@@ -71,3 +71,9 @@ prefix; 72h cooldown per scenario).
   the wrapper (the installer-managed symlink); a Claude Code install-path
   change silently broke job-watcher once. If ticks start failing with
   "binary not found", fix `CLAUDE_BIN` there.
+- The daily fire runs from the **main checkout** (`PROJECT_DIR`), so
+  `/health-watch-once` and the skill resolve from whatever branch is checked
+  out there. If that branch predates the watchdog files, the run fails — the
+  heartbeat-advance check catches it and the wrapper texts (72h cooldown).
+  Keep the main checkout on `main`, or export `JVN_HEALTH_PROJECT_DIR` to a
+  checkout that has the files.

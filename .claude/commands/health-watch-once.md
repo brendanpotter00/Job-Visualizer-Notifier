@@ -22,8 +22,10 @@ and its 90-min wrapper timeout is the only backstop):**
 
 ## Procedure
 
-1. Read `/Users/bpotter/developer/personal/Job-Visualizer-Notifier/.claude/skills/scraper-health-watch/SKILL.md`
-   in full.
+1. Read `.claude/skills/scraper-health-watch/SKILL.md` **relative to the
+   checkout you were launched in** (the wrapper's `PROJECT_DIR` working
+   directory — do not hardcode the main checkout; pre-merge tests run this
+   from a worktree). Read it in full.
 2. Execute its `daily` mode end-to-end: §2 checks → §3 classify → §4 dedupe →
    §5 probes → §6 research (only if needed) → §7 fix build (only if needed) →
    §8 PR → §9 text → §10 heartbeat + status block.
