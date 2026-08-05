@@ -44,6 +44,52 @@ export const INFINITE_SCROLL_CONFIG = {
 } as const;
 
 /**
+ * Configuration for the windowed (virtualized) rendering of the Recent Jobs
+ * list. Works WITH `INFINITE_SCROLL_CONFIG`, not instead of it: infinite scroll
+ * still decides how many jobs are *in* the list, while these two values decide
+ * how many of them are *mounted as DOM nodes* at any scroll depth.
+ *
+ * Neither value is a rendered size, so neither is a RESPONSIVE token: the
+ * estimate is only the seed the virtualizer uses before an item has been
+ * measured, and every mounted row is re-measured from its real box (via
+ * `measureElement`) on mount and on resize. A phone's shorter cards therefore
+ * self-correct within one frame instead of needing a mobile-specific number.
+ */
+export const VIRTUAL_LIST_CONFIG = {
+  /**
+   * Seed height, in px, for a not-yet-measured `JobListingCard`. Roughly a
+   * desktop card (logo/title header + one chip row + enrichment chips + the
+   * "Posted x ago" caption + card padding and bottom margin). Only affects the
+   * scrollbar length of unvisited regions — being off by a little costs a small
+   * scroll-position correction, never a wrong row.
+   */
+  ESTIMATED_CARD_HEIGHT: 200,
+
+  /**
+   * Rows rendered above and below the viewport. Keeps a buffer mounted so fast
+   * scrolling never shows blank space, and gives keyboard `Tab` traversal some
+   * runway past the visible edge before it runs out of mounted rows.
+   */
+  OVERSCAN: 6,
+
+  /**
+   * How many consecutive keyset pages the list will pull on its own when NONE
+   * of them produce a visible row.
+   *
+   * The failure this prevents: under a filter that matches nothing in the older
+   * pages, every fetch leaves the visible list unchanged, so the sentinel never
+   * leaves the viewport and the IntersectionObserver — which re-arms on the
+   * loading flip and fires an initial callback on `observe()` — walks the entire
+   * corpus from a single scroll to the bottom. After this many empty pages the
+   * list stops fetching by itself and asks the user, which is also the honest
+   * message: "nothing matched in what we loaded; want to look further back?"
+   *
+   * The streak resets on any filter/window change and on a manual continue.
+   */
+  MAX_EMPTY_AUTO_FETCHES: 3,
+} as const;
+
+/**
  * Configuration for incremental (infinite-scroll) rendering of the feature
  * Changelog on the /vote-features page.
  *

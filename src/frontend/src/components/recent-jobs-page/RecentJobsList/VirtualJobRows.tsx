@@ -1,0 +1,172 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Box } from '@mui/material';
+import { useWindowVirtualizer } from '@tanstack/react-virtual';
+import type { Job } from '../../../types';
+import { JobListingCard } from '../../shared/JobCard/JobListingCard.tsx';
+import { VIRTUAL_LIST_CONFIG } from '../../../constants/ui.ts';
+import { useIsMobile } from '../../../hooks/useIsMobile.ts';
+
+interface VirtualJobRowsProps {
+  /** Rows to render. Already filtered, sorted, and windowed by the caller. */
+  jobs: Job[];
+  /**
+   * Size of the FULL list these rows are a prefix of, for `aria-setsize`.
+   * Assistive tech should hear the length of the list the user is navigating,
+   * not the size of the reveal window (and certainly not the mounted slice).
+   */
+  totalCount: number;
+}
+
+/**
+ * Window-scrolled virtual list of `JobListingCard`s.
+ *
+ * Only the rows near the viewport are mounted (about a screenful plus
+ * `VIRTUAL_LIST_CONFIG.OVERSCAN` above and below), so the mounted card count
+ * stays flat no matter how deep the user scrolls or how long `jobs` is. A
+ * spacer of the full computed height stands in for the rest, so the page's
+ * scrollbar still reflects the whole list.
+ *
+ * **Window scrolling, not an inner scroll box.** The page itself scrolls: the
+ * sibling `BackToTopButton` reads `window.scrollY`, browser scroll restoration
+ * on back-navigation restores the window offset, and an inner `overflow: auto`
+ * box would break both (the FAB would never appear and the restored offset
+ * would land on an unscrolled container). `useWindowVirtualizer` + `scrollMargin`
+ * therefore drives everything off the document scroll, and the list keeps its
+ * place in normal page flow.
+ *
+ * **Heights are measured, not assumed.** `JobListingCard` is variable-height
+ * (chips wrap, the recruiter link is conditional, mobile shrinks every chip),
+ * so each mounted row reports its real box through `measureElement` and the
+ * estimate is only a seed for rows that have never been on screen.
+ *
+ * **A11y.** The rows carry `role="listitem"` inside a `role="list"` container
+ * with `aria-setsize`/`aria-posinset`, so assistive tech announces "item N of
+ * total" against the FULL list rather than against the handful of mounted
+ * nodes — the count a bare virtualized `div` would otherwise report.
+ */
+export function VirtualJobRows({ jobs, totalCount }: VirtualJobRowsProps) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const isMobile = useIsMobile();
+
+  // Distance from the top of the DOCUMENT to the top of the list. The
+  // virtualizer needs it to translate a window scroll offset into a row index,
+  // because everything above the list (title, metrics, progress bar, filters)
+  // scrolls past first.
+  //
+  // `getBoundingClientRect().top + window.scrollY` — NOT `offsetTop`, which is
+  // measured from the nearest positioned ancestor. The list's parent is
+  // `position: relative` (it anchors the signed-out overlay), so `offsetTop`
+  // reports ~0 and the virtual range comes out shifted by the entire page
+  // header: a persistent blank band at the top of the list, worst on narrow
+  // screens where the header is tallest and the shift exceeds the overscan.
+  const [scrollMargin, setScrollMargin] = useState(0);
+
+  const measureScrollMargin = useCallback(() => {
+    const node = containerRef.current;
+    if (!node) return;
+    const offset = Math.round(node.getBoundingClientRect().top + window.scrollY);
+    setScrollMargin((previous) => (previous === offset ? previous : offset));
+  }, []);
+
+  const attachContainer = useCallback(
+    (node: HTMLDivElement | null) => {
+      containerRef.current = node;
+      measureScrollMargin();
+    },
+    [measureScrollMargin]
+  );
+
+  // The header above the list changes height on its own — most visibly when
+  // FetchProgressBarSkeleton swaps for the real FetchProgressBar, and whenever
+  // the filter chips rewrap. Neither is a window resize, so watching `resize`
+  // alone leaves the margin stale and the range shifted. Observing the body
+  // catches every such reflow; the identity guard above means the common case
+  // (the list's own height changing as rows measure) costs one rect read and
+  // no re-render.
+  useEffect(() => {
+    window.addEventListener('resize', measureScrollMargin);
+    const observer =
+      typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measureScrollMargin);
+    observer?.observe(document.body);
+    return () => {
+      window.removeEventListener('resize', measureScrollMargin);
+      observer?.disconnect();
+    };
+  }, [measureScrollMargin]);
+
+  // Memoized so the identity is stable across scroll-driven renders: the
+  // virtualizer memoizes its whole measurement pass on this function, and a
+  // fresh arrow every render rebuilds every row's measurement on every frame.
+  //
+  // The breakpoint is part of the key on purpose. Measured heights are cached
+  // per key, and a card is materially shorter on mobile (smaller chips, smaller
+  // Apply button), so reusing desktop heights after a rotation would leave
+  // `getTotalSize()` — and every row offset below the viewport — drifted until
+  // the list happened to remount. Changing the key retires the stale cache and
+  // the rows re-measure.
+  const getItemKey = useCallback(
+    (index: number) => `${isMobile ? 'm' : 'd'}:${jobs[index]?.id ?? index}`,
+    [isMobile, jobs]
+  );
+
+  const virtualizer = useWindowVirtualizer({
+    count: jobs.length,
+    estimateSize: () => VIRTUAL_LIST_CONFIG.ESTIMATED_CARD_HEIGHT,
+    overscan: VIRTUAL_LIST_CONFIG.OVERSCAN,
+    scrollMargin,
+    getItemKey,
+  });
+
+  return (
+    <Box
+      ref={attachContainer}
+      role="list"
+      // The size of the reveal window, published for tests and for debugging a
+      // list whose mounted rows deliberately tell you nothing about it.
+      data-client-window={jobs.length}
+      sx={{
+        position: 'relative',
+        width: '100%',
+        // The spacer: total measured/estimated height of every row, so the
+        // document scrollbar matches the full list even though a few rows exist.
+        height: virtualizer.getTotalSize(),
+      }}
+    >
+      {virtualizer.getVirtualItems().map((virtualRow) => {
+        // The row set can SHRINK under the virtualizer: a window widening
+        // clears the cursors and floors, which drops the completeness clamp and
+        // then re-applies a tighter one as the restarted pages land. Indices
+        // from the render before that are stale, so this guard is load-bearing,
+        // not defensive habit.
+        const job = jobs[virtualRow.index];
+        if (!job) return null;
+
+        return (
+          <div
+            key={virtualRow.key}
+            data-index={virtualRow.index}
+            ref={virtualizer.measureElement}
+            role="listitem"
+            aria-setsize={totalCount}
+            aria-posinset={virtualRow.index + 1}
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '100%',
+              // `flow-root` establishes a block formatting context so the card's
+              // own bottom margin (RESPONSIVE.spacing.cardMarginB) is contained by
+              // this wrapper and included in its measured height. Without it the
+              // margin collapses through and consecutive cards overlap by exactly
+              // the gap they are supposed to leave.
+              display: 'flow-root',
+              transform: `translateY(${virtualRow.start - virtualizer.options.scrollMargin}px)`,
+            }}
+          >
+            <JobListingCard job={job} />
+          </div>
+        );
+      })}
+    </Box>
+  );
+}
