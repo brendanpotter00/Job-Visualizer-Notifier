@@ -7,26 +7,27 @@ name: Scraper Health (stale companies)
 # nothing noticed, because /health/worker only inspects the Procrastinate
 # tables: a leaf task that 404s forever still leaves that probe green.
 #
-# A failed scheduled Action emails the repo owner. That email IS the alerting —
-# zero new dependencies, no PagerDuty, no third-party monitor. It is also the
-# safety net for the (deliberately auto-release-free) scraper safety guard: a
-# company locked out by the guard stops advancing last_seen_at and shows up
-# here within 24h.
+# MANUAL-ONLY (2026-08-05): daily alerting is owned by the scraper-health-watch
+# LaunchAgent (see scripts/health_watch/README.md), which detects, opens a fix
+# PR, and texts — the owner chose it over a second scheduled channel. This
+# workflow is kept as an on-demand probe of the same endpoint (workflow_dispatch
+# only, no cron). To re-enable scheduled runs: restore a `schedule:` block AND
+# add the repo secrets below — without them every scheduled run false-fails.
+#
+# A failed run emails the repo owner (that email is the alerting when run on a
+# schedule). It is also a safety net for the (deliberately auto-release-free)
+# scraper safety guard: a company locked out by the guard stops advancing
+# last_seen_at and shows up here within 24h.
 #
 # Kept OUT of the PR-blocking CI (.github/workflows/ci.yml) — like
 # scraper-e2e.yml — because this hits a live external system and its result
 # reflects production health, not the correctness of the diff under review.
 #
-# REQUIRED REPO SECRETS (the owner must add these or every run fails):
+# REQUIRED REPO SECRETS (needed for any run, manual or scheduled):
 #   JVN_BACKEND_URL      e.g. https://<service>.up.railway.app  (no trailing /)
 #   JVN_INTERNAL_API_KEY the same value as the backend's INTERNAL_API_KEY
 
 on:
-  schedule:
-    # 13:00 UTC daily = 08:00 CDT / 07:00 CST — a morning signal, after the
-    # overnight scrape cycles have had every chance to run. GitHub cron is UTC
-    # and ignores DST.
-    - cron: "0 13 * * *"
   workflow_dispatch:
 
 concurrency:

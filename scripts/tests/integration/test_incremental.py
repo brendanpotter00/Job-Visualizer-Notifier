@@ -802,9 +802,12 @@ class TestBoundedAutoReleaseEndToEnd:
         )
         assert cursor.fetchone()["n"] == 0
 
+        # Freshness lives in the job_freshness sidecar (post-cutover);
+        # job_listings.consecutive_misses is legacy and no longer written.
         cursor.execute(
-            "SELECT max(consecutive_misses) AS m FROM job_listings "
-            "WHERE company = 'apple'"
+            "SELECT max(f.consecutive_misses) AS m FROM job_freshness f "
+            "JOIN job_listings j ON j.source_id = f.source_id AND j.id = f.id "
+            "WHERE j.company = 'apple'"
         )
         assert cursor.fetchone()["m"] == 1
 
@@ -840,8 +843,9 @@ class TestBoundedAutoReleaseEndToEnd:
 
         cursor = in_memory_db.cursor()
         cursor.execute(
-            "SELECT count(*) AS n FROM job_listings "
-            "WHERE company = 'apple' AND consecutive_misses = 1"
+            "SELECT count(*) AS n FROM job_freshness f "
+            "JOIN job_listings j ON j.source_id = f.source_id AND j.id = f.id "
+            "WHERE j.company = 'apple' AND f.consecutive_misses = 1"
         )
         primed = cursor.fetchone()["n"]
         assert primed == total - hiccup == 130, (
@@ -930,9 +934,14 @@ class TestBoundedAutoReleaseEndToEnd:
         """
         self._seed(in_memory_db, 200)
         cursor = in_memory_db.cursor()
+        # Seed the anomaly in the sidecar — the authoritative store the
+        # close path reads; writing job_listings.consecutive_misses would
+        # be invisible post-cutover.
         cursor.execute(
-            "UPDATE job_listings SET consecutive_misses = %s "
-            "WHERE company = 'apple' AND id = 'job-199'",
+            "UPDATE job_freshness SET consecutive_misses = %s "
+            "WHERE (source_id, id) IN "
+            "(SELECT source_id, id FROM job_listings "
+            " WHERE company = 'apple' AND id = 'job-199')",
             (RELEASED_RUN_MISS_THRESHOLD,),
         )
         in_memory_db.commit()

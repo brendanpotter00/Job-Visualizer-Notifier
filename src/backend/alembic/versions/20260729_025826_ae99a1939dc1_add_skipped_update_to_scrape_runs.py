@@ -1,8 +1,14 @@
 """add skipped_update to scrape_runs
 
 Revision ID: ae99a1939dc1
-Revises: 5ee285a3c724
+Revises: e2835a568ade
 Create Date: 2026-07-29 02:58:26.035382+00:00
+
+Re-parented 2026-08-05: originally chained off ``5ee285a3c724`` (prod head at
+authoring time), but main's head moved to ``a3c32c2aa4d3`` (#224) and then to
+``e2835a568ade`` (the fireworksai/thinkingmachines repoint, PR #236). Chaining
+off ``e2835a568ade`` keeps a single head with the agreed merge order: #236
+first, then this branch.
 
 Persists the scraper safety-guard signal. Until now ``result.skipped_update``
 was computed and then thrown away, so a truncated run landed in
@@ -33,7 +39,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = 'ae99a1939dc1'
-down_revision: Union[str, None] = '5ee285a3c724'
+down_revision: Union[str, None] = 'e2835a568ade'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

@@ -9,8 +9,8 @@ left ~460 phantom OPEN jobs in the UI. There was no alerting of any kind,
 and ``/health/worker`` only inspects the Procrastinate tables — so a leaf
 task that 404s forever still leaves that probe green.
 
-Why ``job_listings.last_seen_at`` and NOT ``scrape_runs``
----------------------------------------------------------
+Why ``last_seen_at`` and NOT ``scrape_runs``
+--------------------------------------------
 A ``scrape_runs`` row proves only that the task *ran*. Several of the dead
 scrapers were writing perfectly healthy-looking run rows while writing zero
 jobs (a 404 board returns an empty list, which — on a company whose rows
@@ -19,14 +19,28 @@ write-side evidence: it advances only when a scrape actually observed a
 job. So this catches both "the task stopped running" AND "the task reports
 success but writes nothing."
 
+Why the ``job_freshness`` sidecar and NOT ``job_listings.last_seen_at``
+-----------------------------------------------------------------------
+Since the job_freshness cutover (#224, Units 2-3), re-seen scrapes advance
+``job_freshness.last_seen_at`` ONLY — ``job_listings.last_seen_at`` is
+legacy, frozen at whatever value each row carried when the write path was
+repointed (verified against prod on 2026-08-05: job_listings values froze
+at the deploy while sidecar values kept advancing). Reading the legacy
+column here would mark nearly every healthy company stale within a day of
+the cutover. ``COALESCE`` falls back to the legacy column only for rows
+with no sidecar row (pre-trigger data that the backfill missed), where the
+legacy value is the best evidence that exists.
+
 Cost — read this before calling it more often
 ---------------------------------------------
 One query, but not a cheap one. Prod ``EXPLAIN`` shows **Seq Scan on
 job_listings** -> Hash Right Join -> HashAggregate (cost ~11,472; ~64k
-rows / ~812 MB at time of writing). ``idx_job_listings_company`` exists
-but is NOT used and could not be: the query aggregates over EVERY row —
-there is no selective predicate for an index to satisfy, so a full scan is
-the correct plan, and adding an index would not change it.
+rows / ~812 MB at the time it was measured — the ``job_freshness`` hash
+join added post-cutover scans that sidecar too, so treat the number as a
+floor). ``idx_job_listings_company`` exists but is NOT used and could not
+be: the query aggregates over EVERY row — there is no selective predicate
+for an index to satisfy, so a full scan is the correct plan, and adding an
+index would not change it.
 
 No new index is required — but the reason is "an index cannot help this
 shape", not "an index already covers it". An earlier version of this
@@ -96,12 +110,14 @@ _STALE_QUERY = """
     SELECT
         c.id  AS company,
         c.ats AS ats,
-        MAX(j.last_seen_at) AS last_seen_at,
-        EXTRACT(EPOCH FROM (now() - MAX(j.last_seen_at))) / 3600.0
+        MAX(COALESCE(f.last_seen_at, j.last_seen_at)) AS last_seen_at,
+        EXTRACT(EPOCH FROM (now() - MAX(COALESCE(f.last_seen_at, j.last_seen_at)))) / 3600.0
             AS hours_stale,
         COUNT(*) FILTER (WHERE j.status = 'OPEN') AS open_jobs
     FROM companies c
     LEFT JOIN job_listings j ON j.company = c.id
+    LEFT JOIN job_freshness f
+        ON f.source_id = j.source_id AND f.id = j.id
     WHERE c.enabled
     GROUP BY c.id, c.ats
     ORDER BY c.id

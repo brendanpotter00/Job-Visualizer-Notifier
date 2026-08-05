@@ -120,6 +120,52 @@ class TestGetStaleCompanies:
         # MAX(last_seen_at) is the 30h row, not the 31h one.
         assert 29.5 < entry["hoursStale"] < 30.5
 
+    def test_sidecar_freshness_outranks_frozen_job_listings_column(self, db_conn):
+        """Post-cutover (#224), re-seen scrapes advance ``job_freshness``
+        ONLY — ``job_listings.last_seen_at`` froze at the deploy. A company
+        whose legacy column is stale but whose sidecar row is fresh is
+        healthy; reading the legacy column would false-alarm nearly every
+        company within a day. And the inverse: a fresh legacy value must not
+        hide a genuinely stale sidecar."""
+        _seed_company(db_conn, "sidecarco")
+        job_id = _seed_job(db_conn, "sidecarco", last_seen_at=_hours_ago(48))
+        cur = db_conn.cursor()
+        cur.execute(
+            sql.SQL(
+                "UPDATE {} SET last_seen_at = %s "
+                "WHERE source_id = %s AND id = %s"
+            ).format(sql.Identifier("job_freshness")),
+            (_hours_ago(1), "test_scraper", job_id),
+        )
+        db_conn.commit()
+
+        result = get_stale_companies(db_conn, threshold_hours=24)
+        assert _entry(result, "sidecarco") is None, (
+            "fresh sidecar row must win over the frozen legacy column"
+        )
+
+        cur.execute(
+            sql.SQL(
+                "UPDATE {} SET last_seen_at = %s "
+                "WHERE source_id = %s AND id = %s"
+            ).format(sql.Identifier("job_freshness")),
+            (_hours_ago(48), "test_scraper", job_id),
+        )
+        cur.execute(
+            sql.SQL("UPDATE {} SET last_seen_at = %s WHERE id = %s").format(
+                sql.Identifier("job_listings")
+            ),
+            (_hours_ago(1), job_id),
+        )
+        db_conn.commit()
+
+        result = get_stale_companies(db_conn, threshold_hours=24)
+        entry = _entry(result, "sidecarco")
+        assert entry is not None, (
+            "a stale sidecar must not be hidden by a fresh legacy column"
+        )
+        assert 47.5 < entry["hoursStale"] < 48.5
+
     def test_freshness_uses_last_seen_at_not_scrape_runs(self, db_conn):
         """A company can be writing perfectly healthy ``scrape_runs`` rows
         while writing zero jobs — several of the four dead prod scrapers did

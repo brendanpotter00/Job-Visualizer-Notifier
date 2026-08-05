@@ -74,18 +74,22 @@ def test_workflow_file_exists_and_is_non_empty(workflow_text: str) -> None:
     assert workflow_text.startswith("name:")
 
 
-def test_workflow_has_a_schedule_trigger(workflow_text: str) -> None:
-    """A workflow with only ``workflow_dispatch`` is not alerting."""
+def test_workflow_is_manual_only(workflow_text: str) -> None:
+    """Pins the 2026-08-05 owner decision: daily alerting is owned by the
+    scraper-health-watch LaunchAgent (scripts/health_watch/), not a second
+    scheduled channel. This workflow stays as an on-demand probe only — a
+    ``schedule:`` trigger reappearing here would false-fail daily until the
+    JVN_BACKEND_URL / JVN_INTERNAL_API_KEY repo secrets are added, so its
+    return must be a deliberate choice, not rebase drift.
+    """
     block = _top_level_on_block(workflow_text)
     assert block, "scraper-health.yml has no top-level `on:` block"
 
     joined = "\n".join(block)
-    assert re.search(r"^\s+schedule:\s*$", joined, re.MULTILINE), (
-        "scraper-health.yml must have a `schedule:` trigger under `on:` — "
-        "without it the dead-scraper check never runs on its own"
-    )
-    assert re.search(r"^\s+-\s*cron:", joined, re.MULTILINE), (
-        "the `schedule:` block must define at least one cron expression"
+    assert not re.search(r"^\s+schedule:\s*$", joined, re.MULTILINE), (
+        "scraper-health.yml must NOT have a `schedule:` trigger — daily "
+        "alerting is owned by the scraper-health-watch LaunchAgent; "
+        "re-adding cron requires the repo secrets and an explicit decision"
     )
     assert re.search(r"^\s+workflow_dispatch:\s*$", joined, re.MULTILINE), (
         "keep workflow_dispatch so the check can be run on demand while "
