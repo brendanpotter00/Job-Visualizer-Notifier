@@ -24,6 +24,8 @@
     "max_pages": 10
   },
   "records_path": "data.job_post_list",
+  "total_path": "data.count",
+  "completeness_tolerance": 0.05,
   "fields": {
     "id": "id",
     "title": "title",

@@ -9,11 +9,18 @@ drift against the first successful round.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 RESULTS = Path(__file__).parent / "results"
 
 DRIFT_TOLERANCE = 0.05  # GO criterion: within 5% across all replays
+
+# Only numbered rounds count. Ad-hoc verification runs (verify-meta,
+# discover, smoke, …) are authoring noise: they cover an arbitrary subset,
+# so counting them would report phantom "failed a round" for every target
+# that simply wasn't in that run.
+ROUND_LABEL = re.compile(r"^replay-\d+$")
 
 
 def main() -> None:
@@ -21,8 +28,8 @@ def main() -> None:
     for path in sorted(RESULTS.glob("*.json")):
         payload = json.loads(path.read_text())
         label = payload.get("label", path.stem)
-        if label in ("smoke", "discover"):
-            continue  # authoring noise, not measurement rounds
+        if not ROUND_LABEL.match(label):
+            continue
         by_target = {r["target"]: r for r in payload["results"]}
         rounds.append((f"{label} @ {payload.get('utc', '?')}", by_target))
 
