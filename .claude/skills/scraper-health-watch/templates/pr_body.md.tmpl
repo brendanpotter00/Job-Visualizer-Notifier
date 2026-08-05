@@ -1,0 +1,48 @@
+<!-- TEMPLATE for scraper-health-watch PR bodies. The "Companies:" line is
+     MACHINE-READABLE and load-bearing: the watchdog's dedupe gate greps open
+     scraper-health PRs for it. Exact format: "Companies: id1, id2" on its own
+     line. Do not reword it, do not add attribution footers. -->
+
+Opened automatically by `scraper-health-watch` ({{RUN_DATE}} run). **Review
+before merging** — nothing here has touched prod; the migration's close-out
+executes at deploy time, after merge.
+
+Companies: {{COMPANY_IDS_CSV}}
+
+## Verdict
+
+{{ONE_LINE_PER_COMPANY — id: dark Nd, old board <evidence>, moved to
+<ats>/<token> (<M> live jobs) | soft-disabled (<reason>)}}
+
+## Evidence
+
+{{PROBE_LOG — every probe URL -> HTTP status / job count, including the dead
+old board and any near-miss candidates. Plus the detection SQL numbers:
+hours_since_ok, err_24h/runs_24h, last3_jobs_seen.}}
+
+{{RESEARCH_NOTES — if a subagent ran: its verdict JSON and how the parent
+re-verified it.}}
+
+## What the migration does on deploy
+
+- Re-points {{N}} `companies` row(s); closes the stale rows
+  ({{EXPECTED_ROWCOUNTS}} — logged, not asserted) under the fixed sentinel
+  `{{SENTINEL}}` so `downgrade()` is surgical.
+{{IF_DISABLED — soft-disables <ids> (row + history preserved, reversible).}}
+
+## Checks run
+
+- [ ] `npm run type-check` — {{RESULT_OR_NOT_RUN_REASON}}
+- [ ] `python3 -m py_compile` on the migration — {{RESULT}}
+- [ ] Alembic single-head check — {{RESULT}}
+
+## After merging (Brendan)
+
+1. Railway deploy applies the migration via the FastAPI lifespan.
+2. Force a tick instead of waiting 30 min:
+   `POST /api/jobs-qa/trigger-{{NEW_ATS}}-fetch?company_id=<id>` (admin Bearer).
+3. Verify: a `scrape_runs` row with `jobs_seen > 0`, `error_count = 0` per
+   company, and the company's error-run count in 24h trending to 0.
+
+If another migration merges before this one, `down_revision` here must be
+re-parented onto the new head first.

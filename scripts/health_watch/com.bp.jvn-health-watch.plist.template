@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Installed to ~/Library/LaunchAgents/com.bp.jvn-health-watch.plist by
+     scripts/health_watch/install_launch_agent.sh.
+
+     StartCalendarInterval (not StartInterval): wall-clock anchored, fires once
+     on wake if the Mac slept through 09:00. A fully-off Mac skips the day —
+     accepted trade-off, see README. The wrapper carries its own 90-min timeout
+     so a wedged run can never block the next day's fire. -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.bp.jvn-health-watch</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/sh</string>
+        <string>/Users/bpotter/developer/personal/Job-Visualizer-Notifier/scripts/health_watch/wrapper.sh</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/bpotter/developer/personal/Job-Visualizer-Notifier</string>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>9</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>/Users/bpotter/Library/Logs/jvn-health-watch.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/bpotter/Library/Logs/jvn-health-watch.err</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+</dict>
+</plist>

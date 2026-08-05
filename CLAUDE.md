@@ -73,6 +73,9 @@ Backend-Scraper (src/frontend/src/api/clients/backendScraperClient.ts) is the on
 **Adding a Company:**
 Use the `add-company` skill (`.claude/skills/add-company/`, `/add-company`) — the single source of truth for onboarding a company end-to-end: the `companies.ts` entry + `COMPANY_IDS`, the single-head-safe backend `companies` seed migration (Greenhouse/Ashby/Lever/Gem, plus the Eightfold/Workday `provider_config` variants), the `changelog.ts` announcement, and brand logos via the `fetch-company-logo` skill.
 
+**Checking Scraper Health:**
+Use the `scraper-health-watch` skill (`.claude/skills/scraper-health-watch/`) — detects dead/stale scrape sources, mass closures, and worker death against prod; researches moved boards and opens a fix PR (never merges); texts Brendan only when something is wrong. Runs daily via launchd (`com.bp.jvn-health-watch`); ops runbook in `scripts/health_watch/README.md`.
+
 **Adding ATS Provider:**
 1. Create transformer in `src/frontend/src/api/transformers/[provider]Transformer.ts`
 2. Create client using `createAPIClient` factory (~15 lines)

@@ -1,0 +1,177 @@
+# TEMPLATE for scraper-health-watch fix migrations. Copy to
+# src/backend/alembic/versions/<UTC %Y%m%d_%H%M%S>_{{REVISION}}_repoint_moved_boards.py
+# and fill every {{SLOT}}. Modeled on 20260730_120000_a7c31d9e0b46 (the merged
+# repoint-and-deactivate precedent) — read its docstring before deviating.
+"""repoint moved job boards detected by scraper-health-watch on {{RUN_DATE}}
+
+Revision ID: {{REVISION}}
+Revises: {{DOWN_REVISION}}
+Create Date: {{CREATE_DATE}}
+
+Hand-written data migration (the documented exception to the autogenerate-only
+rule). No schema change — UPDATEs against ``companies`` / ``job_listings`` only,
+so ``scripts/tests/integration/test_alembic_parity.py`` and ``db_models.py`` are
+untouched.
+
+Why
+---
+{{WHY — one paragraph per company: old board dead since <date> (<evidence:
+HTTP 404 / 200-empty>), found live at <ats>/<token> with <N> jobs. Cite the
+probe URLs. For soft-disables: where the board went and why it is unsupported.}}
+
+Verified live API results at authoring time ({{RUN_DATE}})
+----------------------------------------------------------
+{{PROBE_TABLE — old endpoint -> status, new endpoint -> status + job count,
+verbatim URLs}}
+
+New-provider ids land under a different ``source_id`` than the stale rows
+(composite PK ``(source_id, id)``), so incoming rows can never collide with or
+dedupe against the old ones. That is exactly why the stale rows must be closed
+here rather than left to age out.
+
+Chain position
+--------------
+Chains off the current single head ``{{DOWN_REVISION}}``. Frozen per-ATS seed
+migrations are never edited — a provider change is a new event, expressed as a
+new migration.
+
+Expected prod rowcounts on first run (logged, not asserted)
+-----------------------------------------------------------
+{{EXPECTED_ROWCOUNTS — per company: 1 companies row repointed, N stale
+job_listings rows closed. From live read-only SELECT count(*) at authoring time.}}
+
+- ``created_at`` is NOT touched (auto-enroll watermark).
+- ``provider_config`` is NOT touched unless the new ATS requires one.
+- ``closed_on`` uses the FIXED sentinel ``_BACKFILL_CLOSED_ON`` (never
+  ``now()``) so ``downgrade()`` re-opens EXACTLY the rows this migration closed.
+- The close-out is triple-scoped (company literal AND old source_id AND
+  status='OPEN') so it cannot touch other companies, incoming rows, or
+  already-closed rows.
+- All operations are idempotent and safe to re-run.
+
+The frontend counterpart (``companies.ts`` entries moved to the new ATS section;
+soft-disabled companies' entries + ``COMPANY_IDS`` members removed) and the
+``changelog.ts`` announcement ship in the same PR.
+"""
+import logging
+from typing import Sequence, Union
+
+from alembic import op
+import sqlalchemy as sa
+
+
+logger = logging.getLogger("alembic.runtime.migration")
+
+
+# revision identifiers, used by Alembic.
+revision: str = '{{REVISION}}'
+down_revision: Union[str, None] = '{{DOWN_REVISION}}'
+branch_labels: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = None
+
+
+# (id, ats/token before, ats/token after). old_source_id = '<old_ats>_api'.
+REPOINTED = [
+    # {'id': '...', 'old_ats': 'greenhouse', 'old_token': '...',
+    #  'new_ats': 'ashby', 'new_token': '...', 'old_source_id': 'greenhouse_api'},
+    {{REPOINTED_ROWS}}
+]
+# Companies soft-disabled because the destination is unsupported/gone
+# (unity3d precedent: row + history preserved, fully reversible).
+DISABLED = [
+    # {'id': '...', 'reason': '...'},
+    {{DISABLED_ROWS}}
+]
+# Fixed sentinel, NOT now(): downgrade() matches on it to re-open exactly the
+# rows this migration closed. Must be later than every pre-existing closed_on
+# for the affected companies — verify with a read-only MAX(closed_on) query.
+_BACKFILL_CLOSED_ON = '{{RUN_DATE}}T00:00:00+00:00'
+
+
+def upgrade() -> None:
+    bind = op.get_bind()
+    repoint = sa.text(
+        "UPDATE companies SET ats = :new_ats, board_token = :new_token WHERE id = :id"
+    )
+    close_stale = sa.text(
+        "UPDATE job_listings SET status = 'CLOSED', "
+        "closed_on = CAST(:closed_on AS timestamptz) "
+        "WHERE company = :id AND source_id = :source_id AND status = 'OPEN'"
+    )
+    # Rowcounts are logged, not asserted: a no-op is legitimate (fresh DB or
+    # re-run), but a SILENT no-op is how a drifted id ships as "migrated" while
+    # the board stays dead — so every statement reports what it touched.
+    for row in REPOINTED:
+        res = bind.execute(
+            repoint,
+            {'id': row['id'], 'new_ats': row['new_ats'], 'new_token': row['new_token']},
+        )
+        if res.rowcount == 0:
+            logger.warning(
+                "repoint: no companies row matched id=%s — board NOT repointed",
+                row['id'],
+            )
+        else:
+            logger.info(
+                "repoint: %s -> %s/%s (%d row)",
+                row['id'], row['new_ats'], row['new_token'], res.rowcount,
+            )
+        closed = bind.execute(
+            close_stale,
+            {
+                'id': row['id'],
+                'source_id': row['old_source_id'],
+                'closed_on': _BACKFILL_CLOSED_ON,
+            },
+        )
+        logger.info(
+            "backfill: closed %d stale %s rows for %s",
+            closed.rowcount, row['old_source_id'], row['id'],
+        )
+
+    for row in DISABLED:
+        disabled = bind.execute(
+            sa.text("UPDATE companies SET enabled = FALSE WHERE id = :id"),
+            {'id': row['id']},
+        )
+        if disabled.rowcount == 0:
+            logger.warning(
+                "deactivate: no companies row matched id=%s — still enabled",
+                row['id'],
+            )
+        else:
+            logger.info(
+                "deactivate: %s enabled=FALSE (%s)", row['id'], row['reason']
+            )
+
+
+def downgrade() -> None:
+    # Exact inverse, in reverse order. The closed_on sentinel match makes the
+    # re-open surgical: rows closed by a real scrape stay CLOSED.
+    bind = op.get_bind()
+    for row in DISABLED:
+        bind.execute(
+            sa.text("UPDATE companies SET enabled = TRUE WHERE id = :id"),
+            {'id': row['id']},
+        )
+    reopen = sa.text(
+        "UPDATE job_listings SET status = 'OPEN', closed_on = NULL "
+        "WHERE company = :id AND source_id = :source_id AND status = 'CLOSED' "
+        "AND closed_on = CAST(:closed_on AS timestamptz)"
+    )
+    unrepoint = sa.text(
+        "UPDATE companies SET ats = :old_ats, board_token = :old_token WHERE id = :id"
+    )
+    for row in REPOINTED:
+        bind.execute(
+            reopen,
+            {
+                'id': row['id'],
+                'source_id': row['old_source_id'],
+                'closed_on': _BACKFILL_CLOSED_ON,
+            },
+        )
+        bind.execute(
+            unrepoint,
+            {'id': row['id'], 'old_ats': row['old_ats'], 'old_token': row['old_token']},
+        )
