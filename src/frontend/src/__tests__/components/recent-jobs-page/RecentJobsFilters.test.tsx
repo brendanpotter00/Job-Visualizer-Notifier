@@ -60,6 +60,14 @@ vi.mock('../../../api/clients/backendScraperClient', async () => {
     ...actual,
     fetchJobsForCompanies: (_ids: string[], opts: { signal?: AbortSignal } = {}) =>
       pendingUntilAbort(opts.signal).then(() => ({})),
+    // getAllJobs pages the batched load via fetchJobsPage; stub it the same way
+    // so the seeded cache survives (chunkCompanyIds stays real — it is pure).
+    fetchJobsPage: (_ids: string[], opts: { signal?: AbortSignal } = {}) =>
+      pendingUntilAbort(opts.signal).then(() => ({
+        jobs: [],
+        byCompanyId: {},
+        nextCursor: null,
+      })),
   };
 });
 
@@ -155,6 +163,12 @@ async function seedRecentStore(overrides: PreloadedOverrides = {}, jobs: Job[] =
       errors: {},
       progress: { completed: 1, total: 1, companies: [] },
       isStreaming: false,
+      // Fully-walked keyset state: no outstanding cursors, so the
+      // complete-prefix horizon is null and nothing is clamped away.
+      cursors: {},
+      chunkFloors: {},
+      windowKey: '90d' as const,
+      since: recentISO(90 * ONE_DAY_MS),
     })
   );
   return store;

@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { fetchJobsForCompanies } from '../../api/clients/backendScraperClient';
+import {
+  chunkCompanyIds,
+  fetchJobsForCompanies,
+  fetchJobsPage,
+} from '../../api/clients/backendScraperClient';
 import type { BackendJobListing } from '../../api/types';
 import { APIError } from '../../api/types';
 
@@ -204,5 +208,140 @@ describe('fetchJobsForCompanies (batched backend scraper)', () => {
       expect(err).toBeInstanceOf(APIError);
       expect((err as APIError).retryable).toBe(true);
     }
+  });
+});
+
+describe('fetchJobsPage (keyset-paginated backend scraper)', () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  /** Mimic a real fetch Response: Headers.get is case-insensitive. */
+  function okResponse(rows: BackendJobListing[], headers: Record<string, string> = {}) {
+    return {
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      headers: new Headers(headers),
+      json: async () => rows,
+    };
+  }
+
+  beforeEach(() => {
+    fetchMock = vi.fn();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+  });
+
+  afterEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it('returns an empty page without calling fetch when no company IDs are passed', async () => {
+    const page = await fetchJobsPage([]);
+    expect(page).toEqual({ jobs: [], byCompanyId: {}, nextCursor: null });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('surfaces X-Next-Cursor from the response headers as nextCursor', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse([makeBackendJob()], { 'X-Next-Cursor': 'CURSOR-ABC' })
+    );
+
+    const page = await fetchJobsPage(['stripe'], { since: '2026-05-01T00:00:00.000Z' });
+
+    expect(page.nextCursor).toBe('CURSOR-ABC');
+    expect(page.jobs).toHaveLength(1);
+    expect(page.byCompanyId.stripe.jobs).toHaveLength(1);
+  });
+
+  it('reads the header case-insensitively (proxies may lowercase it)', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse([], { 'x-next-cursor': 'CURSOR-LOWER' })
+    );
+
+    const page = await fetchJobsPage(['stripe'], { since: '2026-05-01T00:00:00.000Z' });
+
+    expect(page.nextCursor).toBe('CURSOR-LOWER');
+  });
+
+  it('reports end-of-walk as null when the header is absent', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse([makeBackendJob()]));
+
+    const page = await fetchJobsPage(['stripe'], { since: '2026-05-01T00:00:00.000Z' });
+
+    expect(page.nextCursor).toBeNull();
+  });
+
+  it('sends since + cursor + limit and never sends offset', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse([]));
+
+    await fetchJobsPage(['stripe', 'airbnb'], {
+      since: '2026-05-01T00:00:00.000Z',
+      cursor: 'CURSOR-ABC',
+      limit: 250,
+    });
+
+    const url = decodeURIComponent(String(fetchMock.mock.calls[0][0]));
+    expect(url).toContain('companies=stripe,airbnb');
+    expect(url).toContain('status=OPEN');
+    expect(url).toContain('since=2026-05-01T00:00:00.000Z');
+    expect(url).toContain('cursor=CURSOR-ABC');
+    expect(url).toContain('limit=250');
+    // offset is a 422 in keyset mode — it must never be sent.
+    expect(url).not.toMatch(/[?&]offset=/);
+  });
+
+  it('sends an empty cursor rather than dropping it, so the backend can 422', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse([]));
+
+    await fetchJobsPage(['stripe'], { cursor: '' });
+
+    const url = decodeURIComponent(String(fetchMock.mock.calls[0][0]));
+    expect(url).toMatch(/[?&]cursor=(&|$)/);
+  });
+
+  it('groups rows per requested company, seeding companies with zero rows', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse([
+        makeBackendJob({ id: 'a1', company: 'stripe' }),
+        makeBackendJob({ id: 'b1', company: 'airbnb' }),
+      ])
+    );
+
+    const page = await fetchJobsPage(['stripe', 'airbnb', 'discord'], {
+      since: '2026-05-01T00:00:00.000Z',
+    });
+
+    expect(Object.keys(page.byCompanyId).sort()).toEqual(['airbnb', 'discord', 'stripe']);
+    expect(page.byCompanyId.discord.jobs).toEqual([]);
+    // The flat list preserves server order and shares Job identities with the map.
+    expect(page.jobs.map((j) => j.id)).toEqual(['a1', 'b1']);
+    expect(page.jobs[0]).toBe(page.byCompanyId.stripe.jobs[0]);
+  });
+
+  it('wraps HTTP errors in an APIError with retryability', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 503,
+      statusText: 'Service Unavailable',
+      headers: new Headers(),
+      json: async () => ({}),
+    });
+
+    await expect(fetchJobsPage(['stripe'], { since: 'x' })).rejects.toBeInstanceOf(APIError);
+  });
+});
+
+describe('chunkCompanyIds', () => {
+  it('partitions at 50 — the same boundary the batched fetch uses', () => {
+    const ids = Array.from({ length: 102 }, (_, i) => `co${i}`);
+    const chunks = chunkCompanyIds(ids);
+    expect(chunks.map((c) => c.length)).toEqual([50, 50, 2]);
+    // Deterministic and order-preserving: cursor bookkeeping keys off the
+    // comma-joined ids, so the partition must be stable across pages.
+    expect(chunks.flat()).toEqual(ids);
+    expect(chunkCompanyIds(ids)).toEqual(chunks);
+  });
+
+  it('returns no chunks for an empty roster', () => {
+    expect(chunkCompanyIds([])).toEqual([]);
   });
 });
