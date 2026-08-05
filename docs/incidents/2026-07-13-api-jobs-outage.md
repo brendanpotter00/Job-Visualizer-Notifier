@@ -154,6 +154,7 @@ Unit 4 was implemented in a parallel git worktree at `.claude/worktrees/job-fres
 - PR **#222** (`2038b53`) — Unit 1, expand migration `01fef5c9c582`. Addressed the decoy; did not affect the outage.
 - PR **#225** (`09bb01e`) — the fix that restored production; revision `5ee285a3c724`.
 - PR **#224** — Units 2–3 (write + read paths) plus re-sync migration `a3c32c2aa4d3`; drafted 2026-07-13, rebased and re-parented in PR-A.
+- `src/backend/docs/job-listings-bloat.md` — the write-amplification runbook: the dated measurements, the three refuted fixes, the `REINDEX INDEX CONCURRENTLY` stopgap and why it is moot, and the group-**S** monitor checks that watch the sidecar index and the anti-join invariants.
 - `src/backend/api/db_models.py::JobFreshness` — the sidecar's design rationale and drift guarantees.
 - `src/backend/api/tests/test_alembic_single_head.py` — the single-head regression guard added by PR-A.
 - `scripts/tests/integration/test_job_freshness.py` — the anti-drift invariants (both anti-joins zero across a full scrape cycle; the `AFTER INSERT` trigger fires on a bare SQL insert) that make the read-side INNER JOIN safe.
