@@ -237,6 +237,10 @@ A read-only, on-demand **prod monitor** (`api/eval/monitor_prod.py`) verifies th
 *live* normalization pipeline (deployment, backlog drain, integrity invariants,
 queue health) — run it with a read-only `MONITOR_DATABASE_URL` (no Anthropic key
 needed); full runbook in **`src/backend/docs/location-normalization-monitoring.md`**.
+The same CLI also carries an unrelated **group S** (storage/churn): `last_seen_at`
+index bloat, HOT/write-amplification counters, and the `job_listings ⟕ job_freshness`
+anti-join invariants the `/api/jobs` INNER JOIN depends on — runbook in
+**`src/backend/docs/job-listings-bloat.md`**.
 
 ## Architecture
 

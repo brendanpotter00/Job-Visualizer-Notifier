@@ -34,6 +34,13 @@ from this runbook.
 | **E. Log-stream signals** | Are known error/warn lines firing? | Railway logs (MCP) | Runbook |
 | **F. Quality** | Is the model still normalizing real strings correctly? | Spot-check + Tier-2 eval | Runbook |
 
+> **Group S rides the same CLI but is a different domain.** `monitor_prod.py` also emits
+> `S1`–`S4` — `last_seen_at` index bloat, HOT/write-amplification counters, and the
+> `job_listings ⟕ job_freshness` anti-join invariants. They are unrelated to location
+> normalization; their thresholds and interpretation live in
+> **`src/backend/docs/job-listings-bloat.md`**. Note the A1 gate below is
+> location-specific: if it fails the run exits 2 *before* the S-checks execute.
+
 Pipeline recap: **Tier 1** is a deterministic Postgres alias cache
 (`location_aliases` → `alias_locations` → `locations`); **Tier 2** is Claude Haiku
 (`claude-haiku-4-5-20251001`) on cache misses, cached so the next occurrence is free.
@@ -127,15 +134,20 @@ crash-loop.
 **F1 — Live spot-check (read-only SQL via MCP).** Eyeball recent normalizations for
 systematic errors (reversed order, garbled, wrong country, remote-as-city):
 
+Freshness lives in the `job_freshness` sidecar, not on `job_listings` — the Unit 4
+contract migration drops `job_listings.last_seen_at` entirely, so order by the sidecar
+(see `src/backend/docs/job-listings-bloat.md`):
+
 ```sql
 SELECT jl.id, jl.location AS raw,
        l.canonical_name, l.kind, l.city, l.region, l.country, l.remote_scope,
        jloc.is_primary
 FROM job_listings jl
+JOIN job_freshness f    ON f.source_id = jl.source_id AND f.id = jl.id
 JOIN job_locations jloc ON jloc.job_listing_id = jl.id
 JOIN locations l        ON l.id = jloc.normalized_location_id
 WHERE jl.normalization_status='done'
-ORDER BY jl.last_seen_at DESC
+ORDER BY f.last_seen_at DESC
 LIMIT 100;
 ```
 
@@ -283,7 +295,8 @@ These start as **proposals**; the first steady-state run sets the real numbers
 
 | Path | Role |
 |---|---|
-| `src/backend/api/eval/monitor_prod.py` | The CLI (groups A–D); the `Check.sql` strings are the single source of truth for the SQL. |
+| `src/backend/api/eval/monitor_prod.py` | The CLI (groups A–D, plus the unrelated storage/churn group S); the `Check.sql` strings are the single source of truth for the SQL. |
+| `src/backend/docs/job-listings-bloat.md` | Sibling runbook owning group **S** (index bloat, HOT churn, sidecar anti-joins). |
 | `src/backend/api/tests/test_monitor_prod.py` | Pure-function tests (thresholds/verdict/dormancy/read-only guard) — runs in normal CI. |
 | `src/backend/api/eval/` (`eval_locations.py`, `README.md`, `eval-baseline.json`) | The Tier-2 quality eval the monitor invokes (F2) and feeds (§5). |
 | `src/backend/api/tasks/normalize_location.py` | Status machine, `CONFIDENCE_FLOOR=0.5` (`:43`), `_RETRY_MAX_ATTEMPTS=5` (`:49`), the group-E log lines. |

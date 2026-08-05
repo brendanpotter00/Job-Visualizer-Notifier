@@ -95,6 +95,43 @@ class JobListing(Base):
         PrimaryKeyConstraint("source_id", "id"),
         Index("idx_job_listings_status", "status"),
         Index("idx_job_listings_company", "company"),
+        # DO NOT DROP THIS AD-HOC — it goes only with the Unit 4 contract
+        # migration, which removes it together with ``last_seen_at`` and
+        # ``consecutive_misses`` in one deliberate change.
+        #
+        # Status as of the Units 2-3 cutover (PR #224, live 2026-08-05 04:39
+        # UTC): this index is DEAD WEIGHT, held on purpose until Unit 4. It
+        # WAS the driving access path for ``ORDER BY last_seen_at DESC
+        # LIMIT <= 5000`` (EXPLAIN-verified ``Index Scan Backward``, 2026-07-13),
+        # but both read paths now order by the sidecar — prod EXPLAIN shows
+        # ``Parallel Index Scan Backward using idx_job_freshness_last_seen``
+        # (api/services/database.py:274, location_admin.py:518) — so it appears
+        # in NO live query plan. It becomes load-bearing again only if #224 is
+        # reverted, which is precisely why it is not dropped opportunistically.
+        #
+        # It is also genuinely bloated: 46,800,896 B (44.6 MiB) / 691.8
+        # bytes-per-row measured 2026-08-05, against the apples-to-apples
+        # baseline ``idx_job_freshness_last_seen`` (same timestamptz, same
+        # 67,648 rows) at 1,851,392 B (1.8 MiB) / 27.4 bytes-per-row. Cause:
+        # the scraper re-stamped this INDEXED column hourly on every open row —
+        # ~182 M lifetime updates at 0.115 % HOT — and each non-HOT update
+        # appends a dead btree entry at the high end a DESC scan enters first.
+        #
+        # Two "obvious" fixes are REFUTED (full analysis + the REINDEX stopgap:
+        # src/backend/docs/job-listings-bloat.md):
+        #   * ``fillfactor`` on job_listings CANNOT help — an update to an
+        #     indexed column is non-HOT regardless of page free space. Measured
+        #     proof: ``job_freshness`` carries fillfactor=90 and still updates
+        #     at 0.025 % HOT.
+        #   * autovacuum tuning CANNOT help — autovacuum already keeps up
+        #     (9,181 runs, n_dead_tup ~7 k of 67 k live); the residue is btree
+        #     fragmentation VACUUM cannot compact, only REINDEX can.
+        # These two stay refuted regardless of the cutover: they explain why the
+        # historical bloat happened and why neither knob could ever have fixed
+        # it. The durable fix was the ``job_freshness`` sidecar — after it went
+        # live, ``job_listings`` updates run ~91 % HOT (residual enrichment /
+        # status writes) versus 0.115 % lifetime. This comment block is deleted
+        # by PR-B together with the index.
         Index("idx_job_listings_last_seen", "last_seen_at"),
         # Drives the /pending claim scan (find NULL-status OPEN jobs fast) and
         # the analytics/dashboard GROUP BYs on category within OPEN jobs.
