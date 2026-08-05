@@ -96,7 +96,7 @@ User runs script → Parse CLI args → Select company scraper → Choose mode (
 
 **Output Format:**
 - **JSON Mode:** Scraped jobs written to `scripts/output/google_jobs.json` with metadata. Schema matches TypeScript `Job` interface from main app (id, source, company, title, location, createdAt, url + 15 extended fields). Compatible with Redux store ingestion.
-- **Database Mode:** Jobs stored in the `job_listings` table with incremental tracking fields (first_seen_at, last_seen_at, consecutive_misses, details_scraped). Scrape metadata in the `scrape_runs` table. Table names are the same across every environment; test isolation is handled via per-worker Postgres schemas (see `src/backend/CLAUDE.md` § Schema migrations).
+- **Database Mode:** Jobs stored in the `job_listings` table (first_seen_at, details_scraped); per-job freshness tracking (last_seen_at, consecutive_misses) lives in the `job_freshness` sidecar table since `18fe9c20a8fd`. Scrape metadata in the `scrape_runs` table. Table names are the same across every environment; test isolation is handled via per-worker Postgres schemas (see `src/backend/CLAUDE.md` § Schema migrations).
 
 **Key Design Patterns:**
 - Async context manager for browser lifecycle
