@@ -41,6 +41,11 @@ it we return ``None`` rather than fabricate a tenant key that would 404.
 ``board_token`` is the first label of that domain (``netflix.com`` →
 ``netflix``), which matches prod and is likewise cosmetic (``eightfold_client``
 takes ``tenant_host`` + ``domain``).
+
+**Greenhouse** is "first path segment" *except* under ``/embed/``, where the
+segment is Greenhouse's own routing and the board lives in ``?for=``. See
+``_greenhouse_candidate`` — that form is the one an embedded board on a careers
+page actually links, so L2 hits it constantly.
 """
 
 from __future__ import annotations
@@ -64,6 +69,12 @@ WORKDAY_HOST_PATTERN = re.compile(
 _LOCALE_SEGMENT_PATTERN = re.compile(r"[a-z]{2}(-[A-Za-z]{2})?")
 
 _GREENHOUSE_HOSTS = frozenset({"boards.greenhouse.io", "job-boards.greenhouse.io"})
+# First path segments on a Greenhouse board host that are Greenhouse's own
+# routing, never a board token. See ``_greenhouse_candidate``.
+_GREENHOUSE_RESERVED_SEGMENTS = frozenset({"embed"})
+# A board token read out of ``?for=`` is attacker-influenced query text, so it is
+# shape-checked before it becomes part of an API path.
+_GREENHOUSE_TOKEN_PATTERN = re.compile(r"[A-Za-z0-9_-]+")
 _ASHBY_HOST = "jobs.ashbyhq.com"
 _LEVER_HOST = "jobs.lever.co"
 _GEM_HOST = "jobs.gem.com"
@@ -95,13 +106,16 @@ def resolve_ats_url(url: str) -> AtsCandidate | None:
     if not isinstance(url, str) or not url.strip():
         return None
 
-    parts = urlsplit(url.strip())
-    if parts.scheme not in ("https", "http"):
-        return None
-
+    # ``urlsplit`` itself raises ``ValueError: Invalid IPv6 URL`` on unbalanced
+    # square brackets (``https://a]b.com/`` is enough), so the parse has to be
+    # inside the guard too — not just the ``.hostname`` access, which never
+    # raises once ``urlsplit`` has succeeded.
     try:
+        parts = urlsplit(url.strip())
         hostname = parts.hostname
     except ValueError:
+        return None
+    if parts.scheme not in ("https", "http"):
         return None
     if not hostname:
         return None
@@ -113,7 +127,7 @@ def resolve_ats_url(url: str) -> AtsCandidate | None:
     segments = _path_segments(parts.path)
 
     if host in _GREENHOUSE_HOSTS:
-        return _token_candidate("greenhouse", segments, url)
+        return _greenhouse_candidate(segments, parts.query, url)
     if host == _ASHBY_HOST:
         # Ashby board tokens are case-insensitive upstream (verified live:
         # ``Sierra`` and ``sierra`` return byte-identical payloads), so we
@@ -132,6 +146,37 @@ def resolve_ats_url(url: str) -> AtsCandidate | None:
         return _eightfold_candidate(host, parts.query, url)
 
     return None
+
+
+def _greenhouse_candidate(
+    segments: list[str],
+    query: str,
+    url: str,
+) -> AtsCandidate | None:
+    """Greenhouse, with ``/embed/...`` handled as the special case it is.
+
+    ``https://boards.greenhouse.io/embed/job_board?for=acme`` is *the* canonical
+    Greenhouse embed form — it is what a careers page that hosts its board in an
+    iframe actually links, so it is precisely what an L2 sniff finds. Taking the
+    first path segment verbatim there yields ``board_token='embed'``, which is a
+    valid-looking token pointing at nothing: ``sniff_embedded_ats`` returns at
+    the first page that produces *any* candidate, and ``_rank`` cannot rescue it
+    because ``embed`` would be the only candidate. So ``embed`` is reserved and
+    the real token is read from ``?for=``; with no usable ``?for=`` we return
+    ``None`` rather than a token we know is wrong.
+    """
+    if segments and segments[0].lower() in _GREENHOUSE_RESERVED_SEGMENTS:
+        values = parse_qs(query).get("for") or []
+        token = values[0].strip() if values else ""
+        if not token or not _GREENHOUSE_TOKEN_PATTERN.fullmatch(token):
+            return None
+        return AtsCandidate(
+            ats="greenhouse",
+            board_token=token,
+            provider_config={},
+            source_url=url,
+        )
+    return _token_candidate("greenhouse", segments, url)
 
 
 def _token_candidate(

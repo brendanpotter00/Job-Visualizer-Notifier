@@ -13,7 +13,11 @@ Two guarantees are load-bearing and each has a dedicated test:
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import socket
+import time
+from typing import AsyncIterator
 
 import httpx
 import pytest
@@ -21,7 +25,9 @@ import pytest
 from api.services.url_guard import (
     REASON_ATS_HOST,
     REASON_CROSS_HOST,
+    REASON_DEADLINE,
     REASON_DNS,
+    REASON_FETCH_FAILED,
     REASON_HOSTNAME,
     REASON_PORT,
     REASON_PRIVATE_ADDRESS,
@@ -271,6 +277,113 @@ def test_host_shaped_userinfo_rejected(exploding_dns) -> None:
 
 
 # ----------------------------------------------------------------------------
+# Malformed input must be a rejection, never an exception
+# ----------------------------------------------------------------------------
+
+# Every one of these produced an uncaught exception → HTTP 500 with no reason
+# code and (in PR 3) no audit row. All are reachable straight from the request
+# body of ``POST /api/companies/resolve``.
+MALFORMED_URLS = [
+    # ``urlsplit`` itself raises ValueError("Invalid IPv6 URL") on an unbalanced
+    # bracket — the parse, not just the .hostname access, has to be guarded.
+    "https://a]b.com/",
+    "https://[oops/",
+    # A bogus Punycode A-label. The stdlib ``"idna"`` codec passes any ASCII label
+    # through untouched (``"xn--a.com".encode("idna")`` == b"xn--a.com"), so the
+    # guard used to APPROVE these — and then httpx, which builds its request host
+    # with the ``idna`` *package*, raised ``idna.IDNAError``. That subclasses
+    # UnicodeError/ValueError but NOT httpx.HTTPError, so it slipped every except
+    # clause on the path.
+    "https://xn--a.com/careers",
+    "https://xn--0.com/",
+    "https://xn--.com/",
+]
+
+
+@pytest.mark.parametrize("url", MALFORMED_URLS)
+def test_malformed_url_is_a_rejection_not_an_exception(
+    url: str, exploding_dns
+) -> None:
+    with pytest.raises(UrlGuardError) as exc:
+        validate_public_url(url)
+    assert exc.value.reason == REASON_HOSTNAME
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("url", MALFORMED_URLS)
+async def test_malformed_url_issues_zero_requests(url: str, exploding_dns) -> None:
+    counter, client = _exploding_client()
+    async with client:
+        with pytest.raises(UrlGuardError) as exc:
+            await guarded_get(url, client)
+    assert exc.value.reason == REASON_HOSTNAME
+    assert counter.calls == []
+
+
+@pytest.mark.asyncio
+async def test_a_remote_location_header_cannot_500_us(public_dns) -> None:
+    """A remote site answering ``Location: https://xn--a.com/`` was a free 500.
+
+    httpx builds a redirect request from any 3xx even with
+    ``follow_redirects=False``, and doing so touches ``URL.host`` →
+    ``idna.decode`` → ``IDNAError``. That fired from inside our own
+    ``http.stream(...)`` call, past ``except httpx.HTTPError``, so any third-party
+    host in a chain could crash this endpoint on demand.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(302, headers={"location": "https://xn--a.com/"})
+
+    counter = _CountingTransport(handler)
+    async with counter.client() as client:
+        with pytest.raises(UrlGuardError) as exc:
+            await guarded_get("https://ok.example/", client)
+
+    assert exc.value.reason == REASON_FETCH_FAILED
+    assert exc.value.hops == ("https://ok.example/",)
+    assert len(counter.calls) == 1
+
+
+def test_trailing_dot_fqdn_hits_the_reserved_name_check(exploding_dns) -> None:
+    """``localhost.`` is a legal FQDN spelling of ``localhost``.
+
+    Without the dot strip it sails past the reserved-name check and the verdict
+    comes from whatever DNS answers — in practice 127.0.0.1, i.e. the misleading
+    ``resolves_to_private_address`` instead of ``invalid_hostname``, and only if
+    the resolver happens to cooperate. ``exploding_dns`` here is the assertion
+    that we never get that far.
+    """
+    with pytest.raises(UrlGuardError) as exc:
+        validate_public_url("https://localhost./")
+    assert exc.value.reason == REASON_HOSTNAME
+    assert "localhost" in str(exc.value)
+
+
+@pytest.mark.parametrize(
+    "address,label",
+    [
+        ("100.64.1.1", "RFC 6598 CGNAT"),
+        ("100.127.255.254", "RFC 6598 CGNAT, top of range"),
+        ("192.88.99.1", "RFC 3068 6to4 relay anycast"),
+    ],
+)
+def test_cgnat_and_6to4_are_not_public(
+    address: str, label: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Neither is caught by the is_private/is_reserved/… flag union.
+
+    Measured on Python 3.13.3: ``100.64.1.1`` has every one of those flags False
+    (``is_global`` is False — which is why ``is_global`` is now the primary
+    predicate), and ``192.88.99.1`` has ``is_global`` **True**, which is why
+    ``_DENY_NETWORKS`` still has to name it explicitly.
+    """
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **k: _addrinfo(address))
+    with pytest.raises(UrlGuardError) as exc:
+        validate_public_url("https://carrier-nat.example/")
+    assert exc.value.reason == REASON_PRIVATE_ADDRESS, label
+
+
+# ----------------------------------------------------------------------------
 # assert_ats_api_host
 # ----------------------------------------------------------------------------
 
@@ -378,20 +491,182 @@ async def test_redirect_chain_is_returned_in_order(public_dns) -> None:
     )
 
 
+def _redirect_loop_handler(request: httpx.Request) -> httpx.Response:
+    n = int(request.url.path.strip("/") or 0)
+    return httpx.Response(302, headers={"location": f"https://loop.example/{n + 1}"})
+
+
 @pytest.mark.asyncio
 async def test_too_many_hops(public_dns) -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        n = int(request.url.path.strip("/") or 0)
-        return httpx.Response(302, headers={"location": f"https://loop.example/{n + 1}"})
+    """``max_hops`` counts REQUESTS, which is also len(the returned hop tuple).
 
-    counter = _CountingTransport(handler)
+    It previously meant "redirects followed", so ``max_hops=5`` issued 6 requests
+    and returned 6 hops — one more than the PLAN's "max 5 hops" cap, and a bound
+    that could not be checked against the value the function hands back. One
+    meaning, and this is the test that pins it.
+    """
+    counter = _CountingTransport(_redirect_loop_handler)
     async with counter.client() as client:
         with pytest.raises(UrlGuardError) as exc:
             await guarded_get("https://loop.example/0", client, max_hops=3)
 
     assert exc.value.reason == REASON_TOO_MANY_HOPS
-    # max_hops=3 permits the original request plus three more.
-    assert len(counter.calls) == 4
+    assert len(counter.calls) == 3
+    assert len(exc.value.hops) == 3
+
+
+@pytest.mark.asyncio
+async def test_max_hops_one_fetches_once_and_follows_nothing(public_dns) -> None:
+    counter = _CountingTransport(_redirect_loop_handler)
+    async with counter.client() as client:
+        with pytest.raises(UrlGuardError) as exc:
+            await guarded_get("https://loop.example/0", client, max_hops=1)
+
+    assert exc.value.reason == REASON_TOO_MANY_HOPS
+    assert len(counter.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_max_hops_below_one_is_a_programming_error(public_dns) -> None:
+    counter, client = _exploding_client()
+    async with client:
+        with pytest.raises(ValueError, match="max_hops"):
+            await guarded_get("https://ok.example/", client, max_hops=0)
+    assert counter.calls == []
+
+
+# ----------------------------------------------------------------------------
+# The event loop, and the aggregate budget
+# ----------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_dns_does_not_block_the_event_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``getaddrinfo`` is sync and must not run on the loop thread.
+
+    Per src/backend/CLAUDE.md the Procrastinate worker shares this process, so a
+    slow-resolving user-supplied host would otherwise freeze every in-flight ATS
+    fetch task for the duration of the lookup. Before ``asyncio.to_thread`` the
+    ticker below counted 0 ticks across a 1.0 s lookup.
+    """
+
+    def slow(host, port, *args, **kwargs):
+        time.sleep(0.30)
+        return _addrinfo("93.184.216.34")
+
+    monkeypatch.setattr(socket, "getaddrinfo", slow)
+
+    ticks = 0
+
+    async def ticker() -> None:
+        nonlocal ticks
+        while True:
+            await asyncio.sleep(0.01)
+            ticks += 1
+
+    counter = _CountingTransport(lambda r: httpx.Response(200, text="ok"))
+    async with counter.client() as client:
+        task = asyncio.create_task(ticker())
+        await asyncio.sleep(0.02)
+        await guarded_get("https://slow-dns.example/", client)
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    assert ticks >= 5, f"the loop was blocked during the DNS lookup (ticks={ticks})"
+
+
+@pytest.mark.asyncio
+async def test_an_expired_deadline_issues_zero_requests(public_dns) -> None:
+    counter, client = _exploding_client()
+    async with client:
+        with pytest.raises(UrlGuardError) as exc:
+            await guarded_get(
+                "https://ok.example/", client, deadline=time.monotonic() - 1.0
+            )
+    assert exc.value.reason == REASON_DEADLINE
+    assert counter.calls == []
+
+
+@pytest.mark.asyncio
+async def test_deadline_stops_a_slow_chain_well_before_max_hops(public_dns) -> None:
+    """Per-request timeouts do not compose; only the deadline bounds the total.
+
+    50 hops × a 5 s per-request timeout is over four minutes of outbound requests
+    from one call. With a 0.3 s deadline the chain stops after a handful.
+    """
+
+    async def slow_redirect(request: httpx.Request) -> httpx.Response:
+        await asyncio.sleep(0.05)
+        return _redirect_loop_handler(request)
+
+    counter = _CountingTransport(slow_redirect)
+    async with counter.client() as client:
+        with pytest.raises(UrlGuardError) as exc:
+            await guarded_get(
+                "https://loop.example/0",
+                client,
+                max_hops=50,
+                timeout=5.0,
+                deadline=time.monotonic() + 0.30,
+            )
+
+    assert exc.value.reason == REASON_DEADLINE
+    assert 1 <= len(counter.calls) <= 20, len(counter.calls)
+
+
+@pytest.mark.asyncio
+async def test_deadline_clamps_the_per_request_timeout(
+    public_dns, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A hop's own timeout is narrowed to whatever budget is left.
+
+    Otherwise the last hop of an almost-exhausted call could still hold the
+    connection open for the full per-request ``timeout``, which is how a 30 s
+    ``timeout`` sails past a 25 s overall budget. Asserted on the value handed to
+    ``http.stream`` because ``MockTransport`` does not enforce timeouts at all.
+    """
+    seen: list[float] = []
+    counter = _CountingTransport(lambda r: httpx.Response(200, text="ok"))
+
+    async with counter.client() as client:
+        original = client.stream
+
+        def spy(method, url, **kwargs):
+            seen.append(kwargs["timeout"])
+            return original(method, url, **kwargs)
+
+        monkeypatch.setattr(client, "stream", spy)
+        await guarded_get(
+            "https://ok.example/",
+            client,
+            timeout=30.0,
+            deadline=time.monotonic() + 0.5,
+        )
+
+    assert seen, "http.stream was never called"
+    assert seen[0] <= 0.5, f"per-request timeout was not clamped: {seen[0]}"
+
+
+@pytest.mark.asyncio
+async def test_without_a_deadline_the_timeout_is_passed_through(public_dns, monkeypatch) -> None:
+    """No deadline means no clamp — PR 2/PR 3 callers keep the old behaviour."""
+    seen: list[float] = []
+    counter = _CountingTransport(lambda r: httpx.Response(200, text="ok"))
+
+    async with counter.client() as client:
+        original = client.stream
+
+        def spy(method, url, **kwargs):
+            seen.append(kwargs["timeout"])
+            return original(method, url, **kwargs)
+
+        monkeypatch.setattr(client, "stream", spy)
+        await guarded_get("https://ok.example/", client, timeout=7.5)
+
+    assert seen == [7.5]
 
 
 @pytest.mark.asyncio
@@ -445,6 +720,34 @@ async def test_body_is_truncated_at_max_bytes(public_dns) -> None:
     assert len(response.content) == 1000
     # The truncated body must not carry a Content-Length claiming the original size.
     assert response.headers.get("content-length") in (None, "1000")
+
+
+@pytest.mark.asyncio
+async def test_the_stream_is_abandoned_at_the_cap_not_drained(public_dns) -> None:
+    """The cap has to stop the *reading*, not trim an already-buffered body.
+
+    A ``content=b"..."`` response proves truncation but says nothing about
+    streaming, because the bytes were already materialised before the loop ran.
+    Here the body is a generator that counts how many chunks were actually pulled:
+    100 MB is on offer and the loop must walk away after ~1 KB.
+    """
+    pulled = 0
+
+    async def body() -> AsyncIterator[bytes]:
+        nonlocal pulled
+        for _ in range(100_000):
+            pulled += 1
+            yield b"x" * 1000
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=body())
+
+    counter = _CountingTransport(handler)
+    async with counter.client() as client:
+        response, _ = await guarded_get("https://firehose.example/", client, max_bytes=1000)
+
+    assert len(response.content) == 1000
+    assert pulled <= 2, f"kept reading past the cap ({pulled} chunks pulled)"
 
 
 @pytest.mark.asyncio

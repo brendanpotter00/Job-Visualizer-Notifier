@@ -7,7 +7,10 @@ change starts persisting from this route, every case in this file fails.
 
 from __future__ import annotations
 
+import asyncio
+import logging
 import socket
+import time
 
 import httpx
 import pytest
@@ -201,6 +204,60 @@ def test_ssrf_rejection_surfaces_its_guard_reason(
     assert _company_count(db_conn) == before
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        # ``urlsplit`` raises ValueError("Invalid IPv6 URL") on an unbalanced bracket
+        "https://a]b.com/",
+        # bogus Punycode A-labels: the stdlib "idna" codec waves any ASCII label
+        # through, then httpx's ``idna`` package refuses to build the host and
+        # raises an IDNAError that is not an httpx.HTTPError
+        "https://xn--a.com/careers",
+        "https://xn--0.com/",
+        "https://xn--.com/",
+    ],
+)
+def test_malformed_url_is_422_with_a_reason_not_500(
+    client, db_conn, monkeypatch: pytest.MonkeyPatch, url: str
+) -> None:
+    """🔴 C1. Each of these was an uncaught exception → 500, no reason, no audit row."""
+    before = _company_count(db_conn)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError(f"no request must be issued; got {request.url}")
+
+    seen = _install_transport(monkeypatch, handler)
+    resp = client.post(RESOLVE, json={"url": url})
+
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["reason"] == "invalid_hostname"
+    assert seen == []
+    assert _company_count(db_conn) == before
+
+
+def test_a_remote_location_header_cannot_500_the_endpoint(
+    client, db_conn, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """🔴 C1. Any third-party host in a chain could crash this route on demand.
+
+    ``Location: https://xn--a.com/`` is all it took: httpx builds a redirect
+    request from any 3xx even with ``follow_redirects=False``, which touches
+    ``URL.host`` → ``idna.decode`` → ``IDNAError``, from inside our own
+    ``http.stream`` call and past ``except httpx.HTTPError``.
+    """
+    before = _company_count(db_conn)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(302, headers={"location": "https://xn--a.com/"})
+
+    _install_transport(monkeypatch, handler)
+    resp = client.post(RESOLVE, json={"url": "https://hostile.example/careers"})
+
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["reason"] == "fetch_failed"
+    assert _company_count(db_conn) == before
+
+
 def test_url_over_the_length_cap_is_422(client, db_conn) -> None:
     before = _company_count(db_conn)
     resp = client.post(RESOLVE, json={"url": "https://x.example/" + "a" * 2100})
@@ -217,6 +274,96 @@ def test_unknown_body_field_is_rejected(client, db_conn) -> None:
 
 def test_missing_body_is_rejected(client, db_conn) -> None:
     assert client.post(RESOLVE, json={}).status_code == 422
+
+
+# ----------------------------------------------------------------------------
+# The aggregate budget, and what gets logged
+# ----------------------------------------------------------------------------
+
+
+def test_a_slow_host_cannot_hold_the_request_open_indefinitely(
+    client, db_conn, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """🔴 I2. There was no aggregate bound — only per-request timeouts.
+
+    ``_RESOLVE_CLIENT_TIMEOUT_S`` was described as "the backstop" but is not one:
+    every ``guarded_get`` passes an explicit ``timeout=``, which overrides the
+    client default instead of being capped by it. Worst case was ~36 outbound
+    requests × 8 s ≈ 288 s at a third-party host.
+    """
+    before = _company_count(db_conn)
+    monkeypatch.setattr("api.routers.companies._RESOLVE_BUDGET_S", 0.20)
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        await asyncio.sleep(0.1)
+        return httpx.Response(200, text="<html>slow and boardless</html>")
+
+    _install_transport(monkeypatch, handler)
+    started = time.monotonic()
+    resp = client.post(RESOLVE, json={"url": "https://slow.example/careers"})
+    elapsed = time.monotonic() - started
+
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["reason"] == "deadline_exceeded"
+    assert elapsed < 5.0, elapsed
+    assert _company_count(db_conn) == before
+
+
+def test_the_outer_wait_for_backstops_anything_the_deadline_misses(
+    client, db_conn, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The threaded deadline is the primary bound; this is the hard stop behind it.
+
+    Simulated with a ``discover_ats`` that ignores its deadline entirely — which is
+    what any future non-``guarded_get`` work inside the handler (DNS in a worker
+    thread, a big JSON parse) would look like.
+    """
+    monkeypatch.setattr("api.routers.companies._RESOLVE_BUDGET_S", 0.05)
+    monkeypatch.setattr("api.routers.companies._RESOLVE_GRACE_S", 0.05)
+
+    async def ignores_the_deadline(url, http, *, deadline=None):
+        await asyncio.sleep(30)
+        raise AssertionError("should have been cancelled")
+
+    monkeypatch.setattr("api.routers.companies.discover_ats", ignores_the_deadline)
+    _install_transport(monkeypatch, lambda r: httpx.Response(200, text="x"))
+
+    started = time.monotonic()
+    resp = client.post(RESOLVE, json={"url": "https://slow.example/careers"})
+
+    assert resp.status_code == 422
+    assert resp.json()["reason"] == "deadline_exceeded"
+    assert time.monotonic() - started < 5.0
+
+
+def test_embedded_runners_up_are_logged(
+    client, db_conn, monkeypatch: pytest.MonkeyPatch, caplog
+) -> None:
+    """🔴 M4. ``runners_up`` was populated by the L2 ranker and then dropped.
+
+    "We picked Greenhouse/realboard but the page also named Lever/decoy" is the
+    whole diagnosis for a wrong embedded resolution, and this log line is the only
+    place PR 1 records it.
+    """
+    page = (
+        "https://jobs.lever.co/decoy "
+        + "https://boards.greenhouse.io/realboard " * 5
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "boards-api.greenhouse.io":
+            return httpx.Response(200, json={"jobs": [{"id": 1}, {"id": 2}]})
+        return httpx.Response(200, text=page)
+
+    _install_transport(monkeypatch, handler)
+    with caplog.at_level(logging.INFO, logger="api.routers.companies"):
+        resp = client.post(RESOLVE, json={"url": "https://multi.example/careers"})
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["via"] == "embedded"
+    assert body["candidate"]["boardToken"] == "realboard"
+    assert "runners_up=['lever/decoy']" in caplog.text
 
 
 # ----------------------------------------------------------------------------

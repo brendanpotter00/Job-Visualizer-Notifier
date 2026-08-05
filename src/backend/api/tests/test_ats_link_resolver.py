@@ -64,6 +64,17 @@ def no_network(monkeypatch: pytest.MonkeyPatch):
         ("https://job-boards.greenhouse.io/acme/jobs/123", "greenhouse", "acme"),
         ("https://www.boards.greenhouse.io/acme", "greenhouse", "acme"),
         ("https://BOARDS.GREENHOUSE.IO/acme?gh_src=x", "greenhouse", "acme"),
+        # greenhouse embed: the token is in ?for=, NOT the first path segment.
+        # This is the canonical iframe form, so it is what an L2 sniff of a
+        # careers page finds — taking segment 0 verbatim gave board_token='embed'.
+        ("https://boards.greenhouse.io/embed/job_board?for=acme", "greenhouse", "acme"),
+        (
+            "https://job-boards.greenhouse.io/embed/job_board?for=acme&b=1",
+            "greenhouse",
+            "acme",
+        ),
+        ("https://boards.greenhouse.io/embed/job_app?token=9&for=acme", "greenhouse", "acme"),
+        ("https://boards.greenhouse.io/EMBED/job_board?for=acme", "greenhouse", "acme"),
         # ashby: token lowercased (upstream is case-insensitive; verified live)
         ("https://jobs.ashbyhq.com/Sierra", "ashby", "sierra"),
         ("https://jobs.ashbyhq.com/sierra/", "ashby", "sierra"),
@@ -122,11 +133,26 @@ def test_matcher_hits(url: str, expected_ats: str, expected_token: str) -> None:
         "https://www.metacareers.com/jobs",
         "https://jobs.intel.com",
         "https://jobs.cisco.com",
+        # greenhouse embed with no usable ?for= names no board — 'embed' is
+        # Greenhouse's own routing segment, never a board token.
+        "https://boards.greenhouse.io/embed",
+        "https://boards.greenhouse.io/embed/job_board",
+        "https://boards.greenhouse.io/embed/job_board?for=",
+        "https://boards.greenhouse.io/embed/job_board?forx=acme",
+        # ...and a ?for= that is not token-shaped is not laundered into an API path
+        "https://boards.greenhouse.io/embed/job_board?for=../../evil",
+        "https://boards.greenhouse.io/embed/job_board?for=a/b",
         # not even a fetchable URL
         "file:///etc/passwd",
         "",
         "   ",
         "not a url",
+        # malformed enough that ``urlsplit`` itself raises ValueError. A pure
+        # matcher must answer "no", not explode — the caller turns an exception
+        # here into an HTTP 500 with no reason code.
+        "https://a]b.com/",
+        "https://[oops/",
+        "https://boards.greenhouse.io]/acme",
     ],
 )
 def test_matcher_misses(url: str) -> None:

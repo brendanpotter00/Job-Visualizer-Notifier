@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import socket
+import time
 
 import httpx
 import pytest
@@ -296,6 +297,79 @@ async def test_most_frequent_candidate_wins_and_runners_up_are_recorded() -> Non
 
 
 @pytest.mark.asyncio
+async def test_sniff_finds_a_locale_prefixed_workday_board() -> None:
+    """🔴 I4. ``/en-US/Cisco_Careers`` is as common on a careers page as the bare form.
+
+    With the L2 pattern limited to one path segment the match stopped at
+    ``.../en-US``, which the resolver then correctly strips as a locale prefix —
+    leaving no career-site slug and resolving to ``None``. So L2 could not see the
+    very shape it exists to find, even though ``test_ats_link_resolver`` already
+    pins ``/en-US/BlueOrigin`` as real.
+    """
+    board = "https://cisco.wd5.myworkdayjobs.com/en-US/Cisco_Careers"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=f'<a href="{board}">Search jobs</a>')
+
+    recorder = _Recorder(handler)
+    async with recorder.client() as http:
+        result = await sniff_embedded_ats("https://prefixed.example/careers", http)
+
+    assert result.candidate is not None
+    assert result.candidate.ats == "workday"
+    assert result.candidate.provider_config == {
+        "base_url": "https://cisco.wd5.myworkdayjobs.com",
+        "tenant_slug": "cisco",
+        "career_site_slug": "Cisco_Careers",
+    }
+
+
+@pytest.mark.asyncio
+async def test_sniff_finds_an_embedded_greenhouse_board() -> None:
+    """🔴 I3. The Greenhouse iframe form, which is what a careers page embeds.
+
+    Before the fix this "succeeded" with ``board_token='embed'`` and stopped
+    looking: ``sniff_embedded_ats`` returns at the first page yielding any
+    candidate, and ``_rank`` could not help because ``embed`` was the only one. A
+    row written from that would point at nothing.
+    """
+    body = (
+        '<iframe src="https://boards.greenhouse.io/embed/job_board?for=acme">'
+        "</iframe>"
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=body)
+
+    recorder = _Recorder(handler)
+    async with recorder.client() as http:
+        result = await sniff_embedded_ats("https://embedder.example/careers", http)
+
+    assert result.candidate is not None
+    assert result.candidate.ats == "greenhouse"
+    assert result.candidate.board_token == "acme"
+    assert [c.board_token for c in result.runners_up] == []
+
+
+@pytest.mark.asyncio
+async def test_sniff_never_returns_the_literal_embed_token() -> None:
+    """A ``/embed/`` link with no ``?for=`` must be a miss, not a garbage token."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            text='<iframe src="https://boards.greenhouse.io/embed/job_board"></iframe>',
+        )
+
+    recorder = _Recorder(handler)
+    async with recorder.client() as http:
+        result = await sniff_embedded_ats("https://embedder.example/careers", http)
+
+    assert result.candidate is None
+    assert result.reason == "no_ats_detected"
+
+
+@pytest.mark.asyncio
 async def test_a_failing_subpath_does_not_sink_the_whole_sniff() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/search-results"):
@@ -310,6 +384,211 @@ async def test_a_failing_subpath_does_not_sink_the_whole_sniff() -> None:
 
     assert result.candidate is not None
     assert result.candidate.ats == "gem"
+
+
+@pytest.mark.asyncio
+async def test_a_stale_subpath_rejection_is_not_the_sniff_verdict() -> None:
+    """🔴 M5. A page we read and found no board on is ``no_ats_detected``.
+
+    The sub-paths are guesses we invented; a DNS/guard rejection on one of them is
+    not a verdict about the site. Here sub-path 1 is refused by the guard (it
+    redirects to a private host) and the other three are read fine and simply have
+    no board — the answer must be ``no_ats_detected``, not the leftover
+    ``scheme_not_https`` from the guess.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/search-results"):
+            return httpx.Response(302, headers={"location": "http://10.0.0.5/"})
+        return httpx.Response(200, text="<html>a page, but no board</html>")
+
+    recorder = _Recorder(handler)
+    async with recorder.client() as http:
+        result = await sniff_embedded_ats("https://x.example/careers", http)
+
+    assert result.candidate is None
+    assert result.reason == "no_ats_detected"
+
+
+@pytest.mark.asyncio
+async def test_a_sniff_that_never_read_anything_reports_the_real_reason() -> None:
+    """The flip side of M5: with nothing read, the transport reason is the answer."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(302, headers={"location": "http://10.0.0.5/"})
+
+    recorder = _Recorder(handler)
+    async with recorder.client() as http:
+        result = await sniff_embedded_ats("https://x.example/careers", http)
+
+    assert result.candidate is None
+    assert result.reason == "scheme_not_https"
+
+
+# ----------------------------------------------------------------------------
+# Compression, and the aggregate budget
+# ----------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_discovery_requests_ask_for_an_identity_encoding() -> None:
+    """🔴 C2. ``max_bytes`` counts DECODED bytes, so gzip walks straight past it.
+
+    ``Response.aiter_bytes()`` decompresses each raw chunk before the guard's loop
+    sees it. Measured with httpx's default ``Accept-Encoding: gzip, deflate``: a
+    500 MiB gzip of zeros is 509,616 bytes on the wire, the 512 KiB cap is
+    "honoured" — and the largest single decoded chunk allocated was 67,415,144
+    bytes, ~128× the cap, up to 4 times per ``/resolve``.
+    """
+    recorder = _Recorder(lambda r: httpx.Response(200, text="<html>nothing</html>"))
+    async with recorder.client() as http:
+        await discover_ats("https://plain.example/careers", http)
+
+    assert recorder.requests, "no request was issued"
+    encodings = {r.headers.get("accept-encoding") for r in recorder.requests}
+    assert encodings == {"identity"}, encodings
+
+
+INTEL_CANDIDATE = AtsCandidate(
+    "workday",
+    "intel",
+    {
+        "base_url": "https://intel.wd1.myworkdayjobs.com",
+        "tenant_slug": "intel",
+        "career_site_slug": "External",
+    },
+    INTEL_WORKDAY,
+)
+
+
+@pytest.mark.asyncio
+async def test_probe_requests_ask_for_an_identity_encoding() -> None:
+    """Same reasoning for the two probes whose bodies this PR byte-caps (M7).
+
+    Greenhouse/Ashby/Lever/Gem probes go through the existing ATS clients, which
+    own their own headers and are out of scope here.
+    """
+    recorder = _Recorder(
+        lambda r: httpx.Response(200, json={"total": 1, "jobPostings": [{"t": "x"}]})
+    )
+    async with recorder.client() as http:
+        result = await probe_candidate(INTEL_CANDIDATE, http)
+
+    assert result.ok is True
+    assert recorder.requests[0].headers.get("accept-encoding") == "identity"
+
+
+@pytest.mark.asyncio
+async def test_an_oversized_probe_body_is_an_error_not_an_oom(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 M7. The probe used to buffer whatever the ATS host sent, unbounded.
+
+    Over the cap has to be an error rather than a truncation: truncated JSON is
+    not JSON, and 'parse what fits' would report a fabricated job count.
+    """
+    monkeypatch.setattr(ats_discovery, "_PROBE_MAX_BYTES", 4096)
+    pulled = 0
+
+    async def firehose():
+        nonlocal pulled
+        for _ in range(100_000):
+            pulled += 1
+            yield b"x" * 1000
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=firehose())
+
+    recorder = _Recorder(handler)
+    async with recorder.client() as http:
+        result = await probe_candidate(INTEL_CANDIDATE, http)
+
+    assert result.ok is False
+    assert result.error is not None
+    assert "exceeded" in result.error
+    # And it stopped reading rather than draining the whole 100 MB on offer.
+    assert pulled <= 10, pulled
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [404, 500])
+async def test_a_bounded_probe_still_reports_the_http_status(status: int) -> None:
+    """``raise_for_status`` has to keep working now that the probe streams.
+
+    Behaviour-preservation guard on the ``_bounded_json`` refactor: an HTTP error
+    must still arrive as ``ok=False`` with the status in the message, not as a
+    ``ResponseNotRead`` from calling ``raise_for_status`` on an unread stream.
+    """
+    recorder = _Recorder(lambda r: httpx.Response(status, text="nope"))
+    async with recorder.client() as http:
+        result = await probe_candidate(INTEL_CANDIDATE, http)
+
+    assert result.ok is False
+    assert result.error is not None
+    assert str(status) in result.error
+
+
+@pytest.mark.asyncio
+async def test_an_expired_deadline_stops_discovery_before_any_request() -> None:
+    """🔴 I2. One resolve is worth up to ~36 outbound requests without a deadline.
+
+    L1's HEAD chain (5) + its GET retry (5) + 4 sniff targets × 5 hops, each with
+    its own ``_DISCOVERY_TIMEOUT_S`` — the per-request timeout composes into
+    minutes, and Vercel 504s the user long before the backend gives up.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError(f"no request must be issued; got {request.url}")
+
+    recorder = _Recorder(handler)
+    async with recorder.client() as http:
+        result = await discover_ats(
+            "https://slow.example/careers", http, deadline=time.monotonic() - 1.0
+        )
+
+    assert result.candidate is None
+    assert result.reason == "deadline_exceeded"
+    assert recorder.requests == []
+
+
+@pytest.mark.asyncio
+async def test_a_deadline_that_expires_mid_sniff_is_reported_as_such() -> None:
+    """The sniff must not relabel an exhausted budget as 'this site has no board'."""
+    started = time.monotonic()
+
+    async def slow(request: httpx.Request) -> httpx.Response:
+        await asyncio.sleep(0.1)
+        return httpx.Response(200, text="<html>nothing</html>")
+
+    recorder = _Recorder(slow)
+    async with recorder.client() as http:
+        result = await sniff_embedded_ats(
+            "https://slow.example/careers", http, deadline=started + 0.15
+        )
+
+    assert result.candidate is None
+    assert result.reason == "deadline_exceeded"
+    # Not all four sub-paths: the budget stopped the loop.
+    assert len(recorder.requests) < 4
+
+
+@pytest.mark.asyncio
+async def test_probe_budget_is_clamped_to_the_remaining_deadline() -> None:
+    async def slow(request: httpx.Request) -> httpx.Response:
+        await asyncio.sleep(2.0)
+        return httpx.Response(200, json={"jobs": []})
+
+    recorder = _Recorder(slow)
+    candidate = AtsCandidate("greenhouse", "acme", {}, "https://boards.greenhouse.io/acme")
+    started = time.monotonic()
+    async with recorder.client() as http:
+        result = await probe_candidate(candidate, http, deadline=started + 0.1)
+
+    assert result.ok is False
+    assert result.error is not None
+    assert "timed out" in result.error
+    # The 12 s _PROBE_TIMEOUT_S must not have been used.
+    assert time.monotonic() - started < 2.0
 
 
 # ----------------------------------------------------------------------------

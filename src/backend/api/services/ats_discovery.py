@@ -33,8 +33,10 @@ is a PR 2 dependency and is deliberately not pulled forward.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
+import time
 from collections import Counter
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit, urlunsplit
@@ -52,6 +54,7 @@ from . import (
 from .ats_link_resolver import AtsCandidate, resolve_ats_url
 from .url_guard import (
     REASON_ATS_HOST,
+    REASON_DEADLINE,
     UrlGuardError,
     assert_ats_api_host,
     guarded_get,
@@ -67,6 +70,9 @@ _PROBE_TIMEOUT_S: float = 12.0
 # room for the probe inside a comfortable overall budget.
 _DISCOVERY_TIMEOUT_S: float = 8.0
 
+# ``guarded_get``'s ``max_hops`` counts REQUESTS, not redirects — so this is
+# "fetch at most 5 URLs per chain", i.e. up to 4 redirects followed. Intel's real
+# chain is 3 and Cisco's is 3.
 _MAX_REDIRECT_HOPS = 5
 _MAX_SNIFF_URLS = 4
 _SNIFF_MAX_BYTES = 512 * 1024
@@ -83,7 +89,24 @@ _REASON_NO_ATS = "no_ats_detected"
 # narrow — a false positive here becomes a company row pointed at someone
 # else's board.
 _EMBEDDED_ATS_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"https://[a-z0-9-]+\.wd[0-9]+\.myworkdayjobs\.com/[A-Za-z0-9_-]+"),
+    # Two path segments, the second optional: a Workday board link on a careers
+    # page is as often locale-prefixed (``/en-US/Cisco_Careers``) as bare. With
+    # only one segment allowed, the match stopped at ``/en-US``, which the
+    # resolver then strips as a locale — leaving nothing and resolving to None on
+    # the exact layer L2 exists for. ``test_ats_link_resolver`` already pins
+    # ``/en-US/BlueOrigin`` as a real shape.
+    re.compile(
+        r"https://[a-z0-9-]+\.wd[0-9]+\.myworkdayjobs\.com"
+        r"/[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)?"
+    ),
+    # The Greenhouse embed form carries its board token in ``?for=``, not in the
+    # path, so the query has to be part of the match or the resolver sees only
+    # ``/embed`` and (correctly) returns None. See
+    # ``ats_link_resolver._greenhouse_candidate``.
+    re.compile(
+        r"https://(?:job-)?boards\.greenhouse\.io/embed/[A-Za-z0-9_-]+"
+        r"\?[A-Za-z0-9_%.+=&;-]*\bfor=[A-Za-z0-9_-]+"
+    ),
     re.compile(r"https://(?:job-)?boards\.greenhouse\.io/[A-Za-z0-9_-]+"),
     re.compile(r"https://jobs\.ashbyhq\.com/[A-Za-z0-9_-]+"),
     re.compile(r"https://jobs\.lever\.co/[A-Za-z0-9_-]+"),
@@ -103,6 +126,15 @@ _EMBEDDED_ATS_PATTERNS: tuple[re.Pattern[str], ...] = (
 # a thing we do.
 _DISCOVERY_HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    # Load-bearing, not a nicety. ``guarded_get``'s ``max_bytes`` counts DECODED
+    # bytes, and ``Response.aiter_bytes()`` decompresses each raw chunk before the
+    # loop ever sees it — so with httpx's default ``Accept-Encoding: gzip,
+    # deflate`` a 500 MiB gzip bomb fits in ~509 KB on the wire and still hands us
+    # a single 67 MB decoded chunk to allocate, ~128× over the 512 KB cap. One
+    # ``/resolve`` makes up to 4 sniff GETs. This container has an OOM incident
+    # on file (docs/incidents/2026-04-09-oom-memory-fragmentation.md). The sniffer
+    # only needs text; asking for identity makes the cap a real memory bound.
+    "Accept-Encoding": "identity",
     "User-Agent": "Job-Visualizer-Notifier/1.0 (+https://onesecondswe.dev)",
 }
 
@@ -134,11 +166,19 @@ class DiscoveryResult:
 # -----------------------------------------------------------------------------
 
 
-async def follow_to_ats(url: str, http: httpx.AsyncClient) -> DiscoveryResult:
+async def follow_to_ats(
+    url: str,
+    http: httpx.AsyncClient,
+    *,
+    deadline: float | None = None,
+) -> DiscoveryResult:
     """L0 on the input, then follow redirects and run L0 on every hop.
 
     Issues ``HEAD`` (cheap — we only want the ``Location`` chain), falling back
     to ``GET`` if the origin rejects the method. This is what makes Intel work.
+
+    ``deadline`` is a ``time.monotonic()`` value threaded straight through to
+    ``guarded_get`` — see ``discover_ats``.
     """
     direct = resolve_ats_url(url)
     if direct is not None:
@@ -151,9 +191,11 @@ async def follow_to_ats(url: str, http: httpx.AsyncClient) -> DiscoveryResult:
         )
 
     try:
-        response, hops = await _fetch_chain(url, http, method="HEAD")
+        response, hops = await _fetch_chain(url, http, method="HEAD", deadline=deadline)
         if response.status_code in (405, 501):
-            response, hops = await _fetch_chain(url, http, method="GET")
+            response, hops = await _fetch_chain(
+                url, http, method="GET", deadline=deadline
+            )
     except UrlGuardError as exc:
         return DiscoveryResult(
             candidate=None,
@@ -188,6 +230,7 @@ async def _fetch_chain(
     http: httpx.AsyncClient,
     *,
     method: str,
+    deadline: float | None = None,
 ) -> tuple[httpx.Response, tuple[str, ...]]:
     return await guarded_get(
         url,
@@ -197,6 +240,7 @@ async def _fetch_chain(
         method=method,
         headers=_DISCOVERY_HEADERS,
         timeout=_DISCOVERY_TIMEOUT_S,
+        deadline=deadline,
     )
 
 
@@ -252,7 +296,12 @@ def _rank(found: list[AtsCandidate]) -> tuple[AtsCandidate, tuple[AtsCandidate, 
     return ordered[0], tuple(ordered[1:])
 
 
-async def sniff_embedded_ats(url: str, http: httpx.AsyncClient) -> DiscoveryResult:
+async def sniff_embedded_ats(
+    url: str,
+    http: httpx.AsyncClient,
+    *,
+    deadline: float | None = None,
+) -> DiscoveryResult:
     """L2: fetch up to 4 same-host URLs and regex-scan each body for a board.
 
     Stops at the first page that yields a resolvable candidate, so a site whose
@@ -260,6 +309,9 @@ async def sniff_embedded_ats(url: str, http: httpx.AsyncClient) -> DiscoveryResu
     """
     fetched: list[str] = []
     last_reason: str | None = None
+    # Did we ever actually read a page? That is what decides the miss reason
+    # below — see the comment there.
+    scanned_any = False
 
     for target in _sniff_urls(url):
         try:
@@ -272,12 +324,18 @@ async def sniff_embedded_ats(url: str, http: httpx.AsyncClient) -> DiscoveryResu
                 method="GET",
                 headers=_DISCOVERY_HEADERS,
                 timeout=_DISCOVERY_TIMEOUT_S,
+                deadline=deadline,
             )
         except UrlGuardError as exc:
             # One bad sub-path must not sink the whole sniff — the sub-paths are
             # guesses, and a 4xx/DNS failure on a guess is the expected case.
             last_reason = exc.reason
             logger.debug("Sniff of %s rejected (%s)", target, exc.reason)
+            if exc.reason == REASON_DEADLINE:
+                # The budget, not this sub-path, is what failed. The remaining
+                # guesses cannot succeed either, so stop instead of burning three
+                # more no-op iterations and reporting the last one's reason.
+                break
             continue
 
         fetched.extend(hop for hop in hops if hop not in fetched)
@@ -285,6 +343,7 @@ async def sniff_embedded_ats(url: str, http: httpx.AsyncClient) -> DiscoveryResu
             logger.debug("Sniff of %s returned HTTP %d", target, response.status_code)
             continue
 
+        scanned_any = True
         found = _scan_body(response.text, target)
         if found:
             winner, runners_up = _rank(found)
@@ -297,12 +356,24 @@ async def sniff_embedded_ats(url: str, http: httpx.AsyncClient) -> DiscoveryResu
                 runners_up=runners_up,
             )
 
+    # The miss reason must describe the *sniff*, not whichever guess happened to
+    # fail last. A rejection on ``/careers/jobs`` (a sub-path we invented, which
+    # usually does not exist) is not the verdict on a landing page we read fine
+    # and found no board on — that is ``no_ats_detected``. Only a sniff where we
+    # never successfully read anything gets to report a transport/guard reason.
+    if last_reason == REASON_DEADLINE:
+        reason = REASON_DEADLINE
+    elif scanned_any:
+        reason = _REASON_NO_ATS
+    else:
+        reason = last_reason or _REASON_NO_ATS
+
     return DiscoveryResult(
         candidate=None,
         via="unsupported",
         hops=tuple(fetched),
         final_url=fetched[-1] if fetched else url,
-        reason=last_reason or _REASON_NO_ATS,
+        reason=reason,
     )
 
 
@@ -311,9 +382,24 @@ async def sniff_embedded_ats(url: str, http: httpx.AsyncClient) -> DiscoveryResu
 # -----------------------------------------------------------------------------
 
 
-async def discover_ats(url: str, http: httpx.AsyncClient) -> DiscoveryResult:
-    """L0 → L1 → L2, first hit wins. The single entry point callers use."""
-    followed = await follow_to_ats(url, http)
+async def discover_ats(
+    url: str,
+    http: httpx.AsyncClient,
+    *,
+    deadline: float | None = None,
+) -> DiscoveryResult:
+    """L0 → L1 → L2, first hit wins. The single entry point callers use.
+
+    ``deadline`` is an optional ``time.monotonic()`` value bounding the whole
+    ladder, threaded down into every ``guarded_get``. It exists because
+    per-request timeouts do not compose: L1 issues up to ``_MAX_REDIRECT_HOPS``
+    requests (twice, if HEAD is refused) and L2 up to 4 more, each with its own
+    ``_DISCOVERY_TIMEOUT_S``, so a hostile-but-slow host turns one ``/resolve``
+    into a ~36-request, minutes-long outbound burst. With a deadline the burst
+    stops on time and reports ``deadline_exceeded`` instead of being cut off by
+    the proxy.
+    """
+    followed = await follow_to_ats(url, http, deadline=deadline)
     if followed.candidate is not None:
         return followed
     if followed.reason is not None and followed.reason != _REASON_NO_ATS:
@@ -322,7 +408,7 @@ async def discover_ats(url: str, http: httpx.AsyncClient) -> DiscoveryResult:
         # would be both pointless and a second helping of the same risk.
         return followed
 
-    sniffed = await sniff_embedded_ats(followed.final_url, http)
+    sniffed = await sniff_embedded_ats(followed.final_url, http, deadline=deadline)
     merged = followed.hops + tuple(h for h in sniffed.hops if h not in followed.hops)
     if sniffed.candidate is not None:
         return DiscoveryResult(
@@ -337,8 +423,11 @@ async def discover_ats(url: str, http: httpx.AsyncClient) -> DiscoveryResult:
         candidate=None,
         via="unsupported",
         hops=merged,
+        # ``sniff_embedded_ats`` already collapses its own per-sub-path noise to
+        # ``no_ats_detected``; the one reason worth carrying up is that we ran out
+        # of budget, which is not the same answer as "this site has no board".
         final_url=sniffed.final_url or followed.final_url,
-        reason=_REASON_NO_ATS,
+        reason=REASON_DEADLINE if sniffed.reason == REASON_DEADLINE else _REASON_NO_ATS,
     )
 
 
@@ -394,10 +483,63 @@ _COUNT_ONLY_ATS = frozenset({"workday", "eightfold"})
 
 _PROBE_HEADERS = {
     "Accept": "application/json",
+    # Same reason as ``_DISCOVERY_HEADERS``: ``_bounded_json`` counts decoded
+    # bytes, so identity is what makes the cap a memory bound rather than a
+    # bookkeeping limit.
+    "Accept-Encoding": "identity",
     "Content-Type": "application/json",
     # Mirrors workday_client's UA — some tenants 403 a missing one.
     "User-Agent": "Job-Visualizer-Notifier/1.0",
 }
+
+_EIGHTFOLD_PROBE_HEADERS = {
+    "Accept": "application/json",
+    "Accept-Encoding": "identity",
+}
+
+# A ``limit=1`` Workday CXS page and a ``num=1`` Eightfold page are both ~10 KB.
+# 4 MiB is a couple of orders of magnitude of headroom and still a bound.
+_PROBE_MAX_BYTES = 4 * 1024 * 1024
+
+
+async def _bounded_json(
+    http: httpx.AsyncClient,
+    method: str,
+    url: str,
+    *,
+    headers: dict[str, str],
+    params: dict[str, str | int] | None = None,
+    json_body: dict[str, object] | None = None,
+    timeout: float,
+) -> object:
+    """``http.request(...).json()`` with a ceiling on the bytes read.
+
+    The plain ``http.post(...)`` / ``http.get(...)`` + ``.json()`` pair this
+    replaces buffers whatever the remote sends, with no limit — the same class of
+    exposure as the sniffer's, just at a host we have already pinned to an ATS API
+    domain. Streaming with a cap keeps a compromised or misbehaving ATS host from
+    turning the probe into an OOM. Over the cap is an error, not a truncation:
+    truncated JSON is not JSON, and pretending otherwise would report a bogus job
+    count.
+    """
+    async with http.stream(
+        method,
+        url,
+        headers=headers,
+        params=params,
+        json=json_body,
+        timeout=timeout,
+    ) as response:
+        response.raise_for_status()
+        body = bytearray()
+        async for chunk in response.aiter_bytes():
+            body.extend(chunk)
+            if len(body) > _PROBE_MAX_BYTES:
+                raise ValueError(
+                    f"probe response from {url!r} exceeded "
+                    f"{_PROBE_MAX_BYTES} bytes"
+                )
+    return json.loads(bytes(body))
 
 
 async def _count_workday(candidate: AtsCandidate, http: httpx.AsyncClient) -> int:
@@ -409,19 +551,19 @@ async def _count_workday(candidate: AtsCandidate, http: httpx.AsyncClient) -> in
     """
     provider_config = dict(candidate.provider_config)
     workday_client._validate_provider_config(provider_config)
-    response = await http.post(
+    payload = await _bounded_json(
+        http,
+        "POST",
         _probe_url(candidate),
-        json={
+        headers=_PROBE_HEADERS,
+        json_body={
             "appliedFacets": provider_config.get("default_facets") or {},
             "limit": 1,
             "offset": 0,
             "searchText": "",
         },
-        headers=_PROBE_HEADERS,
         timeout=_PROBE_TIMEOUT_S,
     )
-    response.raise_for_status()
-    payload = response.json()
     if not isinstance(payload, dict):
         raise ValueError(
             f"Workday probe response is not a dict: got {type(payload).__name__}"
@@ -439,14 +581,14 @@ async def _count_eightfold(candidate: AtsCandidate, http: httpx.AsyncClient) -> 
     domain = candidate.provider_config.get("domain", "")
     if not domain:
         raise ValueError("Eightfold probe requires a non-empty domain")
-    response = await http.get(
+    payload = await _bounded_json(
+        http,
+        "GET",
         _probe_url(candidate),
+        headers=_EIGHTFOLD_PROBE_HEADERS,
         params={"domain": domain, "num": 1, "start": 0},
-        headers={"Accept": "application/json"},
         timeout=_PROBE_TIMEOUT_S,
     )
-    response.raise_for_status()
-    payload = response.json()
     if not isinstance(payload, dict):
         raise ValueError(
             f"Eightfold probe response is not a dict: got {type(payload).__name__}"
@@ -480,6 +622,8 @@ async def _count_jobs(candidate: AtsCandidate, http: httpx.AsyncClient) -> int:
 async def probe_candidate(
     candidate: AtsCandidate,
     http: httpx.AsyncClient,
+    *,
+    deadline: float | None = None,
 ) -> ProbeResult:
     """Call the real ATS API and report how many jobs are actually there.
 
@@ -496,17 +640,24 @@ async def probe_candidate(
     Never raises. A failure is data — ``ok=False`` with the underlying message
     preserved, not collapsed to a boolean — because "the board 404s" and "the
     board timed out" need different answers from the user.
+
+    ``deadline`` (a ``time.monotonic()`` value) clamps the probe's own budget to
+    whatever the caller has left, so discovery + probe cannot add up past the
+    caller's bound.
     """
+    budget = _PROBE_TIMEOUT_S
+    if deadline is not None:
+        budget = min(budget, max(deadline - time.monotonic(), 0.0))
     try:
         assert_ats_api_host(candidate.ats, _probe_url(candidate))
         job_count = await asyncio.wait_for(
-            _count_jobs(candidate, http), timeout=_PROBE_TIMEOUT_S
+            _count_jobs(candidate, http), timeout=budget
         )
     except asyncio.TimeoutError:
         return ProbeResult(
             ok=False,
             job_count=0,
-            error=f"probe timed out after {_PROBE_TIMEOUT_S:.0f}s",
+            error=f"probe timed out after {budget:.0f}s",
         )
     except (UrlGuardError, ValueError, httpx.HTTPError) as exc:
         return ProbeResult(ok=False, job_count=0, error=str(exc) or type(exc).__name__)

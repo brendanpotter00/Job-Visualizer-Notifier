@@ -22,7 +22,9 @@ Three surfaces:
    never used anywhere in this module, because httpx would follow a hop to
    ``169.254.169.254`` without ever handing us the chance to inspect it. Every
    hop is re-validated *before* its request is issued, and the response body is
-   bounded while it streams rather than after it has already been buffered.
+   read incrementally and abandoned as soon as ``max_bytes`` decoded bytes have
+   accumulated — see the ``max_bytes`` note in ``guarded_get`` for the exact
+   (narrower than it looks) guarantee that provides.
 
 Reason codes
 ------------
@@ -50,14 +52,21 @@ out of scope here. What *is* in scope, and implemented:
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import logging
 import socket
+import time
 from dataclasses import dataclass
 from typing import Union
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import SplitResult, urlsplit, urlunsplit
 
 import httpx
+
+# The ``idna`` *package* (a hard httpx dependency — httpx uses it to build every
+# request's host), NOT the stdlib ``"idna"`` codec. The two disagree, and the
+# disagreement is a bug source: see ``_normalize_hostname``.
+import idna
 
 from .ashby_client import ASHBY_BASE_URL
 from .ats_link_resolver import WORKDAY_HOST_PATTERN
@@ -83,6 +92,7 @@ REASON_TOO_MANY_HOPS = "too_many_redirects"
 # Both are new codes rather than reuses so the audit log can tell them apart.
 REASON_CROSS_HOST = "cross_host_redirect"   # only reachable with allow_cross_host=False
 REASON_FETCH_FAILED = "fetch_failed"        # transport-level failure on a validated URL
+REASON_DEADLINE = "deadline_exceeded"       # the caller's overall budget ran out
 
 MAX_HOSTNAME_LENGTH = 253
 
@@ -96,17 +106,23 @@ _REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 _BLOCKED_HOST_SUFFIXES = (".localhost", ".local", ".internal")
 _BLOCKED_HOSTS = frozenset({"localhost"})
 
-# Belt-and-braces nets checked in addition to the ``ipaddress`` predicates.
-# The predicates already cover all of these; listing them explicitly means a
-# future Python release quietly narrowing ``is_reserved`` cannot open a hole.
+# Belt-and-braces nets checked in addition to ``is_global``. ``is_global``
+# already covers all but one of these; listing them explicitly means a future
+# Python release quietly widening ``is_global`` cannot open a hole.
 _DENY_NETWORKS: tuple[
     Union[ipaddress.IPv4Network, ipaddress.IPv6Network], ...
 ] = (
     ipaddress.ip_network("0.0.0.0/8"),
     ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("100.64.0.0/10"),    # RFC 6598 CGNAT
     ipaddress.ip_network("127.0.0.0/8"),
     ipaddress.ip_network("169.254.0.0/16"),
     ipaddress.ip_network("172.16.0.0/12"),
+    # RFC 3068 6to4 relay anycast. This is the ONE entry ``is_global`` does not
+    # cover: measured on Python 3.13.3, ``ip_address("192.88.99.1").is_global``
+    # is **True** and every other predicate is False, so this line is the only
+    # thing rejecting it. Do not delete it assuming ``is_global`` subsumes it.
+    ipaddress.ip_network("192.88.99.0/24"),
     ipaddress.ip_network("192.168.0.0/16"),
     ipaddress.ip_network("::1/128"),
     ipaddress.ip_network("::/128"),
@@ -192,7 +208,7 @@ def assert_ats_api_host(ats: str, url: str) -> None:
             f"unknown ATS {ats!r}; expected one of {sorted(SUPPORTED_ATS)}",
         )
 
-    parts = urlsplit(url)
+    parts = _split_or_reject(url)
     if parts.scheme != "https":
         raise UrlGuardError(
             REASON_SCHEME,
@@ -233,6 +249,23 @@ def assert_ats_api_host(ats: str, url: str) -> None:
 # -----------------------------------------------------------------------------
 
 
+def _split_or_reject(url: str) -> SplitResult:
+    """``urlsplit`` that fails closed instead of raising.
+
+    ``urlsplit`` raises ``ValueError: Invalid IPv6 URL`` on unbalanced square
+    brackets — ``https://a]b.com/`` is enough. Every entry point here takes a
+    user-supplied string, so an unguarded ``urlsplit`` is an uncaught exception
+    (HTTP 500, no reason code, no audit row) rather than a rejection.
+    """
+    try:
+        return urlsplit(url)
+    except ValueError as exc:
+        raise UrlGuardError(
+            REASON_HOSTNAME,
+            f"{url!r} is not a parseable URL: {exc}",
+        ) from exc
+
+
 def _unwrap_mapped(ip: _IpAddress) -> _IpAddress:
     """Collapse an IPv4-mapped IPv6 address (``::ffff:10.0.0.5``) to its IPv4 form."""
     if isinstance(ip, ipaddress.IPv6Address):
@@ -243,20 +276,22 @@ def _unwrap_mapped(ip: _IpAddress) -> _IpAddress:
 
 
 def _is_public_address(raw: str) -> bool:
-    """True iff ``raw`` parses as an address we are willing to connect to."""
+    """True iff ``raw`` parses as an address we are willing to connect to.
+
+    ``is_global`` is the **primary** predicate, not a supplement to the
+    individual ``is_private``/``is_reserved``/… flags: the union of those flags
+    leaves real holes that ``is_global`` closes. Measured on Python 3.13.3,
+    ``100.64.1.1`` (RFC 6598 CGNAT — a carrier's internal space, and on some
+    hosts the container network) has ``is_private=False``, ``is_reserved=False``
+    and every other flag False, so the old flag-union approved it. ``is_global``
+    is False for it. ``_DENY_NETWORKS`` then runs as a second, explicit layer.
+    """
     try:
         ip = ipaddress.ip_address(raw)
     except ValueError:
         return False
     ip = _unwrap_mapped(ip)
-    if (
-        ip.is_private
-        or ip.is_loopback
-        or ip.is_link_local
-        or ip.is_reserved
-        or ip.is_multicast
-        or ip.is_unspecified
-    ):
+    if not ip.is_global:
         return False
     for net in _DENY_NETWORKS:
         if ip.version == net.version and ip in net:
@@ -270,14 +305,36 @@ def _normalize_hostname(hostname: str) -> str:
     ``exаmple.com`` with a Cyrillic ``а`` must become ``xn--exmple-4nf.com``
     before any comparison happens — otherwise a lookalike host would sail past
     a suffix check written in ASCII.
+
+    Two subtleties, both of which produced live ``500``s before they were fixed:
+
+    * **The trailing dot.** ``localhost.`` is a legal FQDN spelling of
+      ``localhost``, and it is not caught by an equality/suffix check written
+      without the dot. Stripped here, *before* normalization, so the reserved-
+      name check downstream sees the bare label and the reason code is
+      ``invalid_hostname`` rather than whatever the resolver happens to answer.
+    * **Two different IDNA implementations.** ``str.encode("idna")`` (stdlib
+      codec) passes any all-ASCII label through untouched, so ``xn--a.com``
+      survives it unchanged. httpx builds its request host with the ``idna``
+      *package*, which rejects that same string as a malformed A-label. The
+      guard would therefore approve a hostname the fetch could not express and
+      the resulting ``idna.IDNAError`` escaped as a 500 with no reason code. The
+      round-trip through ``idna.encode`` below makes the guard agree with the
+      transport. ``idna.IDNAError`` subclasses ``UnicodeError``, so the existing
+      ``except`` already names it.
     """
+    hostname = hostname.rstrip(".")
+    if not hostname:
+        raise UrlGuardError(REASON_HOSTNAME, "hostname is empty after normalization")
     try:
-        return hostname.encode("idna").decode("ascii").lower()
-    except (UnicodeError, UnicodeDecodeError) as exc:
+        host = hostname.encode("idna").decode("ascii").lower()
+        idna.encode(host)
+    except (UnicodeError, UnicodeDecodeError, idna.IDNAError) as exc:
         raise UrlGuardError(
             REASON_HOSTNAME,
             f"hostname {hostname!r} is not IDNA-encodable: {exc}",
         ) from exc
+    return host
 
 
 def validate_public_url(url: str) -> GuardedUrl:
@@ -291,7 +348,7 @@ def validate_public_url(url: str) -> GuardedUrl:
     if not isinstance(url, str) or not url.strip():
         raise UrlGuardError(REASON_HOSTNAME, "URL is empty")
 
-    parts = urlsplit(url.strip())
+    parts = _split_or_reject(url.strip())
 
     # 1. scheme
     if parts.scheme != "https":
@@ -382,6 +439,17 @@ def validate_public_url(url: str) -> GuardedUrl:
 # -----------------------------------------------------------------------------
 
 
+def _remaining(deadline: float | None) -> float | None:
+    """Seconds left on an overall budget, or ``None`` when there is no budget.
+
+    ``deadline`` is a ``time.monotonic()`` value, never a wall-clock one — an
+    NTP step must not shorten or extend a request budget.
+    """
+    if deadline is None:
+        return None
+    return deadline - time.monotonic()
+
+
 def _strip_body_headers(headers: httpx.Headers) -> httpx.Headers:
     """Drop framing headers that would contradict a truncated body."""
     out = httpx.Headers(headers)
@@ -401,12 +469,20 @@ async def guarded_get(
     method: str = "GET",
     headers: dict[str, str] | None = None,
     timeout: float = 10.0,
+    deadline: float | None = None,
 ) -> tuple[httpx.Response, tuple[str, ...]]:
     """Fetch ``url``, following redirects manually with a guard on every hop.
 
     Returns ``(final response, tuple of hop URLs)``. The hop tuple contains
     every URL actually requested, in order, starting with the (normalized)
     input — callers feed each one back through the pure resolver.
+
+    ``max_hops`` is the maximum number of **requests issued**, which is also the
+    maximum length of the returned hop tuple: ``max_hops=5`` fetches at most 5
+    URLs and therefore follows at most 4 redirects. (It previously meant
+    "redirects followed", so ``max_hops=5`` issued 6 requests and returned 6
+    "hops" — one more than the PLAN's "max 5 hops" cap. One meaning, and it is
+    this one, because it is the one the returned tuple can be checked against.)
 
     ``allow_cross_host`` distinguishes the two phases (PLAN §1.2):
     ``True`` at *discovery* time, where a vanity careers domain redirecting to
@@ -415,25 +491,57 @@ async def guarded_get(
     ``False`` at *scrape* time, where a host change is drift we must see rather
     than absorb.
 
-    ``method``, ``headers`` and ``timeout`` are additions to the PLAN's
-    signature: ``follow_to_ats`` needs ``HEAD`` (with a ``GET`` retry on 405),
-    and pinning a timeout here keeps a hostile host from holding a request
-    open for the client's default.
+    ``method``, ``headers``, ``timeout`` and ``deadline`` are additions to the
+    PLAN's signature. ``follow_to_ats`` needs ``HEAD`` (with a ``GET`` retry on
+    405). ``timeout`` is *per request* and is passed explicitly on every hop, so
+    it overrides the client's own default rather than being bounded by it.
+    ``deadline`` is the aggregate bound that ``timeout`` alone cannot provide: a
+    ``time.monotonic()`` value past which no further request is issued and every
+    remaining per-request timeout is clamped to what is left. Without it,
+    ``max_hops`` × ``timeout`` × (number of calls a caller makes) is the real
+    worst case — 36 × 8 s ≈ 288 s for one ``/resolve``.
 
-    The body is bounded **while streaming**, not after buffering, so a
-    multi-gigabyte response cannot be pulled into memory before the cap is
-    noticed.
+    ``max_bytes`` — read the guarantee carefully
+    --------------------------------------------
+    Chunks are accumulated until ``max_bytes`` **decoded** bytes have arrived,
+    then the stream is abandoned; the returned ``Response.content`` is never
+    larger than ``max_bytes``. That bounds what *we* keep, and for an
+    uncompressed response it also bounds peak allocation.
+
+    It is **not** a peak-memory bound for a compressed response.
+    ``Response.aiter_bytes()`` decompresses each raw chunk *before* yielding it,
+    so the loop below only ever sees already-materialised data. Measured: a
+    ``Content-Encoding: gzip`` body of 500 MiB of zeros arrives in 509,616 wire
+    bytes, the cap is honoured at 524,288 bytes retained — and the largest single
+    decoded chunk handed to the loop was 67,415,144 bytes. Callers that need
+    ``max_bytes`` to be a real memory bound must ask for an identity encoding;
+    ``ats_discovery._DISCOVERY_HEADERS`` and ``_PROBE_HEADERS`` both send
+    ``Accept-Encoding: identity`` for exactly this reason.
     """
-    if max_hops < 0:
-        raise ValueError("max_hops must be >= 0")
+    if max_hops < 1:
+        raise ValueError("max_hops must be >= 1 (it counts requests, not redirects)")
 
     hops: list[str] = []
     current = url
     origin_host: str | None = None
 
-    for hop_index in range(max_hops + 1):
+    for hop_index in range(max_hops):
+        left = _remaining(deadline)
+        if left is not None and left <= 0.0:
+            raise UrlGuardError(
+                REASON_DEADLINE,
+                f"the overall budget ran out before hop {hop_index + 1} of {url!r}",
+                hops=tuple(hops),
+            )
+        hop_timeout = timeout if left is None else min(timeout, left)
+
         try:
-            guarded = validate_public_url(current)
+            # ``validate_public_url`` is deliberately sync (PR 2 / PR 3 have
+            # non-async callers), but its ``getaddrinfo`` blocks the event loop —
+            # measured: the loop ticked 0 times during a 1.0 s lookup. The
+            # Procrastinate worker shares this process, so a slow-resolving
+            # user-supplied host would stall every in-flight ATS fetch task.
+            guarded = await asyncio.to_thread(validate_public_url, current)
         except UrlGuardError as exc:
             # Re-raise carrying the chain so far: "we stopped at hop 2" is the
             # diagnostic, and a bare reason code loses it.
@@ -456,7 +564,7 @@ async def guarded_get(
                 method,
                 guarded.url,
                 headers=headers,
-                timeout=timeout,
+                timeout=hop_timeout,
                 follow_redirects=False,
             ) as response:
                 if response.status_code in _REDIRECT_STATUSES:
@@ -473,10 +581,10 @@ async def guarded_get(
                             ),
                             tuple(hops),
                         )
-                    if hop_index == max_hops:
+                    if hop_index == max_hops - 1:
                         raise UrlGuardError(
                             REASON_TOO_MANY_HOPS,
-                            f"exceeded {max_hops} redirect hops starting at {url!r}",
+                            f"exceeded the {max_hops}-hop limit starting at {url!r}",
                             hops=tuple(hops),
                         )
                     current = str(httpx.URL(guarded.url).join(location))
@@ -500,7 +608,17 @@ async def guarded_get(
                     ),
                     tuple(hops),
                 )
-        except httpx.HTTPError as exc:
+        except (httpx.HTTPError, httpx.InvalidURL, UnicodeError) as exc:
+            # ``UnicodeError`` is not paranoia and not dead code. httpx builds
+            # every request host through the ``idna`` package, and
+            # ``idna.IDNAError`` subclasses ``UnicodeError``/``ValueError`` but
+            # NOT ``httpx.HTTPError``. It fires from two places inside this
+            # block: the request build for a host the guard approved, and — the
+            # nastier one — httpx's own ``_build_redirect_request``, which
+            # touches ``URL.host`` (→ ``idna.decode``) on any 3xx even with
+            # ``follow_redirects=False``. That second path means a remote site
+            # could 500 this endpoint at will by answering
+            # ``Location: https://xn--a.com/``. Now it is ``fetch_failed``.
             raise UrlGuardError(
                 REASON_FETCH_FAILED,
                 f"request to {guarded.url!r} failed: {exc}",
@@ -511,6 +629,6 @@ async def guarded_get(
     # iteration. Kept so the function has no implicit ``None`` return path.
     raise UrlGuardError(  # pragma: no cover
         REASON_TOO_MANY_HOPS,
-        f"exceeded {max_hops} redirect hops starting at {url!r}",
+        f"exceeded the {max_hops}-hop limit starting at {url!r}",
         hops=tuple(hops),
     )
