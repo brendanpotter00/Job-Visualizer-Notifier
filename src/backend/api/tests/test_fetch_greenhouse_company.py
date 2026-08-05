@@ -608,13 +608,24 @@ class TestFetchGreenhouseCompany:
 @pytest.mark.parametrize(
     "active_count,jobs_returned,expect_skipped",
     [
-        # Below the safety threshold (default 0.5 ratio) -> guard trips.
-        (10, 0, True),     # zero returned with 10 active -> skipped
-        (100, 9, True),    # 9 < 0.5 * 100 = 50 -> skipped
-        # At or above the threshold -> guard does NOT trip.
-        (10, 5, False),    # exactly at the ratio
-        (10, 6, False),    # comfortably above ratio
-        # Bootstrap case: zero active, zero returned -> guard does NOT trip.
+        # --- rule (a), "empty_scrape": jobs_seen < 0.10 * active ---------
+        # (The old comment here said "default 0.5 ratio". It was wrong —
+        # the constant has been 0.1 the whole time — and because every case
+        # below 0.1 is also below 0.5, this whole parametrization passed
+        # identically at either value. It pinned nothing. Fixed.)
+        (10, 0, True),     # zero returned with 10 active
+        (100, 9, True),    # 9 < 0.1 * 100 = 10
+        # --- rule (b), "partial_scrape": < 0.85 * active AND drop >= 15 --
+        # THE case the old parametrization could not express: a 73%-of-normal
+        # return. This is the Apple truncation profile, and under the
+        # 0.1-only guard it ran the destructive close phase.
+        (100, 73, True),   # 73 < 85 and drop 27 >= 15
+        # --- healthy runs: neither rule fires -----------------------------
+        (100, 90, False),  # 90 >= 85 -> ordinary churn on a big board
+        (30, 22, False),   # 73% BUT drop is only 8 (< 15) -> small-board noise
+        (10, 5, False),    # drop 5 < 15
+        (10, 6, False),    # drop 4 < 15
+        # Bootstrap case: zero active -> guard does NOT trip.
         (0, 0, False),
     ],
 )
@@ -627,8 +638,13 @@ async def test_safety_guard_boundaries(
     jobs_returned,
     expect_skipped,
 ):
-    """C3: pin the safety guard's ratio boundary so a future tweak to
-    `<` vs `<=` or to SAFETY_GUARD_RATIO is caught by tests."""
+    """C3: pin BOTH safety-guard rules so a future tweak to `<` vs `<=`, to
+    SAFETY_GUARD_RATIO, to SCRAPER_GUARD_MIN_RATIO or to
+    SCRAPER_GUARD_MIN_ABS_DROP is caught by tests.
+
+    ``(100, 73)`` and ``(30, 22)`` are the two cases that actually
+    discriminate: the first must trip on the ratio, the second must be
+    saved by the absolute-drop floor. Everything else was already pinned."""
     company = f"safety_{active_count}_{jobs_returned}"
     token = company
     _seed_company(db_conn, company, token)
@@ -658,12 +674,16 @@ async def test_safety_guard_boundaries(
         )
         assert runs[0]["closed_jobs"] == 0
         assert runs[0]["new_jobs"] == 0
+        # Unit 2: the trip must be legible in the row afterwards, not just
+        # inferable from error_count (which a real HTTP failure also sets).
+        assert runs[0]["skipped_update"] is True
     else:
         assert runs[0]["error_count"] == 0, (
             f"safety guard tripped unexpectedly for "
             f"active={active_count} returned={jobs_returned}; "
             f"jobs_seen={runs[0]['jobs_seen']}"
         )
+        assert runs[0]["skipped_update"] is False
 
 
 @pytest.mark.asyncio

@@ -3,7 +3,7 @@
 Per-company unit of work for the greenhouse fan-out cron (see Unit 5).
 Fetches the live Greenhouse Job Board API for one company, upserts rows
 into ``job_listings``, advances the consecutive-misses lifecycle, marks
-jobs CLOSED once misses exceed ``MISSED_RUN_THRESHOLD``, and records a
+jobs CLOSED once misses reach the run's miss threshold, and records a
 single ``scrape_runs`` row.
 
 Concurrency model
@@ -16,9 +16,29 @@ cron worker. Do NOT copy this pattern to request handlers.
 
 Safety guard
 ------------
-If the API returns suspiciously few jobs (< SAFETY_GUARD_RATIO * active
-count), record the run with error_count=1 and exit without destructive
-writes. Mirrors ``scripts/shared/incremental.py``.
+Before any destructive write, the run is checked by the ONE shared helper
+``scripts.shared.incremental.evaluate_safety_guard`` — never a local copy
+of the arithmetic (it used to be duplicated inline in all six ATS leaf
+tasks and drifted). Two rules, both keyed off the count of currently-OPEN
+rows for this company:
+
+  (a) ``jobs_seen < 0.10 * active``                     -> "empty_scrape"
+  (b) ``jobs_seen < SCRAPER_GUARD_MIN_RATIO (0.85) * active`` AND
+      ``(active - jobs_seen) >= SCRAPER_GUARD_MIN_ABS_DROP (15)``
+                                                        -> "partial_scrape"
+
+Either reason records the run with ``error_count=1`` and
+``skipped_update=True`` and returns immediately — note that this skips the
+upsert too, so a tripped run performs NO writes to ``job_listings`` at all
+(no ingestion, no ``last_seen_at`` refresh, no misses, no closures).
+
+Rule (b) was added because the 0.10-only guard let six of Apple's seven
+21-day truncations execute the close phase against partial data. Rule (b)
+also carries a bounded auto-release, which is why the call goes through
+``resolve_safety_guard`` rather than ``evaluate_safety_guard``: after N
+consecutive ``partial_scrape`` skips the company is presumed to have
+genuinely shrunk and one run is let through to reconcile. See the
+calibration notes in ``scripts/shared/incremental.py``.
 
 Bookkeeping
 -----------
@@ -41,8 +61,11 @@ from procrastinate import exceptions as procrastinate_exceptions
 
 from scripts.shared import database as db
 from scripts.shared.incremental import (
-    MISSED_RUN_THRESHOLD,
+    GuardReason,
     SAFETY_GUARD_RATIO,
+    SCRAPER_GUARD_MIN_ABS_DROP,
+    SCRAPER_GUARD_MIN_RATIO,
+    resolve_safety_guard,
 )
 from scripts.shared.models import ScrapeRun
 from scripts.shared.utils import get_iso_timestamp
@@ -82,6 +105,8 @@ async def fetch_greenhouse_company(
     new_jobs_count = 0
     closed_jobs_count = 0
     error_count = 0
+    skipped_update = False
+    guard_reason: GuardReason | None = None
     new_ids: Set[str] = set()
     scrape_error: BaseException | None = None
 
@@ -99,7 +124,8 @@ async def fetch_greenhouse_company(
     try:
         try:
             async def _work() -> None:
-                nonlocal jobs_seen, new_jobs_count, closed_jobs_count, error_count, new_ids
+                nonlocal jobs_seen, new_jobs_count, closed_jobs_count, error_count
+                nonlocal new_ids, skipped_update, guard_reason
                 async with httpx.AsyncClient() as http:
                     raw_jobs = await fetch_jobs(board_token, http)
                 jobs = transform_to_job_listings(company_id, raw_jobs)
@@ -109,19 +135,31 @@ async def fetch_greenhouse_company(
                     db.count_active_jobs, conn, SOURCE_ID, company_id
                 )
 
-                if active_count > 0 and jobs_seen < SAFETY_GUARD_RATIO * active_count:
+                # resolve_ (not evaluate_) so the bounded auto-release is in
+                # play: it reads the company's recent scrape_runs history ONLY
+                # when rule (b) would otherwise trip, so the healthy path pays
+                # nothing. to_thread because the helper is sync psycopg2, like
+                # every other db call in this task.
+                decision = await asyncio.to_thread(
+                    resolve_safety_guard, conn, company_id, jobs_seen, active_count
+                )
+                guard_reason = decision.reason
+                if guard_reason is not None:
                     # ERROR (not WARNING) so Railway routes this to stderr — the
                     # platform's @level field is derived from the OS stream
                     # (see _configure_logging in main.py). A persistently-tripping
                     # safety guard would otherwise be invisible in Railway's
                     # @level:error filter.
                     logger.error(
-                        "SAFETY GUARD for %s: returned %d jobs but %d active in DB "
-                        "(threshold %.0f%% = %.0f). Skipping update/close phases.",
-                        company_id, jobs_seen, active_count,
-                        SAFETY_GUARD_RATIO * 100, SAFETY_GUARD_RATIO * active_count,
+                        "SAFETY GUARD (%s) for %s: returned %d jobs but %d "
+                        "active in DB (empty<%.0f%%, partial<%.0f%% with "
+                        "drop>=%d). Skipping update/close phases.",
+                        guard_reason, company_id, jobs_seen, active_count,
+                        SAFETY_GUARD_RATIO * 100, SCRAPER_GUARD_MIN_RATIO * 100,
+                        SCRAPER_GUARD_MIN_ABS_DROP,
                     )
                     error_count = 1
+                    skipped_update = True
                     return
 
                 timestamp = get_iso_timestamp()
@@ -187,11 +225,28 @@ async def fetch_greenhouse_company(
                         conn,
                         SOURCE_ID,
                         list(missing_ids),
-                        MISSED_RUN_THRESHOLD,
+                        # decision.miss_threshold, NOT MISSED_RUN_THRESHOLD:
+                        # an auto-released run closes one miss later, which is
+                        # what makes "a single released run cannot close
+                        # anything" provable rather than hopeful.
+                        decision.miss_threshold,
                     )
                     if to_close:
                         await asyncio.to_thread(db.mark_jobs_closed, conn, SOURCE_ID, list(to_close), timestamp)
                         closed_jobs_count = len(to_close)
+                        if decision.released:
+                            # Whatever an auto-released run closes, a human
+                            # should see. ERROR for the same stderr /
+                            # @level:error routing reason as the guard log.
+                            logger.error(
+                                "AUTO-RELEASED run for %s closed %d job(s) at "
+                                "threshold %d (seen=%d active=%d). If the "
+                                "scraper is broken rather than the board "
+                                "genuinely smaller, fix it — these rows "
+                                "reactivate on the next healthy scrape.",
+                                company_id, closed_jobs_count,
+                                decision.miss_threshold, jobs_seen, active_count,
+                            )
 
                 logger.info(
                     "fetch_greenhouse_company %s: seen=%d new=%d closed=%d",
@@ -268,6 +323,8 @@ async def fetch_greenhouse_company(
             closed_jobs=closed_jobs_count,
             details_fetched=0,
             error_count=error_count,
+            skipped_update=skipped_update,
+            guard_reason=guard_reason,
         )
         try:
             await asyncio.to_thread(db.record_scrape_run, conn, run_record)

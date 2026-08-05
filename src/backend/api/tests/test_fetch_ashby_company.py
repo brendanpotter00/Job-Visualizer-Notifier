@@ -430,6 +430,76 @@ class TestFetchAshbyCompany:
         assert runs[0]["closed_jobs"] == 0
         assert runs[0]["jobs_seen"] == 0
 
+    async def test_partial_scrape_trips_guard_and_skips_destructive_writes(
+        self, procrastinate_open, db_conn, monkeypatch
+    ):
+        """Apple-style truncation: the board returns 73% of what the DB holds.
+
+        Per-ATS copy of the case pinned exhaustively in
+        ``test_fetch_greenhouse_company.py::test_safety_guard_boundaries``.
+        The guard logic is shared (``evaluate_safety_guard``) but it is
+        *called* separately in each of the six leaf tasks, so a divergence
+        in exactly one of them — someone "fixing" a flaky company by
+        loosening its own call — would otherwise ship silently. One case
+        per ATS is what makes that impossible.
+
+        73-of-100 clears BOTH conditions of rule (b): 73 < 0.85*100 = 85,
+        and the 27-job drop is over the 15-job floor. Under the old
+        0.10-only guard this ran the full destructive phase.
+
+        The returned ids deliberately do NOT overlap the seeded ones: if
+        the guard fails to trip, all 100 seeded rows get their
+        ``consecutive_misses`` incremented and the drift assertion below
+        fails loudly rather than subtly.
+        """
+        company = "partialashby"
+        token = "partialashby"
+        _seed_company(db_conn, company, token)
+
+        for i in range(100):
+            _seed_job(db_conn, f"uuid-{i}", company)
+
+        raw_jobs = [_make_raw_job(f"fresh-{i}") for i in range(73)]
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={"jobs": raw_jobs})
+
+        _patch_httpx(monkeypatch, handler)
+        defer_mock, _ = _patch_normalize_defer(monkeypatch)
+
+        await fetch_ashby_company.defer_async(
+            company_id=company, board_token=token,
+        )
+        await _drain()
+        db_conn.rollback()
+
+        cur = db_conn.cursor()
+        cur.execute(
+            sql.SQL(
+                "SELECT COUNT(*) AS n FROM {} j "
+                "JOIN {} f ON f.source_id = j.source_id AND f.id = j.id "
+                "WHERE j.company = %s "
+                "AND (f.consecutive_misses > 0 OR j.status = 'CLOSED')"
+            ).format(sql.Identifier("job_listings"), sql.Identifier("job_freshness")),
+            (company,),
+        )
+        assert cur.fetchone()["n"] == 0, (
+            "a truncated scrape advanced the consecutive-misses lifecycle — "
+            "two of these in a row would mass-close the board"
+        )
+
+        runs = _scrape_runs(db_conn, company)
+        assert len(runs) == 1
+        assert runs[0]["jobs_seen"] == 73
+        assert runs[0]["error_count"] == 1
+        assert runs[0]["skipped_update"] is True
+        assert runs[0]["closed_jobs"] == 0
+        assert runs[0]["new_jobs"] == 0
+
+        # The guard returns before new_ids is populated, so nothing is
+        # deferred for location normalization either.
+        assert defer_mock.await_count == 0
+
     async def test_http_5xx_records_failed_run_and_raises(
         self, procrastinate_open, db_conn, monkeypatch
     ):

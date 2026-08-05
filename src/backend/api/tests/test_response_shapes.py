@@ -20,6 +20,10 @@ EXPECTED_JOB_KEYS = {
 EXPECTED_SCRAPE_RUN_KEYS = {
     "runId", "company", "startedAt", "completedAt", "mode",
     "jobsSeen", "newJobs", "closedJobs", "detailsFetched", "errorCount",
+    # Tri-state safety-guard flag (true / false / null-for-pre-column rows).
+    # Serialized even when null so the QA table can distinguish "guard did not
+    # trip" from "this row predates the column".
+    "skippedUpdate",
 }
 
 # Expected camelCase keys from JobsStats response

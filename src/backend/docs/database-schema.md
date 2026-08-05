@@ -138,6 +138,8 @@ erDiagram
         integer closed_jobs "default 0"
         integer details_fetched "default 0"
         integer error_count "default 0"
+        boolean skipped_update "nullable, no default (NULL = pre-column row)"
+        text guard_reason "nullable: NULL | empty_scrape | partial_scrape"
     }
 
     worker_heartbeats {

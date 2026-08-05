@@ -60,3 +60,15 @@ class ScrapeRun(BaseModel):
     closed_jobs: int = 0  # Jobs marked as closed this run
     details_fetched: int = 0  # Number of detail pages scraped
     error_count: int = 0  # Number of errors encountered
+    # True when the safety guard tripped and the destructive update/close
+    # phases were skipped. Before this field existed a truncated run was
+    # written as error_count=0 and was indistinguishable from a perfect run.
+    # Defaults to False here (the writer always knows); the DB column is
+    # nullable so pre-existing rows stay honestly NULL = "unknown".
+    skipped_update: bool = False
+    # WHICH rule tripped: None | "empty_scrape" | "partial_scrape".
+    # ``skipped_update`` alone cannot answer that — both rules set it — and
+    # the bounded auto-release must count ONLY partial_scrape, or a total
+    # outage (rule (a), explicitly never released) would supply the
+    # repetition evidence that releases the next truncated run.
+    guard_reason: Optional[Literal["empty_scrape", "partial_scrape"]] = None
