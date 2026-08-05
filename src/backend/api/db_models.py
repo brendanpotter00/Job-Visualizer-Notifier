@@ -130,8 +130,8 @@ class JobListing(Base):
 
 
 class JobFreshness(Base):
-    """High-churn "freshness" sidecar for ``job_listings`` (see the 2026-07-13
-    ``/api/jobs`` outage postmortem).
+    """High-churn "freshness" sidecar for ``job_listings`` (see
+    ``docs/incidents/2026-07-13-api-jobs-outage.md``).
 
     ``last_seen_at`` is re-stamped on *every* open job on *every* hourly scrape
     cycle. Because it lives on ``job_listings`` — a ~600 MB table with a

@@ -174,9 +174,12 @@ class TestUpdateExistingJobs:
 
     def test_update_existing_jobs_closes_at_threshold(self, in_memory_db, sample_job_listing):
         """Jobs closed when misses >= threshold (2)"""
-        # Start with 1 miss
-        sample_job_listing.consecutive_misses = 1
         db.insert_job(in_memory_db, sample_job_listing)
+        # Start with 1 miss — accrued via the real increment path, since the
+        # job_freshness sidecar is trigger-seeded at 0 (not from the model).
+        db.increment_consecutive_misses(
+            in_memory_db, sample_job_listing.source_id, [sample_job_listing.id]
+        )
 
         still_active_ids = set()
         missing_ids = {sample_job_listing.id}
@@ -300,9 +303,11 @@ class TestRunIncrementalScrape:
             created_at="2024-01-10T10:00:00Z",
             first_seen_at="2024-01-10T10:00:00Z",
             last_seen_at="2024-01-10T10:00:00Z",
-            consecutive_misses=1  # Already missed once
         )
         db.insert_job(in_memory_db, existing_job)
+        # Already missed once — established via the real increment path, since
+        # the job_freshness sidecar is trigger-seeded at 0 (model field ignored).
+        db.increment_consecutive_misses(in_memory_db, SourceId.GOOGLE, ["will-be-closed"])
 
         # Mock scraper returns empty (simulates scraper failure)
         mock_scraper.scrape_all_queries = AsyncMock(return_value=[])
@@ -341,10 +346,11 @@ class TestRunIncrementalScrape:
             created_at="2024-01-10T10:00:00Z",
             first_seen_at="2024-01-10T10:00:00Z",
             last_seen_at="2024-01-10T10:00:00Z",
-            consecutive_misses=1  # Already missed once
         )
         db.insert_job(in_memory_db, seen_job)
         db.insert_job(in_memory_db, missing_job)
+        # Already missed once — via the real increment path (sidecar seeded at 0).
+        db.increment_consecutive_misses(in_memory_db, SourceId.GOOGLE, ["will-be-closed"])
 
         # Scraper returns only the active job (missing_job is absent)
         mock_scraper.scrape_all_queries = AsyncMock(return_value=[

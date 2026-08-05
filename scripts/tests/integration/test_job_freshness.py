@@ -78,6 +78,22 @@ def _orphan_freshness(conn) -> int:
         return cur.fetchone()["n"]
 
 
+def _listings_raw_freshness(conn, source_id: str, job_id: str):
+    """Read the RAW job_listings.last_seen_at/consecutive_misses columns.
+
+    These still exist (until the Unit 4 contract migration) but are no longer
+    written by the freshness helpers — used to prove the write path is decoupled
+    from the wide table.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT last_seen_at, consecutive_misses FROM job_listings "
+            "WHERE source_id = %s AND id = %s",
+            (source_id, job_id),
+        )
+        return cur.fetchone()
+
+
 class TestFreshnessTrigger:
     def test_trigger_seeds_from_first_seen_at_not_last_seen(self, in_memory_db):
         """The trigger seeds last_seen_at from NEW.first_seen_at and misses from 0.
@@ -99,46 +115,92 @@ class TestFreshnessTrigger:
         assert row["consecutive_misses"] == 0
         assert row["last_seen_at"] == datetime(2024, 1, 15, 10, 30, tzinfo=timezone.utc)
 
-    def test_reupsert_does_not_reset_advanced_freshness(self, in_memory_db):
-        """A re-upsert of an existing listing must NOT clobber an advanced
-        freshness row.
+    def test_reupsert_advances_freshness_to_scrape_time(self, in_memory_db):
+        """Unit 2: re-upserting an existing listing advances its sidecar
+        ``last_seen_at`` to the scrape's timestamp and resets
+        ``consecutive_misses`` to 0.
 
-        The AFTER INSERT trigger fires only for genuinely new rows, so an
-        ``ON CONFLICT DO UPDATE`` re-upsert of an existing listing leaves the
-        freshness row alone. This is the exact property the Unit 2-3 write/read
-        split relies on: once the write path advances ``last_seen_at``, a later
-        re-scrape of the same job must not reset it back to ``first_seen_at``.
-        Simulate the future write path by advancing the freshness row by hand,
-        then re-upsert and assert it is untouched.
+        This is the re-seen write path (``_upsert_freshness`` after the
+        ``ON CONFLICT DO UPDATE`` on job_listings) — distinct from the AFTER
+        INSERT trigger, which fires only for genuinely new rows. Regression
+        guard for the two failure modes: the value must NOT stay frozen at the
+        trigger's ``first_seen_at`` seed, and the re-upsert must NOT duplicate
+        the freshness row.
         """
         job = _make_job(
             "reup-1", first_seen="2024-01-15T10:30:00Z", last_seen="2024-01-15T10:30:00Z", misses=0
         )
         db.insert_job(in_memory_db, job)
 
-        advanced = datetime(2024, 9, 1, 12, 0, tzinfo=timezone.utc)
+        # Simulate misses accrued by earlier missed cycles.
         with in_memory_db.cursor() as cur:
             cur.execute(
-                "UPDATE job_freshness SET last_seen_at = %s, consecutive_misses = 4 "
+                "UPDATE job_freshness SET consecutive_misses = 4 "
                 "WHERE source_id = %s AND id = %s",
-                (advanced, SourceId.GOOGLE, "reup-1"),
+                (SourceId.GOOGLE, "reup-1"),
             )
         in_memory_db.commit()
 
-        # Re-upsert the same listing: hits ON CONFLICT DO UPDATE on job_listings,
-        # which does not fire the AFTER INSERT trigger and (in Unit 1) does not
-        # touch job_freshness.
-        db.upsert_jobs_batch(in_memory_db, [job])
+        # A later scrape re-sees the job: upsert with a fresher last_seen_at.
+        reseen = _make_job(
+            "reup-1", first_seen="2024-01-15T10:30:00Z", last_seen="2024-10-01T09:00:00Z", misses=0
+        )
+        db.upsert_jobs_batch(in_memory_db, [reseen])
 
         row = _freshness_row(in_memory_db, SourceId.GOOGLE, "reup-1")
-        assert row["last_seen_at"] == advanced, "re-upsert clobbered the advanced last_seen_at"
-        assert row["consecutive_misses"] == 4, "re-upsert reset consecutive_misses"
+        assert row["last_seen_at"] == datetime(2024, 10, 1, 9, 0, tzinfo=timezone.utc), (
+            "re-upsert did not advance last_seen_at to the scrape time"
+        )
+        assert row["consecutive_misses"] == 0, "re-upsert did not reset consecutive_misses"
         with in_memory_db.cursor() as cur:
             cur.execute(
                 "SELECT count(*) AS n FROM job_freshness WHERE source_id = %s AND id = %s",
                 (SourceId.GOOGLE, "reup-1"),
             )
             assert cur.fetchone()["n"] == 1
+
+    def test_trigger_fires_on_bare_sql_insert(self, in_memory_db):
+        """A raw ``INSERT INTO job_listings`` — no helper, no ORM — still gets a
+        freshness row.
+
+        This is the point of enforcing the invariant in the DATABASE rather than
+        in application code. Every other test in this file goes through
+        ``shared/database.py``, so they would all still pass if the guarantee
+        secretly depended on those helpers. This one bypasses them entirely: a
+        psql session, a future code path, an admin backfill script, a migration
+        — none of them can create a listing without freshness. If someone drops
+        the trigger and re-implements the seed in Python, this test fails.
+        """
+        with in_memory_db.cursor() as cur:
+            cur.execute(
+                "INSERT INTO job_listings "
+                "(id, title, company, location, url, source_id, details, "
+                " created_at, status, has_matched, ai_metadata, "
+                " first_seen_at, last_seen_at, consecutive_misses, details_scraped) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s::jsonb, "
+                "        %s, %s, %s, %s)",
+                (
+                    "bare-1", "Bare Engineer", "google", "Mountain View, CA, USA",
+                    "https://example.com/bare-1", SourceId.GOOGLE, "{}",
+                    "2024-03-04T12:00:00Z", "OPEN", False, "{}",
+                    # last_seen_at / consecutive_misses deliberately differ from
+                    # the seed contract (first_seen_at / 0) so a trigger that
+                    # copied the wrong column would be caught.
+                    "2024-03-04T12:00:00Z", "2024-07-30T23:59:00Z", 7, True,
+                ),
+            )
+        in_memory_db.commit()
+
+        row = _freshness_row(in_memory_db, SourceId.GOOGLE, "bare-1")
+        assert row is not None, (
+            "AFTER INSERT trigger did not fire for a bare job_listings INSERT — "
+            "the sidecar's existence guarantee has regressed to depending on "
+            "application code"
+        )
+        assert row["last_seen_at"] == datetime(2024, 3, 4, 12, 0, tzinfo=timezone.utc)
+        assert row["consecutive_misses"] == 0
+        assert _listings_missing_freshness(in_memory_db) == 0
+        assert _orphan_freshness(in_memory_db) == 0
 
     def test_conflicting_insert_does_not_duplicate_freshness(self, in_memory_db):
         """A DO NOTHING conflict re-inserting an existing listing keeps one row."""
@@ -168,6 +230,88 @@ class TestFreshnessInvariants:
         assert _listings_missing_freshness(in_memory_db) == 0
         assert _orphan_freshness(in_memory_db) == 0
 
+    def test_full_scrape_cycle_keeps_both_anti_joins_zero(self, in_memory_db):
+        """Both anti-joins stay 0 across an entire simulated scrape cycle.
+
+        The tests above each exercise ONE write path in isolation. Drift,
+        though, is a whole-cycle property: the real scraper interleaves new
+        listings, re-seen listings, misses, closures and reactivations in one
+        pass, and it only takes one of those paths forgetting the sidecar for
+        `/api/jobs` to start silently dropping jobs behind the INNER JOIN.
+        This walks the full 5-phase shape (``shared/incremental.py``) and
+        re-checks BOTH invariants after every phase, so a regression names the
+        phase that broke it instead of just "something drifted".
+
+        The invariants asserted: no listing without freshness (the trigger's
+        job), and no orphan freshness (the FK's job). These have no production
+        monitor yet — wiring them into ``api/eval/monitor_prod.py`` is planned
+        work alongside its bloat checks.
+        """
+        def assert_no_drift(phase: str) -> None:
+            assert _listings_missing_freshness(in_memory_db) == 0, (
+                f"listing(s) without a freshness row after phase: {phase}"
+            )
+            assert _orphan_freshness(in_memory_db) == 0, (
+                f"orphan freshness row(s) after phase: {phase}"
+            )
+
+        # --- Prior state: two listings already known from an earlier cycle.
+        prior = [
+            _make_job(f"cycle-prior-{i}", first_seen="2024-01-01T00:00:00Z",
+                      last_seen="2024-01-01T00:00:00Z", misses=0)
+            for i in range(2)
+        ]
+        db.upsert_jobs_batch(in_memory_db, prior)
+        assert_no_drift("seed prior cycle")
+
+        # --- Phase 1/3: this cycle discovers two brand-new listings (trigger path)
+        #     and re-sees one of the prior ones (ON CONFLICT + _upsert_freshness).
+        now = "2024-02-01T06:00:00Z"
+        discovered = [
+            _make_job("cycle-new-0", first_seen=now, last_seen=now, misses=0),
+            _make_job("cycle-new-1", first_seen=now, last_seen=now, misses=0),
+            _make_job("cycle-prior-0", first_seen="2024-01-01T00:00:00Z",
+                      last_seen=now, misses=0),
+        ]
+        db.upsert_jobs_batch(in_memory_db, discovered)
+        assert_no_drift("upsert new + re-seen")
+
+        # --- Phase 4: stamp the re-seen set (the per-cycle freshness write that
+        #     used to rewrite job_listings on every job, every hour).
+        db.update_last_seen(in_memory_db, SourceId.GOOGLE, ["cycle-prior-0"], now)
+        assert_no_drift("update_last_seen")
+
+        # --- Phase 5a: the other prior listing was NOT in this scrape — miss it.
+        db.increment_consecutive_misses(in_memory_db, SourceId.GOOGLE, ["cycle-prior-1"])
+        assert_no_drift("increment_consecutive_misses")
+
+        # --- Phase 5b: it crosses the threshold and gets closed.
+        missed = db.get_jobs_exceeding_miss_threshold(
+            in_memory_db, SourceId.GOOGLE, ["cycle-prior-1"], threshold=1
+        )
+        assert missed == {"cycle-prior-1"}, (
+            "miss threshold must read consecutive_misses from the sidecar"
+        )
+        db.mark_jobs_closed(
+            in_memory_db, SourceId.GOOGLE, sorted(missed), "2024-02-01T07:00:00Z"
+        )
+        assert_no_drift("mark_jobs_closed")
+
+        # --- Next cycle: the closed listing reappears and is reactivated.
+        db.reactivate_job(
+            in_memory_db, SourceId.GOOGLE, "cycle-prior-1", "2024-03-01T06:00:00Z"
+        )
+        assert_no_drift("reactivate_job")
+
+        # Every listing the cycle touched has exactly one freshness row.
+        with in_memory_db.cursor() as cur:
+            cur.execute("SELECT count(*) AS n FROM job_listings")
+            listings = cur.fetchone()["n"]
+            cur.execute("SELECT count(*) AS n FROM job_freshness")
+            freshness = cur.fetchone()["n"]
+        assert listings == 4
+        assert freshness == listings
+
 
 class TestFreshnessCascade:
     def test_delete_listing_cascades_to_freshness(self, in_memory_db):
@@ -186,3 +330,61 @@ class TestFreshnessCascade:
 
         assert _freshness_row(in_memory_db, SourceId.GOOGLE, "cascade-1") is None
         assert _orphan_freshness(in_memory_db) == 0
+
+
+class TestFreshnessWritePathDecoupled:
+    """Unit 2: the freshness helpers write the sidecar and leave the wide
+    job_listings row (and its indexes) untouched — the decoupling that fixes the
+    index-bloat outage."""
+
+    def test_update_last_seen_writes_sidecar_not_listings(self, in_memory_db):
+        job = _make_job(
+            "dec-1", first_seen="2024-01-15T10:30:00Z", last_seen="2024-01-15T10:30:00Z", misses=0
+        )
+        db.insert_job(in_memory_db, job)
+
+        db.update_last_seen(
+            in_memory_db, SourceId.GOOGLE, ["dec-1"], "2024-08-20T08:00:00Z"
+        )
+
+        # Sidecar advanced...
+        sidecar = _freshness_row(in_memory_db, SourceId.GOOGLE, "dec-1")
+        assert sidecar["last_seen_at"] == datetime(2024, 8, 20, 8, 0, tzinfo=timezone.utc)
+        # ...but the wide job_listings row's column is untouched (still the
+        # insert-time value). This is the whole point: no per-cycle rewrite of
+        # job_listings / idx_job_listings_last_seen.
+        raw = _listings_raw_freshness(in_memory_db, SourceId.GOOGLE, "dec-1")
+        assert raw["last_seen_at"] == datetime(2024, 1, 15, 10, 30, tzinfo=timezone.utc)
+
+    def test_increment_misses_writes_sidecar_not_listings(self, in_memory_db):
+        job = _make_job(
+            "dec-2", first_seen="2024-01-15T10:30:00Z", last_seen="2024-01-15T10:30:00Z", misses=0
+        )
+        db.insert_job(in_memory_db, job)
+
+        db.increment_consecutive_misses(in_memory_db, SourceId.GOOGLE, ["dec-2"])
+
+        sidecar = _freshness_row(in_memory_db, SourceId.GOOGLE, "dec-2")
+        assert sidecar["consecutive_misses"] == 1
+        raw = _listings_raw_freshness(in_memory_db, SourceId.GOOGLE, "dec-2")
+        assert raw["consecutive_misses"] == 0
+
+    def test_reactivate_splits_status_and_freshness(self, in_memory_db):
+        job = _make_job(
+            "dec-3", first_seen="2024-01-15T10:30:00Z", last_seen="2024-01-15T10:30:00Z", misses=0
+        )
+        db.insert_job(in_memory_db, job)
+        db.mark_jobs_closed(in_memory_db, SourceId.GOOGLE, ["dec-3"], "2024-02-01T00:00:00Z")
+
+        db.reactivate_job(in_memory_db, SourceId.GOOGLE, "dec-3", "2024-09-09T09:00:00Z")
+
+        # Status/closed_on came off job_listings; freshness came off the sidecar.
+        row = db.get_job_by_id(in_memory_db, SourceId.GOOGLE, "dec-3")
+        assert row["status"] == "OPEN"
+        assert row["closed_on"] is None
+        sidecar = _freshness_row(in_memory_db, SourceId.GOOGLE, "dec-3")
+        assert sidecar["last_seen_at"] == datetime(2024, 9, 9, 9, 0, tzinfo=timezone.utc)
+        assert sidecar["consecutive_misses"] == 0
+        # job_listings freshness column stays at the insert-time value.
+        raw = _listings_raw_freshness(in_memory_db, SourceId.GOOGLE, "dec-3")
+        assert raw["last_seen_at"] == datetime(2024, 1, 15, 10, 30, tzinfo=timezone.utc)
