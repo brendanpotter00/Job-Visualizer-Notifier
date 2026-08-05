@@ -97,14 +97,22 @@ expose the sha, take the oldest deployment created AFTER the merge commit
 time from Step 0.
 
 - Settled = status `SUCCESS`, and **`SUCCESS` means the `/health/worker`
-  probe passed.** The live service manifest reads
+  probe passed.** The settled manifest reads
   `healthcheckPath = /health/worker`, matching the repo's `railway.toml`, and
   the probe demonstrably ran (200) on the `2cbb7e0` deploy. Trust the status.
+  - **Read `healthcheckPath` off the SETTLED deployment record only.** The
+    field is populated as the deploy settles: on a record still in `WAITING`
+    (or otherwise mid-flight) it reads `null`, which says nothing about the
+    service's configuration. So resolve the deployment to `SUCCESS` *first*,
+    then read the manifest off that same record. Reading it off an in-flight
+    record and treating the `null` as configuration is the mistake to avoid.
   - *Historical note:* between 2026-08-04 and 2026-08-05 two smoke runs read
-    `healthcheckPath = null` off the live manifest and this step carried a
-    caveat treating `SUCCESS` as "container started" only. That drift is
-    reconciled; the caveat is retired. Kept as a dated line because the same
-    drift recurring is worth recognising fast rather than rediscovering.
+    `healthcheckPath = null` and this step carried a caveat treating `SUCCESS`
+    as "container started" only. Those sightings were most likely the
+    read-too-early artifact above rather than real config drift — both were
+    taken while the deploy was still settling. Caveat retired. Kept as a dated
+    line so a genuine recurrence is recognised fast instead of rediscovered,
+    but check the read timing before concluding drift.
   - Still corroborate worker liveness in Step 3 via DB stream freshness (a
     recent `worker_heartbeats.at`, or `job_freshness` advancing within the
     last scrape interval). Not because the probe is untrusted, but because it
@@ -189,7 +197,7 @@ SMOKE RESULT: PASS | FAIL
 merge_sha: <sha>
 scope: <backend|frontend|both>
 vercel: READY <deployment-id-or-url> in <Xm Ys> | ERROR <evidence>
-railway: SUCCESS <deployment-id> in <Xm Ys> (healthcheckPath=<path> per live manifest; report it verbatim — a `null` here means the drift recurred, so re-add the corroboration caveat) | SKIPPED (no src/backend changes) | FAILED <evidence> (prod still on previous deploy: yes/no)
+railway: SUCCESS <deployment-id> in <Xm Ys> (healthcheckPath=<path> read off the SETTLED deployment record; report it verbatim — a `null` read *after* the deploy settled means the drift recurred, so re-add the corroboration caveat; a `null` read mid-flight is just too-early and must be re-read) | SKIPPED (no src/backend changes) | FAILED <evidence> (prod still on previous deploy: yes/no)
 browser: cards=<n>, console_errors=<n>, api_calls=<n>x200 [, retried_once=yes]
 sql: alembic_version=<rev> (expected <rev>|n/a), companies=<n>, worker_stream_age=<Xm>, freshness_behind=<n>
 logs: <n> 5xx, <n> tracebacks in deploy window | SKIPPED
