@@ -297,6 +297,14 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # ``allow_headers`` governs REQUEST headers; a browser can only read a
+    # non-safelisted RESPONSE header if it is named here. Without this,
+    # ``GET /api/jobs`` keyset paging silently loses its next-page token for any
+    # cross-origin caller (e.g. the Vite dev server on :5173 hitting the backend
+    # on :8000 directly) — the array arrives fine and the walk just stops after
+    # page 1 with no error. Production goes through the same-origin Vercel proxy,
+    # which is a separate hop and re-emits the header itself (``api/jobs.ts``).
+    expose_headers=[jobs.NEXT_CURSOR_HEADER],
 )
 
 app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])

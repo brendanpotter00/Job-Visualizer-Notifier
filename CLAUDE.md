@@ -121,7 +121,7 @@ Automatic per-PR preview deploys are **off** — root `vercel.json` sets `git.de
 
 ## Vercel Serverless Functions (api/)
 
-- `api/jobs.ts` - Backend jobs API proxy
+- `api/jobs.ts` - Backend jobs API proxy. Note it **allow-lists** query params (an unforwarded param is silently dropped, not an error) and must **explicitly re-emit any response header** — the shared `forwardResponse` helper copies status + body only. `X-Next-Cursor` (keyset pagination) is forwarded for exactly this reason; see the keyset section in `src/backend/CLAUDE.md`.
 - `api/jobs-qa.ts` - Backend QA endpoints proxy
 - `api/users.ts` - Backend users API proxy (forwards Authorization header)
 - `api/features.ts` - Feature voting API proxy (forwards Authorization header)
