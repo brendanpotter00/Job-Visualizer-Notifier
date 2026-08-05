@@ -447,9 +447,13 @@ class TestTimestamptzColumns:
 
         cursor = in_memory_db.cursor()
         cursor.execute(
-            "SELECT created_at, first_seen_at, last_seen_at, "
+            # last_seen_at comes off the job_freshness sidecar — the Unit 4
+            # contract migration dropped job_listings' own copy.
+            "SELECT created_at, first_seen_at, f.last_seen_at, "
             "pg_typeof(created_at) AS created_type "
-            "FROM job_listings WHERE id = %s",
+            "FROM job_listings JOIN job_freshness f "
+            "  ON f.source_id = job_listings.source_id AND f.id = job_listings.id "
+            "WHERE job_listings.id = %s",
             (sample_job_listing.id,),
         )
         row = cursor.fetchone()

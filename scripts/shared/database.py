@@ -82,22 +82,27 @@ _RUNS_TABLE = "scrape_runs"
 # never has to detoast `details` (see the 2026-07-13 /api/jobs outage and
 # db_models.JobListing). Keep this list, the _build_job_values tuple, and the
 # VALUES (%s, …) placeholder strings in insert_job/upsert_job in lockstep.
+# There is deliberately no last_seen_at / consecutive_misses here: the Unit 4
+# contract migration (18fe9c20a8fd) dropped both from job_listings. Freshness is
+# written to the job_freshness sidecar — by the AFTER INSERT trigger for plain
+# inserts, and by _upsert_freshness for the upsert paths.
 _JOB_COLUMNS = """
     id, title, company, location, url, source_id,
     details, posted_on, created_at, closed_on, status,
     has_matched, ai_metadata,
-    first_seen_at, last_seen_at, consecutive_misses, details_scraped,
+    first_seen_at, details_scraped,
     experience_level, is_remote_eligible
 """.strip()
 
 # ON CONFLICT clause for upsert operations.
 #
-# Freshness (``last_seen_at`` / ``consecutive_misses``) is deliberately NOT
-# updated here anymore — it lives in the ``job_freshness`` sidecar (see the
-# 2026-07-13 migration). Re-stamping those two columns on ``job_listings`` every
-# scrape cycle is exactly what bloated ``idx_job_listings_last_seen`` and took
-# ``/api/jobs`` down; the sidecar owns them now. The re-seen freshness write is
-# applied separately via ``_upsert_freshness`` in the same transaction. We still
+# Freshness (``last_seen_at`` / ``consecutive_misses``) is not updated here — the
+# columns no longer exist on ``job_listings`` (dropped by the Unit 4 contract
+# migration 18fe9c20a8fd); they live in the ``job_freshness`` sidecar. Re-stamping
+# those two columns on ``job_listings`` every scrape cycle is exactly what bloated
+# ``idx_job_listings_last_seen`` and took ``/api/jobs`` down; the sidecar owns them
+# now. The re-seen freshness write is applied separately via ``_upsert_freshness``
+# in the same transaction. We still
 # reactivate here (``status='OPEN'``, ``closed_on=NULL``) because status is a
 # ``job_listings`` column, and still refresh the content columns.
 _UPSERT_ON_CONFLICT = """
@@ -163,6 +168,11 @@ def _build_job_values(job: JobListing) -> Tuple:
     """
     Build a tuple of values from a JobListing for database insertion.
 
+    ``job.last_seen_at`` / ``job.consecutive_misses`` are intentionally NOT here:
+    those columns no longer exist on ``job_listings``. They stay on the Pydantic
+    model because ``_upsert_freshness`` reads ``job.last_seen_at`` to stamp the
+    ``job_freshness`` sidecar.
+
     Args:
         job: JobListing model
 
@@ -173,7 +183,7 @@ def _build_job_values(job: JobListing) -> Tuple:
         job.id, job.title, job.company, job.location, job.url, job.source_id,
         json.dumps(job.details), job.posted_on, job.created_at, job.closed_on, job.status,
         job.has_matched, json.dumps(job.ai_metadata),
-        job.first_seen_at, job.last_seen_at, job.consecutive_misses, job.details_scraped,
+        job.first_seen_at, job.details_scraped,
         job.details.get("experience_level"), job.details.get("is_remote_eligible", False)
     )
 
@@ -409,10 +419,9 @@ def get_job_by_id(
     cursor = conn.cursor()
 
     # Freshness (last_seen_at / consecutive_misses) lives in the job_freshness
-    # sidecar; join it so this reader returns the authoritative values, not the
-    # now-stale job_listings columns (which Unit 4 will drop entirely). The
-    # appended f.* columns come after job_listings.* in the select list, so on
-    # the duplicate column name RealDictCursor keeps the sidecar value.
+    # sidecar; join it so this reader returns the authoritative values. The
+    # job_listings columns are gone (Unit 4 contract migration 18fe9c20a8fd), so
+    # the appended f.* columns are now the only source of these two keys.
     cursor.execute(
         f"SELECT {_JOBS_TABLE}.*, f.last_seen_at, f.consecutive_misses "
         f"FROM {_JOBS_TABLE} "
@@ -439,7 +448,7 @@ def insert_job(conn: Connection, job: JobListing) -> None:
     cursor = conn.cursor()
 
     cursor.execute(
-        f"INSERT INTO {_JOBS_TABLE} ({_JOB_COLUMNS}) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        f"INSERT INTO {_JOBS_TABLE} ({_JOB_COLUMNS}) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
         _build_job_values(job)
     )
 
@@ -467,7 +476,7 @@ def upsert_job(conn: Connection, job: JobListing) -> bool:
     cursor.execute(
         f"""
         INSERT INTO {_JOBS_TABLE} ({_JOB_COLUMNS})
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         {_UPSERT_ON_CONFLICT}
         RETURNING (xmax = 0) AS inserted
         """,
@@ -879,6 +888,13 @@ def get_all_active_jobs(conn: Connection, company: str) -> List[JobListing]:
     """
     Get all active jobs for a company
 
+    Freshness lives on the ``job_freshness`` sidecar, so it is joined in here:
+    the shared ``JobListing`` Pydantic model still declares ``last_seen_at`` /
+    ``consecutive_misses`` (they feed ``_upsert_freshness`` on the write path),
+    and ``last_seen_at`` is required — a bare ``SELECT *`` off ``job_listings``
+    would no longer satisfy it. The INNER JOIN is lossless: the AFTER INSERT
+    trigger + composite FK guarantee exactly one freshness row per listing.
+
     Args:
         conn: Database connection
         company: Company name
@@ -889,7 +905,11 @@ def get_all_active_jobs(conn: Connection, company: str) -> List[JobListing]:
     cursor = conn.cursor()
 
     cursor.execute(
-        f"SELECT * FROM {_JOBS_TABLE} WHERE company = %s AND status = 'OPEN'",
+        f"SELECT {_JOBS_TABLE}.*, f.last_seen_at, f.consecutive_misses "
+        f"FROM {_JOBS_TABLE} "
+        f"JOIN {_FRESHNESS_TABLE} f "
+        f"  ON f.source_id = {_JOBS_TABLE}.source_id AND f.id = {_JOBS_TABLE}.id "
+        f"WHERE company = %s AND status = 'OPEN'",
         (company,)
     )
 

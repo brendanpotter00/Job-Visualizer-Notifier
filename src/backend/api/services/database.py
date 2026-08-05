@@ -295,12 +295,10 @@ def get_job_by_id(conn: Connection, source_id: str, job_id: str) -> dict | None:
     if not source_id:
         raise ValueError("get_job_by_id requires a non-empty source_id")
     with conn.cursor() as cursor:
-        # ``job_listings.*`` still carries the (now-stale) last_seen_at /
-        # consecutive_misses columns until the Unit-4 contract migration drops
-        # them; the appended ``f.last_seen_at`` / ``f.consecutive_misses`` come
-        # later in the select list, so RealDictCursor's row dict keeps the
-        # sidecar (fresh) values on the duplicate key. After Unit 4 the
-        # duplicates disappear and only the sidecar columns remain.
+        # ``job_listings.*`` no longer carries last_seen_at / consecutive_misses
+        # — the Unit-4 contract migration (18fe9c20a8fd) dropped both — so the
+        # appended ``f.last_seen_at`` / ``f.consecutive_misses`` are the only
+        # source of those two keys in the row dict.
         cursor.execute(
             sql.SQL(
                 "SELECT job_listings.*, f.last_seen_at, f.consecutive_misses, {}, {} "

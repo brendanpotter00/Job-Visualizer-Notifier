@@ -27,6 +27,7 @@ erDiagram
     companies ||..o{ user_enabled_companies : "referenced by id (soft link, no FK)"
     companies ||..o{ job_listings : "company name (soft link, no FK)"
     companies ||..o{ scrape_runs : "company name (soft link, no FK)"
+    job_listings ||--|| job_freshness : "freshness sidecar (composite FK, CASCADE)"
 
     users {
         text id PK
@@ -116,9 +117,14 @@ erDiagram
         boolean has_matched "default false"
         jsonb ai_metadata "default {}"
         timestamptz first_seen_at
+        boolean details_scraped "default false"
+    }
+
+    job_freshness {
+        text source_id PK "composite PK + composite FK to job_listings, CASCADE"
+        text id PK
         timestamptz last_seen_at "indexed"
         integer consecutive_misses "default 0"
-        boolean details_scraped "default false"
     }
 
     scrape_runs {
@@ -217,20 +223,26 @@ both FKs CASCADE.
 
 ### `job_listings`
 Scraped postings. Composite PK `(source_id, id)` — `source_id` namespaces ids per scraper.
-`status` (`OPEN`/`CLOSED`), `first_seen_at`/`last_seen_at`/`consecutive_misses` drive the
-open→closed lifecycle. Indexed on `status`, `company`, `last_seen_at`, and a partial
-`(first_seen_at)` for the enrichment claim (see below).
+`status` (`OPEN`/`CLOSED`) plus `first_seen_at` here and `last_seen_at`/`consecutive_misses`
+on the `job_freshness` sidecar drive the open→closed lifecycle. Indexed on `status`,
+`company`, a partial `(first_seen_at)` for the enrichment claim, a partial `(id)` for the
+open-only location search, and `idx_job_listings_problem_jobs` — a partial on
+`(normalization_status)` whose predicate mirrors the admin problem-jobs filter exactly
+(`normalization_status = 'failed' AND location IS NOT NULL AND btrim(location) <> ''`),
+which is what makes the planner willing to use it. Of the 6,709 `failed` rows in prod only
+182 have a non-blank location, so the full predicate indexes 37x fewer entries than the
+equality alone.
 
 **Recency fields — which to trust (READ THIS before sorting/filtering by "recency"):**
 - **`first_seen_at`** — when the scraper FIRST saw this listing. Set once at discovery and
   **preserved across close→reopen** (`upsert_job` ON CONFLICT keeps it; `database.py`). This
   is our **reliable "new to us" signal** and the field to order by for "freshest first"
   (e.g. the `/api/internal/enrichment/pending` claim orders `first_seen_at DESC`).
-- **`last_seen_at`** — last scrape that still saw the job; **bumped to now() on every pass a
-  job is still OPEN**, and drives close-detection (`consecutive_misses`). It signals "still
-  actively listed," NOT freshness: it clusters at ~now across the whole open backlog, so it
-  **cannot rank a job posted today above one open for months**. Good for "is it live," bad
-  for prioritizing new work.
+- **`last_seen_at`** (on **`job_freshness`**, NOT `job_listings` — see below) — last scrape
+  that still saw the job; **bumped to now() on every pass a job is still OPEN**, and drives
+  close-detection (`consecutive_misses`). It signals "still actively listed," NOT freshness:
+  it clusters at ~now across the whole open backlog, so it **cannot rank a job posted today
+  above one open for months**. Good for "is it live," bad for prioritizing new work.
 - **`posted_on`** — the ATS-supplied posting date. **UNRELIABLE: do not use it as a recency
   signal.** Companies reuse/repost old listings, so ~8.6% of OPEN rows carry a `posted_on`
   >180 days (some >16 years) before we first saw them, and ~2.6% are NULL. Sorting by it
@@ -245,6 +257,21 @@ open→closed lifecycle. Indexed on `status`, `company`, `last_seen_at`, and a p
   `lib/date.ts`, and `Job.firstSeenAt` in `src/frontend/src/types/index.ts`). The backend
   `/api/jobs` list itself is ordered by `last_seen_at DESC` ("still live") — a separate
   concern from "new to us," which is `first_seen_at`.
+
+### `job_freshness`
+High-churn freshness sidecar for `job_listings`, keyed on the same composite
+`(source_id, id)` and carrying a real composite FK `ON DELETE CASCADE`. Holds
+`last_seen_at` + `consecutive_misses`, which the scraper re-stamps on every OPEN row every
+hourly cycle. They used to live on `job_listings` itself; because `last_seen_at` is indexed,
+each of those ~182 M updates was a non-HOT update that bloated both the wide 600 MB parent
+and its index (46.8 MB / 691.8 B-per-row for 67.6k rows) until `/api/jobs` blew past the
+30 s statement timeout. Moving them onto this ~50 B/row table keeps the churn off the
+parent; the Unit 4 contract migration (`18fe9c20a8fd`) then dropped the parent copies and
+`idx_job_listings_last_seen` entirely. An `AFTER INSERT` trigger on `job_listings` seeds a
+freshness row (from `first_seen_at` + `0`) for every new listing regardless of insert path,
+so the read-side INNER JOIN in `/api/jobs` is lossless and the two tables cannot drift.
+Full story: `docs/incidents/2026-07-13-api-jobs-outage.md`,
+`src/backend/docs/job-listings-bloat.md`.
 
 ### `scrape_runs`
 One row per scrape execution — bookkeeping/metrics (`jobs_seen`, `new_jobs`, `closed_jobs`,

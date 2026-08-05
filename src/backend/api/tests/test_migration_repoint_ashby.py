@@ -98,9 +98,9 @@ def _insert_job(
     cur.execute(
         "INSERT INTO job_listings"
         " (id, title, company, url, source_id, status, closed_on,"
-        "  created_at, first_seen_at, last_seen_at)"
+        "  created_at, first_seen_at)"
         " VALUES (%s, %s, %s, %s, %s, %s, %s,"
-        "  '2026-05-01T00:00:00Z', '2026-05-01T00:00:00Z', '2026-06-01T00:00:00Z')",
+        "  '2026-05-01T00:00:00Z', '2026-05-01T00:00:00Z')",
         (job_id, f"Engineer {job_id}", company,
          f"https://example.test/{job_id}", source_id, status, closed_on),
     )

@@ -40,9 +40,9 @@ def _insert_job(db_conn, *, location, job_id=None):
     cur = db_conn.cursor()
     cur.execute(
         sql.SQL("INSERT INTO {} (id, title, company, location, url, source_id, "
-                "created_at, first_seen_at, last_seen_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)").format(_JOB_LISTINGS),
+                "created_at, first_seen_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)").format(_JOB_LISTINGS),
         (jid, "Software Engineer", "acme", location, "https://example.com/jobs/1", _SOURCE_ID,
-         "2025-01-10T10:00:00Z", "2025-01-10T10:00:00Z", "2025-01-15T10:00:00Z"),
+         "2025-01-10T10:00:00Z", "2025-01-10T10:00:00Z"),
     )
     db_conn.commit()
     return jid

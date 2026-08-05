@@ -65,8 +65,9 @@ class JobListing(Base):
     has_matched = Column(Boolean, server_default=text("false"))
     ai_metadata = Column(JSONB, server_default=text("'{}'::jsonb"))
     first_seen_at = Column(TIMESTAMP(timezone=True), nullable=False)
-    last_seen_at = Column(TIMESTAMP(timezone=True), nullable=False)
-    consecutive_misses = Column(Integer, server_default=text("0"))
+    # NOTE: no ``last_seen_at`` / ``consecutive_misses`` here — freshness lives on
+    # the ``job_freshness`` sidecar (see :class:`JobFreshness`). The Unit 4
+    # contract migration dropped them from this table on 2026-08-05.
     details_scraped = Column(Boolean, server_default=text("false"))
     normalization_status = Column(Text, nullable=True)  # NULL (never attempted) | 'done' | 'failed'
 
@@ -95,44 +96,6 @@ class JobListing(Base):
         PrimaryKeyConstraint("source_id", "id"),
         Index("idx_job_listings_status", "status"),
         Index("idx_job_listings_company", "company"),
-        # DO NOT DROP THIS AD-HOC — it goes only with the Unit 4 contract
-        # migration, which removes it together with ``last_seen_at`` and
-        # ``consecutive_misses`` in one deliberate change.
-        #
-        # Status as of the Units 2-3 cutover (PR #224, live 2026-08-05 04:39
-        # UTC): this index is DEAD WEIGHT, held on purpose until Unit 4. It
-        # WAS the driving access path for ``ORDER BY last_seen_at DESC
-        # LIMIT <= 5000`` (EXPLAIN-verified ``Index Scan Backward``, 2026-07-13),
-        # but both read paths now order by the sidecar — prod EXPLAIN shows
-        # ``Parallel Index Scan Backward using idx_job_freshness_last_seen``
-        # (api/services/database.py:274, location_admin.py:518) — so it appears
-        # in NO live query plan. It becomes load-bearing again only if #224 is
-        # reverted, which is precisely why it is not dropped opportunistically.
-        #
-        # It is also genuinely bloated: 46,800,896 B (44.6 MiB) / 691.8
-        # bytes-per-row measured 2026-08-05, against the apples-to-apples
-        # baseline ``idx_job_freshness_last_seen`` (same timestamptz, same
-        # 67,648 rows) at 1,851,392 B (1.8 MiB) / 27.4 bytes-per-row. Cause:
-        # the scraper re-stamped this INDEXED column hourly on every open row —
-        # ~182 M lifetime updates at 0.115 % HOT — and each non-HOT update
-        # appends a dead btree entry at the high end a DESC scan enters first.
-        #
-        # Two "obvious" fixes are REFUTED (full analysis + the REINDEX stopgap:
-        # src/backend/docs/job-listings-bloat.md):
-        #   * ``fillfactor`` on job_listings CANNOT help — an update to an
-        #     indexed column is non-HOT regardless of page free space. Measured
-        #     proof: ``job_freshness`` carries fillfactor=90 and still updates
-        #     at 0.025 % HOT.
-        #   * autovacuum tuning CANNOT help — autovacuum already keeps up
-        #     (9,181 runs, n_dead_tup ~7 k of 67 k live); the residue is btree
-        #     fragmentation VACUUM cannot compact, only REINDEX can.
-        # These two stay refuted regardless of the cutover: they explain why the
-        # historical bloat happened and why neither knob could ever have fixed
-        # it. The durable fix was the ``job_freshness`` sidecar — after it went
-        # live, ``job_listings`` updates run ~91 % HOT (residual enrichment /
-        # status writes) versus 0.115 % lifetime. This comment block is deleted
-        # by PR-B together with the index.
-        Index("idx_job_listings_last_seen", "last_seen_at"),
         # Drives the /pending claim scan (find NULL-status OPEN jobs fast) and
         # the analytics/dashboard GROUP BYs on category within OPEN jobs.
         Index("idx_job_listings_enrichment_status", "enrichment_status"),
@@ -162,6 +125,52 @@ class JobListing(Base):
             "idx_job_listings_enrichment_claim",
             "first_seen_at",
             postgresql_where=text("enrichment_status IS NULL AND status = 'OPEN'"),
+        ),
+        # Serves the BOUNDED COUNT half of the admin problem-jobs queue
+        # (location_admin.list_problem_jobs). The predicate mirrors that query's
+        # WHERE clause EXACTLY — all three clauses, ``btrim`` included — because
+        # Postgres only uses a partial index when the query predicate implies the
+        # index predicate, and for a function expression that means a structurally
+        # identical clause. Verified by EXPLAIN, see below.
+        #
+        # Prod distribution (2026-08-05, 67,654 rows): 6,709 rows are
+        # ``normalization_status = 'failed'`` (9.9 %), but only **182** of those
+        # also have a non-blank location — the failed set is dominated by rows
+        # with nothing to fix. That 37x gap is why all three clauses belong in the
+        # predicate rather than just the equality.
+        #
+        # Before the Unit-3 read-path cutover the endpoint reached its rows via a
+        # backward scan of idx_job_listings_last_seen. Ordering now comes from the
+        # job_freshness sidecar, which left the count with no usable index at all:
+        # prod plans it as a full ``Seq Scan on job_listings`` (cost 14,627.94)
+        # over the wide parent — the bulk of the 13.6 ms -> 206 ms regression.
+        #
+        # Measured on a prod-like local fixture (67,650 rows / 6,765 failed / 182
+        # non-blank-location / TOAST-heavy details), count(*) query:
+        #   * no index                     Seq Scan, 67,468 rows filtered  7.59 ms
+        #   * WHERE normalization_status = 'failed' only
+        #                                  Bitmap: 6,765 entries scanned,
+        #                                  6,583 dropped on heap recheck,
+        #                                  1,989 heap blocks              3.24 ms
+        #   * this predicate               Bitmap Index Scan, 182 entries,
+        #                                  NO heap recheck                0.05 ms
+        # The index is 16 kB. Partial, so it stays tiny and builds without
+        # rewriting the large table (see the 2026-04-18 volume incident).
+        #
+        # NOT a fix for the paged query — be honest about the scope. That one
+        # keeps its ``Nested Loop`` driven by idx_job_freshness_last_seen
+        # (prod cost 751 for LIMIT 50) with or without this index: the planner
+        # estimates 6,137 matching rows because it cannot know the selectivity of
+        # ``btrim(location) <> ''`` (actual ~182), so the LIMIT-friendly ordered
+        # path always wins on estimated cost. Making that plan switch would need
+        # expression statistics on ``btrim(location)``, which is a separate change.
+        Index(
+            "idx_job_listings_problem_jobs",
+            "normalization_status",
+            postgresql_where=text(
+                "normalization_status = 'failed' AND location IS NOT NULL "
+                "AND btrim(location) <> ''"
+            ),
         ),
     )
 
