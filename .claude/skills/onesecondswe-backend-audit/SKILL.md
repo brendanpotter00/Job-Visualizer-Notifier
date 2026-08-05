@@ -359,8 +359,8 @@ A provider reporting **0 closed_jobs for >24h** while others aren't is a smoking
 
 ```sql
 -- Freshness comes from the job_freshness sidecar (see the cutover note in
--- Operational notes): job_listings.last_seen_at froze at the 2026-08-05
--- write-repoint deploy and only advances on new-row INSERTs.
+-- Operational notes): the legacy job_listings.last_seen_at column was
+-- DROPPED by migration 18fe9c20a8fd (2026-08-05) — referencing it errors.
 SELECT j.source_id,
        COUNT(*) AS total,
        COUNT(*) FILTER (WHERE j.status='OPEN')   AS open_count,
@@ -368,7 +368,7 @@ SELECT j.source_id,
        COUNT(*) FILTER (WHERE j.status IS NULL)  AS null_count,
        COUNT(*) FILTER (WHERE j.status NOT IN ('OPEN','CLOSED')
                           AND j.status IS NOT NULL) AS other_count,
-       MAX(COALESCE(f.last_seen_at, j.last_seen_at))
+       MAX(f.last_seen_at)
            FILTER (WHERE j.status='OPEN') AS latest_open_seen
 FROM job_listings j
 LEFT JOIN job_freshness f ON f.source_id = j.source_id AND f.id = j.id
@@ -389,9 +389,9 @@ Should return exactly `{OPEN, CLOSED}`.
 ### C.3 — Resurrection check (closed-then-seen-again)
 
 ```sql
--- Sidecar freshness, for the same reason as C.1 — against the frozen
--- job_listings column this check can never fire again and silently loses
--- its purpose.
+-- Sidecar freshness, for the same reason as C.1 — the legacy job_listings
+-- column no longer exists (dropped by 18fe9c20a8fd), and the sidecar is
+-- the only place re-seen timestamps advance.
 SELECT j.source_id, COUNT(*)
 FROM job_listings j
 JOIN job_freshness f ON f.source_id = j.source_id AND f.id = j.id
@@ -504,8 +504,8 @@ Apple:      24/25 confirmed CLOSED ✅
 If the false-close count > 0, dig into each one: pull `consecutive_misses`, `first_seen_at`, `last_seen_at`, `closed_on` and look for patterns (timing tied to a recent deploy? pagination boundary? dedup collision?).
 
 ```sql
--- last_seen_at / consecutive_misses come from the sidecar; the job_listings
--- copies are frozen legacy values.
+-- last_seen_at / consecutive_misses exist ONLY in the sidecar; the
+-- job_listings copies were dropped by 18fe9c20a8fd (2026-08-05).
 SELECT j.id, j.title, j.company, j.closed_on, j.first_seen_at,
        f.last_seen_at, f.consecutive_misses
 FROM job_listings j
@@ -518,12 +518,13 @@ WHERE j.source_id = :src AND j.id IN (:ids);
 Sample 5 OPEN jobs per provider; confirm each is actually live.
 
 ```sql
--- Ranked by sidecar freshness so "most recently seen OPEN" means what it says
--- (the job_listings column is frozen legacy).
+-- Ranked by sidecar freshness — the only freshness store since 18fe9c20a8fd
+-- dropped the job_listings column. NULLS LAST guards the (shouldn't-happen)
+-- case of a row missing its sidecar entry sorting as "freshest".
 WITH ranked AS (
   SELECT j.source_id, j.url, j.title, j.company,
          ROW_NUMBER() OVER (PARTITION BY j.source_id
-                            ORDER BY COALESCE(f.last_seen_at, j.last_seen_at) DESC) AS rn
+                            ORDER BY f.last_seen_at DESC NULLS LAST) AS rn
   FROM job_listings j
   LEFT JOIN job_freshness f ON f.source_id = j.source_id AND f.id = j.id
   WHERE j.status='OPEN' AND j.url IS NOT NULL AND j.url != ''
@@ -611,13 +612,15 @@ A single markdown block with these exact sections, in this order:
 ## Operational notes (carry forward between runs)
 
 - **Tracebacks in earlier logs** from `httpx.HTTPStatusError 502` against Workday tenants are normal — Procrastinate retries them. Only flag if they're terminal (4 attempts → status `failed`).
-- **The `job_freshness` sidecar cutover (2026-08, #224).** `last_seen_at` and
-  `consecutive_misses` live in the `job_freshness` table, keyed `(source_id, id)`;
-  the columns of the same names on `job_listings` are FROZEN legacy values that
-  only get stamped on new-row INSERT. Any freshness question — "when was this
-  job last seen", "how many misses" — must join the sidecar (every query in
-  this skill already does). Reading the legacy columns makes quiet-but-healthy
-  sources look dead and dead sources look as fresh as their last insert.
+- **The `job_freshness` sidecar cutover (2026-08, #224 → #239).** `last_seen_at`
+  and `consecutive_misses` live in the `job_freshness` table, keyed
+  `(source_id, id)` — and since migration `18fe9c20a8fd` (2026-08-05, Unit 4)
+  the same-named columns on `job_listings` are DROPPED, not merely frozen.
+  Any freshness question — "when was this job last seen", "how many misses" —
+  must join the sidecar (every query in this skill already does). A query
+  still referencing `job_listings.last_seen_at` now fails loudly with
+  "column does not exist" — if you hit that error mid-audit, fix the query to
+  join the sidecar; do not resurrect the column.
 - **The two zero-job failure paths** (read the failure's shape off run counts
   before opening a single log):
   1. *HTTP-error path* (e.g. board 404s): `raise_for_status()` raises, the run
