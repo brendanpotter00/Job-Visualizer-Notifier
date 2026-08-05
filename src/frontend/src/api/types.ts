@@ -106,6 +106,28 @@ export interface FetchJobsResult {
 }
 
 /**
+ * One keyset-paginated page of the batched `/api/jobs?companies=…` endpoint.
+ *
+ * Note the row shape is unchanged — keyset paging is purely additive on top of
+ * the existing bare-array body, so `BackendJobListing` needed no new fields.
+ */
+export interface JobsPage {
+  /** Every row in the page, in server order (`first_seen_at` DESC in keyset mode). */
+  jobs: Job[];
+  /**
+   * The same `Job` objects grouped by company. Contains an entry for every
+   * requested company id, including ones with zero rows on this page.
+   */
+  byCompanyId: Record<string, FetchJobsResult>;
+  /**
+   * The `X-Next-Cursor` response header, or `null` at the end of the walk.
+   * Its **absence is the only end-of-walk signal** — the backend emits it iff
+   * the page came back full, so `null` here means "stop", never "retry".
+   */
+  nextCursor: string | null;
+}
+
+/**
  * API error types
  */
 export class APIError extends Error {
