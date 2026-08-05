@@ -19,7 +19,10 @@ set -u
 # The old path's removal silently broke job-watcher's ticks on 2026-06-30 —
 # hardcode the installer-managed symlink, never rely on PATH.
 CLAUDE_BIN="/Users/bpotter/.local/bin/claude"
-PROJECT_DIR="/Users/bpotter/developer/personal/Job-Visualizer-Notifier"
+# Overridable so a pre-merge checkout (e.g. a worktree carrying an updated
+# skill) can be tested headless without editing this file. launchd always runs
+# the default.
+PROJECT_DIR="${JVN_HEALTH_PROJECT_DIR:-/Users/bpotter/developer/personal/Job-Visualizer-Notifier}"
 SEND="/Users/bpotter/.claude/skills/message-brendan/send.sh"
 STATE_DIR="$HOME/Library/Application Support/jvn-health-watch"
 HEARTBEAT="$STATE_DIR/heartbeat.log"
