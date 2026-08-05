@@ -231,7 +231,13 @@ open-only location search, and `idx_job_listings_problem_jobs` — a partial on
 (`normalization_status = 'failed' AND location IS NOT NULL AND btrim(location) <> ''`),
 which is what makes the planner willing to use it. Of the 6,709 `failed` rows in prod only
 182 have a non-blank location, so the full predicate indexes 37x fewer entries than the
-equality alone.
+equality alone. Finally `idx_job_listings_open_first_seen_keyset` — a partial on
+`(first_seen_at, source_id, id)` `WHERE status = 'OPEN'` — backs keyset pagination on
+`/api/jobs`: its column order is exactly the paged ORDER BY tuple, so Postgres serves the
+all-DESC ordering with a **backward** index scan (no Sort node) and takes the
+`(first_seen_at, source_id, id) < (…)` row-value cursor as an `Index Cond` rather than a
+filter. Any request not filtering to `OPEN` (including one that omits `status`) falls off
+it and sorts instead.
 
 **Recency fields — which to trust (READ THIS before sorting/filtering by "recency"):**
 - **`first_seen_at`** — when the scraper FIRST saw this listing. Set once at discovery and
@@ -255,8 +261,13 @@ equality alone.
   activity-over-time graph buckets, and the last-24h/3h counts — keys off `first_seen_at`
   (see `src/frontend/src/features/filters/utils/jobFilteringUtils.ts`, `lib/timeBucketing.ts`,
   `lib/date.ts`, and `Job.firstSeenAt` in `src/frontend/src/types/index.ts`). The backend
-  `/api/jobs` list itself is ordered by `last_seen_at DESC` ("still live") — a separate
-  concern from "new to us," which is `first_seen_at`.
+  `/api/jobs` list has **two orderings, and which one you get depends on the request**:
+  the legacy shape (neither `?since=` nor `?cursor=`) is ordered by `last_seen_at DESC`
+  ("still live"), while any keyset-paged request is ordered by the
+  `(first_seen_at DESC, source_id DESC, id DESC)` tuple ("new to us", plus a unique
+  tiebreak). The keyset path deliberately does NOT key off `last_seen_at`: it is re-stamped
+  on every OPEN row every cycle, so a cursor into that ordering would be invalidated by the
+  next scrape mid-walk. Cursors are only valid against the `first_seen_at` ordering.
 
 ### `job_freshness`
 High-churn freshness sidecar for `job_listings`, keyed on the same composite

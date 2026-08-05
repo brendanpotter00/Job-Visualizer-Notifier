@@ -172,6 +172,38 @@ class JobListing(Base):
                 "AND btrim(location) <> ''"
             ),
         ),
+        # Serves the KEYSET-PAGED /api/jobs read path (ticket 1.3): the bounded
+        # `?since=` / `?cursor=` mode orders by
+        # (first_seen_at DESC, source_id DESC, id DESC) and seeks with a
+        # row-value predicate on the same tuple. Column order here mirrors that
+        # tuple exactly — a keyset seek is only an index seek when the index key
+        # IS the sort key.
+        #
+        # Columns are plain ASC. Postgres serves an all-DESC ORDER BY over an
+        # all-ASC composite index with a BACKWARD index scan and no Sort node, so
+        # explicit DESC ops would buy nothing and would leave autogenerate unable
+        # to round-trip the definition. Verified by EXPLAIN on a prod-scale
+        # fixture (67,650 rows / 29,500 OPEN); see the migration docstring for the
+        # plans and timings.
+        #
+        # PARTIAL on status = 'OPEN', matching every real caller of the paged
+        # path (the Recent Jobs page fetches `?status=OPEN` exclusively) and the
+        # `idx_job_listings_open_id` precedent above. It keeps the index to the
+        # ~44% of rows that are OPEN (1.6 MB at prod scale) — the build still
+        # scans the parent once to evaluate the predicate, but it reads only
+        # these four columns and never detoasts the wide `details` JSONB.
+        #
+        # Any request that does NOT filter to status='OPEN' — including one that
+        # omits `status` entirely, not just `status=CLOSED` — falls off this
+        # index and sorts. Correct, just unindexed for the ordering, and no real
+        # caller does it.
+        Index(
+            "idx_job_listings_open_first_seen_keyset",
+            "first_seen_at",
+            "source_id",
+            "id",
+            postgresql_where=text("status = 'OPEN'"),
+        ),
     )
 
 

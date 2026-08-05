@@ -91,22 +91,25 @@ If that is empty, skip 1b entirely (watch path will not trigger).
 
 Poll Railway `list_deployments` for project `onesecondswe`, service
 `Job-Visualizer-Notifier`, environment `production`, every **30s, timeout 15
-minutes** (build 2–6 min; no healthcheck gate — see below). Match the
+minutes** (build 2–6 min, plus the healthcheck probe). Match the
 deployment to `merge_sha` via its commit metadata; if the API does not
 expose the sha, take the oldest deployment created AFTER the merge commit
 time from Step 0.
 
-- Settled = status `SUCCESS`. **As of 2026-08-05, `SUCCESS` does NOT imply a
-  health probe passed.** Two smoke runs read the live service manifest via
-  the Railway CLI and found `healthcheckPath = null`, while the repo's
-  `railway.toml` says `/health/worker` — config drift, flagged to the owner
-  to reconcile. While that holds, Railway promotes on container start alone
-  and never probes, so corroborate worker liveness independently in Step 3
-  via DB stream freshness (a recent `worker_heartbeats.at`, or
-  `job_freshness` advancing within the last scrape interval) rather than
-  inferring it from the deploy status. **Re-read the live manifest each run**
-  — once the drift is reconciled this caveat retires and `SUCCESS` means
-  what it used to.
+- Settled = status `SUCCESS`, and **`SUCCESS` means the `/health/worker`
+  probe passed.** The live service manifest reads
+  `healthcheckPath = /health/worker`, matching the repo's `railway.toml`, and
+  the probe demonstrably ran (200) on the `2cbb7e0` deploy. Trust the status.
+  - *Historical note:* between 2026-08-04 and 2026-08-05 two smoke runs read
+    `healthcheckPath = null` off the live manifest and this step carried a
+    caveat treating `SUCCESS` as "container started" only. That drift is
+    reconciled; the caveat is retired. Kept as a dated line because the same
+    drift recurring is worth recognising fast rather than rediscovering.
+  - Still corroborate worker liveness in Step 3 via DB stream freshness (a
+    recent `worker_heartbeats.at`, or `job_freshness` advancing within the
+    last scrape interval). Not because the probe is untrusted, but because it
+    checks the worker at *startup* — Step 3 is what catches a worker that
+    died afterwards.
 - Status `FAILED` or `CRASHED`, or the deployment keeps restarting: pull
   `get_logs` (build + deploy) for that deployment, capture any `Traceback` /
   `alembic` error lines, and FAIL. IMPORTANT extra check on this path:
@@ -186,7 +189,7 @@ SMOKE RESULT: PASS | FAIL
 merge_sha: <sha>
 scope: <backend|frontend|both>
 vercel: READY <deployment-id-or-url> in <Xm Ys> | ERROR <evidence>
-railway: SUCCESS <deployment-id> in <Xm Ys> (healthcheckPath=<null|path> per live manifest; null = no health probe) | SKIPPED (no src/backend changes) | FAILED <evidence> (prod still on previous deploy: yes/no)
+railway: SUCCESS <deployment-id> in <Xm Ys> (healthcheckPath=<path> per live manifest; report it verbatim — a `null` here means the drift recurred, so re-add the corroboration caveat) | SKIPPED (no src/backend changes) | FAILED <evidence> (prod still on previous deploy: yes/no)
 browser: cards=<n>, console_errors=<n>, api_calls=<n>x200 [, retried_once=yes]
 sql: alembic_version=<rev> (expected <rev>|n/a), companies=<n>, worker_stream_age=<Xm>, freshness_behind=<n>
 logs: <n> 5xx, <n> tracebacks in deploy window | SKIPPED

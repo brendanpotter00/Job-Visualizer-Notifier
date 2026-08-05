@@ -85,8 +85,57 @@ All configuration via environment variables:
 ## API Endpoints
 
 **Jobs Router (`/api/jobs`):**
-- `GET /api/jobs` - List jobs (params: company, status, limit, offset)
+- `GET /api/jobs` - List jobs (params: company, companies, status, category, level, limit, offset, **since**, **cursor**)
 - `GET /api/jobs/{id}` - Get single job by ID
+
+**Keyset pagination on `GET /api/jobs`** (ticket 1.3; closes the 2026-05-17 postmortem's
+"push the time/recency filter into SQL so the result set bounds itself"):
+
+- **Two modes, selected by parameter presence.** Passing **neither** `since` nor `cursor`
+  is byte-identical to the pre-keyset behaviour — same SQL, `ORDER BY f.last_seen_at DESC`,
+  same bare-array body, **no** `X-Next-Cursor` header. Passing **either** switches to
+  `ORDER BY first_seen_at DESC, source_id DESC, id DESC` with a row-value boundary
+  predicate. Locked by `api/tests/test_jobs_keyset_pagination.py`.
+- **`?since=`** — ISO-8601 **with a UTC offset** (`Z` or `±HH:MM`); naive values are a 422,
+  never assumed-UTC. **Inclusive**: `first_seen_at >= since`. No server default; the 90-day
+  default is the frontend's business.
+- **`?cursor=`** — opaque `base64url("<first_seen_at ISO-8601 UTC>|<source_id>|<id>")`,
+  minted by the server, echoed back verbatim by the client. Codec + validation live in
+  `api/pagination.py`. Malformed input is a **422 with a specific reason** — never a
+  silently-ignored parameter, which would restart the walk at page 1 with no signal.
+- **`X-Next-Cursor` response header** — the next page's token. Present **iff** the page came
+  back full (`len(page) == limit`); its **absence is the only end-of-walk signal**. The body
+  stays a bare JSON array in both modes, so cursor support is purely additive for every
+  existing consumer. A trailing exactly-full page costs one extra round trip returning `[]`.
+- **Sort key rationale:** `first_seen_at` is IMMUTABLE (unlike `last_seen_at`, re-stamped on
+  every OPEN row every scrape cycle), and `(source_id, id)` is the composite PK, so the tuple
+  is unique. Both properties are load-bearing — without the first, a concurrent scrape
+  reshuffles the ordering mid-walk; without the second, rows sharing a `first_seen_at` page
+  non-deterministically. Matches the UI's own `selectRecentJobsSorted` (firstSeenAt DESC).
+- **Header delivery is THREE hops, all wired here:** `api/jobs.ts` (the Vercel proxy)
+  re-emits it explicitly — `forwardResponse` copies status + body only — `CORSMiddleware`
+  in `main.py` lists it in `expose_headers` for callers hitting the backend directly, and
+  `vercel.json`'s `/api/(.*)` block adds `Access-Control-Expose-Headers: X-Next-Cursor` for
+  cross-origin callers of the proxy. Adding a response header to this endpoint without doing
+  all three means it silently never reaches the client. Note `api/jobs.ts` forwards
+  `since`/`cursor` on **presence** (`!== undefined`), not truthiness — dropping an empty
+  `?cursor=` would turn the backend's 422 into a silent page-1 restart.
+- **`offset` is a 422 in keyset mode.** Both answer "where does this page start?", and
+  `get_jobs` applies both — the cursor seeks to the boundary and `OFFSET n` then discards
+  the first `n` rows past it, a 200 with silent row loss. `offset=0` is fine (default,
+  no-op); the legacy path still supports `offset` normally.
+- **A cursor is only meaningful under the filter set it was minted with.** Changing
+  `companies`/`status`/`category`/`level`/`since` mid-walk is not an error and corrupts
+  nothing (the cursor names a filter-independent sort position), but the resulting pages are
+  relative to the *new* filters, so the walk stops being a complete enumeration of either
+  set. Treat a filter change as a new walk and drop the cursor.
+- **Index:** `idx_job_listings_open_first_seen_keyset` on `(first_seen_at, source_id, id)`,
+  partial `WHERE status = 'OPEN'` (migration `08765ce81d35`). Plain ASC columns served by a
+  BACKWARD index scan; verified by EXPLAIN at prod scale to have **no Sort node** and to take
+  the cursor tuple as an `Index Cond`, not a `Filter`. Any request that does **not** filter
+  to `status=OPEN` — including one that **omits `status` entirely**, not just
+  `status=CLOSED` — falls off the partial index and sorts. Correct, just unindexed, and no
+  real caller does it.
 
 **QA Router (`/api/jobs-qa`):**
 - `GET /api/jobs-qa/stats` - Job statistics (params: company; returns total, open, closed, by company)
