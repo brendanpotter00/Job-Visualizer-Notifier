@@ -73,17 +73,15 @@ def _seed_job(
                 for c in (
                     "id", "title", "company", "location", "url", "source_id",
                     "details", "created_at", "status", "has_matched",
-                    "ai_metadata", "first_seen_at", "last_seen_at",
-                    "consecutive_misses", "details_scraped",
+                    "ai_metadata", "first_seen_at", "details_scraped",
                 )
             ),
-            sql.SQL(", ").join(sql.Placeholder() for _ in range(15)),
+            sql.SQL(", ").join(sql.Placeholder() for _ in range(13)),
         ),
         (
             job_id, "T", company, "L", "https://x", SourceId.EIGHTFOLD,
             json.dumps({}), "2025-01-01T00:00:00Z", status, False,
-            json.dumps({}), "2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z",
-            consecutive_misses, True,
+            json.dumps({}), "2025-01-01T00:00:00Z", True,
         ),
     )
     conn.commit()
@@ -101,9 +99,9 @@ def _seed_job(
 def _job_row(conn, job_id: str, source_id: str = SourceId.EIGHTFOLD) -> dict | None:
     cur = conn.cursor()
     cur.execute(
-        # f.last_seen_at/f.consecutive_misses follow {0}.* in the select list,
-        # so on the duplicate column names the RealDictCursor row keeps the
-        # sidecar (authoritative) values, not the stale job_listings columns.
+        # Freshness lives only on the sidecar now — the Unit-4 contract
+        # migration dropped last_seen_at/consecutive_misses from job_listings,
+        # so f.* is the sole source of those two keys in the row dict.
         sql.SQL(
             "SELECT {0}.*, f.last_seen_at, f.consecutive_misses "
             "FROM {0} JOIN job_freshness f "
@@ -454,8 +452,11 @@ class TestFetchEightfoldCompany:
         cur = db_conn.cursor()
         cur.execute(
             sql.SQL(
-                "SELECT COUNT(*) AS n FROM {} "
-                "WHERE company = %s AND (consecutive_misses > 0 OR status = 'CLOSED')"
+                "SELECT COUNT(*) AS n FROM {0} "
+                "JOIN job_freshness f ON f.source_id = {0}.source_id "
+                "AND f.id = {0}.id "
+                "WHERE company = %s AND (f.consecutive_misses > 0 "
+                "OR status = 'CLOSED')"
             ).format(sql.Identifier("job_listings")),
             (company,),
         )

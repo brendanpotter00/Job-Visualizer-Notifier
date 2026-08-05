@@ -130,14 +130,30 @@ def test_locations_migration_upgrade_and_downgrade(
         # full model would collide with the migration's add_column. Build the
         # pre-migration job_listings (without normalization_status), then put
         # the column back on the in-memory model so nothing else is affected.
+        # Any index keyed on that column has to come off with it, or create_all
+        # emits a CREATE INDEX against a column that isn't there yet (the Unit-4
+        # contract migration added idx_job_listings_problem_jobs).
+        #
+        # Both mutations happen INSIDE the try so the finally always restores
+        # them — Base.metadata is shared process-wide, and leaking a stripped
+        # column/index would corrupt every later test in the session.
         normalization_col = job_listings.c["normalization_status"]
-        job_listings._columns.remove(normalization_col)
+        normalization_indexes: set = set()
         try:
+            normalization_indexes = {
+                ix
+                for ix in job_listings.indexes
+                if normalization_col.name in ix.columns.keys()
+            }
+            job_listings.indexes -= normalization_indexes
+            job_listings._columns.remove(normalization_col)
             Base.metadata.create_all(
                 engine, tables=[job_categories, job_levels, job_listings]
             )
         finally:
-            job_listings.append_column(normalization_col)
+            if normalization_col.name not in job_listings.c:
+                job_listings.append_column(normalization_col)
+            job_listings.indexes |= normalization_indexes
         engine.dispose()
 
         from alembic import command

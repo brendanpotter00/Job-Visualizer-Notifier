@@ -51,15 +51,19 @@ git fetch origin main --quiet
 git show -s --format='%H %cI %s' <merge_sha>
 ```
 
-Record the sha, the commit time (this is the "deploy window" start for log
-scans), and whether the commit title contains `[vercel-skip]` (if yes, no
-Vercel build is expected for this merge).
+Record the sha and the commit time (this is the "deploy window" start for log
+scans).
+
+> **`[vercel-skip]` does NOT suppress production builds in this project.**
+> Observed 2026-08-04/05: commits tagged `[vercel-skip]` still produced a
+> Vercel production deployment. Treat a tagged commit as still deploying and
+> poll for it in Step 1a; do not record `SKIPPED` on the strength of the tag.
 
 ## Step 1 — Wait for deploys to settle
 
 Run 1a and 1b as applicable to `scope`. Poll; do not sleep blind.
 
-### 1a. Vercel (always, UNLESS the commit title contains `[vercel-skip]`)
+### 1a. Vercel (always — see the `[vercel-skip]` note in Step 0)
 
 Poll Vercel deployments for project `job-visualizer-notifier` (MCP
 `list_deployments`, target production) every **20s, timeout 10 minutes**
@@ -87,14 +91,22 @@ If that is empty, skip 1b entirely (watch path will not trigger).
 
 Poll Railway `list_deployments` for project `onesecondswe`, service
 `Job-Visualizer-Notifier`, environment `production`, every **30s, timeout 15
-minutes** (build 2–6 min + `/health/worker` healthcheck). Match the
+minutes** (build 2–6 min; no healthcheck gate — see below). Match the
 deployment to `merge_sha` via its commit metadata; if the API does not
 expose the sha, take the oldest deployment created AFTER the merge commit
 time from Step 0.
 
-- Settled = status `SUCCESS` (implies the `/health/worker` healthcheck
-  passed — migrations run in-process during FastAPI lifespan startup, so
-  SUCCESS also means migrations applied without crashing).
+- Settled = status `SUCCESS`. **As of 2026-08-05, `SUCCESS` does NOT imply a
+  health probe passed.** Two smoke runs read the live service manifest via
+  the Railway CLI and found `healthcheckPath = null`, while the repo's
+  `railway.toml` says `/health/worker` — config drift, flagged to the owner
+  to reconcile. While that holds, Railway promotes on container start alone
+  and never probes, so corroborate worker liveness independently in Step 3
+  via DB stream freshness (a recent `worker_heartbeats.at`, or
+  `job_freshness` advancing within the last scrape interval) rather than
+  inferring it from the deploy status. **Re-read the live manifest each run**
+  — once the drift is reconciled this caveat retires and `SUCCESS` means
+  what it used to.
 - Status `FAILED` or `CRASHED`, or the deployment keeps restarting: pull
   `get_logs` (build + deploy) for that deployment, capture any `Traceback` /
   `alembic` error lines, and FAIL. IMPORTANT extra check on this path:
@@ -134,7 +146,20 @@ Step 2 ONCE from the navigate. Only a second consecutive failure counts.
    shipped but `expect_migration` was not passed, record the value.
 2. Always: `SELECT count(*) FROM companies;` — assert > 0 (connectivity +
    non-empty-DB sanity).
-3. Run each `extra_checks` SQL assertion.
+3. Backend scope: worker liveness, since Railway `SUCCESS` proves nothing
+   (Step 1b). Assert a DB stream is still advancing — e.g.
+   `SELECT max(at) FROM worker_heartbeats;` or `SELECT max(last_seen_at) FROM
+   job_freshness;` — inside the last scrape interval.
+4. **Resync / freshness correctness is DIRECTIONAL, post-sidecar-cutover.**
+   Freshness now lives on `job_freshness`, not `job_listings`. The assertion
+   that must hold is `freshness_behind = 0` (no listing whose sidecar row is
+   older than what the scrape wrote). Total drift between the sidecar and the
+   now-historical `job_listings` copy **grows by design** and is NOT a
+   failure — and after the Unit 4 contract migration (`18fe9c20a8fd`) the
+   parent columns are gone entirely, so any drift query written against them
+   will error rather than return a number. Never treat a growing drift count
+   as a regression; only `freshness_behind > 0` is one.
+5. Run each `extra_checks` SQL assertion.
 
 Gotcha (from CLAUDE.md): this MCP mis-renders `timestamptz -> timestamp`
 casts as local time. For any time-elapsed assertion use
@@ -160,10 +185,10 @@ the last 15 minutes (should be ~0% 5xx).
 SMOKE RESULT: PASS | FAIL
 merge_sha: <sha>
 scope: <backend|frontend|both>
-vercel: READY <deployment-id-or-url> in <Xm Ys> | SKIPPED ([vercel-skip]) | ERROR <evidence>
-railway: SUCCESS <deployment-id> in <Xm Ys> | SKIPPED (no src/backend changes) | FAILED <evidence> (prod still on previous deploy: yes/no)
+vercel: READY <deployment-id-or-url> in <Xm Ys> | ERROR <evidence>
+railway: SUCCESS <deployment-id> in <Xm Ys> (healthcheckPath=<null|path> per live manifest; null = no health probe) | SKIPPED (no src/backend changes) | FAILED <evidence> (prod still on previous deploy: yes/no)
 browser: cards=<n>, console_errors=<n>, api_calls=<n>x200 [, retried_once=yes]
-sql: alembic_version=<rev> (expected <rev>|n/a), companies=<n>
+sql: alembic_version=<rev> (expected <rev>|n/a), companies=<n>, worker_stream_age=<Xm>, freshness_behind=<n>
 logs: <n> 5xx, <n> tracebacks in deploy window | SKIPPED
 extra_checks: <each with pass/fail>
 classification: n/a | transient-suspected | code-regression | infra

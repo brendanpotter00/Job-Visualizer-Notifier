@@ -78,29 +78,32 @@ def _orphan_freshness(conn) -> int:
         return cur.fetchone()["n"]
 
 
-def _listings_raw_freshness(conn, source_id: str, job_id: str):
-    """Read the RAW job_listings.last_seen_at/consecutive_misses columns.
+def _listings_freshness_columns(conn) -> set:
+    """Freshness columns still present on ``job_listings``.
 
-    These still exist (until the Unit 4 contract migration) but are no longer
-    written by the freshness helpers — used to prove the write path is decoupled
-    from the wide table.
+    The Unit 4 contract migration (18fe9c20a8fd) dropped both, so this must be
+    empty. Post-contract the write path can't touch the wide table's freshness
+    columns even by accident — the decoupling that fixes the index-bloat outage
+    is enforced by the SCHEMA now, not by discipline in shared/database.py.
     """
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT last_seen_at, consecutive_misses FROM job_listings "
-            "WHERE source_id = %s AND id = %s",
-            (source_id, job_id),
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = 'job_listings' "
+            "  AND table_schema = current_schema() "
+            "  AND column_name IN ('last_seen_at', 'consecutive_misses')"
         )
-        return cur.fetchone()
+        return {row["column_name"] for row in cur.fetchall()}
 
 
 class TestFreshnessTrigger:
     def test_trigger_seeds_from_first_seen_at_not_last_seen(self, in_memory_db):
         """The trigger seeds last_seen_at from NEW.first_seen_at and misses from 0.
 
-        Uses a listing whose last_seen_at (2024-06-01) and consecutive_misses (9)
-        differ from first_seen_at (2024-01-15) / 0, so this pins the exact seed
-        contract — the one that must keep working after Unit 4 drops those columns.
+        Uses a listing whose model-level last_seen_at (2024-06-01) and
+        consecutive_misses (9) differ from first_seen_at (2024-01-15) / 0, so this
+        pins the exact seed contract — the one that had to keep working once the
+        Unit 4 contract migration dropped those columns from job_listings.
         """
         job = _make_job(
             "seed-1",
@@ -176,17 +179,17 @@ class TestFreshnessTrigger:
                 "INSERT INTO job_listings "
                 "(id, title, company, location, url, source_id, details, "
                 " created_at, status, has_matched, ai_metadata, "
-                " first_seen_at, last_seen_at, consecutive_misses, details_scraped) "
+                " first_seen_at, details_scraped) "
                 "VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s::jsonb, "
-                "        %s, %s, %s, %s)",
+                "        %s, %s)",
                 (
                     "bare-1", "Bare Engineer", "google", "Mountain View, CA, USA",
                     "https://example.com/bare-1", SourceId.GOOGLE, "{}",
                     "2024-03-04T12:00:00Z", "OPEN", False, "{}",
-                    # last_seen_at / consecutive_misses deliberately differ from
-                    # the seed contract (first_seen_at / 0) so a trigger that
-                    # copied the wrong column would be caught.
-                    "2024-03-04T12:00:00Z", "2024-07-30T23:59:00Z", 7, True,
+                    # The INSERT supplies no freshness at all — post-Unit-4 it
+                    # cannot. The seed contract (first_seen_at / 0) is the only
+                    # thing that can produce the assertions below.
+                    "2024-03-04T12:00:00Z", True,
                 ),
             )
         in_memory_db.commit()
@@ -350,11 +353,10 @@ class TestFreshnessWritePathDecoupled:
         # Sidecar advanced...
         sidecar = _freshness_row(in_memory_db, SourceId.GOOGLE, "dec-1")
         assert sidecar["last_seen_at"] == datetime(2024, 8, 20, 8, 0, tzinfo=timezone.utc)
-        # ...but the wide job_listings row's column is untouched (still the
-        # insert-time value). This is the whole point: no per-cycle rewrite of
-        # job_listings / idx_job_listings_last_seen.
-        raw = _listings_raw_freshness(in_memory_db, SourceId.GOOGLE, "dec-1")
-        assert raw["last_seen_at"] == datetime(2024, 1, 15, 10, 30, tzinfo=timezone.utc)
+        # ...and the wide job_listings row cannot have been touched: post-Unit-4
+        # it carries no freshness columns at all. This is the whole point — no
+        # per-cycle rewrite of job_listings / idx_job_listings_last_seen.
+        assert _listings_freshness_columns(in_memory_db) == set()
 
     def test_increment_misses_writes_sidecar_not_listings(self, in_memory_db):
         job = _make_job(
@@ -366,8 +368,7 @@ class TestFreshnessWritePathDecoupled:
 
         sidecar = _freshness_row(in_memory_db, SourceId.GOOGLE, "dec-2")
         assert sidecar["consecutive_misses"] == 1
-        raw = _listings_raw_freshness(in_memory_db, SourceId.GOOGLE, "dec-2")
-        assert raw["consecutive_misses"] == 0
+        assert _listings_freshness_columns(in_memory_db) == set()
 
     def test_reactivate_splits_status_and_freshness(self, in_memory_db):
         job = _make_job(
@@ -385,6 +386,5 @@ class TestFreshnessWritePathDecoupled:
         sidecar = _freshness_row(in_memory_db, SourceId.GOOGLE, "dec-3")
         assert sidecar["last_seen_at"] == datetime(2024, 9, 9, 9, 0, tzinfo=timezone.utc)
         assert sidecar["consecutive_misses"] == 0
-        # job_listings freshness column stays at the insert-time value.
-        raw = _listings_raw_freshness(in_memory_db, SourceId.GOOGLE, "dec-3")
-        assert raw["last_seen_at"] == datetime(2024, 1, 15, 10, 30, tzinfo=timezone.utc)
+        # job_listings carries no freshness columns to go stale.
+        assert _listings_freshness_columns(in_memory_db) == set()

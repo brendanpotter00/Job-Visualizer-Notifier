@@ -63,8 +63,8 @@ def _link_open_job(db_conn, location_id, status="OPEN"):
     cur.execute(
         sql.SQL(
             "INSERT INTO {} (id, title, company, url, source_id, created_at,"
-            " first_seen_at, last_seen_at, status) VALUES"
-            " (%s, %s, %s, %s, %s, %s, %s, %s, %s)"
+            " first_seen_at, status) VALUES"
+            " (%s, %s, %s, %s, %s, %s, %s, %s)"
         ).format(sql.Identifier("job_listings")),
         (
             job_id,
@@ -74,7 +74,6 @@ def _link_open_job(db_conn, location_id, status="OPEN"):
             "test_scraper",
             "2025-01-10T10:00:00Z",
             "2025-01-10T10:00:00Z",
-            "2025-01-15T10:00:00Z",
             status,
         ),
     )
