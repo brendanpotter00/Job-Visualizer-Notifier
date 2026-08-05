@@ -458,9 +458,11 @@ class TestFetchGemCompany:
         cur = db_conn.cursor()
         cur.execute(
             sql.SQL(
-                "SELECT COUNT(*) AS n FROM {} "
-                "WHERE company = %s AND (consecutive_misses > 0 OR status = 'CLOSED')"
-            ).format(sql.Identifier("job_listings")),
+                "SELECT COUNT(*) AS n FROM {} j "
+                "JOIN {} f ON f.source_id = j.source_id AND f.id = j.id "
+                "WHERE j.company = %s "
+                "AND (f.consecutive_misses > 0 OR j.status = 'CLOSED')"
+            ).format(sql.Identifier("job_listings"), sql.Identifier("job_freshness")),
             (company,),
         )
         assert cur.fetchone()["n"] == 0, (
