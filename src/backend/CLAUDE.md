@@ -322,6 +322,18 @@ Key production env vars to set in Railway:
 - `DATABASE_URL` — PostgreSQL connection string (provided by Railway if using their Postgres plugin)
 - `CORS_ORIGINS` — must include the production frontend domain
 
+**Merge-train deploy-skip trap (bit us 2026-08-05):** Railway's watch paths are
+configured in the dashboard (not `railway.toml`), and queued deployments are
+deduped to the newest commit. Merging a backend PR followed quickly by
+non-backend merges (docs/skills/frontend) can leave the backend commit's
+deployment SKIPPED — superseded by a newer commit that matches no watch path, so
+the *whole* queue skips and prod silently keeps running the old code (observed
+with #232 stacked under #235/#238: `alembic_version` stayed at the previous
+head). After any merge train, check the newest deployment's status (`railway`
+MCP `list_deployments` or the dashboard) and confirm `alembic_version` moved if
+migrations were involved; re-trigger with the dashboard's Deploy button or a
+commit touching `src/backend/**`.
+
 ## Docker
 
 ```bash
