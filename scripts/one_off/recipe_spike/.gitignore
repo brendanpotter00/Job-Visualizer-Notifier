@@ -1,0 +1,11 @@
+# Throwaway spike artifacts — evidence, not source.
+.venv/
+captures/*/raw/
+captures/*/page.html
+captures/*/embedded_*.json
+
+# scripts/.gitignore blanket-ignores *.json, which would silently drop this
+# spike's actual deliverables. Re-include them.
+!recipes/*.json
+!results/*.json
+!captures/*/report.json

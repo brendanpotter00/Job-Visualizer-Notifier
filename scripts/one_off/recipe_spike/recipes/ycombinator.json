@@ -1,0 +1,35 @@
+{
+  "recipe_version": 1,
+  "target": "ycombinator",
+  "kind": "http_html",
+  "entrypoint": {
+    "method": "GET",
+    "url": "https://www.ycombinator.com/companies/raindrop/jobs",
+    "headers": {}
+  },
+  "embedded_json": {
+    "selector": "div[data-page]",
+    "source": "attribute",
+    "attribute": "data-page",
+    "records_path": "props.jobPostings"
+  },
+  "base_url": "https://www.ycombinator.com",
+  "pagination": { "style": "none" },
+  "records_path": "props.jobPostings",
+  "fields": {
+    "id": "id",
+    "title": "title",
+    "location": "location",
+    "url": "url",
+    "posted_at": "createdAt",
+    "department": "prettyRole"
+  },
+  "expected_min_jobs": 3,
+  "discovered_at": "2026-08-05T00:00:00Z",
+  "discovered_by": "claude-fable-5 + local playwright 1.61.0 (capture.py)",
+  "notes": [
+    "YC ships an Inertia.js JSON island in div[data-page]; the wrapper div id is a per-render UUID, so the recipe selects on the attribute, never the id.",
+    "posted_at is a humanized relative string ('about 12 hours'), not a timestamp — production would need to parse or ignore it.",
+    "Single company page: no pagination. A YC-wide crawl would be a different entrypoint."
+  ]
+}
