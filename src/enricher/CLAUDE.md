@@ -76,7 +76,9 @@ bumps the taxonomy version hash recorded per enrichment; bump the frontmatter `v
 smaller declared version (same-N different-hash is NOT below).
 
 ## Durability rules (ported from job-watcher)
-- Single-flight O_EXCL lock (`data/.tick.lock`, 3h stale backstop); `tick-acquire` exits **75**
+- Single-flight O_EXCL lock (`data/.tick.lock`, 3h stale backstop; a lock whose mtime
+  predates the current boot is reclaimed immediately — power-loss orphans can't stall the
+  worker); `tick-acquire` exits **75**
   if held. The headless wrapper rewrites the lock with its own (long-lived) PID and exports
   `ENRICH_LOCK_OWNER_PID` so `tick-end` can release the delegated lock; its EXIT trap only
   clears a lock it owns (never on the exit-75 path).
