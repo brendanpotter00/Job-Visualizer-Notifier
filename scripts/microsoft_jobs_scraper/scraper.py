@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from shared.base_scraper import BaseScraper
 from shared.constants import SourceId
 from shared.models import JobListing
-from shared.utils import get_iso_timestamp
+from shared.utils import get_iso_timestamp, title_matches_keyword
 
 from .config import (
     BASE_URL,
@@ -129,15 +129,18 @@ class MicrosoftJobsScraper(BaseScraper):
         return SEARCH_QUERIES
 
     def filter_job(self, job_title: str) -> bool:
-        """Filter job by title keywords using include/exclude keyword lists"""
-        title_lower = job_title.lower()
+        """Filter job by title keywords using include/exclude keyword lists.
 
+        Keywords match as case-insensitive substrings, except whole-word
+        keywords like "intern" (see shared.utils.title_matches_keyword) so that
+        "intern" does not over-match "internet" / "international" / "internal".
+        """
         # Check for exclusion keywords first
-        if any(kw.lower() in title_lower for kw in EXCLUDE_TITLE_KEYWORDS):
+        if any(title_matches_keyword(kw, job_title) for kw in EXCLUDE_TITLE_KEYWORDS):
             return False
 
         # Check for inclusion keywords
-        return any(kw.lower() in title_lower for kw in INCLUDE_TITLE_KEYWORDS)
+        return any(title_matches_keyword(kw, job_title) for kw in INCLUDE_TITLE_KEYWORDS)
 
     async def _fetch_page_jobs(
         self, page: Page, search_query: str, page_num: int

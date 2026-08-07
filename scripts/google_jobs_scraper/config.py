@@ -44,6 +44,7 @@ INCLUDE_TITLE_KEYWORDS = [
     "infrastructure",
     "cloud",
     "systems",
+    "intern",
 ]
 
 # Title keywords to exclude (non-software roles that might appear)
