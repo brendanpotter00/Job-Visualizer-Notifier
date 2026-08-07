@@ -4,6 +4,13 @@ Faithful port of job-watcher/lock.py. Guarantees at most one /enrich-tick runs
 at a time. Lock file lives at data/.tick.lock and holds "{pid}|{iso}". A held
 lock by a live PID blocks; a dead holder is only taken over once the file ages
 past the backstop (default 3h — enrichment ticks are longer than job-watcher's).
+
+Boot rule: a lock whose mtime predates the CURRENT BOOT is reclaimed
+immediately, liveness and age notwithstanding — its writer died with the
+previous boot (power loss, panic), so no live process can hold it; a live
+matching pid is post-reboot pid reuse. Without this, a mid-tick power loss
+left every 60s fire skipping for up to the full backstop (2026-08-07 outage),
+and a reused-pid orphan was never reclaimed at all.
 """
 
 from __future__ import annotations
@@ -11,6 +18,8 @@ from __future__ import annotations
 import errno
 import logging
 import os
+import re
+import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -20,6 +29,21 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_LOCK_PATH = DEFAULT_DB_PATH.parent / ".tick.lock"
 DEFAULT_STALE_HOURS = 3
+
+
+def _boot_epoch() -> float | None:
+    """Wall-clock time of the current boot via `sysctl -n kern.boottime`
+    (macOS: `{ sec = 1754593020, usec = ... } ...`). None when unavailable or
+    unparseable — callers then fall back to the age backstop alone."""
+    try:
+        out = subprocess.run(
+            ["/usr/sbin/sysctl", "-n", "kern.boottime"],
+            capture_output=True, text=True, timeout=5,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    m = re.search(r"sec\s*=\s*(\d+)", out)
+    return float(m.group(1)) if m else None
 
 
 def _pid_alive(pid: int) -> bool:
@@ -85,17 +109,29 @@ def try_acquire(
     age = datetime.now(timezone.utc) - mtime
     stale_age = timedelta(hours=stale_after_hours)
 
-    alive = pid is not None and _pid_alive(pid)
-    if alive:
-        return False, f"another tick in progress: pid={pid} started_at={started_at}"
-    if age < stale_age:
-        return (
-            False,
-            f"lock held but holder is gone (pid={pid} started_at={started_at}); "
-            f"waiting until file ages past {stale_after_hours}h",
+    boot = _boot_epoch()
+    pre_boot = boot is not None and stat.st_mtime < boot
+    if pre_boot:
+        # Written before this boot -> the writer cannot have survived it. Skip
+        # the liveness check on purpose: a live matching pid is post-reboot pid
+        # reuse by a foreign process, not the holder.
+        logger.info(
+            "lock: lock predates current boot (pid=%s started_at=%s) — "
+            "reclaiming now instead of waiting out the %sh backstop",
+            pid, started_at, stale_after_hours,
         )
+    else:
+        alive = pid is not None and _pid_alive(pid)
+        if alive:
+            return False, f"another tick in progress: pid={pid} started_at={started_at}"
+        if age < stale_age:
+            return (
+                False,
+                f"lock held but holder is gone (pid={pid} started_at={started_at}); "
+                f"waiting until file ages past {stale_after_hours}h",
+            )
 
-    # Stale + dead holder: reclaim ATOMICALLY. The old code did unlink() then
+    # Stale + dead holder (or pre-boot orphan): reclaim ATOMICALLY. The old code did unlink() then
     # create, which let two ticks both delete-and-recreate (a competitor could
     # remove OUR fresh lock, TOCTOU double-acquire). Instead, rename the stale
     # file to a per-PID unique path: os.rename of the SAME source succeeds for

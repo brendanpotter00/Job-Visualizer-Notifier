@@ -125,3 +125,60 @@ def test_cross_process_release_via_owner_env(tmp_path):
     # with the owner hint: released
     subprocess.run([sys.executable, "-c", code, str(p), str(owner), src], check=True)
     assert not p.exists()
+
+
+def test_preboot_dead_lock_reclaimed_immediately(tmp_path, monkeypatch):
+    """Power-loss recovery: a lock written before the current boot cannot have
+    a live holder, so the FIRST post-reboot fire reclaims it instead of waiting
+    out the age backstop (2026-08-07 outage: every 60s fire skipped for hours
+    behind a reboot-orphaned lock)."""
+    p = tmp_path / ".tick.lock"
+    p.write_text("999999|2020-01-01T00:00:00+00:00")  # dead pid, FRESH mtime
+    monkeypatch.setattr(lk, "_boot_epoch", lambda: time.time() + 60)  # booted "after" the write
+    ok, reason = lk.try_acquire(p, stale_after_hours=3)
+    assert ok and reason is None
+    pid, _ = lk._read_lock(p)
+    assert pid == os.getpid()
+    lk.release(p)
+
+
+def test_preboot_rule_overrides_pid_reuse(tmp_path, monkeypatch):
+    """A pre-boot lock whose recorded pid is ALIVE is post-reboot pid reuse by
+    a foreign process — still an orphan, still reclaimed. Without the boot rule
+    this lock was never recoverable (a live pid blocks regardless of age)."""
+    p = tmp_path / ".tick.lock"
+    ppid = os.getppid()  # live + foreign
+    assert lk._pid_alive(ppid)
+    p.write_text(f"{ppid}|2020-01-01T00:00:00+00:00")
+    monkeypatch.setattr(lk, "_boot_epoch", lambda: time.time() + 60)
+    ok, reason = lk.try_acquire(p, stale_after_hours=3)
+    assert ok and reason is None
+    lk.release(p)
+
+
+def test_same_boot_young_dead_lock_still_waits(tmp_path, monkeypatch):
+    """Within the same boot the age backstop still governs: a young dead-holder
+    lock is a just-crashed tick, not a reboot orphan — wait it out."""
+    p = tmp_path / ".tick.lock"
+    p.write_text("999999|2020-01-01T00:00:00+00:00")
+    monkeypatch.setattr(lk, "_boot_epoch", lambda: time.time() - 3600)  # booted 1h ago; lock is younger
+    ok, reason = lk.try_acquire(p, stale_after_hours=3)
+    assert not ok and "holder is gone" in reason
+
+
+def test_boot_epoch_unavailable_falls_back_to_age_rule(tmp_path, monkeypatch):
+    """No boot time (non-mac / sysctl failure) -> exactly the old behavior."""
+    monkeypatch.setattr(lk, "_boot_epoch", lambda: None)
+    p = tmp_path / ".tick.lock"
+    p.write_text("999999|2020-01-01T00:00:00+00:00")
+    ok, reason = lk.try_acquire(p, stale_after_hours=3)
+    assert not ok and "holder is gone" in reason
+
+
+def test_boot_epoch_parses_on_this_platform():
+    """On macOS the sysctl must parse to a sane epoch; elsewhere None is fine."""
+    b = lk._boot_epoch()
+    if sys.platform == "darwin":
+        assert b is not None and 0 < b <= time.time()
+    else:
+        assert b is None or 0 < b <= time.time()
