@@ -1,0 +1,36 @@
+{
+  "label": "discover",
+  "utc": "20260805T051431Z",
+  "results": [
+    {
+      "recipe": "tiktok.json",
+      "target": "tiktok",
+      "kind": "http_json",
+      "ok": true,
+      "job_count": 3799,
+      "sample": [
+        {
+          "id": "7668827379083823413",
+          "title": "Backend Software Engineer Graduate (Global E-commerce) - 2027 Start",
+          "url": "https://lifeattiktok.com/search/7668827379083823413",
+          "location": "Seattle",
+          "department": "R&D",
+          "recruit_type": "Regular",
+          "subject": "Bachelor/Master Graduate - 2027 Start",
+          "req_code": "A94284A"
+        },
+        {
+          "id": "7668694998066252037",
+          "title": "EU New Market Mass Acquisition and Incubation Manager - TikTok Shop",
+          "url": "https://lifeattiktok.com/search/7668694998066252037",
+          "location": "London",
+          "department": "Operations",
+          "recruit_type": "Regular",
+          "subject": null,
+          "req_code": "A116876"
+        }
+      ],
+      "seconds": 9.2
+    }
+  ]
+}

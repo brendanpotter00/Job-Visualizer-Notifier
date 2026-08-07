@@ -1,0 +1,32 @@
+{
+  "label": "smoke",
+  "utc": "20260805T050833Z",
+  "results": [
+    {
+      "recipe": "ycombinator.json",
+      "target": "ycombinator",
+      "kind": "http_html",
+      "ok": true,
+      "job_count": 8,
+      "sample": [
+        {
+          "id": "102883",
+          "title": "Account Executive",
+          "location": "San Francisco, CA, US",
+          "url": "https://www.ycombinator.com/companies/raindrop/jobs/bSz5bJR-account-executive",
+          "posted_at": "about 12 hours",
+          "department": "Sales"
+        },
+        {
+          "id": "97728",
+          "title": "Forward Deployed Engineer (FDE)",
+          "location": "San Francisco, CA, US",
+          "url": "https://www.ycombinator.com/companies/raindrop/jobs/jYbAqIG-forward-deployed-engineer-fde",
+          "posted_at": "about 1 month",
+          "department": "Engineering"
+        }
+      ],
+      "seconds": 0.3
+    }
+  ]
+}

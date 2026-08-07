@@ -1,0 +1,40 @@
+{
+  "recipe_version": 1,
+  "target": "amazon",
+  "kind": "http_json",
+  "entrypoint": {
+    "method": "GET",
+    "url": "https://www.amazon.jobs/en/search.json?offset=0&result_limit=100&sort=recent&base_query=software%20engineer&loc_query=Austin%2C%20TX%2C%20United%20States&latitude=30.26759&longitude=-97.74299&radius=24km&distanceType=Mi&city=Austin&region=Texas&county=Travis&country=USA",
+    "headers": {}
+  },
+  "pagination": {
+    "style": "offset",
+    "param": "offset",
+    "page_size": 100,
+    "max_pages": 50
+  },
+  "records_path": "jobs",
+  "total_path": "hits",
+  "completeness_tolerance": 0.05,
+  "fields": {
+    "id": "id_icims",
+    "uuid": "id",
+    "title": "title",
+    "url": "https://www.amazon.jobs{job_path}",
+    "location": "normalized_location",
+    "posted_at": "posted_date",
+    "department": "job_category",
+    "company": "company_name"
+  },
+  "expected_min_jobs": 20,
+  "discovered_at": "2026-08-05T00:00:00Z",
+  "discovered_by": "claude-fable-5 + local playwright (capture.py) + httpx probes",
+  "notes": [
+    "Endpoint: amazon.jobs is a Rails app whose search page XHRs GET /en/search.json; plain httpx with the replay UA gets HTTP 200, no cookies/headers needed. Top-level `hits` is the site-claimed total for the filtered query; `jobs` is the page of records.",
+    "WHY pagination style=none despite the endpoint supporting offset/result_limit: replay.py passes pagination params via httpx `params=`, and httpx 0.28 REPLACES the URL's entire query string with them — every filter (base_query, city, ...) would be dropped and the scrape would silently become the global amazon.jobs firehose (verified: hits jumped 76 -> 10000). POST with a JSON body is rejected (422, Rails CSRF). So the recipe bakes result_limit=100 (the server-enforced max; >100 returns HTTP 200 with error='Result limit cannot be greater than 100' and jobs=null, which replay fails loudly on) into the URL and fetches once.",
+    "CONSEQUENCE / known fragility: if this filtered search ever exceeds 100 open jobs, the recipe returns exactly the first 100 SILENTLY (sort=recent, so the newest 100). At discovery time hits=76 of 76 replayed — full coverage. See FINDINGS.md SCHEMA GAP for the fix (compare replayed count to `hits`).",
+    "id = id_icims (the requisition number that appears in the public job URL and apply URL, e.g. 10490514); the `uuid` field keeps the search-index document id. Both were non-null on all 76 records at discovery.",
+    "posted_date is a US long-form date with a padded double space for single-digit days ('August  3, 2026') — parse with a whitespace-tolerant format, not a strict '%B %d, %Y'.",
+    "expected_min_jobs=20: this query (software engineer within 24km of Austin, an AWS hub) held 76 open reqs at discovery; below 20 means the endpoint semantics, filter parsing, or Amazon's Austin presence changed — a human should look either way."
+  ]
+}

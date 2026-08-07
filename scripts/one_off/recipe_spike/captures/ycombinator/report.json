@@ -1,0 +1,112 @@
+{
+  "target": "ycombinator",
+  "entry_url": "https://www.ycombinator.com/companies/raindrop/jobs",
+  "page_title": "Jobs at Raindrop | Y Combinator",
+  "nav_error": null,
+  "wall_seconds": 7.4,
+  "browser_seconds": 7.4,
+  "dollars": 0.0,
+  "responses_total": 390,
+  "job_like_json_responses": [],
+  "embedded_json": [],
+  "dom_repetition": [
+    {
+      "class": "capitalize shrink-0 before:mr-2 before:content-['\u2022']",
+      "occurrences": 22
+    },
+    {
+      "class": "font-light text-sm text-beige-light font-['Outfit',sans-serif] transition-colors hover:text-white",
+      "occurrences": 21
+    },
+    {
+      "class": "dropdown-item",
+      "occurrences": 19
+    },
+    {
+      "class": "white flex h-6 w-6 items-center justify-center rounded-md hover:bg-gray-200",
+      "occurrences": 12
+    },
+    {
+      "class": "sr-only",
+      "occurrences": 8
+    },
+    {
+      "class": "flex w-full flex-row items-start justify-between py-4",
+      "occurrences": 8
+    },
+    {
+      "class": "flex flex-col",
+      "occurrences": 8
+    },
+    {
+      "class": "ycdc-with-link-color text-md mb-0.5 pr-4 font-medium",
+      "occurrences": 8
+    },
+    {
+      "class": "justify-left flex flex-row flex-wrap gap-x-2 gap-y-0 pr-2",
+      "occurrences": 8
+    },
+    {
+      "class": "capitalize",
+      "occurrences": 8
+    },
+    {
+      "class": "APPLY flex items-center",
+      "occurrences": 8
+    },
+    {
+      "class": "ycdc-btn ycdc-btn-sm border-brand-200 hover:bg-brand-600",
+      "occurrences": 8
+    },
+    {
+      "class": "h-4 w-4",
+      "occurrences": 7
+    },
+    {
+      "class": "h-6 w-6",
+      "occurrences": 6
+    },
+    {
+      "class": "relative inline-block",
+      "occurrences": 6
+    }
+  ],
+  "all_xhr": [
+    {
+      "method": "GET",
+      "url": "https://maps.googleapis.com/maps/api/mapsjs/gen_204?csp_test=true",
+      "status": 200,
+      "type": "application/json"
+    },
+    {
+      "method": "POST",
+      "url": "https://www.google-analytics.com/j/collect?v=1&_v=j102&a=603651434&t=pageview&_s=1&dl=https%3A%2F%2Fwww.ycombinator.com%2Fcompanies%2Fraindrop%2Fjobs&ul=en-us&dt=Jobs%20at%20Raindrop%20%7C%20Y%20Combinator&sr=1920x1080&vp=1920x1080&_u=KGBAAEAjAAAAACAAI~&jid=355364392&gjid=59634921&cid=2133582683.178",
+      "status": 200,
+      "type": "text/plain"
+    },
+    {
+      "method": "GET",
+      "url": "https://www.ycombinator.com/unleash/proxy?sessionId=703836282&appName=bookface&environment=default",
+      "status": 200,
+      "type": "application/json"
+    },
+    {
+      "method": "POST",
+      "url": "https://o4506690008121344.ingest.us.sentry.io/api/4508298399711232/envelope/?sentry_version=7&sentry_key=92041c3cec004a2f929f431a92207745&sentry_client=sentry.javascript.react%2F10.57.0",
+      "status": 200,
+      "type": "application/json"
+    },
+    {
+      "method": "POST",
+      "url": "https://analytics.google.com/g/collect?v=2&tid=G-CHJJ1RJL5K&gtm=45je6831v9127153998za20g&_p=1785906286317&_gaz=1&gcd=13l3l3l3l2l1&npa=0&dma=0&_eu=EBAIAGA&_ng=1&are=1&cid=2133582683.1785906286&frm=0&ir=1&pscdl=noapi&rcb=14&sr=1920x1080&uaa=x86&uab=64&uafvl=HeadlessChrome%3B149.0.7827.55%7CChromium%3B",
+      "status": 204,
+      "type": "text/plain"
+    },
+    {
+      "method": "POST",
+      "url": "https://us.i.posthog.com/flags/?v=2&compression=base64",
+      "status": 200,
+      "type": "application/json"
+    }
+  ]
+}

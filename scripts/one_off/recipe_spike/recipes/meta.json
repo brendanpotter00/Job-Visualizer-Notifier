@@ -1,0 +1,47 @@
+{
+  "recipe_version": 1,
+  "target": "meta",
+  "kind": "http_json",
+  "entrypoint": {
+    "method": "POST",
+    "url": "https://www.metacareers.com/graphql?av=0&__user=0&__a=1&__comet_req=31&lsd=AdSrecipereplay000&fb_api_caller_class=RelayModern&fb_api_req_friendly_name=CareersJobSearchResultsV2DataQuery&variables=%7B%22search_input%22%3A+%7B%22q%22%3A+null%2C+%22divisions%22%3A+%5B%5D%2C+%22offices%22%3A+%5B%5D%2C+%22roles%22%3A+%5B%5D%2C+%22leadership_levels%22%3A+%5B%5D%2C+%22saved_jobs%22%3A+%5B%5D%2C+%22saved_searches%22%3A+%5B%5D%2C+%22sub_teams%22%3A+%5B%5D%2C+%22teams%22%3A+%5B%5D%2C+%22is_leadership%22%3A+false%2C+%22is_remote_only%22%3A+false%2C+%22sort_by_new%22%3A+false%2C+%22results_per_page%22%3A+null%7D%2C+%22viewasUserID%22%3A+null%2C+%22isLoggedIn%22%3A+false%7D&server_timestamps=true&doc_id=27129360303422352",
+    "headers": {
+      "sec-ch-ua": "\"Chromium\";v=\"120\", \"Not)A;Brand\";v=\"24\", \"Google Chrome\";v=\"120\"",
+      "sec-ch-ua-mobile": "?0",
+      "sec-ch-ua-platform": "\"macOS\"",
+      "Accept": "*/*",
+      "Accept-Language": "en-US",
+      "Origin": "https://www.metacareers.com",
+      "Referer": "https://www.metacareers.com/jobsearch/",
+      "Sec-Fetch-Site": "same-origin",
+      "Sec-Fetch-Mode": "cors",
+      "Sec-Fetch-Dest": "empty",
+      "x-asbd-id": "359341",
+      "x-fb-lsd": "AdSrecipereplay000",
+      "x-fb-friendly-name": "CareersJobSearchResultsV2DataQuery"
+    }
+  },
+  "pagination": { "style": "none" },
+  "records_path": "data.job_search_with_featured_jobs_v2.all_jobs",
+  "fields": {
+    "id": "id",
+    "title": "title",
+    "url": "https://www.metacareers.com/jobs/{id}",
+    "location": "locations.0",
+    "locations": "locations",
+    "department": "teams.0",
+    "sub_team": "sub_teams.0"
+  },
+  "expected_min_jobs": 500,
+  "discovered_at": "2026-08-05T05:30:00Z",
+  "discovered_by": "claude-fable-5 + local playwright 1.61.0 (capture.py + captures/meta/forge_test*.py)",
+  "notes": [
+    "Meta serves the ENTIRE job catalogue in ONE GraphQL POST (CareersJobSearchResultsV2DataQuery): all_jobs had 801 entries, exactly matching the site's own job_count=801 (CareersJobSearchHideFiltersBarV2Query). No pagination.",
+    "The POST is fully forgeable from plain httpx with NO cookies and NO real tokens: the lsd body param + x-fb-lsd header are required to be PRESENT but their value is not validated for logged-out traffic — this recipe ships a made-up constant ('AdSrecipereplay000') that returned HTTP 200 + 801 jobs. What IS validated is a plausible Chrome header set: without sec-ch-ua/Sec-Fetch-* headers Meta answers HTTP 400 for every route, including plain GETs.",
+    "replay.py's http_json runner sends POST bodies as JSON, which Meta rejects (HTTP 400, proven), but Meta's www stack reads request params from the query string on POST — so ALL form params live in entrypoint.url and the JSON body '{}' replay sends is ignored. Proven via replay._request directly (captures/meta/forge_test5.py, variant M).",
+    "doc_id=27129360303422352 is the persisted-query id: it survives lsd/session churn but WILL eventually rotate with Meta frontend releases. When it dies this recipe fails LOUDLY (HTTP 400/GraphQL error -> RecipeExecutionError), never silently. Re-discovery: load /jobs in a browser, grab the new doc_id from the CareersJobSearchResultsV2DataQuery POST.",
+    "expected_min_jobs=500 vs 801 today: a partial-capture regression (server-side pagination appearing) would return a page-sized fraction (25/50/100), far below 500, while 500 still tolerates ~35% genuine catalogue shrink.",
+    "fields.url uses the stable public /jobs/{id} form, which 301s to the current canonical route (today /profile/job_details/{id}/); pinning the redirect target would be less durable.",
+    "Job records carry no posted/updated timestamp in this payload — first_seen tracking must come from our side."
+  ]
+}

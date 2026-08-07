@@ -1,0 +1,35 @@
+{
+ "url": "https://www.metacareers.com/graphql",
+ "headers": {
+  ":authority": "www.metacareers.com",
+  ":method": "POST",
+  ":path": "/graphql",
+  ":scheme": "https",
+  "accept": "*/*",
+  "accept-encoding": "gzip, deflate, br, zstd",
+  "accept-language": "en-US",
+  "content-length": "1638",
+  "content-type": "application/x-www-form-urlencoded",
+  "cookie": "datr=6sVyalxWywY2U-Nboy-fXsd9; ps_l=0; ps_n=0",
+  "origin": "https://www.metacareers.com",
+  "priority": "u=1, i",
+  "referer": "https://www.metacareers.com/jobsearch/",
+  "sec-ch-prefers-color-scheme": "light",
+  "sec-ch-ua": "\"HeadlessChrome\";v=\"149\", \"Chromium\";v=\"149\", \"Not)A;Brand\";v=\"24\"",
+  "sec-ch-ua-full-version-list": "\"HeadlessChrome\";v=\"149.0.7827.55\", \"Chromium\";v=\"149.0.7827.55\", \"Not)A;Brand\";v=\"24.0.0.0\"",
+  "sec-ch-ua-mobile": "?0",
+  "sec-ch-ua-model": "\"\"",
+  "sec-ch-ua-platform": "\"macOS\"",
+  "sec-ch-ua-platform-version": "\"10_15_7\"",
+  "sec-fetch-dest": "empty",
+  "sec-fetch-mode": "cors",
+  "sec-fetch-site": "same-origin",
+  "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+  "x-asbd-id": "359341",
+  "x-fb-friendly-name": "CareersJobSearchFiltersV3Query",
+  "x-fb-lsd": "AdS-LBTOfReSRJgbRvl3xAokiMk"
+ }
+}
+
+POST_BODY:
+av=0&__user=0&__a=1&__req=2&__hs=20670.HYP%3Acomet_plat_default_pkg.2.1...0&dpr=2&__ccg=EXCELLENT&__rev=1044515310&__s=yfwdn5%3Asot5vq%3Aytwjld&__hsi=7670410724455578823&__dyn=7xeUmwlEnwn8K2Wmh0no6u5U4e0yoW3q32360CEbotw50x609vCwjE1EE2Cwooa86ucw8K0V8hwnU2lwv89k2C1Fwc60D85m6of8-U4m1nBxeax-ewbS363-6E2eU5O0HUvU3Pw9Oazo4i0Mo2Zw_wLxe2e362-0B9U4C1Ixi1fAG1kwoEG7E7e227Eco9E1fE1sU7i9w8K0GE6W3mdw&__csr=ghPOi_498SwB4NWdmAIDkh9LFHZcREB_RhWHiRA9l5FnOa_q_JbQiHrl8zV4lqV5cDy48QQQWLAvvq8V9lmFmUHKLV9qF2i5jVuueJJauEDU_Cy7AHGHgRdkpd2VelkCXy9HV99pEpWGFumV989rCzFohKGg-i4aUoBLy4V4AHG68mAKiq9yVbCg9uUG4eiiGyV99UqGu4V8vG4UO4oK58W1awVAGi5UgGfxK2C2u2GE4278bEhwwwTyEgwywnGyo7aew_wiEnz84mbxKEa-2-6uexO0W8G2O4o23wVwgE5q4o6G5U21wbu2216w4Txm3O0kK482gw36UK482MYZyE4a2e1fwA940eK1Mg4e1gwNU8o5F0lS1Hw9sw0EG0wEG4EC2Wdw2dUgxbwayU0kNGt00al3g0Nu0kitwbl00Ccw1o0C0sh0gEpgsw2uOw1_P9o0CHbg0lKt01IG00-jo0g6yk03wm02Ie0akiwww0kjEG&__hsdp=gcQmhPOAjhWgyWvEjb424aBqF4mQrj4oby0l82og1Nolg0zK_AU7AwbPyJ86o0wK0WE2CwhovxqS2zjkEuxOE0-d0Hyo0ePo34w1FS01lbw1qi1rw0wAw1aCpo5500iMU0Am0ciw5ywaV00_7w&__hblp=0bS0dKwde08fg1bo6-0bLyE460cPyU3gyo0FWi02Q20W80xW0gC04eo1Co0AG780uDw17S04eo0Rq0oa0ri1mRBFw2io0opw0iq80Ha5o0AW1Bw7vw6dw64Aw5fzo2uwb60Go12E0dso0Wa0oa&__sjsp=gcQmh8YF4QuA8KDW4ON0x2FmGh5J6QN62Uw3Jg1Nolg0zK_AU7AwbPyJ86o0wK0p615x-5Hoaddi1-7aw1129w&__comet_req=31&lsd=AdS-LBTOfReSRJgbRvl3xAokiMk&jazoest=22374&__spin_r=1044515310&__spin_b=trunk&__spin_t=1785906666&__jssesw=1&__crn=comet.candidateportal.CPXCareerProfileJobSearchRootPageRoute&fb_api_caller_class=RelayModern&fb_api_req_friendly_name=CareersJobSearchFiltersV3Query&server_timestamps=true&variables=%7B%7D&doc_id=25103492705924273

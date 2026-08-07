@@ -1,0 +1,14 @@
+{
+  "target": "tesla",
+  "entry_url": "https://www.tesla.com/careers/search/",
+  "page_title": "Access Denied",
+  "nav_error": null,
+  "wall_seconds": 6.6,
+  "browser_seconds": 6.6,
+  "dollars": 0.0,
+  "responses_total": 1,
+  "job_like_json_responses": [],
+  "embedded_json": [],
+  "dom_repetition": [],
+  "all_xhr": []
+}

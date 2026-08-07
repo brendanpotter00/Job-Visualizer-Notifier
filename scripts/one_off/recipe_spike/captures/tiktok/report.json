@@ -1,0 +1,271 @@
+{
+  "target": "tiktok",
+  "entry_url": "https://lifeattiktok.com/search",
+  "page_title": "Job Search",
+  "nav_error": null,
+  "wall_seconds": 13.7,
+  "browser_seconds": 13.7,
+  "dollars": 0.0,
+  "responses_total": 75,
+  "job_like_json_responses": [
+    {
+      "method": "POST",
+      "url": "https://api.lifeattiktok.com/api/v1/public/supplier/search/job/posts",
+      "status": 200,
+      "content_type": "application/json",
+      "resource_type": "fetch",
+      "bytes": 55549,
+      "record_arrays": [
+        {
+          "path": "data.job_post_list",
+          "count": 12,
+          "job_score": 4,
+          "sample_keys": [
+            "channel_online_status",
+            "city_info",
+            "code",
+            "department_info",
+            "description",
+            "id",
+            "job_category",
+            "job_post_info",
+            "job_subject",
+            "process_type",
+            "recruit_type",
+            "requirement",
+            "tag_list",
+            "title",
+            "vacancies"
+          ],
+          "sample": {
+            "id": "7668827379083823413",
+            "code": "A94284A",
+            "title": "Backend Software Engineer Graduate (Global E-commerce) - 2027 Start",
+            "description": "Global E-Commerce Team is a content E-commerce business with international short video products as the carrier. It is co\u2026",
+            "requirement": "Minimum Qualifications:\n- Individuals who are completing or have recently completed a Bachelor's degree in Computer Scie\u2026",
+            "recruit_type": "{\"id\": \"201\", \"name\": null, \"en_name\": \"Regular\", \"i18n_name\": \"Regular\"}\u2026",
+            "job_category": "{\"id\": \"6704215862603155720\", \"name\": null, \"en_name\": \"R&D\", \"i18n_name\": \"R&D\", \"parent\": null}\u2026",
+            "city_info": "{\"code\": \"CT_157\", \"location_type\": 3, \"name\": null, \"en_name\": \"Seattle\", \"i18n_name\": \"Seattle\", \"parent\": {\"code\": \"S\u2026",
+            "tag_list": null,
+            "job_subject": "{\"id\": \"7602165694713678133\", \"name\": null, \"en_name\": \"Bachelor/Master Graduate - 2027 Start\", \"i18n_name\": \"Bachelor/M\u2026",
+            "vacancies": null,
+            "department_info": null
+          }
+        }
+      ],
+      "counts": {
+        "count": 3799
+      },
+      "top_level_keys": [
+        "code",
+        "data",
+        "error",
+        "message"
+      ],
+      "raw_file": "raw/000.json"
+    }
+  ],
+  "embedded_json": [],
+  "dom_repetition": [
+    {
+      "class": "flex w-full",
+      "occurrences": 80
+    },
+    {
+      "class": "flex items-center px-[8px] w-full cursor-pointer gap-[8px]}",
+      "occurrences": 80
+    },
+    {
+      "class": "flex-shrink-0 w-[32px] h-[32px] flex justify-center items-center",
+      "occurrences": 80
+    },
+    {
+      "class": "w-[16px] h-[16px] appearance-none border-solid border border-black bg-white",
+      "occurrences": 80
+    },
+    {
+      "class": "text-[18px] font-normal leading-[24px] tracking-[-0.36px] text-left tt-text",
+      "occurrences": 80
+    },
+    {
+      "class": "flex items-center gap-[8px]",
+      "occurrences": 39
+    },
+    {
+      "class": "shrink-0",
+      "occurrences": 39
+    },
+    {
+      "class": "text-[18px] leading-[28px] tracking-[-0.36px] tt-text",
+      "occurrences": 39
+    },
+    {
+      "class": "flex flex-col py-1 px-0.5  text-nowrap border-2 border-transparent hover:border-b-black text-left",
+      "occurrences": 22
+    },
+    {
+      "class": "font-[500] text-[16px] text-black w-fit",
+      "occurrences": 19
+    },
+    {
+      "class": "inline-block hover: border-b-[2px] hover:border-b-[#fe2c55] border-transparent w-fit",
+      "occurrences": 19
+    },
+    {
+      "class": "flex flex-col gap-[8px] font-[400] text-[14px] pb-[8px] tt-text mt-[4px]",
+      "occurrences": 19
+    },
+    {
+      "class": "inline-block hover: border-b-[1px] hover:border-b-[#CCC] border-transparent w-fit",
+      "occurrences": 19
+    },
+    {
+      "class": "jsx-6e121975f51c1bf6",
+      "occurrences": 12
+    },
+    {
+      "class": "jsx-6e121975f51c1bf6 text-[24px] leading-[32px] tracking-[-0.48px] font-bold",
+      "occurrences": 12
+    }
+  ],
+  "all_xhr": [
+    {
+      "method": "GET",
+      "url": "https://lifeattiktok.com/?_rsc=1m3ql",
+      "status": 200,
+      "type": "text/x-component"
+    },
+    {
+      "method": "GET",
+      "url": "https://lifeattiktok.com/blog?_rsc=1m3ql",
+      "status": 200,
+      "type": "text/x-component"
+    },
+    {
+      "method": "GET",
+      "url": "https://lifeattiktok.com/locations?_rsc=1m3ql",
+      "status": 200,
+      "type": "text/x-component"
+    },
+    {
+      "method": "GET",
+      "url": "https://lifeattiktok.com/private-policy?_rsc=1m3ql",
+      "status": 200,
+      "type": "text/x-component"
+    },
+    {
+      "method": "GET",
+      "url": "https://lifeattiktok.com/api/v1/ip/location",
+      "status": 200,
+      "type": "application/json"
+    },
+    {
+      "method": "GET",
+      "url": "https://mon-va.byteoversea.com/monitor_web/settings/browser-settings?bid=portal_tiktok&store=1",
+      "status": 200,
+      "type": "application/json"
+    },
+    {
+      "method": "POST",
+      "url": "https://mcs-va.tiktokv.com/v1/user/webid",
+      "status": 200,
+      "type": "application/json"
+    },
+    {
+      "method": "POST",
+      "url": "https://api.lifeattiktok.com/api/v1/public/supplier/config/job/filters",
+      "status": 200,
+      "type": "application/json"
+    },
+    {
+      "method": "POST",
+      "url": "https://mcs-va.tiktokv.com/v1/list",
+      "status": 200,
+      "type": "application/json"
+    },
+    {
+      "method": "POST",
+      "url": "https://api.lifeattiktok.com/api/v1/public/supplier/search/job/posts",
+      "status": 200,
+      "type": "application/json"
+    },
+    {
+      "method": "POST",
+      "url": "https://mcs-va.tiktokv.com/v1/list",
+      "status": 200,
+      "type": "application/json"
+    },
+    {
+      "method": "POST",
+      "url": "https://mcs-va.tiktokv.com/v1/list",
+      "status": 200,
+      "type": "application/json"
+    },
+    {
+      "method": "GET",
+      "url": "https://lifeattiktok.com/search/7668827379083823413?_rsc=1m3ql",
+      "status": 200,
+      "type": "text/x-component"
+    },
+    {
+      "method": "GET",
+      "url": "https://lifeattiktok.com/search/7667613782697232693?_rsc=1m3ql",
+      "status": 200,
+      "type": "text/x-component"
+    },
+    {
+      "method": "GET",
+      "url": "https://lifeattiktok.com/search/7666099591657900293?_rsc=1m3ql",
+      "status": 200,
+      "type": "text/x-component"
+    },
+    {
+      "method": "GET",
+      "url": "https://lifeattiktok.com/search/7667251006791338293?_rsc=1m3ql",
+      "status": 200,
+      "type": "text/x-component"
+    },
+    {
+      "method": "GET",
+      "url": "https://lifeattiktok.com/search/7668694998066252037?_rsc=1m3ql",
+      "status": 200,
+      "type": "text/x-component"
+    },
+    {
+      "method": "POST",
+      "url": "https://mon-va.byteoversea.com/monitor_browser/collect/batch/?biz_id=portal_tiktok",
+      "status": 204,
+      "type": ""
+    },
+    {
+      "method": "POST",
+      "url": "https://mon-va.byteoversea.com/monitor_browser/collect/batch/?biz_id=portal_tiktok",
+      "status": 204,
+      "type": ""
+    },
+    {
+      "method": "GET",
+      "url": "https://lifeattiktok.com/search/7525281664706316551?_rsc=1m3ql",
+      "status": 200,
+      "type": "text/x-component"
+    },
+    {
+      "method": "GET",
+      "url": "https://lifeattiktok.com/search/7649792751064238341?_rsc=1m3ql",
+      "status": 200,
+      "type": "text/x-component"
+    },
+    {
+      "method": "GET",
+      "url": "https://lifeattiktok.com/search/7647015240097630469?_rsc=1m3ql",
+      "status": 200,
+      "type": "text/x-component"
+    },
+    {
+      "method": "POST",
+      "url": "https://mon-va.byteoversea.com/monitor_browser/collect/batch/?biz_id=portal_tiktok",
+      "status": 204,
+      "type": ""
+    }
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "label": "discover",
+  "utc": "20260805T051546Z",
+  "results": [
+    {
+      "recipe": "amazon.json",
+      "target": "amazon",
+      "kind": "http_json",
+      "ok": true,
+      "job_count": 76,
+      "sample": [
+        {
+          "id": "10490514",
+          "uuid": "90c85870-b7ea-4165-bb09-552b3f360a35",
+          "title": "Software Development Engineer, AWS OpenSearch Service",
+          "url": "https://www.amazon.jobs/en/jobs/10490514/software-development-engineer-aws-opensearch-service",
+          "location": "Austin, Texas, USA",
+          "posted_at": "August  3, 2026",
+          "department": "Software Development",
+          "company": "Amazon Development Center U.S., Inc."
+        },
+        {
+          "id": "10487354",
+          "uuid": "7584dec8-28cc-4419-bb77-3da165179aa7",
+          "title": "IT App Dev Engr II - AMZ10061220",
+          "url": "https://www.amazon.jobs/en/jobs/10487354/it-app-dev-engr-ii-amz10061220",
+          "location": "Austin, Texas, USA",
+          "posted_at": "July 29, 2026",
+          "department": "Corporate Operations",
+          "company": "Amazon.com Services LLC - A57"
+        }
+      ],
+      "seconds": 0.8
+    }
+  ]
+}
