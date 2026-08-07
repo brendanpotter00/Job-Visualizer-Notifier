@@ -396,6 +396,119 @@ def list_enabled_eightfold_companies(conn: Connection) -> List[Dict[str, Any]]:
     return [dict(row) for row in cursor.fetchall()]
 
 
+# Columns returned by the company read helpers. Kept in one place so the
+# add-company service and the fan-out callers read a consistent shape.
+_COMPANY_COLUMNS = (
+    "id, display_name, ats, board_token, provider_config, enabled, "
+    "listed, added_by_user_id, health_status, blurb, accomplishment, created_at"
+)
+
+
+def get_company_by_id(conn: Connection, company_id: str) -> Optional[Dict[str, Any]]:
+    """Fetch one company row by primary key, or None if absent.
+
+    Used by the add-company flow to dedup (does a board already exist?) and by
+    the submission endpoint to hydrate the created company for the response.
+    """
+    if not company_id:
+        raise ValueError("get_company_by_id requires a non-empty company_id")
+    cursor = conn.cursor()
+    cursor.execute(
+        f"SELECT {_COMPANY_COLUMNS} FROM companies WHERE id = %s",
+        (company_id,),
+    )
+    row = cursor.fetchone()
+    return dict(row) if row else None
+
+
+def find_company_by_ats_token(
+    conn: Connection, ats: str, board_token: str
+) -> Optional[Dict[str, Any]]:
+    """Find an existing company by (ats, board_token) for dedup.
+
+    Two users adding the same Greenhouse board must converge on one row (the
+    ``job_listings`` composite ``(source_id, id)`` PK makes physical duplicates
+    corrupt data). ``board_token`` uniquely identifies a board within an ATS, so
+    this is the dedup key for the token-based ATSes (greenhouse/ashby/lever/gem).
+    Workday/custom_json dedup on ``id`` instead (derived from their URL).
+    """
+    cursor = conn.cursor()
+    cursor.execute(
+        f"SELECT {_COMPANY_COLUMNS} FROM companies "
+        "WHERE ats = %s AND board_token = %s "
+        "ORDER BY id LIMIT 1",
+        (ats, board_token),
+    )
+    row = cursor.fetchone()
+    return dict(row) if row else None
+
+
+def insert_user_company(
+    conn: Connection,
+    *,
+    company_id: str,
+    display_name: str,
+    ats: str,
+    board_token: str,
+    added_by_user_id: str,
+    provider_config: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Insert a runtime user-added company (unlisted), idempotently.
+
+    Mirrors the ``services/companies_seed.py`` INSERT … ON CONFLICT DO NOTHING
+    pattern (non-destructive: never clobbers an existing curated or user row).
+    Runtime rows are ``listed = false`` so they stay out of the public
+    ``/api/companies`` directory, and ``enabled = true`` so the worker fan-out
+    scrapes them. Commits, then returns the current row (whether just inserted
+    or pre-existing) via :func:`get_company_by_id`.
+
+    ``provider_config`` carries the Workday ``{base_url, tenant_slug,
+    career_site_slug}`` or the ``custom_json`` recipe; ``{}`` for the
+    token-based ATSes.
+    """
+    cfg = json.dumps(provider_config or {})
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "INSERT INTO companies "
+            "(id, display_name, ats, board_token, provider_config, "
+            " enabled, listed, added_by_user_id) "
+            "VALUES (%s, %s, %s, %s, CAST(%s AS JSONB), TRUE, FALSE, %s) "
+            "ON CONFLICT (id) DO NOTHING",
+            (company_id, display_name, ats, board_token, cfg, added_by_user_id),
+        )
+        conn.commit()
+    except psycopg2.Error:
+        conn.rollback()
+        raise
+    row = get_company_by_id(conn, company_id)
+    if row is None:  # pragma: no cover - defensive; insert-or-existing guarantees a row
+        raise RuntimeError(
+            f"insert_user_company: company {company_id!r} missing after upsert"
+        )
+    return row
+
+
+def set_company_health_status(
+    conn: Connection, company_id: str, health_status: str
+) -> None:
+    """Update a company's ``health_status`` (``ok`` | ``degraded`` | ``disabled``).
+
+    Called by the custom_json fetch task when the low-yield safety guard trips,
+    so a silently-broken recipe surfaces instead of mass-closing the user's jobs.
+    """
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "UPDATE companies SET health_status = %s WHERE id = %s",
+            (health_status, company_id),
+        )
+        conn.commit()
+    except psycopg2.Error:
+        conn.rollback()
+        raise
+
+
 def get_job_by_id(
     conn: Connection, source_id: str, job_id: str
 ) -> Optional[Dict[str, Any]]:

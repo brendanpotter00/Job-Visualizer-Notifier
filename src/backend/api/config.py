@@ -89,6 +89,13 @@ class Settings(BaseSettings):
     feedback_rate_limit_max: int = Field(default=5, gt=0)
     feedback_rate_limit_window_seconds: int = Field(default=60, gt=0)
 
+    # Add-company endpoint quota (per authenticated user, sliding window).
+    # Adding a company can trigger a Playwright load + an LLM call, so the
+    # window is long and the cap low. Enforced in-process by
+    # services/rate_limit.py keyed on the user's subject/email.
+    add_company_rate_limit_max: int = Field(default=10, gt=0)
+    add_company_rate_limit_window_seconds: int = Field(default=3600, gt=0)
+
     # Server
     port: int = 8080
     cors_origins: str = "http://localhost:3000,http://localhost:5173,http://localhost:8000"

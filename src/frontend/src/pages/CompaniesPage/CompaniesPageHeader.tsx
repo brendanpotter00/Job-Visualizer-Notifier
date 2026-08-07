@@ -2,7 +2,7 @@ import { Stack, Typography } from '@mui/material';
 import { RESPONSIVE } from '../../config/responsive';
 import { CompanySelector } from '../../components/companies-page/CompanySelector/CompanySelector';
 import { useAppSelector } from '../../app/hooks';
-import { getCompanyById } from '../../config/companies';
+import { useGetCompanyById } from '../../features/userCompanies/useCompanyRegistry';
 import { getCompanySourceLabel } from '../../config/atsSource';
 
 /**
@@ -15,6 +15,7 @@ import { getCompanySourceLabel } from '../../config/atsSource';
  */
 export function CompaniesPageHeader() {
   const selectedCompanyId = useAppSelector((state) => state.app.selectedCompanyId);
+  const getCompanyById = useGetCompanyById();
   const company = getCompanyById(selectedCompanyId);
   const companyNameHeaderTitle = company?.name || 'Job Posting Analytics';
   const companyATSSource = company ? getCompanySourceLabel(company) : 'Unknown Source';

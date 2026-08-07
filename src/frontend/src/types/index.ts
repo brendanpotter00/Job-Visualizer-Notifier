@@ -188,8 +188,13 @@ export interface Company {
    * to group migrated providers (Ashby, Greenhouse, Lever, Gem, Eightfold,
    * Workday) under their own column instead of lumping them with the true
    * Custom Web Scrapers (Google/Apple/Microsoft).
+   *
+   * `'custom_json'` is the backend provider for runtime user-added companies
+   * whose careers page has no recognized ATS, so the backend builds a custom
+   * scraper recipe. It only appears on runtime companies fetched from
+   * `/api/users/companies`, never on the static `COMPANIES` list.
    */
-  sourceAts?: 'ashby' | 'eightfold' | 'gem' | 'greenhouse' | 'lever' | 'workday';
+  sourceAts?: 'ashby' | 'eightfold' | 'gem' | 'greenhouse' | 'lever' | 'workday' | 'custom_json';
 
   /** Optional URL to find recruiters on LinkedIn */
   recruiterLinkedInUrl?: string;

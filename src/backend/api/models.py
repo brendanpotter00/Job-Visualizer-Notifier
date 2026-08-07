@@ -230,6 +230,64 @@ class CompanyListResponse(BaseModel):
     companies: list[CompanyProfileResponse]
 
 
+class UserCompanyDTO(BaseModel):
+    """One runtime user-added company, shaped for the frontend company registry.
+
+    ``sourceAts`` is the backend provider ('greenhouse' … 'custom_json'); the
+    frontend builds a ``Company`` with ``ats: 'backend-scraper'`` and this as
+    ``sourceAts``. ``jobsUrl`` is the original careers page (from
+    ``provider_config.careers_url``), or null.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    id: str
+    name: str
+    jobs_url: str | None = None
+    source_ats: str
+
+
+class UserCompaniesResponse(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    companies: list[UserCompanyDTO]
+
+
+class AddCompanyRequest(BaseModel):
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
+
+    # A careers-page / job-board URL. Bounded so an oversized value is rejected
+    # at the 422 boundary before any fetch. Full scheme/host/SSRF validation
+    # happens in services/url_guard at request time.
+    url: str = Field(min_length=1, max_length=2048)
+
+
+class AddCompanyResponse(BaseModel):
+    """Response to POST /api/users/companies.
+
+    ``status`` is 'added' | 'alreadyTracked' | 'pending'. For the two synchronous
+    outcomes ``company`` is set; for 'pending' (async Tier-2 onboarding)
+    ``submissionId`` is set and the frontend polls the submission endpoint.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    status: str
+    company: UserCompanyDTO | None = None
+    submission_id: str | None = None
+
+
+class SubmissionStatusResponse(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    id: str
+    status: str  # 'pending' | 'succeeded' | 'failed'
+    company: UserCompanyDTO | None = None
+    error: str | None = None
+
+
 class FeedbackSubmitRequest(BaseModel):
     model_config = ConfigDict(
         alias_generator=to_camel, populate_by_name=True, extra="forbid"

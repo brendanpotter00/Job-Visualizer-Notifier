@@ -64,6 +64,8 @@ _WORKER_QUEUES: tuple[str, ...] = (
     "gem_fetch",
     "eightfold_fetch",
     "workday_fetch",
+    "custom_json_fetch",
+    "onboarding",
     "heartbeat",
     "normalize",
 )

@@ -4,7 +4,7 @@ import { jobsApi } from '../../jobs/jobsApi.ts';
 import { filterJobsByFilters } from '../utils/jobFilteringUtils.ts';
 import { selectLocationCatalog } from '../../locations/locationCatalogSlice.ts';
 import { isSoftwareOnlyEnabled } from '../../../constants/tags.ts';
-import { getCompanyById } from '../../../config/companies.ts';
+import { getEffectiveCompanies } from '../../userCompanies/companyRegistryBridge.ts';
 import { filterJobsByHours } from '../../../lib/date.ts';
 import { selectEnabledCompanyIds } from '../../preferences/enabledCompaniesSlice.ts';
 import { selectDemoModeEnabled } from '../../ui/uiSlice.ts';
@@ -132,15 +132,15 @@ export const selectRecentAvailableCompanies = createSelector(
       if (job.company) companyIds.add(job.company);
     });
 
+    // Resolve names over the dynamic registry (static + runtime companies) so
+    // runtime user-added companies show their real name in the dropdown rather
+    // than their raw id. Recomputes whenever the upstream jobs change (which is
+    // when a runtime company's jobs first arrive after a feed refetch).
+    const nameById = new Map(getEffectiveCompanies().map((c) => [c.id, c.name]));
+
     // Convert company IDs to {id, name} objects and sort by name
     return Array.from(companyIds)
-      .map((id) => {
-        const company = getCompanyById(id);
-        return {
-          id,
-          name: company?.name || id,
-        };
-      })
+      .map((id) => ({ id, name: nameById.get(id) || id }))
       .sort((a, b) => a.name.localeCompare(b.name));
   }
 );

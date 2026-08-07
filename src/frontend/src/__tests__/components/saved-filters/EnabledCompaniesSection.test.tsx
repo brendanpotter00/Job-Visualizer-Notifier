@@ -26,6 +26,13 @@ vi.mock('../../../features/preferences/useEnabledCompanies', () => ({
   useEnabledCompanies: () => mockEnabled,
 }));
 
+// The section now lists the dynamic registry (static + runtime companies). This
+// test renders without a Redux Provider / auth context, so stub the registry to
+// the static list — exactly what an anonymous / no-runtime-companies user sees.
+vi.mock('../../../features/userCompanies/useCompanyRegistry', () => ({
+  useCompanyRegistry: () => COMPANIES,
+}));
+
 function resetMock(overrides: Partial<MockEnabled> = {}) {
   mockEnabled = {
     ids: null,

@@ -149,6 +149,9 @@ All configuration via environment variables:
 - `POST /api/users/visit` - Record one full-page-load visit (204; upserts the row then increments `visit_count` + stamps `last_visit_at`; requires Bearer token)
 - `GET /api/users/enabled-companies` - List user's enabled companies (requires Bearer token)
 - `PUT /api/users/enabled-companies` - Update user's enabled companies (requires Bearer token)
+- `POST /api/users/companies` - Add a company to track by careers-page URL (requires Bearer token; per-user rate-limited). Deterministic ATS detection (Greenhouse/Ashby/Lever/Gem/Workday) resolves synchronously → 200 `{status: added|alreadyTracked, company}`; an unrecognized custom site enqueues async onboarding (Playwright capture + one Haiku `custom_json` recipe) → 202 `{status: pending, submissionId}`. User-added companies are deduped globally and stored `listed=false` (hidden from the public directory, visible only to users who track them). SSRF-guarded (`services/url_guard.py`).
+- `GET /api/users/companies` - The user's runtime-added (custom, unlisted) tracked companies, for the frontend dynamic company registry (requires Bearer token)
+- `GET /api/users/companies/submissions/{id}` - Poll an async add-company submission's status (owner-scoped; requires Bearer token)
 
 **Saved Filters Router (`/api/users/saved-filters`):** all routes require a Bearer token.
 - `GET /api/users/saved-filters` - Scalar saved filters (per-page time windows, shared locations, active keyword-list pointers); never 404s — returns server defaults (`recent=90d`, `trend=90d`, no locations) when the user has no row
@@ -255,12 +258,19 @@ src/backend/api/
 │   ├── gem_client.py        # Gem ATS HTTP client
 │   ├── greenhouse_client.py # Greenhouse ATS HTTP client
 │   ├── lever_client.py      # Lever ATS HTTP client
-│   └── workday_client.py    # Workday ATS HTTP client
+│   ├── workday_client.py    # Workday ATS HTTP client
+│   ├── url_guard.py         # SSRF egress guard for user-supplied URLs (add-company flow)
+│   ├── ats_detector.py      # Deterministic ATS detection + probe for a submitted careers URL
+│   ├── custom_json_client.py # Runtime replay of a stored custom_json scrape recipe (no browser/LLM)
+│   ├── recipe_generator.py  # One-time Claude Haiku custom_json recipe generation
+│   ├── company_add_service.py # Add-company orchestration (detect → dedup → insert → enable)
+│   └── company_submissions.py # company_submissions CRUD + additive per-user enablement
 └── tasks/
     ├── procrastinate_app.py         # Procrastinate App instance + schema setup
     ├── heartbeat.py                 # Heartbeat task (liveness probe for /health/worker)
-    ├── enqueue_*_fan_out.py (×6)    # Fan-out tasks: enqueue per-company fetch for each ATS
-    ├── fetch_*_company.py (×6)      # Leaf tasks: fetch + upsert one company's jobs
+    ├── enqueue_*_fan_out.py (×7)    # Fan-out tasks: per-company fetch for each ATS + custom_json
+    ├── fetch_*_company.py (×7)      # Leaf tasks: fetch + upsert one company's jobs (incl. custom_json)
+    ├── onboard_custom_company.py    # Async add-company onboarding: Playwright capture → Haiku recipe → validate → create
     ├── normalize_location.py        # Leaf task: normalize one job's free-text location via Claude Haiku
     └── scan_unnormalized.py         # Periodic safety-net task: find NULL-status jobs and defer normalize_location
 ```

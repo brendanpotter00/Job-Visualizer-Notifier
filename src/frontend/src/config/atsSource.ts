@@ -32,6 +32,7 @@ export const ATS_DISPLAY_NAMES: Record<ATSGroupKey, string> = {
   gem: 'Gem',
   eightfold: 'Eightfold',
   workday: 'Workday',
+  custom_json: 'Custom Scraper',
 };
 
 export const NON_CAPITALIZED_GROUPS: ReadonlySet<ATSGroupKey> = new Set([

@@ -2,6 +2,7 @@
 
 import logging
 
+import httpx
 import psycopg2
 from fastapi import APIRouter, Depends, HTTPException, Response
 from posthog import identify_context, new_context
@@ -9,15 +10,25 @@ from psycopg2.extensions import connection as Connection
 
 from ..auth.dependencies import TokenClaims, get_current_user
 from ..auth.jwt import get_normalized_subject
+from ..config import settings
 from ..dependencies import get_db
 from ..models import (
+    AddCompanyRequest,
+    AddCompanyResponse,
     EnabledCompaniesResponse,
     EnabledCompaniesUpdateRequest,
+    SubmissionStatusResponse,
+    UserCompaniesResponse,
+    UserCompanyDTO,
     UserResponse,
     UserUpdateRequest,
 )
+from ..services import company_add_service, company_submissions
 from ..services.admin_service import is_admin_by_email
+from ..services.company_add_service import company_to_dto
 from ..services.posthog_client import get_posthog
+from ..services.rate_limit import SlidingWindowRateLimiter
+from ..services.url_guard import BlockedURLError
 from ..services.user_preferences_service import (
     list_enabled_companies,
     set_enabled_companies,
@@ -33,6 +44,21 @@ from ..services.user_service import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# Per-user add-company quota (keyed on the token subject). Module-level singleton
+# mirrors ``feedback_rate_limiter`` — authoritative because prod runs a single
+# uvicorn process. See services/rate_limit.py.
+_add_company_rate_limiter = SlidingWindowRateLimiter(
+    settings.add_company_rate_limit_max,
+    settings.add_company_rate_limit_window_seconds,
+)
+
+# Map the service outcome status to the wire status the frontend expects.
+_ADD_STATUS_WIRE = {
+    "added": "added",
+    "already_tracked": "alreadyTracked",
+    "needs_onboarding": "pending",
+}
 
 
 def _row_to_user_response(row: UserRow, *, is_admin: bool) -> UserResponse:
@@ -249,4 +275,160 @@ async def update_enabled_companies(
     return EnabledCompaniesResponse(
         company_ids=saved,
         auto_enroll_new_companies=body.auto_enroll_new_companies,
+    )
+
+
+def _require_identity(user: TokenClaims) -> tuple[str, str]:
+    """Return (subject, email) or raise 401. Shared by the company endpoints."""
+    subject = get_normalized_subject(user)
+    if not subject:
+        raise HTTPException(status_code=401, detail="Token missing required 'sub' claim")
+    email = user.get("email")
+    if not email:
+        raise HTTPException(
+            status_code=401, detail="Token missing required 'email' claim"
+        )
+    return subject, email
+
+
+@router.post("/companies", response_model=AddCompanyResponse)
+async def add_company(
+    body: AddCompanyRequest,
+    response: Response,
+    conn: Connection = Depends(get_db),
+    user: TokenClaims = Depends(get_current_user),
+) -> AddCompanyResponse:
+    """Add a company to track by careers-page URL.
+
+    Synchronous (Tier 1) when the URL is a known ATS board → 200 with the
+    company. When it's a custom site → 202 with a ``submissionId`` and an async
+    onboarding job (Playwright capture + Haiku recipe) is enqueued; the client
+    polls ``GET /companies/submissions/{id}``.
+    """
+    subject, email = _require_identity(user)
+
+    retry_after = _add_company_rate_limiter.check(subject)
+    if retry_after is not None:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many add-company requests; please slow down.",
+            headers={"Retry-After": str(int(retry_after) + 1)},
+        )
+
+    try:
+        urow = get_or_create_user(conn, auth0_id=subject, email=email)
+    except psycopg2.Error:
+        logger.exception("add_company: failed to get/create user for sub=%s", subject)
+        raise HTTPException(status_code=500, detail="Failed to load user")
+    user_id = urow["id"]
+    url = body.url.strip()
+
+    try:
+        async with httpx.AsyncClient() as http:
+            outcome = await company_add_service.try_add_by_url(
+                conn, user_id, url, http
+            )
+    except BlockedURLError as exc:
+        # SSRF / bad scheme / unresolvable host — a client error, not a 500.
+        logger.info("add_company rejected url for user=%s: %s", user_id, exc)
+        raise HTTPException(
+            status_code=422,
+            detail="That URL can't be added. Enter a public careers-page URL.",
+        )
+    except psycopg2.Error:
+        logger.exception("add_company DB error for user=%s", user_id)
+        raise HTTPException(status_code=500, detail="Failed to add company")
+
+    if outcome.status == "needs_onboarding":
+        submission_id = company_submissions.new_submission_id()
+        try:
+            company_submissions.create_submission(conn, submission_id, user_id, url)
+        except psycopg2.Error:
+            logger.exception("add_company: failed to create submission for %s", user_id)
+            raise HTTPException(status_code=500, detail="Failed to add company")
+        # Defer the async onboarding task. Local import avoids importing the
+        # Procrastinate task graph at module load (and any import cycle).
+        from ..tasks.onboard_custom_company import onboard_custom_company
+
+        try:
+            await onboard_custom_company.defer_async(
+                submission_id=submission_id, user_id=user_id, url=url
+            )
+        except Exception:
+            logger.exception(
+                "add_company: failed to enqueue onboarding for submission %s",
+                submission_id,
+            )
+            # The submission would otherwise hang 'pending' forever — fail it.
+            try:
+                company_submissions.finish_submission(
+                    conn, submission_id, status="failed",
+                    error="Could not start site analysis. Please try again.",
+                )
+            except psycopg2.Error:
+                logger.exception("failed to fail submission %s", submission_id)
+            raise HTTPException(status_code=500, detail="Failed to add company")
+        response.status_code = 202
+        return AddCompanyResponse(status="pending", submission_id=submission_id)
+
+    dto = UserCompanyDTO(**company_to_dto(outcome.company or {}))
+    return AddCompanyResponse(status=_ADD_STATUS_WIRE[outcome.status], company=dto)
+
+
+@router.get(
+    "/companies/submissions/{submission_id}",
+    response_model=SubmissionStatusResponse,
+)
+async def get_submission_status(
+    submission_id: str,
+    conn: Connection = Depends(get_db),
+    user: TokenClaims = Depends(get_current_user),
+) -> SubmissionStatusResponse:
+    """Poll the status of an async add-company submission (owner-scoped)."""
+    _subject, email = _require_identity(user)
+    urow = get_user_by_email(conn, email)
+    if urow is None:
+        raise HTTPException(status_code=404, detail="Submission not found")
+    try:
+        row = company_submissions.get_submission(conn, submission_id, urow["id"])
+    except psycopg2.Error:
+        logger.exception("get_submission_status DB error for %s", submission_id)
+        raise HTTPException(status_code=500, detail="Failed to load submission")
+    if row is None:
+        raise HTTPException(status_code=404, detail="Submission not found")
+
+    company_dto = None
+    if row.get("company_id"):
+        company_row = company_add_service.db.get_company_by_id(conn, row["company_id"])
+        if company_row is not None:
+            company_dto = UserCompanyDTO(**company_to_dto(company_row))
+    return SubmissionStatusResponse(
+        id=row["id"],
+        status=row["status"],
+        company=company_dto,
+        error=row.get("error"),
+    )
+
+
+@router.get("/companies", response_model=UserCompaniesResponse)
+async def get_user_companies(
+    conn: Connection = Depends(get_db),
+    user: TokenClaims = Depends(get_current_user),
+) -> UserCompaniesResponse:
+    """Return the user's runtime-added (custom, unlisted) tracked companies.
+
+    Curated companies already ship in the frontend's static list; the client
+    merges these dynamic ones into its company registry.
+    """
+    _subject, email = _require_identity(user)
+    urow = get_user_by_email(conn, email)
+    if urow is None:
+        return UserCompaniesResponse(companies=[])
+    try:
+        dtos = company_add_service.list_user_custom_companies(conn, urow["id"])
+    except psycopg2.Error:
+        logger.exception("get_user_companies DB error for user=%s", urow["id"])
+        raise HTTPException(status_code=500, detail="Failed to load companies")
+    return UserCompaniesResponse(
+        companies=[UserCompanyDTO(**dto) for dto in dtos]
     )

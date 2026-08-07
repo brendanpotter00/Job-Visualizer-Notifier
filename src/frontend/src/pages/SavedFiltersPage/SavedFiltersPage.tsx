@@ -24,6 +24,7 @@ import { TimeWindowDefaults } from '../../components/saved-filters/TimeWindowDef
 import { CategoryLevelDefaults } from '../../components/saved-filters/CategoryLevelDefaults';
 import { LocationDefaultsEditor } from '../../components/saved-filters/LocationDefaultsEditor';
 import { EnabledCompaniesSection } from '../../components/saved-filters/EnabledCompaniesSection';
+import { AddCompanyByUrlSection } from '../../components/saved-filters/AddCompanyByUrlSection';
 import { KeywordListsEditor } from '../../components/saved-filters/KeywordListsEditor';
 import {
   type DraftKeywordList,
@@ -359,6 +360,8 @@ export function SavedFiltersPage() {
             onSaveActive={() => handleSave('keywords')}
           />
         )}
+
+        <AddCompanyByUrlSection />
 
         <EnabledCompaniesSection />
       </Stack>

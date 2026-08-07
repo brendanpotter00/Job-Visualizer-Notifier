@@ -18,6 +18,7 @@ import { AdminFeedbackPage } from '../pages/AdminFeedbackPage/AdminFeedbackPage.
 import { AdminRoute } from '../components/auth/AdminRoute.tsx';
 import { useEnabledCompanies } from '../features/preferences/useEnabledCompanies';
 import { useHydrateSavedFilters } from '../features/savedFilters/useHydrateSavedFilters';
+import { useSyncRuntimeCompanies } from '../features/userCompanies/useSyncRuntimeCompanies';
 import { useFeaturesAuthBridge } from '../features/features/useFeaturesAuthBridge';
 import { useRecordVisit } from '../features/auth/useRecordVisit';
 import { usePostHogPageview } from '../features/analytics/usePostHogPageview';
@@ -39,6 +40,9 @@ function AppContent() {
   // Hydrate enabled-companies at the app root so selectors have it before
   // any page reads them.
   useEnabledCompanies();
+  // Keep the runtime-company registry bridge in sync with the signed-in user's
+  // added companies, and refetch the aggregated feed when that set changes.
+  useSyncRuntimeCompanies();
   // Register the RTK Query token-getter BEFORE the hydrate hook below. On the
   // render where auth flips true, the hydrate hook fires the saved-filters /
   // keyword-lists requests; those must read a credential-bearing token getter

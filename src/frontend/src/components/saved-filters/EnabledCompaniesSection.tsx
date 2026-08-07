@@ -11,7 +11,7 @@ import Box from '@mui/material/Box';
 import Switch from '@mui/material/Switch';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import { COMPANIES } from '../../config/companies';
+import { useCompanyRegistry } from '../../features/userCompanies/useCompanyRegistry';
 import { useEnabledCompanies } from '../../features/preferences/useEnabledCompanies';
 import { CompanySearchAddInput } from './CompanySearchAddInput';
 import { SelectedCompaniesPanel } from './SelectedCompaniesPanel';
@@ -22,6 +22,7 @@ import { extractErrorMessage } from '../../lib/errors';
 
 export function EnabledCompaniesSection() {
   const { ids, autoEnroll, loading, error, save } = useEnabledCompanies();
+  const companies = useCompanyRegistry();
 
   const [draft, setDraft] = useState<string[]>([]);
   const [draftAutoEnroll, setDraftAutoEnroll] = useState(true);
@@ -47,8 +48,8 @@ export function EnabledCompaniesSection() {
   }, [error]);
 
   const sortedCompanies = useMemo(
-    () => [...COMPANIES].sort((a, b) => a.name.localeCompare(b.name)),
-    []
+    () => [...companies].sort((a, b) => a.name.localeCompare(b.name)),
+    [companies]
   );
 
   const draftSet = useMemo(() => new Set(draft), [draft]);
@@ -78,7 +79,7 @@ export function EnabledCompaniesSection() {
   };
 
   const handleSelectAll = () => {
-    setDraft(COMPANIES.map((c) => c.id));
+    setDraft(companies.map((c) => c.id));
     setSaveSuccess(false);
   };
 
