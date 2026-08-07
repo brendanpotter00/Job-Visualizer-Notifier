@@ -198,6 +198,48 @@ def test_non_empty_description_is_not_title_only(store):
     assert row["title_only"] == 0 and row["classify_confidence"] == 0.9
 
 
+def test_normal_path_tolerates_structured_scalar_fields(store):
+    """Prod regression 2026-08-07: the local model returned a dict where
+    confidence belongs, the raw dict reached the sqlite bind ("Error binding
+    parameter 8: type 'dict' is not supported"), and the whole classify-run
+    died — stalling classify on every tick that re-claimed the same batch.
+    Non-numeric confidence -> None (judge-routed), structured reasoning ->
+    JSON text, junk latency -> None; the item records instead of raising."""
+    store.enqueue_inbox([_inbox_row("1")])
+    store.record_clean("greenhouse", "1", "real cleaned description text")
+    res = cli.record_enrichment_items(
+        store,
+        [{"job_listing_id": "1", "source_id": "greenhouse",
+          "category": "software_engineering", "level": "mid",
+          "confidence": {"category": 0.9, "level": 0.7},
+          "reasoning": {"why": ["structured", "junk"]},
+          "classify_latency_ms": "fast"}],
+        version="v1",
+    )
+    assert res["recorded"] == 1 and res["skipped"] == 0
+    row = _enrichment(store, "1")
+    assert row["classify_confidence"] is None
+    assert json.loads(row["classify_reasoning"]) == {"why": ["structured", "junk"]}
+    assert row["classify_latency_ms"] is None
+    assert cli._needs_judge(row, 0.85) is True  # unknown confidence -> judged
+
+
+def test_normal_path_coerces_numeric_string_confidence(store):
+    """"0.9" (a string) is a usable confidence on the normal path too — stored
+    as the float, not bound as text."""
+    store.enqueue_inbox([_inbox_row("1")])
+    store.record_clean("greenhouse", "1", "real cleaned description text")
+    res = cli.record_enrichment_items(
+        store,
+        [{"job_listing_id": "1", "source_id": "greenhouse",
+          "category": "software_engineering", "level": "mid",
+          "confidence": "0.9"}],
+        version="v1",
+    )
+    assert res["recorded"] == 1
+    assert _enrichment(store, "1")["classify_confidence"] == 0.9
+
+
 # ---- E10: empty job_listing_id / unresolvable source_id skipped ------------
 def test_empty_ids_skipped_at_record_enrichment(store):
     res = cli.record_enrichment_items(
@@ -336,6 +378,30 @@ def test_merge_judge_applies_confident_level_change_outside_equivalence(store):
     )
     assert merged["level"] == "senior"
     assert merged["rejected_corrections"] == 0
+
+
+def test_merge_judge_tolerates_structured_scalar_fields(store):
+    """Judge half of the 2026-08-07 prod regression: a dict judge-confidence
+    used to raise at the `conf < floor` comparison before even reaching the
+    sqlite bind, and structured notes/reasoning crash the bind itself. A
+    non-dict corrections payload is dropped (with a warning), scalars are
+    coerced, and the verdict merges instead of raising."""
+    merged = cli._merge_judge(
+        _rail_base("mid"),
+        {"passed": True,
+         "confidence": {"overall": 0.9},
+         "notes": {"nested": True},
+         "reasoning": ["step 1", "step 2"],
+         "judge_latency_ms": "slow",
+         "corrections": ["not", "a", "dict"]},
+        floor=0.6,
+    )
+    assert merged["judge_confidence"] is None
+    assert json.loads(merged["judge_notes"]) == {"nested": True}
+    assert json.loads(merged["judge_reasoning"]) == ["step 1", "step 2"]
+    assert merged["judge_latency_ms"] is None
+    assert merged["judge_pass"] is True   # junk corrections dropped, not proposed
+    assert merged["level"] == "mid"       # base facets untouched
 
 
 def test_merge_judge_applies_new_grad_to_intern_correction(store):

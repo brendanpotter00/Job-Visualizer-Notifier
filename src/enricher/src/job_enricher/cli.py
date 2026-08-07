@@ -314,6 +314,42 @@ def _coerce_json_field(value: Any) -> str:
     return json.dumps(value if value is not None else [])
 
 
+def _coerce_confidence(value: Any) -> float | None:
+    """Best-effort numeric confidence. A local model can emit a string
+    ("0.5"/"medium"), a dict of per-facet scores, or other junk where a float
+    belongs; anything non-numeric becomes None — which the judge-scope routing
+    and needs_human floor already treat as "unsure" — instead of raising at a
+    comparison or the sqlite bind. Bools are junk here, not numbers."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _coerce_text_field(value: Any) -> str | None:
+    """Free-text column (reasoning/notes): strings pass through; structured
+    junk is JSON-encoded so the content stays inspectable instead of crashing
+    the bind."""
+    if value is None or isinstance(value, str):
+        return value
+    try:
+        return json.dumps(value)
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _coerce_int_field(value: Any) -> int | None:
+    """Integer column (latency ms): numeric -> int, junk -> None, never raises."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _nonempty(value: Any) -> bool:
     return bool(value) and bool(str(value).strip())
 
@@ -352,6 +388,10 @@ def record_enrichment_items(
     source. Rows with a category/level outside the canonical taxonomy get the
     bad slug nulled (counted in ``nulled_facets``) and are flagged needs_human
     so the hallucination is caught locally instead of shipped to JVN (E4).
+    Scalar fields from the engine are type-coerced before the bind — a
+    non-numeric confidence becomes None (judge-routed), structured
+    reasoning is JSON-encoded, junk latency becomes None — so a malformed
+    model response can never abort the wave at the sqlite layer.
     Never raises on bad data."""
     item_ids = [
         i.get("job_listing_id")
@@ -408,19 +448,14 @@ def record_enrichment_items(
                     "nulled + flagged needs_human", jid, facet, value,
                 )
         title_only = (source_id, jid) in title_only_pairs
-        confidence = item.get("confidence")
+        # Coerced on EVERY path, not just title-only: a raw non-scalar (qwen
+        # once returned a dict of per-facet scores) crashes the sqlite bind and
+        # kills the whole classify-run. None routes the row to the judge.
+        confidence = _coerce_confidence(item.get("confidence"))
         if title_only:
-            # Reduced-signal label (title only): clamp below the judge ceiling so
-            # it is always re-checked, whatever the agent claimed. None OR a
-            # non-numeric agent value (a local model may emit "0.5" or "medium")
-            # -> the cap; coerced, never raised, to keep this function's
-            # "never raises on bad data" contract on the title-only path.
-            try:
-                conf_num = (
-                    float(confidence) if confidence is not None else TITLE_ONLY_MAX_CONFIDENCE
-                )
-            except (TypeError, ValueError):
-                conf_num = TITLE_ONLY_MAX_CONFIDENCE
+            # Reduced-signal label (title only): clamp below the judge ceiling
+            # so it is always re-checked, whatever the agent claimed.
+            conf_num = confidence if confidence is not None else TITLE_ONLY_MAX_CONFIDENCE
             confidence = min(conf_num, TITLE_ONLY_MAX_CONFIDENCE)
         store.record_enrichment(
             {
@@ -432,8 +467,8 @@ def record_enrichment_items(
                 "tags": _coerce_json_field(item.get("tags")),
                 "locations": _coerce_json_field(item.get("locations")),
                 "classify_confidence": confidence,
-                "classify_reasoning": item.get("reasoning"),
-                "classify_latency_ms": item.get("classify_latency_ms"),
+                "classify_reasoning": _coerce_text_field(item.get("reasoning")),
+                "classify_latency_ms": _coerce_int_field(item.get("classify_latency_ms")),
                 "taxonomy_version": version,
                 "needs_human": needs_human,
                 "title_only": title_only,
@@ -938,13 +973,23 @@ def _merge_judge(base: dict[str, Any], verdict: dict[str, Any], floor: float) ->
         is below JUDGE_LEVEL_CONFIDENCE_MIN (other corrections still apply).
     Rejected corrections are counted in the returned dict's
     ``rejected_corrections`` key (popped by the caller — not persisted)."""
-    corr = dict(verdict.get("corrections") or {})
+    # Same "never raises on bad data" hardening as the classify recorder: a
+    # non-dict corrections payload is dropped, and scalar fields are coerced —
+    # a dict conf would otherwise raise at the floor comparisons below before
+    # even reaching the sqlite bind.
+    raw_corr = verdict.get("corrections")
+    corr = dict(raw_corr) if isinstance(raw_corr, dict) else {}
+    if raw_corr and not isinstance(raw_corr, dict):
+        logger.warning(
+            "record-judge: job_listing_id=%s corrections is %s, not a dict; ignoring",
+            base["job_listing_id"], type(raw_corr).__name__,
+        )
     proposed_any = bool(corr)
     passed = bool(verdict.get("passed", verdict.get("judge_pass", True)))
-    conf = verdict.get("confidence", verdict.get("judge_confidence"))
-    notes = verdict.get("notes", verdict.get("judge_notes"))
-    reasoning = verdict.get("reasoning", verdict.get("judge_reasoning"))
-    judge_latency_ms = verdict.get("judge_latency_ms")
+    conf = _coerce_confidence(verdict.get("confidence", verdict.get("judge_confidence")))
+    notes = _coerce_text_field(verdict.get("notes", verdict.get("judge_notes")))
+    reasoning = _coerce_text_field(verdict.get("reasoning", verdict.get("judge_reasoning")))
+    judge_latency_ms = _coerce_int_field(verdict.get("judge_latency_ms"))
 
     rejected_notes: list[str] = []
     force_needs_human = False
