@@ -76,12 +76,12 @@ pip install -r scripts/requirements-dev.txt      # Install dev dependencies (tes
 - `apple_jobs_scraper/config.py` - Apple-specific configuration (locations, keywords)
 
 **Shared Modules:**
-- `shared/base_scraper.py` - Abstract base class for all company scrapers (~442 lines)
-- `shared/database.py` - PostgreSQL database layer with CRUD operations (~834 lines)
-- `shared/incremental.py` - 5-phase incremental scraping algorithm (~315 lines)
-- `shared/models.py` - Database-aligned Pydantic models (JobListing, ScrapeRun) (~62 lines)
-- `shared/batch_writer.py` - Buffered batch writing utility (~157 lines)
-- `shared/utils.py` - Shared utilities (timestamps) (~13 lines)
+- `shared/base_scraper.py` - Abstract base class for all company scrapers
+- `shared/database.py` - PostgreSQL database layer with CRUD operations
+- `shared/incremental.py` - 5-phase incremental scraping algorithm
+- `shared/models.py` - Database-aligned Pydantic models (JobListing, ScrapeRun)
+- `shared/batch_writer.py` - Buffered batch writing utility
+- `shared/utils.py` - Shared utilities (timestamps)
 - `shared/constants.py` - Shared constants (table names, etc.)
 - Schema is managed by Alembic in `src/backend/alembic/` (see `src/backend/CLAUDE.md` § Schema migrations).
 
@@ -240,65 +240,38 @@ Edit company-specific `config.py`:
 - `scripts/run_scraper.py` - Multi-company CLI (JSON/Database modes)
 
 **Google-Specific:**
-- Main Logic: `scripts/google_jobs_scraper/scraper.py` (~260 lines, extends BaseScraper)
-- HTML Parsing: `scripts/google_jobs_scraper/parser.py` (~324 lines)
+- Main Logic: `scripts/google_jobs_scraper/scraper.py` - Playwright browser automation (extends BaseScraper)
+- HTML Parsing: `scripts/google_jobs_scraper/parser.py` - HTML parsing and data extraction
 - Data Models: `scripts/google_jobs_scraper/models.py`
 - Configuration: `scripts/google_jobs_scraper/config.py`
 - CLI Orchestration: `scripts/google_jobs_scraper/main.py` (JSON mode)
 - Utilities: `scripts/google_jobs_scraper/utils.py`
 
 **Apple-Specific:**
-- Main Logic: `scripts/apple_jobs_scraper/scraper.py` (~406 lines, extends BaseScraper)
-- HTML Parsing: `scripts/apple_jobs_scraper/parser.py` (~217 lines)
-- API Client: `scripts/apple_jobs_scraper/api_client.py` (~228 lines)
-- Configuration: `scripts/apple_jobs_scraper/config.py` (~77 lines)
+- Main Logic: `scripts/apple_jobs_scraper/scraper.py` - Hybrid HTML+API scraper (extends BaseScraper)
+- HTML Parsing: `scripts/apple_jobs_scraper/parser.py` - HTML parsing for list/search result pages
+- API Client: `scripts/apple_jobs_scraper/api_client.py` - JSON API client for job details
+- Configuration: `scripts/apple_jobs_scraper/config.py`
 
 **Microsoft-Specific:**
-- Main Logic: `scripts/microsoft_jobs_scraper/scraper.py` (~376 lines, extends BaseScraper)
-- HTML Parsing: `scripts/microsoft_jobs_scraper/parser.py` (~279 lines)
-- API Client: `scripts/microsoft_jobs_scraper/api_client.py` (~392 lines)
-- Configuration: `scripts/microsoft_jobs_scraper/config.py` (~68 lines)
+- Main Logic: `scripts/microsoft_jobs_scraper/scraper.py` - Eightfold API + HTML fallback scraper (extends BaseScraper)
+- HTML Parsing: `scripts/microsoft_jobs_scraper/parser.py`
+- API Client: `scripts/microsoft_jobs_scraper/api_client.py` - `/api/pcsx/search` and position_details client
+- Configuration: `scripts/microsoft_jobs_scraper/config.py`
 
 **Shared Modules:**
-- Abstract Base: `scripts/shared/base_scraper.py` (~442 lines)
-- Database Layer: `scripts/shared/database.py` (~834 lines)
-- Incremental Algorithm: `scripts/shared/incremental.py` (~315 lines)
-- Data Models: `scripts/shared/models.py` (~62 lines)
-- Batch Writer: `scripts/shared/batch_writer.py` (~157 lines)
-- Utilities: `scripts/shared/utils.py` (~13 lines)
+- `scripts/shared/base_scraper.py` - Abstract base class for all company scrapers
+- `scripts/shared/database.py` - PostgreSQL database layer with CRUD operations
+- `scripts/shared/incremental.py` - 5-phase incremental scraping algorithm
+- `scripts/shared/models.py` - Database-aligned Pydantic models (JobListing, ScrapeRun)
+- `scripts/shared/batch_writer.py` - Buffered batch writing utility
+- `scripts/shared/utils.py` - Shared utilities (timestamps)
 
 **Testing:**
 - Test Config: `scripts/pytest.ini`
 - Fixtures: `scripts/tests/conftest.py`
-- Unit Tests (16 files):
-  - `tests/unit/test_models.py`
-  - `tests/unit/test_utils.py`
-  - `tests/unit/test_parser_helpers.py`
-  - `tests/unit/test_incremental_diff.py`
-  - `tests/unit/test_batch_writer.py`
-  - `tests/unit/test_apple_parser.py`
-  - `tests/unit/test_apple_parser_mocked.py`
-  - `tests/unit/test_apple_api_client.py`
-  - `tests/unit/test_apple_scraper_methods.py`
-  - `tests/unit/test_base_scraper_initialize.py`
-  - `tests/unit/test_microsoft_parser.py`
-  - `tests/unit/test_microsoft_api_client.py`
-  - `tests/unit/test_microsoft_scraper_methods.py`
-  - `tests/unit/test_augment_db_url.py`
-  - `tests/unit/test_pytest_config_excludes_e2e.py`
-  - `tests/unit/test_scraper_specs_complete.py`
-- Integration Tests (11 files):
-  - `tests/integration/test_database.py`
-  - `tests/integration/test_incremental.py`
-  - `tests/integration/test_apple_scraper.py`
-  - `tests/integration/test_apple_scraper_async.py`
-  - `tests/integration/test_apple_detail_fetch.py`
-  - `tests/integration/test_microsoft_scraper.py`
-  - `tests/integration/test_microsoft_scraper_async.py`
-  - `tests/integration/test_microsoft_detail_fetch.py`
-  - `tests/integration/test_scraper_transform.py`
-  - `tests/integration/test_alembic_parity.py`
-  - `tests/integration/test_job_freshness.py`
+- Unit tests: `scripts/tests/unit/`
+- Integration tests: `scripts/tests/integration/`
 
 **Output:**
 - JSON: `scripts/output/google_jobs.json` (`scripts/output/` is created at runtime by `ensure_output_directory()` — not committed to the repo)
