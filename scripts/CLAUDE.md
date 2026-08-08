@@ -77,9 +77,9 @@ pip install -r scripts/requirements-dev.txt      # Install dev dependencies (tes
 
 **Shared Modules:**
 - `shared/base_scraper.py` - Abstract base class for all company scrapers (~442 lines)
-- `shared/database.py` - PostgreSQL database layer with CRUD operations (~834 lines)
-- `shared/incremental.py` - 5-phase incremental scraping algorithm (~315 lines)
-- `shared/models.py` - Database-aligned Pydantic models (JobListing, ScrapeRun) (~62 lines)
+- `shared/database.py` - PostgreSQL database layer with CRUD operations (~1040 lines)
+- `shared/incremental.py` - 5-phase incremental scraping algorithm (~761 lines)
+- `shared/models.py` - Database-aligned Pydantic models (JobListing, ScrapeRun) (~74 lines)
 - `shared/batch_writer.py` - Buffered batch writing utility (~157 lines)
 - `shared/utils.py` - Shared utilities (timestamps) (~13 lines)
 - `shared/constants.py` - Shared constants (table names, etc.)
@@ -261,16 +261,16 @@ Edit company-specific `config.py`:
 
 **Shared Modules:**
 - Abstract Base: `scripts/shared/base_scraper.py` (~442 lines)
-- Database Layer: `scripts/shared/database.py` (~834 lines)
-- Incremental Algorithm: `scripts/shared/incremental.py` (~315 lines)
-- Data Models: `scripts/shared/models.py` (~62 lines)
+- Database Layer: `scripts/shared/database.py` (~1040 lines)
+- Incremental Algorithm: `scripts/shared/incremental.py` (~761 lines)
+- Data Models: `scripts/shared/models.py` (~74 lines)
 - Batch Writer: `scripts/shared/batch_writer.py` (~157 lines)
 - Utilities: `scripts/shared/utils.py` (~13 lines)
 
 **Testing:**
 - Test Config: `scripts/pytest.ini`
 - Fixtures: `scripts/tests/conftest.py`
-- Unit Tests (16 files):
+- Unit Tests (17 files):
   - `tests/unit/test_models.py`
   - `tests/unit/test_utils.py`
   - `tests/unit/test_parser_helpers.py`
@@ -287,6 +287,7 @@ Edit company-specific `config.py`:
   - `tests/unit/test_augment_db_url.py`
   - `tests/unit/test_pytest_config_excludes_e2e.py`
   - `tests/unit/test_scraper_specs_complete.py`
+  - `tests/unit/test_scraper_health_workflow.py`
 - Integration Tests (11 files):
   - `tests/integration/test_database.py`
   - `tests/integration/test_incremental.py`
