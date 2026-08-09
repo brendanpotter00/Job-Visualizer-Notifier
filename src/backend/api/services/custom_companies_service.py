@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 import psycopg2
@@ -43,7 +44,7 @@ def find_owned_company_by_source_key(
     cursor.execute(
         """
         SELECT c.id, c.display_name, c.ats, c.board_token, c.health_state,
-               c.last_success_at, c.created_at
+               c.last_success_at, c.tracking_started_at, c.created_at
         FROM user_companies uc
         JOIN companies c ON c.id = uc.company_id
         WHERE uc.user_id = %s AND uc.canonical_source_key = %s
@@ -116,6 +117,13 @@ def add_custom_company(
     """
     source_key = canonical_source_key(ats, board_token)
     script = {"kind": "ats_client", "provider": ats, "token": board_token}
+    # Store the real oracle for the resolved ATS (DECISION D2). This is
+    # book-keeping only — the gate derives the effective oracle from the provider
+    # at gate time, so a row left at 'none' (a Phase-1 add) still graduates. New
+    # adds record it so a reader can see it without re-deriving.
+    from .harvest_verification import effective_oracle_kind
+
+    oracle_kind = effective_oracle_kind(ats)
 
     last_error: Optional[psycopg2.Error] = None
     for _ in range(_ID_GENERATION_ATTEMPTS):
@@ -149,9 +157,9 @@ def add_custom_company(
                 """
                 INSERT INTO company_scripts (
                     company_id, script, script_version, transport, oracle_kind
-                ) VALUES (%s, %s::jsonb, 1, 'ats_client', 'none')
+                ) VALUES (%s, %s::jsonb, 1, 'ats_client', %s)
                 """,
-                (company_id, json.dumps(script)),
+                (company_id, json.dumps(script), oracle_kind),
             )
             cursor.execute(
                 """
@@ -173,6 +181,7 @@ def add_custom_company(
                 "board_token": board_token,
                 "health_state": "unverified",
                 "last_success_at": None,
+                "tracking_started_at": None,
                 "source_id": custom(company_id),
                 "open_job_count": 0,
             }
@@ -223,7 +232,7 @@ def list_owned_companies(conn: Connection, user_id: str) -> list[dict[str, Any]]
         """
         SELECT
             c.id, c.display_name, c.ats, c.board_token, c.health_state,
-            c.last_success_at, c.enabled, c.created_at,
+            c.last_success_at, c.tracking_started_at, c.enabled, c.created_at,
             (
                 SELECT count(*) FROM job_listings j
                 WHERE j.company = c.id
@@ -254,7 +263,7 @@ def get_company_if_owner(
     cursor.execute(
         """
         SELECT c.id, c.display_name, c.ats, c.board_token, c.health_state,
-               c.last_success_at, c.enabled, c.created_at
+               c.last_success_at, c.tracking_started_at, c.enabled, c.created_at
         FROM user_companies uc
         JOIN companies c ON c.id = uc.company_id
         WHERE uc.user_id = %s AND c.id = %s
@@ -325,6 +334,7 @@ def load_custom_company_for_run(
     cursor.execute(
         """
         SELECT c.ats, c.board_token, c.provider_config, c.enabled, c.visibility,
+               c.cadence_hours, c.tracking_started_at,
                s.script, s.oracle_kind, s.transport, s.script_version
         FROM companies c
         JOIN company_scripts s ON s.company_id = c.id
@@ -360,6 +370,165 @@ def mark_last_success(conn: Connection, company_id: str) -> None:
     except psycopg2.Error:
         conn.rollback()
         raise
+
+
+def mark_verified(conn: Connection, company_id: str, *, set_tracking: bool) -> None:
+    """Flip a custom company to ``health_state='healthy'`` after a VERIFIED run.
+
+    Called on every VERIFIED harvest (the run PROVED it saw the whole board, so
+    the company is healthy regardless of whether it closed anything this run).
+    On the FIRST VERIFIED run (``set_tracking=True``) it also stamps
+    ``tracking_started_at`` — but only if still NULL, via ``COALESCE``, so a
+    retry or a later run can never move the tracking origin. Commits on its own,
+    mirroring ``mark_last_success`` / ``record_company_harvest``.
+    """
+    cursor = conn.cursor()
+    try:
+        if set_tracking:
+            cursor.execute(
+                "UPDATE companies SET health_state = 'healthy', "
+                "tracking_started_at = COALESCE(tracking_started_at, now()) "
+                "WHERE id = %s",
+                (company_id,),
+            )
+        else:
+            cursor.execute(
+                "UPDATE companies SET health_state = 'healthy' WHERE id = %s",
+                (company_id,),
+            )
+        conn.commit()
+    except psycopg2.Error:
+        conn.rollback()
+        raise
+
+
+def consecutive_verified(conn: Connection, company_id: str, *, limit: int = 10) -> int:
+    """Count the company's trailing run of VERIFIED harvests (E7 §Task D.3).
+
+    Reads ``company_harvests`` most-recent-first and counts the leading run of
+    ``verdict='VERIFIED'`` rows until the first non-VERIFIED (or NULL) row stops
+    the count — mirroring ``count_consecutive_partial_skips``. Gates
+    ``self_consistent`` closes: a company may only close once THIS run makes its
+    consecutive-VERIFIED streak reach 3.
+
+    NOTE: the current run's ``company_harvests`` row is written in the leaf task's
+    ``finally`` — AFTER this is read — so the returned count is the PRIOR streak,
+    excluding the run in flight.
+    """
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            """
+            SELECT verdict FROM company_harvests
+            WHERE company_id = %s
+            ORDER BY started_at DESC
+            LIMIT %s
+            """,
+            (company_id, max(1, limit)),
+        )
+        rows = cursor.fetchall()
+    finally:
+        # SELECT-only — never leave the caller's connection idle-in-transaction.
+        conn.rollback()
+
+    streak = 0
+    for row in rows:
+        if row["verdict"] != "VERIFIED":
+            break
+        streak += 1
+    return streak
+
+
+def script_changed_since_last(conn: Connection, company_id: str) -> bool:
+    """True iff the stored script changed since the last VERIFIED harvest (D.2).
+
+    ``company_scripts.updated_at > max(completed_at of prior VERIFIED
+    company_harvests)`` — uses the existing ``updated_at`` (no new column). "The
+    first run after any script/baseline change closes nothing" is enforced by
+    this returning True on that first run.
+
+    In Phase 2 scripts never change (repair is Phase 5), so ``updated_at`` is the
+    creation time, which predates every harvest → this is always False and the
+    branch is a forward seam. Returns False when there are no prior VERIFIED
+    harvests (that day-one case is covered by the first-VERIFIED-run branch,
+    which has precedence).
+    """
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            """
+            SELECT s.updated_at AS script_updated_at,
+                   (
+                       SELECT max(h.completed_at)
+                       FROM company_harvests h
+                       WHERE h.company_id = %s AND h.verdict = 'VERIFIED'
+                   ) AS last_verified_at
+            FROM company_scripts s
+            WHERE s.company_id = %s
+            """,
+            (company_id, company_id),
+        )
+        row = cursor.fetchone()
+    finally:
+        conn.rollback()
+
+    if row is None or row["last_verified_at"] is None:
+        return False
+    updated_at = row["script_updated_at"]
+    if updated_at is None:
+        return False
+    return bool(updated_at > row["last_verified_at"])
+
+
+def fleet_breaker_tripped(
+    conn: Connection,
+    *,
+    window_hours: float = 24.0,
+    min_sample: int = 5,
+    fail_fraction: float = 0.20,
+) -> bool:
+    """Fleet circuit breaker (§4.3): did > 20% of the night's custom runs FAIL?
+
+    If so, NO custom company closes that night — the check that would have made
+    the 2026-03-29 mass closure a non-event. Computed as a night-scoped aggregate
+    over ``scrape_runs`` (there is no barrier where "the night's companies" all
+    finish, so each leaf task reads this right before its close step):
+
+        tripped iff total >= min_sample AND failed / total > fail_fraction
+
+    Global across ALL custom companies on purpose — a systemic failure (a shared
+    client bug now, a Browserbase outage in Phase 4) is exactly the class this
+    generalizes. It never touches another user's DATA (source_id isolation
+    holds); it only SUPPRESSES this company's close.
+
+    ``scrape_runs.started_at`` is ISO-8601 Text, so the cutoff is a Python-
+    computed ISO string compared lexicographically (correct for zero-padded UTC).
+    """
+    cutoff = (
+        datetime.now(timezone.utc) - timedelta(hours=window_hours)
+    ).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            """
+            SELECT count(*) AS total,
+                   count(*) FILTER (WHERE success IS FALSE) AS failed
+            FROM scrape_runs
+            WHERE source_id LIKE 'custom:%%' AND started_at >= %s
+            """,
+            (cutoff,),
+        )
+        row = cursor.fetchone()
+    finally:
+        conn.rollback()
+
+    if row is None:
+        return False
+    total = int(row["total"] or 0)
+    failed = int(row["failed"] or 0)
+    if total < min_sample:
+        return False
+    return (failed / total) > fail_fraction
 
 
 def record_company_harvest(

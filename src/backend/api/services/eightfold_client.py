@@ -54,6 +54,8 @@ from scripts.shared.constants import SourceId
 from scripts.shared.models import JobListing
 from scripts.shared.utils import get_iso_timestamp
 
+from .harvest_meta import HarvestEvidence
+
 logger = logging.getLogger(__name__)
 
 SOURCE_ID = SourceId.EIGHTFOLD
@@ -119,46 +121,26 @@ def _is_allowed_eightfold_host(host: str | None) -> bool:
 # -----------------------------------------------------------------------------
 
 
-async def fetch_jobs(
+async def fetch_jobs_with_meta(
     tenant_host: str,
     domain: str,
     http: httpx.AsyncClient,
-) -> list[dict]:
-    """Fetch all positions for an Eightfold tenant via sequential pagination.
+) -> tuple[list[dict], HarvestEvidence]:
+    """Fetch an Eightfold tenant AND the completeness evidence around it (E7).
 
-    Issues GET requests to ``https://{tenant_host}/api/apply/v2/jobs`` with
-    ``domain``, ``num``, ``start`` query params. Eightfold caps each page at
-    10 rows, so this walks ``start=0, 10, 20, ...`` until one of the break
-    conditions trips:
+    Same sequential ``start=0,10,20,…`` GET loop as the public path, but ALSO
+    surfaces the completeness signals. NOTE the oracle asymmetry: Eightfold's
+    ``count`` is captured as ``declared_total`` for the harvest record, but the
+    gate treats Eightfold as ``self_consistent`` and NEVER trusts ``count`` as
+    the oracle — Eightfold is documented to over/under-report, which is exactly
+    why it is not ``declared_probed``.
 
-    - ``len(all_positions) >= count`` (server-reported total, captured on
-      page 1)
-    - empty positions array (defensive — Eightfold sometimes returns 0 rows
-      before the reported ``count`` is exhausted; we still treat empty as
-      "we're done")
-    - partial page (< ``EIGHTFOLD_PAGE_SIZE`` rows — the real-world end-of-
-      data signal, since Eightfold under-reports ``count`` more often than
-      it over-reports)
-    - ``MAX_PAGES`` cap — ERROR log + partial-return backstop (see module
-      docstring for rationale)
-
-    Raises
-    ------
-    ValueError
-        - ``tenant_host`` is not on the SSRF allowlist. Raised BEFORE any
-          outbound HTTP call. This is the load-bearing security check that
-          replaced ``api/eightfold.ts``.
-        - Any page is missing ``positions`` (non-list) or ``count``
-          (non-int).
-    httpx.HTTPStatusError
-        Non-2xx on any page aborts the whole fetch (Eightfold pages don't
-        compose well — a 500 mid-walk likely means subsequent pages are
-        broken too, so we surface the failure to Procrastinate's retry).
-
-    Returns
-    -------
-    list[dict]
-        Aggregated raw positions across all pages. May be empty.
+    * ``cap_hit`` = the ``for/else`` cap path ran (``MAX_PAGES`` without a natural
+      break) → the gate maps it to UNVERIFIED.
+    * ``terminated_cleanly`` = a natural break fired (reached-total / empty /
+      partial page).
+    * ``page_advance_ok`` = every page's position-id set was disjoint from the
+      union so far.
     """
     # SSRF check before any DNS resolution / TCP / TLS handshake.
     # This is the only defense after Unit 7 deletes the Vercel proxy.
@@ -177,6 +159,9 @@ async def fetch_jobs(
     all_positions: list[dict] = []
     total: Optional[int] = None
     iterations = 0
+    seen_page_keys: set[str] = set()
+    page_advance_ok = True
+    cap_hit = False
 
     for iteration in range(1, MAX_PAGES + 1):
         iterations = iteration
@@ -235,6 +220,16 @@ async def fetch_jobs(
                 )
                 total = None
 
+        # Check 6 — this page's ids disjoint from every prior page.
+        page_keys = {
+            k for k in (_extract_eightfold_id(p) for p in positions
+                        if isinstance(p, dict))
+            if k is not None
+        }
+        if page_keys & seen_page_keys:
+            page_advance_ok = False
+        seen_page_keys |= page_keys
+
         all_positions.extend(positions)
         page_size = len(positions)
 
@@ -265,6 +260,7 @@ async def fetch_jobs(
         # rather than raising — see module docstring for rationale.
         # ERROR level so Railway routes it to stderr (where @level:error
         # is queryable).
+        cap_hit = True
         logger.error(
             "Eightfold pagination MAX_PAGES (%d) reached for %s: returning "
             "partial result of %d positions (server-reported total was %r). "
@@ -274,10 +270,43 @@ async def fetch_jobs(
         )
 
     logger.info(
-        "Eightfold fetched %d positions for %s in %d pages",
-        len(all_positions), tenant_host, iterations,
+        "Eightfold fetched %d positions for %s in %d pages (cap_hit=%s)",
+        len(all_positions), tenant_host, iterations, cap_hit,
     )
-    return all_positions
+    evidence = HarvestEvidence(
+        declared_total=total,       # evidence only — never the oracle
+        cap_hit=cap_hit,
+        terminated_cleanly=not cap_hit,
+        page_advance_ok=page_advance_ok,
+        pages_fetched=iterations,
+    )
+    return all_positions, evidence
+
+
+async def fetch_jobs(
+    tenant_host: str,
+    domain: str,
+    http: httpx.AsyncClient,
+) -> list[dict]:
+    """Fetch all positions for an Eightfold tenant via sequential pagination.
+
+    Thin delegator over :func:`fetch_jobs_with_meta` that discards the evidence,
+    so the PUBLIC Eightfold cron keeps byte-identical behavior — including the
+    ``MAX_PAGES`` ERROR-log + partial-return backstop, which lives in
+    ``fetch_jobs_with_meta`` and therefore still fires here.
+
+    Raises
+    ------
+    ValueError
+        - ``tenant_host`` is not on the SSRF allowlist (raised before any
+          outbound HTTP call — the load-bearing check that replaced
+          ``api/eightfold.ts``).
+        - Any page is missing ``positions`` (non-list) or ``count`` (non-int).
+    httpx.HTTPStatusError
+        Non-2xx on any page aborts the whole fetch.
+    """
+    positions, _ = await fetch_jobs_with_meta(tenant_host, domain, http)
+    return positions
 
 
 # -----------------------------------------------------------------------------

@@ -73,15 +73,27 @@ class ScrapeRun(BaseModel):
     # outage (rule (a), explicitly never released) would supply the repetition
     # evidence that releases the next truncated run.
     #
-    # "unverified_harvest" (E7) is a DIFFERENT axis: it means a custom-company
-    # harvest could not be proven complete (no oracle), so its destructive
-    # close phase was skipped even though the upsert ran. It must never count
-    # toward the partial_scrape auto-release — an unknown is not evidence for
-    # releasing a destructive guard — and ``count_consecutive_partial_skips``
-    # already filters on 'partial_scrape' specifically, so adding this member
-    # here does not perturb that counter.
+    # The E7 members are a DIFFERENT axis: each names why a custom-company
+    # harvest's destructive close phase was skipped even though the upsert ran
+    # ("unverified_harvest" = not proven complete; "approximate_no_close" =
+    # tolerance>0; "fleet_breaker" = >20% of the night's custom runs failed;
+    # "first_verified_run"/"script_changed" = a first/post-change run closes
+    # nothing; "streak_too_short" = a self_consistent company below its 3-run
+    # streak). None of them count toward the partial_scrape auto-release —
+    # ``count_consecutive_partial_skips`` filters on 'partial_scrape' specifically.
+    # This Literal MUST stay in lockstep with ``incremental.GuardReason``, which
+    # is the source these strings are assigned from.
     guard_reason: Optional[
-        Literal["empty_scrape", "partial_scrape", "unverified_harvest"]
+        Literal[
+            "empty_scrape",
+            "partial_scrape",
+            "unverified_harvest",
+            "approximate_no_close",
+            "fleet_breaker",
+            "first_verified_run",
+            "script_changed",
+            "streak_too_short",
+        ]
     ] = None
     # --- Custom company sources (E7) -----------------------------------------
     # Per-company ``custom:<id>`` namespace for a custom company's runs (None for

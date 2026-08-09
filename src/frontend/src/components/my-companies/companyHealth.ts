@@ -17,16 +17,17 @@ export interface HealthBadge {
  * a blank chip — the `default` branch echoes the raw code so a screenshot stays
  * diagnosable.
  *
- * Phase-1 note: every company is `unverified` (no oracle exists yet), so its
- * copy deliberately reads as steady progress — "building history" — not as an
- * error. The trend page still renders; nothing about `unverified` is broken.
+ * Phase-1 note: `unverified` (no oracle yet) reads as steady progress —
+ * "building history" — not an error. Phase 2 graduates a proven company to
+ * `healthy`, whose badge stays in the same "Tracking — …" family so the two
+ * states read as one continuum rather than two unrelated words.
  */
 export function describeHealthState(healthState: string): HealthBadge {
   switch (healthState) {
     case 'unverified':
       return { label: 'Tracking — building history', color: 'info' };
     case 'healthy':
-      return { label: 'Healthy', color: 'success' };
+      return { label: 'Tracking — healthy', color: 'success' };
     case 'quarantined':
       return { label: 'Paused — needs a look', color: 'warning' };
     case 'refused':

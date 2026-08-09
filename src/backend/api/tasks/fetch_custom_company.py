@@ -50,17 +50,26 @@ from ..services import (
     workday_client,
 )
 from ..services import custom_companies_service as ccs
+from ..services.custom_baseline import compute_baseline
+from ..services.harvest_meta import HarvestEvidence
 from ..services.harvest_verification import (
     FAILED,
-    UNVERIFIED,
+    VERIFIED,
     HarvestGateError,
-    run_minimal_gate,
+    effective_oracle_kind,
+    run_gate,
     verify_harvest,
 )
 from .normalize_location import normalize_location
 from .procrastinate_app import procrastinate_app
 
 logger = logging.getLogger(__name__)
+
+# A ``self_consistent`` company (no trusted total) may only CLOSE once it has
+# demonstrated this many consecutive VERIFIED harvests — the extra caution the
+# self-consistency oracle carries over ``declared_probed``. Counted INCLUDING the
+# in-flight run (whose harvest row is not written until the finally block).
+_SELF_CONSISTENT_STREAK_REQUIRED = 3
 
 # Per-task wall-clock cap (matches the six ATS leaf tasks). Hitting this raises
 # asyncio.TimeoutError → Procrastinate retries. Tests monkeypatch it low.
@@ -123,37 +132,53 @@ async def _fetch_and_transform(
     provider_config: dict[str, Any],
     company_id: str,
     http: httpx.AsyncClient,
-) -> list[JobListing]:
-    """Run script primitive #1 — the existing ATS client for ``provider``.
+) -> tuple[list[JobListing], HarvestEvidence]:
+    """Run script primitive #1 — the ATS client for ``provider`` — AND capture
+    the completeness evidence the gate needs.
 
     Dispatches to the same clients the public fan-outs use, so a custom company
-    is harvested by identical, already-tested code. References the client
-    MODULES (not ``from x import fetch_jobs``) so a test can monkeypatch one
-    client's ``fetch_jobs`` and drive this task with controlled rows.
+    is harvested by identical, already-tested code. The three ATSs that carry a
+    trusted total / cap (Greenhouse, Workday, Eightfold) use ``fetch_jobs_with_meta``
+    so the gate can read ``declared_total`` / ``cap_hit`` / ``page_advance_ok``;
+    the single-shot no-total ATSs (Ashby/Lever/Gem) use plain ``fetch_jobs`` and
+    synthesize ``HarvestEvidence.single_shot(None)``. References the client
+    MODULES so a test can monkeypatch one client and drive this task.
     """
     if provider == "greenhouse":
-        raw = await greenhouse_client.fetch_jobs(board_token, http)
-        return greenhouse_client.transform_to_job_listings(company_id, raw)
+        raw, evidence = await greenhouse_client.fetch_jobs_with_meta(board_token, http)
+        return greenhouse_client.transform_to_job_listings(company_id, raw), evidence
     if provider == "ashby":
         raw = await ashby_client.fetch_jobs(board_token, http)
-        return ashby_client.transform_to_job_listings(company_id, raw)
+        return (
+            ashby_client.transform_to_job_listings(company_id, raw),
+            HarvestEvidence.single_shot(declared_total=None),
+        )
     if provider == "lever":
         raw = await lever_client.fetch_jobs(board_token, http)
-        return lever_client.transform_to_job_listings(company_id, raw)
+        return (
+            lever_client.transform_to_job_listings(company_id, raw),
+            HarvestEvidence.single_shot(declared_total=None),
+        )
     if provider == "gem":
         raw = await gem_client.fetch_jobs(board_token, http)
-        return gem_client.transform_to_job_listings(company_id, raw)
+        return (
+            gem_client.transform_to_job_listings(company_id, raw),
+            HarvestEvidence.single_shot(declared_total=None),
+        )
     if provider == "workday":
         workday_client._validate_provider_config(provider_config)
-        raw = await workday_client.fetch_jobs(provider_config, http)
-        return workday_client.transform_to_job_listings(company_id, raw, provider_config)
+        raw, evidence = await workday_client.fetch_jobs_with_meta(provider_config, http)
+        return (
+            workday_client.transform_to_job_listings(company_id, raw, provider_config),
+            evidence,
+        )
     if provider == "eightfold":
         tenant_host = provider_config.get("tenant_host", "")
         domain = provider_config.get("domain", "")
         if not tenant_host or not domain:
             raise ValueError("eightfold provider_config missing tenant_host/domain")
-        raw = await eightfold_client.fetch_jobs(tenant_host, domain, http)
-        return eightfold_client.transform_to_job_listings(company_id, raw)
+        raw, evidence = await eightfold_client.fetch_jobs_with_meta(tenant_host, domain, http)
+        return eightfold_client.transform_to_job_listings(company_id, raw), evidence
     raise ValueError(f"unsupported custom-company provider {provider!r}")
 
 
@@ -199,6 +224,7 @@ async def fetch_custom_company(company_id: str) -> None:
     source_id = custom(company_id)
     jobs_seen = 0
     new_jobs_count = 0
+    closed_jobs_count = 0
     error_count = 0
     guard_reason: GuardReason | None = None
     verdict = FAILED
@@ -207,6 +233,13 @@ async def fetch_custom_company(company_id: str) -> None:
     id_dedup_dropped = 0
     new_ids: Set[str] = set()
     scrape_error: BaseException | None = None
+    # E7 gate evidence, recorded on company_harvests even for a FAILED run.
+    oracle_kind_effective = "none"
+    declared_total: int | None = None
+    oracle_total: int | None = None
+    cap_hit = False
+    page_advance_ok: bool | None = None
+    tolerance_used = 0.0
 
     conn = await asyncio.to_thread(
         db.get_connection,
@@ -217,9 +250,11 @@ async def fetch_custom_company(company_id: str) -> None:
     try:
         try:
             async def _work() -> None:
-                nonlocal jobs_seen, new_jobs_count, error_count, guard_reason
-                nonlocal verdict, verdict_reason, records_harvested, id_dedup_dropped
-                nonlocal new_ids
+                nonlocal jobs_seen, new_jobs_count, closed_jobs_count, error_count
+                nonlocal guard_reason, verdict, verdict_reason, records_harvested
+                nonlocal id_dedup_dropped, new_ids, oracle_kind_effective
+                nonlocal declared_total, oracle_total, cap_hit, page_advance_ok
+                nonlocal tolerance_used
 
                 company = await asyncio.to_thread(
                     ccs.load_custom_company_for_run, conn, company_id
@@ -241,37 +276,59 @@ async def fetch_custom_company(company_id: str) -> None:
                 provider = str(script.get("provider") or company["ats"])
                 board_token = str(script.get("token") or company["board_token"])
                 provider_config = dict(company["provider_config"] or {})
+                # DECISION D2: derive the effective oracle from the ATS provider,
+                # NOT from the stored oracle_kind — so a Phase-1 row seeded 'none'
+                # graduates with no backfill.
+                oracle_kind_effective = effective_oracle_kind(provider)
+                cadence_hours = float(company.get("cadence_hours") or 24)
+                is_first_verified = company.get("tracking_started_at") is None
 
                 async with httpx.AsyncClient() as http:
-                    raw_jobs = await _fetch_and_transform(
+                    raw_jobs, evidence = await _fetch_and_transform(
                         provider, board_token, provider_config, company_id, http
                     )
                 jobs = _remap_for_custom(
                     raw_jobs, company_id, source_id, datetime.now(timezone.utc)
                 )
+                # Record the raw evidence now, so even a gate-raised FAILED run
+                # captures it on company_harvests.
+                declared_total = evidence.declared_total
+                cap_hit = evidence.cap_hit
+                page_advance_ok = evidence.page_advance_ok
 
-                # ===== Minimal Phase-1 gate (checks 1, 2, 7-dedup, 8) =====
-                # Raises HarvestGateError on empty/short/dup — a FAILED run.
-                gate = run_minimal_gate(jobs)
+                # ===== Structural gate (checks 2 zero-aware, 3, 7-dedup, 8) =====
+                # Raises HarvestGateError only on a genuinely broken run → FAILED.
+                gate = run_gate(jobs, evidence, oracle_kind=oracle_kind_effective)
                 jobs = gate.jobs
                 jobs_seen = gate.records_harvested
                 records_harvested = gate.records_harvested
                 id_dedup_dropped = gate.id_dedup_dropped
 
-                # ===== Verdict: oracle_kind='none' ⇒ UNVERIFIED, always =====
-                decision = verify_harvest(company, gate, baseline=None)
+                # ===== Verdict (checks 5, 6, 7-vs-total, 9, 10, 11, 12) =====
+                baseline = await asyncio.to_thread(compute_baseline, conn, company_id)
+                decision = verify_harvest(
+                    oracle_kind_effective, gate, evidence, baseline
+                )
                 verdict = decision.verdict
                 verdict_reason = decision.reason
+                tolerance_used = decision.tolerance_used
+                oracle_total = decision.oracle_total
+                if decision.declared_total is not None:
+                    declared_total = decision.declared_total
+                cap_hit = decision.cap_hit or cap_hit
+                if decision.page_advance_ok is not None:
+                    page_advance_ok = decision.page_advance_ok
 
                 active_count = await asyncio.to_thread(
                     db.count_active_jobs, conn, source_id, company_id
                 )
-                # The completeness verdict is ANDed with the existing safety
-                # guard (never a replacement). In Phase 1 the destructive path is
-                # unreachable (verdict is always UNVERIFIED), so the guard only
-                # decides which reason is recorded on the run.
+                # The completeness verdict is ANDed with the existing safety guard
+                # (never a replacement). Custom companies pass their learned
+                # per-company min_ratio (the 0.5 floor until calibrated); the six
+                # public crons keep the global 0.85 (min_ratio defaults to None).
                 guard = await asyncio.to_thread(
-                    resolve_safety_guard, conn, company_id, jobs_seen, active_count
+                    resolve_safety_guard, conn, company_id, jobs_seen, active_count,
+                    min_ratio=baseline.min_ratio,
                 )
 
                 timestamp = get_iso_timestamp()
@@ -316,12 +373,12 @@ async def fetch_custom_company(company_id: str) -> None:
                 # right state. Do NOT reorder these without re-doing the analysis.
                 # =================================================================
                 #
-                # PHASE 1 DIVERGENCE (E7): the verdict is UNVERIFIED (no oracle
-                # exists yet), so ONLY steps 1-2 run. Steps 3-4 — the destructive
-                # miss-increment and close — are deliberately NOT executed: an
-                # UNVERIFIED run may never close a job. The verbatim ordering above
-                # is retained because Phase 2 wires steps 3-4 back on for VERIFIED
-                # runs and the order is what makes that close path safe.
+                # PHASE 2 (E7): steps 1-2 run under EVERY non-FAILED verdict
+                # (UNVERIFIED still upserts + refreshes last_seen — writing the rows
+                # we DID get can only move jobs away from closure). Steps 3-4 — the
+                # destructive miss-increment and close — run ONLY on a VERIFIED run
+                # that also clears every safety gate below. An UNVERIFIED run may
+                # never close a job; that is the load-bearing invariant.
 
                 if jobs:
                     await asyncio.to_thread(db.upsert_jobs_batch, conn, jobs)
@@ -334,17 +391,84 @@ async def fetch_custom_company(company_id: str) -> None:
                 new_ids = seen_ids - pre_upsert_active
                 new_jobs_count = len(new_ids)
 
-                # UNVERIFIED never closes. guard_reason records WHY the destructive
-                # phase was skipped: the safety guard's own reason wins if it
-                # tripped (§4 precedence), otherwise 'unverified_harvest'.
-                guard_reason = (
-                    guard.reason if guard.reason is not None else "unverified_harvest"
-                )
+                # A VERIFIED run PROVED it saw the whole board → the company is
+                # healthy; the FIRST VERIFIED run also stamps tracking_started_at.
+                if verdict == VERIFIED:
+                    await asyncio.to_thread(
+                        ccs.mark_verified, conn, company_id,
+                        set_tracking=is_first_verified,
+                    )
+
+                # ---- close-eligibility precedence (verdict-FIRST; DECISION D1) --
+                # guard_reason records WHY the destructive close was skipped (None
+                # = a clean VERIFIED close-eligible run). ``increment_misses`` and
+                # ``close_eligible`` split the two destructive sub-steps: a
+                # streak-building self_consistent run accrues misses but may not
+                # close yet (so the accrued misses close it the moment the streak
+                # completes), while every non-VERIFIED / guarded / first-run /
+                # fleet-outage case does NEITHER.
+                increment_misses = False
+                close_eligible = False
+                if verdict != VERIFIED:
+                    guard_reason = "unverified_harvest"
+                elif guard.reason is not None:
+                    guard_reason = guard.reason
+                elif tolerance_used > 0:
+                    guard_reason = "approximate_no_close"
+                elif await asyncio.to_thread(ccs.fleet_breaker_tripped, conn):
+                    guard_reason = "fleet_breaker"
+                elif is_first_verified:
+                    guard_reason = "first_verified_run"
+                elif await asyncio.to_thread(
+                    ccs.script_changed_since_last, conn, company_id
+                ):
+                    guard_reason = "script_changed"
+                elif oracle_kind_effective == "self_consistent" and (
+                    await asyncio.to_thread(ccs.consecutive_verified, conn, company_id)
+                    + 1 < _SELF_CONSISTENT_STREAK_REQUIRED
+                ):
+                    # Streak still building: accrue misses so the run that finally
+                    # completes the streak can act on them, but do not close yet.
+                    guard_reason = "streak_too_short"
+                    increment_misses = True
+                else:
+                    guard_reason = None
+                    increment_misses = True
+                    close_eligible = True
+
+                if increment_misses:
+                    post_upsert_active = await asyncio.to_thread(
+                        db.get_active_job_ids, conn, source_id, company_id
+                    )
+                    missing_ids = post_upsert_active - seen_ids
+                    if missing_ids:
+                        await asyncio.to_thread(
+                            db.increment_consecutive_misses,
+                            conn, source_id, list(missing_ids),
+                        )
+                        if close_eligible:
+                            # 36h wall-clock floor (§4.2) — on last_seen_at, NOT
+                            # the miss counter, so a scheduler double-fire / manual
+                            # rerun cannot shortcut it. guard.miss_threshold (not a
+                            # bare 2) so an auto-released run closes one miss later.
+                            to_close = await asyncio.to_thread(
+                                db.get_jobs_exceeding_miss_threshold,
+                                conn, source_id, list(missing_ids),
+                                guard.miss_threshold,
+                                min_seen_age_hours=1.5 * cadence_hours,
+                            )
+                            if to_close:
+                                await asyncio.to_thread(
+                                    db.mark_jobs_closed,
+                                    conn, source_id, list(to_close), timestamp,
+                                )
+                                closed_jobs_count = len(to_close)
 
                 logger.info(
-                    "fetch_custom_company %s: verdict=%s seen=%d new=%d closed=0 "
-                    "(guard_reason=%s)",
-                    company_id, verdict, jobs_seen, new_jobs_count, guard_reason,
+                    "fetch_custom_company %s: verdict=%s seen=%d new=%d closed=%d "
+                    "(oracle=%s guard_reason=%s)",
+                    company_id, verdict, jobs_seen, new_jobs_count,
+                    closed_jobs_count, oracle_kind_effective, guard_reason,
                 )
 
             await asyncio.wait_for(_work(), timeout=_TASK_TIMEOUT_S)
@@ -396,16 +520,15 @@ async def fetch_custom_company(company_id: str) -> None:
             scrape_error = e
     finally:
         completed_at = get_iso_timestamp()
-        success = scrape_error is None and verdict == UNVERIFIED
+        # A SUCCESSFUL run is any executed, non-FAILED harvest — VERIFIED OR
+        # UNVERIFIED. (Phase 1 gated this on ==UNVERIFIED; Phase 2 adds VERIFIED.)
+        success = scrape_error is None and verdict != FAILED
 
-        # On a SUCCESSFUL (non-FAILED, actually-executed) harvest, stamp
-        # companies.last_success_at = now() — same condition as
-        # scrape_runs.success below. Without this the "last checked" UI reads
-        # "Not yet checked" forever, because in Phase 1 every run is UNVERIFIED
-        # and nothing else moves last_success_at. health_state / tracking_started_at
-        # are intentionally untouched here (see mark_last_success). A FAILED run
-        # (success=False) never updates it. A write failure here must not mask the
-        # run bookkeeping below, so it is logged and swallowed.
+        # On a SUCCESSFUL harvest, stamp companies.last_success_at = now() so the
+        # "last checked" UI stops reading "Not yet checked". health_state /
+        # tracking_started_at are moved by mark_verified inside _work (VERIFIED
+        # runs only), not here. A FAILED run (success=False) never updates it. A
+        # write failure here must not mask the run bookkeeping below.
         if success:
             try:
                 await asyncio.to_thread(ccs.mark_last_success, conn, company_id)
@@ -414,8 +537,9 @@ async def fetch_custom_company(company_id: str) -> None:
                     "Failed to update last_success_at for %s", company_id
                 )
 
-        # Per-run evidence — written for every run (UNVERIFIED or FAILED) so a
-        # wrong match / silent failure is diagnosable weeks later.
+        # Per-run evidence — written for every run (VERIFIED/UNVERIFIED/FAILED) so
+        # a wrong match / silent failure is diagnosable weeks later. oracle_kind is
+        # the EFFECTIVE oracle (D2), and the completeness signals ride along.
         try:
             await asyncio.to_thread(
                 ccs.record_company_harvest,
@@ -427,8 +551,13 @@ async def fetch_custom_company(company_id: str) -> None:
                 verdict=verdict,
                 verdict_reason=verdict_reason,
                 records_harvested=records_harvested,
-                oracle_kind="none",
+                oracle_kind=oracle_kind_effective,
                 id_dedup_dropped=id_dedup_dropped,
+                declared_total=declared_total,
+                oracle_total=oracle_total,
+                cap_hit=cap_hit,
+                page_advance_ok=page_advance_ok,
+                tolerance_used=tolerance_used,
             )
         except Exception:
             logger.exception("Failed to record company_harvest for %s", run_id)
@@ -441,7 +570,7 @@ async def fetch_custom_company(company_id: str) -> None:
             mode="full",
             jobs_seen=jobs_seen,
             new_jobs=new_jobs_count,
-            closed_jobs=0,  # Phase 1 never closes.
+            closed_jobs=closed_jobs_count,  # real count (VERIFIED runs may close)
             details_fetched=0,
             error_count=error_count,
             skipped_update=False,

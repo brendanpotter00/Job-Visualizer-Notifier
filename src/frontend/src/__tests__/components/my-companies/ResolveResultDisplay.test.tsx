@@ -52,6 +52,7 @@ const ADDED: UserCompany = {
   healthState: 'unverified',
   openJobCount: 0,
   lastSuccessAt: null,
+  trackingStartedAt: null,
 };
 
 let fetchMock: ReturnType<typeof vi.fn>;

@@ -69,13 +69,35 @@ logger = logging.getLogger(__name__)
 # fail loudly.
 #
 # ``empty_scrape`` / ``partial_scrape`` are the two safety-guard rules and are
-# the ONLY values ``resolve_safety_guard`` ever returns. ``unverified_harvest``
-# (E7) is written directly by the custom-company leaf task, not by the guard:
-# it means a harvest could not be proven complete (no oracle), so the close
-# phase was skipped even though the upsert ran. It must NEVER count toward the
-# partial_scrape auto-release — ``count_consecutive_partial_skips`` filters on
-# 'partial_scrape' specifically, so adding this member does not perturb it.
-GuardReason = Literal["empty_scrape", "partial_scrape", "unverified_harvest"]
+# the ONLY values ``resolve_safety_guard`` ever returns. The remaining members
+# (E7) are written DIRECTLY by the custom-company leaf task, not by the guard —
+# each names a distinct reason the close phase was skipped even though the upsert
+# ran:
+#   * ``unverified_harvest`` — the completeness verdict was not VERIFIED.
+#   * ``approximate_no_close`` — a VERIFIED run whose oracle used tolerance > 0
+#     (dormant in Phase 2, wired for the Phase-3 facet_sum oracle).
+#   * ``fleet_breaker`` — > 20% of the night's custom runs FAILED, so nobody
+#     closes that night (§4.3).
+#   * ``first_verified_run`` — the company's first VERIFIED harvest (or first
+#     after a script/baseline change) closes nothing; a bad swap can then only
+#     add rows.
+#   * ``script_changed`` — the stored script changed since the last VERIFIED
+#     harvest; the first run after it closes nothing.
+#   * ``streak_too_short`` — a ``self_consistent`` company that has not yet
+#     reached 3 consecutive VERIFIED runs may not close.
+# CRITICAL: none of these count toward the partial_scrape auto-release —
+# ``count_consecutive_partial_skips`` filters on 'partial_scrape' specifically,
+# so adding these members does not perturb it.
+GuardReason = Literal[
+    "empty_scrape",
+    "partial_scrape",
+    "unverified_harvest",
+    "approximate_no_close",
+    "fleet_breaker",
+    "first_verified_run",
+    "script_changed",
+    "streak_too_short",
+]
 
 # Threshold for marking jobs as closed (number of consecutive misses)
 MISSED_RUN_THRESHOLD = 2
@@ -299,6 +321,8 @@ def evaluate_safety_guard(
     jobs_seen: int,
     active_count: int,
     consecutive_partial_skips: int = 0,
+    *,
+    min_ratio: Optional[float] = None,
 ) -> Optional[GuardReason]:
     """Decide whether a scrape result is too small to trust.
 
@@ -317,6 +341,14 @@ def evaluate_safety_guard(
             ``database.count_consecutive_partial_skips``; ``resolve_
             safety_guard`` does that plumbing. Left at 0 the function is
             the plain stateless rule pair.
+        min_ratio: PER-COMPANY override for rule (b)'s ratio
+            (``SCRAPER_GUARD_MIN_RATIO``, 0.85). ``None`` (the default, and
+            what all six public crons pass) uses the global — so their
+            behavior is byte-identical. Custom companies pass a learned
+            per-company ratio (see ``custom_baseline.compute_baseline``);
+            locally that is always the 0.5 floor. Rule (a) ``empty_scrape``
+            (10%) is NOT affected — a near-total outage is a hard floor for
+            every source regardless of calibration.
 
     Returns:
         ``None`` when the run looks healthy and the caller should proceed
@@ -340,8 +372,9 @@ def evaluate_safety_guard(
     if jobs_seen < SAFETY_GUARD_RATIO * active_count:
         return "empty_scrape"
 
+    effective_ratio = SCRAPER_GUARD_MIN_RATIO if min_ratio is None else min_ratio
     if (
-        jobs_seen < SCRAPER_GUARD_MIN_RATIO * active_count
+        jobs_seen < effective_ratio * active_count
         and (active_count - jobs_seen) >= SCRAPER_GUARD_MIN_ABS_DROP
     ):
         if consecutive_partial_skips >= SCRAPER_GUARD_MAX_CONSECUTIVE_SKIPS:
@@ -399,6 +432,8 @@ def resolve_safety_guard(
     company: str,
     jobs_seen: int,
     active_count: int,
+    *,
+    min_ratio: Optional[float] = None,
 ) -> GuardDecision:
     """``evaluate_safety_guard`` plus the bounded auto-release lookup.
 
@@ -416,12 +451,15 @@ def resolve_safety_guard(
         company: Company id, as written to ``scrape_runs.company``.
         jobs_seen: Number of jobs this scrape returned.
         active_count: Number of currently-OPEN rows for the company.
+        min_ratio: PER-COMPANY rule-(b) ratio override, threaded straight
+            into ``evaluate_safety_guard`` (both calls). ``None`` uses the
+            global 0.85 — so the six public crons are untouched.
 
     Returns:
         A ``GuardDecision``. ``reason`` follows ``evaluate_safety_guard``;
         ``released`` is True only on the run the auto-release let through.
     """
-    reason = evaluate_safety_guard(jobs_seen, active_count)
+    reason = evaluate_safety_guard(jobs_seen, active_count, min_ratio=min_ratio)
     if reason != "partial_scrape":
         return GuardDecision(reason=reason, released=False)
 
@@ -429,7 +467,8 @@ def resolve_safety_guard(
         db_conn, company, limit=SCRAPER_GUARD_MAX_CONSECUTIVE_SKIPS
     )
     resolved = evaluate_safety_guard(
-        jobs_seen, active_count, consecutive_partial_skips=prior_skips
+        jobs_seen, active_count, consecutive_partial_skips=prior_skips,
+        min_ratio=min_ratio,
     )
     # reason flipped from "partial_scrape" to None => this is a release,
     # not a healthy run. Everything downstream keys off that.

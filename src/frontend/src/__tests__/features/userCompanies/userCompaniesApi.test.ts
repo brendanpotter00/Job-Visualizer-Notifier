@@ -243,6 +243,7 @@ describe('userCompaniesApi', () => {
     healthState: 'unverified',
     openJobCount: 0,
     lastSuccessAt: null,
+    trackingStartedAt: null,
   };
 
   describe('getUserCompanies', () => {

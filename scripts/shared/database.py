@@ -761,7 +761,12 @@ def mark_jobs_closed(
 
 
 def get_jobs_exceeding_miss_threshold(
-    conn: Connection, source_id: str, job_ids: List[str], threshold: int
+    conn: Connection,
+    source_id: str,
+    job_ids: List[str],
+    threshold: int,
+    *,
+    min_seen_age_hours: Optional[float] = None,
 ) -> Set[str]:
     """
     Get job IDs where consecutive_misses >= threshold in a single query.
@@ -773,9 +778,17 @@ def get_jobs_exceeding_miss_threshold(
             an empty set and skip the close phase.
         job_ids: List of job IDs to check
         threshold: Minimum consecutive_misses value
+        min_seen_age_hours: OPTIONAL wall-clock floor (E7 §4.2). When set, a job
+            only qualifies if its ``last_seen_at`` is older than
+            ``now() - <min_seen_age_hours> hours`` — a hard 36h-style floor that
+            a scheduler double-fire or manual rerun cannot shortcut, because it
+            is on the timestamp, not the miss counter. ``None`` (the default, and
+            what all six public crons pass) omits the clause → byte-identical to
+            the pre-E7 query.
 
     Returns:
-        Set of job IDs that have consecutive_misses >= threshold
+        Set of job IDs that have consecutive_misses >= threshold (and, when
+        ``min_seen_age_hours`` is set, whose ``last_seen_at`` is older than that).
     """
     if not source_id:
         raise ValueError(
@@ -790,12 +803,20 @@ def get_jobs_exceeding_miss_threshold(
     # consecutive_misses is read from the job_freshness sidecar now. Every
     # listing has a freshness row (trigger + FK), so this sees the same ids the
     # old job_listings read did.
-    cursor.execute(
+    query = (
         f"SELECT id FROM {_FRESHNESS_TABLE} "
         f"WHERE source_id = %s AND id IN ({placeholders}) "
-        f"AND consecutive_misses >= %s",
-        [source_id] + job_ids + [threshold]
+        f"AND consecutive_misses >= %s"
     )
+    params: List[object] = [source_id] + list(job_ids) + [threshold]
+    if min_seen_age_hours is not None:
+        # last_seen_at is timestamptz. Multiply the hour interval by the (possibly
+        # fractional) age so any cadence works; parenthesized so it binds before
+        # the subtraction.
+        query += " AND last_seen_at < now() - (%s * interval '1 hour')"
+        params.append(min_seen_age_hours)
+
+    cursor.execute(query, params)
 
     return {row['id'] for row in cursor.fetchall()}
 

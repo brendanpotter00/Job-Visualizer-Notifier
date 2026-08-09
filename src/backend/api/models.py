@@ -1315,6 +1315,9 @@ class UserCompanyResponse(BaseModel):
     health_state: str | None = None
     open_job_count: int = Field(ge=0)
     last_success_at: datetime | None = None
+    # Set on the first VERIFIED harvest (E7 Phase 2). NULL until a company
+    # graduates; the trend page uses it to shade the pre-tracking seed bucket.
+    tracking_started_at: datetime | None = None
 
 
 class UserCompanyListResponse(BaseModel):

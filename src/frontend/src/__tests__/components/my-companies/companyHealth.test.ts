@@ -11,6 +11,12 @@ describe('describeHealthState', () => {
     expect(badge.color).toBe('info');
   });
 
+  it('frames the Phase-2 healthy state as "Tracking — healthy" progress', () => {
+    const badge = describeHealthState('healthy');
+    expect(badge.label).toMatch(/tracking — healthy/i);
+    expect(badge.color).toBe('success');
+  });
+
   it('maps the other known states to distinct colors', () => {
     expect(describeHealthState('healthy').color).toBe('success');
     expect(describeHealthState('quarantined').color).toBe('warning');

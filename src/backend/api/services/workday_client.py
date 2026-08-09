@@ -85,6 +85,8 @@ from scripts.shared.constants import SourceId
 from scripts.shared.models import JobListing
 from scripts.shared.utils import get_iso_timestamp
 
+from .harvest_meta import HarvestEvidence
+
 logger = logging.getLogger(__name__)
 
 
@@ -130,36 +132,47 @@ def _validate_provider_config(provider_config: dict) -> None:
         )
 
 
-async def fetch_jobs(
+def _posting_key(raw: object) -> Optional[str]:
+    """A stable per-posting identity for page-advance disjointness (check 6).
+
+    Mirrors the id derivation in ``_transform_one``: prefer the requisition id
+    (``bulletFields[0]``), fall back to ``externalPath``. Returns ``None`` for a
+    posting from which neither can be read (it simply does not participate in the
+    overlap test). Used only to detect Intel-style offset-wrap, where paging past
+    ``total`` wraps to page 1 and re-serves ids already seen.
+    """
+    if not isinstance(raw, dict):
+        return None
+    bullet_fields = raw.get("bulletFields")
+    if isinstance(bullet_fields, list) and bullet_fields:
+        first = bullet_fields[0]
+        if isinstance(first, str) and first:
+            return first
+    external_path = raw.get("externalPath")
+    if isinstance(external_path, str) and external_path:
+        return external_path
+    return None
+
+
+async def fetch_jobs_with_meta(
     provider_config: dict,
     http: httpx.AsyncClient,
-) -> list[dict]:
-    """Fetch all postings from a Workday career site, paginating offset.
+) -> tuple[list[dict], HarvestEvidence]:
+    """Fetch a Workday site AND the completeness evidence around it (E7).
 
-    POSTs to ``{base_url}/wday/cxs/{tenant_slug}/{career_site_slug}/jobs``
-    with a body of ``{"appliedFacets": <facets>, "limit": 20, "offset": N,
-    "searchText": ""}``. ``<facets>`` is ``provider_config.get
-    ("default_facets") or {}`` — NVIDIA and Adobe use this to narrow the
-    population; everyone else gets the empty object.
+    Same offset-paginated POST loop as the public path, but ALSO surfaces the
+    three completeness signals the ``declared_probed`` gate needs:
 
-    Returns the aggregated ``jobPostings`` list across all pages. Empty
-    list is a valid return value (a career site with zero open reqs).
+    * ``declared_total`` = Workday's page-1 ``total`` (its own trusted count).
+    * ``cap_hit`` = we stopped on ``WORKDAY_MAX_PAGES`` without reaching ``total``
+      — the exact silent-partial condition behind the Target 11,960-vs-2,000
+      trap. The gate maps ``cap_hit`` → UNVERIFIED (it does NOT raise, so the
+      2,000 rows we *did* get are kept and never mislabeled a transport error).
+    * ``page_advance_ok`` = every page's id-set was disjoint from the union so
+      far. An Intel-style offset-wrap (page 2 repeats page 1) sets this ``False``.
 
-    Raises:
-      - ``ValueError`` for malformed `provider_config` or response shape.
-      - ``httpx.HTTPStatusError`` for non-2xx responses.
-
-    Both are treated as a failed run by the caller (Unit 4) — Procrastinate
-    retries, ``scrape_runs`` records ``error_count=1``.
-
-    The pagination cap (``WORKDAY_MAX_PAGES``) is enforced as a soft
-    backstop: if we hit it, we ERROR-log and return what we have so far.
-    The caller still upserts that partial result (so the visualization
-    has SOME data) and records the run with ``error_count=0`` — the cap
-    breach is *not* an error in the usual sense, just a "more pages
-    than expected" signal that the operator should look at the log for.
-    The hard exit conditions are: ``offset >= total``, empty page,
-    or no advance from previous offset.
+    Empty list is a valid return (a site with zero open reqs) — evidence then
+    carries ``declared_total=total`` (0) so the zero-proof chain can act on it.
     """
     _validate_provider_config(provider_config)
 
@@ -176,6 +189,8 @@ async def fetch_jobs(
     offset = 0
     total: Optional[int] = None
     page_idx = 0
+    seen_page_keys: set[str] = set()
+    page_advance_ok = True
 
     logger.info(
         "Fetching Workday postings for %s/%s",
@@ -232,6 +247,14 @@ async def fetch_jobs(
                 )
             total = raw_total
 
+        # Check 6 — this page's ids must be disjoint from every prior page.
+        # An offset that wraps past `total` back to page 1 re-serves the same
+        # ids; the intersection is then non-empty and completeness is unproven.
+        page_keys = {k for k in (_posting_key(p) for p in page) if k is not None}
+        if page_keys & seen_page_keys:
+            page_advance_ok = False
+        seen_page_keys |= page_keys
+
         all_postings.extend(page)
 
         # Stop conditions, in priority order:
@@ -244,7 +267,10 @@ async def fetch_jobs(
             break
         offset += WORKDAY_PAGE_SIZE
 
-    if page_idx >= WORKDAY_MAX_PAGES and (total is None or len(all_postings) < total):
+    cap_hit = page_idx >= WORKDAY_MAX_PAGES and (
+        total is None or len(all_postings) < total
+    )
+    if cap_hit:
         # ERROR (not WARNING): Railway @level routing — see _configure_logging
         # in main.py. A persistent cap-trip indicates either a runaway
         # listing (multi-thousand-req tenant) or a pagination bug, both
@@ -257,10 +283,44 @@ async def fetch_jobs(
         )
 
     logger.info(
-        "Workday returned %d postings for %s/%s (total=%r, pages=%d)",
-        len(all_postings), tenant_slug, career_site_slug, total, page_idx,
+        "Workday returned %d postings for %s/%s (total=%r, pages=%d, cap_hit=%s)",
+        len(all_postings), tenant_slug, career_site_slug, total, page_idx, cap_hit,
     )
-    return all_postings
+    evidence = HarvestEvidence(
+        declared_total=total,
+        cap_hit=cap_hit,
+        terminated_cleanly=not cap_hit,
+        # A single-page fetch has no page N to compare, so advance is vacuously
+        # ok; the flag only ever flips False on a real multi-page overlap.
+        page_advance_ok=page_advance_ok,
+        pages_fetched=page_idx,
+    )
+    return all_postings, evidence
+
+
+async def fetch_jobs(
+    provider_config: dict,
+    http: httpx.AsyncClient,
+) -> list[dict]:
+    """Fetch all postings from a Workday career site, paginating offset.
+
+    Thin delegator over :func:`fetch_jobs_with_meta` that discards the evidence,
+    so the PUBLIC Workday cron keeps byte-identical behavior — including the
+    "cap hit → ERROR-log and return the partial 2,000" backstop, which lives in
+    ``fetch_jobs_with_meta`` and therefore still fires here. Only the custom path
+    reads ``cap_hit`` and acts on it (UNVERIFIED).
+
+    POSTs to ``{base_url}/wday/cxs/{tenant_slug}/{career_site_slug}/jobs``
+    with a body of ``{"appliedFacets": <facets>, "limit": 20, "offset": N,
+    "searchText": ""}``. Returns the aggregated ``jobPostings`` list across all
+    pages. Empty list is a valid return value (a career site with zero reqs).
+
+    Raises:
+      - ``ValueError`` for malformed `provider_config` or response shape.
+      - ``httpx.HTTPStatusError`` for non-2xx responses.
+    """
+    postings, _ = await fetch_jobs_with_meta(provider_config, http)
+    return postings
 
 
 def transform_to_job_listings(

@@ -95,6 +95,12 @@ export interface UserCompany {
   openJobCount: number;
   /** ISO-8601 of the last successful harvest, or null before the first run. */
   lastSuccessAt: string | null;
+  /**
+   * ISO-8601 of the first VERIFIED harvest (E7 Phase 2), or null until the
+   * company graduates. The trend page uses it to shade the pre-tracking seed
+   * bucket ("N openings already live when tracking began").
+   */
+  trackingStartedAt: string | null;
 }
 
 /** `GET /api/users/companies` envelope — newest first. */
