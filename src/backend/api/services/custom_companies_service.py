@@ -503,6 +503,19 @@ def fleet_breaker_tripped(
 
     ``scrape_runs.started_at`` is ISO-8601 Text, so the cutoff is a Python-
     computed ISO string compared lexicographically (correct for zero-padded UTC).
+
+    KNOWN LIMITATIONS (review Finding 2 — deferred to the fleet-hardening pass in
+    STACK-ORCHESTRATION.md): this is a point-in-time aggregate over a full 24h
+    window, read independently by each leaf task, so it is intentionally
+    approximate:
+      (a) a company that finishes EARLY may read a breaker that does not yet
+          reflect not-yet-committed FAILED siblings from the same night, and
+      (b) with same-time daily clustering the PRIOR night's successes (still
+          inside the 24h window) dilute tonight's failure fraction.
+    Both err toward NOT tripping (a close may slip through on a genuinely bad
+    night). Safe-ish because every OTHER close gate still applies; the breaker is
+    a fleet-wide backstop, not the only guard. TODO: scope to the current claim
+    batch / a shorter night window and count only ``completed_at``-set runs.
     """
     cutoff = (
         datetime.now(timezone.utc) - timedelta(hours=window_hours)

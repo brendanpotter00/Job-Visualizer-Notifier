@@ -16,7 +16,7 @@ import pytest
 from psycopg2 import sql
 
 import api.tasks.fetch_custom_company as task_mod
-from api.services import greenhouse_client, lever_client, workday_client
+from api.services import eightfold_client, greenhouse_client, lever_client, workday_client
 from api.services.harvest_meta import HarvestEvidence
 from api.tasks.fetch_custom_company import fetch_custom_company
 from scripts.shared.constants import custom
@@ -436,6 +436,61 @@ async def test_self_consistent_needs_three_verified_runs_to_close(db_conn, monke
     runs = _scrape_runs(db_conn, company_id)
     assert runs[-1]["guard_reason"] is None
     assert runs[-1]["closed_jobs"] == 1
+
+
+class _FakeEfHttp:
+    """Async-context httpx stand-in for Eightfold: `real_total` real jobs but a
+    server `count` that under-reports, driving a full-page count-break whose
+    confirming probe finds MORE jobs (Finding 5)."""
+
+    def __init__(self, real_total, count):
+        self._real = real_total
+        self._count = count
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def get(self, url, params=None, headers=None, timeout=None):
+        start = params["start"]
+        n = min(10, max(0, self._real - start))
+        positions = [
+            {"id": start + k, "name": f"J{start+k}",
+             "canonicalPositionUrl": f"https://x/{start+k}"}
+            for k in range(n)
+        ]
+        return _Resp({"positions": positions, "count": self._count})
+
+
+async def test_eightfold_count_underreport_stays_unverified_and_cannot_close(db_conn, monkeypatch):
+    """Finding 5 end-to-end: an Eightfold self_consistent tenant whose `count`
+    under-reports terminates on a full-page count-break → the confirming probe
+    proves incompleteness → UNVERIFIED `not_terminated_cleanly`, so pre-existing
+    OPEN jobs are never closed."""
+    company_id = "u-ef8fold001"
+    _seed_custom_company(
+        db_conn, company_id, "ef", ats="eightfold",
+        provider_config={"tenant_host": "foo.eightfold.ai", "domain": "d"},
+    )
+    _seed_open_jobs(db_conn, company_id, 900, 901)  # two live jobs not in the harvest
+    _patch_env(monkeypatch)
+    # Drive the REAL client loop; count=30 under-reports a 50-job board.
+    monkeypatch.setattr(task_mod.httpx, "AsyncClient", lambda *a, **k: _FakeEfHttp(50, 30))
+
+    await fetch_custom_company(company_id=company_id)
+    db_conn.rollback()
+
+    harvests = _rows(db_conn, "company_harvests", company_id)
+    assert harvests[-1]["verdict"] == "UNVERIFIED"
+    assert harvests[-1]["verdict_reason"] == "not_terminated_cleanly"
+    assert harvests[-1]["cap_hit"] is False
+    # The pre-existing live jobs are untouched; nothing closed.
+    jobs = _job_status(db_conn, company_id)
+    assert jobs["900"]["status"] == "OPEN" and jobs["901"]["status"] == "OPEN"
+    assert _scrape_runs(db_conn, company_id)[-1]["closed_jobs"] == 0
+    assert _scrape_runs(db_conn, company_id)[-1]["guard_reason"] == "unverified_harvest"
 
 
 async def test_declared_probed_closes_a_run_earlier_than_self_consistent(db_conn, monkeypatch):

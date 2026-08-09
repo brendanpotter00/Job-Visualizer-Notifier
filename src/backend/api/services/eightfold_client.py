@@ -121,10 +121,60 @@ def _is_allowed_eightfold_host(host: str | None) -> bool:
 # -----------------------------------------------------------------------------
 
 
+async def _fetch_eightfold_page(
+    http: httpx.AsyncClient,
+    base_url: str,
+    domain: str,
+    tenant_host: str,
+    offset: int,
+    page_label: object,
+) -> tuple[list[dict], object]:
+    """GET one Eightfold page and return ``(positions, raw_count)``.
+
+    Extracted so the main loop AND the self_consistent confirming probe validate
+    the response identically (same shape checks, same exceptions)."""
+    params: dict[str, str | int] = {
+        "domain": domain,
+        "num": EIGHTFOLD_PAGE_SIZE,
+        "start": offset,
+    }
+    logger.debug(
+        "Eightfold page %s: GET %s domain=%s start=%d",
+        page_label, base_url, domain, offset,
+    )
+    response = await http.get(
+        base_url,
+        params=params,
+        headers={"Accept": "application/json"},
+        timeout=DEFAULT_TIMEOUT_SECONDS,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if not isinstance(payload, dict):
+        raise ValueError(
+            f"Eightfold response for {tenant_host!r} page {page_label} is "
+            f"not a dict: got {type(payload).__name__}"
+        )
+    positions = payload.get("positions")
+    if positions is None:
+        raise ValueError(
+            f"Eightfold response for {tenant_host!r} page {page_label} "
+            f"missing 'positions' key"
+        )
+    if not isinstance(positions, list):
+        raise ValueError(
+            f"Eightfold response for {tenant_host!r} page {page_label} "
+            f"'positions' is not a list: got {type(positions).__name__}"
+        )
+    return positions, payload.get("count")
+
+
 async def fetch_jobs_with_meta(
     tenant_host: str,
     domain: str,
     http: httpx.AsyncClient,
+    *,
+    confirm_terminus: bool = False,
 ) -> tuple[list[dict], HarvestEvidence]:
     """Fetch an Eightfold tenant AND the completeness evidence around it (E7).
 
@@ -137,10 +187,22 @@ async def fetch_jobs_with_meta(
 
     * ``cap_hit`` = the ``for/else`` cap path ran (``MAX_PAGES`` without a natural
       break) → the gate maps it to UNVERIFIED.
-    * ``terminated_cleanly`` = a natural break fired (reached-total / empty /
-      partial page).
+    * ``terminated_cleanly`` = the walk reached a GENUINELY short/empty final page
+      — NOT merely a ``len >= count`` break on a *full* page. This is the
+      Finding-5 fix: because ``count`` may under-report, a full-page count-break
+      does not prove completeness; if it did, the unseen (real, still-open) jobs
+      would become missing_ids and wrong-close after the streak. When
+      ``confirm_terminus`` is set (the custom self_consistent path), a full-page
+      count-break triggers ONE extra confirming GET: an empty confirming page
+      proves ``count`` was accurate (clean); a non-empty one proves more jobs
+      exist (NOT clean, and those rows are kept — safe, self_consistent stays
+      UNVERIFIED so nothing closes). ``declared_probed`` (Greenhouse/Workday)
+      does not read this flag, so it is unaffected.
     * ``page_advance_ok`` = every page's position-id set was disjoint from the
       union so far.
+
+    ``confirm_terminus`` defaults ``False`` so :func:`fetch_jobs` — the PUBLIC
+    cron path — stays byte-identical (no extra page, no changed postings).
     """
     # SSRF check before any DNS resolution / TCP / TLS handshake.
     # This is the only defense after Unit 7 deletes the Vercel proxy.
@@ -162,51 +224,23 @@ async def fetch_jobs_with_meta(
     seen_page_keys: set[str] = set()
     page_advance_ok = True
     cap_hit = False
+    # How the walk ended: 'empty' / 'short' (genuine terminus), 'count' (a
+    # len>=count break — clean ONLY if the last page was short or the confirming
+    # probe is empty), or 'cap'. Drives terminated_cleanly below.
+    terminus = "cap"
+    last_page_size = 0
 
     for iteration in range(1, MAX_PAGES + 1):
         iterations = iteration
         offset = (iteration - 1) * EIGHTFOLD_PAGE_SIZE
-        params: dict[str, str | int] = {
-            "domain": domain,
-            "num": EIGHTFOLD_PAGE_SIZE,
-            "start": offset,
-        }
-        logger.debug(
-            "Eightfold page %d: GET %s domain=%s start=%d",
-            iteration, base_url, domain, offset,
+
+        positions, count_val = await _fetch_eightfold_page(
+            http, base_url, domain, tenant_host, offset, iteration
         )
-
-        response = await http.get(
-            base_url,
-            params=params,
-            headers={"Accept": "application/json"},
-            timeout=DEFAULT_TIMEOUT_SECONDS,
-        )
-        response.raise_for_status()
-        payload = response.json()
-
-        if not isinstance(payload, dict):
-            raise ValueError(
-                f"Eightfold response for {tenant_host!r} page {iteration} is "
-                f"not a dict: got {type(payload).__name__}"
-            )
-
-        positions = payload.get("positions")
-        if positions is None:
-            raise ValueError(
-                f"Eightfold response for {tenant_host!r} page {iteration} "
-                f"missing 'positions' key"
-            )
-        if not isinstance(positions, list):
-            raise ValueError(
-                f"Eightfold response for {tenant_host!r} page {iteration} "
-                f"'positions' is not a list: got {type(positions).__name__}"
-            )
 
         # Capture total on page 1. Eightfold sometimes lies (over- or under-
         # reports), so we ALSO use partial-page detection below.
         if total is None:
-            count_val = payload.get("count")
             if isinstance(count_val, int):
                 total = count_val
             else:
@@ -232,6 +266,7 @@ async def fetch_jobs_with_meta(
 
         all_positions.extend(positions)
         page_size = len(positions)
+        last_page_size = page_size
 
         # Break conditions, evaluated in priority order.
         if total is not None and len(all_positions) >= total:
@@ -240,6 +275,7 @@ async def fetch_jobs_with_meta(
                 "after %d pages",
                 tenant_host, total, iteration,
             )
+            terminus = "count"
             break
         if page_size == 0:
             logger.debug(
@@ -247,6 +283,7 @@ async def fetch_jobs_with_meta(
                 "(server exhausted; total was %r)",
                 tenant_host, iteration, total,
             )
+            terminus = "empty"
             break
         if page_size < EIGHTFOLD_PAGE_SIZE:
             logger.debug(
@@ -254,6 +291,7 @@ async def fetch_jobs_with_meta(
                 "(got %d rows; reported total was %r)",
                 tenant_host, iteration, page_size, total,
             )
+            terminus = "short"
             break
     else:
         # MAX_PAGES reached without a natural break. Return partial result
@@ -261,6 +299,7 @@ async def fetch_jobs_with_meta(
         # ERROR level so Railway routes it to stderr (where @level:error
         # is queryable).
         cap_hit = True
+        terminus = "cap"
         logger.error(
             "Eightfold pagination MAX_PAGES (%d) reached for %s: returning "
             "partial result of %d positions (server-reported total was %r). "
@@ -269,14 +308,57 @@ async def fetch_jobs_with_meta(
             MAX_PAGES, tenant_host, len(all_positions), total,
         )
 
+    # ---- terminated_cleanly (Finding 5) ------------------------------------
+    if terminus in ("empty", "short"):
+        terminated_cleanly = True
+    elif terminus == "count" and last_page_size < EIGHTFOLD_PAGE_SIZE:
+        # A count-break whose final page was ALSO short is a genuine terminus.
+        terminated_cleanly = True
+    elif terminus == "count" and confirm_terminus:
+        # Full final page + count-break: `count` alone does not prove we saw the
+        # whole board. Fetch ONE confirming page.
+        confirm_positions, _ = await _fetch_eightfold_page(
+            http, base_url, domain, tenant_host,
+            iterations * EIGHTFOLD_PAGE_SIZE, "confirm",
+        )
+        iterations += 1
+        if confirm_positions:
+            # More jobs exist beyond `count` → INCOMPLETE. Keep the extra rows
+            # (safe — self_consistent stays UNVERIFIED, nothing closes) and
+            # refuse to claim a clean terminus.
+            confirm_keys = {
+                k for k in (_extract_eightfold_id(p) for p in confirm_positions
+                            if isinstance(p, dict))
+                if k is not None
+            }
+            if confirm_keys & seen_page_keys:
+                page_advance_ok = False
+            seen_page_keys |= confirm_keys
+            all_positions.extend(confirm_positions)
+            terminated_cleanly = False
+            logger.warning(
+                "Eightfold count under-report for %s: stopped at count=%r on a "
+                "full page but a confirming probe returned %d more position(s) — "
+                "harvest is INCOMPLETE (self_consistent stays UNVERIFIED).",
+                tenant_host, total, len(confirm_positions),
+            )
+        else:
+            # Empty confirming page → `count` was accurate; terminus proven.
+            terminated_cleanly = True
+    else:
+        # A full-page count-break on the public path (confirm_terminus=False, its
+        # evidence discarded by fetch_jobs) or the cap path: not a clean terminus.
+        terminated_cleanly = False
+
     logger.info(
-        "Eightfold fetched %d positions for %s in %d pages (cap_hit=%s)",
-        len(all_positions), tenant_host, iterations, cap_hit,
+        "Eightfold fetched %d positions for %s in %d pages "
+        "(cap_hit=%s terminated_cleanly=%s)",
+        len(all_positions), tenant_host, iterations, cap_hit, terminated_cleanly,
     )
     evidence = HarvestEvidence(
         declared_total=total,       # evidence only — never the oracle
         cap_hit=cap_hit,
-        terminated_cleanly=not cap_hit,
+        terminated_cleanly=terminated_cleanly,
         page_advance_ok=page_advance_ok,
         pages_fetched=iterations,
     )

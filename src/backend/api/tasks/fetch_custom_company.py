@@ -177,7 +177,13 @@ async def _fetch_and_transform(
         domain = provider_config.get("domain", "")
         if not tenant_host or not domain:
             raise ValueError("eightfold provider_config missing tenant_host/domain")
-        raw, evidence = await eightfold_client.fetch_jobs_with_meta(tenant_host, domain, http)
+        # confirm_terminus=True: for the self_consistent completeness proof, a
+        # full-page count-break must be confirmed with one extra page (Finding 5)
+        # — Eightfold's `count` may under-report. The public cron does NOT set
+        # this, so its fetch_jobs stays byte-identical.
+        raw, evidence = await eightfold_client.fetch_jobs_with_meta(
+            tenant_host, domain, http, confirm_terminus=True
+        )
         return eightfold_client.transform_to_job_listings(company_id, raw), evidence
     raise ValueError(f"unsupported custom-company provider {provider!r}")
 
@@ -442,6 +448,19 @@ async def fetch_custom_company(company_id: str) -> None:
                     )
                     missing_ids = post_upsert_active - seen_ids
                     if missing_ids:
+                        # KNOWN GAP (review Finding 1 — deferred to the fleet-
+                        # hardening pass in STACK-ORCHESTRATION.md): this
+                        # increment + the threshold read + close below are three
+                        # separately-committed steps, not one transaction. A
+                        # Procrastinate retry re-runs the whole handler with a
+                        # fresh run_id, so a job still missing on the retry can be
+                        # incremented twice — letting an already-gone, >36h-stale
+                        # job close up to one logical run early. NOT a wrong close:
+                        # only a VERIFIED run reaches here (the job is proven gone)
+                        # and the 36h floor is on the real last_seen_at, which a
+                        # retry does not move. TODO: fold increment + threshold-read
+                        # + close into one transaction to make it idempotent per
+                        # logical run.
                         await asyncio.to_thread(
                             db.increment_consecutive_misses,
                             conn, source_id, list(missing_ids),

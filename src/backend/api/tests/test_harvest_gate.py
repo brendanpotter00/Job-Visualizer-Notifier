@@ -133,6 +133,21 @@ def test_self_consistent_delta_anomaly_is_unverified():
     assert v.reason == "delta_anomaly"
 
 
+def test_self_consistent_not_terminated_cleanly_is_unverified():
+    """Finding 5: a self_consistent harvest whose walk did NOT reach a genuinely
+    short/empty final page (e.g. an Eightfold full-page count-break) must NOT
+    VERIFY — otherwise its unseen, still-open jobs would wrong-close."""
+    jobs = _jobs(30)
+    ev = HarvestEvidence(
+        declared_total=30, cap_hit=False, terminated_cleanly=False,
+        page_advance_ok=True, pages_fetched=3,
+    )
+    gate = run_gate(jobs, ev, oracle_kind="self_consistent")
+    v = verify_harvest("self_consistent", gate, ev, _baseline(30))
+    assert v.verdict == UNVERIFIED
+    assert v.reason == "not_terminated_cleanly"
+
+
 def test_self_consistent_cap_is_unverified():
     """Eightfold hit its 1,000 cap → cap_hit dominates even for self_consistent."""
     jobs = _jobs(1000)

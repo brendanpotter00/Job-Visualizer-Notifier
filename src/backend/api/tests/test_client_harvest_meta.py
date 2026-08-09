@@ -161,6 +161,70 @@ async def test_eightfold_cap_hit_records_count_as_evidence():
     assert len(positions) == 1000  # 100 pages * 10
 
 
+def _ef_bounded_handler(real_total: int, count: int):
+    """A tenant with `real_total` real jobs but a server `count` that may
+    under-report. Returns 10 rows per page until real_total is exhausted."""
+    def handler(url, params):
+        start = params["start"]
+        remaining = max(0, real_total - start)
+        n = min(10, remaining)
+        positions = [
+            {"id": start + k, "name": f"J{start+k}",
+             "canonicalPositionUrl": f"https://x/{start+k}"}
+            for k in range(n)
+        ]
+        return {"positions": positions, "count": count}
+    return handler
+
+
+async def test_eightfold_full_page_count_break_underreport_is_not_clean():
+    """Finding 5: count=30 (under-report) but 50 real jobs. The walk stops on a
+    FULL page at len>=30; the confirming probe finds MORE → terminated_cleanly
+    False, and the confirming rows are kept (safe)."""
+    handler = _ef_bounded_handler(real_total=50, count=30)
+    positions, ev = await eightfold_client.fetch_jobs_with_meta(
+        _EF_HOST, "d", _GetHttp(handler), confirm_terminus=True
+    )
+    assert ev.terminated_cleanly is False
+    assert ev.cap_hit is False
+    assert len(positions) == 40  # 30 (count-break) + 10 (confirming probe)
+
+
+async def test_eightfold_full_page_count_break_accurate_confirms_clean():
+    """count=30 and exactly 30 real jobs (a multiple of the page size). The
+    confirming probe at start=30 is EMPTY → count was accurate → clean."""
+    handler = _ef_bounded_handler(real_total=30, count=30)
+    positions, ev = await eightfold_client.fetch_jobs_with_meta(
+        _EF_HOST, "d", _GetHttp(handler), confirm_terminus=True
+    )
+    assert ev.terminated_cleanly is True
+    assert len(positions) == 30
+
+
+async def test_eightfold_short_final_page_count_break_is_clean_without_probe():
+    """count=25, 25 real jobs: the count-break lands on a SHORT final page (5
+    rows) which already proves the terminus — no confirming probe needed."""
+    handler = _ef_bounded_handler(real_total=25, count=25)
+    positions, ev = await eightfold_client.fetch_jobs_with_meta(
+        _EF_HOST, "d", _GetHttp(handler), confirm_terminus=True
+    )
+    assert ev.terminated_cleanly is True
+    assert len(positions) == 25
+
+
+async def test_eightfold_public_fetch_jobs_stays_byte_identical_on_underreport():
+    """The PUBLIC cron path must NOT fetch the confirming page: on the same
+    under-reporting tenant, fetch_jobs returns exactly the `count` rows (30),
+    one page fewer than the custom self_consistent path (40)."""
+    handler = _ef_bounded_handler(real_total=50, count=30)
+    public = await eightfold_client.fetch_jobs(_EF_HOST, "d", _GetHttp(handler))
+    assert len(public) == 30
+    custom, _ = await eightfold_client.fetch_jobs_with_meta(
+        _EF_HOST, "d", _GetHttp(handler), confirm_terminus=True
+    )
+    assert len(custom) == 40
+
+
 async def test_eightfold_natural_terminus_and_parity():
     def handler(url, params):
         # Partial page (< 10) on page 1 → natural terminus.

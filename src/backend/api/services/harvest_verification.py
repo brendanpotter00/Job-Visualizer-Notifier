@@ -258,6 +258,15 @@ def _verify_declared_probed(n: int, evidence: HarvestEvidence) -> HarvestVerdict
     Under-count → ``count_mismatch`` (check 7/10); over-count → ``over_harvest``
     (check 10 — a widened filter; the upsert is still safe, approximation may
     only add).
+
+    NOTE (review Finding 4 — intentional, documented): unlike ``self_consistent``,
+    ``declared_probed`` has NO trailing-median delta band — it VERIFIES on an
+    exact ``n == declared_total`` regardless of how far the total moved from prior
+    runs. A collapsing authoritative total (a Greenhouse board that legitimately
+    reports 1000→50 in one night, matched exactly) is therefore caught NOT here
+    but by the per-company safety guard (``min_ratio``) in the leaf task, which
+    blocks the close when the board shrinks too fast. The oracle proves the run
+    saw the whole board; the guard decides whether the shrink is trustworthy.
     """
     declared = evidence.declared_total
     if declared is None:
