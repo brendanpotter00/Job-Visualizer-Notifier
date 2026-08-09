@@ -51,6 +51,12 @@ interface ScrapeRun {
   closedJobs: number;
   detailsFetched: number;
   errorCount: number;
+  // Tri-state, mirroring the nullable `scrape_runs.skipped_update` column:
+  // true  = the safety guard tripped and the destructive update/close phases
+  //         were skipped (the run's numbers are NOT a real board snapshot),
+  // false = the run completed the full lifecycle,
+  // null  = the row predates the column (no backfill, on purpose).
+  skippedUpdate: boolean | null;
 }
 
 interface ScraperResult {
@@ -466,6 +472,7 @@ export function QAPage() {
                     <TableCell align="right">Closed</TableCell>
                     <TableCell align="right">Details</TableCell>
                     <TableCell align="right">Errors</TableCell>
+                    <TableCell align="right">Guard Skipped</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -482,11 +489,20 @@ export function QAPage() {
                       <TableCell align="right">{run.closedJobs}</TableCell>
                       <TableCell align="right">{run.detailsFetched}</TableCell>
                       <TableCell align="right">{run.errorCount}</TableCell>
+                      {/* `null` (pre-column row) renders as '-' — it must not
+                          masquerade as a clean 'No'. */}
+                      <TableCell align="right">
+                        {run.skippedUpdate === null || run.skippedUpdate === undefined
+                          ? '-'
+                          : run.skippedUpdate
+                            ? 'Yes'
+                            : 'No'}
+                      </TableCell>
                     </TableRow>
                   ))}
                   {scrapeRuns.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={9} align="center">
+                      <TableCell colSpan={10} align="center">
                         No scrape runs found
                       </TableCell>
                     </TableRow>

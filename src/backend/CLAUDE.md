@@ -63,25 +63,84 @@ All configuration via environment variables:
 | `SCRAPER_PYTHON_PATH` | Python interpreter path | `python3` |
 | `DB_POOL_MIN` | Minimum database connections in pool | `1` |
 | `DB_POOL_MAX` | Maximum database connections in pool | `15` |
+| `DB_POOL_TIMEOUT` | Database pool connection timeout (seconds) | `5` |
 | `PORT` | Server port | `8080` |
 | `CORS_ORIGINS` | Comma-separated allowed origins | `http://localhost:3000,http://localhost:5173,http://localhost:8000` |
 | `AUTH0_DOMAIN` | Auth0 tenant domain (e.g., `myapp.us.auth0.com`) | *(required for auth)* |
 | `AUTH0_AUDIENCE` | Auth0 API audience identifier | *(required for auth)* |
 | `GOOGLE_CLIENT_ID` | Google OAuth client ID for One Tap validation | *(optional)* |
+| `INTERNAL_API_KEY` | Shared secret for X-Internal-Key middleware (server-to-server auth); unset = allow all requests, log warning | *(optional)* |
+| `ANTHROPIC_API_KEY` | Anthropic API key for Claude Haiku Tier-2 location normalization and eval runs | *(required for normalization)* |
+| `ENRICHMENT_USE_EXTERNAL` | Master flag enabling external enrichment pull integration (gates `GET /pending`) | `false` |
+| `ENRICHMENT_CLAIM_TTL_MINUTES` | Stale-claim reclaim window in minutes (must exceed a full enricher tick round-trip) | `240` |
+| `ENRICHMENT_REQUIRE_JUDGE_PASS` | If true, hold judge-flagged rows as `needs_human` instead of publishing `done` | `false` |
+| `ENRICHMENT_CLAIM_WITHOUT_DESCRIPTION` | If true, allow claiming description-less rows (e.g. Workday/Eightfold) | `false` |
 | `POSTHOG_PROJECT_TOKEN` | PostHog analytics API key — if unset, all analytics is disabled (`get_posthog()` returns `None`) | *(optional)* |
 | `POSTHOG_HOST` | PostHog ingestion host (US cloud endpoint) | `https://us.i.posthog.com` |
+| `FEEDBACK_RATE_LIMIT_MAX` | Max feedback submissions per client IP per window | `5` |
+| `FEEDBACK_RATE_LIMIT_WINDOW_SECONDS` | Rate-limit sliding window duration (seconds) | `60` |
 
 **Table names are env-agnostic.** All environments share bare names (`job_listings`, `scrape_runs`, `users`, `user_enabled_companies`). Test isolation uses per-worker Postgres **schemas** via `PYTEST_SCHEMA=test_<hex>` + `SET search_path`; inside the schema the table names are the same as prod. See `docs/implementations/envAgnosticTables/PLAN.md`.
 
 ## API Endpoints
 
 **Jobs Router (`/api/jobs`):**
-- `GET /api/jobs` - List jobs (params: company, status, limit, offset)
+- `GET /api/jobs` - List jobs (params: company, companies, status, category, level, limit, offset, **since**, **cursor**)
 - `GET /api/jobs/{id}` - Get single job by ID
+
+**Keyset pagination on `GET /api/jobs`** (ticket 1.3; closes the 2026-05-17 postmortem's
+"push the time/recency filter into SQL so the result set bounds itself"):
+
+- **Two modes, selected by parameter presence.** Passing **neither** `since` nor `cursor`
+  is byte-identical to the pre-keyset behaviour — same SQL, `ORDER BY f.last_seen_at DESC`,
+  same bare-array body, **no** `X-Next-Cursor` header. Passing **either** switches to
+  `ORDER BY first_seen_at DESC, source_id DESC, id DESC` with a row-value boundary
+  predicate. Locked by `api/tests/test_jobs_keyset_pagination.py`.
+- **`?since=`** — ISO-8601 **with a UTC offset** (`Z` or `±HH:MM`); naive values are a 422,
+  never assumed-UTC. **Inclusive**: `first_seen_at >= since`. No server default; the 90-day
+  default is the frontend's business.
+- **`?cursor=`** — opaque `base64url("<first_seen_at ISO-8601 UTC>|<source_id>|<id>")`,
+  minted by the server, echoed back verbatim by the client. Codec + validation live in
+  `api/pagination.py`. Malformed input is a **422 with a specific reason** — never a
+  silently-ignored parameter, which would restart the walk at page 1 with no signal.
+- **`X-Next-Cursor` response header** — the next page's token. Present **iff** the page came
+  back full (`len(page) == limit`); its **absence is the only end-of-walk signal**. The body
+  stays a bare JSON array in both modes, so cursor support is purely additive for every
+  existing consumer. A trailing exactly-full page costs one extra round trip returning `[]`.
+- **Sort key rationale:** `first_seen_at` is IMMUTABLE (unlike `last_seen_at`, re-stamped on
+  every OPEN row every scrape cycle), and `(source_id, id)` is the composite PK, so the tuple
+  is unique. Both properties are load-bearing — without the first, a concurrent scrape
+  reshuffles the ordering mid-walk; without the second, rows sharing a `first_seen_at` page
+  non-deterministically. Matches the UI's own `selectRecentJobsSorted` (firstSeenAt DESC).
+- **Header delivery is THREE hops, all wired here:** `api/jobs.ts` (the Vercel proxy)
+  re-emits it explicitly — `forwardResponse` copies status + body only — `CORSMiddleware`
+  in `main.py` lists it in `expose_headers` for callers hitting the backend directly, and
+  `vercel.json`'s `/api/(.*)` block adds `Access-Control-Expose-Headers: X-Next-Cursor` for
+  cross-origin callers of the proxy. Adding a response header to this endpoint without doing
+  all three means it silently never reaches the client. Note `api/jobs.ts` forwards
+  `since`/`cursor` on **presence** (`!== undefined`), not truthiness — dropping an empty
+  `?cursor=` would turn the backend's 422 into a silent page-1 restart.
+- **`offset` is a 422 in keyset mode.** Both answer "where does this page start?", and
+  `get_jobs` applies both — the cursor seeks to the boundary and `OFFSET n` then discards
+  the first `n` rows past it, a 200 with silent row loss. `offset=0` is fine (default,
+  no-op); the legacy path still supports `offset` normally.
+- **A cursor is only meaningful under the filter set it was minted with.** Changing
+  `companies`/`status`/`category`/`level`/`since` mid-walk is not an error and corrupts
+  nothing (the cursor names a filter-independent sort position), but the resulting pages are
+  relative to the *new* filters, so the walk stops being a complete enumeration of either
+  set. Treat a filter change as a new walk and drop the cursor.
+- **Index:** `idx_job_listings_open_first_seen_keyset` on `(first_seen_at, source_id, id)`,
+  partial `WHERE status = 'OPEN'` (migration `08765ce81d35`). Plain ASC columns served by a
+  BACKWARD index scan; verified by EXPLAIN at prod scale to have **no Sort node** and to take
+  the cursor tuple as an `Index Cond`, not a `Filter`. Any request that does **not** filter
+  to `status=OPEN` — including one that **omits `status` entirely**, not just
+  `status=CLOSED` — falls off the partial index and sorts. Correct, just unindexed, and no
+  real caller does it.
 
 **QA Router (`/api/jobs-qa`):**
 - `GET /api/jobs-qa/stats` - Job statistics (params: company; returns total, open, closed, by company)
-- `GET /api/jobs-qa/scrape-runs` - Scrape run history (params: company, limit)
+- `GET /api/jobs-qa/scrape-runs` - Scrape run history (params: company, limit; `skippedUpdate` is tri-state — `true`/`false` from the writer, `null` for rows written before the column existed)
+- `GET /api/jobs-qa/scraper-health` - Stale-scraper report (params: `thresholdHours`, default 24). Enabled companies whose newest `job_freshness.last_seen_at` (the sidecar is the only freshness store since `18fe9c20a8fd`) is older than the threshold (a company with no job rows at all counts as stale). Internal-key auth only — **not** `require_admin` — so the daily `.github/workflows/scraper-health.yml` Action can call it with one header. Because internal-key is its ONLY gate and the public Vercel proxy holds that key unconditionally, the path is NOT in `PROXIED_PATHS` in `api/jobs-qa.ts` (an allowlist — only `scrape-runs` and `trigger-scrape` are forwarded) and 404s from the internet; reach it by calling Railway directly. `TestProxyAllowlistInvariant` asserts both directions: every allowlisted path carries `require_admin`, and every route lacking it is absent from the allowlist. Always 200; the caller decides red/green. Deliberately NOT folded into `/health/worker` (that is Railway's `healthcheckPath`; a stale company would restart-loop the container).
 - `POST /api/jobs-qa/trigger-scrape` - Manually trigger scraper (params: company; default: google)
 
 **Users Router (`/api/users`):**
@@ -228,6 +287,10 @@ A read-only, on-demand **prod monitor** (`api/eval/monitor_prod.py`) verifies th
 *live* normalization pipeline (deployment, backlog drain, integrity invariants,
 queue health) — run it with a read-only `MONITOR_DATABASE_URL` (no Anthropic key
 needed); full runbook in **`src/backend/docs/location-normalization-monitoring.md`**.
+The same CLI also carries an unrelated **group S** (storage/churn): `last_seen_at`
+index bloat, HOT/write-amplification counters, and the `job_listings ⟕ job_freshness`
+anti-join invariants the `/api/jobs` INNER JOIN depends on — runbook in
+**`src/backend/docs/job-listings-bloat.md`**.
 
 ## Architecture
 
@@ -258,6 +321,18 @@ Production backend is deployed on **Railway** (auto-deploys from GitHub). Railwa
 Key production env vars to set in Railway:
 - `DATABASE_URL` — PostgreSQL connection string (provided by Railway if using their Postgres plugin)
 - `CORS_ORIGINS` — must include the production frontend domain
+
+**Merge-train deploy-skip trap (bit us 2026-08-05):** Railway's watch paths are
+configured in the dashboard (not `railway.toml`), and queued deployments are
+deduped to the newest commit. Merging a backend PR followed quickly by
+non-backend merges (docs/skills/frontend) can leave the backend commit's
+deployment SKIPPED — superseded by a newer commit that matches no watch path, so
+the *whole* queue skips and prod silently keeps running the old code (observed
+with #232 stacked under #235/#238: `alembic_version` stayed at the previous
+head). After any merge train, check the newest deployment's status (`railway`
+MCP `list_deployments` or the dashboard) and confirm `alembic_version` moved if
+migrations were involved; re-trigger with the dashboard's Deploy button or a
+commit touching `src/backend/**`.
 
 ## Docker
 

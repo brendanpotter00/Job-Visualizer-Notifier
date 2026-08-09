@@ -9,7 +9,7 @@ Job Posting Analytics - A monorepo containing a TypeScript + React frontend, Pyt
 ├── src/backend/api/       # FastAPI backend (see src/backend/CLAUDE.md)
 ├── scripts/               # Python scrapers (see scripts/CLAUDE.md)
 ├── api/                   # Vercel serverless functions (ATS proxies)
-└── docs/                  # Docs: local setup, architecture, implementations, incidents, analysis
+└── docs/                  # Docs: local setup, implementations, incidents, analysis, enrichment, animations
 ```
 
 ## Commands (run from project root)
@@ -73,6 +73,9 @@ Backend-Scraper (src/frontend/src/api/clients/backendScraperClient.ts) is the on
 **Adding a Company:**
 Use the `add-company` skill (`.claude/skills/add-company/`, `/add-company`) — the single source of truth for onboarding a company end-to-end: the `companies.ts` entry + `COMPANY_IDS`, the single-head-safe backend `companies` seed migration (Greenhouse/Ashby/Lever/Gem, plus the Eightfold/Workday `provider_config` variants), the `changelog.ts` announcement, and brand logos via the `fetch-company-logo` skill.
 
+**Checking Scraper Health:**
+Use the `scraper-health-watch` skill (`.claude/skills/scraper-health-watch/`) — detects dead/stale scrape sources, mass closures, and worker death against prod; researches moved boards and opens a fix PR (never merges); texts Brendan only when something is wrong. Runs daily via launchd (`com.bp.jvn-health-watch`); ops runbook in `scripts/health_watch/README.md`.
+
 **Adding ATS Provider:**
 1. Create transformer in `src/frontend/src/api/transformers/[provider]Transformer.ts`
 2. Create client using `createAPIClient` factory (~15 lines)
@@ -121,7 +124,7 @@ Automatic per-PR preview deploys are **off** — root `vercel.json` sets `git.de
 
 ## Vercel Serverless Functions (api/)
 
-- `api/jobs.ts` - Backend jobs API proxy
+- `api/jobs.ts` - Backend jobs API proxy. Note it **allow-lists** query params (an unforwarded param is silently dropped, not an error) and must **explicitly re-emit any response header** — the shared `forwardResponse` helper copies status + body only. `X-Next-Cursor` (keyset pagination) is forwarded for exactly this reason; see the keyset section in `src/backend/CLAUDE.md`.
 - `api/jobs-qa.ts` - Backend QA endpoints proxy
 - `api/users.ts` - Backend users API proxy (forwards Authorization header)
 - `api/features.ts` - Feature voting API proxy (forwards Authorization header)

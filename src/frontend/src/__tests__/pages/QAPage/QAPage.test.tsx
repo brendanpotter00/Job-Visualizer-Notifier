@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QAPage } from '../../../pages/QAPage/QAPage';
 
@@ -82,6 +82,79 @@ describe('QAPage', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  describe('Scrape Runs table — safety-guard column', () => {
+    /**
+     * `skippedUpdate` is the only thing in a scrape_runs row that
+     * distinguishes an Apple-style truncated scrape from a perfect one:
+     * a tripped guard writes real-looking jobsSeen/newJobs/closedJobs
+     * numbers. If the column isn't rendered, the QA page shows a truncated
+     * run as healthy — which is exactly how seven of them went unnoticed
+     * in production for three weeks.
+     */
+    function mockScrapeRuns(runs: unknown[]) {
+      mockFetch.mockImplementation((url: string) => {
+        if (url.includes('/api/jobs-qa/scrape-runs')) {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve(runs) });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      });
+    }
+
+    const baseRun = {
+      runId: 'run-1',
+      company: 'apple',
+      startedAt: '2026-07-28T10:00:00Z',
+      completedAt: '2026-07-28T10:05:00Z',
+      mode: 'incremental',
+      jobsSeen: 2585,
+      newJobs: 0,
+      closedJobs: 0,
+      detailsFetched: 0,
+      errorCount: 1,
+      skippedUpdate: true,
+    };
+
+    it('renders a Guard Skipped column header', async () => {
+      mockScrapeRuns([baseRun]);
+      render(<QAPage />);
+
+      expect(
+        await screen.findByRole('columnheader', { name: /guard skipped/i })
+      ).toBeInTheDocument();
+    });
+
+    it('renders "Yes" for a run whose safety guard tripped', async () => {
+      mockScrapeRuns([baseRun]);
+      render(<QAPage />);
+
+      const row = (await screen.findByText('2585')).closest('tr');
+      expect(row).not.toBeNull();
+      expect(within(row as HTMLElement).getByText('Yes')).toBeInTheDocument();
+    });
+
+    it('renders "No" for a clean run', async () => {
+      mockScrapeRuns([
+        { ...baseRun, jobsSeen: 3550, errorCount: 0, skippedUpdate: false },
+      ]);
+      render(<QAPage />);
+
+      const row = (await screen.findByText('3550')).closest('tr');
+      expect(within(row as HTMLElement).getByText('No')).toBeInTheDocument();
+    });
+
+    it('renders "-" for a pre-column row where skippedUpdate is null', async () => {
+      // The DB column is nullable with no backfill, so NULL genuinely means
+      // "written before the column existed". Rendering that as "No" would
+      // assert those historic rows were clean — which is a lie.
+      mockScrapeRuns([{ ...baseRun, jobsSeen: 1234, skippedUpdate: null }]);
+      render(<QAPage />);
+
+      const row = (await screen.findByText('1234')).closest('tr');
+      expect(within(row as HTMLElement).getByText('-')).toBeInTheDocument();
+      expect(within(row as HTMLElement).queryByText('No')).not.toBeInTheDocument();
+    });
   });
 
   describe('Trigger Scrape Button', () => {

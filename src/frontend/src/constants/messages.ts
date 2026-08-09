@@ -24,6 +24,20 @@ export const EMPTY_STATE_MESSAGES = {
    * @param count - Total number of jobs loaded
    */
   ALL_LOADED: (count: number) => `All ${count} jobs loaded`,
+
+  /**
+   * Shown when several consecutive pages of older jobs were fetched and NONE of
+   * them matched the active filters, so the list stopped fetching on its own.
+   * Deliberately explicit about what happened: the alternative is a list that
+   * looks finished but is not, or one that silently walks the whole corpus.
+   */
+  NO_MATCHES_IN_RECENT_PAGES: 'No more matches in the jobs loaded so far.',
+
+  /** Label for the manual continue affordance that follows the message above. */
+  SEARCH_OLDER_JOBS: 'Search older jobs',
+
+  /** Label for the same affordance after a failed fetch. */
+  RETRY_OLDER_JOBS: 'Try again',
 } as const;
 
 /**

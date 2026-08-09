@@ -2,6 +2,14 @@
 testpaths = ["api/tests"]
 pythonpath = [".", "../.."]
 timeout = 120
+markers = [
+    # Tests that seed prod-scale cardinality (tens of thousands of rows) because
+    # what they assert is a planner COST decision — index selection, absence of a
+    # Sort node — which simply cannot be observed at fixture scale. They run in
+    # the normal suite (a few seconds each); the marker exists so they can be
+    # deselected with `-m 'not slow'` during tight edit loops.
+    "slow: seeds prod-scale data to assert a query plan",
+]
 
 [tool.mypy]
 python_version = "3.13"

@@ -59,28 +59,41 @@ def _seed_job(
                 for c in (
                     "id", "title", "company", "location", "url", "source_id",
                     "details", "created_at", "status", "has_matched",
-                    "ai_metadata", "first_seen_at", "last_seen_at",
-                    "consecutive_misses", "details_scraped",
+                    "ai_metadata", "first_seen_at", "details_scraped",
                 )
             ),
-            sql.SQL(", ").join(sql.Placeholder() for _ in range(15)),
+            sql.SQL(", ").join(sql.Placeholder() for _ in range(13)),
         ),
         (
             job_id, "T", company, "L", "https://x", SourceId.GREENHOUSE,
             json.dumps({}), "2025-01-01T00:00:00Z", status, False,
-            json.dumps({}), "2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z",
-            consecutive_misses, True,
+            json.dumps({}), "2025-01-01T00:00:00Z", True,
         ),
     )
     conn.commit()
+    # The AFTER INSERT trigger seeded job_freshness at consecutive_misses=0;
+    # mirror the seeded value into the sidecar (freshness is authoritative there).
+    if consecutive_misses:
+        cur.execute(
+            "UPDATE job_freshness SET consecutive_misses = %s "
+            "WHERE source_id = %s AND id = %s",
+            (consecutive_misses, SourceId.GREENHOUSE, job_id),
+        )
+        conn.commit()
 
 
 def _job_row(conn, job_id: str, source_id: str = SourceId.GREENHOUSE) -> dict | None:
     cur = conn.cursor()
     cur.execute(
-        sql.SQL("SELECT * FROM {} WHERE source_id = %s AND id = %s").format(
-            sql.Identifier("job_listings")
-        ),
+        # Freshness lives only on the sidecar now — the Unit-4 contract
+        # migration dropped last_seen_at/consecutive_misses from job_listings,
+        # so f.* is the sole source of those two keys in the row dict.
+        sql.SQL(
+            "SELECT {0}.*, f.last_seen_at, f.consecutive_misses "
+            "FROM {0} JOIN job_freshness f "
+            "ON f.source_id = {0}.source_id AND f.id = {0}.id "
+            "WHERE {0}.source_id = %s AND {0}.id = %s"
+        ).format(sql.Identifier("job_listings")),
         (source_id, job_id),
     )
     return cur.fetchone()
@@ -358,8 +371,11 @@ class TestFetchGreenhouseCompany:
         cur = db_conn.cursor()
         cur.execute(
             sql.SQL(
-                "SELECT COUNT(*) AS n FROM {} "
-                "WHERE company = %s AND (consecutive_misses > 0 OR status = 'CLOSED')"
+                "SELECT COUNT(*) AS n FROM {0} "
+                "JOIN job_freshness f ON f.source_id = {0}.source_id "
+                "AND f.id = {0}.id "
+                "WHERE company = %s AND (f.consecutive_misses > 0 "
+                "OR status = 'CLOSED')"
             ).format(sql.Identifier("job_listings")),
             (company,),
         )
@@ -592,13 +608,24 @@ class TestFetchGreenhouseCompany:
 @pytest.mark.parametrize(
     "active_count,jobs_returned,expect_skipped",
     [
-        # Below the safety threshold (default 0.5 ratio) -> guard trips.
-        (10, 0, True),     # zero returned with 10 active -> skipped
-        (100, 9, True),    # 9 < 0.5 * 100 = 50 -> skipped
-        # At or above the threshold -> guard does NOT trip.
-        (10, 5, False),    # exactly at the ratio
-        (10, 6, False),    # comfortably above ratio
-        # Bootstrap case: zero active, zero returned -> guard does NOT trip.
+        # --- rule (a), "empty_scrape": jobs_seen < 0.10 * active ---------
+        # (The old comment here said "default 0.5 ratio". It was wrong —
+        # the constant has been 0.1 the whole time — and because every case
+        # below 0.1 is also below 0.5, this whole parametrization passed
+        # identically at either value. It pinned nothing. Fixed.)
+        (10, 0, True),     # zero returned with 10 active
+        (100, 9, True),    # 9 < 0.1 * 100 = 10
+        # --- rule (b), "partial_scrape": < 0.85 * active AND drop >= 15 --
+        # THE case the old parametrization could not express: a 73%-of-normal
+        # return. This is the Apple truncation profile, and under the
+        # 0.1-only guard it ran the destructive close phase.
+        (100, 73, True),   # 73 < 85 and drop 27 >= 15
+        # --- healthy runs: neither rule fires -----------------------------
+        (100, 90, False),  # 90 >= 85 -> ordinary churn on a big board
+        (30, 22, False),   # 73% BUT drop is only 8 (< 15) -> small-board noise
+        (10, 5, False),    # drop 5 < 15
+        (10, 6, False),    # drop 4 < 15
+        # Bootstrap case: zero active -> guard does NOT trip.
         (0, 0, False),
     ],
 )
@@ -611,8 +638,13 @@ async def test_safety_guard_boundaries(
     jobs_returned,
     expect_skipped,
 ):
-    """C3: pin the safety guard's ratio boundary so a future tweak to
-    `<` vs `<=` or to SAFETY_GUARD_RATIO is caught by tests."""
+    """C3: pin BOTH safety-guard rules so a future tweak to `<` vs `<=`, to
+    SAFETY_GUARD_RATIO, to SCRAPER_GUARD_MIN_RATIO or to
+    SCRAPER_GUARD_MIN_ABS_DROP is caught by tests.
+
+    ``(100, 73)`` and ``(30, 22)`` are the two cases that actually
+    discriminate: the first must trip on the ratio, the second must be
+    saved by the absolute-drop floor. Everything else was already pinned."""
     company = f"safety_{active_count}_{jobs_returned}"
     token = company
     _seed_company(db_conn, company, token)
@@ -642,12 +674,16 @@ async def test_safety_guard_boundaries(
         )
         assert runs[0]["closed_jobs"] == 0
         assert runs[0]["new_jobs"] == 0
+        # Unit 2: the trip must be legible in the row afterwards, not just
+        # inferable from error_count (which a real HTTP failure also sets).
+        assert runs[0]["skipped_update"] is True
     else:
         assert runs[0]["error_count"] == 0, (
             f"safety guard tripped unexpectedly for "
             f"active={active_count} returned={jobs_returned}; "
             f"jobs_seen={runs[0]['jobs_seen']}"
         )
+        assert runs[0]["skipped_update"] is False
 
 
 @pytest.mark.asyncio

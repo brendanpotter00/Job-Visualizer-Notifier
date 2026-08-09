@@ -1,0 +1,76 @@
+name: Scraper Health (stale companies)
+
+# Daily staleness check against the LIVE production backend. Asks
+# /api/jobs-qa/scraper-health which enabled companies have no job row seen in
+# the last 24h — i.e. which scrapers are silently dead. Four scrapers
+# (appliedintuition, unity3d, fal, merge) were 100% dead for up to 56 days and
+# nothing noticed, because /health/worker only inspects the Procrastinate
+# tables: a leaf task that 404s forever still leaves that probe green.
+#
+# MANUAL-ONLY (2026-08-05): daily alerting is owned by the scraper-health-watch
+# LaunchAgent (see scripts/health_watch/README.md), which detects, opens a fix
+# PR, and texts — the owner chose it over a second scheduled channel. This
+# workflow is kept as an on-demand probe of the same endpoint (workflow_dispatch
+# only, no cron). To re-enable scheduled runs: restore a `schedule:` block AND
+# add the repo secrets below — without them every scheduled run false-fails.
+#
+# A failed run emails the repo owner (that email is the alerting when run on a
+# schedule). It is also a safety net for the (deliberately auto-release-free)
+# scraper safety guard: a company locked out by the guard stops advancing
+# last_seen_at and shows up here within 24h.
+#
+# Kept OUT of the PR-blocking CI (.github/workflows/ci.yml) — like
+# scraper-e2e.yml — because this hits a live external system and its result
+# reflects production health, not the correctness of the diff under review.
+#
+# REQUIRED REPO SECRETS (needed for any run, manual or scheduled):
+#   JVN_BACKEND_URL      e.g. https://<service>.up.railway.app  (no trailing /)
+#   JVN_INTERNAL_API_KEY the same value as the backend's INTERNAL_API_KEY
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: scraper-health
+  cancel-in-progress: false
+
+jobs:
+  stale-check:
+    name: Stale scraper check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Query scraper-health endpoint
+        env:
+          BACKEND_URL: ${{ secrets.JVN_BACKEND_URL }}
+          INTERNAL_KEY: ${{ secrets.JVN_INTERNAL_API_KEY }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${BACKEND_URL}" ] || [ -z "${INTERNAL_KEY}" ]; then
+            echo "::error::JVN_BACKEND_URL and JVN_INTERNAL_API_KEY repo secrets must be set."
+            exit 1
+          fi
+
+          # -f makes curl exit non-zero on an HTTP error status. Without it a
+          # 401 (rotated key) or a 502 (backend down) would hand jq an HTML
+          # error page, jq would fail to parse, and the failure reason would be
+          # a confusing parse error instead of "the backend rejected us".
+          curl -fsS \
+            -H "X-Internal-Key: ${INTERNAL_KEY}" \
+            "${BACKEND_URL}/api/jobs-qa/scraper-health?thresholdHours=24" \
+            -o health.json
+
+          echo "--- scraper health ---"
+          jq '{checkedAt, thresholdHours, staleCount, okCount}' health.json
+
+          # Print the offenders BEFORE failing, so the failure email/log shows
+          # which companies are dead without anyone re-running anything.
+          if [ "$(jq '.staleCount' health.json)" != "0" ]; then
+            echo "::warning::Stale scrapers detected:"
+            jq -r '.stale[] | "  \(.company) (ats=\(.ats)) lastSeen=\(.lastSeenAt // "never") hoursStale=\(.hoursStale // "n/a") openJobs=\(.openJobs)"' health.json
+          fi
+
+          # jq -e exits 1 when the filter yields false/null -> the step fails
+          # -> GitHub emails the repo owner.
+          jq -e '.staleCount == 0' health.json > /dev/null

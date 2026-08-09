@@ -108,6 +108,10 @@ class ScrapeRunResponse(BaseModel):
     closed_jobs: int = Field(ge=0)
     details_fetched: int = Field(ge=0)
     error_count: int = Field(ge=0)
+    # Tri-state on purpose. ``True``/``False`` come from the writer; ``None``
+    # means the row predates the column (nullable, no backfill) — NOT "the
+    # guard didn't trip". The QA table renders the three states distinctly.
+    skipped_update: bool | None = None
 
 
 class CompanyCountResponse(BaseModel):

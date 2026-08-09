@@ -90,11 +90,12 @@ class TestUpdateLastSeen:
 
     def test_update_last_seen_resets_misses(self, in_memory_db, sample_job_listing):
         """Updates timestamp and resets consecutive_misses"""
-        # Insert job with some misses
-        sample_job_listing.consecutive_misses = 1
         db.insert_job(in_memory_db, sample_job_listing)
 
-        # Increment misses to simulate missed runs
+        # Accrue misses through the real path: the job_freshness sidecar is
+        # seeded at 0 misses by the AFTER INSERT trigger (not from the model's
+        # consecutive_misses), so we increment twice to reach 2.
+        db.increment_consecutive_misses(in_memory_db, sample_job_listing.source_id, [sample_job_listing.id])
         db.increment_consecutive_misses(in_memory_db, sample_job_listing.source_id, [sample_job_listing.id])
 
         # Verify misses incremented
@@ -213,6 +214,180 @@ class TestScrapeRun:
         assert dict(row)["mode"] == "incremental"
         assert dict(row)["jobs_seen"] == 100
         assert dict(row)["new_jobs"] == 10
+
+    def test_record_scrape_run_persists_skipped_update(self, in_memory_db):
+        """``skipped_update`` must survive the round-trip to Postgres.
+
+        The flag was computed by the scraper for a long time and then
+        silently dropped on the floor by ``record_scrape_run`` — which is
+        why a truncated run and a perfect run were indistinguishable in the
+        table. Both values are asserted: writing ``True`` proves the column
+        is wired, and writing ``False`` proves the writer isn't just
+        defaulting everything to the same value.
+        """
+        for skipped in (True, False):
+            run = ScrapeRun(
+                run_id=f"guard-run-{skipped}",
+                company="apple",
+                started_at="2026-07-28T10:00:00Z",
+                completed_at="2026-07-28T10:05:00Z",
+                mode="incremental",
+                jobs_seen=2585,
+                new_jobs=0,
+                closed_jobs=0,
+                details_fetched=0,
+                error_count=1 if skipped else 0,
+                skipped_update=skipped,
+            )
+            db.record_scrape_run(in_memory_db, run)
+
+            cursor = in_memory_db.cursor()
+            cursor.execute(
+                "SELECT skipped_update FROM scrape_runs WHERE run_id = %s",
+                (run.run_id,),
+            )
+            row = cursor.fetchone()
+            assert row is not None
+            assert row["skipped_update"] is skipped
+
+    def test_scrape_run_defaults_skipped_update_to_false(self, in_memory_db):
+        """A caller that doesn't pass the flag records ``False``, not NULL.
+
+        NULL in this column has a specific meaning — "row written before
+        the column existed" — so live writers must never produce it.
+        """
+        run = ScrapeRun(
+            run_id="guard-run-default",
+            company="google",
+            started_at="2026-07-28T10:00:00Z",
+            completed_at="2026-07-28T10:05:00Z",
+            mode="full",
+            jobs_seen=798,
+        )
+        db.record_scrape_run(in_memory_db, run)
+
+        cursor = in_memory_db.cursor()
+        cursor.execute(
+            "SELECT skipped_update FROM scrape_runs WHERE run_id = %s",
+            (run.run_id,),
+        )
+        assert cursor.fetchone()["skipped_update"] is False
+
+
+class TestCountConsecutivePartialSkips:
+    """Tests for the history read backing the bounded auto-release."""
+
+    @staticmethod
+    def _run(in_memory_db, run_id, company, started_at, skipped, reason="__auto__"):
+        """Insert one scrape_runs row.
+
+        ``reason`` defaults to the value a real writer would pair with
+        ``skipped``; pass it explicitly to construct the divergent rows the
+        release counter must handle (an empty_scrape skip, a legacy NULL).
+        """
+        if reason == "__auto__":
+            reason = "partial_scrape" if skipped else None
+        cursor = in_memory_db.cursor()
+        cursor.execute(
+            "INSERT INTO scrape_runs (run_id, company, started_at, mode, "
+            "jobs_seen, skipped_update, guard_reason) "
+            "VALUES (%s, %s, %s, 'incremental', 1, %s, %s)",
+            (run_id, company, started_at, skipped, reason),
+        )
+        in_memory_db.commit()
+
+    def test_no_history_is_zero(self, in_memory_db):
+        assert db.count_consecutive_partial_skips(in_memory_db, "nobody") == 0
+
+    def test_counts_the_leading_streak_only(self, in_memory_db):
+        # Chronological: False, True, True, True. Newest-first the leading
+        # streak is 3; the older False must not be counted.
+        self._run(in_memory_db, "r1", "apple", "2026-07-01T00:00:00Z", False)
+        self._run(in_memory_db, "r2", "apple", "2026-07-02T00:00:00Z", True)
+        self._run(in_memory_db, "r3", "apple", "2026-07-03T00:00:00Z", True)
+        self._run(in_memory_db, "r4", "apple", "2026-07-04T00:00:00Z", True)
+
+        assert db.count_consecutive_partial_skips(in_memory_db, "apple", limit=10) == 3
+
+    def test_a_healthy_newest_run_breaks_the_streak(self, in_memory_db):
+        """The streak is anchored at the NEWEST run. One healthy run resets
+        it to zero no matter how many skips precede it."""
+        self._run(in_memory_db, "r1", "apple", "2026-07-01T00:00:00Z", True)
+        self._run(in_memory_db, "r2", "apple", "2026-07-02T00:00:00Z", True)
+        self._run(in_memory_db, "r3", "apple", "2026-07-03T00:00:00Z", False)
+
+        assert db.count_consecutive_partial_skips(in_memory_db, "apple", limit=10) == 0
+
+    def test_null_breaks_the_streak(self, in_memory_db):
+        """NULL means "written before the column existed" — unknown, not
+        skipped. An unknown must never count as evidence toward releasing a
+        destructive guard."""
+        self._run(in_memory_db, "r1", "apple", "2026-07-01T00:00:00Z", True)
+        self._run(in_memory_db, "r2", "apple", "2026-07-02T00:00:00Z", None, reason=None)
+        self._run(in_memory_db, "r3", "apple", "2026-07-03T00:00:00Z", True)
+
+        assert db.count_consecutive_partial_skips(in_memory_db, "apple", limit=10) == 1
+
+    def test_empty_scrape_skips_do_not_count(self, in_memory_db):
+        """FALSIFICATION TEST. Both guard rules set ``skipped_update``, so a
+        counter keyed on that boolean treated a dead scraper's empty runs as
+        evidence of a permanent shrink and released the next truncated run
+        immediately. Only ``partial_scrape`` may count."""
+        for i in range(3):
+            self._run(
+                in_memory_db, f"e{i}", "apple", f"2026-07-0{i + 1}T00:00:00Z",
+                True, reason="empty_scrape",
+            )
+
+        assert db.count_consecutive_partial_skips(in_memory_db, "apple", limit=10) == 0
+
+    def test_an_empty_scrape_breaks_a_partial_streak(self, in_memory_db):
+        """A total outage in the middle of a truncation run is not
+        repetition of the same shrink — it resets the evidence."""
+        self._run(in_memory_db, "r1", "apple", "2026-07-01T00:00:00Z", True)
+        self._run(
+            in_memory_db, "r2", "apple", "2026-07-02T00:00:00Z",
+            True, reason="empty_scrape",
+        )
+        self._run(in_memory_db, "r3", "apple", "2026-07-03T00:00:00Z", True)
+
+        assert db.count_consecutive_partial_skips(in_memory_db, "apple", limit=10) == 1
+
+    def test_leaves_no_open_transaction(self, in_memory_db):
+        """SELECT-only contract. This helper runs on a long-lived scraper /
+        worker connection, so an idle-in-transaction leak here persists for
+        the life of the process, pinning the xmin horizon and blocking
+        vacuum."""
+        import psycopg2.extensions
+
+        self._run(in_memory_db, "r1", "apple", "2026-07-01T00:00:00Z", True)
+        db.count_consecutive_partial_skips(in_memory_db, "apple")
+
+        assert in_memory_db.status == psycopg2.extensions.STATUS_READY
+
+    def test_is_scoped_per_company(self, in_memory_db):
+        self._run(in_memory_db, "g1", "google", "2026-07-01T00:00:00Z", True)
+        self._run(in_memory_db, "g2", "google", "2026-07-02T00:00:00Z", True)
+        self._run(in_memory_db, "a1", "apple", "2026-07-03T00:00:00Z", False)
+
+        assert db.count_consecutive_partial_skips(in_memory_db, "apple", limit=10) == 0
+        assert db.count_consecutive_partial_skips(in_memory_db, "google", limit=10) == 2
+
+    def test_result_is_capped_by_limit(self, in_memory_db):
+        """The caller only asks "are there at least ``limit`` in a row?", so
+        the query must never read more rows than that."""
+        for i in range(6):
+            self._run(in_memory_db, f"r{i}", "apple", f"2026-07-0{i + 1}T00:00:00Z", True)
+
+        assert db.count_consecutive_partial_skips(in_memory_db, "apple", limit=3) == 3
+
+    def test_limit_below_one_is_coerced(self, in_memory_db):
+        """A zero/negative limit would make Postgres reject the query (or,
+        worse, invite someone to "fix" it by dropping the LIMIT and reading
+        the whole 455k-row table)."""
+        self._run(in_memory_db, "r1", "apple", "2026-07-01T00:00:00Z", True)
+
+        assert db.count_consecutive_partial_skips(in_memory_db, "apple", limit=0) == 1
 
 
 class TestUpsertJob:
@@ -446,9 +621,13 @@ class TestTimestamptzColumns:
 
         cursor = in_memory_db.cursor()
         cursor.execute(
-            "SELECT created_at, first_seen_at, last_seen_at, "
+            # last_seen_at comes off the job_freshness sidecar — the Unit 4
+            # contract migration dropped job_listings' own copy.
+            "SELECT created_at, first_seen_at, f.last_seen_at, "
             "pg_typeof(created_at) AS created_type "
-            "FROM job_listings WHERE id = %s",
+            "FROM job_listings JOIN job_freshness f "
+            "  ON f.source_id = job_listings.source_id AND f.id = job_listings.id "
+            "WHERE job_listings.id = %s",
             (sample_job_listing.id,),
         )
         row = cursor.fetchone()

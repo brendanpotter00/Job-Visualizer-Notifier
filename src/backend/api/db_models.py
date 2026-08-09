@@ -65,8 +65,9 @@ class JobListing(Base):
     has_matched = Column(Boolean, server_default=text("false"))
     ai_metadata = Column(JSONB, server_default=text("'{}'::jsonb"))
     first_seen_at = Column(TIMESTAMP(timezone=True), nullable=False)
-    last_seen_at = Column(TIMESTAMP(timezone=True), nullable=False)
-    consecutive_misses = Column(Integer, server_default=text("0"))
+    # NOTE: no ``last_seen_at`` / ``consecutive_misses`` here — freshness lives on
+    # the ``job_freshness`` sidecar (see :class:`JobFreshness`). The Unit 4
+    # contract migration dropped them from this table on 2026-08-05.
     details_scraped = Column(Boolean, server_default=text("false"))
     normalization_status = Column(Text, nullable=True)  # NULL (never attempted) | 'done' | 'failed'
 
@@ -95,7 +96,6 @@ class JobListing(Base):
         PrimaryKeyConstraint("source_id", "id"),
         Index("idx_job_listings_status", "status"),
         Index("idx_job_listings_company", "company"),
-        Index("idx_job_listings_last_seen", "last_seen_at"),
         # Drives the /pending claim scan (find NULL-status OPEN jobs fast) and
         # the analytics/dashboard GROUP BYs on category within OPEN jobs.
         Index("idx_job_listings_enrichment_status", "enrichment_status"),
@@ -126,12 +126,90 @@ class JobListing(Base):
             "first_seen_at",
             postgresql_where=text("enrichment_status IS NULL AND status = 'OPEN'"),
         ),
+        # Serves the BOUNDED COUNT half of the admin problem-jobs queue
+        # (location_admin.list_problem_jobs). The predicate mirrors that query's
+        # WHERE clause EXACTLY — all three clauses, ``btrim`` included — because
+        # Postgres only uses a partial index when the query predicate implies the
+        # index predicate, and for a function expression that means a structurally
+        # identical clause. Verified by EXPLAIN, see below.
+        #
+        # Prod distribution (2026-08-05, 67,654 rows): 6,709 rows are
+        # ``normalization_status = 'failed'`` (9.9 %), but only **182** of those
+        # also have a non-blank location — the failed set is dominated by rows
+        # with nothing to fix. That 37x gap is why all three clauses belong in the
+        # predicate rather than just the equality.
+        #
+        # Before the Unit-3 read-path cutover the endpoint reached its rows via a
+        # backward scan of idx_job_listings_last_seen. Ordering now comes from the
+        # job_freshness sidecar, which left the count with no usable index at all:
+        # prod plans it as a full ``Seq Scan on job_listings`` (cost 14,627.94)
+        # over the wide parent — the bulk of the 13.6 ms -> 206 ms regression.
+        #
+        # Measured on a prod-like local fixture (67,650 rows / 6,765 failed / 182
+        # non-blank-location / TOAST-heavy details), count(*) query:
+        #   * no index                     Seq Scan, 67,468 rows filtered  7.59 ms
+        #   * WHERE normalization_status = 'failed' only
+        #                                  Bitmap: 6,765 entries scanned,
+        #                                  6,583 dropped on heap recheck,
+        #                                  1,989 heap blocks              3.24 ms
+        #   * this predicate               Bitmap Index Scan, 182 entries,
+        #                                  NO heap recheck                0.05 ms
+        # The index is 16 kB. Partial, so it stays tiny and builds without
+        # rewriting the large table (see the 2026-04-18 volume incident).
+        #
+        # NOT a fix for the paged query — be honest about the scope. That one
+        # keeps its ``Nested Loop`` driven by idx_job_freshness_last_seen
+        # (prod cost 751 for LIMIT 50) with or without this index: the planner
+        # estimates 6,137 matching rows because it cannot know the selectivity of
+        # ``btrim(location) <> ''`` (actual ~182), so the LIMIT-friendly ordered
+        # path always wins on estimated cost. Making that plan switch would need
+        # expression statistics on ``btrim(location)``, which is a separate change.
+        Index(
+            "idx_job_listings_problem_jobs",
+            "normalization_status",
+            postgresql_where=text(
+                "normalization_status = 'failed' AND location IS NOT NULL "
+                "AND btrim(location) <> ''"
+            ),
+        ),
+        # Serves the KEYSET-PAGED /api/jobs read path (ticket 1.3): the bounded
+        # `?since=` / `?cursor=` mode orders by
+        # (first_seen_at DESC, source_id DESC, id DESC) and seeks with a
+        # row-value predicate on the same tuple. Column order here mirrors that
+        # tuple exactly — a keyset seek is only an index seek when the index key
+        # IS the sort key.
+        #
+        # Columns are plain ASC. Postgres serves an all-DESC ORDER BY over an
+        # all-ASC composite index with a BACKWARD index scan and no Sort node, so
+        # explicit DESC ops would buy nothing and would leave autogenerate unable
+        # to round-trip the definition. Verified by EXPLAIN on a prod-scale
+        # fixture (67,650 rows / 29,500 OPEN); see the migration docstring for the
+        # plans and timings.
+        #
+        # PARTIAL on status = 'OPEN', matching every real caller of the paged
+        # path (the Recent Jobs page fetches `?status=OPEN` exclusively) and the
+        # `idx_job_listings_open_id` precedent above. It keeps the index to the
+        # ~44% of rows that are OPEN (1.6 MB at prod scale) — the build still
+        # scans the parent once to evaluate the predicate, but it reads only
+        # these four columns and never detoasts the wide `details` JSONB.
+        #
+        # Any request that does NOT filter to status='OPEN' — including one that
+        # omits `status` entirely, not just `status=CLOSED` — falls off this
+        # index and sorts. Correct, just unindexed for the ordering, and no real
+        # caller does it.
+        Index(
+            "idx_job_listings_open_first_seen_keyset",
+            "first_seen_at",
+            "source_id",
+            "id",
+            postgresql_where=text("status = 'OPEN'"),
+        ),
     )
 
 
 class JobFreshness(Base):
-    """High-churn "freshness" sidecar for ``job_listings`` (see the 2026-07-13
-    ``/api/jobs`` outage postmortem).
+    """High-churn "freshness" sidecar for ``job_listings`` (see
+    ``docs/incidents/2026-07-13-api-jobs-outage.md``).
 
     ``last_seen_at`` is re-stamped on *every* open job on *every* hourly scrape
     cycle. Because it lives on ``job_listings`` — a ~600 MB table with a
@@ -257,6 +335,43 @@ class ScrapeRun(Base):
     closed_jobs = Column(Integer, server_default=text("0"))
     details_fetched = Column(Integer, server_default=text("0"))
     error_count = Column(Integer, server_default=text("0"))
+    # True when the scraper safety guard tripped and the destructive
+    # update/close phases were skipped. Before this column existed a
+    # truncated run was recorded with error_count=0 and was literally
+    # indistinguishable from a perfect run.
+    #
+    # Nullable with NO server default, deliberately — matching the
+    # 5ee285a3c724 / 0fa33aca5bda precedent so the ALTER TABLE stays
+    # catalog-only and never rewrites this ~455k-row table (see
+    # docs/incidents/2026-04-18-migration-filled-postgres-volume/). It also
+    # keeps the data honest: NULL means "written before this column
+    # existed", which is the truth, whereas a `false` default would assert
+    # that the seven real Apple truncations were clean runs.
+    skipped_update = Column(Boolean, nullable=True)
+    # WHICH guard rule tripped: NULL | 'empty_scrape' | 'partial_scrape'.
+    # Not redundant with skipped_update: both rules set that boolean, so it
+    # cannot distinguish a total outage (rule (a), never auto-released) from
+    # an Apple-style truncation (rule (b), the only thing the bounded
+    # auto-release may count). Counting the boolean let three dead-scraper
+    # runs release the next truncated run outright.
+    #
+    # Nullable, no server default, no backfill — same catalog-only shape as
+    # skipped_update above.
+    guard_reason = Column(Text, nullable=True)
+
+    __table_args__ = (
+        # Drives count_consecutive_partial_skips' "most recent N runs for
+        # this company" probe. Without it that query was a Parallel Seq Scan
+        # over 452,610 rows (~70 MB buffers, ~32 ms) — the LIMIT bounds the
+        # top-N heapsort, not the scan.
+        #
+        # Ascending on started_at, not DESC: Postgres reads a btree backwards
+        # at no cost, so (company, started_at) fully serves
+        # ORDER BY started_at DESC LIMIT n, and a plain column index keeps
+        # test_alembic_parity's autogenerate comparison exact (an expression
+        # index would risk a spurious diff).
+        Index("idx_scrape_runs_company_started_at", "company", "started_at"),
+    )
 
 
 class User(Base):

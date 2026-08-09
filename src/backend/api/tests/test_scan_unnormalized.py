@@ -22,7 +22,7 @@ pytestmark = pytest.mark.asyncio
 _REQUIRED_COLS = {
     "title": "Software Engineer", "company": "acme", "url": "https://example.com/job",
     "source_id": "scan_test_source", "created_at": "2025-01-10T10:00:00Z",
-    "first_seen_at": "2025-01-10T10:00:00Z", "last_seen_at": "2025-01-10T10:00:00Z",
+    "first_seen_at": "2025-01-10T10:00:00Z",
 }
 
 

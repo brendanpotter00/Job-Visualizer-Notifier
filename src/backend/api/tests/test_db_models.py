@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import TIMESTAMP
+from sqlalchemy import TIMESTAMP, Boolean
 from sqlalchemy.schema import ForeignKeyConstraint, UniqueConstraint
 
 from api import db_models
@@ -39,7 +39,7 @@ def test_all_tables_present():
 
 def test_job_listings_timestamptz_columns_have_timezone():
     table = db_models.Base.metadata.tables["job_listings"]
-    for col_name in ("posted_on", "created_at", "closed_on", "first_seen_at", "last_seen_at"):
+    for col_name in ("posted_on", "created_at", "closed_on", "first_seen_at"):
         col = table.c[col_name]
         assert isinstance(col.type, TIMESTAMP), (
             f"{col_name}: expected TIMESTAMP, got {type(col.type).__name__}"
@@ -53,7 +53,74 @@ def test_job_listings_nullability():
     assert table.c["created_at"].nullable is False
     assert table.c["closed_on"].nullable is True
     assert table.c["first_seen_at"].nullable is False
-    assert table.c["last_seen_at"].nullable is False
+
+
+def test_scrape_runs_columns():
+    """Pin the full ``scrape_runs`` column set.
+
+    ``skipped_update`` is the difference between "a truncated scrape is
+    visible in the table" and "a truncated scrape is byte-for-byte
+    identical to a perfect run" — which is exactly how seven real Apple
+    truncations went unnoticed for three weeks. Dropping it must fail
+    loudly, not silently degrade the QA table to guesswork.
+    """
+    table = db_models.Base.metadata.tables["scrape_runs"]
+    assert set(table.c.keys()) == {
+        "run_id",
+        "company",
+        "started_at",
+        "completed_at",
+        "mode",
+        "jobs_seen",
+        "new_jobs",
+        "closed_jobs",
+        "details_fetched",
+        "error_count",
+        "skipped_update",
+        "guard_reason",
+    }
+
+
+def test_scrape_runs_skipped_update_is_nullable_with_no_server_default():
+    """Nullable + no server default is load-bearing on two axes.
+
+    Migration safety: a nullable column with no default is a catalog-only
+    ADD COLUMN — Postgres does not rewrite the ~455k-row table (see
+    docs/incidents/2026-04-18-migration-filled-postgres-volume/).
+
+    Data honesty: NULL means "written before this column existed". A
+    ``server_default='false'`` would retroactively claim the seven real
+    Apple truncations were clean runs.
+    """
+    col = db_models.Base.metadata.tables["scrape_runs"].c["skipped_update"]
+    assert isinstance(col.type, Boolean)
+    assert col.nullable is True
+    assert col.server_default is None
+    assert col.default is None
+
+
+def test_scrape_runs_guard_reason_is_nullable_text():
+    """``guard_reason`` records WHICH rule tripped. Not redundant with
+    ``skipped_update``: both rules set that boolean, so counting it let a
+    dead scraper's ``empty_scrape`` runs release the next truncated run."""
+    col = db_models.Base.metadata.tables["scrape_runs"].c["guard_reason"]
+    assert col.nullable is True
+    assert col.server_default is None
+    assert col.default is None
+
+
+def test_scrape_runs_has_company_started_at_index():
+    """Without it, ``count_consecutive_partial_skips`` is a Parallel Seq
+    Scan over ~452k rows (~70 MB buffers) — the LIMIT bounds the top-N
+    heapsort, not the scan."""
+    table = db_models.Base.metadata.tables["scrape_runs"]
+    by_name = {idx.name: idx for idx in table.indexes}
+    assert "idx_scrape_runs_company_started_at" in by_name, sorted(by_name)
+    cols = [c.name for c in by_name["idx_scrape_runs_company_started_at"].columns]
+    assert cols == ["company", "started_at"], (
+        "company must lead — the query filters on company and only then "
+        f"orders by started_at; got {cols}"
+    )
 
 
 def test_users_email_unique_constraint_named():
@@ -110,10 +177,27 @@ def test_expected_indexes_on_job_listings():
     expected = {
         "idx_job_listings_status",
         "idx_job_listings_company",
-        "idx_job_listings_last_seen",
+        "idx_job_listings_problem_jobs",
     }
     missing = expected - index_names
     assert not missing, f"Missing indexes: {missing}; present: {index_names}"
+    # Unit 4 contract (18fe9c20a8fd): the bloated parent freshness index is
+    # gone for good. Its sidecar replacement is asserted separately above.
+    assert "idx_job_listings_last_seen" not in index_names
+
+
+def test_job_listings_has_no_freshness_columns():
+    """Unit 4 contract: freshness lives ONLY on the job_freshness sidecar.
+
+    Re-adding either column here would silently re-create the write
+    amplification that caused the 2026-07-13 /api/jobs outage.
+    """
+    table = db_models.Base.metadata.tables["job_listings"]
+    assert "last_seen_at" not in table.c
+    assert "consecutive_misses" not in table.c
+    sidecar = db_models.Base.metadata.tables["job_freshness"]
+    assert "last_seen_at" in sidecar.c
+    assert "consecutive_misses" in sidecar.c
 
 
 def test_expected_indexes_on_users():

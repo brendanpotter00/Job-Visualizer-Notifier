@@ -14,11 +14,21 @@ from api.eval.monitor_prod import (
     CheckResult,
     Context,
     Report,
+    _PARENT_INDEX,
+    _SIDECAR_INDEX,
+    _bytes_per_row,
     _compute_dormant,
     _eval_backlog,
     _eval_failed_ratio,
     _eval_heartbeat,
+    _eval_hot_churn,
+    _eval_index_bloat,
     _eval_queue,
+    _fmt_bytes,
+    _fmt_index_size,
+    _hot_pct,
+    _index_bloat_verdict,
+    _worst,
     _zero_count,
     all_sql_statements,
     main,
@@ -192,6 +202,175 @@ def test_queue_large_backlog_warns():
 
 def test_queue_empty_is_ok():
     assert _eval_queue([], _ctx())[0] == "ok"
+
+
+# ---- S1 index bloat: pure threshold / formatting / absent-index logic --------
+
+_MIB = 1024 * 1024
+
+# The real index names, so the per-relation thresholds are pinned to the
+# relations they govern rather than to hardcoded strings.
+_PARENT = _PARENT_INDEX
+_SIDECAR = _SIDECAR_INDEX
+
+# Measured against prod 2026-08-05 05:17 UTC (67,648 rows in both tables) — the
+# numbers the runbook and db_models.py comment quote. Kept here so a threshold
+# edit that stops flagging the real, known-bloated parent index fails a test.
+_PROD_PARENT_BYTES = 46_800_896   # 691.8 B/row
+_PROD_SIDECAR_BYTES = 1_851_392   # 27.4 B/row
+_PROD_ROWS = 67_648
+
+
+def _bloat_rows(parent_bytes=_PROD_PARENT_BYTES, sidecar_bytes=_PROD_SIDECAR_BYTES,
+                parent_rows=_PROD_ROWS, sidecar_rows=_PROD_ROWS):
+    return [{"parent_bytes": parent_bytes, "sidecar_bytes": sidecar_bytes,
+             "parent_rows": parent_rows, "sidecar_rows": sidecar_rows}]
+
+
+def test_bytes_per_row_math_and_guards():
+    assert _bytes_per_row(_PROD_PARENT_BYTES, _PROD_ROWS) == 691.8
+    assert _bytes_per_row(_PROD_SIDECAR_BYTES, _PROD_ROWS) == 27.4
+    assert _bytes_per_row(None, _PROD_ROWS) is None    # absent index
+    assert _bytes_per_row(1234, 0) is None             # empty table, no div-by-zero
+    assert _bytes_per_row(1234, None) is None
+
+
+def test_fmt_bytes_is_binary_and_labelled_mib():
+    assert _fmt_bytes(None) == "absent"
+    # 1 MiB = 1024^2 B — the label must not imply 10^6.
+    assert _fmt_bytes(1024 * 1024) == "1.0MiB"
+    assert _fmt_bytes(_PROD_PARENT_BYTES) == "44.6MiB"
+    assert _fmt_bytes(4096) == "4096B"                 # sub-0.1MiB stays exact
+    assert _fmt_index_size(_PROD_SIDECAR_BYTES, _PROD_ROWS) == "1.8MiB@27.4B/row"
+    assert _fmt_index_size(None, _PROD_ROWS) == "absent"
+    assert _fmt_index_size(4096, 0) == "4096B@?B/row"
+
+
+def test_parent_index_today_is_flagged_bloated():
+    status, value, detail = _eval_index_bloat(_bloat_rows(), _ctx())
+    assert status == "warn"
+    assert "BLOATED" in detail
+    assert ">150.0B/row" in detail and ">10.0MiB" in detail
+    assert value == {"parent": "44.6MiB@691.8B/row", "sidecar": "1.8MiB@27.4B/row"}
+
+
+def test_healthy_sidecar_alone_is_ok():
+    # both relations inside budget -> ok (the post-Unit-4 steady state, modulo
+    # the parent index which is gone by then).
+    status, _, detail = _eval_index_bloat(
+        _bloat_rows(parent_bytes=2 * _MIB, sidecar_bytes=_PROD_SIDECAR_BYTES), _ctx())
+    assert status == "ok"
+    assert "BLOATED" not in detail
+
+
+def test_either_threshold_alone_trips_the_warn():
+    # big but well-packed (a much larger corpus): bytes over, B/row fine.
+    assert _index_bloat_verdict("idx_job_listings_last_seen", 11 * _MIB, 1_000_000)[0] == "warn"
+    # small but badly packed (a tiny corpus that churned): B/row over, bytes fine.
+    assert _index_bloat_verdict("idx_job_listings_last_seen", 2 * _MIB, 5_000)[0] == "warn"
+
+
+def test_sidecar_thresholds_are_pinned():
+    # The sidecar constants (8 MiB / 80.0 B-row) are separate from the parent's
+    # and would otherwise be asserted nowhere — loosening them must fail here.
+    # bytes over, B/row fine:
+    assert _index_bloat_verdict(_SIDECAR, 9 * _MIB, 1_000_000)[0] == "warn"
+    # B/row over (81), bytes fine:
+    assert _index_bloat_verdict(_SIDECAR, 81 * 1_000, 1_000)[0] == "warn"
+    # and the parent's looser 150 B/row line must NOT be what governs the sidecar
+    assert _index_bloat_verdict(_SIDECAR, 100 * 1_000, 1_000)[0] == "warn"
+    assert _index_bloat_verdict(_PARENT, 100 * 1_000, 1_000)[0] == "ok"
+
+
+def test_exactly_at_threshold_does_not_trip():
+    # the comparison is strict >, so the threshold value itself is still ok.
+    assert _index_bloat_verdict(_PARENT, 10 * _MIB, 10 * _MIB // 150)[0] == "ok"
+    assert _index_bloat_verdict(_PARENT, 150 * 1_000, 1_000)[0] == "ok"   # exactly 150.0 B/row
+    assert _index_bloat_verdict(_SIDECAR, 8 * _MIB, 8 * _MIB // 80)[0] == "ok"
+    assert _index_bloat_verdict(_SIDECAR, 80 * 1_000, 1_000)[0] == "ok"   # exactly 80.0 B/row
+    # one byte past each line does trip.
+    assert _index_bloat_verdict(_PARENT, 10 * _MIB + 1, 10)[0] == "warn"
+    assert _index_bloat_verdict(_SIDECAR, 8 * _MIB + 1, 10)[0] == "warn"
+
+
+def test_absent_parent_index_is_info_not_error():
+    # post-Unit-4: the index is gone on purpose. Must not raise, must not warn.
+    status, value, detail = _eval_index_bloat(_bloat_rows(parent_bytes=None), _ctx())
+    assert status == "info"
+    assert "absent (dropped by Unit 4 contract)" in detail
+    assert value["parent"] == "absent"
+
+
+def test_absent_sidecar_index_warns():
+    # the index the read path now depends on is missing — different meaning.
+    status, _, detail = _eval_index_bloat(
+        _bloat_rows(parent_bytes=None, sidecar_bytes=None), _ctx())
+    assert status == "warn"
+    assert "sidecar read path has no index" in detail
+
+
+def test_both_indexes_absent_does_not_raise():
+    # nothing hardcodes that either index exists.
+    status, value, _ = _eval_index_bloat(
+        _bloat_rows(parent_bytes=None, sidecar_bytes=None), _ctx())
+    assert status == "warn"
+    assert value == {"parent": "absent", "sidecar": "absent"}
+
+
+def test_index_bloat_no_rows_does_not_raise():
+    assert _eval_index_bloat([], _ctx())[0] == "warn"  # both read as absent
+
+
+def test_worst_status_ordering():
+    assert _worst("ok", "info") == "info"
+    assert _worst("info", "warn") == "warn"
+    assert _worst("warn", "crit") == "crit"
+    assert _worst("ok", "ok") == "ok"
+
+
+# ---- S2 HOT churn -----------------------------------------------------------
+
+def test_hot_pct_math_and_zero_update_guard():
+    assert _hot_pct(182_158_867, 209_910) == 0.115   # job_listings, 2026-08-05
+    assert _hot_pct(88_350, 22) == 0.025             # job_freshness, same day
+    assert _hot_pct(0, 0) is None                    # never updated, not "0% HOT"
+    assert _hot_pct(None, None) is None
+
+
+def test_hot_churn_reports_both_tables_and_never_fails():
+    rows = [
+        {"relname": "job_freshness", "n_tup_upd": 88_350, "n_tup_hot_upd": 22,
+         "n_dead_tup": 0, "autovacuum_count": 5},
+        {"relname": "job_listings", "n_tup_upd": 182_158_867, "n_tup_hot_upd": 209_910,
+         "n_dead_tup": 7163, "autovacuum_count": 9181},
+    ]
+    status, value, detail = _eval_hot_churn(rows, _ctx())
+    # info only: no assertion on the trend, by design.
+    assert status == "info"
+    assert value == {"job_freshness": 0.025, "job_listings": 0.115}
+    assert "job_listings: upd=182158867" in detail
+    assert "autovac=9181" in detail
+
+
+def test_hot_churn_empty_rows_is_info():
+    assert _eval_hot_churn([], _ctx())[0] == "info"
+
+
+# ---- S3/S4 anti-join invariants ---------------------------------------------
+
+def test_anti_join_checks_are_registered_and_critical():
+    by_id = {c.id: c for c in CHECKS}
+    for cid in ("S3_listings_without_freshness", "S4_freshness_without_listing"):
+        assert by_id[cid].category == "S"
+        # a non-zero count is a FAILING check — the listing vanishes from /api/jobs.
+        assert by_id[cid].evaluate([{"n": 1}], _ctx())[0] == "crit"
+        assert by_id[cid].evaluate([{"n": 0}], _ctx())[0] == "ok"
+
+
+def test_s_checks_do_not_assume_both_indexes_exist():
+    # the SQL must resolve the index names dynamically, never hardcode presence.
+    sql = {c.id: c.sql for c in CHECKS}["S1_index_bloat"]
+    assert sql.count("to_regclass(") == 2
 
 
 # ---- read-only guard --------------------------------------------------------

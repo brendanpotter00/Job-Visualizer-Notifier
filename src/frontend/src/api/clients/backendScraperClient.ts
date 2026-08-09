@@ -1,6 +1,12 @@
-import type { JobAPIClient, FetchJobsOptions, FetchJobsResult, BackendJobListing } from '../types';
+import type {
+  JobAPIClient,
+  FetchJobsOptions,
+  FetchJobsResult,
+  BackendJobListing,
+  JobsPage,
+} from '../types';
 import type { ATSCompanyConfig } from './baseClient';
-import type { BackendScraperConfig } from '../../types';
+import type { BackendScraperConfig, Job } from '../../types';
 import { APIError } from '../types';
 import { logger } from '../../lib/logger';
 import { transformBackendJob } from '../transformers/backendScraperTransformer';
@@ -137,6 +143,59 @@ function chunk<T>(arr: T[], size: number): T[][] {
 }
 
 /**
+ * The chunk plan for a batched `/api/jobs?companies=` load — one entry per
+ * HTTP request that `fetchJobsForCompanies` / `fetchJobsPage` would issue.
+ *
+ * Exported because keyset pagination is **per request**: the backend mints one
+ * `X-Next-Cursor` per response, so a batched load that spans N chunks holds N
+ * independent cursors. Callers that walk the pages (see `fetchNextJobsPage` in
+ * `features/jobs/jobsApi.ts`) need the same partition the first page used, so
+ * the chunk boundary has to be a shared, deterministic function of the id list
+ * rather than an implementation detail hidden inside the batched fetch.
+ */
+export function chunkCompanyIds(companyIds: string[]): string[][] {
+  return chunk(companyIds, _COMPANIES_PER_REQUEST);
+}
+
+/**
+ * Transform a flat `/api/jobs` response once and return it two ways: in
+ * server order (`jobs`) and grouped per company (`byCompanyId`), sharing the
+ * same `Job` object references.
+ *
+ * Every requested id gets a `byCompanyId` entry, even ones the backend
+ * returned zero rows for, so per-company cache seeding in `getAllJobs` stays
+ * uniform. Rows for companies that were not requested are ignored.
+ */
+function transformAndGroup(
+  rows: BackendJobListing[],
+  companyIds: string[]
+): { jobs: Job[]; byCompanyId: Record<string, FetchJobsResult> } {
+  const requested = new Set(companyIds);
+  const grouped: Record<string, Job[]> = {};
+  const jobs: Job[] = [];
+  for (const row of rows) {
+    if (!requested.has(row.company)) continue;
+    const job = transformBackendJob(row, row.company);
+    jobs.push(job);
+    (grouped[row.company] ??= []).push(job);
+  }
+
+  const fetchedAt = new Date().toISOString();
+  const byCompanyId: Record<string, FetchJobsResult> = {};
+  for (const companyId of companyIds) {
+    const companyJobs = grouped[companyId] ?? [];
+    byCompanyId[companyId] = {
+      jobs: companyJobs,
+      metadata: {
+        totalCount: companyJobs.length,
+        fetchedAt,
+      },
+    };
+  }
+  return { jobs, byCompanyId };
+}
+
+/**
  * Batched fetch for many backend-scraper companies, chunked to stay under
  * the backend's `?companies=` cap (150) and query-string size limits.
  *
@@ -158,7 +217,7 @@ export async function fetchJobsForCompanies(
     return {};
   }
 
-  const chunks = chunk(companyIds, _COMPANIES_PER_REQUEST);
+  const chunks = chunkCompanyIds(companyIds);
   logger.debug(
     `[Backend Scraper Client] Batched fetch for ${companyIds.length} companies across ${chunks.length} chunk(s)`
   );
@@ -215,28 +274,108 @@ async function _fetchJobsChunk(
     );
   }
 
-  // Group rows by company id and transform.
-  const grouped: Record<string, BackendJobListing[]> = {};
-  for (const row of data) {
-    const cid = row.company;
-    if (!grouped[cid]) grouped[cid] = [];
-    grouped[cid].push(row);
+  // Group rows by company id and transform. Seeds every requested id, even
+  // ones the backend returned zero rows for, so the caller can dispatch a
+  // per-company cache update for each.
+  return transformAndGroup(data, companyIds).byCompanyId;
+}
+
+export interface FetchJobsPageOptions extends FetchJobsForCompaniesOptions {
+  /**
+   * ISO-8601 timestamp **with a UTC offset** (`Z` or `±HH:MM`). Inclusive lower
+   * bound on `first_seen_at`. Naive values are a backend 422, never assumed-UTC.
+   */
+  since?: string;
+  /**
+   * Opaque keyset token, verbatim from a previous page's `X-Next-Cursor`.
+   * Only meaningful under the same filter set that minted it — change `since`
+   * or the company list and the walk must restart without a cursor.
+   */
+  cursor?: string;
+}
+
+/** `X-Next-Cursor`; header names are case-insensitive per `Headers.get`. */
+const NEXT_CURSOR_HEADER = 'X-Next-Cursor';
+
+/**
+ * One keyset-paginated page of `/api/jobs?companies=…` — the paging sibling of
+ * `fetchJobsForCompanies`.
+ *
+ * Takes **a single chunk** of company ids (use `chunkCompanyIds` to build the
+ * partition) because the backend mints exactly one cursor per response: one
+ * request ⇔ one cursor. Passing `since` and/or `cursor` puts the backend in
+ * keyset mode (`ORDER BY first_seen_at DESC, source_id DESC, id DESC`); passing
+ * neither is the legacy path and yields no cursor.
+ *
+ * `nextCursor` is `null` at the end of the walk — the header's **absence is the
+ * only end-of-walk signal**, and it is present iff the page came back full
+ * (`rows.length === limit`), so a trailing exactly-full page costs one extra
+ * round trip returning `[]`. See the keyset section of `src/backend/CLAUDE.md`.
+ */
+export async function fetchJobsPage(
+  companyIds: string[],
+  options: FetchJobsPageOptions = {}
+): Promise<JobsPage> {
+  if (companyIds.length === 0) {
+    return { jobs: [], byCompanyId: {}, nextCursor: null };
   }
 
-  const fetchedAt = new Date().toISOString();
-  const result: Record<string, FetchJobsResult> = {};
-  // Seed every requested id, even ones the backend returned zero rows for,
-  // so the caller can dispatch a per-company cache update for each.
-  for (const companyId of companyIds) {
-    const rows = grouped[companyId] ?? [];
-    const jobs = rows.map((row) => transformBackendJob(row, companyId));
-    result[companyId] = {
-      jobs,
-      metadata: {
-        totalCount: jobs.length,
-        fetchedAt,
-      },
-    };
+  const apiBase = options.apiBaseUrl || DEFAULT_BACKEND_JOBS_URL;
+  const params = new URLSearchParams({
+    companies: companyIds.join(','),
+    // Load-bearing: only `status=OPEN` is served by the partial keyset index
+    // `idx_job_listings_open_first_seen_keyset`. Omitting it falls back to a sort.
+    status: 'OPEN',
+    limit: (options.limit ?? 1000).toString(),
+  });
+  // Sent on presence, mirroring the Vercel proxy's `!== undefined` forwarding:
+  // silently dropping an empty cursor would restart the walk at page 1 instead
+  // of surfacing the backend's 422.
+  if (options.since !== undefined) params.set('since', options.since);
+  if (options.cursor !== undefined) params.set('cursor', options.cursor);
+  // NOTE: `offset` is deliberately never sent — it is a 422 in keyset mode.
+  const url = `${apiBase}?${params}`;
+
+  let data: BackendJobListing[];
+  let nextCursor: string | null;
+  try {
+    const response = await fetch(url, {
+      signal: options.signal,
+      headers: { Accept: 'application/json' },
+    });
+
+    if (!response.ok) {
+      const retryable = response.status >= 500 || response.status === 429;
+      throw new APIError(
+        `Backend Scraper API error: ${response.statusText}`,
+        response.status,
+        'backend-scraper',
+        retryable
+      );
+    }
+
+    nextCursor = response.headers?.get(NEXT_CURSOR_HEADER) || null;
+    data = await response.json();
+  } catch (error) {
+    logger.error('[Backend Scraper Client] Keyset page fetch error:', error);
+    if (error instanceof APIError) {
+      throw error;
+    }
+    throw new APIError(
+      `Failed to fetch jobs page: ${(error as Error).message}`,
+      undefined,
+      'backend-scraper',
+      true
+    );
   }
-  return result;
+
+  // `jobs` is the flat, server-ordered view (first_seen_at DESC in keyset
+  // mode); `byCompanyId` groups the very same Job objects.
+  const { jobs, byCompanyId } = transformAndGroup(data, companyIds);
+
+  logger.debug(
+    `[Backend Scraper Client] Keyset page: ${data.length} rows across ${companyIds.length} companies, nextCursor=${nextCursor ? 'present' : 'absent'}`
+  );
+
+  return { jobs, byCompanyId, nextCursor };
 }

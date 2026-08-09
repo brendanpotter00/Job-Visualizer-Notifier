@@ -82,15 +82,29 @@ _RUNS_TABLE = "scrape_runs"
 # never has to detoast `details` (see the 2026-07-13 /api/jobs outage and
 # db_models.JobListing). Keep this list, the _build_job_values tuple, and the
 # VALUES (%s, …) placeholder strings in insert_job/upsert_job in lockstep.
+# There is deliberately no last_seen_at / consecutive_misses here: the Unit 4
+# contract migration (18fe9c20a8fd) dropped both from job_listings. Freshness is
+# written to the job_freshness sidecar — by the AFTER INSERT trigger for plain
+# inserts, and by _upsert_freshness for the upsert paths.
 _JOB_COLUMNS = """
     id, title, company, location, url, source_id,
     details, posted_on, created_at, closed_on, status,
     has_matched, ai_metadata,
-    first_seen_at, last_seen_at, consecutive_misses, details_scraped,
+    first_seen_at, details_scraped,
     experience_level, is_remote_eligible
 """.strip()
 
-# ON CONFLICT clause for upsert operations
+# ON CONFLICT clause for upsert operations.
+#
+# Freshness (``last_seen_at`` / ``consecutive_misses``) is not updated here — the
+# columns no longer exist on ``job_listings`` (dropped by the Unit 4 contract
+# migration 18fe9c20a8fd); they live in the ``job_freshness`` sidecar. Re-stamping
+# those two columns on ``job_listings`` every scrape cycle is exactly what bloated
+# ``idx_job_listings_last_seen`` and took ``/api/jobs`` down; the sidecar owns them
+# now. The re-seen freshness write is applied separately via ``_upsert_freshness``
+# in the same transaction. We still
+# reactivate here (``status='OPEN'``, ``closed_on=NULL``) because status is a
+# ``job_listings`` column, and still refresh the content columns.
 _UPSERT_ON_CONFLICT = """
     ON CONFLICT (source_id, id) DO UPDATE SET
         title = EXCLUDED.title,
@@ -100,17 +114,64 @@ _UPSERT_ON_CONFLICT = """
         posted_on = EXCLUDED.posted_on,
         status = 'OPEN',
         closed_on = NULL,
-        last_seen_at = EXCLUDED.last_seen_at,
-        consecutive_misses = 0,
         details_scraped = EXCLUDED.details_scraped,
         experience_level = EXCLUDED.experience_level,
         is_remote_eligible = EXCLUDED.is_remote_eligible
 """.strip()
 
+# Sidecar (job_freshness) table + its re-seen upsert.
+#
+# The AFTER INSERT trigger on job_listings already materializes a freshness row
+# for every *genuinely new* listing (seeded from first_seen_at), so plain INSERT
+# paths (insert_job / insert_jobs_batch) need no freshness write. The upsert
+# paths, however, cover two cases the trigger does NOT fire for:
+#   * an existing OPEN listing re-scraped (ON CONFLICT DO UPDATE) — advance its
+#     last_seen_at and clear misses, and
+#   * a previously-CLOSED listing reappearing and being reactivated by the same
+#     ON CONFLICT — same thing.
+# So after upserting job_listings we upsert job_freshness in the SAME transaction
+# (the composite FK requires the job_listings row to exist first). ON CONFLICT DO
+# UPDATE makes this idempotent against the trigger's just-inserted row.
+_FRESHNESS_TABLE = "job_freshness"
+
+_FRESHNESS_UPSERT = f"""
+    INSERT INTO {_FRESHNESS_TABLE} (source_id, id, last_seen_at, consecutive_misses)
+    VALUES %s
+    ON CONFLICT (source_id, id) DO UPDATE SET
+        last_seen_at = EXCLUDED.last_seen_at,
+        consecutive_misses = 0
+""".strip()
+
+
+def _upsert_freshness(cursor: Any, jobs: List[JobListing]) -> None:
+    """Advance ``job_freshness`` for the re-seen/reactivated ``jobs``.
+
+    MUST be called after the matching ``job_listings`` rows are written in the
+    SAME transaction (the composite FK ``(source_id, id) -> job_listings``
+    requires the parent rows to exist). Does not commit — the caller owns the
+    transaction boundary so a listing and its freshness commit atomically.
+
+    Re-seen means "seen in this scrape", so ``consecutive_misses`` is reset to 0
+    on conflict; the INSERT branch (only reachable if the trigger's row is
+    somehow absent) seeds 0 as well.
+    """
+    if not jobs:
+        return
+    freshness_values = [
+        (job.source_id, job.id, job.last_seen_at, 0)
+        for job in jobs
+    ]
+    execute_values(cursor, _FRESHNESS_UPSERT, freshness_values, page_size=100)
+
 
 def _build_job_values(job: JobListing) -> Tuple:
     """
     Build a tuple of values from a JobListing for database insertion.
+
+    ``job.last_seen_at`` / ``job.consecutive_misses`` are intentionally NOT here:
+    those columns no longer exist on ``job_listings``. They stay on the Pydantic
+    model because ``_upsert_freshness`` reads ``job.last_seen_at`` to stamp the
+    ``job_freshness`` sidecar.
 
     Args:
         job: JobListing model
@@ -122,7 +183,7 @@ def _build_job_values(job: JobListing) -> Tuple:
         job.id, job.title, job.company, job.location, job.url, job.source_id,
         json.dumps(job.details), job.posted_on, job.created_at, job.closed_on, job.status,
         job.has_matched, json.dumps(job.ai_metadata),
-        job.first_seen_at, job.last_seen_at, job.consecutive_misses, job.details_scraped,
+        job.first_seen_at, job.details_scraped,
         job.details.get("experience_level"), job.details.get("is_remote_eligible", False)
     )
 
@@ -357,8 +418,16 @@ def get_job_by_id(
         )
     cursor = conn.cursor()
 
+    # Freshness (last_seen_at / consecutive_misses) lives in the job_freshness
+    # sidecar; join it so this reader returns the authoritative values. The
+    # job_listings columns are gone (Unit 4 contract migration 18fe9c20a8fd), so
+    # the appended f.* columns are now the only source of these two keys.
     cursor.execute(
-        f"SELECT * FROM {_JOBS_TABLE} WHERE source_id = %s AND id = %s",
+        f"SELECT {_JOBS_TABLE}.*, f.last_seen_at, f.consecutive_misses "
+        f"FROM {_JOBS_TABLE} "
+        f"JOIN {_FRESHNESS_TABLE} f "
+        f"  ON f.source_id = {_JOBS_TABLE}.source_id AND f.id = {_JOBS_TABLE}.id "
+        f"WHERE {_JOBS_TABLE}.source_id = %s AND {_JOBS_TABLE}.id = %s",
         (source_id, job_id),
     )
     row = cursor.fetchone()
@@ -379,7 +448,7 @@ def insert_job(conn: Connection, job: JobListing) -> None:
     cursor = conn.cursor()
 
     cursor.execute(
-        f"INSERT INTO {_JOBS_TABLE} ({_JOB_COLUMNS}) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        f"INSERT INTO {_JOBS_TABLE} ({_JOB_COLUMNS}) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
         _build_job_values(job)
     )
 
@@ -407,7 +476,7 @@ def upsert_job(conn: Connection, job: JobListing) -> bool:
     cursor.execute(
         f"""
         INSERT INTO {_JOBS_TABLE} ({_JOB_COLUMNS})
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         {_UPSERT_ON_CONFLICT}
         RETURNING (xmax = 0) AS inserted
         """,
@@ -416,6 +485,12 @@ def upsert_job(conn: Connection, job: JobListing) -> bool:
 
     result = cursor.fetchone()
     was_inserted = result['inserted'] if result else True
+
+    # Keep the sidecar fresh in the same transaction. For a brand-new insert the
+    # AFTER INSERT trigger already created the freshness row (from first_seen_at);
+    # this upsert then advances it to the scrape's last_seen_at. For a re-seen /
+    # reactivated row the trigger does not fire, so this is the only freshness write.
+    _upsert_freshness(cursor, [job])
 
     conn.commit()
 
@@ -490,6 +565,12 @@ def upsert_jobs_batch(conn: Connection, jobs: List[JobListing]) -> int:
     # The right defense against per-row source_id misfiling is the per-row
     # `_build_job_values(job)` construction itself, which reads source_id
     # straight off the JobListing.
+
+    # Advance the sidecar for every upserted row in the same transaction (the
+    # job_listings rows above satisfy the composite FK). New rows already got a
+    # trigger-seeded freshness row; re-seen / reactivated rows get theirs here.
+    _upsert_freshness(cursor, jobs)
+
     conn.commit()
     source_ids = sorted({job.source_id for job in jobs})
     logger.info(
@@ -556,8 +637,11 @@ def update_last_seen(
     cursor = conn.cursor()
     placeholders = _build_id_placeholders(job_ids)
 
+    # Freshness lives in the job_freshness sidecar now, not on job_listings.
+    # Every OPEN listing has a freshness row (AFTER INSERT trigger + backfill),
+    # so this UPDATE matches the same rows the old job_listings UPDATE did.
     cursor.execute(
-        f"UPDATE {_JOBS_TABLE} SET last_seen_at = %s, consecutive_misses = 0 "
+        f"UPDATE {_FRESHNESS_TABLE} SET last_seen_at = %s, consecutive_misses = 0 "
         f"WHERE source_id = %s AND id IN ({placeholders})",
         [timestamp, source_id] + job_ids
     )
@@ -599,8 +683,11 @@ def increment_consecutive_misses(
     cursor = conn.cursor()
     placeholders = _build_id_placeholders(job_ids)
 
+    # consecutive_misses lives in the job_freshness sidecar now (see
+    # update_last_seen). Bumping it here no longer rewrites the wide job_listings
+    # row / its indexes.
     cursor.execute(
-        f"UPDATE {_JOBS_TABLE} SET consecutive_misses = consecutive_misses + 1 "
+        f"UPDATE {_FRESHNESS_TABLE} SET consecutive_misses = consecutive_misses + 1 "
         f"WHERE source_id = %s AND id IN ({placeholders})",
         [source_id] + job_ids
     )
@@ -693,8 +780,11 @@ def get_jobs_exceeding_miss_threshold(
     cursor = conn.cursor()
     placeholders = _build_id_placeholders(job_ids)
 
+    # consecutive_misses is read from the job_freshness sidecar now. Every
+    # listing has a freshness row (trigger + FK), so this sees the same ids the
+    # old job_listings read did.
     cursor.execute(
-        f"SELECT id FROM {_JOBS_TABLE} "
+        f"SELECT id FROM {_FRESHNESS_TABLE} "
         f"WHERE source_id = %s AND id IN ({placeholders}) "
         f"AND consecutive_misses >= %s",
         [source_id] + job_ids + [threshold]
@@ -735,14 +825,25 @@ def reactivate_job(
         )
     cursor = conn.cursor()
 
+    # Status/closed_on stay on job_listings; freshness moved to the sidecar.
+    # Both writes share one transaction so the row's OPEN state and its refreshed
+    # last_seen_at commit atomically. `affected` is measured on the job_listings
+    # UPDATE because that is the row whose existence the caller contract governs;
+    # the sidecar row is guaranteed present by the trigger/FK.
     cursor.execute(
-        f"UPDATE {_JOBS_TABLE} SET status = 'OPEN', closed_on = NULL, "
-        f"last_seen_at = %s, consecutive_misses = 0 "
+        f"UPDATE {_JOBS_TABLE} SET status = 'OPEN', closed_on = NULL "
+        f"WHERE source_id = %s AND id = %s",
+        (source_id, job_id)
+    )
+
+    affected = cursor.rowcount
+
+    cursor.execute(
+        f"UPDATE {_FRESHNESS_TABLE} SET last_seen_at = %s, consecutive_misses = 0 "
         f"WHERE source_id = %s AND id = %s",
         (timestamp, source_id, job_id)
     )
 
-    affected = cursor.rowcount
     conn.commit()
     if affected != 1:
         logger.warning(
@@ -769,13 +870,15 @@ def record_scrape_run(conn: Connection, run_data: ScrapeRun) -> None:
         f"""
         INSERT INTO {_RUNS_TABLE} (
             run_id, company, started_at, completed_at, mode,
-            jobs_seen, new_jobs, closed_jobs, details_fetched, error_count
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            jobs_seen, new_jobs, closed_jobs, details_fetched, error_count,
+            skipped_update, guard_reason
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (
             run_data.run_id, run_data.company, run_data.started_at, run_data.completed_at,
             run_data.mode, run_data.jobs_seen, run_data.new_jobs, run_data.closed_jobs,
-            run_data.details_fetched, run_data.error_count
+            run_data.details_fetched, run_data.error_count, run_data.skipped_update,
+            run_data.guard_reason
         )
     )
 
@@ -783,9 +886,99 @@ def record_scrape_run(conn: Connection, run_data: ScrapeRun) -> None:
     logger.info(f"Recorded scrape run: {run_data.run_id}")
 
 
+def count_consecutive_partial_skips(
+    conn: Connection, company: str, limit: int = 3
+) -> int:
+    """Count how many of the company's MOST RECENT runs were guard-skipped.
+
+    Backs the bounded auto-release in
+    ``shared.incremental.resolve_safety_guard``: N identical truncations in
+    a row means the board really shrank, not that the scraper hiccuped.
+
+    Counts on ``guard_reason = 'partial_scrape'``, NOT on the
+    ``skipped_update`` boolean. That distinction is load-bearing: BOTH
+    guard rules set ``skipped_update``, so counting the boolean meant a
+    total outage — rule (a) ``empty_scrape``, which is documented as never
+    auto-released — supplied the repetition evidence. A dead scraper
+    returning ``0, 0, 0`` then released the very first truncated run that
+    followed, with zero actual repetition behind it. That is precisely the
+    repaired-dead-scraper case (appliedintuition, unity3d) the release was
+    written to protect.
+
+    Only the leading run counts; the first row that is anything else — a
+    healthy run, an ``empty_scrape``, or ``NULL`` — stops the count. NULL
+    is deliberately a stop, not a skip: it means the row predates the
+    column, so it is *unknown*, and an unknown must never count as
+    evidence toward releasing a destructive guard.
+
+    Only ever called on a run that already tripped rule (b) — see
+    ``resolve_safety_guard`` — so it is off the hot path (33 truncations
+    fleet-wide in 7 months vs ~3,100 healthy runs per day).
+
+    Cost: with ``idx_scrape_runs_company_started_at`` (migration
+    ``b4e1c9d77a02``) this is an index scan reading at most ``limit`` rows.
+    Before that index it was measured on prod as a Parallel Seq Scan over
+    452,610 rows / ~70 MB of buffers / ~32 ms — the ``LIMIT`` bounded the
+    top-N heapsort but NOT the scan volume, so it did not make the query
+    cheap. An earlier version of this docstring claimed the ``limit``
+    coercion stopped it "degenerating into a full-table read"; it was
+    always a full-table read, and the index is what actually fixed it.
+
+    Args:
+        conn: Database connection. SELECT-only: this never writes and
+            always leaves the connection out of a transaction (see the
+            ``finally`` below), matching the contract documented in
+            ``api/services/scraper_health.py``.
+        company: Company id as written to ``scrape_runs.company``.
+        limit: How many recent rows to inspect. Values < 1 are coerced to
+            1 — Postgres rejects a negative LIMIT outright, and 0 would
+            silently always answer "no streak", disabling the release.
+
+    Returns:
+        Length of the leading all-``partial_scrape`` run, capped at
+        ``limit``.
+    """
+    try:
+        cursor = conn.cursor()
+
+        # started_at is ISO-8601 Text with a trailing Z, so lexicographic DESC
+        # is chronological DESC. (Matches get_scrape_runs' ordering.)
+        cursor.execute(
+            f"""
+            SELECT guard_reason FROM {_RUNS_TABLE}
+            WHERE company = %s
+            ORDER BY started_at DESC
+            LIMIT %s
+            """,
+            (company, max(1, limit)),
+        )
+        rows = cursor.fetchall()
+    finally:
+        # Never leave the caller's connection idle-in-transaction — that
+        # pins the xmin horizon and blocks vacuum. This helper runs on a
+        # long-lived scraper/worker connection, so the leak would persist
+        # for the life of the process.
+        conn.rollback()
+
+    streak = 0
+    for row in rows:
+        if row["guard_reason"] != "partial_scrape":
+            break
+        streak += 1
+
+    return streak
+
+
 def get_all_active_jobs(conn: Connection, company: str) -> List[JobListing]:
     """
     Get all active jobs for a company
+
+    Freshness lives on the ``job_freshness`` sidecar, so it is joined in here:
+    the shared ``JobListing`` Pydantic model still declares ``last_seen_at`` /
+    ``consecutive_misses`` (they feed ``_upsert_freshness`` on the write path),
+    and ``last_seen_at`` is required — a bare ``SELECT *`` off ``job_listings``
+    would no longer satisfy it. The INNER JOIN is lossless: the AFTER INSERT
+    trigger + composite FK guarantee exactly one freshness row per listing.
 
     Args:
         conn: Database connection
@@ -797,7 +990,11 @@ def get_all_active_jobs(conn: Connection, company: str) -> List[JobListing]:
     cursor = conn.cursor()
 
     cursor.execute(
-        f"SELECT * FROM {_JOBS_TABLE} WHERE company = %s AND status = 'OPEN'",
+        f"SELECT {_JOBS_TABLE}.*, f.last_seen_at, f.consecutive_misses "
+        f"FROM {_JOBS_TABLE} "
+        f"JOIN {_FRESHNESS_TABLE} f "
+        f"  ON f.source_id = {_JOBS_TABLE}.source_id AND f.id = {_JOBS_TABLE}.id "
+        f"WHERE company = %s AND status = 'OPEN'",
         (company,)
     )
 

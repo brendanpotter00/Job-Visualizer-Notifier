@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request
 from fastapi.responses import JSONResponse
@@ -12,6 +13,7 @@ from ..auth.dependencies import TokenClaims, require_admin
 from ..dependencies import get_db
 from ..models import COMPANY_PATTERN, JobsStatsResponse, CompanyCountResponse, ScrapeRunResponse
 from ..services.database import get_stats, get_scrape_runs
+from ..services.scraper_health import get_stale_companies
 from ..services.scraper_lock import scraper_lock
 from ..services.eightfold_client import _is_allowed_eightfold_host
 from ..tasks.enqueue_ashby_fan_out import enqueue_ashby_fan_out
@@ -58,6 +60,33 @@ def scrape_runs(
     """Get scrape run history. Admin-only."""
     runs = get_scrape_runs(conn, company=company, limit=limit)
     return [ScrapeRunResponse(**r) for r in runs]
+
+
+@router.get("/scraper-health")
+def scraper_health(
+    conn: Connection = Depends(get_db),
+    threshold_hours: int = Query(default=24, ge=1, le=720, alias="thresholdHours"),
+) -> dict[str, Any]:
+    """Report enabled companies whose jobs haven't been seen in N hours.
+
+    Auth posture, deliberately: gated ONLY by the global
+    ``require_internal_key`` middleware (this path is not in
+    ``_EXEMPT_PATHS``) — NOT by ``require_admin``. The consumer is the
+    scheduled ``.github/workflows/scraper-health.yml`` job, which can
+    present one static header but cannot mint an admin JWT.
+
+    Always returns 200, even when every company is stale. The endpoint
+    reports; the *caller* decides red/green (the workflow pipes the body
+    through ``jq -e '.staleCount == 0'``). Returning 503 here would make
+    the response body harder to read in CI logs and would tempt someone
+    into wiring this into a container healthcheck.
+
+    Explicitly NOT folded into ``/health/worker``: that path is Railway's
+    ``healthcheckPath``, so a single stale company would fail the deploy
+    healthcheck and put the backend into a restart loop — turning a
+    reporting signal into an outage.
+    """
+    return get_stale_companies(conn, threshold_hours=threshold_hours)
 
 
 @router.post("/trigger-scrape")

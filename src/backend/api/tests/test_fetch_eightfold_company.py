@@ -73,28 +73,41 @@ def _seed_job(
                 for c in (
                     "id", "title", "company", "location", "url", "source_id",
                     "details", "created_at", "status", "has_matched",
-                    "ai_metadata", "first_seen_at", "last_seen_at",
-                    "consecutive_misses", "details_scraped",
+                    "ai_metadata", "first_seen_at", "details_scraped",
                 )
             ),
-            sql.SQL(", ").join(sql.Placeholder() for _ in range(15)),
+            sql.SQL(", ").join(sql.Placeholder() for _ in range(13)),
         ),
         (
             job_id, "T", company, "L", "https://x", SourceId.EIGHTFOLD,
             json.dumps({}), "2025-01-01T00:00:00Z", status, False,
-            json.dumps({}), "2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z",
-            consecutive_misses, True,
+            json.dumps({}), "2025-01-01T00:00:00Z", True,
         ),
     )
     conn.commit()
+    # The AFTER INSERT trigger seeded job_freshness at consecutive_misses=0;
+    # mirror the seeded value into the sidecar (freshness is authoritative there).
+    if consecutive_misses:
+        cur.execute(
+            "UPDATE job_freshness SET consecutive_misses = %s "
+            "WHERE source_id = %s AND id = %s",
+            (consecutive_misses, SourceId.EIGHTFOLD, job_id),
+        )
+        conn.commit()
 
 
 def _job_row(conn, job_id: str, source_id: str = SourceId.EIGHTFOLD) -> dict | None:
     cur = conn.cursor()
     cur.execute(
-        sql.SQL("SELECT * FROM {} WHERE source_id = %s AND id = %s").format(
-            sql.Identifier("job_listings")
-        ),
+        # Freshness lives only on the sidecar now — the Unit-4 contract
+        # migration dropped last_seen_at/consecutive_misses from job_listings,
+        # so f.* is the sole source of those two keys in the row dict.
+        sql.SQL(
+            "SELECT {0}.*, f.last_seen_at, f.consecutive_misses "
+            "FROM {0} JOIN job_freshness f "
+            "ON f.source_id = {0}.source_id AND f.id = {0}.id "
+            "WHERE {0}.source_id = %s AND {0}.id = %s"
+        ).format(sql.Identifier("job_listings")),
         (source_id, job_id),
     )
     return cur.fetchone()
@@ -439,8 +452,11 @@ class TestFetchEightfoldCompany:
         cur = db_conn.cursor()
         cur.execute(
             sql.SQL(
-                "SELECT COUNT(*) AS n FROM {} "
-                "WHERE company = %s AND (consecutive_misses > 0 OR status = 'CLOSED')"
+                "SELECT COUNT(*) AS n FROM {0} "
+                "JOIN job_freshness f ON f.source_id = {0}.source_id "
+                "AND f.id = {0}.id "
+                "WHERE company = %s AND (f.consecutive_misses > 0 "
+                "OR status = 'CLOSED')"
             ).format(sql.Identifier("job_listings")),
             (company,),
         )
@@ -450,6 +466,83 @@ class TestFetchEightfoldCompany:
         assert len(runs) == 1
         assert runs[0]["error_count"] == 1
         assert runs[0]["closed_jobs"] == 0
+
+    async def test_partial_scrape_trips_guard_and_skips_destructive_writes(
+        self, procrastinate_open, db_conn, monkeypatch
+    ):
+        """Apple-style truncation: the board returns 73% of what the DB holds.
+
+        Per-ATS copy of the case pinned exhaustively in
+        ``test_fetch_greenhouse_company.py::test_safety_guard_boundaries``.
+        The guard logic is shared (``evaluate_safety_guard``) but it is
+        *called* separately in each of the six leaf tasks, so a divergence
+        in exactly one of them — someone "fixing" a flaky company by
+        loosening its own call — would otherwise ship silently. One case
+        per ATS is what makes that impossible.
+
+        73-of-100 clears BOTH conditions of rule (b): 73 < 0.85*100 = 85,
+        and the 27-job drop is over the 15-job floor. Under the old
+        0.10-only guard this ran the full destructive phase.
+
+        The returned ids deliberately do NOT overlap the seeded ones: if
+        the guard fails to trip, all 100 seeded rows get their
+        ``consecutive_misses`` incremented and the drift assertion below
+        fails loudly rather than subtly.
+        """
+        company = "partialflix"
+        _seed_company(db_conn, company)
+
+        for i in range(100):
+            _seed_job(db_conn, f"seed-{i}", company)
+
+        positions = [_make_raw_position(900_000 + i) for i in range(73)]
+        # Eightfold paginates; serve the whole truncated page once (count=73
+        # satisfies its `len(all) >= count` exit) then empty pages.
+        pages = {"served": False}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if pages["served"]:
+                return httpx.Response(200, json={"count": 73, "positions": []})
+            pages["served"] = True
+            return httpx.Response(200, json={"count": 73, "positions": positions})
+
+        _patch_httpx(monkeypatch, handler)
+        defer_mock, _ = _patch_normalize_defer(monkeypatch)
+
+        await fetch_eightfold_company.defer_async(
+            company_id=company,
+            board_token=company,
+            provider_config=NETFLIX_PROVIDER_CONFIG,
+        )
+        await _drain()
+        db_conn.rollback()
+
+        cur = db_conn.cursor()
+        cur.execute(
+            sql.SQL(
+                "SELECT COUNT(*) AS n FROM {} j "
+                "JOIN {} f ON f.source_id = j.source_id AND f.id = j.id "
+                "WHERE j.company = %s "
+                "AND (f.consecutive_misses > 0 OR j.status = 'CLOSED')"
+            ).format(sql.Identifier("job_listings"), sql.Identifier("job_freshness")),
+            (company,),
+        )
+        assert cur.fetchone()["n"] == 0, (
+            "a truncated scrape advanced the consecutive-misses lifecycle — "
+            "two of these in a row would mass-close the board"
+        )
+
+        runs = _scrape_runs(db_conn, company)
+        assert len(runs) == 1
+        assert runs[0]["jobs_seen"] == 73
+        assert runs[0]["error_count"] == 1
+        assert runs[0]["skipped_update"] is True
+        assert runs[0]["closed_jobs"] == 0
+        assert runs[0]["new_jobs"] == 0
+
+        # The guard returns before new_ids is populated, so nothing is
+        # deferred for location normalization either.
+        assert defer_mock.await_count == 0
 
     async def test_http_5xx_records_failed_run(
         self, procrastinate_open, db_conn, monkeypatch

@@ -9,6 +9,8 @@ import { filterJobsByHours } from '../../../lib/date.ts';
 import { selectEnabledCompanyIds } from '../../preferences/enabledCompaniesSlice.ts';
 import { selectDemoModeEnabled } from '../../ui/uiSlice.ts';
 import { DEMO_JOBS } from '../../jobs/demoJobs.ts';
+import { selectCompleteHorizon } from '../../jobs/jobsSelectors.ts';
+import { clampToHorizon } from '../../jobs/keysetWalk.ts';
 
 export const selectRecentJobsFilters = (state: RootState) => state.recentJobsFilters.filters;
 
@@ -39,9 +41,20 @@ const selectEnabledByCompanyId = createSelector(
 // re-check admin status (admin lives in the useCurrentUser hook, not Redux) — same UI-only
 // enforcement as hideAdminFeatures. DEMO_JOBS is a stable module-level constant, so returning
 // it preserves reselect's reference-equality memoization.
+// The final step is the COMPLETE-PREFIX CLAMP. This is a filter, not sort
+// logic: the keyset walk runs one cursor per company-chunk and the chunks
+// reach different depths (measured on prod, page 1 of the three chunks cut off
+// at 07-30 / 07-28 / 07-21, with 24 companies contributing zero rows). Below
+// the shallowest still-walking chunk's floor the merged set is not "partial",
+// it is BIASED — some companies present, others silently missing — so rendering
+// it would show a plausible-looking list that is quietly wrong. Clamping here,
+// at the single upstream source for the Recent page, is what makes every
+// downstream consumer (filters, sort, dropdowns, metrics, and the `jobs.length`
+// behind ALL_LOADED) agree on one honest set. Rows below the horizon stay
+// cached and surface as later pages push it down.
 export const selectAllJobsFromQuery = createSelector(
-  [selectEnabledByCompanyId, selectDemoModeEnabled],
-  (byCompanyId, demoModeEnabled) => {
+  [selectEnabledByCompanyId, selectDemoModeEnabled, selectCompleteHorizon],
+  (byCompanyId, demoModeEnabled, completeHorizon) => {
     if (demoModeEnabled) return DEMO_JOBS;
 
     const allJobs = Object.values(byCompanyId).flat();
@@ -54,7 +67,7 @@ export const selectAllJobsFromQuery = createSelector(
       }
     });
 
-    return Array.from(jobsMap.values());
+    return clampToHorizon(Array.from(jobsMap.values()), completeHorizon);
   }
 );
 

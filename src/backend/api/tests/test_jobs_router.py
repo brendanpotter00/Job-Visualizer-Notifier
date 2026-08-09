@@ -122,6 +122,47 @@ def test_get_job_returns_404_when_missing(client):
     assert resp.status_code == 404
 
 
+def _parse_iso(value: str):
+    from datetime import datetime
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def test_read_path_reflects_sidecar_not_stale_job_listings(client, db_conn):
+    """Units 3+4: both /api/jobs and /api/jobs/{id} source last_seen_at /
+    consecutive_misses from the job_freshness sidecar (via JOIN).
+
+    Before Unit 4 this test diverged the two tables and asserted the read
+    followed the sidecar. The contract migration (18fe9c20a8fd) dropped the
+    job_listings copies, so there is nothing left to diverge *from* — the
+    remaining guard is that a sidecar-only advance (the shape the Unit-2 write
+    path produces) reaches the response, while the untouched job_listings
+    timestamps stay where they were seeded.
+    """
+    _insert_job(db_conn, _make_job({
+        "id": "sidecar-read-1", "company": "google", "source_id": SourceId.GOOGLE,
+        "status": "OPEN", "first_seen_at": "2025-01-01T00:00:00Z",
+        "last_seen_at": "2025-01-01T00:00:00Z",
+    }))
+    cur = db_conn.cursor()
+    # Sidecar advances (as the Unit-2 write path would); job_listings is not
+    # touched — it no longer carries these two columns at all.
+    cur.execute(
+        "UPDATE job_freshness SET last_seen_at = %s, consecutive_misses = %s "
+        "WHERE source_id = %s AND id = %s",
+        ("2025-06-30T12:00:00Z", 7, SourceId.GOOGLE, "sidecar-read-1"),
+    )
+    db_conn.commit()
+
+    listed = next(j for j in client.get("/api/jobs").json() if j["id"] == "sidecar-read-1")
+    assert _parse_iso(listed["firstSeenAt"]) == _parse_iso("2025-01-01T00:00:00Z")
+    assert _parse_iso(listed["lastSeenAt"]) == _parse_iso("2025-06-30T12:00:00Z")
+    assert listed["consecutiveMisses"] == 7
+
+    detail = client.get(f"/api/jobs/{SourceId.GOOGLE}/sidecar-read-1").json()
+    assert _parse_iso(detail["lastSeenAt"]) == _parse_iso("2025-06-30T12:00:00Z")
+    assert detail["consecutiveMisses"] == 7
+
+
 def test_get_job_disambiguates_same_id_across_source_ids(client, db_conn):
     """Two jobs that share an `id` but differ in `source_id` must be
     addressable independently via /api/jobs/{source_id}/{id}. Catches a

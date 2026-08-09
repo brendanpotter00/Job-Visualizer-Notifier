@@ -12,6 +12,8 @@ from psycopg2 import sql
 
 from scripts.shared.database import Connection
 
+from ..pagination import JobCursor
+
 logger = logging.getLogger(__name__)
 
 
@@ -130,6 +132,48 @@ _HIDDEN_COMPANY_PREDICATE = sql.SQL(
 )
 
 
+# Recency lower bound for the keyset-paged read path. INCLUSIVE (``>=``): the
+# caller's window is "everything first seen at or after this instant", so a job
+# whose ``first_seen_at`` equals the bound exactly is IN. Qualified to
+# ``job_listings`` for symmetry with the cursor predicate below (``job_freshness``
+# has no ``first_seen_at`` column, so it is not strictly ambiguous today).
+_SINCE_PREDICATE = sql.SQL("job_listings.first_seen_at >= %s")
+
+# Keyset predicate: "strictly after the cursor row" under
+# ``ORDER BY first_seen_at DESC, source_id DESC, id DESC``.
+#
+# This is a Postgres ROW-VALUE comparison, not three chained AND/OR clauses, and
+# that matters twice over. Correctness: row comparison is lexicographic, so
+# ``(a,b,c) < (ca,cb,cc)`` is *exactly* "sorts after (ca,cb,cc) in the DESC
+# ordering" — the hand-expanded ``a < ca OR (a = ca AND (b < cb OR ...))`` form is
+# the classic place a tiebreak gets dropped and rows go missing. Performance: the
+# planner can turn a row comparison over a matching composite btree into a single
+# index seek + scan, which the OR-expansion does not reliably get.
+#
+# ``source_id`` and ``id`` MUST be qualified — ``job_freshness`` (aliased ``f``)
+# carries same-named join keys, so a bare reference is ambiguous and errors out.
+#
+# All three columns are NOT NULL (``first_seen_at`` on the table, the other two by
+# virtue of being the composite PK), so there is no NULL-ordering hazard here.
+_CURSOR_PREDICATE = sql.SQL(
+    "(job_listings.first_seen_at, job_listings.source_id, job_listings.id)"
+    " < (%s, %s, %s)"
+)
+
+# Keyset ORDER BY. Every column DESC and in the same order as
+# ``idx_job_listings_open_first_seen_keyset`` (plain ASC columns), so Postgres
+# serves it with a BACKWARD index scan and no Sort node.
+_KEYSET_ORDER_BY = sql.SQL(
+    "ORDER BY job_listings.first_seen_at DESC, job_listings.source_id DESC,"
+    " job_listings.id DESC"
+)
+
+# The pre-keyset ordering, kept byte-for-byte for the legacy (no ``since``, no
+# ``cursor``) request shape. Every existing caller — the frontend's batched
+# per-company fetch, the admin QA table — still lands here unchanged.
+_LEGACY_ORDER_BY = sql.SQL("ORDER BY f.last_seen_at DESC")
+
+
 def _build_where(
     company: str | None = None,
     status: str | None = None,
@@ -137,6 +181,8 @@ def _build_where(
     category: str | None = None,
     level: str | None = None,
     exclude_hidden_companies: bool = False,
+    since: datetime | None = None,
+    cursor: JobCursor | None = None,
 ) -> tuple[sql.Composable, list]:
     """Build a WHERE clause and parameter list from optional filters.
 
@@ -147,6 +193,12 @@ def _build_where(
     ``exclude_hidden_companies`` appends :data:`_HIDDEN_COMPANY_PREDICATE`,
     dropping jobs whose company row is soft-deactivated (``enabled = FALSE``);
     it defaults to ``False`` so admin/diagnostic callers keep seeing them.
+
+    ``since`` and ``cursor`` are the keyset-paging bounds (see
+    :data:`_SINCE_PREDICATE` / :data:`_CURSOR_PREDICATE`). Like
+    ``exclude_hidden_companies`` they emit ``job_listings``-qualified SQL, so they
+    are only valid for callers whose FROM is ``job_listings`` — i.e. ``get_jobs``.
+    ``get_scrape_runs`` must never pass them.
     """
     conditions: list[sql.Composable] = []
     params: list = []
@@ -169,6 +221,12 @@ def _build_where(
     if exclude_hidden_companies:
         # Contributes no params — a static correlated subquery.
         conditions.append(_HIDDEN_COMPANY_PREDICATE)
+    if since is not None:
+        conditions.append(_SINCE_PREDICATE)
+        params.append(since)
+    if cursor is not None:
+        conditions.append(_CURSOR_PREDICATE)
+        params.extend([cursor.first_seen_at, cursor.source_id, cursor.job_id])
     where = sql.SQL(" WHERE ") + sql.SQL(" AND ").join(conditions) if conditions else sql.SQL("")
     return where, params
 
@@ -218,17 +276,29 @@ _TAGS_SUBQUERY = sql.SQL(
     "), '[]'::json) AS tags"
 )
 
+# ``last_seen_at`` / ``consecutive_misses`` are sourced from the ``job_freshness``
+# sidecar (aliased ``f`` in the query) — see get_jobs. ``id`` and ``source_id``
+# are qualified to ``job_listings`` because the sidecar carries same-named join
+# keys and a bare reference would be ambiguous.
 _LIST_COLUMNS = sql.SQL(
-    "id, title, company, location, url, source_id,"
+    "job_listings.id, title, company, location, url, job_listings.source_id,"
     " jsonb_build_object("
     "   'experience_level', experience_level,"
     "   'is_remote_eligible', is_remote_eligible"
     " ) AS details,"
     " created_at, posted_on, closed_on, status,"
     " has_matched, jsonb_build_object() AS ai_metadata,"
-    " first_seen_at, last_seen_at, consecutive_misses, details_scraped,"
+    " first_seen_at, f.last_seen_at, f.consecutive_misses, details_scraped,"
     " enrichment_category AS category, enrichment_level AS level, enrichment_status, "
 ) + _TAGS_SUBQUERY + sql.SQL(", ") + _LOCATIONS_SUBQUERY
+
+# INNER JOIN onto the freshness sidecar. Lossless by construction: the AFTER
+# INSERT trigger + backfill + composite FK guarantee every job_listings row has
+# exactly one job_freshness row, so this never drops a listing.
+_FRESHNESS_JOIN = sql.SQL(
+    " JOIN job_freshness f"
+    " ON f.source_id = job_listings.source_id AND f.id = job_listings.id"
+)
 
 
 def get_jobs(
@@ -240,8 +310,26 @@ def get_jobs(
     companies: list[str] | None = None,
     category: str | None = None,
     level: str | None = None,
+    since: datetime | None = None,
+    cursor: JobCursor | None = None,
 ) -> list[dict]:
-    """List jobs with optional filters, ordered by last_seen_at DESC.
+    """List jobs with optional filters.
+
+    Two ordering modes, selected by whether the caller asked for keyset paging:
+
+    * **Legacy (neither ``since`` nor ``cursor``)** — ``ORDER BY f.last_seen_at
+      DESC``, exactly as before keyset paging existed. Every pre-existing caller
+      lands here and gets byte-identical SQL and results.
+    * **Keyset (``since`` and/or ``cursor``)** — ``ORDER BY first_seen_at DESC,
+      source_id DESC, id DESC``, bounded by :data:`_SINCE_PREDICATE` and/or
+      :data:`_CURSOR_PREDICATE`. See ``api/pagination.py`` for why this key and
+      not ``last_seen_at``: it is immutable, so a concurrent scrape cannot
+      reshuffle the ordering mid-walk, and the PK tiebreak makes it unique.
+
+    The two modes are mutually exclusive by construction — a keyset cursor
+    describes a position in the ``first_seen_at`` ordering and is meaningless
+    against the ``last_seen_at`` one, so the ORDER BY must switch with it or the
+    page boundary lands in the wrong place and rows go missing without an error.
 
     Pass ``companies`` for batched per-company fetches (used by the Recent
     Jobs page to avoid fanning out N requests against the connection pool).
@@ -251,20 +339,25 @@ def get_jobs(
     company (``companies.enabled = FALSE``) are filtered out — see
     :data:`_HIDDEN_COMPANY_PREDICATE`.
     """
-    with conn.cursor() as cursor:
+    keyset = since is not None or cursor is not None
+    with conn.cursor() as db_cursor:
         where, params = _build_where(
             company=company, status=status, companies=companies,
             category=category, level=level,
             exclude_hidden_companies=True,
+            since=since, cursor=cursor,
         )
 
-        query = sql.SQL("SELECT {} FROM {} {} ORDER BY last_seen_at DESC LIMIT %s OFFSET %s").format(
-            _LIST_COLUMNS, _JOBS_TABLE, where
+        query = sql.SQL(
+            "SELECT {} FROM {}{} {} {} LIMIT %s OFFSET %s"
+        ).format(
+            _LIST_COLUMNS, _JOBS_TABLE, _FRESHNESS_JOIN, where,
+            _KEYSET_ORDER_BY if keyset else _LEGACY_ORDER_BY,
         )
         params.extend([limit, offset])
-        cursor.execute(query, params)
+        db_cursor.execute(query, params)
 
-        return [_row_to_job_dict(row) for row in cursor.fetchall()]
+        return [_row_to_job_dict(row) for row in db_cursor.fetchall()]
 
 
 def get_job_by_id(conn: Connection, source_id: str, job_id: str) -> dict | None:
@@ -283,14 +376,20 @@ def get_job_by_id(conn: Connection, source_id: str, job_id: str) -> dict | None:
     if not source_id:
         raise ValueError("get_job_by_id requires a non-empty source_id")
     with conn.cursor() as cursor:
+        # ``job_listings.*`` no longer carries last_seen_at / consecutive_misses
+        # — the Unit-4 contract migration (18fe9c20a8fd) dropped both — so the
+        # appended ``f.last_seen_at`` / ``f.consecutive_misses`` are the only
+        # source of those two keys in the row dict.
         cursor.execute(
             sql.SQL(
-                "SELECT *, {}, {} FROM {} "
-                "WHERE source_id = %s AND id = %s AND {}"
+                "SELECT job_listings.*, f.last_seen_at, f.consecutive_misses, {}, {} "
+                "FROM {}{} "
+                "WHERE job_listings.source_id = %s AND job_listings.id = %s AND {}"
             ).format(
                 _TAGS_SUBQUERY,
                 _LOCATIONS_SUBQUERY,
                 _JOBS_TABLE,
+                _FRESHNESS_JOIN,
                 _HIDDEN_COMPANY_PREDICATE,
             ),
             (source_id, job_id),

@@ -1,10 +1,18 @@
-"""On-demand, read-only production-health monitor for location normalization.
+"""On-demand, read-only production-health monitor for location normalization
+plus the ``job_listings``/``job_freshness`` storage-churn signals.
 
 Answers "is the live two-tier location-normalization pipeline working?" for the
 deterministic, SQL-derivable signal groups **A–D** (deployment/liveness, backlog/
 throughput, integrity invariants, normalize-queue health). The log-stream (E) and
 quality (F) arms need Railway logs + the Anthropic key and live in the runbook,
 not here: ``src/backend/docs/location-normalization-monitoring.md``.
+
+Group **S** is a second, independent domain riding the same CLI: index bloat,
+HOT/write-amplification counters, and the ``job_listings ⟕ job_freshness``
+anti-join invariants that the read path's INNER JOIN silently depends on.
+Runbook: ``src/backend/docs/job-listings-bloat.md``. Note the A1 gate is
+location-specific — if it fails, the run stops before the S-checks and they
+have to be run directly (their SQL is the ``Check.sql`` strings below).
 
 STRICTLY READ-ONLY. It opens an autocommit session pinned
 ``default_transaction_read_only = on`` and contains zero write SQL — every query
@@ -71,7 +79,7 @@ class Context:
 class Check:
     id: str
     title: str
-    category: str  # "A" | "B" | "C" | "D"
+    category: str  # "A" | "B" | "C" | "D" (location pipeline) | "S" (storage/churn)
     sql: str
     threshold: str  # human-readable, for the table
     # (rows, ctx) -> (status, value, detail); status in _STATUSES.
@@ -110,6 +118,11 @@ def _first_value(rows: list[dict]) -> int:
         return 0
     v = next(iter(rows[0].values()))
     return int(v) if v is not None else 0
+
+
+def _worst(*statuses: str) -> str:
+    """The most severe of ``statuses`` per the ``_STATUSES`` ordering."""
+    return max(statuses, key=_STATUSES.index)
 
 
 def _baseline_value(ctx: Context, check_id: str):
@@ -231,6 +244,155 @@ def _eval_throughput(rows: list[dict], ctx: Context) -> tuple:
     """D-optional — normalize successes in the window. Info only."""
     n = _first_value(rows)
     return ("info", n, f"{n} normalize successes in the last {ctx.window_hours}h")
+
+
+# --------------------------------------------------------------------------- #
+# Group S — storage/churn (job_listings <-> job_freshness sidecar)
+# See src/backend/docs/job-listings-bloat.md for the full analysis.
+# --------------------------------------------------------------------------- #
+
+_PARENT_INDEX = "idx_job_listings_last_seen"
+_SIDECAR_INDEX = "idx_job_freshness_last_seen"
+
+# Bloat thresholds — WARN only, no crit tier. Index bloat degrades gradually and
+# is never a page-me event: the 2026-07-13 outage was NOT caused by it (see the
+# postmortem's verdict table), so a warn that shows up on the next on-demand run
+# is the right urgency.
+#
+# Byte thresholds are binary (MiB — see _fmt_bytes).
+#
+# PARENT (idx_job_listings_last_seen) — 10 MiB / 150 bytes-per-row. Measured
+# 2026-08-05: 44.6 MiB / 691.8 B-row on 67,648 rows, i.e. already deep in warn
+# territory, which is the point — it stays lit until Unit 4 drops the index.
+#
+# SIDECAR (idx_job_freshness_last_seen) — 8 MiB / 80 bytes-per-row. The sidecar is
+# DESIGNED to stay small: fillfactor=90 + autovacuum_{vacuum,analyze}_scale_factor
+# = 0.02, the only relation in this database carrying reloptions, intentionally.
+# The one solid reference point is a FRESH REBUILD: 1.07 MiB / 17.7 B-row
+# (2026-08-04). It packs that tightly because every row in a scrape cycle shares
+# one timestamp, so btree deduplication collapses them.
+#
+# Its steady state under real churn is NOT yet established. The first samples
+# after Units 2-3 took over (PR #224, live 2026-08-05 04:39 UTC) were 27.4 B-row
+# at +38 min and 29.5 B-row at +61 min — climbing ~8 % in 23 minutes, far too
+# early to extrapolate, and not yet through an autovacuum cycle at scale_factor
+# 0.02. So 80 B-row is anchored on the only stable number available: ~4.5x the
+# fresh-rebuild baseline. That is loose enough not to fire on the initial
+# post-cutover settling, and tight enough to fire ~9x below the parent's 691.8
+# B-row failure mode.
+#
+# RECALIBRATE after ~a week of observation, once the sidecar has been through
+# many autovacuum cycles and the curve has flattened — tighten toward the
+# observed plateau. Track it via --json snapshots (runbook §4).
+#
+# Bytes-per-row is the scale-free primary signal; the byte cap is only a backstop
+# against corpus growth (at 80 B-row it does not bind until ~100k rows, vs ~68k
+# today).
+_INDEX_WARN_BYTES = {_PARENT_INDEX: 10 * 1024 * 1024, _SIDECAR_INDEX: 8 * 1024 * 1024}
+_INDEX_WARN_BYTES_PER_ROW = {_PARENT_INDEX: 150.0, _SIDECAR_INDEX: 80.0}
+
+
+def _bytes_per_row(size_bytes, rows) -> Optional[float]:
+    """Bytes-per-row for an index — None when it is absent or the table is empty."""
+    if size_bytes is None or rows in (None, "") or int(rows) <= 0:
+        return None
+    return round(float(size_bytes) / float(int(rows)), 1)
+
+
+def _fmt_bytes(size_bytes) -> str:
+    """Binary units — 1 MiB = 1024^2 B. Labelled MiB so it cannot be read as 10^6."""
+    if size_bytes is None:
+        return "absent"
+    mib = float(size_bytes) / (1024 * 1024)
+    return f"{mib:.1f}MiB" if mib >= 0.1 else f"{int(size_bytes)}B"
+
+
+def _fmt_index_size(size_bytes, rows) -> str:
+    """``'44.6MB@691.8B/row'`` — or ``'absent'`` when the index is gone."""
+    if size_bytes is None:
+        return "absent"
+    bpr = _bytes_per_row(size_bytes, rows)
+    return f"{_fmt_bytes(size_bytes)}@{'?' if bpr is None else bpr}B/row"
+
+
+def _index_bloat_verdict(name: str, size_bytes, rows) -> tuple:
+    """(status, detail) for ONE index. An ABSENT index is never an error.
+
+    The parent index is scheduled for deletion by the Unit 4 contract migration
+    (together with ``last_seen_at``/``consecutive_misses``), so its absence is
+    the expected end state -> ``info``. The sidecar index is the read path's
+    replacement, so ITS absence means the live ``ORDER BY last_seen_at DESC``
+    has no index at all -> ``warn``. Neither case may raise.
+    """
+    if size_bytes is None:
+        if name == _PARENT_INDEX:
+            return ("info", f"{name}: absent (dropped by Unit 4 contract)")
+        return ("warn", f"{name}: absent — the sidecar read path has no index")
+    shown = _fmt_index_size(size_bytes, rows)
+    bpr = _bytes_per_row(size_bytes, rows)
+    over = []
+    if int(size_bytes) > _INDEX_WARN_BYTES[name]:
+        over.append(f">{_fmt_bytes(_INDEX_WARN_BYTES[name])}")
+    if bpr is not None and bpr > _INDEX_WARN_BYTES_PER_ROW[name]:
+        over.append(f">{_INDEX_WARN_BYTES_PER_ROW[name]}B/row")
+    if over:
+        return ("warn", f"{name}: {shown} BLOATED ({', '.join(over)})")
+    return ("ok", f"{name}: {shown}")
+
+
+def _eval_index_bloat(rows: list[dict], ctx: Context) -> tuple:
+    """S1 — parent index size/bytes-per-row, baselined against the sidecar.
+
+    Both indexes are looked up through ``to_regclass`` so a missing one arrives
+    as NULL rather than a SQL error; neither is assumed to exist.
+    """
+    r = rows[0] if rows else {}
+    parent = _index_bloat_verdict(_PARENT_INDEX, r.get("parent_bytes"), r.get("parent_rows"))
+    sidecar = _index_bloat_verdict(_SIDECAR_INDEX, r.get("sidecar_bytes"), r.get("sidecar_rows"))
+    value = {
+        "parent": _fmt_index_size(r.get("parent_bytes"), r.get("parent_rows")),
+        "sidecar": _fmt_index_size(r.get("sidecar_bytes"), r.get("sidecar_rows")),
+    }
+    return (_worst(parent[0], sidecar[0]), value, f"{parent[1]}; {sidecar[1]}")
+
+
+def _hot_pct(n_tup_upd, n_tup_hot_upd) -> Optional[float]:
+    """HOT-update percentage — None when the table has taken no updates yet."""
+    upd = int(n_tup_upd or 0)
+    if upd <= 0:
+        return None
+    return round(100.0 * int(n_tup_hot_upd or 0) / upd, 3)
+
+
+def _eval_hot_churn(rows: list[dict], ctx: Context) -> tuple:
+    """S2 — write amplification on the parent and the sidecar. INFO ONLY.
+
+    Post-cutover, ``job_listings`` is NOT idle: ~25k updates/hour continue from
+    enrichment, status and details writes. What stopped is the non-HOT freshness
+    stamping that built the bloat — those residual updates run ~91 % HOT against
+    a 0.115 % lifetime figure, because they touch no indexed column. So the
+    signal is the HOT RATIO, not the update count.
+
+    A single point-in-time counter read cannot establish a trend (the counters
+    are cumulative since the last stats reset), so this surfaces the numbers for
+    a human to diff against the previous ``--json`` snapshot and asserts nothing.
+    """
+    if not rows:
+        return ("info", {}, "no pg_stat_user_tables rows for job_listings/job_freshness")
+    value: dict = {}
+    bits: list[str] = []
+    for row in rows:
+        name = str(row.get("relname"))
+        upd = int(row.get("n_tup_upd") or 0)
+        hot = int(row.get("n_tup_hot_upd") or 0)
+        pct = _hot_pct(upd, hot)
+        value[name] = pct
+        bits.append(
+            f"{name}: upd={upd} hot={hot} ({'n/a' if pct is None else f'{pct}%'} HOT)"
+            f" dead={int(row.get('n_dead_tup') or 0)}"
+            f" autovac={int(row.get('autovacuum_count') or 0)}"
+        )
+    return ("info", value, "; ".join(bits))
 
 
 # --------------------------------------------------------------------------- #
@@ -381,6 +543,66 @@ WHERE j.queue_name='normalize' AND e.type='succeeded'
         evaluate=_eval_throughput,
         optional=True,
     ),
+    Check(
+        id="S1_index_bloat", title="last_seen_at index bloat (parent vs sidecar)", category="S",
+        threshold=(
+            f"{_PARENT_INDEX} >10.0MiB or >150.0B/row warn (absent = info, Unit 4); "
+            f"{_SIDECAR_INDEX} >8.0MiB or >80.0B/row warn (recalibrate ~1wk post-cutover)"
+        ),
+        # to_regclass() yields NULL (not an error) for a missing index, and
+        # pg_relation_size(NULL) is NULL — so this survives Unit 4 dropping the
+        # parent index, and does not assume either index exists.
+        sql="""
+SELECT
+  pg_relation_size(to_regclass('idx_job_listings_last_seen'))  AS parent_bytes,
+  pg_relation_size(to_regclass('idx_job_freshness_last_seen')) AS sidecar_bytes,
+  (SELECT count(*) FROM job_listings)  AS parent_rows,
+  (SELECT count(*) FROM job_freshness) AS sidecar_rows
+""".strip(),
+        evaluate=_eval_index_bloat,
+    ),
+    Check(
+        id="S2_hot_churn", title="write amplification / HOT ratio", category="S",
+        threshold=(
+            "info only — freshness stamping frozen on job_listings; residual "
+            "non-freshness updates continue and should now be mostly HOT"
+        ),
+        sql="""
+SELECT relname, n_tup_upd, n_tup_hot_upd, n_dead_tup, autovacuum_count
+FROM pg_stat_user_tables
+WHERE relname IN ('job_listings', 'job_freshness')
+ORDER BY relname
+""".strip(),
+        evaluate=_eval_hot_churn,
+    ),
+    # The /api/jobs read path INNER JOINs job_freshness (services/database.py
+    # _FRESHNESS_JOIN). A listing with no freshness row therefore does not 404 —
+    # it silently VANISHES from the list response. Nothing else in production
+    # detects that, so these two anti-joins are the detection.
+    Check(
+        id="S3_listings_without_freshness", title="job_listings with no job_freshness row",
+        category="S", threshold="0 (crit if >0 — listing vanishes from /api/jobs)",
+        sql="""
+SELECT count(*) AS listings_without_freshness
+FROM job_listings jl
+WHERE NOT EXISTS (
+  SELECT 1 FROM job_freshness f
+  WHERE f.source_id = jl.source_id AND f.id = jl.id)
+""".strip(),
+        evaluate=_zero_count("crit"),
+    ),
+    Check(
+        id="S4_freshness_without_listing", title="orphaned job_freshness rows",
+        category="S", threshold="0 (crit if >0 — the composite FK should make it impossible)",
+        sql="""
+SELECT count(*) AS freshness_without_listing
+FROM job_freshness f
+WHERE NOT EXISTS (
+  SELECT 1 FROM job_listings jl
+  WHERE jl.source_id = f.source_id AND jl.id = f.id)
+""".strip(),
+        evaluate=_zero_count("crit"),
+    ),
 ]
 
 
@@ -510,7 +732,7 @@ def _verdict(report: Report) -> str:
 
 def render_table(report: Report, verbose: bool = False) -> str:
     lines: list[str] = []
-    lines.append(f"Location-Normalization Prod Monitor — {report.timestamp}")
+    lines.append(f"Prod Monitor (location normalization A–D + storage/churn S) — {report.timestamp}")
     if not report.schema_present:
         lines.append("\n  *** FEATURE NOT DEPLOYED *** (A1 schema gate failed)")
     shown = [r for r in report.results if verbose or r.status != "ok"]
