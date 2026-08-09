@@ -11,6 +11,7 @@ import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import type { ResolveUrlResponse } from '../../features/userCompanies/userCompaniesApi';
+import { AddCompanyCTA } from './AddCompanyCTA';
 
 interface ResolveResultDisplayProps {
   result: ResolveUrlResponse;
@@ -88,6 +89,9 @@ export function ResolveResultDisplay({ result }: ResolveResultDisplayProps) {
           <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
             This board can be tracked.
           </Typography>
+          {/* Persist the resolved board to the caller's account. Lives inside
+              the `probe.ok` branch because only a readable board can be tracked. */}
+          <AddCompanyCTA finalUrl={finalUrl} />
         </Box>
       ) : (
         <Alert severity="warning" sx={{ mb: 2 }} data-testid="resolve-probe-failed">

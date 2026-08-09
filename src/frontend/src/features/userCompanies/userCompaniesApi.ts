@@ -1,4 +1,7 @@
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
+import type { Job } from '../../types';
+import type { BackendJobListing } from '../../api/types';
+import { transformBackendJob } from '../../api/transformers/backendScraperTransformer';
 
 /**
  * ATS providers `POST /api/companies/resolve` can currently name.
@@ -62,6 +65,61 @@ export interface ResolveUrlArgs {
   url: string;
 }
 
+/**
+ * Health lifecycle a stored user-company can be in. The wire value is a bare
+ * `str` (backend-owned, may add codes), so display code narrows it and falls
+ * back to raw text — see `companyHealth.ts`. Phase 1 mints only `'unverified'`.
+ */
+export type UserCompanyHealthState =
+  | 'unverified'
+  | 'healthy'
+  | 'quarantined'
+  | 'refused';
+
+/**
+ * A company the signed-in user brought themselves — one row of
+ * `GET /api/users/companies`, and the body of a successful add. camelCase on
+ * the wire (backend `to_camel`).
+ */
+export interface UserCompany {
+  /** `u-<10 base36>` runtime id. NOT a compile-time `COMPANY_IDS` member. */
+  id: string;
+  displayName: string;
+  /** Bare `str` on the wire (see `AtsProvider` note above). */
+  ats: string;
+  boardToken: string;
+  /** `custom:<id>` — per-company job namespace. */
+  sourceId: string;
+  /** See `UserCompanyHealthState`; typed wide because the server owns the list. */
+  healthState: string;
+  openJobCount: number;
+  /** ISO-8601 of the last successful harvest, or null before the first run. */
+  lastSuccessAt: string | null;
+}
+
+/** `GET /api/users/companies` envelope — newest first. */
+export interface GetUserCompaniesResponse {
+  companies: UserCompany[];
+}
+
+/** Arg for the owner-scoped jobs + delete endpoints. */
+export interface UserCompanyIdArg {
+  id: string;
+}
+
+/**
+ * The 422 body when an add is rejected. Distinct from the *resolver's* flat 422
+ * (`ResolveUrlFailure`): the add failure carries a human `detail` and the
+ * `finalUrl` that was probed. `reason` is one of
+ * `unsupported | probe_failed | empty | deadline_exceeded | no_ats_detected`,
+ * typed as `string` because the server owns the code list.
+ */
+export interface AddUserCompanyFailure {
+  reason: string;
+  detail: string;
+  finalUrl: string;
+}
+
 interface UserCompaniesApiExtra {
   getTokenOrNull: () => Promise<string | null>;
 }
@@ -85,8 +143,12 @@ export const userCompaniesApi = createApi({
       return headers;
     },
   }),
-  // No `tagTypes` / `providesTags`: resolve writes nothing, so there is no
-  // server state for this slice to invalidate yet.
+  // `resolve` still writes nothing, but the `users/companies` list below is
+  // real server state, so the slice now owns one tag. Per-company job caches
+  // tag `{ type: 'MyCompanies', id }`; the list tags the bare type, and add /
+  // remove invalidate the bare type (which sweeps both the list and per-id
+  // job caches). One tag type keeps the invalidation graph trivial for Phase 1.
+  tagTypes: ['MyCompanies'],
   endpoints: (builder) => ({
     resolveCareersUrl: builder.mutation<ResolveUrlResponse, ResolveUrlArgs>({
       query: ({ url }) => ({
@@ -95,7 +157,58 @@ export const userCompaniesApi = createApi({
         body: { url },
       }),
     }),
+
+    /** The caller's own companies, newest first. */
+    getUserCompanies: builder.query<UserCompany[], void>({
+      query: () => 'users/companies',
+      // Unwrap the `{ companies: [...] }` envelope to the array components consume.
+      transformResponse: (response: GetUserCompaniesResponse) => response.companies,
+      providesTags: ['MyCompanies'],
+    }),
+
+    /**
+     * Add a company from an already-resolved final URL. On `201` (created) or
+     * an idempotent `200` (already owned) the body is the `UserCompany`; a `422`
+     * surfaces `AddUserCompanyFailure` in `error.data` for the UI to explain.
+     */
+    addUserCompany: builder.mutation<UserCompany, ResolveUrlArgs>({
+      query: ({ url }) => ({
+        url: 'users/companies',
+        method: 'POST',
+        body: { url },
+      }),
+      invalidatesTags: ['MyCompanies'],
+    }),
+
+    /** Drop the caller's ownership of a company (`204`; `404` if not owned). */
+    removeUserCompany: builder.mutation<void, string>({
+      query: (id) => ({
+        url: `users/companies/${id}`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: ['MyCompanies'],
+    }),
+
+    /**
+     * Owner-scoped jobs for one custom company (`403` if the caller is not an
+     * owner). The response is the SAME shape `/api/jobs` returns, so it runs
+     * through the exact transform the backend-scraper client uses
+     * (`transformBackendJob`) — the mapping is never duplicated here. Emits the
+     * frontend `Job[]` (camelCase, with `firstSeenAt`) the trend page needs.
+     */
+    getUserCompanyJobs: builder.query<Job[], UserCompanyIdArg>({
+      query: ({ id }) => `users/companies/${id}/jobs`,
+      transformResponse: (rows: BackendJobListing[], _meta, { id }) =>
+        rows.map((row) => transformBackendJob(row, id)),
+      providesTags: (_result, _error, { id }) => [{ type: 'MyCompanies', id }],
+    }),
   }),
 });
 
-export const { useResolveCareersUrlMutation } = userCompaniesApi;
+export const {
+  useResolveCareersUrlMutation,
+  useGetUserCompaniesQuery,
+  useAddUserCompanyMutation,
+  useRemoveUserCompanyMutation,
+  useGetUserCompanyJobsQuery,
+} = userCompaniesApi;

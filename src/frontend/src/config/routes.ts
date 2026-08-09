@@ -14,6 +14,11 @@ export const ROUTES = {
   // exists — App.tsx decides whether to register a route for it, and
   // PRIMARY_NAV_ITEMS decides whether to link to it.
   MY_COMPANIES: '/my-companies',
+  // Private per-company trend page for a user-added company. Flag-gated exactly
+  // like MY_COMPANIES; `:id` is a RUNTIME `u-…` id, never a compile-time
+  // `COMPANY_IDS` member — the page fetches by id instead of the companies-page
+  // selector chain. Build a concrete path with `buildMyCompanyDetailPath`.
+  MY_COMPANY_DETAIL: '/my-companies/:id',
   WHY: '/why',
   QA: '/qa',
   ACCOUNT: '/account',
@@ -27,6 +32,15 @@ export const ROUTES = {
   ADMIN_ENRICHMENT: '/admin/enrichment',
   ADMIN_FEEDBACK: '/admin/feedback',
 } as const;
+
+/**
+ * Concrete path to a user-company's private trend page. The single place that
+ * knows how `MY_COMPANY_DETAIL`'s `:id` slot is filled, so links stay in sync
+ * with the route pattern.
+ */
+export function buildMyCompanyDetailPath(id: string): string {
+  return `/my-companies/${id}`;
+}
 
 /**
  * Every icon a sidebar entry may name.

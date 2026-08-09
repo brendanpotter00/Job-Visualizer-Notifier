@@ -32,6 +32,13 @@ vi.mock('../../../features/auth/useAuth', () => ({
   useAuth: () => mockAuthState,
 }));
 
+// The saved-companies list has its own test file and fires its own mount fetch;
+// stub it here so these resolve-flow tests keep a single, predictable call
+// ordering (the resolve POST is the only request they make).
+vi.mock('../../../components/my-companies/MyCompaniesList', () => ({
+  MyCompaniesList: () => <div data-testid="my-companies-list-stub" />,
+}));
+
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -110,11 +117,13 @@ describe('MyCompaniesPage', () => {
   });
 
   describe('signed in', () => {
-    it('states plainly that nothing is saved yet', () => {
+    it('states plainly that nothing is added until the user chooses to track', () => {
       renderWithProviders(<MyCompaniesPage />);
       // A page called "My Companies" that reports a job count must not imply
       // the company was added — this copy is the only thing preventing that.
-      expect(screen.getByText(/nothing is saved/i)).toBeInTheDocument();
+      expect(
+        screen.getByText(/nothing is added to your account until you choose to track it/i)
+      ).toBeInTheDocument();
     });
 
     it('disables the submit button until a URL is entered', async () => {

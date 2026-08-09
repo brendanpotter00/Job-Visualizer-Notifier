@@ -8,9 +8,11 @@ import { RESPONSIVE } from '../../config/responsive';
 import { useAuth } from '../../features/auth/useAuth';
 import { LoadingState } from '../../components/shared/LoadingIndicator';
 import { useResolveCareersUrlMutation } from '../../features/userCompanies/userCompaniesApi';
+import Divider from '@mui/material/Divider';
 import { ResolveUrlForm } from '../../components/my-companies/ResolveUrlForm';
 import { ResolveResultDisplay } from '../../components/my-companies/ResolveResultDisplay';
 import { ResolveErrorDisplay } from '../../components/my-companies/ResolveErrorDisplay';
+import { MyCompaniesList } from '../../components/my-companies/MyCompaniesList';
 
 /**
  * "My Companies" — currently a resolve-only preview.
@@ -71,9 +73,10 @@ export function MyCompaniesPage() {
 
       <Stack spacing={3}>
         <Alert severity="info">
-          Right now this only <strong>checks</strong> whether we can read a company&apos;s job
-          board — nothing is saved and no company is added to your account yet. Actually tracking
-          a company you check here is coming in a later update.
+          Paste a careers URL to <strong>check</strong> whether we can read the job board behind
+          it. If we can, add it with <strong>Track this company</strong> and we&apos;ll start
+          building its hiring history — <strong>private to you</strong>. Nothing is added to your
+          account until you choose to track it.
         </Alert>
 
         <Paper sx={{ p: RESPONSIVE.spacing.paperPaddingLg }}>
@@ -87,6 +90,12 @@ export function MyCompaniesPage() {
         {!resolving && error === undefined && result !== undefined && (
           <ResolveResultDisplay result={result} />
         )}
+
+        <Divider />
+
+        {/* The user's saved companies. Signed-in only (this whole block is past
+            the auth ladder above), and only ever reachable behind the flag. */}
+        <MyCompaniesList />
       </Stack>
     </Container>
   );

@@ -22,6 +22,12 @@ vi.mock('../../pages/MyCompaniesPage', () => ({
   MyCompaniesPage: () => <div data-testid="my-companies-page">My Companies page body</div>,
 }));
 
+// App imports the trend page from its own module (not the barrel) so it can be
+// gated/mocked independently of the list page.
+vi.mock('../../pages/MyCompaniesPage/MyCompanyTrendPage', () => ({
+  MyCompanyTrendPage: () => <div data-testid="my-company-trend-page">Trend page body</div>,
+}));
+
 vi.mock('../../features/auth/useAuth', () => ({
   useAuth: () => ({
     isEnabled: false,
@@ -123,6 +129,15 @@ describe('custom company sources — feature flag gate', () => {
       );
     });
 
+    it('registers NO /my-companies/:id trend route', async () => {
+      await renderAppAt('/my-companies/u-abc1234567', false);
+
+      expect(screen.queryByTestId('my-company-trend-page')).not.toBeInTheDocument();
+      await waitFor(() =>
+        expect(screen.queryByText('JOBS FROM THE SOURCE')).not.toBeInTheDocument()
+      );
+    });
+
     it('shows NO "My Companies" nav entry', async () => {
       await renderAppAt('/', false);
       await findShell();
@@ -156,6 +171,12 @@ describe('custom company sources — feature flag gate', () => {
       await renderAppAt('/my-companies', true);
 
       expect(await screen.findByTestId('my-companies-page')).toBeInTheDocument();
+    });
+
+    it('registers the /my-companies/:id trend route', async () => {
+      await renderAppAt('/my-companies/u-abc1234567', true);
+
+      expect(await screen.findByTestId('my-company-trend-page')).toBeInTheDocument();
     });
 
     it('shows the "My Companies" nav entry', async () => {
