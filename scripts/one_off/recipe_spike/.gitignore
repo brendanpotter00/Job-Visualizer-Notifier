@@ -10,8 +10,10 @@ captures/*/chrome_profile*/
 captures/*/*cookies*.json
 captures/*/browserbase/
 
+# Replay output and raw capture evidence are regenerable scratch.
+results/
+captures/*/report.json
+
 # scripts/.gitignore blanket-ignores *.json, which would silently drop this
-# spike's actual deliverables. Re-include them.
+# spike's actual deliverable. Re-include it.
 !recipes/*.json
-!results/*.json
-!captures/*/report.json

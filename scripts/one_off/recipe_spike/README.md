@@ -25,7 +25,24 @@ if `anthropic`, `openai`, `stagehand`, `browserbase`, or `langchain` is in
 `sys.modules`. If replay could reach an agent, the whole measurement would be
 worthless — the point is proving the recipe stands on its own.
 
-`capture_browserbase.py` (optional cloud arm) is discovery-side only.
+## What survived the spike
+
+This directory has been trimmed to what PR 2 actually needs. The scratch that
+produced the findings — ~50 one-off probe scripts, raw capture dumps, GraphQL
+request/response pairs, replay result files, and the never-run Browserbase
+comparison arm — was deleted after the report was written. Recover any of it
+from git history at `a2fcd3c` if you ever need it.
+
+What is left, and why:
+
+| kept | why |
+|---|---|
+| `recipe_schema.py` | **the frozen schema v1** — authoritative, PR 2 implements this contract |
+| `replay.py` | the reference executor PR 2's `recipe_runner.py` is a hardened port of |
+| `test_invariants.py` | offline proofs of the raise-never-empty contract, worth porting |
+| `recipes/*.json` | six real recipes — the evidence the schema expresses real sites |
+| `captures/*/FINDINGS.md` | per-target evidence. Tesla's is the most instructive |
+| `capture.py` | the discovery tool, kept so the method is reproducible |
 
 ## Setup
 
@@ -53,16 +70,15 @@ Writes `captures/acme/`:
 - `page.html` — final rendered HTML
 
 Then the agent reads that evidence and writes `recipes/acme.json`.
-`inspect_embedded.py` helps when the data is a JSON island in the markup.
 
 ## Replay (deterministic, forever, no agent)
 
 ```bash
 .venv/bin/python replay.py --recipe recipes/acme.json
-.venv/bin/python replay.py --all --label replay-2      # every recipe
+.venv/bin/python replay.py --all --label check          # every recipe
 ```
 
-Results land in `results/<label>-<utc>.json`.
+Results land in `results/<label>-<utc>.json` (gitignored).
 
 ## Recipe kinds, ranked
 
