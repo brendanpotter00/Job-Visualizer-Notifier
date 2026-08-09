@@ -19,6 +19,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'add-amazon',
+    title: 'Added Amazon',
+    description:
+      "Amazon — the world's largest e-commerce marketplace and, through AWS, the leading cloud platform — is now tracked. Amazon has no standard job board behind it, so this one needed a purpose-built scraper rather than the usual ATS integration, joining Google, Apple, and Microsoft in the Custom Web Scrapers group. Coverage is US software and data roles, currently around 1,300 open postings, refreshed hourly like everything else.",
+    tags: ['new-companies'],
+    date: '2026-08-09',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add Amazon to your company preferences',
+    },
+  },
+  {
     id: 'ats-migrations-2026-08',
     title: 'Fireworks AI and Thinking Machines are live again',
     description:

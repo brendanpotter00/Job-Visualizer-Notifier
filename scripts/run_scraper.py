@@ -25,6 +25,7 @@ sys.path.insert(0, str(project_root))
 from scripts.google_jobs_scraper.scraper import GoogleJobsScraper
 from scripts.apple_jobs_scraper.scraper import AppleJobsScraper
 from scripts.microsoft_jobs_scraper.scraper import MicrosoftJobsScraper
+from scripts.amazon_jobs_scraper.scraper import AmazonJobsScraper
 from scripts.google_jobs_scraper.config import (
     DEFAULT_OUTPUT_DIR,
     DEFAULT_OUTPUT_FILE,
@@ -66,6 +67,7 @@ SCRAPER_CLASSES = {
     "google": GoogleJobsScraper,
     "apple": AppleJobsScraper,
     "microsoft": MicrosoftJobsScraper,
+    "amazon": AmazonJobsScraper,
 }
 
 
@@ -365,7 +367,7 @@ Examples:
     # New flags for database mode
     parser.add_argument(
         "--company",
-        choices=["google", "apple", "microsoft", "all"],
+        choices=["google", "apple", "microsoft", "amazon", "all"],
         default="google",
         help="Which company scraper to run (default: google)",
     )

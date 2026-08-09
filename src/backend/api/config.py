@@ -10,7 +10,9 @@ class Settings(BaseSettings):
 
     # Scraper settings
     scraper_interval_hours: int = Field(default=1, gt=0)
-    scraper_companies: str = "apple,google,microsoft"
+    # NOTE: the Railway SCRAPER_COMPANIES env var overrides this default, so
+    # adding a scraper here is not enough to make it run in production.
+    scraper_companies: str = "apple,google,microsoft,amazon"
     scraper_detail_scrape: bool = True
     scraper_timeout_minutes: int = Field(default=90, gt=0)
     scraper_scripts_path: str = "../../scripts"

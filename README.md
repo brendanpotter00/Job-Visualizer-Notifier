@@ -1,6 +1,6 @@
 # onesecondswe
 
-A job board that pulls software engineering postings directly from company ATS systems — Greenhouse, Lever, Ashby, Gem, and Workday — plus custom scrapers for Google, Apple, and Microsoft.
+A job board that pulls software engineering postings directly from company ATS systems — Greenhouse, Lever, Ashby, Gem, and Workday — plus custom scrapers for Google, Apple, Microsoft, and Amazon.
 
 ## Prerequisites
 

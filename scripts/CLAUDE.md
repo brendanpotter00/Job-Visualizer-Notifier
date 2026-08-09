@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Multi-Company Job Scraper - A Python-based web scraping framework that extracts job listings from multiple company career sites. Currently supports **Google Careers** (Playwright browser automation), **Apple Jobs** (hybrid HTML + API approach), and **Microsoft Careers** (Eightfold ATS JSON APIs). Designed to feed structured job data into the Job Visualizer application with support for incremental scraping, database persistence, and comprehensive error handling.
+Multi-Company Job Scraper - A Python-based web scraping framework that extracts job listings from multiple company career sites. Currently supports **Google Careers** (Playwright browser automation), **Apple Jobs** (hybrid HTML + API approach), **Microsoft Careers** (Eightfold ATS JSON APIs), and **Amazon Jobs** (public JSON search endpoint, no detail fetch). Designed to feed structured job data into the Job Visualizer application with support for incremental scraping, database persistence, and comprehensive error handling.
 
 ## Commands
 
@@ -17,6 +17,10 @@ python scripts/run_scraper.py --company apple --detail-scrape           # Apple 
 # Microsoft Scraper
 python scripts/run_scraper.py --company microsoft                       # Microsoft scrape (list data only)
 python scripts/run_scraper.py --company microsoft --detail-scrape       # Microsoft with job details
+
+# Amazon Scraper
+python scripts/run_scraper.py --company amazon                          # Amazon scrape
+python scripts/run_scraper.py --company amazon --max-jobs 10 -v         # Quick smoke test
 
 python scripts/run_scraper.py --company all                             # Run all scrapers
 
@@ -45,7 +49,7 @@ pip install -r scripts/requirements-dev.txt      # Install dev dependencies (tes
 ## CLI Options
 
 ```
---company {google,apple,microsoft,all}  # Which scraper to run (default: google)
+--company {google,apple,microsoft,amazon,all}  # Which scraper to run (default: google)
 --db-url URL                  # PostgreSQL connection URL
 --incremental                 # Run incremental mode (requires --db-url)
 --detail-scrape               # Scrape individual job detail pages
@@ -150,6 +154,43 @@ The Microsoft scraper uses **Eightfold ATS JSON APIs**:
 - `JOBS_PER_PAGE` - 10 (Microsoft's pagination size)
 - `MAX_PAGES` - Maximum pages to scrape (500)
 - Rate limits and timeouts
+
+## Amazon Scraper Details
+
+The Amazon scraper is **API-only** — no HTML parsing and no detail-fetch phase:
+
+1. **Single JSON endpoint:** `GET https://www.amazon.jobs/en/search.json` with
+   `offset` / `result_limit` / `sort=recent` / `country=USA` / `base_query`
+2. **Descriptions arrive inline:** the list row carries `description`,
+   `basic_qualifications`, and `preferred_qualifications`, so
+   `scrape_job_details_streaming` is a deliberate **pass-through**
+
+**Key Differences from Other Scrapers:**
+- **No detail fetch.** Overriding the streaming method is mandatory, not an
+  optimization — the BaseScraper default would open a page and sleep 2-5s per
+  job (45-110 min for a ~1,300 job board, past `SCRAPER_TIMEOUT_MINUTES`).
+- **Requisition id, not the GUID.** Key on `id_icims`; the `id` field is a GUID
+  that never appears in the canonical URL.
+- **`result_limit` is hard-capped at 100.** Asking for 200 returns
+  `{"error": "...", "jobs": null}` — note `jobs` is `null`, not `[]`.
+- **`posted_date` is date-only English** ("August  8, 2026", with a double
+  space). It is stored as a 10-char `YYYY-MM-DD`; stamping UTC midnight instead
+  would render every job a day early for users west of UTC.
+- **Same-origin navigation is required.** search.json sends no
+  `Access-Control-Allow-Origin`, so the in-page `fetch()` is blocked unless the
+  page is already on an amazon.jobs origin (`_establish_session`).
+- **Control bytes.** Amazon intermittently embeds raw `\x01` in description
+  HTML, which V8's `JSON.parse` rejects. `_FETCH_JS` parses `r.text()` and only
+  sanitises on failure, so healthy payloads are never mutated.
+
+**Amazon Configuration (`amazon_jobs_scraper/config.py`):**
+- `SEARCH_QUERIES` - `["software engineer"]` (server-side `base_query`)
+- `COUNTRY` - `USA`
+- `INCLUDE_TITLE_KEYWORDS` / `EXCLUDE_TITLE_KEYWORDS` - title filters. EXCLUDE is
+  matched on **word boundaries**: as a bare substring, "HR" matches "T-h-r-eat"
+  and silently drops real listings.
+- `JOBS_PER_PAGE` - 100 (API hard cap)
+- `MAX_PAGES` - 50 safety bound (live `hits` was 1303)
 
 ## Common Tasks
 
@@ -258,6 +299,12 @@ Edit company-specific `config.py`:
 - HTML Parsing: `scripts/microsoft_jobs_scraper/parser.py`
 - API Client: `scripts/microsoft_jobs_scraper/api_client.py` - `/api/pcsx/search` and position_details client
 - Configuration: `scripts/microsoft_jobs_scraper/config.py`
+
+**Amazon-Specific:**
+- Main Logic: `scripts/amazon_jobs_scraper/scraper.py` - API-only scraper, pass-through details (extends BaseScraper)
+- API Client: `scripts/amazon_jobs_scraper/api_client.py` - search.json client, HTML stripper, date normaliser
+- URL Helpers: `scripts/amazon_jobs_scraper/parser.py`
+- Configuration: `scripts/amazon_jobs_scraper/config.py`
 
 **Shared Modules:**
 - `scripts/shared/base_scraper.py` - Abstract base class for all company scrapers
