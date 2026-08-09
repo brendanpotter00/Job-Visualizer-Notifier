@@ -1,486 +1,305 @@
 # Custom Company Sources — build plan
 
-Executable plan for an implementing agent. Read `OVERVIEW.md` first for the why.
-Supersedes the PR2/PR3 scope in `PLAN.md`; §0 of `PLAN.md` (locked owner decisions D1–D12) still applies.
+Executable plan for an implementing agent. **Read `OVERVIEW.md` first** for the architecture and why. This file is the phase-by-phase how. Owner approved the OVERVIEW shape on 2026-08-09.
 
-**Evidence base:** 11 careers sites harvested end-to-end 2026-08-08/09 plus a ~40-firm CRE survey. Every claim below marked *(verified)* was measured, not inferred.
+> **This plan is written to survive a context compaction.** If you are a fresh agent picking this up: everything you need is in this file plus `OVERVIEW.md`. Do not trust conversation history you don't have; re-verify any `file:line` against current code before relying on it (the repo moves).
 
 ---
 
-## 0. Ground rules
+## 0. Start clean — new branch, pull over only what's proven
 
-1. **Small vertical slices.** Each phase ships backend + frontend together and is verifiable in a browser. No all-backend-then-all-frontend.
-2. **Only `VERIFIED_COMPLETE` may close a job.** Everything else upserts and stops.
-3. **The first harvest of a new company must be `VERIFIED_COMPLETE` or the company is never created.** Fail loudly at add time.
+The owner's instruction: **scrap PR #243 and its branch. Start a new branch off `origin/main` and cherry-pick over only the parts that are done and verified.** Rationale: retrofitting the old 5-tier plan into the new gated-script model would leave dead code and broken logic. Cleaner to restart.
+
+**Do this first:**
+
+1. `git fetch origin`, branch `feat/custom-companies` off **`origin/main`** (not off `feat/custom-company-sources-spike`). Branching off main is deliberate — main already carries the recalibrated safety guard (`SCRAPER_GUARD_MIN_RATIO = 0.85`, `evaluate_safety_guard` / `resolve_safety_guard`, `RELEASED_RUN_MISS_THRESHOLD`, `scrape_runs.guard_reason`) that the spike worktree lacks.
+2. **Pull over from the `feat/custom-company-sources-spike` branch (worktree 2), these only** — all reviewed/tested, keep them:
+   - `src/backend/api/services/url_guard.py` + `test_url_guard.py` (SSRF boundary, 336-test suite, two adversarial passes)
+   - `src/backend/api/services/ats_link_resolver.py` + `test_ats_link_resolver.py` (L0 resolver; includes the Greenhouse **API-host** fix `boards-api.greenhouse.io/v1/boards/<token>` — keep it)
+   - `src/backend/api/services/ats_discovery.py` + `test_ats_discovery.py` (L1/L2 + `probe_candidate`)
+   - `POST /api/companies/resolve` in `routers/companies.py`, its 4 Pydantic models, the `custom_company_sources_enabled` + `resolve_rate_limit_*` config, and the `enforce_resolve_rate_limit` reuse
+   - `vercel.json`: the `/api/companies/:path(.*)` rewrite (without it the endpoint 404s in prod)
+   - **The entire frontend resolve slice** (built + browser-verified against Intel/Cisco/Duolingo): `config/customCompanies.ts`, `features/userCompanies/userCompaniesApi.ts` + `resolveErrors.ts`, `components/my-companies/*`, `pages/MyCompaniesPage/*`, the `NavIconName` change in `config/routes.ts` + `NavigationDrawer.tsx`, store/testUtils registration, and the `/my-companies` SPA rewrite. All its tests.
+   - The docs: this directory (`OVERVIEW.md`, `BUILD-PLAN.md`), `docs/spikes/2026-08-browser-agent-discovery.md`, and `docs/implementations/custom-company-sources/PLAN.md` (the locked owner decisions D1–D12 still hold).
+3. **Do not pull over** any of the old PR's handoff docs or the 5-tier scaffolding (there wasn't much backend beyond the above; the recipe-runtime tier, separate Railway service, DNS-pinning hack, guess-and-verify L3 were never built — good).
+4. Verify the pulled-over backend still passes (`cd src/backend && pytest api/tests/test_url_guard.py api/tests/test_ats_link_resolver.py api/tests/test_ats_discovery.py api/tests/test_companies_resolve_endpoint.py -q` against an isolated test DB — see §0.5) and the frontend suite is green (nvm Node 22.14.0, `npm test`).
+
+### 0.2 How to execute each phase (owner-mandated agent loop)
+
+Do **not** hand-code phases yourself. Orchestrate; review; verify. Per phase:
+
+1. **Implement** with a fresh **opus-level subagent**, given this file + `OVERVIEW.md` + the phase's §7-style spec. One phase per subagent so its context stays clean.
+2. **Adversarially review** the result with a *separate* opus subagent whose instructions are to break it — check it against the live repo code (not assertions), specifically the closure-safety invariants, the three visibility leaks, the source_id isolation, and the "UNVERIFIED never closes" rule. Feed findings back to a fix subagent; loop until the review is clean.
+3. **Verify end-to-end and locally** — run the phase's acceptance test (§7.3 for Phase 1) in a real browser against the running local stack, with two real accounts. Do not declare done on unit tests alone; the review found that fixtures built from reading source can mask a real runtime mismatch.
+4. **You (the orchestrator) review, you do not implement.** Relay only what matters back to the owner; keep the subagent file-dumps out of the summary.
+
+Verify claims against code before writing them down — this plan already had to retract one subagent assertion (a "0.85 guard" that was on `main`, not the worktree) that was recorded as fact without checking. Don't repeat it.
+
+### 0.1 Ground rules (unchanged from the owner's standing constraints)
+
+1. **Vertical slices.** Each phase ships backend + frontend together and is testable in a browser. Never all-backend-then-all-frontend. After each phase, get the local stack running and hand it to the owner to test end-to-end.
+2. **Only a VERIFIED run may close a job.** Everything else upserts and stops. In Phase 1 there is no oracle yet, so *everything is UNVERIFIED and nothing ever closes* — that is the safe default, not a bug.
+3. **First harvest of a new company, and the first run after any script change, close nothing.**
 4. **Never fake `first_seen_at`.** It means "when we first saw this," everywhere.
-5. **`main` is ahead of this worktree** with a redesigned safety guard (`evaluate_safety_guard` / `resolve_safety_guard`, `SCRAPER_GUARD_MIN_RATIO=0.85`, `SCRAPER_GUARD_MIN_ABS_DROP=15`, `SCRAPER_GUARD_MAX_CONSECUTIVE_SKIPS=3`, `RELEASED_RUN_MISS_THRESHOLD=3`, `scrape_runs.guard_reason`). **Rebase and build on it, never around it.** It was calibrated on 455,317 prod runs — at a 30-minute cadence. See §5.4.
-6. Never commit credentials, cookies, or browser profiles. No "generated by Claude" text anywhere.
+5. Never commit credentials, cookies, or browser profiles. No "generated by Claude" text in commits/PRs.
+6. Work in this worktree (`.claude/worktrees/2`) or a fresh one per the owner's worktree rules; never `cd` to the parent repo from an isolated session.
+
+### 0.5 Local environment traps (verified, will cost you hours otherwise)
+
+- **Vitest hangs silently on Node < 22.12.0.** Use `source ~/.nvm/nvm.sh && nvm use 22.14.0`.
+- **Backend tests read `TEST_DATABASE_URL`, not `DATABASE_URL`.** The shared `jobscraper` dev DB is stamped by an unmerged branch and yields ~125 phantom failures. Point tests at an isolated DB: `TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/jobscraper_wt2 pytest ...`. Baseline before you start so you can prove no regressions.
+- **`vercel dev` must run from the repo root** (`dev:vercel` is `cd ../.. && vercel dev`) or the `/api/*` rewrites don't load. Start backend with `--reload` explicitly or your changes won't take effect.
+- **`docker compose up -d postgres`** first; backend on :8000, frontend on :3000.
 
 ---
 
-## 1. Data model
+## 1. Architecture, in one paragraph (full detail in OVERVIEW.md)
 
-All new columns nullable-or-defaulted so migrations stay metadata-only (see `docs/incidents/2026-04-18-migration-filled-postgres-volume/`). One combined `ALTER TABLE` per table. Autogenerate from `db_models.py`; single Alembic head (currently `a7c31d9e0b46`).
+Every company is a **stored script**, authored once and replayed nightly with **no agent**. There are no tiers: a script is a list of primitives from a **closed vocabulary**, and the ATS client is **primitive #1** — Duolingo's script is one primitive, Amazon's is nine, and **both face the identical verification gate every night.** Scripts run in a browser page context (HTTP primitives as `fetch()` after navigating to the board origin — CORS-verified; DOM primitives natively), defaulting to Browserbase with local Playwright/`httpx` as fallback; the vendor is swappable. Discovery (one-time per add) is an agent; replay is not. The gate decides VERIFIED / UNVERIFIED / FAILED, and **only VERIFIED may close jobs.**
+
+### 1.1 The verdict ladder
+
+```
+FAILED               transport/parse error, oracle path vanished, or an exception
+                     → raise. Write nothing. Retry once. Then auto-repair (§4.4).
+                     → a FAILED (non-executed) run is NOT a miss.
+
+UNVERIFIED           harvested rows but couldn't prove completeness:
+                     no oracle yet (Phase 1), oracle==none, tolerance>0 this run,
+                     or a browser run whose last scroll still added ids
+                     → upsert + update_last_seen ONLY. Never miss++, never close.
+                     → scrape_runs.guard_reason = 'unverified_harvest'; user badge.
+
+VERIFIED             every applicable gate check passed exactly (tolerance 0)
+                     → full destructive path, ANDed with resolve_safety_guard(),
+                       gated by the fleet circuit breaker (§4.3) and 36h floor (§4.2).
+```
+
+**Why UNVERIFIED still upserts:** the `ON CONFLICT` clause is purely protective (`status='OPEN'`, `closed_on=NULL`, `consecutive_misses=0`). Writing the rows we *did* get can only move jobs away from closure. We distrust the *absence* of the rest, not the presence of these.
+
+---
+
+## 2. Data model
+
+All new columns nullable-or-defaulted → migrations stay metadata-only (2026-04-18 volume incident). One combined `ALTER TABLE` per table. Autogenerate from `db_models.py`; single Alembic head. **Re-confirm line numbers against `origin/main` — they differ from the spike worktree.**
 
 ```python
 # companies — ONE combined ALTER TABLE
-visibility          Text NOT NULL server_default 'public'   # 'public' | 'user'
-cadence_hours       Integer NULL                            # NULL = legacy 30-min cron
-next_run_at         TIMESTAMPTZ NULL
-tracking_started_at TIMESTAMPTZ NULL                        # first VERIFIED harvest
-source_tier         Text NULL     # 'ats'|'http_recipe'|'browser_recipe'
-id_strategy         Text NULL     # 'upstream'|'url_hash'|'content_hash'|'unstable'
-health_state        Text NULL     # 'healthy'|'unverified'|'quarantined'|'dead'
+visibility            Text NOT NULL server_default 'public'   # 'public' | 'user'
+cadence_hours         Integer NULL                            # NULL = legacy 30-min cron
+next_run_at           TIMESTAMPTZ NULL
+tracking_started_at   TIMESTAMPTZ NULL                        # first VERIFIED harvest
+health_state          Text NULL      # 'healthy'|'unverified'|'quarantined'|'refused'
+last_success_at       TIMESTAMPTZ NULL
+consecutive_failures  Integer NOT NULL server_default '0'
 
-# user_companies — ownership.
-# NOT user_enabled_companies: that is a soft allow-list where ZERO ROWS MEANS
-# "see all", so reusing it makes a private company visible to everyone.
+# user_companies — ownership. NOT user_enabled_companies (that is a soft
+# allow-list where ZERO ROWS MEANS "see all"; reusing it leaks to everyone).
 user_id              Text FK users.id ON DELETE CASCADE
 company_id           Text                       # soft link, house style
-canonical_source_key Text                       # f"{ats}:{token}" or sha256(entrypoint)
+canonical_source_key Text                       # f"{ats}:{token}"  (Phase 1)
 created_at           TIMESTAMPTZ NOT NULL default now()
 PRIMARY KEY (user_id, company_id)
 UNIQUE (user_id, canonical_source_key)          # idempotent re-adds
 
-# company_recipes — the recipe is DATA. Validate on write AND on read.
+# company_scripts — the stored script. DATA, validated on write AND read.
+# Phase 1: a one-primitive script { "kind":"ats_client", "provider":..., "token":... }.
 company_id     Text PRIMARY KEY
-recipe         JSONB NOT NULL
-recipe_version Integer NOT NULL
-oracle_kind    Text NOT NULL   # facet_sum|header|second_request|declared_probed|sitemap|none
+script         JSONB NOT NULL
+script_version Integer NOT NULL
+transport      Text NOT NULL   # 'ats_client' (P1) | 'page_fetch' | 'page_request' | 'dom'
+oracle_kind    Text NOT NULL   # 'none' (P1) | 'declared_probed'|'facet_sum'|'header'|'sitemap'|'self_consistent'
 created_at, updated_at
 
 # company_harvests — per-run evidence. Makes a wrong match diagnosable weeks later.
 id, company_id, run_id, started_at, completed_at
-tier, verdict, verdict_reason
-records_harvested, declared_total, oracle_total, oracle_kind
-cap_probe_ok, page_advance_ok, fanout_legs_ok
-id_jaccard_vs_prev, scrolls_performed
-browser_session_id, browser_ms, bytes_fetched
+verdict, verdict_reason, records_harvested, declared_total, oracle_total, oracle_kind
+cap_hit, page_advance_ok, id_dedup_dropped, tolerance_used
 INDEX (company_id, started_at DESC)
 
-# company_add_attempts — audit of every add attempt incl. failures (PLAN.md §D4)
+# company_add_attempts — audit of every add attempt incl. failures/refusals (D4)
 
-# scrape_runs.guard_reason — add 'unverified_harvest' to the Literal
+# scrape_runs — CURRENTLY: run_id, company, started_at/completed_at (Text!), mode,
+#   jobs_seen, new_jobs, closed_jobs, details_fetched, error_count. NO source_id,
+#   NO success, NO guard_reason (main adds guard_reason). ADD: source_id Text,
+#   success Boolean, and use main's guard_reason Literal += 'unverified_harvest'.
 ```
 
 Index: `CREATE INDEX ix_companies_visibility ON companies (visibility) WHERE visibility <> 'public';`
 
-### 1.1 `source_id` — one namespace per company
+### 2.1 `source_id` — one namespace per company
 
 ```python
 # scripts/shared/constants.py
-_CUSTOM_PREFIX: Final[str] = "custom:"
-
 def custom(company_id: str) -> str:
-    """source_id for a user-added company. One namespace PER COMPANY.
-
-    job_listings' PK is (source_id, id) and every destructive helper is
-    `WHERE source_id = %s AND id IN (...)`. Per-company source_id makes the
-    DATABASE enforce cross-company isolation instead of a string-concatenation
-    convention in application code. A mis-scoped id list can then only damage
-    one user's company — which is exactly where 2026-03-29 lives.
+    """custom:<company_id>. PER COMPANY, not one shared 'custom' namespace.
+    job_listings PK is (source_id, id); every destructive helper is
+    WHERE source_id=%s AND id IN (...). Per-company source_id makes the DATABASE
+    enforce cross-company isolation — a mis-scoped id list can only ever damage
+    one user's company. That is where the 2026-03-29 class of bug lives.
     """
-    if not _COMPANY_ID_RE.fullmatch(company_id):
-        raise ValueError(f"unsafe company_id for source_id: {company_id!r}")
-    return _CUSTOM_PREFIX + company_id
+    if not _COMPANY_ID_RE.fullmatch(company_id): raise ValueError(...)
+    return "custom:" + company_id
 ```
+`companies.id` format: `u-<10 chars base36 of uuid4>` (satisfies `^[a-z0-9][a-z0-9.\-]*$`, can't collide with `COMPANY_IDS` or logo filenames).
 
-**Rejected:** shared `source_id='custom_api'` with `id=f"{company_id}:{upstream}"`. That puts the isolation boundary in a string join; one bug silently merges two users' companies inside a composite PK, and `upsert_jobs_batch` would overwrite one with the other.
+### 2.2 Job `id`
 
-`companies.id` format: `u-<10 chars base36 of uuid4>` (e.g. `u-k3n8p2wq1z`) — satisfies the existing `^[a-z0-9][a-z0-9.\-]*$` pattern, cannot collide with `COMPANY_IDS` or logo filenames.
+Phase 1 uses `upstream` (the ATS client's own stable id, verbatim). `url_hash` / `content_hash` / the two-harvest id-stability check arrive with the agent-scripted phases (they can produce unstable ids); ATS ids are stable, so P1 doesn't need them. **`job_listings` mapping:** `source_id=custom:<id>`, `company=<id>`, `details` hard-capped 8 KB (OOM/TOAST incidents), `posted_on` only if it parses and falls in `[now-365d, now+7d]` else NULL (never synthesize), enrichment/normalization left NULL in P1 (they spend Claude Haiku per job — a 12k-job add is a real bill).
 
-### 1.2 Job `id` — validated, not assumed
+### 2.3 `job_freshness` is dead code — do not extend it
 
-| strategy | rule | when |
-|---|---|---|
-| `upstream` | `str(raw[fields.id])` verbatim, unhashed | source has a stable id |
-| `url_hash` | `sha256(canonical_url)[:32]` | no id field (`fields.url` is already mandatory) |
-| `content_hash` | `sha256("\x1f".join(norm(title), norm(location), norm(dept)))[:32]` | url unstable/duplicated |
+It has a table, trigger, tests, and is **read/written by nothing in production** (the 2026-06-14 "built but unwired" incident). Call only the existing helpers (`update_last_seen`, `increment_consecutive_misses`, `get_jobs_exceeding_miss_threshold`) so the eventual Unit-4 cutover is one change. Flag Unit 4 as a scheduling dependency.
 
-Canonicalize for `url_hash`: lowercase host, strip `utm_*`/`gh_src`/`source`/fragment, sort query, strip trailing slash. **Never hash the description** — an edit churns the id and manufactures a close+create pair.
+### 2.4 Day-0 spike — fix in presentation, never in data
 
-**Validate at add time.** Harvest twice, ≥10 min apart, compute `jaccard(ids_1, ids_2)`:
-- `≥ 0.98` → accept
-- `0.90–0.98` → accept, mark `id_stability='weak'`
-- `< 0.90` → try next strategy; if none reaches 0.90 → `id_strategy='unstable'` and **closure is permanently disabled** for that company. UI: "we can show openings but can't reliably tell when one closes."
-
-*(verified)* Habitat Cincinnati: 7 jobs share 6 hrefs — `url_hash` silently loses one. `assert_unique(field)` must run on any field used as a key.
-
-### 1.3 `job_listings` mapping
-
-| column | value |
-|---|---|
-| `source_id` | `custom:<company_id>` |
-| `id` | per `id_strategy` |
-| `company` | `<company_id>` (soft link, no FK — house style) |
-| `title`,`location`,`url` | from `recipe.fields`; `url` absolutized against `base_url` |
-| `details` | raw record, **hard-capped at 8 KB serialized** (2026-04-09 OOM, 2026-07-13 TOAST outage both trace to `details` bloat) |
-| `posted_on` | recipe value only if it parses **and** falls in `[now−365d, now+7d]`; else `NULL`. **Never synthesize.** |
-| `first_seen_at` | `now()` on insert, never rewritten |
-| `normalization_status`, `enrichment_*` | **leave NULL in Phase 1** — `normalize_location` spends Claude Haiku per new job; one 12,000-job add is a real bill |
-
-### 1.4 `job_freshness` is dead code — do not extend it
-
-*(verified)* `job_freshness` has a table, composite FK, `AFTER INSERT` trigger, autovacuum tuning and tests, and is **read/written by nothing in production**. The Unit-4 migration that would drop `job_listings.last_seen_at` / `consecutive_misses` has not landed.
-
-**Call only the existing helpers** (`update_last_seen`, `increment_consecutive_misses`, `get_jobs_exceeding_miss_threshold`). Do not build a parallel freshness path. Flag Unit 4 as a scheduling dependency.
+The graph buckets on `firstSeenAt` (`timeBucketing.ts`), ignores `postedOn`. A 12k-job board would render one giant "posted today" bucket on day one. Fix: `companies.tracking_started_at` set on first harvest; the trend page shades everything before it and labels the seed bucket *"N openings already live when tracking began"*, excluded from the "new postings" series. Derive membership (`first_seen_at <= tracking_started_at + 1h`) — **do not add a boolean to `job_listings`** (backfill on that table is expensive, 2026-04-18).
 
 ---
 
-## 2. The recipe schema (v2)
+## 3. The verification gate (built incrementally across phases)
 
-Promote `scripts/one_off/recipe_spike/` → `src/backend/api/services/recipes/`.
+Ordered, every step fatal. Emits one verdict. **Phase 1 ships only checks 1, 2, 7, 8 + "oracle=none ⇒ UNVERIFIED"; Phase 2 adds the rest.**
 
-**Today's schema expresses 8 of the ~29 primitives the evidence demanded.** The return type must change too: v1 returns `list[dict]` and requires `expected_min_jobs > 0`, so it is *structurally incapable* of representing a company with zero openings.
+| # | check | scope | phase |
+|---|---|---|---|
+| 1 | HTTP/transport status in allowed set | generic | 1 |
+| 2 | non-empty; `expected_min_jobs` floor; **raise, never return `[]`** | generic | 1 |
+| 3 | `assert_no_inband_error` — fatal key inside a 200 (`error`/`errors`/`message`) | generic mech, per-vendor key | 2 |
+| 4 | `assert_pinned_operation` — discovery-time op identity still live (Meta: **pin `doc_id`, not operationName**) | per-vendor | 3 |
+| 5 | `assert_cap_not_hit` — `offset+page_size <= window_cap`; **Workday's 2,000 ceiling is a cap** | generic mech, per-vendor cap | 2 |
+| 6 | `assert_page_advances` — page N ids disjoint from N-1 | generic | 2 |
+| 7 | dedupe, then `assert_unique_ids_vs_total` on the **post-dedup** count | generic | 1 (dedup) / 2 (vs-total) |
+| 8 | `assert_unique(field)` for any field used as a key | generic | 1 |
+| 9 | independent **oracle** agrees within tolerance; record provenance | generic mech, per-vendor oracle | 2 |
+| 10 | **fatal in BOTH directions** — over-harvest means a dropped filter widened scope | generic | 2 |
+| 11 | if 0 rows → the **zero-proof chain** (liveness → declared-0 → empty-state string → **brand present** → **canonical backlink**). Zero is just an oracle returning 0. | generic chain, per-vendor signals | 2 |
+| 12 | `assert_delta_vs_last_run` (trailing-14-run median) — the only check that works below ~10 jobs | generic | 2 |
+
+**Two rules the review forced, both Phase 2:**
+- **`tolerance > 0` on a run ⇒ that run closes nothing.** Approximation may only *add*. (Amazon's 43 facet-invisible jobs score 0.998 vs a 1% tolerance and would otherwise be closed nightly. A percentage can never catch a *structural* hole.)
+- **Self-consistency oracle** (`oracle_kind='self_consistent'`): a run with no declared total is complete iff pages advanced monotonically with disjoint id-sets, the last page was short, nothing 429'd/timed out, and the count is within X% of the trailing-14-run median. Lets no-total boards (YC, Jane Street) close on 3 consecutive complete runs instead of never.
+
+**Oracle single-valued flag is mandatory** (Phase 2): a facet that *covers* is not a facet that *partitions*. GM's location facet sums to 1,042 vs a true 835 (multi-location jobs counted twice). The discovery agent must verify single-valuedness on a board known under the cap.
+
+---
+
+## 4. Closure safety
+
+The completeness verdict is **ANDed with** the existing `resolve_safety_guard` (from main), never a replacement. Clone the leaf task from `fetch_greenhouse_company.py` and **copy its load-bearing ordering comment verbatim**: upsert → last_seen → miss-increment → close.
 
 ```python
-HarvestOutcome = Jobs(rows) | ZeroConfirmed(proof) | raise
-```
-
-### New primitives, each with the target that forced it
-
-**Transport**
-- `repeated_query_param` — Amazon `facets[]=a&facets[]=b`. *(verified: a params dict collapses repeats, so the oracle request cannot even be expressed today)*
-- `body_format: "json" | "form"` — Meta (today's workaround smuggles form params into the query string)
-
-**Pagination / sweep**
-- `paginate_offset(cursor_in="body")` — Workday puts the offset inside the POST body
-- `paginate_facet` — Amazon, YC/Algolia, Monroe
-- `fanout_from_index` — YC (1,490 entrypoints at replay time)
-- `multi_request_sweep` — Amazon (v1 allows exactly one request per recipe)
-- `pagination.termination` — **load-bearing.** *(verified)* Workday silently re-serves page 0 at out-of-range offsets (byte-identical 248,459-byte response at `offset=2000/5000/9990`); Intel wraps to page 1 forever. Terminate on `first_record_id_changed AND page_index < max_pages`, **never** `len(page) > 0`.
-
-**Extraction**
-- `field_template_html` — Blackburn's (JSON fields template, HTML fields can't)
-- `field_transform` — Monroe (`&#8212;` stored verbatim); Jane Street uses Lisu homoglyphs (`ꓟ` for `M`) as an anti-scrape measure
-- `composite_id` — Blackburn's, Habitat
-- `lookups` — Tesla-class payloads ship `{"l":"401022"}` plus sidecar dicts; `fields` can currently only emit `location_id`
-
-**Cut:** `extract_jsonld`. *(verified)* 0 JobPosting objects across 12/12 listing pages — Google's spec explicitly forbids markup on list pages. Keep JSON-LD only as a **per-job enrichment** in a later phase (~44–56% of detail pages have it) and as a liveness cross-check (`validThrough` in the past, iCIMS `HTTP 410`).
-
-### The `oracle` block — the most important addition
-
-```jsonc
-"oracle": {
-  "kind": "facet_sum",        // facet_sum|header|second_request|declared_probed|sitemap|none
-  "request": { "...": "..." },
-  "facet_path": "facets.jobFamilyGroup",
-  "count_field": "count",
-  "single_valued": true,      // MANDATORY assertion, see below
-  "window_cap": 10000,        // vendor's hard pagination ceiling
-  "tolerance": 0.02
-}
-```
-
-`single_valued` is not optional. *(verified)* GM's `Location_Region_State_Province` sums to 1,042 against a true 835 because a multi-location job counts once per location. A facet that *covers* is not a facet that *partitions*. The discovery agent must verify single-valuedness on a board known to be under the cap.
-
-*(verified)* Amazon: six structurally unrelated single-valued facets each summed to exactly 22,191 while `hits` insisted on 10,000. Control: `is_intern`/`is_manager` summed to 22,064 = 22,191 − 127, proving a facet with nulls sums *low* — which is why the control matters.
-
-**`oracle.kind == "none"` means the company can never reach `VERIFIED_COMPLETE`.** That is a permanent, surfaced state, not a default.
-
----
-
-## 3. The verification gate
-
-Ordered. Every step fatal. Emits exactly one verdict.
-
-| # | check | scope |
-|---|---|---|
-| 1 | HTTP status in allowed set | generic |
-| 2 | `assert_no_inband_error` — fatal key inside a 200 (`error`/`errors`/`message`) | generic mechanism, per-vendor key |
-| 3 | `assert_pinned_operation` — discovery-time operation identity still live, request **and** response side | per-vendor |
-| 4 | `assert_pagination_cap_not_hit` — `offset + page_size <= window_cap`; no page past the object cap | generic mechanism, per-vendor cap |
-| 5 | `assert_page_advances` — page N ids disjoint from N−1 | generic |
-| 6 | `assert_all_fanout_legs_succeeded` — 1,489 of 1,490 is a diff that closes a company | generic |
-| 7 | dedupe, then `assert_unique_ids_vs_total` on the **post-dedup** count | generic |
-| 8 | `assert_unique(field)` for any field used as a key | generic |
-| 9 | `assert_total` vs an **independent** oracle; record provenance | generic mechanism, per-vendor oracle |
-| 10 | **fatal in BOTH directions** — over-harvest means a dropped filter widened scope | generic |
-| 11 | `completeness_envelope [declared_pre, declared_post]` for a moving index | generic |
-| 12 | if 0 rows → the full zero-proof chain (§3.2) | generic chain, per-vendor signals |
-| 13 | `assert_delta_vs_last_run` — the only check that works below ~10 jobs | generic |
-
-### 3.1 Why a percentage tolerance is the wrong instrument
-
-*(verified)* Amazon has **43 jobs no geographic facet indexes at all** — 22× `US, OR, Pdx170`, 19× `US, Virtual`, 2× a Michigan township. Drilling deeper returns `hits=0`. They score 0.998062 against a 1% tolerance and pass.
-
-> **A structural hole does not scale with the catalogue, so a percentage can never catch it.**
-
-Structural holes must be enumerated at discovery time and recorded on the recipe, not absorbed by tolerance.
-
-### 3.2 The zero-proof chain
-
-*(verified, and this is the case that justifies the whole chain)* **Marcus & Millichap's Lever board returns `200 []` with a polished "No job postings currently open" empty state. The company has 204 open roles on Workday.** Only `canonical_backlink` catches it.
-
-1. `assert_liveness_probe` — real board `200 []`; bogus id → `404 RESOURCE_NOT_FOUND`
-2. `assert_zero_state` — rendered empty-state string present
-3. `assert_brand_present` — company name on the board (catches domain takeover)
-4. `assert_canonical_backlink` — the careers page still references this board id (catches an **abandoned** board)
-
-*(verified)* Griffin Partners: HTML unassertable (all selectors match 0 nodes in httpx *and* Chromium), but `/wp-json/wp/v2/careers?per_page=1` returns `200 []` with `X-WP-Total: 0` for a **registered** post type, while an unregistered rest_base 404s `rest_no_route`. Header-as-oracle works where DOM doesn't.
-
-### 3.3 Known gate defeats — document, don't pretend
-
-- **SmartRecruiters defeats it outright.** *(verified)* A bogus company id returns `200 {"totalFound":0,"content":[]}` — byte-identical to a real empty board. Liveness cannot distinguish them. Requires `canonical_backlink`, or the vendor is `oracle: none`.
-- **Paycom, Paylocity, Jobvite/Breezy** return 200-or-redirect on a broken board; status-code checks mis-classify.
-- **HRsmart/Deltek produces a silent false zero** — plain httpx returns page chrome with **zero rows even when jobs exist**. This is the most dangerous shape found: it looks like a clean zero.
-- Greenhouse/Ashby/ADP/UKG/Paylocity **empty-board** shapes are **inferred, not observed** — no genuine empty board was found on those vendors. Do not trust those rows until one is.
-
-### 3.4 The verdict ladder
-
-```
-FAILED                C1/C2 fail, any exception, or the oracle path vanished
-                      → raise. Nothing written. Retry, then quarantine at N=5.
-
-HARVESTED_UNVERIFIED  any of checks 3–13 fail, OR oracle.kind == "none",
-                      OR a browser run whose last scroll still added ids
-                      → upsert + update_last_seen ONLY
-                      → never increment misses, never close
-                      → scrape_runs.guard_reason = 'unverified_harvest'
-                      → surfaced to user and admin
-
-VERIFIED_COMPLETE     all applicable checks pass
-                      → full destructive path, still ANDed with resolve_safety_guard()
-```
-
-**Why unverified still upserts:** the `ON CONFLICT` clause (`scripts/shared/database.py:94-108`) is purely protective — it sets `status='OPEN'`, `closed_on=NULL`, `consecutive_misses=0`. Writing rows we *did* get can only move jobs away from closure. We distrust the *absence* of the rest, not the presence of these.
-
-**Exception:** the **first** harvest must be `VERIFIED_COMPLETE` or the company is never created. Tesla's `tesla.cn` near-miss — a clean 200, internally consistent total, 28 jobs, **zero overlap** with the real 7,597 — is real-but-wrong rows with no baseline to catch them. The only defense is refusing to start.
-
----
-
-## 4. Composition with the existing safety guard
-
-The completeness verdict is an **additional pre-condition**, ANDed with `resolve_safety_guard`. Never a replacement.
-
-```python
-guard   = await asyncio.to_thread(resolve_safety_guard, conn, company_id, jobs_seen, active_count)
-verdict = verify_harvest(recipe, harvest, baseline)          # NEW
+guard   = resolve_safety_guard(conn, company_id, jobs_seen, active_count)   # from main
+verdict = verify_harvest(script, harvest, baseline)                          # NEW
 
 # 1. Upsert is safe under everything except FAILED (which already raised).
-await asyncio.to_thread(db.upsert_jobs_batch, conn, jobs)
-await asyncio.to_thread(db.update_last_seen, conn, source_id, list(seen_ids), ts)
+db.upsert_jobs_batch(conn, jobs); db.update_last_seen(conn, source_id, seen_ids, ts)
 
-# 2. Destructive phases require BOTH.
-if guard.reason is not None:
-    error_count, guard_reason = 1, guard.reason              # empty_scrape | partial_scrape
-elif verdict is not VERIFIED_COMPLETE:
-    error_count, guard_reason = 1, "unverified_harvest"      # NEW
-else:
-    threshold = RELEASED_RUN_MISS_THRESHOLD if guard.released else miss_threshold_for(company)
-    ...increment_consecutive_misses → get_jobs_exceeding_miss_threshold(threshold) → mark_jobs_closed
+# 2. Destructive phases require BOTH, plus the fleet breaker and 36h floor.
+if guard.reason is not None:      guard_reason = guard.reason          # empty/partial_scrape
+elif verdict is not VERIFIED:     guard_reason = 'unverified_harvest'  # NEW
+elif tolerance_used > 0:          guard_reason = 'approximate_no_close' # NEW (§3 rule)
+else:  ...increment_misses → get_jobs_exceeding_miss_threshold → mark_jobs_closed
 ```
 
-Three invariants to preserve:
-- **Keep the three reasons distinct.** `count_consecutive_partial_skips` (`scripts/shared/database.py:889`) counts on `guard_reason='partial_scrape'` specifically; its docstring records why counting the boolean instead was a bug.
-- **`unverified_harvest` must NOT count toward the bounded auto-release.** The release reconciles a *permanent board shrink*; an unknown must never be evidence for releasing a destructive guard.
-- **Raise-never-return-empty is untouched.** `FAILED` raises; the `finally` still writes `scrape_runs`.
+### 4.1 Preserve the three distinct guard reasons
+`count_consecutive_partial_skips` counts on `guard_reason='partial_scrape'` specifically. Never collapse `empty_scrape` / `partial_scrape` / `unverified_harvest` / `approximate_no_close`. `unverified_harvest` must **not** count toward the bounded auto-release (an unknown is not evidence for releasing a destructive guard).
 
-### 4.1 Preserve the ordering comment
-
-Clone the leaf task from `src/backend/api/tasks/fetch_greenhouse_company.py` and **copy the load-bearing ordering comment at lines 134-167 verbatim**, along with its ordering: upsert → last_seen → miss-increment → close.
-
----
-
-## 5. Cadence, closure, and calibration
-
-### 5.1 `MISSED_RUN_THRESHOLD = 2` at 24h, plus a wall-clock floor
-
-Keep 2 (≈48h to close). With the completeness gate in front, the only residual case is a run that was `VERIFIED_COMPLETE` yet genuinely missed a live job. `1` removes all tolerance; `3` means three days of ghost jobs, and "is this still open?" is the product.
-
-**Add a wall-clock floor — this is the important part:**
-
+### 4.2 `MISSED_RUN_THRESHOLD` + wall-clock floor
+Keep threshold 2 (≈48h). **Add a floor on `last_seen_at`, not on the counter** (a retry or scheduler double-fire can otherwise close in minutes):
 ```sql
--- get_jobs_exceeding_miss_threshold gains a time predicate
-WHERE source_id = %s AND id IN (…)
-  AND consecutive_misses >= %s
-  AND last_seen_at < now() - INTERVAL '36 hours'   -- 1.5 × cadence_hours
+AND last_seen_at < now() - INTERVAL '36 hours'   -- 1.5 × cadence_hours
 ```
 
-`consecutive_misses` counts **runs**, and runs are not evenly spaced. Without this, a manual re-run, a scheduler double-fire, or a catch-up burst after quarantine can close a job in minutes.
+### 4.3 Fleet circuit breaker (the 2026-03-29 generalization)
+**If >20% of the night's scheduled companies FAIL, no company closes anything that night.** Compute per-run at the fan-out level; short-circuit the close step. This is the check that would have made the 3,582-job Apple incident a non-event.
 
-### 5.2 Do NOT reuse `SCRAPER_GUARD_MIN_RATIO = 0.85` for daily companies
+### 4.4 Auto-repair — board identity, not job identity
+On repeated FAILED: one agent re-discovery pass. Gate the swap on **canonical backlink + tenant/eTLD+1 stability**, NOT Jaccard (a Greenhouse→Ashby migration changes every id → Jaccard 0, yet is the most common real repair; a superset parent board shares ids and passes by coincidence). Split: **re-tune** (same host+tenant) hot-swaps with no human; **re-point** (host/tenant changed) requires admin approval. Rate-limit 1/company/7d. **First run after any swap closes nothing** → a bad swap can only add rows. Jaccard is a log line.
 
-It was calibrated on 134,777 runs **at a 30-minute cadence**, where day-over-day churn is invisible. At 24h a company that legitimately turns over 20% of its board daily trips `partial_scrape` every run, latches, and after 3 skips auto-releases — burning the release mechanism on normal behavior.
-
-Ship daily companies with a **per-company learned baseline**: record the day-over-day delta distribution for the first 14 runs, then set the ratio to `min(0.85, p01_observed − 0.05)` with a hard floor of 0.5; keep `MIN_ABS_DROP = 15`. Until 14 runs exist, use 0.5.
-
-**This cannot be calibrated locally — it needs 2–3 weeks of prod data, and it is the single largest unknown in the design.**
-
-### 5.3 Scheduling
-
-`cadence_hours` + `next_run_at` on the company; a `*/15` claim task with `FOR UPDATE SKIP LOCKED`; ±90 min jitter; global concurrency ceiling 3; quarantine after 5 consecutive `FAILED`.
-
-### 5.4 Day-0 spike — fix in presentation, never in the data
-
-*(verified)* The graph buckets on `firstSeenAt` at its only call site (`src/frontend/src/lib/timeBucketing.ts:92-93` via `graphFiltersSelectors.ts:51`). `postedOn` appears only as `createdAt: raw.postedOn || raw.firstSeenAt` and an admin QA column. The schema doc calls `posted_on` "UNRELIABLE: do not use it as a recency signal."
-
-On run 1, a 12,000-job board produces one enormous bucket reading "posted 12,000 jobs today."
-
-1. Never fake `first_seen_at`. Day-0 rows get `now()`.
-2. `companies.tracking_started_at` set on first `VERIFIED_COMPLETE`.
-3. The trend page shades everything before it and renders the seed bucket muted, labelled **"N openings already live when tracking began"**, excluded from the "new postings" series.
-4. Derive seed membership (`first_seen_at <= tracking_started_at + interval '1 hour'`) — **do not add a boolean to `job_listings`**; per 2026-04-18 any backfill on that table is expensive.
-5. Tell the user on day 0: the trend graph becomes meaningful after ~2 weeks.
+### 4.5 Calibration — do NOT reuse 0.85 for daily companies
+`SCRAPER_GUARD_MIN_RATIO=0.85` was tuned at 30-min cadence; at 24h a company that turns over 20%/day trips it every run. Ship daily companies with a **per-company learned baseline**: record the day-over-day delta distribution for the first 14 runs, set the ratio to `min(0.85, p01_observed - 0.05)` floored at 0.5; use 0.5 until 14 runs exist. **This cannot be calibrated locally — needs 2–3 weeks of prod data. Largest single unknown.**
 
 ---
 
-## 6. Per-user visibility — three confirmed leaks
+## 5. Per-user visibility — three leaks (re-verify against main, then fix in Phase 1)
 
-**Leak 1 — auto-enroll has no user scoping.** `src/backend/api/services/user_preferences_service.py:39-47`: a row inserted "for user X" is newer than *every* other user's watermark, so **every user with an explicit list auto-enrolls into it**. The `companies_seed.py:36-46` backdating to `2020-01-01` is a hack, not a mechanism.
-**Fix:** `AND c.visibility = 'public'`.
-
-**Leak 2 — public directory.** `companies_service.list_enabled_companies_with_profiles` selects every `enabled = TRUE` row.
-**Fix:** `AND visibility = 'public'`.
-
-**Leak 3 — `/api/jobs` is entirely unauthenticated.** `src/backend/api/routers/jobs.py:32-103` takes no user dependency. `_HIDDEN_COMPANY_PREDICATE` (`services/database.py:126-130`) deliberately leaves a company with no `companies` row visible. So `enabled=true` leaks to anyone; `enabled=false` hides it from the owner too.
-
-**Phase 1 fix — fail closed, don't touch the public hot path:**
-
-```python
-_PRIVATE_COMPANY_PREDICATE = sql.SQL(
-    "NOT EXISTS ("
-    " SELECT 1 FROM companies c"
-    " WHERE c.id = job_listings.company AND c.visibility = 'user')"
-)
-```
-
-User companies are served **only** by `GET /api/users/companies/{id}/jobs`, which requires `get_current_user` and joins `user_companies`. The public endpoint then *cannot* leak — there is no viewer parameter to get wrong. `api/companies.ts` already forwards `Authorization` (`:34-36`), so **no new Vercel proxy**.
-
-**Rejected for Phase 1:** a viewer-scoped predicate on `/api/jobs`. It turns a leak into a *conditional* leak, and conditional leaks are the ones that ship.
-
-**Also gate the fan-out:** `scripts/shared/database.py:277` `list_enabled_companies(conn, ats)` feeds the six ATS crons — add `AND visibility = 'public'` and give custom companies their own queue.
+1. **Auto-enroll has no user scoping.** The `user_preferences_service.py` UNION enrolls *every* user whose watermark predates a new `enabled` row. **Fix:** `AND c.visibility = 'public'`.
+2. **Public directory** (`GET /api/companies`, no auth) selects every `enabled=TRUE` row. **Fix:** `AND visibility='public'`.
+3. **`/api/jobs` is entirely unauthenticated** and only hides *explicitly deactivated* companies. **Fix (fail-closed, don't touch the public hot path):** add an unconditional `NOT EXISTS (SELECT 1 FROM companies c WHERE c.id=job_listings.company AND c.visibility='user')` predicate to the public list/detail reads. Serve user companies **only** via a new authed `GET /api/users/companies/{id}/jobs` that joins `user_companies` on the caller. `api/companies.ts` already forwards `Authorization` → **no new Vercel proxy.** Reject a viewer-scoped predicate on `/api/jobs` (turns a leak into a conditional leak — the kind that ships).
+4. **Gate the fan-out:** `list_enabled_companies(conn, ats)` feeds the six ATS crons — add `AND visibility='public'`, and give custom companies their own queue.
 
 ---
 
-## 7. Phases
+## 6. The vertical slices
 
-### Phase 1 — "Add a known-ATS company, private to me"
-No recipes, no browser. Pure plumbing on proven code.
+Each ends at the UI and is independently testable. Later slices only make the gate stricter — until then everything is safely UNVERIFIED (shown, never closed).
 
-**Backend:** the migrations in §1; `POST /api/users/companies` (resolve → probe → require `job_count > 0` → create `visibility='user'`); `GET`/`DELETE`; `GET /api/users/companies/{id}/jobs`; all three visibility fixes; fan-out gated; one `custom_ats_fetch` queue + leaf task cloned per §4.1.
-**Frontend:** the existing `/my-companies` resolve preview gains an **Add** button; a list with health badges; a private trend page reusing the existing chart components with a runtime company object instead of a `COMPANY_IDS` lookup.
-
-**Acceptance (E2E, two real users):** A adds `boards.greenhouse.io/databricks`. Assert: anonymous `GET /api/companies` omits it; anonymous `GET /api/jobs?company=<id>` returns `[]`; as **B**, `GET /api/users/enabled-companies` omits it and `GET /api/users/companies/<id>/jobs` is 403; as **A** it returns the jobs and the trend page renders. B adds the same board → distinct `company_id` and `source_id`; deleting A's does not touch B's rows.
-
-*Covers Duolingo, Cisco, Intel on day one — all three already resolve in shipped code.*
-
-### Phase 2 — Verification gate + daily scheduler
-`company_harvests`; checks 1–13; `guard_reason='unverified_harvest'`; the 36h floor; `cadence_hours`/`next_run_at` + jitter + claim task; quarantine.
-**Frontend:** health badge — "Verified · checked 4h ago" vs "Unverified — we can show openings but can't confirm the list is complete."
-
-**Acceptance:** the §8 regression test. Plus a fixture reproducing Intel's wrap-to-page-1 must raise, not loop.
-
-### Phase 3 — HTTP recipes + one-time local-browser discovery
-Promote `recipe_spike`; schema v2 per §2; discovery as a **subprocess** (existing `scraper_runner.py` pattern; tini already reaps it) driving local Playwright, one pass, add-time only.
-**Frontend:** "we're figuring out this site — about 30 seconds", and an honest terminal **"We can't track this site."**
-
-**Acceptance:** Amazon reaches 22,191 via facet partition; Meta 821 via pinned `doc_id`; Monroe 12 via `X-WP-Total`; Urban Edge returns `ZERO_CONFIRMED` with all four proofs; Marcus & Millichap must **fail** the zero chain on `canonical_backlink`.
-
-### Phase 4 — Browser tier, separate Railway service
-New service `worker-browser`, same image, `queues=["custom_browser_fetch"]`, `concurrency=1`. Removes OOM coupling from the API container.
-
-**SSRF for a browser** (`url_guard` cannot help — a browser does its own DNS):
-1. Pre-flight `validate_public_url` (necessary, TOCTOU-gapped)
-2. Freeze the observed host set at add time into a per-company allowlist
-3. Launch Chromium with `--host-resolver-rules=MAP <host> <pre-validated-IP>` so **Chromium never resolves DNS itself** — closes the rebinding hole
-4. Enforce with CDP `Fetch.enable` + `Fetch.failRequest` on any off-allowlist host *(verified: `Fetch.enable`/`continueRequest`/`fulfillRequest` work over CDP)*
-5. Block `image`/`font`/`media`/`stylesheet` — ~5× fewer bytes
-
-**Virtualized DOM contract:** scroll → extract → merge into an accumulating `dict[id]` → repeat until two consecutive scrolls add zero new ids **and** scroll position stopped changing. Record `scrolls_performed`; a run whose last scroll still added ids is `HARVESTED_UNVERIFIED` by construction.
-
-**Acceptance:** a Paycom/HRsmart-class SPA harvests to `VERIFIED_COMPLETE`; API container RSS over 48h statistically unchanged; `SIGKILL` leaves no orphan chromium.
-
-### Phase 5 — Browserbase escalation (optional)
-Only if Phase 4 proves insufficient. *(verified)* `advancedStealth`/`verified` are **Enterprise-gated (hard 403)** — there is no purchasable escalation tier; what you buy is the browser build plus **contexts** (one per company, `persist: true`: cold 202→200 + 144 requests became warm 200 + 68 requests). Batch all due companies into one session — billing has a 1-minute minimum. REST field is **`timeout`** (the SDK's `api_timeout` is silently ignored over raw REST). Omit `keepAlive` — *(verified)* a non-keepAlive session cannot leak; it went `COMPLETED` 2.3s after `SIGKILL`. Add a reaper for `RUNNING` sessions older than 10 minutes.
-
-### Phase 6 — Name input, enrichment, quality loop
-Slug-variant generator (~0.6s, $0, ~92% of tech) → mandatory picker showing board self-name, domain, ATS+slug, live job count, **3 sample job titles** (the highest-signal disambiguator). No auto-accept below confidence 80. Then per-job JSON-LD enrichment and a "this is the wrong company" correction button.
+- **Phase 1 — "Add an ATS company, private to me, see its jobs."** *(the immediate work — §7)*
+- **Phase 2 — The gate + oracles.** Independent oracle (facet_sum/header/sitemap), self-consistency oracle, cap-smell (+ **fix the Workday 2,000 ceiling** to raise or paginate past 2,000), page-advance, post-dedup-vs-total, tolerance>0⇒no-close, zero-proof chain, fleet breaker, 36h floor, per-company baseline. Companies graduate to VERIFIED and begin closing. *Test: a company drops a job → closes after 2 runs + 36h; a capped Workday tenant lands UNVERIFIED, not silently-partial; Marcus & Millichap fails the zero-chain on canonical-backlink.*
+- **Phase 3 — Stored HTTP scripts + one-time local-browser discovery.** The closed primitive vocabulary (`fetch`, `paginate_offset/page/cursor/facet`, `extract_json_path/css/embedded_island`, `lookup_join`, `parse_date/transform`, `dedupe_key`, the assert family, the oracle block; **NOT `click_sequence`** — cut from v1). Discovery agent (Sonnet, ~$0.25–1) drives local Playwright, authors a script, gate validates it agent-free, ≤2 attempts then REFUSE. *Test: paste amazon.jobs → ~30s discovery → Amazon VERIFIED at 22,191 via facet partition; Meta 821 via pinned doc_id.*
+- **Phase 4 — Browser runtime (Browserbase) + execution-time SSRF pinning.** For scripts whose transport is `page_fetch`/`dom` and that need a real browser (CBRE WAF, DOM-virtualized). CDP `Fetch.requestPaused` host allowlist, `ignoreCertificateErrors:false`, per-company timeout + checkpointing, batched sessions. *Test: paste CBRE → in-session pagination → VERIFIED.*
+- **Phase 5 — Repair loop, refuse UX, admin dashboard, name input.** Board-identity repair (§4.4), the admin observability dashboard (every add/attempt/cost, promote-to-public), the slug-variant name→URL resolver with a mandatory picker (no auto-accept < confidence 80).
 
 ---
 
-## 8. The regression test
+## 7. Phase 1 — full spec (implement this, then get it running for the owner)
 
-The 2026-03-29 incident's modern form is not a 0-job run — the existing guard covers that. It is a run that **succeeds, returns a plausible number, matches the source's own declared total, and is still 83% short.**
+**Goal:** a signed-in user pastes a Greenhouse/Ashby/Lever/Gem/Workday URL → it resolves → a private company is created and scraped nightly by the existing ATS client running as script-primitive #1 behind a minimal gate → the user sees its jobs on a private trend page. **Everything is UNVERIFIED (never closes)** because no oracle exists yet — the safe default.
 
-```python
-# scripts/tests/integration/test_custom_company_closure_safety.py
+### 7.1 Backend
+- Migrations from §2 (companies cols, `user_companies`, `company_scripts`, `company_harvests`, `company_add_attempts`, `scrape_runs` cols). Single head, autogenerated.
+- `scripts/shared/constants.py`: the `custom()` source_id helper (§2.1).
+- The three leak fixes + fan-out gate (§5).
+- Endpoints (ride the existing `/api/users` proxy + JWT; camelCase via `to_camel`):
+  - `POST /api/users/companies` — body `{url}`. Resolve (existing L0/L1/L2) → `probe_candidate` → **require `job_count > 0`** → create `companies` row (`visibility='user'`, `health_state='unverified'`) + `user_companies` ownership + a one-primitive `company_scripts` row (`{kind:'ats_client', provider, token}`, `transport='ats_client'`, `oracle_kind='none'`) + a `company_add_attempts` audit row. Idempotent per `UNIQUE(user_id, canonical_source_key)`. Non-ATS URL → attempt row `outcome='unsupported'`, 422 (Phase 3 will handle these).
+  - `GET /api/users/companies` — the caller's companies + `health_state`, `openJobCount`, `lastSuccessAt`.
+  - `DELETE /api/users/companies/{id}` — remove ownership; if last owner, disable the company.
+  - `GET /api/users/companies/{id}/jobs` — **authed, owner-scoped** (403 if not owner). This is the only path that serves `visibility='user'` jobs.
+- Worker: a `custom_ats_fetch` Procrastinate queue + leaf task **cloned from `fetch_greenhouse_company.py`** (copy the ordering comment verbatim). It runs the existing ATS client for the company's provider/token, then the **minimal gate** (checks 1, 2, 7-dedup, 8) → verdict is UNVERIFIED for everything (oracle_kind='none') → upsert + last_seen only, never close. Writes a `company_harvests` row + a `scrape_runs` row (`source_id`, `success`, `guard_reason='unverified_harvest'`). Scheduling: `cadence_hours` + `next_run_at` + a `*/15` claim task with `FOR UPDATE SKIP LOCKED`, ±90min jitter, global concurrency ceiling 3.
+- **Feature flag** `custom_company_sources_enabled` gates all of it (already exists; the resolve endpoint 503s when off).
 
-async def test_capped_source_matching_its_own_total_closes_nothing(db):
-    """Target's Workday reports total=2000 against a real 11,960.
+### 7.2 Frontend
+- The pulled-over `/my-companies` resolve preview gains an **"Add"** button on a successful resolve → `POST /api/users/companies` → optimistic add.
+- A **list** of my companies with a `health_state` badge ("Tracking — building history" for unverified) + open-job count + last-checked.
+- A **private trend page**: reuse the existing companies-page chart components, but feed a *runtime* company object (from `GET /api/users/companies/{id}/jobs`) instead of the compile-time `COMPANY_IDS` lookup. Day-0 shading per §2.4 (or defer the shading polish to Phase 2 and just avoid the fake spike by labeling).
+- Keep the whole thing behind `VITE_CUSTOM_COMPANIES_ENABLED` (already wired).
 
-    C9 (declared total) PASSES. The boundary probe at offset 1980 PASSES —
-    it returns a full page of 20 real jobs. Only the facet-sum oracle dissents.
+### 7.3 Phase 1 acceptance test (E2E, two real accounts)
+Account A adds `boards.greenhouse.io/duolingo`. Assert:
+- anonymous `GET /api/companies` omits it; anonymous `GET /api/jobs?company=<id>` returns `[]`;
+- as **B**, `GET /api/users/enabled-companies` omits it and `GET /api/users/companies/<id>/jobs` is 403;
+- as **A**, the jobs return (~65) and the private trend page renders;
+- B adds the *same* board → distinct `company_id` + `source_id`; deleting A's company doesn't touch B's rows;
+- after a simulated second run that drops a job, **nothing closes** (UNVERIFIED).
 
-    Asserting `verdict == HARVESTED_UNVERIFIED` alone would pass even if the
-    destructive phases ran anyway, so assert DB state directly.
-    """
-    src = "custom:u-tgt00001"
-    seed_open_jobs(db, source_id=src, company="u-tgt00001", n=11_960)
-    recipe = capped_workday_recipe(declared_total=2000, facet_sum=11_960, page_size=20)
-
-    for _ in range(2):
-        r = await run_custom_harvest(db, "u-tgt00001", recipe)
-        assert r.verdict == "HARVESTED_UNVERIFIED"
-        assert r.verdict_reason == "declared_total_contradicted_by_oracle"
-        assert r.closed_jobs == 0
-        assert scrape_run_guard_reason(db, r.run_id) == "unverified_harvest"
-        assert count_status(db, src, "CLOSED") == 0
-        assert count_status(db, src, "OPEN") == 11_960
-        assert max_consecutive_misses(db, src) == 0        # never incremented
-        assert count_last_seen_advanced(db, src) == 2_000  # seen rows DID advance
-
-    # Prove we did not simply disable closure.
-    for _ in range(2):
-        advance_clock(db, hours=24)
-        r = await run_custom_harvest(db, "u-tgt00001", partitioned_recipe(total=11_920))
-        assert r.verdict == "VERIFIED_COMPLETE"
-    assert count_status(db, src, "CLOSED") == 40
-
-
-async def test_manual_rerun_cannot_accelerate_closure(db):
-    """Three back-to-back VERIFIED runs within one hour each miss the same job.
-    consecutive_misses reaches 3, but last_seen_at is 40 minutes old → stays OPEN."""
-
-async def test_silent_zero_is_never_a_clean_close(db):
-    """A live, unblocked, correctly-parsed page returning 0.
-    Verdict HARVESTED_UNVERIFIED, guard_reason 'empty_scrape', nothing closes."""
-
-async def test_abandoned_board_fails_the_zero_chain(db):
-    """Marcus & Millichap: Lever 200 [] + a perfect empty state, 204 real jobs
-    elsewhere. Must fail on canonical_backlink, NOT return ZERO_CONFIRMED."""
-
-async def test_released_run_alone_cannot_close(db):
-    """RELEASED_RUN_MISS_THRESHOLD invariant restated for daily cadence."""
-```
+Then **start the local stack and hand off to the owner** (backend :8000 with `--reload`, `vercel dev` from repo root, both flags on, Node 22.14.0). Report the two account credentials / how to sign in, and the exact URL (`/my-companies`).
 
 ---
 
-## 9. Per-target notes for the implementer
+## 8. The regression test (write it in Phase 2, but keep the shape in mind from Phase 1)
 
-- **Amazon** — `hits` caps at 10,000 (ES `max_result_window`); the `facets` block is uncapped. Boundary probe passes cleanly (`offset=9990` ok, `9991` errors) so it is **not** a cap detector. 43 jobs (`Pdx170`, `Virtual`, one MI township) are unreachable by any geographic facet — record as a structural hole, do not absorb into tolerance. Not an ATS: `source_system` is `"JobCreator"` on 100/100 records.
-- **Meta** — pin the **`doc_id`, not the operationName.** *(verified)* Meta does not validate `fb_api_req_friendly_name` at all — renaming or blanking it returns byte-identical 821 jobs, so name-monitoring is theatre. Assert the response shape (`job_search_with_featured_jobs_v2.all_jobs`). `is_leadership:false` **excludes**, it isn't neutral. No posted-at exists in the payload — `first_seen` must be ours.
-- **Duolingo** — ship no script. `discover_ats` returns `greenhouse/duolingo` in 0.32s. `/offices` emits 99 rows for 65 jobs — dedupe by id if ever used.
-- **Cisco** — Workday `cisco/wd5/Cisco_Careers`; `total` honest on all 54 pages. CXS is a strict superset of Cisco's own Phenom index (1,071 vs 1,063) — the gap points the safe way.
-- **Intel** — most fragile. `total` populated on the `offset=0` page only (33 of 34 pages report `0`); **offset ≥ total wraps to page 1 forever**, so "iterate until empty" never terminates; `corpredirect.intel.com` 403s a browser UA but serves a self-identifying one; 636 unique ids on a 663 board passes every current guard — hence check 7 on the post-dedup count.
-- **Y Combinator** — not one company. 5,411 jobs from 1,490 employers behind one trend line, where a company leaving the directory reads as mass closure. 279s and 1,491 requests per run. Recommend onboarding YC *companies* individually (`YCCompany_production` maps name → slug; per-company recipe was 9/9 in 0.5s) rather than the aggregate.
+The 2026-03-29 incident's modern form is a run that **succeeds, returns a plausible number, matches the source's own declared total, and is still 83% short** (Target: Workday says 2,000, real 11,960). The test seeds 11,960 open jobs, harvests a capped 2,000, and asserts across two runs: verdict UNVERIFIED, `closed_jobs==0`, `OPEN==11,960`, `max_consecutive_misses==0`, `guard_reason='unverified_harvest'`. Plus: `test_manual_rerun_cannot_accelerate_closure` (36h floor), `test_fleet_breaker_suppresses_closes`, `test_abandoned_board_fails_zero_chain` (Marcus & Millichap → must fail on canonical_backlink), `test_non_executed_run_is_not_a_miss`.
 
 ---
 
-## 10. Open questions for the owner
+## 9. Per-target implementer notes (verified; for Phases 2–3)
 
-1. Do permanently-unverifiable companies ship (`oracle: none`, never close) or get refused?
-2. Name input in Phase 6 as scoped here, or earlier?
-3. Separate Railway service for browser tiers — approve the ~$5–20/mo?
-4. `MISSED_RUN_THRESHOLD = 2` + 36h floor — confirm?
-5. Per-user quotas: 5 companies/user, 1 add/min, global concurrency 3 — confirm?
-6. Does this wait on the `job_freshness` Unit-4 cutover?
-7. Enrichment/location-normalization for user companies — off in Phase 1; needs a per-user quota before enabling.
+- **Workday (Cisco/Intel and any tenant)** — **2,000-job hard ceiling** (`WORKDAY_PAGE_SIZE=20 × WORKDAY_MAX_PAGES=100`); on cap-hit `workday_client.py` **logs error and returns partial, does not raise**. Phase 2 must fix this (raise, or paginate past 2,000) *and* the cap is a gate check-5 case. Intel also: `total` populated on the `offset=0` page only; offset ≥ total **wraps to page 1 forever** (terminate on first-record-id-change, never `len>0`); 636 unique on a 663 board → check-7 on post-dedup count. `corpredirect.intel.com` 403s a browser UA.
+- **Amazon** — `hits` caps at 10,000 (ES window); the `facets` block is uncapped and six single-valued facets each sum to 22,191. Boundary probe passes cleanly, so it is NOT a cap detector. 43 jobs are unreachable by any geographic facet → structural hole, record it, tolerance can't catch it. Not an ATS (`source_system:"JobCreator"`).
+- **Meta** — pin the **`doc_id`, not `operationName`** (Meta doesn't validate the friendly name; a rename returns byte-identical 821). Assert response shape `job_search_with_featured_jobs_v2.all_jobs`. `is_leadership:false` excludes. No posted-at → `first_seen` is ours.
+- **Duolingo** — Greenhouse `boards-api.greenhouse.io/v1/boards/duolingo`, 65 jobs, the Phase 1 golden test. `/offices` view emits 99 rows for 65 jobs — dedupe by id if ever used.
+- **YC** — per-company pages (`ycombinator.com/companies/<slug>/jobs`) are server-rendered JSON islands (raindrop 9/9, stable). The *aggregate* is 1,490 employers behind one line — treat as per-company, not one company. Publishes no total → `self_consistent` oracle.
+- **CBRE** — AWS WAF, plain GET = 202/0 bytes; token single-use outside the browser; but in one continuous session pagination is plain GETs (`?jobRecordsPerPage=25&jobOffset=N`). Local headless Chromium cleared it. Phase 4.
 
-## 11. Cannot be verified locally — flag before shipping
+---
 
-- Browserbase (or any egress) from **Railway's** IPs — all testing was from a laptop. One `replay.py` run from Railway settles it.
-- Browser subprocess memory on the 4 GB Railway container — run Phase 4 against one company for 48h and watch RSS.
-- **The 24h churn calibration (§5.2)** — needs 2–3 weeks of prod data. Largest unknown.
-- Facet-oracle generality — verified single-valued on 6 Workday boards; want ~20 before trusting it unattended.
-- Empty-board shapes for Greenhouse/Ashby/ADP/UKG/Paylocity — inferred, never observed.
+## 10. Open decisions, falsifier, and what can't be verified locally
+
+**Owner decisions still open** (defaults in the plan, override anytime): (1) do permanently-unverifiable companies ship as live-can't-close or get refused? — plan ships them; (2) name input in Phase 5 or earlier?; (3) Browserbase runtime vs local browser worker — plan defaults Browserbase, `replay.py` fallback; (4) per-user quotas (plan assumes 5 companies/user, 1 add/min, global concurrency 3).
+
+**The week-1 falsifier:** *if >15% of real adds land UNVERIFIED, close-detection doesn't exist for them and we should refuse those URLs rather than badge them.* Measure it.
+
+**The real scaling limit is repair throughput, not cost:** ~3% board churn/month × 300 companies ≈ ~9 human-approved repairs/month, forever. State this to the owner; don't let it surface as "plan #5".
+
+**Cannot be verified locally, flag before shipping:** Browserbase from Railway's egress IP; browser subprocess memory on the 4 GB Railway container; the 24h churn calibration (§4.5, needs 2–3 weeks prod data); facet-oracle single-valued generality across Workday tenants (verified on 6, want ~20); empty-board shapes for Greenhouse/Ashby/ADP/UKG/Paylocity (inferred, never observed).
