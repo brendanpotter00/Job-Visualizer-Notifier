@@ -15,6 +15,7 @@ import { AdminLocationNormalizationPage } from '../pages/AdminLocationNormalizat
 import { AdminEnrichmentPage } from '../pages/AdminEnrichmentPage/AdminEnrichmentPage.tsx';
 import { AdminLocationPipelinePage } from '../pages/AdminLocationPipelinePage/AdminLocationPipelinePage.tsx';
 import { AdminFeedbackPage } from '../pages/AdminFeedbackPage/AdminFeedbackPage.tsx';
+import { AdminLandingPrototypesPage } from '../pages/AdminLandingPrototypesPage/AdminLandingPrototypesPage.tsx';
 import { AdminRoute } from '../components/auth/AdminRoute.tsx';
 import { useEnabledCompanies } from '../features/preferences/useEnabledCompanies';
 import { useHydrateSavedFilters } from '../features/savedFilters/useHydrateSavedFilters';
@@ -110,6 +111,16 @@ function AppContent() {
           <Route path={ROUTES.SAVED_FILTERS} element={<SavedFiltersPage />} />
           <Route path={ROUTES.VOTE_FEATURES} element={<VoteFeaturesPage />} />
         </Route>
+        {/* Sibling of the RootLayout route: renders full-bleed (no drawer/appbar)
+            so each landing prototype previews like a real standalone page. */}
+        <Route
+          path={ROUTES.ADMIN_LANDING_PROTOTYPES}
+          element={
+            <AdminRoute>
+              <AdminLandingPrototypesPage />
+            </AdminRoute>
+          }
+        />
       </Routes>
     </>
   );

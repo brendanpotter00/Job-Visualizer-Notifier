@@ -47,6 +47,17 @@ const SM_DESKTOP: Record<string, number | string> = {
   'keywordCard.contentPadding': 2,
   'statTile.padding': 2.5,
   'statTile.gap': 1.5,
+  // Landing prototypes are NEW surfaces: the `sm` slot IS the desktop design
+  // value (no pre-existing layout to preserve); pinned so it can't drift.
+  'landingProto.heroHeadlineFontSize': '3.25rem',
+  'landingProto.heroSubFontSize': '1.25rem',
+  'landingProto.heroPaddingY': 14,
+  'landingProto.sectionTitleFontSize': '1.5rem',
+  'landingProto.sectionPaddingY': 7,
+  'landingProto.quotableFontSize': '1.0625rem',
+  'landingProto.statValueFontSize': '2rem',
+  'landingProto.tabMinHeight': 40,
+  'landingProto.tabFontSize': '0.8125rem',
 };
 
 // Desktop (`default`) value expected for each `{ compact, default }` token.
@@ -59,6 +70,8 @@ const DEFAULT_DESKTOP: Record<string, number | string> = {
   'keywordCard.chipHeight': 24,
   'keywordCard.chipFontSize': '0.8125rem',
   'logoSize': 44,
+  'landingProto.logoTileSize': 52,
+  'landingProto.tickerLogoSize': 28,
 };
 
 function dig(path: string): Record<string, unknown> {

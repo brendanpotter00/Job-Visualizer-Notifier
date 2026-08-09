@@ -20,6 +20,8 @@ export const ROUTES = {
   LOCATION_PIPELINE: '/location-pipeline',
   ADMIN_ENRICHMENT: '/admin/enrichment',
   ADMIN_FEEDBACK: '/admin/feedback',
+  // Full-bleed (outside RootLayout) — landing-page design prototypes, admin-only.
+  ADMIN_LANDING_PROTOTYPES: '/admin/landing-prototypes',
 } as const;
 
 /**
@@ -102,6 +104,11 @@ export const ADMIN_NAV_ITEMS = [
     path: ROUTES.ADMIN_FEEDBACK,
     label: 'User Feedback',
     icon: 'Feedback',
+  },
+  {
+    path: ROUTES.ADMIN_LANDING_PROTOTYPES,
+    label: 'Landing Prototypes',
+    icon: 'Palette',
   },
 ] as const;
 

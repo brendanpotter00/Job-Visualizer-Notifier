@@ -252,6 +252,38 @@ export const RESPONSIVE = {
   } as const satisfies Record<string, ResponsiveValue>,
   /** Raw-pixel sizes for numeric props (e.g. `CompanyLogo` `size`). */
   logoSize: { compact: 32, default: 44 },
+  /**
+   * Landing-page prototypes (`AdminLandingPrototypesPage`). These are NEW
+   * surfaces, so each `sm` slot simply IS the desktop design value (there is no
+   * pre-existing desktop layout to preserve). Mixed shapes: `{ xs, sm }` sx
+   * tokens plus two `{ compact, default }` raw props (`CompanyLogo` sizes via
+   * `useIsMobile`), so the group cannot carry the `satisfies` guard and relies
+   * on the pin-completeness test below like `curatedCard`/`keywordCard`.
+   */
+  landingProto: {
+    /** Hero h1 (rendered with fontWeight 600 like theme headings). */
+    heroHeadlineFontSize: { xs: '2rem', sm: '3.25rem' },
+    /** Hero subheadline (fragment stack under the h1). */
+    heroSubFontSize: { xs: '1rem', sm: '1.25rem' },
+    /** Hero block vertical padding (theme units). */
+    heroPaddingY: { xs: 8, sm: 14 },
+    /** Section h2 font size. */
+    sectionTitleFontSize: { xs: '1.25rem', sm: '1.5rem' },
+    /** Section vertical padding (theme units). */
+    sectionPaddingY: { xs: 4, sm: 7 },
+    /** Quotable-claims / body emphasis font size. */
+    quotableFontSize: { xs: '0.9375rem', sm: '1.0625rem' },
+    /** Live-activity stat value font size. */
+    statValueFontSize: { xs: '1.5rem', sm: '2rem' },
+    /** Browser-style tab strip: tab min-height. */
+    tabMinHeight: { xs: 36, sm: 40 },
+    /** Browser-style tab strip: tab label font size. */
+    tabFontSize: { xs: '0.75rem', sm: '0.8125rem' },
+    /** Logo-wall tile edge (raw px via `useIsMobile` → `CompanyLogo size`). */
+    logoTileSize: { compact: 40, default: 52 },
+    /** Fresh-jobs ticker logo edge (raw px via `useIsMobile`). */
+    tickerLogoSize: { compact: 22, default: 28 },
+  },
 } as const;
 
 /**
