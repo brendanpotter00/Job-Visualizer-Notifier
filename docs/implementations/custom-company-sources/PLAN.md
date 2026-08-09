@@ -36,6 +36,66 @@ Read this section before the tickets. Where they disagree, this wins.
 | **Intel** | `https://jobs.intel.com` | **end of PR 1** | 301 → `corpredirect.intel.com/Redirector/404Redirector.aspx?404;https://jobs.intel.com/` → 301 → `https://intel.wd1.myworkdayjobs.com/External/page/6042070b79e01001f04fa9b468070000` (200). Workday, **cross-host redirect chain**, path form `/<slug>/page/<hex>`. |
 | **Cisco** | `https://jobs.cisco.com` | **end of PR 3** | 302 → `https://careers.cisco.com` → 303 → `/global/en` (200). Phenom People front end, but the **ATS of record is Workday** — see §1.4. |
 
+### D12 — a runtime browser is not runtime AI
+
+The single most-misread point in this epic. They are independent:
+
+- **An agent/LLM** works out *how* a site serves its jobs. Runs **once**, at
+  add-time. Never on the cadence. Non-negotiable — it is what makes the
+  economics work (~10 s once, versus ~36 browser-hours per company per month).
+- **A browser** is just a runtime tool for JS-heavy sites. It would be
+  acceptable and free if a target needed one — `scripts/{google,apple,microsoft}_jobs_scraper/`
+  already drive deterministic Playwright hourly at zero marginal cost.
+
+D8 says don't build `browser_dom` because **no target needed it** (spike §5),
+not because a browser would be philosophically wrong. If a future target
+genuinely requires one, that is a cost question, not a violation of the design.
+
+---
+
+## 0.5 Local environment traps
+
+These cost an afternoon each if you meet them cold.
+
+**The dev-database collision.** The backend suite can produce ~125 failures, or
+1,300+ errors, that have nothing to do with your changes. Two causes:
+
+1. *Alembic revision not found.* The shared `jobscraper` dev DB may be stamped
+   with a migration that exists only on another local branch (as of 2026-08,
+   `a3c32c2aa4d3` from the unmerged `fix/job-freshness-sidecar-unit23`). Alembic
+   then cannot locate the DB's own revision and every DB-fixture test errors.
+2. *Procrastinate's tables live in `public`* and are shared across the per-test
+   schemas, so deferred-job counts leak between tests (`assert 10 == 5`).
+
+Workaround — give the branch its own database:
+
+```bash
+docker exec jobscraper-postgres psql -U postgres -c "CREATE DATABASE jobscraper_wt2;"
+cd src/backend
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/jobscraper_wt2" PYTHONPATH=.:../.. \
+  ../../.venv/bin/python -c "
+import asyncio
+from api.tasks.procrastinate_app import procrastinate_app, ensure_schema_async
+async def main():
+    async with procrastinate_app.open_async():
+        await ensure_schema_async(procrastinate_app)
+asyncio.run(main())"
+```
+
+Then run tests with `TEST_DATABASE_URL=…/jobscraper_wt2`. Do **not** drop the
+procrastinate tables piecemeal — `DROP TABLE CASCADE` leaves the enum types
+behind and the schema install is not idempotent; drop the whole database.
+
+**Establish your baseline before blaming your own code.** As of 2026-08-08 it is
+**125 failed / 1379 passed**. If your failure count matches, you broke nothing.
+To prove it, move your new files aside and re-run — that is exactly how PR 1 was
+cleared.
+
+**Other traps.** `alembic` must run from the **repo root** (`alembic.ini` lives
+there, not `src/backend`). The system `python3` is 3.8 — always use the repo
+`.venv` (3.13). The frontend's vitest hangs silently on Node < 22.12.0; use nvm
+22.14.0.
+
 ---
 
 ## 1. Cross-cutting decisions (decide once, cite everywhere)
