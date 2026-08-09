@@ -398,6 +398,22 @@ async def fetch_custom_company(company_id: str) -> None:
         completed_at = get_iso_timestamp()
         success = scrape_error is None and verdict == UNVERIFIED
 
+        # On a SUCCESSFUL (non-FAILED, actually-executed) harvest, stamp
+        # companies.last_success_at = now() — same condition as
+        # scrape_runs.success below. Without this the "last checked" UI reads
+        # "Not yet checked" forever, because in Phase 1 every run is UNVERIFIED
+        # and nothing else moves last_success_at. health_state / tracking_started_at
+        # are intentionally untouched here (see mark_last_success). A FAILED run
+        # (success=False) never updates it. A write failure here must not mask the
+        # run bookkeeping below, so it is logged and swallowed.
+        if success:
+            try:
+                await asyncio.to_thread(ccs.mark_last_success, conn, company_id)
+            except Exception:
+                logger.exception(
+                    "Failed to update last_success_at for %s", company_id
+                )
+
         # Per-run evidence — written for every run (UNVERIFIED or FAILED) so a
         # wrong match / silent failure is diagnosable weeks later.
         try:

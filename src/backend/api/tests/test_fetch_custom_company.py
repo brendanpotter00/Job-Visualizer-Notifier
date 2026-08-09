@@ -82,6 +82,18 @@ def _rows(db_conn, table: str, company_id: str) -> list[dict]:
     return list(cur.fetchall())
 
 
+def _company_row(db_conn, company_id: str) -> dict:
+    cur = db_conn.cursor()
+    cur.execute(
+        sql.SQL(
+            "SELECT last_success_at, health_state, tracking_started_at "
+            "FROM {} WHERE id = %s"
+        ).format(sql.Identifier("companies")),
+        (company_id,),
+    )
+    return cur.fetchone()
+
+
 def _scrape_runs(db_conn, company_id: str) -> list[dict]:
     cur = db_conn.cursor()
     cur.execute(
@@ -137,6 +149,14 @@ async def test_two_runs_dropping_a_job_never_closes(db_conn, monkeypatch):
     assert runs[0]["closed_jobs"] == 0
     assert runs[0]["success"] is True
 
+    # A successful (UNVERIFIED, executed) run stamps last_success_at so the UI
+    # stops reading "Not yet checked". health_state stays 'unverified' (no oracle
+    # in Phase 1) and tracking_started_at stays NULL (first VERIFIED harvest only).
+    company = _company_row(db_conn, company_id)
+    assert company["last_success_at"] is not None
+    assert company["health_state"] == "unverified"
+    assert company["tracking_started_at"] is None
+
     # --- Run 2: the board drops job "3" ---
     async def fetch_two(board_token, http):
         return [_raw_job(1), _raw_job(2)]
@@ -188,3 +208,6 @@ async def test_empty_harvest_raises_and_closes_nothing(db_conn, monkeypatch):
     assert len(runs) == 1
     assert runs[0]["closed_jobs"] == 0
     assert runs[0]["success"] is False
+
+    # A FAILED run must NOT stamp last_success_at — it stays NULL.
+    assert _company_row(db_conn, company_id)["last_success_at"] is None

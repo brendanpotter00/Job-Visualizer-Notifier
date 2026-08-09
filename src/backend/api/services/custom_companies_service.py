@@ -336,6 +336,32 @@ def load_custom_company_for_run(
     return dict(row) if row else None
 
 
+def mark_last_success(conn: Connection, company_id: str) -> None:
+    """Stamp ``companies.last_success_at = now()`` after a successful harvest.
+
+    Called on every SUCCESSFUL (non-FAILED) custom-company run — i.e. wherever
+    ``scrape_runs.success = true`` is written. In Phase 1 every run is UNVERIFIED,
+    so this is the ONLY thing that ever moves ``last_success_at`` off NULL; gating
+    it on VERIFIED would leave the "last checked" UI reading "Not yet checked"
+    forever for every custom company.
+
+    Deliberately does NOT touch ``health_state`` (stays 'unverified' in Phase 1 —
+    no oracle exists) or ``tracking_started_at`` (§2: set only on the first
+    VERIFIED harvest, so it stays NULL until Phase 2). Commits on its own,
+    mirroring ``record_scrape_run`` / ``record_company_harvest``.
+    """
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "UPDATE companies SET last_success_at = now() WHERE id = %s",
+            (company_id,),
+        )
+        conn.commit()
+    except psycopg2.Error:
+        conn.rollback()
+        raise
+
+
 def record_company_harvest(
     conn: Connection,
     *,
