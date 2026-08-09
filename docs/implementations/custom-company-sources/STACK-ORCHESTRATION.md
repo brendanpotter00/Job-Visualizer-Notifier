@@ -28,7 +28,7 @@
 | Order | Branch | Base | PR | Scope (see BUILD-PLAN) | Status |
 |---|---|---|---|---|---|
 | P1 | `feat/custom-company-sources-spike` | `main` | #243 | Phase 1 — private ATS companies, never-close gate | ✅ done, pushed |
-| P2 | `feat/e7-phase2-gate-oracles` | P1 | — | Phase 2 — the completeness gate + oracles; **fix Workday 2,000 cap**; fleet breaker; 36h floor; per-company baseline (§3, §4, §8, §9) | 🔜 planning |
+| P2 | `feat/e7-phase2-gate-oracles` | P1 | — | Phase 2 — the completeness gate + oracles; **fix Workday 2,000 cap**; fleet breaker; 36h floor; per-company baseline (§3, §4, §8, §9) | 🚧 implementing |
 | P3 | `feat/e7-phase3-discovery` | P2 | — | Phase 3 — closed primitive vocabulary + stored HTTP scripts + one-time local-browser agent discovery (§6 Phase 3, §9) | ⏳ queued |
 | P4 | `feat/e7-phase4-browser-runtime` | P3 | — | Phase 4 — Browserbase runtime + execution-time SSRF/CDP host pinning (§6 Phase 4) | ⏳ queued |
 | P5 | `feat/e7-phase5-repair-admin-name` | P4 | — | Phase 5 — board-identity repair, refuse UX, admin dashboard, name→URL input (§6 Phase 5, §4.4) | ⏳ queued |
@@ -55,3 +55,5 @@ A reported problem → identify which phase owns the behavior (gate/oracle → P
 
 - **2026-08-09** · orchestration · doc created; decisions locked (git+gh stack, Browserbase free-tier for P4, per-PR opus plan→implement→review loop). Base = #243 @ `b8d22d0` (Phase 1 done: 1676 backend + 62 frontend tests green, live Duolingo E2E verified, demo cleaned).
 - **2026-08-09** · P2 · branch `feat/e7-phase2-gate-oracles` created off P1; opus plan agent dispatched (turn the §3 gate + §4 closure-safety + §8 regression-test + §9 Workday-cap specs into a file/test-level plan).
+- **2026-08-09** · P2 · plan landed → `PHASE-2-PLAN.md`. ATS→oracle: `declared_probed` (tol 0) for Greenhouse (`meta.total`) + Workday (`total`); `self_consistent` (clean-termination + 3-run streak + delta) for Ashby/Lever/Gem/Eightfold (Eightfold `count` is evidence-only, unreliable). Tasks A–H; zero migration (all evidence cols exist); baseline computed on-the-fly from `company_harvests`.
+- **2026-08-09** · P2 · orchestrator decisions confirmed: **D1** verdict-first close-precedence (record `unverified_harvest` even when the ratio guard would also trip — resolves a real §4-vs-§8 conflict; `unverified_harvest` must NOT count toward the partial-skip auto-release per §4.1; guard stays the secondary net for the VERIFIED-but-shrank case). **D2** gate DERIVES the effective oracle from the ATS provider, so existing Phase-1 `oracle_kind='none'` rows graduate with no backfill. **D3** Workday cap → client surfaces `cap_hit=True` → UNVERIFIED (do NOT raise, do NOT paginate past 2,000). **D4** skip `company_harvests.script_version`; use `company_scripts.updated_at` for the first-run-after-change gate (zero migration). **D5** expose `trackingStartedAt`, keep the day-0 caption, defer fancy chart-shading. Implement agent dispatched.
