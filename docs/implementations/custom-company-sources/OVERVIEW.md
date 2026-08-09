@@ -1,171 +1,158 @@
 # Custom Company Sources — the plan, in one read
 
-**Status:** proposed, awaiting owner approval. Supersedes the ATS-only scope in `PLAN.md`.
-**Evidence:** 11 careers sites tested end-to-end overnight 2026-08-08/09, plus a ~40-firm survey. $0 spent, ~22 of 60 free Browserbase minutes used.
+**Status:** proposed, awaiting owner approval. This is the high-level shape; `BUILD-PLAN.md` has the detail.
+**Evidence:** ~21 real careers sites harvested end-to-end 2026-08-08/09, one adversarial design review against the live repo code, and browser/CORS/cost claims measured today. $0 spent beyond ~22 free Browserbase minutes.
 
 ---
 
 ## The goal
 
-> A user pastes a careers URL (or types a company name). We check it **every 24 hours** and show them the jobs — for them only.
+> A user pastes a careers URL (or types a company name). We check it **every 24 hours** and show them that company's jobs — for them only — with open/close detection.
 
-The bar you set: **it has to work on nearly every board you throw at it.**
+Your bar, in your words: **it works on nearly every board I try, and failures are loud — never silently wrong.**
 
 ---
 
-## Did it pass?
+## The one idea
 
-Your named hard cases, all verified by actually harvesting them:
+**Every company is a stored script, authored once, replayed nightly with no agent.** There are no tiers and no fallback chain — just a table of scripts. Some are one line; some are nine. Every one runs the **same verification gate** every night.
 
-| Target | Result | Harvested / true total |
+```
+   Duolingo's stored script                 Amazon's stored script
+   ────────────────────────                 ──────────────────────
+   1  ats_client(greenhouse, "duolingo")    1  fetch(amazon.jobs/search.json)
+                                             2  paginate_offset(...)
+   → 65 jobs. one primitive.                 3  partition_by_facet(country, state)
+                                             4  extract_json_path("jobs")
+   ← SAME GATE →                             5  dedupe_key("id_icims")
+                                             6  oracle: facet_sum(single_valued)
+                                             7  assert_page_advances
+                                             8  assert_unique_ids_vs_total
+                                             9  assert_cap_not_hit(10000)
+                                             → 22,191 jobs. nine primitives.
+```
+
+This is the answer to *"why do you keep bolting on a T1?"* — **the ATS client is just primitive #1**, not a special path. Duolingo's script is short because Duolingo is easy, not because it skips anything. It faces the same gate as Amazon, nightly. There is no bypass.
+
+> The review proved why the bypass had to die: your shipped Workday client **silently caps at 2,000 jobs** (`20 × 100 pages`) and returns a partial list instead of raising. Target has 11,960. The old "ATS shortcut" would have served 2,000-of-11,960 forever, looking perfectly healthy. Making the ATS client a *scripted primitive behind the gate* is what catches it.
+
+---
+
+## The gate — where the product lives or dies
+
+Every harvest, every night, produces exactly one verdict. **Only a run that can prove it saw the whole board may close a job.**
+
+```
+   harvest ─→ ┌──────────── VERIFICATION GATE ────────────┐
+              │  1. an oracle agrees with the count, OR    │
+              │     the run is self-consistent, OR none    │
+              │  2. no pagination cap was hit              │
+              │  3. pages advanced, id-sets disjoint       │
+              │  4. post-dedup unique ids == total         │
+              │  5. wrong in BOTH directions is fatal      │
+              │  6. if 0 rows: the zero is an oracle=0     │
+              └───────────────────┬────────────────────────┘
+                                  ▼
+   VERIFIED ─────→ upsert · last_seen · miss++ · MAY CLOSE
+   UNVERIFIED ───→ upsert · last_seen · ██ NEVER CLOSES ██ · badge
+   FAILED ───────→ raise · writes nothing · retry once · then repair
+```
+
+**The load-bearing sentence, walked against all four real traps:**
+
+> *A job is never closed by a run that could not prove it saw the whole board.*
+
+| trap (all real, all measured) | what would go wrong | what catches it |
 |---|---|---|
-| **Amazon** | ✅ verified | **22,191 / 22,191** |
-| **Meta** | ✅ verified | **821 / 821** |
-| **Duolingo** | ✅ verified | 65 / 65 — *already works in shipped code* |
-| **Cisco** | ✅ verified | 1,071 / 1,071 |
-| **Intel** | ✅ verified | 663 / 663 |
-| **Urban Edge** (CRE, zero jobs) | ✅ verified **zero** | 0 / 0, board proven live |
-| **Rockefeller Group** (CRE, few) | ✅ verified | 4 / 4 |
-| **Monroe County Hospital** | ✅ verified | 12 / 12 |
-| Y Combinator | ⚠️ unverified | 5,411 — YC's only published total is the string `"thousands"` |
-| Blackburn's Fabrication | ⚠️ unverified | 3 — page publishes no count |
-| Habitat Cincinnati | ⚠️ unverified | 7 — page publishes no count |
+| **Marcus & Millichap** — Lever board `200 []` + polished "no openings", 204 real jobs on Workday | close 204 jobs | zero-proof needs a **canonical backlink** — the careers page must still name this board |
+| **Target** — Workday declares 2,000, real 11,960, boundary probe passes | harvest 45%, look healthy | **independent oracle** (single-valued facet sums = 11,960); same partition trick harvests the rest |
+| **Amazon** — 43 jobs no facet indexes; 0.998 passes a 1% tolerance | close 43 real jobs nightly | **tolerance > 0 ⇒ that run closes nothing.** Approximation may only *add* |
+| **Intel** — offset past total wraps to page 1; 636 unique ids on a 663 board | dup rows pass naive checks | **post-dedup** unique-ids-vs-total + disjoint-page assert |
 
-**7 verified · 3 unverified · 0 failed · 0 needed a browser at replay.**
-
-The three misses fail for one reason: **the source publishes no total.** That's an epistemics limit, not an engineering one. We can harvest them — we just can't *prove* the harvest is complete, so we never let them close a job.
+**The new piece the review forced:** for boards that publish no total (YC, Jane Street, Blackburn's), `oracle:none` used to mean *never closes* — which makes their job counts climb forever, and a monotonic line is wrong data, not missing data. So we add a **self-consistency oracle**: a run is complete if pages advanced monotonically with disjoint ids, the last page was short, nothing errored, and the count sits within X% of the trailing 14-run median. That lets those companies close on 3 consecutive complete runs instead of never.
 
 ---
 
-## The one idea that makes this work
+## Where scripts run
 
-Every naive version of this product ships a scraper that looks healthy and is quietly wrong.
+**Every script runs in a browser page context** — that's the uniform substrate you wanted. HTTP-style primitives run as `fetch()` from the page after navigating to the board's origin (**measured working today**: Amazon same-origin, Duolingo cross-origin to Greenhouse's `ACAO:*` API); DOM-style primitives run natively; WAF-gated pagination (CBRE) runs as in-session GETs.
 
-```
-Amazon      says "hits: 10000"      →  really 22,191   (55% missing, 3 stable runs, zero errors)
-Target      says "total: 2000"      →  really 11,960   (83% missing — and the boundary probe PASSES)
-Y Combinator says "nbPages: 1"      →  really 6,136    (took 1,000, every signal read "done")
-Kroger      offset param ignored    →  200 of 14,760   (silently re-served page 1 forever)
-```
+**Discovery** (once per add) is an agent driving a browser, watching network + DOM, authoring the script. **Replay** (nightly) is the stored script with no agent.
 
-> **A source's own declared total cannot be trusted. It is frequently the lie.**
+**One honest open decision — where the browser lives:**
 
-So the system is built around one rule:
+- **Browserbase runtime** (recommended): keeps Chromium out of our Railway deploy entirely. The 2026-03-29 mass-closure was a base-image change silently breaking our own Chromium — that isolation is worth real money, and you already said you're fine landing here.
+- **Local Playwright on a worker**: the spike's own committed verdict was "don't adopt Browserbase — only ~1 in 14 URLs truly needs a browser," and local Chromium cleared CBRE's WAF. But in-process browsers caused two prior incidents (OOM, pthread exhaustion), and a separate browser service reintroduces exactly that ops burden.
 
-**Never trust a count unless a second, mechanically unrelated measurement agrees with it.**
-
-For Amazon that second measurement is its own facet breakdown — six unrelated facets each summing to exactly 22,191 while `hits` insisted on 10,000. And the same trick that *detects* the cap also *fixes* it: partition the query by facet, sweep each partition under the cap, sum.
-
-**Strongest evidence from the whole run:** over 37 minutes, Amazon's job-id set moved **+4 / −2** while the facet oracle independently moved **22,191 → 22,193**. Two unrelated measurements agreeing on the same net **+2**. That means the *diff* — what opened, what closed — is trustworthy. That diff is the actual product.
+The review's synthesis, which I'm adopting: **transport is a declared field on each script** (`page_fetch` / `page_request` / `dom`), the gate is identical regardless, and http-only scripts can even run on plain `httpx` — so the browser vendor is swappable, not load-bearing. Default to Browserbase; keep `replay.py` (already written, 10/10 invariant tests green) as the discovery smoke-tester and the plain-HTTP fallback.
 
 ---
 
-## Architecture
+## When discovery or replay fails
 
 ```
-   type a NAME ──→ slug-variant probe (0.6s, $0) ──→ picker, never auto-accept
-   paste a URL ──→ url_guard (SSRF)
-                        │
-     ┌──────────────────▼───────────────────────────────────┐
-     │  RESOLUTION LADDER — cheapest rung that works wins    │
-     │                                                       │
-     │  T1  known ATS        already shipped · Duolingo,     │
-     │                       Cisco, Intel land here          │
-     │  T2  ATS expansion    6 → 50+ providers, from         │
-     │                       published fingerprint tables    │
-     │  T3  HTTP recipe      agent discovers ONCE, stores a  │
-     │                       deterministic recipe · Amazon,  │
-     │                       Meta, the long tail             │
-     │  T4  browser recipe   SPAs that need rendering (~12%) │
-     │  T5  REFUSE           explicit, surfaced, not a       │
-     │                       recipe that fails nightly       │
-     └──────────────────┬────────────────────────────────────┘
-                        ▼
-     ┌──── VERIFICATION GATE — 13 ordered checks ────────────┐
-     │  independent oracle · cap detection · page-advance    │
-     │  fatal in BOTH directions · zero-proof chain          │
-     └──────────────────┬────────────────────────────────────┘
-                        ▼
-     VERIFIED ────→ upsert · last_seen · miss++ · MAY CLOSE JOBS
-     UNVERIFIED ──→ upsert · last_seen · ███ NEVER CLOSES ███
-     FAILED ──────→ raise · writes nothing · quarantine
+   discovery fails 2×  →  REFUSE loudly. "We can't track this site." Nothing half-created.
+   replay FAILED       →  retry once → auto-repair: ONE agent re-discovery pass
+                          ├─ same host + same tenant  →  hot-swap (no human)
+                          └─ host or tenant changed   →  admin approval, always
 ```
 
-**The first harvest must be VERIFIED or the company is never created.** Failures are loud at add time, which is the only way to meet your bar honestly.
+**Repair uses board identity, not job identity.** The review killed my Jaccard-overlap idea: a Greenhouse→Ashby migration changes every id (Jaccard 0) yet is the *most common* real repair, while a parent-company board that's a superset shares ids and passes by coincidence. So the gate is **canonical backlink + tenant/eTLD+1 stability**, and **the first run after any script change closes nothing** — a bad swap can then only add rows, never delete them.
 
 ---
 
-## Concepts we're relying on
+## Every terminal state a URL can reach
 
-| Concept | Why |
+| state | real example | what the user sees |
+|---|---|---|
+| **Live** | Duolingo, Amazon, Cisco | jobs + trend graph, updated nightly |
+| **Live, can't-close** | YC, Jane Street | jobs shown; badge: *"We track new postings here, but can't yet confirm when one closes."* |
+| **Refused** | Tesla (Akamai, non-replayable) | *"We can't reliably track this site."* — and this is a **success** of the design, not a failure |
+
+---
+
+## Closure safety — the 2026-03-29 lesson, generalized
+
+A job closes only when **all** hold: exact coverage (tolerance 0), 2 missed runs, **and** >36h since `last_seen_at`. Plus two rules the review added:
+
+- **A run that didn't execute is not a miss.** Misses increment only inside a VERIFIED harvest — so a Browserbase outage can't close anything.
+- **Fleet circuit breaker:** if >20% of the night's companies FAIL, nobody closes that night. This is the check that would have made 2026-03-29 a non-event.
+
+---
+
+## Cost — and the real constraint
+
+| | |
 |---|---|
-| **Discover once, replay forever** | Literature: naive LLM-on-HTML scores F1 0.10 with 91% hallucination; "induce a selector once, then execute deterministically" is the *only* method above 31% recall. Our 3-of-11 first attempt was the predicted outcome, not incompetence. |
-| **ATS fingerprinting at scale** | This is how the problem is actually solved in industry. Public tables list **50+ ATS platforms and 63,000 tenants**; hiring.cafe reached ~116k companies this way. We hand-wrote 6. |
-| **Independent oracle** | The declared total is untrustworthy. Facet sums, response headers (`X-WP-Total`), sitemap counts, second requests. |
-| **Provenance, not silence** | `oracle: none` is a permanent visible state on the company — never a silent default. |
-| **Zero-proof chain** | A company with 0 jobs must *prove* it. See below. |
-| **Refuse as a product state** | Tesla-class sites get an honest "we can't track this," not a nightly failure. |
+| ATS-shortcut scripts (Duolingo etc.) | **$0** — plain HTTP |
+| Discovery (one-time per add) | **~$0.25–1** (Sonnet, ~50–200k tokens) |
+| Browser replay, 100 companies daily | **~25–50 browser-hr/mo** (I'd earlier said 10–25 — that was my own inputs halved; corrected) |
+| Developer plan | **$20/mo, 100 browser-hr** — cliff at ~200 companies |
+
+**Dollars are not the limit. Repair throughput is.** At ~3% board churn per month, ~300 companies means **~9 human-approved repairs a month, forever — and you are the human.** That number, not cost, is what breaks at scale, and it's stated here on purpose.
 
 ---
 
-## Why "zero jobs" nearly broke us
+## Honest coverage & the falsifier
 
-Your instinct here was the sharpest test in the set.
-
-**Marcus & Millichap's Lever board returns `200 []` with a polished empty state reading "No job postings currently open." The company has 204 open roles on Workday.**
-
-A naive check calls that a healthy, verified zero — and closes 204 jobs. Four signals are required:
-
-```
-1. liveness         real board 200 []   ·  bogus id → 404 RESOURCE_NOT_FOUND
-2. empty state      "We're not actively hiring at the moment"
-3. brand present    "Urban Edge Properties" on the board   → catches domain takeover
-4. canonical link   careers page still points at this board → catches ABANDONED board
-                                                               ↑ the only one that
-                                                                 catches M&M
-```
+- **Your named list: 7 of 10 fully verified**, 3 live-but-can't-close, 0 failed.
+- **Arbitrary input: ~60–70%.** Of 9 tech employers tested, 0 were hard; of 16 non-tech, 6 were. Small non-tech employers thin out — many publish no machine-readable board at all.
+- **The week-1 falsifier that kills this design:** *if >15% of real adds land UNVERIFIED, then close-detection doesn't exist for them and we should refuse those URLs rather than badge them.* Measure it before trusting the badge.
 
 ---
 
-## Cost
+## What the review changed (so you can see the diff)
 
-| | per company / month |
-|---|---|
-| HTTP tiers (most companies) | **$0** |
-| One-time discovery (local browser, ~10–30s) | **$0** |
-| Browser at replay (~12% of companies) | **$0.06** |
-| Browserbase subscription floor | **$20/mo** (only if T4 ships) |
+Corrected against the live code, not asserted:
 
-You were right that daily cadence makes browser-at-replay affordable. It turns out we need it far less than expected.
+- **Killed the ATS bypass.** It routed Target into the Workday 2,000-cap trap. ATS clients are now scripted primitive #1, behind the gate. *(This also means the Workday client's silent 2,000 ceiling must be fixed to raise, not return partial.)*
+- **Tolerance>0 ⇒ no closes.** A tolerated gap was silently closing Amazon's 43 hidden jobs nightly.
+- **Added the self-consistency oracle** so no-total boards close in 72h instead of never.
+- **Added the fleet circuit breaker** and "a non-executed run is not a miss."
+- **Repair keys on board identity (canonical backlink), not Jaccard.** First-run-after-change closes nothing.
+- **Cut `click_sequence` from v1** — scripted clicks on a user URL replayed nightly is an unbounded security surface for ~0% measured coverage.
+- **Primitive count is ~21–25, not 12** — and "agent asked for a capability we don't have" becomes a logged REFUSE reason that *is* the roadmap for the next primitive.
+- **Execution-time SSRF + `ignoreCertificateErrors:false`.** Our `url_guard` runs at add-time only; nightly fetches need CDP-enforced host pinning, and Browserbase accepts any cert by default.
+- **Correction of record:** I'd written that a recalibrated `0.85` safety guard was committed. It exists on `main`, **not** in this worktree — and even on main it's inert on a company's first run and tuned for 30-min cadence, so it can't catch a wrong day-one baseline. Daily companies need a per-company learned baseline. *(A subagent asserted this; I wrote it down without verifying. Fixed.)*
 
----
-
-## Honest coverage
-
-- **Your named list: 7/10 verified.**
-- Broader 25-employer sample: ~64% today → **~84%** with the full ladder.
-- **Realistic forecast for arbitrary input: 60–70%**, and I won't promise better until real numbers land.
-- Of 9 tech employers tested, **0** were hard. Of 16 non-tech, **6** were. Small non-tech employers are where this thins out — many have no machine-readable board at all.
-
-**You cannot get to "every board." You can get to "never silently wrong."** A system that verifies 70% and cleanly refuses the rest is shippable. One claiming 95% that serves 200 of Kroger's 14,760 jobs is not.
-
----
-
-## Top risks
-
-1. **A vendor we haven't characterized ships an undetected cap.** Mitigation: `oracle: none` blocks closure; per-vendor oracles are added as we meet them.
-2. **Per-user leakage.** Three confirmed leak paths exist in current code — `/api/jobs` has no auth dependency at all, and auto-enroll has **no user scoping**, so one inserted row auto-enrolls every user. Fixed in Phase 1.
-3. **Browser in the API container.** Two prior incidents (OOM, pthread exhaustion). Browser tiers run on a separate Railway service or not at all.
-
----
-
-## Decisions I need from you
-
-1. **Do permanently-unverifiable companies ship?** (YC, Blackburn's, Habitat.) My recommendation: yes — visible, jobs shown, badge says "can't confirm completeness," **nothing ever closes**. Alternative: refuse them.
-2. **Name input in Phase 2 or later?** Cheap and covers ~92%, but it's the most likely way to track the *wrong* company. Recommendation: Phase 2 with a mandatory picker, no auto-accept.
-3. **Separate Railway service for browser tiers?** ~$5–20/mo. Recommendation: yes — the OOM incident took 49 hours to manifest and left no logs.
-4. **Close after 2 missed runs (~48h)?** Recommendation: keep 2, add a 36-hour wall-clock floor so a manual re-run can't accelerate closure.
-
----
-
-**Implementation detail:** `BUILD-PLAN.md` (same directory).
+Still not built. Nothing here is implemented — this is the shape to approve or poke holes in. `BUILD-PLAN.md` carries the phase-by-phase detail.
