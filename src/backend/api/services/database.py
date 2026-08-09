@@ -132,6 +132,27 @@ _HIDDEN_COMPANY_PREDICATE = sql.SQL(
 )
 
 
+# UNCONDITIONAL private-company guard for the PUBLIC job read paths (E7).
+#
+# ``/api/jobs`` (list + single-job detail) is entirely unauthenticated and
+# forwarded verbatim by ``api/jobs.ts``. A ``visibility='user'`` company is one
+# user's private board; its jobs must NEVER be served here regardless of who is
+# asking. This predicate is therefore applied UNCONDITIONALLY on both public read
+# paths — deliberately NOT viewer-scoped. A viewer-scoped predicate ("hide
+# private companies unless YOU own them") would turn an unconditional leak into a
+# conditional one — the kind that passes review and ships — and private jobs are
+# served ONLY by the authed, owner-scoped ``GET /api/users/companies/{id}/jobs``.
+#
+# Like ``_HIDDEN_COMPANY_PREDICATE`` this is an ANTI-join keyed on the private
+# subset, so the planner satisfies it from ``ix_companies_visibility`` (the
+# partial index over just the ``visibility <> 'public'`` rows).
+_USER_COMPANY_PREDICATE = sql.SQL(
+    "NOT EXISTS ("
+    " SELECT 1 FROM companies c"
+    " WHERE c.id = job_listings.company AND c.visibility = 'user')"
+)
+
+
 # Recency lower bound for the keyset-paged read path. INCLUSIVE (``>=``): the
 # caller's window is "everything first seen at or after this instant", so a job
 # whose ``first_seen_at`` equals the bound exactly is IN. Qualified to
@@ -181,6 +202,7 @@ def _build_where(
     category: str | None = None,
     level: str | None = None,
     exclude_hidden_companies: bool = False,
+    exclude_user_companies: bool = False,
     since: datetime | None = None,
     cursor: JobCursor | None = None,
 ) -> tuple[sql.Composable, list]:
@@ -221,6 +243,9 @@ def _build_where(
     if exclude_hidden_companies:
         # Contributes no params — a static correlated subquery.
         conditions.append(_HIDDEN_COMPANY_PREDICATE)
+    if exclude_user_companies:
+        # Contributes no params — a static correlated subquery (E7 leak guard).
+        conditions.append(_USER_COMPANY_PREDICATE)
     if since is not None:
         conditions.append(_SINCE_PREDICATE)
         params.append(since)
@@ -345,6 +370,7 @@ def get_jobs(
             company=company, status=status, companies=companies,
             category=category, level=level,
             exclude_hidden_companies=True,
+            exclude_user_companies=True,
             since=since, cursor=cursor,
         )
 
@@ -384,13 +410,18 @@ def get_job_by_id(conn: Connection, source_id: str, job_id: str) -> dict | None:
             sql.SQL(
                 "SELECT job_listings.*, f.last_seen_at, f.consecutive_misses, {}, {} "
                 "FROM {}{} "
-                "WHERE job_listings.source_id = %s AND job_listings.id = %s AND {}"
+                "WHERE job_listings.source_id = %s AND job_listings.id = %s "
+                "AND {} AND {}"
             ).format(
                 _TAGS_SUBQUERY,
                 _LOCATIONS_SUBQUERY,
                 _JOBS_TABLE,
                 _FRESHNESS_JOIN,
                 _HIDDEN_COMPANY_PREDICATE,
+                # E7 leak guard: a private company's job reads as missing here
+                # (the router turns None into a 404), so the public detail path
+                # cannot serve it. Private jobs come only from the owner endpoint.
+                _USER_COMPANY_PREDICATE,
             ),
             (source_id, job_id),
         )
@@ -399,6 +430,37 @@ def get_job_by_id(conn: Connection, source_id: str, job_id: str) -> dict | None:
         if row:
             return _row_to_job_dict(row)
         return None
+
+
+def get_user_company_jobs(
+    conn: Connection,
+    company_id: str,
+    source_id: str,
+    limit: int = 5000,
+) -> list[dict]:
+    """Owner-scoped read of a private custom company's jobs (E7).
+
+    The ONLY read path that returns ``visibility='user'`` jobs. Authorization
+    (the caller owns this company) is enforced by the router BEFORE calling this
+    — there is no viewer arg here. Scoped by BOTH ``company`` and
+    ``source_id = custom:<id>`` so the query can only ever surface this one
+    company's rows even if a company id were somehow reused.
+
+    Same column list + freshness join + row shape as ``get_jobs`` (so it feeds
+    the identical ``JobListingResponse``), ordered by the immutable keyset tuple
+    ``(first_seen_at DESC, source_id DESC, id DESC)``. Returns every status —
+    Phase 1 closes nothing, but a CLOSED row must still render on the trend page
+    when later phases begin closing.
+    """
+    with conn.cursor() as db_cursor:
+        query = sql.SQL(
+            "SELECT {} FROM {}{} "
+            "WHERE company = %s AND job_listings.source_id = %s {} LIMIT %s"
+        ).format(
+            _LIST_COLUMNS, _JOBS_TABLE, _FRESHNESS_JOIN, _KEYSET_ORDER_BY,
+        )
+        db_cursor.execute(query, [company_id, source_id, limit])
+        return [_row_to_job_dict(row) for row in db_cursor.fetchall()]
 
 
 def get_stats(conn: Connection, company: str | None = None) -> dict:

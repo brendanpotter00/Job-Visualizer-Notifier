@@ -27,6 +27,9 @@ def list_enabled_companies_with_profiles(conn: Connection) -> list[dict]:
             "SELECT id, display_name, ats, blurb, accomplishment"
             " FROM {}"
             " WHERE enabled = TRUE"
+            # Custom-source leak fix (E7): the public directory is unauthenticated,
+            # so a private ``visibility='user'`` company must never appear here.
+            " AND visibility = 'public'"
             " ORDER BY lower(display_name) ASC, id ASC"
         ).format(_COMPANIES_TABLE)
     )

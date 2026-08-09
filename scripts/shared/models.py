@@ -66,9 +66,27 @@ class ScrapeRun(BaseModel):
     # Defaults to False here (the writer always knows); the DB column is
     # nullable so pre-existing rows stay honestly NULL = "unknown".
     skipped_update: bool = False
-    # WHICH rule tripped: None | "empty_scrape" | "partial_scrape".
-    # ``skipped_update`` alone cannot answer that — both rules set it — and
-    # the bounded auto-release must count ONLY partial_scrape, or a total
-    # outage (rule (a), explicitly never released) would supply the
-    # repetition evidence that releases the next truncated run.
-    guard_reason: Optional[Literal["empty_scrape", "partial_scrape"]] = None
+    # WHICH rule tripped: None | "empty_scrape" | "partial_scrape" |
+    # "unverified_harvest".
+    # ``skipped_update`` alone cannot answer that — both safety-guard rules set
+    # it — and the bounded auto-release must count ONLY partial_scrape, or a total
+    # outage (rule (a), explicitly never released) would supply the repetition
+    # evidence that releases the next truncated run.
+    #
+    # "unverified_harvest" (E7) is a DIFFERENT axis: it means a custom-company
+    # harvest could not be proven complete (no oracle), so its destructive
+    # close phase was skipped even though the upsert ran. It must never count
+    # toward the partial_scrape auto-release — an unknown is not evidence for
+    # releasing a destructive guard — and ``count_consecutive_partial_skips``
+    # already filters on 'partial_scrape' specifically, so adding this member
+    # here does not perturb that counter.
+    guard_reason: Optional[
+        Literal["empty_scrape", "partial_scrape", "unverified_harvest"]
+    ] = None
+    # --- Custom company sources (E7) -----------------------------------------
+    # Per-company ``custom:<id>`` namespace for a custom company's runs (None for
+    # the six public ATS crons). ``success`` is the run's boolean outcome as the
+    # custom leaf task sees it (None for the six ATS tasks, which encode outcome
+    # via error_count / skipped_update / guard_reason instead).
+    source_id: Optional[str] = None
+    success: Optional[bool] = None

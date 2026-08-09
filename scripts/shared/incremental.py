@@ -61,12 +61,21 @@ from .utils import get_iso_timestamp
 
 logger = logging.getLogger(__name__)
 
-# Closed set of safety-guard reason codes. A Literal rather than a bare
-# ``str`` so mypy rejects a typo'd or invented reason at the call site —
-# these strings are persisted to ``scrape_runs.guard_reason`` AND compared
-# for equality by the release counter, so a silent typo would disable the
-# auto-release rather than fail loudly.
-GuardReason = Literal["empty_scrape", "partial_scrape"]
+# Closed set of ``scrape_runs.guard_reason`` codes — the reasons a run's
+# destructive close phase was skipped. A Literal rather than a bare ``str`` so
+# mypy rejects a typo'd or invented reason at the call site — these strings are
+# persisted to ``scrape_runs.guard_reason`` AND compared for equality by the
+# release counter, so a silent typo would disable the auto-release rather than
+# fail loudly.
+#
+# ``empty_scrape`` / ``partial_scrape`` are the two safety-guard rules and are
+# the ONLY values ``resolve_safety_guard`` ever returns. ``unverified_harvest``
+# (E7) is written directly by the custom-company leaf task, not by the guard:
+# it means a harvest could not be proven complete (no oracle), so the close
+# phase was skipped even though the upsert ran. It must NEVER count toward the
+# partial_scrape auto-release — ``count_consecutive_partial_skips`` filters on
+# 'partial_scrape' specifically, so adding this member does not perturb it.
+GuardReason = Literal["empty_scrape", "partial_scrape", "unverified_harvest"]
 
 # Threshold for marking jobs as closed (number of consecutive misses)
 MISSED_RUN_THRESHOLD = 2

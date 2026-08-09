@@ -27,6 +27,7 @@ from .routers import (
     jobs_qa,
     locations,
     saved_filters,
+    user_companies,
     users,
 )
 from .tasks import procrastinate_app
@@ -64,6 +65,9 @@ _WORKER_QUEUES: tuple[str, ...] = (
     "gem_fetch",
     "eightfold_fetch",
     "workday_fetch",
+    # Custom (user-added, private) companies ride their OWN queue — the claim
+    # task (*/15) and the per-company leaf task — never the six public fan-outs.
+    "custom_ats_fetch",
     "heartbeat",
     "normalize",
 )
@@ -313,6 +317,9 @@ app.include_router(locations.router, prefix="/api/locations", tags=["locations"]
 app.include_router(users.router, prefix="/api/users", tags=["users"])
 app.include_router(
     saved_filters.router, prefix="/api/users/saved-filters", tags=["saved-filters"]
+)
+app.include_router(
+    user_companies.router, prefix="/api/users/companies", tags=["user-companies"]
 )
 app.include_router(features.router, prefix="/api/features", tags=["features"])
 app.include_router(companies.router, prefix="/api/companies", tags=["companies"])
