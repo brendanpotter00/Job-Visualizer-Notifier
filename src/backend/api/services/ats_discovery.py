@@ -114,6 +114,14 @@ _EMBEDDED_ATS_PATTERNS: tuple[re.Pattern[str], ...] = (
         r"\?[A-Za-z0-9_%.+=&;-]*\bfor=[A-Za-z0-9_-]+"
     ),
     re.compile(r"https://(?:job-)?boards\.greenhouse\.io/[A-Za-z0-9_-]+"),
+    # Greenhouse's JSON API host. A careers SPA on its own domain calls this
+    # directly, and then it is the ONLY ATS string in the served HTML — there is
+    # no ``boards.greenhouse.io`` link to find. careers.duolingo.com resolved to
+    # None for exactly this reason while shipping
+    # ``https://boards-api.greenhouse.io/v1/boards/duolingo/departments`` in a
+    # 3 KB static response. The ``/v1/boards/`` prefix is matched literally so
+    # this cannot pick up other endpoints on the same host.
+    re.compile(r"https://boards-api\.greenhouse\.io/v1/boards/[A-Za-z0-9_-]+"),
     re.compile(r"https://jobs\.ashbyhq\.com/[A-Za-z0-9_-]+"),
     re.compile(r"https://jobs\.lever\.co/[A-Za-z0-9_-]+"),
     re.compile(r"https://jobs\.gem\.com/[A-Za-z0-9_-]+"),

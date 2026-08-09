@@ -75,6 +75,23 @@ def no_network(monkeypatch: pytest.MonkeyPatch):
         ),
         ("https://boards.greenhouse.io/embed/job_app?token=9&for=acme", "greenhouse", "acme"),
         ("https://boards.greenhouse.io/EMBED/job_board?for=acme", "greenhouse", "acme"),
+        # greenhouse API host: the token is the THIRD segment, after /v1/boards.
+        # A careers SPA on its own domain calls this host directly, so it is
+        # frequently the only ATS string in the page HTML — careers.duolingo.com
+        # resolved to None until this form was recognized, despite shipping
+        # ``.../v1/boards/duolingo/departments`` in a 3 KB static response.
+        ("https://boards-api.greenhouse.io/v1/boards/duolingo", "greenhouse", "duolingo"),
+        (
+            "https://boards-api.greenhouse.io/v1/boards/duolingo/departments",
+            "greenhouse",
+            "duolingo",
+        ),
+        (
+            "https://boards-api.greenhouse.io/v1/boards/duolingo/jobs/8656959002?questions=true",
+            "greenhouse",
+            "duolingo",
+        ),
+        ("https://boards-api.greenhouse.io/V1/BOARDS/acme", "greenhouse", "acme"),
         # ashby: token lowercased (upstream is case-insensitive; verified live)
         ("https://jobs.ashbyhq.com/Sierra", "ashby", "sierra"),
         ("https://jobs.ashbyhq.com/sierra/", "ashby", "sierra"),
@@ -142,6 +159,23 @@ def test_matcher_hits(url: str, expected_ats: str, expected_token: str) -> None:
         # ...and a ?for= that is not token-shaped is not laundered into an API path
         "https://boards.greenhouse.io/embed/job_board?for=../../evil",
         "https://boards.greenhouse.io/embed/job_board?for=a/b",
+        # greenhouse API host: the /v1/boards prefix is REQUIRED. Without it,
+        # any other endpoint on this host would donate its first path segment as
+        # a board token — the same failure mode as board_token='embed'.
+        "https://boards-api.greenhouse.io",
+        "https://boards-api.greenhouse.io/",
+        "https://boards-api.greenhouse.io/v1",
+        "https://boards-api.greenhouse.io/v1/",
+        "https://boards-api.greenhouse.io/v1/boards",
+        "https://boards-api.greenhouse.io/v1/boards/",
+        "https://boards-api.greenhouse.io/v1/jobs",
+        "https://boards-api.greenhouse.io/v2/boards/acme",
+        "https://boards-api.greenhouse.io/boards/acme",
+        # a non-token-shaped segment in the token position is still refused
+        "https://boards-api.greenhouse.io/v1/boards/..",
+        "https://boards-api.greenhouse.io/v1/boards/%2e%2e",
+        # lookalike of the API host
+        "https://boards-api.greenhouse.io.evil.tld/v1/boards/acme",
         # not even a fetchable URL
         "file:///etc/passwd",
         "",

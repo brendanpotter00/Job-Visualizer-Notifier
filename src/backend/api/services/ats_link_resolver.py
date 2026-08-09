@@ -69,6 +69,19 @@ WORKDAY_HOST_PATTERN = re.compile(
 _LOCALE_SEGMENT_PATTERN = re.compile(r"[a-z]{2}(-[A-Za-z]{2})?")
 
 _GREENHOUSE_HOSTS = frozenset({"boards.greenhouse.io", "job-boards.greenhouse.io"})
+# Greenhouse's JSON API host. A careers page built as a SPA on its own domain
+# calls this directly, so it is what the page's HTML names — there is often no
+# ``boards.greenhouse.io`` link anywhere on the site.
+#
+# Found the hard way: careers.duolingo.com is a Greenhouse board that resolved to
+# None. Its served HTML (3 KB, no JS execution needed) contains exactly one ATS
+# reference, ``https://boards-api.greenhouse.io/v1/boards/duolingo/departments``,
+# and neither the matcher below nor the L2 scan patterns knew this host. The
+# board was sitting in plain text the whole time.
+_GREENHOUSE_API_HOST = "boards-api.greenhouse.io"
+# ``/v1/boards/<token>/...`` — the token is always the third segment. Trailing
+# segments vary (``/departments``, ``/jobs``, ``/jobs/<id>``) and are ignored.
+_GREENHOUSE_API_PREFIX = ("v1", "boards")
 # First path segments on a Greenhouse board host that are Greenhouse's own
 # routing, never a board token. See ``_greenhouse_candidate``.
 _GREENHOUSE_RESERVED_SEGMENTS = frozenset({"embed"})
@@ -144,6 +157,8 @@ def resolve_ats_url(url: str) -> AtsCandidate | None:
 
     if host in _GREENHOUSE_HOSTS:
         return _greenhouse_candidate(segments, parts.query, url)
+    if host == _GREENHOUSE_API_HOST:
+        return _greenhouse_api_candidate(segments, url)
     if host == _ASHBY_HOST:
         # Ashby board tokens are case-insensitive upstream (verified live:
         # ``Sierra`` and ``sierra`` return byte-identical payloads), so we
@@ -193,6 +208,27 @@ def _greenhouse_candidate(
             source_url=url,
         )
     return _token_candidate("greenhouse", segments, url)
+
+
+def _greenhouse_api_candidate(
+    segments: list[str],
+    url: str,
+) -> AtsCandidate | None:
+    """Greenhouse's API host: ``/v1/boards/<token>/...``.
+
+    The token is positional (third segment) rather than first, so this cannot
+    reuse ``_token_candidate``. The ``v1/boards`` prefix is required: without it
+    a URL like ``/v1/jobs`` would hand back ``jobs`` as a board token, which is
+    exactly the ``board_token='embed'`` class of bug the reserved-segment
+    handling above already exists to prevent.
+    """
+    prefix_len = len(_GREENHOUSE_API_PREFIX)
+    if len(segments) <= prefix_len:
+        # Bare host, ``/v1``, or ``/v1/boards`` — none of which name a board.
+        return None
+    if tuple(s.lower() for s in segments[:prefix_len]) != _GREENHOUSE_API_PREFIX:
+        return None
+    return _token_candidate("greenhouse", segments[prefix_len:], url)
 
 
 def _is_token_shaped(token: str) -> bool:

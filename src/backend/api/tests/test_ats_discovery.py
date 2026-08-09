@@ -355,6 +355,55 @@ async def test_sniff_finds_an_embedded_greenhouse_board() -> None:
 
 
 @pytest.mark.asyncio
+async def test_sniff_finds_a_greenhouse_api_host_reference() -> None:
+    """Duolingo regression: the only ATS string on the page is the API host.
+
+    careers.duolingo.com is a Greenhouse board that resolved to
+    ``no_ats_detected``. Its served HTML is 3 KB and contains exactly one ATS
+    reference — ``boards-api.greenhouse.io/v1/boards/duolingo/departments`` —
+    with no ``boards.greenhouse.io`` link anywhere. A careers SPA on its own
+    domain calls the API host directly, so this is the common shape, not an
+    exotic one, and no browser or JS execution is needed to see it.
+    """
+    body = (
+        '<script>window.__CONFIG__={"api":'
+        '"https://boards-api.greenhouse.io/v1/boards/duolingo/departments"};'
+        "</script>"
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=body)
+
+    recorder = _Recorder(handler)
+    async with recorder.client() as http:
+        result = await sniff_embedded_ats("https://careers.duolingo.com", http)
+
+    assert result.candidate is not None
+    assert result.candidate.ats == "greenhouse"
+    assert result.candidate.board_token == "duolingo"
+
+
+@pytest.mark.asyncio
+async def test_sniff_ignores_non_board_endpoints_on_the_greenhouse_api_host() -> None:
+    """The ``/v1/boards/`` prefix is load-bearing, not decoration.
+
+    Matching the API host alone would turn any other endpoint it serves into a
+    board token — ``/v1/jobs`` would yield ``board_token='jobs'``, the same
+    class of bug as the literal ``embed`` token above.
+    """
+    body = '<a href="https://boards-api.greenhouse.io/v1/jobs">all jobs</a>'
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=body)
+
+    recorder = _Recorder(handler)
+    async with recorder.client() as http:
+        result = await sniff_embedded_ats("https://nothing.example/careers", http)
+
+    assert result.candidate is None
+
+
+@pytest.mark.asyncio
 async def test_sniff_never_returns_the_literal_embed_token() -> None:
     """A ``/embed/`` link with no ``?for=`` must be a miss, not a garbage token."""
 
