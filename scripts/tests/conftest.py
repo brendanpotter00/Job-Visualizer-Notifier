@@ -457,3 +457,109 @@ def amazon_dirty_json_text() -> str:
     json.loads and V8's JSON.parse alike).
     """
     return '{"jobs": [{"id_icims": "1", "title": "SDE", "description": "a\x01b"}], "hits": 1}'
+
+
+# ============================================================================
+# TikTok Scraper Fixtures
+# ============================================================================
+
+@pytest.fixture
+def tiktok_scraper():
+    """TikTokJobsScraper instance for transformation tests"""
+    from scripts.tiktok_jobs_scraper.scraper import TikTokJobsScraper
+    return TikTokJobsScraper(headless=True, detail_scrape=False)
+
+
+@pytest.fixture
+def tiktok_raw_job() -> Dict[str, Any]:
+    """One raw job_post_list row, shaped from a live 2026-08-09 response."""
+    return {
+        "id": "7613184212766607621",
+        "code": "A07200",
+        "title": "Software Engineer, TikTok AIGC Agentic Workflow",
+        "description": "About the team\nOur team supports the platform behind AIGC.",
+        "requirement": "Minimum Qualifications:\n- BS in Computer Science",
+        "city_info": {
+            "code": "CT_94",
+            "location_type": 3,
+            "name": None,
+            "en_name": "San Jose",
+            "parent": {
+                "code": "ST_100",
+                "location_type": 2,
+                "name": None,
+                "en_name": "California",
+                "parent": {
+                    "code": "CN_6",
+                    "location_type": 1,
+                    "name": None,
+                    "en_name": "United States of America",
+                    "parent": None,
+                },
+            },
+        },
+        "job_category": {
+            "id": "6704215897130666254",
+            "name": None,
+            "en_name": "Backend",
+            "parent": {"id": "6704215862603155720", "name": None, "en_name": "R&D", "parent": None},
+        },
+        "recruit_type": {"id": "101", "name": None, "en_name": "Regular"},
+        "job_subject": None,
+        "vacancies": 1,
+    }
+
+
+@pytest.fixture
+def tiktok_search_response(tiktok_raw_job) -> Dict[str, Any]:
+    """A realistic search envelope (code 0 = success)."""
+    second = dict(tiktok_raw_job)
+    second["id"] = "7613184219506985269"
+    second["title"] = "Senior Software Engineer, TikTok AIGC"
+    return {
+        "code": 0,
+        "message": "ok",
+        "error": None,
+        "data": {
+            "job_post_list": [tiktok_raw_job, second],
+            "count": 716,
+            "BaseResp": {"StatusCode": 0, "StatusMessage": "Success"},
+        },
+    }
+
+
+@pytest.fixture
+def tiktok_page_factory(tiktok_raw_job):
+    """Build a TikTok envelope with `count` synthetic rows."""
+    def _make(count: int, offset: int = 0, total: Any = None) -> Dict[str, Any]:
+        jobs = []
+        for i in range(count):
+            row = dict(tiktok_raw_job)
+            row["id"] = str(7_600_000_000_000_000_000 + offset + i)
+            row["title"] = f"Software Engineer {offset + i}"
+            jobs.append(row)
+        return {
+            "code": 0,
+            "message": "ok",
+            "data": {"job_post_list": jobs, "count": total},
+        }
+    return _make
+
+
+@pytest.fixture
+def sample_tiktok_job_data() -> Dict[str, Any]:
+    """A standardised TikTok job *card* (post-_parse_job_from_search)."""
+    return {
+        "id": "7613184212766607621",
+        "title": "Software Engineer, TikTok AIGC Agentic Workflow",
+        "job_url": "https://lifeattiktok.com/search/7613184212766607621",
+        "location": "San Jose, California, United States of America",
+        "posted_date": None,
+        "department": "R&D / Backend",
+        "description": "About the team\n\nMinimum Qualifications:",
+        "job_code": "A07200",
+        "recruit_type": "Regular",
+        "job_subject": None,
+        "vacancies": 1,
+        "company": "tiktok",
+    }

@@ -33,6 +33,7 @@ _EXPECTED_SOURCE_IDS = {
     SourceId.APPLE,
     SourceId.MICROSOFT,
     SourceId.AMAZON,
+    SourceId.TIKTOK,
 }
 
 
@@ -67,7 +68,7 @@ def test_specs_present():
     assert source_ids == _EXPECTED_SOURCE_IDS, (
         f"SCRAPER_SPECS source_ids {source_ids} != expected "
         f"{_EXPECTED_SOURCE_IDS} — every scheduled run must exercise exactly "
-        f"Google + Apple + Microsoft + Amazon."
+        f"Google + Apple + Microsoft + Amazon + TikTok."
     )
 
 

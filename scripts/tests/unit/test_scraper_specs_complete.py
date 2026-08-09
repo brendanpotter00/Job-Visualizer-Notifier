@@ -25,13 +25,14 @@ EXPECTED_SOURCE_IDS = {
     SourceId.APPLE,
     SourceId.MICROSOFT,
     SourceId.AMAZON,
+    SourceId.TIKTOK,
 }
 
 
-def test_exactly_four_specs() -> None:
-    """All four scrapers must be specced — no silent partial coverage."""
-    assert len(SCRAPER_SPECS) == 4, (
-        f"expected exactly 4 scraper specs, found {len(SCRAPER_SPECS)}: "
+def test_exactly_five_specs() -> None:
+    """All five scrapers must be specced — no silent partial coverage."""
+    assert len(SCRAPER_SPECS) == 5, (
+        f"expected exactly 5 scraper specs, found {len(SCRAPER_SPECS)}: "
         f"{[s.name for s in SCRAPER_SPECS]}. A shrunk SCRAPER_SPECS means "
         f"`pytest -m e2e` runs fewer live cases and a broken scraper goes "
         f"unnoticed."
@@ -39,7 +40,7 @@ def test_exactly_four_specs() -> None:
 
 
 def test_specs_cover_all_source_ids() -> None:
-    """The specced source_ids must be exactly Google + Apple + Microsoft + Amazon."""
+    """The specced source_ids must be Google + Apple + Microsoft + Amazon + TikTok."""
     source_ids = {spec.source_id for spec in SCRAPER_SPECS}
     assert source_ids == EXPECTED_SOURCE_IDS, (
         f"SCRAPER_SPECS source_ids {source_ids} != expected "
