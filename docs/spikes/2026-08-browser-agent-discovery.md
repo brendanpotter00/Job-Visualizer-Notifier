@@ -213,11 +213,33 @@ Three consequences, and they matter more than the target itself:
    **and** headed operation **and** synthetic input: an arms race with a
    behavioral sensor, not a deterministic replay. §5's recommendation stands
    and is strengthened.
-2. **A cloud browser would not have helped either.** The IP was never the
-   discriminator — success and failure alternated on the same IP purely by
-   client identity and input behavior. This is the clearest evidence in the
-   spike that Browserbase would not have rescued this target, and it partially
-   answers limitation §7.2 in advance.
+2. ~~**A cloud browser would not have helped either.**~~ **RETRACTED
+   2026-08-08 — this was wrong, and it was the one claim here made without
+   running the experiment.** The reasoning was that since success and failure
+   alternated on the same IP, the IP was never the discriminator, therefore a
+   cloud browser changes nothing. The inference does not hold: Browserbase
+   differs from local Playwright in browser build and fingerprint, not only in
+   egress IP. Measured directly once credentials existed:
+
+   | client, same machine and day | `tesla.com/careers/search/` |
+   |---|---|
+   | httpx, bare or with a Chrome UA | 403, 390 B |
+   | local headless Chromium (Playwright) | "Access Denied", 1 request |
+   | **Browserbase (Chrome 151, us-west-2)** | **200 — 87 requests, 7,639 listings** |
+
+   Akamai's sensor POST returned **201**, so the sensor was accepted rather
+   than merely tolerated, and `GET /cua-api/apps/careers/state` came back at
+   1,462,763 bytes.
+
+   **This does not change the recommendation, for a different reason than the
+   one originally given.** The payload is not replayable: the same request
+   403s from *inside the live session* via `page.request.get`, and 403s through
+   httpx even carrying that session's full `_abck` / `bm_*` cookie jar and exact
+   headers. Only the page's own JS-issued XHR succeeds. So a Tesla recipe can
+   never be a stored request — it is "drive a cloud browser and intercept,"
+   every run: roughly **8 browser-hours per company per month** at the 30-minute
+   cadence. Point 3 below is what actually kills the cheap design, and it stands
+   on measured evidence rather than inference.
 3. **Cookie transplant fails.** Valid `_abck` cookies harvested from a trusted
    Chrome session still 403 through httpx — Akamai binds the session to the TLS
    fingerprint that earned it. Every "warm it once, then replay cheaply
@@ -248,19 +270,43 @@ never produces jobs. See §8.
    ```
    Nothing here needs a human to interpret it — `drift.py` prints per-target
    drift against round 1 and flags anything over 5%.
-2. **The Browserbase cloud-vs-local comparison never ran** — no credentials on
-   this machine. `capture_browserbase.py` and `BROWSERBASE_SETUP.md` are ready;
-   it needs `BROWSERBASE_API_KEY` and `BROWSERBASE_PROJECT_ID` in `.env.local`
-   (free tier: 1 browser-hour/month, which the script guards).
-   **Its value dropped sharply given the results.** Six targets need no browser
-   at all, so there is nothing for a cloud browser to do; and on the one target
-   that blocked us, Tesla, the IP was demonstrably *not* the discriminator
-   (§6) — a cloud browser would have been refused for the same fingerprint and
-   behavioral reasons. The remaining open question is narrow: whether Railway's
-   datacenter IPs get blocked on the six HTTP recipes that work from here. That
-   is answered more cheaply by running `replay.py` once from Railway than by
-   wiring up Browserbase at all. **Recommendation: skip the Browserbase arm
-   unless a future target needs it.**
+2. ~~**The Browserbase cloud-vs-local comparison never ran.**~~ **CLOSED
+   2026-08-08 — it ran. The prediction recorded here was wrong** (see the
+   retraction in §6): this section reasoned that a cloud browser "would have
+   been refused for the same fingerprint and behavioral reasons," and Tesla
+   returned **200** through Browserbase where local headless Chromium got
+   "Access Denied." Recording the miss rather than quietly editing it, because
+   the error was structural — a prediction stated with the confidence of a
+   result, in the one arm that had not been executed.
+
+   The measured verdict, on 14 real careers URLs (1.0 of ~60 free-tier minutes
+   spent, $0):
+
+   - **Network-level visibility is real.** Raw CDP `Network.*` events (167 on
+     Tesla, 691 on Rippling) and response bodies read over the wire (up to
+     2.3 MB). The "agent watching the dev-tools network tab" capability exists
+     as advertised.
+   - **But it identified no job board that plain HTTP could not.** Across six
+     local Playwright captures the browser surfaced exactly one ATS reference
+     that plain HTTP missed (Rippling — whose own ATS none of the six clients
+     can scrape), and Browserbase added nothing over local Playwright on the
+     non-blocked control. Sites proxy their ATS server-side, so the network tab
+     shows first-party endpoints only.
+   - **Where a browser earns its keep is recipe discovery, exactly as §5 said** —
+     Rippling's data endpoint turned out to be Algolia and *is* forgeable over
+     plain HTTP with the public search key from the page JS (702 hits, and
+     `nbHits` is a ready-made `total_path`). One-time browser, zero browser at
+     replay.
+   - **Tesla remains a NO, for a better-evidenced reason than before**: the
+     payload is not replayable at all (§6), so it is a browser every run.
+
+   **Recommendation, revised but unchanged in outcome: do not adopt Browserbase
+   for this feature.** The return is in deterministic coverage, not browsers —
+   of 14 URLs, 7 already resolve, 5 more are matcher/heuristic gaps, 1 truly
+   needs JS, 1 needs bot-bypass. Keep the account parked; the free tier is
+   effectively untouched and preserves the option. The narrow Railway
+   datacenter-IP question is still open and still answered more cheaply by
+   running `replay.py` once from Railway.
 3. **Seven targets is a small sample**, chosen to be hard rather than
    representative. It says nothing about the long tail of small ATS-less boards.
 4. **No target published a reliable posted-at date** except Amazon and YC (YC's
