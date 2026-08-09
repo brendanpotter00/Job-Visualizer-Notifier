@@ -313,6 +313,38 @@ Flag these to the owner; the exploration was thorough but four items are wrong o
    (`20260730_120000_a7c31d9e0b46_repoint_ashby_boards_and_deactivate_unity.py`),
    49 revisions, exactly one head.
 
+### 1.7 Known gaps deferred out of these three PRs
+
+**First-run posting dates — ClickUp 7.6 (`wdwb1cbp8n`).** Not E7.5: that identifier is
+already used above (§1.1, §1.4) for agent discovery / a Phenom client, which is a
+different thing.
+
+On the first scrape of a `(company, source_id)` pair, every row's `first_seen_at` is the
+scrape timestamp, so the company's entire back catalogue renders as posted on its add
+date and the hiring-trend graph shows a spike that never happened. Measured in prod
+2026-08-09: **25,892 rows (37.3% of `job_listings`) across all 133 companies** are
+first-run rows; median `first_seen_at − posted_on` skew is **31.4 d** (p90 207.9 d)
+versus **0.0 d** in steady state — so this is specifically a first-run defect, not a
+general one.
+
+**Why it lands on this epic:** every user-added company is by definition a first run, so
+PR 3's self-serve flow hits it on day one for every company it creates. **PR 2's
+recipe-backed companies inherit it in the worst form** — the 7.2 spike found Meta,
+TikTok, Spotify, Tesla and Jane Street publish **no** posted date at all
+(`docs/spikes/2026-08-browser-agent-discovery.md` §7.4, and the per-target
+`FINDINGS.md`), Amazon does, and YC's is a humanized relative string with the same
+lossiness class as Workday's synthetic dates. `recipe_schema.py` has no date field today.
+If one is added later it must arrive with a trust policy already decided, or it re-imports
+the Workday problem into a new surface.
+
+**Do not attempt a fix inside PR 1–3.** Two findings make it non-trivial and they are
+carried in the ticket: the graph reads `first_seen_at` exclusively (no COALESCE anywhere —
+`services/database.py:221-231`, `timeBucketing.ts:93`), so it is a presentation-layer
+choice, not a storage one; and Workday's `posted_on` is synthesized from relative strings
+(`workday_client.py:480-548`) with 2,675 rows sharing a single sliding value, so "prefer
+the provider date" is actively wrong there. Note also that a **board switch is the same
+shape** — PR #236 / `e2835a568ade` re-created it for 403 rows across 5 companies.
+
 ---
 
 # PR 1 — Backend foundation (no schema changes)
