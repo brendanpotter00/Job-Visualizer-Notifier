@@ -4,10 +4,16 @@
  * Centralized routing configuration for type safety and maintainability.
  */
 
+import { CUSTOM_COMPANIES_CONFIG } from './customCompanies';
+
 export const ROUTES = {
   RECENT_JOBS: '/',
   COMPANIES: '/companies',
   CURATED_COMPANIES: '/curated-companies',
+  // Flag-gated (VITE_CUSTOM_COMPANIES_ENABLED). The path constant always
+  // exists — App.tsx decides whether to register a route for it, and
+  // PRIMARY_NAV_ITEMS decides whether to link to it.
+  MY_COMPANIES: '/my-companies',
   WHY: '/why',
   QA: '/qa',
   ACCOUNT: '/account',
@@ -23,10 +29,49 @@ export const ROUTES = {
 } as const;
 
 /**
- * Functional tabs — the core app features. Rendered above the "INFO" divider
- * in the sidebar.
+ * Every icon a sidebar entry may name.
+ *
+ * Lives here rather than in NavigationDrawer because it is half of a contract
+ * with two ends: nav items pick a name, and the drawer's `iconMap` must supply
+ * a component for it. Typing `NavItem.icon` as a bare `string` would break that
+ * link — the drawer casts `item.icon as IconName`, so a typo'd name would pass
+ * the compiler and then render `undefined`. Keeping the union here means a bad
+ * name fails at the definition site, and `Record<NavIconName, …>` on the map
+ * side makes a missing component fail too.
  */
-export const PRIMARY_NAV_ITEMS = [
+export type NavIconName =
+  | 'Schedule'
+  | 'Info'
+  | 'BugReport'
+  | 'AccountCircle'
+  | 'ThumbUp'
+  | 'TrendingUp'
+  | 'Business'
+  | 'People'
+  | 'Place'
+  | 'AccountTree'
+  | 'AutoAwesome'
+  | 'Feedback'
+  | 'FilterListAlt'
+  | 'AddBusiness';
+
+/**
+ * Shape of a sidebar entry.
+ *
+ * Introduced so `PRIMARY_NAV_ITEMS` can vary with a feature flag. Every item
+ * literal below stays `as const`, so nothing loses its narrow types at the
+ * definition site; only the exported *array* is widened to this contract,
+ * because a flag-dependent tuple would be a union of two tuple types and
+ * `.map()` is not callable on such a union. The other nav groups are
+ * untouched and keep their `as const` tuple types.
+ */
+export interface NavItem {
+  readonly path: string;
+  readonly label: string;
+  readonly icon: NavIconName;
+}
+
+const PRIMARY_NAV_BASE = [
   {
     path: ROUTES.RECENT_JOBS,
     label: 'Recent Job Postings',
@@ -43,6 +88,25 @@ export const PRIMARY_NAV_ITEMS = [
     icon: 'FilterListAlt',
   },
 ] as const;
+
+/**
+ * Appended to the primary nav only while `VITE_CUSTOM_COMPANIES_ENABLED` is on.
+ * With the flag off there is no nav entry and no route (see App.tsx), so the
+ * sidebar is identical to what it was before the feature existed.
+ */
+const MY_COMPANIES_NAV_ITEM = {
+  path: ROUTES.MY_COMPANIES,
+  label: 'My Companies',
+  icon: 'AddBusiness',
+} as const;
+
+/**
+ * Functional tabs — the core app features. Rendered above the "INFO" divider
+ * in the sidebar.
+ */
+export const PRIMARY_NAV_ITEMS: readonly NavItem[] = CUSTOM_COMPANIES_CONFIG.isEnabled
+  ? [...PRIMARY_NAV_BASE, MY_COMPANIES_NAV_ITEM]
+  : PRIMARY_NAV_BASE;
 
 /**
  * Info tabs — supplementary / informational pages. Rendered below the "INFO"
@@ -70,7 +134,7 @@ export const INFO_NAV_ITEMS = [
  * Combined customer-facing nav items (functional + info), in display order.
  * Retained for incidental consumers that iterate the full non-admin sidebar.
  */
-export const USER_NAV_ITEMS = [...PRIMARY_NAV_ITEMS, ...INFO_NAV_ITEMS] as const;
+export const USER_NAV_ITEMS: readonly NavItem[] = [...PRIMARY_NAV_ITEMS, ...INFO_NAV_ITEMS];
 
 export const ADMIN_NAV_ITEMS = [
   {

@@ -8,7 +8,9 @@ import { WhyPage } from '../pages/WhyPage/WhyPage.tsx';
 import { AccountPage } from '../pages/AccountPage/AccountPage.tsx';
 import { SavedFiltersPage } from '../pages/SavedFiltersPage';
 import { VoteFeaturesPage } from '../pages/VoteFeaturesPage';
+import { MyCompaniesPage } from '../pages/MyCompaniesPage';
 import { ROUTES } from '../config/routes';
+import { CUSTOM_COMPANIES_CONFIG } from '../config/customCompanies';
 import { QAPage } from '../pages/QAPage/QAPage.tsx';
 import { AdminUsersPage } from '../pages/AdminUsersPage/AdminUsersPage.tsx';
 import { AdminLocationNormalizationPage } from '../pages/AdminLocationNormalizationPage/AdminLocationNormalizationPage.tsx';
@@ -109,6 +111,12 @@ function AppContent() {
           <Route path={ROUTES.ACCOUNT} element={<AccountPage />} />
           <Route path={ROUTES.SAVED_FILTERS} element={<SavedFiltersPage />} />
           <Route path={ROUTES.VOTE_FEATURES} element={<VoteFeaturesPage />} />
+          {/* Flag-gated: with VITE_CUSTOM_COMPANIES_ENABLED off the route is
+              not registered at all, so /my-companies is a 404 rather than a
+              reachable-but-hidden page. */}
+          {CUSTOM_COMPANIES_CONFIG.isEnabled && (
+            <Route path={ROUTES.MY_COMPANIES} element={<MyCompaniesPage />} />
+          )}
         </Route>
       </Routes>
     </>

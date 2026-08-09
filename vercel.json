@@ -95,6 +95,10 @@
       "destination": "/index.html"
     },
     {
+      "source": "/my-companies",
+      "destination": "/index.html"
+    },
+    {
       "source": "/account",
       "destination": "/index.html"
     },
