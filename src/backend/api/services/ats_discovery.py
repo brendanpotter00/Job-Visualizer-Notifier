@@ -39,7 +39,7 @@ import re
 import time
 from collections import Counter
 from dataclasses import dataclass, field
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urlunsplit
 
 import httpx
 
@@ -58,7 +58,13 @@ from .url_guard import (
     UrlGuardError,
     assert_ats_api_host,
     guarded_get,
+    read_bounded_body,
 )
+
+# Same-package private helper. Imported rather than reimplemented so there is
+# exactly one place that turns an unparseable URL into a reason code instead of
+# an uncaught ``ValueError``.
+from .url_guard import _split_or_reject
 
 logger = logging.getLogger(__name__)
 
@@ -126,14 +132,15 @@ _EMBEDDED_ATS_PATTERNS: tuple[re.Pattern[str], ...] = (
 # a thing we do.
 _DISCOVERY_HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    # Load-bearing, not a nicety. ``guarded_get``'s ``max_bytes`` counts DECODED
-    # bytes, and ``Response.aiter_bytes()`` decompresses each raw chunk before the
-    # loop ever sees it — so with httpx's default ``Accept-Encoding: gzip,
-    # deflate`` a 500 MiB gzip bomb fits in ~509 KB on the wire and still hands us
-    # a single 67 MB decoded chunk to allocate, ~128× over the 512 KB cap. One
-    # ``/resolve`` makes up to 4 sniff GETs. This container has an OOM incident
-    # on file (docs/incidents/2026-04-09-oom-memory-fragmentation.md). The sniffer
-    # only needs text; asking for identity makes the cap a real memory bound.
+    # A polite request, and nothing more — it is a *request* header, and a
+    # hostile origin answers ``Content-Encoding: gzip`` regardless. The bound is
+    # enforced on the response side by ``url_guard.read_bounded_body``, which
+    # refuses a non-identity encoding outright and counts raw bytes; this header
+    # only makes the refusal fair. Do not re-describe it as the memory bound —
+    # it was, and it wasn't: a 500 MiB gzip of zeros is 509 KB on the wire and
+    # used to hand the loop a single 67 MB decoded chunk, four times per
+    # ``/resolve``, in a container with an OOM incident on file
+    # (docs/incidents/2026-04-09-oom-memory-fragmentation.md).
     "Accept-Encoding": "identity",
     "User-Agent": "Job-Visualizer-Notifier/1.0 (+https://onesecondswe.dev)",
 }
@@ -250,8 +257,14 @@ async def _fetch_chain(
 
 
 def _sniff_urls(url: str) -> list[str]:
-    """The landing URL plus a small fixed candidate sub-path list, capped at 4."""
-    parts = urlsplit(url)
+    """The landing URL plus a small fixed candidate sub-path list, capped at 4.
+
+    ``_split_or_reject``, not a bare ``urlsplit``: this was the last unguarded
+    parse in the discovery path. ``urlsplit`` raises on unbalanced square
+    brackets, and the caller turns that into an HTTP 500 with no reason code and
+    no audit row.
+    """
+    parts = _split_or_reject(url)
     base_path = parts.path.rstrip("/")
     urls = [url]
     for suffix in _SNIFF_SUBPATHS:
@@ -313,7 +326,20 @@ async def sniff_embedded_ats(
     # below — see the comment there.
     scanned_any = False
 
-    for target in _sniff_urls(url):
+    try:
+        targets = _sniff_urls(url)
+    except UrlGuardError as exc:
+        # An unparseable landing URL is a rejection with a reason code, not a
+        # 500. Reachable only if L1 handed us back the raw input unchanged.
+        return DiscoveryResult(
+            candidate=None,
+            via="unsupported",
+            hops=(),
+            final_url=url,
+            reason=exc.reason,
+        )
+
+    for target in targets:
         try:
             response, hops = await guarded_get(
                 target,
@@ -483,9 +509,11 @@ _COUNT_ONLY_ATS = frozenset({"workday", "eightfold"})
 
 _PROBE_HEADERS = {
     "Accept": "application/json",
-    # Same reason as ``_DISCOVERY_HEADERS``: ``_bounded_json`` counts decoded
-    # bytes, so identity is what makes the cap a memory bound rather than a
-    # bookkeeping limit.
+    # Same status as in ``_DISCOVERY_HEADERS``: a request, not an enforcement.
+    # ``read_bounded_body`` is what makes the cap real. Verified live 2026-08-07
+    # that Intel's and Cisco's Workday CXS hosts answer an identity request with
+    # no ``Content-Encoding`` at all, so the strict response-side check costs
+    # nothing on the acceptance targets.
     "Accept-Encoding": "identity",
     "Content-Type": "application/json",
     # Mirrors workday_client's UA — some tenants 403 a missing one.
@@ -512,15 +540,36 @@ async def _bounded_json(
     json_body: dict[str, object] | None = None,
     timeout: float,
 ) -> object:
-    """``http.request(...).json()`` with a ceiling on the bytes read.
+    """``http.request(...).json()`` with a real ceiling on the bytes read.
 
     The plain ``http.post(...)`` / ``http.get(...)`` + ``.json()`` pair this
     replaces buffers whatever the remote sends, with no limit — the same class of
     exposure as the sniffer's, just at a host we have already pinned to an ATS API
-    domain. Streaming with a cap keeps a compromised or misbehaving ATS host from
-    turning the probe into an OOM. Over the cap is an error, not a truncation:
-    truncated JSON is not JSON, and pretending otherwise would report a bogus job
-    count.
+    domain. Over the cap is an error, not a truncation: truncated JSON is not
+    JSON, and pretending otherwise would report a bogus job count.
+
+    The cap is enforced by ``url_guard.read_bounded_body``, which checks *before*
+    it appends. The first version of this loop did ``body.extend(chunk)`` and
+    then compared — so the bytearray was already 67,200,488 bytes long when the
+    4 MiB cap "fired", because ``aiter_bytes()`` had decompressed a
+    ``Content-Encoding: gzip`` chunk the origin sent despite our asking for
+    identity. Now the encoding is refused on the response header and nothing is
+    read at all.
+
+    KNOWN, ACCEPTED GAP — this cap covers 2 of the 6 probe paths
+    ------------------------------------------------------------
+    Only Workday and Eightfold (``_COUNT_ONLY_ATS``) come through here.
+    Greenhouse, Ashby, Lever and Gem are probed by calling their existing
+    ``fetch_jobs`` clients, each of which does a plain ``response.json()`` with
+    no byte ceiling and httpx's default ``Accept-Encoding``. Those six clients
+    are explicitly out of scope for this PR (they are shared with the scrape
+    path and the Procrastinate fan-out tasks), so the gap is recorded rather
+    than papered over: it is listed in
+    ``docs/implementations/custom-company-sources/PLAN.md`` §1.4 so PR 2
+    inherits it as a decision. The exposure is bounded by the fact that those
+    four hosts are pinned by ``assert_ats_api_host`` to Greenhouse's, Ashby's,
+    Lever's and Gem's own API domains — an attacker has to compromise the ATS
+    vendor, not merely get a URL past the resolver.
     """
     async with http.stream(
         method,
@@ -531,15 +580,12 @@ async def _bounded_json(
         timeout=timeout,
     ) as response:
         response.raise_for_status()
-        body = bytearray()
-        async for chunk in response.aiter_bytes():
-            body.extend(chunk)
-            if len(body) > _PROBE_MAX_BYTES:
-                raise ValueError(
-                    f"probe response from {url!r} exceeded "
-                    f"{_PROBE_MAX_BYTES} bytes"
-                )
-    return json.loads(bytes(body))
+        body, truncated = await read_bounded_body(response, _PROBE_MAX_BYTES)
+        if truncated:
+            raise ValueError(
+                f"probe response from {url!r} exceeded {_PROBE_MAX_BYTES} bytes"
+            )
+    return json.loads(body)
 
 
 async def _count_workday(candidate: AtsCandidate, http: httpx.AsyncClient) -> int:
@@ -641,6 +687,17 @@ async def probe_candidate(
     preserved, not collapsed to a boolean — because "the board 404s" and "the
     board timed out" need different answers from the user.
 
+    "Never raises" is load-bearing and was not true: the except tuple named
+    ``httpx.HTTPError``, and ``httpx.InvalidURL`` subclasses ``Exception``, not
+    that. ``_probe_url`` builds its URLs by interpolating a ``board_token`` /
+    ``career_site_slug`` that started life as a path segment of a user-supplied
+    URL, so a token httpx refuses to put in a URL escaped as an HTTP 500 with no
+    reason code and no audit row — the exact failure mode ``guarded_get``'s
+    except tuple was widened to close. The tuple below mirrors that one.
+    ``ats_link_resolver`` now also shape-checks the token, so both ends are
+    covered; PR 3 persists these values, and a stored row is re-probed by code
+    that never saw the URL it came from.
+
     ``deadline`` (a ``time.monotonic()`` value) clamps the probe's own budget to
     whatever the caller has left, so discovery + probe cannot add up past the
     caller's bound.
@@ -659,7 +716,13 @@ async def probe_candidate(
             job_count=0,
             error=f"probe timed out after {budget:.0f}s",
         )
-    except (UrlGuardError, ValueError, httpx.HTTPError) as exc:
+    except (
+        UrlGuardError,
+        ValueError,
+        httpx.HTTPError,
+        httpx.InvalidURL,
+        UnicodeError,
+    ) as exc:
         return ProbeResult(ok=False, job_count=0, error=str(exc) or type(exc).__name__)
 
     return ProbeResult(ok=True, job_count=job_count, error=None)

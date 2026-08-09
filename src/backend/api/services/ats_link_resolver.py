@@ -72,9 +72,25 @@ _GREENHOUSE_HOSTS = frozenset({"boards.greenhouse.io", "job-boards.greenhouse.io
 # First path segments on a Greenhouse board host that are Greenhouse's own
 # routing, never a board token. See ``_greenhouse_candidate``.
 _GREENHOUSE_RESERVED_SEGMENTS = frozenset({"embed"})
-# A board token read out of ``?for=`` is attacker-influenced query text, so it is
-# shape-checked before it becomes part of an API path.
-_GREENHOUSE_TOKEN_PATTERN = re.compile(r"[A-Za-z0-9_-]+")
+
+# Every board token and career-site slug this module emits is attacker-influenced
+# text — a query value or a path segment of a URL a user pasted — and every one of
+# them is interpolated straight into an ATS API path by
+# ``ats_discovery._probe_url`` and persisted by PR 3. So all of them are
+# shape-checked, not just the ``?for=`` one: ``https://boards.greenhouse.io/..``
+# yielded ``board_token='..'`` and a probe URL that httpx normalized to
+# ``https://boards-api.greenhouse.io/v1/jobs`` (a different endpoint on the same
+# pinned host), and a 3000-character token was accepted verbatim.
+#
+# The shape is the same one ``ats_discovery._EMBEDDED_ATS_PATTERNS`` already
+# uses to *find* boards, and it covers every real value in prod and in the
+# matcher tests: ``blueorigin``, ``Capital_One``, ``external_experienced``,
+# ``Cisco_Careers``, ``External``.
+_BOARD_TOKEN_PATTERN = re.compile(r"[A-Za-z0-9_-]+")
+# Real tokens are one short word. 100 is two orders of magnitude of slack and
+# still stops a multi-kilobyte path segment from reaching an API host or a
+# database column.
+_MAX_BOARD_TOKEN_LENGTH = 100
 _ASHBY_HOST = "jobs.ashbyhq.com"
 _LEVER_HOST = "jobs.lever.co"
 _GEM_HOST = "jobs.gem.com"
@@ -168,7 +184,7 @@ def _greenhouse_candidate(
     if segments and segments[0].lower() in _GREENHOUSE_RESERVED_SEGMENTS:
         values = parse_qs(query).get("for") or []
         token = values[0].strip() if values else ""
-        if not token or not _GREENHOUSE_TOKEN_PATTERN.fullmatch(token):
+        if not _is_token_shaped(token):
             return None
         return AtsCandidate(
             ats="greenhouse",
@@ -177,6 +193,19 @@ def _greenhouse_candidate(
             source_url=url,
         )
     return _token_candidate("greenhouse", segments, url)
+
+
+def _is_token_shaped(token: str) -> bool:
+    """True iff ``token`` is safe to interpolate into an ATS API path.
+
+    ``None`` from the caller is the right answer for anything else: a value we
+    cannot vouch for is not a board we recognized.
+    """
+    return (
+        bool(token)
+        and len(token) <= _MAX_BOARD_TOKEN_LENGTH
+        and _BOARD_TOKEN_PATTERN.fullmatch(token) is not None
+    )
 
 
 def _token_candidate(
@@ -191,6 +220,8 @@ def _token_candidate(
         # A bare board host names no board. Never guess one.
         return None
     token = segments[0]
+    if not _is_token_shaped(token):
+        return None
     return AtsCandidate(
         ats=ats,
         board_token=token.lower() if lowercase else token,
@@ -213,6 +244,11 @@ def _workday_candidate(
         # be a guess with a wrong-population failure mode.
         return None
     career_site_slug = segments[0]     # VERBATIM — never .lower(), never .title()
+    if not _is_token_shaped(career_site_slug):
+        # Verbatim does not mean unchecked: the slug lands in the CXS path
+        # ``/wday/cxs/<tenant>/<slug>/jobs``, and ``..`` there resolved to a
+        # different endpoint on the tenant's own host.
+        return None
     return AtsCandidate(
         ats="workday",
         board_token=tenant,

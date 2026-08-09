@@ -15,15 +15,21 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import gzip
 import socket
+import threading
 import time
+import tracemalloc
+import zlib
 from typing import AsyncIterator
 
 import httpx
 import pytest
 
+from api.services import url_guard
 from api.services.url_guard import (
     REASON_ATS_HOST,
+    REASON_CONTENT_ENCODING,
     REASON_CROSS_HOST,
     REASON_DEADLINE,
     REASON_DNS,
@@ -37,6 +43,7 @@ from api.services.url_guard import (
     UrlGuardError,
     assert_ats_api_host,
     guarded_get,
+    normalize_public_url,
     validate_public_url,
 )
 
@@ -788,3 +795,493 @@ async def test_redirect_without_location_is_terminal(public_dns) -> None:
     assert response.status_code == 302
     assert hops == ("https://dead.example/",)
     assert len(counter.calls) == 1
+
+
+# ----------------------------------------------------------------------------
+# The address predicate — the six-flag union is NOT redundant with is_global
+# ----------------------------------------------------------------------------
+
+# Every address that a `not ip.is_global`-only predicate approves and the
+# PLAN §1.2 six-flag union rejects. Enumerated by sweeping one representative
+# address per IPv4 /8 plus a wide IPv6 sample: 52 hits, 49 distinct, and **zero**
+# addresses in the other direction. `_is_public_address` therefore runs both, and
+# `_DENY_NETWORKS` behind them; this table is the guard against a third attempt
+# at "``is_global`` subsumes the flags".
+_IPV4_MULTICAST = [f"{octet}.0.0.1" for octet in range(224, 240)] + [
+    f"{octet}.255.255.254" for octet in range(224, 240)
+]
+IS_GLOBAL_ONLY_HOLES: list[str] = sorted(
+    {
+        *_IPV4_MULTICAST,
+        "224.0.0.251",          # mDNS
+        "239.255.255.250",      # SSDP
+        "233.1.2.3",
+        "::127.0.0.1",          # RFC 4291 IPv4-compatible loopback
+        "::169.254.169.254",    # ...and the metadata service
+        "::10.0.0.1",
+        "::ffff:0:127.0.0.1",           # RFC 2765 IPv4-translated
+        "::ffff:0:169.254.169.254",
+        "64:ff9b::127.0.0.1",           # RFC 6052 NAT64
+        "64:ff9b::a9fe:a9fe",
+        "5f00::1",
+        "0200::1",
+        "ff01::1",
+        "ff02::1",
+        "ff02::fb",
+        "ff05::1",
+        "ff0e::1",
+    }
+)
+
+
+def test_the_is_global_hole_table_is_the_measured_one() -> None:
+    """Pin the table's size so a silent edit cannot shrink the coverage."""
+    assert len(IS_GLOBAL_ONLY_HOLES) == 49
+
+
+@pytest.mark.parametrize("address", IS_GLOBAL_ONLY_HOLES)
+def test_is_global_only_holes_are_rejected(
+    address: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """🔴 Each of these has ``is_global=True`` and is still not somewhere we go."""
+    import ipaddress
+
+    assert ipaddress.ip_address(address).is_global, (
+        f"{address} no longer belongs in this table"
+    )
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **k: _addrinfo(address))
+    with pytest.raises(UrlGuardError) as exc:
+        validate_public_url("https://looks-fine.example/")
+    assert exc.value.reason == REASON_PRIVATE_ADDRESS
+
+
+@pytest.mark.parametrize(
+    "address",
+    [
+        "100.64.1.1",      # RFC 6598 CGNAT — every flag False, is_global False
+        "192.88.99.1",     # RFC 3068 6to4 relay — every flag False, is_global TRUE
+    ],
+)
+def test_the_deny_table_still_catches_what_the_flags_miss(
+    address: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The other direction: restoring the flag union must not drop these two."""
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **k: _addrinfo(address))
+    with pytest.raises(UrlGuardError) as exc:
+        validate_public_url("https://looks-fine.example/")
+    assert exc.value.reason == REASON_PRIVATE_ADDRESS
+
+
+# ----------------------------------------------------------------------------
+# IP literals hidden behind IDNA normalization
+# ----------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "hostname,normalizes_to",
+    [
+        ("⑧.⑧.⑧.⑧", "8.8.8.8"),
+        ("①②⑦.0.0.1", "127.0.0.1"),
+        ("①⑥⑨.254.169.254", "169.254.169.254"),
+    ],
+)
+def test_a_unicode_spelled_ip_literal_is_still_an_ip_literal(
+    hostname: str, normalizes_to: str, public_dns
+) -> None:
+    """🔴 The literal ban ran on the RAW hostname; IDNA's NFKC mapping ran after.
+
+    ``https://⑧.⑧.⑧.⑧/`` was therefore approved and fetched as ``8.8.8.8`` — and
+    with the multicast hole above, ``https://②②④.0.0.1/`` reached multicast.
+    """
+    # Sanity: the normalization really does produce an address.
+    assert hostname.encode("idna").decode("ascii") == normalizes_to
+    with pytest.raises(UrlGuardError) as exc:
+        validate_public_url(f"https://{hostname}/")
+    assert exc.value.reason == REASON_HOSTNAME
+    assert "IP literals" in str(exc.value)
+
+
+# ----------------------------------------------------------------------------
+# assert_ats_api_host — port and userinfo
+# ----------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "url,expected_reason",
+    [
+        # The hostname of this URL IS the allowlisted host; the fetch is not.
+        ("https://evil.tld@boards-api.greenhouse.io/v1/boards/acme/jobs", REASON_USERINFO),
+        ("https://u:p@boards-api.greenhouse.io/v1/boards/acme/jobs", REASON_USERINFO),
+        ("https://boards-api.greenhouse.io:22/v1/boards/acme/jobs", REASON_PORT),
+        ("https://boards-api.greenhouse.io:8080/v1/boards/acme/jobs", REASON_PORT),
+    ],
+)
+def test_ats_host_assertion_checks_port_and_userinfo(
+    url: str, expected_reason: str
+) -> None:
+    """🔴 Host-only was not enough for the boundary PR 2/PR 3 are told to reuse."""
+    with pytest.raises(UrlGuardError) as exc:
+        assert_ats_api_host("greenhouse", url)
+    assert exc.value.reason == expected_reason
+
+
+def test_ats_host_assertion_still_accepts_the_real_probe_url() -> None:
+    assert_ats_api_host(
+        "greenhouse", "https://boards-api.greenhouse.io/v1/boards/acme/jobs"
+    )
+    assert_ats_api_host("greenhouse", "https://boards-api.greenhouse.io:443/x")
+
+
+# ----------------------------------------------------------------------------
+# Response-side compression — Accept-Encoding never enforced anything
+# ----------------------------------------------------------------------------
+
+# 16 MiB of zeros: ~16 KB on the wire, four orders of magnitude over any cap
+# used here. The point is the ratio, not the absolute size.
+_BOMB_DECODED_BYTES = 16 * 1024 * 1024
+
+
+def _gzip_bomb_stream(chunk_size: int = 16 * 1024) -> tuple[AsyncIterator[bytes], list[int]]:
+    """A streamed gzip bomb plus a mutable counter of how many chunks were pulled."""
+    payload = gzip.compress(b"\0" * _BOMB_DECODED_BYTES, 9)
+    pulls: list[int] = []
+
+    async def body() -> AsyncIterator[bytes]:
+        for offset in range(0, len(payload), chunk_size):
+            pulls.append(offset)
+            yield payload[offset : offset + chunk_size]
+
+    return body(), pulls
+
+
+@pytest.mark.asyncio
+async def test_a_server_that_ignores_identity_and_gzips_anyway_is_refused(
+    public_dns,
+) -> None:
+    """🔴 C1. ``Accept-Encoding: identity`` is a *request* header and enforces nothing.
+
+    A hostile origin answers ``Content-Encoding: gzip`` regardless and httpx
+    decodes on the response header, so the "decoded bytes" cap was measured
+    handing the loop a single 67 MB chunk from a 509 KB wire body — RSS 47 MB →
+    181 MB for one ``/resolve`` worth of discovery. The response is now refused
+    on its headers, before a single body byte is pulled.
+    """
+    stream, pulls = _gzip_bomb_stream()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers.get("accept-encoding") == "identity"
+        return httpx.Response(
+            200, headers={"content-encoding": "gzip"}, content=stream
+        )
+
+    counter = _CountingTransport(handler)
+    async with counter.client() as client:
+        with pytest.raises(UrlGuardError) as exc:
+            await guarded_get(
+                "https://hostile.example/",
+                client,
+                max_bytes=1024,
+                headers={"Accept-Encoding": "identity"},
+            )
+
+    assert exc.value.reason == REASON_CONTENT_ENCODING
+    assert exc.value.hops == ("https://hostile.example/",)
+    assert pulls == [], f"body bytes were read before the refusal: {len(pulls)} chunks"
+
+
+@pytest.mark.asyncio
+async def test_the_cap_still_holds_when_compression_is_deliberately_allowed(
+    public_dns,
+) -> None:
+    """🔴 C1, layer two. The bound must not depend on the header check being there.
+
+    ``allow_compressed=True`` is the relaxation PR 2's recipe runtime would want.
+    With it, we decompress ourselves through ``decompressobj(max_length=…)``, so
+    16 MiB of decoded zeros still costs at most ``max_bytes`` — and we stop
+    pulling raw chunks too.
+    """
+    stream, pulls = _gzip_bomb_stream()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, headers={"content-encoding": "gzip"}, content=stream
+        )
+
+    counter = _CountingTransport(handler)
+    async with counter.client() as client:
+        response, _ = await guarded_get(
+            "https://hostile.example/",
+            client,
+            max_bytes=1024,
+            allow_compressed=True,
+        )
+
+    assert len(response.content) == 1024
+    assert response.content == b"\0" * 1024
+    assert len(pulls) <= 2, f"kept pulling raw chunks past the cap: {len(pulls)}"
+
+
+@pytest.mark.asyncio
+async def test_a_bounded_decompression_never_materialises_the_whole_body(
+    public_dns,
+) -> None:
+    """🔴 C1, layer two, measured rather than asserted.
+
+    The distinction the reviewer's finding turns on is invisible to a
+    length check: ``aiter_bytes()`` reaches the same 1 KiB answer *after*
+    allocating the entire decoded body, because httpx's decoder hands the loop
+    an already-materialised chunk. ``decompressobj(max_length=…)`` over
+    ``aiter_raw()`` never allocates it in the first place. Peak traced
+    allocation is the only thing that tells the two apart — which is exactly the
+    RSS measurement (47 MB → 181 MB) that opened the finding.
+    """
+    stream, _ = _gzip_bomb_stream()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, headers={"content-encoding": "gzip"}, content=stream
+        )
+
+    counter = _CountingTransport(handler)
+    tracemalloc.start()
+    try:
+        async with counter.client() as client:
+            response, _ = await guarded_get(
+                "https://hostile.example/",
+                client,
+                max_bytes=1024,
+                allow_compressed=True,
+            )
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+
+    assert len(response.content) == 1024
+    # A quarter of the decoded size is a 4× margin over the "it decoded the lot"
+    # outcome and ~40× over what the bounded path actually costs.
+    assert peak < _BOMB_DECODED_BYTES // 4, (
+        f"peaked at {peak:,} bytes to keep 1 KiB of a "
+        f"{_BOMB_DECODED_BYTES:,}-byte body"
+    )
+
+
+@pytest.mark.asyncio
+async def test_an_encoding_we_cannot_bound_is_refused_even_when_allowed(
+    public_dns,
+) -> None:
+    """``br``/``zstd`` have no bounded decoder here, so they are a refusal, not a guess."""
+
+    async def body() -> AsyncIterator[bytes]:
+        yield b"\x00"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, headers={"content-encoding": "br"}, content=body())
+
+    counter = _CountingTransport(handler)
+    async with counter.client() as client:
+        with pytest.raises(UrlGuardError) as exc:
+            await guarded_get("https://brotli.example/", client, allow_compressed=True)
+
+    assert exc.value.reason == REASON_CONTENT_ENCODING
+
+
+@pytest.mark.asyncio
+async def test_an_identity_response_is_read_normally(public_dns) -> None:
+    """The common case: no Content-Encoding header at all is not a rejection."""
+    counter = _CountingTransport(
+        lambda r: httpx.Response(200, headers={"content-encoding": "identity"}, text="ok")
+    )
+    async with counter.client() as client:
+        response, _ = await guarded_get("https://plain.example/", client)
+
+    assert response.status_code == 200
+    assert response.text == "ok"
+
+
+@pytest.mark.asyncio
+async def test_a_head_response_may_echo_an_encoding_without_being_refused(
+    public_dns,
+) -> None:
+    """HEAD carries no body, so its ``Content-Encoding`` is a claim about a GET.
+
+    Real origins echo it. Refusing there would break ``follow_to_ats``'s cheap
+    HEAD chain — the thing that makes Intel resolve — for no memory benefit.
+    """
+    counter = _CountingTransport(
+        lambda r: httpx.Response(200, headers={"content-encoding": "gzip"})
+    )
+    async with counter.client() as client:
+        response, hops = await guarded_get(
+            "https://head.example/", client, method="HEAD"
+        )
+
+    assert response.status_code == 200
+    assert response.content == b""
+    assert hops == ("https://head.example/",)
+
+
+@pytest.mark.asyncio
+async def test_read_bounded_body_checks_before_it_appends(public_dns) -> None:
+    """🔴 I3. The retained buffer never exceeds the cap, even for one huge chunk.
+
+    ``_bounded_json``'s loop did ``body.extend(chunk)`` and then compared, so the
+    bytearray was 67,200,488 bytes long at the moment the 4 MiB cap "fired".
+    """
+
+    async def body() -> AsyncIterator[bytes]:
+        yield b"x" * 100_000
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=body())
+
+    counter = _CountingTransport(handler)
+    async with counter.client() as client:
+        async with client.stream("GET", "https://big.example/") as response:
+            content, truncated = await url_guard.read_bounded_body(response, 1000)
+
+    assert len(content) == 1000
+    assert truncated is True
+
+
+@pytest.mark.asyncio
+async def test_read_bounded_body_reports_a_body_that_fits_as_untruncated(
+    public_dns,
+) -> None:
+    async def body() -> AsyncIterator[bytes]:
+        yield b"x" * 1000
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=body())
+
+    counter = _CountingTransport(handler)
+    async with counter.client() as client:
+        async with client.stream("GET", "https://exact.example/") as response:
+            content, truncated = await url_guard.read_bounded_body(response, 1000)
+
+    assert content == b"x" * 1000
+    assert truncated is False
+
+
+def test_the_gzip_bomb_is_actually_a_bomb() -> None:
+    """Guard the guard: if this ratio ever collapses the tests above prove nothing."""
+    wire = len(gzip.compress(b"\0" * _BOMB_DECODED_BYTES, 9))
+    assert _BOMB_DECODED_BYTES / wire > 100
+    # And the decompressor really is bounded by ``max_length``.
+    decompressor = zlib.decompressobj(16 + zlib.MAX_WBITS)
+    out = decompressor.decompress(gzip.compress(b"\0" * _BOMB_DECODED_BYTES, 9), 64)
+    assert len(out) == 64
+
+
+# ----------------------------------------------------------------------------
+# The DNS thread pool
+# ----------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_dns_runs_off_the_shared_default_executor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 I2. ``asyncio.to_thread`` puts the blocking lookup on the SHARED pool.
+
+    That pool is also what ``loop.getaddrinfo`` — and therefore every outbound
+    httpx connection in this process, including the in-process Procrastinate
+    worker's — draws its threads from. Cancelling a ``to_thread`` does not
+    interrupt the thread, so the resolve endpoint's ``wait_for`` backstop
+    reclaims nothing: measured, 18 concurrent hostile-DNS resolves exhausted the
+    16-worker default pool and a co-tenant lookup was still unserved after 8 s.
+    """
+    resolver_threads: list[str] = []
+
+    def fake(host, port, *args, **kwargs):
+        resolver_threads.append(threading.current_thread().name)
+        return _addrinfo("93.184.216.34")
+
+    monkeypatch.setattr(socket, "getaddrinfo", fake)
+
+    default_pool_threads: list[str] = []
+
+    def note_default_thread() -> None:
+        default_pool_threads.append(threading.current_thread().name)
+
+    # Force the loop's default executor into existence and learn its thread names.
+    for _ in range(4):
+        await asyncio.to_thread(note_default_thread)
+
+    counter = _CountingTransport(lambda r: httpx.Response(200, text="ok"))
+    async with counter.client() as client:
+        await guarded_get("https://ok.example/", client)
+
+    assert resolver_threads, "getaddrinfo was never called"
+    assert all(
+        name.startswith("url-guard-dns") for name in resolver_threads
+    ), resolver_threads
+    assert not set(resolver_threads) & set(default_pool_threads)
+
+
+def test_the_dns_pool_is_small_enough_to_bound_the_blast_radius() -> None:
+    """A dedicated pool only helps if it is dedicated *and* capped."""
+    assert url_guard._DNS_EXECUTOR_MAX_WORKERS == 4
+    assert url_guard._DNS_EXECUTOR._max_workers == url_guard._DNS_EXECUTOR_MAX_WORKERS
+
+
+# ----------------------------------------------------------------------------
+# The deadline floor
+# ----------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_sliver_of_budget_is_deadline_exceeded_not_a_transport_timeout(
+    public_dns,
+) -> None:
+    """🔴 M6. ``min(timeout, left)`` with 0.05 s left is a ``ReadTimeout``.
+
+    That surfaces as ``fetch_failed``, which misnames the failure *and* defeats
+    ``sniff_embedded_ats``'s ``REASON_DEADLINE`` short-circuit, so the remaining
+    three sub-path guesses each burn another doomed request.
+    """
+    counter, client = _exploding_client()
+    async with client:
+        with pytest.raises(UrlGuardError) as exc:
+            await guarded_get(
+                "https://ok.example/",
+                client,
+                timeout=30.0,
+                deadline=time.monotonic() + 0.05,
+            )
+
+    assert exc.value.reason == REASON_DEADLINE
+    assert counter.calls == [], "a request was issued on a budget that cannot fund it"
+
+
+@pytest.mark.asyncio
+async def test_a_budget_above_the_floor_still_issues_the_request(public_dns) -> None:
+    """The floor must not swallow a small-but-workable budget."""
+    counter = _CountingTransport(lambda r: httpx.Response(200, text="ok"))
+    async with counter.client() as client:
+        response, _ = await guarded_get(
+            "https://ok.example/",
+            client,
+            timeout=30.0,
+            deadline=time.monotonic() + url_guard._MIN_HOP_BUDGET_S + 1.0,
+        )
+
+    assert response.status_code == 200
+    assert len(counter.calls) == 1
+
+
+# ----------------------------------------------------------------------------
+# normalize_public_url — the shared, IO-free half of validate_public_url
+# ----------------------------------------------------------------------------
+
+
+def test_normalize_public_url_performs_no_dns(exploding_dns) -> None:
+    normalized, host = normalize_public_url("https://JOBS.INTEL.COM/careers#frag")
+    assert normalized == "https://jobs.intel.com/careers"
+    assert host == "jobs.intel.com"
+
+
+def test_normalize_public_url_applies_the_same_rejections(exploding_dns) -> None:
+    for url, reason in REJECTION_TABLE:
+        with pytest.raises(UrlGuardError) as exc:
+            normalize_public_url(url)
+        assert exc.value.reason == reason, url

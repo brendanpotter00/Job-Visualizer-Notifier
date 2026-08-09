@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 from psycopg2 import sql
 
 from api.config import settings
+from api.services.rate_limit import resolve_rate_limiter
 
 INTEL_REDIRECTOR = (
     "https://corpredirect.intel.com/Redirector/404Redirector.aspx"
@@ -44,6 +45,14 @@ def public_dns(monkeypatch: pytest.MonkeyPatch):
 def feature_enabled(monkeypatch: pytest.MonkeyPatch):
     """Default the flag ON so each test states its own intent; 503 test flips it off."""
     monkeypatch.setattr(settings, "custom_company_sources_enabled", True)
+
+
+@pytest.fixture(autouse=True)
+def fresh_rate_limit():
+    """The resolve limiter is a process-wide singleton; don't leak hits between tests."""
+    resolve_rate_limiter.reset()
+    yield
+    resolve_rate_limiter.reset()
 
 
 def _company_count(db_conn) -> int:
@@ -423,3 +432,142 @@ def test_get_companies_still_works(client, db_conn) -> None:
     resp = client.get("/api/companies")
     assert resp.status_code == 200
     assert resp.json() == {"companies": []}
+
+
+# ----------------------------------------------------------------------------
+# Rate limit
+# ----------------------------------------------------------------------------
+
+
+def test_one_user_cannot_resolve_without_limit(
+    client, db_conn, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """🔴 I2/M5. One call is up to ~36 outbound requests and a DNS-pool slot.
+
+    ``url_guard``'s DNS work now runs on a dedicated 4-thread pool instead of the
+    loop's shared default executor, which bounds the damage to this module —
+    ``POST /resolve`` still has to bound how fast one authenticated caller can
+    fill even those four. There was no limit at all.
+    """
+    before = _company_count(db_conn)
+    monkeypatch.setattr(resolve_rate_limiter, "_max", 3)
+    _install_transport(monkeypatch, lambda r: httpx.Response(404))
+
+    codes = [
+        client.post(RESOLVE, json={"url": "https://nothing.example/careers"}).status_code
+        for _ in range(4)
+    ]
+
+    assert codes[:3] == [422, 422, 422], codes
+    assert codes[3] == 429, codes
+    assert _company_count(db_conn) == before
+
+
+def test_the_rate_limit_response_says_when_to_retry(
+    client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(resolve_rate_limiter, "_max", 1)
+    _install_transport(monkeypatch, lambda r: httpx.Response(404))
+
+    client.post(RESOLVE, json={"url": "https://nothing.example/careers"})
+    resp = client.post(RESOLVE, json={"url": "https://nothing.example/careers"})
+
+    assert resp.status_code == 429
+    assert int(resp.headers["retry-after"]) >= 1
+
+
+def test_the_rate_limit_settings_are_pinned() -> None:
+    """Same reasoning as the feature flag: ``extra="ignore"`` hides a typo'd name."""
+    fields = type(settings).model_fields
+    assert fields["resolve_rate_limit_max"].default == 10
+    assert fields["resolve_rate_limit_window_seconds"].default == 60
+
+
+def test_the_rate_limit_is_not_checked_before_the_feature_flag(
+    client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With the feature off the route must still be a clean 503, not a 429."""
+    monkeypatch.setattr(settings, "custom_company_sources_enabled", False)
+    monkeypatch.setattr(resolve_rate_limiter, "_max", 1)
+
+    for _ in range(3):
+        resp = client.post(RESOLVE, json={"url": "https://jobs.intel.com"})
+        assert resp.status_code == 503
+
+
+# ----------------------------------------------------------------------------
+# What the 422 body echoes back
+# ----------------------------------------------------------------------------
+
+
+def test_the_timeout_422_reports_a_normalized_final_url(
+    client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The timeout branch echoed the raw request body; every other 422 does not."""
+    monkeypatch.setattr("api.routers.companies._RESOLVE_BUDGET_S", 0.05)
+    monkeypatch.setattr("api.routers.companies._RESOLVE_GRACE_S", 0.05)
+
+    async def ignores_the_deadline(url, http, *, deadline=None):
+        await asyncio.sleep(30)
+        raise AssertionError("should have been cancelled")
+
+    monkeypatch.setattr("api.routers.companies.discover_ats", ignores_the_deadline)
+    _install_transport(monkeypatch, lambda r: httpx.Response(200, text="x"))
+
+    resp = client.post(
+        RESOLVE, json={"url": "https://JOBS.INTEL.COM/careers#fragment"}
+    )
+
+    assert resp.status_code == 422
+    body = resp.json()
+    assert body["reason"] == "deadline_exceeded"
+    assert body["finalUrl"] == "https://jobs.intel.com/careers"
+
+
+def test_an_unnormalizable_url_on_the_timeout_path_is_echoed_unchanged(
+    client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fallback: if the guard cannot even spell the URL, the input is all we have."""
+    monkeypatch.setattr("api.routers.companies._RESOLVE_BUDGET_S", 0.05)
+    monkeypatch.setattr("api.routers.companies._RESOLVE_GRACE_S", 0.05)
+
+    async def ignores_the_deadline(url, http, *, deadline=None):
+        await asyncio.sleep(30)
+        raise AssertionError("should have been cancelled")
+
+    monkeypatch.setattr("api.routers.companies.discover_ats", ignores_the_deadline)
+    _install_transport(monkeypatch, lambda r: httpx.Response(200, text="x"))
+
+    resp = client.post(RESOLVE, json={"url": "https://a]b.com/careers"})
+
+    assert resp.status_code == 422
+    assert resp.json()["finalUrl"] == "https://a]b.com/careers"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        # 🔴 C2. Each of these produced a candidate whose probe URL httpx refused
+        # to build, and ``httpx.InvalidURL`` is not an ``httpx.HTTPError`` — so the
+        # endpoint answered 500 with no reason code and no audit row.
+        "https://boards.greenhouse.io/\x00x",
+        "https://jobs.lever.co/\x00x",
+        "https://acme.wd1.myworkdayjobs.com/\x00x",
+        "https://boards.greenhouse.io/ x",
+        "https://boards.greenhouse.io/..",
+        "https://acme.wd1.myworkdayjobs.com/..",
+    ],
+)
+def test_a_hostile_url_is_a_422_never_a_500(
+    url: str, client, db_conn, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    before = _company_count(db_conn)
+    _install_transport(
+        monkeypatch, lambda r: httpx.Response(200, text="<html>nothing</html>")
+    )
+
+    resp = client.post(RESOLVE, json={"url": url})
+
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["reason"]
+    assert _company_count(db_conn) == before

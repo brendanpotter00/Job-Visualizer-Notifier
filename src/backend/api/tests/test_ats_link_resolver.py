@@ -415,3 +415,59 @@ def test_import_guard_would_actually_catch_a_leak() -> None:
     """Negative control: the guard must fail when a forbidden module IS loaded."""
     leaked = _import_in_subprocess("json, anthropic")
     assert "anthropic" in leaked
+
+
+# ----------------------------------------------------------------------------
+# Token shape — the value is interpolated into an ATS API path and persisted
+# ----------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        # 🔴 M2. ``..`` as the ordinary path-segment token. ``_probe_url`` builds
+        # ``https://boards-api.greenhouse.io/v1/boards/../jobs``, which httpx
+        # normalizes to ``https://boards-api.greenhouse.io/v1/jobs`` — a different
+        # endpoint on the pinned host, reached with a "board token" of ``..``.
+        "https://boards.greenhouse.io/..",
+        "https://boards.greenhouse.io/../../etc/passwd",
+        "https://boards.greenhouse.io/%2e%2e%2f%2e%2e",
+        "https://boards.greenhouse.io/..%2f..%2fv1%2fboards%2fvictim%2fjobs",
+        "https://jobs.lever.co/..",
+        "https://jobs.gem.com/../../",
+        "https://jobs.ashbyhq.com/..;/x",
+        # Workday's career_site_slug is taken verbatim into
+        # ``/wday/cxs/<tenant>/<slug>/jobs`` and gets the same treatment.
+        "https://acme.wd1.myworkdayjobs.com/..",
+        "https://acme.wd1.myworkdayjobs.com/%2e%2e%2f%2e%2e",
+        # Characters httpx refuses to put in a URL at all — these used to escape
+        # ``probe_candidate`` as an uncaught ``httpx.InvalidURL`` (HTTP 500).
+        "https://boards.greenhouse.io/\x00x",
+        "https://jobs.lever.co/a b",
+        "https://boards.greenhouse.io/\r\nX-Evil: 1",
+        # A board token is one short word, not three kilobytes of path.
+        "https://boards.greenhouse.io/" + "A" * 3000,
+        "https://jobs.ashbyhq.com/" + "a" * 101,
+        "https://acme.wd1.myworkdayjobs.com/" + "A" * 3000,
+        "https://boards.greenhouse.io/embed/job_board?for=" + "A" * 3000,
+    ],
+)
+def test_a_token_that_is_not_token_shaped_is_not_a_board(url: str) -> None:
+    """🔴 M2. Only ``?for=`` was shape-checked; the path-segment token was verbatim."""
+    assert resolve_ats_url(url) is None
+
+
+@pytest.mark.parametrize(
+    "url,expected_token",
+    [
+        # The cap is generous: every real value is far inside it.
+        ("https://jobs.ashbyhq.com/" + "a" * 100, "a" * 100),
+        ("https://boards.greenhouse.io/general_motors-2024", "general_motors-2024"),
+    ],
+)
+def test_the_token_cap_does_not_bite_a_realistic_token(
+    url: str, expected_token: str
+) -> None:
+    candidate = resolve_ats_url(url)
+    assert candidate is not None
+    assert candidate.board_token == expected_token

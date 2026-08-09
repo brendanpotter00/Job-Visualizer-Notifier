@@ -15,8 +15,10 @@ two headline cases replay the *real* chains captured live on 2026-08-05:
 from __future__ import annotations
 
 import asyncio
+import gzip
 import socket
 import time
+from typing import AsyncIterator, Callable
 
 import httpx
 import pytest
@@ -30,6 +32,7 @@ from api.services.ats_discovery import (
     sniff_embedded_ats,
 )
 from api.services.ats_link_resolver import AtsCandidate
+from api.services.url_guard import REASON_CONTENT_ENCODING
 
 INTEL_REDIRECTOR = (
     "https://corpredirect.intel.com/Redirector/404Redirector.aspx"
@@ -805,3 +808,192 @@ async def test_probe_rejects_a_workday_payload_without_a_total() -> None:
     assert result.ok is False
     assert result.error is not None
     assert "total" in result.error
+
+
+# ----------------------------------------------------------------------------
+# A hostile origin that ignores Accept-Encoding
+# ----------------------------------------------------------------------------
+
+# 16 MiB of zeros, ~16 KB on the wire. Four orders of magnitude over the caps
+# used below — the ratio is the point, not the size.
+_BOMB_DECODED_BYTES = 16 * 1024 * 1024
+
+
+def _gzip_bomb_body() -> tuple[Callable[[], AsyncIterator[bytes]], list[int]]:
+    """A fresh streamed gzip bomb per request, plus a shared pull counter."""
+    payload = gzip.compress(b"\0" * _BOMB_DECODED_BYTES, 9)
+    pulls: list[int] = []
+
+    def factory() -> AsyncIterator[bytes]:
+        async def body() -> AsyncIterator[bytes]:
+            for offset in range(0, len(payload), 16 * 1024):
+                pulls.append(offset)
+                yield payload[offset : offset + 16 * 1024]
+
+        return body()
+
+    return factory, pulls
+
+
+@pytest.mark.asyncio
+async def test_a_sniff_of_a_host_that_gzips_despite_identity_reads_nothing() -> None:
+    """🔴 C1, end to end through the layer that actually runs 4 GETs.
+
+    ``Accept-Encoding: identity`` is a request header. Measured against the real
+    ``discover_ats`` before this fix: a 500 MiB gzip of zeros (509,616 bytes on
+    the wire) took RSS from 46.9 MB to 181.8 MB for ONE ``/resolve`` worth of
+    discovery, with a single decoded chunk of 67 MB. Nothing in the suite covered
+    a server that ignores the header — which was the entire gap.
+    """
+    factory, pulls = _gzip_bomb_body()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers.get("accept-encoding") == "identity"
+        if request.method == "HEAD":
+            return httpx.Response(200, headers={"content-type": "text/html"})
+        return httpx.Response(
+            200, headers={"content-encoding": "gzip"}, content=factory()
+        )
+
+    recorder = _Recorder(handler)
+    async with recorder.client() as http:
+        result = await sniff_embedded_ats("https://hostile.example/careers", http)
+
+    assert result.candidate is None
+    assert result.reason == REASON_CONTENT_ENCODING
+    assert pulls == [], f"decoded {len(pulls)} chunks of the bomb before refusing"
+
+
+@pytest.mark.asyncio
+async def test_discover_ats_refuses_a_gzip_bomb_rather_than_decoding_it() -> None:
+    """The same thing through the full ladder — the shape the RSS was measured on.
+
+    ``discover_ats`` deliberately collapses a sniff's per-sub-path reason to
+    ``no_ats_detected`` (only ``deadline_exceeded`` survives), so the assertion
+    here is the one that matters end to end: not one byte of the bomb was read
+    across all four sniff targets.
+    """
+    factory, pulls = _gzip_bomb_body()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "HEAD":
+            return httpx.Response(200, headers={"content-type": "text/html"})
+        return httpx.Response(
+            200, headers={"content-encoding": "gzip"}, content=factory()
+        )
+
+    recorder = _Recorder(handler)
+    async with recorder.client() as http:
+        result = await discover_ats("https://hostile.example/careers", http)
+
+    assert result.candidate is None
+    assert pulls == []
+
+
+@pytest.mark.asyncio
+async def test_a_gzip_bomb_on_the_L1_get_fallback_keeps_its_reason() -> None:
+    """When L1 is what hits it, the reason is not collapsed and L2 never runs."""
+    factory, pulls = _gzip_bomb_body()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "HEAD":
+            return httpx.Response(405)
+        return httpx.Response(
+            200, headers={"content-encoding": "gzip"}, content=factory()
+        )
+
+    recorder = _Recorder(handler)
+    async with recorder.client() as http:
+        result = await discover_ats("https://hostile.example/careers", http)
+
+    assert result.candidate is None
+    assert result.reason == REASON_CONTENT_ENCODING
+    assert pulls == []
+
+
+@pytest.mark.asyncio
+async def test_a_probe_host_that_gzips_despite_identity_reads_nothing() -> None:
+    """🔴 C1 + I3 on the probe path.
+
+    ``_bounded_json`` did ``body.extend(chunk)`` and *then* compared against the
+    4 MiB cap, so the bytearray was 67,200,488 bytes long at the moment the cap
+    fired. Now the encoding is refused on the response header and the body is
+    never pulled.
+    """
+    factory, pulls = _gzip_bomb_body()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, headers={"content-encoding": "gzip"}, content=factory()
+        )
+
+    recorder = _Recorder(handler)
+    async with recorder.client() as http:
+        result = await probe_candidate(INTEL_CANDIDATE, http)
+
+    assert result.ok is False
+    assert result.error is not None
+    assert "Content-Encoding" in result.error
+    assert pulls == []
+
+
+# ----------------------------------------------------------------------------
+# probe_candidate must never raise
+# ----------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "candidate",
+    [
+        # 🔴 C2. ``httpx.InvalidURL`` subclasses ``Exception``, not
+        # ``httpx.HTTPError``, so it escaped the except tuple as an HTTP 500 with
+        # no reason code and no audit row. ``ats_link_resolver`` now rejects these
+        # shapes too, but ``probe_candidate`` is also called by PR 3 on values read
+        # back out of the database, by code that never saw the URL they came from.
+        AtsCandidate("greenhouse", "\x00x", {}, "https://boards.greenhouse.io/x"),
+        AtsCandidate("lever", "\x00x", {}, "https://jobs.lever.co/x"),
+        AtsCandidate("ashby", "a\x7fb", {}, "https://jobs.ashbyhq.com/x"),
+        AtsCandidate(
+            "workday",
+            "acme",
+            {
+                "base_url": "https://acme.wd1.myworkdayjobs.com",
+                "tenant_slug": "acme",
+                "career_site_slug": "\x00x",
+            },
+            "https://acme.wd1.myworkdayjobs.com/x",
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_probe_never_raises_on_a_token_httpx_refuses(
+    candidate: AtsCandidate,
+) -> None:
+    """🔴 C2. "Never raises" is the contract; it was not true."""
+    recorder = _Recorder(lambda r: httpx.Response(200, json={"jobs": []}))
+    async with recorder.client() as http:
+        result = await probe_candidate(candidate, http)
+
+    assert result.ok is False
+    assert result.error
+
+
+# ----------------------------------------------------------------------------
+# The last unguarded urlsplit
+# ----------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_an_unparseable_landing_url_is_a_reason_not_a_500() -> None:
+    """``_sniff_urls`` used a bare ``urlsplit``, which raises on ``https://a]b/``."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError(f"no request must be issued; got {request.url}")
+
+    recorder = _Recorder(handler)
+    async with recorder.client() as http:
+        result = await sniff_embedded_ats("https://a]b.com/careers", http)
+
+    assert result.candidate is None
+    assert result.reason == "invalid_hostname"
+    assert recorder.requests == []

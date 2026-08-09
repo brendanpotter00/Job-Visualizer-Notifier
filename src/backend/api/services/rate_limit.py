@@ -98,6 +98,14 @@ feedback_rate_limiter = SlidingWindowRateLimiter(
     window_seconds=settings.feedback_rate_limit_window_seconds,
 )
 
+# ...and for POST /api/companies/resolve, keyed on the authenticated user id
+# rather than an IP (the route requires a Bearer token, so there is a real
+# identity to key on and no reason to accept a spoofable one).
+resolve_rate_limiter = SlidingWindowRateLimiter(
+    max_requests=settings.resolve_rate_limit_max,
+    window_seconds=settings.resolve_rate_limit_window_seconds,
+)
+
 
 def client_ip_from_request(request: Request) -> str:
     """Best-effort client IP for rate-limit keying.
@@ -120,6 +128,27 @@ def client_ip_from_request(request: Request) -> str:
     if request.client and request.client.host:
         return request.client.host
     return "unknown"
+
+
+def enforce_resolve_rate_limit(user_key: str) -> None:
+    """429 when ``user_key`` has exceeded the resolve rate limit.
+
+    A plain function rather than a FastAPI dependency: the key is the
+    authenticated subject, and importing ``auth.dependencies`` here would point
+    a services module at the auth layer for no gain. ``routers/companies.py``
+    already resolves the user and calls this first thing in the handler.
+    """
+    retry_after = resolve_rate_limiter.check(user_key)
+    if retry_after is not None:
+        logger.info("Rate-limited resolve request from %s", user_key)
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                "You're resolving careers URLs too quickly. Please wait a "
+                "moment and try again."
+            ),
+            headers={"Retry-After": str(int(retry_after) + 1)},
+        )
 
 
 def enforce_feedback_rate_limit(request: Request) -> None:

@@ -22,9 +22,9 @@ Three surfaces:
    never used anywhere in this module, because httpx would follow a hop to
    ``169.254.169.254`` without ever handing us the chance to inspect it. Every
    hop is re-validated *before* its request is issued, and the response body is
-   read incrementally and abandoned as soon as ``max_bytes`` decoded bytes have
-   accumulated — see the ``max_bytes`` note in ``guarded_get`` for the exact
-   (narrower than it looks) guarantee that provides.
+   read through ``read_bounded_body``, which bounds **both** the raw bytes taken
+   off the wire and the decoded bytes retained — see that function for why
+   asking for ``Accept-Encoding: identity`` was never a bound at all.
 
 Reason codes
 ------------
@@ -57,6 +57,8 @@ import ipaddress
 import logging
 import socket
 import time
+import zlib
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Union
 from urllib.parse import SplitResult, urlsplit, urlunsplit
@@ -93,6 +95,9 @@ REASON_TOO_MANY_HOPS = "too_many_redirects"
 REASON_CROSS_HOST = "cross_host_redirect"   # only reachable with allow_cross_host=False
 REASON_FETCH_FAILED = "fetch_failed"        # transport-level failure on a validated URL
 REASON_DEADLINE = "deadline_exceeded"       # the caller's overall budget ran out
+# We send ``Accept-Encoding: identity``; a response that is compressed anyway is
+# non-compliant and, more to the point, unbounded. See ``read_bounded_body``.
+REASON_CONTENT_ENCODING = "unexpected_content_encoding"
 
 MAX_HOSTNAME_LENGTH = 253
 
@@ -106,9 +111,16 @@ _REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 _BLOCKED_HOST_SUFFIXES = (".localhost", ".local", ".internal")
 _BLOCKED_HOSTS = frozenset({"localhost"})
 
-# Belt-and-braces nets checked in addition to ``is_global``. ``is_global``
-# already covers all but one of these; listing them explicitly means a future
-# Python release quietly widening ``is_global`` cannot open a hole.
+# Explicit deny list, applied *in addition to* the flag union in
+# ``_is_public_address``. Neither layer subsumes the other — that was measured,
+# not assumed:
+#
+# * ``100.64.0.0/10`` (CGNAT) and ``192.88.99.0/24`` (6to4 relay anycast) have
+#   every ``is_*`` flag False on Python 3.13.3, so only this table rejects them.
+# * ``224.0.0.0/4``, ``ff00::/8``, ``::/96``, ``::ffff:0:0:0/96``, ``64:ff9b::/96``
+#   and ``fec0::/10`` all have ``is_global`` **False** *and* a flag set, so both
+#   layers cover them — deliberately, because each layer has been the only one
+#   standing at some point in this file's history.
 _DENY_NETWORKS: tuple[
     Union[ipaddress.IPv4Network, ipaddress.IPv6Network], ...
 ] = (
@@ -118,17 +130,28 @@ _DENY_NETWORKS: tuple[
     ipaddress.ip_network("127.0.0.0/8"),
     ipaddress.ip_network("169.254.0.0/16"),
     ipaddress.ip_network("172.16.0.0/12"),
-    # RFC 3068 6to4 relay anycast. This is the ONE entry ``is_global`` does not
-    # cover: measured on Python 3.13.3, ``ip_address("192.88.99.1").is_global``
-    # is **True** and every other predicate is False, so this line is the only
-    # thing rejecting it. Do not delete it assuming ``is_global`` subsumes it.
+    # RFC 3068 6to4 relay anycast. Measured on Python 3.13.3,
+    # ``ip_address("192.88.99.1").is_global`` is **True** and every other
+    # predicate is False, so this line is the only thing rejecting it. Do not
+    # delete it assuming another check subsumes it.
     ipaddress.ip_network("192.88.99.0/24"),
     ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("224.0.0.0/4"),      # IPv4 multicast
     ipaddress.ip_network("::1/128"),
     ipaddress.ip_network("::/128"),
+    # RFC 4291 IPv4-compatible IPv6 (``::127.0.0.1``, ``::169.254.169.254``).
+    ipaddress.ip_network("::/96"),
     ipaddress.ip_network("fc00::/7"),
     ipaddress.ip_network("fe80::/10"),
-    ipaddress.ip_network("::ffff:0:0/96"),
+    ipaddress.ip_network("fec0::/10"),        # deprecated site-local
+    ipaddress.ip_network("ff00::/8"),         # IPv6 multicast
+    # RFC 6052 NAT64 — ``64:ff9b::a9fe:a9fe`` is the metadata service behind a
+    # translator, and ``::ffff:0:169.254.169.254`` is the SIIT spelling of the
+    # same thing. Neither is caught by ``_unwrap_mapped`` (which only collapses
+    # the ``::ffff:0:0/96`` mapped form).
+    ipaddress.ip_network("64:ff9b::/96"),
+    ipaddress.ip_network("::ffff:0:0/96"),    # IPv4-mapped
+    ipaddress.ip_network("::ffff:0:0:0/96"),  # RFC 2765 IPv4-translated
 )
 
 _IpAddress = Union[ipaddress.IPv4Address, ipaddress.IPv6Address]
@@ -201,6 +224,15 @@ def assert_ats_api_host(ats: str, url: str) -> None:
     gap and this PR deliberately does not touch that file), so the pattern
     lives here and is applied to user-supplied input only — existing seeded
     rows are unaffected.
+
+    Checks run in the same order as ``validate_public_url`` (scheme, userinfo,
+    port, hostname) and for the same reason: ``parts.hostname`` of
+    ``https://evil.tld@boards-api.greenhouse.io/x`` is the *allowlisted* host,
+    so a host-only check would pass a URL that fetches ``evil.tld``. Neither
+    shape is reachable through today's ``_probe_url``, which builds its URLs
+    from client constants — but this function is billed as the reusable
+    boundary PR 2's recipe runtime and PR 3's add path call with URLs they did
+    not build, so it may not assume its input is well-formed.
     """
     if ats not in SUPPORTED_ATS:
         raise UrlGuardError(
@@ -213,6 +245,20 @@ def assert_ats_api_host(ats: str, url: str) -> None:
         raise UrlGuardError(
             REASON_SCHEME,
             f"{ats} API URL must be https, got {parts.scheme!r} in {url!r}",
+        )
+    if "@" in parts.netloc:
+        raise UrlGuardError(
+            REASON_USERINFO,
+            f"credentials in the URL are not accepted: {url!r}",
+        )
+    try:
+        port = parts.port
+    except ValueError as exc:
+        raise UrlGuardError(REASON_PORT, f"invalid port in {url!r}: {exc}") from exc
+    if port is not None and port != 443:
+        raise UrlGuardError(
+            REASON_PORT,
+            f"only the default https port is accepted; got {port} in {url!r}",
         )
     host = (parts.hostname or "").lower()
     if not host:
@@ -278,20 +324,36 @@ def _unwrap_mapped(ip: _IpAddress) -> _IpAddress:
 def _is_public_address(raw: str) -> bool:
     """True iff ``raw`` parses as an address we are willing to connect to.
 
-    ``is_global`` is the **primary** predicate, not a supplement to the
-    individual ``is_private``/``is_reserved``/… flags: the union of those flags
-    leaves real holes that ``is_global`` closes. Measured on Python 3.13.3,
-    ``100.64.1.1`` (RFC 6598 CGNAT — a carrier's internal space, and on some
-    hosts the container network) has ``is_private=False``, ``is_reserved=False``
-    and every other flag False, so the old flag-union approved it. ``is_global``
-    is False for it. ``_DENY_NETWORKS`` then runs as a second, explicit layer.
+    Three layers, all of them load-bearing, none of them a superset of another:
+
+    1. ``not is_global``. Measured on Python 3.13.3, ``100.64.1.1`` (RFC 6598
+       CGNAT — a carrier's internal space, and on some hosts the container
+       network) has every individual flag False, so the flag union alone
+       approved it.
+    2. The six-flag union PLAN §1.2 specifies verbatim. It is **not** redundant
+       with ``is_global``: replacing the union with ``is_global`` alone was
+       measured to newly approve 52 addresses and newly reject none — all of
+       IPv4 multicast ``224.0.0.0/4``, IPv6 multicast ``ff00::/8``,
+       ``::127.0.0.1``, ``::169.254.169.254``, ``::ffff:0:169.254.169.254``,
+       NAT64 ``64:ff9b::a9fe:a9fe``, ``5f00::1`` and ``0200::1``, every one of
+       which has ``is_global`` **True**.
+    3. ``_DENY_NETWORKS``, the explicit table, so a future Python release
+       quietly widening any predicate cannot open a hole on its own.
     """
     try:
         ip = ipaddress.ip_address(raw)
     except ValueError:
         return False
     ip = _unwrap_mapped(ip)
-    if not ip.is_global:
+    if (
+        not ip.is_global
+        or ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_reserved
+        or ip.is_multicast
+        or ip.is_unspecified
+    ):
         return False
     for net in _DENY_NETWORKS:
         if ip.version == net.version and ip in net:
@@ -322,6 +384,9 @@ def _normalize_hostname(hostname: str) -> str:
       round-trip through ``idna.encode`` below makes the guard agree with the
       transport. ``idna.IDNAError`` subclasses ``UnicodeError``, so the existing
       ``except`` already names it.
+    * **The stdlib codec is IDNA2003**, so it NFKC-maps confusables: ``⑧`` comes
+      out as ``8``. That is *why* ``normalize_public_url`` re-runs the IP-literal
+      check on the value this function returns and not only on the raw hostname.
     """
     hostname = hostname.rstrip(".")
     if not hostname:
@@ -337,13 +402,17 @@ def _normalize_hostname(hostname: str) -> str:
     return host
 
 
-def validate_public_url(url: str) -> GuardedUrl:
-    """Raise :class:`UrlGuardError`, or return the guarded URL.
+def normalize_public_url(url: str) -> tuple[str, str]:
+    """Every check ``validate_public_url`` makes *except* DNS. Pure — no IO.
 
-    Checks run in a fixed order (scheme, userinfo, port, hostname, DNS) so the
-    reason code is deterministic for inputs that fail more than one rule —
-    ``http://localhost:8000/`` reports ``scheme_not_https``, not
-    ``invalid_hostname``. Performs DNS and no other IO.
+    Returns ``(normalized url, IDNA-encoded host)``. Split out of
+    ``validate_public_url`` (which calls it, so there is exactly one
+    implementation and one check order) because two callers need the normalized
+    spelling of a URL without paying for — or being able to reach — a
+    resolution: the resolve endpoint's timeout branch, which must report the
+    same ``finalUrl`` shape as every other 422 rather than echoing the raw user
+    string back, and any future caller that wants to canonicalise before
+    deciding whether to fetch at all.
     """
     if not isinstance(url, str) or not url.strip():
         raise UrlGuardError(REASON_HOSTNAME, "URL is empty")
@@ -385,23 +454,46 @@ def validate_public_url(url: str) -> GuardedUrl:
             f"hostname exceeds {MAX_HOSTNAME_LENGTH} characters",
         )
     # An IP literal skips DNS entirely, so reject it outright rather than
-    # trying to decide which literals are safe.
-    try:
-        ipaddress.ip_address(hostname)
-    except ValueError:
-        pass
-    else:
-        raise UrlGuardError(
-            REASON_HOSTNAME,
-            f"IP literals are not accepted; got {hostname!r}",
-        )
+    # trying to decide which literals are safe. Checked twice, on the raw
+    # hostname and again on the normalized one: ``_normalize_hostname`` runs
+    # IDNA, which NFKC-maps confusables, so ``⑧.⑧.⑧.⑧`` is *not* an IP literal
+    # on the way in and *is* ``8.8.8.8`` on the way out. Only the raw check
+    # existed, so the circled-digit spelling of any address — including
+    # ``①⑥⑨.254.169.254`` — walked straight through.
+    _reject_ip_literal(hostname)
 
     host = _normalize_hostname(hostname)
+    _reject_ip_literal(host)
     if host in _BLOCKED_HOSTS or host.endswith(_BLOCKED_HOST_SUFFIXES):
         raise UrlGuardError(
             REASON_HOSTNAME,
             f"hostname {host!r} names a non-public host",
         )
+
+    return urlunsplit(("https", host, parts.path, parts.query, "")), host
+
+
+def _reject_ip_literal(hostname: str) -> None:
+    """Raise if ``hostname`` parses as an IP address."""
+    try:
+        ipaddress.ip_address(hostname)
+    except ValueError:
+        return
+    raise UrlGuardError(
+        REASON_HOSTNAME,
+        f"IP literals are not accepted; got {hostname!r}",
+    )
+
+
+def validate_public_url(url: str) -> GuardedUrl:
+    """Raise :class:`UrlGuardError`, or return the guarded URL.
+
+    Checks run in a fixed order (scheme, userinfo, port, hostname, DNS) so the
+    reason code is deterministic for inputs that fail more than one rule —
+    ``http://localhost:8000/`` reports ``scheme_not_https``, not
+    ``invalid_hostname``. Performs DNS and no other IO.
+    """
+    normalized, host = normalize_public_url(url)
 
     # 5. DNS — every answer must be public, not just the first.
     try:
@@ -430,7 +522,6 @@ def validate_public_url(url: str) -> GuardedUrl:
             f"{host!r} resolves to non-public address(es) {bad!r}",
         )
 
-    normalized = urlunsplit(("https", host, parts.path, parts.query, ""))
     return GuardedUrl(url=normalized, host=host, resolved_ips=addresses)
 
 
@@ -459,6 +550,131 @@ def _strip_body_headers(headers: httpx.Headers) -> httpx.Headers:
     return out
 
 
+# -----------------------------------------------------------------------------
+# Bounded body reads
+# -----------------------------------------------------------------------------
+
+# ``Content-Encoding`` values that mean "the bytes on the wire are the bytes".
+# An absent header and the explicit ``identity`` token are the same thing.
+_UNCOMPRESSED_ENCODINGS = frozenset({"", "identity"})
+
+# Minimum slice of an overall budget worth starting a request with. Below this
+# the request cannot plausibly complete, and letting it go produces a transport
+# timeout reported as ``fetch_failed`` — which is both the wrong diagnosis and
+# fatal to the ``REASON_DEADLINE`` short-circuit in
+# ``ats_discovery.sniff_embedded_ats``, which stops the remaining sub-path
+# guesses only when it sees ``deadline_exceeded``.
+_MIN_HOP_BUDGET_S = 0.25
+
+
+def _decompressor_for(encoding: str) -> "zlib._Decompress | None":
+    """A streaming decompressor for ``encoding``, or ``None`` if we cannot bound it."""
+    if encoding in ("gzip", "x-gzip"):
+        return zlib.decompressobj(16 + zlib.MAX_WBITS)
+    if encoding == "deflate":
+        return zlib.decompressobj()
+    return None
+
+
+async def read_bounded_body(
+    response: httpx.Response,
+    max_bytes: int,
+    *,
+    allow_compressed: bool = False,
+) -> tuple[bytes, bool]:
+    """Read a streamed response under a real memory bound.
+
+    Returns ``(body, truncated)``. ``body`` is at most ``max_bytes`` decoded
+    bytes; ``truncated`` says whether there was more we chose not to take.
+
+    **Why this is not just a loop over ``aiter_bytes()``.** ``max_bytes`` used to
+    count decoded bytes coming out of ``Response.aiter_bytes()``, which
+    decompresses each raw chunk *before* the caller sees it, and the requests
+    "defended" that by sending ``Accept-Encoding: identity``. That header is a
+    *request*; a hostile origin answers ``Content-Encoding: gzip`` anyway and
+    httpx decodes on the response header. Measured end-to-end through
+    ``ats_discovery.discover_ats``: a 500 MiB gzip of zeros is 509,616 bytes on
+    the wire, the 512 KiB cap was "honoured" — and one ``/resolve`` worth of
+    discovery (4 sniff GETs) took RSS from 47 MB to 181 MB, with a single
+    decoded chunk of 67 MB. There is an OOM incident on file for this container
+    (``docs/incidents/2026-04-09-oom-memory-fragmentation.md``).
+
+    Two independent layers, so neither has to be perfect:
+
+    1. **Reject** a response whose ``Content-Encoding`` is present and not
+       ``identity``. We asked for identity; a compressed reply is non-compliant,
+       and refusing it is free. Verified 2026-08-07 that neither acceptance
+       target (``jobs.intel.com``, ``jobs.cisco.com``, their Workday CXS hosts)
+       compresses a response to an ``identity`` request, so this costs no real
+       traffic.
+    2. **Bound it anyway.** Bytes come off ``aiter_raw()`` — undecoded — and are
+       counted raw; if a caller ever passes ``allow_compressed=True`` (PR 2's
+       recipe runtime is the plausible one, where bandwidth matters), we run the
+       decompressor ourselves with ``max_length=`` so the *output* is bounded
+       too. Raw ≤ ``max_bytes`` and decoded ≤ ``max_bytes``, both enforced.
+    """
+    encoding = response.headers.get("content-encoding", "").strip().lower()
+    compressed = encoding not in _UNCOMPRESSED_ENCODINGS
+    if compressed and not allow_compressed:
+        raise UrlGuardError(
+            REASON_CONTENT_ENCODING,
+            f"response declared Content-Encoding {encoding!r} after we asked "
+            f"for identity; refusing to decode it",
+        )
+
+    # httpx materialises — and decodes — a response constructed from a bytes body
+    # rather than a stream: ``httpx.Response(200, text=...)``, which is every
+    # ``MockTransport`` reply, and anything a caller already read. ``aiter_raw``
+    # raises ``StreamConsumed`` on those, and there is nothing left to bound
+    # because the allocation already happened outside this function. Apply the
+    # same ceiling to what is there and say so.
+    if response.is_stream_consumed:
+        content = response.content
+        return content[:max_bytes], len(content) > max_bytes
+
+    decompressor: "zlib._Decompress | None" = None
+    if compressed:
+        decompressor = _decompressor_for(encoding)
+        if decompressor is None:
+            raise UrlGuardError(
+                REASON_CONTENT_ENCODING,
+                f"Content-Encoding {encoding!r} cannot be decoded under a bound",
+            )
+
+    # One byte of deliberate overshoot: reaching it is how we learn there was
+    # more on the wire without having to ask the transport.
+    limit = max_bytes + 1
+    body = bytearray()
+    raw_seen = 0
+    async for chunk in response.aiter_raw():
+        raw_seen += len(chunk)
+        room = limit - len(body)
+        if decompressor is None:
+            body.extend(chunk[:room])
+        else:
+            body.extend(decompressor.decompress(chunk, max_length=room))
+        if len(body) >= limit or raw_seen > max_bytes:
+            break
+    return bytes(body[:max_bytes]), len(body) > max_bytes or raw_seen > max_bytes
+
+
+# A dedicated pool, deliberately NOT the event loop's default executor.
+# ``asyncio.to_thread`` (and ``run_in_executor(None, ...)``) hand work to the
+# loop's shared default pool — the same pool ``loop.getaddrinfo`` uses for every
+# outbound connection in this process, including the in-process Procrastinate
+# worker's ATS fetches. Cancelling a thread-pool task does **not** interrupt the
+# running thread, so the resolve endpoint's ``asyncio.wait_for`` backstop
+# reclaims nothing: measured, 18 concurrent resolves against a never-answering
+# resolver exhausted the 16-worker default pool and a co-tenant lookup was still
+# unserved 8 s later. Four workers bound the blast radius of a hostile host to
+# this module; the per-user rate limit on ``POST /api/companies/resolve`` bounds
+# how fast one caller can fill even those.
+_DNS_EXECUTOR_MAX_WORKERS = 4
+_DNS_EXECUTOR = ThreadPoolExecutor(
+    max_workers=_DNS_EXECUTOR_MAX_WORKERS, thread_name_prefix="url-guard-dns"
+)
+
+
 async def guarded_get(
     url: str,
     http: httpx.AsyncClient,
@@ -466,6 +682,7 @@ async def guarded_get(
     max_hops: int = 5,
     max_bytes: int = 1_048_576,
     allow_cross_host: bool = True,
+    allow_compressed: bool = False,
     method: str = "GET",
     headers: dict[str, str] | None = None,
     timeout: float = 10.0,
@@ -501,36 +718,45 @@ async def guarded_get(
     ``max_hops`` × ``timeout`` × (number of calls a caller makes) is the real
     worst case — 36 × 8 s ≈ 288 s for one ``/resolve``.
 
-    ``max_bytes`` — read the guarantee carefully
-    --------------------------------------------
-    Chunks are accumulated until ``max_bytes`` **decoded** bytes have arrived,
-    then the stream is abandoned; the returned ``Response.content`` is never
-    larger than ``max_bytes``. That bounds what *we* keep, and for an
-    uncompressed response it also bounds peak allocation.
+    ``max_bytes`` — what is actually enforced
+    -----------------------------------------
+    Both directions, by ``read_bounded_body``: at most ``max_bytes`` **raw**
+    bytes are taken off the wire and at most ``max_bytes`` **decoded** bytes are
+    retained, so the returned ``Response.content`` and the peak allocation are
+    both bounded. With ``allow_compressed=False`` (the default) a response that
+    declares a non-``identity`` ``Content-Encoding`` is refused outright with
+    ``REASON_CONTENT_ENCODING`` before a single body byte is read. The previous
+    contract — "``max_bytes`` decoded bytes, and the requests ask for
+    ``Accept-Encoding: identity``" — bounded nothing: ``Accept-Encoding`` is a
+    request header, and a hostile origin that ignores it turned a 512 KiB cap
+    into a 67 MB allocation. See ``read_bounded_body`` for the measurements.
 
-    It is **not** a peak-memory bound for a compressed response.
-    ``Response.aiter_bytes()`` decompresses each raw chunk *before* yielding it,
-    so the loop below only ever sees already-materialised data. Measured: a
-    ``Content-Encoding: gzip`` body of 500 MiB of zeros arrives in 509,616 wire
-    bytes, the cap is honoured at 524,288 bytes retained — and the largest single
-    decoded chunk handed to the loop was 67,415,144 bytes. Callers that need
-    ``max_bytes`` to be a real memory bound must ask for an identity encoding;
-    ``ats_discovery._DISCOVERY_HEADERS`` and ``_PROBE_HEADERS`` both send
-    ``Accept-Encoding: identity`` for exactly this reason.
+    ``HEAD`` responses carry no body (RFC 9110), so nothing is read and the
+    ``Content-Encoding`` check does not run for them — origins routinely echo
+    the encoding they *would* have used on a ``GET``, and rejecting that would
+    break ``follow_to_ats``'s cheap ``HEAD`` chain for no memory benefit.
     """
     if max_hops < 1:
         raise ValueError("max_hops must be >= 1 (it counts requests, not redirects)")
+    reads_body = method.upper() != "HEAD"
 
     hops: list[str] = []
     current = url
     origin_host: str | None = None
 
+    loop = asyncio.get_running_loop()
+
     for hop_index in range(max_hops):
         left = _remaining(deadline)
-        if left is not None and left <= 0.0:
+        # A sliver of budget is not a budget. Handing 0.05 s to the transport
+        # produces a ``ReadTimeout`` reported as ``fetch_failed``, which both
+        # misdiagnoses the failure and hides ``deadline_exceeded`` from the
+        # short-circuit that stops the remaining sniff sub-paths.
+        if left is not None and left < _MIN_HOP_BUDGET_S:
             raise UrlGuardError(
                 REASON_DEADLINE,
-                f"the overall budget ran out before hop {hop_index + 1} of {url!r}",
+                f"the overall budget ran out before hop {hop_index + 1} of {url!r} "
+                f"({left:.3f}s left, {_MIN_HOP_BUDGET_S}s needed)",
                 hops=tuple(hops),
             )
         hop_timeout = timeout if left is None else min(timeout, left)
@@ -541,7 +767,11 @@ async def guarded_get(
             # measured: the loop ticked 0 times during a 1.0 s lookup. The
             # Procrastinate worker shares this process, so a slow-resolving
             # user-supplied host would stall every in-flight ATS fetch task.
-            guarded = await asyncio.to_thread(validate_public_url, current)
+            # ``_DNS_EXECUTOR``, not ``asyncio.to_thread``: see that constant for
+            # why the loop's shared default pool is the wrong place for this.
+            guarded = await loop.run_in_executor(
+                _DNS_EXECUTOR, validate_public_url, current
+            )
         except UrlGuardError as exc:
             # Re-raise carrying the chain so far: "we stopped at hop 2" is the
             # diagnostic, and a bare reason code loses it.
@@ -590,24 +820,26 @@ async def guarded_get(
                     current = str(httpx.URL(guarded.url).join(location))
                     continue
 
-                body = bytearray()
-                async for chunk in response.aiter_bytes():
-                    remaining = max_bytes - len(body)
-                    if remaining <= 0:
-                        break
-                    body.extend(chunk[:remaining])
-                    if len(chunk) > remaining:
-                        break
+                body = b""
+                if reads_body:
+                    body, _ = await read_bounded_body(
+                        response, max_bytes, allow_compressed=allow_compressed
+                    )
 
                 return (
                     httpx.Response(
                         status_code=response.status_code,
                         headers=_strip_body_headers(response.headers),
-                        content=bytes(body),
+                        content=body,
                         request=response.request,
                     ),
                     tuple(hops),
                 )
+        except UrlGuardError as exc:
+            # ``read_bounded_body``'s ``REASON_CONTENT_ENCODING`` (and the
+            # TOO_MANY_HOPS raise above) reach here. Re-raised so the hop chain
+            # travels with them exactly as it does for a pre-request rejection.
+            raise UrlGuardError(exc.reason, str(exc), hops=tuple(hops)) from exc
         except (httpx.HTTPError, httpx.InvalidURL, UnicodeError) as exc:
             # ``UnicodeError`` is not paranoia and not dead code. httpx builds
             # every request host through the ``idna`` package, and

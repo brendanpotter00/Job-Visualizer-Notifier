@@ -458,6 +458,25 @@ written, D1 removed the human review that would otherwise catch a dud, and 12 s 
 well inside the Vercel proxy budget. Deferring the probe would mean writing a row we
 have not confirmed — exactly the 2026-03-29 shape.
 
+> 📌 **Known gap, accepted in PR 1: the probe byte cap reaches 2 of the 6 ATSs.**
+> `ats_discovery._bounded_json` bounds the response body (raw *and* decoded) and
+> refuses a non-`identity` `Content-Encoding`, but only Workday and Eightfold —
+> the two `_COUNT_ONLY_ATS` paths — go through it. Greenhouse, Ashby, Lever and
+> Gem are probed by calling their existing `fetch_jobs` clients, each of which
+> does a plain `response.json()` with no ceiling and httpx's default
+> `Accept-Encoding: gzip, deflate`. A hostile response there is the same
+> unbounded-decode exposure that was measured at 67 MB per chunk on the sniffer.
+> **Those six clients are deliberately out of scope for PR 1** — they are shared
+> with the scrape path and the six Procrastinate fan-out/fetch tasks, and
+> changing their read path is a change to production scraping, not to discovery.
+> What bounds the gap today is `assert_ats_api_host`: those four probes can only
+> ever reach `boards-api.greenhouse.io`, `api.ashbyhq.com`, `api.lever.co` and
+> `api.gem.com`, so exploiting it means compromising the ATS vendor rather than
+> getting a URL past the resolver. **PR 2 inherits this as a decision, not a
+> surprise**: the natural fix is one shared bounded-JSON read used by all six
+> clients, sized per-ATS, landed together with the recipe runtime's own fetch
+> path. Recorded here and in the `_bounded_json` docstring.
+
 ## 1.5 `POST /api/companies/resolve`
 
 ```

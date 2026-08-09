@@ -98,6 +98,17 @@ class Settings(BaseSettings):
     feedback_rate_limit_max: int = Field(default=5, gt=0)
     feedback_rate_limit_window_seconds: int = Field(default=60, gt=0)
 
+    # POST /api/companies/resolve rate limit (per authenticated user, sliding
+    # window). Unlike feedback this route is authenticated, so the key is the
+    # user id rather than a spoofable client IP. The limit is not about spam: one
+    # call fans out to as many as 36 outbound requests and occupies a slot in
+    # url_guard's 4-thread DNS pool for as long as a hostile host's resolver
+    # cares to stall, so an unlimited authenticated caller is a self-inflicted
+    # denial of service on the whole process. 10/60s is far more than the paste-
+    # one-URL-and-look-at-it flow needs.
+    resolve_rate_limit_max: int = Field(default=10, gt=0)
+    resolve_rate_limit_window_seconds: int = Field(default=60, gt=0)
+
     # Server
     port: int = 8080
     cors_origins: str = "http://localhost:3000,http://localhost:5173,http://localhost:8000"

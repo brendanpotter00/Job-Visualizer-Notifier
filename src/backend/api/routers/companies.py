@@ -26,6 +26,7 @@ from psycopg2.extensions import connection as Connection
 
 from ..auth.claims import TokenClaims
 from ..auth.dependencies import get_current_user
+from ..auth.jwt import get_normalized_subject
 from ..config import settings
 from ..dependencies import get_db
 from ..models import (
@@ -43,7 +44,8 @@ from ..services.ats_discovery import (
     probe_candidate,
 )
 from ..services.companies_service import list_enabled_companies_with_profiles
-from ..services.url_guard import REASON_DEADLINE
+from ..services.rate_limit import enforce_resolve_rate_limit
+from ..services.url_guard import REASON_DEADLINE, UrlGuardError, normalize_public_url
 
 logger = logging.getLogger(__name__)
 
@@ -125,24 +127,47 @@ def list_companies(conn: Connection = Depends(get_db)) -> CompanyListResponse:
     )
 
 
+def _normalized_or_raw(url: str) -> str:
+    """The guard's spelling of ``url``, or the input when it has none.
+
+    Used on the paths that have no discovery result to report a ``finalUrl``
+    from. Every other 422 returns a URL that has been through
+    ``validate_public_url``; echoing the raw request body back on the timeout
+    path alone was both inconsistent and a reflection of unvalidated input.
+    ``normalize_public_url`` performs no IO, so this is safe to call after the
+    budget has already been exhausted.
+    """
+    try:
+        normalized, _ = normalize_public_url(url)
+    except UrlGuardError:
+        return url
+    return normalized
+
+
 @router.post("/resolve", response_model=ResolveUrlResponse)
 async def resolve_company_url(
     payload: ResolveUrlRequest,
-    _user: TokenClaims = Depends(get_current_user),
+    user: TokenClaims = Depends(get_current_user),
 ) -> ResolveUrlResponse | JSONResponse:
     """Resolve a pasted careers URL to an ATS candidate and probe it.
 
     Writes nothing. Returns 503 when the feature flag is off, 401 without a
-    Bearer token (via ``get_current_user``), and 422 with a stable, machine-
-    readable ``reason`` when no board could be found or the URL was rejected by
-    the SSRF guard. The 422 body is flat (``reason`` / ``finalUrl`` / ``hops``)
-    rather than nested under ``detail`` because the frontend and PR 3's audit
-    log both key off ``reason``.
+    Bearer token (via ``get_current_user``), 429 when one user resolves faster
+    than the rate limit allows, and 422 with a stable, machine-readable
+    ``reason`` when no board could be found or the URL was rejected by the SSRF
+    guard. The 422 body is flat (``reason`` / ``finalUrl`` / ``hops``) rather
+    than nested under ``detail`` because the frontend and PR 3's audit log both
+    key off ``reason``.
     """
     if not settings.custom_company_sources_enabled:
         raise HTTPException(
             status_code=503, detail="Custom company sources are not enabled"
         )
+
+    # Before any outbound work. One call is up to ~36 third-party requests and
+    # holds a slot in url_guard's 4-thread DNS pool for as long as the remote
+    # resolver stalls, so "authenticated" is not on its own a sufficient bound.
+    enforce_resolve_rate_limit(get_normalized_subject(user) or "unknown")
 
     deadline = time.monotonic() + _RESOLVE_BUDGET_S
     async with _http_client() as http:
@@ -160,7 +185,7 @@ async def resolve_company_url(
                 status_code=422,
                 content={
                     "reason": REASON_DEADLINE,
-                    "finalUrl": payload.url,
+                    "finalUrl": _normalized_or_raw(payload.url),
                     "hops": [],
                 },
             )
