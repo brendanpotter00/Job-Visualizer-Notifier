@@ -1,5 +1,7 @@
-import { Box, Container, Typography } from '@mui/material';
+import { lazy, Suspense, useMemo } from 'react';
+import { Box, Container } from '@mui/material';
 import { RESPONSIVE } from '../../../../config/responsive';
+import { COMPANIES } from '../../../../config/companies';
 import type { LandingPrototypeProps } from '../../types';
 import { HeroCopy } from '../../sections/HeroCopy';
 import { CTAButtons } from '../../sections/CTAButtons';
@@ -7,43 +9,73 @@ import { LiveActivityStats } from '../../sections/LiveActivityStats';
 import { FreshJobsTicker } from '../../sections/FreshJobsTicker';
 import { FAQSection } from '../../sections/FAQSection';
 import { FooterLite } from '../../sections/FooterLite';
+import { DESKTOP_BODY_COUNT } from '../shared3d/experienceTier';
+import { useExperienceTier } from '../shared3d/useExperienceTier';
+import { selectLogoRoster } from '../shared3d/logoRoster';
+import { LogoGridFallback } from '../shared3d/LogoGridFallback';
 
 /**
- * "Gravity" — falling company logos with physics. STUB: the three.js/rapier
- * scene is designed separately and replaces the placeholder panel below; the
- * rest of the page (hero copy layer, sections) is final composition. Contract
- * for the scene work: hero text/CTA stay on a DOM layer the physics can never
- * occlude; the settled pile doubles as the logo wall (no grid repeat below);
- * reduced-motion/no-WebGL renders a static pre-settled DOM grid instead
- * (brief §11 P3).
+ * Nested lazy INSIDE the already-lazy prototype entry: the tier is resolved
+ * before this component ever mounts, so fallback-tier visitors (reduced
+ * motion / no WebGL) never download the three/rapier scene chunk at all.
+ */
+const GravityScene = lazy(() => import('./GravityScene'));
+
+/** Arbitrary, stable seed so every visit piles up the same logos. */
+const ROSTER_SEED = 20260809;
+
+/**
+ * "Gravity" — falling company logos with physics. The hero copy/CTA live on a
+ * DOM layer the canvas can never occlude (canvas is aria-hidden and absolutely
+ * positioned behind; the copy layer is pointer-events transparent except on
+ * CTAs so the canvas still receives pointer moves). The settled pile doubles
+ * as the logo wall — deliberately no LogoWall section below. Reduced-motion /
+ * no-WebGL tiers render the pre-settled LogoGridFallback grid instead.
  */
 export function GravityPrototype({ content, jobs, stats, now }: LandingPrototypeProps) {
+  const tier = useExperienceTier();
+  const roster = useMemo(
+    () => selectLogoRoster(COMPANIES, tier.bodyCount, ROSTER_SEED),
+    [tier.bodyCount]
+  );
+
   return (
     <Box>
-      {/* Hero region: DOM copy over the (future) physics canvas. */}
+      {/* Hero region: DOM copy over the physics canvas. */}
       <Box sx={{ position: 'relative', overflow: 'hidden' }}>
-        <Container maxWidth="lg" sx={{ py: RESPONSIVE.landingProto.heroPaddingY }}>
+        {tier.tier === 'full' && (
+          <Box aria-hidden sx={{ position: 'absolute', inset: 0 }}>
+            <Suspense fallback={null}>
+              <GravityScene
+                roster={roster}
+                maxDpr={tier.maxDpr}
+                showShadows={tier.bodyCount === DESKTOP_BODY_COUNT}
+              />
+            </Suspense>
+          </Box>
+        )}
+        <Container
+          maxWidth="lg"
+          sx={{
+            position: 'relative',
+            py: RESPONSIVE.landingProto.heroPaddingY,
+            // The copy floats over the canvas; only interactive elements
+            // capture the pointer so the physics keeps feeling the cursor.
+            pointerEvents: 'none',
+          }}
+        >
           <HeroCopy content={content} variant="source" />
-          <Box sx={{ mt: 4 }}>
+          <Box sx={{ mt: 4, pointerEvents: 'auto' }}>
             <CTAButtons ctas={content.ctas} />
           </Box>
-          <Box
-            aria-hidden
-            sx={{
-              mt: 6,
-              height: { xs: 200, sm: 280 },
-              border: '1px dashed',
-              borderColor: 'divider',
-              borderRadius: 2,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <Typography variant="body2" sx={{ color: 'text.disabled' }}>
-              3D scene placeholder — company logos fall, tumble, and settle here
-            </Typography>
-          </Box>
+          {tier.tier === 'fallback' ? (
+            <Box sx={{ mt: 6, pointerEvents: 'auto' }}>
+              <LogoGridFallback roster={roster} />
+            </Box>
+          ) : (
+            // Reserved vertical room where the pile settles in the canvas.
+            <Box sx={{ mt: 6, height: RESPONSIVE.landingProto.heroSceneHeight }} />
+          )}
         </Container>
       </Box>
 

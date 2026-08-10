@@ -58,6 +58,7 @@ const SM_DESKTOP: Record<string, number | string> = {
   'landingProto.statValueFontSize': '2rem',
   'landingProto.tabMinHeight': 40,
   'landingProto.tabFontSize': '0.8125rem',
+  'landingProto.heroSceneHeight': 280,
 };
 
 // Desktop (`default`) value expected for each `{ compact, default }` token.

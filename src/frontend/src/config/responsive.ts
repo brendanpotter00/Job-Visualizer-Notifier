@@ -279,6 +279,8 @@ export const RESPONSIVE = {
     tabMinHeight: { xs: 36, sm: 40 },
     /** Browser-style tab strip: tab label font size. */
     tabFontSize: { xs: '0.75rem', sm: '0.8125rem' },
+    /** Gravity hero: reserved vertical room for the 3D pile (px height). */
+    heroSceneHeight: { xs: 200, sm: 280 },
     /** Logo-wall tile edge (raw px via `useIsMobile` → `CompanyLogo size`). */
     logoTileSize: { compact: 40, default: 52 },
     /** Fresh-jobs ticker logo edge (raw px via `useIsMobile`). */
