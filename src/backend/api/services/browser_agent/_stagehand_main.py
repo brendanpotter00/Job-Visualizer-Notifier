@@ -15,23 +15,29 @@ The loop is the proven spike loop (``scripts/one_off/stagehand_spike/run_spike.p
                         → [act(next_action) → extract] × (max_pages - 1)
 
 bounded by a FIXED ``for page in range(effective_max_pages(script))`` (≤ 3, §4) —
-NOT ``sessions.execute()`` autonomous crawl. The report shape is::
+NOT ``sessions.execute()`` autonomous crawl. The report reports the RAW extracted
+rows per page — the parent (``runner``) SELECTS the ``id_field`` (url → title →
+title|location) and derives ids, because some boards have no per-job href. Shape::
 
-    {rows, pages_fetched, terminated_cleanly, page_id_sets,
+    {page_rows, pages_fetched, terminated_cleanly,
      expected_min_jobs, observed_actions, max_pages}
+
+where ``page_rows`` is a list (one entry per fetched page) of the extracted
+``{title, location, url}`` row dicts. This child does NOT know or apply an id_field.
 
 ===========================================================================
 SSRF — READ BEFORE FLIPPING ``browser_agent_enabled`` ON FOR UNTRUSTED USERS
 ===========================================================================
 The REQUEST-LEVEL host-pin (CDP ``Fetch.requestPaused`` over ``session.data.cdp_url``,
 §5) that aborts any in-page request whose host is not the pinned target is **NOT
-implemented here**. v1 relies on two weaker layers:
+implemented here**. v1 relies on ONE weaker layer:
 
   1. the add-time + replay-time ``url_guard.validate_public_url`` on the ENTRY URL
-     (enforced in ``runner.run_browser_agent`` before this subprocess is spawned), and
-  2. Browserbase ``allowedDomains=[entry_host]`` passed below as defence-in-depth —
-     which restricts only MAIN-FRAME navigations, NOT iframe/XHR/subresource loads,
-     and is bypassable via a proxy/translate service on an allowed domain.
+     (enforced in ``runner.run_browser_agent`` before this subprocess is spawned).
+
+  (Browserbase ``allowedDomains`` was intended as defence-in-depth but Stagehand v3
+   rejects the unknown key at session-create with a 400, and it restricts only
+   MAIN-FRAME navigations anyway — not XHR/subresource — so it is NOT used.)
 
 Neither closes a page that fetches ``169.254.169.254`` (cloud metadata) or an
 internal host via XHR. Therefore ``config.browser_agent_enabled`` — the real
@@ -46,8 +52,8 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 from typing import Any
-from urllib.parse import urlparse
 
 # The ONLY stagehand import in the whole backend, and it is in a child process.
 from stagehand import Stagehand
@@ -56,12 +62,13 @@ from stagehand import Stagehand
 # parent ALSO enforces a subprocess timeout (~120s); this is the belt to that
 # suspenders so a hung remote browser cannot bill indefinitely.
 _SESSION_TIMEOUT_S = 90
+_POST_NAV_SETTLE_S = 2  # let a client-rendered SPA render its rows after navigate/act
 _MODEL_NAME = "anthropic/claude-sonnet-4-5"
 _DOM_SETTLE_TIMEOUT_MS = 15000
 _SYSTEM_PROMPT = (
     "You read public job-board pages. Never crawl a whole board; work only on the "
-    "page you are on. Extract the real per-job detail-link href as each job's id, "
-    "never its row position on the page."
+    "page you are on. Return EVERY job posting on the page — each with its full title "
+    "and its location; include a job's detail-link URL when the row has one."
 )
 
 
@@ -82,14 +89,29 @@ def _effective_max_pages(script: dict[str, Any]) -> int:
 
 
 def _result(resp: Any) -> Any:
-    """Stagehand responses expose ``.result``; fall back to a model dump."""
+    """Unwrap the v3 SDK response envelope to the inner ``result`` payload.
+
+    The extract/observe/act responses are ``SessionXxxResponse(data=Data(result=…))``
+    — the payload is at ``resp.data.result``, NOT ``resp.result``. (An earlier reading
+    of ``.result`` returned None → the runner saw zero rows on boards that actually
+    had jobs.) Handle the wrapped shape, a direct ``.result``, and a model_dump fallback.
+    """
+    inner = getattr(resp, "data", None)
+    if inner is not None:
+        resp = inner
     if hasattr(resp, "result"):
         return resp.result
     if hasattr(resp, "model_dump"):
         try:
-            return resp.model_dump().get("result")
+            dumped = resp.model_dump()
         except Exception:  # noqa: BLE001 - best-effort accessor
             return None
+        if isinstance(dumped, dict):
+            if "result" in dumped:
+                return dumped["result"]
+            data = dumped.get("data")
+            if isinstance(data, dict):
+                return data.get("result")
     return resp
 
 
@@ -150,17 +172,11 @@ def _act_succeeded(resp: Any) -> bool:
     return bool(success)
 
 
-def _id_list(rows: list[dict[str, Any]], id_field: str) -> list[str]:
-    ids: list[str] = []
-    for row in rows:
-        value = row.get(id_field)
-        if value not in (None, ""):
-            ids.append(str(value))
-    return ids
-
-
 def run_session(script: dict[str, Any]) -> dict[str, Any]:
-    """Drive the bounded session and return the report dict (no printing)."""
+    """Drive the bounded session and return the report dict (no printing).
+
+    Reports RAW per-page rows only — the parent selects the id_field and derives ids.
+    """
     bb_key = os.environ.get("BROWSERBASE_API_KEY")
     bb_project = os.environ.get("BROWSERBASE_PROJECT_ID")
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
@@ -168,8 +184,6 @@ def run_session(script: dict[str, Any]) -> dict[str, Any]:
         raise RuntimeError("missing BROWSERBASE_API_KEY / BROWSERBASE_PROJECT_ID / ANTHROPIC_API_KEY")
 
     entry_url = script["entry_url"]
-    entry_host = urlparse(entry_url).hostname or ""
-    id_field = script["id_field"]
     extract = script["extract"]
     instruction = extract["instruction"]
     schema = extract["schema"]
@@ -178,7 +192,6 @@ def run_session(script: dict[str, Any]) -> dict[str, Any]:
     max_pages = _effective_max_pages(script)
 
     pages_rows: list[list[dict[str, Any]]] = []
-    page_id_sets: list[list[str]] = []
     observed_actions: list[dict[str, Any]] = []
     reached_page_budget = False
 
@@ -194,13 +207,12 @@ def run_session(script: dict[str, Any]) -> dict[str, Any]:
             dom_settle_timeout_ms=_DOM_SETTLE_TIMEOUT_MS,
             self_heal=True,
             system_prompt=_SYSTEM_PROMPT,
-            # ``allowedDomains`` is an intentional extra key not in the SDK TypedDict;
-            # Stainless forwards unknown keys to the Browserbase create-session API
-            # (verified), so this is defence-in-depth ONLY (main-frame navigations; see
-            # the SSRF banner at the top of this file), NOT the request-level control.
-            browserbase_session_create_params={  # type: ignore[arg-type]
+            # `allowedDomains` is NOT passable via Stagehand v3 (its session-create
+            # schema 400s on the unknown key) and is weak anyway (main-frame nav only).
+            # SSRF posture: the entry-URL `url_guard` (in runner, before spawn) +
+            # `browser_agent_enabled` off-by-default + the CDP host-pin gate (banner above).
+            browserbase_session_create_params={
                 "timeout": _SESSION_TIMEOUT_S,  # session wall-clock cap (documented field)
-                "allowedDomains": [entry_host] if entry_host else [],
             },
         )
         sid = getattr(started, "id", None)
@@ -212,6 +224,10 @@ def run_session(script: dict[str, Any]) -> dict[str, Any]:
 
         try:
             client.sessions.navigate(sid, url=entry_url)
+            # Let a client-rendered SPA (e.g. YC) actually paint its job rows before
+            # observe/extract. dom_settle_timeout_ms alone does NOT reliably wait for
+            # async content; the proven spike used an explicit sleep and got 9/9.
+            time.sleep(_POST_NAV_SETTLE_S)
             observed_actions = _observed_actions(
                 client.sessions.observe(
                     sid,
@@ -224,7 +240,6 @@ def run_session(script: dict[str, Any]) -> dict[str, Any]:
                     _result(client.sessions.extract(sid, instruction=instruction, schema=schema))
                 )
                 pages_rows.append(rows)
-                page_id_sets.append(_id_list(rows, id_field))
 
                 if pagination is None:
                     break  # single page by design → clean terminus
@@ -238,6 +253,7 @@ def run_session(script: dict[str, Any]) -> dict[str, Any]:
                     client.sessions.act(sid, input=str(next_action))
                 ):
                     break  # no/failed next control → natural terminus (clean)
+                time.sleep(_POST_NAV_SETTLE_S)  # let page N+1 render before extract
         finally:
             try:
                 client.sessions.end(sid)
@@ -252,12 +268,10 @@ def run_session(script: dict[str, Any]) -> dict[str, Any]:
     else:
         terminated_cleanly = True
 
-    all_rows: list[dict[str, Any]] = [row for page in pages_rows for row in page]
     return {
-        "rows": all_rows,
+        "page_rows": pages_rows,
         "pages_fetched": len(pages_rows),
         "terminated_cleanly": terminated_cleanly,
-        "page_id_sets": page_id_sets,
         "expected_min_jobs": int(script.get("expected_min_jobs") or 1),
         "observed_actions": observed_actions,
         "max_pages": max_pages,

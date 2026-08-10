@@ -72,6 +72,20 @@ def test_rejects_missing_id_field() -> None:
         validate_browser_agent_script(script)
 
 
+def test_accepts_title_and_composite_id_fields() -> None:
+    for id_field in ("url", "title", "title|location"):
+        script = _valid()
+        script["id_field"] = id_field
+        validate_browser_agent_script(script)
+
+
+def test_rejects_unknown_id_field_value() -> None:
+    script = _valid()
+    script["id_field"] = "department"   # not in the closed set
+    with pytest.raises(BrowserAgentScriptError, match="id_field must be one of"):
+        validate_browser_agent_script(script)
+
+
 def test_rejects_wrong_oracle() -> None:
     script = _valid()
     script["oracle"] = {"kind": "declared_probed"}  # not allowed for a browser agent

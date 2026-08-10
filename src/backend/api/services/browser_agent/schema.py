@@ -41,6 +41,12 @@ BROWSER_AGENT_ORACLE_KINDS = ("self_consistent",)
 # closed vocabulary stays HTTP-only.
 TRANSPORTS_V2 = ("http_json", "http_html", BROWSER_AGENT_TRANSPORT)
 
+# The CLOSED set of id_fields discovery may select (§3.4). A rendered board that has
+# no per-job href falls back from ``url`` to the distinct-title key, then to a
+# ``title|location`` composite. Priority + selection live in ``runner.select_id_field``;
+# the schema pins the vocabulary so a drifted stored value is rejected on read.
+BROWSER_AGENT_ID_FIELDS = ("url", "title", "title|location")
+
 
 class BrowserAgentScriptError(ValueError):
     """A browser-agent artifact is structurally invalid. Subclasses ``ValueError``
@@ -155,9 +161,14 @@ def validate_browser_agent_script(
     if "pagination" in script:
         _validate_pagination(script["pagination"])
 
-    # id_field — the stable dedupe key. Its VALUES are proven stable by the runner
-    # (§3.4); the schema only requires the field name be declared.
+    # id_field — the stable dedupe key, chosen by discovery from the closed set (§3.4).
+    # Its VALUES are proven stable + distinct by the runner; the schema pins the
+    # vocabulary so a drifted stored value is rejected on read.
     _require_str(script, "id_field", "script")
+    _require(
+        script["id_field"] in BROWSER_AGENT_ID_FIELDS,
+        f"id_field must be one of {BROWSER_AGENT_ID_FIELDS}, got {script['id_field']!r}",
+    )
 
     _require(
         isinstance(script.get("expected_min_jobs"), int)
