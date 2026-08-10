@@ -74,6 +74,15 @@ logger = logging.getLogger(__name__)
 # in-flight run (whose harvest row is not written until the finally block).
 _SELF_CONSISTENT_STREAK_REQUIRED = 3
 
+# CHURN GUARD (E7 Stagehand pivot). A ``self_consistent`` board publishes no
+# trusted total, so if MORE THAN this fraction of its prior-OPEN ids disappear in
+# a single run there is nothing to corroborate the drop — it is far more likely a
+# churning ``id_field`` (a per-load session token / DOM position that changes every
+# night) than a real board that shed half its jobs overnight. On such a run NOTHING
+# closes (``guard_reason='id_churn_suspected'``). ``declared_probed`` is EXCLUDED:
+# its trusted total already corroborates a genuine drop, so it closes normally.
+_ID_CHURN_CLOSE_THRESHOLD = 0.5
+
 # Per-task wall-clock cap (matches the six ATS leaf tasks). Hitting this raises
 # asyncio.TimeoutError → Procrastinate retries. Tests monkeypatch it low.
 _TASK_TIMEOUT_S: float = 120.0
@@ -288,7 +297,13 @@ async def _run_browser_agent_script(
 @procrastinate_app.task(
     queue="custom_ats_fetch",
     name="fetch_custom_company",
-    retry=RetryStrategy(max_attempts=5, exponential_wait=2),
+    # ONE attempt, no auto-retry (matches the discovery task). A persistently-failing
+    # browser_agent board must NOT burn up to 5 PAID Stagehand sessions/night on
+    # Procrastinate retries; a FAILED run is still recorded + re-raised (the direct
+    # contract holds) and the next daily claim re-runs it. The tradeoff — a transient
+    # blip on a custom ATS/http board waits until the next daily cadence instead of
+    # an in-run retry — is acceptable for a daily-cadence private board.
+    retry=RetryStrategy(max_attempts=1),
 )
 async def fetch_custom_company(company_id: str) -> None:
     """Harvest one custom company: run the script, gate it, upsert (never close).
@@ -357,11 +372,24 @@ async def fetch_custom_company(company_id: str) -> None:
                 is_first_verified = company.get("tracking_started_at") is None
 
                 if transport == "browser_agent":
-                    # DISCOVERED browser-agent company — E7 Stagehand pivot. Replay
-                    # via ONE bounded Stagehand session (subprocess); the STORED
-                    # oracle_kind is always 'self_consistent' (a rendered page proves
-                    # no trusted total). A row-index id / cross-page collision RAISES
-                    # → FAILED (the runner's contract), so it never closes a job.
+                    # KILL-SWITCH (E7 Stagehand pivot): ``browser_agent_enabled`` is
+                    # the real per-transport gate. When OFF, do a NO-OP skip — spawn
+                    # no paid Stagehand subprocess, harvest nothing, close nothing,
+                    # accrue no miss (identical to the disabled-company path) — so an
+                    # already-tracked browser-agent company stops all paid sessions +
+                    # the deferred-SSRF surface the moment the flag is flipped off.
+                    if not settings.browser_agent_enabled:
+                        verdict_reason = "browser_agent_disabled"
+                        logger.info(
+                            "fetch_custom_company: browser_agent_enabled off; "
+                            "skipping browser-agent harvest for %s", company_id,
+                        )
+                        return
+                    # DISCOVERED browser-agent company — replay via ONE bounded
+                    # Stagehand session (subprocess); the STORED oracle_kind is always
+                    # 'self_consistent' (a rendered page proves no trusted total). A
+                    # row-index id / cross-page collision RAISES → FAILED (the runner's
+                    # contract), so it never closes a job.
                     oracle_kind_effective = str(
                         company.get("oracle_kind") or "self_consistent"
                     )
@@ -527,6 +555,20 @@ async def fetch_custom_company(company_id: str) -> None:
                     ccs.script_changed_since_last, conn, company_id
                 ):
                     guard_reason = "script_changed"
+                elif oracle_kind_effective == "self_consistent" and (
+                    len(pre_upsert_active) > 0
+                    and len(pre_upsert_active - seen_ids) / len(pre_upsert_active)
+                    > _ID_CHURN_CLOSE_THRESHOLD
+                ):
+                    # CHURN GUARD (self_consistent only): >50% of prior-OPEN ids
+                    # vanished this run with no trusted total to corroborate the
+                    # drop — treat it as a churning id_field, not a real board
+                    # shrink. Keep every job OPEN and accrue NO misses (so a
+                    # steadily-churning board never latches toward a close). This is
+                    # the fix for a browser-agent board whose per-load url id churns
+                    # each night: a steady count but a fresh id set would otherwise
+                    # close still-live jobs after the 3-run streak.
+                    guard_reason = "id_churn_suspected"
                 elif oracle_kind_effective == "self_consistent" and (
                     await asyncio.to_thread(ccs.consecutive_verified, conn, company_id)
                     + 1 < _SELF_CONSISTENT_STREAK_REQUIRED

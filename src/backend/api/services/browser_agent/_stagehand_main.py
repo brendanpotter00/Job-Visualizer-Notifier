@@ -34,9 +34,11 @@ implemented here**. v1 relies on two weaker layers:
      and is bypassable via a proxy/translate service on an allowed domain.
 
 Neither closes a page that fetches ``169.254.169.254`` (cloud metadata) or an
-internal host via XHR. Therefore ``browser_agent_enabled`` MUST stay OFF by default
-and MUST NOT be enabled for untrusted, arbitrary user URLs until the CDP pin lands.
-Credentials are read from the environment and NEVER printed.
+internal host via XHR. Therefore ``config.browser_agent_enabled`` — the real
+per-transport kill-switch, ENFORCED in both the discovery add-flow AND the nightly
+replay branch (``fetch_custom_company``) — MUST stay OFF by default and MUST NOT be
+enabled for untrusted, arbitrary user URLs until the CDP pin lands. Credentials are
+read from the environment and NEVER printed.
 """
 
 from __future__ import annotations

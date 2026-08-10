@@ -103,12 +103,17 @@ class Settings(BaseSettings):
     # LLM tokens bill to ``anthropic_api_key`` (our key), not Browserbase's.
     browserbase_api_key: str | None = None
     browserbase_project_id: str | None = None
-    # Master flag for the browser-agent transport (discovery AND nightly replay).
-    # Default OFF: the browser-agent SSRF control at the request level (the CDP
-    # ``Fetch.requestPaused`` host-pin, §5) is NOT yet implemented — v1 relies on
-    # the add-time + replay-time ``url_guard`` entry check plus best-effort
-    # Browserbase ``allowedDomains``. Do NOT flip this on for untrusted users until
-    # the CDP pin lands (see ``services/browser_agent/_stagehand_main.py``).
+    # The REAL per-transport kill-switch for the browser-agent path, ENFORCED in
+    # both directions: the discovery add-flow (router + task both gate on it, so a
+    # non-ATS URL stays 422 when off) AND the nightly replay branch in
+    # ``fetch_custom_company`` (a browser_agent company no-ops — spawns no paid
+    # session — when off). Flipping it off instantly stops all paid Stagehand
+    # sessions and the deferred-SSRF surface.
+    # Default OFF: the request-level SSRF control (the CDP ``Fetch.requestPaused``
+    # host-pin, §5) is NOT yet implemented — v1 relies on the add-time + replay-time
+    # ``url_guard`` entry check plus best-effort Browserbase ``allowedDomains``. Do
+    # NOT flip this on for untrusted users until the CDP pin lands (see
+    # ``services/browser_agent/_stagehand_main.py``).
     browser_agent_enabled: bool = False
 
     # PostHog analytics

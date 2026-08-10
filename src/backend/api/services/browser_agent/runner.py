@@ -29,13 +29,12 @@ import asyncio
 import json
 import logging
 import os
-import re
 import sys
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from ..harvest_meta import HarvestEvidence
-from ..recipe_runner import RecipeExecutionError, _page_advance_ok
+from ..recipe_runner import RecipeExecutionError, _page_advance_ok, assert_no_agent_imports
 from ..url_guard import UrlGuardError, validate_public_url
 from .schema import effective_max_pages, validate_browser_agent_script
 
@@ -44,36 +43,24 @@ logger = logging.getLogger(__name__)
 # Subprocess wall-clock cap (§4). Mirrors the deleted observer's _SUBPROCESS_TIMEOUT_S.
 _SUBPROCESS_TIMEOUT_S = 120.0
 
-# A DOM row-index id the Stagehand extract emits when it reads a job's *position*
-# instead of its detail-link href: "0-650", "3-42". These repeat across pages and
-# collapse dedupe — the crux failure the validation surfaced (§3.4).
-_ROW_INDEX_RE = re.compile(r"\d+-\d+")
-_LONG_NUMERIC_RE = re.compile(r"\d{6,}")
-_HAS_LETTER_RE = re.compile(r"[A-Za-z]")
-
 RunSubprocess = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
 UrlValidator = Callable[[str], Any]
 
 
 def _looks_like_stable_id(value: str) -> bool:
-    """True iff ``value`` looks like a REAL per-job id (href / slug / req-id), not a
-    DOM row index. The stable-id proof (§3.4) rejects anything this returns False for.
+    """True iff ``value`` is a STABLE per-job id — for the browser-agent transport
+    that means URL/path-shaped, because ``id_field`` is ALWAYS the job's detail URL.
 
-    * ``"0-650"`` / ``"3-42"`` (``\\d+-\\d+``) → False: a Stagehand DOM position index.
-    * contains ``/`` or starts with ``http`` → True: a detail-link href/path.
-    * contains a letter (slug, ``R-123456``, ``eng-42abc``) and length ≥ 3 → True.
-    * a bare number → True only if ≥ 6 digits (a plausible requisition id); a short
-      bare integer (amazon ``"3363"``) is a DOM offset, not an id → False.
+    Requiring a URL/path is deliberately strict (§3.4, hardened): it rejects not only
+    DOM row-indices (``"0-650"``) and bare offsets (``"3363"``) but also CHURNING
+    letter-slugs and per-load nonces (``"job-1"``, ``"item-0"``, ``"row-5"``, a
+    session token) that a permissive "any slug with a letter" rule would wave through
+    — those churn every night, show a steady count but a fresh id set, and would close
+    still-live jobs after the self_consistent streak. A non-URL id RAISES in
+    :func:`_assert_stable_ids`, so discovery retries with the sharper "the href, not
+    the row position" instruction, else REFUSEs.
     """
-    if _ROW_INDEX_RE.fullmatch(value):
-        return False
-    if "/" in value or value.startswith("http"):
-        return True
-    if _HAS_LETTER_RE.search(value):
-        return len(value) >= 3
-    if _LONG_NUMERIC_RE.fullmatch(value):
-        return True
-    return False
+    return value.startswith("http") or "/" in value
 
 
 def _default_validate_url(url: str) -> None:
@@ -162,9 +149,10 @@ def _assert_stable_ids(page_id_sets: list[set[str]]) -> None:
         for value in page:
             if not _looks_like_stable_id(value):
                 raise RecipeExecutionError(
-                    f"browser-agent id {value!r} is a DOM row-index / offset, not a "
-                    "stable detail-link href/req-id — refusing to store or replay it "
-                    "(a row-index id would churn or collapse dedupe every run, §3.4)"
+                    f"browser-agent id {value!r} is not a URL/path-shaped detail-link "
+                    "href (it looks like a DOM row-index / offset / churning slug) — "
+                    "refusing to store or replay it; a non-URL id churns or collapses "
+                    "dedupe every run and would wrongly close live jobs (§3.4)"
                 )
         collision = page & seen
         if collision:
@@ -192,6 +180,10 @@ async def run_browser_agent(
     task maps the raise to a FAILED run). ``run_subprocess`` / ``validate_url`` are
     injectable so tests run at $0 against a fake report and a no-op URL guard.
     """
+    # FIRST, every call — the agent-free proof (mirrors ``run_recipe``). Even though
+    # the Stagehand session runs OUT OF PROCESS, this raises if a browser/agent driver
+    # ever leaked into THIS worker, so the invariant holds regardless of co-tenancy.
+    assert_no_agent_imports()
     validate_browser_agent_script(script, transport=transport, oracle_kind=oracle_kind)
     (validate_url or _default_validate_url)(script["entry_url"])
 

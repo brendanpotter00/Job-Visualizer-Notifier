@@ -20,6 +20,7 @@ import pytest
 from psycopg2 import sql
 
 import api.services.browser_agent.runner as ba_runner
+from api.config import settings
 from api.services.harvest_meta import HarvestEvidence
 from api.services.recipe_runner import RecipeExecutionError
 from api.tasks.fetch_custom_company import fetch_custom_company
@@ -38,6 +39,13 @@ from api.tests.test_fetch_custom_company_close import (
 )
 
 pytestmark = pytest.mark.asyncio
+
+
+def _ba_env(monkeypatch) -> None:
+    """Point the task at the test schema AND enable the browser_agent kill-switch,
+    so the replay branch actually harvests (default OFF = a no-op skip)."""
+    _patch_env(monkeypatch)
+    monkeypatch.setattr(settings, "browser_agent_enabled", True)
 
 
 _ARTIFACT = {
@@ -108,7 +116,7 @@ async def test_unverified_browser_agent_run_closes_nothing(db_conn, monkeypatch)
     company_id = "u-baunverif1"
     _seed_browser_agent_company(db_conn, company_id)
     _seed_open_jobs(db_conn, company_id, 1, 3, last_seen_hours_ago=48)
-    _patch_env(monkeypatch)
+    _ba_env(monkeypatch)
 
     # terminated_cleanly=False → self_consistent verdict is UNVERIFIED.
     evidence = HarvestEvidence(
@@ -141,7 +149,7 @@ async def test_verified_first_run_closes_nothing_and_marks_healthy(db_conn, monk
     company_id = "u-bafirst001"
     _seed_browser_agent_company(db_conn, company_id)
     _seed_open_jobs(db_conn, company_id, 1, 3, last_seen_hours_ago=48)
-    _patch_env(monkeypatch)
+    _ba_env(monkeypatch)
 
     evidence = HarvestEvidence(
         declared_total=None, cap_hit=False, terminated_cleanly=True,
@@ -173,7 +181,7 @@ async def test_verified_streak_too_short_closes_nothing(db_conn, monkeypatch):
     _seed_browser_agent_company(db_conn, company_id)
     _set_tracking(db_conn, company_id)   # isolate the streak gate (not first run)
     _seed_open_jobs(db_conn, company_id, 1, 3, last_seen_hours_ago=48)
-    _patch_env(monkeypatch)
+    _ba_env(monkeypatch)
 
     evidence = HarvestEvidence(
         declared_total=None, cap_hit=False, terminated_cleanly=True,
@@ -199,7 +207,7 @@ async def test_runner_raise_is_failed_and_writes_nothing(db_conn, monkeypatch):
     company_id = "u-bafailed01"
     _seed_browser_agent_company(db_conn, company_id)
     _seed_open_jobs(db_conn, company_id, 1, 3, last_seen_hours_ago=48)
-    _patch_env(monkeypatch)
+    _ba_env(monkeypatch)
 
     _patch_runner(
         monkeypatch,
@@ -222,4 +230,110 @@ async def test_runner_raise_is_failed_and_writes_nothing(db_conn, monkeypatch):
     # Nothing written: no browser-agent job rows created; the pre-existing 3 untouched.
     assert _open_count(db_conn, company_id) == 3
     assert _job_status(db_conn, company_id, 1) == "OPEN"
+    assert _max_misses(db_conn, company_id) == 0
+
+
+def _url_rows(paths):
+    return [
+        {"id": p, "title": f"J{p}", "url": p, "location": "Remote"} for p in paths
+    ]
+
+
+# --- FIX 1(b): churning id set (steady COUNT, DISJOINT ids) closes NOTHING -----
+
+async def test_churning_id_set_never_closes_even_after_verified_streak(db_conn, monkeypatch):
+    """A self_consistent board that returns the SAME COUNT but a DISJOINT id set each
+    run (a churning per-load url id) must close NOTHING — even once the run is a
+    VERIFIED-streak-complete, close-eligible run. Without the churn guard the streak
+    would close the 37h-stale seeded jobs; with it, guard_reason=id_churn_suspected."""
+    company_id = "u-bachurn001"
+    _seed_browser_agent_company(db_conn, company_id)
+    _set_tracking(db_conn, company_id)   # not first run — isolate the close path
+    # Three seeded jobs, aged past the 36h floor and NEVER re-harvested (they would
+    # close if the run were close-eligible and the id set did not churn).
+    _seed_open_jobs(db_conn, company_id, 1, 3, last_seen_hours_ago=37)
+    _ba_env(monkeypatch)
+
+    evidence = HarvestEvidence(
+        declared_total=None, cap_hit=False, terminated_cleanly=True,
+        page_advance_ok=None, pages_fetched=1,
+    )
+
+    # Each run harvests exactly 3 jobs (steady count → VERIFIED) but a DISJOINT id set.
+    disjoint_runs = [
+        ["/jobs/a", "/jobs/b", "/jobs/c"],
+        ["/jobs/d", "/jobs/e", "/jobs/f"],
+        ["/jobs/g", "/jobs/h", "/jobs/i"],
+    ]
+    for run, paths in enumerate(disjoint_runs):
+        _patch_runner(monkeypatch, rows=_url_rows(paths), evidence=evidence)
+        await fetch_custom_company(company_id=company_id)
+        db_conn.rollback()
+        assert _rows(db_conn, "company_harvests", company_id)[run]["verdict"] == "VERIFIED"
+        assert _scrape_runs(db_conn, company_id)[run]["guard_reason"] == "id_churn_suspected"
+        assert _scrape_runs(db_conn, company_id)[run]["closed_jobs"] == 0
+
+    # Run 3 completed a 3-VERIFIED streak, yet the churn guard blocked every close:
+    # the seeded jobs 1-3 (37h stale, never re-seen) are STILL OPEN, no miss accrued.
+    assert _job_status(db_conn, company_id, 1) == "OPEN"
+    assert _job_status(db_conn, company_id, 3) == "OPEN"
+    assert _max_misses(db_conn, company_id) == 0
+
+
+# --- FIX 1(b) complement: a real-href board still closes a removed job ---------
+
+async def test_stable_href_board_closes_a_genuinely_removed_job(db_conn, monkeypatch):
+    """The churn guard must NOT over-block: a board with STABLE ids that drops ONE
+    job (low churn) closes it normally after the self_consistent 3-run streak."""
+    company_id = "u-bastable01"
+    _seed_browser_agent_company(db_conn, company_id)
+    _set_tracking(db_conn, company_id)
+    _seed_open_jobs(db_conn, company_id, 1, 3, last_seen_hours_ago=37)
+    _ba_env(monkeypatch)
+
+    evidence = HarvestEvidence(
+        declared_total=None, cap_hit=False, terminated_cleanly=True,
+        page_advance_ok=None, pages_fetched=1,
+    )
+
+    # Every run harvests jobs {1,2} — job 3 is genuinely gone (1/3 churn < 0.5).
+    for run in range(3):
+        _patch_runner(monkeypatch, rows=_agent_rows([1, 2]), evidence=evidence)
+        await fetch_custom_company(company_id=company_id)
+        db_conn.rollback()
+
+    # Run 3 completes the streak → job 3 closes (36h floor satisfied); 1,2 stay OPEN.
+    assert _job_status(db_conn, company_id, 3) == "CLOSED"
+    assert _job_status(db_conn, company_id, 1) == "OPEN"
+    runs = _scrape_runs(db_conn, company_id)
+    assert runs[-1]["guard_reason"] is None
+    assert runs[-1]["closed_jobs"] == 1
+
+
+# --- FIX 2(b): browser_agent_enabled OFF → replay is a no-op, no subprocess ----
+
+async def test_flag_off_replay_is_noop_and_spawns_no_subprocess(db_conn, monkeypatch):
+    company_id = "u-baflagoff1"
+    _seed_browser_agent_company(db_conn, company_id)
+    _seed_open_jobs(db_conn, company_id, 1, 3, last_seen_hours_ago=48)
+    _patch_env(monkeypatch)
+    monkeypatch.setattr(settings, "browser_agent_enabled", False)   # kill-switch OFF
+
+    # If the runner were reached it would spawn a PAID session; make that a loud fail.
+    async def _boom(script, *, transport=None, oracle_kind=None):
+        raise AssertionError("the browser-agent runner must NOT run when the flag is off")
+
+    monkeypatch.setattr(ba_runner, "run_browser_agent", _boom)
+
+    # No exception propagates → the runner was never called (AssertionError is not in
+    # the leaf task's narrow except, so a call would escape and fail the test).
+    await fetch_custom_company(company_id=company_id)
+    db_conn.rollback()
+
+    harvests = _rows(db_conn, "company_harvests", company_id)
+    assert harvests[0]["verdict_reason"] == "browser_agent_disabled"
+    runs = _scrape_runs(db_conn, company_id)
+    assert runs[0]["closed_jobs"] == 0
+    # Nothing harvested/closed; the 3 pre-existing jobs untouched, no miss accrued.
+    assert _open_count(db_conn, company_id) == 3
     assert _max_misses(db_conn, company_id) == 0

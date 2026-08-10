@@ -79,10 +79,11 @@ class ScrapeRun(BaseModel):
     # tolerance>0; "fleet_breaker" = >20% of the night's custom runs failed;
     # "first_verified_run"/"script_changed" = a first/post-change run closes
     # nothing; "streak_too_short" = a self_consistent company below its 3-run
-    # streak). None of them count toward the partial_scrape auto-release —
-    # ``count_consecutive_partial_skips`` filters on 'partial_scrape' specifically.
-    # This Literal MUST stay in lockstep with ``incremental.GuardReason``, which
-    # is the source these strings are assigned from.
+    # streak; "id_churn_suspected" = a self_consistent board whose id set churned
+    # >50% in one run with no total to corroborate the drop). None of them count
+    # toward the partial_scrape auto-release — ``count_consecutive_partial_skips``
+    # filters on 'partial_scrape' specifically. This Literal MUST stay in lockstep
+    # with ``incremental.GuardReason``, the source these strings are assigned from.
     guard_reason: Optional[
         Literal[
             "empty_scrape",
@@ -93,6 +94,7 @@ class ScrapeRun(BaseModel):
             "first_verified_run",
             "script_changed",
             "streak_too_short",
+            "id_churn_suspected",
         ]
     ] = None
     # --- Custom company sources (E7) -----------------------------------------

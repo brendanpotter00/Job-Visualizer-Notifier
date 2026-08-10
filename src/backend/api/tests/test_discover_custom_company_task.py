@@ -62,6 +62,8 @@ def _seed_user(db_conn) -> str:
 def _patch_env(monkeypatch) -> None:
     monkeypatch.setattr(settings, "database_url", os.environ["DATABASE_URL"])
     monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
+    # The task now also gates on browser_agent_enabled (the real kill-switch).
+    monkeypatch.setattr(settings, "browser_agent_enabled", True)
 
 
 def _row(db_conn, query: str, params: tuple = ()):

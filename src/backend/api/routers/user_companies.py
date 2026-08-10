@@ -105,14 +105,17 @@ async def _defer_discovery(
     """Enqueue the one-time ``discover_custom_company`` task on its own queue.
 
     Module-level + lazily importing the task (which pulls in the discovery
-    package, and thus ``anthropic``) so the router's import graph stays light and
-    tests can monkeypatch this seam without opening a live worker. A per-URL
-    queueing lock collapses a double-submit into one discovery run.
+    package) so the router's import graph stays light and tests can monkeypatch this
+    seam without opening a live worker. The queueing lock is keyed PER USER
+    (``discover:{user_id}:{url}``): a single user's double-submit collapses to one
+    run, but two DIFFERENT users adding the SAME non-ATS URL each get their own
+    discovery (a URL-only lock made user B's defer raise AlreadyEnqueued → a 500 and
+    a wedged ``discovering`` row).
     """
     from ..tasks.discover_custom_company import discover_custom_company
 
     await discover_custom_company.configure(
-        queueing_lock=f"discover:{normalized_url}",
+        queueing_lock=f"discover:{user_id}:{normalized_url}",
     ).defer_async(
         user_id=user_id,
         submitted_url=submitted_url,
@@ -175,12 +178,16 @@ async def add_company(
             return _reject(422, "deadline_exceeded", "Resolving the URL timed out.")
 
         if result.candidate is None:
-            # Non-ATS URL. With the discovery sub-flag on, hand it to the one-time
-            # async discovery agent (browser + LLM) and return 202; otherwise it
-            # stays 422 'unsupported' — discovery (and its spend) ships dark and
-            # rolls back by the flag. (The parent flag is already asserted on by
-            # ``_require_flag`` above.)
-            if settings.custom_company_discovery_enabled and result.final_url:
+            # Non-ATS URL. Discovery IS the browser-agent path now, so it requires
+            # BOTH the discovery sub-flag AND ``browser_agent_enabled`` (the real
+            # per-transport kill-switch): with either off it stays 422 'unsupported'
+            # — no provisional row, no enqueue, no paid session, no deferred-SSRF
+            # surface. (The parent flag is already asserted by ``_require_flag``.)
+            if (
+                settings.custom_company_discovery_enabled
+                and settings.browser_agent_enabled
+                and result.final_url
+            ):
                 normalized_url = result.final_url
                 source_key = svc.discovered_source_key(normalized_url)
                 existing = svc.find_owned_company_by_source_key(

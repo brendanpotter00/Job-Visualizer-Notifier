@@ -134,7 +134,7 @@ async def test_row_index_id_raises() -> None:
         "observed_actions": [],
         "max_pages": 3,
     }
-    with pytest.raises(RecipeExecutionError, match="row-index"):
+    with pytest.raises(RecipeExecutionError, match="not a URL/path"):
         await _run(report)
 
 
@@ -149,8 +149,26 @@ async def test_short_bare_integer_id_raises() -> None:
         "observed_actions": [],
         "max_pages": 3,
     }
-    with pytest.raises(RecipeExecutionError, match="row-index"):
+    with pytest.raises(RecipeExecutionError, match="not a URL/path"):
         await _run(report)
+
+
+async def test_churning_letter_slug_id_raises() -> None:
+    """The hardened proof: a non-URL letter-slug / per-load nonce (``"job-1"``,
+    ``"item-0"``, a session token) is REJECTED — a permissive slug rule would wave it
+    through and it would churn each night, closing live jobs after the streak."""
+    for churning_id in ("job-1", "item-0", "row-5", "sess_9f3ab21c"):
+        report = {
+            "rows": [{"title": "Engineer", "url": churning_id}],
+            "pages_fetched": 1,
+            "terminated_cleanly": True,
+            "page_id_sets": [[churning_id]],
+            "expected_min_jobs": 1,
+            "observed_actions": [],
+            "max_pages": 3,
+        }
+        with pytest.raises(RecipeExecutionError, match="not a URL/path"):
+            await _run(report)
 
 
 async def test_duplicate_cross_page_ids_raise() -> None:
@@ -173,22 +191,29 @@ async def test_duplicate_cross_page_ids_raise() -> None:
         await _run(report)
 
 
-async def test_real_hrefs_and_long_req_ids_pass() -> None:
+async def test_url_and_path_shaped_ids_pass() -> None:
+    """Only URL/path-shaped ids (absolute ``http…`` or a leading-slash path) are
+    accepted — those are the stable detail-link hrefs the id_field must carry."""
     report = {
         "rows": [
             {"title": "A", "url": "/companies/acme/jobs/security-engineer"},
-            {"title": "B", "req_id": "4512340"},
+            {"title": "B", "url": "https://acme.example/careers/ml-engineer-42"},
         ],
         "pages_fetched": 1,
         "terminated_cleanly": True,
-        "page_id_sets": [["/companies/acme/jobs/security-engineer", "4512340"]],
+        "page_id_sets": [
+            ["/companies/acme/jobs/security-engineer",
+             "https://acme.example/careers/ml-engineer-42"],
+        ],
         "expected_min_jobs": 1,
         "observed_actions": [],
         "max_pages": 3,
     }
-    # id_field points at 'url' for row A; row B has no url → dropped by the mapper.
     rows, _evidence = await _run(report)
-    assert [r["id"] for r in rows] == ["/companies/acme/jobs/security-engineer"]
+    assert {r["id"] for r in rows} == {
+        "/companies/acme/jobs/security-engineer",
+        "https://acme.example/careers/ml-engineer-42",
+    }
 
 
 # --- THE BOUND (§4) ----------------------------------------------------------

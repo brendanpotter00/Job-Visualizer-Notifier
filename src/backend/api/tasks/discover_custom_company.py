@@ -57,11 +57,15 @@ async def discover_custom_company(
     display_name: str,
 ) -> None:
     """Discover ``normalized_url`` and persist the result (accept or refuse)."""
-    if not settings.custom_company_discovery_enabled:
-        # Defense in depth: the flag is checked at enqueue time too, but never run
-        # a paid discovery if the flag was flipped off after the task was queued.
+    if not (
+        settings.custom_company_discovery_enabled and settings.browser_agent_enabled
+    ):
+        # Defense in depth: the router gates on BOTH flags at enqueue time, but never
+        # run a paid Stagehand session if either flag was flipped off after the task
+        # was queued. ``browser_agent_enabled`` is the real per-transport kill-switch.
         logger.info(
-            "discover_custom_company: flag off; skipping discovery for %s", normalized_url
+            "discover_custom_company: discovery/browser_agent flag off; skipping %s",
+            normalized_url,
         )
         return
 
@@ -72,6 +76,16 @@ async def discover_custom_company(
     except asyncio.TimeoutError:
         logger.error("discover_custom_company timed out for %s", normalized_url)
         outcome = None
+
+    # WEDGED-ROW CAVEAT (E7 Stagehand pivot): the provisional companies row created
+    # on the 202 add sits at health_state='discovering' until the persist below flips
+    # it to tracked or refused. Because this task is retry=1 (paid — never retried), a
+    # HARD failure between the ``wait_for`` above and the persist below (a SIGKILL /
+    # worker OOM, not a caught exception — those become a REFUSE via ``outcome=None``)
+    # leaves that row stuck at 'discovering' forever. The user recovers by Removing the
+    # row and re-adding. TODO: a server-side reconciler that sweeps 'discovering' rows
+    # older than N minutes (and stuck Procrastinate 'doing' jobs) back to a retryable
+    # or refused state.
 
     conn = await asyncio.to_thread(
         db.get_connection, settings.database_url, application_name="task_discover_custom"

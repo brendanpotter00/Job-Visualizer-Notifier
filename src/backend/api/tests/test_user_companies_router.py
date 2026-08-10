@@ -348,6 +348,7 @@ def _capture_defer(monkeypatch) -> list[dict]:
 
 def test_non_ats_url_enqueues_discovery_202(client, db_conn, monkeypatch):
     monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
+    monkeypatch.setattr(settings, "browser_agent_enabled", True)
     _login(client, "auth0|A", "a@example.com")
     _patch_no_ats(monkeypatch)
     calls = _capture_defer(monkeypatch)
@@ -394,3 +395,56 @@ def test_non_ats_url_without_subflag_stays_422_unsupported(client, db_conn, monk
     assert resp.json()["reason"] == "no_ats_detected"
     assert len(calls) == 0
     assert _count(db_conn, "company_add_attempts", "WHERE outcome = 'unsupported'") == 1
+
+
+def test_browser_agent_kill_switch_off_stays_422_no_placeholder(client, db_conn, monkeypatch):
+    """FIX 2(a): discovery sub-flag ON but browser_agent_enabled OFF → 422, no
+    provisional row, no enqueue, no paid session. The kill-switch gates the add-flow."""
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
+    monkeypatch.setattr(settings, "browser_agent_enabled", False)
+    _login(client, "auth0|K", "k@example.com")
+    _patch_no_ats(monkeypatch)
+    calls = _capture_defer(monkeypatch)
+
+    resp = client.post("/api/users/companies", json={"url": _NON_ATS_URL})
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["reason"] == "no_ats_detected"
+    assert len(calls) == 0                                          # nothing enqueued
+    assert _count(db_conn, "companies", "WHERE visibility = 'user'") == 0  # no placeholder
+
+
+def test_two_users_same_url_get_per_user_discovery_locks(monkeypatch):
+    """FIX 5: the discovery queueing_lock is per-user, so two different users adding
+    the SAME non-ATS URL each get their own discovery run (a URL-only lock made user
+    B's defer collide → 500 + a wedged 'discovering' row)."""
+    import asyncio
+
+    from api.routers.user_companies import _defer_discovery
+    import api.tasks.discover_custom_company as task_mod
+
+    seen_locks: list[str] = []
+
+    class _Configured:
+        async def defer_async(self, **kwargs):
+            return None
+
+    def _fake_configure(*, queueing_lock):
+        seen_locks.append(queueing_lock)
+        return _Configured()
+
+    monkeypatch.setattr(task_mod.discover_custom_company, "configure", _fake_configure)
+
+    async def _drive() -> None:
+        for user_id in ("user-a", "user-b"):
+            await _defer_discovery(
+                user_id=user_id, submitted_url="https://acme.example/careers",
+                normalized_url=_NON_ATS_URL, display_name="acme.example",
+            )
+
+    asyncio.run(_drive())
+
+    assert seen_locks == [
+        f"discover:user-a:{_NON_ATS_URL}",
+        f"discover:user-b:{_NON_ATS_URL}",
+    ]
+    assert seen_locks[0] != seen_locks[1]   # distinct → no cross-user collision

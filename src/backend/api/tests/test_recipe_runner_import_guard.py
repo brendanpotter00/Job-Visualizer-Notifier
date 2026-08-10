@@ -173,6 +173,29 @@ def test_leaf_task_tasks_closure_has_no_forbidden_import() -> None:
         assert not offending, f"{module_file} imports forbidden {offending}"
 
 
+def test_browser_agent_stagehand_is_subprocess_isolated() -> None:
+    """E7 Stagehand pivot boundary: ``_stagehand_main`` is the SOLE importer of
+    ``stagehand``/``browserbase``, and the in-process modules (``runner``/``discover``/
+    ``schema``/``__init__``) reach NEITHER — transitively (closure confined to api/) —
+    NOR ``_stagehand_main`` itself. This is the AST proof behind the subprocess design:
+    importing the package never makes a browser/agent driver resident in the worker."""
+    ba_dir = _API / "services" / "browser_agent"
+    main = ba_dir / "_stagehand_main.py"
+
+    main_names, _ = _imports_and_targets(main)
+    assert "stagehand" in main_names, "_stagehand_main must import stagehand (the sole importer)"
+
+    for entry in ("runner.py", "discover.py", "schema.py", "__init__.py"):
+        closure = _closure(ba_dir / entry, confine_to=_API)
+        assert main not in closure, (
+            f"{entry} transitively imports _stagehand_main — stagehand would leak into the worker"
+        )
+        for module_file in closure:
+            top_names, _ = _imports_and_targets(module_file)
+            offending = top_names & {"stagehand", "browserbase"}
+            assert not offending, f"{module_file} imports agent driver {offending}"
+
+
 def test_ast_guard_would_catch_a_planted_forbidden_import(tmp_path: Path) -> None:
     """Meta-test: the AST walk actually detects a forbidden import (so a green run
     means something)."""
