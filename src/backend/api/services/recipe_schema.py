@@ -43,6 +43,18 @@ _BROWSER_OPS = ("click_sequence", "page_fetch", "page_request", "dom", "browser_
 # fresh next-URL-from-body SSRF surface (E7 Phase 3b review, Finding 2).
 _UNIMPLEMENTED_OPS = ("paginate_cursor",)
 
+# Canonical job-field names an extraction may map (``fields`` / ``field_selectors``).
+# A FIXED set — the discovery author's strict structured-output schema expresses
+# ``fields`` as a CLOSED object over exactly these keys (no dynamic keys, which
+# Anthropic strict mode forbids). ``id``/``title``/``url`` are mandatory (a row
+# missing either id or title is dropped by ``map_records``); the rest are optional.
+# ``recipe_rows`` promotes id/title/url/location/posted_at and folds the remainder
+# into ``details``. ``validate_recipe`` requires the mandatory three and, being a
+# read-path check over possibly-drifted stored data, does not otherwise constrain
+# the key set.
+CANONICAL_REQUIRED_FIELDS = ("id", "title", "url")
+CANONICAL_OPTIONAL_FIELDS = ("location", "posted_at", "department", "company")
+
 # Oracle kinds. The three Phase-3 exact-match oracles, plus the two inherited from
 # Phase 2 (a discovered board with no published total is legitimately
 # ``self_consistent`` — Jane Street, YC).

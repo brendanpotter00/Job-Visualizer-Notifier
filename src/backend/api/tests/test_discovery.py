@@ -185,10 +185,11 @@ async def test_discover_refuses_a_replay_failure() -> None:
     assert outcome.refuse_reason and "RecipeExecutionError" in outcome.refuse_reason
 
 
-# --- author-contract: schema IS the recipe vocabulary ------------------------
+# --- author-contract: the forced submit_recipe tool carries the vocabulary ----
 
-def test_author_output_schema_is_the_recipe_vocabulary() -> None:
-    schema = author_mod.RECIPE_OUTPUT_SCHEMA
+def test_author_tool_input_schema_is_the_recipe_vocabulary() -> None:
+    schema = author_mod.RECIPE_TOOL["input_schema"]
+    assert author_mod.build_recipe_tool_schema() == schema   # RECIPE_TOOL uses the builder
     step_ops = set(schema["properties"]["steps"]["items"]["properties"]["op"]["enum"])
     expected_ops = set(recipe_schema._OP_VALIDATORS) - set(recipe_schema._BROWSER_OPS)
     assert step_ops == expected_ops
@@ -202,6 +203,46 @@ def test_author_output_schema_is_the_recipe_vocabulary() -> None:
     assert set(schema["properties"]["oracle"]["properties"]["kind"]["enum"]) == set(
         recipe_schema.ORACLE_KINDS
     )
+
+
+def test_author_forces_the_submit_recipe_tool_call() -> None:
+    """The author uses a FORCED tool call — not strict structured output — so the
+    lenient tool input_schema never hits strict mode's additionalProperties /
+    ≤16-union limits (the two paid-E2E 400s)."""
+    params = author_mod.build_message_params({"entry_url": "https://x"})
+    assert "output_config" not in params            # no strict structured output
+    assert [t["name"] for t in params["tools"]] == [author_mod.RECIPE_TOOL_NAME]
+    assert params["tool_choice"] == {"type": "tool", "name": author_mod.RECIPE_TOOL_NAME}
+
+
+def test_author_reads_the_recipe_from_the_tool_use_block() -> None:
+    """``extract_tool_input`` returns the tool_use block's ``input`` dict verbatim —
+    real nested JSON, no coercion — and ignores non-matching blocks."""
+    recipe = _canned_amazon_recipe()
+
+    class _ToolUse:
+        type = "tool_use"
+        name = author_mod.RECIPE_TOOL_NAME
+        input = recipe
+
+    class _Text:
+        type = "text"
+        text = "ignore me"
+
+    class _Response:
+        content = [_Text(), _ToolUse()]
+
+    got = author_mod.extract_tool_input(_Response(), author_mod.RECIPE_TOOL_NAME)
+    assert got == recipe
+    # The recipe read from the tool call passes the REAL gate as-is (no coercion).
+    assert recipe_schema.validate_recipe(
+        got, transport="http_json", oracle_kind="facet_sum"
+    ) is got
+
+    class _NoToolResponse:
+        content = [_Text()]
+
+    assert author_mod.extract_tool_input(_NoToolResponse(), author_mod.RECIPE_TOOL_NAME) is None
 
 
 # --- observation path (injected fake browser; never a live site) -------------
