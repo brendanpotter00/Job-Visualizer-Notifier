@@ -52,6 +52,7 @@ from ..services import (
 from ..services import custom_companies_service as ccs
 from ..services import recipe_runner
 from ..services.custom_baseline import compute_baseline
+from ..services.guarded_client import guarded_sync_client
 from ..services.harvest_meta import HarvestEvidence
 from ..services.recipe_rows import recipe_rows_to_job_listings
 from ..services.harvest_verification import (
@@ -214,36 +215,40 @@ def _remap_for_custom(
     ]
 
 
-# Sync client for the discovered-script (http_json/http_html) transport. Module-
-# level so a test injects an ``httpx.MockTransport`` without a live network — the
-# same seam the router uses for ``_http_client``.
-_RECIPE_HTTP_TIMEOUT_S = 30.0
-
-
+# SSRF-guarded sync client for the discovered-script (http_json/http_html)
+# transport. Module-level so a test injects a fake validator + MockTransport inner
+# (see ``services/guarded_client``). Every request — the entrypoint fetch, each
+# pagination page, the facet probe, the sitemap oracle GET — is validated,
+# host-pinned, and IP-pinned before a socket opens.
 def _recipe_http_client() -> httpx.Client:
-    return httpx.Client(
-        timeout=_RECIPE_HTTP_TIMEOUT_S,
-        follow_redirects=True,
-        headers={"User-Agent": recipe_runner.USER_AGENT},
-    )
+    return guarded_sync_client()
 
 
 async def _run_discovered_script(
-    script: dict[str, Any], company_id: str
+    script: dict[str, Any],
+    company_id: str,
+    *,
+    transport: str,
+    oracle_kind: str,
 ) -> tuple[list[JobListing], HarvestEvidence]:
     """Replay a DISCOVERED company's stored multi-primitive script (E7 Phase 3b).
 
     ``recipe_runner.run_recipe`` is sync + agent-free (it re-validates the stored
-    script, asserts no browser/agent driver is resident, then plain-``httpx``
-    replays it) and returns the SAME ``HarvestEvidence`` the ATS path yields, so
-    the gate/verdict/upsert tail below is byte-identical. Run in a thread so the
-    blocking client never stalls the worker's event loop. A ``RecipeExecutionError``
-    propagates to the leaf task's narrow ``except`` → a recorded FAILED run.
+    script — including the ``transport``/``oracle_kind`` column-equality check so a
+    JSONB-vs-column drift is caught on read — asserts no browser/agent driver is
+    resident, then replays it over the SSRF-guarded client) and returns the SAME
+    ``HarvestEvidence`` the ATS path yields, so the gate/verdict/upsert tail below
+    is byte-identical. Run in a thread so the blocking client (guarded DNS +
+    sockets) never stalls the worker's event loop. A ``RecipeExecutionError`` — the
+    SSRF guard raises one too — propagates to the leaf task's narrow ``except`` → a
+    recorded FAILED run.
     """
     def _run() -> tuple[list[JobListing], HarvestEvidence]:
         http = _recipe_http_client()
         try:
-            rows, evidence = recipe_runner.run_recipe(script, http)
+            rows, evidence = recipe_runner.run_recipe(
+                script, http, transport=transport, oracle_kind=oracle_kind
+            )
         finally:
             http.close()
         return recipe_rows_to_job_listings(company_id, rows), evidence
@@ -328,7 +333,10 @@ async def fetch_custom_company(company_id: str) -> None:
                     # oracle_kind: a discovered company has no ATS provider, so
                     # ``effective_oracle_kind`` (provider-derived) does not apply.
                     oracle_kind_effective = str(company.get("oracle_kind") or "none")
-                    raw_jobs, evidence = await _run_discovered_script(script, company_id)
+                    raw_jobs, evidence = await _run_discovered_script(
+                        script, company_id,
+                        transport=transport, oracle_kind=oracle_kind_effective,
+                    )
                 else:
                     provider = str(script.get("provider") or company["ats"])
                     board_token = str(script.get("token") or company["board_token"])

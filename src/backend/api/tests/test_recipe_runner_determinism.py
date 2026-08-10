@@ -14,6 +14,7 @@ import httpx
 import pytest
 
 from api.services.recipe_runner import RecipeExecutionError, run_recipe
+from api.services.recipe_schema import RecipeError
 
 # A dataset the mock transport paginates by ?offset=. Page size 2 → 3 pages
 # (2, 2, 1); the short last page terminates the loop cleanly.
@@ -64,6 +65,19 @@ def test_identical_output_on_two_runs() -> None:
     assert rows1 == rows2                 # byte-identical rows
     assert [r["id"] for r in rows1] == ["0", "1", "2", "3", "4"]  # order preserved
     assert ev1 == ev2
+
+
+def test_run_recipe_rechecks_column_drift_on_read() -> None:
+    """run_recipe threads the stored transport/oracle_kind columns into the read-
+    path validate_recipe, so a JSONB row edited out of sync is caught on replay
+    (E7 3b review, Finding 3). Raised before any HTTP is issued."""
+    script = _paginated_script()   # transport http_json, oracle declared_probed
+    with _client(_paginated_handler()) as http:
+        with pytest.raises(RecipeError, match="company_scripts.transport"):
+            run_recipe(script, http, transport="http_html")
+    with _client(_paginated_handler()) as http:
+        with pytest.raises(RecipeError, match="company_scripts.oracle_kind"):
+            run_recipe(script, http, oracle_kind="facet_sum")
 
 
 def test_evidence_feeds_the_gate() -> None:

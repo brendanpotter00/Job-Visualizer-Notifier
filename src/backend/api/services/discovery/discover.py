@@ -32,6 +32,7 @@ from typing import Any, Awaitable, Callable
 import httpx
 
 from .. import recipe_runner, recipe_schema
+from ..guarded_client import guarded_sync_client
 from ..harvest_verification import HarvestGateError, run_gate
 from ..recipe_rows import recipe_rows_to_job_listings
 from . import author as author_mod
@@ -45,7 +46,6 @@ _MAX_ATTEMPTS = 2
 # Placeholder company id for the acceptance replay only — the discovered company's
 # real id is minted later by the task's create path.
 _PROBE_COMPANY_ID = "discovery-probe"
-_HTTP_TIMEOUT_S = 30.0
 
 ObserveFn = Callable[[str], Awaitable[dict[str, Any]]]
 AuthorFn = Callable[..., Awaitable[dict[str, Any]]]
@@ -53,11 +53,11 @@ HttpFactory = Callable[[], httpx.Client]
 
 
 def _default_http_client() -> httpx.Client:
-    return httpx.Client(
-        timeout=_HTTP_TIMEOUT_S,
-        follow_redirects=True,
-        headers={"User-Agent": recipe_runner.USER_AGENT},
-    )
+    # The SAME SSRF-guarded client the nightly leaf task uses, so the add-time
+    # acceptance replay validates/host-pins/IP-pins the authored URLs exactly as the
+    # nightly replay will — an authored URL that would be blocked nightly is blocked
+    # at discovery time too, and REFUSED rather than stored.
+    return guarded_sync_client()
 
 
 def _replay_and_gate(script: dict[str, Any], http_factory: HttpFactory) -> None:
@@ -129,6 +129,7 @@ async def discover(
             recipe_schema.RecipeError,
             recipe_runner.RecipeExecutionError,
             HarvestGateError,
+            httpx.HTTPError,   # a guarded-client transport/connect failure → refuse, not crash
             ValueError,
         ) as exc:
             previous_error = f"{type(exc).__name__}: {exc}"

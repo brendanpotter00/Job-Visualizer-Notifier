@@ -147,6 +147,26 @@ async def test_discover_keyless_refuses_without_burning_an_attempt() -> None:
     assert outcome.refuse_reason and "missing_api_key" in outcome.refuse_reason
 
 
+async def test_discover_refuses_a_paginate_cursor_recipe() -> None:
+    """The author emitting the unimplemented cursor pagination must REFUSE cleanly
+    (validate rejects it), never crash the loop (E7 3b review, Finding 2)."""
+    async def author(report, *, previous_error=None):
+        recipe = _canned_amazon_recipe()
+        recipe["steps"].insert(
+            1, {"op": "paginate_cursor", "cursor_path": "next", "param": "c", "max_pages": 3}
+        )
+        return recipe
+
+    outcome = await discover(
+        "https://www.amazon.jobs/en/search",
+        observe_fn=_fixture_observe,
+        author_fn=author,
+        http_client_factory=_client_factory(_AMAZON_CAPTURE),
+    )
+    assert outcome.ok is False
+    assert outcome.refuse_reason and "RecipeError" in outcome.refuse_reason
+
+
 async def test_discover_refuses_a_replay_failure() -> None:
     """A schema-valid recipe that RAISES at replay (a records_path that doesn't
     resolve against the served payload) is refused, not accepted."""
@@ -175,6 +195,8 @@ def test_author_output_schema_is_the_recipe_vocabulary() -> None:
     # The Phase-4 browser/click ops are NOT emittable by the model.
     assert "click_sequence" not in step_ops
     assert not (step_ops & set(recipe_schema._BROWSER_OPS))
+    # The unimplemented cursor pagination is not emittable either (Finding 2).
+    assert "paginate_cursor" not in step_ops
 
     assert set(schema["properties"]["transport"]["enum"]) == set(recipe_schema.TRANSPORTS)
     assert set(schema["properties"]["oracle"]["properties"]["kind"]["enum"]) == set(

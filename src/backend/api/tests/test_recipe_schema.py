@@ -72,6 +72,33 @@ def test_browser_ops_are_rejected(bad_op: str) -> None:
         validate_recipe(script)
 
 
+def test_paginate_cursor_is_rejected_as_unimplemented() -> None:
+    """cursor pagination is NAMED in the shape but unimplemented — it must reject
+    with a capability message, not crash the runner later (E7 3b review, Finding 2)."""
+    script = _load("ycombinator.json")
+    script["steps"].insert(
+        1, {"op": "paginate_cursor", "cursor_path": "next", "param": "cursor", "max_pages": 5}
+    )
+    with pytest.raises(RecipeError, match="not implemented"):
+        validate_recipe(script)
+
+
+# --- validate-on-read: JSONB must not drift from company_scripts columns ------
+
+def test_transport_column_mismatch_rejected_on_read() -> None:
+    """The read path threads the stored ``transport`` column; a JSONB that
+    disagrees is rejected (E7 3b review, Finding 3)."""
+    script = _load("amazon_global.json")   # transport == 'http_json'
+    with pytest.raises(RecipeError, match="company_scripts.transport"):
+        validate_recipe(script, transport="http_html")
+
+
+def test_oracle_kind_column_mismatch_rejected_on_read() -> None:
+    script = _load("amazon_global.json")   # oracle.kind == 'facet_sum'
+    with pytest.raises(RecipeError, match="company_scripts.oracle_kind"):
+        validate_recipe(script, oracle_kind="header")
+
+
 # --- malformed shapes -------------------------------------------------------
 
 def test_wrong_version_rejected() -> None:

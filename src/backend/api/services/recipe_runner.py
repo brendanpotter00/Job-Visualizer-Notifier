@@ -702,16 +702,26 @@ def _assert_pinned(plan: _Plan, state: _HarvestState) -> None:
 
 
 def run_recipe(
-    script: dict[str, Any], http: httpx.Client
+    script: dict[str, Any],
+    http: httpx.Client,
+    *,
+    transport: str | None = None,
+    oracle_kind: str | None = None,
 ) -> tuple[list[dict], HarvestEvidence]:
     """Execute a validated script over ``http`` → (rows, evidence). RAISES on failure.
 
-    The caller supplies ``http`` so timeouts / SSRF pinning live in one place. The
-    returned :class:`HarvestEvidence` is exactly what ``run_gate`` / ``verify_harvest``
-    already consume: the oracle total rides ``declared_total``.
+    The caller supplies ``http`` so timeouts / SSRF guarding live in one place (the
+    leaf task and discovery pass an SSRF-guarded client). ``transport`` /
+    ``oracle_kind`` are the ``company_scripts`` column values: when supplied, the
+    read-path :func:`validate_recipe` also asserts the stored JSONB's
+    ``transport`` / ``oracle.kind`` equal them, so a JSONB-vs-column drift is caught
+    on replay, not just at write time. The returned :class:`HarvestEvidence` is
+    exactly what ``run_gate`` / ``verify_harvest`` already consume.
     """
     assert_no_agent_imports()   # FIRST, every call — the agent-free proof.
-    validate_recipe(script)     # validate-on-read: stored scripts drift.
+    # validate-on-read: stored scripts drift, and the column-equality check catches
+    # a JSONB row edited out of sync with its transport/oracle_kind columns.
+    validate_recipe(script, transport=transport, oracle_kind=oracle_kind)
     plan = _parse_steps(script)
 
     if plan.transport == "http_json":

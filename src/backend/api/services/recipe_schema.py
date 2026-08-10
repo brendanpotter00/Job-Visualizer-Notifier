@@ -34,14 +34,24 @@ TRANSPORTS = ("http_json", "http_html")
 _BROWSER_TRANSPORTS = ("page_fetch", "page_request", "dom", "browser_dom")
 _BROWSER_OPS = ("click_sequence", "page_fetch", "page_request", "dom", "browser_dom")
 
+# Ops that are named in the vocabulary's shape but NOT implemented by the replay
+# engine, and are rejected with a capability message so an unsupported board
+# REFUSES cleanly instead of crashing (a ``KeyError`` in ``_run_http_json`` would
+# escape the RAISES-never-empty contract → the leaf task retries 5x and the
+# discovery task dies with no refusal row). ``paginate_cursor`` is deliberately
+# NOT implemented: reading the next URL/token out of the response body would add a
+# fresh next-URL-from-body SSRF surface (E7 Phase 3b review, Finding 2).
+_UNIMPLEMENTED_OPS = ("paginate_cursor",)
+
 # Oracle kinds. The three Phase-3 exact-match oracles, plus the two inherited from
 # Phase 2 (a discovered board with no published total is legitimately
 # ``self_consistent`` — Jane Street, YC).
 ORACLE_KINDS = ("facet_sum", "header", "sitemap", "declared_probed", "self_consistent")
 
 # Op categories used to enforce cardinality (exactly-one fetch, <=1 pagination,
-# exactly-one extraction, exactly-one oracle-carrying script).
-_PAGINATION_OPS = ("paginate_offset", "paginate_page", "paginate_cursor", "paginate_facet")
+# exactly-one extraction, exactly-one oracle-carrying script). ``paginate_cursor``
+# is intentionally absent — it is rejected as unimplemented (see ``_UNIMPLEMENTED_OPS``).
+_PAGINATION_OPS = ("paginate_offset", "paginate_page", "paginate_facet")
 _EXTRACTION_OPS = ("extract_json_path", "extract_embedded_island", "extract_css")
 
 
@@ -145,13 +155,6 @@ def _v_paginate_page(step: dict[str, Any]) -> None:
         )
     if "window_cap" in step:
         _require_pos_int(step, "window_cap", "paginate_page")
-
-
-def _v_paginate_cursor(step: dict[str, Any]) -> None:
-    _reject_unknown_keys(step, {"cursor_path", "param", "max_pages"}, "paginate_cursor")
-    _require_str(step, "cursor_path", "paginate_cursor")
-    _require_str(step, "param", "paginate_cursor")
-    _require_pos_int(step, "max_pages", "paginate_cursor")
 
 
 def _v_paginate_facet(step: dict[str, Any]) -> None:
@@ -309,7 +312,6 @@ _OP_VALIDATORS: dict[str, Callable[[dict[str, Any]], None]] = {
     "fetch": _v_fetch,
     "paginate_offset": _v_paginate_offset,
     "paginate_page": _v_paginate_page,
-    "paginate_cursor": _v_paginate_cursor,
     "paginate_facet": _v_paginate_facet,
     "extract_json_path": _v_extract_json_path,
     "extract_embedded_island": _v_extract_embedded_island,
@@ -415,6 +417,14 @@ def validate_recipe(
             op not in _BROWSER_OPS,
             f"steps[{i}].op {op!r} is a browser/click capability (Phase 4, not in Phase 3a) — "
             f"replay is HTTP-only; discovery must REFUSE rather than emit it",
+        )
+        # Reject named-but-unimplemented ops with a capability message, so an
+        # unsupported board REFUSES cleanly instead of crashing at replay time.
+        _require(
+            op not in _UNIMPLEMENTED_OPS,
+            f"steps[{i}].op {op!r} is not implemented in the replay engine "
+            f"(cursor pagination would add a next-URL-from-body SSRF surface); "
+            f"discovery must REFUSE rather than emit it",
         )
         validator = _OP_VALIDATORS.get(op)
         _require(validator is not None, f"steps[{i}].op {op!r} is not in the closed vocabulary")

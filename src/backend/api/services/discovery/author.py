@@ -74,7 +74,6 @@ def build_recipe_output_schema() -> dict[str, Any]:
         "max_pages_per_facet": {"type": "integer"},
         "start_page": {"type": "integer"},
         "window_cap": {"type": "integer"},
-        "cursor_path": {"type": "string"},
         "facet_param": {"type": "string"},
         "facet_values": {"type": "array", "items": {"type": "string"}},
         "facet_values_path": {"type": "string"},
@@ -148,7 +147,7 @@ SYSTEM_PROMPT = (
     "'http_html' when they live in an embedded JSON island (preferred) or, as a "
     "last resort, CSS-selectable DOM nodes.\n"
     "- steps: exactly one 'fetch' (https:// only) first; at most one pagination "
-    "(paginate_offset/paginate_page/paginate_cursor/paginate_facet); exactly one "
+    "(paginate_offset/paginate_page/paginate_facet); exactly one "
     "extraction (extract_json_path/extract_embedded_island/extract_css). "
     "fields MUST map id, title, url (dotted paths or {templates}).\n"
     "- oracle: a completeness total. Use facet_sum ONLY with a SINGLE-VALUED facet "
