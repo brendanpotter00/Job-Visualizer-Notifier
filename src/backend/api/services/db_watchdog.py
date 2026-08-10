@@ -1,25 +1,11 @@
 """Process-level watchdog for a wedged or unreachable database.
 
-Born from the 2026-08-10 incident
-(docs/incidents/2026-08-10-postgres-container-freeze-backend-wedge.md): the
-Railway Postgres container froze mid-checkpoint. Its host kernel stayed alive
-and kept ACKing TCP keepalive probes, so every timeout the app already had —
-libpq keepalives, connect_timeout, server-side statement_timeout — was blind.
-Established connections blocked in recv() forever, the FastAPI pool wedged one
-checkout probe at a time, the Procrastinate connector hung mid-await, and the
-process sat "green" but unable to serve for 45+ minutes. Railway's
-healthcheckPath could not save us: Railway calls it only to gate deploy
-cutover ("not used for continuous monitoring" — Railway docs) and never
-restarts a live-but-hung container.
-
-The only detector that survives that failure mode is a wall-clock deadline
-enforced OUTSIDE the connection: probe on a fresh connection from a dedicated
-thread, join() the probe thread with a hard timeout, and treat "still running"
-exactly like "raised". The only recovery that reliably unsticks every layer
-(HTTP pool, Procrastinate connector, half-open sockets) is a process exit:
-Railway's ON_FAILURE restart policy brings up a clean container, and the
-boot-time connectivity retry (``migrations.apply_alembic_migrations_with_retry``)
-keeps the restart budget from burning while the DB is still down.
+A frozen Postgres whose host kernel still ACKs TCP keepalives defeats every
+connection-level timeout (2026-08-10 incident — see
+docs/incidents/2026-08-10-postgres-container-freeze-backend-wedge.md). The
+only reliable detector is a wall-clock deadline enforced outside the
+connection; the only reliable recovery is a process exit, which Railway's
+ON_FAILURE restart policy turns into a fresh container.
 """
 
 from __future__ import annotations
@@ -34,31 +20,25 @@ from scripts.shared.database import augment_db_url
 
 logger = logging.getLogger(__name__)
 
-# EX_SOFTWARE. Any non-zero exit code triggers Railway's ON_FAILURE restart;
-# a distinctive one makes "the watchdog pulled the trigger" greppable.
+# EX_SOFTWARE — distinctive, greppable "the watchdog pulled the trigger".
 _EXIT_CODE = 70
 
 
 def _default_on_fatal() -> None:
-    # os._exit, not sys.exit: sys.exit raises SystemExit in *this* thread
-    # only — the wedged event loop and blocked pool threads would keep the
-    # process alive, which is the exact condition we are escaping. Skipping
-    # atexit/finalizers is acceptable: a process whose DB sockets are wedged
-    # beyond recovery has nothing left worth flushing that stderr hasn't
-    # already received.
+    # os._exit, not sys.exit: SystemExit in this thread would leave the
+    # wedged event loop and blocked pool threads running — the exact
+    # condition being escaped.
     os._exit(_EXIT_CODE)
 
 
 class DbWatchdog:
     """Periodically probes the database with a hard wall-clock deadline.
 
-    A probe that raises OR fails to finish within ``probe_deadline_s`` counts
-    as a failure. Once failures have persisted for ``failure_window_s``
-    (measured from the first failure of the streak; any success resets the
-    streak), ``on_fatal`` runs — by default exiting the process so the
-    platform restarts the container.
-
-    ``probe_fn`` / ``on_fatal`` are injectable for tests only.
+    A probe that raises OR fails to finish within ``probe_deadline_s`` is a
+    failure. Once failures persist for ``failure_window_s`` (anchored at the
+    first failing probe's start; any success resets), ``on_fatal`` runs —
+    by default exiting the process. ``probe_fn`` / ``on_fatal`` are
+    injectable for tests only.
     """
 
     def __init__(
@@ -96,17 +76,16 @@ class DbWatchdog:
     def stop(self) -> None:
         self._stop_event.set()
         if self._thread is not None:
-            # The loop only ever blocks on the stop event or a bounded
-            # probe join, so this join is bounded too.
+            # The loop only blocks on the stop event or a bounded probe
+            # join, so this join is bounded too.
             self._thread.join(timeout=self._probe_deadline_s + 5.0)
 
     def _default_probe(self) -> None:
-        # Import here so tests injecting probe_fn never touch the driver.
         import psycopg2
 
-        # A FRESH connection each probe is the point: pooled connections can
-        # be individually wedged; what we are measuring is "can this process
-        # reach the database right now, from scratch".
+        # A FRESH connection each probe is the point: what's measured is
+        # "can this process reach the database right now, from scratch" —
+        # pooled connections can be individually wedged.
         conn = psycopg2.connect(self._dsn)
         try:
             with conn.cursor() as cur:
@@ -116,14 +95,11 @@ class DbWatchdog:
             conn.close()
 
     def _probe_ok(self) -> bool:
-        """True iff the probe completed successfully within the deadline.
+        """True iff the probe finished successfully within the deadline.
 
-        The probe runs in its own daemon thread. A probe that HANGS (the
-        2026-08-10 signature: connect() or recv() blocked while the frozen
-        peer's kernel still ACKs keepalives) counts as a failure the moment
-        the deadline elapses. The hung thread is deliberately abandoned; at
-        one per interval, leakage is bounded by failure_window/interval
-        probes before on_fatal ends the process anyway.
+        A probe that hangs (frozen peer whose kernel still ACKs keepalives)
+        counts as a failure when the join deadline elapses; the abandoned
+        daemon thread is bounded by window/interval leaks before exit.
         """
         errors: list[BaseException] = []
 
@@ -150,6 +126,19 @@ class DbWatchdog:
             return False
         return True
 
+    def _fatal(self, elapsed: float) -> None:
+        # Raw fd write, not logging: a wedged process can also have a
+        # blocked log handler, and this line must not be deferrable.
+        os.write(
+            2,
+            (
+                f"CRITICAL db_watchdog: database unreachable for {elapsed:.0f}s "
+                f"(window {self._failure_window_s:.0f}s) — exiting so the "
+                f"platform restarts the container\n"
+            ).encode(),
+        )
+        self._on_fatal()
+
     def _run(self) -> None:
         logger.info(
             "db_watchdog started (interval=%.0fs, probe deadline=%.0fs, "
@@ -158,28 +147,29 @@ class DbWatchdog:
             self._probe_deadline_s,
             self._failure_window_s,
         )
-        # wait() first so the app gets one full interval to finish booting
-        # before the first probe.
+        # wait() first: one full interval of boot grace before probing.
         while not self._stop_event.wait(self._probe_interval_s):
-            if self._probe_ok():
+            probe_started = time.monotonic()
+            try:
+                ok = self._probe_ok()
+            except Exception:
+                # The watchdog must not die of its own bug or of thread
+                # exhaustion — an unexpected error counts as a failed probe.
+                logger.exception(
+                    "db_watchdog: probe machinery failed (treating as failure)"
+                )
+                ok = False
+            if ok:
                 if self._first_failure_monotonic is not None:
                     logger.info(
                         "db_watchdog: database reachable again; failure window reset"
                     )
                     self._first_failure_monotonic = None
                 continue
-            now = time.monotonic()
             if self._first_failure_monotonic is None:
-                self._first_failure_monotonic = now
+                self._first_failure_monotonic = probe_started
                 continue
-            elapsed = now - self._first_failure_monotonic
+            elapsed = time.monotonic() - self._first_failure_monotonic
             if elapsed >= self._failure_window_s:
-                logger.critical(
-                    "db_watchdog: database unreachable for %.0fs "
-                    "(failure window %.0fs exhausted) — exiting so the "
-                    "platform restarts the container",
-                    elapsed,
-                    self._failure_window_s,
-                )
-                self._on_fatal()
+                self._fatal(elapsed)
                 return

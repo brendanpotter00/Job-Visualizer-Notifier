@@ -29,12 +29,9 @@ class Settings(BaseSettings):
             )
         return self
 
-    # DB watchdog (services/db_watchdog.py). Probes the database on a fresh
-    # connection with a hard wall-clock deadline; after failure_window seconds
-    # of sustained unreachability the process exits non-zero so Railway's
-    # ON_FAILURE policy restarts the container. Defaults: probe every 30s,
-    # 15s deadline per probe, exit after 5 sustained minutes. See
-    # docs/incidents/2026-08-10-postgres-container-freeze-backend-wedge.md.
+    # DB watchdog (services/db_watchdog.py): exits the process after ~5-6
+    # sustained minutes of DB unreachability so Railway restarts the
+    # container. Probe every 30s, 15s hard deadline per probe.
     db_watchdog_enabled: bool = True
     db_watchdog_probe_interval_seconds: float = Field(default=30.0, gt=0)
     db_watchdog_probe_deadline_seconds: float = Field(default=15.0, gt=0)

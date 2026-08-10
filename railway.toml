@@ -3,29 +3,22 @@ builder = "DOCKERFILE"
 dockerfilePath = "src/backend/Dockerfile"
 
 [deploy]
-# healthcheckPath gates DEPLOY CUTOVER ONLY. Railway explicitly does NOT
-# monitor this endpoint after a deployment goes live ("The healthcheck
-# endpoint is currently not used for continuous monitoring" — Railway docs),
-# and never restarts a live-but-hung container because of it. The previous
-# comment here claimed "Railway auto-restarts the container on 503"; the
-# 2026-08-10 Postgres-freeze incident disproved that — the backend sat
-# wedged and green for 45+ minutes with this endpoint unreachable the whole
-# time. See docs/incidents/2026-08-10-postgres-container-freeze-backend-wedge.md.
+# healthcheckPath gates DEPLOY CUTOVER ONLY — Railway does not monitor it
+# after a deployment goes live and never restarts a live-but-hung container
+# ("not used for continuous monitoring" — Railway docs; disproven-the-hard-way
+# 2026-08-10, see docs/incidents/2026-08-10-postgres-container-freeze-backend-wedge.md).
+# Runtime liveness is owned in-process by api/services/db_watchdog.py, whose
+# non-zero exit engages restartPolicyType ON_FAILURE.
 #
-# Runtime liveness is owned in-process by api/services/db_watchdog.py:
-# sustained DB unreachability (default 5 min, probed on fresh connections
-# with hard wall-clock deadlines) exits the process non-zero, and
-# restartPolicyType ON_FAILURE restarts the container.
-#
-# /health/worker still returns 503 when either worker stream is stale
-# (procrastinate_events > 35 min, worker_heartbeats > 10 min) — at deploy
-# time that blocks cutover to a build whose worker can't start.
+# /health/worker 503s when either worker stream is stale, blocking cutover
+# to a build whose worker can't start. Timeout matches the 600s boot
+# connectivity-retry budget (DB_BOOT_CONNECT_RETRY_SECONDS) so a deploy
+# during a short DB blip can still ride it out.
 healthcheckPath = "/health/worker"
-healthcheckTimeout = 300
+healthcheckTimeout = 600
 restartPolicyType = "ON_FAILURE"
-# Sized to outlast a multi-hour database outage: while the DB is down, each
-# watchdog-triggered restart cycle spends up to the ~10-min boot
-# connectivity-retry budget (migrations.apply_alembic_migrations_with_retry)
-# waiting for the DB before exiting, so 50 retries covers roughly 8+ hours
-# before Railway gives up. Paid plans allow more than the default 10.
+# Sized to outlast a multi-hour DB outage: while the DB is down each restart
+# cycle lasts ~6 min (watchdog failure window) to ~10 min (boot retry
+# budget), so 50 retries covers roughly 5-8 hours before Railway gives up.
+# Paid plans allow more than the default 10.
 restartPolicyMaxRetries = 50

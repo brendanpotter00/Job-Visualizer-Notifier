@@ -300,7 +300,7 @@ anti-join invariants the `/api/jobs` INNER JOIN depends on — runbook in
   1. **Procrastinate worker** (`tasks/procrastinate_app.py`) — drains the Procrastinate job queue; handles Greenhouse, Ashby, Lever, Gem, Eightfold, and Workday ATS companies via fan-out + per-company fetch tasks. Supervised with auto-restart on crash.
   2. **Auto-scraper loop** (`services/auto_scraper.py`) — asyncio task that periodically spawns subprocesses for Google, Apple, and Microsoft scrapers.
 - **Scraper subprocess**: Runs `scripts/run_scraper.py` via `asyncio.create_subprocess_exec`
-- **DB watchdog** (`services/db_watchdog.py`): daemon thread probing the DB on fresh connections with hard wall-clock deadlines; exits the process after 5 sustained minutes of unreachability so Railway's ON_FAILURE policy restarts the container. Railway healthchecks gate deploy cutover only — they never restart a live-but-hung container. See `docs/incidents/2026-08-10-postgres-container-freeze-backend-wedge.md`.
+- **DB watchdog** (`services/db_watchdog.py`): daemon thread probing the DB on fresh connections with hard wall-clock deadlines; exits the process after ~5-6 sustained minutes of unreachability so Railway restarts the container (see `railway.toml` and the 2026-08-10 incident doc).
 
 ### Schema migrations
 

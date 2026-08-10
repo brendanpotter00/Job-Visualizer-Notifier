@@ -114,38 +114,101 @@ class TestDbWatchdog:
             wd.stop()
 
 
+class TestDefaultProbe:
+    def test_opens_a_fresh_augmented_connection(self, monkeypatch) -> None:
+        # Pins the load-bearing behavior: a NEW connection per probe (never
+        # the pool), on a DSN carrying keepalives + a watchdog identity.
+        from unittest.mock import MagicMock
+
+        conn = MagicMock()
+        connect = MagicMock(return_value=conn)
+        monkeypatch.setattr("psycopg2.connect", connect)
+
+        wd = DbWatchdog(
+            "postgresql://u:p@dbhost:5432/db",
+            probe_interval_s=1.0,
+            probe_deadline_s=1.0,
+            failure_window_s=1.0,
+        )
+        wd._default_probe()
+
+        connect.assert_called_once()
+        dsn = connect.call_args.args[0]
+        assert "application_name=db_watchdog" in dsn
+        assert "connect_timeout=10" in dsn
+        conn.close.assert_called_once()
+
+
 class TestApplyMigrationsWithRetry:
     def test_connectivity_error_retries_then_succeeds(self, monkeypatch) -> None:
-        calls = {"n": 0}
+        calls: list[str] = []
 
         def fake_apply(database_url: str) -> None:
-            calls["n"] += 1
-            if calls["n"] < 3:
-                raise psycopg2.OperationalError("connection refused")
+            calls.append(database_url)
+            if len(calls) < 3:
+                raise psycopg2.OperationalError(
+                    'connection to server at "dbhost" failed: Connection refused'
+                )
 
         monkeypatch.setattr(migrations, "apply_alembic_migrations", fake_apply)
         monkeypatch.setattr(migrations.time, "sleep", lambda s: None)
 
         migrations.apply_alembic_migrations_with_retry("postgresql://x", 60.0)
-        assert calls["n"] == 3
+        assert len(calls) == 3
+        # Boot path must carry the augmented DSN (keepalives + identity).
+        assert "application_name=alembic_startup" in calls[0]
 
-    def test_non_connectivity_error_raises_immediately(self, monkeypatch) -> None:
+    def test_auth_failure_raises_immediately(self, monkeypatch) -> None:
+        # OperationalError but NOT connectivity: retrying a bad password for
+        # the whole boot budget would hide a broken deploy.
         calls = {"n": 0}
 
         def fake_apply(database_url: str) -> None:
             calls["n"] += 1
-            raise ValueError("broken revision")
+            raise psycopg2.OperationalError(
+                'connection to server at "dbhost" failed: FATAL:  '
+                'password authentication failed for user "postgres"'
+            )
 
         monkeypatch.setattr(migrations, "apply_alembic_migrations", fake_apply)
         monkeypatch.setattr(migrations.time, "sleep", lambda s: None)
 
-        with pytest.raises(ValueError):
+        with pytest.raises(psycopg2.OperationalError):
             migrations.apply_alembic_migrations_with_retry("postgresql://x", 60.0)
         assert calls["n"] == 1
 
+    def test_disk_full_raises_immediately(self, monkeypatch) -> None:
+        # DiskFull subclasses OperationalError (the 2026-04-18 incident
+        # class) — must fail the deploy, not retry.
+        calls = {"n": 0}
+
+        def fake_apply(database_url: str) -> None:
+            calls["n"] += 1
+            raise psycopg2.errors.DiskFull(
+                "could not extend file: No space left on device"
+            )
+
+        monkeypatch.setattr(migrations, "apply_alembic_migrations", fake_apply)
+        monkeypatch.setattr(migrations.time, "sleep", lambda s: None)
+
+        with pytest.raises(psycopg2.OperationalError):
+            migrations.apply_alembic_migrations_with_retry("postgresql://x", 60.0)
+        assert calls["n"] == 1
+
+    def test_non_operational_error_raises_immediately(self, monkeypatch) -> None:
+        def fake_apply(database_url: str) -> None:
+            raise ValueError("broken revision")
+
+        monkeypatch.setattr(migrations, "apply_alembic_migrations", fake_apply)
+
+        with pytest.raises(ValueError):
+            migrations.apply_alembic_migrations_with_retry("postgresql://x", 60.0)
+
     def test_budget_exhaustion_reraises_connectivity_error(self, monkeypatch) -> None:
         def fake_apply(database_url: str) -> None:
-            raise psycopg2.OperationalError("still down")
+            raise psycopg2.OperationalError(
+                'connection to server at "dbhost" failed: timeout expired'
+            )
 
         monkeypatch.setattr(migrations, "apply_alembic_migrations", fake_apply)
         monkeypatch.setattr(migrations.time, "sleep", lambda s: None)

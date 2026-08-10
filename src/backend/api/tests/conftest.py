@@ -300,6 +300,22 @@ def clean_tables(db_conn):
     _clear_tables(db_conn)
 
 
+@pytest.fixture(autouse=True)
+def disable_db_watchdog():
+    """Keep lifespan-driven tests from starting a real DbWatchdog.
+
+    Its default on_fatal is os._exit(70) against settings.database_url (not
+    TEST_DATABASE_URL) — with aggressive .env-supplied intervals it could
+    hard-kill the pytest process.
+    """
+    from api.config import settings
+
+    prev = settings.db_watchdog_enabled
+    settings.db_watchdog_enabled = False
+    yield
+    settings.db_watchdog_enabled = prev
+
+
 @pytest.fixture(scope="module")
 def test_app(db_conn):
     """FastAPI test app with database connection wired up (no auto-scraper)."""
