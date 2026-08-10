@@ -31,6 +31,12 @@ pytestmark = pytest.mark.skipif(
 AMAZON_URL = "https://www.amazon.jobs/en/search?base_query=&loc_query="
 
 
+# Overrides the global 120s pytest-timeout: this does a REAL full-board replay
+# (offset pagination over amazon.jobs) after the observe + Sonnet-author steps,
+# which alone can take 2-3 minutes. A confirmed run on 2026-08-09 authored a
+# valid recipe and entered replay past validate — the 120s default cut it off
+# mid-fetch, not a discovery failure.
+@pytest.mark.timeout(600)
 @pytest.mark.asyncio
 async def test_discovery_amazon_end_to_end() -> None:
     from api.config import settings
