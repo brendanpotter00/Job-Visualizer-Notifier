@@ -570,10 +570,30 @@ describe('RecentJobsList', () => {
     // and its early return unmounted the sentinel — the only thing that can
     // advance the walk. 116 matching jobs sat one page deeper, permanently
     // unreachable. These tests pin the machinery staying mounted at zero rows.
+    //
+    // Load-bearing harness rule: `useInfiniteScroll` is mocked, so
+    // `triggerLoadMore()` could simulate fires the browser can never produce
+    // when the sentinel is unmounted — which is exactly the pre-fix state.
+    // Every fire below therefore goes through `fireSentinelWhileMounted`,
+    // which fires ONLY while the sentinel is genuinely in the DOM; on the
+    // pre-fix component it fires zero times and these tests fail.
+    const SENTINEL_SELECTOR =
+      '.MuiStack-root > div[aria-hidden="true"][style*="height: 1px"]';
+
     function renderEmptyWithMorePages() {
       mockPaging.hasMoreServer = true;
       vi.mocked(recentJobsSelectors.selectRecentJobsSorted).mockReturnValue([]);
       return renderList();
+    }
+
+    /** Fire the sentinel repeatedly, but only while it is actually mounted. */
+    async function fireSentinelWhileMounted(container: HTMLElement, maxFires: number) {
+      let fires = 0;
+      while (fires < maxFires && container.querySelector(SENTINEL_SELECTOR)) {
+        await triggerLoadMore();
+        fires++;
+      }
+      return fires;
     }
 
     it('does NOT show the terminal empty state while the walk has more pages', () => {
@@ -588,24 +608,26 @@ describe('RecentJobsList', () => {
     it('keeps the sentinel mounted at zero rows so the walk can advance', () => {
       const { container } = renderEmptyWithMorePages();
 
-      expect(
-        container.querySelector('.MuiStack-root > div[aria-hidden="true"][style*="height: 1px"]')
-      ).toBeInTheDocument();
+      expect(container.querySelector(SENTINEL_SELECTOR)).toBeInTheDocument();
     });
 
     it('advances the walk from the sentinel with zero visible rows', async () => {
-      renderEmptyWithMorePages();
+      const { container } = renderEmptyWithMorePages();
 
-      await triggerLoadMore();
+      const fires = await fireSentinelWhileMounted(container, 1);
 
+      expect(fires).toBe(1);
       expect(mockPaging.loadNextServerPage).toHaveBeenCalledTimes(1);
     });
 
     it('spends the auto-fetch budget then offers the continue affordance, never the empty state', async () => {
-      renderEmptyWithMorePages();
+      const { container } = renderEmptyWithMorePages();
 
-      for (let i = 0; i < 10; i++) await triggerLoadMore();
+      // Unbounded upper limit; the component's own budget must stop the loop
+      // by unmounting the sentinel after MAX_EMPTY_AUTO_FETCHES fires.
+      const fires = await fireSentinelWhileMounted(container, 10);
 
+      expect(fires).toBe(VIRTUAL_LIST_CONFIG.MAX_EMPTY_AUTO_FETCHES);
       expect(mockPaging.loadNextServerPage).toHaveBeenCalledTimes(
         VIRTUAL_LIST_CONFIG.MAX_EMPTY_AUTO_FETCHES
       );
@@ -636,12 +658,15 @@ describe('RecentJobsList', () => {
       expect(screen.getByText(/No jobs found matching your filters/)).toBeInTheDocument();
     });
 
-    it('never mounts the sentinel at zero rows when signed out', () => {
+    it('never mounts the sentinel or the searching line at zero rows when signed out', () => {
       mockAuthState.isAuthenticated = false;
       const { container } = renderEmptyWithMorePages();
 
+      expect(container.querySelector(SENTINEL_SELECTOR)).not.toBeInTheDocument();
+      // The searching line claims the walk is deepening; signed-out users
+      // never page, so it must not render for them either.
       expect(
-        container.querySelector('.MuiStack-root > div[aria-hidden="true"][style*="height: 1px"]')
+        screen.queryByText(EMPTY_STATE_MESSAGES.SEARCHING_OLDER_JOBS_IN_PROGRESS)
       ).not.toBeInTheDocument();
     });
   });

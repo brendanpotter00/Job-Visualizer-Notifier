@@ -508,6 +508,32 @@ describe('fetchNextJobsPage window widening', () => {
     promise.unsubscribe();
   });
 
+  it('rolls the claimed window back when a widen FAILS, so the widen stays pending', async () => {
+    // The widen claims the new window (windowKey flipped, cursors/floors
+    // cleared) BEFORE awaiting its pages. Without rollback, a failed widen
+    // strands that claim: needsWidening reads false (window already "fetched"),
+    // hasCursors reads false, and the UI concludes the walk is exhausted —
+    // rendering a terminal "no jobs found" over a transient network error,
+    // with retry a silent no-op.
+    const { store, promise } = await seedFirstPage();
+    const before = getAllJobsData(store);
+    expect(before?.cursors[CHUNK_A_KEY]).toBe('CUR-A1'); // harness self-check
+
+    fetchMock = vi.fn(() => Promise.reject(new Error('network down')));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    await store.dispatch(jobsApi.endpoints.fetchNextJobsPage.initiate({ window: '180d' }));
+    await flush();
+
+    const after = getAllJobsData(store);
+    expect(after?.windowKey).toBe('90d');
+    expect(after?.since).toBe(before?.since);
+    expect(after?.cursors).toEqual(before?.cursors);
+    expect(after?.chunkFloors).toEqual(before?.chunkFloors);
+
+    promise.unsubscribe();
+  });
+
   it('converges when a widen lands WHILE the initial page-1 load is still in flight', async () => {
     // Page 1 hangs until we release it; the widen runs in the gap.
     let releasePageOne: (() => void) | undefined;

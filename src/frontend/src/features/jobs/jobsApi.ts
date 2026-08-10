@@ -499,16 +499,41 @@ export const jobsApi = createApi({
             );
           }
 
-          const pages = await Promise.all(
-            plan.map((p) =>
-              fetchJobsPage(p.ids, {
-                since,
-                cursor: p.cursor,
-                limit: RECENT_JOBS_PAGE_SIZE,
-                signal,
-              })
-            )
-          );
+          let pages: Awaited<ReturnType<typeof fetchJobsPage>>[];
+          try {
+            pages = await Promise.all(
+              plan.map((p) =>
+                fetchJobsPage(p.ids, {
+                  since,
+                  cursor: p.cursor,
+                  limit: RECENT_JOBS_PAGE_SIZE,
+                  signal,
+                })
+              )
+            );
+          } catch (error) {
+            // The widen path CLAIMED the new window (cursors/floors cleared)
+            // before this await. A failure here must not strand that claim:
+            // with windowKey already reading as the new window, `needsWidening`
+            // goes false and `hasCursors` is false, so the caller concludes the
+            // walk is EXHAUSTED — a terminal "no jobs found" (or "all N
+            // loaded") over a transient network error, with retry a silent
+            // no-op. Roll the claim back so the widen stays pending: the error
+            // latches as usual and retrying re-attempts the same widen.
+            if (widenedWindow) {
+              dispatch(
+                jobsApi.util.updateQueryData('getAllJobs', undefined, (draft) => {
+                  // A newer widen owns the entry now; leave its claim alone.
+                  if (draft.windowKey !== widenedWindow) return;
+                  draft.windowKey = cached.windowKey;
+                  draft.since = cached.since;
+                  draft.cursors = { ...cached.cursors };
+                  draft.chunkFloors = { ...cached.chunkFloors };
+                })
+              );
+            }
+            throw error;
+          }
 
           // Merge against the LIVE draft rather than the pre-fetch snapshot, so
           // a first load still streaming in cannot be clobbered.

@@ -40,8 +40,9 @@ if (jobs.length === 0 && !isLoadingMore && !showContinueAffordance) {
 PR `fix/recent-jobs-empty-filter-deadlock`:
 
 - The terminal empty state now additionally requires `!hasMoreServer` (walk exhausted). With cursors outstanding, the list stays mounted at zero rows: the sentinel fires, the walk auto-deepens under the existing `MAX_EMPTY_AUTO_FETCHES` budget, then the existing "Search older jobs" affordance takes over.
-- New status line (`SEARCHING_OLDER_JOBS_IN_PROGRESS`) renders while the list is empty and deepening, so users see progress instead of bare skeletons.
-- Six regression tests pin the machinery staying mounted at zero rows, the budget spend, the affordance handoff, the exhausted-walk terminal state, and the signed-out cap.
+- New status line (`SEARCHING_OLDER_JOBS_IN_PROGRESS`) renders while the list is empty and deepening (signed-in only — signed-out users never page), so users see progress instead of bare skeletons. Not a `role="status"` live region: the loading skeletons already announce the activity.
+- Regression tests fire the sentinel only while it is genuinely in the DOM (`fireSentinelWhileMounted`), so the deadlock tests fail on the pre-fix component instead of simulating fires a browser could never produce.
+- **Adversarial review follow-through (same PR):** the review surfaced the same deadlock template one layer down — a **failed window-widening restart** claimed the new window (cursors cleared) *before* awaiting its pages, with no rollback, leaving a terminal "No jobs found"/"All N loaded" over a transient network error, the latched error never rendered, and retry a silent no-op. Fixed: the widen claim rolls back on failure (regression test in `jobsApi.keyset.test.ts`). Also fixed: the sentinel/manual advance path now honors the `firstPageSettled` gate, so a widen can no longer fire mid-initial-stream and discard the in-flight page-1 load (the sentinel firing at t≈0 was new exposure from this fix).
 
 ## Verification
 
@@ -54,3 +55,11 @@ PR `fix/recent-jobs-empty-filter-deadlock`:
 2. **Initial imports are horizon floods.** Any newly onboarded high-volume company will pin the complete-prefix horizon to its import minute until its chunk's cursor exhausts. The walk now digs itself out, but onboarding a very large board (10k+ rows) would still burn several auto-fetch pages on one company. Consider backfilling `first_seen_at` from the ATS posting date on a company's *first* scrape, or excluding a chunk's page-1-of-first-import from horizon math.
 3. **Enricher capacity vs. import size.** A one-shot 1,291-row import is ~2.5 days of enricher throughput; category/level filters are blind to those rows meanwhile. Worth a backlog alarm (claims abandoned/hour, done/hour vs. influx) on the admin enrichment page.
 4. **Identical "Past 24 Hours" and "Past 3 Hours" counts are a clamp-collapse signature** — cheap to alert on client-side.
+
+## Review follow-ups deliberately NOT fixed in this PR (pre-existing)
+
+- **Wholesale page-1 failure masquerades as "no jobs found."** If the initial batched load fails entirely, no cursor is ever written, `hasMoreServer` is false from birth, and the terminal empty state renders with the only error signal buried in the progress-bar chips. Needs a real outage UX (gate the terminal state on the initial load having settled *and* not wholesale-failed).
+- **Demo mode:** a demo filter matching zero curated jobs now shows the searching line and fires real (useless) pages, since `hasMoreServer` derives from the live cache while the rows come from `DEMO_JOBS`. Admin-only; wants a demo-mode escape in the list's conditions.
+- **Budget miscount:** the empty-fetch streak increments before dispatch, and `inFlightRef` can silently swallow the dispatch (widening effect racing the sentinel), so the affordance can appear one page early. Return "actually fired" from `loadNextServerPage` and count only those.
+- **Manual "Search older jobs" resets the streak to 0**, so one click buys up to `MAX_EMPTY_AUTO_FETCHES` more automatic pages (~3 chunk-requests × 1000 rows each), not one — the comment on `continueLoading` says "fetches once." Either fix the comment or set the streak to `MAX - 1` on continue. Backend headroom note: each page is 3 batched keyset requests, not the 49-request fanout of the 2026-05-17 pool-exhaustion incident.
+- **Signed-out zero-match copy overclaims:** signed-out users get the terminal "No jobs found" while pages are outstanding (paging is auth-gated by design) and no hint that signing in searches deeper. Consider a "Sign in to search older jobs" variant.

@@ -217,9 +217,13 @@ export function RecentJobsList() {
 
           {/* Zero matches so far, walk still deepening: say so, instead of
               bare skeletons (or a blank frame between fetches) where the list
-              should be. The stopped-short case has its own message below. */}
-          {jobs.length === 0 && !showContinueAffordance && (
-            <Box sx={{ textAlign: 'center', pt: 4 }} role="status">
+              should be. The stopped-short case has its own message below.
+              Deliberately NOT role="status": the skeletons below are already a
+              live region ("Loading more jobs"), and doubling the announcement
+              per auto-deepened page is screen-reader noise. Signed-out users
+              never deepen the walk, so the line would be a lie for them. */}
+          {!isSignedOut && jobs.length === 0 && !showContinueAffordance && (
+            <Box sx={{ textAlign: 'center', pt: 4 }}>
               <Typography variant="body2" color="text.secondary">
                 {EMPTY_STATE_MESSAGES.SEARCHING_OLDER_JOBS_IN_PROGRESS}
               </Typography>
