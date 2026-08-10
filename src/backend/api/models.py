@@ -1022,6 +1022,50 @@ class JobFacetsResponse(BaseModel):
     levels: list[FacetOption]
 
 
+class JobSearchMeta(BaseModel):
+    """Header metrics for GET /api/jobs/search, returned with page 1 only.
+
+    ``filtered_total`` counts the ACTIVE filter set; the two recency tiles count
+    the whole visible OPEN corpus regardless of filters, which is what the Recent
+    page's "Past 24 Hours" / "Past 3 Hours" cards have always shown.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    filtered_total: int
+    # Explicit aliases: ``to_camel`` splits on the digit and emits
+    # ``countLast24H`` / ``countLast3H`` — a stray capital that reads like a typo
+    # in the JSON and would have to be mirrored verbatim in the TypeScript type.
+    # A field-level alias takes priority over the generator.
+    count_last_24h: int = Field(serialization_alias="countLast24h")
+    count_last_3h: int = Field(serialization_alias="countLast3h")
+
+
+class JobSearchResponse(BaseModel):
+    """GET /api/jobs/search — an ENVELOPE, unlike GET /api/jobs' bare array.
+
+    ``/api/jobs`` carries its page token in the ``X-Next-Cursor`` header because it
+    could not change a body shape every existing consumer depended on. That header
+    needs three separate hops wired correctly (the Vercel proxy's explicit
+    re-emit, FastAPI ``expose_headers``, and ``vercel.json``'s
+    ``Access-Control-Expose-Headers``), and missing any one of them fails
+    silently — the client simply never sees another page.
+
+    This endpoint is new, so it has no such constraint and puts the cursor in the
+    body, where it cannot be dropped in transit.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    jobs: list[JobListingResponse]
+    # Absent/null means END OF WALK — it is the only termination signal, exactly
+    # as with the header on /api/jobs. Present iff the page came back full.
+    next_cursor: str | None = None
+    # None on cursor pages: the counts describe the whole filter set, so
+    # recomputing them per page would be pure waste.
+    meta: JobSearchMeta | None = None
+
+
 # --- Enrichment MONITOR models (admin oversight of the pull pipeline) ---------
 
 

@@ -1,461 +1,132 @@
 import { describe, it, expect } from 'vitest';
-import { configureStore } from '@reduxjs/toolkit';
 import type { RootState } from '../../../app/store';
-import type { Job, RecentJobsFilters } from '../../../types';
-import { jobsApi } from '../../../features/jobs/jobsApi';
-import recentJobsFiltersReducer from '../../../features/filters/slices/recentJobsFiltersSlice';
-import appReducer from '../../../features/app/appSlice';
-import graphFiltersReducer from '../../../features/filters/slices/graphFiltersSlice';
-import uiReducer from '../../../features/ui/uiSlice';
-import enabledCompaniesReducer from '../../../features/preferences/enabledCompaniesSlice';
-import {
-  selectAllJobsFromQuery,
-  selectRecentFilteredJobs,
-  selectRecentJobsSorted,
-  selectRecentAvailableCompanies,
-  selectRecentJobsMetadata,
-  selectRecentJobsTimeBasedCounts,
-} from '../../../features/filters/selectors/recentJobsSelectors';
+import type { RecentJobsFilters } from '../../../types';
+import { COMPANIES } from '../../../config/companies';
 import { DEMO_JOBS } from '../../../features/jobs/demoJobs';
+import {
+  selectRecentCompanyOptions,
+  selectRecentJobsFilters,
+} from '../../../features/filters/selectors/recentJobsSelectors';
 
-// Helper to create mock jobs.
-// Derives a single canonical location tag from the raw `location` string
-// (canonicalName === the string, country null so no implicit "United States"
-// option) unless the caller passes `locations` explicitly. Lets the existing
-// dropdown fixtures keep asserting on the same strings under the tag model.
-const createMockJob = (overrides: Partial<Job> = {}): Job => {
-  // Recency (time windows, last-3h/24h counts) keys off firstSeenAt; default it
-  // to mirror the (possibly-overridden) createdAt so fixtures that set createdAt
-  // to control recency keep working, while a test can still override firstSeenAt.
-  const createdAt = overrides.createdAt ?? new Date().toISOString();
-  const firstSeenAt = overrides.firstSeenAt ?? createdAt;
-  const job: Job = {
-    id: '1',
-    source: 'backend-scraper',
-    company: 'spacex',
-    title: 'Software Engineer',
-    team: 'Backend',
-    location: 'San Francisco, CA',
-    employmentType: 'Full-time',
-    createdAt,
-    firstSeenAt,
-    url: 'https://example.com/job/1',
-    raw: {},
-    ...overrides,
-  };
-  if (job.locations === undefined && job.location) {
-    job.locations = [{ canonicalName: job.location, kind: 'city', country: null, isPrimary: true }];
-  }
-  return job;
+/**
+ * What is left of the Recent page's selectors after filtering moved to the
+ * server: the filter slice accessor and the company dropdown's option list.
+ *
+ * The dropdown options are the interesting half. They come from the STATIC
+ * company config, never from the jobs on screen — the cache now holds only rows
+ * that already match every active filter, so deriving options from it would make
+ * the dropdown shrink as the reader narrowed the search, and would hide the very
+ * company they were about to pick.
+ */
+
+const BASE_FILTERS: RecentJobsFilters = {
+  timeWindow: '90d',
+  searchTags: undefined,
+  location: undefined,
+  employmentType: undefined,
+  softwareOnly: false,
+  company: undefined,
+  category: undefined,
+  level: undefined,
 };
 
-// Helper to create a mock store with jobs
-const createMockStoreWithJobs = (
-  jobs: Job[],
-  filters: RecentJobsFilters,
-  enabledIds: string[] | null = null
-) => {
-  const store = configureStore({
-    reducer: {
-      app: appReducer,
-      graphFilters: graphFiltersReducer,
-      recentJobsFilters: recentJobsFiltersReducer,
-      ui: uiReducer,
-      enabledCompanies: enabledCompaniesReducer,
-      [jobsApi.reducerPath]: jobsApi.reducer,
-    },
-    middleware: (getDefaultMiddleware) => getDefaultMiddleware().concat(jobsApi.middleware),
+function makeState(
+  enabledCompanyIds: string[] | null = null,
+  demoModeEnabled = false,
+  filters: RecentJobsFilters = BASE_FILTERS
+): RootState {
+  return {
+    recentJobsFilters: { filters },
+    enabledCompanies: { ids: enabledCompanyIds },
+    ui: { demoModeEnabled },
+  } as unknown as RootState;
+}
+
+/** Company ids the curated demo fixture actually contains. */
+const DEMO_COMPANY_IDS = new Set(DEMO_JOBS.map((job) => job.company));
+
+describe('selectRecentCompanyOptions', () => {
+  // `null` (never saved a preference) and `[]` (saved an empty set) both mean
+  // "all companies" everywhere else in the preferences code. The dropdown has to
+  // agree, or a reader who unchecked everything would be offered nothing to pick.
+  it.each([
+    ['the reader has never saved a preference (null)', null],
+    ['the reader saved an empty set (the [] opt-out)', [] as string[]],
+  ])('offers every configured company when %s', (_label, enabledIds) => {
+    const options = selectRecentCompanyOptions(makeState(enabledIds));
+
+    expect(options).toHaveLength(COMPANIES.length);
+    expect(options.map((o) => o.id).sort()).toEqual(COMPANIES.map((c) => c.id).sort());
   });
 
-  // Manually populate the store with jobs data
-  const state = store.getState();
-  const jobsByCompanyId: Record<string, Job[]> = {};
+  it('orders options by display name', () => {
+    const options = selectRecentCompanyOptions(makeState(null));
+    const names = options.map((o) => o.name);
 
-  jobs.forEach((job) => {
-    if (!jobsByCompanyId[job.company]) {
-      jobsByCompanyId[job.company] = [];
-    }
-    jobsByCompanyId[job.company].push(job);
+    expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b)));
+    // The config is grouped by ATS, not alphabetized, so this proves the sort
+    // ran rather than that the source happened to already be in order.
+    expect(names).not.toEqual(COMPANIES.map((c) => c.name));
   });
 
-  // Create a mock state with the jobs
-  const mockState = {
-    ...state,
-    recentJobsFilters: {
-      filters,
-    },
-    enabledCompanies: {
-      ids: enabledIds,
-      loading: false,
-      error: null,
-    },
-    [jobsApi.reducerPath]: {
-      ...state[jobsApi.reducerPath],
-      queries: {
-        'getAllJobs(undefined)': {
-          status: 'fulfilled' as const,
-          endpointName: 'getAllJobs',
-          requestId: 'test',
-          error: undefined,
-          originalArgs: undefined,
-          data: {
-            byCompanyId: jobsByCompanyId,
-            metadata: {
-              totalCount: jobs.length,
-              companiesCount: Object.keys(jobsByCompanyId).length,
-              lastUpdated: new Date().toISOString(),
-            },
-          },
-          startedTimeStamp: Date.now(),
-          fulfilledTimeStamp: Date.now(),
-        },
-      },
-      mutations: {},
-      provided: {},
-      subscriptions: {},
-      config: {
-        online: true,
-        focused: true,
-        middlewareRegistered: true,
-        refetchOnFocus: false,
-        refetchOnReconnect: false,
-        refetchOnMountOrArgChange: false,
-        keepUnusedDataFor: 60,
-        reducerPath: jobsApi.reducerPath,
-      },
-    },
-  } as any as RootState;
+  it('carries the config display name, not the id', () => {
+    const options = selectRecentCompanyOptions(makeState(['spacex']));
 
-  return mockState;
-};
-
-describe('recentJobsSelectors', () => {
-  describe('demo mode (admin Demo toggle)', () => {
-    const realJobs = [createMockJob({ id: 'real-1', company: 'spacex' })];
-    const allWindow: RecentJobsFilters = { timeWindow: 'all', softwareOnly: false };
-
-    // The helper seeds `ui` from uiReducer defaults; flip demoModeEnabled on.
-    const enableDemo = (state: RootState): RootState =>
-      ({ ...state, ui: { ...state.ui, demoModeEnabled: true } }) as RootState;
-
-    it('returns the curated DEMO_JOBS (stable reference) and drops real data when enabled', () => {
-      const state = enableDemo(createMockStoreWithJobs(realJobs, allWindow));
-      const result = selectAllJobsFromQuery(state);
-      // Reference equality proves the memoization-safe stable constant is returned.
-      expect(result).toBe(DEMO_JOBS);
-      expect(result).toHaveLength(DEMO_JOBS.length);
-      expect(result.some((j) => j.id === 'real-1')).toBe(false);
-    });
-
-    it('returns real jobs (not demo data) when disabled', () => {
-      const state = createMockStoreWithJobs(realJobs, allWindow);
-      const result = selectAllJobsFromQuery(state);
-      expect(result).not.toBe(DEMO_JOBS);
-      expect(result.map((j) => j.id)).toEqual(['real-1']);
-    });
-
-    it('bypasses the enabled-companies prefilter when enabled', () => {
-      // enabledIds excludes every demo company, yet demo data is still returned in full.
-      const state = enableDemo(
-        createMockStoreWithJobs(realJobs, allWindow, ['some-company-not-in-demo'])
-      );
-      expect(selectAllJobsFromQuery(state)).toBe(DEMO_JOBS);
-    });
-
-    it('feeds demo data through downstream company/metric/recency selectors', () => {
-      const state = enableDemo(createMockStoreWithJobs(realJobs, allWindow));
-
-      const companies = selectRecentAvailableCompanies(state);
-      expect(companies.length).toBeGreaterThan(1);
-      expect(companies.map((c) => c.id)).toContain('google');
-      // Name resolves from config — proves logos/links will resolve for demo jobs too.
-      expect(companies.find((c) => c.id === 'google')?.name).toBe('Google');
-
-      expect(selectRecentJobsMetadata(state).totalJobs).toBe(DEMO_JOBS.length);
-
-      const counts = selectRecentJobsTimeBasedCounts(state);
-      expect(counts.jobsLast3Hours).toBeGreaterThan(0);
-      expect(counts.jobsLast24Hours).toBeGreaterThanOrEqual(counts.jobsLast3Hours);
-    });
+    expect(options).toEqual([{ id: 'spacex', name: 'SpaceX' }]);
   });
 
-  describe('enabled-companies prefilter', () => {
-    const now = Date.now();
-    const makeJobs = (): Job[] => [
-      createMockJob({
-        id: '1',
-        company: 'spacex',
-        createdAt: new Date(now - 1 * 60 * 60 * 1000).toISOString(), // 1h ago
-      }),
-      createMockJob({
-        id: '2',
-        company: 'spotify',
-        createdAt: new Date(now - 2 * 60 * 60 * 1000).toISOString(), // 2h ago
-      }),
-      createMockJob({
-        id: '3',
-        company: 'airbnb',
-        createdAt: new Date(now - 3 * 60 * 60 * 1000).toISOString(), // 3h ago
-      }),
-    ];
+  it('narrows to the reader’s enabled set', () => {
+    const options = selectRecentCompanyOptions(makeState(['spotify', 'airbnb']));
 
-    const baseFilters: RecentJobsFilters = {
-      timeWindow: '7d',
-      softwareOnly: false,
-    };
-
-    it('returns all jobs unchanged when ids === null', () => {
-      const state = createMockStoreWithJobs(makeJobs(), baseFilters, null);
-      const result = selectAllJobsFromQuery(state);
-
-      expect(result).toHaveLength(3);
-      expect(result.map((j) => j.company).sort()).toEqual(['airbnb', 'spacex', 'spotify']);
-    });
-
-    it('returns all jobs unchanged when ids === [] (empty = opt-out)', () => {
-      const state = createMockStoreWithJobs(makeJobs(), baseFilters, []);
-      const result = selectAllJobsFromQuery(state);
-
-      expect(result).toHaveLength(3);
-      expect(result.map((j) => j.company).sort()).toEqual(['airbnb', 'spacex', 'spotify']);
-    });
-
-    it('returns only jobs for enabled company ids', () => {
-      const state = createMockStoreWithJobs(makeJobs(), baseFilters, ['spacex', 'spotify']);
-      const result = selectAllJobsFromQuery(state);
-
-      expect(result).toHaveLength(2);
-      const companies = result.map((j) => j.company).sort();
-      expect(companies).toEqual(['spacex', 'spotify']);
-      expect(companies).not.toContain('airbnb');
-    });
-
-    it('returns empty and drops metadata to zero when ids reference no real companies', () => {
-      const state = createMockStoreWithJobs(makeJobs(), baseFilters, ['nonexistent-id']);
-
-      expect(selectAllJobsFromQuery(state)).toHaveLength(0);
-
-      const metadata = selectRecentJobsMetadata(state);
-      expect(metadata.totalJobs).toBe(0);
-      expect(metadata.filteredCount).toBe(0);
-    });
-
-    it('propagates filter to selectRecentJobsMetadata and selectRecentJobsTimeBasedCounts', () => {
-      const state = createMockStoreWithJobs(makeJobs(), baseFilters, ['spacex']);
-
-      const metadata = selectRecentJobsMetadata(state);
-      expect(metadata.totalJobs).toBe(1);
-      expect(metadata.filteredCount).toBe(1);
-
-      const counts = selectRecentJobsTimeBasedCounts(state);
-      expect(counts.jobsLast24Hours).toBe(1);
-      expect(counts.jobsLast3Hours).toBe(1);
-    });
-
-    it('memoizes when enabledCompanies.ids is unchanged', () => {
-      const state = createMockStoreWithJobs(makeJobs(), baseFilters, ['spacex', 'spotify']);
-
-      const r1 = selectAllJobsFromQuery(state);
-      const r2 = selectAllJobsFromQuery(state);
-
-      expect(r1).toBe(r2);
-    });
+    expect(options.map((o) => o.id)).toEqual(['airbnb', 'spotify']);
   });
 
-  describe('selectRecentJobsSorted (recency ordering)', () => {
-    const allWindow: RecentJobsFilters = { timeWindow: 'all', softwareOnly: false };
+  it('drops enabled ids that no longer exist in the config', () => {
+    // A saved preference outlives a company being removed from the config. The
+    // stale id must not become a dropdown entry the server could never match.
+    const options = selectRecentCompanyOptions(makeState(['spacex', 'company-that-was-removed']));
 
-    it('orders by firstSeenAt desc even when createdAt order disagrees', () => {
-      // The Recent page ranks by when WE first saw a job (firstSeenAt), not its
-      // display-only ATS posted date (createdAt). `newest-seen` has the OLDEST
-      // createdAt but the NEWEST firstSeenAt, so it must sort FIRST. If the sort
-      // reverted to createdAt this order would flip and the assertion would fail.
-      const mixedJobs: Job[] = [
-        createMockJob({
-          id: 'mid',
-          company: 'spacex',
-          createdAt: '2026-02-01T00:00:00Z', // middle posted date
-          firstSeenAt: '2026-02-01T00:00:00Z', // middle discovery
-        }),
-        createMockJob({
-          id: 'newest-seen',
-          company: 'spacex',
-          createdAt: '2020-01-01T00:00:00Z', // oldest posted date (display only)
-          firstSeenAt: '2026-03-15T00:00:00Z', // newest discovery — sorts first
-        }),
-        createMockJob({
-          id: 'earliest-seen',
-          company: 'spacex',
-          createdAt: '2026-01-01T00:00:00Z', // newest-but-one posted date
-          firstSeenAt: '2026-01-01T00:00:00Z', // oldest discovery — sorts last
-        }),
-      ];
-
-      const state = createMockStoreWithJobs(mixedJobs, allWindow);
-      const sorted = selectRecentJobsSorted(state);
-
-      // firstSeenAt order: newest-seen (Mar) > mid (Feb) > earliest-seen (Jan).
-      // A revert to createdAt would give ['mid', 'earliest-seen', 'newest-seen'].
-      expect(sorted.map((j) => j.id)).toEqual(['newest-seen', 'mid', 'earliest-seen']);
-
-      // Ordering invariant asserted directly on firstSeenAt timestamps.
-      const times = sorted.map((j) => new Date(j.firstSeenAt).getTime());
-      for (let i = 1; i < times.length; i++) {
-        expect(times[i - 1]).toBeGreaterThanOrEqual(times[i]);
-      }
-    });
+    expect(options.map((o) => o.id)).toEqual(['spacex']);
   });
 
-  describe('selectRecentJobsTimeBasedCounts (firstSeenAt vs createdAt divergence)', () => {
-    const allWindow: RecentJobsFilters = { timeWindow: 'all', softwareOnly: false };
+  describe('demo mode', () => {
+    it('narrows to the companies present in DEMO_JOBS', () => {
+      const options = selectRecentCompanyOptions(makeState(null, true));
 
-    it('buckets last-3h / last-24h counts by firstSeenAt, not createdAt', () => {
-      const now = Date.now();
-      const hoursAgo = (h: number) => new Date(now - h * 60 * 60 * 1000).toISOString();
-      const daysAgo = (d: number) => new Date(now - d * 24 * 60 * 60 * 1000).toISOString();
-
-      // Divergence fixture: for every job, createdAt and firstSeenAt fall in
-      // DIFFERENT time buckets, so the counts only match reality if the code
-      // keys off firstSeenAt.
-      const jobs: Job[] = [
-        // firstSeen 1h ago (in 3h + 24h); posted 100d ago (in neither).
-        createMockJob({
-          id: 'seen-1h',
-          company: 'spacex',
-          createdAt: daysAgo(100),
-          firstSeenAt: hoursAgo(1),
-        }),
-        // firstSeen 2h ago (in 3h + 24h); posted 100d ago (in neither).
-        createMockJob({
-          id: 'seen-2h',
-          company: 'spotify',
-          createdAt: daysAgo(100),
-          firstSeenAt: hoursAgo(2),
-        }),
-        // firstSeen 10h ago (in 24h, NOT 3h); posted 100d ago (in neither).
-        createMockJob({
-          id: 'seen-10h',
-          company: 'airbnb',
-          createdAt: daysAgo(100),
-          firstSeenAt: hoursAgo(10),
-        }),
-        // firstSeen 100d ago (in neither); posted 1h ago (in 3h + 24h).
-        // A createdAt-based count would wrongly include this row.
-        createMockJob({
-          id: 'posted-1h',
-          company: 'stripe',
-          createdAt: hoursAgo(1),
-          firstSeenAt: daysAgo(100),
-        }),
-      ];
-
-      const state = createMockStoreWithJobs(jobs, allWindow);
-      const counts = selectRecentJobsTimeBasedCounts(state);
-
-      // By firstSeenAt: last-3h = {seen-1h, seen-2h} = 2; last-24h = {seen-1h,
-      // seen-2h, seen-10h} = 3. By createdAt both would be 1 (only posted-1h),
-      // so this assertion fails if the count logic reverts to createdAt.
-      expect(counts.jobsLast3Hours).toBe(2);
-      expect(counts.jobsLast24Hours).toBe(3);
-    });
-  });
-
-  describe('Selector memoization', () => {
-    it('should return same reference when inputs unchanged', () => {
-      const now = Date.now();
-      const jobs: Job[] = [
-        createMockJob({
-          id: '1',
-          location: 'San Francisco, CA',
-          createdAt: new Date(now - 1 * 24 * 60 * 60 * 1000).toISOString(),
-        }),
-      ];
-
-      const filters: RecentJobsFilters = {
-        timeWindow: '7d',
-        softwareOnly: false,
-      };
-
-      const state = createMockStoreWithJobs(jobs, filters);
-
-      const result1 = selectRecentFilteredJobs(state);
-      const result2 = selectRecentFilteredJobs(state);
-
-      // Should return same reference (memoized)
-      expect(result1).toBe(result2);
+      expect(options.length).toBe(DEMO_COMPANY_IDS.size);
+      expect(options.every((o) => DEMO_COMPANY_IDS.has(o.id))).toBe(true);
+      // Demo mode is a strict subset — the whole point is not offering options
+      // that provably match nothing in the curated fixture.
+      expect(options.length).toBeLessThan(COMPANIES.length);
     });
 
-    it('should recalculate when filters change', () => {
-      const now = Date.now();
-      const jobs: Job[] = [
-        createMockJob({
-          id: '1',
-          location: 'San Francisco, CA',
-          createdAt: new Date(now - 1 * 24 * 60 * 60 * 1000).toISOString(),
-        }),
-        createMockJob({
-          id: '2',
-          location: 'New York, NY',
-          createdAt: new Date(now - 5 * 24 * 60 * 60 * 1000).toISOString(),
-        }),
-      ];
+    it('ignores the enabled set, because the fixture is fixed', () => {
+      // `spacex` is tracked but absent from DEMO_JOBS. Intersecting the two would
+      // leave the demo dropdown empty; demo mode must serve the fixture's set.
+      expect(DEMO_COMPANY_IDS.has('spacex')).toBe(false);
 
-      let filters: RecentJobsFilters = {
-        timeWindow: '7d',
-        softwareOnly: false,
-      };
+      const options = selectRecentCompanyOptions(makeState(['spacex'], true));
 
-      let state = createMockStoreWithJobs(jobs, filters);
-      const result1 = selectRecentFilteredJobs(state);
-
-      // Change filters
-      filters = {
-        timeWindow: '3d',
-        softwareOnly: false,
-      };
-
-      state = createMockStoreWithJobs(jobs, filters);
-      const result2 = selectRecentFilteredJobs(state);
-
-      // Should be different references
-      expect(result1).not.toBe(result2);
-      // 7d window keeps both jobs; 3d window drops the 5-day-old NY job.
-      expect(result1).toHaveLength(2);
-      expect(result2).toHaveLength(1);
+      expect(options.length).toBe(DEMO_COMPANY_IDS.size);
+      expect(options.some((o) => o.id === 'spacex')).toBe(false);
     });
   });
 });
 
+describe('selectRecentJobsFilters', () => {
+  it('returns the filters held by the slice', () => {
+    const filters: RecentJobsFilters = { ...BASE_FILTERS, timeWindow: '24h', softwareOnly: true };
 
-describe('user-added boards vs the enabled-companies preference', () => {
-  // `enabledCompanies.ids` is the curated PUBLIC roster — the backend's auto-enroll
-  // query excludes `visibility='user'`, so a `u-<id>` can never be a member. Filtering
-  // on membership alone hid every private board from any user who had saved a company
-  // set, while users on the default empty set ("show all") saw them fine — the kind of
-  // bug that only reproduces for a subset of accounts.
-  it('keeps a private board even when the user has a saved company set', () => {
-    const publicJob = createMockJob({ id: 'p1', company: 'spacex' });
-    const customJob = createMockJob({ id: 'c1', company: 'u-4tv5lkey5f' });
-
-    const state = createMockStoreWithJobs(
-      [publicJob, customJob],
-      { timeWindow: 'all', softwareOnly: false },
-      ['spacex'] // a saved set that names only the public company
-    );
-
-    const companies = selectRecentJobsSorted(state).map((job) => job.company);
-    expect(companies).toContain('u-4tv5lkey5f');
-    expect(companies).toContain('spacex');
+    expect(selectRecentJobsFilters(makeState(null, false, filters))).toEqual(filters);
   });
 
-  it('still honours the saved set for public companies', () => {
-    const kept = createMockJob({ id: 'p1', company: 'spacex' });
-    const excluded = createMockJob({ id: 'p2', company: 'openai' });
+  it('returns the slice’s own object reference', () => {
+    // Identity matters: the filter signature and the search hook both memoize on
+    // this value, so returning a fresh object per call would re-mint the query
+    // args — and therefore the RTK Query cache key — on every unrelated render.
+    const filters: RecentJobsFilters = { ...BASE_FILTERS };
+    const state = makeState(null, false, filters);
 
-    const state = createMockStoreWithJobs([kept, excluded], { timeWindow: 'all', softwareOnly: false }, ['spacex']);
-
-    const companies = selectRecentJobsSorted(state).map((job) => job.company);
-    expect(companies).toContain('spacex');
-    expect(companies).not.toContain('openai');
+    expect(selectRecentJobsFilters(state)).toBe(filters);
   });
 });

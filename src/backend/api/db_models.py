@@ -203,6 +203,40 @@ class JobListing(Base):
             "id",
             postgresql_where=text("status = 'OPEN'"),
         ),
+        # Serves the FILTERED keyset walk behind GET /api/jobs/search: the same
+        # (first_seen_at, source_id, id) sort tuple as the index above, but with
+        # the category equality LEADING so the planner can seek straight to the
+        # requested slug and then scan in sort order — no Sort node, no scanning
+        # past the ~65% of OPEN rows that are unenriched.
+        #
+        # Without it, a narrow filter is the worst case rather than the best one:
+        # `software_engineering + intern` is 129 of ~31k OPEN rows, so an ordered
+        # scan of idx_job_listings_open_first_seen_keyset must walk and heap-probe
+        # ~99.6% of the corpus before the LIMIT is satisfied. The existing
+        # (status, enrichment_category) index does not help — it has no usable
+        # order, so the planner would sort the whole matching set and lose the
+        # LIMIT-friendly path this endpoint's paging depends on.
+        #
+        # FOUR columns, not five: adding `enrichment_level` between the category
+        # and the sort tuple would order entries by level WITHIN a category, which
+        # destroys the ordering for a category-only query (the common case) and
+        # buys little for category+level — the flagship `entry` selection expands
+        # to `= ANY('{entry,new_grad}')`, which cannot seek a non-leading column
+        # anyway. Level rides along as a cheap heap filter on rows that are being
+        # fetched regardless.
+        #
+        # Plain ASC columns for the same reason as the index above: an all-DESC
+        # ORDER BY is served by a BACKWARD scan, and explicit DESC ops would not
+        # round-trip through Alembic autogenerate. Partial on status='OPEN' to
+        # match every real caller and keep it to ~3 MB at prod scale.
+        Index(
+            "idx_job_listings_open_category_keyset",
+            "enrichment_category",
+            "first_seen_at",
+            "source_id",
+            "id",
+            postgresql_where=text("status = 'OPEN'"),
+        ),
     )
 
 

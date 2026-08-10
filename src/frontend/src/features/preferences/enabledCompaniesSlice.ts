@@ -113,3 +113,19 @@ export const selectEnabledCompanyIds = (state: {
 export const selectAutoEnroll = (state: {
   enabledCompanies: EnabledCompaniesState;
 }) => state.enabledCompanies.autoEnroll;
+
+/**
+ * Whether the enabled-companies preference has SETTLED — loaded, or failed and
+ * not coming.
+ *
+ * `ids === null` alone cannot answer that: it is both "still loading" and
+ * "the request failed", and a consumer that waits for a non-null value waits
+ * forever on the failure path. The Recent page needs the distinction because it
+ * gates its first fetch on this; without it a 500 from
+ * `/api/users/enabled-companies` leaves the page on skeletons permanently, with
+ * no error and no retry. A failed load degrades to "all companies", which is the
+ * same thing `null` has always meant downstream.
+ */
+export const selectEnabledCompaniesSettled = (state: {
+  enabledCompanies: EnabledCompaniesState;
+}) => state.enabledCompanies.ids !== null || state.enabledCompanies.error !== null;

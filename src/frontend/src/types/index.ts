@@ -244,9 +244,9 @@ export interface GraphFilters {
   location?: string[];
   employmentType?: string;
   softwareOnly: boolean;
-  /** Enrichment category slugs (multi-select OR; empty/undefined = All). Jobs not yet enriched (category null) are always shown. */
+  /** Enrichment category slugs (multi-select OR; empty/undefined = All). Jobs not yet enriched (category null) are HIDDEN once this filter is active. */
   category?: string[];
-  /** Enrichment level slugs (multi-select OR; 'entry' also matches new_grad). Jobs not yet enriched (level null) are always shown. */
+  /** Enrichment level slugs (multi-select OR; 'entry' also matches new_grad). Jobs not yet enriched (level null) are HIDDEN once this filter is active. */
   level?: string[];
 }
 
@@ -263,9 +263,9 @@ export interface ListFilters {
   location?: string[];
   employmentType?: string;
   softwareOnly: boolean;
-  /** Enrichment category slugs (multi-select OR; empty/undefined = All). Jobs not yet enriched (category null) are always shown. */
+  /** Enrichment category slugs (multi-select OR; empty/undefined = All). Jobs not yet enriched (category null) are HIDDEN once this filter is active. */
   category?: string[];
-  /** Enrichment level slugs (multi-select OR; 'entry' also matches new_grad). Jobs not yet enriched (level null) are always shown. */
+  /** Enrichment level slugs (multi-select OR; 'entry' also matches new_grad). Jobs not yet enriched (level null) are HIDDEN once this filter is active. */
   level?: string[];
 }
 
@@ -277,12 +277,13 @@ export interface RecentJobsFilters {
   timeWindow: TimeWindow;
   searchTags?: SearchTag[];
   location?: string[];
+  /** @deprecated Dead: no UI control renders it and the scraper never sets it. */
   employmentType?: string;
   softwareOnly: boolean;
   company?: string[];
-  /** Enrichment category slugs (multi-select OR; empty/undefined = All). Jobs not yet enriched (category null) are always shown. */
+  /** Enrichment category slugs (multi-select OR; empty/undefined = All). Jobs not yet enriched (category null) are HIDDEN once this filter is active. */
   category?: string[];
-  /** Enrichment level slugs (multi-select OR; 'entry' also matches new_grad). Jobs not yet enriched (level null) are always shown. */
+  /** Enrichment level slugs (multi-select OR; 'entry' also matches new_grad). Jobs not yet enriched (level null) are HIDDEN once this filter is active. */
   level?: string[];
 }
 

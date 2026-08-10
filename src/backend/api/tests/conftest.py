@@ -256,7 +256,7 @@ def _clear_tables(conn) -> None:
     """Truncate test tables between tests."""
     cursor = conn.cursor()
     cursor.execute(sql.SQL(
-        "TRUNCATE {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {} CASCADE"
+        "TRUNCATE {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {} CASCADE"
     ).format(
         sql.Identifier("feature_upvotes"),
         sql.Identifier("features"),
@@ -274,12 +274,139 @@ def _clear_tables(conn) -> None:
         sql.Identifier("company_harvests"),
         sql.Identifier("company_add_attempts"),
         sql.Identifier("job_listings"),
+        # job_tags and job_locations carry NO foreign key to job_listings — the
+        # parent's PK is the composite (source_id, id), which a single-column FK
+        # cannot reference (see JobLocation's docstring). So the job_listings
+        # CASCADE above does NOT reach them, and without listing them here their
+        # rows survive into the next test and silently join onto a later job that
+        # happens to reuse an id. locations is truncated for the same reason
+        # (job_locations FKs *it*, not the reverse).
+        sql.Identifier("job_tags"),
+        sql.Identifier("job_locations"),
+        sql.Identifier("locations"),
         sql.Identifier("scrape_runs"),
         sql.Identifier("admins"),
         sql.Identifier("users"),
         sql.Identifier("companies"),
         sql.Identifier("worker_heartbeats"),
     ))
+    conn.commit()
+
+
+# Mirrors the post-migration state of the seeded facet dimensions: the
+# CATEGORY_SEED / LEVEL_SEED of ``0fa33aca5bda`` plus the ``intern`` level added
+# by ``0b61e444ea25`` (rank 0, renumbering the rest +1).
+#
+# Needed because ``db_conn`` materializes the schema with ``create_all`` and then
+# *stamps* Alembic — migration ``upgrade()`` bodies never run, so these rows do
+# not exist in tests. ``job_listings.enrichment_category`` / ``enrichment_level``
+# are real FKs to them, so any test writing a facet must seed first.
+_CATEGORY_SEED = [
+    ("software_engineering", "Software Engineering", 0),
+    ("hardware_engineer", "Hardware Engineer", 1),
+    ("product_manager", "Product Manager", 2),
+    ("project_manager", "Project Manager", 3),
+    ("data_scientist", "Data Scientist", 4),
+    ("growth", "Growth", 5),
+    ("business_ops", "Business Ops", 6),
+]
+# Parents first: ``new_grad`` carries a self-FK to ``entry``.
+_LEVEL_SEED = [
+    ("intern", "Intern", 0, None),
+    ("entry", "Entry", 2, None),
+    ("mid", "Mid", 3, None),
+    ("senior", "Senior", 4, None),
+    ("senior_plus", "Staff / Principal", 5, None),
+    ("manager", "Manager", 6, None),
+    ("new_grad", "New Grad", 1, "entry"),
+]
+
+
+def _seed_taxonomy(conn) -> None:
+    """Seed job_categories / job_levels so enrichment FKs resolve."""
+    cursor = conn.cursor()
+    cursor.executemany(
+        "INSERT INTO job_categories (slug, label, sort_order) VALUES (%s, %s, %s)"
+        " ON CONFLICT (slug) DO NOTHING",
+        _CATEGORY_SEED,
+    )
+    cursor.executemany(
+        "INSERT INTO job_levels (slug, label, rank, parent_slug) VALUES (%s, %s, %s, %s)"
+        " ON CONFLICT (slug) DO NOTHING",
+        _LEVEL_SEED,
+    )
+    conn.commit()
+
+
+@pytest.fixture
+def seed_taxonomy(db_conn, clean_tables):
+    """Opt-in fixture seeding the facet dimensions.
+
+    Depends on ``clean_tables`` so it runs AFTER job_listings is truncated —
+    seeding a FK target before its children are gone is fine, but the ordering
+    makes the dependency explicit for any future truncation of the dimensions.
+    """
+    _seed_taxonomy(db_conn)
+    return None
+
+
+def _insert_location(conn, **cols) -> int:
+    """Insert one ``locations`` row from keyword columns; return its id.
+
+    ``kind`` and ``canonical_name`` are required by the schema; ``city`` /
+    ``region`` / ``country`` / ``remote_scope`` are optional and default to NULL,
+    which is meaningful (a country row has no city, a remote row has no city).
+    """
+    keys = list(cols)
+    stmt = sql.SQL("INSERT INTO {} ({}) VALUES ({}) RETURNING id").format(
+        sql.Identifier("locations"),
+        sql.SQL(", ").join(sql.Identifier(k) for k in keys),
+        sql.SQL(", ").join(sql.Placeholder() for _ in keys),
+    )
+    cursor = conn.cursor()
+    cursor.execute(stmt, [cols[k] for k in keys])
+    location_id = cursor.fetchone()["id"]
+    conn.commit()
+    return int(location_id)
+
+
+def _link_job_location(conn, job_id: str, location_id: int, is_primary: bool = True) -> None:
+    """Attach a canonical location to a job (``job_locations`` is keyed by job id
+    alone — no source_id column, see db_models.JobLocation)."""
+    cursor = conn.cursor()
+    cursor.execute(
+        sql.SQL(
+            "INSERT INTO {} (job_listing_id, normalized_location_id, is_primary)"
+            " VALUES (%s, %s, %s)"
+        ).format(sql.Identifier("job_locations")),
+        (job_id, location_id, is_primary),
+    )
+    conn.commit()
+
+
+def _insert_job_tag(conn, source_id: str, job_id: str, tag: str) -> None:
+    """Attach one free-form enrichment tag to a job."""
+    cursor = conn.cursor()
+    cursor.execute(
+        sql.SQL(
+            "INSERT INTO {} (source_id, job_listing_id, tag) VALUES (%s, %s, %s)"
+        ).format(sql.Identifier("job_tags")),
+        (source_id, job_id, tag),
+    )
+    conn.commit()
+
+
+def _insert_company(conn, company_id: str, *, enabled: bool = True) -> None:
+    """Seed a ``companies`` row so the hidden-company anti-join has something to
+    find. Absent a row the anti-join is a no-op and the job stays visible."""
+    cursor = conn.cursor()
+    cursor.execute(
+        sql.SQL(
+            "INSERT INTO {} (id, display_name, ats, board_token, enabled)"
+            " VALUES (%s, %s, %s, %s, %s)"
+        ).format(sql.Identifier("companies")),
+        (company_id, company_id.title(), "greenhouse", company_id, enabled),
+    )
     conn.commit()
 
 
@@ -334,7 +461,15 @@ def disable_db_watchdog():
 def test_app(db_conn):
     """FastAPI test app with database connection wired up (no auto-scraper)."""
     from api.routers import (
-        admin, companies, feedback, features, jobs, jobs_qa, user_companies, users,
+        admin,
+        companies,
+        features,
+        feedback,
+        jobs,
+        jobs_qa,
+        jobs_search,
+        user_companies,
+        users,
     )
     from api.dependencies import get_db
     from api.auth.dependencies import (
@@ -345,6 +480,9 @@ def test_app(db_conn):
 
     app = FastAPI()
     app.include_router(jobs.router, prefix="/api/jobs")
+    # Same prefix as production (api/main.py). No conflict with the jobs router's
+    # /{source_id}/{job_id}: that route needs two path segments, this one has one.
+    app.include_router(jobs_search.router, prefix="/api/jobs/search")
     app.include_router(jobs_qa.router, prefix="/api/jobs-qa")
     app.include_router(users.router, prefix="/api/users")
     app.include_router(user_companies.router, prefix="/api/users/companies")

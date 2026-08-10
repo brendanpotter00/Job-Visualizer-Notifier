@@ -167,6 +167,44 @@ All configuration via environment variables:
 
 **Jobs facets:** `GET /api/jobs/facets` - enrichment dropdown catalog (categories + levels with labels/order/parent) from the seeded dimensions.
 
+**Jobs Search Router (`/api/jobs/search`)** — the Recent Jobs page's read path. Where
+`GET /api/jobs` is a windowed dump the client filters, this applies the user's whole
+filter set in SQL and pages the *result*. Router `routers/jobs_search.py`, SQL
+`services/job_search.py`.
+
+- **Params:** `status` (default `OPEN`, unlike `/api/jobs` which has none), `since`
+  (inclusive, tz-aware ISO), `cursor`, `limit` (default 100, max 500), plus six
+  **repeatable** multi-value filters: `category`, `level`, `company`, `location`,
+  `include`, `exclude`. Repeated (`?category=a&category=b`) rather than CSV because
+  canonical location names and keywords legitimately contain commas.
+- **Response is an ENVELOPE**, not a bare array: `{jobs, nextCursor, meta}`.
+  `nextCursor` present iff the page came back full; **its absence is the only
+  end-of-walk signal**. In the body deliberately — `/api/jobs` uses `X-Next-Cursor`
+  only because it could not break an existing body contract, and that header needs
+  all three delivery hops wired or it vanishes silently. `meta`
+  (`filteredTotal`, `countLast24h`, `countLast3h`) rides page 1 only; the two recency
+  counts ignore the active filters and describe the whole visible OPEN corpus.
+- **Cursors are filter-bound.** A search cursor embeds an 8-hex fingerprint of the
+  filter set (`compute_filter_fingerprint` in `pagination.py`); replaying one under
+  different filters is a **422**, not a silently-incoherent walk. `limit` is excluded
+  from the fingerprint, so changing page size mid-walk stays legal — but `since` is
+  included, so **a client must freeze its window bound and replay it verbatim**.
+- **Filter semantics** are a port of the frontend matcher this replaced. Dimensions
+  AND, values within a dimension OR. An active `category`/`level` filter **hides
+  unenriched (NULL) rows** — ~65% of OPEN rows. `entry` expands to
+  `{entry, new_grad}`. Keyword terms match title / raw location / company / tags;
+  `department`/`team` are deliberately NOT searched (they live in the `details` JSONB
+  and reading it detoasts ~10 KB per row — the 2026-07-13 outage's failure mode).
+  Locations resolve hierarchically against the `locations` catalog, including the
+  synthesized `United States` and `<State>, US` options that have no catalog row.
+- **Index:** `idx_job_listings_open_category_keyset` on
+  `(enrichment_category, first_seen_at, source_id, id)` partial `WHERE status='OPEN'`
+  (migration `4b5d40dbc774`) — equality column leading, sort tuple trailing, so a
+  category filter is an ordered seek instead of a scan that discards ~99% of the
+  corpus. Four columns, not five: wedging `enrichment_level` in would order entries
+  by level within a category and destroy the ordering for the common category-only
+  query.
+
 **Internal Enrichment Router (`/api/internal/enrichment`, X-Internal-Key):** `GET /pending` (claim batch; title-priority order — entry-level/intern, then software-engineering, then everything else, newest `first_seen_at` within each tier; the batch is **split** — `ENRICHMENT_CUSTOM_SHARE_PCT` of it is reserved for custom companies, dealt round-robin across them, and each slice absorbs the other's unused budget so the reservation never idles the enricher), `POST /results` (idempotent write-back; returns `written`/`failed[]`(+`source_id`)/`warnings[]`), `GET /sample`, `GET /health`, `POST /metrics` (per-tick push → `enrichment_ticks`, idempotent on `tick_uuid`), `GET /corrections` (human-correction feed for the enricher's golden-merge).
 
 **Admin Enrichment (`/api/admin/enrichment/*`, requires admin):** `GET /health`, `GET /needs-human` (paginated triage queue), `GET /ticks`, `GET /recent`, `POST /jobs/{source_id}/{job_id}/correct` (publish human labels + lock row; sets `human_decision='corrected'`), `POST /jobs/{source_id}/{job_id}/confirm` (one-click validate the proposal as-is + lock row; sets `human_decision='confirmed_correct'`; 409 if the row has no proposed labels), `POST /jobs/{source_id}/{job_id}/reenrich` (reset + unlock; clears `human_decision`). Backing SQL in `services/enrichment_monitor.py`. `job_enrichment.human_decision` (`NULL` | `corrected` | `confirmed_correct`) is the human verdict — distinct from the judge's `judged`/`judge_passed` — and rides the `/api/internal/enrichment/corrections` feed as `decision` so the enricher can tell a fix from a validated raise.

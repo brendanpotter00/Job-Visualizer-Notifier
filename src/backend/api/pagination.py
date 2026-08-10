@@ -51,7 +51,9 @@ restarts and never terminates, or terminates early and drops the tail.
 
 import base64
 import binascii
+import hashlib
 import re
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime, timezone
 from typing import NamedTuple
 
@@ -239,3 +241,183 @@ def decode_job_cursor(raw: str) -> JobCursor:
         raise InvalidCursorError("cursor carries an empty id")
 
     return JobCursor(first_seen_at=first_seen_at, source_id=source_id, job_id=job_id)
+
+
+# ---------------------------------------------------------------------------
+# Search cursors: the same keyset position, plus a filter fingerprint.
+# ---------------------------------------------------------------------------
+#
+# ``GET /api/jobs/search`` filters server-side, which changes what a stale cursor
+# costs. On ``/api/jobs`` the client filters, so reusing a cursor across a filter
+# change yields pages that are merely *relative to the new filters* — documented,
+# recoverable, and visible to the caller who owns both sets. On the search
+# endpoint the caller is an RTK Query cache keyed by the filter args, and the
+# realistic bug is a cursor from filter set A replayed against filter set B: the
+# response is a plausible 200 whose pages enumerate neither set completely. That
+# is silent, and it is exactly the failure class this module exists to remove.
+#
+# So a search cursor carries a short hash of the filters that minted it and the
+# endpoint refuses a mismatch (422). One consequence is load-bearing for callers:
+# ``since`` participates in the fingerprint, so a walk must FREEZE its window
+# bound at page 1 and replay it verbatim. Recomputing ``now() - 3h`` per page
+# would 422 on page 2 — loudly, which is the point.
+_SEARCH_CURSOR_VERSION = "s1"
+
+# 8 hex chars = 32 bits. This is a mismatch *detector*, not a security control
+# (the cursor is unsigned and encodes nothing secret), so the only question is
+# collision probability across the handful of filter sets one client walks in a
+# session — negligible at 1 in 4 billion per pair.
+_FINGERPRINT_LENGTH = 8
+
+# Separates the canonical fingerprint payload's fields. NUL cannot appear in any
+# query-parameter value that reaches here (FastAPI hands back ``str``, and the
+# router's own validators reject control characters in every list param), so it
+# cannot be smuggled in to make two different filter sets serialize identically.
+_FINGERPRINT_SEPARATOR = "\x00"
+
+
+def compute_filter_fingerprint(filters: Mapping[str, str | None | Iterable[str]]) -> str:
+    """Hash a filter set into the short tag embedded in a search cursor.
+
+    Canonicalization rules, all chosen so that two requests which produce the
+    SAME result set produce the same fingerprint:
+
+    * Keys are emitted in sorted order, each prefixed by its own name, so
+      ``{"category": ["a"]}`` and ``{"level": ["a"]}`` cannot collide.
+    * List values are sorted and de-duplicated — ``?category=a&category=b`` and
+      ``?category=b&category=a`` are the same query, so they must be the same
+      fingerprint or a client that reorders params breaks its own walk.
+    * ``None`` is distinguished from the empty string, and from an empty list, by
+      a sentinel rather than by rendering as ``""``.
+
+    ``limit`` is deliberately NOT a filter: changing page size mid-walk is legal
+    keyset behaviour (the cursor names a row, not an offset), so folding it in
+    would reject a correct client.
+    """
+    parts: list[str] = []
+    for key in sorted(filters):
+        value = filters[key]
+        if value is None:
+            parts.append(f"{key}=\x01")
+        elif isinstance(value, str):
+            parts.append(f"{key}={value}")
+        else:
+            # Joined on NUL, not a comma: `location`, `include` and `exclude` all
+            # legitimately contain commas ("Austin, TX, US"), so a comma join
+            # makes ["a,b"] and ["a","b"] serialize identically — and a cursor
+            # minted under one would then be accepted under the other. That is a
+            # hole in the one mechanism whose entire job is spotting a changed
+            # filter set. NUL cannot appear in any value that reaches here (the
+            # router rejects control characters), which is exactly why it is
+            # usable as a separator at all.
+            unique = sorted(set(value))
+            parts.append(f"{key}=[{_FINGERPRINT_SEPARATOR.join(unique)}]")
+    payload = _FINGERPRINT_SEPARATOR.join(parts)
+    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    return digest[:_FINGERPRINT_LENGTH]
+
+
+def encode_search_cursor(
+    first_seen_at: datetime | str,
+    source_id: str,
+    job_id: str,
+    fingerprint: str,
+) -> str:
+    """Mint a search cursor: ``base64url("s1|<fp>|<first_seen_at>|<source_id>|<id>")``.
+
+    Same position semantics and same validation posture as
+    :func:`encode_job_cursor`; the extra leading fields are what let
+    :func:`decode_search_cursor` tell "this token is for a different query" from
+    "this token is corrupt".
+    """
+    if not _SOURCE_ID_RE.match(source_id):
+        raise ValueError(
+            f"encode_search_cursor got a source_id that cannot round-trip through a "
+            f"cursor: {source_id!r}"
+        )
+    if isinstance(first_seen_at, str):
+        moment = parse_utc_timestamp(first_seen_at, field="first_seen_at")
+    else:
+        if first_seen_at.tzinfo is None:
+            raise ValueError("encode_search_cursor requires a timezone-aware first_seen_at")
+        moment = first_seen_at.astimezone(timezone.utc)
+    raw = _CURSOR_FIELD_SEPARATOR.join(
+        (_SEARCH_CURSOR_VERSION, fingerprint, moment.isoformat(), source_id, job_id)
+    )
+    return base64.urlsafe_b64encode(raw.encode("utf-8")).decode("ascii").rstrip("=")
+
+
+def decode_search_cursor(raw: str, *, expected_fingerprint: str) -> JobCursor:
+    """Decode a search cursor and assert it was minted under the same filters.
+
+    :raises InvalidCursorError: on malformed input (over-long, non-base64url,
+        non-UTF-8, wrong version tag, wrong field count, unparseable/naive
+        timestamp, bad ``source_id``) **or** on a fingerprint mismatch. Both are
+        422s at the router; the mismatch message names the cause explicitly so a
+        client debugging a stuck walk is told to restart it rather than left
+        guessing why its pages went strange.
+    """
+    if not raw:
+        raise InvalidCursorError("cursor must not be empty")
+    if len(raw) > MAX_CURSOR_LENGTH:
+        raise InvalidCursorError(f"cursor must be at most {MAX_CURSOR_LENGTH} characters")
+    padded = raw + "=" * (-len(raw) % 4)
+    try:
+        decoded = base64.urlsafe_b64decode(padded.encode("ascii"))
+    except (binascii.Error, UnicodeEncodeError, ValueError):
+        raise InvalidCursorError("cursor is not valid base64url") from None
+    try:
+        text = decoded.decode("utf-8")
+    except UnicodeDecodeError:
+        raise InvalidCursorError("cursor does not decode to UTF-8 text") from None
+
+    # maxsplit=4 for the same reason decode_job_cursor uses maxsplit=2: the
+    # trailing ``id`` is an opaque ATS string that may contain the separator,
+    # while every field ahead of it is a controlled vocabulary that cannot.
+    parts = text.split(_CURSOR_FIELD_SEPARATOR, 4)
+    if len(parts) != 5:
+        raise InvalidCursorError(
+            f"search cursor must decode to 5 '{_CURSOR_FIELD_SEPARATOR}'-separated "
+            f"fields (version, fingerprint, first_seen_at, source_id, id); "
+            f"got {len(parts)}"
+        )
+    version, fingerprint, timestamp_text, source_id, job_id = parts
+
+    if version != _SEARCH_CURSOR_VERSION:
+        # Catches a ``/api/jobs`` cursor pasted at ``/api/jobs/search`` (3 fields,
+        # so it usually fails the count check above) and any future format bump.
+        raise InvalidCursorError(
+            f"cursor has an unrecognized format tag {version!r}; expected "
+            f"{_SEARCH_CURSOR_VERSION!r}"
+        )
+    if fingerprint != expected_fingerprint:
+        raise InvalidCursorError(
+            "cursor was minted under a different filter set — a keyset walk is only "
+            "a complete enumeration of the filters it started with, so drop the "
+            "cursor and restart the walk from page 1"
+        )
+
+    try:
+        first_seen_at = parse_utc_timestamp(timestamp_text, field="cursor first_seen_at")
+    except ValueError as exc:
+        raise InvalidCursorError(str(exc)) from None
+    if not _SOURCE_ID_RE.match(source_id):
+        raise InvalidCursorError(f"cursor carries an invalid source_id: {source_id!r}")
+    if not job_id:
+        raise InvalidCursorError("cursor carries an empty id")
+
+    return JobCursor(first_seen_at=first_seen_at, source_id=source_id, job_id=job_id)
+
+
+__all__: Sequence[str] = (
+    "InvalidCursorError",
+    "JobCursor",
+    "MAX_CURSOR_LENGTH",
+    "MAX_TIMESTAMP_LENGTH",
+    "compute_filter_fingerprint",
+    "decode_job_cursor",
+    "decode_search_cursor",
+    "encode_job_cursor",
+    "encode_search_cursor",
+    "parse_utc_timestamp",
+)

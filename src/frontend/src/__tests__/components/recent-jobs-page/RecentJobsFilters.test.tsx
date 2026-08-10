@@ -3,9 +3,6 @@ import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders, createTestStore } from '../../../test/testUtils';
 import { RecentJobsFilters } from '../../../components/recent-jobs-page/RecentJobsFilters';
-import { jobsApi } from '../../../features/jobs/jobsApi';
-import { userCompaniesApi } from '../../../features/userCompanies/userCompaniesApi';
-import type { Job } from '../../../types';
 
 const { searchMock } = vi.hoisted(() => ({ searchMock: vi.fn() }));
 
@@ -60,111 +57,6 @@ beforeEach(() => {
   flagState.isEnabled = true;
 });
 
-// getAllJobs has an onCacheEntryAdded side effect that iterates ALL companies
-// and fetches via getClientForATS (non-backend-scraper) and
-// fetchJobsForCompanies (backend-scraper, batched). In a jsdom test with no
-// fetch available those calls throw and clobber our seeded
-// byCompanyId['spacex'] with an empty array, which breaks Location/Company
-// dropdown assertions. Stub both entry points so they return pending
-// Promises that resolve only on abort — RTK Query aborts on
-// cacheEntryRemoved, so the seeded cache stays intact for the test's
-// lifetime and the stub cleans up automatically at teardown.
-const pendingUntilAbort = (signal?: AbortSignal) =>
-  new Promise((resolve) => {
-    const done = () => resolve(undefined);
-    if (signal?.aborted) return done();
-    signal?.addEventListener('abort', done, { once: true });
-  });
-
-vi.mock('../../../api/utils', async () => {
-  const actual = await vi.importActual<typeof import('../../../api/utils')>('../../../api/utils');
-  return {
-    ...actual,
-    getClientForATS: () => ({
-      fetchJobs: ({ signal }: { signal?: AbortSignal } = {}) =>
-        pendingUntilAbort(signal).then(() => ({
-          jobs: [],
-          metadata: { totalCount: 0, fetchedAt: '2020-01-01T00:00:00Z' },
-        })),
-    }),
-  };
-});
-
-vi.mock('../../../api/clients/backendScraperClient', async () => {
-  const actual = await vi.importActual<typeof import('../../../api/clients/backendScraperClient')>(
-    '../../../api/clients/backendScraperClient'
-  );
-  return {
-    ...actual,
-    fetchJobsForCompanies: (_ids: string[], opts: { signal?: AbortSignal } = {}) =>
-      pendingUntilAbort(opts.signal).then(() => ({})),
-    // getAllJobs pages the batched load via fetchJobsPage; stub it the same way
-    // so the seeded cache survives (chunkCompanyIds stays real — it is pure).
-    fetchJobsPage: (_ids: string[], opts: { signal?: AbortSignal } = {}) =>
-      pendingUntilAbort(opts.signal).then(() => ({
-        jobs: [],
-        byCompanyId: {},
-        nextCursor: null,
-      })),
-  };
-});
-
-// Compute job timestamps relative to "now" so seeded jobs always fall inside
-// the seedRecentStore default 30d timeWindow, even as the clock advances. The
-// previous hardcoded '2026-04-18' rotted past the boundary 30 days after this
-// test was written and broke CI.
-const NOW_MS = Date.now();
-const ONE_HOUR_MS = 60 * 60 * 1000;
-const ONE_DAY_MS = 24 * ONE_HOUR_MS;
-const recentISO = (msAgo: number) => new Date(NOW_MS - msAgo).toISOString();
-
-const seededJobs: Job[] = [
-  {
-    id: 'j1',
-    source: 'backend-scraper',
-    company: 'spacex',
-    title: 'Senior Software Engineer',
-    createdAt: recentISO(ONE_DAY_MS),
-    firstSeenAt: recentISO(ONE_DAY_MS),
-    url: 'https://example.com/j1',
-    location: 'Hawthorne, CA',
-    locations: [
-      {
-        canonicalName: 'Hawthorne, CA, US',
-        kind: 'city',
-        city: 'Hawthorne',
-        region: 'CA',
-        country: 'US',
-        remoteScope: null,
-        isPrimary: true,
-      },
-    ],
-    raw: {},
-  },
-  {
-    id: 'j2',
-    source: 'backend-scraper',
-    company: 'spacex',
-    title: 'Recruiter',
-    createdAt: recentISO(ONE_DAY_MS - ONE_HOUR_MS),
-    firstSeenAt: recentISO(ONE_DAY_MS - ONE_HOUR_MS),
-    url: 'https://example.com/j2',
-    location: 'Remote',
-    locations: [
-      {
-        canonicalName: 'Remote (US)',
-        kind: 'remote',
-        city: null,
-        region: null,
-        country: 'US',
-        remoteScope: 'us',
-        isPrimary: true,
-      },
-    ],
-    raw: {},
-  },
-];
-
 interface PreloadedOverrides {
   searchTags?: { text: string; mode: 'include' | 'exclude' }[];
   location?: string[];
@@ -172,42 +64,37 @@ interface PreloadedOverrides {
   softwareOnly?: boolean;
 }
 
-async function seedRecentStore(overrides: PreloadedOverrides = {}, jobs: Job[] = seededJobs) {
-  const store = createTestStore({
+/**
+ * The Company dropdown's options come from `selectRecentCompanyOptions` — the
+ * static company config intersected with the user's enabled-companies
+ * preference — NOT from jobs in the RTK Query cache. The page filters
+ * server-side now, so the rows on screen are already narrowed by every other
+ * active filter and deriving options from them would make the dropdown shrink
+ * as the reader searched. Seeding the preference is therefore the only setup
+ * the dropdown needs; no jobs cache is involved.
+ */
+async function seedRecentStore(
+  overrides: PreloadedOverrides = {},
+  enabledCompanyIds: string[] = ['spacex']
+) {
+  return createTestStore({
     recentJobsFilters: {
       filters: {
-        // Pin an explicit 30d window (overriding the slice default) so the
-        // seeded jobs — timestamped within 30d of now — always render and the
-        // Location/Company dropdowns stay populated regardless of the default.
+        // Pin a non-default window so the reset test proves the slice's own
+        // default ('90d') is what gets restored, not what was preloaded.
         timeWindow: '30d',
         softwareOnly: false,
         ...overrides,
       },
     },
+    enabledCompanies: {
+      ids: enabledCompanyIds,
+      autoEnroll: false,
+      loading: false,
+      error: null,
+      activeLoadRequestId: null,
+    },
   });
-  // upsertQueryData dispatches a thunk — await it so the cache is fulfilled
-  // before selectors read from it.
-  await store.dispatch(
-    jobsApi.util.upsertQueryData('getAllJobs', undefined, {
-      byCompanyId: { spacex: jobs },
-      metadata: {
-        spacex: {
-          totalCount: jobs.length,
-          fetchedAt: recentISO(0),
-        },
-      },
-      errors: {},
-      progress: { completed: 1, total: 1, companies: [] },
-      isStreaming: false,
-      // Fully-walked keyset state: no outstanding cursors, so the
-      // complete-prefix horizon is null and nothing is clamped away.
-      cursors: {},
-      chunkFloors: {},
-      windowKey: '90d' as const,
-      since: recentISO(90 * ONE_DAY_MS),
-    })
-  );
-  return store;
 }
 
 describe('RecentJobsFilters', () => {
@@ -288,8 +175,25 @@ describe('RecentJobsFilters', () => {
     expect(firstOption).toBeDefined();
     await user.click(firstOption);
 
-    // Should store company IDs (not names). The seeded company is 'spacex'.
+    // Should store company IDs (not names). The only enabled company is 'spacex'.
     expect(store.getState().recentJobsFilters.filters.company).toContain('spacex');
+  });
+
+  it('offers every followed company as an option, not just ones with jobs on screen', async () => {
+    // Regression guard for the server-side-filtering cutover: options are the
+    // user's enabled set, so the list stays stable no matter how narrow the
+    // current result set is (here: no jobs loaded at all).
+    const store = await seedRecentStore({}, ['spacex', 'airtable']);
+    const user = userEvent.setup();
+    renderWithProviders(<RecentJobsFilters />, { store });
+
+    await user.click(screen.getByPlaceholderText('Select company...'));
+    const listbox = await screen.findByRole('listbox');
+    const optionNames = within(listbox)
+      .getAllByRole('option')
+      .map((o) => o.textContent);
+    // Sorted by display name.
+    expect(optionNames).toEqual(['Airtable', 'SpaceX']);
   });
 
   it('dispatches addRecentJobsLocation when location option selected', async () => {

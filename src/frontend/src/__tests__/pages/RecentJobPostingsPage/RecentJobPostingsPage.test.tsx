@@ -1,293 +1,218 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '../../../test/testUtils';
 import { RecentJobPostingsPage } from '../../../pages/RecentJobPostingsPage/RecentJobPostingsPage';
-import * as jobsApi from '../../../features/jobs/jobsApi';
-import { ERROR_MESSAGES } from '../../../constants/messages';
+import { useRecentJobsSearch } from '../../../features/jobs/hooks/useRecentJobsSearch';
+import type { RecentJobsSearch } from '../../../features/jobs/hooks/useRecentJobsSearch';
+import type { Job } from '../../../types';
 
-// Mutable auth mock state — mirrors AccountPage.test.tsx pattern so tests can
-// override per-case without re-calling vi.mock.
-const mockLogin = vi.fn();
-const mockLogout = vi.fn();
-const mockGetToken = vi.fn();
-let mockAuthState = {
-  isEnabled: false,
-  isAuthenticated: false,
-  isLoading: false,
-  login: mockLogin,
-  logout: mockLogout,
-  getToken: mockGetToken,
-  user: null,
-};
-
-vi.mock('../../../features/auth/useAuth', () => ({
-  useAuth: () => mockAuthState,
+/**
+ * The page is now a shell over ONE `useRecentJobsSearch()` call: it picks between
+ * "awaiting deploy", "initial error", and "data", and hands the whole search
+ * object to the list. So the hook is the seam these tests mock — every branch is
+ * a different return value from it, and nothing here touches the network.
+ */
+vi.mock('../../../features/jobs/hooks/useRecentJobsSearch', () => ({
+  useRecentJobsSearch: vi.fn(),
 }));
 
-vi.mock('../../../features/preferences/useEnabledCompanies', () => ({
-  useEnabledCompanies: () => ({
-    ids: null,
-    loading: false,
-    error: null,
-    save: vi.fn().mockResolvedValue(undefined),
-    reload: vi.fn(),
-  }),
-}));
-
-// Preserve the real jobsApi slice so the store still wires reducers/middleware.
-vi.mock('../../../features/jobs/jobsApi', async () => {
-  const actual = await vi.importActual<typeof import('../../../features/jobs/jobsApi')>(
-    '../../../features/jobs/jobsApi'
-  );
-  return {
-    ...actual,
-    useGetAllJobsQuery: vi.fn(),
-    useGetJobsForCompanyQuery: vi.fn(),
-  };
-});
-
-// Stub page children to keep assertions pinned to the page shell.
-vi.mock('../../../components/companies-page/FetchProgressBar/FetchProgressBar', () => ({
-  FetchProgressBar: ({ companyIdFilter }: { companyIdFilter?: Set<string> | null }) => (
-    <div
-      data-testid="fetch-progress-bar"
-      data-filter={companyIdFilter ? [...companyIdFilter].join(',') : 'null'}
-    />
-  ),
-}));
-
-vi.mock('../../../components/companies-page/FetchProgressBar/FetchProgressBarSkeleton', () => ({
-  FetchProgressBarSkeleton: () => <div data-testid="fetch-progress-bar-skeleton" />,
-}));
-
-interface RecentJobsMetricsProps {
-  totalJobs: number;
-  jobsLast24Hours: number;
-  jobsLast3Hours: number;
-}
-
-vi.mock('../../../components/recent-jobs-page/RecentJobsMetrics/RecentJobsMetrics', () => ({
-  RecentJobsMetrics: (props: RecentJobsMetricsProps) => (
-    <div data-testid="recent-jobs-metrics" data-total={String(props.totalJobs)} />
-  ),
-}));
-
+// Children with their own test files are stubbed so assertions stay pinned to
+// the page shell. `RecentJobsMetrics` is deliberately NOT stubbed: the counts
+// wiring is one of the things this file is here to prove, and the real component
+// renders the numbers next to their labels.
 vi.mock('../../../components/recent-jobs-page/RecentJobsFilters', () => ({
   RecentJobsFilters: () => <div data-testid="recent-jobs-filters" />,
-}));
-
-vi.mock('../../../components/recent-jobs-page/RecentJobsList/RecentJobsList', () => ({
-  RecentJobsList: () => <div data-testid="recent-jobs-list" />,
 }));
 
 vi.mock('../../../components/recent-jobs-page/EditCompanyPreferencesRow', () => ({
   EditCompanyPreferencesRow: () => <div data-testid="edit-company-preferences-row" />,
 }));
 
-// Minimal stub for the shape `useGetAllJobsQuery` returns that the page reads.
-interface AllJobsQueryResult {
-  data?: unknown;
-  error?: unknown;
-  isLoading?: boolean;
-  isFetching?: boolean;
+/** The `search` object the list stub was handed on its last render. */
+let listSearchProp: RecentJobsSearch | null = null;
+
+vi.mock('../../../components/recent-jobs-page/RecentJobsList/RecentJobsList', () => ({
+  RecentJobsList: ({ search }: { search: RecentJobsSearch }) => {
+    listSearchProp = search;
+    return <div data-testid="recent-jobs-list" data-job-count={String(search.jobs.length)} />;
+  },
+}));
+
+const retry = vi.fn();
+const fetchNextPage = vi.fn();
+
+function makeJob(id: string): Job {
+  const seen = new Date().toISOString();
+  return {
+    id,
+    source: 'backend-scraper',
+    company: 'spacex',
+    title: 'Software Engineer',
+    location: 'Hawthorne, CA',
+    createdAt: seen,
+    firstSeenAt: seen,
+    url: `https://example.com/job/${id}`,
+    raw: {},
+  };
 }
 
-function mockAllJobsQuery(result: AllJobsQueryResult) {
-  vi.mocked(jobsApi.useGetAllJobsQuery).mockReturnValue({
-    refetch: vi.fn(),
-    isSuccess: !result.error && !!result.data,
-    isError: !!result.error,
-    isUninitialized: false,
-    status: 'fulfilled',
-    currentData: result.data,
-    ...result,
-  } as unknown as ReturnType<typeof jobsApi.useGetAllJobsQuery>);
+/** A healthy, idle search result; each test overrides only what it is about. */
+function mockSearch(overrides: Partial<RecentJobsSearch> = {}): RecentJobsSearch {
+  const result: RecentJobsSearch = {
+    jobs: [],
+    counts: null,
+    isInitialLoading: false,
+    isRefreshing: false,
+    isFetchingNextPage: false,
+    hasNextPage: false,
+    fetchNextPage,
+    error: null,
+    errorScope: null,
+    isAwaitingDeploy: false,
+    retry,
+    isSkippedEmpty: false,
+    ...overrides,
+  };
+  vi.mocked(useRecentJobsSearch).mockReturnValue(result);
+  return result;
 }
 
-const emptyJobsData = {
-  byCompanyId: {},
-  metadata: {},
-  errors: {},
-  progress: { completed: 0, total: 0, companies: [] },
-  isStreaming: false,
-};
+/** The MetricCard box wrapping a labeled tile, so a value can be tied to its label. */
+function tile(label: string): HTMLElement {
+  const labelNode = screen.getByText(label);
+  if (!labelNode.parentElement) throw new Error(`metric tile for "${label}" has no container`);
+  return labelNode.parentElement;
+}
 
 describe('RecentJobPostingsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockAuthState = {
-      isEnabled: false,
-      isAuthenticated: false,
-      isLoading: false,
-      login: mockLogin,
-      logout: mockLogout,
-      getToken: mockGetToken,
-      user: null,
-    };
+    listSearchProp = null;
   });
 
-  describe('error branch', () => {
-    it('renders ErrorState with the decoded error message when query errors', () => {
-      // RTK Query shape: { data: 'boom' } → extractErrorMessage returns 'boom'.
-      mockAllJobsQuery({
-        data: undefined,
-        error: { status: 500, data: 'boom' },
-        isLoading: false,
-        isFetching: false,
-      });
+  describe('awaiting the backend deploy', () => {
+    it('renders the waiting copy instead of an error banner', () => {
+      // Frontend and backend deploy independently; a 404 in that window is a wait,
+      // not a failure, and must never read as one.
+      mockSearch({ isAwaitingDeploy: true, isInitialLoading: true });
       renderWithProviders(<RecentJobPostingsPage />, { initialEntries: ['/'] });
 
-      expect(screen.getByText('boom')).toBeInTheDocument();
-      expect(screen.getByRole('alert')).toBeInTheDocument();
-      expect(screen.queryByTestId('recent-jobs-metrics')).not.toBeInTheDocument();
-    });
-
-    it('falls back to LOAD_JOBS_FAILED when the error has no decodable message', () => {
-      // Unknown shape (no data, no message) → fallback is used.
-      mockAllJobsQuery({
-        data: undefined,
-        error: { status: 500 },
-        isLoading: false,
-        isFetching: false,
-      });
-      renderWithProviders(<RecentJobPostingsPage />, { initialEntries: ['/'] });
-
-      expect(screen.getByText(ERROR_MESSAGES.LOAD_JOBS_FAILED)).toBeInTheDocument();
-      expect(screen.getByRole('alert')).toBeInTheDocument();
-    });
-
-    it('does not render metrics/filters/list when error is present', () => {
-      mockAllJobsQuery({
-        data: undefined,
-        error: { status: 500, data: 'boom' },
-        isLoading: false,
-        isFetching: false,
-      });
-      renderWithProviders(<RecentJobPostingsPage />, { initialEntries: ['/'] });
-
-      expect(screen.queryByTestId('recent-jobs-metrics')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('recent-jobs-filters')).not.toBeInTheDocument();
+      expect(screen.getByText(/Finishing an update/i)).toBeInTheDocument();
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
       expect(screen.queryByTestId('recent-jobs-list')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('fetch-progress-bar')).not.toBeInTheDocument();
+      expect(screen.queryByText('Displayed Jobs')).not.toBeInTheDocument();
+    });
+
+    it('still suppresses the banner if an error survives alongside the grace window', () => {
+      // The hook nulls `error` while the grace window is open, but the page must
+      // not depend on that: `isAwaitingDeploy` alone decides this branch, so a
+      // regression upstream degrades to "still loading", never to a false outage.
+      mockSearch({ isAwaitingDeploy: true, error: 'Not Found', errorScope: 'initial' });
+      renderWithProviders(<RecentJobPostingsPage />, { initialEntries: ['/'] });
+
+      expect(screen.getByText(/Finishing an update/i)).toBeInTheDocument();
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(screen.queryByText('Not Found')).not.toBeInTheDocument();
     });
   });
 
-  describe('data branch', () => {
-    it('renders metrics, filters, and list when data is present and no error', () => {
-      mockAllJobsQuery({
-        data: emptyJobsData,
-        error: undefined,
-        isLoading: false,
-        isFetching: false,
-      });
+  describe('initial error', () => {
+    it('renders the decoded message as a real error, not an empty result', () => {
+      // "No jobs found" for what is actually an outage sends the reader off to
+      // change filters that were never the problem (2026-08-10 follow-up), so the
+      // list — which owns the empty state — must not render at all here.
+      mockSearch({ error: 'boom', errorScope: 'initial', jobs: [] });
       renderWithProviders(<RecentJobPostingsPage />, { initialEntries: ['/'] });
 
-      expect(screen.getByTestId('recent-jobs-metrics')).toBeInTheDocument();
-      expect(screen.getByTestId('recent-jobs-metrics').getAttribute('data-total')).toBe('0');
-      expect(screen.getByTestId('recent-jobs-filters')).toBeInTheDocument();
+      expect(screen.getByRole('alert')).toHaveTextContent('boom');
+      expect(screen.queryByTestId('recent-jobs-list')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('recent-jobs-filters')).not.toBeInTheDocument();
+      expect(screen.queryByText('Displayed Jobs')).not.toBeInTheDocument();
+    });
+
+    it('retries through the hook when the banner’s Retry is pressed', async () => {
+      mockSearch({ error: 'boom', errorScope: 'initial' });
+      renderWithProviders(<RecentJobPostingsPage />, { initialEntries: ['/'] });
+
+      await userEvent.click(screen.getByRole('button', { name: /retry/i }));
+
+      expect(retry).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps the rows and skips the banner when a LATER page fails', () => {
+      // A next-page failure is the list's business: it shows an inline retry under
+      // the rows already loaded. Swapping the whole page for a banner would throw
+      // away everything the reader had scrolled through.
+      mockSearch({ jobs: [makeJob('1')], error: 'boom', errorScope: 'nextPage' });
+      renderWithProviders(<RecentJobPostingsPage />, { initialEntries: ['/'] });
+
       expect(screen.getByTestId('recent-jobs-list')).toBeInTheDocument();
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     });
+  });
 
-    it('renders FetchProgressBarSkeleton while auth is loading', () => {
-      mockAuthState.isLoading = true;
-      mockAllJobsQuery({
-        data: emptyJobsData,
-        error: undefined,
-        isLoading: false,
-        isFetching: false,
-      });
+  describe('metrics', () => {
+    it('feeds the hook’s counts into the total / 24h / 3h tiles', () => {
+      // `total` counts the active filter set; the two recency figures count the
+      // whole open corpus. Three distinct numbers so a mis-wire cannot pass.
+      mockSearch({ counts: { total: 42, last24h: 7, last3h: 3 } });
       renderWithProviders(<RecentJobPostingsPage />, { initialEntries: ['/'] });
 
-      expect(screen.getByTestId('fetch-progress-bar-skeleton')).toBeInTheDocument();
-      expect(screen.queryByTestId('fetch-progress-bar')).not.toBeInTheDocument();
+      expect(within(tile('Displayed Jobs')).getByText('42')).toBeInTheDocument();
+      expect(within(tile('Past 24 Hours')).getByText('7')).toBeInTheDocument();
+      expect(within(tile('Past 3 Hours')).getByText('3')).toBeInTheDocument();
     });
 
-    it('renders FetchProgressBarSkeleton while authenticated user has not yet loaded enabled ids', () => {
-      mockAuthState.isAuthenticated = true;
-      mockAuthState.isLoading = false;
-      mockAllJobsQuery({
-        data: emptyJobsData,
-        error: undefined,
-        isLoading: false,
-        isFetching: false,
-      });
-      renderWithProviders(<RecentJobPostingsPage />, {
-        initialEntries: ['/'],
-        preloadedState: {
-          enabledCompanies: {
-            ids: null,
-            autoEnroll: null,
-            loading: true,
-            error: null,
-            activeLoadRequestId: 'r1',
-          },
-        },
-      });
-
-      expect(screen.getByTestId('fetch-progress-bar-skeleton')).toBeInTheDocument();
-      expect(screen.queryByTestId('fetch-progress-bar')).not.toBeInTheDocument();
-    });
-
-    it('renders FetchProgressBar with null filter when no enabled ids set (all)', () => {
-      mockAuthState.isAuthenticated = false;
-      mockAllJobsQuery({
-        data: emptyJobsData,
-        error: undefined,
-        isLoading: false,
-        isFetching: false,
-      });
+    it('shows zeros while page 1 (which carries the counts) is still in flight', () => {
+      mockSearch({ counts: null, isInitialLoading: true });
       renderWithProviders(<RecentJobPostingsPage />, { initialEntries: ['/'] });
 
-      const bar = screen.getByTestId('fetch-progress-bar');
-      expect(bar).toBeInTheDocument();
-      expect(bar.getAttribute('data-filter')).toBe('null');
+      expect(within(tile('Displayed Jobs')).getByText('0')).toBeInTheDocument();
+      expect(within(tile('Past 24 Hours')).getByText('0')).toBeInTheDocument();
+      expect(within(tile('Past 3 Hours')).getByText('0')).toBeInTheDocument();
     });
+  });
 
-    it('renders FetchProgressBar with Set of enabled ids when preferences resolve to a non-empty list', () => {
-      mockAuthState.isAuthenticated = true;
-      mockAllJobsQuery({
-        data: emptyJobsData,
-        error: undefined,
-        isLoading: false,
-        isFetching: false,
-      });
-      renderWithProviders(<RecentJobPostingsPage />, {
-        initialEntries: ['/'],
-        preloadedState: {
-          enabledCompanies: {
-            ids: ['spacex', 'google'],
-            autoEnroll: true,
-            loading: false,
-            error: null,
-            activeLoadRequestId: null,
-          },
-        },
-      });
-
-      const bar = screen.getByTestId('fetch-progress-bar');
-      const filterAttr = bar.getAttribute('data-filter') ?? '';
-      expect(filterAttr).toContain('spacex');
-      expect(filterAttr).toContain('google');
-    });
-
-    it('renders the heading "Recent Job Postings"', () => {
-      mockAllJobsQuery({
-        data: undefined,
-        error: undefined,
-        isLoading: false,
-        isFetching: false,
-      });
+  describe('data', () => {
+    it('renders the heading, metrics, filters, and list', () => {
+      mockSearch({ jobs: [makeJob('1'), makeJob('2')], counts: { total: 2, last24h: 2, last3h: 1 } });
       renderWithProviders(<RecentJobPostingsPage />, { initialEntries: ['/'] });
 
       expect(
         screen.getByRole('heading', { name: /Recent Job Postings/i, level: 1 })
       ).toBeInTheDocument();
+      expect(screen.getByTestId('edit-company-preferences-row')).toBeInTheDocument();
+      expect(screen.getByTestId('recent-jobs-filters')).toBeInTheDocument();
+      expect(screen.getByTestId('recent-jobs-list')).toHaveAttribute('data-job-count', '2');
+    });
+
+    it('hands the list the very object the hook returned', () => {
+      // One `useRecentJobsSearch()` call for the page, passed down. A second
+      // instance would keep its own debounce timers and mint a competing cache
+      // entry, doubling every request for the same view.
+      const search = mockSearch({ jobs: [makeJob('1')] });
+      renderWithProviders(<RecentJobPostingsPage />, { initialEntries: ['/'] });
+
+      expect(listSearchProp).toBe(search);
+    });
+
+    it('never renders the retired per-company fetch progress bar', () => {
+      // FetchProgressBar reported a client-side fan-out across every company. The
+      // page fetches one server-filtered page at a time now, so there is no fan-out
+      // to report and nothing should render a progress indicator in this branch.
+      mockSearch({ jobs: [makeJob('1')], counts: { total: 1, last24h: 1, last3h: 0 } });
+      renderWithProviders(<RecentJobPostingsPage />, { initialEntries: ['/'] });
+
+      expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+      expect(screen.queryByText(/Loading jobs from \d+\/\d+ companies/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Loaded \d+\/\d+ companies/)).not.toBeInTheDocument();
     });
   });
 
-  describe('demo mode branch', () => {
+  describe('demo mode', () => {
     // Full UIState shape — RTK preloadedState replaces the slice's initial state
-    // for any slice provided, so we must supply every field, not just the flag.
+    // for any slice provided, so every field has to be supplied, not just the flag.
     const demoUiState = {
       graphModal: { open: false },
       globalLoading: false,
@@ -296,87 +221,23 @@ describe('RecentJobPostingsPage', () => {
       demoModeEnabled: true,
     };
 
-    it('renders metrics/filters/list AND suppresses the error banner when demo mode is on and the live query errors', () => {
-      // Backend is down (live query errors) — demo mode must still render curated
-      // content and must NOT surface the live-error alert. (Ledger #1 regression guard.)
-      mockAllJobsQuery({
-        data: undefined,
-        error: { status: 500, data: 'boom' },
-        isLoading: false,
-        isFetching: false,
+    it('renders metrics and the list from the hook’s curated result', () => {
+      // Demo mode lives entirely inside the hook, which serves the fixture without
+      // touching the network. The page has no demo branch by design — this pins
+      // that the shell is not gated on anything live.
+      mockSearch({
+        jobs: [makeJob('demo-0'), makeJob('demo-1'), makeJob('demo-2')],
+        counts: { total: 3, last24h: 3, last3h: 2 },
       });
       renderWithProviders(<RecentJobPostingsPage />, {
         initialEntries: ['/'],
         preloadedState: { ui: demoUiState },
       });
 
-      expect(screen.getByTestId('recent-jobs-metrics')).toBeInTheDocument();
-      expect(screen.getByTestId('recent-jobs-filters')).toBeInTheDocument();
-      expect(screen.getByTestId('recent-jobs-list')).toBeInTheDocument();
-      // Error banner must be suppressed in demo mode.
+      expect(within(tile('Displayed Jobs')).getByText('3')).toBeInTheDocument();
+      expect(within(tile('Past 3 Hours')).getByText('2')).toBeInTheDocument();
+      expect(screen.getByTestId('recent-jobs-list')).toHaveAttribute('data-job-count', '3');
       expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-      expect(screen.queryByText('boom')).not.toBeInTheDocument();
-    });
-
-    it('renders metrics/filters/list when demo mode is on and the live query is still loading', () => {
-      // Live query has not resolved (data undefined, no error) — demo mode bypasses
-      // the live-query loading gate and renders curated content immediately.
-      mockAllJobsQuery({
-        data: undefined,
-        error: undefined,
-        isLoading: true,
-        isFetching: true,
-      });
-      renderWithProviders(<RecentJobPostingsPage />, {
-        initialEntries: ['/'],
-        preloadedState: { ui: demoUiState },
-      });
-
-      expect(screen.getByTestId('recent-jobs-metrics')).toBeInTheDocument();
-      expect(screen.getByTestId('recent-jobs-filters')).toBeInTheDocument();
-      expect(screen.getByTestId('recent-jobs-list')).toBeInTheDocument();
-      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    });
-
-    it('does not render the FetchProgressBar in demo mode even when healthy live data is present', () => {
-      // Live fetch-progress is meaningless against curated demo data, so the bar
-      // (and its skeleton) must never render while demo mode is on.
-      mockAllJobsQuery({
-        data: emptyJobsData,
-        error: undefined,
-        isLoading: false,
-        isFetching: false,
-      });
-      renderWithProviders(<RecentJobPostingsPage />, {
-        initialEntries: ['/'],
-        preloadedState: { ui: demoUiState },
-      });
-
-      expect(screen.getByTestId('recent-jobs-metrics')).toBeInTheDocument();
-      expect(screen.queryByTestId('fetch-progress-bar')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('fetch-progress-bar-skeleton')).not.toBeInTheDocument();
-    });
-  });
-
-  describe('initial / empty branch', () => {
-    it('renders only the heading + preferences row when data is undefined and no error', () => {
-      mockAllJobsQuery({
-        data: undefined,
-        error: undefined,
-        isLoading: true,
-        isFetching: true,
-      });
-      renderWithProviders(<RecentJobPostingsPage />, { initialEntries: ['/'] });
-
-      expect(
-        screen.getByRole('heading', { name: /Recent Job Postings/i, level: 1 })
-      ).toBeInTheDocument();
-      expect(screen.getByTestId('edit-company-preferences-row')).toBeInTheDocument();
-      expect(screen.queryByTestId('recent-jobs-metrics')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('recent-jobs-filters')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('recent-jobs-list')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('fetch-progress-bar')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('fetch-progress-bar-skeleton')).not.toBeInTheDocument();
     });
   });
 });
