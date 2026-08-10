@@ -5,8 +5,9 @@ import type { LandingContent } from '../content';
 interface CTAButtonsProps {
   ctas: LandingContent['ctas'];
   /**
-   * Heroes carry ONLY the primary CTA (brief §11 — one audience, one action);
-   * footers/closers may show both.
+   * Renders "Create free account" as an outlined (monochrome black-on-white)
+   * button beside the contained primary. Heroes and closers both carry the
+   * pair: signing up is the conversion, so it stays one click away everywhere.
    */
   showSecondary?: boolean;
   size?: 'medium' | 'large';

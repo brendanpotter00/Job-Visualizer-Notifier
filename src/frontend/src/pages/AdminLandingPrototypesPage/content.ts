@@ -25,6 +25,36 @@ export interface LandingClaim {
   evidence: string;
 }
 
+/**
+ * One mechanism step in the "How it works" section. Deliberately two fields and
+ * no more: the label is the skim target, the line is the whole explanation.
+ * If a step ever needs a paragraph, the step is wrong — not the type.
+ */
+export interface HowItWorksStep {
+  id: string;
+  /** 2–4 words, verb-first and parallel across steps. */
+  label: string;
+  /** ONE short line (≤ ~14 words). Never a second paragraph. */
+  line: string;
+  /** Traceability breadcrumb (not rendered). */
+  evidence: string;
+}
+
+/**
+ * A cell in the feature matrix. Every entry here is LIVE today — the matrix has
+ * no roadmap/"Soon" tier by design (see FeatureMatrixSection for the rationale),
+ * so there is deliberately no `status` field to accidentally ship a promise in.
+ */
+export interface LandingFeature {
+  id: string;
+  /** 2–4 words — the only thing a skimming eye is guaranteed to read. */
+  name: string;
+  /** ≤ 8 words. Supporting detail, never a sentence with a subordinate clause. */
+  detail: string;
+  /** Traceability breadcrumb (not rendered). */
+  evidence: string;
+}
+
 export type HeroVariantId = 'source' | 'antiNoise';
 
 export interface HeroVariant {
@@ -64,9 +94,27 @@ export interface LandingContent {
    */
   quotableClaims: readonly string[];
   claims: Record<ClaimId, LandingClaim>;
+  /**
+   * Mechanism, in three steps. Rendered as one section together with the
+   * apply-early beat (`claims.apply_early_rolling.body`) — the "how" and the
+   * "why you should care" belong to the same breath.
+   */
+  howItWorks: { heading: string; steps: readonly HowItWorksStep[] };
+  /**
+   * The live feature set as a skimmable matrix. `nextUp` is the one link out —
+   * the honest answer to "what's coming" is the community vote page, not a
+   * roadmap teaser on the landing page (business-context: nothing unshipped
+   * may read as present-tense).
+   */
+  featureMatrix: {
+    heading: string;
+    features: readonly LandingFeature[];
+    nextUp: LandingCta;
+  };
   /** Factual comparison beat (brief §10 P4). */
   comparison: string;
-  /** Hero carries ONLY the primary (brief §11); secondary lives in nav/footer. */
+  /** Primary = browse (contained); secondary = create account (outlined). Both
+   *  render in the heroes and in the closing CTA block. */
   ctas: { primary: LandingCta; secondary: LandingCta };
   faq: readonly LandingFaqEntry[];
   /** Query-shaped internal link stubs (brief §9); targets are placeholders
@@ -122,16 +170,16 @@ export const LANDING_CONTENT: LandingContent = {
       id: 'antiNoise',
       headline: 'No reposts. No stale listings. No noise.',
       subheadline:
-        'Job boards resurface months-old postings. We watch 130+ career pages and show what’s actually new.',
+        'A job board built for candidates. Less time spent job hunting, more time for everything else.',
     },
   },
   broadSupportLine:
-    'Software engineering first — plus product, data science, hardware, and growth roles from the same boards.',
+    'Software engineering first, plus product, data science, hardware, and growth roles from the same boards.',
   supportingBeat:
-    'Recruiters review applications on a rolling basis. Apply in the first hours and a human actually reads your resume. onesecondswe exists so you’re early — every time.',
+    'Recruiters review applications on a rolling basis. Apply in the first hours and a human actually reads your resume. onesecondswe exists so you’re early, every time.',
   quotableClaims: [
     'onesecondswe surfaces new software engineering jobs a median of 45 minutes after companies post them on their own career pages.',
-    'onesecondswe scrapes 130+ curated tech companies’ career pages directly — no aggregator feeds, no reposts.',
+    'onesecondswe scrapes 130+ curated tech companies’ career pages directly. No aggregator feeds, no reposts.',
     'Every posting date on onesecondswe is the moment we first saw the job on the company’s board, so “posted 2 hours ago” means exactly that.',
     'Thousands of new software engineering jobs are added every week, free.',
   ],
@@ -139,7 +187,7 @@ export const LANDING_CONTENT: LandingContent = {
     straight_from_source: {
       id: 'straight_from_source',
       heading: 'Straight from the source',
-      body: 'Every listing is scraped directly from the company’s own careers page — never from a reposted aggregator feed.',
+      body: 'Every listing is scraped directly from the company’s own careers page, never from a reposted aggregator feed.',
       evidence: 'brief §5 straight_from_source (interview Q1)',
     },
     minutes_after_posting: {
@@ -157,20 +205,90 @@ export const LANDING_CONTENT: LandingContent = {
     curated_companies: {
       id: 'curated_companies',
       heading: '130+ curated companies',
-      body: 'Hand-picked companies you’d actually want to work for — not a scrape of everything with a careers page.',
+      body: 'Hand-picked companies you’d actually want to work for, not a scrape of everything with a careers page.',
       evidence: 'brief §5 curated_companies (interview Q1/Q4)',
     },
     thousands_weekly: {
       id: 'thousands_weekly',
       heading: 'Thousands of new roles weekly',
-      body: 'New listings stream in all week, every week — labeled by role and level so you can cut straight to yours.',
+      body: 'New listings stream in all week, every week, labeled by role and level so you can cut straight to yours.',
       evidence: 'brief §5 thousands_weekly (prod ~2.7k/7d)',
     },
     apply_early_rolling: {
       id: 'apply_early_rolling',
       heading: 'Early applications get read',
-      body: 'Recruiters review on a rolling basis. The earlier you apply, the more likely a human sees your resume.',
-      evidence: 'brief §5 apply_early_rolling (interview Q1/Q2)',
+      body: 'Recruiters review on a rolling basis. The earlier you apply, the more likely a human sees your resume. Every job here links straight to the hiring managers and recruiters posting about it on LinkedIn, so you can message them within minutes of the role going up.',
+      evidence:
+        'brief §5 apply_early_rolling (interview Q1/Q2); second sentence owner-directed 2026-08-09, backed by the job card’s LinkedIn people-search link',
+    },
+  },
+  howItWorks: {
+    heading: 'How it works',
+    steps: [
+      {
+        id: 'monitor',
+        label: 'Monitor job boards',
+        line: 'We watch 130+ curated companies’ career pages continuously.',
+        evidence: 'brief §5 straight_from_source + curated_companies',
+      },
+      {
+        id: 'label',
+        label: 'Label every role',
+        line: 'AI tags level, category, and location so filters actually mean something.',
+        evidence: 'business-context §feature-set: AI-powered labeling, LIVE today',
+      },
+      {
+        id: 'filters',
+        label: 'Set up custom filters',
+        line: 'Save your filters once and they apply on every visit, so you search less.',
+        evidence: 'business-context §feature-set: saved filters, LIVE today',
+      },
+    ],
+  },
+  featureMatrix: {
+    heading: 'Features',
+    features: [
+      {
+        id: 'source',
+        name: 'Straight from the source',
+        detail: 'Scraped from company career pages.',
+        evidence: 'brief §5 straight_from_source',
+      },
+      {
+        id: 'freshness',
+        name: 'Seconds, not weeks',
+        detail: 'New roles land here seconds after posting.',
+        evidence:
+          'owner-directed 2026-08-09 (overrides ~45-min median claim; revisit before promotion)',
+      },
+      {
+        id: 'ai_labels',
+        name: 'AI-labeled roles',
+        detail: 'Level, category, and location on every job.',
+        evidence: 'business-context §feature-set: AI-powered labeling, LIVE today',
+      },
+      {
+        id: 'curated',
+        name: '130+ curated companies',
+        detail: 'Hand-picked, not a scrape of everything.',
+        evidence: 'brief §5 curated_companies',
+      },
+      {
+        id: 'saved_filters',
+        name: 'Saved filters',
+        detail: 'Your searches, ready on every visit.',
+        evidence: 'business-context §feature-set: saved filters, LIVE today',
+      },
+      {
+        id: 'free',
+        name: 'Free',
+        detail: 'Free to browse, free to sign up.',
+        evidence: 'brief §10 P1 (“added every week, free”); FAQ “Is onesecondswe free?”',
+      },
+    ],
+    nextUp: {
+      label: 'Built with the community. Vote on what’s next.',
+      to: ROUTES.VOTE_FEATURES,
     },
   },
   comparison:
@@ -183,7 +301,7 @@ export const LANDING_CONTENT: LandingContent = {
     {
       question: 'Where can I find tech jobs the day they’re posted?',
       answer:
-        'onesecondswe is a free job board for software engineers that scrapes 130+ tech companies’ career pages directly, so new roles appear a median of about 45 minutes after the company posts them — the same day, usually the same hour. Because it pulls from company boards rather than aggregator feeds, you see jobs before they syndicate elsewhere.',
+        'onesecondswe is a free job board for software engineers that scrapes 130+ tech companies’ career pages directly, so new roles appear a median of about 45 minutes after the company posts them, the same day and usually the same hour. Because it pulls from company boards rather than aggregator feeds, you see jobs before they syndicate elsewhere.',
     },
     {
       question: 'How fast do new jobs show up on onesecondswe?',
@@ -198,12 +316,12 @@ export const LANDING_CONTENT: LandingContent = {
     {
       question: 'How does onesecondswe know a job’s real posting date?',
       answer:
-        'Freshness on onesecondswe means the moment we first saw the job appear on the company’s career page. We check each of our 130+ tracked companies’ boards continuously and timestamp the first sighting — that timestamp is the posting date shown.',
+        'Freshness on onesecondswe means the moment we first saw the job appear on the company’s career page. We check each of our 130+ tracked companies’ boards continuously and timestamp the first sighting, and that timestamp is the posting date shown.',
     },
     {
       question: 'How many companies and jobs does onesecondswe cover?',
       answer:
-        '130+ curated tech companies, tracked at the source, with thousands of new software engineering jobs added weekly — plus product, data science, hardware, and growth roles from the same boards.',
+        '130+ curated tech companies, tracked at the source, with thousands of new software engineering jobs added weekly, plus product, data science, hardware, and growth roles from the same boards.',
     },
     {
       question: 'Is onesecondswe free?',

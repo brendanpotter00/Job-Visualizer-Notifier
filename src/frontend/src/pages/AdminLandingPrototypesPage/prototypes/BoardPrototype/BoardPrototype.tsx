@@ -3,7 +3,6 @@ import { RESPONSIVE } from '../../../../config/responsive';
 import type { LandingPrototypeProps } from '../../types';
 import { HeroCopy } from '../../sections/HeroCopy';
 import { CTAButtons } from '../../sections/CTAButtons';
-import { LiveActivityStats } from '../../sections/LiveActivityStats';
 import { LogoWall } from '../../sections/LogoWall';
 import { FreshJobsTicker } from '../../sections/FreshJobsTicker';
 import { FAQSection } from '../../sections/FAQSection';
@@ -24,10 +23,7 @@ export function BoardPrototype({ content, jobs, stats, now }: LandingPrototypePr
         <Box sx={{ pt: { xs: 5, sm: 8 }, pb: { xs: 3, sm: 5 } }}>
           <HeroCopy content={content} variant="antiNoise" />
           <Box sx={{ mt: 3 }}>
-            <CTAButtons ctas={content.ctas} size="medium" />
-          </Box>
-          <Box sx={{ mt: 4 }}>
-            <LiveActivityStats jobs={jobs} stats={stats} now={now} />
+            <CTAButtons ctas={content.ctas} size="medium" showSecondary />
           </Box>
         </Box>
 

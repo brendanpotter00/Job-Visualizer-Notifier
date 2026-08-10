@@ -54,7 +54,7 @@ afterEach(() => {
 });
 
 describe('DriftPrototype', () => {
-  it('renders the terse hero h1 with the source subheadline and primary CTA', () => {
+  it('renders the terse hero h1 with the source subheadline and both CTAs', () => {
     renderDrift();
     const h1 = screen.getByRole('heading', { level: 1 });
     expect(h1).toHaveTextContent('Jobs at the source.');
@@ -65,6 +65,13 @@ describe('DriftPrototype', () => {
     expect(
       screen.getAllByRole('link', { name: LANDING_CONTENT.ctas.primary.label }).length
     ).toBeGreaterThan(0);
+    // The footer carries a plain text link with the same label; filter to buttons.
+    const secondaries = screen
+      .getAllByRole('link', { name: LANDING_CONTENT.ctas.secondary.label })
+      .filter((el) => el.classList.contains('MuiButton-root'));
+    expect(secondaries).toHaveLength(1);
+    expect(secondaries[0]).toHaveClass('MuiButton-outlined');
+    expect(secondaries[0]).toHaveAttribute('href', LANDING_CONTENT.ctas.secondary.to);
   });
 
   it('keeps the data claim as DOM text on every tier', () => {
@@ -92,11 +99,14 @@ describe('DriftPrototype', () => {
     expect(screen.getByText(CAPTION)).toBeInTheDocument();
   });
 
-  it('keeps Signal-skeleton sections below the hero: stats, logo wall, FAQ, footer', () => {
+  // Drift never carried a jobs rail, so the stats strip left nothing behind:
+  // no rotating card here either (that lives in Signal and Gravity).
+  it('keeps Signal-skeleton sections below the hero: logo wall, FAQ, footer', () => {
     renderDrift();
-    expect(screen.getByText(/tracked in the past 24 hours/)).toBeInTheDocument();
     expect(screen.getByLabelText('Companies tracked by onesecondswe')).toBeInTheDocument();
     expect(screen.getByText(LANDING_CONTENT.faq[0].question)).toBeInTheDocument();
     expect(screen.getByText(LANDING_CONTENT.footer.tagline)).toBeInTheDocument();
+    expect(screen.queryByText(/tracked in the past 24 hours/)).not.toBeInTheDocument();
+    expect(screen.queryByTestId('rotating-job-card')).not.toBeInTheDocument();
   });
 });

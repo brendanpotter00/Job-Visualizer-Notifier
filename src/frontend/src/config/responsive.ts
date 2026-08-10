@@ -268,13 +268,56 @@ export const RESPONSIVE = {
     /** Hero block vertical padding (theme units). */
     heroPaddingY: { xs: 8, sm: 14 },
     /** Section h2 font size. */
-    sectionTitleFontSize: { xs: '1.25rem', sm: '1.5rem' },
-    /** Section vertical padding (theme units). */
-    sectionPaddingY: { xs: 4, sm: 7 },
-    /** Quotable-claims / body emphasis font size. */
-    quotableFontSize: { xs: '0.9375rem', sm: '1.0625rem' },
-    /** Live-activity stat value font size. */
-    statValueFontSize: { xs: '1.5rem', sm: '2rem' },
+    sectionTitleFontSize: { xs: '1.375rem', sm: '1.75rem' },
+    /**
+     * Sub-heading inside a section (step label, matrix cell name, FAQ question,
+     * category card title). Sits clearly above `bodyFontSize` at weight 600 so
+     * the hierarchy survives the larger body text.
+     */
+    blockTitleFontSize: { xs: '1.0625rem', sm: '1.1875rem' },
+    /**
+     * Body / secondary prose in the flat text sections. Deliberately larger than
+     * MUI's `body2` (0.875rem): these sections exist to be READ, and footnote-
+     * sized secondary text was the main "hard to read" complaint.
+     */
+    bodyFontSize: { xs: '1rem', sm: '1.0625rem' },
+    /**
+     * Section vertical padding (theme units). Adjacent sections each apply it,
+     * so the visible gap between two sections is DOUBLE this — 80px on a phone,
+     * 160px on desktop. Deliberately generous: the landing prototypes read as
+     * one dense block otherwise (Notion-style "every block floats in its own
+     * air"). Shared by Gravity/Signal/Board/Drift so the four keep one rhythm.
+     */
+    sectionPaddingY: { xs: 5, sm: 10 },
+    /**
+     * Air under a section h2 (or its one-line subtitle) before the section body.
+     * The heading block gets its own breathing room rather than sitting on top
+     * of the content it labels.
+     */
+    sectionTitleMarginBottom: { xs: 3, sm: 5 },
+    /**
+     * Air between two blocks INSIDE one section (how-it-works steps → the
+     * apply-early pull-quote). Smaller than `sectionPaddingY` so the blocks
+     * still read as one section.
+     */
+    sectionBlockGapY: { xs: 5, sm: 9 },
+    /** How-it-works: spacing between the three numbered step columns. */
+    stepsGridSpacing: { xs: 4, sm: 6 },
+    /** Feature matrix: vertical padding inside each ruled cell. */
+    matrixCellPaddingY: { xs: 3, sm: 5 },
+    /** Feature matrix: right gutter inside each cell (the column separation). */
+    matrixCellPaddingRight: { xs: 3, sm: 6 },
+    /** FAQ: vertical padding on each accordion summary → taller, calmer rows. */
+    faqRowPaddingY: { xs: 1, sm: 1.75 },
+    /** Curated-category cards: interior padding. */
+    categoryCardPadding: { xs: 2.5, sm: 3 },
+    /** Curated-category cards: grid gap between cards. */
+    categoryGridGap: { xs: 2, sm: 3 },
+    /** Quotable-claims / body emphasis font size (a step above `bodyFontSize`). */
+    quotableFontSize: { xs: '1.0625rem', sm: '1.25rem' },
+    /** Reserved height for the rotating single-job card, so the page does not
+     *  twitch as cards of slightly different content length swap in (px). */
+    rotatingCardMinHeight: { xs: 260, sm: 240 },
     /** Browser-style tab strip: tab min-height. */
     tabMinHeight: { xs: 36, sm: 40 },
     /** Browser-style tab strip: tab label font size. */

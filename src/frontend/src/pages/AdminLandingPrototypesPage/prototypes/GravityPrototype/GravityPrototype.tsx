@@ -5,8 +5,11 @@ import { COMPANIES } from '../../../../config/companies';
 import type { LandingPrototypeProps } from '../../types';
 import { HeroCopy } from '../../sections/HeroCopy';
 import { CTAButtons } from '../../sections/CTAButtons';
-import { LiveActivityStats } from '../../sections/LiveActivityStats';
-import { FreshJobsTicker } from '../../sections/FreshJobsTicker';
+import { FreshJobsTriptych } from '../../sections/FreshJobsTriptych';
+import { HeroTrendline } from '../../sections/HeroTrendline';
+import { HowItWorksSection } from '../../sections/HowItWorksSection';
+import { CompanyCategoriesSection } from '../../sections/CompanyCategoriesSection';
+import { FeatureMatrixSection } from '../../sections/FeatureMatrixSection';
 import { FAQSection } from '../../sections/FAQSection';
 import { FooterLite } from '../../sections/FooterLite';
 import { DESKTOP_BODY_COUNT } from '../shared3d/experienceTier';
@@ -31,8 +34,12 @@ const ROSTER_SEED = 20260809;
  * CTAs so the canvas still receives pointer moves). The settled pile doubles
  * as the logo wall — deliberately no LogoWall section below. Reduced-motion /
  * no-WebGL tiers render the pre-settled LogoGridFallback grid instead.
+ *
+ * Carries hero variant B (anti-noise): the pile of company logos already says
+ * "straight from the source", so the headline spends its words on the reposts
+ * problem instead.
  */
-export function GravityPrototype({ content, jobs, stats, now }: LandingPrototypeProps) {
+export function GravityPrototype({ content, jobs, now }: LandingPrototypeProps) {
   const tier = useExperienceTier();
   const roster = useMemo(
     () => selectLogoRoster(COMPANIES, tier.bodyCount, ROSTER_SEED),
@@ -43,6 +50,10 @@ export function GravityPrototype({ content, jobs, stats, now }: LandingPrototype
     <Box>
       {/* Hero region: DOM copy over the physics canvas. */}
       <Box sx={{ position: 'relative', overflow: 'hidden' }}>
+        {/* Furthest-back layer: faint mock posting-cadence line. The canvas
+            clears to transparent, so the line reads through it while tiles
+            still paint on top. */}
+        <HeroTrendline />
         {tier.tier === 'full' && (
           <Box aria-hidden sx={{ position: 'absolute', inset: 0 }}>
             <Suspense fallback={null}>
@@ -64,9 +75,9 @@ export function GravityPrototype({ content, jobs, stats, now }: LandingPrototype
             pointerEvents: 'none',
           }}
         >
-          <HeroCopy content={content} variant="source" />
+          <HeroCopy content={content} variant="antiNoise" />
           <Box sx={{ mt: 4, pointerEvents: 'auto' }}>
-            <CTAButtons ctas={content.ctas} />
+            <CTAButtons ctas={content.ctas} showSecondary />
           </Box>
           {tier.tier === 'fallback' ? (
             <Box sx={{ mt: 6, pointerEvents: 'auto' }}>
@@ -79,12 +90,25 @@ export function GravityPrototype({ content, jobs, stats, now }: LandingPrototype
         </Container>
       </Box>
 
+      {/* Vertical rhythm: every section wrapper carries the same `py`, so the
+          air BETWEEN two sections is double the token (80px on a phone, 160px
+          on desktop). That doubling is the point — the text sections below are
+          quiet blocks that need to float in their own space rather than stack. */}
       <Container maxWidth="lg">
         <Box sx={{ py: RESPONSIVE.landingProto.sectionPaddingY }}>
-          <LiveActivityStats jobs={jobs} stats={stats} now={now} />
-          <Box sx={{ mt: 5 }}>
-            <FreshJobsTicker jobs={jobs} now={now} />
-          </Box>
+          <FreshJobsTriptych jobs={jobs} now={now} />
+        </Box>
+        {/* Two flat text sections bracket the categories grid: after the
+            flipping triptych the eye needs somewhere still to land, and again
+            before the FAQ. Both are static by design. */}
+        <Box sx={{ py: RESPONSIVE.landingProto.sectionPaddingY }}>
+          <HowItWorksSection content={content} />
+        </Box>
+        <Box sx={{ py: RESPONSIVE.landingProto.sectionPaddingY }}>
+          <CompanyCategoriesSection />
+        </Box>
+        <Box sx={{ py: RESPONSIVE.landingProto.sectionPaddingY }}>
+          <FeatureMatrixSection content={content} />
         </Box>
         <Box sx={{ py: RESPONSIVE.landingProto.sectionPaddingY }}>
           <FAQSection content={content} />

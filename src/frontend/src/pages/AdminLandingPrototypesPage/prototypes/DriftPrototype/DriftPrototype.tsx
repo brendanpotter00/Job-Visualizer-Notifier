@@ -3,7 +3,6 @@ import { Box, Container, Typography } from '@mui/material';
 import { RESPONSIVE } from '../../../../config/responsive';
 import type { LandingPrototypeProps } from '../../types';
 import { CTAButtons } from '../../sections/CTAButtons';
-import { LiveActivityStats } from '../../sections/LiveActivityStats';
 import { LogoWall } from '../../sections/LogoWall';
 import { FAQSection } from '../../sections/FAQSection';
 import { FooterLite } from '../../sections/FooterLite';
@@ -40,7 +39,7 @@ const DOT_BACKDROP_SX = {
  * skeleton so Signal↔Drift remains an honest A/B pair. Reduced-motion /
  * no-WebGL tiers get a static CSS gradient-dot backdrop instead.
  */
-export function DriftPrototype({ content, jobs, stats, now }: LandingPrototypeProps) {
+export function DriftPrototype({ content, jobs, now }: LandingPrototypeProps) {
   const tier = useExperienceTier();
   const config = useMemo(
     () =>
@@ -91,7 +90,7 @@ export function DriftPrototype({ content, jobs, stats, now }: LandingPrototypePr
             </Typography>
           </Box>
           <Box sx={{ mt: 4 }}>
-            <CTAButtons ctas={content.ctas} />
+            <CTAButtons ctas={content.ctas} showSecondary />
           </Box>
           <Typography
             variant="caption"
@@ -103,9 +102,6 @@ export function DriftPrototype({ content, jobs, stats, now }: LandingPrototypePr
       </Box>
 
       <Container maxWidth="lg">
-        <Box sx={{ py: RESPONSIVE.landingProto.sectionPaddingY }}>
-          <LiveActivityStats jobs={jobs} stats={stats} now={now} />
-        </Box>
         <Box sx={{ py: RESPONSIVE.landingProto.sectionPaddingY }}>
           <LogoWall rows={1} perRow={24} />
         </Box>

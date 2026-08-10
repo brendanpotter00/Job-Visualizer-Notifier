@@ -52,6 +52,14 @@ interface LogoTileBodyProps {
  * carry the company logo (BoxGeometry group order is +x, -x, +y, -y, +z, -z)
  * and whose four edges share EDGE_MATERIAL. Suspends via useTexture until the
  * logo PNG arrives.
+ *
+ * Deliberately NO `ccd`: continuous collision detection sweeps every enabled
+ * body against the whole broad-phase each substep, and with ~72 of them in a
+ * dense pile it measured 1.74ms per 1/60s step — 4x the 0.44ms the same step
+ * costs without it, and the single largest CPU cost while the pointer stirs
+ * the pile. These tiles fall a few units under gravity and are shoved by a
+ * speed-bounded pointer ball, so per-step travel stays far below the 4-unit
+ * arena walls (see ArenaColliders) and discrete detection never misses.
  */
 export function LogoTileBody({
   logoUrl,
@@ -89,7 +97,6 @@ export function LogoTileBody({
       position={position}
       rotation={rotation}
       linearDamping={0.15}
-      ccd
       restitution={0.2}
       friction={0.8}
       onSleep={onSleep}

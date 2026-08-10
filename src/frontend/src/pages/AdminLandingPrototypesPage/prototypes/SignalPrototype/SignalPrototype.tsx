@@ -6,18 +6,18 @@ import { usePrefersReducedMotion } from '../../usePrefersReducedMotion';
 import type { LandingPrototypeProps } from '../../types';
 import { HeroCopy } from '../../sections/HeroCopy';
 import { CTAButtons } from '../../sections/CTAButtons';
-import { LiveActivityStats } from '../../sections/LiveActivityStats';
 import { LogoWall } from '../../sections/LogoWall';
-import { FreshJobsTicker } from '../../sections/FreshJobsTicker';
+import { RotatingJobCard } from '../../sections/RotatingJobCard';
 import { FAQSection } from '../../sections/FAQSection';
 import { FooterLite } from '../../sections/FooterLite';
 
 /**
  * "Signal" — the clean, cursor-inspired minimal take (brief §11 P1): Linear's
- * tight skeleton, hero variant A (source-led), one CTA, restrained
- * framer-motion reveals, proof closing the page. Monochrome light throughout.
+ * tight skeleton, hero variant A (source-led), the browse/create-account CTA
+ * pair, restrained framer-motion reveals, proof closing the page. Monochrome
+ * light throughout.
  */
-export function SignalPrototype({ content, jobs, stats, now }: LandingPrototypeProps) {
+export function SignalPrototype({ content, jobs, now }: LandingPrototypeProps) {
   return (
     <Box>
       <Container maxWidth="lg">
@@ -25,7 +25,7 @@ export function SignalPrototype({ content, jobs, stats, now }: LandingPrototypeP
         <Box sx={{ py: RESPONSIVE.landingProto.heroPaddingY }}>
           <HeroCopy content={content} variant="source" showBroadSupportLine />
           <Box sx={{ mt: 4 }}>
-            <CTAButtons ctas={content.ctas} />
+            <CTAButtons ctas={content.ctas} showSecondary />
           </Box>
         </Box>
 
@@ -35,10 +35,7 @@ export function SignalPrototype({ content, jobs, stats, now }: LandingPrototypeP
 
         <Reveal>
           <Box sx={{ py: RESPONSIVE.landingProto.sectionPaddingY }}>
-            <LiveActivityStats jobs={jobs} stats={stats} now={now} />
-            <Box sx={{ mt: 5 }}>
-              <FreshJobsTicker jobs={jobs} now={now} />
-            </Box>
+            <RotatingJobCard jobs={jobs} now={now} />
           </Box>
         </Reveal>
 

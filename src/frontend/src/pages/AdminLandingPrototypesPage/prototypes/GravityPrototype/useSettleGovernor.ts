@@ -10,7 +10,7 @@
  * default (true) there — degrade gracefully, never crash.
  */
 import { useCallback, useEffect, useMemo, useRef } from 'react';
-import { useThree } from '@react-three/fiber';
+import { useStore, useThree } from '@react-three/fiber';
 import { resolveFrameloop } from '../shared3d/experienceTier';
 
 export interface SettleGovernor {
@@ -29,8 +29,9 @@ export interface SettleGovernor {
 }
 
 export function useSettleGovernor(bodyCount: number): SettleGovernor {
-  const setFrameloop = useThree((state) => state.setFrameloop);
+  const store = useStore();
   const gl = useThree((state) => state.gl);
+  const size = useThree((state) => state.size);
 
   const asleepCountRef = useRef(0);
   const heroInViewRef = useRef(true);
@@ -38,15 +39,34 @@ export function useSettleGovernor(bodyCount: number): SettleGovernor {
     typeof document === 'undefined' || document.visibilityState !== 'hidden'
   );
 
+  /**
+   * The ONLY way this hook touches the frameloop — and it never re-asserts a
+   * mode that is already active. R3F's `setFrameloop` is not idempotent: every
+   * call does `clock.stop(); clock.start()`, which resets `clock.oldTime` to
+   * "now". `useFrame`'s delta is `clock.getDelta()`, so a redundant call
+   * shortly before a frame reports a fraction of the real elapsed time. At
+   * pointermove rates (60–120 Hz of `wake()`) that starves rapier's fixed-step
+   * accumulator and the whole simulation runs in slow motion — measured 23
+   * physics steps/s instead of 60 while sweeping the pointer through the pile.
+   * R3F guards its own `frameloop` prop exactly this way.
+   */
+  const applyFrameloop = useCallback(
+    (next: 'always' | 'never') => {
+      const state = store.getState();
+      if (state.frameloop !== next) state.setFrameloop(next);
+    },
+    [store]
+  );
+
   const refresh = useCallback(() => {
-    setFrameloop(
+    applyFrameloop(
       resolveFrameloop({
         allAsleep: bodyCount > 0 && asleepCountRef.current >= bodyCount,
         heroInView: heroInViewRef.current,
         docVisible: docVisibleRef.current,
       })
     );
-  }, [bodyCount, setFrameloop]);
+  }, [bodyCount, applyFrameloop]);
 
   const onBodySleep = useCallback(() => {
     asleepCountRef.current = Math.min(asleepCountRef.current + 1, bodyCount);
@@ -59,8 +79,32 @@ export function useSettleGovernor(bodyCount: number): SettleGovernor {
   }, [refresh]);
 
   const wake = useCallback(() => {
-    if (heroInViewRef.current && docVisibleRef.current) setFrameloop('always');
-  }, [setFrameloop]);
+    if (heroInViewRef.current && docVisibleRef.current) applyFrameloop('always');
+  }, [applyFrameloop]);
+
+  /**
+   * Re-assert the decision on mount and after every canvas geometry change.
+   * Two distinct reasons, one effect:
+   *
+   * 1. Mount. A fresh governor starts with an empty sleep tally, but the
+   *    frameloop is shared canvas state that may still be parked at 'never'
+   *    from the pile this one replaced (GravityPile remounts on resize) — and
+   *    a parked loop never steps physics, so nothing else would restart it.
+   * 2. Resize/scroll. R3F re-runs `root.configure()` on every render of its
+   *    <Canvas> — which `useMeasure` triggers on resize AND on scroll (it
+   *    tracks `top`) — and configure unconditionally re-asserts the
+   *    `frameloop` *prop*: `if (state.frameloop !== frameloop) setFrameloop()`.
+   *    That silently un-parks a settled pile and burns 60fps forever, since
+   *    nothing else would ever revisit the decision. `state.size` changes on
+   *    exactly those geometry updates, so keying on it re-parks right after
+   *    R3F has clobbered us (configure is synchronous past the one-time
+   *    renderer setup, so this passive effect always runs after it).
+   *
+   * Idempotent either way: `applyFrameloop` no-ops when the mode matches.
+   */
+  useEffect(() => {
+    refresh();
+  }, [size, refresh]);
 
   useEffect(() => {
     if (typeof IntersectionObserver !== 'function') return undefined;

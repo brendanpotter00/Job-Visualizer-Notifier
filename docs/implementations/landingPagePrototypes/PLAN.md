@@ -149,4 +149,83 @@ initials fallback). Then open in Brendan's browser for review.
 
 ## Review log
 
-(Feedback rounds recorded here as they happen.)
+### Round 1 — 2026-08-09 (live review on port 3100)
+
+**Direction:** converging on **Gravity as the primary prototype** (keep the tab name for
+now). Board is cooling — an embedded mini board that's less capable than the real Recent
+Jobs page could deter people; keep the tab but stop investing.
+
+**Changes requested (this round):**
+1. Gravity tiles: full color (TILE_TONE → 'brand'), not grayscale — the one deliberate
+   splash of color on the monochrome page. DONE.
+2. Pointer lag when mousing through the Gravity pile — perf investigation + fix (own
+   workstream; measured root-cause, not guessed).
+3. Replace the "little tiny cards" fresh-jobs ticker rows with **one full JobListingCard
+   that flips/alternates** through fresh jobs (Signal + Gravity).
+4. Remove the LiveActivityStats tiles ("1 job posted by SpaceX…") from ALL prototypes.
+5. Gravity hero copy → the Board's antiNoise wording: "No reposts. No stale listings.
+   No noise." (Brendan's favorite line.)
+6. Hero CTAs: outlined "Create free account" next to "Browse jobs".
+7. FAQ → collapsed accordions (answers stay in the DOM for AEO).
+8. NEW section (below hero, Gravity first): **curated-company category presets** — cards
+   like FAANG-level, YC startups, unicorns, AI labs, big brands + agent-invented
+   categories, each a preset-filter entry point (mock links for now).
+
+**Noted for later (no action yet):**
+- If a carousel returns, use the Board's **two-row logo marquee** style.
+- Signal's post-hero content is liked but "needs cleanup quite a bit" — future round.
+- Feedback so far is hero-section-scoped; deeper below-fold passes to come.
+
+### Round 2 — 2026-08-09 (continued live review)
+
+1. Gravity mobile: finger-drag must shove the tiles (repel ball was desktop-only via
+   `(pointer: fine)` gate) and the physics arena must track window resizes instead of
+   freezing at load-time width. Fix in flight — resize triggers a debounced re-drop of
+   the pile rather than squeezing walls through settled bodies.
+2. Categories section heading → **"Browse curated companies"** (+ "Hand-picked companies,
+   grouped the way people actually search."). DONE.
+3. NEW **FreshJobsTriptych**: three JobListingCards in a horizontal row — "newest
+   internship" / "posted in the last 24 hours" / "fresh from big tech" — each slot
+   flipping through its own pool, staggered, priority-deduped. Goes on Gravity in place
+   of the single RotatingJobCard; Signal keeps the single card for A/B comparison.
+4. REJECTED (Brendan talked himself out of it): logo carousel behind the flipping card.
+5. Musing, no action: a "why this was built"-style features section (footer already
+   links /why).
+6. NEW `docs/marketing/business-context.md` — candidate-centric stance (no paid
+   reposts, ever — that's how incumbents monetize), apply-early thesis, "Datadog for
+   the job market" north star, feature-set truth table (live / in-progress
+   custom-company scrapers / NOT-yet notifications-payments-saved-jobs), long-horizon
+   talent-movement + VC-data ideas explicitly kept OFF the landing page. DONE.
+7. NEW `sections/HeroTrendline.tsx` — very faint mock posting-cadence line for the hero
+   background ("just a line" per Brendan, real data explicitly deferred). Built;
+   integration into the Gravity hero pending the touch/resize agent vacating those
+   files.
+8. TODO next round: **AI-powered labeling** deserves a landing section mention
+   (Brendan: "that should probably be somewhere in one of the sections").
+9. BUG (screenshot evidence): the tall Microsoft intern card grows the triptych row on
+   rotation, shifting the whole page below by a line each cycle. Fix in flight: sizer
+   stack in FlippingCard — all pool jobs rendered invisible in the same grid cell so
+   each slot pre-reserves its tallest card's height (immune to any job title length,
+   also covers Signal's RotatingJobCard).
+10. DESIGN PASS (in flight): text sections feel "condensed and busy" — add negative
+    space, Notion-inspired (bigger section gaps, capped reading measure, roomier matrix
+    cells/FAQ rows, space-over-lines). Spacing only; zero copy changes.
+11. COPY ROUND (in flight, folded into the negative-space agent): NO em-dashes anywhere
+    in landing copy; text bigger (sections were hard to read); How-it-works steps now
+    Monitor job boards / Label every role / Set up custom filters (freshness-timestamp
+    step removed as redundant); apply-early quotable gains a second line about finding
+    hiring managers + recruiters on LinkedIn and messaging them within minutes; "What
+    you get" renamed "Features"; speed cell says "seconds", NOT "~45 min median" —
+    ⚠ OWNER-DIRECTED overclaim vs the brief's ~45-min evidence; revisit before
+    promotion to prod. Hero antiNoise subheadline rewritten candidate-centric ("a job
+    board for candidates; less time searching") replacing the reposts line (also
+    surfaces on Board's hero).
+12. Sections decision (after orchestrator's ClickUp-grounded proposal): **"How it works"
+   and "Apply early" merge into ONE minimal section** placed between the triptych and
+   the categories grid (breaks up the motion-noise); **feature-set list as a minimal
+   matrix** (monochrome outlined icons, skimmable in seconds, roadmap items only as
+   quiet "Soon" cells) after categories. Text stays Signal-level tame — the Gravity
+   page's noise budget is spent on the hero + flipping cards. Epic grounding: AI
+   labeling = Enrichment epic (live); watch-any-company = Epic 7 (in flight); alerts =
+   Epic 12/15.9; saved jobs = S1; time-to-close proof for apply-early lands with Epic
+   14.3 later. Keep off: talent-movement/VC vision, payments, fabricated social proof.

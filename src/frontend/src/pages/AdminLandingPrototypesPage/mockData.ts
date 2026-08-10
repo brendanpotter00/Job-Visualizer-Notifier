@@ -49,6 +49,14 @@ const AUSTIN: JobLocation = {
   country: 'US',
   isPrimary: true,
 };
+const SANTA_CLARA: JobLocation = {
+  canonicalName: 'Santa Clara, CA, US',
+  kind: 'city',
+  city: 'Santa Clara',
+  region: 'CA',
+  country: 'US',
+  isPrimary: true,
+};
 const HAWTHORNE: JobLocation = {
   canonicalName: 'Hawthorne, CA, US',
   kind: 'city',
@@ -105,6 +113,10 @@ function makeJob(spec: MockJobSpec, index: number, now: number): Job {
  * Rich fixture (~20 jobs): a believable weekday spread — a handful under 3h,
  * more through 24h/48h, the rest inside 7 days. Ordering here is arbitrary;
  * consumers sort by firstSeenAt.
+ *
+ * Level mix is load-bearing for the fresh-jobs triptych: it carries three
+ * fresh `intern` postings plus a `new_grad` one, so the early-career slot has a
+ * real pool to flip through instead of a single lonely card.
  */
 const RICH_SPECS: readonly MockJobSpec[] = [
   // < 3 hours
@@ -113,8 +125,10 @@ const RICH_SPECS: readonly MockJobSpec[] = [
   { company: 'stripe', title: 'New Grad Software Engineer', agoMs: 2 * HOUR + 5 * MINUTE, category: 'software_engineering', level: 'new_grad', location: SF, enrichmentTags: ['java', 'ruby'] },
   { company: 'openai', title: 'Software Engineer, Applied AI', agoMs: 2 * HOUR + 48 * MINUTE, category: 'software_engineering', level: 'senior', location: SF, enrichmentTags: ['python', 'distributed-systems'] },
   // 3 – 24 hours
+  { company: 'nvidia', title: 'Software Engineering Intern, Summer 2027', agoMs: 4 * HOUR + 20 * MINUTE, category: 'software_engineering', level: 'intern', location: SANTA_CLARA, employmentType: 'Intern', enrichmentTags: ['c++', 'cuda'] },
   { company: 'google', title: 'Software Engineer III, Core Infrastructure', agoMs: 5 * HOUR, category: 'software_engineering', level: 'mid', location: SEATTLE, enrichmentTags: ['c++', 'kubernetes'] },
   { company: 'figma', title: 'Software Engineer Intern, Summer 2027', agoMs: 7 * HOUR, category: 'software_engineering', level: 'intern', location: SF, employmentType: 'Intern', enrichmentTags: ['typescript'] },
+  { company: 'microsoft', title: 'Software Engineering Intern, Azure Core (Summer 2027)', agoMs: 9 * HOUR + 40 * MINUTE, category: 'software_engineering', level: 'intern', location: SEATTLE, employmentType: 'Intern', enrichmentTags: ['c#', 'distributed-systems'] },
   { company: 'databricks', title: 'Software Engineer, Query Engine', agoMs: 11 * HOUR, category: 'software_engineering', level: 'senior', location: SF, enrichmentTags: ['scala', 'spark'] },
   { company: 'discord', title: 'Product Manager, Growth', agoMs: 14 * HOUR, category: 'product_manager', level: 'mid', location: REMOTE_US, enrichmentTags: [] },
   { company: 'cloudflare', title: 'Systems Engineer, Edge Platform', agoMs: 17 * HOUR, category: 'software_engineering', level: 'mid', location: AUSTIN, enrichmentTags: ['rust', 'networking'] },

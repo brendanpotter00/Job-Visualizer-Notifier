@@ -14,12 +14,12 @@ interface FooterLiteProps {
  */
 export function FooterLite({ content }: FooterLiteProps) {
   return (
-    <Box component="footer" sx={{ pb: 6 }}>
-      <Divider sx={{ mb: 4 }} />
-      <Typography sx={{ fontWeight: 600, textAlign: 'center', mb: 3 }}>
+    <Box component="footer" sx={{ pb: 8 }}>
+      <Divider sx={{ mb: 6 }} />
+      <Typography sx={{ fontWeight: 600, textAlign: 'center', mb: 4, lineHeight: 1.7 }}>
         {content.footer.tagline}
       </Typography>
-      <Box sx={{ display: 'flex', gap: 3, justifyContent: 'center', flexWrap: 'wrap', mb: 4 }}>
+      <Box sx={{ display: 'flex', gap: 3, justifyContent: 'center', flexWrap: 'wrap', mb: 6 }}>
         {content.footer.links.map((link) => (
           <Link
             key={link.label}
@@ -39,7 +39,7 @@ export function FooterLite({ content }: FooterLiteProps) {
       >
         Popular searches
       </Typography>
-      <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', flexWrap: 'wrap', mt: 1 }}>
+      <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', flexWrap: 'wrap', mt: 2 }}>
         {content.popularSearches.map((search) => (
           <Link
             key={search.label}
@@ -54,7 +54,7 @@ export function FooterLite({ content }: FooterLiteProps) {
       </Box>
       <Typography
         variant="caption"
-        sx={{ display: 'block', textAlign: 'center', color: 'text.disabled', mt: 4 }}
+        sx={{ display: 'block', textAlign: 'center', color: 'text.disabled', mt: 6 }}
       >
         {content.categoryLine}
       </Typography>

@@ -8,6 +8,7 @@ import {
   DESKTOP_BODY_COUNT,
 } from '../../../pages/AdminLandingPrototypesPage/prototypes/shared3d/experienceTier';
 import { LANDING_CONTENT } from '../../../pages/AdminLandingPrototypesPage/content';
+import { selectTriptychSlots } from '../../../pages/AdminLandingPrototypesPage/sections/triptychJobs';
 import { buildMockJobs, MOCK_STATS } from '../../../pages/AdminLandingPrototypesPage/mockData';
 
 // Mock boundary = the scene module: <Canvas> throws in jsdom, and mocking here
@@ -83,14 +84,23 @@ afterEach(() => {
 });
 
 describe('GravityPrototype', () => {
-  it('renders the source hero as the single h1 with the primary CTA', () => {
+  // Gravity is converging as the primary landing design, so it carries the
+  // anti-noise headline ("No reposts. No stale listings. No noise.").
+  it('renders the anti-noise hero as the single h1 with both CTAs', () => {
     renderGravity();
     const h1 = screen.getByRole('heading', { level: 1 });
-    expect(h1).toHaveTextContent(LANDING_CONTENT.heroVariants.source.headline);
+    expect(h1).toHaveTextContent(LANDING_CONTENT.heroVariants.antiNoise.headline);
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
     expect(
       screen.getAllByRole('link', { name: LANDING_CONTENT.ctas.primary.label }).length
     ).toBeGreaterThan(0);
+    // The footer carries a plain text link with the same label; filter to buttons.
+    const secondaries = screen
+      .getAllByRole('link', { name: LANDING_CONTENT.ctas.secondary.label })
+      .filter((el) => el.classList.contains('MuiButton-root'));
+    expect(secondaries).toHaveLength(1);
+    expect(secondaries[0]).toHaveClass('MuiButton-outlined');
+    expect(secondaries[0]).toHaveAttribute('href', LANDING_CONTENT.ctas.secondary.to);
   });
 
   it('fallback tier (no WebGL): pre-settled DOM logo grid, scene never mounts', () => {
@@ -132,11 +142,59 @@ describe('GravityPrototype', () => {
     expect(screen.queryByTestId('gravity-scene')).not.toBeInTheDocument();
   });
 
-  it('keeps the shared sections: activity stats, fresh-jobs ticker, FAQ, footer', () => {
+  it('carries the three-slot fresh-jobs triptych where the single card used to be', () => {
     renderGravity();
-    expect(screen.getByText(/tracked in the past 24 hours/)).toBeInTheDocument();
-    expect(screen.getByText('Posted in the last 48 hours')).toBeInTheDocument();
+    const [earlyCareer, last24h, bigTech] = selectTriptychSlots(buildMockJobs(NOW), NOW);
+    expect(screen.getByTestId('fresh-jobs-triptych')).toBeInTheDocument();
+    for (const slot of [earlyCareer, last24h, bigTech]) {
+      const region = screen.getByTestId(`triptych-slot-${slot.id}`);
+      // By ROLE, not by text: each slot also carries hidden height sizers for
+      // the rest of its pool, and those are aria-hidden — so a role query sees
+      // only the job actually on screen. See FlippingCard's SizerStack.
+      expect(within(region).getByRole('heading', { name: slot.jobs[0].title })).toBeInTheDocument();
+    }
+    expect(screen.queryByTestId('rotating-job-card')).not.toBeInTheDocument();
+    expect(screen.queryByText(/tracked in the past 24 hours/)).not.toBeInTheDocument();
+  });
+
+  it('keeps the shared sections below: FAQ and footer', () => {
+    renderGravity();
     expect(screen.getByText(LANDING_CONTENT.faq[0].question)).toBeInTheDocument();
     expect(screen.getByText(LANDING_CONTENT.footer.tagline)).toBeInTheDocument();
+  });
+
+  it('carries the two quiet text sections with their content copy', () => {
+    renderGravity();
+    for (const step of LANDING_CONTENT.howItWorks.steps) {
+      expect(screen.getByText(step.line)).toBeInTheDocument();
+    }
+    expect(screen.getByText(LANDING_CONTENT.claims.apply_early_rolling.body)).toBeInTheDocument();
+    for (const feature of LANDING_CONTENT.featureMatrix.features) {
+      expect(screen.getByText(feature.detail)).toBeInTheDocument();
+    }
+    expect(
+      screen.getByRole('link', { name: LANDING_CONTENT.featureMatrix.nextUp.label })
+    ).toBeInTheDocument();
+  });
+
+  // The still text sections bracket the categories grid: one after the flipping
+  // triptych, one before the FAQ. Order is the section contract, so assert the
+  // whole below-hero sequence rather than mere presence.
+  it('orders the below-hero sections triptych → how-it-works → categories → matrix → FAQ', () => {
+    renderGravity();
+    const markers = [
+      screen.getByTestId('fresh-jobs-triptych'),
+      screen.getByTestId('how-it-works'),
+      screen.getByRole('heading', { name: 'Browse curated companies', level: 2 }),
+      screen.getByTestId('feature-matrix'),
+      screen.getByRole('heading', { name: 'Frequently asked questions', level: 2 }),
+      screen.getByText(LANDING_CONTENT.footer.tagline),
+    ];
+    for (let i = 1; i < markers.length; i += 1) {
+      expect(
+        markers[i - 1].compareDocumentPosition(markers[i]) & Node.DOCUMENT_POSITION_FOLLOWING,
+        `section ${i} is out of order`
+      ).toBeTruthy();
+    }
   });
 });
