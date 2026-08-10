@@ -12,10 +12,15 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from pathlib import Path
 
+import psycopg2
 from alembic import command
 from alembic.config import Config
+from sqlalchemy import exc as sqlalchemy_exc
+
+from scripts.shared.database import augment_db_url
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +101,72 @@ def apply_alembic_migrations(database_url: str) -> None:
     except Exception:
         logger.exception("Failed to apply Alembic migrations")
         raise
+
+
+_CONNECTIVITY_RETRY_INTERVAL_S = 15.0
+
+# Server-unreachable signatures worth waiting out at boot. Deliberately NOT
+# "any OperationalError": auth failures, DiskFull (the 2026-04-18 incident
+# class), QueryCanceled etc. are all OperationalError subclasses and must
+# fail the deploy immediately, not retry for the whole boot budget.
+_RETRYABLE_MARKERS = (
+    "could not translate host name",
+    "connection refused",
+    "timeout expired",
+    "server closed the connection unexpectedly",
+    "connection reset by peer",
+    "no route to host",
+    "network is unreachable",
+    "ssl syscall error",
+    "the database system is starting up",
+    "the database system is not yet accepting connections",
+    "the database system is in recovery mode",
+    "the database system is shutting down",
+)
+
+
+def _is_connectivity_error(exc: BaseException) -> bool:
+    root: BaseException = exc
+    if isinstance(exc, sqlalchemy_exc.OperationalError) and exc.orig is not None:
+        root = exc.orig
+    if not isinstance(root, psycopg2.OperationalError):
+        return False
+    msg = str(root).lower()
+    return any(marker in msg for marker in _RETRYABLE_MARKERS)
+
+
+def apply_alembic_migrations_with_retry(
+    database_url: str, max_wait_seconds: float
+) -> None:
+    """Run migrations, retrying server-unreachable failures up to a budget.
+
+    Keeps a restart during a DB outage from crash-looping in seconds and
+    burning railway.toml's restartPolicyMaxRetries (2026-08-10 incident).
+    Anything that isn't a connectivity failure raises immediately.
+    """
+    # Boot path gets the same keepalives + connect_timeout as every other
+    # DB path — alembic's env.py builds its engine from this URL verbatim,
+    # and an un-augmented URL would hang instead of erroring into the retry.
+    augmented_url = augment_db_url(database_url, application_name="alembic_startup")
+    deadline = time.monotonic() + max_wait_seconds
+    while True:
+        try:
+            apply_alembic_migrations(augmented_url)
+            return
+        except (psycopg2.OperationalError, sqlalchemy_exc.OperationalError) as exc:
+            if not _is_connectivity_error(exc):
+                raise
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise
+            logger.warning(
+                "Database unreachable during startup migrations (%s); "
+                "retrying in %.0fs (%.0fs left in boot retry budget)",
+                exc,
+                _CONNECTIVITY_RETRY_INTERVAL_S,
+                remaining,
+            )
+            time.sleep(_CONNECTIVITY_RETRY_INTERVAL_S)
 
 
 def stamp_alembic_head(database_url: str) -> None:
