@@ -105,11 +105,6 @@ export const ADMIN_NAV_ITEMS = [
     label: 'User Feedback',
     icon: 'Feedback',
   },
-  {
-    path: ROUTES.ADMIN_LANDING_PROTOTYPES,
-    label: 'Landing Prototypes',
-    icon: 'Palette',
-  },
 ] as const;
 
 /**

@@ -112,14 +112,14 @@ function AppContent() {
           <Route path={ROUTES.VOTE_FEATURES} element={<VoteFeaturesPage />} />
         </Route>
         {/* Sibling of the RootLayout route: renders full-bleed (no drawer/appbar)
-            so each landing prototype previews like a real standalone page. */}
+            so each landing prototype previews like a real standalone page.
+            Deliberately UNLISTED rather than admin-gated (owner decision,
+            2026-08-10): reachable by direct URL only — no nav entry, no
+            changelog card — so reviewers can open it without signing in.
+            Mock data only; nothing here touches real APIs. */}
         <Route
           path={ROUTES.ADMIN_LANDING_PROTOTYPES}
-          element={
-            <AdminRoute>
-              <AdminLandingPrototypesPage />
-            </AdminRoute>
-          }
+          element={<AdminLandingPrototypesPage />}
         />
       </Routes>
     </>

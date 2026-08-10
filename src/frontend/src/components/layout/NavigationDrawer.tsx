@@ -25,7 +25,6 @@ import AccountTreeIcon from '@mui/icons-material/AccountTree';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import FeedbackIcon from '@mui/icons-material/Feedback';
 import FilterListAltIcon from '@mui/icons-material/FilterListAlt';
-import PaletteIcon from '@mui/icons-material/Palette';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   ADMIN_NAV_ITEMS,
@@ -112,8 +111,7 @@ type IconName =
   | 'AccountTree'
   | 'AutoAwesome'
   | 'Feedback'
-  | 'FilterListAlt'
-  | 'Palette';
+  | 'FilterListAlt';
 const iconMap: Record<IconName, React.ComponentType> = {
   Schedule: ScheduleIcon,
   Info: InfoIcon,
@@ -128,7 +126,6 @@ const iconMap: Record<IconName, React.ComponentType> = {
   AutoAwesome: AutoAwesomeIcon,
   Feedback: FeedbackIcon,
   FilterListAlt: FilterListAltIcon,
-  Palette: PaletteIcon,
 };
 
 export function NavigationDrawer({
