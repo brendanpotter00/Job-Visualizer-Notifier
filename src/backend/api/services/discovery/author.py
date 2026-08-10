@@ -165,32 +165,121 @@ RECIPE_TOOL: dict[str, Any] = {
     "input_schema": build_recipe_tool_schema(),
 }
 
-SYSTEM_PROMPT = (
-    "You author a deterministic, agent-free replay RECIPE for a company's careers "
-    "board from an evidence report of one page load (network JSON responses, "
-    "embedded JSON islands, repeated DOM classes). The recipe is later executed "
-    "nightly by a plain HTTP runner — NO browser, NO LLM at replay time.\n\n"
-    "Emit a single JSON object matching the provided schema:\n"
-    "- transport 'http_json' when the jobs come from a JSON XHR/fetch endpoint; "
-    "'http_html' when they live in an embedded JSON island (preferred) or, as a "
-    "last resort, CSS-selectable DOM nodes.\n"
-    "- steps: exactly one 'fetch' (https:// only) first; at most one pagination "
-    "(paginate_offset/paginate_page/paginate_facet); exactly one "
-    "extraction (extract_json_path/extract_embedded_island/extract_css). "
-    "fields MUST map id, title, url (dotted paths or {templates}).\n"
-    "- oracle: a completeness total. Use facet_sum ONLY with a SINGLE-VALUED facet "
-    "(each job in exactly one bucket — a location facet that double-counts "
-    "multi-site jobs is NOT single-valued); header for an X-*-Total-style count; "
-    "sitemap for a <loc>-count; self_consistent when the board publishes no total.\n"
-    "- expected_min_jobs: a conservative floor the board should never dip below.\n\n"
-    "Emit the recipe by calling the submit_recipe tool with real nested JSON: set "
-    "only the keys each op actually uses and omit the rest (headers/body/fields are "
-    "objects, not strings). fields maps id/title/url (required) plus optionally "
-    "location/posted_at/department/company to dotted paths or {templates}.\n"
-    "You may ONLY use the ops in the tool schema. If the board can only be read by "
-    "clicking, scrolling a virtualized list, or a browser at read time, there is "
-    "no valid recipe — do not invent one; the caller will REFUSE."
-)
+SYSTEM_PROMPT = """\
+You author a deterministic, agent-free replay RECIPE for a company's careers board \
+from an evidence report of one page load (network JSON responses, embedded JSON \
+islands, repeated DOM classes). The recipe is executed nightly by a plain HTTP \
+runner — NO browser, NO LLM at replay time.
+
+Emit the recipe by CALLING the submit_recipe tool with real nested JSON (headers, \
+body, fields, field_selectors are objects, not strings). The tool schema is lenient \
+and does NOT check per-op keys — THIS PROMPT is the only place the exact key names \
+are defined, and a separate strict validator then rejects the recipe if it carries \
+ANY key not listed below for that op or oracle.kind. Set ONLY the keys each op / \
+oracle actually uses and omit the rest. An unknown key, a typo, or a key borrowed \
+from a different op is rejected with "unknown key(s) [...]" and burns your one retry.
+
+TOP-LEVEL OBJECT — use exactly these keys, nothing else:
+  script_version    integer, must be 1
+  transport         "http_json" or "http_html"
+  expected_min_jobs integer > 0 — a conservative floor the board never dips below
+  steps             non-empty array of step objects (see below)
+  oracle            object (see below)
+  base_url          optional string
+Do NOT put recipe_version, target, kind, entrypoint, pagination, records_path, \
+fields, or total_path at the TOP level. records_path/fields live INSIDE an extract \
+step; total_path lives INSIDE the oracle.
+
+TRANSPORT:
+  http_json — jobs come from a JSON XHR/fetch endpoint (pair with extract_json_path).
+  http_html — jobs live in an embedded JSON island (pair with extract_embedded_island, \
+preferred) or, last resort, CSS-selectable DOM nodes (pair with extract_css).
+
+STEPS — cardinality: EXACTLY ONE 'fetch' and it MUST be the first step; AT MOST ONE \
+pagination; EXACTLY ONE extraction. Each step is an object with an "op" plus ONLY \
+that op's keys (required unless marked optional):
+  fetch            method ("GET"|"POST", default GET), url (https:// only), \
+headers (object, optional), body (object, optional)
+  paginate_offset  param (str), page_size (int>0), max_pages (int>0), \
+window_cap (int>0, optional)
+  paginate_page    param (str), page_size (int>0), max_pages (int>0), \
+start_page (int, optional), window_cap (int>0, optional)
+  paginate_facet   facet_param (str); EITHER facet_values (non-empty array of \
+strings) OR facet_values_path (str); page_size (int>0), max_pages_per_facet (int>0), \
+window_cap (int>0, optional)
+  extract_json_path        records_path (str; "" means the payload itself is the \
+top-level array), fields (object)
+  extract_embedded_island  selector (str), records_path (str; "" allowed), \
+source ("attribute"|"text", default attribute), attribute (str, required when \
+source="attribute"), fields (object), base_url (str, optional)
+  extract_css              record_selector (str), field_selectors (object), \
+base_url (str, optional)
+  transform        field (str), kind ("template"|"base_url_join"); template (str) \
+when kind="template", base_url (str) when kind="base_url_join"
+  parse_date       field (str), mode ("strptime"|"humanized"|"iso"); format (str) \
+required when mode="strptime"
+  dedupe_key       field (str)
+  assert_status              no keys
+  assert_no_inband_error     error_keys (non-empty array of strings)
+  assert_pinned_operation    at least one of doc_id (str), url_contains (str), \
+response_shape_path (str)
+  assert_cap_not_hit         window_cap (int>0)
+  assert_page_advances       no keys
+  assert_unique_ids_vs_total no keys
+  assert_unique              field (str)
+  assert_delta_vs_last_run   no keys
+
+The `fields` object (extract_json_path / extract_embedded_island) and the \
+`field_selectors` object (extract_css) map canonical job fields to dotted paths or \
+{templates}: id, title, url are REQUIRED; location, posted_at, department, company \
+are optional. Use only those field names.
+
+ORACLE — a completeness total. Set oracle.kind, then ONLY that kind's extra keys:
+  facet_sum       facet_path (str), single_valued (MUST be true — each job in \
+exactly ONE bucket; a location facet that double-counts multi-site jobs is NOT \
+single-valued), window_cap (int>0, optional), total_path (str, optional).
+  header          header_name (str, e.g. "X-Total-Count"). NO total_path.
+  sitemap         sitemap_url (https:// str), url_pattern (str). NO total_path.
+  declared_probed total_path (str) — the dotted path to a board-declared grand total \
+in the JSON body (e.g. "hits"). This is its ONLY extra key. Use declared_probed \
+(NOT header) when the total is a number in the response body.
+  self_consistent no extra keys. Use when the board publishes no total. NO total_path.
+total_path is a valid key ONLY on facet_sum and declared_probed. Putting total_path \
+(or window_cap, facet_path, header_name, ...) on the wrong kind is the classic \
+"unknown key(s)" rejection — match the key list to your chosen kind exactly.
+
+COMPLETE, VALID EXAMPLE (Amazon-style http_json + facet_sum). Copy this shape; keep \
+only the keys shown:
+{
+  "script_version": 1,
+  "transport": "http_json",
+  "expected_min_jobs": 500,
+  "steps": [
+    {"op": "fetch", "method": "GET",
+     "url": "https://www.amazon.jobs/en/search.json?sort=recent&facets[]=is_intern",
+     "headers": {}},
+    {"op": "paginate_facet",
+     "facet_param": "normalized_country_code_facet[]",
+     "facet_values": ["USA", "IND", "GBR", "CAN", "DEU"],
+     "page_size": 100, "max_pages_per_facet": 100, "window_cap": 10000},
+    {"op": "extract_json_path", "records_path": "jobs",
+     "fields": {"id": "id_icims", "title": "title",
+                "url": "https://www.amazon.jobs{job_path}",
+                "location": "normalized_location", "posted_at": "posted_date",
+                "department": "job_category", "company": "company_name"}},
+    {"op": "parse_date", "field": "posted_at", "mode": "strptime", "format": "%B %d, %Y"},
+    {"op": "dedupe_key", "field": "id"},
+    {"op": "assert_cap_not_hit", "window_cap": 10000},
+    {"op": "assert_page_advances"},
+    {"op": "assert_unique", "field": "id"}
+  ],
+  "oracle": {"kind": "facet_sum", "facet_path": "facets.is_intern",
+             "single_valued": true, "window_cap": 10000, "total_path": "hits"}
+}
+
+You may ONLY use the ops listed above. If the board can only be read by clicking, \
+scrolling a virtualized list, or a browser at read time, there is no valid recipe — \
+do not invent one; the caller will REFUSE."""
 
 
 def _build_user_message(report: dict[str, Any], previous_error: str | None) -> str:
@@ -200,7 +289,16 @@ def _build_user_message(report: dict[str, Any], previous_error: str | None) -> s
     ]
     if previous_error:
         parts.append(
-            "\nYour previous attempt was rejected. Fix exactly this and try again:\n"
+            "\nYOUR PREVIOUS ATTEMPT WAS REJECTED. The validator message below names "
+            "the exact op or oracle.kind and the exact offending key. A key it calls "
+            "an \"unknown key\" is NOT accepted on that op/oracle — the schema does not "
+            "have it there; a key it calls missing/invalid must be added or fixed. "
+            "Re-read the ALLOWED KEYS for that specific op (or that oracle.kind) in the "
+            "instructions above and rebuild the recipe using ONLY those keys. Do not "
+            "invent keys, do not rename them, and do not move the same wrong key to "
+            "another step. Common case: total_path is valid ONLY on a facet_sum or "
+            "declared_probed oracle — never on header/sitemap/self_consistent.\n"
+            "Validator error:\n"
             + str(previous_error)[:2000]
         )
     parts.append("\nCall submit_recipe with the recipe now.")
