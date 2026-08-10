@@ -160,6 +160,45 @@ class TestLifespanFailurePath:
         fake_procrastinate.close_async.assert_not_called()
 
 
+class TestLifespanWatchdog:
+    def test_watchdog_starts_before_migrations_and_stops_on_shutdown(self):
+        """Pins the 2026-08-10 boot-coverage contract: the DB watchdog must
+        be running BEFORE migrations (a frozen DB can hang the migration
+        engine; only the watchdog can unstick that boot), and must be
+        stopped on clean shutdown."""
+        call_order: list[str] = []
+
+        def _fake_apply(database_url, **kwargs):
+            call_order.append("apply")
+
+        fake_procrastinate = _make_fake_procrastinate()
+
+        async def _fake_ensure_schema(app):
+            pass
+
+        fake_watchdog = MagicMock()
+        fake_watchdog.start.side_effect = lambda: call_order.append("watchdog_start")
+
+        from api.config import settings as app_settings
+
+        with patch.object(app_settings, "db_watchdog_enabled", True), \
+             patch.object(api_main, "DbWatchdog", return_value=fake_watchdog) as mock_cls, \
+             patch.object(api_main, "apply_alembic_migrations_with_retry", side_effect=_fake_apply), \
+             patch.object(api_main, "init_pool"), \
+             patch.object(api_main, "close_pool"), \
+             patch.object(api_main, "procrastinate_app", new=fake_procrastinate), \
+             patch.object(api_main, "ensure_schema_async", new=_fake_ensure_schema), \
+             patch("api.services.auto_scraper.auto_scraper_loop", new=_noop_coro):
+            with TestClient(api_main.app):
+                pass
+
+        mock_cls.assert_called_once()
+        assert call_order.index("watchdog_start") < call_order.index("apply"), (
+            f"watchdog must start before migrations; got {call_order}"
+        )
+        fake_watchdog.stop.assert_called_once()
+
+
 async def _noop_coro(*args, **kwargs):
     """Stand-in for auto_scraper_loop(settings). Sleeps forever so the
     lifespan's shutdown path (cancel + await) actually has something to

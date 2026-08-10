@@ -41,6 +41,8 @@ class Settings(BaseSettings):
     # failures (migrations.apply_alembic_migrations_with_retry). Keeps a
     # watchdog-triggered restart during a long DB outage from crash-looping
     # in seconds and burning railway.toml's restartPolicyMaxRetries budget.
+    # In practice the watchdog window (~6 min) caps it. Set 0 to fail fast
+    # when booting locally without Postgres.
     db_boot_connect_retry_seconds: float = Field(default=600.0, ge=0)
 
     # Auth0 authentication

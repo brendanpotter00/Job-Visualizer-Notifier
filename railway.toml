@@ -18,7 +18,7 @@ healthcheckPath = "/health/worker"
 healthcheckTimeout = 600
 restartPolicyType = "ON_FAILURE"
 # Sized to outlast a multi-hour DB outage: while the DB is down each restart
-# cycle lasts ~6 min (watchdog failure window) to ~10 min (boot retry
-# budget), so 50 retries covers roughly 5-8 hours before Railway gives up.
-# Paid plans allow more than the default 10.
+# cycle lasts ~6 min (the watchdog window caps the 10-min boot retry budget),
+# so 50 retries covers ~5 hours before Railway gives up. Paid plans allow
+# more than the default 10.
 restartPolicyMaxRetries = 50

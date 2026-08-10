@@ -119,7 +119,9 @@ _RETRYABLE_MARKERS = (
     "network is unreachable",
     "ssl syscall error",
     "the database system is starting up",
+    "the database system is not yet accepting connections",
     "the database system is in recovery mode",
+    "the database system is shutting down",
 )
 
 
