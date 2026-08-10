@@ -74,9 +74,16 @@ _SELF_CONSISTENT_PROVIDERS = frozenset({"ashby", "lever", "gem", "eightfold"})
 _SELF_CONSISTENT_DELTA_LOW_RATIO = 0.5
 _SELF_CONSISTENT_DELTA_HIGH_RATIO = 2.0
 
-# Phase-3 oracles — declared here so a mis-seeded oracle raises loudly at the
-# dispatch seam rather than silently passing.
+# Phase-3 oracles — now WIRED (Phase 3a). Each is an exact-match (tolerance-0)
+# oracle whose total rides ``evidence.declared_total``, computed upstream by
+# ``recipe_runner`` (facet_sum = single-valued facet Σ, header = X-WP-Total-style
+# int, sitemap = <loc> count). They share ``_verify_oracle_total`` with
+# ``declared_probed`` — the run VERIFIES iff the post-dedup count equals the total.
 _PHASE_3_ORACLES = frozenset({"facet_sum", "header", "sitemap"})
+
+# Every exact-match oracle: the Phase-2 ``declared_probed`` plus the three Phase-3
+# oracles. All compare the post-dedup count to a trusted total at tolerance 0.
+_EXACT_ORACLES = _PHASE_3_ORACLES | {"declared_probed"}
 
 
 class HarvestGateError(ValueError):
@@ -205,17 +212,14 @@ def verify_harvest(
 ) -> HarvestVerdict:
     """Verdict pass — checks 5, 6, 7-vs-total, 9, 10, 11, 12. Never raises.
 
-    ``oracle_kind`` is the EFFECTIVE oracle (see :func:`effective_oracle_kind`),
-    derived by the caller from the ATS provider. Returns VERIFIED or UNVERIFIED;
-    the only exception path is the explicit Phase-3 ``NotImplementedError`` seam
-    so a mis-seeded ``facet_sum``/``header``/``sitemap`` cannot silently pass.
+    ``oracle_kind`` is the EFFECTIVE oracle: for ATS companies the caller derives
+    it from the provider (see :func:`effective_oracle_kind`); for a Phase-3
+    discovered company it is the STORED ``company_scripts.oracle_kind``
+    (``facet_sum``/``header``/``sitemap``/``self_consistent``). Returns VERIFIED or
+    UNVERIFIED and NEVER raises — an unwired oracle degrades to UNVERIFIED, the safe
+    default (it can never verify, so it can never close).
     """
-    if oracle_kind in _PHASE_3_ORACLES:
-        raise NotImplementedError(
-            f"oracle_kind={oracle_kind!r} is a Phase-3 oracle "
-            f"(facet_sum/header/sitemap) — not wired in Phase 2"
-        )
-    if oracle_kind not in ("declared_probed", "self_consistent"):
+    if oracle_kind not in _EXACT_ORACLES and oracle_kind != "self_consistent":
         # Unknown/unwired oracle (e.g. an unrecognized provider): never claim
         # completeness we cannot prove.
         return HarvestVerdict(UNVERIFIED, "no_oracle")
@@ -247,30 +251,33 @@ def verify_harvest(
 
     if oracle_kind == "declared_probed":
         return _verify_declared_probed(n, evidence)
+    if oracle_kind in _PHASE_3_ORACLES:
+        # facet_sum / header / sitemap — same exact-match ladder, distinct verdict
+        # reason so the harvest audit row shows a Phase-3 oracle drove the verdict
+        # (the oracle_kind column records WHICH one). Any cap / page-advance failure
+        # already short-circuited above.
+        return _verify_oracle_total(n, evidence, verified_reason="oracle_exact")
     return _verify_self_consistent(n, evidence, baseline)
 
 
-def _verify_declared_probed(n: int, evidence: HarvestEvidence) -> HarvestVerdict:
-    """Check 9 for ``declared_probed`` — EXACT match against the trusted total.
+def _verify_oracle_total(
+    n: int, evidence: HarvestEvidence, *, verified_reason: str = "declared_exact"
+) -> HarvestVerdict:
+    """The exact-match (tolerance-0) ladder shared by every trusted-total oracle.
 
-    Pass iff a trusted total exists AND ``len(deduped) == declared_total``
-    (tolerance 0), with no cap and no advance failure (both already checked).
-    Under-count → ``count_mismatch`` (check 7/10); over-count → ``over_harvest``
-    (check 10 — a widened filter; the upsert is still safe, approximation may
-    only add).
+    Pass iff a trusted total exists AND ``len(deduped) == declared_total``, with no
+    cap and no advance failure (both already checked by the caller). Under-count →
+    ``count_mismatch`` (check 7/10); over-count → ``over_harvest`` (check 10 — a
+    widened filter; the upsert is still safe, approximation may only add).
 
-    NOTE (review Finding 4 — intentional, documented): unlike ``self_consistent``,
-    ``declared_probed`` has NO trailing-median delta band — it VERIFIES on an
-    exact ``n == declared_total`` regardless of how far the total moved from prior
-    runs. A collapsing authoritative total (a Greenhouse board that legitimately
-    reports 1000→50 in one night, matched exactly) is therefore caught NOT here
-    but by the per-company safety guard (``min_ratio``) in the leaf task, which
-    blocks the close when the board shrinks too fast. The oracle proves the run
-    saw the whole board; the guard decides whether the shrink is trustworthy.
+    Reused by ``declared_probed`` (Greenhouse/Workday ``meta.total``) and by the
+    Phase-3 oracles (``facet_sum``/``header``/``sitemap``), whose total the runner
+    computed into ``evidence.declared_total``. ``verified_reason`` distinguishes the
+    two provenances on the VERIFIED row.
     """
     declared = evidence.declared_total
     if declared is None:
-        # A declared_probed ATS with no trusted total on this run cannot prove
+        # A trusted-total oracle with no total on this run cannot prove
         # completeness — treat as a count mismatch (we have rows but no oracle).
         return HarvestVerdict(UNVERIFIED, "count_mismatch")
     if n < declared:
@@ -284,9 +291,24 @@ def _verify_declared_probed(n: int, evidence: HarvestEvidence) -> HarvestVerdict
             oracle_total=declared, declared_total=declared,
         )
     return HarvestVerdict(
-        VERIFIED, "declared_exact",
+        VERIFIED, verified_reason,
         oracle_total=declared, declared_total=declared,
     )
+
+
+def _verify_declared_probed(n: int, evidence: HarvestEvidence) -> HarvestVerdict:
+    """Check 9 for ``declared_probed`` — EXACT match against the trusted total.
+
+    NOTE (review Finding 4 — intentional, documented): unlike ``self_consistent``,
+    ``declared_probed`` has NO trailing-median delta band — it VERIFIES on an
+    exact ``n == declared_total`` regardless of how far the total moved from prior
+    runs. A collapsing authoritative total (a Greenhouse board that legitimately
+    reports 1000→50 in one night, matched exactly) is therefore caught NOT here
+    but by the per-company safety guard (``min_ratio``) in the leaf task, which
+    blocks the close when the board shrinks too fast. The oracle proves the run
+    saw the whole board; the guard decides whether the shrink is trustworthy.
+    """
+    return _verify_oracle_total(n, evidence, verified_reason="declared_exact")
 
 
 def _verify_self_consistent(

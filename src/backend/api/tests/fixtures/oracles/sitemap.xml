@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemap.org/schemas/sitemap/0.9">
+  <url><loc>https://jobs.example.org/job/1001</loc><lastmod>2026-08-01</lastmod></url>
+  <url><loc>https://jobs.example.org/job/1002</loc><lastmod>2026-08-01</lastmod></url>
+  <url><loc>https://jobs.example.org/job/1003</loc><lastmod>2026-08-02</lastmod></url>
+  <url><loc>https://jobs.example.org/about</loc><lastmod>2026-08-02</lastmod></url>
+  <url><loc>https://jobs.example.org/job/1004</loc><lastmod>2026-08-03</lastmod></url>
+  <url><loc>https://jobs.example.org/contact</loc><lastmod>2026-08-03</lastmod></url>
+  <url><loc>https://jobs.example.org/job/1005</loc><lastmod>2026-08-04</lastmod></url>
+</urlset>

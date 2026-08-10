@@ -48,5 +48,6 @@ module = [
     "alembic.*",
     "jwt.*",
     "posthog.*",
+    "bs4.*",
 ]
 ignore_missing_imports = true

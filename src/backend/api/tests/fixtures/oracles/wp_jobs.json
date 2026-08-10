@@ -1,0 +1,8 @@
+{
+  "_fixture_note": "WordPress wp-json job-board page-1 body. In a real response the completeness oracle rides the X-WP-Total response header (total across all pages), not the body. This body is the page-1 slice the runner extracts rows from; the header is supplied by the test transport.",
+  "jobs": [
+    {"id": "wp-1", "title": "Staff Engineer", "url": "https://jobs.example.org/wp-1", "location": "Remote", "posted_at": "2026-08-01T00:00:00Z"},
+    {"id": "wp-2", "title": "Product Designer", "url": "https://jobs.example.org/wp-2", "location": "Berlin", "posted_at": "2026-08-02T00:00:00Z"},
+    {"id": "wp-3", "title": "Data Analyst", "url": "https://jobs.example.org/wp-3", "location": "London", "posted_at": "2026-08-03T00:00:00Z"}
+  ]
+}
