@@ -12,10 +12,13 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from pathlib import Path
 
+import psycopg2
 from alembic import command
 from alembic.config import Config
+from sqlalchemy import exc as sqlalchemy_exc
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +99,46 @@ def apply_alembic_migrations(database_url: str) -> None:
     except Exception:
         logger.exception("Failed to apply Alembic migrations")
         raise
+
+
+_CONNECTIVITY_RETRY_INTERVAL_S = 15.0
+
+
+def apply_alembic_migrations_with_retry(
+    database_url: str, max_wait_seconds: float
+) -> None:
+    """Run migrations, retrying DB-connectivity failures up to a time budget.
+
+    Why (2026-08-10 incident): when the db_watchdog exits the process during
+    a database outage, Railway ON_FAILURE-restarts the container — which
+    lands right back here while the DB is still down. Without a retry, boot
+    fails within seconds, and a multi-hour DB outage burns through
+    railway.toml's restartPolicyMaxRetries long before the DB returns,
+    leaving the service permanently down. With the retry, each restart cycle
+    holds on for ``max_wait_seconds`` probing for the DB, and boots cleanly
+    the moment it comes back.
+
+    Only connectivity errors retry. Anything else — a broken revision, a
+    schema conflict — raises immediately: a bad deploy must fail loudly, not
+    sit in a retry loop.
+    """
+    deadline = time.monotonic() + max_wait_seconds
+    while True:
+        try:
+            apply_alembic_migrations(database_url)
+            return
+        except (psycopg2.OperationalError, sqlalchemy_exc.OperationalError) as exc:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise
+            logger.warning(
+                "Database unreachable during startup migrations (%s); "
+                "retrying in %.0fs (%.0fs left in boot retry budget)",
+                exc,
+                _CONNECTIVITY_RETRY_INTERVAL_S,
+                remaining,
+            )
+            time.sleep(_CONNECTIVITY_RETRY_INTERVAL_S)
 
 
 def stamp_alembic_head(database_url: str) -> None:
