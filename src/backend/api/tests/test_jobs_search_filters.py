@@ -396,6 +396,10 @@ class _OracleJob:
     level: str | None
     tags: tuple[str, ...]
     canonical_locations: tuple[str, ...]
+    # The client's ``Job.department``, which the transformer reads from
+    # ``details.experience_level`` — mirrored into a plain column of the same
+    # name, so the server searches it directly.
+    experience_level: str | None = None
 
 
 def _client_matches(job: _OracleJob, filters: dict) -> bool:
@@ -403,10 +407,12 @@ def _client_matches(job: _OracleJob, filters: dict) -> bool:
 
     Deliberately written as a chain of early returns in the same order the
     frontend applies them, so a reader can diff it against the TypeScript by eye.
-    The keyword haystack is title + raw location + company + tags: ``department``
-    and ``team`` are excluded because they live in the ``details`` JSONB the
-    server refuses to detoast, and ``company`` is included because the server
-    searches it (both divergences are documented at ``_KEYWORD_PREDICATE``).
+    The keyword haystack is title + department + raw location + company + tags.
+    ``department`` is the client's name for ``details.experience_level``, which is
+    mirrored into a plain column, so both tiers search it. ``team`` is omitted
+    because no transformer ever populates it. ``company`` is included because the
+    server searches it and the client does not — the one remaining deliberate
+    divergence, documented at ``_KEYWORD_PREDICATE``.
     """
     if job.status != filters.get("status", "OPEN"):
         return False
@@ -438,6 +444,7 @@ def _client_matches(job: _OracleJob, filters: dict) -> bool:
 
     haystack = [
         job.title.lower(),
+        (job.experience_level or "").lower(),
         (job.location or "").lower(),
         job.company.lower(),
         *(tag.lower() for tag in job.tags),

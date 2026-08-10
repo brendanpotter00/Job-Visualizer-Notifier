@@ -39,6 +39,8 @@ import pytest
 from api.pagination import encode_job_cursor
 from scripts.shared.constants import SourceId
 
+from api.routers.jobs_search import _MAX_KEYWORDS
+
 from .conftest import _insert_job, _make_job
 from .test_response_shapes import EXPECTED_JOB_KEYS
 
@@ -433,31 +435,32 @@ def test_more_than_one_hundred_fifty_company_ids_is_a_structural_400(client, db_
 
 
 def test_more_than_one_hundred_include_terms_is_a_structural_400(client, db_conn):
-    terms = [f"term-{n}" for n in range(101)]
+    terms = [f"term-{n}" for n in range(_MAX_KEYWORDS + 1)]
 
     resp = client.get(SEARCH, params=[("include", term) for term in terms])
 
     assert resp.status_code == 400, resp.text
-    assert "at most 100" in _detail(resp)
+    assert f"at most {_MAX_KEYWORDS}" in _detail(resp)
 
 
 def test_the_keyword_cap_counts_include_and_exclude_together(client, db_conn):
     """The cap bounds the number of LIKE branches one query can build.
 
-    Splitting 101 terms across the two lists would evade a per-list cap while
+    Splitting the cap across the two lists would evade a per-list bound while
     costing the database exactly the same, so the check is combined.
     """
-    params = [("include", f"in-{n}") for n in range(60)]
-    params += [("exclude", f"ex-{n}") for n in range(60)]
+    half = _MAX_KEYWORDS // 2 + 1
+    params = [("include", f"in-{n}") for n in range(half)]
+    params += [("exclude", f"ex-{n}") for n in range(half)]
 
     resp = client.get(SEARCH, params=params)
 
     assert resp.status_code == 400, resp.text
-    assert "at most 100" in _detail(resp)
+    assert f"at most {_MAX_KEYWORDS}" in _detail(resp)
 
 
 def test_values_at_the_cap_boundary_are_accepted(client, db_conn):
-    """The complement of the cap tests: 20 and 100 are IN, not the first rejected.
+    """The complement of the cap tests: the documented maximum is IN, not rejected.
 
     Without this, an off-by-one that rejected the documented maximum would sail
     through every test above.
@@ -467,8 +470,8 @@ def test_values_at_the_cap_boundary_are_accepted(client, db_conn):
     categories = [("category", f"cat{chr(ord('a') + n)}") for n in range(20)]
     assert client.get(SEARCH, params=categories).status_code == 200
 
-    keywords = [("include", f"in-{n}") for n in range(50)]
-    keywords += [("exclude", f"ex-{n}") for n in range(50)]
+    keywords = [("include", f"in-{n}") for n in range(_MAX_KEYWORDS // 2)]
+    keywords += [("exclude", f"ex-{n}") for n in range(_MAX_KEYWORDS - _MAX_KEYWORDS // 2)]
     assert client.get(SEARCH, params=keywords).status_code == 200
 
 

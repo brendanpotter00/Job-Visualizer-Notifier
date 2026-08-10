@@ -9,6 +9,10 @@ import {
 import { selectDemoModeEnabled } from '../../ui/uiSlice.ts';
 import { selectRecentJobsFilters } from '../../filters/selectors/recentJobsSelectors.ts';
 import { selectRecentJobsFilterSignature } from '../../filters/selectors/recentJobsFilterSignature.ts';
+import {
+  useGetSavedFiltersQuery,
+  useGetKeywordListsQuery,
+} from '../../savedFilters/savedFiltersApi.ts';
 import { selectLocationCatalog } from '../../locations/locationCatalogSlice.ts';
 import { filterJobsByFilters } from '../../filters/utils/jobFilteringUtils.ts';
 import { filterJobsByHours } from '../../../lib/date.ts';
@@ -89,7 +93,26 @@ export function useRecentJobsSearch(): RecentJobsSearch {
   // which is the incident's failure shape wearing a spinner. A failure degrades
   // to "all companies", exactly what a null list has always meant downstream.
   const preferencesSettled = useAppSelector(selectEnabledCompaniesSettled);
-  const preferencesReady = !authLoading && (!isAuthenticated || preferencesSettled);
+
+  // The user's SAVED filters have to land before the first request too, for the
+  // same reason: hydration rewrites the time window, locations and keyword tags,
+  // so firing first means one wasted maximally-wide search (the most expensive
+  // shape there is — it pays for the count and the header counts as well) and a
+  // visible flash of rows the reader did not ask for.
+  //
+  // Gated on the queries having SETTLED rather than on the slice's `hydrated`
+  // flag, which is only set on success: a failed saved-filters request would
+  // otherwise strand the page exactly the way a failed enabled-companies request
+  // used to. Both hooks are already mounted app-wide, so RTK Query dedupes these
+  // to the same in-flight request rather than issuing new ones.
+  const savedFilters = useGetSavedFiltersQuery(undefined, { skip: !isAuthenticated });
+  const keywordLists = useGetKeywordListsQuery(undefined, { skip: !isAuthenticated });
+  const savedFiltersSettled =
+    (savedFilters.isSuccess || savedFilters.isError) &&
+    (keywordLists.isSuccess || keywordLists.isError);
+
+  const preferencesReady =
+    !authLoading && (!isAuthenticated || (preferencesSettled && savedFiltersSettled));
 
   // One debounced snapshot of the filters, STAMPED with the instant it settled.
   //
@@ -164,22 +187,35 @@ export function useRecentJobsSearch(): RecentJobsSearch {
   // without reading a clock there; the schedule below already spans several
   // minutes, which is the coverage that actually matters. It is also far easier
   // to test and cannot drift with a suspended tab.
-  const [retryAttempt, setRetryAttempt] = useState(0);
+  // The budget is carried WITH the filter set it belongs to, so a new search
+  // starts with a full allowance and no reset effect is needed — resetting from
+  // an effect body would be a cascading render, which this repo lints against.
+  const [retryState, setRetryState] = useState({ key: '', attempt: 0 });
+  const argKey = args === null ? '' : JSON.stringify(args);
+  const retryAttempt = retryState.key === argKey ? retryState.attempt : 0;
+
   const status = (queryError as { status?: unknown } | undefined)?.status;
-  const isDeployGap = status === 404 && retryAttempt < DEPLOY_RETRY_DELAYS_MS.length;
+  // Only while the CURRENT filter set has no page yet. A 404 on a *later* page
+  // is not a missing deployment — the endpoint demonstrably answered once — and
+  // treating it as one would replace the whole list (and the reader's scroll
+  // position) with a spinner for minutes, then re-request every loaded page on
+  // each retry.
+  const isDeployGap =
+    status === 404 &&
+    currentData === undefined &&
+    retryAttempt < DEPLOY_RETRY_DELAYS_MS.length;
 
   useEffect(() => {
     if (!isDeployGap) return;
     const delay = DEPLOY_RETRY_DELAYS_MS[retryAttempt];
     const id = setTimeout(() => {
-      // Both setState calls happen inside the timer — an event, not the effect
-      // body — so this schedules the next attempt without a cascading render.
-      setRetryAttempt((n) => n + 1);
+      // Inside the timer — an event, not the effect body — so scheduling the
+      // next attempt does not cascade a render.
+      setRetryState({ key: argKey, attempt: retryAttempt + 1 });
       refetch();
     }, delay);
     return () => clearTimeout(id);
-    // `retryAttempt` drives the schedule forward; refetch is stable per arg.
-  }, [isDeployGap, retryAttempt, refetch]);
+  }, [isDeployGap, retryAttempt, argKey, refetch]);
 
   // --- demo branch -------------------------------------------------------
   const demo = useMemo(() => {

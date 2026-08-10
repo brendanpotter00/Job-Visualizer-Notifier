@@ -11,10 +11,9 @@ deadlock-prone, and
 ``docs/incidents/2026-08-10-recent-jobs-empty-filter-deadlock.md`` for the
 production failure that made the case.
 
-FUTURE: ``docs/ai-portfolio-roadmap.md`` reserves this route for a semantic
-``?q=`` search ranked by pgvector similarity. That belongs in this router as an
-additional ordering mode — but note it cannot reuse these cursors as-is, since a
-relevance ordering has no immutable, unique sort key to seek on.
+FUTURE: a semantic ``?q=`` search ranked by vector similarity belongs in this
+router as an additional ordering mode. Note it cannot reuse these cursors as-is:
+a relevance ordering has no immutable, unique sort key to seek on.
 """
 
 import logging
@@ -62,7 +61,18 @@ _MAX_COMPANIES = 150
 _MAX_FACET_VALUES = 20
 _MAX_LOCATIONS = 100
 _MAX_LOCATION_LENGTH = 200
-_MAX_KEYWORDS = 100
+# Keyword terms are the one filter whose cost is linear in the number of VALUES:
+# each term adds four ILIKEs plus a correlated EXISTS over job_tags, evaluated per
+# candidate row, on BOTH the page query and the page-1 count. Measured at prod
+# scale, 100 terms takes ~8.8s per query — two of those would pin a pooled
+# connection for ~18s, and with DB_POOL_MAX=15 that starves every other route.
+# This database already has a pool-exhaustion incident
+# (docs/incidents/2026-05-17-recent-jobs-pool-exhaustion.md).
+#
+# 20 is comfortably above any real use (the built-in "Software Engineering" list
+# is 6 terms, and the per-list cap users can build is 100 for STORAGE, not for a
+# single query) while keeping the worst case in the hundreds of milliseconds.
+_MAX_KEYWORDS = 20
 _MAX_KEYWORD_LENGTH = 100
 
 # ``\Z``, never ``$``. In Python ``$`` also matches immediately before a trailing

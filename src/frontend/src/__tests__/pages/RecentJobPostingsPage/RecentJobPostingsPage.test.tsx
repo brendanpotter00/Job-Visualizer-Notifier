@@ -126,9 +126,15 @@ describe('RecentJobPostingsPage', () => {
       renderWithProviders(<RecentJobPostingsPage />, { initialEntries: ['/'] });
 
       expect(screen.getByRole('alert')).toHaveTextContent('boom');
+      // The list owns the empty state, so it must not render — that is the whole
+      // point of surfacing an error instead.
       expect(screen.queryByTestId('recent-jobs-list')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('recent-jobs-filters')).not.toBeInTheDocument();
-      expect(screen.queryByText('Displayed Jobs')).not.toBeInTheDocument();
+      // The FILTERS, however, stay. They are persisted across reloads, so when
+      // the request failed because of the filter set itself (too many companies,
+      // too many keywords, a rejected value), unmounting them would leave the
+      // reader with a Retry that reissues the same rejected request forever and
+      // no way to widen out of it.
+      expect(screen.getByTestId('recent-jobs-filters')).toBeInTheDocument();
     });
 
     it('retries through the hook when the banner’s Retry is pressed', async () => {

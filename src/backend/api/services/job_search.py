@@ -98,37 +98,38 @@ def _like_pattern(term: str) -> str:
 # One keyword term against the searchable text of a job.
 #
 # The frontend haystack is ``[title, department, team, location, ...tags]`` joined
-# with spaces and lower-cased. Two deliberate differences here:
+# with spaces and lower-cased, and this reproduces it field by field:
 #
-# 1. ``department`` and ``team`` are NOT searched. Both live inside the ``details``
-#    JSONB, and reading a JSONB key detoasts the full ~10 KB value per row — the
-#    exact access pattern that timed this table's list query out in the 2026-07-13
-#    outage. A denormalized copy exists for ``experience_level`` /
-#    ``is_remote_eligible`` precisely because of that incident; adding two more
-#    columns to chase full parity is a separate change with a backfill attached.
-# 2. ``company`` IS searched, which the frontend does not do. Typing "stripe" into
-#    a keyword box and getting Stripe's jobs is what users expect, and it costs
-#    nothing here.
+# * ``department`` is ``details.experience_level`` on the frontend
+#   (``backendScraperTransformer.ts``), and that value is mirrored into the
+#   denormalized ``experience_level`` COLUMN — the same column ``_LIST_COLUMNS``
+#   already selects. So it is matched here directly, with no JSONB read and no
+#   TOAST cost. (An earlier version of this comment claimed the opposite and
+#   dropped the field; that was wrong, and it silently narrowed terms like
+#   "intern" or "senior" that users actually type.)
+# * ``team`` is never populated by any transformer, so it contributes nothing.
+# * ``company`` IS searched, which the frontend does not do. Typing "stripe" into
+#   a keyword box and getting Stripe's jobs is what users expect.
 #
-# Also unlike the frontend, terms match per-FIELD rather than against one
-# space-joined string, so a term straddling a field boundary (matching the tail of
-# the title plus the head of the location) no longer matches. That was accidental
+# The one remaining divergence: terms match per-FIELD rather than against one
+# space-joined string, so a term straddling a field boundary (the tail of the
+# title plus the head of the location) no longer matches. That was accidental
 # behaviour, not a feature.
 #
-# ``COALESCE(location, '')`` is load-bearing and NOT defensive noise: ``location``
-# is nullable. Without the COALESCE, a row with a NULL location that matches none
-# of the other fields makes this whole OR-chain evaluate to NULL rather than
-# false — and on the exclude path ``AND NOT (NULL)`` is NULL, which drops the row
-# from the result set. A negative keyword would then silently hide every
-# location-less job. ``title`` and ``company`` are NOT NULL, so they need no guard.
+# ``COALESCE(..., '')`` on the nullable columns is load-bearing and NOT defensive
+# noise. Without it, a row whose ``location``/``experience_level`` is NULL and
+# which matches none of the other fields makes this whole OR-chain evaluate to
+# NULL rather than false — and on the exclude path ``AND NOT (NULL)`` is NULL,
+# which drops the row from the result set. A negative keyword would then silently
+# hide every location-less job. ``title`` and ``company`` are NOT NULL.
 #
-# ``ESCAPE '\'`` is stated explicitly rather than relying on LIKE's default,
-# so the escape character is part of the query text and cannot be mistaken for
-# a per-database default.
+# ``ESCAPE '\'`` is stated explicitly rather than relying on LIKE's default, so
+# the escape character is part of the query text.
 _KEYWORD_PREDICATE = sql.SQL(
     "("
     " job_listings.title ILIKE %s ESCAPE '\\'"
     " OR COALESCE(job_listings.location, '') ILIKE %s ESCAPE '\\'"
+    " OR COALESCE(job_listings.experience_level, '') ILIKE %s ESCAPE '\\'"
     " OR job_listings.company ILIKE %s ESCAPE '\\'"
     " OR EXISTS ("
     "   SELECT 1 FROM job_tags t"
@@ -138,7 +139,7 @@ _KEYWORD_PREDICATE = sql.SQL(
     ")"
 )
 
-_KEYWORD_PARAM_COUNT = 4
+_KEYWORD_PARAM_COUNT = 5
 
 
 def _keyword_condition(term: str) -> tuple[sql.Composable, list[str]]:
@@ -177,7 +178,7 @@ _US_STATE_NAME_TO_CODE: dict[str, str] = {
 # not a ``locations`` row but stands for the whole country.
 _UNITED_STATES_OPTION = "United States"
 
-_US_SUFFIX_RE = re.compile(r",\s*US$", re.IGNORECASE)
+_US_SUFFIX_RE = re.compile(r",\s*US\Z", re.IGNORECASE)
 
 
 class LocationDescriptor(TypedDict):

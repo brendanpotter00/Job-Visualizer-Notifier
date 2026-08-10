@@ -11,25 +11,22 @@ function stableList(values: readonly string[] | undefined): string[] {
 /**
  * A stable string identity for "which jobs the Recent list is asking for".
  *
- * Exists because the list's incremental-render window has to reset to the first
- * batch when the RESULT SET changes, and `jobs.length` is the wrong proxy for
- * that in both directions:
+ * Two jobs, both about change DETECTION rather than about the query itself:
  *
- * - **False negative.** Two different filters can produce the same count — swap
- *   `location: Seattle` for `location: Austin` and land on 120 rows both times.
- *   Keyed on length, the window never resets, so a user who had scrolled 800
- *   rows deep sees 800 rows of the *new* filter without asking for them.
- * - **False positive.** The list's own data grows underneath it: a scrape tick
- *   lands new rows, or the keyset walk appends a page. Keyed on length, that
- *   yanks the window back to the first batch mid-scroll, discarding everything
- *   the user had scrolled through — for a change they did not make.
+ * 1. It is the debounce key. `useRecentJobsSearch` waits for this string to
+ *    settle before issuing a request, so a burst of edits (typing a keyword,
+ *    ticking three levels) costs one search instead of one per keystroke.
+ * 2. It stamps the recency bound. `since` is frozen for the lifetime of a walk —
+ *    the server rejects a cursor whose `since` moved — and this signature is
+ *    what says a genuinely new walk has begun and the bound may be re-minted.
  *
- * Keying on this signature resets on exactly the user-driven changes and on
- * nothing else. Two inputs beyond the filter slice are included because they
- * are filters in everything but name — both are applied by
- * `selectAllJobsFromQuery` upstream, so toggling either swaps the result set as
- * decisively as a dropdown does: the enabled-companies set, and the admin demo
- * mode that substitutes the curated `DEMO_JOBS` for live data entirely.
+ * Two inputs beyond the filter slice are included because they are filters in
+ * everything but name: the enabled-companies set, which is folded into the
+ * `company` parameter, and the admin demo mode, which substitutes the curated
+ * `DEMO_JOBS` for live data entirely. Toggling either swaps the result set as
+ * decisively as a dropdown does.
+ *
+ * Multi-select values are sorted, so reordering a selection is not a change.
  *
  * Memoized, so the string identity is stable across unrelated store updates and
  * can be used directly as an effect dependency.

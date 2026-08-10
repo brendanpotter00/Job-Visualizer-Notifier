@@ -486,3 +486,39 @@ describe('RecentJobsList', () => {
     });
   });
 });
+
+describe('RecentJobsList — states the list must not be able to misread on its own', () => {
+  it('does not claim "no jobs found" while a pending deploy is being retried', () => {
+    // The page currently renders a spinner instead of this list during the
+    // deploy-grace window, so in practice the list is never mounted in this
+    // state. That is exactly why this test exists: the 2026-08-10 incident's
+    // first lesson is that a terminal state must be terminal by the component's
+    // OWN conditions, not because some caller happened to guard it. If the page
+    // ever stops guarding, this must not silently become "No jobs found".
+    renderList({
+      jobs: [],
+      isAwaitingDeploy: true,
+      hasNextPage: false,
+      isInitialLoading: false,
+      isRefreshing: false,
+      isFetchingNextPage: false,
+      error: null,
+    });
+
+    expect(
+      screen.queryByText(EMPTY_STATE_MESSAGES.NO_JOBS_TITLE)
+    ).not.toBeInTheDocument();
+  });
+
+  it('does not tell a signed-out reader the corpus is exhausted at the cap', () => {
+    // Signed out the hook forces hasNextPage false and fetches one row MORE than
+    // the visible cap (the extra row is how the overlay decides to render), so a
+    // naive end-of-list check announces "All 13 jobs loaded" over twelve cards
+    // and thousands of unseen jobs. Capped is not finished.
+    mockAuthState.isAuthenticated = false;
+    renderList({ jobs: createMockJobs(13), hasNextPage: false });
+
+    expect(screen.queryByText(/All 13 jobs loaded/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/jobs loaded/)).not.toBeInTheDocument();
+  });
+});

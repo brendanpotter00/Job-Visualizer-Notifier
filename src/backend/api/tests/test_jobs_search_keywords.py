@@ -186,23 +186,47 @@ def test_a_tag_belonging_to_another_sources_job_of_the_same_id_does_not_match(
     )
 
 
-def test_department_and_team_are_outside_the_keyword_haystack(client, db_conn):
-    """The deliberate narrowing, pinned so it cannot be "fixed" by accident.
+def test_the_client_department_field_is_searched(client, db_conn):
+    """Parity for the field the client calls ``department``.
 
-    Both fields live inside the ``details`` JSONB, and touching a JSONB key
-    detoasts the whole ~10 KB value per row — the exact access pattern behind the
-    2026-07-13 ``/api/jobs`` outage. Reaching parity with the client matcher means
-    denormalized columns plus a backfill, which is a separate change.
+    ``Job.department`` on the frontend is ``details.experience_level``
+    (``backendScraperTransformer.ts``), and the upsert mirrors that value into the
+    plain ``experience_level`` COLUMN — the same one the list query already
+    selects. So it costs nothing to search and there is no reason to diverge.
 
-    The control row is what makes this a real test: the same term IS found in a
-    title, so a green result cannot be explained by "the search is broken".
+    This is a REGRESSION test: an earlier version of the endpoint left the field
+    out on the theory that reading it meant detoasting the ~10 KB ``details``
+    JSONB (the 2026-07-13 outage's access pattern). That reasoning was wrong for
+    this field, and the effect was that common terms people actually type —
+    "intern", "senior" — silently matched fewer jobs than they did before the
+    migration.
+
+    The control row is what makes this a real test: the same term is found via a
+    title, so a green result cannot be explained by "the search matches
+    everything".
+    """
+    _seed_job(db_conn, "in-experience-level", experience_level="Zymurgy")
+    _seed_job(db_conn, "in-title", title="Zymurgy Engineer")
+    _seed_job(db_conn, "unrelated")
+
+    assert _search(client, include="zymurgy") == {"in-experience-level", "in-title"}
+
+
+def test_raw_details_json_keys_are_not_searched(client, db_conn):
+    """The haystack is columns, never the ``details`` blob.
+
+    Touching a JSONB key detoasts the whole value per row, which is what timed
+    ``/api/jobs`` out in 2026-07-13. Nothing the client matcher reads is lost by
+    staying off it: ``department`` comes from the denormalized column above, and
+    ``team`` is never populated by any transformer, so it has no client-side
+    meaning to preserve.
     """
     _seed_job(db_conn, "in-details", details=json.dumps({
-        "department": "Zymurgy", "team": "Zymurgy Platform",
+        "department": "Quixotic", "team": "Quixotic Platform",
     }))
-    _seed_job(db_conn, "in-title", title="Zymurgy Engineer")
+    _seed_job(db_conn, "in-title", title="Quixotic Engineer")
 
-    assert _search(client, include="zymurgy") == {"in-title"}
+    assert _search(client, include="quixotic") == {"in-title"}
 
 
 # ---------------------------------------------------------------------------

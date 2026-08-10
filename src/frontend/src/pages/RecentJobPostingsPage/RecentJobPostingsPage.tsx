@@ -50,20 +50,24 @@ export function RecentJobPostingsPage() {
           <LoadingState caption="Finishing an update — jobs will appear in a moment." />
         ) : (
           <>
+            <RecentJobsMetrics
+              totalJobs={counts?.total ?? 0}
+              jobsLast24Hours={counts?.last24h ?? 0}
+              jobsLast3Hours={counts?.last3h ?? 0}
+            />
+            {/* The filters stay mounted through an error on purpose. They are
+                persisted across reloads, so when the request failed BECAUSE of
+                the filter set (too many companies, too many keywords, a value
+                the endpoint rejects), unmounting them leaves the reader with a
+                Retry button that reissues the same rejected request forever and
+                no way to widen their way out. */}
+            <RecentJobsFilters />
             {errorScope === 'initial' && error ? (
-              <Box sx={{ mb: 2 }}>
+              <Box sx={{ mt: 2 }}>
                 <ErrorState inline message={error} onRetry={search.retry} />
               </Box>
             ) : (
-              <>
-                <RecentJobsMetrics
-                  totalJobs={counts?.total ?? 0}
-                  jobsLast24Hours={counts?.last24h ?? 0}
-                  jobsLast3Hours={counts?.last3h ?? 0}
-                />
-                <RecentJobsFilters />
-                <RecentJobsList search={search} />
-              </>
+              <RecentJobsList search={search} />
             )}
           </>
         )}

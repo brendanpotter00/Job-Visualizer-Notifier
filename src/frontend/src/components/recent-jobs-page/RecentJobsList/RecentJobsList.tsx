@@ -62,6 +62,7 @@ export function RecentJobsList({ search }: RecentJobsListProps) {
     errorScope,
     retry,
     isSkippedEmpty,
+    isAwaitingDeploy,
   } = search;
   const { isAuthenticated, isEnabled } = useAuth();
   const isSignedOut = isEnabled && !isAuthenticated;
@@ -69,7 +70,14 @@ export function RecentJobsList({ search }: RecentJobsListProps) {
   // One loading flag for every kind of "more on the way": the first page of a new
   // filter, and the next page of the current one. The sentinel and the skeletons
   // key off it identically.
-  const isLoadingMore = isInitialLoading || isRefreshing || isFetchingNextPage;
+  // `isAwaitingDeploy` counts as loading HERE, not only in the page shell above.
+  // The page currently renders a spinner instead of this list during the grace
+  // window, so the list is never mounted in that state — but relying on a
+  // caller's `if` to keep a terminal state honest is exactly the pattern the
+  // 2026-08-10 incident's first lesson warns about. The list must be unable to
+  // claim "no jobs found" while a retry is still pending, whoever renders it.
+  const isLoadingMore =
+    isInitialLoading || isRefreshing || isFetchingNextPage || isAwaitingDeploy;
   // A failed next-page fetch stops automatic loading: the sentinel would sit in
   // the viewport and retry the same failing request forever, silently, for as
   // long as the reader stayed at the bottom.
@@ -79,7 +87,10 @@ export function RecentJobsList({ search }: RecentJobsListProps) {
   const displayedJobs = isSignedOut
     ? jobs.slice(0, SIGN_IN_OVERLAY_CONFIG.SIGNED_OUT_JOB_LIMIT)
     : jobs;
-  const atTrueEnd = !hasNextPage && !isLoadingMore;
+  // Signed-out readers are capped, not finished: `hasNextPage` is forced false
+  // for them, so without this guard the list would announce "All 13 jobs loaded"
+  // (the fetch limit) while showing 12 cards out of thousands.
+  const atTrueEnd = !isSignedOut && !hasNextPage && !isLoadingMore;
 
   const { sentinelRef } = useInfiniteScroll({
     hasMore,
@@ -149,10 +160,10 @@ export function RecentJobsList({ search }: RecentJobsListProps) {
             </Box>
           )}
 
-          {atTrueEnd && !error && jobs.length > 0 && (
+          {atTrueEnd && !error && displayedJobs.length > 0 && (
             <Box sx={{ textAlign: 'center', py: 4 }} role="status">
               <Typography variant="body2" color="text.secondary">
-                {EMPTY_STATE_MESSAGES.ALL_LOADED(jobs.length)}
+                {EMPTY_STATE_MESSAGES.ALL_LOADED(displayedJobs.length)}
               </Typography>
             </Box>
           )}
