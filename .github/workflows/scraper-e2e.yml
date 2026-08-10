@@ -1,7 +1,7 @@
 name: Scraper E2E (live)
 
 # Live data-integrity checks for the Playwright scrapers. Drives the real
-# Google/Apple/Microsoft scrapers against their live sites and asserts the
+# Google/Apple/Microsoft/Amazon scrapers against their live sites and asserts the
 # output is healthy (non-empty floor, well-formed ids/urls, valid model). A
 # failure here means a scraper broke (DOM/API change or environment issue) and
 # would start falsely closing jobs via the consecutive-misses lifecycle — so a

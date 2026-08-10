@@ -22,9 +22,9 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
     id: 'add-amazon',
     title: 'Added Amazon',
     description:
-      "Amazon — the world's largest e-commerce marketplace and, through AWS, the leading cloud platform — is now tracked. Amazon has no standard job board behind it, so this one needed a purpose-built scraper rather than the usual ATS integration, joining Google, Apple, and Microsoft in the Custom Web Scrapers group. Coverage is US software and data roles, currently around 1,300 open postings, refreshed hourly like everything else.",
+      "Amazon — the world's largest e-commerce marketplace and, through AWS, the leading cloud platform — is now tracked. Amazon has no standard job board behind it, so this one needed a purpose-built scraper rather than the usual ATS integration, joining Google, Apple, and Microsoft in the Custom Web Scrapers group. Coverage is US software and data roles, refreshed hourly.",
     tags: ['new-companies'],
-    date: '2026-08-09',
+    date: '2026-08-10',
     link: {
       to: ROUTES.ACCOUNT,
       label: 'Add Amazon to your company preferences',

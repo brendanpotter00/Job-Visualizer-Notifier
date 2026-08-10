@@ -174,8 +174,10 @@ The Amazon scraper is **API-only** — no HTML parsing and no detail-fetch phase
 - **`result_limit` is hard-capped at 100.** Asking for 200 returns
   `{"error": "...", "jobs": null}` — note `jobs` is `null`, not `[]`.
 - **`posted_date` is date-only English** ("August  8, 2026", with a double
-  space). It is stored as a 10-char `YYYY-MM-DD`; stamping UTC midnight instead
-  would render every job a day early for users west of UTC.
+  space), normalised to a 10-char `YYYY-MM-DD`. Note that `posted_on` is a
+  `timestamptz`, so Postgres casts that to UTC midnight on write — the bare
+  date is the honest encoding of a date-only source, not a way to avoid the
+  timezone skew. Recency UI reads `firstSeenAt`, so impact is minimal.
 - **Same-origin navigation is required.** search.json sends no
   `Access-Control-Allow-Origin`, so the in-page `fetch()` is blocked unless the
   page is already on an amazon.jobs origin (`_establish_session`).
@@ -187,8 +189,12 @@ The Amazon scraper is **API-only** — no HTML parsing and no detail-fetch phase
 - `SEARCH_QUERIES` - `["software engineer"]` (server-side `base_query`)
 - `COUNTRY` - `USA`
 - `INCLUDE_TITLE_KEYWORDS` / `EXCLUDE_TITLE_KEYWORDS` - title filters. EXCLUDE is
-  matched on **word boundaries**: as a bare substring, "HR" matches "T-h-r-eat"
-  and silently drops real listings.
+  matched on **word boundaries** and only against the **role segment** (text
+  before the first comma). As a bare substring "HR" matches "T-h-r-eat"; matched
+  against the whole title, "recruiting" in a *team* name killed a real
+  "Principal Engineer, … Global Specialty Recruiting Team" req. An empty
+  EXCLUDE list means "exclude nothing" (an unguarded empty alternation would
+  reject the whole board).
 - `JOBS_PER_PAGE` - 100 (API hard cap)
 - `MAX_PAGES` - 50 safety bound (live `hits` was 1303)
 

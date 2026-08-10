@@ -133,6 +133,38 @@ class TestFilterJob:
     def test_exclude_beats_include(self, amazon_scraper):
         assert amazon_scraper.filter_job("Software Engineering Recruiter") is False
 
+    def test_team_name_cannot_veto_a_real_engineering_role(self, amazon_scraper):
+        """Regression, live title: EXCLUDE must read the role, not the org.
+
+        Amazon titles are "<Role>, <Team>". Matching the whole string dropped a
+        genuine Principal SWE req because its *team* name says "Recruiting".
+        """
+        title = (
+            "Principal Engineer, Amazon | Multiple Locations, USA, "
+            "Global Specialty Recruiting Team"
+        )
+        assert amazon_scraper.filter_job(title) is True
+
+    def test_recruiting_still_excluded_when_it_is_the_role(self, amazon_scraper):
+        """The narrowing must not defang the exclude list itself."""
+        assert amazon_scraper.filter_job("Technical Recruiter, AWS") is False
+        assert amazon_scraper.filter_job("Recruiting Manager, Amazon Devices") is False
+
+    def test_empty_exclude_list_excludes_nothing(self, amazon_scraper):
+        """An empty alternation `(?:)` matches the empty string everywhere.
+
+        Emptying the list to "turn off excludes" would otherwise reject nearly
+        the whole board — every title containing punctuation or a digit.
+        """
+        import re as _re
+
+        from amazon_jobs_scraper import scraper as scraper_module
+
+        with patch.object(scraper_module, "_EXCLUDE_RE", _re.compile(r"(?!)")):
+            assert amazon_scraper.filter_job("Software Development Engineer, EC2") is True
+            assert amazon_scraper.filter_job("Sr. Software Engineer") is True
+            assert amazon_scraper.filter_job("SDE II - Amazon Robotics") is True
+
 
 class TestDeriveExperienceLevel:
     @pytest.mark.parametrize(
@@ -166,6 +198,11 @@ class TestDeriveExperienceLevel:
     def test_ai_does_not_match_bare_i(self, amazon_scraper):
         """"AI" must not be read as the roman numeral I."""
         assert amazon_scraper.derive_experience_level("AI Research Engineer", {}) is None
+
+    def test_integration_and_test_is_not_entry_level(self, amazon_scraper):
+        """Live regression: "I&T" is Integration & Test, not roman numeral I."""
+        title = "Software I&T Engineer, Amazon Leo for Government"
+        assert amazon_scraper.derive_experience_level(title, {}) != "Entry"
 
 
 class TestDeriveIsRemoteEligible:

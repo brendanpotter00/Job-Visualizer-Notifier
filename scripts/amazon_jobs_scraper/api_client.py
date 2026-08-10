@@ -140,10 +140,21 @@ def parse_posted_date(value: Optional[str]) -> Optional[str]:
     """Normalise Amazon's ``posted_date`` into the stored ``posted_on`` shape.
 
     Amazon serves a date-only English string ("August  8, 2026" — note the
-    double space) with no time-of-day and no timezone. We deliberately return a
-    10-character ``YYYY-MM-DD`` rather than stamping UTC midnight: midnight UTC
-    renders as the *previous* evening for every user west of UTC, which made
-    every Amazon job appear a day early in the sibling repo.
+    double space) with no time-of-day and no timezone, so we return a
+    10-character ``YYYY-MM-DD``.
+
+    Be clear about what that does and does not buy you: ``job_listings.posted_on``
+    is ``timestamptz``, so Postgres casts this string to **UTC midnight** on
+    write. Returning a bare date does not dodge the "renders as the previous
+    evening west of UTC" problem — a ``timestamptz`` column cannot represent
+    "a day with no instant". It is simply the honest encoding of a date-only
+    source, and the length is not a property the database preserves.
+
+    The practical impact is small: every user-facing recency surface (including
+    "Posted X ago") reads ``firstSeenAt``, and the frontend maps
+    ``createdAt: postedOn || firstSeenAt``, where ``createdAt`` only backs the
+    client-side ``since`` filter. Fixing it properly means a ``DATE`` column,
+    not a change here.
 
     Forward-compat: if Amazon ever emits a tz-aware value we normalise the
     instant to UTC so the stored-timestamp convention still holds.
@@ -253,20 +264,34 @@ def _parse_search_response(data: Dict[str, Any]) -> Dict[str, Any]:
         logger.warning("amazon: search payload carried error %r", error)
 
     # `or []` is mandatory: Amazon answers an over-large result_limit with
-    # "jobs": null, not an empty list.
+    # "jobs": null, not an empty list. A null alongside an `error` string is a
+    # known, handled shape; a null with no error is an empty page.
     raw_jobs = data.get("jobs") or []
     if not isinstance(raw_jobs, list):
-        raw_jobs = []
+        # A `jobs` field that is neither a list nor null is a schema break, not
+        # an empty page. Coercing it to [] used to make an envelope change look
+        # like "no more results" — silently, with no log line at all.
+        raise JobSearchError(
+            f"search.json 'jobs' was {type(raw_jobs).__name__}, expected list or null "
+            f"(payload keys: {sorted(data.keys())!r})"
+        )
 
     cards: List[Dict[str, Any]] = []
     skipped_missing_id = 0
     skipped_missing_title = 0
+    skipped_not_dict = 0
 
     for row in raw_jobs:
+        if not isinstance(row, dict):
+            # Kept distinct from the missing-title bucket: a row that isn't a
+            # dict is a payload-shape change, and reporting it as "missing
+            # title" sends whoever debugs it hunting the wrong field.
+            skipped_not_dict += 1
+            continue
         card = _parse_job_from_search(row)
         if card is not None:
             cards.append(card)
-        elif isinstance(row, dict) and not str(row.get("id_icims") or ""):
+        elif not str(row.get("id_icims") or ""):
             skipped_missing_id += 1
         else:
             skipped_missing_title += 1
@@ -275,6 +300,11 @@ def _parse_search_response(data: Dict[str, Any]) -> Dict[str, Any]:
         logger.warning("amazon: skipped %d job(s) missing id_icims", skipped_missing_id)
     if skipped_missing_title:
         logger.warning("amazon: skipped %d job(s) missing title", skipped_missing_title)
+    if skipped_not_dict:
+        logger.error(
+            "amazon: %d row(s) in 'jobs' were not objects — payload shape changed",
+            skipped_not_dict,
+        )
 
     hits = data.get("hits")
     return {
@@ -284,6 +314,7 @@ def _parse_search_response(data: Dict[str, Any]) -> Dict[str, Any]:
         "error": error,
         "skipped_missing_id": skipped_missing_id,
         "skipped_missing_title": skipped_missing_title,
+        "skipped_not_dict": skipped_not_dict,
     }
 
 

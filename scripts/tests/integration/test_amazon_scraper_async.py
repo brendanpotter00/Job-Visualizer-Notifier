@@ -117,17 +117,38 @@ class TestStopConditions:
 
 @pytest.mark.asyncio
 class TestErrorHandling:
-    async def test_bails_after_three_consecutive_errors(self, scraper, caplog):
+    async def test_consecutive_error_bail_raises_instead_of_returning_partial(
+        self, scraper
+    ):
+        """A gave-up run must RAISE, never return a short list.
+
+        Returning what it collected is indistinguishable from "the board really
+        shrank", and the incremental lifecycle closes the difference. One Amazon
+        page is ~8% of the board, which is *under* the 15% partial_scrape guard,
+        so the guard cannot be relied on to catch this.
+        """
         with patch.object(
             amazon_scraper_module,
             "fetch_search_results",
             AsyncMock(side_effect=JobSearchError("boom")),
         ) as fetch:
-            with caplog.at_level("ERROR"):
-                jobs = await scraper.scrape_query("software engineer")
+            with pytest.raises(JobSearchError, match="consecutive fetch failures"):
+                await scraper.scrape_query("software engineer")
         assert fetch.await_count == 3
-        assert jobs == []
-        assert "Too many consecutive errors" in caplog.text
+
+    async def test_partial_collection_is_discarded_not_returned(self, scraper):
+        """The dangerous shape: 12 good pages, then failure. Must not return 1200."""
+        pages = [_result(_cards(100, i * 100)) for i in range(12)]
+        side_effects = [*pages, *([JobSearchError("blip")] * 3)]
+        with patch.object(
+            amazon_scraper_module, "fetch_search_results", AsyncMock(side_effect=side_effects)
+        ):
+            with pytest.raises(JobSearchError) as exc:
+                await scraper.scrape_query("software engineer")
+        # The message must name the real cause and the loss, so an operator is
+        # not sent hunting MAX_PAGES.
+        assert "consecutive fetch failures" in str(exc.value)
+        assert "1200 jobs had been collected" in str(exc.value)
 
     async def test_error_retries_same_offset_and_resets_counter(self, scraper):
         """Skipping ahead on error would silently drop 100 jobs (~8% of the board)."""
@@ -147,18 +168,45 @@ class TestErrorHandling:
         assert len(jobs) == 100
 
     async def test_page_closed_even_when_loop_raises(self, scraper, mock_page):
+        """The page must be closed on the failing path, not just the happy one."""
         with patch.object(
             amazon_scraper_module,
             "fetch_search_results",
             AsyncMock(side_effect=RuntimeError("hard failure")),
         ):
-            await scraper.scrape_query("software engineer")
+            with pytest.raises(JobSearchError):
+                await scraper.scrape_query("software engineer")
         mock_page.close.assert_awaited()
+
+    async def test_api_error_envelope_raises_and_is_not_end_of_results(self, scraper):
+        """HTTP 200 + {"error": ..., "jobs": null} must not read as a clean finish.
+
+        Amazon really does answer this way (e.g. "Cannot return more than 10000
+        results at once"). Treating it as an empty page silently truncates the
+        run and logs it as success.
+        """
+        pages = [
+            _result(_cards(100)),
+            {
+                "jobs": [],
+                "raw_count": 0,
+                "hits": 0,
+                "error": "Rate exceeded",
+                "skipped_missing_id": 0,
+                "skipped_missing_title": 0,
+            },
+        ]
+        with patch.object(
+            amazon_scraper_module, "fetch_search_results", AsyncMock(side_effect=pages)
+        ):
+            with pytest.raises(JobSearchError, match="Rate exceeded"):
+                await scraper.scrape_query("software engineer")
 
 
 @pytest.mark.asyncio
 class TestPaginationBehaviour:
-    async def test_page_cap_warns_when_no_natural_stop(self, scraper, caplog):
+    async def test_page_cap_raises_and_names_max_pages(self, scraper):
+        """Exhausting the page budget is a truncation, so it must be fatal too."""
         full = _result(_cards(100))
         with patch.object(amazon_scraper_module, "MAX_PAGES", 3):
             with patch.object(
@@ -166,11 +214,24 @@ class TestPaginationBehaviour:
                 "fetch_search_results",
                 AsyncMock(side_effect=[full, full, full]),
             ) as fetch:
-                with caplog.at_level("WARNING"):
+                with pytest.raises(JobSearchError, match="MAX_PAGES"):
                     await scraper.scrape_query("software engineer")
         assert fetch.await_count == 3
-        assert "MAX_PAGES" in caplog.text
-        assert "truncated" in caplog.text
+
+    async def test_error_bail_does_not_blame_max_pages(self, scraper):
+        """Regression: the bail used to be reported as a MAX_PAGES cap.
+
+        It hit page 1 of a 50-page budget, so pointing the operator at MAX_PAGES
+        sends them to fix the one thing that was not the cause.
+        """
+        with patch.object(
+            amazon_scraper_module,
+            "fetch_search_results",
+            AsyncMock(side_effect=JobSearchError("boom")),
+        ):
+            with pytest.raises(JobSearchError) as exc:
+                await scraper.scrape_query("software engineer")
+        assert "MAX_PAGES" not in str(exc.value)
 
     async def test_no_cap_warning_on_natural_stop(self, scraper, caplog):
         pages = [_result(_cards(100)), _result(_cards(2, 100))]

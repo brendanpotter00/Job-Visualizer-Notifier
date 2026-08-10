@@ -9,8 +9,12 @@ The headline cases here are the two live-verified hazards:
 
 import asyncio
 import json
+import os
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -36,7 +40,42 @@ from amazon_jobs_scraper.api_client import (
 # ---------------------------------------------------------------- _FETCH_JS
 
 class TestFetchJs:
-    """The in-page fetch payload — pinned because it cannot be unit-executed."""
+    """The in-page fetch payload.
+
+    Most assertions here are substring checks, which cannot catch a syntax
+    error — and every integration test mocks ``page.evaluate``, so before
+    ``test_fetch_js_is_syntactically_valid_javascript`` the only thing that ever
+    executed this JS was the e2e suite, which ``pytest.ini`` excludes
+    (``-m "not e2e"``) and which runs twice a week. A broken ``_FETCH_JS`` could
+    merge green and leave the scraper dead for days.
+    """
+
+    def test_fetch_js_is_syntactically_valid_javascript(self):
+        """Actually parse the JS instead of grepping it.
+
+        Skips rather than fails where node is unavailable, so the suite stays
+        runnable without a JS toolchain; CI has node.
+        """
+        node = shutil.which("node")
+        if node is None:
+            pytest.skip("node not available")
+
+        # _FETCH_JS is an arrow-function expression; wrap it so `node --check`
+        # sees a complete program (a bare arrow function is a valid expression
+        # statement only when parenthesised).
+        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:
+            fh.write("const fn = (\n%s\n);\n" % api_client._FETCH_JS)
+            path = fh.name
+        try:
+            proc = subprocess.run(
+                [node, "--check", path], capture_output=True, text=True, timeout=30
+            )
+        finally:
+            os.unlink(path)
+
+        assert proc.returncode == 0, (
+            f"_FETCH_JS is not valid JavaScript:\n{proc.stderr}"
+        )
 
     def test_uses_text_not_json(self):
         """r.json() would throw on Amazon's control bytes; r.text() does not."""
@@ -208,8 +247,14 @@ class TestParseSearchResponse:
         assert out["hits"] == 1303
         assert out["jobs"][0]["id"] == "10496449"
 
-    def test_jobs_null_is_treated_as_empty(self, caplog):
-        """result_limit>100 really answers 200 with jobs: null."""
+    def test_jobs_null_parses_as_empty_but_surfaces_the_error(self, caplog):
+        """result_limit>100 really answers 200 with jobs: null.
+
+        The parser stays non-fatal here, but it MUST hand the error string back
+        to the caller: ``scrape_query`` raises on a non-null ``error`` rather
+        than reading raw_count==0 as a clean end of results. An earlier version
+        dropped the error on the floor and silently truncated the run.
+        """
         payload = {
             "error": "Result limit cannot be greater than 100",
             "hits": 0,
@@ -219,7 +264,28 @@ class TestParseSearchResponse:
             out = _parse_search_response(payload)
         assert out["raw_count"] == 0
         assert out["jobs"] == []
+        assert out["error"] == "Result limit cannot be greater than 100"
         assert "Result limit cannot be greater than 100" in caplog.text
+
+    def test_non_list_jobs_raises_rather_than_reading_as_empty(self):
+        """A `jobs` that is neither list nor null is a schema break.
+
+        Coercing it to [] made an envelope change look like "no more results" —
+        with no log line at all.
+        """
+        payload = {"jobs": {"items": [{"id_icims": "1", "title": "SDE"}]}, "hits": 1300}
+        with pytest.raises(JobSearchError, match="expected list or null"):
+            _parse_search_response(payload)
+
+    def test_non_dict_rows_are_not_misreported_as_missing_title(self, caplog):
+        """A shape change must not send the reader hunting the `title` field."""
+        payload = {"jobs": ["a string", 42, None], "hits": 3}
+        with caplog.at_level("ERROR"):
+            out = _parse_search_response(payload)
+        assert out["skipped_not_dict"] == 3
+        assert out["skipped_missing_title"] == 0
+        assert out["skipped_missing_id"] == 0
+        assert "not objects" in caplog.text
 
     def test_skips_missing_id_with_warning(self, caplog):
         payload = {"jobs": [{"title": "SDE"}, {"id_icims": "1", "title": "SDE"}]}

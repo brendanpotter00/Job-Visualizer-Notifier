@@ -40,16 +40,27 @@ from .config import (
     SESSION_ESTABLISH_DELAY,
     SESSION_PATH,
 )
-from .api_client import fetch_search_results
+from .api_client import JobSearchError, fetch_search_results
 from .parser import extract_job_id_from_url
 
 logger = logging.getLogger(__name__)
 
 # Word-boundary matcher for the exclude list. Substring matching here would
 # drop real jobs — "HR" matches "T-h-r-eat Intelligence". See config.py.
+#
+# The empty-list guard is load-bearing. With no keywords the alternation
+# degenerates to `(?:)`, which matches the empty string at every non-letter
+# boundary — so emptying the list to "disable excludes" would instead reject
+# almost the entire board (verified: "Software Development Engineer, EC2"
+# fails). An empty list must mean "exclude nothing".
+_NEVER_MATCHES = r"(?!)"
 _EXCLUDE_RE = re.compile(
-    r"(?<![a-z])(?:%s)(?![a-z])"
-    % "|".join(re.escape(kw.lower()) for kw in EXCLUDE_TITLE_KEYWORDS)
+    (
+        r"(?<![a-z])(?:%s)(?![a-z])"
+        % "|".join(re.escape(kw.lower()) for kw in EXCLUDE_TITLE_KEYWORDS)
+    )
+    if EXCLUDE_TITLE_KEYWORDS
+    else _NEVER_MATCHES
 )
 
 _INCLUDE_KEYWORDS_LOWER = [kw.lower() for kw in INCLUDE_TITLE_KEYWORDS]
@@ -63,7 +74,9 @@ _EXPERIENCE_PATTERNS = [
     (re.compile(r"\b(principal|distinguished|staff|director)\b", re.I), "Principal"),
     (re.compile(r"\b(sr\.?|senior|iii)\b", re.I), "Senior"),
     (re.compile(r"\bii\b", re.I), "Mid"),
-    (re.compile(r"\bi\b", re.I), "Entry"),
+    # The `&` lookahead keeps "I&T" (Integration & Test) from reading as a
+    # roman-numeral level: "Software I&T Engineer, Amazon Leo" is not entry-level.
+    (re.compile(r"\bi\b(?!\s*&)", re.I), "Entry"),
 ]
 
 _REMOTE_RE = re.compile(r"\b(remote|virtual|work from home|telecommute)\b", re.I)
@@ -155,11 +168,20 @@ class AmazonJobsScraper(BaseScraper):
         asymmetry is deliberate: Amazon has already narrowed by relevance
         server-side, so a loose INCLUDE costs nothing, whereas a loose EXCLUDE
         silently discards real listings.
+
+        EXCLUDE is matched only against the **role segment** — everything before
+        the first comma. Amazon's title convention is "<Role>, <Team/Org>", and
+        matching the whole string lets an org name veto a real engineering req:
+        the live title "Principal Engineer, Amazon | Multiple Locations, USA,
+        Global Specialty Recruiting Team" was dropped because its *team* name
+        contains "Recruiting". INCLUDE still reads the full title, since a
+        keyword anywhere in it is evidence for keeping the job.
         """
         if not job_title:
             return False
         title_lower = job_title.lower()
-        if _EXCLUDE_RE.search(title_lower):
+        role_segment = title_lower.split(",", 1)[0]
+        if _EXCLUDE_RE.search(role_segment):
             return False
         return any(kw in title_lower for kw in _INCLUDE_KEYWORDS_LOWER)
 
@@ -180,19 +202,32 @@ class AmazonJobsScraper(BaseScraper):
     ) -> List[Dict[str, Any]]:
         """Scrape all pages for one search query.
 
-        Stop conditions (all evaluated against the *pre-filter* row count, so a
-        page whose titles were all filtered out is never mistaken for the end
-        of the results):
+        Clean stop conditions (all evaluated against the *pre-filter* row count,
+        so a page whose titles were all filtered out is never mistaken for the
+        end of the results):
           1. the page returned zero rows
           2. the page returned fewer than JOBS_PER_PAGE rows
           3. offset + JOBS_PER_PAGE >= the reported total (`hits`)
+
+        Any other exit — consecutive fetch failures, an error envelope on an
+        HTTP 200, or exhausting the page budget — raises ``JobSearchError``
+        rather than returning a short list. Returning an incomplete board to the
+        incremental lifecycle gets the missing jobs CLOSED; see the comment at
+        the raise sites.
+
+        Raises:
+            JobSearchError: the scrape ended incomplete.
         """
         logger.info(f"Scraping Amazon jobs for query: '{search_query}'")
         all_jobs: List[Dict[str, Any]] = []
         seen_ids: set = set()
         consecutive_errors = 0
-        natural_stop = False
+        stop_reason: Optional[str] = None
+        last_error: Optional[str] = None
         offset = 0
+        filtered_out = 0
+        skipped_missing_id = 0
+        skipped_missing_title = 0
 
         page = await self.context.new_page()
 
@@ -214,27 +249,42 @@ class AmazonJobsScraper(BaseScraper):
                     consecutive_errors = 0
                 except Exception as exc:
                     consecutive_errors += 1
+                    last_error = f"{type(exc).__name__}: {exc}"
                     logger.warning(
                         "Error fetching Amazon offset=%d (%d/%d): %s",
                         offset, consecutive_errors, MAX_CONSECUTIVE_ERRORS, exc,
                     )
                     if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
-                        logger.error(
-                            "Too many consecutive errors, stopping. Collected %d jobs.",
-                            len(all_jobs),
-                        )
+                        stop_reason = "consecutive_errors"
                         break
                     await self._random_delay()
                     continue
 
                 page_idx += 1
+
+                # An HTTP 200 can still carry an error envelope
+                # ({"error": "...", "jobs": null}) — e.g. "Cannot return more
+                # than 10000 results at once", or rate limiting. Without this
+                # check it becomes raw_count == 0, which reads as a clean end of
+                # results and silently truncates the run. The error is parsed and
+                # returned by the client; the bug was never reading it here.
+                api_error = result.get("error")
+                if api_error:
+                    stop_reason = "api_error"
+                    last_error = str(api_error)
+                    break
+
+                skipped_missing_id += result.get("skipped_missing_id", 0) or 0
+                skipped_missing_title += result.get("skipped_missing_title", 0) or 0
+
                 raw_count = result["raw_count"]
                 if raw_count == 0:
                     logger.info("No more jobs returned at offset=%d", offset)
-                    natural_stop = True
+                    stop_reason = "empty_page"
                     break
 
                 new_this_page = 0
+                kept_this_page = 0
                 for card in result["jobs"]:
                     job_id = card.get("id")
                     if not job_id or job_id in seen_ids:
@@ -243,10 +293,13 @@ class AmazonJobsScraper(BaseScraper):
                     new_this_page += 1
                     if self.filter_job(card.get("title", "")):
                         all_jobs.append(card)
+                        kept_this_page += 1
+                    else:
+                        filtered_out += 1
 
                 logger.info(
                     "offset=%d: %d rows, %d new, %d kept (total %d)",
-                    offset, raw_count, new_this_page, len(all_jobs), len(all_jobs),
+                    offset, raw_count, new_this_page, kept_this_page, len(all_jobs),
                 )
 
                 if max_jobs and len(all_jobs) >= max_jobs:
@@ -255,28 +308,61 @@ class AmazonJobsScraper(BaseScraper):
 
                 if raw_count < JOBS_PER_PAGE:
                     logger.info("Short page at offset=%d — end of results", offset)
-                    natural_stop = True
+                    stop_reason = "short_page"
                     break
 
                 hits = result.get("hits")
                 if isinstance(hits, int) and offset + JOBS_PER_PAGE >= hits:
                     logger.info("Reached reported total (hits=%d)", hits)
-                    natural_stop = True
+                    stop_reason = "reached_total"
                     break
 
                 await self._random_delay()
-
-            if not natural_stop:
-                logger.warning(
-                    "amazon: hit MAX_PAGES=%d cap at offset=%d (%d jobs collected); "
-                    "results may be truncated",
-                    MAX_PAGES, offset, len(all_jobs),
-                )
+            else:
+                # `while` exhausted without break — the page budget ran out.
+                stop_reason = "page_cap"
         finally:
             await page.close()
 
+        if skipped_missing_id or skipped_missing_title:
+            logger.warning(
+                "amazon: dropped %d row(s) with no id_icims and %d with no title "
+                "across the run — a field rename upstream looks exactly like this",
+                skipped_missing_id, skipped_missing_title,
+            )
+
+        # A run that ended for any reason other than a clean end-of-results is
+        # INCOMPLETE, and an incomplete list handed to the incremental lifecycle
+        # is indistinguishable from "these jobs are gone" — it closes them.
+        # The partial_scrape guard cannot be relied on to catch this: it trips
+        # below ~85%, while losing one Amazon page is only ~8% of the board, so
+        # a single-page truncation lands squarely in its blind spot and reaches
+        # close-detection. Raising instead means run_incremental_scrape records
+        # the failure and re-raises without running the destructive phases.
+        # See docs/incidents/2026-03-29-mass-job-closure.md.
+        if stop_reason == "consecutive_errors":
+            raise JobSearchError(
+                f"Amazon scrape aborted after {MAX_CONSECUTIVE_ERRORS} consecutive "
+                f"fetch failures at offset={offset}; {len(all_jobs)} jobs had been "
+                f"collected and are being discarded rather than reported as "
+                f"complete. Last error: {last_error}"
+            )
+        if stop_reason == "api_error":
+            raise JobSearchError(
+                f"Amazon search.json returned an error envelope at offset={offset} "
+                f"after {len(all_jobs)} jobs: {last_error}"
+            )
+        if stop_reason == "page_cap":
+            raise JobSearchError(
+                f"Amazon scrape hit the MAX_PAGES={MAX_PAGES} cap at offset={offset} "
+                f"with {len(all_jobs)} jobs collected — the board is larger than the "
+                f"page budget. Raise MAX_PAGES; do not ship a truncated run."
+            )
+
         logger.info(
-            f"Completed Amazon scrape for '{search_query}': {len(all_jobs)} jobs collected"
+            "Completed Amazon scrape for '%s': %d jobs collected (%d filtered out by "
+            "title, stop=%s)",
+            search_query, len(all_jobs), filtered_out, stop_reason,
         )
         return all_jobs
 
@@ -328,9 +414,23 @@ class AmazonJobsScraper(BaseScraper):
         return bool(_REMOTE_RE.search(title or ""))
 
     def transform_to_job_model(self, job_data: Dict[str, Any]) -> JobListing:
-        """Transform a scraped card into the JobListing database model."""
+        """Transform a scraped card into the JobListing database model.
+
+        Raises:
+            ValueError: the card carries no usable id.
+        """
         job_url = job_data.get("job_url", "")
-        job_id = job_data.get("id") or extract_job_id_from_url(job_url) or "unknown"
+        job_id = job_data.get("id") or extract_job_id_from_url(job_url)
+        if not job_id:
+            # Never fabricate an id. `job_listings` is keyed on the composite PK
+            # (source_id, id), so two id-less cards sharing a placeholder collapse
+            # into one row that flip-flops between two different real jobs — and
+            # publishes that garbage to users. BatchWriter.add_job isolates a
+            # raising transform: the row is counted and skipped, the run survives.
+            raise ValueError(
+                f"Amazon card has no id_icims and no id recoverable from its URL "
+                f"({job_url!r}); refusing to fabricate one"
+            )
         created_at = get_iso_timestamp()
         title = job_data.get("title", "")
         description = job_data.get("description")
@@ -378,14 +478,31 @@ class AmazonJobsScraper(BaseScraper):
         """Remove duplicates by requisition id and transform to JobListing."""
         seen_ids = set()
         unique_jobs = []
+        duplicates = 0
+        missing_id = 0
 
         for job_data in jobs:
             job_id = job_data.get("id", "")
-            if job_id and job_id not in seen_ids:
-                seen_ids.add(job_id)
-                unique_jobs.append(self.transform_to_job_model(job_data))
+            if not job_id:
+                # Counted separately from duplicates: a run of these means the
+                # id field was renamed upstream, which is a very different
+                # problem from the sort=recent page overlap.
+                missing_id += 1
+                continue
+            if job_id in seen_ids:
+                duplicates += 1
+                continue
+            seen_ids.add(job_id)
+            unique_jobs.append(self.transform_to_job_model(job_data))
 
         logger.info(
-            f"Deduplicated: {len(jobs)} jobs -> {len(unique_jobs)} unique jobs"
+            "Deduplicated: %d jobs -> %d unique (%d cross-page duplicates, "
+            "%d dropped for missing id)",
+            len(jobs), len(unique_jobs), duplicates, missing_id,
         )
+        if missing_id:
+            logger.warning(
+                "amazon: %d card(s) had no id and were dropped before transform",
+                missing_id,
+            )
         return unique_jobs

@@ -320,7 +320,7 @@ All variables have defaults that work for local development. Override via `.env`
 |----------|---------|-------------|
 | `DATABASE_URL` | `postgresql://postgres:postgres@localhost:5432/jobscraper` | PostgreSQL connection URL |
 | `SCRAPER_INTERVAL_HOURS` | `1` | Hours between auto-scrape cycles |
-| `SCRAPER_COMPANIES` | `apple,google,microsoft` | Comma-separated company list |
+| `SCRAPER_COMPANIES` | `apple,google,microsoft,amazon` | Comma-separated company list |
 | `SCRAPER_DETAIL_SCRAPE` | `true` | Fetch job detail pages |
 | `SCRAPER_TIMEOUT_MINUTES` | `90` | Max time per scrape run |
 | `SCRAPER_SCRIPTS_PATH` | `../../scripts` | Path to Python scraper scripts |

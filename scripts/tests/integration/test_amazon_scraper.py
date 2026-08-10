@@ -71,9 +71,16 @@ class TestTransformToJobModel:
         )
         assert job.id == "987654"
 
-    def test_id_unknown_when_absent_everywhere(self, amazon_scraper):
-        job = amazon_scraper.transform_to_job_model({"title": "SDE"})
-        assert job.id == "unknown"
+    def test_missing_id_raises_rather_than_fabricating_one(self, amazon_scraper):
+        """A placeholder id collides on the composite PK (source_id, id).
+
+        Two id-less cards sharing "unknown" collapse into a single row that
+        flip-flops between two different real jobs and publishes the result.
+        BatchWriter.add_job isolates a raising transform, so one bad card is
+        counted and skipped without killing the run.
+        """
+        with pytest.raises(ValueError, match="refusing to fabricate"):
+            amazon_scraper.transform_to_job_model({"title": "SDE"})
 
     def test_apply_url_carried(self, amazon_scraper, sample_amazon_job_data):
         job = amazon_scraper.transform_to_job_model(sample_amazon_job_data)

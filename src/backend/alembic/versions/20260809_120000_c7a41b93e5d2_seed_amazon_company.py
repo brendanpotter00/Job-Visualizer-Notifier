@@ -21,8 +21,8 @@ behaviour every ATS-backed company gets — so the row is created here with a
 real ``created_at`` instead. ``user_preferences_service`` enrolls on
 ``c.created_at > u.company_enroll_watermark``.
 
-The boot seeder still runs after this migration (main.py applies migrations at
-line 129 and seeds at line 166); its INSERT is ``ON CONFLICT (id) DO NOTHING``
+The boot seeder still runs after this migration (main.py's lifespan applies
+migrations before it seeds); its INSERT is ``ON CONFLICT (id) DO NOTHING``
 so it defers to this row, while its second phase still upserts the
 blurb/accomplishment from ``company_profiles.json``. The Amazon profile
 deliberately carries no ``ats`` key so ``script_inserted`` stays at 3 and the

@@ -10,8 +10,11 @@ class Settings(BaseSettings):
 
     # Scraper settings
     scraper_interval_hours: int = Field(default=1, gt=0)
-    # NOTE: the Railway SCRAPER_COMPANIES env var overrides this default, so
-    # adding a scraper here is not enough to make it run in production.
+    # NOTE: SCRAPER_COMPANIES overrides this default if set. It is currently
+    # NOT set in Railway prod (verified 2026-08-10), so this literal is what
+    # production actually runs — adding a scraper here does enable it on the
+    # next deploy. If someone later sets the env var, it silently wins and this
+    # line stops mattering; check Railway before assuming a scraper is live.
     scraper_companies: str = "apple,google,microsoft,amazon"
     scraper_detail_scrape: bool = True
     scraper_timeout_minutes: int = Field(default=90, gt=0)
