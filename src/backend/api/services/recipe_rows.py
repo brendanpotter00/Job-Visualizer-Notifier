@@ -7,10 +7,11 @@ objects, mirroring the ATS clients' ``transform_to_job_listings`` contract so th
 custom-company leaf task's ``_remap_for_custom`` re-scoping path is reused
 unchanged.
 
-Deliberately **agent-free** — imported by both the replay leaf task
-(``tasks/fetch_custom_company``) and the discovery orchestrator
-(``services/discovery/discover``). It imports only ``scripts.shared`` + the stdlib,
-so the import-guard AST walk of the leaf task's ``tasks/`` closure stays clean.
+Deliberately **agent-free** — imported by the replay leaf task
+(``tasks/fetch_custom_company``, both the http replay and the browser-agent branch)
+and the browser-agent discovery orchestrator
+(``services/browser_agent/discover``). It imports only ``scripts.shared`` + the
+stdlib, so the import-guard AST walk of the leaf task's ``tasks/`` closure stays clean.
 """
 
 from __future__ import annotations

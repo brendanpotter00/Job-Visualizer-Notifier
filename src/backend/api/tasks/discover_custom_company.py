@@ -1,22 +1,24 @@
-"""Procrastinate task: run ONE-TIME discovery for a non-ATS careers URL — E7 3b.
+"""Procrastinate task: run ONE-TIME discovery for a non-ATS careers URL — E7 pivot.
 
 Enqueued by the add-flow (``routers/user_companies.add_company``) when a pasted
 URL resolves to no supported ATS and the ``custom_company_discovery_enabled`` flag
-is on. It runs the agentic :func:`api.services.discovery.discover` (local browser
-+ one Sonnet call, ≤2 attempts), then:
+is on. It runs :func:`api.services.browser_agent.discover` (ONE bounded Browserbase
+Stagehand session, ≤2 attempts), then:
 
-* **accept** → :func:`custom_companies_service.add_discovered_company` writes the
-  four rows (multi-primitive script, ``transport``, real ``oracle_kind``); the
-  existing nightly ``fetch_custom_company`` leaf task replays it agent-free, and
-* **refuse** → :func:`custom_companies_service.record_discovery_refusal` writes a
-  disabled ``health_state='refused'`` row + a ``company_add_attempts`` row, so the
-  user sees "we can't reliably track this site" and nothing is ever scraped.
+* **accept** → :func:`custom_companies_service.add_discovered_company` flips the
+  provisional ``health_state='discovering'`` row to tracked and writes the
+  ``transport='browser_agent'`` script (``oracle_kind='self_consistent'``); the
+  existing nightly ``fetch_custom_company`` leaf task replays it via the same
+  bounded-session subprocess, and
+* **refuse** → :func:`custom_companies_service.record_discovery_refusal` flips that
+  row to a disabled ``health_state='refused'`` + a ``company_add_attempts`` row, so
+  the user sees "we can't reliably track this site" and nothing is ever scraped.
 
-Runs on its OWN queue (``custom_discovery``) so a slow browser/LLM run never
-starves the nightly ``custom_ats_fetch`` harvest queue. This module — and ONLY
-this module among ``tasks/`` — imports the discovery package (and thus
-``anthropic``); ``fetch_custom_company`` never imports it, so the replay path's
-import-guard closure stays clean.
+Runs on its OWN queue (``custom_discovery``) so a slow browser run never starves the
+nightly ``custom_ats_fetch`` harvest queue. The browser-agent discovery drives its
+cloud session OUT OF PROCESS (``_stagehand_main``), so importing this task never
+makes ``stagehand``/``browserbase`` resident — the replay path's import-guard
+closure stays clean.
 """
 
 from __future__ import annotations
@@ -31,12 +33,12 @@ from scripts.shared import database as db
 
 from ..config import settings
 from ..services import custom_companies_service as ccs
-from ..services.discovery import discover
+from ..services.browser_agent import discover
 from .procrastinate_app import procrastinate_app
 
 logger = logging.getLogger(__name__)
 
-# Discovery is a live browser + LLM run; give it a generous wall-clock cap.
+# Discovery is a live bounded browser session; give it a generous wall-clock cap.
 _TASK_TIMEOUT_S: float = 240.0
 
 

@@ -38,7 +38,8 @@ export function DiscoveryCTA({ url }: DiscoveryCTAProps) {
     return (
       <Alert severity="info" sx={{ mt: 2 }} data-testid="discovery-pending">
         <AlertTitle>One-time setup</AlertTitle>
-        {data.detail}
+        {data.detail} It now shows as “Setting up…” in your companies list below and
+        starts tracking automatically once the first scan finishes.
       </Alert>
     );
   }

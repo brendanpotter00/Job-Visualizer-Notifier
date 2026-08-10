@@ -13,9 +13,17 @@ httpx>=0.27.0
 beautifulsoup4>=4.12.0
 anthropic>=0.107.0,<1.0.0
 posthog>=6.0.0
-# E7 Phase 3b — discovery ONLY. Drives a local headless Chromium at add-time to
-# observe an arbitrary careers page; imported solely by services/discovery/ (never
-# by recipe_runner or the replay leaf task — the import-guard tests enforce this)
-# and run OUT OF PROCESS by the observer so the browser driver never lands in the
-# replay worker's sys.modules. Requires `playwright install chromium` in the image.
+# Playwright: used by the Google/Apple/Microsoft scraper subprocesses (the backend
+# image runs scripts/run_scraper.py in-process-family via subprocess). It is in the
+# recipe-runner FORBIDDEN set — a browser driver must never be resident on the
+# agent-free HTTP replay path — so no api/ module imports it. Requires
+# `playwright install chromium` in the image.
 playwright>=1.40.0
+
+# E7 Stagehand pivot — browser-agent discovery + nightly replay. Drives ONE bounded
+# Browserbase cloud-Chromium session (navigate→observe→extract→act) to read an
+# arbitrary rendered careers page. Imported ONLY by the subprocess entrypoint
+# services/browser_agent/_stagehand_main.py — NEVER by services/browser_agent/runner
+# or the replay leaf task, so `stagehand`/`browserbase` never land in the worker's
+# sys.modules (the import-guard tests enforce this; that is why it is a subprocess).
+stagehand>=3.22.0,<4.0.0

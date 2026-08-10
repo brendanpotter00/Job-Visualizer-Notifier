@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '../../../test/testUtils';
 import { MyCompaniesList } from '../../../components/my-companies/MyCompaniesList';
@@ -137,6 +137,84 @@ describe('MyCompaniesList', () => {
       ([input]) => (input as Request).method === 'DELETE'
     );
     expect(deleteCall).toBeUndefined();
+  });
+
+  it('renders a provisional discovering row as a "Setting up…" badge (E7 Stagehand pivot)', async () => {
+    const DISCOVERING: UserCompany = {
+      id: 'u-discover01',
+      displayName: 'careers.acme.example',
+      ats: 'discovered',
+      boardToken: 'https://careers.acme.example/jobs',
+      sourceId: 'custom:u-discover01',
+      healthState: 'discovering',
+      openJobCount: 0,
+      lastSuccessAt: null,
+      trackingStartedAt: null,
+    };
+    fetchMock.mockResolvedValue(jsonResponse({ companies: [DISCOVERING] }));
+    renderWithProviders(<MyCompaniesList />);
+
+    const row = await screen.findByTestId('my-company-row');
+    expect(within(row).getByText(/setting up/i)).toBeInTheDocument();
+  });
+
+  it('keeps polling while a board is still discovering (poll predicate)', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const DISCOVERING: UserCompany = {
+        id: 'u-discover02',
+        displayName: 'careers.acme.example',
+        ats: 'discovered',
+        boardToken: 'https://careers.acme.example/jobs',
+        sourceId: 'custom:u-discover02',
+        healthState: 'discovering',
+        openJobCount: 0,
+        lastSuccessAt: null,
+        trackingStartedAt: null,
+      };
+      fetchMock.mockResolvedValue(jsonResponse({ companies: [DISCOVERING] }));
+      renderWithProviders(<MyCompaniesList />);
+
+      await screen.findByTestId('my-company-row');
+      const callsAfterLoad = fetchMock.mock.calls.length;
+
+      // The 15s poll interval fires while a discovering row is present.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(16_000);
+      });
+      expect(fetchMock.mock.calls.length).toBeGreaterThan(callsAfterLoad);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('stops polling once every row is settled (healthy with jobs)', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const SETTLED: UserCompany = {
+        id: 'u-settled001',
+        displayName: 'Ramp',
+        ats: 'ashby',
+        boardToken: 'ramp',
+        sourceId: 'custom:u-settled001',
+        healthState: 'healthy',
+        openJobCount: 42,
+        lastSuccessAt: '2026-08-09T10:00:00Z',
+        trackingStartedAt: '2026-08-01T00:00:00Z',
+      };
+      fetchMock.mockResolvedValue(jsonResponse({ companies: [SETTLED] }));
+      renderWithProviders(<MyCompaniesList />);
+
+      await screen.findByTestId('my-company-row');
+      const callsAfterLoad = fetchMock.mock.calls.length;
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(16_000);
+      });
+      expect(fetchMock.mock.calls.length).toBe(callsAfterLoad);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('renders a REFUSE state as a "Not trackable" badge (E7 Phase 3b)', async () => {

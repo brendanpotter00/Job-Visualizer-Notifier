@@ -201,11 +201,24 @@ async def add_company(
                     response.status_code = 200
                     return _to_response(existing)
 
-                svc.record_add_attempt(
-                    conn, user_id=user_id, submitted_url=payload.url,
-                    normalized_url=normalized_url, outcome="discovery_pending",
-                    resolved_ats="discovered",
-                )
+                # Insert a PROVISIONAL 'discovering' companies row so the list shows
+                # the board as "Setting up…" immediately (§7 — the fix for the "list
+                # stays idle until a hard refresh" bug). This also records the
+                # discovery_pending attempt. The discovery task flips it to tracked or
+                # refused; nothing is scraped in the meantime (enabled=false).
+                try:
+                    svc.add_discovering_placeholder(
+                        conn, user_id=user_id, submitted_url=payload.url,
+                        normalized_url=normalized_url,
+                        display_name=_discovery_display_name(normalized_url),
+                    )
+                except (psycopg2.Error, RuntimeError):
+                    logger.exception(
+                        "Failed to create discovering placeholder for %s", normalized_url
+                    )
+                    raise HTTPException(
+                        status_code=500, detail="Failed to start discovery"
+                    )
                 try:
                     await _defer_discovery(
                         user_id=user_id,

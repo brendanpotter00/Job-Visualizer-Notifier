@@ -5,6 +5,12 @@ import {
 } from '../../../components/my-companies/companyHealth';
 
 describe('describeHealthState', () => {
+  it('frames the provisional discovering state as "Setting up…", not an error', () => {
+    const badge = describeHealthState('discovering');
+    expect(badge.label).toMatch(/setting up/i);
+    expect(badge.color).toBe('info');
+  });
+
   it('frames the Phase-1 unverified state as steady progress, not an error', () => {
     const badge = describeHealthState('unverified');
     expect(badge.label).toMatch(/building history/i);

@@ -17,13 +17,18 @@ export interface HealthBadge {
  * a blank chip — the `default` branch echoes the raw code so a screenshot stays
  * diagnosable.
  *
- * Phase-1 note: `unverified` (no oracle yet) reads as steady progress —
- * "building history" — not an error. Phase 2 graduates a proven company to
- * `healthy`, whose badge stays in the same "Tracking — …" family so the two
- * states read as one continuum rather than two unrelated words.
+ * `discovering` is the provisional pre-tracking state (E7 Stagehand pivot): a
+ * non-ATS board whose one-time browser-agent setup is still running — it isn't
+ * tracked yet, so it reads as "Setting up…" (neutral, in progress), NOT as an
+ * error. `unverified` (no oracle yet) then reads as steady progress —
+ * "building history". Phase 2 graduates a proven company to `healthy`, whose
+ * badge stays in the same "Tracking — …" family so the states read as one
+ * continuum rather than unrelated words.
  */
 export function describeHealthState(healthState: string): HealthBadge {
   switch (healthState) {
+    case 'discovering':
+      return { label: 'Setting up…', color: 'info' };
     case 'unverified':
       return { label: 'Tracking — building history', color: 'info' };
     case 'healthy':

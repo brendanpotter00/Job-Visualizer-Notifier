@@ -90,11 +90,26 @@ class Settings(BaseSettings):
     # Custom company DISCOVERY (E7 Phase 3b — the money sub-flag). Distinct from
     # ``custom_company_sources_enabled`` above: the (free) ATS add path can ship
     # while the one-time browser+LLM discovery path stays dark. A non-ATS URL only
-    # enqueues a ``discover_custom_company`` task (which drives local Playwright +
-    # one Sonnet call, ~$0.25–1 per add) when BOTH this and the parent flag are on;
-    # with this off the non-ATS branch keeps returning today's 422 ``unsupported``.
-    # Default OFF so spend cannot happen until it is deliberately flipped on.
+    # enqueues a ``discover_custom_company`` task (which drives a bounded Browserbase
+    # Stagehand session + Claude Sonnet, ~cents per add) when BOTH this and the
+    # parent flag are on; with this off the non-ATS branch keeps returning today's
+    # 422 ``unsupported``. Default OFF so spend cannot happen until it is
+    # deliberately flipped on.
     custom_company_discovery_enabled: bool = False
+
+    # Browserbase Stagehand browser-agent (E7 Stagehand pivot). Credentials for the
+    # bounded cloud-browser session the discovery + replay subprocess drives; read
+    # from BROWSERBASE_API_KEY / BROWSERBASE_PROJECT_ID (worktree .env.local). The
+    # LLM tokens bill to ``anthropic_api_key`` (our key), not Browserbase's.
+    browserbase_api_key: str | None = None
+    browserbase_project_id: str | None = None
+    # Master flag for the browser-agent transport (discovery AND nightly replay).
+    # Default OFF: the browser-agent SSRF control at the request level (the CDP
+    # ``Fetch.requestPaused`` host-pin, §5) is NOT yet implemented — v1 relies on
+    # the add-time + replay-time ``url_guard`` entry check plus best-effort
+    # Browserbase ``allowedDomains``. Do NOT flip this on for untrusted users until
+    # the CDP pin lands (see ``services/browser_agent/_stagehand_main.py``).
+    browser_agent_enabled: bool = False
 
     # PostHog analytics
     posthog_project_token: str | None = None

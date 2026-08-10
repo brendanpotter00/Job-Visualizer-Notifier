@@ -26,9 +26,19 @@ import { describeHealthState, describeLastChecked } from './companyHealth';
 /** Poll cadence while any row is still an empty, unverified board. */
 const POLL_INTERVAL_MS = 15_000;
 
-/** A row is "still settling" if we've never harvested a job for it yet. */
+/**
+ * A row is "still settling" if its first harvest hasn't landed yet, so the list
+ * should keep polling for it. Two cases:
+ *  - `discovering` — the one-time browser-agent setup is still running (E7
+ *    Stagehand pivot); the row flips to tracked or `refused` when it finishes.
+ *  - `unverified` with no jobs yet — a brand-new tracked board whose first
+ *    harvest hasn't run.
+ */
 function isStillSettling(company: UserCompany): boolean {
-  return company.healthState === 'unverified' && company.openJobCount === 0;
+  return (
+    company.healthState === 'discovering' ||
+    (company.healthState === 'unverified' && company.openJobCount === 0)
+  );
 }
 
 /**

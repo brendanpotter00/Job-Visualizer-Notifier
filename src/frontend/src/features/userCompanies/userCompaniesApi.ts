@@ -68,9 +68,16 @@ export interface ResolveUrlArgs {
 /**
  * Health lifecycle a stored user-company can be in. The wire value is a bare
  * `str` (backend-owned, may add codes), so display code narrows it and falls
- * back to raw text — see `companyHealth.ts`. Phase 1 mints only `'unverified'`.
+ * back to raw text — see `companyHealth.ts`.
+ *
+ * `'discovering'` is the PROVISIONAL state a non-ATS board sits in between the
+ * `202` add and the one-time browser-agent discovery finishing (E7 Stagehand
+ * pivot): the row exists (so the list shows it as "Setting up…") but nothing is
+ * scraped yet. The discovery task flips it to `'unverified'` (tracked) or
+ * `'refused'`.
  */
 export type UserCompanyHealthState =
+  | 'discovering'
   | 'unverified'
   | 'healthy'
   | 'quarantined'

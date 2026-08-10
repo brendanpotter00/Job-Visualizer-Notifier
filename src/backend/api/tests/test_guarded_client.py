@@ -223,17 +223,17 @@ def test_guarded_transport_default_inner_is_verified_https() -> None:
     t.close()
 
 
-def test_both_replay_factories_use_the_guarded_client() -> None:
-    """The nightly leaf task AND the discovery add-time replay both build the SSRF-
-    guarded client (no plain ``httpx.Client(follow_redirects=True)`` survives)."""
-    import sys
+def test_leaf_task_http_replay_uses_the_guarded_client() -> None:
+    """The nightly http_json/http_html replay leaf task builds the SSRF-guarded
+    client (no plain ``httpx.Client(follow_redirects=True)`` survives).
 
+    Since the Stagehand pivot, the discovery + browser-agent path no longer builds an
+    httpx client at all — it drives a bounded Browserbase session in a subprocess and
+    guards SSRF via the entry ``url_guard`` (``browser_agent.runner`` +
+    ``_stagehand_main``), so there is no discovery httpx factory left to assert here."""
     import api.tasks.fetch_custom_company as leaf
-    import api.services.discovery.discover  # noqa: F401 - populates sys.modules
 
-    disc_mod = sys.modules["api.services.discovery.discover"]
-    for factory in (leaf._recipe_http_client, disc_mod._default_http_client):
-        client = factory()
-        assert client.follow_redirects is False
-        assert isinstance(client._transport, GuardedTransport)
-        client.close()
+    client = leaf._recipe_http_client()
+    assert client.follow_redirects is False
+    assert isinstance(client._transport, GuardedTransport)
+    client.close()

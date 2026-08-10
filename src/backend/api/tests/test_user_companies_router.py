@@ -362,9 +362,23 @@ def test_non_ats_url_enqueues_discovery_202(client, db_conn, monkeypatch):
     assert len(calls) == 1
     assert calls[0]["normalized_url"] == _NON_ATS_URL
     assert calls[0]["display_name"] == "acme.example"
-    # A discovery_pending attempt row was recorded; nothing else was created.
+    # A discovery_pending attempt row was recorded (E7 Stagehand pivot §7).
     assert _count(db_conn, "company_add_attempts", "WHERE outcome = 'discovery_pending'") == 1
-    assert _count(db_conn, "companies", "WHERE visibility = 'user'") == 0
+    # A PROVISIONAL 'discovering' companies row now exists so the list shows the
+    # board as "Setting up…" immediately — DISABLED (no scraping) and script-less
+    # until the discovery task flips it to tracked or refused.
+    cur = db_conn.cursor()
+    cur.execute(
+        "SELECT health_state, enabled, next_run_at, board_token FROM companies "
+        "WHERE visibility = 'user'"
+    )
+    placeholder = cur.fetchone()
+    assert placeholder is not None
+    assert placeholder["health_state"] == "discovering"
+    assert placeholder["enabled"] is False
+    assert placeholder["next_run_at"] is None
+    assert placeholder["board_token"] == _NON_ATS_URL
+    assert _count(db_conn, "company_scripts") == 0
 
 
 def test_non_ats_url_without_subflag_stays_422_unsupported(client, db_conn, monkeypatch):

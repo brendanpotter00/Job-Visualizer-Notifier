@@ -256,6 +256,35 @@ async def _run_discovered_script(
     return await asyncio.to_thread(_run)
 
 
+async def _run_browser_agent_script(
+    script: dict[str, Any],
+    company_id: str,
+    *,
+    transport: str,
+    oracle_kind: str,
+) -> tuple[list[JobListing], HarvestEvidence]:
+    """Replay a DISCOVERED browser-agent company's stored artifact (E7 Stagehand pivot).
+
+    Runs ONE bounded Stagehand session in a subprocess (``run_browser_agent`` — the
+    SAME bound + stable-id proof discovery used), maps its rows via
+    ``recipe_rows_to_job_listings`` and returns the SAME ``HarvestEvidence`` the ATS /
+    http paths yield, so the gate/verdict/upsert tail below is byte-identical.
+
+    ``run_browser_agent`` RAISES ``RecipeExecutionError`` on a row-index id, a
+    cross-page id collision, an over-budget page count, or a subprocess failure — the
+    leaf task's narrow ``except`` records that as a FAILED run (nothing destructive,
+    NOT a miss). Imported LAZILY (inside the ``browser_agent`` branch only) so the
+    leaf task's module import graph never even references the browser-agent package —
+    ``stagehand`` lives solely in the subprocess it spawns.
+    """
+    from ..services.browser_agent import runner as browser_agent_runner
+
+    rows, evidence = await browser_agent_runner.run_browser_agent(
+        script, transport=transport, oracle_kind=oracle_kind
+    )
+    return recipe_rows_to_job_listings(company_id, rows), evidence
+
+
 @procrastinate_app.task(
     queue="custom_ats_fetch",
     name="fetch_custom_company",
@@ -327,7 +356,20 @@ async def fetch_custom_company(company_id: str) -> None:
                 cadence_hours = float(company.get("cadence_hours") or 24)
                 is_first_verified = company.get("tracking_started_at") is None
 
-                if transport in ("http_json", "http_html"):
+                if transport == "browser_agent":
+                    # DISCOVERED browser-agent company — E7 Stagehand pivot. Replay
+                    # via ONE bounded Stagehand session (subprocess); the STORED
+                    # oracle_kind is always 'self_consistent' (a rendered page proves
+                    # no trusted total). A row-index id / cross-page collision RAISES
+                    # → FAILED (the runner's contract), so it never closes a job.
+                    oracle_kind_effective = str(
+                        company.get("oracle_kind") or "self_consistent"
+                    )
+                    raw_jobs, evidence = await _run_browser_agent_script(
+                        script, company_id,
+                        transport=transport, oracle_kind=oracle_kind_effective,
+                    )
+                elif transport in ("http_json", "http_html"):
                     # DISCOVERED (non-ATS) company — E7 Phase 3b. Replay the stored
                     # multi-primitive script agent-free, and use the STORED
                     # oracle_kind: a discovered company has no ATS provider, so

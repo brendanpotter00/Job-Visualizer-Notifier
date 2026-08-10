@@ -333,6 +333,13 @@ async def sniff_embedded_ats(
     # Did we ever actually read a page? That is what decides the miss reason
     # below — see the comment there.
     scanned_any = False
+    # The landing page's OWN resolved URL (``targets[0]`` = ``url``, after its
+    # redirects). Used as the unsupported ``final_url`` so a non-ATS board flows to
+    # discovery with the page the user actually pasted — NOT the last invented
+    # sub-path probe (``fetched[-1]``), which doubles the tail segment: a pasted
+    # ``…/jobs`` yields the guess ``…/jobs/jobs`` and would send the browser agent to
+    # a 404. (The candidate-FOUND branch still uses the page the board was found on.)
+    landing_final_url = url
 
     try:
         targets = _sniff_urls(url)
@@ -347,7 +354,7 @@ async def sniff_embedded_ats(
             reason=exc.reason,
         )
 
-    for target in targets:
+    for index, target in enumerate(targets):
         try:
             response, hops = await guarded_get(
                 target,
@@ -372,6 +379,10 @@ async def sniff_embedded_ats(
                 break
             continue
 
+        if index == 0 and hops:
+            # ``targets[0]`` is the landing page itself; record its resolved URL so
+            # the unsupported branch reports the real page, not an invented sub-path.
+            landing_final_url = hops[-1]
         fetched.extend(hop for hop in hops if hop not in fetched)
         if response.status_code >= 400:
             logger.debug("Sniff of %s returned HTTP %d", target, response.status_code)
@@ -405,8 +416,11 @@ async def sniff_embedded_ats(
     return DiscoveryResult(
         candidate=None,
         via="unsupported",
+        # The landing page's own resolved URL — NOT ``fetched[-1]`` (the last invented
+        # sub-path probe), which would leak a doubled ``…/jobs/jobs`` guess into the
+        # discovered board's entry URL / canonical_source_key.
         hops=tuple(fetched),
-        final_url=fetched[-1] if fetched else url,
+        final_url=landing_final_url,
         reason=reason,
     )
 

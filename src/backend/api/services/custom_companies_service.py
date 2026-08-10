@@ -220,6 +220,167 @@ def discovered_source_key(normalized_url: str) -> str:
     return f"discovered:{normalized_url}"
 
 
+def add_discovering_placeholder(
+    conn: Connection,
+    *,
+    user_id: str,
+    submitted_url: str,
+    normalized_url: str,
+    display_name: str,
+) -> dict[str, Any]:
+    """Insert a PROVISIONAL ``health_state='discovering'`` row on the 202 add path (§7).
+
+    So ``getUserCompanies`` returns the board IMMEDIATELY (rendered as "Setting up…")
+    while the async ``discover_custom_company`` task runs — the fix for the owner's
+    "the list stays idle until a hard refresh" bug. The row is DISABLED
+    (``enabled=FALSE``, ``next_run_at=NULL``, NO ``company_scripts`` row) so NOTHING
+    is ever scraped until discovery flips it to tracked
+    (:func:`add_discovered_company`) or ``refused`` (:func:`record_discovery_refusal`).
+
+    Idempotent per ``UNIQUE(user_id, canonical_source_key)`` — a re-add resolves to
+    the existing row (whatever state discovery has since moved it to). Returns the row
+    dict for the response/list.
+    """
+    source_key = discovered_source_key(normalized_url)
+    existing = find_owned_company_by_source_key(conn, user_id, source_key)
+    if existing is not None:
+        existing["source_id"] = custom(existing["id"])
+        existing["open_job_count"] = count_open_jobs(conn, existing["id"])
+        return existing
+
+    last_error: Optional[psycopg2.Error] = None
+    for _ in range(_ID_GENERATION_ATTEMPTS):
+        company_id = new_custom_company_id()
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                """
+                INSERT INTO companies (
+                    id, display_name, ats, board_token, enabled, provider_config,
+                    visibility, cadence_hours, next_run_at, health_state,
+                    consecutive_failures
+                ) VALUES (
+                    %s, %s, %s, %s, FALSE, '{}'::jsonb,
+                    'user', %s, NULL, 'discovering', 0
+                )
+                """,
+                (company_id, display_name, _DISCOVERED_ATS, normalized_url,
+                 DEFAULT_CADENCE_HOURS),
+            )
+            cursor.execute(
+                """
+                INSERT INTO user_companies (user_id, company_id, canonical_source_key)
+                VALUES (%s, %s, %s)
+                """,
+                (user_id, company_id, source_key),
+            )
+            cursor.execute(
+                """
+                INSERT INTO company_add_attempts (
+                    user_id, submitted_url, normalized_url, outcome,
+                    resolved_ats, company_id
+                ) VALUES (%s, %s, %s, 'discovery_pending', %s, %s)
+                """,
+                (user_id, submitted_url, normalized_url, _DISCOVERED_ATS, company_id),
+            )
+            conn.commit()
+            return {
+                "id": company_id,
+                "display_name": display_name,
+                "ats": _DISCOVERED_ATS,
+                "board_token": normalized_url,
+                "health_state": "discovering",
+                "last_success_at": None,
+                "tracking_started_at": None,
+                "source_id": custom(company_id),
+                "open_job_count": 0,
+            }
+        except psycopg2.errors.UniqueViolation as exc:
+            conn.rollback()
+            existing = find_owned_company_by_source_key(conn, user_id, source_key)
+            if existing is not None:
+                existing["source_id"] = custom(existing["id"])
+                existing["open_job_count"] = count_open_jobs(conn, existing["id"])
+                return existing
+            last_error = exc
+            continue
+        except psycopg2.Error:
+            conn.rollback()
+            raise
+
+    raise RuntimeError(
+        "failed to create a discovering placeholder after "
+        f"{_ID_GENERATION_ATTEMPTS} attempts"
+    ) from last_error
+
+
+def _promote_to_tracked(
+    conn: Connection,
+    *,
+    user_id: str,
+    company_id: str,
+    submitted_url: str,
+    normalized_url: str,
+    display_name: str,
+    script: dict[str, Any],
+    script_version: int,
+    transport: str,
+    oracle_kind: str,
+) -> dict[str, Any]:
+    """Flip an existing (usually provisional ``discovering``) row to tracked and write
+    its script. The 202-placeholder → tracked transition (§7): the discovery task
+    accepted, so enable scraping (``health_state='unverified'``, ``enabled=TRUE``,
+    ``next_run_at=now()``) and upsert the ``company_scripts`` row (``ON CONFLICT`` so a
+    re-discovery replaces the script). Commits all-or-nothing, then records an
+    ``added`` attempt."""
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            """
+            UPDATE companies
+            SET health_state = 'unverified', enabled = TRUE, next_run_at = now(),
+                display_name = %s, board_token = %s
+            WHERE id = %s AND visibility = 'user'
+            """,
+            (display_name, normalized_url, company_id),
+        )
+        cursor.execute(
+            """
+            INSERT INTO company_scripts (
+                company_id, script, script_version, transport, oracle_kind
+            ) VALUES (%s, %s::jsonb, %s, %s, %s)
+            ON CONFLICT (company_id) DO UPDATE
+            SET script = EXCLUDED.script,
+                script_version = EXCLUDED.script_version,
+                transport = EXCLUDED.transport,
+                oracle_kind = EXCLUDED.oracle_kind,
+                updated_at = now()
+            """,
+            (company_id, json.dumps(script), script_version, transport, oracle_kind),
+        )
+        conn.commit()
+    except psycopg2.Error:
+        conn.rollback()
+        raise
+    record_add_attempt(
+        conn, user_id=user_id, submitted_url=submitted_url,
+        normalized_url=normalized_url, outcome="added",
+        resolved_ats=_DISCOVERED_ATS, board_token=normalized_url,
+        company_id=company_id,
+    )
+    return {
+        "id": company_id,
+        "display_name": display_name,
+        "ats": _DISCOVERED_ATS,
+        "board_token": normalized_url,
+        "health_state": "unverified",
+        "last_success_at": None,
+        "tracking_started_at": None,
+        "source_id": custom(company_id),
+        "open_job_count": count_open_jobs(conn, company_id),
+    }
+
+
 def add_discovered_company(
     conn: Connection,
     *,
@@ -233,15 +394,32 @@ def add_discovered_company(
 ) -> dict[str, Any]:
     """Create the four rows for a DISCOVERED (non-ATS) custom company — E7 Phase 3b.
 
-    The Phase-3 analog of :func:`add_custom_company`: same all-or-nothing
-    transaction, but the ``company_scripts`` row stores the **multi-primitive**
-    replay script with ``transport in {'http_json','http_html'}`` and the REAL,
-    discovery-proven ``oracle_kind`` (facet_sum/header/sitemap/self_consistent) —
-    not ``'ats_client'``/``'none'``. Idempotency is the caller's job; the
-    ``UNIQUE(user_id, canonical_source_key)`` race is caught and resolved here.
+    The Phase-3 analog of :func:`add_custom_company`: the ``company_scripts`` row
+    stores the discovery-proven script with ``transport in {'http_json','http_html',
+    'browser_agent'}`` and the REAL ``oracle_kind`` (facet_sum/header/sitemap/
+    self_consistent) — not ``'ats_client'``/``'none'``.
+
+    On the browser-agent add path a PROVISIONAL ``health_state='discovering'`` row
+    already exists (the router inserted it on the 202, §7), so the common case flips
+    that row to tracked and writes the script (:func:`_promote_to_tracked`) rather
+    than INSERTing a second ``companies`` row (which would ``UniqueViolation`` and
+    silently skip the script). Only when NO prior row exists (a task-direct call, or
+    discovery enqueued without a placeholder) does it INSERT fresh. Idempotent per
+    ``UNIQUE(user_id, canonical_source_key)`` either way.
     """
     source_key = discovered_source_key(normalized_url)
     script_version = int(script.get("script_version") or 1)
+
+    # Provisional-placeholder (or any prior owned) row exists → promote it and write
+    # the script, never a duplicate INSERT.
+    existing = find_owned_company_by_source_key(conn, user_id, source_key)
+    if existing is not None:
+        return _promote_to_tracked(
+            conn, user_id=user_id, company_id=existing["id"],
+            submitted_url=submitted_url, normalized_url=normalized_url,
+            display_name=display_name, script=script, script_version=script_version,
+            transport=transport, oracle_kind=oracle_kind,
+        )
 
     last_error: Optional[psycopg2.Error] = None
     for _ in range(_ID_GENERATION_ATTEMPTS):
@@ -301,11 +479,18 @@ def add_discovered_company(
             }
         except psycopg2.errors.UniqueViolation as exc:
             conn.rollback()
+            # Either a companies.id PK collision (regenerate + retry) or a concurrent
+            # placeholder for this (user, source_key). If the board now exists, PROMOTE
+            # it (write the script) rather than returning it script-less.
             existing = find_owned_company_by_source_key(conn, user_id, source_key)
             if existing is not None:
-                existing["source_id"] = custom(existing["id"])
-                existing["open_job_count"] = count_open_jobs(conn, existing["id"])
-                return existing
+                return _promote_to_tracked(
+                    conn, user_id=user_id, company_id=existing["id"],
+                    submitted_url=submitted_url, normalized_url=normalized_url,
+                    display_name=display_name, script=script,
+                    script_version=script_version, transport=transport,
+                    oracle_kind=oracle_kind,
+                )
             last_error = exc
             continue
         except psycopg2.Error:
