@@ -33,6 +33,11 @@ import { useState } from 'react';
 export function MyCompaniesPage() {
   const { isAuthenticated, isLoading: authLoading, login } = useAuth();
   const [resolveCareersUrl, resolveState] = useResolveCareersUrlMutation();
+  // Keep the last-submitted URL so a "no ATS found" result can offer one-time
+  // discovery against the same address. Declared here — ABOVE the auth ladder's
+  // early returns — so the hook count stays stable across renders (a hook after
+  // a conditional return breaks the Rules of Hooks).
+  const [lastUrl, setLastUrl] = useState('');
 
   // ── auth ladder (mirrors SavedFiltersPage / AccountPage) ─────────────────
   if (authLoading) {
@@ -61,9 +66,6 @@ export function MyCompaniesPage() {
   // clears `data` / `error`) on each new submit, so the three states below are
   // mutually exclusive without any local bookkeeping.
   const { isLoading: resolving, data: result, error } = resolveState;
-  // Keep the last-submitted URL so a "no ATS found" result can offer one-time
-  // discovery against the same address.
-  const [lastUrl, setLastUrl] = useState('');
   const noAtsDetected =
     error !== undefined && describeResolveError(error).reasonCode === 'no_ats_detected';
 
