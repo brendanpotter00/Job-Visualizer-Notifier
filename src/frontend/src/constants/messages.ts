@@ -33,6 +33,14 @@ export const EMPTY_STATE_MESSAGES = {
    */
   NO_MATCHES_IN_RECENT_PAGES: 'No more matches in the jobs loaded so far.',
 
+  /**
+   * Shown in place of the list while the filter matches nothing loaded so far
+   * but the keyset walk still holds older pages and is auto-deepening. The
+   * terminal "no jobs found" state is reserved for an exhausted walk — showing
+   * it here was the 2026-08-10 empty-filter deadlock.
+   */
+  SEARCHING_OLDER_JOBS_IN_PROGRESS: 'No matches in the newest postings yet — searching older jobs…',
+
   /** Label for the manual continue affordance that follows the message above. */
   SEARCH_OLDER_JOBS: 'Search older jobs',
 

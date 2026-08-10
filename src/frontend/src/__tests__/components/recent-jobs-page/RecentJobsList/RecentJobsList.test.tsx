@@ -234,7 +234,9 @@ describe('RecentJobsList', () => {
     expect(firstRow).toHaveAttribute('aria-posinset', '1');
   });
 
-  it('shows empty state when no jobs', () => {
+  it('shows empty state when no jobs AND the walk is exhausted', () => {
+    // hasMoreServer is false (beforeEach default): nothing left to fetch, so
+    // "no jobs found" is honest and terminal.
     vi.mocked(recentJobsSelectors.selectRecentJobsSorted).mockReturnValue([]);
 
     renderList();
@@ -559,6 +561,87 @@ describe('RecentJobsList', () => {
       expect(mockPaging.loadNextServerPage).not.toHaveBeenCalled();
       expect(
         screen.queryByRole('button', { name: EMPTY_STATE_MESSAGES.SEARCH_OLDER_JOBS })
+      ).not.toBeInTheDocument();
+    });
+  });
+
+  describe('empty filter with pages still outstanding (2026-08-10 deadlock)', () => {
+    // The incident: page 1 matched nothing, the terminal empty state rendered,
+    // and its early return unmounted the sentinel — the only thing that can
+    // advance the walk. 116 matching jobs sat one page deeper, permanently
+    // unreachable. These tests pin the machinery staying mounted at zero rows.
+    function renderEmptyWithMorePages() {
+      mockPaging.hasMoreServer = true;
+      vi.mocked(recentJobsSelectors.selectRecentJobsSorted).mockReturnValue([]);
+      return renderList();
+    }
+
+    it('does NOT show the terminal empty state while the walk has more pages', () => {
+      renderEmptyWithMorePages();
+
+      expect(screen.queryByText(/No jobs found matching your filters/)).not.toBeInTheDocument();
+      expect(
+        screen.getByText(EMPTY_STATE_MESSAGES.SEARCHING_OLDER_JOBS_IN_PROGRESS)
+      ).toBeInTheDocument();
+    });
+
+    it('keeps the sentinel mounted at zero rows so the walk can advance', () => {
+      const { container } = renderEmptyWithMorePages();
+
+      expect(
+        container.querySelector('.MuiStack-root > div[aria-hidden="true"][style*="height: 1px"]')
+      ).toBeInTheDocument();
+    });
+
+    it('advances the walk from the sentinel with zero visible rows', async () => {
+      renderEmptyWithMorePages();
+
+      await triggerLoadMore();
+
+      expect(mockPaging.loadNextServerPage).toHaveBeenCalledTimes(1);
+    });
+
+    it('spends the auto-fetch budget then offers the continue affordance, never the empty state', async () => {
+      renderEmptyWithMorePages();
+
+      for (let i = 0; i < 10; i++) await triggerLoadMore();
+
+      expect(mockPaging.loadNextServerPage).toHaveBeenCalledTimes(
+        VIRTUAL_LIST_CONFIG.MAX_EMPTY_AUTO_FETCHES
+      );
+      expect(
+        screen.getByText(EMPTY_STATE_MESSAGES.NO_MATCHES_IN_RECENT_PAGES)
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: EMPTY_STATE_MESSAGES.SEARCH_OLDER_JOBS })
+      ).toBeInTheDocument();
+      expect(screen.queryByText(/No jobs found matching your filters/)).not.toBeInTheDocument();
+      // The in-progress line yields to the stopped-short message.
+      expect(
+        screen.queryByText(EMPTY_STATE_MESSAGES.SEARCHING_OLDER_JOBS_IN_PROGRESS)
+      ).not.toBeInTheDocument();
+    });
+
+    it('shows the terminal empty state once the walk exhausts with still no matches', () => {
+      const { rerender } = renderEmptyWithMorePages();
+
+      mockPaging.hasMoreServer = false;
+      const store = createMockStore();
+      rerender(
+        <Provider store={store}>
+          <RecentJobsList />
+        </Provider>
+      );
+
+      expect(screen.getByText(/No jobs found matching your filters/)).toBeInTheDocument();
+    });
+
+    it('never mounts the sentinel at zero rows when signed out', () => {
+      mockAuthState.isAuthenticated = false;
+      const { container } = renderEmptyWithMorePages();
+
+      expect(
+        container.querySelector('.MuiStack-root > div[aria-hidden="true"][style*="height: 1px"]')
       ).not.toBeInTheDocument();
     });
   });

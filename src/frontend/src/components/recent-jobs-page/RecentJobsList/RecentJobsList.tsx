@@ -50,6 +50,16 @@ import { useAuth } from '../../../features/auth/useAuth.ts';
  * button. A failed fetch stops it the same way, with the error shown, because
  * a rejection leaves the cursors intact and would otherwise retry forever.
  *
+ * **Zero matches must NOT unmount the machinery.** The terminal empty state
+ * renders only when the walk is exhausted (`!hasMoreServer`). When the filter
+ * matches nothing on page 1 but cursors are still outstanding, the list stays
+ * mounted with the sentinel so the walk auto-deepens (bounded by the same
+ * empty-fetch budget above). Early-returning the empty state here is the
+ * 2026-08-10 incident: the sentinel — the only thing that can advance the walk
+ * — unmounts, the budget never spends, and the page reports "No jobs found"
+ * forever while matching rows sit one page deeper. See
+ * `docs/incidents/2026-08-10-recent-jobs-empty-filter-deadlock.md`.
+ *
  * When the user is signed out the list is capped at
  * SIGN_IN_OVERLAY_CONFIG.SIGNED_OUT_JOB_LIMIT and both infinite scroll and
  * server paging are disabled; a SignInOverlay is shown below to prompt sign-up.
@@ -173,11 +183,14 @@ export function RecentJobsList() {
   // Memoize displayed jobs slice
   const displayedJobs = useMemo(() => jobs.slice(0, effectiveCount), [jobs, effectiveCount]);
 
-  // Empty state. Suppressed while a page is in flight so a window-widening
-  // restart shows skeletons rather than flashing "no jobs found" at a user who
-  // just asked for MORE history — and suppressed when the walk has more to
-  // give, so the continue affordance below can offer it.
-  if (jobs.length === 0 && !isLoadingMore && !showContinueAffordance) {
+  // TERMINAL empty state: only honest once the walk holds nothing more
+  // (`!hasMoreServer`). Suppressed while a page is in flight (a widening
+  // restart shows skeletons, not a flash of "no jobs found"), suppressed when
+  // auto-fetching stopped short (the continue affordance below offers the
+  // rest), and — load-bearing — suppressed while cursors are outstanding:
+  // this return unmounts the sentinel, so taking it with pages left would
+  // deadlock the walk at "No jobs found" with matches one page deeper.
+  if (jobs.length === 0 && !isLoadingMore && !showContinueAffordance && !hasMoreServer) {
     return <EmptyJobListState />;
   }
 
@@ -200,6 +213,17 @@ export function RecentJobsList() {
             </Box>
           ) : (
             <VirtualJobRows jobs={displayedJobs} totalCount={jobs.length} />
+          )}
+
+          {/* Zero matches so far, walk still deepening: say so, instead of
+              bare skeletons (or a blank frame between fetches) where the list
+              should be. The stopped-short case has its own message below. */}
+          {jobs.length === 0 && !showContinueAffordance && (
+            <Box sx={{ textAlign: 'center', pt: 4 }} role="status">
+              <Typography variant="body2" color="text.secondary">
+                {EMPTY_STATE_MESSAGES.SEARCHING_OLDER_JOBS_IN_PROGRESS}
+              </Typography>
+            </Box>
           )}
 
           {/* Loading skeletons */}
