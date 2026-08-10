@@ -19,6 +19,10 @@
     "accomplishment": "Akuna Capital is a leading options market maker that trades exclusively with its own capital and builds its own low-latency technology and quantitative models.",
     "blurb": "Akuna Capital is a proprietary trading firm specializing in options market making across global exchanges."
   },
+  "amazon": {
+    "accomplishment": "Amazon operates the world's largest e-commerce marketplace and AWS, the leading cloud computing platform, which together serve hundreds of millions of customers globally.",
+    "blurb": "Amazon runs a global e-commerce marketplace plus Amazon Web Services, along with devices, streaming media, and logistics operations."
+  },
   "andurilindustries": {
     "accomplishment": "Anduril is known for its Lattice AI platform and autonomous systems, pioneering a software-first, commercially funded model for defense products.",
     "blurb": "Anduril builds autonomous defense technology, integrating hardware and AI software for military and national-security applications."

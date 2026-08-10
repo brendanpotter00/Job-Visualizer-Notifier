@@ -356,3 +356,104 @@ def microsoft_details_response() -> Dict[str, Any]:
             "postedDate": "2024-12-15",
         }
     }
+
+
+# ============================================================================
+# Amazon Scraper Fixtures
+# ============================================================================
+
+@pytest.fixture
+def amazon_scraper():
+    """AmazonJobsScraper instance for transformation tests"""
+    from scripts.amazon_jobs_scraper.scraper import AmazonJobsScraper
+    return AmazonJobsScraper(headless=True, detail_scrape=False)
+
+
+@pytest.fixture
+def amazon_raw_job() -> Dict[str, Any]:
+    """One raw search.json row, shaped from a live 2026-08-09 response."""
+    return {
+        "id": "8f0d1e2a-0000-4a1b-9c3d-000000000000",  # GUID — NOT the id we key on
+        "id_icims": "10496449",
+        "title": "Software Development Engineer, Conversational Ads Experience",
+        "job_path": "/en/jobs/10496449/software-development-engineer-conversational-ads-experience",
+        "description": "Amazon is building a world class advertising business.<br/>Join us.",
+        "basic_qualifications": "- 3+ years of experience<br/>- BS in CS",
+        "preferred_qualifications": "- Experience with AWS",
+        "posted_date": "August  8, 2026",  # NOTE: double space, as Amazon sends it
+        "normalized_location": "Seattle, Washington, USA",
+        "location": "US, WA, Seattle",
+        "job_category": "Software Development",
+        "team": {"label": "team-aws-sdm"},
+        "job_schedule_type": "Full-Time",
+        "business_category": "Advertising",
+        "job_family": "Software Development",
+        "city": "Seattle",
+        "state": "Washington",
+        "country_code": "USA",
+        "url_next_step": "https://account.amazon.jobs/jobs/10496449/apply",
+        "is_intern": None,
+        "university_job": None,
+        "is_manager": None,
+    }
+
+
+@pytest.fixture
+def amazon_search_response(amazon_raw_job) -> Dict[str, Any]:
+    """A realistic search.json payload envelope."""
+    second = dict(amazon_raw_job)
+    second["id_icims"] = "10496467"
+    second["title"] = "Sr. Software Development Engineer, EC2"
+    second["job_path"] = "/en/jobs/10496467/sr-software-development-engineer-ec2"
+    return {"error": None, "hits": 1303, "jobs": [amazon_raw_job, second]}
+
+
+@pytest.fixture
+def amazon_page_factory(amazon_raw_job):
+    """Build a search.json payload with `count` synthetic rows."""
+    def _make(count: int, offset: int = 0, hits: Any = None) -> Dict[str, Any]:
+        jobs = []
+        for i in range(count):
+            row = dict(amazon_raw_job)
+            row["id_icims"] = str(10_000_000 + offset + i)
+            row["title"] = f"Software Development Engineer {offset + i}"
+            row["job_path"] = f"/en/jobs/{row['id_icims']}/software-development-engineer"
+            jobs.append(row)
+        return {"error": None, "hits": hits, "jobs": jobs}
+    return _make
+
+
+@pytest.fixture
+def sample_amazon_job_data() -> Dict[str, Any]:
+    """A standardised Amazon job *card* (post-_parse_job_from_search)."""
+    return {
+        "id": "10496449",
+        "title": "Software Development Engineer II",
+        "job_url": "https://www.amazon.jobs/en/jobs/10496449/software-development-engineer",
+        "location": "Seattle, Washington, USA",
+        "posted_date": "2026-08-08",
+        "department": "Software Development",
+        "description": "Build things.\n\n- 3+ years of experience",
+        "team": "team-aws-sdm",
+        "job_schedule_type": "Full-Time",
+        "business_category": "Advertising",
+        "job_family": "Software Development",
+        "city": "Seattle",
+        "state": "Washington",
+        "country_code": "USA",
+        "apply_url": "https://account.amazon.jobs/jobs/10496449/apply",
+        "is_intern": None,
+        "university_job": None,
+        "is_manager": None,
+        "company": "amazon",
+    }
+
+
+@pytest.fixture
+def amazon_dirty_json_text() -> str:
+    """A JSON document carrying a raw \\x01 control byte inside a string.
+
+    Mirrors the Amazon payloads that break strict JSON parsers (Python's
+    json.loads and V8's JSON.parse alike).
+    """
+    return '{"jobs": [{"id_icims": "1", "title": "SDE", "description": "a\x01b"}], "hits": 1}'

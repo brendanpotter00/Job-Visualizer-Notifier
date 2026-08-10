@@ -20,21 +20,26 @@ from shared.constants import SourceId
 from tests.e2e.integrity import SCRAPER_SPECS
 
 
-EXPECTED_SOURCE_IDS = {SourceId.GOOGLE, SourceId.APPLE, SourceId.MICROSOFT}
+EXPECTED_SOURCE_IDS = {
+    SourceId.GOOGLE,
+    SourceId.APPLE,
+    SourceId.MICROSOFT,
+    SourceId.AMAZON,
+}
 
 
-def test_exactly_three_specs() -> None:
-    """All three scrapers must be specced — no silent partial coverage."""
-    assert len(SCRAPER_SPECS) == 3, (
-        f"expected exactly 3 scraper specs, found {len(SCRAPER_SPECS)}: "
+def test_exactly_four_specs() -> None:
+    """All four scrapers must be specced — no silent partial coverage."""
+    assert len(SCRAPER_SPECS) == 4, (
+        f"expected exactly 4 scraper specs, found {len(SCRAPER_SPECS)}: "
         f"{[s.name for s in SCRAPER_SPECS]}. A shrunk SCRAPER_SPECS means "
         f"`pytest -m e2e` runs fewer live cases and a broken scraper goes "
         f"unnoticed."
     )
 
 
-def test_specs_cover_all_three_source_ids() -> None:
-    """The specced source_ids must be exactly Google + Apple + Microsoft."""
+def test_specs_cover_all_source_ids() -> None:
+    """The specced source_ids must be exactly Google + Apple + Microsoft + Amazon."""
     source_ids = {spec.source_id for spec in SCRAPER_SPECS}
     assert source_ids == EXPECTED_SOURCE_IDS, (
         f"SCRAPER_SPECS source_ids {source_ids} != expected "

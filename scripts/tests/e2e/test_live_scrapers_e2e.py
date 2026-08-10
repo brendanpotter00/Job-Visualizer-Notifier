@@ -28,7 +28,12 @@ from tests.e2e.integrity import SCRAPER_SPECS, assert_job_integrity
 
 
 # Exactly the three scrapers the live E2E suite must always exercise.
-_EXPECTED_SOURCE_IDS = {SourceId.GOOGLE, SourceId.APPLE, SourceId.MICROSOFT}
+_EXPECTED_SOURCE_IDS = {
+    SourceId.GOOGLE,
+    SourceId.APPLE,
+    SourceId.MICROSOFT,
+    SourceId.AMAZON,
+}
 
 
 @pytest.mark.e2e
@@ -52,17 +57,17 @@ def test_specs_present():
     browser-free — it only inspects the in-memory spec table — so it never adds
     flakiness.
     """
-    assert len(SCRAPER_SPECS) == 3, (
-        f"expected exactly 3 scraper specs, found {len(SCRAPER_SPECS)}: "
-        f"{[s.name for s in SCRAPER_SPECS]}. With fewer than 3, `pytest -m e2e` "
+    assert len(SCRAPER_SPECS) == 4, (
+        f"expected exactly 4 scraper specs, found {len(SCRAPER_SPECS)}: "
+        f"{[s.name for s in SCRAPER_SPECS]}. With fewer than 4, `pytest -m e2e` "
         f"runs fewer (or zero) live cases yet still exits 0 — a green scheduled "
-        f"run would NOT prove all three scrapers ran."
+        f"run would NOT prove all four scrapers ran."
     )
     source_ids = {spec.source_id for spec in SCRAPER_SPECS}
     assert source_ids == _EXPECTED_SOURCE_IDS, (
         f"SCRAPER_SPECS source_ids {source_ids} != expected "
         f"{_EXPECTED_SOURCE_IDS} — every scheduled run must exercise exactly "
-        f"Google + Apple + Microsoft."
+        f"Google + Apple + Microsoft + Amazon."
     )
 
 
