@@ -158,6 +158,12 @@ export function useRecentJobsPaging({ enabled }: { enabled: boolean }): RecentJo
   const advance = useCallback(() => {
     if (!enabled || isFetchingNextPage) return;
     if (needsWidening) {
+      // Same stream-race gate as the widening effect below. It must live here
+      // too: the sentinel now stays mounted at zero visible rows and fires at
+      // t≈0, and a widen dispatched while page 1 is still streaming discards
+      // that entire in-flight load. Returning is safe — the effect re-fires
+      // the widen the moment the first page settles.
+      if (!firstPageSettled) return;
       dispatchPage({ window: desiredWindow });
       return;
     }
@@ -167,6 +173,7 @@ export function useRecentJobsPaging({ enabled }: { enabled: boolean }): RecentJo
     enabled,
     isFetchingNextPage,
     needsWidening,
+    firstPageSettled,
     desiredWindow,
     hasCursors,
     windowProvablyComplete,
