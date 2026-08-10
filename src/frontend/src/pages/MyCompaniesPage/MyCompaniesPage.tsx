@@ -12,7 +12,10 @@ import Divider from '@mui/material/Divider';
 import { ResolveUrlForm } from '../../components/my-companies/ResolveUrlForm';
 import { ResolveResultDisplay } from '../../components/my-companies/ResolveResultDisplay';
 import { ResolveErrorDisplay } from '../../components/my-companies/ResolveErrorDisplay';
+import { DiscoveryCTA } from '../../components/my-companies/DiscoveryCTA';
 import { MyCompaniesList } from '../../components/my-companies/MyCompaniesList';
+import { describeResolveError } from '../../features/userCompanies/resolveErrors';
+import { useState } from 'react';
 
 /**
  * "My Companies" — currently a resolve-only preview.
@@ -58,8 +61,14 @@ export function MyCompaniesPage() {
   // clears `data` / `error`) on each new submit, so the three states below are
   // mutually exclusive without any local bookkeeping.
   const { isLoading: resolving, data: result, error } = resolveState;
+  // Keep the last-submitted URL so a "no ATS found" result can offer one-time
+  // discovery against the same address.
+  const [lastUrl, setLastUrl] = useState('');
+  const noAtsDetected =
+    error !== undefined && describeResolveError(error).reasonCode === 'no_ats_detected';
 
   const handleSubmit = (url: string) => {
+    setLastUrl(url);
     // Fire-and-forget: the rendered state comes from `resolveState`, and an
     // unhandled rejection here would be noise — the error is already surfaced.
     void resolveCareersUrl({ url });
@@ -85,7 +94,12 @@ export function MyCompaniesPage() {
 
         {resolving && <LoadingState minHeight={120} caption="Checking that URL…" />}
 
-        {!resolving && error !== undefined && <ResolveErrorDisplay error={error} />}
+        {!resolving && error !== undefined && (
+          <>
+            <ResolveErrorDisplay error={error} />
+            {noAtsDetected && lastUrl && <DiscoveryCTA url={lastUrl} />}
+          </>
+        )}
 
         {!resolving && error === undefined && result !== undefined && (
           <ResolveResultDisplay result={result} />

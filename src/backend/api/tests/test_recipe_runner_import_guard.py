@@ -15,6 +15,7 @@ Three independent guards (invariant #5, "a proof, not a convention"):
 from __future__ import annotations
 
 import ast
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -27,6 +28,13 @@ _BACKEND = Path(__file__).resolve().parents[2]          # src/backend
 _API = _BACKEND / "api"
 _RUNNER = _API / "services" / "recipe_runner.py"
 _LEAF_TASK = _API / "tasks" / "fetch_custom_company.py"
+_REPO_ROOT = _BACKEND.parents[1]            # worktree/repo root (holds scripts/)
+
+# The subprocess import checks must resolve BOTH ``api`` (under src/backend) and
+# ``scripts`` (at the repo root, imported transitively by procrastinate_app),
+# regardless of how pytest was invoked. Pin PYTHONPATH explicitly rather than
+# relying on an inherited one, so the guard proves the boundary — not the env.
+_SUBPROC_ENV = {**os.environ, "PYTHONPATH": os.pathsep.join([str(_REPO_ROOT), str(_BACKEND)])}
 
 
 # --- 1. runtime subprocess check --------------------------------------------
@@ -40,12 +48,40 @@ def test_subprocess_import_leaves_no_forbidden_module() -> None:
     )
     result = subprocess.run(
         [sys.executable, "-c", code],
-        cwd=str(_BACKEND),
+        cwd=str(_BACKEND), env=_SUBPROC_ENV,
         capture_output=True, text=True, timeout=60,
     )
     assert result.returncode == 0, result.stderr
     leaked = result.stdout.strip()
     assert leaked == "", f"forbidden modules leaked on import: {leaked!r}"
+
+
+def test_importing_the_task_package_leaves_no_browser_driver_resident() -> None:
+    """E7 Phase 3b boundary: importing the whole ``tasks`` package (which now
+    imports the discovery leaf task, and thus the discovery package) must NOT leave
+    a browser driver resident — the observer runs Playwright OUT OF PROCESS, so the
+    replay leaf task's per-call runtime guard stays satisfied in the same worker.
+
+    ``anthropic`` is deliberately NOT asserted absent: the shared worker already
+    hosts location-normalization, which loads it, and the runtime guard tolerates
+    that (see ``recipe_runner._RUNTIME_FORBIDDEN_MODULES``). Only the discovery-only
+    browser drivers are a decidable proof of contamination."""
+    code = (
+        "import sys\n"
+        "import api.tasks  # imports every task, including the discovery leaf task\n"
+        "import api.tasks.fetch_custom_company  # the agent-free replay leaf task\n"
+        "browser = sorted(m for m in ('playwright', 'stagehand', 'browserbase', 'langchain')\n"
+        "                 if m in sys.modules)\n"
+        "print(','.join(browser))\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=str(_BACKEND), env=_SUBPROC_ENV,
+        capture_output=True, text=True, timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    leaked = result.stdout.strip()
+    assert leaked == "", f"a discovery browser driver leaked into the worker: {leaked!r}"
 
 
 # --- 2. AST walk ------------------------------------------------------------

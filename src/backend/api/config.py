@@ -87,6 +87,15 @@ class Settings(BaseSettings):
     # ``api/tests/test_companies_resolve_endpoint.py``.
     custom_company_sources_enabled: bool = False
 
+    # Custom company DISCOVERY (E7 Phase 3b — the money sub-flag). Distinct from
+    # ``custom_company_sources_enabled`` above: the (free) ATS add path can ship
+    # while the one-time browser+LLM discovery path stays dark. A non-ATS URL only
+    # enqueues a ``discover_custom_company`` task (which drives local Playwright +
+    # one Sonnet call, ~$0.25–1 per add) when BOTH this and the parent flag are on;
+    # with this off the non-ATS branch keeps returning today's 422 ``unsupported``.
+    # Default OFF so spend cannot happen until it is deliberately flipped on.
+    custom_company_discovery_enabled: bool = False
+
     # PostHog analytics
     posthog_project_token: str | None = None
     posthog_host: str = "https://us.i.posthog.com"

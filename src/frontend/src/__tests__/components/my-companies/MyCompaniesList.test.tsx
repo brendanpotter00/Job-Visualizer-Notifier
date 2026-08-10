@@ -138,4 +138,24 @@ describe('MyCompaniesList', () => {
     );
     expect(deleteCall).toBeUndefined();
   });
+
+  it('renders a REFUSE state as a "Not trackable" badge (E7 Phase 3b)', async () => {
+    // A discovery that refused surfaces in the list as a disabled, refused row.
+    const REFUSED: UserCompany = {
+      id: 'u-refused0001',
+      displayName: 'careers.acme.example',
+      ats: 'discovered',
+      boardToken: 'https://careers.acme.example/jobs',
+      sourceId: 'custom:u-refused0001',
+      healthState: 'refused',
+      openJobCount: 0,
+      lastSuccessAt: null,
+      trackingStartedAt: null,
+    };
+    fetchMock.mockResolvedValue(jsonResponse({ companies: [REFUSED] }));
+    renderWithProviders(<MyCompaniesList />);
+
+    const row = await screen.findByTestId('my-company-row');
+    expect(within(row).getByText('Not trackable')).toBeInTheDocument();
+  });
 });

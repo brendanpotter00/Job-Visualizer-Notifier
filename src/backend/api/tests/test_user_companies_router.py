@@ -314,3 +314,69 @@ def test_flag_off_returns_503(client, monkeypatch):
     assert client.get("/api/users/companies").status_code == 503
     assert client.delete("/api/users/companies/u-x").status_code == 503
     assert client.get("/api/users/companies/u-x/jobs").status_code == 503
+
+
+# --- E7 Phase 3b: non-ATS URL → async discovery (202) behind the sub-flag ------
+
+_NON_ATS_URL = "https://acme.example/careers"
+
+
+def _patch_no_ats(monkeypatch, final_url: str = _NON_ATS_URL):
+    from api.services.ats_discovery import DiscoveryResult
+
+    async def _fake_discover_ats(url, http, *, deadline):
+        return DiscoveryResult(
+            candidate=None, via="unsupported", hops=(), final_url=final_url,
+            reason="no_ats_detected",
+        )
+
+    monkeypatch.setattr("api.routers.user_companies.discover_ats", _fake_discover_ats)
+
+
+def _capture_defer(monkeypatch) -> list[dict]:
+    calls: list[dict] = []
+
+    async def _fake_defer(*, user_id, submitted_url, normalized_url, display_name):
+        calls.append({
+            "user_id": user_id, "submitted_url": submitted_url,
+            "normalized_url": normalized_url, "display_name": display_name,
+        })
+
+    monkeypatch.setattr("api.routers.user_companies._defer_discovery", _fake_defer)
+    return calls
+
+
+def test_non_ats_url_enqueues_discovery_202(client, db_conn, monkeypatch):
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
+    _login(client, "auth0|A", "a@example.com")
+    _patch_no_ats(monkeypatch)
+    calls = _capture_defer(monkeypatch)
+
+    resp = client.post("/api/users/companies", json={"url": _NON_ATS_URL})
+    assert resp.status_code == 202, resp.text
+    body = resp.json()
+    assert body["status"] == "discovery_pending"
+    assert body["finalUrl"] == _NON_ATS_URL
+
+    # The one-time discovery task was enqueued exactly once, with the final URL.
+    assert len(calls) == 1
+    assert calls[0]["normalized_url"] == _NON_ATS_URL
+    assert calls[0]["display_name"] == "acme.example"
+    # A discovery_pending attempt row was recorded; nothing else was created.
+    assert _count(db_conn, "company_add_attempts", "WHERE outcome = 'discovery_pending'") == 1
+    assert _count(db_conn, "companies", "WHERE visibility = 'user'") == 0
+
+
+def test_non_ats_url_without_subflag_stays_422_unsupported(client, db_conn, monkeypatch):
+    # Sub-flag OFF (the default): the non-ATS branch keeps today's 422 unsupported;
+    # discovery (and its spend) never runs.
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", False)
+    _login(client, "auth0|B", "b@example.com")
+    _patch_no_ats(monkeypatch)
+    calls = _capture_defer(monkeypatch)
+
+    resp = client.post("/api/users/companies", json={"url": _NON_ATS_URL})
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["reason"] == "no_ats_detected"
+    assert len(calls) == 0
+    assert _count(db_conn, "company_add_attempts", "WHERE outcome = 'unsupported'") == 1

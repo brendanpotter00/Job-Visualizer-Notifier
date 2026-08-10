@@ -8,6 +8,7 @@ import { buildMyCompanyDetailPath } from '../../config/routes';
 import { extractErrorMessage } from '../../lib/errors';
 import {
   useAddUserCompanyMutation,
+  isDiscoveryPending,
   type AddUserCompanyFailure,
 } from '../../features/userCompanies/userCompaniesApi';
 
@@ -60,6 +61,17 @@ export function AddCompanyCTA({ finalUrl }: AddCompanyCTAProps) {
     // and the rejection is already surfaced as `error`.
     void addUserCompany({ url: finalUrl });
   };
+
+  if (data !== undefined && isDiscoveryPending(data)) {
+    // A non-ATS URL was routed to one-time discovery (async). Nothing is tracked
+    // yet — it will surface in the list below after the first scan.
+    return (
+      <Alert severity="info" sx={{ mt: 2 }} data-testid="add-company-discovery-pending">
+        <AlertTitle>One-time setup</AlertTitle>
+        {data.detail}
+      </Alert>
+    );
+  }
 
   if (data !== undefined) {
     return (

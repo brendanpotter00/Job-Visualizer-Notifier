@@ -13,3 +13,9 @@ httpx>=0.27.0
 beautifulsoup4>=4.12.0
 anthropic>=0.107.0,<1.0.0
 posthog>=6.0.0
+# E7 Phase 3b — discovery ONLY. Drives a local headless Chromium at add-time to
+# observe an arbitrary careers page; imported solely by services/discovery/ (never
+# by recipe_runner or the replay leaf task — the import-guard tests enforce this)
+# and run OUT OF PROCESS by the observer so the browser driver never lands in the
+# replay worker's sys.modules. Requires `playwright install chromium` in the image.
+playwright>=1.40.0

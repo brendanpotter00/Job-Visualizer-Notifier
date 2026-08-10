@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from urllib.parse import urlparse
 
 import httpx
 import psycopg2
@@ -92,6 +93,34 @@ def _reject(status: int, reason: str, detail: str, final_url: str | None = None)
     return JSONResponse(status_code=status, content=body)
 
 
+def _discovery_display_name(final_url: str) -> str:
+    """A human label for a discovered company — the host of its final URL."""
+    host = urlparse(final_url).netloc
+    return host or final_url
+
+
+async def _defer_discovery(
+    *, user_id: str, submitted_url: str, normalized_url: str, display_name: str
+) -> None:
+    """Enqueue the one-time ``discover_custom_company`` task on its own queue.
+
+    Module-level + lazily importing the task (which pulls in the discovery
+    package, and thus ``anthropic``) so the router's import graph stays light and
+    tests can monkeypatch this seam without opening a live worker. A per-URL
+    queueing lock collapses a double-submit into one discovery run.
+    """
+    from ..tasks.discover_custom_company import discover_custom_company
+
+    await discover_custom_company.configure(
+        queueing_lock=f"discover:{normalized_url}",
+    ).defer_async(
+        user_id=user_id,
+        submitted_url=submitted_url,
+        normalized_url=normalized_url,
+        display_name=display_name,
+    )
+
+
 @router.post("", response_model=UserCompanyResponse)
 async def add_company(
     payload: AddUserCompanyRequest,
@@ -146,6 +175,63 @@ async def add_company(
             return _reject(422, "deadline_exceeded", "Resolving the URL timed out.")
 
         if result.candidate is None:
+            # Non-ATS URL. With the discovery sub-flag on, hand it to the one-time
+            # async discovery agent (browser + LLM) and return 202; otherwise it
+            # stays 422 'unsupported' — discovery (and its spend) ships dark and
+            # rolls back by the flag. (The parent flag is already asserted on by
+            # ``_require_flag`` above.)
+            if settings.custom_company_discovery_enabled and result.final_url:
+                normalized_url = result.final_url
+                source_key = svc.discovered_source_key(normalized_url)
+                existing = svc.find_owned_company_by_source_key(
+                    conn, user_id, source_key
+                )
+                if existing is not None:
+                    # Idempotent re-add of an already-discovered (or refused) board:
+                    # resolve to the existing row instead of re-spending on discovery.
+                    svc.record_add_attempt(
+                        conn, user_id=user_id, submitted_url=payload.url,
+                        normalized_url=normalized_url, outcome="discovery_pending",
+                        resolved_ats="discovered", company_id=existing["id"],
+                    )
+                    existing["source_id"] = custom(existing["id"])
+                    existing["open_job_count"] = svc.count_open_jobs(
+                        conn, existing["id"]
+                    )
+                    response.status_code = 200
+                    return _to_response(existing)
+
+                svc.record_add_attempt(
+                    conn, user_id=user_id, submitted_url=payload.url,
+                    normalized_url=normalized_url, outcome="discovery_pending",
+                    resolved_ats="discovered",
+                )
+                try:
+                    await _defer_discovery(
+                        user_id=user_id,
+                        submitted_url=payload.url,
+                        normalized_url=normalized_url,
+                        display_name=_discovery_display_name(normalized_url),
+                    )
+                except Exception:
+                    logger.exception(
+                        "Failed to enqueue discovery for %s", normalized_url
+                    )
+                    raise HTTPException(
+                        status_code=500, detail="Failed to start discovery"
+                    )
+                return JSONResponse(
+                    status_code=202,
+                    content={
+                        "status": "discovery_pending",
+                        "detail": (
+                            "One-time setup — we're figuring out how to read this "
+                            "board; jobs appear after the first scan."
+                        ),
+                        "finalUrl": normalized_url,
+                    },
+                )
+
             svc.record_add_attempt(
                 conn, user_id=user_id, submitted_url=payload.url,
                 normalized_url=result.final_url, outcome="unsupported",

@@ -68,6 +68,9 @@ _WORKER_QUEUES: tuple[str, ...] = (
     # Custom (user-added, private) companies ride their OWN queue — the claim
     # task (*/15) and the per-company leaf task — never the six public fan-outs.
     "custom_ats_fetch",
+    # One-time discovery (E7 Phase 3b) rides a SEPARATE queue so a slow browser +
+    # LLM add-time run never starves the nightly custom_ats_fetch harvest.
+    "custom_discovery",
     "heartbeat",
     "normalize",
 )

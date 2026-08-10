@@ -208,6 +208,215 @@ def add_custom_company(
     ) from last_error
 
 
+# A discovered (non-ATS) company has no ATS provider/token; these label the
+# ``companies.ats`` / ``board_token`` columns (NOT NULL) so a reader can tell a
+# discovered board from an ATS one. The transport + oracle live on company_scripts.
+_DISCOVERED_ATS = "discovered"
+
+
+def discovered_source_key(normalized_url: str) -> str:
+    """Idempotency key for a discovered company — there is no ``ats:token``, so the
+    normalized final URL identifies the board (``UNIQUE(user_id, canonical_source_key)``)."""
+    return f"discovered:{normalized_url}"
+
+
+def add_discovered_company(
+    conn: Connection,
+    *,
+    user_id: str,
+    submitted_url: str,
+    normalized_url: str,
+    display_name: str,
+    script: dict[str, Any],
+    transport: str,
+    oracle_kind: str,
+) -> dict[str, Any]:
+    """Create the four rows for a DISCOVERED (non-ATS) custom company — E7 Phase 3b.
+
+    The Phase-3 analog of :func:`add_custom_company`: same all-or-nothing
+    transaction, but the ``company_scripts`` row stores the **multi-primitive**
+    replay script with ``transport in {'http_json','http_html'}`` and the REAL,
+    discovery-proven ``oracle_kind`` (facet_sum/header/sitemap/self_consistent) —
+    not ``'ats_client'``/``'none'``. Idempotency is the caller's job; the
+    ``UNIQUE(user_id, canonical_source_key)`` race is caught and resolved here.
+    """
+    source_key = discovered_source_key(normalized_url)
+    script_version = int(script.get("script_version") or 1)
+
+    last_error: Optional[psycopg2.Error] = None
+    for _ in range(_ID_GENERATION_ATTEMPTS):
+        company_id = new_custom_company_id()
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                """
+                INSERT INTO companies (
+                    id, display_name, ats, board_token, enabled, provider_config,
+                    visibility, cadence_hours, next_run_at, health_state,
+                    consecutive_failures
+                ) VALUES (
+                    %s, %s, %s, %s, TRUE, '{}'::jsonb,
+                    'user', %s, now(), 'unverified', 0
+                )
+                """,
+                (company_id, display_name, _DISCOVERED_ATS, normalized_url,
+                 DEFAULT_CADENCE_HOURS),
+            )
+            cursor.execute(
+                """
+                INSERT INTO user_companies (user_id, company_id, canonical_source_key)
+                VALUES (%s, %s, %s)
+                """,
+                (user_id, company_id, source_key),
+            )
+            cursor.execute(
+                """
+                INSERT INTO company_scripts (
+                    company_id, script, script_version, transport, oracle_kind
+                ) VALUES (%s, %s::jsonb, %s, %s, %s)
+                """,
+                (company_id, json.dumps(script), script_version, transport, oracle_kind),
+            )
+            cursor.execute(
+                """
+                INSERT INTO company_add_attempts (
+                    user_id, submitted_url, normalized_url, outcome,
+                    resolved_ats, board_token, company_id
+                ) VALUES (%s, %s, %s, 'added', %s, %s, %s)
+                """,
+                (user_id, submitted_url, normalized_url, _DISCOVERED_ATS,
+                 normalized_url, company_id),
+            )
+            conn.commit()
+            return {
+                "id": company_id,
+                "display_name": display_name,
+                "ats": _DISCOVERED_ATS,
+                "board_token": normalized_url,
+                "health_state": "unverified",
+                "last_success_at": None,
+                "tracking_started_at": None,
+                "source_id": custom(company_id),
+                "open_job_count": 0,
+            }
+        except psycopg2.errors.UniqueViolation as exc:
+            conn.rollback()
+            existing = find_owned_company_by_source_key(conn, user_id, source_key)
+            if existing is not None:
+                existing["source_id"] = custom(existing["id"])
+                existing["open_job_count"] = count_open_jobs(conn, existing["id"])
+                return existing
+            last_error = exc
+            continue
+        except psycopg2.Error:
+            conn.rollback()
+            raise
+
+    raise RuntimeError(
+        "failed to generate a unique discovered company id after "
+        f"{_ID_GENERATION_ATTEMPTS} attempts"
+    ) from last_error
+
+
+def record_discovery_refusal(
+    conn: Connection,
+    *,
+    user_id: str,
+    submitted_url: str,
+    normalized_url: str,
+    display_name: str,
+    reason: str,
+) -> str:
+    """Record a loud, terminal discovery REFUSAL (E7 Phase 3b, invariant 6).
+
+    Creates a DISABLED, script-less ``companies`` row with
+    ``health_state='refused'`` (+ ownership + a ``company_add_attempts`` row with
+    ``outcome='refused'``) so the user SEES "we can't reliably track this site" as
+    a badge in their list, while nothing is ever scraped: ``enabled=FALSE``,
+    ``next_run_at=NULL``, and no ``company_scripts`` row (so the leaf task no-ops
+    even if it were ever reached).
+
+    RECONCILIATION NOTE (deliberate): PHASE-3-PLAN §7 says "no company" on refuse
+    while the §0.1 non-negotiable invariant says "set health_state='refused'".
+    ``health_state`` is a ``companies`` column, so surfacing the refusal as a badge
+    requires a row — a disabled, script-less one is the coherent terminal state
+    that honors the invariant without ever harvesting. Returns the company id.
+    """
+    source_key = discovered_source_key(normalized_url)
+    existing = find_owned_company_by_source_key(conn, user_id, source_key)
+    if existing is not None:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                "UPDATE companies SET health_state = 'refused', enabled = FALSE, "
+                "next_run_at = NULL WHERE id = %s AND visibility = 'user'",
+                (existing["id"],),
+            )
+            conn.commit()
+        except psycopg2.Error:
+            conn.rollback()
+            raise
+        record_add_attempt(
+            conn, user_id=user_id, submitted_url=submitted_url,
+            normalized_url=normalized_url, outcome="refused", error_detail=reason,
+            resolved_ats=_DISCOVERED_ATS, company_id=existing["id"],
+        )
+        return str(existing["id"])
+
+    last_error: Optional[psycopg2.Error] = None
+    for _ in range(_ID_GENERATION_ATTEMPTS):
+        company_id = new_custom_company_id()
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                """
+                INSERT INTO companies (
+                    id, display_name, ats, board_token, enabled, provider_config,
+                    visibility, cadence_hours, next_run_at, health_state,
+                    consecutive_failures
+                ) VALUES (
+                    %s, %s, %s, %s, FALSE, '{}'::jsonb,
+                    'user', NULL, NULL, 'refused', 0
+                )
+                """,
+                (company_id, display_name, _DISCOVERED_ATS, normalized_url),
+            )
+            cursor.execute(
+                """
+                INSERT INTO user_companies (user_id, company_id, canonical_source_key)
+                VALUES (%s, %s, %s)
+                """,
+                (user_id, company_id, source_key),
+            )
+            cursor.execute(
+                """
+                INSERT INTO company_add_attempts (
+                    user_id, submitted_url, normalized_url, outcome, error_detail,
+                    resolved_ats, company_id
+                ) VALUES (%s, %s, %s, 'refused', %s, %s, %s)
+                """,
+                (user_id, submitted_url, normalized_url, reason, _DISCOVERED_ATS,
+                 company_id),
+            )
+            conn.commit()
+            return company_id
+        except psycopg2.errors.UniqueViolation as exc:
+            conn.rollback()
+            existing = find_owned_company_by_source_key(conn, user_id, source_key)
+            if existing is not None:
+                return str(existing["id"])
+            last_error = exc
+            continue
+        except psycopg2.Error:
+            conn.rollback()
+            raise
+
+    raise RuntimeError(
+        "failed to record a discovery refusal after "
+        f"{_ID_GENERATION_ATTEMPTS} attempts"
+    ) from last_error
+
+
 def count_open_jobs(conn: Connection, company_id: str) -> int:
     """OPEN job_listings for a custom company (scoped by its own source_id)."""
     cursor = conn.cursor()

@@ -248,3 +248,119 @@ async def test_greenhouse_zero_board_verifies_but_guard_blocks_close(db_conn, mo
     assert runs[1]["guard_reason"] == "empty_scrape"
     assert runs[1]["closed_jobs"] == 0
     assert runs[1]["success"] is True
+
+
+# --- E7 Phase 3b: discovered (http_json) transport ---------------------------
+
+import httpx  # noqa: E402  (test-local; the leaf task's replay uses a sync client)
+
+
+def _seed_discovered_company(
+    db_conn, company_id: str, *, script: dict, transport: str = "http_json",
+    oracle_kind: str = "facet_sum",
+) -> None:
+    """Seed a DISCOVERED (non-ATS) custom company + its multi-primitive script."""
+    cur = db_conn.cursor()
+    cur.execute(
+        sql.SQL(
+            "INSERT INTO {} (id, display_name, ats, board_token, enabled, "
+            "provider_config, visibility, cadence_hours, next_run_at, health_state) "
+            "VALUES (%s, %s, 'discovered', %s, TRUE, '{{}}'::jsonb, 'user', 24, now(), 'unverified')"
+        ).format(sql.Identifier("companies")),
+        (company_id, company_id, "https://careers.acme.example/jobs"),
+    )
+    cur.execute(
+        sql.SQL(
+            "INSERT INTO {} (company_id, script, script_version, transport, oracle_kind) "
+            "VALUES (%s, %s::jsonb, 1, %s, %s)"
+        ).format(sql.Identifier("company_scripts")),
+        (company_id, json.dumps(script), transport, oracle_kind),
+    )
+    db_conn.commit()
+
+
+def _http_json_script() -> dict:
+    return {
+        "script_version": 1,
+        "transport": "http_json",
+        "expected_min_jobs": 1,
+        "steps": [
+            {"op": "fetch", "method": "GET",
+             "url": "https://careers.acme.example/api/jobs", "headers": {}},
+            {"op": "extract_json_path", "records_path": "jobs",
+             "fields": {"id": "id", "title": "title", "url": "url"}},
+            {"op": "dedupe_key", "field": "id"},
+        ],
+        "oracle": {"kind": "facet_sum", "facet_path": "facets.dept",
+                   "single_valued": True, "total_path": "hits", "window_cap": 100000},
+    }
+
+
+# 3 jobs; the single-valued dept facet sums to 3 == hits, so declared_total=3 and
+# a 3-row harvest VERIFIES exactly (tolerance 0).
+_HTTP_JSON_PAYLOAD = {
+    "jobs": [
+        {"id": "1", "title": "Staff Engineer", "url": "https://careers.acme.example/j/1"},
+        {"id": "2", "title": "Designer", "url": "https://careers.acme.example/j/2"},
+        {"id": "3", "title": "PM", "url": "https://careers.acme.example/j/3"},
+    ],
+    "facets": {"dept": [{"eng": 2}, {"design": 1}]},
+    "hits": 3,
+}
+
+
+def _patch_recipe_http(monkeypatch, payload: dict) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=payload)
+
+    def factory() -> httpx.Client:
+        return httpx.Client(transport=httpx.MockTransport(handler))
+
+    monkeypatch.setattr(task_mod, "_recipe_http_client", factory)
+
+
+async def test_http_json_transport_replays_through_gate_and_verifies(db_conn, monkeypatch) -> None:
+    """A stored http_json script replays via recipe_runner through the SAME gate;
+    the oracle comes from the STORED column (facet_sum), not the ATS provider
+    (a discovered company's provider 'discovered' would derive 'none')."""
+    _patch_env(monkeypatch)
+    _patch_recipe_http(monkeypatch, _HTTP_JSON_PAYLOAD)
+    company_id = "u-httpjson01"
+    _seed_discovered_company(db_conn, company_id, script=_http_json_script())
+
+    await fetch_custom_company(company_id=company_id)
+    db_conn.rollback()
+
+    harvests = _rows(db_conn, "company_harvests", company_id)
+    assert len(harvests) == 1
+    assert harvests[0]["verdict"] == "VERIFIED"
+    assert harvests[0]["oracle_kind"] == "facet_sum"    # STORED, not provider-derived
+    assert harvests[0]["records_harvested"] == 3
+    assert harvests[0]["oracle_total"] == 3
+
+    # First VERIFIED run graduates the company but closes nothing.
+    company = _company_row(db_conn, company_id)
+    assert company["health_state"] == "healthy"
+    assert company["tracking_started_at"] is not None
+
+
+async def test_http_json_transport_replay_failure_is_failed_not_a_miss(db_conn, monkeypatch) -> None:
+    """A replay that RAISES (records_path that doesn't resolve) is a recorded
+    FAILED run — nothing destructive, not a miss."""
+    _patch_env(monkeypatch)
+    _patch_recipe_http(monkeypatch, {"unexpected": "shape"})
+    company_id = "u-httpjson02"
+    _seed_discovered_company(db_conn, company_id, script=_http_json_script())
+
+    with pytest.raises(Exception):
+        await fetch_custom_company(company_id=company_id)
+    db_conn.rollback()
+
+    harvests = _rows(db_conn, "company_harvests", company_id)
+    assert harvests[0]["verdict"] == "FAILED"
+    cur = db_conn.cursor()
+    cur.execute(
+        sql.SQL("SELECT success FROM {} WHERE company = %s").format(sql.Identifier("scrape_runs")),
+        (company_id,),
+    )
+    assert cur.fetchone()["success"] is False

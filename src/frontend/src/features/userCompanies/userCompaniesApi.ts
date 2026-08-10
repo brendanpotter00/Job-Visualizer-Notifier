@@ -126,6 +126,32 @@ export interface AddUserCompanyFailure {
   finalUrl: string;
 }
 
+/**
+ * The `202 Accepted` body when a non-ATS URL is handed to one-time discovery
+ * (E7 Phase 3b). The board isn't tracked yet — a background agent is teaching
+ * itself to read it, and the company surfaces in the list after the first scan
+ * (or as a `refused` health badge if it can't be tracked). Distinct from the
+ * `UserCompany` success body by its `status` discriminant.
+ */
+export interface DiscoveryPendingResponse {
+  status: 'discovery_pending';
+  detail: string;
+  finalUrl?: string;
+}
+
+/**
+ * `addUserCompany` resolves to a tracked `UserCompany` (201/200, ATS boards or an
+ * idempotent re-add) OR a `DiscoveryPendingResponse` (202, a non-ATS URL routed to
+ * one-time discovery). Consumers discriminate with {@link isDiscoveryPending}.
+ */
+export type AddUserCompanyResult = UserCompany | DiscoveryPendingResponse;
+
+export function isDiscoveryPending(
+  result: AddUserCompanyResult,
+): result is DiscoveryPendingResponse {
+  return (result as DiscoveryPendingResponse).status === 'discovery_pending';
+}
+
 interface UserCompaniesApiExtra {
   getTokenOrNull: () => Promise<string | null>;
 }
@@ -174,10 +200,12 @@ export const userCompaniesApi = createApi({
 
     /**
      * Add a company from an already-resolved final URL. On `201` (created) or
-     * an idempotent `200` (already owned) the body is the `UserCompany`; a `422`
+     * an idempotent `200` (already owned) the body is the `UserCompany`; on `202`
+     * a non-ATS URL was routed to one-time discovery and the body is a
+     * `DiscoveryPendingResponse` (discriminate with `isDiscoveryPending`); a `422`
      * surfaces `AddUserCompanyFailure` in `error.data` for the UI to explain.
      */
-    addUserCompany: builder.mutation<UserCompany, ResolveUrlArgs>({
+    addUserCompany: builder.mutation<AddUserCompanyResult, ResolveUrlArgs>({
       query: ({ url }) => ({
         url: 'users/companies',
         method: 'POST',

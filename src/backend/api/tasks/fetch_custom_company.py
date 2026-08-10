@@ -50,8 +50,10 @@ from ..services import (
     workday_client,
 )
 from ..services import custom_companies_service as ccs
+from ..services import recipe_runner
 from ..services.custom_baseline import compute_baseline
 from ..services.harvest_meta import HarvestEvidence
+from ..services.recipe_rows import recipe_rows_to_job_listings
 from ..services.harvest_verification import (
     FAILED,
     VERIFIED,
@@ -212,6 +214,43 @@ def _remap_for_custom(
     ]
 
 
+# Sync client for the discovered-script (http_json/http_html) transport. Module-
+# level so a test injects an ``httpx.MockTransport`` without a live network — the
+# same seam the router uses for ``_http_client``.
+_RECIPE_HTTP_TIMEOUT_S = 30.0
+
+
+def _recipe_http_client() -> httpx.Client:
+    return httpx.Client(
+        timeout=_RECIPE_HTTP_TIMEOUT_S,
+        follow_redirects=True,
+        headers={"User-Agent": recipe_runner.USER_AGENT},
+    )
+
+
+async def _run_discovered_script(
+    script: dict[str, Any], company_id: str
+) -> tuple[list[JobListing], HarvestEvidence]:
+    """Replay a DISCOVERED company's stored multi-primitive script (E7 Phase 3b).
+
+    ``recipe_runner.run_recipe`` is sync + agent-free (it re-validates the stored
+    script, asserts no browser/agent driver is resident, then plain-``httpx``
+    replays it) and returns the SAME ``HarvestEvidence`` the ATS path yields, so
+    the gate/verdict/upsert tail below is byte-identical. Run in a thread so the
+    blocking client never stalls the worker's event loop. A ``RecipeExecutionError``
+    propagates to the leaf task's narrow ``except`` → a recorded FAILED run.
+    """
+    def _run() -> tuple[list[JobListing], HarvestEvidence]:
+        http = _recipe_http_client()
+        try:
+            rows, evidence = recipe_runner.run_recipe(script, http)
+        finally:
+            http.close()
+        return recipe_rows_to_job_listings(company_id, rows), evidence
+
+    return await asyncio.to_thread(_run)
+
+
 @procrastinate_app.task(
     queue="custom_ats_fetch",
     name="fetch_custom_company",
@@ -279,20 +318,29 @@ async def fetch_custom_company(company_id: str) -> None:
                     return
 
                 script = company["script"]
-                provider = str(script.get("provider") or company["ats"])
-                board_token = str(script.get("token") or company["board_token"])
-                provider_config = dict(company["provider_config"] or {})
-                # DECISION D2: derive the effective oracle from the ATS provider,
-                # NOT from the stored oracle_kind — so a Phase-1 row seeded 'none'
-                # graduates with no backfill.
-                oracle_kind_effective = effective_oracle_kind(provider)
+                transport = str(company.get("transport") or "ats_client")
                 cadence_hours = float(company.get("cadence_hours") or 24)
                 is_first_verified = company.get("tracking_started_at") is None
 
-                async with httpx.AsyncClient() as http:
-                    raw_jobs, evidence = await _fetch_and_transform(
-                        provider, board_token, provider_config, company_id, http
-                    )
+                if transport in ("http_json", "http_html"):
+                    # DISCOVERED (non-ATS) company — E7 Phase 3b. Replay the stored
+                    # multi-primitive script agent-free, and use the STORED
+                    # oracle_kind: a discovered company has no ATS provider, so
+                    # ``effective_oracle_kind`` (provider-derived) does not apply.
+                    oracle_kind_effective = str(company.get("oracle_kind") or "none")
+                    raw_jobs, evidence = await _run_discovered_script(script, company_id)
+                else:
+                    provider = str(script.get("provider") or company["ats"])
+                    board_token = str(script.get("token") or company["board_token"])
+                    provider_config = dict(company["provider_config"] or {})
+                    # DECISION D2: derive the effective oracle from the ATS provider,
+                    # NOT from the stored oracle_kind — so a Phase-1 row seeded 'none'
+                    # graduates with no backfill.
+                    oracle_kind_effective = effective_oracle_kind(provider)
+                    async with httpx.AsyncClient() as http:
+                        raw_jobs, evidence = await _fetch_and_transform(
+                            provider, board_token, provider_config, company_id, http
+                        )
                 jobs = _remap_for_custom(
                     raw_jobs, company_id, source_id, datetime.now(timezone.utc)
                 )
@@ -525,11 +573,18 @@ async def fetch_custom_company(company_id: str) -> None:
             verdict = FAILED
             verdict_reason = "timeout"
             scrape_error = e
-        except (HarvestGateError, httpx.HTTPError, ValueError, psycopg2.Error) as e:
+        except (
+            HarvestGateError,
+            httpx.HTTPError,
+            recipe_runner.RecipeExecutionError,
+            ValueError,
+            psycopg2.Error,
+        ) as e:
             # Narrow on purpose (mirrors the ATS tasks): programmer errors
             # propagate immediately; expected failure modes (a gate check, HTTP
-            # transport, malformed payload, DB error) convert to a recorded
-            # FAILED run. A FAILED run wrote nothing destructive and is NOT a miss.
+            # transport, a discovered-script replay raise, malformed payload, DB
+            # error) convert to a recorded FAILED run. A FAILED run wrote nothing
+            # destructive and is NOT a miss.
             logger.error(
                 "fetch_custom_company failed for %s: %s", company_id, e, exc_info=True,
             )
