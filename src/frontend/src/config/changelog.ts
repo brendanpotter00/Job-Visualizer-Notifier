@@ -19,6 +19,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'add-tiktok',
+    title: 'Added TikTok',
+    description:
+      "TikTok — the short-form video platform, plus its advertising and TikTok Shop businesses — is now tracked. Its careers site has no standard job board behind it, so this needed a purpose-built scraper rather than the usual ATS integration, joining Google, Apple, Microsoft, and Amazon in the Custom Web Scrapers group. Coverage is US software and data roles, currently around 380 open postings out of a ~3,900-role global catalogue, refreshed hourly like everything else. One quirk worth knowing: TikTok's listings carry no posted date at all, so their timeline reflects when this site first saw them.",
+    tags: ['new-companies'],
+    date: '2026-08-13',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add TikTok to your company preferences',
+    },
+  },
+  {
     id: 'add-amazon',
     title: 'Added Amazon',
     description:

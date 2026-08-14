@@ -480,6 +480,10 @@
     "accomplishment": "Thinking Machines pursues a mission of building collaborative, customizable general intelligence and offers Tinker, an API for fine-tuning open-weight language models.",
     "blurb": "Thinking Machines is an artificial intelligence research and product lab founded by former OpenAI chief technology officer Mira Murati."
   },
+  "tiktok": {
+    "accomplishment": "TikTok grew to over a billion monthly users and reshaped online video around a fully algorithmic recommendation feed, prompting nearly every major platform to copy the short-form format.",
+    "blurb": "TikTok operates the short-form video platform of the same name, spanning entertainment, live streaming, advertising, and e-commerce through TikTok Shop."
+  },
   "togetherai": {
     "accomplishment": "Together AI is recognized for fast, cost-efficient inference and for advancing open research like the FlashAttention and RedPajama open-dataset projects.",
     "blurb": "Together AI operates a cloud platform for running, fine-tuning, and training open-source generative AI models on high-performance GPU infrastructure."

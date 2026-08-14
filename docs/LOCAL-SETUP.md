@@ -100,7 +100,7 @@ The backend and scrapers share `psycopg2-binary` and `pydantic` but have separat
 playwright install chromium
 ```
 
-Required for the Google, Apple, Microsoft, and Amazon scrapers. The browser binary is separate from the Python package.
+Required for the Google, Apple, Microsoft, Amazon, and TikTok scrapers. The browser binary is separate from the Python package.
 
 ### 6. Link to Vercel
 

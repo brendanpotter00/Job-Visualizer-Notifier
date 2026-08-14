@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     # production actually runs — adding a scraper here does enable it on the
     # next deploy. If someone later sets the env var, it silently wins and this
     # line stops mattering; check Railway before assuming a scraper is live.
-    scraper_companies: str = "apple,google,microsoft,amazon"
+    scraper_companies: str = "apple,google,microsoft,amazon,tiktok"
     scraper_detail_scrape: bool = True
     scraper_timeout_minutes: int = Field(default=90, gt=0)
     scraper_scripts_path: str = "../../scripts"

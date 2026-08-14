@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Multi-Company Job Scraper - A Python-based web scraping framework that extracts job listings from multiple company career sites. Currently supports **Google Careers** (Playwright browser automation), **Apple Jobs** (hybrid HTML + API approach), **Microsoft Careers** (Eightfold ATS JSON APIs), and **Amazon Jobs** (public JSON search endpoint, no detail fetch). Designed to feed structured job data into the Job Visualizer application with support for incremental scraping, database persistence, and comprehensive error handling.
+Multi-Company Job Scraper - A Python-based web scraping framework that extracts job listings from multiple company career sites. Currently supports **Google Careers** (Playwright browser automation), **Apple Jobs** (hybrid HTML + API approach), **Microsoft Careers** (Eightfold ATS JSON APIs), **Amazon Jobs** (public JSON search endpoint, no detail fetch), and **TikTok Jobs** (public JSON search endpoint, POST, no detail fetch). Designed to feed structured job data into the Job Visualizer application with support for incremental scraping, database persistence, and comprehensive error handling.
 
 ## Commands
 
@@ -21,6 +21,10 @@ python scripts/run_scraper.py --company microsoft --detail-scrape       # Micros
 # Amazon Scraper
 python scripts/run_scraper.py --company amazon                          # Amazon scrape
 python scripts/run_scraper.py --company amazon --max-jobs 10 -v         # Quick smoke test
+
+# TikTok Scraper
+python scripts/run_scraper.py --company tiktok                          # TikTok scrape
+python scripts/run_scraper.py --company tiktok --max-jobs 10 -v         # Quick smoke test
 
 python scripts/run_scraper.py --company all                             # Run all scrapers
 
@@ -49,7 +53,7 @@ pip install -r scripts/requirements-dev.txt      # Install dev dependencies (tes
 ## CLI Options
 
 ```
---company {google,apple,microsoft,amazon,all}  # Which scraper to run (default: google)
+--company {google,apple,microsoft,amazon,tiktok,all}  # Which scraper to run (default: google)
 --db-url URL                  # PostgreSQL connection URL
 --incremental                 # Run incremental mode (requires --db-url)
 --detail-scrape               # Scrape individual job detail pages
@@ -198,6 +202,45 @@ The Amazon scraper is **API-only** — no HTML parsing and no detail-fetch phase
 - `JOBS_PER_PAGE` - 100 (API hard cap)
 - `MAX_PAGES` - 50 safety bound (live `hits` was 1303)
 
+## TikTok Scraper Details
+
+The TikTok scraper is **API-only** — no HTML parsing and no detail-fetch phase:
+
+1. **Single JSON endpoint:** `POST https://api.lifeattiktok.com/api/v1/public/supplier/search/job/posts`
+2. **Descriptions arrive inline:** the row carries plain-text `description` and
+   `requirement`, so `scrape_job_details_streaming` is a **pass-through**
+
+**Key Differences from Other Scrapers:**
+- **POST, not GET.** Pagination and keyword live in a JSON body, not the query string.
+- **`website-path: tiktok` header is REQUIRED** — without it the edge returns HTTP 400.
+- **HTTP 200 can still be an error.** The envelope carries `code`; a non-zero
+  value raises rather than returning partial results, because swallowing it
+  would let the incremental lifecycle close the whole company during an outage.
+- **No posted date exists.** Nothing in the payload carries one, so `posted_on`
+  is always `None` and `first_seen_at` is the only honest signal.
+- **Location is filtered client-side.** `location_code_list` takes *city* codes
+  (`CT_163`); passing a country code (`CN_6` = USA) silently returns zero
+  results, so the US filter matches on the flattened `city_info` string instead.
+- **Same-origin navigation is required.** The API sends no
+  `Access-Control-Allow-Origin`, so the in-page `fetch()` only works once the
+  page is on lifeattiktok.com (`_establish_session`).
+- **Descriptions are plain text** — no HTML stripping, unlike Amazon.
+- **An incomplete run raises, it never returns short.** Exhausting the retry
+  budget or the page budget raises `JobSearchError` and discards what was
+  collected. A truncated list is indistinguishable from "these jobs are gone"
+  to the incremental lifecycle, and losing one TikTok page is only ~13% of the
+  kept board — inside the `partial_scrape` guard's ~85% blind spot, so it would
+  reach close-detection. Same reasoning as Amazon; see
+  `docs/incidents/2026-03-29-mass-job-closure.md`.
+
+**TikTok Configuration (`tiktok_jobs_scraper/config.py`):**
+- `SEARCH_QUERIES` - `["software engineer"]` (~716 of a ~3,900 global catalogue)
+- `LOCATION_FILTER` - `"United States"`, applied client-side
+- `INCLUDE_TITLE_KEYWORDS` / `EXCLUDE_TITLE_KEYWORDS` - title filters; EXCLUDE is
+  matched on **word boundaries** ("HR" as a substring matches "T-h-r-eat")
+- `JOBS_PER_PAGE` - 100
+- `MAX_PAGES` - 50 safety bound (hitting it raises rather than truncating)
+
 ## Common Tasks
 
 **Running Google Scraper (JSON Mode):**
@@ -311,6 +354,12 @@ Edit company-specific `config.py`:
 - API Client: `scripts/amazon_jobs_scraper/api_client.py` - search.json client, HTML stripper, date normaliser
 - URL Helpers: `scripts/amazon_jobs_scraper/parser.py`
 - Configuration: `scripts/amazon_jobs_scraper/config.py`
+
+**TikTok-Specific:**
+- Main Logic: `scripts/tiktok_jobs_scraper/scraper.py` - API-only scraper, pass-through details (extends BaseScraper)
+- API Client: `scripts/tiktok_jobs_scraper/api_client.py` - POST search client, location/department flatteners
+- URL Helpers: `scripts/tiktok_jobs_scraper/parser.py`
+- Configuration: `scripts/tiktok_jobs_scraper/config.py`
 
 **Shared Modules:**
 - `scripts/shared/base_scraper.py` - Abstract base class for all company scrapers

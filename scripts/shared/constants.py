@@ -17,6 +17,7 @@ class SourceId:
     MICROSOFT: Final[str] = "microsoft_scraper"
     # ``_scraper`` suffix marks a custom web scraper (no vendor ATS behind it).
     AMAZON: Final[str] = "amazon_scraper"
+    TIKTOK: Final[str] = "tiktok_scraper"
     GREENHOUSE: Final[str] = "greenhouse_api"
     ASHBY: Final[str] = "ashby_api"
     LEVER: Final[str] = "lever_api"

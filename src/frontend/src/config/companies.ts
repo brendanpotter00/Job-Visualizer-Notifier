@@ -771,9 +771,9 @@ export const COMPANIES: Company[] = [
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22165158%22%5D',
   }),
 
-  // Backend scraper companies (Python-scraped: Google, Apple, Microsoft, Amazon).
-  // These deliberately omit `sourceAts` — that absence is what groups them
-  // under "Custom Web Scrapers" (see config/atsSource.ts).
+  // Backend scraper companies (Python-scraped: Google, Apple, Microsoft,
+  // Amazon, TikTok). These deliberately omit `sourceAts` — that absence is what
+  // groups them under "Custom Web Scrapers" (see config/atsSource.ts).
   createBackendScraperCompany('amazon', 'Amazon', 'https://www.amazon.jobs/', {
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%221586%22%5D',
@@ -789,6 +789,10 @@ export const COMPANIES: Company[] = [
   createBackendScraperCompany('microsoft', 'Microsoft', 'https://careers.microsoft.com/', {
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%221035%22%5D',
+  }),
+  createBackendScraperCompany('tiktok', 'TikTok', 'https://lifeattiktok.com/search', {
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2210998147%22%5D',
   }),
 ];
 
@@ -902,6 +906,7 @@ export const enum COMPANY_IDS {
   Sunday = 'sunday',
   Supabase = 'supabase',
   ThinkingMachines = 'thinkingmachines',
+  TikTok = 'tiktok',
   TogetherAI = 'togetherai',
   Trajectory = 'trajectory',
   Traversal = 'traversal',
