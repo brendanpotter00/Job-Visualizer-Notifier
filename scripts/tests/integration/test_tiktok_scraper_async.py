@@ -118,17 +118,39 @@ class TestStopConditions:
 
 @pytest.mark.asyncio
 class TestErrorHandling:
-    async def test_bails_after_three_consecutive_errors(self, scraper, caplog):
+    async def test_consecutive_error_bail_raises_instead_of_returning_partial(
+        self, scraper
+    ):
+        """An exhausted retry budget must raise, never return a short list.
+
+        Returning [] (or a partial list) hands the incremental lifecycle
+        something indistinguishable from "every job is gone" and it closes the
+        whole board. See docs/incidents/2026-03-29-mass-job-closure.md.
+        """
         with patch.object(
             tiktok_scraper_module,
             "fetch_search_results",
             AsyncMock(side_effect=JobSearchError("api error code=1001")),
         ) as fetch:
-            with caplog.at_level("ERROR"):
-                jobs = await scraper.scrape_query("software engineer")
+            with pytest.raises(JobSearchError, match="consecutive fetch failures"):
+                await scraper.scrape_query("software engineer")
         assert fetch.await_count == 3
-        assert jobs == []
-        assert "Too many consecutive errors" in caplog.text
+
+    async def test_partial_collection_is_discarded_not_returned(self, scraper):
+        """Two good pages then an outage: the 200 collected jobs are discarded.
+
+        This is the blind spot the partial_scrape guard cannot cover — losing
+        the tail of the board is well above its ~85% trip threshold.
+        """
+        pages = [_result(_cards(100)), _result(_cards(100, 100))]
+        side_effects = [*pages, *([JobSearchError("blip")] * 3)]
+        with patch.object(
+            tiktok_scraper_module, "fetch_search_results", AsyncMock(side_effect=side_effects)
+        ):
+            with pytest.raises(JobSearchError) as exc:
+                await scraper.scrape_query("software engineer")
+        assert "200 jobs had been collected" in str(exc.value)
+        assert "consecutive fetch failures" in str(exc.value)
 
     async def test_error_retries_same_offset_and_resets_counter(self, scraper):
         """Skipping ahead on error would silently drop 100 jobs."""
@@ -153,7 +175,8 @@ class TestErrorHandling:
             "fetch_search_results",
             AsyncMock(side_effect=RuntimeError("hard failure")),
         ):
-            await scraper.scrape_query("software engineer")
+            with pytest.raises(JobSearchError):
+                await scraper.scrape_query("software engineer")
         mock_page.close.assert_awaited()
 
 
@@ -213,26 +236,30 @@ class TestFilteringDuringPagination:
 
 @pytest.mark.asyncio
 class TestPageCapAndSession:
-    async def test_page_cap_warns(self, scraper, caplog):
+    async def test_page_cap_raises_rather_than_shipping_a_truncated_run(self, scraper):
+        """Exhausting the page budget means the board outgrew MAX_PAGES.
+
+        Returning what was collected would silently drop the tail and let
+        close-detection reap it, so this raises instead.
+        """
         full = _result(_cards(100))
         with patch.object(tiktok_scraper_module, "MAX_PAGES", 3):
             with patch.object(
                 tiktok_scraper_module, "fetch_search_results",
                 AsyncMock(side_effect=[full, full, full]),
             ) as fetch:
-                with caplog.at_level("WARNING"):
+                with pytest.raises(JobSearchError, match="MAX_PAGES"):
                     await scraper.scrape_query("software engineer")
         assert fetch.await_count == 3
-        assert "MAX_PAGES" in caplog.text and "truncated" in caplog.text
 
-    async def test_no_cap_warning_on_natural_stop(self, scraper, caplog):
+    async def test_natural_stop_does_not_raise(self, scraper):
+        """The clean end-of-results path must stay non-raising."""
         pages = [_result(_cards(100)), _result(_cards(2, 100))]
         with patch.object(
             tiktok_scraper_module, "fetch_search_results", AsyncMock(side_effect=pages)
         ):
-            with caplog.at_level("WARNING"):
-                await scraper.scrape_query("software engineer")
-        assert "truncated" not in caplog.text
+            jobs = await scraper.scrape_query("software engineer")
+        assert len(jobs) == 102
 
     async def test_establishes_same_origin_session_first(self, mock_context):
         """No CORS header on the API — the page must be on lifeattiktok.com."""

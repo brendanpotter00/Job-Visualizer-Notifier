@@ -40,7 +40,7 @@ from .config import (
     SESSION_PATH,
     SITE_URL,
 )
-from .api_client import fetch_search_results
+from .api_client import JobSearchError, fetch_search_results
 from .parser import extract_job_id_from_url
 
 logger = logging.getLogger(__name__)
@@ -184,12 +184,19 @@ class TikTokJobsScraper(BaseScraper):
           1. the page returned zero rows
           2. the page returned fewer than JOBS_PER_PAGE rows
           3. offset + JOBS_PER_PAGE >= the reported total (`count`)
+
+        Any other exit — exhausted retries or the page budget — is INCOMPLETE
+        and raises ``JobSearchError``; see the guard below the loop.
+
+        Raises:
+            JobSearchError: on exhausted retries or an exhausted page budget.
         """
         logger.info(f"Scraping TikTok jobs for query: '{search_query}'")
         all_jobs: List[Dict[str, Any]] = []
         seen_ids: set = set()
         consecutive_errors = 0
-        natural_stop = False
+        stop_reason: Optional[str] = None
+        last_error: Optional[str] = None
         offset = 0
 
         page = await self.context.new_page()
@@ -210,15 +217,13 @@ class TikTokJobsScraper(BaseScraper):
                     consecutive_errors = 0
                 except Exception as exc:
                     consecutive_errors += 1
+                    last_error = f"{type(exc).__name__}: {exc}"
                     logger.warning(
                         "Error fetching TikTok offset=%d (%d/%d): %s",
                         offset, consecutive_errors, MAX_CONSECUTIVE_ERRORS, exc,
                     )
                     if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
-                        logger.error(
-                            "Too many consecutive errors, stopping. Collected %d jobs.",
-                            len(all_jobs),
-                        )
+                        stop_reason = "consecutive_errors"
                         break
                     await self._random_delay()
                     continue
@@ -227,7 +232,7 @@ class TikTokJobsScraper(BaseScraper):
                 raw_count = result["raw_count"]
                 if raw_count == 0:
                     logger.info("No more jobs returned at offset=%d", offset)
-                    natural_stop = True
+                    stop_reason = "empty_page"
                     break
 
                 kept_this_page = 0
@@ -254,25 +259,45 @@ class TikTokJobsScraper(BaseScraper):
 
                 if raw_count < JOBS_PER_PAGE:
                     logger.info("Short page at offset=%d — end of results", offset)
-                    natural_stop = True
+                    stop_reason = "short_page"
                     break
 
                 total = result.get("total")
                 if isinstance(total, int) and offset + JOBS_PER_PAGE >= total:
                     logger.info("Reached reported total (count=%d)", total)
-                    natural_stop = True
+                    stop_reason = "reached_total"
                     break
 
                 await self._random_delay()
-
-            if not natural_stop:
-                logger.warning(
-                    "tiktok: hit MAX_PAGES=%d cap at offset=%d (%d jobs collected); "
-                    "results may be truncated",
-                    MAX_PAGES, offset, len(all_jobs),
-                )
+            else:
+                # `while` exhausted without break — the page budget ran out.
+                stop_reason = "page_cap"
         finally:
             await page.close()
+
+        # A run that ended for any reason other than a clean end-of-results is
+        # INCOMPLETE, and an incomplete list handed to the incremental lifecycle
+        # is indistinguishable from "these jobs are gone" — it closes them.
+        # The partial_scrape guard cannot be relied on to catch this: it trips
+        # below ~85%, while losing one TikTok page is only ~13% of the kept
+        # board, so a single-page truncation lands squarely in its blind spot
+        # and reaches close-detection. Raising instead means
+        # run_incremental_scrape records the failure and re-raises without
+        # running the destructive phases.
+        # See docs/incidents/2026-03-29-mass-job-closure.md.
+        if stop_reason == "consecutive_errors":
+            raise JobSearchError(
+                f"TikTok scrape aborted after {MAX_CONSECUTIVE_ERRORS} consecutive "
+                f"fetch failures at offset={offset}; {len(all_jobs)} jobs had been "
+                f"collected and are being discarded rather than reported as "
+                f"complete. Last error: {last_error}"
+            )
+        if stop_reason == "page_cap":
+            raise JobSearchError(
+                f"TikTok scrape hit the MAX_PAGES={MAX_PAGES} cap at offset={offset} "
+                f"with {len(all_jobs)} jobs collected — the board is larger than the "
+                f"page budget. Raise MAX_PAGES; do not ship a truncated run."
+            )
 
         logger.info(
             f"Completed TikTok scrape for '{search_query}': {len(all_jobs)} jobs collected"

@@ -225,6 +225,13 @@ The TikTok scraper is **API-only** — no HTML parsing and no detail-fetch phase
   `Access-Control-Allow-Origin`, so the in-page `fetch()` only works once the
   page is on lifeattiktok.com (`_establish_session`).
 - **Descriptions are plain text** — no HTML stripping, unlike Amazon.
+- **An incomplete run raises, it never returns short.** Exhausting the retry
+  budget or the page budget raises `JobSearchError` and discards what was
+  collected. A truncated list is indistinguishable from "these jobs are gone"
+  to the incremental lifecycle, and losing one TikTok page is only ~13% of the
+  kept board — inside the `partial_scrape` guard's ~85% blind spot, so it would
+  reach close-detection. Same reasoning as Amazon; see
+  `docs/incidents/2026-03-29-mass-job-closure.md`.
 
 **TikTok Configuration (`tiktok_jobs_scraper/config.py`):**
 - `SEARCH_QUERIES` - `["software engineer"]` (~716 of a ~3,900 global catalogue)
@@ -232,7 +239,7 @@ The TikTok scraper is **API-only** — no HTML parsing and no detail-fetch phase
 - `INCLUDE_TITLE_KEYWORDS` / `EXCLUDE_TITLE_KEYWORDS` - title filters; EXCLUDE is
   matched on **word boundaries** ("HR" as a substring matches "T-h-r-eat")
 - `JOBS_PER_PAGE` - 100
-- `MAX_PAGES` - 50 safety bound
+- `MAX_PAGES` - 50 safety bound (hitting it raises rather than truncating)
 
 ## Common Tasks
 
