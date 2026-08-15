@@ -95,8 +95,8 @@ pip install -r scripts/requirements-dev.txt      # Install dev dependencies (tes
 
 **Testing:**
 - `tests/conftest.py` - Shared pytest fixtures
-- `tests/unit/` - Unit tests (16 files)
-- `tests/integration/` - Integration tests (11 files)
+- `tests/unit/` - Unit tests
+- `tests/integration/` - Integration tests
 - `pytest.ini` - Test configuration
 
 **Data Flow:**
