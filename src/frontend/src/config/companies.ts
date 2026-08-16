@@ -550,13 +550,6 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2237415928%22%5D',
   }),
-  // The Interaction Company of California (makers of Poke). Ashby board slug is
-  // 'interaction' (board_token), surfaced here as 'Poke'.
-  createBackendScraperCompany('poke', 'Poke', 'https://jobs.ashbyhq.com/interaction', {
-    sourceAts: 'ashby',
-    recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22106772435%22%5D',
-  }),
   createBackendScraperCompany('sierra', 'Sierra', 'https://jobs.ashbyhq.com/Sierra', {
     sourceAts: 'ashby',
     recruiterLinkedInUrl:
@@ -881,7 +874,6 @@ export const enum COMPANY_IDS {
   Pylon = 'pylon-labs',
   Pinterest = 'pinterest',
   Plaid = 'plaid',
-  Poke = 'poke',
   Ramp = 'ramp',
   Reddit = 'reddit',
   Reducto = 'reducto',

@@ -19,6 +19,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'retire-poke-2026-08',
+    title: 'Poke is retired — acquired by Cognition',
+    description:
+      'Poke, the proactive AI assistant from The Interaction Company of California, has been acquired by Cognition (the team behind Devin), and its job board was taken down this morning — its careers page now redirects to Cognition. There is no Poke board left to read, so rather than keep showing nine listings that no longer exist, Poke has been retired from the company list. If you had Poke saved in your preferences, you can safely leave it there; nothing else is affected. The automated scraper-health watchdog caught this within hours of the board going dark.',
+    tags: ['improvement'],
+    date: '2026-08-16',
+    link: {
+      to: ROUTES.SAVED_FILTERS,
+      label: 'Review your saved companies',
+    },
+  },
+  {
     id: 'add-tiktok',
     title: 'Added TikTok',
     description:
