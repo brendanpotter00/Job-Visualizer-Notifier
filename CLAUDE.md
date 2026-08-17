@@ -111,17 +111,6 @@ Automatic per-PR preview deploys are **off** — root `vercel.json` sets `git.de
    - Never render unbounded lists - Chrome can consume 50+ GB memory with large unpaginated tables
 8. **Postgres MCP timezone bug**: When debugging time-sensitive state through `mcp__postgres-prod__query`, `now() AT TIME ZONE 'UTC'` (and any `timestamptz → timestamp without time zone` cast) drops the timezone tag and the MCP's JSON serializer then re-renders the naked timestamp **as if it were already local time**. The visible result is a phantom shift equal to your local UTC offset (CDT = +5h, CST = +6h, PDT = +7h, UTC = 0). Always cross-check elapsed time with `EXTRACT(EPOCH FROM now())::bigint` or compare against bare `now()` which renders correctly as `…Z`. This one-time confusion produced a phantom "5h hang" investigation in May 2026 on a CDT machine that wasn't real.
 
-## Key Files (Frontend)
-
-- Redux Store: `src/frontend/src/app/store.ts`
-- Type Definitions: `src/frontend/src/types/index.ts`
-- Company Config: `src/frontend/src/config/companies.ts`
-- API Client Factory: `src/frontend/src/api/clients/baseClient.ts`
-- Filter Slice Factory: `src/frontend/src/features/filters/slices/createFilterSlice.ts`
-- Jobs RTK Query API: `src/frontend/src/features/jobs/jobsApi.ts`, `jobsSelectors.ts`, `progressHelpers.ts`
-- Time Bucketing: `src/frontend/src/lib/timeBucketing.ts`
-- Main App: `src/frontend/src/app/App.tsx`
-
 ## Vercel Serverless Functions (api/)
 
 - `api/jobs.ts` - Backend jobs API proxy. Note it **allow-lists** query params (an unforwarded param is silently dropped, not an error) and must **explicitly re-emit any response header** — the shared `forwardResponse` helper copies status + body only. `X-Next-Cursor` (keyset pagination) is forwarded for exactly this reason; see the keyset section in `src/backend/CLAUDE.md`.
