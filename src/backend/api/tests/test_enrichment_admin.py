@@ -121,6 +121,106 @@ class TestAdminEnrichmentNeedsHuman:
         assert row["classifyConfidence"] == 0.4
         assert row["enrichmentStatus"] == "needs_human"
 
+    def test_sort_by_classify_confidence_puts_unscored_rows_LAST_both_ways(
+        self, client, db_conn
+    ):
+        """NULLS LAST IN BOTH DIRECTIONS IS THE POINT.
+
+        Postgres defaults to NULLS FIRST on DESC, so a descending confidence
+        sort would open with a wall of unscored rows — defeating the only query
+        an auditor actually runs.
+        """
+        for job_id, conf in (("s-hi", 0.9), ("s-lo", 0.1), ("s-mid", 0.5),
+                             ("s-null", None)):
+            _seed_flagged_job(db_conn, job_id=job_id, confidence=conf)
+
+        asc = client.get(
+            "/api/admin/enrichment/needs-human",
+            params={"sort": "classify_confidence", "sortDir": "asc"},
+        ).json()["rows"]
+        assert [r["classifyConfidence"] for r in asc] == [0.1, 0.5, 0.9, None]
+
+        desc = client.get(
+            "/api/admin/enrichment/needs-human",
+            params={"sort": "classify_confidence", "sortDir": "desc"},
+        ).json()["rows"]
+        assert [r["classifyConfidence"] for r in desc] == [0.9, 0.5, 0.1, None]
+
+    def test_sort_by_subcategory_confidence(self, client, db_conn):
+        _seed_flagged_job(db_conn, job_id="sc-hi", subcategory_confidence=0.8)
+        _seed_flagged_job(db_conn, job_id="sc-lo", subcategory_confidence=0.2)
+        _seed_flagged_job(db_conn, job_id="sc-null")
+
+        rows = client.get(
+            "/api/admin/enrichment/needs-human",
+            params={"sort": "subcategory_confidence", "sortDir": "asc"},
+        ).json()["rows"]
+        assert [r["subcategoryConfidence"] for r in rows] == [0.2, 0.8, None]
+
+    def test_paging_over_ties_is_stable(self, client, db_conn):
+        """Without the composite-PK tiebreak, OFFSET paging over equal sort keys
+        duplicates some rows and hides others. Confidences tie constantly."""
+        for i in range(6):
+            _seed_flagged_job(db_conn, job_id=f"tie-{i}", confidence=0.5)
+
+        seen = []
+        for offset in (0, 2, 4):
+            page = client.get(
+                "/api/admin/enrichment/needs-human",
+                params={"sort": "classify_confidence", "sortDir": "desc",
+                        "limit": 2, "offset": offset},
+            ).json()["rows"]
+            seen.extend(r["jobListingId"] for r in page)
+        assert sorted(seen) == [f"tie-{i}" for i in range(6)]
+        assert len(set(seen)) == 6
+
+    def test_unknown_sort_key_falls_back_instead_of_erroring(self, client, db_conn):
+        _seed_flagged_job(db_conn)
+        resp = client.get(
+            "/api/admin/enrichment/needs-human", params={"sort": "drop_table"}
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["total"] == 1
+
+    def test_subcategory_filter(self, client, db_conn):
+        _seed_flagged_job(db_conn, job_id="f-be", subcategories=["backend"],
+                          category="software_engineering")
+        _seed_flagged_job(db_conn, job_id="f-fe", subcategories=["frontend"],
+                          category="software_engineering")
+        _seed_flagged_job(db_conn, job_id="f-none", category="software_engineering")
+
+        body = client.get(
+            "/api/admin/enrichment/needs-human", params={"subcategory": "backend"}
+        ).json()
+        assert body["total"] == 1
+        assert body["rows"][0]["jobListingId"] == "f-be"
+        assert body["rows"][0]["subcategories"] == ["backend"]
+
+    def test_subcategory_state_unlabelled_swe_surfaces_human_locked_rows(
+        self, client, db_conn
+    ):
+        """The lens that finds SWE rows nothing has evaluated — including the
+        human-locked ones every other view hides."""
+        _seed_flagged_job(db_conn, job_id="u-swe", category="software_engineering")
+        _seed_flagged_job(db_conn, job_id="u-locked", category="software_engineering",
+                          corrected=True)
+        _seed_flagged_job(db_conn, job_id="u-labelled", category="software_engineering",
+                          subcategories=["backend"])
+        _seed_flagged_job(db_conn, job_id="u-growth", category="growth")
+
+        body = client.get(
+            "/api/admin/enrichment/needs-human",
+            params={"subcategoryState": "unlabelled_swe", "includeCorrected": "true"},
+        ).json()
+        ids = {r["jobListingId"] for r in body["rows"]}
+        assert ids == {"u-swe", "u-locked"}
+
+        labelled = client.get(
+            "/api/admin/enrichment/needs-human",
+            params={"subcategoryState": "labelled"},
+        ).json()
+        assert {r["jobListingId"] for r in labelled["rows"]} == {"u-labelled"}
+
     def test_filters(self, client, db_conn):
         _seed_flagged_job(db_conn, job_id="q-a", company="alpha")
         _seed_flagged_job(db_conn, job_id="q-b", company="beta")
