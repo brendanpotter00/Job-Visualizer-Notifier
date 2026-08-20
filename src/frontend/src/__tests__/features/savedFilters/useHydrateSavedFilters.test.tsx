@@ -67,6 +67,7 @@ function makeSavedFilters(overrides: Partial<SavedFilters> = {}): SavedFilters {
     locations: ['San Francisco, CA, US'],
     category: [],
     level: [],
+    subcategory: [],
     recentActiveKeywordListId: 'list-1',
     trendActiveKeywordListId: 'list-1',
     ...overrides,

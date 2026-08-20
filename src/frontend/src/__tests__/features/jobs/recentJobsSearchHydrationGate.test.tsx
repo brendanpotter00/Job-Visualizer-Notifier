@@ -98,6 +98,7 @@ const SAVED: SavedFilters = {
   locations: ['Austin, TX, US'],
   category: ['software_engineering'],
   level: ['senior'],
+  subcategory: [],
   recentActiveKeywordListId: 'list-1',
   trendActiveKeywordListId: null,
 };
