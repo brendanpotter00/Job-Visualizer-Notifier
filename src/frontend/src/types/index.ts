@@ -262,6 +262,19 @@ export interface GraphFilters {
   category?: string[];
   /** Enrichment level slugs (multi-select OR; 'entry' also matches new_grad). Jobs not yet enriched (level null) are HIDDEN once this filter is active. */
   level?: string[];
+  /**
+   * SWE subcategory slugs (multi-select OR; empty/undefined = All). SINGULAR,
+   * matching `category`/`level` — the plural `subcategories` is the JOB-side
+   * field. Jobs with a null or empty subcategory array are HIDDEN once this
+   * filter is active, which on day 0 of the backfill is every SWE job — that is
+   * what the reveal flag exists to hold back.
+   *
+   * Stored UNEXPANDED: selecting Frontend widens to Full Stack at query time
+   * (server-side for the Recent page, `matchesSubcategory` for the client-side
+   * Companies path), never here, or the widened pair would be persisted into
+   * saved filters and chips.
+   */
+  subcategory?: string[];
 }
 
 /**
@@ -281,6 +294,19 @@ export interface ListFilters {
   category?: string[];
   /** Enrichment level slugs (multi-select OR; 'entry' also matches new_grad). Jobs not yet enriched (level null) are HIDDEN once this filter is active. */
   level?: string[];
+  /**
+   * SWE subcategory slugs (multi-select OR; empty/undefined = All). SINGULAR,
+   * matching `category`/`level` — the plural `subcategories` is the JOB-side
+   * field. Jobs with a null or empty subcategory array are HIDDEN once this
+   * filter is active, which on day 0 of the backfill is every SWE job — that is
+   * what the reveal flag exists to hold back.
+   *
+   * Stored UNEXPANDED: selecting Frontend widens to Full Stack at query time
+   * (server-side for the Recent page, `matchesSubcategory` for the client-side
+   * Companies path), never here, or the widened pair would be persisted into
+   * saved filters and chips.
+   */
+  subcategory?: string[];
 }
 
 /**
@@ -299,6 +325,19 @@ export interface RecentJobsFilters {
   category?: string[];
   /** Enrichment level slugs (multi-select OR; 'entry' also matches new_grad). Jobs not yet enriched (level null) are HIDDEN once this filter is active. */
   level?: string[];
+  /**
+   * SWE subcategory slugs (multi-select OR; empty/undefined = All). SINGULAR,
+   * matching `category`/`level` — the plural `subcategories` is the JOB-side
+   * field. Jobs with a null or empty subcategory array are HIDDEN once this
+   * filter is active, which on day 0 of the backfill is every SWE job — that is
+   * what the reveal flag exists to hold back.
+   *
+   * Stored UNEXPANDED: selecting Frontend widens to Full Stack at query time
+   * (server-side for the Recent page, `matchesSubcategory` for the client-side
+   * Companies path), never here, or the widened pair would be persisted into
+   * saved filters and chips.
+   */
+  subcategory?: string[];
 }
 /**
  * One dropdown option from GET /api/jobs/facets
