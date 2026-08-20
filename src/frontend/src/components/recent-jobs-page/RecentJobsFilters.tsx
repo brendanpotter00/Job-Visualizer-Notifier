@@ -32,7 +32,7 @@ import { AsyncMultiSelectAutocomplete } from '../shared/filters/AsyncMultiSelect
  * Filter controls for Recent Job Postings page.
  *
  * What is actually rendered: keywords (free text + saved keyword lists), time
- * window, job title (category), level, location, company, and Reset. The slice
+ * window, job category, level, location, company, and Reset. The slice
  * also generates `toggle/setRecentJobsSoftwareOnly`, but
  * NOTHING dispatches them — there is no software-only control on this page; the
  * built-in "Software Engineering" keyword list in the keywords input is how a
@@ -129,22 +129,20 @@ export function RecentJobsFilters() {
           />
 
           {/*
-            The label says "Job title" but the data model underneath is
+            The label reads "Job category" and the data model underneath is
             "category" all the way down — the `filters.category` slice field, the
             `setRecentJobsCategory` action, the API param, and the DB column are
-            all "category". This is a deliberate UI-only rename: users engage with
-            a "Job title" filter far more than a "Category" one. It stays a
-            category under the hood because these values will subdivide over time
-            (e.g. "Software Engineering" → "Frontend SWE" / "Backend SWE"), at
-            which point they read as categories again. Rename the label only —
-            never the data model.
+            all "category". It previously read "Job title", which was wrong on its
+            face and is about to get worse: these values subdivide (e.g.
+            "Software Engineering" → "Frontend" / "Backend"), so they read as
+            categories, not titles. Rename the copy only — never the data model.
           */}
           <FacetMultiSelect
-            label="Job title"
+            label="Job category"
             options={categoryOptions}
             value={filters.category}
             onChange={(slugs) => dispatch(setRecentJobsCategory(slugs))}
-            tooltip="AI-enriched job title (choose any number). Only jobs matching your selection are shown."
+            tooltip="AI-enriched job category (choose any number). Only jobs matching your selection are shown."
           />
           <FacetMultiSelect
             label="Level"
