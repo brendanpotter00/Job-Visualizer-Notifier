@@ -87,6 +87,12 @@ class SavedFiltersRow(TypedDict):
     locations: list[str]
     category: list[str]
     level: list[str]
+    # SINGULAR, matching its `category` / `level` siblings. `[]` here means "no
+    # filter selected, show everything" — the exact opposite of what `'{}'`
+    # means in `job_listings.enrichment_subcategories`, which is "evaluated, and
+    # no specialty applies". Same literal, two meanings, and the same Redux
+    # field name flows through both.
+    subcategory: list[str]
     recent_active_keyword_list_id: str | None
     trend_active_keyword_list_id: str | None
 
@@ -145,6 +151,7 @@ def default_saved_filters() -> SavedFiltersRow:
         "locations": [],
         "category": [],
         "level": [],
+        "subcategory": [],
         "recent_active_keyword_list_id": None,
         "trend_active_keyword_list_id": None,
     }
@@ -164,6 +171,7 @@ def _row_to_saved_filters(row: dict[str, Any]) -> SavedFiltersRow:
         "locations": _coerce_str_list(row["locations"]),
         "category": _coerce_str_list(row["category"]),
         "level": _coerce_str_list(row["level"]),
+        "subcategory": _coerce_str_list(row["subcategory"]),
         "recent_active_keyword_list_id": row["recent_active_keyword_list_id"],
         "trend_active_keyword_list_id": row["trend_active_keyword_list_id"],
     }
@@ -180,7 +188,7 @@ def get_saved_filters(conn: Connection, user_id: str) -> SavedFiltersRow:
     cursor.execute(
         sql.SQL(
             "SELECT recent_time_window, trend_time_window, locations,"
-            " category, level,"
+            " category, level, subcategory,"
             " recent_active_keyword_list_id, trend_active_keyword_list_id"
             " FROM {} WHERE user_id = %s"
         ).format(_SAVED_FILTERS),
@@ -222,6 +230,7 @@ def upsert_saved_filters(
     locations: list[str],
     category: list[str],
     level: list[str],
+    subcategory: list[str],
     recent_active_keyword_list_id: str | None,
     trend_active_keyword_list_id: str | None,
 ) -> SavedFiltersRow:
@@ -240,22 +249,23 @@ def upsert_saved_filters(
             sql.SQL(
                 "INSERT INTO {} ("
                 " user_id, recent_time_window, trend_time_window, locations,"
-                " category, level,"
+                " category, level, subcategory,"
                 " recent_active_keyword_list_id, trend_active_keyword_list_id"
-                ") VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"
+                ") VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)"
                 " ON CONFLICT (user_id) DO UPDATE SET"
                 " recent_time_window = EXCLUDED.recent_time_window,"
                 " trend_time_window = EXCLUDED.trend_time_window,"
                 " locations = EXCLUDED.locations,"
                 " category = EXCLUDED.category,"
                 " level = EXCLUDED.level,"
+                " subcategory = EXCLUDED.subcategory,"
                 " recent_active_keyword_list_id ="
                 " EXCLUDED.recent_active_keyword_list_id,"
                 " trend_active_keyword_list_id ="
                 " EXCLUDED.trend_active_keyword_list_id,"
                 " updated_at = now()"
                 " RETURNING recent_time_window, trend_time_window, locations,"
-                " category, level,"
+                " category, level, subcategory,"
                 " recent_active_keyword_list_id, trend_active_keyword_list_id"
             ).format(_SAVED_FILTERS),
             (
@@ -265,6 +275,7 @@ def upsert_saved_filters(
                 Json(locations),
                 Json(category),
                 Json(level),
+                Json(subcategory),
                 recent_active_keyword_list_id,
                 trend_active_keyword_list_id,
             ),

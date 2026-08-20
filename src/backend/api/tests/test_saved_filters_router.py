@@ -81,6 +81,7 @@ class TestGetSavedFilters:
         assert body["locations"] == []
         assert body["category"] == []
         assert body["level"] == []
+        assert body["subcategory"] == []
         assert body["recentActiveKeywordListId"] is None
 
     def test_returns_defaults_after_user_created_no_row(self, sf_client):
@@ -131,6 +132,82 @@ class TestPutSavedFilters:
         assert resp.status_code == 200, resp.text
         assert resp.json()["category"] == ["software_engineering"]
         assert resp.json()["level"] == ["senior", "mid"]
+
+    def test_round_trips_a_subcategory_selection(self, sf_client):
+        _create_user_row(sf_client)
+        resp = sf_client.put(
+            PREFIX,
+            json={
+                "recentTimeWindow": "3h",
+                "trendTimeWindow": "7d",
+                "locations": [],
+                "category": ["software_engineering"],
+                "level": [],
+                "subcategory": ["backend", "ai_engineering"],
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["subcategory"] == ["backend", "ai_engineering"]
+        assert sf_client.get(PREFIX).json()["subcategory"] == [
+            "backend", "ai_engineering",
+        ]
+
+    def test_a_put_that_OMITS_subcategory_clears_it(self, sf_client):
+        """FULL-REPLACE, matching category/level.
+
+        The endpoint takes the whole object, so the frontend must send every
+        section's value on every save. A missing key is not "leave it alone".
+        """
+        _create_user_row(sf_client)
+        sf_client.put(
+            PREFIX,
+            json={
+                "recentTimeWindow": "3h", "trendTimeWindow": "7d",
+                "locations": [], "category": [], "level": [],
+                "subcategory": ["backend"],
+            },
+        )
+        resp = sf_client.put(
+            PREFIX,
+            json={
+                "recentTimeWindow": "3h", "trendTimeWindow": "7d",
+                "locations": [], "category": [], "level": [],
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["subcategory"] == []
+
+    def test_an_unknown_key_STILL_422s(self, sf_client):
+        """extra='forbid' is unchanged by the widening.
+
+        Worth its own case beside the tolerant one above: "an absent key is
+        fine" and "an unknown key is fatal" are different rules and it would be
+        easy to relax both at once.
+        """
+        _create_user_row(sf_client)
+        resp = sf_client.put(
+            PREFIX,
+            json={
+                "recentTimeWindow": "3h", "trendTimeWindow": "7d",
+                "locations": [], "category": [], "level": [],
+                "subcategory": ["backend"],
+                "subcategories": ["backend"],  # the PLURAL — job-side field name
+            },
+        )
+        assert resp.status_code == 422, resp.text
+
+    def test_dedupes_subcategory(self, sf_client):
+        _create_user_row(sf_client)
+        resp = sf_client.put(
+            PREFIX,
+            json={
+                "recentTimeWindow": "3h", "trendTimeWindow": "7d",
+                "locations": [], "category": [], "level": [],
+                "subcategory": ["backend", "backend", "frontend"],
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["subcategory"] == ["backend", "frontend"]
 
     def test_unknown_active_pointer_409(self, sf_client):
         _create_user_row(sf_client)
