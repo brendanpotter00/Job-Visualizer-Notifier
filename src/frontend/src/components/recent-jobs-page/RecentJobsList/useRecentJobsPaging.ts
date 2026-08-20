@@ -94,14 +94,19 @@ export interface RecentJobsPaging {
  *
  * Three jobs:
  *
- * 1. **Widening.** The Recent time-window filter offers `180d` and all-time
- *    above the 90-day default the first page is fetched under, and a keyset
- *    walk can never reach past the bound it started with. Left unwired, picking
- *    those windows would show only the 90-day superset — the list would look
- *    fine and silently omit rows. So when the user's window ranks wider than
- *    the one the walk holds, this restarts the walk under it. The comparison is
- *    on the data layer's *logical* window key, never a recomputed ISO
- *    timestamp, so it fires exactly once per genuine widening.
+ * 1. **Widening.** A keyset walk can never reach past the bound it started
+ *    with, so a filter wider than the fetched window would show only the
+ *    narrower superset — the list would look fine and silently omit rows. When
+ *    the user's window ranks wider than the one the walk holds, this restarts
+ *    the walk under it. The comparison is on the data layer's *logical* window
+ *    key, never a recomputed ISO timestamp, so it fires exactly once per
+ *    genuine widening.
+ *
+ *    Currently unreachable in practice, and deliberately kept: the walk is
+ *    seeded at `RECENT_JOBS_DEFAULT_WINDOW`, which is all-time, so no filter
+ *    can outrank it. That equality is an invariant of the two defaults (pinned
+ *    by a test in `keysetWalk.test.ts`), not a property of this hook — narrow
+ *    the seed again and this path goes live again, unchanged.
  * 2. **Paging.** `loadNextServerPage` advances the walk when the list has shown
  *    everything it holds — but only while the walk can still produce a row this
  *    filter would show (`selectWindowProvablyComplete`).
@@ -154,7 +159,8 @@ export function useRecentJobsPaging({ enabled }: { enabled: boolean }): RecentJo
   );
 
   // Widening is deliberately NOT gated on `hasCursors`: a walk that ran to
-  // completion under 90 days still has to restart to reach 180-day rows.
+  // completion under a narrow window still has to restart to reach the rows
+  // outside it.
   const advance = useCallback(() => {
     if (!enabled || isFetchingNextPage) return;
     if (needsWidening) {

@@ -29,12 +29,15 @@ export type { JobsWindowKey } from './keysetWalk';
 /**
  * Page-size rationale (`RECENT_JOBS_PAGE_SIZE`, defined in `keysetWalk.ts`).
  *
- * The page size is what actually bounds first paint: at prod scale a 90-day
- * window still covers ~27.4k of the ~29.6k OPEN rows (measured 2026-08-05), so
- * the window alone trims only ~7%. With 3 chunks a 1000-row page caps the first
- * load at ~3k rows instead of the ~29.6k that `limit=50000` pulled — an order of
- * magnitude less JSON to parse and transform — while still being far more than a
- * virtualized viewport needs. Well under the backend's `le=50000` cap.
+ * The page size is what actually bounds first paint — the window barely
+ * matters. At prod scale a 90-day window covers 22.2k of the 32.0k OPEN rows
+ * (measured 2026-08-19), so even the widest possible bound only adds ~44% to
+ * what a *fully walked* set would hold, and nothing at all to page 1. That is
+ * why the default window can be all-time without moving first paint. With 3
+ * chunks a 1000-row page caps the first load at ~3k rows instead of the 32.0k
+ * that `limit=50000` pulled — an order of magnitude less JSON to parse and
+ * transform — while still being far more than a virtualized viewport needs.
+ * Well under the backend's `le=50000` cap.
  *
  * Load-bearing for paging: the backend emits `X-Next-Cursor` iff
  * `rows.length === limit`, so the same limit must be replayed on every page of
@@ -436,8 +439,7 @@ export const jobsApi = createApi({
      * company, id)`, so a concurrent re-scrape that reshuffles a page cannot
      * drop rows already on screen.
      *
-     * Optional `window` widens the walk (the Recent filter offers 6-month and
-     * all-time windows above the 90-day default). It is a **logical key**, not a
+     * Optional `window` re-bounds the walk. It is a **logical key**, not a
      * timestamp, on purpose: the walk restarts only when the key changes, so a
      * caller that recomputes "90 days ago" on every scroll tick keeps paging
      * instead of restarting forever. A genuine window change **restarts the walk

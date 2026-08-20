@@ -19,6 +19,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'recent-default-all-time',
+    title: 'Recent Job Postings now opens to all time',
+    description:
+      "If you don't have a saved time window — whether you're signed out or just haven't set your own default — the Recent Job Postings page now opens on all time instead of the last 90 days, so the first thing you see is everything tracked rather than a slice of it. Narrow it back down whenever you like; the time-window picker is unchanged and every other window still works exactly as before. Your saved default, if you've set one, still takes precedence. Company Hiring Trends is unaffected and still opens on a 90-day window, since a trend chart needs a bounded span to be readable.",
+    tags: ['improvement'],
+    date: '2026-08-19',
+    link: {
+      to: ROUTES.RECENT_JOBS,
+      label: 'See every tracked posting',
+    },
+  },
+  {
     id: 'retire-poke-2026-08',
     title: 'Poke is retired — acquired by Cognition',
     description:
