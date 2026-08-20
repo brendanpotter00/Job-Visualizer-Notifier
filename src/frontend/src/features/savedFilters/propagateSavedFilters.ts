@@ -7,6 +7,7 @@ import {
   setGraphSearchTags,
   setGraphCategory,
   setGraphLevel,
+  setGraphSubcategory,
 } from '../filters/slices/graphFiltersSlice';
 import {
   setRecentJobsTimeWindow,
@@ -14,6 +15,7 @@ import {
   setRecentJobsSearchTags,
   setRecentJobsCategory,
   setRecentJobsLevel,
+  setRecentJobsSubcategory,
 } from '../filters/slices/recentJobsFiltersSlice';
 
 /**
@@ -51,13 +53,19 @@ export function savedFiltersPropagationActions(
   // loaded, distinct from an intentional `null` clear, which we DO propagate).
   const { listsLoaded = true } = options;
 
-  // Category / level are shared lists (like locations): pushed to both pages
-  // unchanged. An empty array normalizes to "no filter" in the slice reducers.
+  // Category / level / subcategory are shared lists (like locations): pushed to
+  // both pages unchanged. An empty array normalizes to "no filter" in the slice
+  // reducers.
+  //
+  // All three sit OUTSIDE the `listsLoaded` guard below, exactly like locations:
+  // that guard exists only for the keyword-list pointers, whose resolution
+  // depends on a second query having landed. A facet list resolves to itself.
   const actions: UnknownAction[] = [
     setGraphTimeWindow(saved.trendTimeWindow),
     setGraphLocation(saved.locations),
     setGraphCategory(saved.category),
     setGraphLevel(saved.level),
+    setGraphSubcategory(saved.subcategory),
   ];
   if (listsLoaded || saved.trendActiveKeywordListId === null) {
     actions.push(setGraphSearchTags(resolveActiveTags(saved.trendActiveKeywordListId, lists)));
@@ -66,7 +74,8 @@ export function savedFiltersPropagationActions(
     setRecentJobsTimeWindow(saved.recentTimeWindow),
     setRecentJobsLocation(saved.locations),
     setRecentJobsCategory(saved.category),
-    setRecentJobsLevel(saved.level)
+    setRecentJobsLevel(saved.level),
+    setRecentJobsSubcategory(saved.subcategory)
   );
   if (listsLoaded || saved.recentActiveKeywordListId === null) {
     actions.push(
