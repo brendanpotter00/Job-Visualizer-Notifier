@@ -57,10 +57,10 @@ def test_subprocess_import_leaves_no_forbidden_module() -> None:
 
 
 def test_importing_the_task_package_leaves_no_browser_driver_resident() -> None:
-    """E7 Phase 3b boundary: importing the whole ``tasks`` package (which now
-    imports the discovery leaf task, and thus the discovery package) must NOT leave
-    a browser driver resident — the observer runs Playwright OUT OF PROCESS, so the
-    replay leaf task's per-call runtime guard stays satisfied in the same worker.
+    """E7 boundary: importing the whole ``tasks`` package (which imports the discovery
+    task, and thus the capture package) must NOT leave a browser driver resident — both
+    capture and browser_fetch run Playwright OUT OF PROCESS, so the replay leaf task's
+    per-call runtime guard stays satisfied in the same worker.
 
     ``anthropic`` is deliberately NOT asserted absent: the shared worker already
     hosts location-normalization, which loads it, and the runtime guard tolerates
@@ -173,27 +173,81 @@ def test_leaf_task_tasks_closure_has_no_forbidden_import() -> None:
         assert not offending, f"{module_file} imports forbidden {offending}"
 
 
-def test_browser_agent_stagehand_is_subprocess_isolated() -> None:
-    """E7 Stagehand pivot boundary: ``_stagehand_main`` is the SOLE importer of
-    ``stagehand``/``browserbase``, and the in-process modules (``runner``/``discover``/
-    ``schema``/``__init__``) reach NEITHER — transitively (closure confined to api/) —
-    NOR ``_stagehand_main`` itself. This is the AST proof behind the subprocess design:
-    importing the package never makes a browser/agent driver resident in the worker."""
-    ba_dir = _API / "services" / "browser_agent"
-    main = ba_dir / "_stagehand_main.py"
+# The browser DRIVERS. Distinct from ``FORBIDDEN_MODULES`` because ``anthropic`` is
+# legitimately reachable from the DISCOVERY side (that is where the one LLM call lives)
+# while a browser driver is never legitimately resident in this worker at all — the two
+# subprocess entrypoints are the only importers, by design.
+_BROWSER_DRIVERS = frozenset({"playwright", "stagehand", "browserbase", "langchain"})
+
+
+def test_capture_playwright_is_subprocess_isolated() -> None:
+    """E7 capture-pivot boundary: ``_capture_main`` is the SOLE importer of
+    ``playwright`` on the DISCOVERY side, and the in-process modules
+    (``discover``/``network_capture``/``request_selector``/``__init__``) reach NEITHER it
+    — transitively, closure confined to api/ — NOR any browser driver. This is the AST
+    proof behind the subprocess design: the discovery task and the replay leaf task share
+    one Procrastinate worker, so a module-level ``import playwright`` anywhere in this
+    package would make EVERY http_json replay in that worker start raising
+    (``assert_no_agent_imports`` checks ``sys.modules`` on every call, not just
+    discovery's).
+
+    ``anthropic`` is deliberately NOT asserted absent here: ``request_selector`` IS the
+    LLM boundary. What keeps that honest is the pair of guards above — the replay
+    runner's own closure and the leaf task's ``tasks/`` closure both still forbid it."""
+    capture_dir = _API / "services" / "capture"
+    main = capture_dir / "_capture_main.py"
 
     main_names, _ = _imports_and_targets(main)
-    assert "stagehand" in main_names, "_stagehand_main must import stagehand (the sole importer)"
+    assert "playwright" in main_names, (
+        "_capture_main must import playwright (the sole importer on the discovery side)"
+    )
 
-    for entry in ("runner.py", "discover.py", "schema.py", "__init__.py"):
-        closure = _closure(ba_dir / entry, confine_to=_API)
+    for entry in ("discover.py", "network_capture.py", "request_selector.py", "__init__.py"):
+        closure = _closure(capture_dir / entry, confine_to=_API)
         assert main not in closure, (
-            f"{entry} transitively imports _stagehand_main — stagehand would leak into the worker"
+            f"{entry} transitively imports _capture_main — playwright would leak into "
+            "the worker that also runs agent-free replay"
         )
         for module_file in closure:
             top_names, _ = _imports_and_targets(module_file)
-            offending = top_names & {"stagehand", "browserbase"}
-            assert not offending, f"{module_file} imports agent driver {offending}"
+            offending = top_names & _BROWSER_DRIVERS
+            assert not offending, f"{module_file} imports browser driver {offending}"
+
+
+def test_importing_the_discovery_task_leaves_no_browser_driver_resident() -> None:
+    """The runtime half of the proof above, on the module the worker actually loads:
+    import the discovery task in a FRESH interpreter and assert no browser driver landed.
+    ``anthropic`` legitimately does (the selector), which is why only the drivers are
+    asserted — the same scope ``recipe_runner.assert_no_agent_imports`` checks at run
+    time, and the reason a co-hosted replay in this worker stays valid."""
+    code = (
+        "import sys\n"
+        "import api.tasks.discover_custom_company  # pulls in the whole capture package\n"
+        "leaked = sorted(m for m in ('playwright', 'stagehand', 'browserbase', 'langchain')\n"
+        "                if m in sys.modules)\n"
+        "print(','.join(leaked))\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=str(_BACKEND), env=_SUBPROC_ENV,
+        capture_output=True, text=True, timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    leaked = result.stdout.strip()
+    assert leaked == "", f"the discovery task made a browser driver resident: {leaked!r}"
+
+
+def test_the_retired_stagehand_package_is_gone() -> None:
+    """The Stagehand DOM tier was RETIRED by the capture pivot, and "retired" has to mean
+    the code is absent — a dormant ``services/browser_agent`` would still be importable,
+    still pull ``stagehand`` into the image, and still tempt a future caller back onto a
+    non-deterministic daily path the deterministic-only principle forbids."""
+    ba_dir = _API / "services" / "browser_agent"
+    # Any SOURCE file, not the directory: a stale ``__pycache__`` left behind by a
+    # checkout of an older commit is not importable code and must not fail this.
+    assert not list(ba_dir.glob("*.py")), f"{ba_dir} still holds source modules"
+    requirements = (_API / "requirements.txt").read_text()
+    assert "stagehand>" not in requirements
 
 
 def test_browser_fetch_playwright_is_subprocess_isolated() -> None:

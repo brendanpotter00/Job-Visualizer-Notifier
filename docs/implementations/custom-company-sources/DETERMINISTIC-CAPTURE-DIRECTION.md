@@ -4,7 +4,11 @@
 > persist the thinking from an owner review session. The agreed workflow is:
 > **(1) persist this direction [this doc] → (2) validate it with proofs-of-concept →
 > (3) write the full-fledged implementation plan** once the POCs prove it works.
-> Nothing here is built. It supersedes the daily-Stagehand approach in PR #248 as the
+> **UPDATE 2026-08-20: this direction was adopted and BUILT** — see
+> `CAPTURE-IMPLEMENTATION-PLAN.md`. The daily-Stagehand approach it argues against is
+> retired and deleted. Kept for the reasoning and the tier taxonomy.
+>
+> (Original framing:) Nothing here is built. It supersedes the daily-Stagehand approach in PR #248 as the
 > intended end-state (see `PHASE-STAGEHAND-PLAN.md` for what shipped).
 
 ## Why this exists (the gap the owner caught)

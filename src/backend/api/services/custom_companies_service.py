@@ -396,10 +396,10 @@ def add_discovered_company(
 
     The Phase-3 analog of :func:`add_custom_company`: the ``company_scripts`` row
     stores the discovery-proven script with ``transport in {'http_json','http_html',
-    'browser_agent'}`` and the REAL ``oracle_kind`` (facet_sum/header/sitemap/
+    'browser_fetch'}`` and the REAL ``oracle_kind`` (facet_sum/header/sitemap/
     self_consistent) — not ``'ats_client'``/``'none'``.
 
-    On the browser-agent add path a PROVISIONAL ``health_state='discovering'`` row
+    On the capture-discovery add path a PROVISIONAL ``health_state='discovering'`` row
     already exists (the router inserted it on the 202, §7), so the common case flips
     that row to tracked and writes the script (:func:`_promote_to_tracked`) rather
     than INSERTing a second ``companies`` row (which would ``UniqueViolation`` and

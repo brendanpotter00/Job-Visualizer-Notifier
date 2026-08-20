@@ -51,8 +51,8 @@ _RECIPE = json.loads(
 def _bf_env(monkeypatch) -> None:
     """Point the task at the test schema AND turn the browser_fetch kill-switch on.
 
-    ``custom_company_discovery_enabled`` is that switch (NOT ``browser_agent_enabled``,
-    the retiring Stagehand flag): discovery is the only thing that ever creates a
+    ``custom_company_discovery_enabled`` is that switch, and since the capture pivot it is
+    the ONLY discovery flag: discovery is the only thing that ever creates a
     browser_fetch company, so with it off the tier is dormant end-to-end.
     """
     _patch_env(monkeypatch)
@@ -194,6 +194,44 @@ async def test_runner_raise_is_failed_with_zero_closes_and_zero_misses(db_conn, 
 
     company = _company_row(db_conn, company_id)
     assert company["last_success_at"] is None
+
+
+# --- MIGRATION: a company left on the RETIRED browser_agent transport ----------
+
+async def test_a_retired_browser_agent_company_fails_loudly_and_closes_nothing(
+    db_conn, monkeypatch
+):
+    """The Stagehand tier is deleted, but a company discovered under it may still carry
+    ``transport='browser_agent'`` in ``company_scripts``. Two things must hold, and only
+    an explicit branch gives both: the run FAILS with a message an operator can act on
+    (falling through to the ATS ``else`` would try to fetch an ATS provider literally
+    named 'discovered' and fail with something meaningless), and — invariant #2 — it
+    closes ZERO jobs and increments ZERO misses, so the board goes stale in the UI
+    rather than losing its history.
+
+    An operator (or the user) recovers by Removing the board and re-adding the same
+    careers URL, which runs capture discovery and rewrites the script."""
+    company_id = "u-retiredba1"
+    _seed_browser_fetch_company(db_conn, company_id)
+    cur = db_conn.cursor()
+    cur.execute(
+        "UPDATE company_scripts SET transport = 'browser_agent' WHERE company_id = %s",
+        (company_id,),
+    )
+    db_conn.commit()
+    _seed_open_jobs(db_conn, company_id, 1, 3, last_seen_hours_ago=48)
+    _bf_env(monkeypatch)
+
+    with pytest.raises(RecipeExecutionError, match="must be re-discovered"):
+        await fetch_custom_company(company_id=company_id)
+    db_conn.rollback()
+
+    harvests = _rows(db_conn, "company_harvests", company_id)
+    assert harvests[0]["verdict"] == "FAILED"
+    assert "browser_agent" in (harvests[0]["verdict_reason"] or "")
+    assert _open_count(db_conn, company_id) == 3
+    assert _max_misses(db_conn, company_id) == 0
+    assert _scrape_runs(db_conn, company_id)[0]["closed_jobs"] == 0
 
 
 # --- kill-switch OFF → no-op, no subprocess ----------------------------------

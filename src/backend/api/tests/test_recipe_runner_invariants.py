@@ -119,6 +119,9 @@ def test_inv7_agent_free_guarantee_holds() -> None:
 
 def test_inv8_import_guard_fires_on_leak() -> None:
     import sys
+    # ``stagehand`` stays in the forbidden set even though the tier that used it was
+    # retired: the guard is about what may EVER become resident on the replay path,
+    # not about which packages happen to be installed today.
     sys.modules["stagehand"] = object()  # type: ignore[assignment]
     try:
         with pytest.raises(RuntimeError):

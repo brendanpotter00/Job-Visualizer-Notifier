@@ -1,5 +1,13 @@
 # Deterministic API-Capture — Detailed Implementation Plan (file/function level)
 
+> **Status:** PR 1 (`browser_fetch` replay tier) and PR 2 (capture discovery + the
+> Stagehand retire) are **implemented** as ordered commits on `feat/e7-phase3-discovery`.
+> Two deliberate deviations from the file list below, both made during implementation:
+> the replay tier lives at `services/browser_fetch/` (not `services/capture/`) so the
+> replay and discovery sides stay separately import-guardable, and the discovery capture
+> child is `services/capture/_capture_main.py`. PR 3 (frontend) and PR 4 (name input)
+> are still open.
+>
 > Companion to `CAPTURE-IMPLEMENTATION-PLAN.md` (the what/why). This is the **how**: the exact
 > integration surface, the one load-bearing architectural decision, the per-file change list, the
 > test plan, and the **PR stack**. Integration surface was mapped against `feat/e7-phase3-discovery`

@@ -49,10 +49,10 @@ module = [
     "jwt.*",
     "posthog.*",
     "bs4.*",
-    # Browser-only (E7 Phase 3c), imported solely by
-    # api/services/browser_fetch/_browser_fetch_main.py, which runs as a subprocess.
-    # Silenced so the type gate stays green whether or not the browser package is
-    # installed in a given checkout.
+    # Browser-only (E7), imported solely by the two subprocess entrypoints —
+    # api/services/capture/_capture_main.py (discovery) and
+    # api/services/browser_fetch/_browser_fetch_main.py (replay). Silenced so the type
+    # gate stays green whether or not the browser package is installed in a checkout.
     "playwright.*",
 ]
 ignore_missing_imports = true

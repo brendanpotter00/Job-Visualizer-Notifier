@@ -71,7 +71,7 @@ export interface ResolveUrlArgs {
  * back to raw text — see `companyHealth.ts`.
  *
  * `'discovering'` is the PROVISIONAL state a non-ATS board sits in between the
- * `202` add and the one-time browser-agent discovery finishing (E7 Stagehand
+ * `202` add and the one-time capture discovery finishing (E7 capture
  * pivot): the row exists (so the list shows it as "Setting up…") but nothing is
  * scraped yet. The discovery task flips it to `'unverified'` (tracked) or
  * `'refused'`.

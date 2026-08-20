@@ -30,7 +30,7 @@ const POLL_INTERVAL_MS = 15_000;
  * A row is "still settling" if its first harvest hasn't landed yet, so the list
  * should keep polling for it. Two cases:
  *  - `discovering` — the one-time browser-agent setup is still running (E7
- *    Stagehand pivot); the row flips to tracked or `refused` when it finishes.
+ *    capture pivot); the row flips to tracked or `refused` when it finishes.
  *  - `unverified` with no jobs yet — a brand-new tracked board whose first
  *    harvest hasn't run.
  */

@@ -348,7 +348,6 @@ def _capture_defer(monkeypatch) -> list[dict]:
 
 def test_non_ats_url_enqueues_discovery_202(client, db_conn, monkeypatch):
     monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
-    monkeypatch.setattr(settings, "browser_agent_enabled", True)
     _login(client, "auth0|A", "a@example.com")
     _patch_no_ats(monkeypatch)
     calls = _capture_defer(monkeypatch)
@@ -363,7 +362,7 @@ def test_non_ats_url_enqueues_discovery_202(client, db_conn, monkeypatch):
     assert len(calls) == 1
     assert calls[0]["normalized_url"] == _NON_ATS_URL
     assert calls[0]["display_name"] == "acme.example"
-    # A discovery_pending attempt row was recorded (E7 Stagehand pivot §7).
+    # A discovery_pending attempt row was recorded (§7).
     assert _count(db_conn, "company_add_attempts", "WHERE outcome = 'discovery_pending'") == 1
     # A PROVISIONAL 'discovering' companies row now exists so the list shows the
     # board as "Setting up…" immediately — DISABLED (no scraping) and script-less
@@ -397,11 +396,18 @@ def test_non_ats_url_without_subflag_stays_422_unsupported(client, db_conn, monk
     assert _count(db_conn, "company_add_attempts", "WHERE outcome = 'unsupported'") == 1
 
 
-def test_browser_agent_kill_switch_off_stays_422_no_placeholder(client, db_conn, monkeypatch):
-    """FIX 2(a): discovery sub-flag ON but browser_agent_enabled OFF → 422, no
-    provisional row, no enqueue, no paid session. The kill-switch gates the add-flow."""
-    monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
-    monkeypatch.setattr(settings, "browser_agent_enabled", False)
+def test_discovery_is_gated_by_exactly_one_flag(client, db_conn, monkeypatch):
+    """The capture pivot collapsed the retired two-flag gate to ONE. Pinned by name
+    because ``Settings.model_config`` sets ``extra="ignore"`` — a typo'd env var leaves
+    the flag silently False — and because the old pair produced a misleading "No
+    supported ATS board" 422 when only one of them was off.
+
+    With the single flag OFF: 422, no provisional row, no enqueue, no browser, no LLM."""
+    assert hasattr(settings, "custom_company_discovery_enabled")
+    assert not hasattr(settings, "browser_agent_enabled"), (
+        "browser_agent_enabled was retired with the Stagehand tier"
+    )
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", False)
     _login(client, "auth0|K", "k@example.com")
     _patch_no_ats(monkeypatch)
     calls = _capture_defer(monkeypatch)

@@ -1,0 +1,40 @@
+{
+ "final_url": "https://www.metacareers.com/jobs",
+ "page_title": "Meta Careers",
+ "responses": [
+  {
+   "url": "https://metrics.example-cdn.com/collect",
+   "method": "POST",
+   "status": 200,
+   "content_type": "application/json",
+   "request_headers": {
+    "content-type": "application/json"
+   },
+   "post_data": "{\"e\":\"pageview\"}",
+   "body": "{\"events\": [{\"name\": \"pageview\", \"ts\": 1}], \"ok\": true}",
+   "truncated": false
+  },
+  {
+   "url": "https://www.metacareers.com/graphql/feature_flags",
+   "method": "POST",
+   "status": 200,
+   "content_type": "application/json",
+   "request_headers": {
+    "content-type": "application/json"
+   },
+   "post_data": "{\"doc_id\":\"123\"}",
+   "body": "{\"data\": {\"flags\": {\"dark_mode\": true, \"beta\": false}}}",
+   "truncated": false
+  },
+  {
+   "url": "https://www.metacareers.com/api/session",
+   "method": "GET",
+   "status": 200,
+   "content_type": "application/json",
+   "request_headers": {},
+   "post_data": null,
+   "body": "{\"authenticated\": false, \"locale\": \"en_US\"}",
+   "truncated": false
+  }
+ ]
+}

@@ -139,7 +139,7 @@ describe('MyCompaniesList', () => {
     expect(deleteCall).toBeUndefined();
   });
 
-  it('renders a provisional discovering row as a "Setting up…" badge (E7 Stagehand pivot)', async () => {
+  it('renders a provisional discovering row as a "Setting up…" badge (E7 capture pivot)', async () => {
     const DISCOVERING: UserCompany = {
       id: 'u-discover01',
       displayName: 'careers.acme.example',

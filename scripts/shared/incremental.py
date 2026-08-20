@@ -88,7 +88,7 @@ logger = logging.getLogger(__name__)
 #   * ``id_churn_suspected`` — a ``self_consistent`` (no-trusted-total) board on
 #     which >50% of prior-OPEN ids vanished in one run; with no total to
 #     corroborate the drop it is treated as a churning id_field, not a real
-#     shrink, so nothing closes (E7 Stagehand pivot — the churning-id close bug).
+#     shrink, so nothing closes (E7 — the churning-id close bug).
 # CRITICAL: none of these count toward the partial_scrape auto-release —
 # ``count_consecutive_partial_skips`` filters on 'partial_scrape' specifically,
 # so adding these members does not perturb it.

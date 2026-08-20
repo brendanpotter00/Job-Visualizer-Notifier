@@ -8,10 +8,10 @@ custom-company leaf task's ``_remap_for_custom`` re-scoping path is reused
 unchanged.
 
 Deliberately **agent-free** — imported by the replay leaf task
-(``tasks/fetch_custom_company``, both the http replay and the browser-agent branch)
-and the browser-agent discovery orchestrator
-(``services/browser_agent/discover``). It imports only ``scripts.shared`` + the
-stdlib, so the import-guard AST walk of the leaf task's ``tasks/`` closure stays clean.
+(``tasks/fetch_custom_company``, both the http and the browser_fetch branch), by the
+``browser_fetch`` runner, and by the capture discovery orchestrator
+(``services/capture/discover``). It imports only ``scripts.shared`` + the stdlib, so the
+import-guard AST walk of the leaf task's ``tasks/`` closure stays clean.
 """
 
 from __future__ import annotations

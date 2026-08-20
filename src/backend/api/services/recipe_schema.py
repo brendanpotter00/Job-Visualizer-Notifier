@@ -418,9 +418,20 @@ def validate_recipe(
     _reject_unknown_keys(
         {**script, "op": None},
         {"script_version", "transport", "expected_min_jobs", "steps", "oracle", "base_url",
-         "origin_url"},
+         "origin_url", "discovered_at", "discovered_by"},
         "script",
     )
+
+    # PROVENANCE — optional, inert at replay, and DECLARED here rather than tolerated.
+    # Discovery stamps which engine produced a recipe and when; that is what makes a
+    # future "re-discover everything authored by engine X" sweep possible without a
+    # migration. It must be part of the schema because ``_reject_unknown_keys`` is
+    # deliberately strict: a stamp added after validation would pass on write and then
+    # FAIL ``validate_recipe`` on every nightly READ — a stored recipe that can never
+    # replay, which is the exact class of bug validate-on-read exists to surface.
+    for provenance in ("discovered_at", "discovered_by"):
+        if provenance in script:
+            _require_str(script, provenance, "script")
 
     tr = script.get("transport")
     # Reject browser transports explicitly with a capability message BEFORE the

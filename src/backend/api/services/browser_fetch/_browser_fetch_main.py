@@ -22,11 +22,12 @@ parent does all of that with the SAME ``recipe_runner`` machinery the httpx tier
 The ONE judgement it makes is when to stop paginating, which needs a record COUNT at
 ``records_path``; that is a pure JSON dig, reimplemented locally below.
 
-**No credentials are passed to this process.** Unlike the Browserbase/Stagehand child,
-this one drives a local Chromium: there is no API key to leak, and it must stay that
-way — if this ever needs a secret, pass it through the child ENV, never argv.
+**No credentials are passed to this process.** This child only ever drives a LOCAL
+Chromium (unlike the discovery capture child, whose Browserbase opt-in hands it a CDP
+URL on stdin): there is no API key to leak, and it must stay that way — if this ever
+needs a secret, pass it through the child ENV, never argv.
 
-Duplicate-don't-import rule (same discipline as ``browser_agent/_stagehand_main``):
+Duplicate-don't-import rule (same discipline as ``capture/_capture_main``):
 this file's first-party import surface is ZERO. ``_dig`` and the query merge are
 re-implemented rather than imported so the child can never drag the worker's service
 graph — and therefore the forbidden-import closure — behind Playwright.

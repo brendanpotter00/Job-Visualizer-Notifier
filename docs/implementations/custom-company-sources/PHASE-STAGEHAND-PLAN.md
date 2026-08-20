@@ -1,3 +1,23 @@
+> ## ⚠️ RETIRED — HISTORICAL DOCUMENT, NOT THE LIVE DESIGN
+>
+> The Stagehand browser-agent tier this plan describes **was built, shipped on this
+> branch, and then removed** by the capture pivot (2026-08-20). `services/browser_agent/`,
+> the `transport='browser_agent'` replay branch, the `browser_agent_enabled` flag and the
+> `stagehand` dependency are all **gone**. Nothing here describes running code.
+>
+> **Why it was retired:** it re-read the rendered DOM with an LLM every 24 hours —
+> expensive, non-deterministic, and able to fail silently while still burning resources.
+> The replacement decides ONCE, at discovery, whether a board is readable: capture its
+> jobs API in one browser session, map it with one Haiku call, prove the recipe replays
+> from production, then replay it deterministically forever
+> (`services/capture/` + `services/browser_fetch/`). A board with no capturable API is
+> now REFUSED rather than tracked by an agent.
+>
+> **Read instead:** `CAPTURE-IMPLEMENTATION-PLAN.md` (what/why) and
+> `CAPTURE-DETAILED-PLAN.md` (file-level how). Keep this file for the SSRF analysis,
+> the id-field-stability reasoning and the churn-guard rationale — all three survived
+> the swap and still govern the gate.
+
 # E7 Pivot — Stagehand browser-agent discovery + runtime
 
 **Status:** proposed (research + one bounded validation run done; NOT implemented).

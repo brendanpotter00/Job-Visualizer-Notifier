@@ -11,7 +11,8 @@ origin-check / cookie-gate / sign an otherwise perfectly deterministic JSON API
 (TikTok's ``search/job/posts`` 400s from httpx and 200s from ``lifeattiktok.com``),
 for the price of our own CPU — no Browserbase hours, no LLM, no DOM parsing.
 
-Order of operations, mirroring ``browser_agent.runner.run_browser_agent``:
+Order of operations, mirroring the capture side's ``network_capture.capture_board``
+(same boundary, same reasons):
 
 1. :func:`~api.services.recipe_runner.assert_no_agent_imports` FIRST — even though the
    browser runs out of process, a driver resident in THIS worker is a contamination
@@ -205,7 +206,8 @@ def _child_env() -> dict[str, str]:
     pointed at an origin a stored, LLM-authored recipe chose — the worker's whole
     production credential set (``DATABASE_URL``, ``INTERNAL_API_KEY``,
     ``ANTHROPIC_API_KEY``, ``BROWSERBASE_API_KEY``), inherited straight into every
-    renderer process. Unlike the Stagehand child this one needs ZERO secrets, so the
+    renderer process. Unlike the capture child (which may be handed a Browserbase CDP
+    URL) this one needs ZERO secrets, so the
     allowlist is short and the docstring below ("NO credentials are injected") is
     something the code actually enforces rather than merely asserts.
 
@@ -248,8 +250,9 @@ async def _reap(proc: Any) -> None:
 async def _subprocess_run(subprocess_plan: dict[str, Any]) -> dict[str, Any]:
     """Spawn ``_browser_fetch_main`` and return its parsed JSON report.
 
-    NO credentials are injected: this child drives a LOCAL Chromium, so unlike the
-    Browserbase/Stagehand child it needs no API key and must never be handed one —
+    NO credentials are injected: this child ONLY ever drives a LOCAL Chromium (the
+    Browserbase opt-in is discovery-time only), so it needs no API key and must never
+    be handed one —
     :func:`_child_env` is what makes that true. The child imports ``playwright``;
     THIS parent never does — the boundary that keeps the replay worker agent-free.
     """
@@ -421,7 +424,7 @@ async def run_browser_fetch(
     RAISES :class:`RecipeExecutionError` on ANY failure (the leaf task maps the raise
     to a FAILED run, which closes nothing). ``run_subprocess`` / ``validate_url`` are
     injectable so tests run at $0 against a fake report and a no-op URL guard — the
-    same seam ``run_browser_agent`` uses.
+    same seam ``capture_board`` uses.
     """
     # FIRST, every call — the agent-free proof. The Chromium session runs OUT OF
     # PROCESS, so this raises only if a driver leaked into the worker some other way;

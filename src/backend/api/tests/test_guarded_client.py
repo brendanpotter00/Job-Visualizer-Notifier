@@ -227,10 +227,12 @@ def test_leaf_task_http_replay_uses_the_guarded_client() -> None:
     """The nightly http_json/http_html replay leaf task builds the SSRF-guarded
     client (no plain ``httpx.Client(follow_redirects=True)`` survives).
 
-    Since the Stagehand pivot, the discovery + browser-agent path no longer builds an
-    httpx client at all — it drives a bounded Browserbase session in a subprocess and
-    guards SSRF via the entry ``url_guard`` (``browser_agent.runner`` +
-    ``_stagehand_main``), so there is no discovery httpx factory left to assert here."""
+    Since the capture pivot, the discovery path no longer builds an
+    httpx client of its own for the CAPTURE half — the browser child does the fetching
+    and ``capture.network_capture`` guards SSRF via the entry ``url_guard``. (Its
+    ACCEPTANCE half does use ``guarded_sync_client``, through the very same
+    ``run_recipe`` path the nightly replay uses — which is the point of the acceptance
+    gate, and is covered by the tests for that client here.)"""
     import api.tasks.fetch_custom_company as leaf
 
     client = leaf._recipe_http_client()

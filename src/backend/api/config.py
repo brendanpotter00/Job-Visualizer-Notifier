@@ -87,34 +87,36 @@ class Settings(BaseSettings):
     # ``api/tests/test_companies_resolve_endpoint.py``.
     custom_company_sources_enabled: bool = False
 
-    # Custom company DISCOVERY (E7 Phase 3b — the money sub-flag). Distinct from
-    # ``custom_company_sources_enabled`` above: the (free) ATS add path can ship
-    # while the one-time browser+LLM discovery path stays dark. A non-ATS URL only
-    # enqueues a ``discover_custom_company`` task (which drives a bounded Browserbase
-    # Stagehand session + Claude Sonnet, ~cents per add) when BOTH this and the
-    # parent flag are on; with this off the non-ATS branch keeps returning today's
-    # 422 ``unsupported``. Default OFF so spend cannot happen until it is
+    # Custom company DISCOVERY (E7 — the capture pivot; THE single discovery flag).
+    # Distinct from ``custom_company_sources_enabled`` above: the (free) ATS add path
+    # can ship while the one-time browser+LLM capture stays dark. A non-ATS URL only
+    # enqueues a ``discover_custom_company`` task (one Chromium session + ONE Claude
+    # Haiku call, well under a cent per add) when BOTH this and the parent flag are on;
+    # with this off the non-ATS branch keeps returning today's 422 ``unsupported``.
+    #
+    # It is deliberately the ONLY discovery gate. The retired Stagehand tier had a
+    # second per-transport switch (``browser_agent_enabled``) and the pair was a trap:
+    # one flag alone produced a misleading "No supported ATS board" 422 with no hint
+    # that the other was off. Enforced in three places that MUST move together — the
+    # add-flow router, this task's defence-in-depth re-check, and the nightly
+    # ``browser_fetch`` replay branch — which also makes it the fleet-wide stop for the
+    # whole own-Chromium/SSRF surface. Default OFF so spend cannot happen until it is
     # deliberately flipped on.
     custom_company_discovery_enabled: bool = False
 
-    # Browserbase Stagehand browser-agent (E7 Stagehand pivot). Credentials for the
-    # bounded cloud-browser session the discovery + replay subprocess drives; read
-    # from BROWSERBASE_API_KEY / BROWSERBASE_PROJECT_ID (worktree .env.local). The
-    # LLM tokens bill to ``anthropic_api_key`` (our key), not Browserbase's.
+    # Browserbase (E7 capture pivot) — an OPTIONAL discovery-time upgrade, never the
+    # default and never used for the nightly replay. Discovery captures with OUR OWN
+    # headless Chromium because Browserbase bills per browser-hour; the two things it
+    # buys are stealth/residential IPs for a bot-walled board and the hosted live-view
+    # URL the discovery-progress UI embeds. Credentials read from BROWSERBASE_API_KEY /
+    # BROWSERBASE_PROJECT_ID; the LLM tokens bill to ``anthropic_api_key`` (our key).
     browserbase_api_key: str | None = None
     browserbase_project_id: str | None = None
-    # The REAL per-transport kill-switch for the browser-agent path, ENFORCED in
-    # both directions: the discovery add-flow (router + task both gate on it, so a
-    # non-ATS URL stays 422 when off) AND the nightly replay branch in
-    # ``fetch_custom_company`` (a browser_agent company no-ops — spawns no paid
-    # session — when off). Flipping it off instantly stops all paid Stagehand
-    # sessions and the deferred-SSRF surface.
-    # Default OFF: the request-level SSRF control (the CDP ``Fetch.requestPaused``
-    # host-pin, §5) is NOT yet implemented — v1 relies on the add-time + replay-time
-    # ``url_guard`` entry check plus best-effort Browserbase ``allowedDomains``. Do
-    # NOT flip this on for untrusted users until the CDP pin lands (see
-    # ``services/browser_agent/_stagehand_main.py``).
-    browser_agent_enabled: bool = False
+    # The opt-in. With this OFF (default) — or with either credential unset —
+    # ``network_capture`` launches our own Chromium and never touches Browserbase.
+    # Turning it on cannot make discovery fail: a session-create error degrades back to
+    # our own browser rather than refusing a board we could have read for free.
+    capture_use_browserbase: bool = False
 
     # PostHog analytics
     posthog_project_token: str | None = None

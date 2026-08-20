@@ -1,6 +1,12 @@
 # Custom Companies via Deterministic API Capture — Implementation Plan (step 3)
 
-> **Status:** implementation plan, validated by POCs (see `scripts/one_off/http_capture_poc/RESULTS.md`
+> **Status:** **IMPLEMENTED** on `feat/e7-phase3-discovery` (#248) as of 2026-08-20 —
+> the `browser_fetch` replay tier (`services/browser_fetch/`) and the capture discovery
+> engine (`services/capture/`) are both landed, and the Stagehand DOM path is retired
+> and deleted. What remains unbuilt from this plan is the **frontend** progress
+> checklist/live-view (phase 2 below) and the **name input** (phase 3).
+>
+> Originally written as an implementation plan, validated by POCs (see `scripts/one_off/http_capture_poc/RESULTS.md`
 > and `DETERMINISTIC-CAPTURE-DIRECTION.md`). This is the plan the implementation PR builds against —
 > plan and code live in the **same** PR. Written 2026-08-19 after an owner review session.
 >
@@ -119,8 +125,11 @@ Sequenced after the core tiers ship.
 
 ## Migration off #248
 
-- **Retire the Stagehand-DOM daily path** (transport `browser_agent`) — remove it, or keep behind a
-  default-OFF flag as a debug escape hatch (owner's call).
+- **Retire the Stagehand-DOM daily path** (transport `browser_agent`) — **DONE, removed outright**
+  (not kept behind a flag: a dormant copy would still ship `stagehand` in the image and still tempt a
+  future caller back onto a non-deterministic daily path). A stored `browser_agent` company is now an
+  explicit unsupported-transport FAILED run — it closes nothing and goes stale; re-discover it by
+  Remove + re-add.
 - **Keep** the Phase-1/2 gate, `company_scripts` storage, `url_guard`, the add-flow, and the
   provisional "discovering" row + poll.
 - **Re-discover existing custom companies** (the raindrop demo) under the new model; a board with no

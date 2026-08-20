@@ -74,7 +74,7 @@ logger = logging.getLogger(__name__)
 # in-flight run (whose harvest row is not written until the finally block).
 _SELF_CONSISTENT_STREAK_REQUIRED = 3
 
-# CHURN GUARD (E7 Stagehand pivot). A ``self_consistent`` board publishes no
+# CHURN GUARD (E7). A ``self_consistent`` board publishes no
 # trusted total, so if MORE THAN this fraction of its prior-OPEN ids disappear in
 # a single run there is nothing to corroborate the drop — it is far more likely a
 # churning ``id_field`` (a per-load session token / DOM position that changes every
@@ -265,35 +265,6 @@ async def _run_discovered_script(
     return await asyncio.to_thread(_run)
 
 
-async def _run_browser_agent_script(
-    script: dict[str, Any],
-    company_id: str,
-    *,
-    transport: str,
-    oracle_kind: str,
-) -> tuple[list[JobListing], HarvestEvidence]:
-    """Replay a DISCOVERED browser-agent company's stored artifact (E7 Stagehand pivot).
-
-    Runs ONE bounded Stagehand session in a subprocess (``run_browser_agent`` — the
-    SAME bound + stable-id proof discovery used), maps its rows via
-    ``recipe_rows_to_job_listings`` and returns the SAME ``HarvestEvidence`` the ATS /
-    http paths yield, so the gate/verdict/upsert tail below is byte-identical.
-
-    ``run_browser_agent`` RAISES ``RecipeExecutionError`` on a row-index id, a
-    cross-page id collision, an over-budget page count, or a subprocess failure — the
-    leaf task's narrow ``except`` records that as a FAILED run (nothing destructive,
-    NOT a miss). Imported LAZILY (inside the ``browser_agent`` branch only) so the
-    leaf task's module import graph never even references the browser-agent package —
-    ``stagehand`` lives solely in the subprocess it spawns.
-    """
-    from ..services.browser_agent import runner as browser_agent_runner
-
-    rows, evidence = await browser_agent_runner.run_browser_agent(
-        script, transport=transport, oracle_kind=oracle_kind
-    )
-    return recipe_rows_to_job_listings(company_id, rows), evidence
-
-
 async def _run_browser_fetch_script(
     script: dict[str, Any],
     company_id: str,
@@ -329,9 +300,9 @@ async def _run_browser_fetch_script(
     queue="custom_ats_fetch",
     name="fetch_custom_company",
     # ONE attempt, no auto-retry (matches the discovery task). A persistently-failing
-    # browser_agent board must NOT burn up to 5 PAID Stagehand sessions/night on
-    # Procrastinate retries; a FAILED run is still recorded + re-raised (the direct
-    # contract holds) and the next daily claim re-runs it. The tradeoff — a transient
+    # browser_fetch board must NOT burn up to 5 Chromium launches/night on Procrastinate
+    # retries; a FAILED run is still recorded + re-raised (the direct contract holds)
+    # and the next daily claim re-runs it. The tradeoff — a transient
     # blip on a custom ATS/http board waits until the next daily cadence instead of
     # an in-run retry — is acceptable for a daily-cadence private board.
     retry=RetryStrategy(max_attempts=1),
@@ -403,35 +374,24 @@ async def fetch_custom_company(company_id: str) -> None:
                 is_first_verified = company.get("tracking_started_at") is None
 
                 if transport == "browser_agent":
-                    # KILL-SWITCH (E7 Stagehand pivot): ``browser_agent_enabled`` is
-                    # the real per-transport gate. When OFF, do a NO-OP skip — spawn
-                    # no paid Stagehand subprocess, harvest nothing, close nothing,
-                    # accrue no miss (identical to the disabled-company path) — so an
-                    # already-tracked browser-agent company stops all paid sessions +
-                    # the deferred-SSRF surface the moment the flag is flipped off.
-                    if not settings.browser_agent_enabled:
-                        verdict_reason = "browser_agent_disabled"
-                        logger.info(
-                            "fetch_custom_company: browser_agent_enabled off; "
-                            "skipping browser-agent harvest for %s", company_id,
-                        )
-                        return
-                    # DISCOVERED browser-agent company — replay via ONE bounded
-                    # Stagehand session (subprocess); the STORED oracle_kind is always
-                    # 'self_consistent' (a rendered page proves no trusted total). A
-                    # row-index id / cross-page collision RAISES → FAILED (the runner's
-                    # contract), so it never closes a job.
-                    oracle_kind_effective = str(
-                        company.get("oracle_kind") or "self_consistent"
-                    )
-                    raw_jobs, evidence = await _run_browser_agent_script(
-                        script, company_id,
-                        transport=transport, oracle_kind=oracle_kind_effective,
+                    # RETIRED TRANSPORT (the capture pivot). The Stagehand DOM tier is
+                    # gone, but a company discovered under it may still carry a stored
+                    # ``transport='browser_agent'`` script. Falling through to the ATS
+                    # ``else`` below would try to fetch it as an ATS provider named
+                    # 'discovered' and fail with a nonsense message; raising HERE makes
+                    # it an explicit, greppable FAILED run — which harvests nothing,
+                    # closes NOTHING and is not a miss (invariant #2) — so the row goes
+                    # stale in the UI rather than losing its jobs. An operator (or the
+                    # user) re-discovers such a board by Removing it and re-adding the
+                    # same URL, which runs capture discovery and rewrites the script.
+                    raise recipe_runner.RecipeExecutionError(
+                        f"transport 'browser_agent' was retired with the Stagehand tier; "
+                        f"company {company_id} must be re-discovered (remove + re-add the "
+                        f"careers URL) — refusing to harvest, closing nothing"
                     )
                 elif transport == "browser_fetch":
-                    # KILL-SWITCH: ``custom_company_discovery_enabled``, NOT
-                    # ``browser_agent_enabled`` (which is the Stagehand tier's flag
-                    # and is being retired). Rationale: discovery is the ONLY thing
+                    # KILL-SWITCH: ``custom_company_discovery_enabled``, the single
+                    # discovery flag. Rationale: discovery is the ONLY thing
                     # that ever creates a browser_fetch company, so with the flag off
                     # the tier is dormant end-to-end, and flipping it off is a
                     # fleet-wide stop for the whole own-Chromium surface if its SSRF

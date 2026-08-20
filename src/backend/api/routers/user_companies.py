@@ -178,16 +178,14 @@ async def add_company(
             return _reject(422, "deadline_exceeded", "Resolving the URL timed out.")
 
         if result.candidate is None:
-            # Non-ATS URL. Discovery IS the browser-agent path now, so it requires
-            # BOTH the discovery sub-flag AND ``browser_agent_enabled`` (the real
-            # per-transport kill-switch): with either off it stays 422 'unsupported'
-            # — no provisional row, no enqueue, no paid session, no deferred-SSRF
-            # surface. (The parent flag is already asserted by ``_require_flag``.)
-            if (
-                settings.custom_company_discovery_enabled
-                and settings.browser_agent_enabled
-                and result.final_url
-            ):
+            # Non-ATS URL → one-time capture discovery, gated on the SINGLE
+            # ``custom_company_discovery_enabled`` flag (the parent flag is already
+            # asserted by ``_require_flag``). With it off this stays 422 'unsupported'
+            # — no provisional row, no enqueue, no browser, no LLM spend, no
+            # discovered-endpoint SSRF surface. It is one flag rather than the retired
+            # pair because two gates made "discovery is off" read to the user as "this
+            # board is unsupported", with nothing distinguishing the two.
+            if settings.custom_company_discovery_enabled and result.final_url:
                 normalized_url = result.final_url
                 source_key = svc.discovered_source_key(normalized_url)
                 existing = svc.find_owned_company_by_source_key(

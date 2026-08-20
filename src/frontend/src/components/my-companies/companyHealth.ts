@@ -17,7 +17,7 @@ export interface HealthBadge {
  * a blank chip — the `default` branch echoes the raw code so a screenshot stays
  * diagnosable.
  *
- * `discovering` is the provisional pre-tracking state (E7 Stagehand pivot): a
+ * `discovering` is the provisional pre-tracking state (E7 capture pivot): a
  * non-ATS board whose one-time browser-agent setup is still running — it isn't
  * tracked yet, so it reads as "Setting up…" (neutral, in progress), NOT as an
  * error. `unverified` (no oracle yet) then reads as steady progress —
