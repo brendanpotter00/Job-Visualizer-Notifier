@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   matchesCategory,
   matchesLevel,
+  matchesSubcategory,
   filterJobsByFilters,
 } from '../../../features/filters/utils/jobFilteringUtils';
 import {
@@ -106,6 +107,73 @@ describe('matchesLevel (multi-select) — the new_grad ⊂ entry contract', () =
   });
 });
 
+describe('matchesSubcategory (multi-select, one-way full_stack widening)', () => {
+  it('matches everything when no subcategory filter is set — INCLUDING null and []', () => {
+    // The tri-state collapses to "no opinion" only while the filter is off.
+    expect(matchesSubcategory(makeJob({ subcategories: null }), undefined)).toBe(true);
+    expect(matchesSubcategory(makeJob({ subcategories: [] }), undefined)).toBe(true);
+    expect(matchesSubcategory(makeJob({ subcategories: ['backend'] }), [])).toBe(true);
+    expect(matchesSubcategory(makeJob(), undefined)).toBe(true);
+  });
+
+  it('HIDES both null and [] once a selection is active', () => {
+    // They mean different things to the backfill — never evaluated vs
+    // evaluated-and-nothing-applies — but to a reader with an active filter
+    // they are both simply not a match, exactly like the server's `&&`.
+    expect(matchesSubcategory(makeJob({ subcategories: null }), ['backend'])).toBe(false);
+    expect(matchesSubcategory(makeJob({ subcategories: [] }), ['backend'])).toBe(false);
+    expect(matchesSubcategory(makeJob(), ['backend'])).toBe(false);
+  });
+
+  it('matches an exact slug and rejects a different one', () => {
+    expect(matchesSubcategory(makeJob({ subcategories: ['backend'] }), ['backend'])).toBe(true);
+    expect(matchesSubcategory(makeJob({ subcategories: ['frontend'] }), ['backend'])).toBe(
+      false
+    );
+  });
+
+  it('counts a SECONDARY label, not just the primary at index 0', () => {
+    expect(
+      matchesSubcategory(makeJob({ subcategories: ['forward_deployed', 'backend'] }), [
+        'backend',
+      ])
+    ).toBe(true);
+  });
+
+  it('a frontend filter matches a job labelled full_stack', () => {
+    expect(matchesSubcategory(makeJob({ subcategories: ['full_stack'] }), ['frontend'])).toBe(
+      true
+    );
+    expect(matchesSubcategory(makeJob({ subcategories: ['full_stack'] }), ['backend'])).toBe(
+      true
+    );
+  });
+
+  it('a full_stack filter does NOT match a frontend job — the widening is ONE-WAY', () => {
+    // A reader who asks specifically for full-stack work must not get every
+    // frontend and backend job back.
+    expect(matchesSubcategory(makeJob({ subcategories: ['frontend'] }), ['full_stack'])).toBe(
+      false
+    );
+    expect(matchesSubcategory(makeJob({ subcategories: ['backend'] }), ['full_stack'])).toBe(
+      false
+    );
+    expect(matchesSubcategory(makeJob({ subcategories: ['full_stack'] }), ['full_stack'])).toBe(
+      true
+    );
+  });
+
+  it('ORs multiple selected values', () => {
+    expect(
+      matchesSubcategory(makeJob({ subcategories: ['security'] }), ['mobile', 'security'])
+    ).toBe(true);
+  });
+
+  it('a well-formed unknown slug simply matches nothing', () => {
+    expect(matchesSubcategory(makeJob({ subcategories: ['backend'] }), ['ai_ml'])).toBe(false);
+  });
+});
+
 describe('filterJobsByFilters with facet filters', () => {
   const jobs = [
     makeJob({ id: 'a', category: 'software_engineering', level: 'new_grad' }),
@@ -142,6 +210,29 @@ describe('filterJobsByFilters with facet filters', () => {
   it('no facet filters -> unenriched jobs still flow through', () => {
     const out = filterJobsByFilters(jobs, baseFilters);
     expect(out).toHaveLength(4);
+  });
+
+  it('category + subcategory compose with AND', () => {
+    const subJobs = [
+      makeJob({ id: 'swe-be', category: 'software_engineering', subcategories: ['backend'] }),
+      makeJob({ id: 'swe-fs', category: 'software_engineering', subcategories: ['full_stack'] }),
+      makeJob({ id: 'swe-fe', category: 'software_engineering', subcategories: ['frontend'] }),
+      makeJob({ id: 'swe-null', category: 'software_engineering', subcategories: null }),
+      // A hardware row carrying a stray SWE subcategory — data that should not
+      // exist. The CATEGORY predicate is what excludes it, which is the point:
+      // the two are separate conditions that AND, not one fused check.
+      makeJob({ id: 'hw-stray', category: 'hardware_engineer', subcategories: ['backend'] }),
+    ];
+
+    const out = filterJobsByFilters(subJobs, {
+      ...baseFilters,
+      category: ['software_engineering'],
+      subcategory: ['backend'],
+    });
+
+    // swe-be exact, swe-fs via the one-way widening; swe-fe and swe-null miss
+    // the subcategory predicate and hw-stray misses the category one.
+    expect(out.map((j) => j.id).sort()).toEqual(['swe-be', 'swe-fs']);
   });
 });
 
