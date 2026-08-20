@@ -29,6 +29,15 @@ function pct(v: number | null): string {
  * known caveat instead of dressed up as a win.
  */
 export function ScorecardPanel({ scorecard, scorecardTickUuid, knobs }: ScorecardPanelProps) {
+  // ⚠ PRE-EXISTING BUG, FIXED HERE. This panel read `judge_kappa`, but the
+  // enricher's `scoring.py::to_dict` emits `judge_kappa_prejudge`. That tile has
+  // therefore ALWAYS rendered '—' against real payloads — masked the whole time
+  // by a test fixture that supplied the key the code was looking for rather than
+  // the key the producer actually sends. Read the real key first, keep the old
+  // one as a fallback for any archived scorecard.
+  const judgeKappa =
+    metric(scorecard, 'judge_kappa_prejudge') ?? metric(scorecard, 'judge_kappa');
+
   const tiles = [
     {
       label: 'Category accuracy',
@@ -50,13 +59,29 @@ export function ScorecardPanel({ scorecard, scorecardTickUuid, knobs }: Scorecar
     },
     {
       label: 'Judge κ',
-      value:
-        metric(scorecard, 'judge_kappa') === null
-          ? '—'
-          : (metric(scorecard, 'judge_kappa') as number).toFixed(2),
+      value: judgeKappa === null ? '—' : judgeKappa.toFixed(2),
       meta: 'agreement vs gold — low κ means judge value is unproven, not negative',
     },
   ];
+
+  // CONDITIONAL FIFTH TILE. Pushed only once the enricher's scorer actually
+  // emits a subcategory metric, so the panel does not carry a tile stuck at '—'
+  // for the weeks between this UI shipping and PR-D landing the metrics.
+  //
+  // `metric()` already returns null for a missing key, so a key MISMATCH here
+  // degrades to "the tile is absent" rather than crashing — which is what makes
+  // it safe to parameterize in advance, and also why it needs a deliberate
+  // eyeball once the enricher side lands.
+  const subcategoryPrimary = metric(scorecard, 'subcategory_primary_accuracy_nonempty');
+  if (subcategoryPrimary !== null) {
+    tiles.push({
+      label: 'Subcategory (primary)',
+      value: pct(subcategoryPrimary),
+      meta: `set F1 ${pct(metric(scorecard, 'subcategory_set_f1'))} · leak ${pct(
+        metric(scorecard, 'subcategory_leak_rate')
+      )} · n=${metric(scorecard, 'subcategory_n') ?? '—'}`,
+    });
+  }
 
   const goldQuality = scorecard['gold_quality'];
 

@@ -136,7 +136,10 @@ const TICKS_BODY = {
     level_filter_consistent_accuracy: 0.8214,
     tags_f1: 0.2159,
     tags_token_f1: 0.289,
-    judge_kappa: 0.2477,
+    // ⚠ The producer key. `scoring.py::to_dict` emits `judge_kappa_prejudge`;
+    // the old fixture said `judge_kappa`, which is exactly what masked the
+    // panel's always-'—' κ tile for the life of that tile.
+    judge_kappa_prejudge: 0.2477,
   },
   latestScorecardTickUuid: 'tick-0',
   latestKnobs: { judge_scope: 'low_confidence' },
