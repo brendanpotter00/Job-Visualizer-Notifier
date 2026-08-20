@@ -63,6 +63,10 @@ const HEALTHY_BODY = {
   claimTtlMinutes: 240,
   needsHumanOpen: 2,
   humanCorrectedTotal: 1,
+  sweOpenTotal: 8126,
+  sweSubcategorized: 4000,
+  sweSubcategoryLabelled: 3200,
+  subcategoryUnknownSlugs: 0,
   lastEnrichedAt: '2026-07-09T00:00:00Z',
   lastEnrichedAgeS: 120,
   lastTickUuid: 'tick-1',
@@ -150,6 +154,8 @@ const NEEDS_HUMAN_BODY = {
       enrichmentStatus: 'done',
       category: 'growth',
       level: 'mid',
+      subcategories: null,
+      subcategoryConfidence: null,
       tags: ['sql', 'ab-testing'],
       cleanDescription: 'Own the growth funnel end to end.',
       classifyConfidence: 0.55,
@@ -181,6 +187,8 @@ const RECENT_BODY = {
       enrichmentStatus: 'done',
       category: 'software_engineering',
       level: 'senior',
+      subcategories: ['backend', 'full_stack'],
+      subcategoryConfidence: 0.82,
       tags: ['python', 'kubernetes'],
       classifyConfidence: 0.94,
       classifyReasoning: 'Kubernetes platform ownership implies senior IC scope.',
@@ -207,6 +215,11 @@ const FACETS_BODY = {
     { slug: 'entry', label: 'Entry', sortOrder: 1, parentSlug: null },
     { slug: 'mid', label: 'Mid', sortOrder: 2, parentSlug: null },
   ],
+  subcategories: [
+    { slug: 'backend', label: 'Backend', sortOrder: 1, parentSlug: 'software_engineering' },
+    { slug: 'frontend', label: 'Frontend', sortOrder: 6, parentSlug: 'software_engineering' },
+    { slug: 'full_stack', label: 'Full Stack', sortOrder: 7, parentSlug: 'software_engineering' },
+  ],
 };
 
 function routedFetch(
@@ -216,6 +229,7 @@ function routedFetch(
     confirmStatus?: number;
     needsHumanBody?: unknown;
     recentBody?: unknown;
+    settingsBody?: unknown;
   } = {}
 ) {
   return (input: unknown) => {
@@ -256,6 +270,22 @@ function routedFetch(
     }
     if (url.includes('/jobs/facets')) {
       return Promise.resolve(jsonResponse(FACETS_BODY));
+    }
+    if (url.includes('/admin/settings')) {
+      return Promise.resolve(
+        jsonResponse(
+          overrides.settingsBody ?? {
+            settings: [
+              {
+                key: 'swe_subcategories_enabled',
+                value: false,
+                updatedAt: null,
+                updatedBy: null,
+              },
+            ],
+          }
+        )
+      );
     }
     return Promise.resolve(jsonResponse({}));
   };
@@ -347,6 +377,126 @@ describe('AdminEnrichmentPage', () => {
       });
       expect(posted).toBe(true);
     });
+  });
+
+  // ── ADM-8: the ordered subcategory control inside CorrectionDialog ───────
+
+  it('shows the subcategory control only for a SWE row', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    // The queue row is `growth` — no control.
+    const queueRow = (await screen.findByText('Growth Marketing Lead')).closest(
+      'tr'
+    ) as HTMLElement;
+    await user.click(within(queueRow).getByRole('button', { name: 'Correct' }));
+    expect(await screen.findByText('Correct labels')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('combobox', { name: /subcategories/i })
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    // The recent row is `software_engineering` — control present, pre-filled.
+    const recentRow = (await screen.findByText('Senior Platform Engineer')).closest(
+      'tr'
+    ) as HTMLElement;
+    await user.click(within(recentRow).getByRole('button', { name: 'Correct' }));
+    expect(await screen.findByText('Correct labels')).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: /subcategories/i })).toBeInTheDocument();
+  });
+
+  it('offers subcategory options from LIVE facets, not a fallback constant', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    const recentRow = (await screen.findByText('Senior Platform Engineer')).closest(
+      'tr'
+    ) as HTMLElement;
+    await user.click(within(recentRow).getByRole('button', { name: 'Correct' }));
+    await screen.findByText('Correct labels');
+
+    await user.click(screen.getByRole('combobox', { name: /subcategories/i }));
+    const options = await screen.findAllByRole('option');
+    // Exactly the three FACETS_BODY offers — a fallback constant would carry 15.
+    expect(options.map((o) => o.textContent)).toEqual([
+      'Backend',
+      'Frontend',
+      'Full Stack',
+    ]);
+  });
+
+  it('⚠ changing category to non-SWE CLEARS the control and OMITS the key', async () => {
+    // Two failures in one test. Leaving the selection behind would post
+    // subcategories under a category that cannot carry them (a 409). Sending
+    // `[]` instead of omitting the key would be an INSTRUCTION — "evaluated,
+    // nothing applies" — from a dialog that stopped showing the control.
+    const user = userEvent.setup();
+    renderPage();
+
+    const recentRow = (await screen.findByText('Senior Platform Engineer')).closest(
+      'tr'
+    ) as HTMLElement;
+    await user.click(within(recentRow).getByRole('button', { name: 'Correct' }));
+    await screen.findByText('Correct labels');
+    expect(screen.getByRole('combobox', { name: /subcategories/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('combobox', { name: 'Category' }));
+    const listbox = await screen.findByRole('listbox');
+    await user.click(within(listbox).getByRole('option', { name: 'Growth' }));
+
+    expect(
+      screen.queryByRole('combobox', { name: /subcategories/i })
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Save correction' }));
+
+    let call: [unknown, unknown] | undefined;
+    await waitFor(() => {
+      call = fetchMock.mock.calls.find((c) => {
+        const req = c[0];
+        return (
+          req instanceof Request &&
+          req.url.includes('/enrichment/jobs/greenhouse_api/j-2/correct') &&
+          req.method === 'POST'
+        );
+      }) as [unknown, unknown] | undefined;
+      expect(call).toBeDefined();
+    });
+
+    const body = (await (call![0] as Request).clone().json()) as Record<string, unknown>;
+    expect('subcategories' in body).toBe(false);
+  });
+
+  it('posts the ORDERED subcategory array for a SWE row', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    const recentRow = (await screen.findByText('Senior Platform Engineer')).closest(
+      'tr'
+    ) as HTMLElement;
+    await user.click(within(recentRow).getByRole('button', { name: 'Correct' }));
+    await screen.findByText('Correct labels');
+
+    await user.click(screen.getByRole('button', { name: 'Save correction' }));
+
+    let call: [unknown, unknown] | undefined;
+    await waitFor(() => {
+      call = fetchMock.mock.calls.find((c) => {
+        const req = c[0];
+        return (
+          req instanceof Request &&
+          req.url.includes('/enrichment/jobs/greenhouse_api/j-2/correct') &&
+          req.method === 'POST'
+        );
+      }) as [unknown, unknown] | undefined;
+      expect(call).toBeDefined();
+    });
+
+    const body = (await (call![0] as Request).clone().json()) as {
+      subcategories?: string[];
+    };
+    expect(body.subcategories).toEqual(['backend', 'full_stack']);
   });
 
   it('expands a recent row to reveal the judge notes and classifier reasoning', async () => {
