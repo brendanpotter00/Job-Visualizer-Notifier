@@ -46,11 +46,11 @@ describe('JobChipsSection', () => {
     });
 
     it('renders remote alongside the enrichment chips', () => {
-      const { container } = render(
-        <JobChipsSection isRemote={true} category="software_engineering" level="senior" />
-      );
+      render(<JobChipsSection isRemote={true} category="software_engineering" level="senior" />);
 
-      expect(container.querySelectorAll('.MuiChip-root')).toHaveLength(3);
+      expect(screen.getByText('Remote')).toBeInTheDocument();
+      expect(screen.getByText('Software Engineering')).toBeInTheDocument();
+      expect(screen.getByText('Senior')).toBeInTheDocument();
     });
   });
 });
