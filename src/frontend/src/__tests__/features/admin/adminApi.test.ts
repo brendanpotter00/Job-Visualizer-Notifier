@@ -961,6 +961,10 @@ describe('adminApi', () => {
         claimTtlMinutes: 240,
         needsHumanOpen: 0,
         humanCorrectedTotal: 0,
+        sweOpenTotal: 0,
+        sweSubcategorized: 0,
+        sweSubcategoryLabelled: 0,
+        subcategoryUnknownSlugs: 0,
         lastEnrichedAt: null,
         lastEnrichedAgeS: null,
         lastTickUuid: null,
@@ -1032,6 +1036,8 @@ describe('adminApi', () => {
         taxonomyVersion: null,
         needsHuman: false,
         humanCorrectedAt: null,
+        subcategories: null,
+        subcategoryConfidence: null,
         enrichedAt: '2026-07-09T00:00:00Z',
         ...overrides,
       };
@@ -1060,6 +1066,8 @@ describe('adminApi', () => {
         enrichedAt: '2026-07-09T00:00:00Z',
         humanCorrectedAt: null,
         humanCorrectedBy: null,
+        subcategories: null,
+        subcategoryConfidence: null,
         ...overrides,
       };
     }
@@ -1105,6 +1113,198 @@ describe('adminApi', () => {
 
       expect(result.data).toBeUndefined();
       expect(result.error).toBeDefined();
+    });
+
+    // ⚠ THE COVERAGE COUNTERS ARE THE ONE PLACE THIS TRANSFORM COERCES INSTEAD
+    // OF THROWING. A throwing check here would blank the whole admin SPA during
+    // the window between the frontend shipping and Railway catching up.
+    it('getEnrichmentHealth resolves at 0 when ALL FOUR counters are ABSENT', async () => {
+      const body = makeEnrichmentHealthBody();
+      delete (body as Record<string, unknown>).sweOpenTotal;
+      delete (body as Record<string, unknown>).sweSubcategorized;
+      delete (body as Record<string, unknown>).sweSubcategoryLabelled;
+      delete (body as Record<string, unknown>).subcategoryUnknownSlugs;
+      fetchMock.mockResolvedValue(jsonResponse(body));
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(adminApi.endpoints.getEnrichmentHealth.initiate());
+
+      expect(result.error).toBeUndefined();
+      expect(result.data?.sweOpenTotal).toBe(0);
+      expect(result.data?.sweSubcategorized).toBe(0);
+      expect(result.data?.sweSubcategoryLabelled).toBe(0);
+      expect(result.data?.subcategoryUnknownSlugs).toBe(0);
+    });
+
+    it('getEnrichmentHealth does NOT throw on a garbage counter — it coerces', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse(makeEnrichmentHealthBody({ sweOpenTotal: 'lots' }))
+      );
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(adminApi.endpoints.getEnrichmentHealth.initiate());
+
+      expect(result.error).toBeUndefined();
+      expect(result.data?.sweOpenTotal).toBe(0);
+    });
+
+    // ── subcategory validators ─────────────────────────────────────────────
+
+    it('needs-human THROWS when subcategories is a bare string', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse(makeNeedsHumanBody({
+          rows: [makeNeedsHumanRow({ subcategories: 'backend' })],
+        }))
+      );
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(
+        adminApi.endpoints.listEnrichmentNeedsHuman.initiate({ limit: 10, offset: 0 })
+      );
+
+      expect(result.data).toBeUndefined();
+      expect(result.error).toBeDefined();
+    });
+
+    it('needs-human ACCEPTS subcategories: null and a real array', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse(makeNeedsHumanBody({
+          rows: [
+            makeNeedsHumanRow({ jobListingId: 'a', subcategories: null }),
+            makeNeedsHumanRow({ jobListingId: 'b', subcategories: [] }),
+            makeNeedsHumanRow({
+              jobListingId: 'c',
+              subcategories: ['backend', 'full_stack'],
+            }),
+          ],
+          total: 3,
+        }))
+      );
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(
+        adminApi.endpoints.listEnrichmentNeedsHuman.initiate({ limit: 10, offset: 0 })
+      );
+
+      expect(result.error).toBeUndefined();
+      expect(result.data?.rows[0].subcategories).toBeNull();
+      expect(result.data?.rows[1].subcategories).toEqual([]);
+      expect(result.data?.rows[2].subcategories).toEqual(['backend', 'full_stack']);
+    });
+
+    it('needs-human THROWS when subcategoryConfidence is a stringified number', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse(makeNeedsHumanBody({
+          rows: [makeNeedsHumanRow({ subcategoryConfidence: '0.5' })],
+        }))
+      );
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(
+        adminApi.endpoints.listEnrichmentNeedsHuman.initiate({ limit: 10, offset: 0 })
+      );
+
+      expect(result.data).toBeUndefined();
+      expect(result.error).toBeDefined();
+    });
+
+    it('needs-human forwards the sort and subcategory query params', async () => {
+      fetchMock.mockResolvedValue(jsonResponse(makeNeedsHumanBody()));
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      await store.dispatch(
+        adminApi.endpoints.listEnrichmentNeedsHuman.initiate({
+          limit: 10,
+          offset: 0,
+          sort: 'classify_confidence',
+          sortDir: 'asc',
+          subcategory: 'backend',
+          subcategoryState: 'unlabelled_swe',
+        })
+      );
+
+      const url = urlFromInput((fetchMock.mock.calls[0] as [unknown, unknown])[0]);
+      expect(url).toContain('sort=classify_confidence');
+      expect(url).toContain('sortDir=asc');
+      expect(url).toContain('subcategory=backend');
+      expect(url).toContain('subcategoryState=unlabelled_swe');
+    });
+
+    it('needs-human OMITS subcategoryState when it is the default "any"', async () => {
+      fetchMock.mockResolvedValue(jsonResponse(makeNeedsHumanBody()));
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      await store.dispatch(
+        adminApi.endpoints.listEnrichmentNeedsHuman.initiate({
+          limit: 10,
+          offset: 0,
+          subcategoryState: 'any',
+        })
+      );
+
+      const url = urlFromInput((fetchMock.mock.calls[0] as [unknown, unknown])[0]);
+      expect(url).not.toContain('subcategoryState');
+    });
+
+    it('recent THROWS when subcategories is a bare string', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({ rows: [makeRecentRow({ subcategories: 'backend' })] })
+      );
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(adminApi.endpoints.getEnrichmentRecent.initiate());
+
+      expect(result.data).toBeUndefined();
+      expect(result.error).toBeDefined();
+    });
+
+    // ── settings ───────────────────────────────────────────────────────────
+
+    it('getAdminSettings unwraps the settings envelope', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({
+          settings: [
+            {
+              key: 'swe_subcategories_enabled',
+              value: false,
+              updatedAt: null,
+              updatedBy: null,
+            },
+          ],
+        })
+      );
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      const result = await store.dispatch(adminApi.endpoints.getAdminSettings.initiate());
+
+      expect(urlFromInput((fetchMock.mock.calls[0] as [unknown, unknown])[0])).toMatch(
+        /\/api\/admin\/settings/
+      );
+      expect(result.data?.[0].value).toBe(false);
+      expect(result.data?.[0].updatedAt).toBeNull();
+    });
+
+    it('updateAdminSetting PUTs the value to the keyed path', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({
+          key: 'swe_subcategories_enabled',
+          value: true,
+          updatedAt: '2026-08-20T00:00:00Z',
+          updatedBy: 'a@b.c',
+        })
+      );
+      const store = makeStore(() => Promise.resolve('test-admin-token'));
+
+      await store.dispatch(
+        adminApi.endpoints.updateAdminSetting.initiate({
+          key: 'swe_subcategories_enabled',
+          value: true,
+        })
+      );
+
+      const call = fetchMock.mock.calls[0] as [unknown, unknown];
+      expect(urlFromInput(call[0])).toMatch(/\/api\/admin\/settings\/swe_subcategories_enabled/);
+      expect(methodFromCall(call)).toBe('PUT');
     });
 
     // ── getEnrichmentTicks ─────────────────────────────────────────────────
