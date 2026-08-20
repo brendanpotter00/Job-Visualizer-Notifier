@@ -57,6 +57,29 @@ reachable by paging. $0 per page, no browser.
 - POC used a fixed `base_query=software`. A real recipe would drop the query to capture the
   whole board and parameterize `offset`/`result_limit`.
 
+## Multi-board spectrum (2026-08-19 follow-up — `board_capture_poc.py`)
+
+Generalized the POC (any URL, POST support, two-tier replay: minimal-headers vs.
+full-headers-no-cookie) to classify boards. Ran three:
+
+| Board | Discovered API | Replay (plain httpx) | Verdict |
+|---|---|---|---|
+| **Amazon** | `GET .../search.json` | 200, same jobs | ✅ **DETERMINISTIC** (public) |
+| **Spotify** | `GET api.lifeatspotify.com/wp-json/animal/v1/job/search` (90 jobs) | 200, all 90 | ✅ **DETERMINISTIC** (public WP API) |
+| **TikTok** | `POST api.lifeattiktok.com/api/v1/public/supplier/search/job/posts` (12 jobs) | **400** (minimal AND full-no-cookie) | 🔴 **REQUIRES-BROWSER** (ByteDance signs its "public" endpoints) |
+
+**Takeaways:** Tier-1 generalizes (Amazon + Spotify both clean public GETs → free daily
+replay). The classifier **correctly detects the fallback case** (TikTok's signed POST 400s
+outside the browser) instead of storing a broken recipe — the validation gate works.
+
+## Browserbase recording / live-view (owner asked)
+
+- `GET /v1/sessions/{id}/debug` → **200**, returns **`debuggerFullscreenUrl`** — a hosted,
+  **iframe-embeddable live view** of the session (real-time "watch it happen"). This is the
+  right primitive for the "embed the browser so the user watches discovery" idea.
+- `GET /v1/sessions/{id}/recording` → **404**: *"The rrweb-based Session Replay API is being
+  deprecated."* The old after-the-fact recording API is going away; use the live view.
+
 ## Next (step 3)
 
 Write the full implementation plan: the CDP-capture discovery module, recipe synthesis +
