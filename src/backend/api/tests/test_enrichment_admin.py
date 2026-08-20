@@ -173,6 +173,81 @@ class TestAdminEnrichmentHealth:
             db_conn.commit()
 
 
+class TestAdminSubcategoryReset:
+    """POST /api/admin/enrichment/subcategories/reset — the scoped rollback."""
+
+    RESET_URL = "/api/admin/enrichment/subcategories/reset"
+
+    def _seed_one_per_source(self, db_conn):
+        for i, src in enumerate(("backfill", "classify", "judge", "human", "rule")):
+            _seed_flagged_job(db_conn, job_id=f"r-{src}", category="software_engineering",
+                              subcategories=["backend"], subcategory_source=src)
+        # A second backfill row so `matched` is not trivially 1.
+        _seed_flagged_job(db_conn, job_id="r-backfill-2",
+                          category="software_engineering",
+                          subcategories=["frontend"], subcategory_source="backfill")
+
+    def _count(self, db_conn, source):
+        cur = db_conn.cursor()
+        cur.execute(
+            "SELECT COUNT(*) AS n FROM job_listings "
+            "WHERE enrichment_subcategory_source = %s",
+            (source,),
+        )
+        return cur.fetchone()["n"]
+
+    def test_dry_run_is_the_default_and_changes_nothing(self, client, db_conn):
+        """The destructive form needs an explicit false. Omitting the key must
+        NOT run it for real."""
+        self._seed_one_per_source(db_conn)
+        resp = client.post(self.RESET_URL, json={"source": "backfill"})
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["matched"] == 2
+        assert body["applied"] == 0
+        assert self._count(db_conn, "backfill") == 2
+
+    def test_apply_requires_an_explicit_false(self, client, db_conn):
+        self._seed_one_per_source(db_conn)
+        resp = client.post(self.RESET_URL, json={"source": "backfill", "dryRun": False})
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {"source": "backfill", "matched": 2, "applied": 2}
+        assert self._count(db_conn, "backfill") == 0
+
+        cur = db_conn.cursor()
+        cur.execute(
+            "SELECT enrichment_subcategories AS s FROM job_listings "
+            "WHERE source_id='src-a' AND id='r-backfill'"
+        )
+        # NULL, not '{}' — a reset row must RE-ENTER the backfill queue.
+        assert cur.fetchone()["s"] is None
+
+    def test_human_rows_are_never_matched_implicitly(self, client, db_conn):
+        """An unscoped variant would destroy the only ground truth the eval gate
+        has. Every other source is reachable; 'human' only when named."""
+        self._seed_one_per_source(db_conn)
+        for source in ("backfill", "classify", "judge", "rule"):
+            client.post(self.RESET_URL, json={"source": source, "dryRun": False})
+        assert self._count(db_conn, "human") == 1
+
+    def test_human_is_reachable_when_passed_explicitly(self, client, db_conn):
+        self._seed_one_per_source(db_conn)
+        resp = client.post(self.RESET_URL, json={"source": "human", "dryRun": False})
+        assert resp.json()["applied"] == 1
+        assert self._count(db_conn, "human") == 0
+
+    def test_invalid_source_400s(self, client, db_conn):
+        resp = client.post(self.RESET_URL, json={"source": "backfill_failed"})
+        assert resp.status_code == 400
+        assert "backfill_failed" in resp.json()["detail"]
+
+    def test_unknown_key_422s(self, client, db_conn):
+        resp = client.post(
+            self.RESET_URL, json={"source": "backfill", "dryrun": False}
+        )
+        assert resp.status_code == 422
+
+
 class TestAdminEnrichmentNeedsHuman:
     def test_queue_pagination_and_shape(self, client, db_conn):
         for i in range(3):
