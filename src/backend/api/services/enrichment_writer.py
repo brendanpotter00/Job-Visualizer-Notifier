@@ -157,6 +157,117 @@ def _valid(
     return None
 
 
+class _Unset:
+    """Sentinel for "the payload did not carry this key at all"."""
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return "<UNSET>"
+
+
+_UNSET = _Unset()
+
+
+def _valid_source(value: Any, job_id: str, warnings: list[str]) -> str:
+    """Soft-null an out-of-enum source to the default, never a 422."""
+    if value is None:
+        return DEFAULT_SUBCATEGORY_SOURCE
+    text = str(value).strip().lower()
+    if text in SUBCATEGORY_SOURCES:
+        return text
+    logger.warning(
+        "enrichment: dropping invalid subcategory_source=%r for job %s", value, job_id
+    )
+    warnings.append(
+        f"invalid subcategory_source {value!r} defaulted to "
+        f"{DEFAULT_SUBCATEGORY_SOURCE!r}"
+    )
+    return DEFAULT_SUBCATEGORY_SOURCE
+
+
+def _valid_subcategories(
+    value: Any, category: str | None, job_id: str, warnings: list[str]
+) -> Any:
+    """Resolve one payload's `subcategories` into what the column should hold.
+
+    Returns `_UNSET` (leave the column alone), `None` (never evaluated — the
+    backfill queue), or a list (possibly empty, which is TERMINAL).
+
+    The order of the branches is the contract:
+
+    1. **The parent check runs FIRST and UNCONDITIONALLY.** A job whose resolved
+       category is not `software_engineering` cannot carry subcategories at all.
+       This is the constraint an array column has no FK to express, so it is
+       enforced here or nowhere.
+    2. `_UNSET` when the key is absent. This is what lets a v6 enricher keep
+       posting ordinary ticks without NULLing the column on every row — which in
+       turn makes the enricher's subcategory knob a REVERSIBLE DEPLOY ORDER
+       rather than a code push.
+    3. A scalar is promoted to a one-element list with a warning rather than
+       rejected — the item must never route to `failed[]` over this field.
+    4. A list is stripped/lowered, non-strings and unknown slugs are dropped with
+       the `_valid()` warning shape, DEDUPED PRESERVING ORDER (index 0 is the
+       primary specialty, so `set()` would be a coin flip), and truncated past
+       MAX_SUBCATEGORIES. It may legitimately come back `[]` — "we looked, and
+       nothing applies" — and `[]` is NOT the same answer as `None`.
+    5. `full_stack` suppresses `frontend`/`backend`: a full-stack role is not
+       usefully also tagged one of its halves, and the read-side expansion
+       already makes the Frontend filter match it.
+    """
+    if value is _UNSET:
+        return _UNSET
+    if category != SUBCATEGORY_PARENT:
+        if value:
+            warnings.append(
+                f"subcategories dropped: category {category!r} is not "
+                f"{SUBCATEGORY_PARENT!r}"
+            )
+        return None
+    if value is None:
+        return None
+    if not isinstance(value, list):
+        warnings.append(f"subcategories scalar {value!r} promoted to a single-item list")
+        value = [value]
+
+    cleaned: list[str] = []
+    for raw in value:
+        if not isinstance(raw, str):
+            logger.warning(
+                "enrichment: dropping non-string subcategory %r for job %s", raw, job_id
+            )
+            warnings.append(f"invalid subcategory {raw!r} dropped (not a string)")
+            continue
+        slug = raw.strip().lower()
+        if not slug:
+            continue
+        if slug not in SUBCATEGORY_SLUGS:
+            logger.warning(
+                "enrichment: dropping invalid subcategory=%r for job %s", raw, job_id
+            )
+            warnings.append(f"invalid subcategory {slug!r} dropped (not in taxonomy)")
+            continue
+        if slug in cleaned:              # order-preserving dedupe; NEVER set()
+            continue
+        cleaned.append(slug)
+
+    if "full_stack" in cleaned:
+        suppressed = [s for s in cleaned if s in ("frontend", "backend")]
+        if suppressed:
+            warnings.append(
+                f"subcategories {suppressed} suppressed by 'full_stack'"
+            )
+            cleaned = [s for s in cleaned if s not in ("frontend", "backend")]
+
+    if len(cleaned) > MAX_SUBCATEGORIES:
+        warnings.append(
+            f"subcategories truncated to {MAX_SUBCATEGORIES} (got {len(cleaned)})"
+        )
+        cleaned = cleaned[:MAX_SUBCATEGORIES]
+
+    # NOTE: an all-invalid list lands here as `[]`, NOT `None`. The enricher DID
+    # evaluate the row; it just produced nothing this taxonomy recognizes.
+    return cleaned
+
+
 def apply_result(
     conn: Connection, result: dict[str, Any], *, require_judge_pass: bool
 ) -> list[str]:
@@ -184,6 +295,21 @@ def apply_result(
 
     category = _valid(result.get("category"), CATEGORY_SLUGS, job_id, "category", warnings)
     level = _valid(result.get("level"), LEVEL_SLUGS, job_id, "level", warnings)
+    # `_UNSET` when the caller's dict has no `subcategories` key at all. The
+    # router pops the key when Pydantic reports it unset, so "absent on the wire"
+    # survives `model_dump()` — which otherwise flattens absent and null into the
+    # same `None`.
+    subcategories = _valid_subcategories(
+        result.get("subcategories", _UNSET), category, job_id, warnings
+    )
+    subcategory_source = (
+        None
+        if subcategories is _UNSET or subcategories is None
+        else _valid_source(result.get("subcategory_source"), job_id, warnings)
+    )
+    subcategory_confidence = (
+        None if not subcategories else result.get("subcategory_confidence")
+    )
 
     cur = conn.cursor()
     try:
@@ -195,12 +321,48 @@ def apply_result(
         #    Only the admin re-enrich action (which clears human_corrected_at)
         #    reopens the row.
         cur.execute(
-            "SELECT human_corrected_at FROM job_enrichment "
-            "WHERE source_id = %s AND job_listing_id = %s",
+            "SELECT je.human_corrected_at, jl.enrichment_subcategories "
+            "FROM job_enrichment je "
+            "JOIN job_listings jl "
+            "  ON jl.source_id = je.source_id AND jl.id = je.job_listing_id "
+            "WHERE je.source_id = %s AND je.job_listing_id = %s",
             (source_id, job_id),
         )
         guard_row = cur.fetchone()
         if guard_row and guard_row["human_corrected_at"] is not None:
+            # PER-FIELD UNLOCK. The lock is still absolute for category, level,
+            # tags and the audit payload. It is NOT absolute for subcategories on
+            # a row whose array is NULL, and the reason is a fact about time: the
+            # human corrected this row BEFORE subcategories existed, so a NULL
+            # array is provably not a human decision — there was nothing to
+            # decide. Refusing here would permanently exclude the human-labelled
+            # pool from the backfill, which is exactly the pool the eval gate is
+            # built on.
+            if (
+                subcategories is not _UNSET
+                and subcategories is not None
+                and guard_row["enrichment_subcategories"] is None
+            ):
+                cur.execute(
+                    "UPDATE job_listings SET enrichment_subcategories = %s::text[], "
+                    "enrichment_subcategory_source = %s "
+                    "WHERE source_id = %s AND id = %s",
+                    (subcategories, subcategory_source, source_id, job_id),
+                )
+                cur.execute(
+                    "UPDATE job_enrichment SET subcategory_confidence = %s "
+                    "WHERE source_id = %s AND job_listing_id = %s",
+                    (subcategory_confidence, source_id, job_id),
+                )
+                logger.info(
+                    "enrichment: human-corrected (source_id=%s, id=%s) — wrote "
+                    "subcategories only (array was NULL)",
+                    source_id, job_id,
+                )
+                warnings.append(
+                    "human-corrected: wrote subcategories only (facets locked)"
+                )
+                return warnings
             logger.info(
                 "enrichment: skipping (source_id=%s, id=%s) — human-corrected at %s",
                 source_id, job_id, guard_row["human_corrected_at"],
@@ -215,8 +377,9 @@ def apply_result(
             INSERT INTO job_enrichment (
                 source_id, job_listing_id, clean_description, classify_confidence,
                 classify_reasoning, taxonomy_version, judged, judge_passed,
-                judge_confidence, judge_notes, needs_human, enriched_at
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now())
+                judge_confidence, judge_notes, needs_human, subcategory_confidence,
+                enriched_at
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now())
             ON CONFLICT (source_id, job_listing_id) DO UPDATE SET
                 clean_description = EXCLUDED.clean_description,
                 classify_confidence = EXCLUDED.classify_confidence,
@@ -227,6 +390,14 @@ def apply_result(
                 judge_confidence = EXCLUDED.judge_confidence,
                 judge_notes = EXCLUDED.judge_notes,
                 needs_human = EXCLUDED.needs_human,
+                -- Guarded on whether the payload carried subcategories at all.
+                -- Without the CASE, an ordinary v6 tick (no subcategories key)
+                -- would wipe a backfilled confidence to NULL while `_UNSET`
+                -- carefully preserved the array beside it — the two columns
+                -- would then disagree about the same decision.
+                subcategory_confidence = CASE WHEN %s
+                    THEN EXCLUDED.subcategory_confidence
+                    ELSE job_enrichment.subcategory_confidence END,
                 enriched_at = now()
             """,
             (
@@ -241,17 +412,35 @@ def apply_result(
                 judge.get("confidence"),
                 judge.get("notes"),
                 needs_human,
+                subcategory_confidence,
+                subcategories is not _UNSET,
             ),
         )
 
         # 2. Facets on job_listings + tags — only when published. Keyed on the
         #    composite PK (source_id, id).
         if publish:
+            set_parts = [
+                "enrichment_category = %s",
+                "enrichment_level = %s",
+                "enrichment_status = 'done'",
+                "enrichment_claimed_at = NULL",
+            ]
+            params: list[Any] = [category, level]
+            if subcategories is not _UNSET:
+                # The ::text[] cast is REQUIRED. psycopg2 renders an empty list
+                # untyped and Postgres raises "cannot determine type of empty
+                # array" — and `[]` is a state this path has to be able to write.
+                set_parts.append("enrichment_subcategories = %s::text[]")
+                params.append(subcategories)
+                set_parts.append("enrichment_subcategory_source = %s")
+                params.append(subcategory_source)
+            params.extend([source_id, job_id])
             cur.execute(
-                "UPDATE job_listings SET enrichment_category = %s, enrichment_level = %s, "
-                "enrichment_status = 'done', enrichment_claimed_at = NULL "
-                "WHERE source_id = %s AND id = %s",
-                (category, level, source_id, job_id),
+                "UPDATE job_listings SET "  # noqa: S608 — set_parts is a literal allowlist
+                + ", ".join(set_parts)
+                + " WHERE source_id = %s AND id = %s",
+                tuple(params),
             )
             # A well-formed but nonexistent/stale (source_id, id) matches 0 rows.
             # Raise so the caller's SAVEPOINT rolls back the already-inserted
@@ -293,6 +482,7 @@ def apply_result(
             # after being re-flagged for a human.
             cur.execute(
                 "UPDATE job_listings SET enrichment_category = NULL, enrichment_level = NULL, "
+                "enrichment_subcategories = NULL, enrichment_subcategory_source = NULL, "
                 "enrichment_status = 'needs_human', enrichment_claimed_at = NULL "
                 "WHERE source_id = %s AND id = %s",
                 (source_id, job_id),

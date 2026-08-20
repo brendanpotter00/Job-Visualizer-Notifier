@@ -443,9 +443,19 @@ def results(
             try:
                 cur.execute("SAVEPOINT enr_row")
                 item = EnrichmentResultItem.model_validate(raw_item)
+                result_payload = item.model_dump()
+                # `model_dump()` flattens "key absent" and "key explicitly null"
+                # into the same `None`, and for subcategories those are DIFFERENT
+                # INSTRUCTIONS: absent means "leave the column alone" (which is
+                # what lets a v6 enricher keep ticking without NULLing every row),
+                # null means "never evaluated, re-queue me". Popping the key when
+                # Pydantic reports it unset is what carries the distinction into
+                # the writer.
+                if "subcategories" not in item.model_fields_set:
+                    result_payload.pop("subcategories", None)
                 warnings = apply_result(
                     conn,
-                    item.model_dump(),
+                    result_payload,
                     require_judge_pass=settings.enrichment_require_judge_pass,
                 )
                 cur.execute("RELEASE SAVEPOINT enr_row")

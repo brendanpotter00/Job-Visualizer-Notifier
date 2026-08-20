@@ -239,3 +239,61 @@ def test_job_facets_response_constructs_without_subcategories():
 
     resp = JobFacetsResponse(categories=[], levels=[])
     assert resp.subcategories == []
+
+
+def test_subcategories_round_trip_through_results(client, db_conn, seed_taxonomy):
+    """⚠ THE CERTIFIED ROUND TRIP: POST /results -> GET the job -> the array is there.
+
+    NEVER assert on `written: N` here. `written` is exactly the number a silent
+    Pydantic drop inflates: before `EnrichmentResultItem.subcategories` existed,
+    this endpoint accepted the key, discarded it, persisted nothing, and reported
+    `written: 1`. The only honest proof is reading the value back out of the
+    public read path.
+    """
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from api.dependencies import get_db
+    from api.routers import internal_enrichment
+
+    _insert_job(db_conn, _make_job({"id": "rt-1", "source_id": "rt-src"}))
+    db_conn.commit()
+
+    internal_app = FastAPI()
+    internal_app.include_router(
+        internal_enrichment.router, prefix="/api/internal/enrichment"
+    )
+    internal_app.dependency_overrides[get_db] = lambda: db_conn
+    internal_client = TestClient(internal_app)
+
+    resp = internal_client.post(
+        "/api/internal/enrichment/results",
+        json={
+            "results": [
+                {
+                    "jobListingId": "rt-1",
+                    "sourceId": "rt-src",
+                    "category": "software_engineering",
+                    "level": "senior",
+                    "subcategories": ["backend"],
+                    "subcategorySource": "classify",
+                    "subcategoryConfidence": 0.82,
+                }
+            ]
+        },
+    )
+    assert resp.status_code == 200, resp.text
+
+    detail = client.get("/api/jobs/rt-src/rt-1")
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["subcategories"] == ["backend"]
+
+
+def test_unevaluated_job_serializes_subcategories_as_null_not_empty(client, db_conn):
+    """The tri-state has to survive all the way to the SPA: `null` (never
+    evaluated) is a different fact from `[]` (evaluated, nothing applies)."""
+    _insert_job(db_conn, _make_job({"id": "rt-null", "source_id": "rt-src"}))
+    db_conn.commit()
+
+    body = client.get("/api/jobs/rt-src/rt-null").json()
+    assert body["subcategories"] is None
