@@ -3,6 +3,8 @@ import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders, createTestStore } from '../../../test/testUtils';
 import { RecentJobsFilters } from '../../../components/recent-jobs-page/RecentJobsFilters';
+import { jobsApi } from '../../../features/jobs/jobsApi';
+import { SubcategoryRevealProvider } from '../../../features/settings/subcategoryReveal';
 
 const { searchMock } = vi.hoisted(() => ({ searchMock: vi.fn() }));
 
@@ -320,5 +322,135 @@ describe('RecentJobsFilters', () => {
 
     // An action on recentJobsFilters should NOT touch the graph slice.
     expect(store.getState().graphFilters).toBe(graphBefore);
+  });
+});
+
+/**
+ * The subcategory tree, on the bar that is SERVER-filtered.
+ *
+ * The facets-seeding idiom is NEW in this file: #252's rewrite removed the
+ * `upsertQueryData` call it used to carry (the endpoint it seeded, `getAllJobs`,
+ * no longer exists). The reveal flag is seeded the same way, and the component
+ * is rendered INSIDE `<SubcategoryRevealProvider>` — matching how `App.tsx`
+ * mounts it. `renderWithProviders` takes NO `wrapper` option (its
+ * `CustomRenderOptions` is `Omit<RenderOptions, 'wrapper'>`), so the provider
+ * wraps the ELEMENT, not the options.
+ */
+describe('RecentJobsFilters — the subcategory tree', () => {
+  const FACETS = {
+    categories: [
+      { slug: 'software_engineering', label: 'Software Engineering', sortOrder: 0 },
+      { slug: 'growth', label: 'Growth', sortOrder: 1 },
+    ],
+    levels: [{ slug: 'senior', label: 'Senior', sortOrder: 0, parentSlug: null }],
+    subcategories: [
+      { slug: 'backend', label: 'Backend', sortOrder: 1, parentSlug: 'software_engineering' },
+      { slug: 'frontend', label: 'Frontend', sortOrder: 6, parentSlug: 'software_engineering' },
+    ],
+  };
+
+  async function seedFacetsAndFlag(
+    store: ReturnType<typeof createTestStore>,
+    { reveal }: { reveal: boolean }
+  ) {
+    await store.dispatch(jobsApi.util.upsertQueryData('getFacets', undefined, FACETS));
+    await store.dispatch(
+      jobsApi.util.upsertQueryData('getPublicSettings', undefined, {
+        sweSubcategoriesEnabled: reveal,
+      })
+    );
+  }
+
+  function renderBar(store: ReturnType<typeof createTestStore>) {
+    return renderWithProviders(
+      <SubcategoryRevealProvider>
+        <RecentJobsFilters />
+      </SubcategoryRevealProvider>,
+      { store }
+    );
+  }
+
+  it('(a) exposes the control as a combobox named "Job category"', async () => {
+    const store = await seedRecentStore();
+    await seedFacetsAndFlag(store, { reveal: true });
+    renderBar(store);
+
+    expect(screen.getByRole('combobox', { name: 'Job category' })).toBeInTheDocument();
+  });
+
+  it('(b) shows a chevron on the SWE row and expands to its children', async () => {
+    const store = await seedRecentStore();
+    await seedFacetsAndFlag(store, { reveal: true });
+    const user = userEvent.setup();
+    renderBar(store);
+
+    await user.click(screen.getByRole('combobox', { name: 'Job category' }));
+    const listbox = await screen.findByRole('listbox');
+    const swe = within(listbox).getByRole('option', { name: /Software Engineering/ });
+
+    await user.click(within(swe).getByRole('button'));
+
+    expect(within(listbox).getByRole('option', { name: /Backend/ })).toBeInTheDocument();
+    expect(within(listbox).getByRole('option', { name: /Frontend/ })).toBeInTheDocument();
+    // Growth has no children, so it has no chevron.
+    const growth = within(listbox).getByRole('option', { name: /Growth/ });
+    expect(within(growth).queryByRole('button')).toBeNull();
+  });
+
+  it('(c) ticking a child dispatches BOTH setters onto the slice', async () => {
+    const store = await seedRecentStore();
+    await seedFacetsAndFlag(store, { reveal: true });
+    const user = userEvent.setup();
+    renderBar(store);
+
+    await user.click(screen.getByRole('combobox', { name: 'Job category' }));
+    const listbox = await screen.findByRole('listbox');
+    const swe = within(listbox).getByRole('option', { name: /Software Engineering/ });
+    await user.click(within(swe).getByRole('button'));
+    await user.click(within(listbox).getByRole('option', { name: /Backend/ }));
+
+    const filters = store.getState().recentJobsFilters.filters;
+    expect(filters.subcategory).toEqual(['backend']);
+    // The parent is auto-checked, so the two dimensions stay consistent.
+    expect(filters.category).toEqual(['software_engineering']);
+  });
+
+  it('(d) shows NO chevron with the flag off', async () => {
+    const store = await seedRecentStore();
+    await seedFacetsAndFlag(store, { reveal: false });
+    const user = userEvent.setup();
+    renderBar(store);
+
+    await user.click(screen.getByRole('combobox', { name: 'Job category' }));
+    const listbox = await screen.findByRole('listbox');
+
+    expect(within(listbox).queryByRole('button')).toBeNull();
+    expect(within(listbox).queryByRole('option', { name: /Backend/ })).toBeNull();
+  });
+
+  it('shows NO chevron when the flag is ON but the facets catalog is empty', async () => {
+    // The warm-cache case the `?? []` gate exists for: a facets response seeded
+    // before the dimension was published, plus a freshly flipped flag, must not
+    // render a parent that expands into nothing.
+    const store = await seedRecentStore();
+    await store.dispatch(
+      jobsApi.util.upsertQueryData('getFacets', undefined, {
+        categories: FACETS.categories,
+        levels: FACETS.levels,
+        subcategories: [],
+      })
+    );
+    await store.dispatch(
+      jobsApi.util.upsertQueryData('getPublicSettings', undefined, {
+        sweSubcategoriesEnabled: true,
+      })
+    );
+    const user = userEvent.setup();
+    renderBar(store);
+
+    await user.click(screen.getByRole('combobox', { name: 'Job category' }));
+    const listbox = await screen.findByRole('listbox');
+
+    expect(within(listbox).queryByRole('button')).toBeNull();
   });
 });

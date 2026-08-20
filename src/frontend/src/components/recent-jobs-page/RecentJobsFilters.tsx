@@ -15,6 +15,7 @@ import {
   removeRecentJobsCompany,
   setRecentJobsCategory,
   setRecentJobsLevel,
+  setRecentJobsSubcategory,
 } from '../../features/filters/slices/recentJobsFiltersSlice.ts';
 import {
   selectRecentJobsFilters,
@@ -22,7 +23,10 @@ import {
 } from '../../features/filters/selectors/recentJobsSelectors.ts';
 import { useGetFacetsQuery } from '../../features/jobs/jobsApi.ts';
 import { FALLBACK_CATEGORIES, FALLBACK_LEVELS } from '../../constants/enrichment.ts';
+import { useSubcategoryRevealEnabled } from '../../features/settings/subcategoryReveal.tsx';
+// FacetMultiSelect STAYS — it still backs the Level control below.
 import { FacetMultiSelect } from '../shared/filters/FacetMultiSelect.tsx';
+import { FacetTreeMultiSelect } from '../shared/filters/FacetTreeMultiSelect.tsx';
 import { KeywordFilterInput } from '../shared/filters/KeywordFilterInput.tsx';
 import { TimeWindowSelect } from '../shared/filters/TimeWindowSelect.tsx';
 import { MultiSelectAutocomplete } from '../shared/filters/MultiSelectAutocomplete.tsx';
@@ -45,8 +49,15 @@ export function RecentJobsFilters() {
   // Facet dropdown options are data-driven (seeded dimension tables); the
   // fallback constants cover the pre-fetch frame and an endpoint outage.
   const { data: facets } = useGetFacetsQuery();
+  const revealSubcategories = useSubcategoryRevealEnabled();
   const categoryOptions = facets?.categories ?? FALLBACK_CATEGORIES;
   const levelOptions = facets?.levels ?? FALLBACK_LEVELS;
+  // `?? []` and NOT the fallback constant, deliberately. THIS SINGLE EXPRESSION
+  // IS the shared contract's `flag && (facets?.subcategories?.length ?? 0) > 0`
+  // gate: an empty catalog renders no chevron at all, so a warm one-hour facets
+  // cache plus a freshly flipped flag cannot produce a parent row that expands
+  // into nothing.
+  const subcategoryOptions = revealSubcategories ? (facets?.subcategories ?? []) : [];
 
   /**
    * Memoized company options for dropdown
@@ -139,12 +150,17 @@ export function RecentJobsFilters() {
             which point they read as categories again. Rename the label only —
             never the data model.
           */}
-          <FacetMultiSelect
-            label="Job title"
+          <FacetTreeMultiSelect
+            label="Job category"
             options={categoryOptions}
+            childOptions={subcategoryOptions}
             value={filters.category}
-            onChange={(slugs) => dispatch(setRecentJobsCategory(slugs))}
-            tooltip="AI-enriched job title (choose any number). Only jobs matching your selection are shown."
+            childValue={filters.subcategory}
+            onChange={({ category, subcategory }) => {
+              dispatch(setRecentJobsCategory(category));
+              dispatch(setRecentJobsSubcategory(subcategory));
+            }}
+            tooltip="AI-enriched job category (choose any number). Only jobs matching your selection are shown."
           />
           <FacetMultiSelect
             label="Level"
