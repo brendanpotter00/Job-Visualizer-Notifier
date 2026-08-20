@@ -81,9 +81,13 @@ describe('JobListingCard', () => {
     expect(screen.queryByText(/months ago/i)).not.toBeInTheDocument();
   });
 
-  it('displays department chip', () => {
+  it('does NOT display the ATS-provided department chip', () => {
+    // The department chip was removed from the card: it mostly restated the
+    // enrichment category/level chips (e.g. department "Senior" beside level
+    // "Senior"). The field still exists on the Job and still drives the
+    // company-page department filter — it just isn't rendered here.
     render(<JobListingCard job={mockJob} />);
-    expect(screen.getByText('Engineering')).toBeInTheDocument();
+    expect(screen.queryByText('Engineering')).not.toBeInTheDocument();
   });
 
   it('displays location chip', () => {
