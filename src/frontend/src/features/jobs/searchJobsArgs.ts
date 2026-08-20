@@ -115,6 +115,11 @@ export function buildSearchJobsArgs({
   return {
     companies,
     category: normalizeList(filters.category),
+    // `normalizeList` sorts and de-dupes and returns `undefined` for an empty
+    // list, which is what keeps the RTK Query cache key one-to-one with the
+    // filter state — two orderings of the same selection must not mint two
+    // cache entries.
+    subcategory: normalizeList(filters.subcategory),
     level: normalizeList(filters.level),
     locations: normalizeList(filters.location),
     include: normalizeList(includeTerms),
@@ -129,7 +134,7 @@ export function buildSearchJobsArgs({
  *
  * Multi-value filters are REPEATED params, not comma-joined: canonical location
  * names ("Austin, TX, US") and free-text keywords contain commas, so a joined
- * scalar could not be split back apart unambiguously. One convention for all six
+ * scalar could not be split back apart unambiguously. One convention for all seven
  * beats two conventions split by which values happen to be comma-free.
  *
  * Spaces are `%20`, not `+`. `URLSearchParams` emits `+`, which is correct for
@@ -143,6 +148,7 @@ export function buildSearchJobsQuery(args: SearchJobsArgs, cursor: string | null
   params.set('limit', String(args.limit));
   for (const value of args.companies ?? []) params.append('company', value);
   for (const value of args.category ?? []) params.append('category', value);
+  for (const value of args.subcategory ?? []) params.append('subcategory', value);
   for (const value of args.level ?? []) params.append('level', value);
   for (const value of args.locations ?? []) params.append('location', value);
   for (const value of args.include ?? []) params.append('include', value);

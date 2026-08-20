@@ -71,6 +71,22 @@ export interface SearchJobsArgs {
    * taxonomy that can disagree.
    */
   level?: string[];
+  /**
+   * SWE subcategory slugs, sent UNEXPANDED — the same rule as `level` above and
+   * for the same reason. The server owns the Frontend/Backend ⊃ Full Stack
+   * widening (`services/job_search.py::expand_subcategories`); expanding here
+   * too would mean two copies of the taxonomy that can disagree, and it would
+   * persist the widened pair `['backend','full_stack']` into the user's saved
+   * filters and into the chips they see.
+   *
+   * NOTE for readers of `meta`: the recency tiles will NOT narrow with this
+   * filter. `filteredTotal` tracks the whole filter set and does reflect it, but
+   * `countLast24h` / `countLast3h` are company-scoped and scoped to nothing else
+   * by design (see the interface below). That asymmetry predates this field; a
+   * 15-way subdivision just makes the gap between "Past 24 Hours" and the
+   * visible rows much more noticeable. Nobody has decided whether to change it.
+   */
+  subcategory?: string[];
   /** Canonical location names; the server resolves them hierarchically. */
   locations?: string[];
   /** Keyword terms a job must match at least one of. */
