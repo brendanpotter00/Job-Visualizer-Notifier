@@ -30,6 +30,7 @@ from .enrichment_writer import (
     MAX_TAGS_PER_JOB,
     SUBCATEGORY_PARENT,
     SUBCATEGORY_SLUGS,
+    SUBCATEGORY_SOURCES,
 )
 
 logger = logging.getLogger(__name__)
@@ -733,6 +734,65 @@ def apply_correction(
             "human_corrected_by": row["human_corrected_by"],
             "human_decision": row["human_decision"],
         }
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+
+
+def reset_subcategories(
+    conn: Connection, *, source: str, dry_run: bool = True
+) -> dict[str, Any]:
+    """SCOPED, source-keyed reversal of automated subcategory labels.
+
+    ``enrichment_subcategory_source`` exists specifically to make this possible.
+    The only other JVN-side reversal on offer is SCHEMA-1's ``downgrade()``,
+    whose own docstring admits a plain ``DROP COLUMN`` discards every backfilled
+    label — a blunt instrument for backing the whole feature out, not for undoing
+    one bad run. The enricher has its own run-scoped ``subcategory-reset``, but
+    THE LABELS USERS ACTUALLY SEE LIVE IN POSTGRES, and nothing was clearing
+    those.
+
+    ``dry_run`` DEFAULTS TO TRUE. The destructive form needs an explicit
+    ``false``, so the reflexive "just run it and see" produces a count and
+    changes nothing.
+
+    ``source='human'`` is only ever matched when passed EXPLICITLY. An unscoped
+    variant of this function would destroy the only ground truth the eval gate
+    has, and there is no code path here that can reach the human rows by
+    accident.
+
+    Owns commit/rollback, like the other mutations in this module.
+    """
+    if source not in SUBCATEGORY_SOURCES:
+        raise CorrectionError(
+            f"unknown subcategory source {source!r}; expected one of "
+            f"{sorted(SUBCATEGORY_SOURCES)}"
+        )
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "SELECT COUNT(*) AS n FROM job_listings "
+            "WHERE enrichment_subcategory_source = %s",
+            (source,),
+        )
+        matched = int(scalar(cur.fetchone(), "n") or 0)
+
+        applied = 0
+        if not dry_run:
+            # Both columns in ONE SET list: a row whose array is NULL but whose
+            # source still names the producer would be a lie the backfill queue
+            # would then act on.
+            cur.execute(
+                "UPDATE job_listings SET enrichment_subcategories = NULL, "
+                "enrichment_subcategory_source = NULL "
+                "WHERE enrichment_subcategory_source = %s",
+                (source,),
+            )
+            applied = cur.rowcount
+        conn.commit()
+        return {"source": source, "matched": matched, "applied": applied}
     except Exception:
         conn.rollback()
         raise

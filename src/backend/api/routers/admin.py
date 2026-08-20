@@ -49,6 +49,8 @@ from ..models import (
     AdminEnrichmentTicksResponse,
     AdminUserVisitsResponse,
     AdminUsersStatsResponse,
+    AdminSubcategoryResetRequest,
+    AdminSubcategoryResetResponse,
     FeedbackResponse,
 )
 from ..services.admin_service import (
@@ -82,6 +84,7 @@ from ..services.enrichment_monitor import (
     list_recent,
     list_ticks,
     request_reenrich,
+    reset_subcategories,
 )
 from ..services.location_monitor import get_health, get_integrity
 from ..services.location_normalization import normalize_string
@@ -846,6 +849,38 @@ def admin_enrichment_confirm(
         logger.exception("Failed to confirm enrichment")
         raise HTTPException(status_code=500, detail="Failed to confirm enrichment")
     return AdminEnrichmentCorrectionResponse(**result)
+
+
+@router.post(
+    "/enrichment/subcategories/reset",
+    response_model=AdminSubcategoryResetResponse,
+)
+def admin_enrichment_subcategory_reset(
+    body: AdminSubcategoryResetRequest,
+    conn: Connection = Depends(get_db),
+    _admin: TokenClaims = Depends(require_admin),
+) -> AdminSubcategoryResetResponse:
+    """Scoped, source-keyed reversal of automated subcategory labels.
+
+    NULLs `enrichment_subcategories` and `enrichment_subcategory_source` for
+    every row whose source matches — which re-queues them for the backfill,
+    because a NULL array IS the queue.
+
+    `dryRun` defaults to TRUE: the destructive form needs an explicit `false`.
+    `source='human'` is only matched when passed explicitly; there is no
+    unscoped variant, because one would destroy the only ground truth the eval
+    gate has."""
+    try:
+        result = reset_subcategories(
+            conn, source=body.source, dry_run=body.dry_run
+        )
+    except CorrectionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except psycopg2.Error:
+        conn.rollback()
+        logger.exception("Failed to reset subcategories")
+        raise HTTPException(status_code=500, detail="Failed to reset subcategories")
+    return AdminSubcategoryResetResponse(**result)
 
 
 @router.post(

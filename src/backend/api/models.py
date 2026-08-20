@@ -1178,6 +1178,35 @@ class AdminEnrichmentHealthResponse(BaseModel):
     error_ticks_in_window: int = Field(ge=0)
 
 
+class AdminSubcategoryResetRequest(BaseModel):
+    """Body for POST /api/admin/enrichment/subcategories/reset.
+
+    ``dry_run`` DEFAULTS TO TRUE — the destructive form needs an explicit
+    ``false``, so the reflexive "just run it" produces a count and changes
+    nothing. ``extra='forbid'`` because a typo'd key (``dryrun``,
+    ``dry-run``) would otherwise silently fall back to... running it for real.
+    """
+
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
+
+    # One of enrichment_writer.SUBCATEGORY_SOURCES. Validated in the service
+    # against the constant (400/409), not re-listed here.
+    source: str = Field(min_length=1, max_length=40)
+    dry_run: bool = True
+
+
+class AdminSubcategoryResetResponse(BaseModel):
+    """Result of a scoped subcategory reset. ``applied`` is 0 on a dry run."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    source: str
+    matched: int = Field(ge=0)
+    applied: int = Field(ge=0)
+
+
 class AdminEnrichmentNeedsHumanRow(BaseModel):
     """One needs-human queue row (job_enrichment ⋈ job_listings)."""
 
