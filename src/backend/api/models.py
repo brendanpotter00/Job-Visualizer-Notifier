@@ -90,6 +90,12 @@ class JobListingResponse(BaseModel):
     category: str | None = None            # job_categories.slug
     level: str | None = None               # job_levels.slug (see the new_grad⊂entry hierarchy)
     tags: list[str] = Field(default_factory=list)
+    # ORDERED (index 0 = primary), max 2. NULLABLE, deliberately NOT
+    # `default_factory=list`: `null` means "never evaluated" (still in the
+    # backfill queue) and `[]` means "evaluated, no specialty applies". A
+    # default of `[]` would erase that distinction for every unenriched row the
+    # moment it crossed the wire.
+    subcategories: list[str] | None = None
     enrichment_status: str | None = None   # NULL | 'claimed' | 'done' | 'needs_human'
 
 
@@ -924,6 +930,33 @@ class EnrichmentResultItem(BaseModel):
     raw_location: str | None = None
     locations: list[Any] = Field(default_factory=list)
     judge: JudgeVerdict | None = None
+    # SWE subcategories, three fields, one contract.
+    #
+    # WHY THESE HAVE TO EXIST AT ALL: this model has NO `extra='forbid'`, so
+    # Pydantic's default `ignore` accepts an unknown `subcategories` key and
+    # DISCARDS it — while the batch cheerfully reports `written: N`. Until the
+    # field is declared, the enricher can push subcategories forever and nothing
+    # is stored and nothing complains. That is the failure the round-trip test
+    # in test_response_shapes.py exists to catch.
+    #
+    # TYPED `Any`, not `list[Any]`, and that is deliberate — it goes one step
+    # further than the `locations` precedent right above. The writer's contract
+    # (`_valid_subcategories`) explicitly handles a SCALAR by promoting it to a
+    # one-element list with a warning, and a dict/garbage value by dropping it
+    # with a warning. `list[Any]` would 422 both at `model_validate` and route
+    # the WHOLE item to `failed[]`, discarding the good category/level/tags —
+    # the exact reclaim churn the `locations` typing exists to avoid. The rule
+    # is the same one, applied honestly: the WRITER is the sole arbiter, so the
+    # model must not pre-empt it.
+    #
+    # THE DEFAULT IS `None`, and the writer treats "key absent" and "key null"
+    # differently by inspecting `model_fields_set` — absent leaves both columns
+    # untouched (which is what makes the enricher's subcategory knob a reversible
+    # DEPLOY ORDER rather than a code push), null means "never evaluated" and
+    # clears them.
+    subcategories: Any = None
+    subcategory_confidence: float | None = None
+    subcategory_source: str | None = None
 
 
 class EnrichmentResultsBody(BaseModel):
@@ -1012,9 +1045,18 @@ class FacetOption(BaseModel):
     slug: str
     label: str
     sort_order: int
-    # job_levels only: parent in the level hierarchy (new_grad -> entry). The
-    # frontend derives its client-side filter expansion from this, so the
-    # entry⊇new_grad contract stays data-driven end to end.
+    # `parent_slug` carries TWO DIFFERENT MEANINGS depending on which dimension
+    # the row came from, and confusing them is a real bug:
+    #   * job_levels      -> a FILTER-EXPANSION edge (new_grad -> entry). The
+    #                        frontend builds its client-side level expansion
+    #                        from exactly this, so entry ⊇ new_grad stays
+    #                        data-driven end to end.
+    #   * job_subcategories -> a GROUPING edge. Every row's parent is
+    #                        'software_engineering', and it exists so the
+    #                        dropdown can render a tree. It must NEVER be fed
+    #                        into the level-expansion builder, which would turn
+    #                        one category selection into fifteen subcategories.
+    #   * job_categories  -> always NULL (the query selects `NULL AS parent_slug`).
     parent_slug: str | None = None
 
 
@@ -1027,6 +1069,11 @@ class JobFacetsResponse(BaseModel):
 
     categories: list[FacetOption]
     levels: list[FacetOption]
+    # `default_factory=list` so a phase-1 backend (dimension table present but
+    # EMPTY, or the catalog query not yet extended) still CONSTRUCTS. The
+    # frontend mirrors this: it normalizes a missing key to `[]` rather than
+    # treating it as a malformed response.
+    subcategories: list[FacetOption] = Field(default_factory=list)
 
 
 class JobSearchMeta(BaseModel):
