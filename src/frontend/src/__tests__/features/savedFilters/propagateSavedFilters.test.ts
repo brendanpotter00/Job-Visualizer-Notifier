@@ -44,6 +44,38 @@ function applyPropagation(saved: SavedFilters, kwLists: KeywordList[]) {
 }
 
 describe('savedFiltersPropagationActions (Critique #2: no-refresh propagation)', () => {
+  it('pushes the saved subcategory to BOTH slices, outside the listsLoaded guard', () => {
+    const saved: SavedFilters = {
+      recentTimeWindow: '24h',
+      trendTimeWindow: '30d',
+      locations: [],
+      category: ['software_engineering'],
+      level: [],
+      subcategory: ['backend'],
+      recentActiveKeywordListId: 'list-1',
+      trendActiveKeywordListId: 'list-1',
+    };
+
+    // listsLoaded: false is the case that matters — a subcategory must
+    // propagate regardless of whether the keyword lists have arrived, exactly
+    // like category and locations. Only the keyword POINTERS depend on that
+    // second query.
+    const actions = savedFiltersPropagationActions(saved, [], { listsLoaded: false });
+    const types = actions.map((a) => a.type);
+
+    expect(types).toContain('graphFilters/setGraphSubcategory');
+    expect(types).toContain('recentJobsFilters/setRecentJobsSubcategory');
+
+    let graph = graphReducer(undefined, { type: '@@INIT' });
+    let recent = recentJobsReducer(undefined, { type: '@@INIT' });
+    for (const action of actions) {
+      graph = graphReducer(graph, action);
+      recent = recentJobsReducer(recent, action);
+    }
+    expect(graph.filters.subcategory).toEqual(['backend']);
+    expect(recent.filters.subcategory).toEqual(['backend']);
+  });
+
   it('snaps both slices to the saved time windows, locations, category, level, and active lists', () => {
     const saved: SavedFilters = {
       recentTimeWindow: '24h',
@@ -110,9 +142,10 @@ describe('savedFiltersPropagationActions (Critique #2: no-refresh propagation)',
     // Live keyword tags are LEFT INTACT (not wiped to undefined).
     expect(graph.filters.searchTags).toEqual([live]);
     expect(recent.filters.searchTags).toEqual([live]);
-    // No setSearchTags action was emitted for the non-null pointers; the 8
-    // emitted are time-window/location/category/level for each of the 2 pages.
-    expect(actions).toHaveLength(8);
+    // No setSearchTags action was emitted for the non-null pointers; the 10
+    // emitted are time-window/location/category/level/subcategory for each of
+    // the 2 pages.
+    expect(actions).toHaveLength(10);
   });
 
   it('still clears an intentionally-null active list even when lists are not loaded', () => {
@@ -141,8 +174,8 @@ describe('savedFiltersPropagationActions (Critique #2: no-refresh propagation)',
 
     expect(graph.filters.searchTags).toBeUndefined();
     expect(recent.filters.searchTags).toBeUndefined();
-    // 10 = time-window/location/category/level/searchTags for each of 2 pages.
-    expect(actions).toHaveLength(10);
+    // 12 = time-window/location/category/level/subcategory/searchTags for each of 2 pages.
+    expect(actions).toHaveLength(12);
   });
 
   it('clears search tags when the active list is null and treats [] as no location filter', () => {
