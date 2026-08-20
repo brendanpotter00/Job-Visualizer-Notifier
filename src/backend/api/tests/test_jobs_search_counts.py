@@ -422,6 +422,10 @@ def _seed_recency_corpus(conn) -> None:
     pytest.param({"category": "growth"}, 0, id="a-filter-matching-nothing"),
     pytest.param({"include": "product"}, 1, id="a-keyword-narrowing-to-one-row"),
     pytest.param({"level": "senior"}, 0, id="a-level-nothing-is-labelled-with"),
+    # Every row in this corpus has a NULL subcategory array, so an active
+    # subcategory filter hides all six — which is exactly the mid-backfill shape
+    # and the strongest possible check that the tiles do not follow the filter.
+    pytest.param({"subcategory": "backend"}, 0, id="a-subcategory-nothing-carries"),
     pytest.param(
         {"since": _iso(datetime(2099, 1, 1, tzinfo=timezone.utc))}, 0,
         id="a-since-window-in-the-future",
