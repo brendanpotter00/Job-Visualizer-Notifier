@@ -303,6 +303,7 @@ describe('transformBackendJob — enrichment facets', () => {
     detailsScraped: true,
     category: 'growth',
     level: 'mid',
+    subcategories: ['backend', 'ai_engineering'],
     tags: ['sql', 'gtm-strategy'],
     enrichmentStatus: 'done',
   };
@@ -312,6 +313,43 @@ describe('transformBackendJob — enrichment facets', () => {
     expect(job.category).toBe('growth');
     expect(job.level).toBe('mid');
     expect(job.enrichmentStatus).toBe('done');
+  });
+
+  it('preserves subcategory ORDER — index 0 is the primary specialty', () => {
+    const job = transformBackendJob(enrichedJob, 'openai');
+    expect(job.subcategories).toEqual(['backend', 'ai_engineering']);
+  });
+
+  // The tri-state guard. These three cases are the whole reason the
+  // transformer writes `?? null` instead of `?? []`.
+  it('maps an ABSENT subcategories key to null — never [] and never undefined', () => {
+    const { subcategories: _subcategories, ...noKey } = enrichedJob;
+    const job = transformBackendJob(noKey as BackendJobListing, 'openai');
+    expect(job.subcategories).toBeNull();
+  });
+
+  it('maps an explicit null to null', () => {
+    const job = transformBackendJob(
+      { ...enrichedJob, subcategories: null },
+      'openai'
+    );
+    expect(job.subcategories).toBeNull();
+  });
+
+  it('maps [] to [] and keeps it DISTINCT from the null case', () => {
+    const evaluatedNoneApply = transformBackendJob(
+      { ...enrichedJob, subcategories: [] },
+      'openai'
+    );
+    const neverEvaluated = transformBackendJob(
+      { ...enrichedJob, subcategories: null },
+      'openai'
+    );
+    expect(evaluatedNoneApply.subcategories).toEqual([]);
+    expect(neverEvaluated.subcategories).toBeNull();
+    expect(evaluatedNoneApply.subcategories).not.toEqual(
+      neverEvaluated.subcategories
+    );
   });
 
   it('keeps enrichment skill tags separate from ATS-derived tags', () => {
@@ -325,6 +363,7 @@ describe('transformBackendJob — enrichment facets', () => {
     const {
       category: _category,
       level: _level,
+      subcategories: _subcategories,
       tags: _tags,
       enrichmentStatus: _enrichmentStatus,
       ...legacy
@@ -332,6 +371,7 @@ describe('transformBackendJob — enrichment facets', () => {
     const job = transformBackendJob(legacy as BackendJobListing, 'openai');
     expect(job.category).toBeNull();
     expect(job.level).toBeNull();
+    expect(job.subcategories).toBeNull();
     expect(job.enrichmentTags).toEqual([]);
     expect(job.enrichmentStatus).toBeNull();
   });
