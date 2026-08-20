@@ -53,6 +53,28 @@ _LEVEL_SEED = [
     ("manager", "Manager", 6, None),
     ("new_grad", "New Grad", 1, "entry"),  # child last (self-FK)
 ]
+# Mirrors SCHEMA-7's seed (`*seed_job_subcategories*.py`). Added here the moment
+# the fixture and prod agree again: phase 1 shipped `job_subcategories` EMPTY, so
+# seeding it before SCHEMA-7 would have made every subcategory assertion pass
+# against a state production was not in. `parent_slug` is a real FK onto
+# job_categories, so `software_engineering` above must exist first.
+_SUBCATEGORY_SEED = [
+    ("ai_engineering", "AI Engineering", "software_engineering", 0),
+    ("backend", "Backend", "software_engineering", 1),
+    ("data_engineering", "Data Engineering", "software_engineering", 2),
+    ("devops_sre", "DevOps & Site Reliability", "software_engineering", 3),
+    ("embedded_systems", "Embedded & Low-Level Systems", "software_engineering", 4),
+    ("forward_deployed", "Forward Deployed", "software_engineering", 5),
+    ("frontend", "Frontend", "software_engineering", 6),
+    ("full_stack", "Full Stack", "software_engineering", 7),
+    ("infrastructure_platform", "Infrastructure & Platform", "software_engineering", 8),
+    ("ml_engineering", "Machine Learning", "software_engineering", 9),
+    ("mobile", "Mobile", "software_engineering", 10),
+    ("qa_testing", "QA & Testing", "software_engineering", 11),
+    ("quantitative", "Quantitative & Trading Systems", "software_engineering", 12),
+    ("robotics_autonomy", "Robotics & Autonomy", "software_engineering", 13),
+    ("security", "Security", "software_engineering", 14),
+]
 
 # Enrichment-side tables this module truncates itself so writer state never leaks
 # between tests. locations + its alias cache are included so the one location test
@@ -94,6 +116,11 @@ def _enrichment_isolation(db_conn, clean_tables):
         "INSERT INTO job_categories (slug, label, sort_order) VALUES (%s, %s, %s) "
         "ON CONFLICT (slug) DO NOTHING",
         _CATEGORY_SEED,
+    )
+    cur.executemany(
+        "INSERT INTO job_subcategories (slug, label, parent_slug, sort_order) "
+        "VALUES (%s, %s, %s, %s) ON CONFLICT (slug) DO NOTHING",
+        _SUBCATEGORY_SEED,
     )
     cur.executemany(
         "INSERT INTO job_levels (slug, label, rank, parent_slug) VALUES (%s, %s, %s, %s) "
@@ -2408,15 +2435,14 @@ class TestTaxonomyParity:
             "dimension's FK target does not exist"
         )
 
-    def test_seeded_subcategory_rows_are_a_subset_of_code(self, db_conn):
-        """SUBSET + SHAPE, not equality — and that is deliberate.
+    def test_seeded_subcategory_rows_equal_code(self, db_conn):
+        """FULL EQUALITY, tightened from SCHEMA-5's `<=` now that prod is seeded.
 
-        Phase 1 ships `job_subcategories` EMPTY in prod, so an equality
-        assertion here would be a FALSE GREEN: it would pass only against a
-        fixture that seeds the table, i.e. against a state production is not in.
-        `<=` holds both while the table is empty and after SCHEMA-7 seeds it;
-        SCHEMA-9 tightens it to `==` in the phase-2 PR, once prod actually
-        carries the rows.
+        SCHEMA-5 could only assert a subset: phase 1 shipped
+        `job_subcategories` EMPTY, so an equality assertion would have been a
+        FALSE GREEN, passing only against a fixture that seeded the table. Now
+        that SCHEMA-7 has seeded it, `==` is the assertion that actually catches
+        a slug added to the code and forgotten in a migration (or the reverse).
         """
         from api.services.enrichment_writer import (
             SUBCATEGORY_PARENT,
@@ -2427,11 +2453,70 @@ class TestTaxonomyParity:
         cur.execute("SELECT slug, parent_slug FROM job_subcategories")
         rows = cur.fetchall()
         seeded = {r["slug"] for r in rows}
-        assert seeded <= set(SUBCATEGORY_SLUGS), (
-            f"seeded subcategories not present in code: {sorted(seeded - set(SUBCATEGORY_SLUGS))}"
+        assert seeded == set(SUBCATEGORY_SLUGS), (
+            f"in DB not code: {sorted(seeded - set(SUBCATEGORY_SLUGS))}; "
+            f"in code not DB: {sorted(set(SUBCATEGORY_SLUGS) - seeded)}"
         )
         for r in rows:
             assert r["parent_slug"] == SUBCATEGORY_PARENT
+
+    def test_subcategory_code_matches_migration_seed(self):
+        """The code constant equals SCHEMA-7's seed, IMPORTED not re-typed."""
+        from api.services.enrichment_writer import SUBCATEGORY_SLUGS
+
+        sub_mig = _load_enrichment_migration("*seed_job_subcategories*.py")
+        assert SUBCATEGORY_SLUGS == {
+            slug for slug, _label, _order, _parent in sub_mig.ADDED_SUBCATEGORIES
+        }
+        # sort_order is the contiguous set 0..14, so `sorted(SUBCATEGORY_SLUGS)`
+        # reproduces the seed order — a property `enrichment_monitor` and the
+        # frontend fallback both lean on.
+        assert sorted(SUBCATEGORY_SLUGS) == [
+            slug for slug, _label, _order, _parent in sorted(
+                sub_mig.ADDED_SUBCATEGORIES, key=lambda row: row[2]
+            )
+        ]
+
+    def test_subcategory_seed_parents_exist(self):
+        """Every seeded parent_slug is a LIVE category and equals the constant.
+
+        "Live" matters: `project_manager` was retired by SCHEMA-11, so the base
+        seed alone is the wrong denominator here — the same subtraction the
+        category parity test does.
+        """
+        from api.services.enrichment_writer import SUBCATEGORY_PARENT
+
+        mig = _load_enrichment_migration()
+        retire_mig = _load_enrichment_migration("*retire_project_manager_category*.py")
+        sub_mig = _load_enrichment_migration("*seed_job_subcategories*.py")
+
+        live_categories = {slug for slug, _label, _order in mig.CATEGORY_SEED}
+        live_categories -= set(retire_mig.REMOVED_CATEGORIES)
+
+        parents = {parent for _s, _l, _o, parent in sub_mig.ADDED_SUBCATEGORIES}
+        assert parents == {SUBCATEGORY_PARENT}
+        assert parents <= live_categories
+
+    def test_subcategory_filter_expansion_matches_seed_edges(self):
+        """The query-time expansion map equals the seed's declared edges.
+
+        Modelled on test_level_filter_expansion_matches_seed_hierarchy. Asserted
+        as the INTENDED state — never "either this or {}" — because an expansion
+        map that silently emptied would produce narrower results with a 200 and
+        nothing to notice.
+        """
+        from api.services.enrichment_writer import SUBCATEGORY_FILTER_EXPANSION
+
+        sub_mig = _load_enrichment_migration("*seed_job_subcategories*.py")
+
+        # Edges are (widens_into, selected): selecting `selected` also matches
+        # `widens_into`, plus itself. One-way — `full_stack` never expands.
+        expected: dict[str, set[str]] = {}
+        for widens_into, selected in sub_mig.SUBCATEGORY_FILTER_EDGES:
+            expected.setdefault(selected, {selected}).add(widens_into)
+
+        actual = {k: set(v) for k, v in SUBCATEGORY_FILTER_EXPANSION.items()}
+        assert actual == expected  # {'frontend': {...}, 'backend': {...}}
 
     def test_seeded_db_rows_match_code_slug_sets(self, db_conn):
         """The taxonomy the fixture seeds into job_categories/job_levels (a copy
