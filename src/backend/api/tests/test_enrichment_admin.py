@@ -753,9 +753,12 @@ class TestJobFacets:
         assert resp.status_code == 200, resp.text
         body = resp.json()
         cats = [c["slug"] for c in body["categories"]]
+        # SIX, not seven: `project_manager` was retired by
+        # `retire_project_manager_category` — it had been seeded here and listed
+        # in CATEGORY_SLUGS while being ABSENT from the enricher's own taxonomy.
         assert cats == [
             "software_engineering", "hardware_engineer", "product_manager",
-            "project_manager", "data_scientist", "growth", "business_ops",
+            "data_scientist", "growth", "business_ops",
         ]
         levels = {l["slug"]: l for l in body["levels"]}
         assert levels["new_grad"]["parentSlug"] == "entry"
