@@ -28,7 +28,19 @@ const NEXT_CURSOR_HEADER = 'x-next-cursor';
  * also why these cannot be a comma-joined scalar in the first place: canonical
  * location names ("Austin, TX, US") and free-text keywords contain them.
  */
-const REPEATABLE_PARAMS = ['category', 'level', 'company', 'location', 'include', 'exclude'] as const;
+const REPEATABLE_PARAMS = [
+  'category',
+  // FORGETTING THIS ONE WORD IS THE WORST SILENT FAILURE IN THE WORKSTREAM: the
+  // param dies at the proxy, the backend never sees a subcategory filter, and
+  // the caller gets a perfectly ordinary UNFILTERED 200. Nothing in the SPA can
+  // tell that apart from "the filter matched everything".
+  'subcategory',
+  'level',
+  'company',
+  'location',
+  'include',
+  'exclude',
+] as const;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const { path, status, company, companies, limit, offset, category, level, since, cursor } =
