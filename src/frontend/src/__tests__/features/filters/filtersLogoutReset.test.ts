@@ -27,10 +27,12 @@ describe('saved-filters hydrate -> logout reset', () => {
         timeWindow: '30d',
         location: ['New York, NY'],
         searchTags: [{ text: 'react', mode: 'include' }],
+        subcategory: ['backend'],
       })
     );
     // sanity: hydration applied
     expect(state.filters.location).toEqual(['New York, NY']);
+    expect(state.filters.subcategory).toEqual(['backend']);
 
     state = graphReducer(state, setGraphHydrated(false));
     state = graphReducer(state, resetGraphFilters());
@@ -38,6 +40,7 @@ describe('saved-filters hydrate -> logout reset', () => {
     expect(state.filters).toEqual(initial.filters);
     expect(state.filters.location).toBeUndefined();
     expect(state.filters.searchTags).toBeUndefined();
+    expect(state.filters.subcategory).toBeUndefined();
     expect(state.filters.timeWindow).toBe('90d');
   });
 
@@ -50,9 +53,11 @@ describe('saved-filters hydrate -> logout reset', () => {
         timeWindow: '7d',
         location: ['New York, NY'],
         searchTags: [{ text: 'react', mode: 'include' }],
+        subcategory: ['backend'],
       })
     );
     expect(state.filters.location).toEqual(['New York, NY']);
+    expect(state.filters.subcategory).toEqual(['backend']);
 
     state = recentJobsReducer(state, setRecentJobsHydrated(false));
     state = recentJobsReducer(state, resetRecentJobsFilters());
@@ -60,6 +65,7 @@ describe('saved-filters hydrate -> logout reset', () => {
     expect(state.filters).toEqual(initial.filters);
     expect(state.filters.location).toBeUndefined();
     expect(state.filters.searchTags).toBeUndefined();
+    expect(state.filters.subcategory).toBeUndefined();
     expect(state.filters.timeWindow).toBe('all');
   });
 });
