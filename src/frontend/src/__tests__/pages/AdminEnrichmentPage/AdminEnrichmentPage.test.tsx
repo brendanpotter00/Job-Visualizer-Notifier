@@ -379,6 +379,89 @@ describe('AdminEnrichmentPage', () => {
     });
   });
 
+  // ── ADM-11: the coverage tile and the reveal switch ─────────────────────
+
+  it('renders the coverage percentage and the meta line', async () => {
+    renderPage();
+    // 4000 / 8126 = 49.2%
+    expect(await screen.findByText('49.2%')).toBeInTheDocument();
+    expect(
+      screen.getByText(/4,000 of 8,126 OPEN SWE rows evaluated/)
+    ).toBeInTheDocument();
+  });
+
+  it('⚠ renders an em dash, never NaN, when sweOpenTotal is 0', async () => {
+    fetchMock.mockImplementation(
+      routedFetch({ health: { ...HEALTHY_BODY, sweOpenTotal: 0, sweSubcategorized: 0 } })
+    );
+    renderPage();
+
+    expect(await screen.findByText('OPEN SWE coverage')).toBeInTheDocument();
+    const tile = screen.getByText('OPEN SWE coverage').closest('div') as HTMLElement;
+    expect(within(tile).queryByText(/NaN/)).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/No OPEN software-engineering rows yet/)
+    ).toBeInTheDocument();
+  });
+
+  it('warns when subcategoryUnknownSlugs is non-zero', async () => {
+    fetchMock.mockImplementation(
+      routedFetch({ health: { ...HEALTHY_BODY, subcategoryUnknownSlugs: 3 } })
+    );
+    renderPage();
+    expect(
+      await screen.findByText(/are not in the dimension table/)
+    ).toBeInTheDocument();
+  });
+
+  it('reflects the settings row in the reveal switch and PUTs on toggle', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText('Subcategory rollout');
+    const toggle = screen.getByLabelText(
+      /show the subcategory filter to users/i
+    ) as HTMLInputElement;
+    expect(toggle.checked).toBe(false);
+
+    await user.click(toggle);
+
+    await waitFor(() => {
+      const put = fetchMock.mock.calls.some((call) => {
+        const req = call[0];
+        return (
+          req instanceof Request &&
+          req.url.includes('/admin/settings/swe_subcategories_enabled') &&
+          req.method === 'PUT'
+        );
+      });
+      expect(put).toBe(true);
+    });
+  });
+
+  it('shows the switch as ON when the stored value is true', async () => {
+    fetchMock.mockImplementation(
+      routedFetch({
+        settingsBody: {
+          settings: [
+            {
+              key: 'swe_subcategories_enabled',
+              value: true,
+              updatedAt: '2026-08-20T00:00:00Z',
+              updatedBy: 'a@b.c',
+            },
+          ],
+        },
+      })
+    );
+    renderPage();
+    await screen.findByText('Subcategory rollout');
+    const toggle = screen.getByLabelText(
+      /show the subcategory filter to users/i
+    ) as HTMLInputElement;
+    await waitFor(() => expect(toggle.checked).toBe(true));
+  });
+
   // ── ADM-10: subcategory chips in the recent table's existing Labels cell ─
 
   it('renders subcategory chips in the recent Labels cell, primary first', async () => {
