@@ -101,7 +101,9 @@ class JobListing(Base):
     # that Postgres cannot FK-check the elements — `TestTaxonomyParity` plus
     # the admin health snapshot's `subcategory_unknown_slugs` counter (which
     # must be permanently 0) are the compensating controls.
-    enrichment_subcategories = Column(ARRAY(Text), nullable=True)
+    enrichment_subcategories: "Column[list[str] | None]" = Column(
+        ARRAY(Text()), nullable=True
+    )
     # Which producer wrote the array above. Legal values are
     # `enrichment_writer.SUBCATEGORY_SOURCES` — cited, not re-listed, because
     # this enum has already drifted three ways across draft documents.
