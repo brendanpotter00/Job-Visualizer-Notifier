@@ -243,6 +243,21 @@ all-DESC ordering with a **backward** index scan (no Sort node) and takes the
 filter. Any request not filtering to `OPEN` (including one that omits `status`) falls off
 it and sorts instead.
 
+**Subcategory columns (`enrichment_subcategories`, `enrichment_subcategory_source`):**
+`enrichment_subcategories` is an ORDERED `TEXT[]` (index 0 = primary), max 2 entries, and
+it is **TRI-STATE** — all three states are load-bearing and none may be collapsed:
+`NULL` = never evaluated (this is what the backfill queue selects on), `'{}'` = evaluated
+and no specialty applies (TERMINAL, never re-queued), a non-empty array = labelled.
+Indexed by `idx_job_listings_open_subcategories_gin`, a PARTIAL GIN `WHERE status = 'OPEN'`
+— every subcategory read is scoped to OPEN, and the CLOSED rows are most of the table.
+⚠ **The array has NO FOREIGN KEY** — Postgres cannot FK-check array elements. The
+compensating controls are `TestTaxonomyParity` / `test_taxonomy_artifact.py` and the admin
+health snapshot's `subcategory_unknown_slugs` counter, **which must be permanently 0**.
+`enrichment_subcategory_source` (`rule | classify | backfill | judge | human`, see
+`enrichment_writer.SUBCATEGORY_SOURCES`) exists so a bad automated run can be reversed in a
+SCOPED way — NULLing every row whose source is `'backfill'` — without destroying the human
+labels the eval gate is built on.
+
 **Recency fields — which to trust (READ THIS before sorting/filtering by "recency"):**
 - **`first_seen_at`** — **the effective posted date**, not literally "when we first saw it":
   seeded at INSERT from the board's own posting date when the board publishes a real one,
@@ -296,6 +311,38 @@ freshness row (from `first_seen_at` + `0`) for every new listing regardless of i
 so the read-side INNER JOIN in `/api/jobs` is lossless and the two tables cannot drift.
 Full story: `docs/incidents/2026-07-13-api-jobs-outage.md`,
 `src/backend/docs/job-listings-bloat.md`.
+
+### `job_categories` / `job_levels` / `job_subcategories`
+The three seeded facet dimensions behind `GET /api/jobs/facets`. Tiny, and they exist so
+labels, ordering and hierarchy stay DATA-driven — a taxonomy change ships as a migration,
+not a frontend redeploy.
+
+- **`job_categories`** — `slug` PK, `label`, `sort_order`. Six rows.
+  `job_listings.enrichment_category` is a real FK onto it. `project_manager` was retired by
+  `retire_project_manager_category`: it had been seeded here and listed in
+  `enrichment_writer.CATEGORY_SLUGS` while being ABSENT from the enricher's own
+  `taxonomy.CATEGORIES` for months — an orphan nothing caught, because every guard was
+  intra-repo.
+- **`job_levels`** — `slug` PK, `label`, `rank`, `parent_slug` (self-FK). `parent_slug`
+  here is a **FILTER-EXPANSION** edge: `new_grad -> entry`, which is what makes
+  "entry ⊇ new_grad" derivable from data on both sides.
+- **`job_subcategories`** — `slug` PK, `label`, `parent_slug` (FK → `job_categories.slug`,
+  NOT NULL, `'software_engineering'` on every row), `sort_order`. Fifteen SWE specialties.
+  ⚠ **`parent_slug` here is a GROUPING edge, not an expansion edge**, and must never be fed
+  into the level-expansion builder — doing so would turn one category selection into
+  fifteen subcategories. Deliberately unindexed (15 rows, one parent). **Ships EMPTY in
+  phase 1**: seeding it is what makes the public dropdown appear, so the seed is a
+  user-visible publish and lands with the UI.
+
+### `app_settings`
+Key/value runtime settings. `key` TEXT PK, `value` JSONB NOT NULL, `updated_at` TIMESTAMPTZ
+NOT NULL DEFAULT now(), `updated_by` TEXT NULL (admin email from the JWT claim). No indexes.
+
+**NO SEED ROW — absent means the code default.** That is the design, not an omission: a
+fresh database, a flag an admin deleted and a rolled-back migration then behave
+IDENTICALLY, and no reader has to treat "missing row" as an anomaly. The legal keys are an
+allowlist in `services/app_settings.py`, never in the DDL, so adding a setting is not a
+migration.
 
 ### `scrape_runs`
 One row per scrape execution — bookkeeping/metrics (`jobs_seen`, `new_jobs`, `closed_jobs`,
