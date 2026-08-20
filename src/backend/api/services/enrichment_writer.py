@@ -58,6 +58,68 @@ LEVEL_SLUGS = frozenset({"intern", "new_grad", "entry", "mid", "senior", "senior
 # the enricher regains ``project_manager`` or JVN retires it in a migration.
 LEGACY_CATEGORY_SLUGS = frozenset({"project_manager"})
 
+# --- SWE subcategories (the second dimension) -------------------------------
+#
+# This module is the CODE ARBITER for the subcategory taxonomy: the migration
+# seed, the frontend fallback constant, the enricher's `taxonomy.SUBCATEGORIES`
+# and the ollama response schema all have to agree with THIS list, and the
+# parity tests assert exactly that. `enrichment_monitor.py` is a CONSUMER — it
+# already imports the facet slug sets from here.
+#
+# Label-alphabetical (which for this set is also slug-alphabetical), so
+# `sorted(SUBCATEGORY_SLUGS)` reproduces the seed's sort_order 0..14.
+SUBCATEGORY_SLUGS = frozenset(
+    {
+        "ai_engineering",
+        "backend",
+        "data_engineering",
+        "devops_sre",
+        "embedded_systems",
+        "forward_deployed",
+        "frontend",
+        "full_stack",
+        "infrastructure_platform",
+        "ml_engineering",
+        "mobile",
+        "qa_testing",
+        "quantitative",
+        "robotics_autonomy",
+        "security",
+    }
+)
+
+# The subcategory dimension hangs off exactly one category. A job resolved to
+# any other category may not carry subcategories at all — the parent constraint
+# an array column has no FK to express.
+SUBCATEGORY_PARENT = "software_engineering"
+
+# A job gets at most two subcategories, ORDERED: index 0 is the primary.
+# Past this, the array is truncated with a warning (never a 422).
+MAX_SUBCATEGORIES = 2
+
+# The five legal values of `job_listings.enrichment_subcategory_source`, and
+# nothing else. `backfill_failed` is deliberately NOT here: a failed backfill
+# row stays NULL (still in the queue) with only its attempt counter bumped, so
+# it has no source.
+#   rule     - deterministic title/tag regex, no model call
+#   classify - live Tier-1 enrichment tick
+#   backfill - Tier-2 bulk backfill drain
+#   judge    - the judge overwrote the classifier's answer
+#   human    - an admin correction; ALSO the value the bulk write path treats
+#              as a per-field lock
+SUBCATEGORY_SOURCES = frozenset({"rule", "classify", "backfill", "judge", "human"})
+DEFAULT_SUBCATEGORY_SOURCE = "classify"
+
+# Query-time filter expansion, keyed on the SELECTED slug and running in the
+# same direction as `database._LEVEL_FILTER_EXPANSION`: picking Frontend also
+# matches Full Stack roles. Deliberately ONE-WAY — selecting Full Stack stays
+# exact. `services/database.py` imports this rather than re-declaring it, so
+# there is one expansion rule, not two that can drift.
+SUBCATEGORY_FILTER_EXPANSION: dict[str, tuple[str, ...]] = {
+    "frontend": ("frontend", "full_stack"),
+    "backend": ("backend", "full_stack"),
+}
+
 # Bounds on what one /results item may persist into the public read path
 # (job_tags feeds every /api/jobs row via the tags subquery). Extras are
 # truncated with a warning — degraded, never a dropped batch, mirroring the
