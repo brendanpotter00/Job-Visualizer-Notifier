@@ -80,6 +80,31 @@ outside the browser) instead of storing a broken recipe — the validation gate 
 - `GET /v1/sessions/{id}/recording` → **404**: *"The rrweb-based Session Replay API is being
   deprecated."* The old after-the-fact recording API is going away; use the live view.
 
+## "Requires-browser" ≠ dead end — the in-browser-fetch tier (TikTok, proven)
+
+TikTok's `search/job/posts` is a signed/origin-checked POST → plain `httpx` 400s. But JVN's
+`main` already ships a working `scripts/tiktok_jobs_scraper` that runs the **same deterministic
+POST inside the browser** (`page.evaluate(fetch(...))`) on the `lifeattiktok.com` origin, with a
+required `website-path: tiktok` header (the endpoint sends no CORS header, so it must be
+same-origin). Re-proved it live via Browserbase (`tiktok_inbrowser_poc.py`):
+```
+in-browser fetch status: 200, payload code=0, jobs found=10   ✅
+```
+
+So the real tiering is finer than "http vs fallback":
+
+- **Tier 1a — pure HTTP** (Amazon, Spotify): plain `httpx`, **$0**.
+- **Tier 1b — in-browser fetch** (TikTok): the *same deterministic API call* run inside a
+  headless browser on the site's origin. Browser-hours, **no LLM, no DOM parsing** — still a
+  deterministic recipe. This is how JVN's Apple / Microsoft / Amazon / TikTok scrapers already work.
+- **Tier 2/3 — DOM read / agent**: only when there is no clean API at all.
+
+A "requires-browser recipe" stores `{origin_url, method, endpoint, headers (e.g. website-path),
+body template, pagination}` with `transport='browser_fetch'`. Discovery validates by replaying
+the captured call *inside a browser*; if that returns jobs → store `browser_fetch`; only if even
+that fails is the board truly Tier 2/3. **This means TikTok is recipe-able and cheap — not an
+agent board.**
+
 ## Next (step 3)
 
 Write the full implementation plan: the CDP-capture discovery module, recipe synthesis +
