@@ -245,6 +245,23 @@ export interface SavedFilters {
   category: string[];
   /** Enrichment level facet slugs, shared by the Recent and Trend pages. */
   level: string[];
+  /**
+   * SWE subcategory facet slugs, shared by the Recent and Trend pages.
+   *
+   * REQUIRED, even though every stored row predates the feature and omits it:
+   * `validateSavedFilters` normalizes a missing key to `[]` on the way out, so
+   * by the time a `SavedFilters` value exists the field is always an array.
+   * Making it optional instead would push a `?? []` into every consumer and
+   * `draftFromServer`'s `[...p.subcategory]` would still be the one that
+   * throws.
+   *
+   * NOTE the `[]` collision, which is real and deliberate: HERE `[]` means "no
+   * filter selected, show EVERYTHING", while on a JOB
+   * `enrichment_subcategories = '{}'` means "evaluated, and no specialty
+   * applies". Same literal, opposite meanings, and the same Redux field name
+   * flows through both.
+   */
+  subcategory: string[];
   recentActiveKeywordListId: string | null;
   trendActiveKeywordListId: string | null;
 }

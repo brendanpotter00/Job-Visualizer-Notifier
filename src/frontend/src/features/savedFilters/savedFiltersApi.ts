@@ -88,7 +88,13 @@ function validateKeywordList(value: unknown, ctx: string): KeywordList {
   };
 }
 
-function validateSavedFilters(res: unknown): SavedFilters {
+/**
+ * Exported for tests only — the same reason `serializeParamsWithEncodedSpaces`
+ * is. Driving it through the endpoint would mean standing up
+ * `fetchBaseQuery`'s absolute-URL machinery in jsdom, and the rejection cases
+ * would then all pass on the wrong error.
+ */
+export function validateSavedFilters(res: unknown): SavedFilters {
   if (!isRecord(res)) {
     throw new Error('Invalid /api/users/saved-filters response: body is not an object');
   }
@@ -107,6 +113,17 @@ function validateSavedFilters(res: unknown): SavedFilters {
   if (!Array.isArray(res.level) || res.level.some((l) => typeof l !== 'string')) {
     throw new Error('Invalid /api/users/saved-filters response: level must be a string array');
   }
+  // TOLERANT on purpose, unlike its neighbours. EVERY stored saved-filters row
+  // predates this feature and has no `subcategory` key, so a strict check
+  // mirroring the two above would throw for every existing user and take down
+  // ALL of their saved filters — time windows, locations, keyword lists — not
+  // just the new field. Absent is legal; present-and-wrong is not.
+  if (
+    res.subcategory !== undefined &&
+    (!Array.isArray(res.subcategory) || res.subcategory.some((s) => typeof s !== 'string'))
+  ) {
+    throw new Error('Invalid /api/users/saved-filters response: subcategory must be a string array');
+  }
   if (res.recentActiveKeywordListId !== null && typeof res.recentActiveKeywordListId !== 'string') {
     throw new Error(
       'Invalid /api/users/saved-filters response: recentActiveKeywordListId must be string or null'
@@ -117,7 +134,15 @@ function validateSavedFilters(res: unknown): SavedFilters {
       'Invalid /api/users/saved-filters response: trendActiveKeywordListId must be string or null'
     );
   }
-  return res as unknown as SavedFilters;
+  // NORMALIZE on the way out. Tolerating the missing key is only half the fix:
+  // `SavedFilters.subcategory` is REQUIRED, and `draftFromServer` spreads it
+  // (`[...p.subcategory]`), so returning `res` untouched would leave the field
+  // undefined and throw a TypeError on the Saved Filters page instead. Legacy
+  // rows come out as `[]`, which every consumer already reads as "no filter".
+  return {
+    ...(res as unknown as SavedFilters),
+    subcategory: Array.isArray(res.subcategory) ? (res.subcategory as string[]) : [],
+  };
 }
 
 export const savedFiltersApi = createApi({
