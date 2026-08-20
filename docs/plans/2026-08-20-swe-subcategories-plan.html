@@ -1,0 +1,1215 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Software Engineering Subcategories — Plan</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  :root{
+    /* JVN's own MUI monochrome theme — src/frontend/src/config/theme.ts */
+    --black:#000; --g900:#111; --g700:#333; --g600:#666; --g500:#999;
+    --g300:#bdbdbd; --divider:#e0e0e0; --paper:#f5f5f5; --paper2:#fafafa; --white:#fff;
+    --err:#d32f2f; --warn:#f57c00; --ok:#388e3c; --info:#1976d2;
+    --r:8px;
+    --font:"Helvetica","Arial",sans-serif;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  html{ background:var(--white); }
+  body{
+    margin:0; font-family:var(--font); color:var(--black);
+    background:var(--white); line-height:1.55; font-size:15px;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{ max-width:1120px; margin:0 auto; padding:0 24px 120px; }
+  :where(.grid,.flex)>*{ min-width:0; }
+  :where(p,li,td,th,h1,h2,h3,h4){ overflow-wrap:anywhere; }
+
+  /* ---------- header ---------- */
+  header.top{ border-bottom:1px solid var(--divider); background:var(--white); }
+  .top-inner{ max-width:1120px; margin:0 auto; padding:40px 24px 28px; }
+  .eyebrow{ font-size:12px; letter-spacing:.14em; text-transform:uppercase; color:var(--g600); font-weight:600; }
+  h1{ font-size:2.2rem; font-weight:600; line-height:1.15; margin:10px 0 8px; letter-spacing:-.02em; }
+  .sub{ color:var(--g600); font-size:1.02rem; max-width:76ch; margin:0; }
+  .pills{ display:flex; flex-wrap:wrap; gap:8px; margin-top:20px; }
+  .pill{ font-size:12px; border:1px solid var(--divider); border-radius:999px; padding:5px 12px; background:var(--paper); color:var(--g700); }
+  .pill b{ color:var(--black); font-weight:600; }
+  .pill.red{ border-color:#f3c9c9; background:#fdf4f4; color:#8c2020; }
+  .pill.amber{ border-color:#f5dcbe; background:#fdf8f2; color:#8a4b06; }
+  .pill.green{ border-color:#c9e2ca; background:#f4faf4; color:#1f5c22; }
+
+  /* ---------- sections ---------- */
+  section{ padding-top:52px; scroll-margin-top:20px; }
+  h2{ font-size:1.5rem; font-weight:600; letter-spacing:-.01em; margin:0 0 6px; display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; }
+  h2 .num{ font-size:12px; font-weight:600; color:var(--g500); letter-spacing:.12em; font-family:var(--mono); }
+  h3{ font-size:1.05rem; font-weight:600; margin:30px 0 10px; }
+  h4{ font-size:.9rem; font-weight:600; margin:20px 0 8px; text-transform:uppercase; letter-spacing:.08em; color:var(--g600); }
+  .lede{ color:var(--g600); max-width:82ch; margin:0 0 18px; }
+  p{ max-width:84ch; }
+  hr.rule{ border:0; border-top:1px solid var(--divider); margin:44px 0 0; }
+
+  /* ---------- cards ---------- */
+  .card{ border:1px solid var(--divider); border-radius:var(--r); background:var(--white); padding:20px 22px; }
+  .card.flat{ background:var(--paper2); }
+  .grid{ display:grid; gap:16px; }
+  .g2{ grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); }
+  .g3{ grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); }
+  .g4{ grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); }
+
+  .stat{ border:1px solid var(--divider); border-radius:var(--r); padding:16px 18px; background:var(--white); }
+  .stat .n{ font-size:1.85rem; font-weight:600; letter-spacing:-.02em; line-height:1.1; font-variant-numeric:tabular-nums; }
+  .stat .l{ font-size:12.5px; color:var(--g600); margin-top:6px; }
+  .stat .s{ font-size:11.5px; color:var(--g500); margin-top:4px; font-family:var(--mono); }
+  .stat.bad .n{ color:var(--err); }
+  .stat.warn .n{ color:var(--warn); }
+
+  /* ---------- callouts ---------- */
+  .note{ border-left:3px solid var(--black); background:var(--paper); padding:14px 18px; border-radius:0 var(--r) var(--r) 0; margin:18px 0; }
+  .note.red{ border-left-color:var(--err); background:#fdf4f4; }
+  .note.amber{ border-left-color:var(--warn); background:#fdf8f2; }
+  .note.green{ border-left-color:var(--ok); background:#f4faf4; }
+  .note .t{ font-weight:600; font-size:13px; text-transform:uppercase; letter-spacing:.07em; margin-bottom:6px; }
+  .note p{ margin:0; font-size:14.5px; }
+  .note p + p{ margin-top:8px; }
+
+  /* ---------- tables ---------- */
+  .tw{ overflow-x:auto; border:1px solid var(--divider); border-radius:var(--r); margin:16px 0; background:var(--white); }
+  table{ border-collapse:collapse; width:100%; font-size:13.5px; min-width:560px; }
+  th,td{ text-align:left; padding:11px 14px; border-bottom:1px solid var(--divider); vertical-align:top; }
+  th{ background:var(--paper); font-weight:600; font-size:11.5px; text-transform:uppercase; letter-spacing:.07em; color:var(--g600); white-space:nowrap; }
+  tbody tr:last-child td{ border-bottom:0; }
+  td.num, th.num{ text-align:right; font-variant-numeric:tabular-nums; font-family:var(--mono); white-space:nowrap; }
+  tr.hl td{ background:#fdf4f4; }
+  tr.okrow td{ background:#f4faf4; }
+  code{ font-family:var(--mono); font-size:.88em; background:var(--paper); padding:1.5px 5px; border-radius:4px; border:1px solid var(--divider); }
+  pre{ font-family:var(--mono); font-size:12.5px; line-height:1.6; background:var(--paper); border:1px solid var(--divider); border-radius:var(--r); padding:14px 16px; overflow-x:auto; margin:12px 0; }
+  pre .del{ color:var(--err); } pre .add{ color:var(--ok); } pre .cm{ color:var(--g500); }
+
+  .tag{ display:inline-block; font-size:11px; font-family:var(--mono); border:1px solid var(--divider); border-radius:4px; padding:1px 6px; background:var(--paper); color:var(--g700); white-space:nowrap; }
+  .sev{ display:inline-block; font-size:10.5px; font-weight:700; letter-spacing:.06em; border-radius:4px; padding:2px 7px; text-transform:uppercase; white-space:nowrap; }
+  .sev.b{ background:#fdecec; color:#8c2020; border:1px solid #f3c9c9; }
+  .sev.m{ background:#fdf3e7; color:#8a4b06; border:1px solid #f5dcbe; }
+  .sev.n{ background:var(--paper); color:var(--g600); border:1px solid var(--divider); }
+  .chk{ color:var(--ok); font-weight:700; }
+
+  ul.tight{ margin:8px 0; padding-left:20px; } ul.tight li{ margin:5px 0; max-width:84ch; }
+
+  /* ---------- revision log ---------- */
+  .dsp{ display:inline-block; font-size:10.5px; font-weight:700; letter-spacing:.05em; border-radius:4px; padding:2px 7px; text-transform:uppercase; white-space:nowrap; }
+  .dsp.applied{ background:#eaf3ea; color:#1f5c22; border:1px solid #c9e2ca; }
+  .dsp.confirmed{ background:var(--black); color:var(--white); border:1px solid var(--black); }
+  .dsp.answered{ background:#eaf1fa; color:#12447e; border:1px solid #c6d9f0; }
+  .dsp.pending{ background:#fdf3e7; color:#8a4b06; border:1px solid #f5dcbe; }
+  .rev-h{ display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin:26px 0 4px; }
+  .rev-h .tagr{ font-family:var(--mono); font-size:12px; font-weight:700; background:var(--black); color:var(--white); border-radius:4px; padding:2px 8px; }
+  .rev-h .dt{ font-size:12.5px; color:var(--g600); }
+  .quote{ font-style:italic; color:var(--g700); }
+  a{ color:var(--black); text-decoration:underline; text-underline-offset:2px; text-decoration-color:var(--g300); }
+  a:hover{ text-decoration-color:var(--black); }
+
+  /* ---------- MUI mock ---------- */
+  .mockwrap{ background:var(--paper2); border:1px solid var(--divider); border-radius:var(--r); padding:28px; display:flex; gap:28px; flex-wrap:wrap; justify-content:center; }
+  .mui{ font-family:var(--font); }
+  .mui-field{ position:relative; width:260px; }
+  .mui-legend{ position:absolute; top:-8px; left:10px; background:var(--paper2); padding:0 5px; font-size:12px; color:var(--g600); z-index:2; }
+  .mui-input{ border:1px solid var(--g300); border-radius:var(--r); height:40px; display:flex; align-items:center; padding:0 12px; background:var(--white); font-size:14px; color:var(--black); justify-content:space-between; }
+  .mui-input.focus{ border:2px solid var(--black); padding:0 11px; }
+  .mui-caret{ color:var(--g600); font-size:11px; }
+  .mui-menu{ margin-top:6px; border:1px solid var(--divider); border-radius:var(--r); background:var(--white); box-shadow:0 5px 5px -3px rgba(0,0,0,.2),0 8px 10px 1px rgba(0,0,0,.14); overflow:hidden; width:260px; }
+  .mui-scroll{ max-height:330px; overflow-y:auto; }
+  .mui-item{ display:flex; align-items:center; gap:9px; padding:7px 12px; font-size:14px; cursor:default; }
+  .mui-item.parent{ font-weight:600; }
+  .mui-item.child{ padding-left:34px; font-size:13.5px; }
+  .mui-item.sel{ background:rgba(0,0,0,.06); }
+  .mui-item:hover{ background:rgba(0,0,0,.04); }
+  .box{ width:16px; height:16px; border:2px solid var(--g600); border-radius:2.5px; flex:0 0 auto; position:relative; background:var(--white); }
+  .box.on{ background:var(--black); border-color:var(--black); }
+  .box.on::after{ content:""; position:absolute; left:4px; top:.5px; width:4px; height:9px; border:solid var(--white); border-width:0 2px 2px 0; transform:rotate(45deg); }
+  .box.ind{ background:var(--black); border-color:var(--black); }
+  .box.ind::after{ content:""; position:absolute; left:2.5px; top:5px; width:7px; height:2px; background:var(--white); }
+  .chev{ margin-left:auto; color:var(--g600); font-size:11px; padding-left:8px; }
+  .mock-cap{ font-size:12px; color:var(--g600); text-align:center; margin-top:10px; font-family:var(--mono); }
+  .mui-card{ width:300px; border:1px solid var(--divider); border-radius:var(--r); background:var(--white); padding:14px 16px; }
+  .mui-card .co{ font-size:12px; color:var(--g600); }
+  .mui-card .ti{ font-size:15px; font-weight:600; margin:2px 0 10px; }
+  .chips{ display:flex; gap:6px; flex-wrap:wrap; }
+  .chip{ font-size:11.5px; border:1px solid var(--g300); border-radius:999px; padding:3px 10px; color:var(--g700); background:var(--white); }
+  .chip.solid{ background:var(--black); color:var(--white); border-color:var(--black); }
+
+  /* ---------- decisions ---------- */
+  .dq{ border:1px solid var(--divider); border-radius:var(--r); background:var(--white); padding:20px 22px; margin:16px 0; }
+  .dq h4{ margin:0 0 4px; font-size:14px; text-transform:none; letter-spacing:0; color:var(--black); font-weight:600; }
+  .dq .why{ font-size:13.5px; color:var(--g600); margin:0 0 14px; max-width:84ch; }
+  .dq label{ display:flex; gap:10px; align-items:flex-start; padding:9px 11px; border:1px solid var(--divider); border-radius:6px; margin-bottom:7px; cursor:pointer; font-size:13.5px; background:var(--white); }
+  .dq label:hover{ background:var(--paper); }
+  .dq label:has(input:checked){ border-color:var(--black); background:var(--paper); }
+  .dq input[type=radio]{ margin-top:3px; accent-color:#000; flex:0 0 auto; }
+  .dq .rec{ font-size:10.5px; font-weight:700; letter-spacing:.05em; color:var(--ok); text-transform:uppercase; }
+  .dq .opt-b{ font-weight:600; }
+  .dq .opt-d{ color:var(--g600); font-size:12.5px; display:block; margin-top:2px; }
+  .dq button{ font-family:var(--font); font-size:13px; font-weight:500; border:1px solid var(--black); background:var(--black); color:var(--white); border-radius:6px; padding:8px 16px; cursor:pointer; margin-top:6px; }
+  .dq button:hover{ background:var(--g700); }
+  .dq .status{ font-size:12px; color:var(--ok); margin-left:12px; font-weight:600; }
+  .bulk{ border:1px solid var(--black); border-radius:var(--r); padding:20px 22px; background:var(--paper); }
+  .bulk button{ font-family:var(--font); font-size:14px; font-weight:600; border:1px solid var(--black); background:var(--black); color:var(--white); border-radius:6px; padding:11px 20px; cursor:pointer; }
+
+  footer.end{ margin-top:60px; padding-top:24px; border-top:1px solid var(--divider); font-size:12.5px; color:var(--g600); }
+  @media (max-width:640px){ h1{ font-size:1.7rem; } .wrap,.top-inner{ padding-left:16px; padding-right:16px; } .mockwrap{ padding:16px; } }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="top-inner">
+    <div class="eyebrow">Job-Visualizer-Notifier &nbsp;·&nbsp; job-enricher &nbsp;·&nbsp; implementation plan</div>
+    <h1>Software Engineering subcategories</h1>
+    <p class="sub">Rename the filter to <b>Job category</b>, add a nested checkbox tree of software-engineering specialties, teach the enricher to label them, and backfill 8,126 existing jobs — without starving the live pipeline.</p>
+    <div class="pills">
+      <span class="pill green"><b>Taxonomy</b> &nbsp;15 subcategories, measured</span>
+      <span class="pill green"><b>Rename</b> &nbsp;trivial, pre-authorized</span>
+      <span class="pill green"><b>Schema + UI</b> &nbsp;designed</span>
+      <span class="pill red"><b>Delivery</b> &nbsp;blocked — 11 verified blockers</span>
+      <span class="pill">worktree <b>feat/swe-subcategories</b> (both repos)</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+<!-- ============ REVISION LOG ============ -->
+<section id="revisions">
+  <h2><span class="num">R</span> Revision log</h2>
+  <p class="lede">Every comment you left, and a link to where in the document it's addressed. The answers live in their sections, next to the context you were reading when you asked — this is the index, not the content.</p>
+
+  <div class="rev-h"><span class="tagr">r11</span><span class="dt">2026-08-20 &nbsp;·&nbsp; 2 comments — final two items closed</span></div>
+  <div class="tw">
+    <table>
+      <thead><tr><th style="width:46%">Your comment</th><th>Disposition</th><th>Where it's addressed</th></tr></thead>
+      <tbody>
+        <tr><td class="quote">"Yes remove the department chip"</td><td><span class="dsp applied">Done — code committed</span></td><td>Chip removed from <code>JobChipsSection</code>; full suite green (1,891 tests) — <a href="#newscope">§09</a></td></tr>
+        <tr><td class="quote">"No pre-sort for now"</td><td><span class="dsp confirmed">Declined, per you</span></td><td>Dropped; the tick keeps its current newest-first order — <a href="#tiers">§05 tiers</a></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="rev-h"><span class="tagr">r10</span><span class="dt">2026-08-20 &nbsp;·&nbsp; 4 comments — ninth review</span></div>
+  <div class="tw">
+    <table>
+      <thead><tr><th style="width:46%">Your comment</th><th>Disposition</th><th>Where it's addressed</th></tr></thead>
+      <tbody>
+        <tr><td class="quote">"Can you simplify this section? What still is a blocker and what still needs my attention? Some of them we've already discussed."</td><td><span class="dsp applied">Applied</span></td><td>Rebuilt and split — 6 closed by your decisions, 10 live, and <b>none needing a decision from you</b> — <a href="#blockers">§07</a></td></tr>
+        <tr><td class="quote">"I only want to run it until tonight. Like until morning at 9 a.m. CT."</td><td><span class="dsp applied">Applied</span></td><td>Wall-clock deadline knob, resumability, morning report — <a href="#capacity">§05, run window</a></td></tr>
+        <tr><td class="quote">"Just to be sure you're gonna have to write new evals. You know this right, and it should be done by sub agents and you should verify."</td><td><span class="dsp confirmed">Confirmed</span></td><td>Stated explicitly, including why I verify rather than accept — <a href="#evals">§06</a></td></tr>
+        <tr><td class="quote">"Yeah, this is all fine." — the three Claude-engine caveats, including the injection boundary. And "Okay, I reviewed it. Everything here looks good." — the reading guide.</td><td><span class="dsp confirmed">Confirmed</span></td><td>Caveats marked approved — <a href="#capacity">§05</a>. Security sign-off recorded.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="rev-h"><span class="tagr">r9</span><span class="dt">2026-08-20 &nbsp;·&nbsp; 2 comments — eighth review</span></div>
+  <div class="tw">
+    <table>
+      <thead><tr><th style="width:46%">Your comment</th><th>Disposition</th><th>Where it's addressed</th></tr></thead>
+      <tbody>
+        <tr><td class="quote">"Could I switch this on in the admin dashboard instead of an environment variable, and it persists? And then remove that endpoint once it's fully on."</td><td><span class="dsp applied">Applied</span></td><td>Better than my env-var assumption — design + a caching gotcha that would have made the toggle look broken — <a href="#decisions">Decision 3</a></td></tr>
+        <tr><td class="quote">Decision 6 — "Hide silently, matching how category and level already behave"</td><td><span class="dsp confirmed">Decided</span></td><td>Taken; the false tooltip becomes a required fix rather than tidy-up — <a href="#decisions">Decision 6</a></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="rev-h"><span class="tagr">r8</span><span class="dt">2026-08-20 &nbsp;·&nbsp; 1 comment — seventh review</span></div>
+  <div class="tw">
+    <table>
+      <thead><tr><th style="width:46%">Your comment</th><th>Disposition</th><th>Where it's addressed</th></tr></thead>
+      <tbody>
+        <tr><td class="quote">"Obviously I was going to review the decisions. What I meant was what sections of the plan warrant my eyes because they're high risk, or you bring up good points like the blockers."</td><td><span class="dsp applied">Applied</span></td><td>I'd answered the wrong question. New risk-ranked reading guide — <a href="#scrutiny">§! Where to point your eyes</a>, ~20 min top to bottom</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="rev-h"><span class="tagr">r7</span><span class="dt">2026-08-20 &nbsp;·&nbsp; 9 comments — sixth review (7 decisions + 2 questions)</span></div>
+  <div class="tw">
+    <table>
+      <thead><tr><th style="width:46%">Your comment</th><th>Disposition</th><th>Where it's addressed</th></tr></thead>
+      <tbody>
+        <tr><td class="quote">"I'm confused about this, elaborate… I don't want to make a decision on this until you elaborate on it and I understand it." — unlabelled jobs under a filter.</td><td><span class="dsp applied">Applied</span></td><td>Rewritten with a worked example and a side-by-side table — <a href="#decisions">Decision 6</a>, still yours to call</td></tr>
+        <tr><td class="quote">"If I say 90% coverage are you going to enforce that? Is this manual or are you going to read from the database?"</td><td><span class="dsp answered">Answered</span></td><td>Computed and displayed, flipped by hand — and why I didn't auto-reveal — <a href="#decisions">Decision 3</a></td></tr>
+        <tr><td class="quote">Decision 4 — "Have an LLM judge pre-label them and I'll only review the disagreements"</td><td><span class="dsp confirmed">Decided</span></td><td>Adopted, with two rules added so agreement is actually evidence — <a href="#evals">§06</a></td></tr>
+        <tr><td class="quote">Decision 1 — "Claude engine off-GPU, keeping the free title/tag pre-passes, title+tags-only prompt"</td><td><span class="dsp confirmed">Decided</span></td><td><a href="#capacity">§05</a></td></tr>
+        <tr><td class="quote">Decision 2 — "Ship the 15 as proposed"</td><td><span class="dsp confirmed">Decided</span></td><td><a href="#taxonomy">§03</a></td></tr>
+        <tr><td class="quote">Decision 3 — "Feature-flag the frontend; reveal at 90% coverage"</td><td><span class="dsp confirmed">Decided</span></td><td><a href="#decisions">Decision 3</a></td></tr>
+        <tr><td class="quote">Decision 5 — "OPEN software_engineering rows only (8,126)"</td><td><span class="dsp confirmed">Decided</span></td><td><a href="#capacity">§05</a></td></tr>
+        <tr><td class="quote">Decision 7 — "Add a subcategory JSONB column to user_saved_filters"</td><td><span class="dsp confirmed">Decided</span></td><td>Clears a blocker — <a href="#blockers">§07</a></td></tr>
+        <tr><td class="quote">Decision 8 — "Accept all seven smaller defaults as listed"</td><td><span class="dsp confirmed">Decided</span></td><td><a href="#decisions">§10</a></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="rev-h"><span class="tagr">r6</span><span class="dt">2026-08-20 &nbsp;·&nbsp; 2 comments — fifth review</span></div>
+  <div class="tw">
+    <table>
+      <thead><tr><th style="width:46%">Your comment</th><th>Disposition</th><th>Where it's addressed</th></tr></thead>
+      <tbody>
+        <tr><td class="quote">"What suggestions do you think needs my input still? What should I review? Point me to those sections."</td><td><span class="dsp applied">Applied</span></td><td>New ranked index at the top — <a href="#needsyou">§! What still needs you</a></td></tr>
+        <tr><td class="quote">"Just to confirm, I'm talking about through Claude Code, not through the API."</td><td><span class="dsp confirmed">Confirmed</span></td><td>Correct, and now stated explicitly — <a href="#capacity">§05</a>: the engine shells out to <code>claude -p</code> on your subscription, no API billing</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="rev-h"><span class="tagr">r5</span><span class="dt">2026-08-20 &nbsp;·&nbsp; 1 comment — fourth review</span></div>
+  <div class="tw">
+    <table>
+      <thead><tr><th style="width:46%">Your comment</th><th>Disposition</th><th>Where it's addressed</th></tr></thead>
+      <tbody>
+        <tr><td class="quote">"Actually, I kind of like what you did. I like your section at the top, the revision section. I like how I can read the answer really quickly and it links to where it was answered."</td><td><span class="dsp confirmed">Confirmed</span></td><td>No change — format kept as is. Locked into the lavish skill: the pointer carries the gist so the log is skimmable on its own, with the reasoning left in the section.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="rev-h"><span class="tagr">r4</span><span class="dt">2026-08-20 &nbsp;·&nbsp; 3 comments — third review</span></div>
+  <div class="tw">
+    <table>
+      <thead><tr><th style="width:46%">Your comment</th><th>Disposition</th><th>Where it's addressed</th></tr></thead>
+      <tbody>
+        <tr><td class="quote">"We should also have quantitative like engineering, you know, like a quant."</td><td><span class="dsp applied">Applied</span></td><td>Added as a 15th subcategory — <a href="#taxonomy">§03, Quantitative &amp; Trading Systems</a></td></tr>
+        <tr><td class="quote">"What about what I said — we prioritize new software engineering jobs, then backfilling software engineering jobs, then new jobs. Where's that fit in?"</td><td><span class="dsp answered">Answered</span></td><td>Your three tiers mapped explicitly — <a href="#tiers">§05, Your three tiers</a></td></tr>
+        <tr><td class="quote">"This revision stuff should have links to where you answered it in the document. Not answers in this section, because I need to understand the context from where I asked the question."</td><td><span class="dsp applied">Applied</span></td><td>This table, rebuilt as pointers. The rule is now in the lavish skill: the log points to answers, never contains them.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="rev-h"><span class="tagr">r3</span><span class="dt">2026-08-20 &nbsp;·&nbsp; 4 comments — second review</span></div>
+  <div class="tw">
+    <table>
+      <thead><tr><th style="width:46%">Your comment</th><th>Disposition</th><th>Where it's addressed</th></tr></thead>
+      <tbody>
+        <tr><td class="quote">"What if we run it off Claude, Sonnet or Haiku… to backfill quickly. Maybe just tonight."</td><td><span class="dsp applied">Applied</span></td><td>Replaced my scheduling plan — <a href="#capacity">§05, the Claude engine lane</a></td></tr>
+        <tr><td class="quote">"What if we feature flag the front end for now and let the backfill run for like a week"</td><td><span class="dsp confirmed">Confirmed</span></td><td><a href="#decisions">Decision 3</a>, now marked as your call</td></tr>
+        <tr><td class="quote">"Yes they can, why can't we just use the title?"</td><td><span class="dsp applied">Applied</span></td><td>You were right; I over-stated it. Corrected blocker — <a href="#blockers">§07</a></td></tr>
+        <tr><td class="quote">"Wait, what? I'm confused here. Why is this gonna delete everything?"</td><td><span class="dsp answered">Answered</span></td><td>Mechanism explained on the <code>reenrich</code> row — <a href="#blockers">§07</a></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="rev-h"><span class="tagr">r2</span><span class="dt">2026-08-20 &nbsp;·&nbsp; 13 comments — first review</span></div>
+  <div class="tw">
+    <table>
+      <thead><tr><th style="width:46%">Your comment</th><th>Disposition</th><th>Where it's addressed</th></tr></thead>
+      <tbody>
+        <tr><td class="quote">"I have a problem with this one… applied AI engineering is just software engineering with a flavor of AI. I wouldn't say I'm a machine learning engineer."</td><td><span class="dsp applied">Applied</span></td><td>Split into two, and the data backed you — <a href="#taxonomy">§03</a></td></tr>
+        <tr><td class="quote">"So what are you gonna do to address this also?" — on backfill capacity.</td><td><span class="dsp answered">Answered</span></td><td>Now a stated plan, not a menu — <a href="#capacity">§05</a></td></tr>
+        <tr><td class="quote">"I'm confused about this. Can we not add the subcategories based on the title?"</td><td><span class="dsp answered">Answered</span></td><td>Yes — title-first, description only as fallback — <a href="#titlefirst">§01</a></td></tr>
+        <tr><td class="quote">"What is the difference between this [Infrastructure &amp; Platform] and DevOps and SRE?"</td><td><span class="dsp answered">Answered</span></td><td><a href="#confusable">§03, confusable pairs table</a></td></tr>
+        <tr><td class="quote">"What is the difference between this [Robotics] and embedded in low-level systems?"</td><td><span class="dsp answered">Answered</span></td><td><a href="#confusable">§03, confusable pairs table</a></td></tr>
+        <tr><td class="quote">"I'd want to remove the tags the company puts on the jobs from my front end showing, but we can use those tags in our Enricher pipeline."</td><td><span class="dsp answered">Answered</span></td><td>Already true — nothing to remove; the real gap is the reverse — <a href="#newscope">§09</a></td></tr>
+        <tr><td class="quote">"Yes, we need to update the admin dashboard as well. Might want to use a sub agent to explore that."</td><td><span class="dsp applied">Applied</span></td><td>Full inventory — <a href="#newscope">§09</a>; it also surfaced 3 new blockers in <a href="#blockers">§07</a></td></tr>
+        <tr><td class="quote">"Add a section to the top with the revision and links to the part of the document where we edit it… I want this invoked every single time I use the lavish skill."</td><td><span class="dsp applied">Applied</span></td><td>This section, plus a permanent rule added to the lavish skill</td></tr>
+        <tr><td class="quote">"Yes, that's how I was envisioning it" — the subcategory being an array.</td><td><span class="dsp confirmed">Confirmed</span></td><td>Promoted to a settled decision — <a href="#taxonomy">§03</a></td></tr>
+        <tr><td class="quote">"Yes, I do think it should be an or" — Full Stack expansion.</td><td><span class="dsp confirmed">Confirmed</span></td><td>Promoted to a decision — <a href="#semantics">§04</a></td></tr>
+        <tr><td class="quote">"Yeah, this should be pretty straightforward" — the rename.</td><td><span class="dsp confirmed">Confirmed</span></td><td>Unchanged, and shippable standalone — <a href="#rename">§02</a></td></tr>
+        <tr><td class="quote">"We are going to need evals for the subcategories now and the evals will have to be reworked."</td><td><span class="dsp confirmed">Confirmed</span></td><td><a href="#evals">§06</a></td></tr>
+        <tr><td class="quote">"I'm gonna let you use your best judgment… use sub agents… can be done in A/B testing."</td><td><span class="dsp applied">Applied</span></td><td>Approach stated rather than optioned — <a href="#evals">§06</a></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="rev-h"><span class="tagr">r1</span><span class="dt">2026-08-19 &nbsp;·&nbsp; initial draft</span></div>
+  <p style="font-size:13.5px;color:var(--g600);margin:0">Initial draft from 16 agents across both repos — no feedback yet.</p>
+</section>
+
+<hr class="rule">
+
+<!-- ============ NEEDS YOU ============ -->
+<section id="needsyou">
+  <h2><span class="num">!</span> What still needs you</h2>
+  <p class="lede">Nothing outstanding — this section is now just the risk-ranked guide to which parts warrant a second look.</p>
+
+  <div class="note green">
+    <div class="t">Nothing is open. Every decision in this plan is made.</div>
+    <p>All eight decisions answered, plus the two follow-ups: the <code>department</code> chip is <b>removed and committed</b>, and the title-regex pre-sort is <b>dropped</b> at your call — the tick keeps its current newest-first order. What remains is the risk-ranked reading guide below, which is for your awareness rather than your input, and then implementation.</p>
+  </div>
+
+  <h3 id="scrutiny">Where to point your eyes — ranked by risk</h3>
+  <p class="lede">You asked which parts of the plan actually warrant scrutiny, not which decisions are outstanding. This is that list: the places where I'd most want a second pair of eyes, ordered by what it costs us if I'm wrong. Roughly 20 minutes of reading, top to bottom.</p>
+
+  <div class="tw">
+    <table>
+      <thead><tr><th class="num">Risk</th><th>Read this</th><th>Why it deserves your attention</th></tr></thead>
+      <tbody>
+        <tr class="hl">
+          <td><span class="sev b">Highest</span></td>
+          <td><b>The four silent-failure blockers</b><br><a href="#blockers">§07</a></td>
+          <td><b>These are the ones where "it looks like it worked" IS the failure.</b> A Pydantic model without <code>extra='forbid'</code> drops the subcategory field and reports <code>written: N</code>. <code>drift_suspected</code> can't see a backfill emitting zero labels because <code>[]</code> is a legal answer. The Tier-1 veto is already tripped by a 282-row backlog, so the backfill would emit nothing, forever, silently. And this worker has a documented history of ticks reporting <code>status=ok</code> while dead. You know this system's failure modes better than I do — if any of my proposed detectors look like they'd miss something, that's the highest-value thing you could tell me.</td>
+        </tr>
+        <tr class="hl">
+          <td><span class="sev b">Highest</span></td>
+          <td><b>The prompt-injection boundary</b><br><a href="#capacity">§05, caveat 1</a></td>
+          <td><b>This is a security call, and it should be yours rather than mine.</b> <code>claude_code.py</code>'s docstring says production keeps the sandboxed sub-agent fan-out specifically to harden against prompt injection in scraped text, and that headless <code>claude -p</code> is for trusted golden text only. The backfill would put ~8,000 scraped job postings through that path. My mitigation is title+tags-only, which you've accepted — but you drew that line originally and you should confirm this is the right way through it, not just an acceptable-sounding one.</td>
+        </tr>
+        <tr>
+          <td><span class="sev b">High</span></td>
+          <td><b>The eval gate's actual strength</b><br><a href="#evals">§06</a></td>
+          <td>We are rewriting the rubric that governs <i>every future classification</i>, including the 6-category facet the entire product filters on. If v7 quietly degrades top-level accuracy, everything gets worse and nothing alarms. The gate is the only protection, and even after pre-labelling it's ~50 rows. Read the regression protocol and tell me if you'd trust it — I'd rather over-invest here than find out in three months.</td>
+        </tr>
+        <tr>
+          <td><span class="sev b">High</span></td>
+          <td><b>The boundary rules between subcategories</b><br><a href="#confusable">§03, confusable pairs</a></td>
+          <td><b>You are the domain expert here and it already showed.</b> My combined AI/ML bucket was wrong and you caught it in one sentence; the quant bucket only exists because you thought of it. Slugs are near-permanent — renaming one later costs a migration plus a re-label — and the boundary rules are where label quality actually gets decided. These six pairs are the ones a careful person would argue about. Five minutes here is worth more than five minutes anywhere else in the document.</td>
+        </tr>
+        <tr>
+          <td><span class="sev m">Medium</span></td>
+          <td><b>The three data-loss paths</b><br><a href="#blockers">§07</a></td>
+          <td>An admin fixing a job's level would permanently wipe its subcategories <i>and</i> lock the row against repair. Two more paths orphan subcategories on a row whose category changed. All three are one-line-looking changes with unrecoverable consequences — worth confirming you agree with the tri-state approach.</td>
+        </tr>
+        <tr>
+          <td><span class="sev m">Medium</span></td>
+          <td><b>Deploy ordering</b><br><a href="#sequence">§08</a></td>
+          <td>There are windows where a wrong order breaks production: the enricher writing a slug the backend rejects, the frontend requesting a param the backend ignores, or a migration that doesn't actually run (there's a documented deploy-skip trap in this repo). The order is deliberate — worth a skim to check I haven't inverted anything you know about.</td>
+        </tr>
+        <tr>
+          <td><span class="sev m">Medium</span></td>
+          <td><b>The capacity numbers</b><br><a href="#capacity">§05</a></td>
+          <td>485 classified/day against 495&ndash;552 arriving; 100 of the last 100 ticks at the cap; 62 seconds of idle between ticks. Everything downstream assumes these. I verified them directly against the live DB rather than trusting an agent, but if any of them contradict what you know about how the worker actually runs, a lot of the plan changes.</td>
+        </tr>
+        <tr>
+          <td><span class="sev n">Lower</span></td>
+          <td><b>Judgment calls you might disagree with</b><br><a href="#taxonomy">§03</a></td>
+          <td>Four opinions I formed that reasonable people could reject: <b>no "Other"/General bucket</b> (41% of titles have no specialty, so it'd become the model's lazy default and the biggest option); <b>cap of 2 labels, not 3</b> (3+ is only 0.65% of rows); <b>Full Stack is exclusive</b> and the <i>filter</i> widens rather than the classifier; <b>Engineering Management is deliberately not a subcategory</b> because <code>level=manager</code> already covers 660 rows. Each is defended in place; none is load-bearing enough that changing it would hurt.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note green">
+    <div class="t">Decided in the last round — locked in</div>
+    <p><b>Capacity:</b> Claude Code off-GPU, keeping the free title/tag pre-passes, title+tags-only prompt to respect the injection boundary. · <b>Taxonomy:</b> ship all 15, including the AI/ML split and Quantitative &amp; Trading Systems. · <b>Reveal:</b> feature-flag, flip at 90% coverage — computed and displayed, flipped by hand (<a href="#decisions">mechanism explained in Decision 3</a>). · <b>Golden set:</b> LLM pre-labels, you review disagreements — with two rules added so agreement actually means something (<a href="#evals">§06</a>). · <b>Backfill scope:</b> OPEN only, 8,126 rows. · <b>Saved filters:</b> add the <code>subcategory</code> JSONB column. · <b>Seven smaller calls:</b> accepted as listed.</p>
+  </div>
+
+  <div class="note">
+    <div class="t">Earlier rounds, no action needed</div>
+    <p>The rename (§02) · multi-label array (§03) · Full Stack expanding as an OR (§04) · your three-tier priority scheme (§05) · evals reworked via subagent A/B (§06) · company tags, which turned out to need nothing (§09).</p>
+  </div>
+</section>
+
+<hr class="rule">
+
+<!-- ============ VERDICT ============ -->
+<section id="verdict">
+  <h2><span class="num">00</span> Read this first</h2>
+  <p class="lede">Sixteen agents explored both repos, measured the live corpus, and adversarially reviewed the result. The taxonomy and the UI are solid. The delivery mechanism is not — and the reason is a capacity fact, not a design flaw.</p>
+
+  <div class="note red">
+    <div class="t">The finding that reshapes the plan</div>
+    <p><b>The enricher is already underwater.</b> It classifies <b>485 jobs/day</b> against <b>495–552 arrivals/day</b>. The last 100 ticks all hit the 38-row cap; each tick runs ~6,710s and the next starts 62 seconds later, so the GPU is at ~100% duty cycle. 282 rows have been stuck in <code>cleaned</code> since <b>2026-07-13</b>, and 56,656 listings have never been enriched at all.</p>
+    <p>There is <b>no spare capacity to put a backfill into</b>. Adding subcategory work to the existing tick doesn't fill idle time — it lengthens every tick, which <i>reduces</i> ticks/day and pushes classification further below the arrival rate. "Backfill without adding latency" cannot be satisfied by scheduling; it needs either a cheaper labeling path or a separate lane. That is <a href="#decisions">Decision 1</a>, and it is the only one that gates the rest.</p>
+  </div>
+
+  <div class="grid g2" style="margin-top:18px">
+    <div class="card">
+      <h4 style="margin-top:0">What is ready to build</h4>
+      <ul class="tight">
+        <li><b>The rename.</b> One label, three sites, plus a changelog entry. The code comment that blocked it explicitly authorizes this exact change.</li>
+        <li><b>The taxonomy.</b> 15 subcategories, every size measured against 11,139 real rows.</li>
+        <li><b>The schema.</b> <code>TEXT[]</code> + dimension table, with a tri-state that makes the backfill resumable.</li>
+        <li><b>The UI.</b> A nested MUI checkbox tree, verified against the installed MUI 7.3.6 internals.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4 style="margin-top:0">What must be resolved before code</h4>
+      <ul class="tight">
+        <li><b>Backfill capacity</b> — no lane exists to run it in.</li>
+        <li><b>The eval gate cannot fire</b> — 21 human labels against a hard <code>min_n=50</code>.</li>
+        <li><b>Two data-loss paths</b> — admin corrections silently wipe subcategories.</li>
+        <li><b>Production runs from a different checkout</b> than the one this plan edits.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<hr class="rule">
+
+<!-- ============ MEASURED ============ -->
+<section id="measured">
+  <h2><span class="num">01</span> What the corpus actually looks like</h2>
+  <p class="lede">Every number below came from prod Postgres and the live enricher SQLite, re-verified directly rather than taken from an agent's summary. Nothing here is estimated.</p>
+
+  <div class="grid g4">
+    <div class="stat"><div class="n">76,023</div><div class="l">job listings</div><div class="s">total corpus</div></div>
+    <div class="stat"><div class="n">11,119</div><div class="l">software engineering</div><div class="s">8,126 OPEN</div></div>
+    <div class="stat warn"><div class="n">56,656</div><div class="l">never enriched</div><div class="s">74.5% of corpus</div></div>
+    <div class="stat"><div class="n">~230</div><div class="l">new SWE jobs / day</div><div class="s">Tier 1 rate</div></div>
+    <div class="stat bad"><div class="n">485</div><div class="l">classified / day</div><div class="s">38 × 12.76 ticks</div></div>
+    <div class="stat bad"><div class="n">495&ndash;552</div><div class="l">arrivals / day</div><div class="s">30d / 14d</div></div>
+    <div class="stat warn"><div class="n">41.2%</div><div class="l">SWE titles with no specialty</div><div class="s">4,584 rows</div></div>
+    <div class="stat bad"><div class="n">21</div><div class="l">human eval labels</div><div class="s">gate needs 50</div></div>
+  </div>
+
+  <div class="note green" id="titlefirst">
+    <div class="t">Yes — we label from the title first. The description is only the fallback.</div>
+    <p>You asked whether we can just use the title. We can, and it does most of the work: <b>6,535 of 11,119 SWE rows (58.8%) resolve from the title alone</b> — "Senior Backend Engineer", "iOS Software Engineer", "Site Reliability Engineer" need nothing else. Those are cheap, high-precision, and need no model call at all.</p>
+    <p>The description only matters for the other <b>41.2% (4,584 rows)</b> where the title is generic — 953 of them are literally just "Software Engineer". For those the title genuinely carries no specialty, so something has to read further or the row stays unlabelled.</p>
+    <p>The reason the empty-description number matters isn't that we prefer descriptions — it's a <b>trap in the backfill query</b>. 2,287 SWE rows (20.6%) have <code>clean_description = ''</code> rather than NULL, deterministically per company (capitalone 606/606, nvidia 439/439, gm 271/271, disney 172/172). A backfill testing <code>IS NOT NULL</code> would believe it had 11,119 descriptions and silently feed the model 2,287 empty strings. Test <code>length(clean_description) &gt; 200</code> instead. Where a title-only row also has no description, it gets labelled from the title or left <code>[]</code> — never guessed.</p>
+  </div>
+
+  <div class="note amber">
+    <div class="t">Two more measurements that shaped the design</div>
+    <p><b>9.0% of SWE jobs name two or more specialties in the title alone</b> (1,005 rows), and 59.1% of the title-generic rows map to 2+ competing tag buckets. A single scalar subcategory column is provably lossy — this is why the field is an <i>array</i>, which you confirmed.</p>
+    <p><b>Tags are a strong prior, not a labeler.</b> Where a title independently names a specialty, tags agree 86.2% of the time — but on the title-generic rows only 20.9% resolve to exactly one bucket. Tags can cheapen the backfill; they cannot replace it. (Per your note, they stay a pipeline input — see <a href="#newscope">§09</a> on hiding company tags from the UI.)</p>
+  </div>
+</section>
+
+<hr class="rule">
+
+<!-- ============ RENAME ============ -->
+<section id="rename">
+  <h2><span class="num">02</span> Part one — "Job title" becomes "Job category"</h2>
+  <p class="lede">This is the smallest part of the work and it is already sanctioned in the codebase. The current label is a deliberate UI-only rename of the <code>category</code> data model, and the comment guarding it names the precise condition under which it should be reverted — the condition this feature creates.</p>
+
+<pre><span class="cm">// src/frontend/src/components/recent-jobs-page/RecentJobsFilters.tsx:131</span>
+  The label says "Job title" but the data model underneath is "category" all the
+  way down &hellip; It stays a category under the hood because <b>these values will
+  subdivide over time (e.g. "Software Engineering" &rarr; "Frontend SWE" /
+  "Backend SWE"), at which point they read as categories again.</b></pre>
+
+  <p>So the rename isn't a reversal of someone's decision — it's the trigger firing. Label and data model agree again, and every comment asserting the opposite gets rewritten.</p>
+
+  <div class="tw">
+    <table>
+      <thead><tr><th>Site</th><th>Now</th><th>After</th></tr></thead>
+      <tbody>
+        <tr><td><code>RecentJobsFilters.tsx:138</code><span class="s"></span></td><td><code>label="Job title"</code></td><td><code>label="Job category"</code></td></tr>
+        <tr><td><code>GraphFilters.tsx:89</code></td><td><code>label="Job title"</code></td><td><code>label="Job category"</code></td></tr>
+        <tr><td><code>CategoryLevelDefaults.tsx:77,67,98</code></td><td>"Default job title &amp; level", "Save job title &amp; level"</td><td>"Default job category &amp; level", "Save job category &amp; level"</td></tr>
+        <tr><td>Tooltips ×3</td><td>"AI-enriched job title (choose any number). <b>Jobs not yet enriched still appear.</b>"</td><td>Rewritten — and the bolded clause is <b>already false today</b> (<code>matchesCategory</code> hides them). Pre-existing bug, fixed here.</td></tr>
+        <tr><td>Explanatory comments ×3</td><td>"Rename the label only — never the data model."</td><td>Replaced with the subdivision rationale.</td></tr>
+        <tr><td><code>config/changelog.ts</code></td><td>2026-07-14 entry announcing Category&rarr;Job title</td><td>Leave as history; append a new entry. <b>Must also mention the removed <code>department</code> chip</b>, which is already committed on this branch and is user-visible.</td></tr>
+        <tr><td>5 unit tests + a11y names</td><td><code>getByRole('combobox', { name: 'Job title' })</code></td><td>Updated alongside.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p style="font-size:13.5px;color:var(--g600)"><b>Careful with:</b> "job title" legitimately means the posting's own title in <code>types/index.ts:42</code>, <code>JobListingCard.tsx:20</code>, <code>LoadingSkeletons.tsx:26</code> and several test names. Those stay.</p>
+</section>
+
+<hr class="rule">
+
+<!-- ============ TAXONOMY ============ -->
+<section id="taxonomy">
+  <h2><span class="num">03</span> Part two — the 15 subcategories</h2>
+  <p class="lede">Built from three independent proposals (market-aligned, data-driven, classifier-reliability) and synthesized. Every share below is a <i>measured</i> title floor plus a <i>measured</i> tag ceiling from the 11,119-row corpus — not a guess. Alphabetical, as you asked.</p>
+
+  <div class="tw">
+    <table>
+      <thead><tr><th>Label</th><th>Slug</th><th class="num">Measured</th><th>The one-line rule the classifier applies</th></tr></thead>
+      <tbody>
+        <tr class="okrow"><td><b>AI Engineering</b><br><span class="tag">your split</span></td><td><span class="tag">ai_engineering</span></td><td class="num">4.76%<br><span style="font-size:10px">530 rows</span></td><td><b>The engineer calls a model they did not train.</b> LLM-backed product features, agent systems, RAG pipelines, prompt/context layers, eval and observability harnesses. The model is a dependency; success is measured by the product's behavior.</td></tr>
+        <tr><td><b>Backend</b></td><td><span class="tag">backend</span></td><td class="num">4.1%&ndash;47.6%</td><td>Server-side code whose consumers are the product's own users or client apps.</td></tr>
+        <tr><td><b>Data Engineering</b></td><td><span class="tag">data_engineering</span></td><td class="num">1.8%&ndash;10.8%</td><td>The deliverable is the movement and shaping of data — ETL, streaming, warehouses.</td></tr>
+        <tr><td><b>DevOps &amp; Site Reliability</b></td><td><span class="tag">devops_sre</span></td><td class="num">2.3%&ndash;14.3%</td><td>Mandate is keeping <i>other</i> teams shipping and running — CI/CD, IaC, on-call, SLOs.</td></tr>
+        <tr><td><b>Embedded &amp; Low-Level Systems</b></td><td><span class="tag">embedded_systems</span></td><td class="num">2.9%&ndash;4.3%</td><td>Compiled against hardware or a kernel — firmware, drivers, OS internals, GPU kernels, compilers.</td></tr>
+        <tr><td><b>Forward Deployed</b></td><td><span class="tag">forward_deployed</span></td><td class="num">2.8%&ndash;n/a</td><td>Ships production code inside a named customer's environment. <b>Zero tag coverage today</b> — currently unfindable by any means.</td></tr>
+        <tr><td><b>Frontend</b></td><td><span class="tag">frontend</span></td><td class="num">1.2%&ndash;5.3%</td><td>Owns browser/desktop UI as a required responsibility, and does <i>not</i> also own the server.</td></tr>
+        <tr><td><b>Full Stack</b></td><td><span class="tag">full_stack</span></td><td class="num">4.6%&ndash;7.9%</td><td>Explicitly requires owning both client and server. Exclusive — never emitted alongside Frontend or Backend.</td></tr>
+        <tr><td><b>Infrastructure &amp; Platform</b></td><td><span class="tag">infrastructure_platform</span></td><td class="num">14.1%&ndash;37.9%</td><td>The code's consumers are other engineers or other services. <b>Largest bucket — watch for catch-all drift.</b></td></tr>
+        <tr class="okrow"><td><b>Machine Learning</b><br><span class="tag">your split</span></td><td><span class="tag">ml_engineering</span></td><td class="num">4.74%<br><span style="font-size:10px">528 rows</span></td><td><b>The engineer changes the model's weights, or the systems that produce and serve them.</b> Training, fine-tuning, distillation, optimization, serving; ranking/recsys/personalization; feature stores, training infra, MLOps. Success is measured by a model metric.</td></tr>
+        <tr><td><b>Mobile</b></td><td><span class="tag">mobile</span></td><td class="num">2.4%&ndash;5.5%</td><td>Deliverable is a native or cross-platform app binary.</td></tr>
+        <tr><td><b>QA &amp; Testing</b></td><td><span class="tag">qa_testing</span></td><td class="num">2.0%&ndash;3.5%</td><td>The deliverable is test coverage or test infrastructure itself. <b>Silicon "validation" must not fire this.</b></td></tr>
+        <tr class="okrow"><td><b>Quantitative &amp; Trading Systems</b><br><span class="tag">yours</span></td><td><span class="tag">quantitative</span></td><td class="num">1.57%<br><span style="font-size:10px">175 rows</span></td><td><b>Software whose correctness is measured in money and microseconds</b> — trading systems, market-data pipelines, order routing and exchange connectivity, low-latency execution, pricing and risk engines, backtesting and research infrastructure. <b>Rule keys on the domain, not the word "quant"</b> (see below).</td></tr>
+        <tr><td><b>Robotics &amp; Autonomy</b></td><td><span class="tag">robotics_autonomy</span></td><td class="num">2.4%&ndash;5.0%</td><td>Software that senses, plans or actuates in the physical world.</td></tr>
+        <tr><td><b>Security</b></td><td><span class="tag">security</span></td><td class="num">4.7%&ndash;11.0%</td><td>Subject matter is security itself and the deliverable is code, not policy.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note green">
+    <div class="t">You were right about AI — the data backs you, decisively</div>
+    <p>You said applied AI engineering is <span class="quote">"just software engineering with a flavor of AI"</span> and not ML engineering. Measured against the corpus: the two populations are <b>almost exactly the same size</b> — AI Engineering 530 rows (4.76%), Machine Learning 528 rows (4.74%) — and they barely overlap. Only <b>32 titles (0.29%)</b> hit both signal sets, and reading all 32, just four are genuine coin-flips. Both clear the dead-checkbox floor by roughly 4.8×. Your own reference board listed "AI Applications" and "ML Engineering" separately too. So the AI bucket becomes two, not one.</p>
+    <p>The tagger already agrees with you, incidentally — left to itself it produced two distinct tag families: <code>agent-*</code>, <code>rag</code>, <code>ai-evals</code>, <code>agent-orchestration</code> on one side, and <code>mlops</code>, <code>ml-infrastructure</code>, <code>on-device-ml</code>, <code>production-ml</code> on the other.</p>
+  </div>
+
+  <div class="note green">
+    <div class="t">Quant: yes — but only because the signal is in the employer, not the title</div>
+    <p>My first instinct was to tell you no. The word test says it's a dead checkbox: only <b>20 SWE titles (0.18%)</b> contain "quant" or "quantitative", and 46 more quant titles already sit in <code>data_scientist</code> — correctly, since a Quantitative <i>Researcher</i> is a scientist under the existing §1 rules and that doesn't change.</p>
+    <p>But you already track the firms. DRW (56), IMC (53), Jump Trading (36), HRT (19), Akuna (14), Belvedere (8), CTC (7) are all on the board — and <b>175 of their software-engineering roles (1.57% of the corpus, 147 OPEN)</b> are trading-systems work. Most just don't say "quant" in the title: a "Software Engineer" at Jump <i>is</i> a low-latency trading engineer. So the bucket is real and clears the floor — the title regex was simply the wrong instrument. <b>15 subcategories.</b></p>
+    <p><b>Two things I'd own about it.</b> It's the smallest bucket on the list, and it's concentrated in ~7 employers, so if those boards go quiet the checkbox thins out. And like Forward Deployed it's a <i>domain</i> rather than a where-the-code-lives position — which multi-label makes harmless: a trading-systems engineer gets <code>[quantitative, backend]</code> or <code>[quantitative, infrastructure_platform]</code> rather than a false choice. The decision rule must read the description and employer for market/latency/exchange/pricing signals, never the word "quant".</p>
+  </div>
+
+  <div class="note amber">
+    <div class="t">Two corrections the measurement forced — both matter</div>
+    <p><b>1. "Inference / serving" moves to the Machine Learning side, not AI Engineering.</b> That single token caused ~90% of the measured overlap: titles like <i>"Senior Deep Learning Software Engineer, Inference — TensorRT"</i> and <i>"Staff ML Engineer, Generative Model Performance &amp; Efficiency"</i> are model-side work that merely names LLMs as the object being optimized. Building an inference stack is ML; <i>calling</i> one is AI Engineering. Fixing this drops the overlap from 0.40% to 0.29%.</p>
+    <p><b>2. Never route on the <code>ai</code> tag or on AI mentions in the description.</b> <b>2,462 SWE rows — 22% of the whole corpus — carry an ai/ml family tag while being ordinary backend and full-stack jobs</b> ("Senior Software Engineer" ×88, "Principal Software Engineer" ×66). 11.5% of plain SWE descriptions mention LLMs. Keying off mentions would drag ~1,243 plain rows into AI Engineering, inflating it to ~16% and hollowing out Backend. The classifier must ask what the engineer <i>ships</i>, never whether AI is <i>mentioned</i>.</p>
+    <p><b>The tie-breaker for the case that will actually bite</b> — an engineer building an LLM feature at a company that also trains frontier models: <i>route on what the person in this role changes, not what the company builds. If the responsibilities never include altering a model's weights, its training data, or its serving stack — only calling, prompting, orchestrating or evaluating a model that already exists — it is AI Engineering.</i></p>
+  </div>
+
+  <div class="grid g2" style="margin-top:20px">
+    <div class="card">
+      <h4 style="margin-top:0">Why nothing here cannibalizes a top-level category</h4>
+      <p style="font-size:14px;margin:0">A subcategory is evaluated <b>only after</b> §1 has already returned <code>software_engineering</code>. It partitions an existing set and structurally cannot re-route a job. So "Data Science" stays <code>data_scientist</code>, firmware bring-up stays <code>hardware_engineer</code>, and sales engineering stays <code>business_ops</code> — the §1 rules are untouched. That single structural fact dissolves the entire collision problem.</p>
+    </div>
+    <div class="card">
+      <h4 style="margin-top:0">Deliberate exclusions</h4>
+      <ul class="tight" style="margin:0">
+        <li><b>Engineering Management</b> — <code>level=manager</code> already covers 660 SWE rows. Double-encoding invites disagreement.</li>
+        <li><b>"General / Other"</b> — 41.2% of titles carry no specialty; a General box would instantly be the biggest option and the model's lazy default. Unlabelled is <code>[]</code>, an explicitly correct answer.</li>
+        <li><b>Solutions Engineering</b> — promises SWE jobs, delivers sales engineering.</li>
+        <li><b>iOS / Android split</b> — two ~1.5% boxes near the dead floor.</li>
+        <li><b>Networking</b> — clears the floor at 2.1% but fragments Infrastructure. <a href="#decisions">Decision 2.</a></li>
+      </ul>
+    </div>
+  </div>
+
+  <h3 id="confusable">Telling the confusable pairs apart</h3>
+  <p class="lede">You asked about two of these directly. Every pair below is one a careful person could argue about, so each gets an explicit test the classifier applies — and where a job genuinely is both, multi-label means it gets both rather than a coin flip.</p>
+
+  <div class="tw">
+    <table>
+      <thead><tr><th>The pair</th><th>The one-question test</th><th>Worked example</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><b>Infrastructure &amp; Platform</b><br>vs <b>DevOps &amp; SRE</b><br><span class="tag">you asked</span></td>
+          <td><b>Do you build the thing, or keep it running?</b> Infrastructure &amp; Platform <i>ships a substrate as a product</i> other engineers build on — the deliverable is the platform itself. DevOps &amp; SRE's mandate is <i>other teams' uptime and shipping velocity</i> — on-call rotation, SLOs and error budgets, CI/CD, incident response. If the posting names an on-call rotation or an SLO, it's SRE. If it names a platform, service or API that internal engineers consume, it's Infrastructure.</td>
+          <td>"Software Engineer, Kubernetes Platform" building a deploy platform &rarr; <b>Infrastructure &amp; Platform</b>.<br>"Software Engineer III, Site Reliability" carrying a pager for someone else's services &rarr; <b>DevOps &amp; SRE</b>.<br>A genuine hybrid takes both, Infrastructure first.</td>
+        </tr>
+        <tr>
+          <td><b>Robotics &amp; Autonomy</b><br>vs <b>Embedded &amp; Low-Level</b><br><span class="tag">you asked</span></td>
+          <td><b>Does it think about the physical world, or just talk to the hardware?</b> Robotics &amp; Autonomy is software that <i>senses, plans or actuates</i> — perception, SLAM, motion planning, controls/GNC, autonomy stacks. Embedded &amp; Low-Level is software <i>compiled against hardware or a kernel</i> — firmware, RTOS, bootloaders, device drivers, OS internals, GPU kernels, compilers. Embedded is about the layer you run at; Robotics is about the problem you solve.</td>
+          <td>"Perception Engineer, Autonomous Vehicles" &rarr; <b>Robotics</b>.<br>"Embedded Firmware Engineer, Motor Controller" — a driver for a motor, no planning &rarr; <b>Embedded</b>.<br>A robot's real-time control loop written against an RTOS takes both.</td>
+        </tr>
+        <tr>
+          <td><b>Backend</b><br>vs <b>Infrastructure &amp; Platform</b></td>
+          <td><b>Who consumes your code?</b> End users and the product's own clients &rarr; Backend. Other engineers or other services &rarr; Infrastructure. This is why "Software Engineer, Distributed Systems" can be either: on a payments team it's Backend, on the storage team it's Infrastructure.</td>
+          <td>"Software Engineer, Payments API" &rarr; <b>Backend</b>.<br>"SDE, AWS OpenSearch" — the product <i>is</i> infrastructure &rarr; <b>Infrastructure</b>.</td>
+        </tr>
+        <tr>
+          <td><b>Data Engineering</b><br>vs <b>Backend</b></td>
+          <td><b>Is the deliverable a pipeline or a request-serving service?</b> Moving and shaping data — ETL, streaming, warehouses &rarr; Data Engineering. Serving requests &rarr; Backend.</td>
+          <td>"Senior Data Engineer, Spark" &rarr; <b>Data Engineering</b>.<br>"Backend Engineer, Identity" &rarr; <b>Backend</b>.</td>
+        </tr>
+        <tr>
+          <td><b>QA &amp; Testing</b><br>vs <b>Embedded</b></td>
+          <td>The word <b>"validation" is a trap.</b> In hardware postings it means silicon bring-up, not QA. If the thing under test is a chip or a board, it's Embedded. QA &amp; Testing is only for test coverage and test infrastructure as the deliverable.</td>
+          <td>"Silicon Validation Software Engineer &mdash; GPU IP" &rarr; <b>Embedded</b>, not QA. This single exclusion protects the smallest bucket on the list from being poisoned.</td>
+        </tr>
+        <tr>
+          <td><b>Full Stack</b><br>vs <b>Frontend</b> / <b>Backend</b></td>
+          <td><b>Does the posting require owning both sides?</b> Only an explicit "full stack", "end-to-end feature ownership", or a stack list spanning a UI framework <i>and</i> a server/database. A bare "Software Engineer" is never defaulted here. Full Stack is exclusive — never emitted alongside Frontend or Backend, because the <i>filter</i> does the widening instead.</td>
+          <td>"Lead Software Engineer, Full Stack" &rarr; <b>Full Stack</b> — and it still shows up when someone checks Backend.<br>A backend job that "occasionally touches the frontend" &rarr; <b>Backend</b> only.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Multi-label: 0&ndash;2 slugs, primary first <span class="dsp confirmed">Confirmed</span></h3>
+  <p>Settled — this is how you said you were envisioning it. Forced by measurement as well as preference: 9.0% of rows name two specialties in the title alone, while 3-or-more is only 0.65%, so a third slot buys under 1% of recall and invites shotgunning. Stored as an ordered array; <code>subcategories[0]</code> is primary.</p>
+
+  <div class="note">
+    <div class="t">The tri-state that makes everything else work</div>
+    <p><code>NULL</code> = never evaluated (this <i>is</i> the backfill queue) &nbsp;·&nbsp; <code>'{}'</code> = evaluated, no specialty applies &nbsp;·&nbsp; <code>['backend','ai_ml']</code> = labelled, primary first. This is what lets a v6 enricher coexist safely (absent field &rArr; column untouched) and what makes the backfill resumable and its coverage honest.</p>
+  </div>
+</section>
+
+<hr class="rule">
+
+<!-- ============ UI ============ -->
+<section id="ui">
+  <h2><span class="num">04</span> Part three — the nested checkbox dropdown</h2>
+  <p class="lede">Rendered below in JVN's own monochrome MUI theme. One new component, <code>FacetTreeMultiSelect</code>, replacing the category <code>FacetMultiSelect</code> at all three sites rather than adding a sixth control to an already-crowded filter row.</p>
+
+  <div class="mockwrap">
+    <div class="mui">
+      <div class="mui-field">
+        <div class="mui-legend">Job category</div>
+        <div class="mui-input focus"><span>Backend, Full Stack</span><span class="mui-caret">&#9660;</span></div>
+      </div>
+      <div class="mui-menu">
+        <div class="mui-scroll">
+          <div class="mui-item parent sel"><span class="box ind"></span><span>Software Engineering</span><span class="chev">&#9650;</span></div>
+          <div class="mui-item child"><span class="box"></span><span>AI Engineering</span></div>
+          <div class="mui-item child sel"><span class="box on"></span><span>Backend</span></div>
+          <div class="mui-item child"><span class="box"></span><span>Data Engineering</span></div>
+          <div class="mui-item child"><span class="box"></span><span>DevOps &amp; Site Reliability</span></div>
+          <div class="mui-item child"><span class="box"></span><span>Embedded &amp; Low-Level Systems</span></div>
+          <div class="mui-item child"><span class="box"></span><span>Forward Deployed</span></div>
+          <div class="mui-item child"><span class="box"></span><span>Frontend</span></div>
+          <div class="mui-item child sel"><span class="box on"></span><span>Full Stack</span></div>
+          <div class="mui-item child"><span class="box"></span><span>Infrastructure &amp; Platform</span></div>
+          <div class="mui-item child"><span class="box"></span><span>Machine Learning</span></div>
+          <div class="mui-item child"><span class="box"></span><span>Mobile</span></div>
+          <div class="mui-item child"><span class="box"></span><span>QA &amp; Testing</span></div>
+          <div class="mui-item child"><span class="box"></span><span>Quantitative &amp; Trading</span></div>
+          <div class="mui-item child"><span class="box"></span><span>Robotics &amp; Autonomy</span></div>
+          <div class="mui-item child"><span class="box"></span><span>Security</span></div>
+          <div class="mui-item parent"><span class="box"></span><span>Hardware Engineer</span></div>
+          <div class="mui-item parent"><span class="box"></span><span>Product Manager</span></div>
+          <div class="mui-item parent"><span class="box"></span><span>Data Scientist</span></div>
+          <div class="mui-item parent"><span class="box"></span><span>Growth</span></div>
+          <div class="mui-item parent"><span class="box"></span><span>Business Ops</span></div>
+        </div>
+      </div>
+      <div class="mock-cap">parent = indeterminate when partially selected</div>
+    </div>
+
+    <div>
+      <div class="mui-card">
+        <div class="co">Anduril</div>
+        <div class="ti">Senior Software Engineer, Mission Autonomy</div>
+        <div class="chips">
+          <span class="chip solid">Robotics &amp; Autonomy</span>
+          <span class="chip">Senior</span>
+          <span class="chip">Costa Mesa, CA</span>
+        </div>
+      </div>
+      <div class="mock-cap">job card — subcategory chip replaces the<br>"Software Engineering" chip (net zero new chips)</div>
+    </div>
+  </div>
+
+  <h3>The MUI mechanics that were verified, not assumed</h3>
+  <p class="lede" style="margin-bottom:12px">These were checked against the installed MUI 7.3.6 source. Each one is a way this component silently breaks if built naively.</p>
+  <ul class="tight">
+    <li><b>Children must be a flat array.</b> <code>SelectInput</code> clones only <i>direct</i> children to inject <code>onClick</code>/<code>role="option"</code>/<code>data-value</code>. Wrapping children in <code>&lt;Collapse&gt;</code> or a fragment breaks selection entirely. Build the menu with <code>flatMap([parentRow, ...(expanded ? childRows : [])])</code> and indent with <code>sx={{ pl: 4 }}</code>.</li>
+    <li><b>The chevron needs <code>stopPropagation</code></b> on <code>onClick</code>, <code>onMouseDown</code> <i>and</i> <code>onKeyDown</code> — MUI calls the child's own <code>onClick</code>, so expanding would otherwise toggle selection and trigger Select typeahead.</li>
+    <li><b>ArrowLeft / ArrowRight are free.</b> <code>MenuList</code> handles only Up/Down/Home/End plus single-char typeahead — so they can drive expand/collapse.</li>
+    <li><b><code>renderValue</code> short-circuits</b>, so selected-but-collapsed children still display correctly in the closed field.</li>
+    <li><b>Set <code>MenuProps.PaperProps.sx.maxHeight</code></b> — no max height is set today, and 21 rows will overflow the viewport.</li>
+    <li><b>Sort children by <code>label.localeCompare</code>.</b> Nothing in the codebase reads <code>FacetOption.sortOrder</code> — alphabetical must be done explicitly.</li>
+  </ul>
+
+  <h3 id="semantics">Filter semantics <span class="dsp confirmed">OR expansion confirmed</span></h3>
+  <p class="lede" style="margin-bottom:12px">You confirmed the Full Stack expansion should be an OR, so the highlighted row below is now a decision rather than a proposal, and it's out of the open-questions list.</p>
+  <div class="tw">
+    <table>
+      <thead><tr><th>Selection</th><th>Returns</th></tr></thead>
+      <tbody>
+        <tr><td>Software Engineering checked, no children</td><td>All 11,119 SWE rows — including unlabelled ones. Nothing is ever hidden from a browsing seeker.</td></tr>
+        <tr><td>Backend + Frontend checked</td><td><b>OR</b> within the facet — either one. (AND across facets: subcategory AND level AND location, as today.)</td></tr>
+        <tr><td>Any child checked</td><td>Auto-checks and locks the Software Engineering parent. A subcategory is meaningless under a different top-level category.</td></tr>
+        <tr class="okrow"><td><b>Backend</b> checked</td><td><code>backend</code> <b>OR</b> <code>full_stack</code> — one expansion rule, mirroring the <code>new_grad &sub; entry</code> contract §3 already ships. <b>Full Stack</b> alone returns only full-stack, so a specialist isn't flooded. The classifier never litigates the boundary; the query widens.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note amber">
+    <div class="t">The highest-blast-radius one-liner in the whole frontend</div>
+    <p><code>recentJobsFilterSignature.ts</code> must gain <code>subcategory: stableList(filters.subcategory)</code>. That signature is both the 300ms debounce key and the "a new walk began" trigger. Omit it and toggling a subcategory produces <i>no signature change</i>: no refetch, no render-window reset, and a deep-scrolled user is stranded mid-list on a filter they just changed. It typechecks perfectly and fails silently.</p>
+  </div>
+</section>
+
+<hr class="rule">
+
+<!-- ============ PIPELINE ============ -->
+<section id="pipeline">
+  <h2><span class="num">05</span> Part four — tiering, and the capacity wall</h2>
+
+  <div class="note green">
+    <div class="t">Your chicken-and-egg dissolves</div>
+    <p>You asked to prioritize new <i>software-engineering</i> jobs — but a brand-new job has no category yet, so it can't be selected by category. It doesn't need to be: <b>the subcategory is an extra field on the classify call the job already receives, not an extra call.</b> Tier 1 and Tier 3 are therefore one lane, unchanged, at <b>zero added model calls</b>. Every new job gets classified as it does today, and if it lands in <code>software_engineering</code> it comes out with subcategories attached. Only Tier 2 needs category-aware selection, and there the row is already classified and <code>category='software_engineering'</code> is a literal column.</p>
+  </div>
+
+  <h3 id="tiers">Your three tiers, mapped</h3>
+  <p class="lede">You asked where your priority scheme fits, and it deserved a direct answer instead of being folded into prose. Here is each tier and where it actually lives.</p>
+
+  <div class="tw">
+    <table>
+      <thead><tr><th>What you asked for</th><th>Where it lives</th><th class="num">Added cost</th></tr></thead>
+      <tbody>
+        <tr class="okrow">
+          <td><b>Tier 1 — classify all new software-engineering jobs</b> (with subcategory)</td>
+          <td>The existing live tick, <b>completely unchanged</b>. The subcategory is an extra <i>field</i> on the classify call each new job already receives, so a new SWE job comes back with subcategories attached without a second call.</td>
+          <td class="num">zero</td>
+        </tr>
+        <tr class="okrow">
+          <td><b>Tier 3 — general new jobs</b></td>
+          <td>The <b>same</b> unchanged tick. A new job is classified once; whether it turns out to be software engineering is an output, not an input.</td>
+          <td class="num">zero</td>
+        </tr>
+        <tr>
+          <td><b>Tier 2 — backfill subcategories on existing SWE jobs</b></td>
+          <td>A <b>separate lane</b> on the Claude engine, off the local GPU — the only tier that needs scheduling at all, and the only one that can be paused or stopped.</td>
+          <td class="num">off-GPU</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note green">
+    <div class="t">Why the ordering you asked for turns out to be unnecessary</div>
+    <p>You wanted Tier 1 ahead of Tier 3. The useful surprise is that <b>they are the same operation</b>, so there is no queue to reorder: a new job gets exactly one classify call, and subcategories ride along for free when the answer is software engineering. Prioritizing SWE over general new jobs would mean guessing which unclassified jobs are SWE <i>before</i> classifying them — real work, to reorder a queue whose items cost the same either way.</p>
+    <p>And Tier 2 no longer competes with either, because it runs on a different lane entirely. So your three-tier scheme collapses into <b>one unchanged lane plus one separate backfill lane</b> — which is a strictly better outcome than the prioritization you asked for, since nothing has to yield to anything.</p>
+    <p><b>One honest caveat.</b> The live lane is slightly underwater on its own — 485 classified/day against 495&ndash;552 arriving — so new jobs do queue up regardless of this feature. If you want new SWE jobs to jump that queue, the cheap version is a title-regex pre-sort that floats SWE-looking rows to the front of each tick. It's genuinely optional, and I'd rather fix the 282-row poison cohort first, since that returns capacity instead of just rearranging it. Say the word if you want the pre-sort scoped.</p>
+  </div>
+
+  <h3>Why Tier 2 needed a separate lane in the first place</h3>
+  <p>The proposed "slack-and-deadline" arbiter assumed ~13&ndash;15 spare model calls per tick. The live database says otherwise: <b>100 of the last 100 ticks hit the 38-row cap</b>, and the worker restarts 62 seconds after each tick ends. There is no slack — there is a saturated lane with a 282-row queue that has not drained since 2026-07-13.</p>
+
+  <p>Wall-clock is the real budget. Each tick costs ~6,710s of the 3h (10,800s) watchdog. Spending the remainder on backfill doesn't fill idle time — it lengthens the tick, which cuts ticks/day:</p>
+
+  <div class="tw">
+    <table>
+      <thead><tr><th>Backfill per tick</th><th class="num">Tick length</th><th class="num">Ticks/day</th><th class="num">Classified/day</th><th class="num">vs arrivals</th><th class="num">Drain 8,126 rows @60s/row</th></tr></thead>
+      <tbody>
+        <tr class="okrow"><td>none (today)</td><td class="num">6,772s</td><td class="num">12.76</td><td class="num">485</td><td class="num">&minus;10 to &minus;67</td><td class="num">&mdash;</td></tr>
+        <tr><td>450s</td><td class="num">7,222s</td><td class="num">11.96</td><td class="num">454</td><td class="num">&minus;41 to &minus;98</td><td class="num">~91 days</td></tr>
+        <tr class="hl"><td>900s</td><td class="num">7,672s</td><td class="num">11.26</td><td class="num">428</td><td class="num">&minus;67 to &minus;124</td><td class="num">~48 days</td></tr>
+        <tr><td>1,800s</td><td class="num">8,572s</td><td class="num">10.08</td><td class="num">383</td><td class="num">&minus;112 to &minus;169</td><td class="num">~27 days</td></tr>
+        <tr><td>3,966s (max)</td><td class="num">10,738s</td><td class="num">8.05</td><td class="num">306</td><td class="num">&minus;189 to &minus;246</td><td class="num">~15 days</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p style="font-size:13.5px;color:var(--g600)">The "@60s/row" column is itself generous. Measured classify cost on the same model and machine is <b>137.9 s/item</b>; the plan's assumed 20s/row for a shortened subcategory-only prompt is a 7× speedup that has never been measured. At the measured rate the 900s row becomes <b>~111 days</b>. <b>Measure 20 rows before committing to any number here.</b></p>
+
+  <h3 id="capacity">So what am I going to do about it</h3>
+  <p class="lede">You asked directly, so here is the answer rather than a menu. <b>Shrink the problem until it fits, then run the remainder in a window where it costs almost nothing.</b> Four layers, in order.</p>
+
+  <div class="tw">
+    <table>
+      <thead><tr><th class="num">Layer</th><th>What it does</th><th class="num">Rows handled</th><th class="num">GPU cost</th></tr></thead>
+      <tbody>
+        <tr class="okrow">
+          <td class="num">0</td>
+          <td><b>Fix the poison cohort first.</b> 282 rows have been stuck in <code>cleaned</code> since 2026-07-13, and the same churn abandons claims every tick. This is a pre-existing bug that the backfill would otherwise inherit — and fixing it <i>buys throughput back</i> instead of spending it.</td>
+          <td class="num">&mdash;</td>
+          <td class="num">negative<br>(net gain)</td>
+        </tr>
+        <tr>
+          <td class="num">1</td>
+          <td><b>Deterministic title pass.</b> A regex/priority labeler over seniority-stripped titles. "Senior Backend Engineer" needs no model. High precision, instantly reversible, and it doubles as the committed weak baseline the LLM must beat in the evals.</td>
+          <td class="num">~4,780<br>(58.8% of OPEN)</td>
+          <td class="num">zero</td>
+        </tr>
+        <tr>
+          <td class="num">2</td>
+          <td><b>Tag-assisted pass</b> for title-generic rows that resolve to exactly one bucket, behind a synonym-collapse layer. Anything mapping to 2+ buckets or none falls through untouched — no guessing.</td>
+          <td class="num">~700<br>(8.6%)</td>
+          <td class="num">zero</td>
+        </tr>
+        <tr class="okrow">
+          <td class="num">3</td>
+          <td><b>LLM pass on the genuine remainder</b> — the rows where the title says nothing and the tags disagree. <b>Run through the Claude engine, not the local GPU</b> (your idea — see below). Zero contention with the live worker, so no pause window is needed at all.</td>
+          <td class="num">~2,650<br>(32.6%)</td>
+          <td class="num">off-GPU<br>hours, not weeks</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note green">
+    <div class="t">Your engine idea is better than my scheduling plan — and it's already built</div>
+    <p>You asked whether we could <span class="quote">"run it off Claude, Sonnet or Haiku… to backfill quickly, first off all the software engineering roles. Maybe just tonight."</span> That dissolves the capacity problem rather than scheduling around it, and <b>the infrastructure already exists</b>: <code>ClaudeCodeEngine</code> is a registered engine that takes a model tier (haiku / sonnet / opus), and <code>classify:engine</code> is an existing knob. <b>Confirmed: this is Claude Code, not the API.</b> The engine shells out to <code>claude -p &lt;prompt&gt; --model &lt;tier&gt; --output-format json</code> — your subscription, no metered API billing, no API key involved. That's what makes "just run it tonight" reasonable rather than a cost conversation.</p>
+    <p>The key property is that it's a subprocess, <b>not the local GPU</b>. So it doesn't contend with the ollama worker at all — the live tick keeps running at its full 485/day while the backfill runs beside it, in parallel, at whatever concurrency the subscription allows. My "seven overnight windows, ~1,100 deferred classifications" becomes <b>zero deferred classifications and a few hours</b>. I was solving the wrong problem; you were right to push.</p>
+    <p>It also makes layers 1&ndash;2 optional rather than necessary. They're still worth keeping — free is free, and the title labeler doubles as the eval baseline the model must beat — but they're no longer load-bearing.</p>
+  </div>
+
+  <div class="note green">
+    <div class="t">The run window: tonight, hard stop 09:00 CT <span class="tag">your constraint</span></div>
+    <p>You said <span class="quote">"I only want to run it until tonight. Like until morning at 9 a.m. CT."</span> That's a real design requirement, not just an instruction, so it goes in the plan as three things:</p>
+    <ul class="tight">
+      <li><b>A wall-clock deadline knob</b> — the backfill takes an absolute stop time, not just a row budget, and checks it between chunks so it never gets killed mid-write.</li>
+      <li><b>Resumability, which we already have for free.</b> The <code>NULL</code> vs <code>'{}'</code> tri-state <i>is</i> the queue: NULL means never evaluated. Stopping at 09:00 and restarting tomorrow simply picks up the remaining NULLs — no checkpoint file, no bookkeeping, no double-labelling.</li>
+      <li><b>A morning report</b> — rows labelled, rows remaining, the coverage percentage, and any rows that errored, so you can see at 9am whether it's done or needs another night.</li>
+    </ul>
+    <p>If the run doesn't finish in one night, that's fine and expected: the feature is behind the admin toggle until coverage crosses 90%, so a partial backfill is invisible to users rather than half-broken.</p>
+  </div>
+
+  <div class="note amber">
+    <div class="t">Three things to get right before pointing it at 8,126 rows <span class="dsp confirmed">You approved these</span></div>
+    <p><b>1. The security boundary is real and deliberate.</b> <code>claude_code.py</code>'s own docstring says production keeps the <b>sandboxed sub-agent fan-out</b> for Claude specifically as prompt-injection hardening on untrusted scraped text, and that the headless <code>claude -p</code> path is "for eval + explicit opt-in… where the input is trusted golden text." Job descriptions are untrusted third-party text. Two clean ways through: feed the backfill <b>title + tags only</b> (short, far lower risk, and enough for a large share of rows), or route it through the sandboxed fan-out rather than raw <code>claude -p</code>. Don't quietly cross that line — it was drawn on purpose.</p>
+    <p><b>2. Model tier is an eval question, not a preference.</b> Haiku is the obvious first try for "pick 0&ndash;2 labels from a list of 14". Run both tiers over the same ~100-row sample and compare against hand labels before committing — this is exactly the A/B you already said to use subagents for.</p>
+    <p><b>3. Batch and parallelize.</b> Each call is a subprocess spawn, so per-row invocation wastes most of the wall clock on process startup and re-sending the rubric. Chunk the jobs and run several chunks concurrently.</p>
+  </div>
+
+  <p><b>Net effect:</b> the backfill stops being a multi-week negotiation with a saturated GPU and becomes an evening's work on a separate lane, with the local worker untouched. That in turn shortens the feature-flag window in <a href="#decisions">Decision 3</a> from "about a week" to "overnight".</p>
+
+  <div class="note green">
+    <div class="t">And this is where the latency promise actually gets kept</div>
+    <p>New jobs are never affected at any point. Tier 1 and Tier 3 stay exactly as they are today at <b>zero added model calls</b>, because the subcategory rides along as a field on the classify call each new job already receives. Only the historical backfill is scheduled, and only into windows you choose.</p>
+  </div>
+
+  <div class="note amber">
+    <div class="t">Two things to measure in phase 0 before trusting these numbers</div>
+    <p><b>Seconds per row for a subcategory-only prompt.</b> The 60s/row above is a deliberately conservative placeholder — measured full-classify cost is 137.9 s/item, and the earlier plan's 20s/row assumption was a 7× speedup nobody had measured. Run 20 rows and publish p50/p95 before committing to "seven nights".</p>
+    <p><b>Whether a smaller model does this job.</b> Picking 0&ndash;2 labels from a 13-item list given a title and a description is a far narrower task than full classification, and qwen3:32b is heavy for it. If a smaller model matches it on the eval set, layer 3 collapses further. Worth one afternoon.</p>
+    <p><b>Costs to own either way:</b> the tag layer needs synonym collapsing (<code>c++</code>/<code>c-plus-plus</code>, six <code>cloud-*</code> variants) or it silently loses ~30% of its own signal; it gives <b>zero</b> help for Forward Deployed, which has no tag coverage at all; and every rule-labelled row must be stamped <code>subcategory_source='rule'</code> so a later model pass can supersede it and so a bad rule is revertible in one statement.</p>
+  </div>
+</section>
+
+<hr class="rule">
+
+<!-- ============ EVALS ============ -->
+<section id="evals">
+  <h2><span class="num">06</span> Part five — the evals you asked us to revisit</h2>
+  <p class="lede">You were right to flag this. The eval story is worse than "needs extending" — the regression gate <b>structurally cannot fire</b>, and the new facet has no scorer at all.</p>
+
+  <div class="grid g3">
+    <div class="stat bad"><div class="n">21 / 50</div><div class="l">human labels vs <code>GATE_MIN_N</code></div><div class="s">gate refuses to run</div></div>
+    <div class="stat bad"><div class="n">11</div><div class="l">of those that are SWE</div><div class="s">not the 126 assumed</div></div>
+    <div class="stat bad"><div class="n">0</div><div class="l">subcategory metrics in the scorer</div><div class="s">field is written, never read</div></div>
+  </div>
+
+  <p style="margin-top:18px"><code>regression_gate</code> calls <code>load_truth(human_only=True)</code>, which filters 273 golden rows down to the 21 human ones, then returns <i>"gate refused: only 21 scored row(s) &lt; min_n=50"</i> before comparing anything. Meanwhile the committed <code>baseline.json</code> was captured at n=252 on <i>draft</i> labels — a different pool entirely — so no honest "v7 didn't regress" claim can be made today, for any facet.</p>
+
+  <p>And the multi-label decision is consistent across the DB, the API, the prompt and the UI — and <b>completely absent from the scorer</b>. <code>Scorecard</code> has no subcategory field; <code>regression_gate</code> iterates a hardcoded facet tuple with no subcategory entry; <code>golden.json</code> rows have no <code>subcategories</code> key. Predictions would carry the field and nothing would ever consume it.</p>
+
+  <div class="note amber">
+    <div class="t">Yes — these are NEW evals, written from scratch, by subagents, and I verify them</div>
+    <p>Confirming your point explicitly, because "rework the evals" undersells it. The subcategory facet has <b>no scorer, no gold labels, and no gate entry</b> today — <code>Scorecard</code> has no subcategory field, <code>regression_gate</code> iterates a hardcoded facet tuple that doesn't include it, and <code>golden.json</code> rows have no <code>subcategories</code> key at all. So this is <b>new eval code plus a new gold pool</b>, not an extension of something that exists.</p>
+    <p><b>Subagents write it; I verify rather than accept.</b> That distinction has already earned its keep in this review — an agent told me there were "126 hand-labeled SWE rows" and the real number is 11, which I only caught by reading <code>golden.json</code> myself. Same discipline here: I check the scorer against the actual <code>Scorecard</code> shape, confirm the gate tuple really includes the new metrics, and re-run the numbers rather than trusting a summary. Anything I can't verify, I'll say so instead of reporting it as done.</p>
+  </div>
+
+  <h4>The approach I'm taking <span class="dsp applied">your call — my judgment</span></h4>
+  <p style="font-size:14px">You said to use my judgment, run it through subagents so it doesn't pollute the main context, and treat it as an A/B. That's the shape: <b>a subagent-driven A/B on a held-out sample</b>, with the v6 baseline captured and committed <i>before</i> <code>SKILL.md</code> is touched (once the file changes its hash changes, and the v6 baseline becomes unreproducible without a git-checkout dance). The A/B runs the same held-out rows through v6 and v7 and diffs per-facet accuracy, so the question "did adding subcategories damage the 6-category classification the whole product filters on?" gets a number rather than a hope. Subagents do the labeling passes and the scoring runs; only the verdict comes back.</p>
+
+  <h4>What the rework has to include</h4>
+  <ul class="tight">
+    <li><b>Scoring semantics, decided before labeling starts.</b> Primary-exact (<code>pred[0]</code> vs <code>gold[0]</code>) <i>and</i> order-insensitive set P/R/F1, plus a <code>subcategory_leak_rate</code> for non-empty arrays on non-SWE rows.</li>
+    <li><b>Capture v6 baselines on both pools BEFORE touching SKILL.md.</b> Once the file changes the hash changes and the v6 baseline is unreproducible without a git-checkout dance.</li>
+    <li><b>Get to n&ge;50 human labels — via pre-labelling, which is what you chose.</b> An LLM judge pre-labels the 126 draft SWE rows and you review only the disagreements. That's a real saving, but it has one failure mode I have to design around, because "agreement" is only evidence if the two labelers can fail independently. <b>If the pre-labeler is the same model as the classifier, agreement means nothing</b> — it just means the model is consistent with itself, and any systematic blind spot sails straight through as a confirmed gold label. Two rules make this sound: <b>(1)</b> pre-label with a <i>different</i> model than the one being evaluated (Claude pre-labels; qwen3 is the thing under test), and <b>(2)</b> your review set is every disagreement <i>plus a random ~15% sample of the agreements</i>. If that sample turns up near-zero errors, the agreements are trustworthy and the gate is real; if it doesn't, we've learned something important cheaply. Expect this to cost noticeably less than an hour while still producing a defensible n&ge;50.</li>
+    <li><b>Fix the correction feedback loop.</b> <code>merge_corrections</code> iterates a hardcoded <code>("category","level","tags")</code>, and <code>load_truth</code> admits rows only <code>if r.get("category") or r.get("level")</code> — so a subcategory-only human correction never becomes a gold row. The loop is dead at the receiving end, and it is the only path to the labels the gate needs.</li>
+    <li><b>A weak baseline the model must beat</b> — the title+tag regex labeler, committed. Cheap, and it makes "is the LLM actually adding value here?" answerable.</li>
+  </ul>
+</section>
+
+<hr class="rule">
+
+<!-- ============ BLOCKERS ============ -->
+<section id="blockers">
+  <h2><span class="num">07</span> Blockers — what's still live</h2>
+
+  <div class="note green">
+    <div class="t">Nothing here needs a decision from you any more</div>
+    <p>Fair callout — this section had gone stale. <b>Six of the original blockers were closed by your decisions</b>, and everything remaining is an <i>engineering obligation</i>: work that must be done in code, not a question anybody needs to answer. The one item that genuinely needed your judgment was the prompt-injection boundary, and you signed off on it. So: read this for awareness, not for action.</p>
+  </div>
+
+  <h3>Closed by your decisions</h3>
+  <div class="tw">
+    <table>
+      <thead><tr><th>Was a blocker</th><th>Closed by</th></tr></thead>
+      <tbody>
+        <tr><td>No lane for the backfill — the worker is saturated at 485/day against 495&ndash;552 arriving</td><td>Claude Code off-GPU <span class="tag">your idea</span></td></tr>
+        <tr><td>Every checkbox returns "No jobs found" on day one</td><td>Feature flag, admin toggle, flip at 90% coverage</td></tr>
+        <tr><td>Subcategory selections can't be saved — no column, and <code>extra='forbid'</code> 422s</td><td>Adding the <code>subcategory JSONB</code> column</td></tr>
+        <tr><td>2,287 rows "can never be labelled"</td><td>Wrong — title-first labels 1,081 of them; 747 remain <span class="tag">you caught this</span></td></tr>
+        <tr><td>The eval gate cannot fire — 21 human labels against <code>min_n=50</code></td><td>LLM pre-labelling to n&ge;50, with the independence rules in <a href="#evals">§06</a></td></tr>
+        <tr><td><code>reenrich --taxonomy-below</code> would re-queue all 19,396 rows</td><td>We're not running it — the subcategory pass leaves category/level/tags alone</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Still live — all engineering obligations</h3>
+  <p class="lede">Ordered by what happens if we forget. The first three share a failure mode: <b>they don't crash, they succeed quietly and do nothing</b>.</p>
+  <div class="tw">
+    <table>
+      <thead><tr><th class="num">#</th><th>What breaks</th><th>Where</th><th>Fix</th></tr></thead>
+      <tbody>
+        <tr class="hl">
+          <td class="num">1</td>
+          <td><b>The entire backfill can report success and persist nothing.</b> <code>EnrichmentResultItem</code> has no <code>extra='forbid'</code>, so if the enricher ships <code>subcategories</code> before JVN accepts the field, Pydantic silently drops it and the run reports <code>written: N</code>.</td>
+          <td class="num">models.py<br>:886&ndash;926</td>
+          <td>Add the field before the enricher ever sends it. Round-trip test: a written subcategory must read back.</td>
+        </tr>
+        <tr class="hl">
+          <td class="num">2</td>
+          <td><b>A silently-failing backfill looks healthy.</b> <code>drift_suspected</code> only fires on <code>nulled_facets</code>; a run emitting <code>[]</code> for every row produces none, so the tick closes <code>status=ok</code> and the verdict banner stays green.</td>
+          <td class="num">metrics.py<br>:46&ndash;49</td>
+          <td>A subcategory-specific breaker: <code>swe_classified &ge; N and subcategorized == 0</code> trips drift.</td>
+        </tr>
+        <tr class="hl">
+          <td class="num">3</td>
+          <td><b>Admin corrections cause unrecoverable data loss.</b> <code>apply_correction</code> issues an unconditional UPDATE then stamps <code>human_corrected_at</code>, which locks the row against any later automated write. Two more paths orphan subcategories on rows whose category changed.</td>
+          <td class="num">enrichment_monitor.py<br>:379, :546 · writer :200</td>
+          <td>Tri-state on the admin path; force <code>[]</code> whenever category isn't <code>software_engineering</code>. Test all three.</td>
+        </tr>
+        <tr>
+          <td class="num">4</td>
+          <td><b>The 282-row poison cohort.</b> Stuck in <code>cleaned</code> since 2026-07-13. Any <code>classify_deferred &gt; 0</code> guard is permanently tripped by it, and it's pre-existing churn the backfill would inherit.</td>
+          <td class="num">live DB</td>
+          <td>Diagnose in phase 0 — fixing it returns capacity rather than spending it.</td>
+        </tr>
+        <tr>
+          <td class="num">5</td>
+          <td><b>No rollback path.</b> If a boundary rule turns out wrong across thousands of rows, there's no way to identify which pass wrote them.</td>
+          <td class="num">schema</td>
+          <td>Ship <code>subcategory_source</code> (<code>rule</code>|<code>classify</code>|<code>backfill</code>|<code>judge</code>) from day one plus a scoped reset. Already in the accepted smaller calls.</td>
+        </tr>
+        <tr>
+          <td class="num">6</td>
+          <td><b>Cross-repo enum drift</b>, on a codebase where it has already happened — <code>job_categories</code> has 7 rows, the enricher frozenset has 6, the frontend fallback has 7.</td>
+          <td class="num">6 mirror points</td>
+          <td>Parity tests, plus a CI check fetching <code>/api/jobs/facets</code> and asserting equality with <code>taxonomy.SUBCATEGORIES</code> — the only guard that catches a two-repo divergence.</td>
+        </tr>
+        <tr>
+          <td class="num">7</td>
+          <td><b>Production runs from a different checkout.</b> The live worker is <code>~/developer/personal/app</code>, not the <code>job-enricher</code> repo this plan edits — merging to main deploys nothing.</td>
+          <td class="num">/app/.checkout-role</td>
+          <td>Named deploy step, and rehearse the SQLite v3&rarr;v4 migration on a copy of the 240 MB DB first.</td>
+        </tr>
+        <tr>
+          <td class="num">8</td>
+          <td><b>Bump <code>version:</code> or the backfill is a silent no-op.</b> <code>_version_below</code> treats the same declared version with a new hash as "not below" and skips.</td>
+          <td class="num">cli.py:1157</td>
+          <td>Bump to v7 as the <i>first</i> edit. Runbook checklist item.</td>
+        </tr>
+        <tr>
+          <td class="num">9</td>
+          <td><b>Write-back amplification</b> — backfill clears <code>sent_at</code> unconditionally, re-sending full payloads carrying nothing new.</td>
+          <td class="num">store/writeback</td>
+          <td>Make the re-open conditional on the payload knob.</td>
+        </tr>
+        <tr>
+          <td class="num">10</td>
+          <td><b>PR #252 changes the frontend's shape</b> — on main both pages filter client-side; #252 moves Recent to server-side, which relocates the <code>full_stack</code> expansion.</td>
+          <td class="num">merge order</td>
+          <td>Pin the order; assert client and server filtering return identical sets.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<hr class="rule">
+
+<!-- ============ SEQUENCE ============ -->
+<section id="sequence">
+  <h2><span class="num">08</span> Sequencing</h2>
+  <p class="lede">Ordered so that no step can break production alone, and so the taxonomy is never live before something can measure whether it's any good.</p>
+
+  <div class="tw">
+    <table>
+      <thead><tr><th class="num">#</th><th>Phase</th><th>Why it must come here</th></tr></thead>
+      <tbody>
+        <tr><td class="num">0</td><td><b>Unblock.</b> Diagnose the 282-row poison cohort. Measure real seconds/row for a subcategory-only prompt on 20 rows. Resolve the alembic fork (main head <code>1d2d6c17acfc</code> vs #252's <code>4b5d40dbc774</code>).</td><td>Every estimate downstream is fiction until these three numbers exist.</td></tr>
+        <tr><td class="num">1</td><td><b>Eval floor.</b> Hand-review the 126 draft SWE golden rows to reach n&ge;50 human. Capture v6 baselines on both pools. Add the subcategory scorer + gate entry.</td><td>Once SKILL.md changes, the v6 baseline is gone. This is the only window.</td></tr>
+        <tr><td class="num">2</td><td><b>JVN Phase 1.</b> Migration (columns only, no seed), write-back tri-state, facets, admin tri-state fix, parity tests. Verify <code>alembic_version</code> actually moved in prod.</td><td>Migrations run in-process at FastAPI startup; the enricher must never write a slug the backend rejects.</td></tr>
+        <tr><td class="num">3</td><td><b>Enricher dark deploy.</b> Store v3&rarr;v4 (rehearsed on a copy of the 240 MB DB), validators, hardened <code>reenrich</code>. Subcategories NULL everywhere, write-back knob off. <b>Deploy to <code>/app</code>.</b></td><td>Schema first, behavior later — so a rollback is a knob flip, not a migration.</td></tr>
+        <tr><td class="num">4</td><td><b>Taxonomy v7.</b> Repeal the sub-specialty ban, add §1b, prompts, engines, agent specs. Local DB only.</td><td>Nothing user-visible yet; a bad rubric is a one-file git revert.</td></tr>
+        <tr><td class="num">5</td><td><b>The v6&rarr;v7 gate.</b> Run the A/B. If top-level category accuracy regressed, stop here — nothing has shipped.</td><td>This is the decision point of the whole project.</td></tr>
+        <tr><td class="num">6</td><td><b>Flip write-back.</b> ~230 new SWE jobs/day start carrying subcategories. First step whose failure is user-visible.</td><td>Forward-only. Validates the wire contract on real traffic before any bulk work.</td></tr>
+        <tr><td class="num">7</td><td><b>Backfill canary</b> — 200 rows, one tick, hand-check 30. Then the sustained run per Decision 1.</td><td>The only place a systematic rubric error is cheap to catch.</td></tr>
+        <tr><td class="num">8</td><td><b>JVN Phase 2 + frontend.</b> The <code>?subcategory=</code> filter, the tree, the rename, the changelog. Gated on measured coverage, not code readiness.</td><td>A filter returning 8% of the corpus reads as broken, and first impressions of a new filter are hard to undo.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note">
+    <div class="t">The rename can jump the queue</div>
+    <p>Part one has no dependency on any of this. If you want something visible this week, "Job title" &rarr; "Job category" plus the corrected tooltips is a standalone PR that ships on its own and makes the existing filter more honest.</p>
+  </div>
+</section>
+
+<hr class="rule">
+
+<!-- ============ NEW SCOPE ============ -->
+<section id="newscope">
+  <h2><span class="num">09</span> New scope from your review</h2>
+  <p class="lede">Two items you raised that weren't in the original ask. Both are being explored by subagents right now; this section fills in when they report.</p>
+
+  <div class="note green">
+    <div class="t">Company tags: there is nothing to remove — they never reach the browser</div>
+    <p>Your note: <span class="quote">"I'd want to remove the tags that the company puts on the jobs from my front end showing, but we can use those tags in our Enricher pipeline."</span></p>
+    <p>I checked, and the good news is this is already true. <b>Company tags and enricher tags were never mixed.</b> Company tags land in <code>job_listings.details-&gt;'tags'</code> (Greenhouse only — 22,885 jobs; Lever's array is always empty, and no other source writes any). The <code>job_tags</code> table is <b>100% enricher-origin</b> — I verified all 112,880 rows join to an enrichment row, with no exceptions.</p>
+    <p>And company tags never make it to the frontend at all: the list projection deliberately rebuilds <code>details</code> as a two-key object to avoid a TOAST detoast (there's an incident note about it), so <code>details-&gt;'tags'</code> is dropped server-side. It's just as well — the contents are junk: <code>["Regular", "Engineering - Civil", "Starlink"]</code>, <code>["n/a"]</code>, and DoorDash rows containing a recruiter's name and a street address.</p>
+    <p>You also already shipped the other half: commit <code>d89aef7</code> — <i>"hide LLM enrichment keyword tags on job cards (#223)"</i>, 2026-07-13 — removed enrichment tag chips from job cards. <b>Today <code>JobChipsSection</code> renders exactly four things: department, Remote, category, level. No tags of any kind.</b></p>
+  </div>
+
+  <div class="note amber">
+    <div class="t">But two things here are worth your call</div>
+    <p><b>Done — the <code>department</code> chip is removed.</b> It was the only company-derived string on a job card and it was wrong: the only production transformer maps <code>department</code> from <code>details.experience_level</code>, never from an actual department, so on the ~1,028 Amazon and TikTok jobs where that field is set it rendered "Senior" / "Mid" / "Principal" directly beside the Level chip already saying the same thing. Removed from <code>JobChipsSection</code> and its call site; type-check clean, full frontend suite green (157 files, 1,891 tests).</p>
+    <p><b>Scope I deliberately did not expand into.</b> <code>Job.department</code> itself is untouched, because it still feeds the companies-page department filter and the client-side free-text search. Both inherit the same mis-mapping — so that filter is currently offering "Senior"/"Mid"/"Intern" as though they were departments. That is a real second instance of this bug, but fixing it means either remapping to <code>details.department</code> (which only Greenhouse populates) or dropping the filter for every backend-scraped company, which is a product decision you did not ask for. <b>Flagged, not fixed.</b></p>
+    <p><b>The enricher currently <i>cannot</i> see company tags</b>, so the second half of your request needs a real change. <code>internal_enrichment.py</code>'s <code>_JOB_PROJECTION</code> narrows <code>details</code> to <code>department</code> and <code>experience_level</code> only. Adding <code>'tags', COALESCE(details-&gt;'tags','[]'::jsonb)</code> exposes them to the classifier as a weak hint — cheap, since that path already detoasts <code>details</code>. Worth doing, but treat the values as dirty signal, never ground truth.</p>
+    <p><b>One small leak to close while we're here:</b> <code>get_job_by_id</code> does <code>SELECT job_listings.*</code>, so the single-job route does put the raw <code>details</code> blob — company tags included — on the wire. Nothing renders it, so it's defense-in-depth rather than a bug.</p>
+  </div>
+
+  <h3>Admin dashboard — bigger than it looked, and it's on the critical path</h3>
+  <p class="lede">Your note: <span class="quote">"Yes, we need to update the admin dashboard as well. Good call out."</span> You were right to flag it, and it turns out to matter more than cosmetics: the correction flow is the <b>only</b> path that produces human labels, and human labels are the only thing that can lift the eval gate above its <code>min_n=50</code> floor. The admin UI is the input to the whole eval story in <a href="#evals">§06</a>.</p>
+
+  <div class="tw">
+    <table>
+      <thead><tr><th>Surface</th><th>What has to change</th></tr></thead>
+      <tbody>
+        <tr><td><b>Correction dialog + API</b><br><span class="tag">JVN admin</span></td><td>An <b>ordered, max-2 multi-select</b> — which doesn't exist yet; today's <code>FacetSelect</code> is single-select. It must render only when category is <code>software_engineering</code>, and clear when the operator switches away.</td></tr>
+        <tr><td><b>Triage queue sorting</b><br><span class="tag">the important one</span></td><td>Ordering is hardcoded <code>ORDER BY je.enriched_at DESC</code> with <b>no sort by confidence at all</b>. So bad labels are literally unfindable — an operator can only page newest-first. Needs a sort whitelist including subcategory confidence, or the facet is unauditable and the golden set never grows.</td></tr>
+        <tr><td><b>Coverage tiles</b></td><td>No per-facet coverage exists anywhere. Needs <code>swe_open_total</code> / <code>swe_subcategorized</code> so backfill progress is visible from JVN at all.</td></tr>
+        <tr><td><b>Enricher dashboard</b><br><span class="tag">job-enricher</span></td><td>Health blob gains a <code>subcategory_coverage</code> key (surfaces in both <code>cli health</code> and the dashboard from one edit); Jobs panel gains a "SWE without subcategories" filter; Knobs panel should render the live subcategory list.</td></tr>
+        <tr><td><b>Chips + labels</b></td><td><code>FACET_LABELS</code> is built only from the category and level fallbacks, so <b>every subcategory chip renders its raw slug</b> (<code>ai_engineering</code>) until subcategories are added there.</td></tr>
+        <tr><td><b>Scorecard panel</b></td><td>Four hardcoded tiles. A subcategory metric would exist and be invisible.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<hr class="rule">
+
+<!-- ============ DECISIONS ============ -->
+<section id="decisions">
+  <h2><span class="num">10</span> Decisions for you</h2>
+  <p class="lede">Every one has a recommended default. You can accept them all with the button at the bottom, or answer individually — each "Queue answer" adds one line to the feedback sent back to me.</p>
+
+  <div class="dq">
+    <h4>1. The backfill capacity plan <span class="dsp confirmed">Decided — Claude Code + rule pre-passes</span></h4>
+    <p class="why"><b>Your Claude-engine idea replaced my plan.</b> Running the backfill through <code>ClaudeCodeEngine</code> (an existing engine, on your subscription, off the local GPU) means zero contention with the live worker — the backfill becomes an evening rather than a multi-week schedule negotiation, and no classifications are deferred at all. The remaining question is just how much rule-based pre-work to keep. <a href="#capacity">Details and the three caveats in §05.</a></p>
+    <form data-lavish-question="capacity" onsubmit="return q(event,'capacity','Backfill capacity plan')">
+      <label><input type="radio" name="capacity" value="Claude engine off-GPU, keeping the free title/tag pre-passes, title+tags-only prompt to respect the injection boundary" checked><span><span class="opt-b">Claude engine + keep the free pre-passes</span> <span class="rec">Recommended</span><span class="opt-d">Rule layers label ~67% for free (and double as the eval baseline); Claude handles the rest off-GPU. Feed title+tags only so we don't put untrusted descriptions through headless <code>claude -p</code>.</span></span></label>
+      <label><input type="radio" name="capacity" value="Claude engine for everything — skip the rule layers, send all rows through the model with full descriptions via the sandboxed fan-out"><span><span class="opt-b">Claude for everything</span><span class="opt-d">One labeling path, no rule-vs-model inconsistency, best quality on the hard rows — but it needs the sandboxed fan-out to handle untrusted descriptions safely, and burns more subscription capacity.</span></span></label>
+      <label><input type="radio" name="capacity" value="Stay on the local GPU with the four-layer overnight-window plan"><span><span class="opt-b">Stay local (original plan)</span><span class="opt-d">No new engine surface and no injection-boundary question, at the cost of ~1,100 deferred classifications across about a week.</span></span></label>
+      <button type="submit">Queue answer</button><span class="status"></span>
+    </form>
+  </div>
+
+  <div class="dq">
+    <h4>2. Ship the 15 subcategories as proposed? <span class="dsp confirmed">Decided — ship 15</span></h4>
+    <p class="why">Networking is the only serious 14th candidate — 2.1% of titles, 5.2% tag coverage, and LinkedIn carries it. Against: it fragments Infrastructure &amp; Platform and creates a hard three-way boundary.</p>
+    <form data-lavish-question="taxonomy" onsubmit="return q(event,'taxonomy','Taxonomy size')">
+      <label><input type="radio" name="taxonomy" value="Ship the 15 as proposed (including the AI/ML split and Quantitative & Trading Systems)" checked><span><span class="opt-b">Ship 15 as proposed</span> <span class="rec">Recommended</span><span class="opt-d">Revisit Networking at v7.1 only if Infrastructure &amp; Platform measures above 25% on the first 500 labelled rows — at which point it's the cleanest thing to carve out.</span></span></label>
+      <label><input type="radio" name="taxonomy" value="Add Networking as a 16th subcategory"><span><span class="opt-b">Add Networking (16)</span><span class="opt-d">Pre-empts the Infrastructure catch-all risk at the cost of a harder boundary.</span></span></label>
+      <label><input type="radio" name="taxonomy" value="I want changes to the list — see my annotations on the taxonomy table"><span><span class="opt-b">I want changes</span><span class="opt-d">Annotate the table in section 03 and I'll rework it.</span></span></label>
+      <button type="submit">Queue answer</button><span class="status"></span>
+    </form>
+  </div>
+
+  <div class="dq">
+    <h4>3. When does the checkbox UI go live? <span class="dsp confirmed">Decided — flag, flip at 90%</span></h4>
+    <p class="why">A subcategory filter hides rows with no label, so on day one that's 100% of the corpus. You proposed <span class="quote">"feature flag the front end for now and let the backfill run for like a week"</span> — that's exactly right, and with the Claude engine the window shrinks from a week to roughly overnight.</p>
+    <p class="why"><b>You asked: is the 90% enforced, manual, or read from the database?</b> Fair question — "90%" is hand-waving unless something computes it. Concretely: <b>the number is computed, displayed, and the flip is manual.</b> The admin work in <a href="#newscope">§09</a> already adds two counters to the health snapshot — <code>swe_open_total</code> and <code>swe_subcategorized</code>, both plain SQL over <code>enrichment_category='software_engineering' AND status='OPEN'</code> — so the admin page shows a real "N of M labelled (X%)" tile you can watch drain. When it crosses, you (or I) flip the flag.</p>
+    <p class="why">I deliberately did <b>not</b> make it auto-reveal on a computed threshold. Two reasons: a filter that switches itself on mid-session is surprising, and a threshold that hovers near the line would flap the UI on and off as jobs arrive and close. A number you can see plus a switch you throw is more predictable than magic, and it costs nothing extra since the counters are being built anyway.</p>
+    <p class="why"><b>You asked: can the switch live in the admin dashboard and persist, rather than being an environment variable — then get deleted once it's permanently on?</b> Yes, and it's the better design. I'd assumed an env var; that's the worst of the options because flipping it needs a Vercel redeploy, which makes an instant decision into a deploy event. Worth knowing first: <b>JVN has no feature-flag mechanism today</b> — <code>Feature</code>/<code>FeatureUpvote</code> are the user-facing feature-<i>voting</i> tables, not flags. So this is a small build, and here's the shape I'd propose:</p>
+    <ul class="tight">
+      <li><b>One key/value <code>app_settings</code> row</b> plus a GET/PUT on the admin router and a single toggle in the admin page — deliberately mirroring the enricher's existing knobs pattern (<code>_KNOB_SETTERS</code>), which you already use, rather than inventing a second idiom.</li>
+      <li><b>It sits next to the coverage tile</b> from §09, so the number you're watching and the switch you throw are in the same place. That's the whole ergonomic win over an env var.</li>
+      <li><b>Delete it in a follow-up PR</b> once it's permanently on — exactly as you said. I'd put the removal in the plan as a named step rather than an intention, because flags that were "temporary" are how flag debt happens. One boolean, one endpoint, one switch, one deletion.</li>
+    </ul>
+    <div class="note amber" style="margin-top:12px">
+      <div class="t">The gotcha that would otherwise bite you</div>
+      <p><code>GET /api/jobs/facets</code> is <b>RTK-Query cached for an hour</b> on the client. If the flag is read through the facets response, flipping it does nothing for up to an hour on any open session — you'd flip the switch, see no change, and reasonably conclude it's broken. Two ways out: return the flag from a short-TTL endpoint instead of riding on <code>facets</code>, or invalidate the facets tag on toggle. Either is fine; picking neither is the bug.</p>
+    </div>
+    <form data-lavish-question="reveal" onsubmit="return q(event,'reveal','UI reveal timing')">
+      <label><input type="radio" name="reveal" value="Feature-flag the frontend; reveal when subcategory coverage reaches 90% of OPEN SWE jobs (likely overnight on the Claude engine)" checked><span><span class="opt-b">Feature flag, reveal at 90% coverage</span> <span class="rec">Recommended — your call</span><span class="opt-d">Ship the code dark, backfill, then flip. A filter returning 8% of the corpus reads as broken, not as empty.</span></span></label>
+      <label><input type="radio" name="reveal" value="Ship immediately and accept a mostly-empty filter during the backfill"><span><span class="opt-b">Ship immediately</span><span class="opt-d">Visible progress sooner; risks a bad first impression of a filter you only launch once.</span></span></label>
+      <label><input type="radio" name="reveal" value="Reveal at a lower coverage threshold, e.g. 60%"><span><span class="opt-b">Reveal at 60%</span><span class="opt-d">Middle ground — usable sooner, still visibly incomplete.</span></span></label>
+      <button type="submit">Queue answer</button><span class="status"></span>
+    </form>
+  </div>
+
+  <div class="dq">
+    <h4>4. Will you hand-label the 126 draft SWE golden rows? <span class="dsp confirmed">Decided — LLM pre-labels, you review disagreements</span></h4>
+    <p class="why">Roughly an hour. It is the difference between a real regression gate and an advisory one — right now the gate refuses to run at all (21 labels against <code>min_n=50</code>).</p>
+    <form data-lavish-question="labels" onsubmit="return q(event,'labels','Golden set labeling')">
+      <label><input type="radio" name="labels" value="Yes — I'll hand-review the 126 draft SWE rows to make the gate real" checked><span><span class="opt-b">Yes, I'll label them</span> <span class="rec">Recommended</span><span class="opt-d">Unlocks a genuine n&ge;50 gate before SKILL.md changes, plus a real subcategory gold pool.</span></span></label>
+      <label><input type="radio" name="labels" value="No — ship v7 explicitly ungated, with a manual A/B diff on a held-out sample instead"><span><span class="opt-b">No — ship ungated, honestly</span><span class="opt-d">Then say so plainly in the runbook and use a manual held-out diff. The only enforceable check becomes "beat the regex baseline".</span></span></label>
+      <label><input type="radio" name="labels" value="Have an LLM judge pre-label them and I'll only review the disagreements"><span><span class="opt-b">Pre-label, I review disagreements</span><span class="opt-d">Cheaper on your time; weaker as ground truth since the judge shares the classifier's blind spots.</span></span></label>
+      <button type="submit">Queue answer</button><span class="status"></span>
+    </form>
+  </div>
+
+  <div class="dq">
+    <h4>5. Backfill scope <span class="dsp confirmed">Decided — OPEN only</span></h4>
+    <p class="why">8,126 OPEN vs 11,119 total. CLOSED rows are invisible on the Recent page but feed the trend/graph views and the golden set.</p>
+    <form data-lavish-question="scope" onsubmit="return q(event,'scope','Backfill scope')">
+      <label><input type="radio" name="scope" value="OPEN software_engineering rows only (8,126), backfill CLOSED lazily or never" checked><span><span class="opt-b">OPEN only — 8,126 rows</span> <span class="rec">Recommended</span><span class="opt-d">27% cheaper, and 793 of the CLOSED rows have no description anyway.</span></span></label>
+      <label><input type="radio" name="scope" value="All 11,119 software_engineering rows including CLOSED"><span><span class="opt-b">All 11,119</span><span class="opt-d">Complete history for analytics and the golden set, at 27% more cost and time.</span></span></label>
+      <button type="submit">Queue answer</button><span class="status"></span>
+    </form>
+  </div>
+
+  <div class="dq">
+    <h4>6. Unlabelled jobs when a subcategory filter is active <span class="dsp confirmed">Decided — hide, matching category and level</span></h4>
+    <div class="note green" style="margin:0 0 14px">
+      <div class="t">Your call: hide silently, consistent with the existing facets</div>
+      <p>Taken. Consistency with how category and level already behave is a good reason, and it keeps one rule in the code rather than a special case for the new facet. <b>One coupling worth naming:</b> today's tooltip claims "Jobs not yet enriched still appear," which is <i>already</i> false — <code>matchesCategory</code> hides them. So "match the existing behavior" also means inheriting a copy bug. That tooltip is already on the rename checklist in <a href="#rename">§02</a>, and this decision makes fixing it non-optional rather than tidy-up: the UI shouldn't promise the opposite of what it does. No excluded-count in the filter UI, per your call.</p>
+    </div>
+    <p class="why" style="font-size:12.5px"><i>The elaboration you asked for, kept below for the record.</i></p>
+    <p class="why"><b>The situation.</b> Every software-engineering job gets 0&ndash;2 subcategories. Most get at least one, but some come back empty — <code>[]</code> — because neither the title nor the description says what kind of engineering it is. A bare "Software Engineer" at a company whose posting is all mission-and-culture boilerplate genuinely has no specialty signal, and guessing would be worse than admitting it. After backfill I project <b>roughly 747 OPEN software-engineering jobs (~9%)</b> in that state.</p>
+    <p class="why"><b>The question</b> is what those 747 do when someone ticks "Backend".</p>
+    <div class="tw" style="margin:14px 0">
+      <table>
+        <thead><tr><th>If you check "Backend"…</th><th>Hide unlabelled <span class="tag">recommended</span></th><th>Show unlabelled</th></tr></thead>
+        <tbody>
+          <tr><td>What comes back</td><td>~2,000 jobs actually labelled Backend (plus Full Stack, via the OR expansion)</td><td>Those same ~2,000 <b>plus all 747 unlabelled</b> — about 27% of results are "we don't know what this is"</td></tr>
+          <tr><td>Check "Mobile" instead</td><td>~270 mobile jobs</td><td>~270 mobile jobs <b>plus the same 747</b> — they'd now be 73% of the page</td></tr>
+          <tr><td>What the filter means</td><td>"Jobs we're confident are Backend"</td><td>"Jobs that are Backend, plus everything we couldn't read"</td></tr>
+          <tr><td>The cost you pay</td><td>A Backend job we failed to label is invisible to someone filtering Backend</td><td>Every one of the 15 checkboxes returns the same 747 rows, so the filter stops narrowing — which is the entire point of a filter</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="why"><b>Why I recommend hiding.</b> The 747 aren't a random sample — they're the same 747 every time. Showing them means the smaller buckets get swamped: on Mobile they'd outnumber the real results three to one. That doesn't make the filter more complete, it makes it useless in exactly the cases where narrowing matters most. <b>And nothing is ever actually lost:</b> ticking Software Engineering with no children checked still returns all 11,139 rows, unlabelled included — so a browsing seeker sees everything, and only someone who explicitly asked to narrow gets the narrowed set.</p>
+    <p class="why"><b>The mitigation that makes hiding honest</b> is a visible count in the filter UI — "747 software-engineering jobs aren't sub-classified yet and are excluded" — so it's never a silent hide. That's the difference between my recommendation and today's behavior, where <code>matchesCategory</code> already hides unenriched rows while the tooltip claims they "still appear".</p>
+    <form data-lavish-question="unlabelled" onsubmit="return q(event,'unlabelled','Unlabelled-row policy')">
+      <label><input type="radio" name="unlabelled" value="Hide unlabelled rows when a subcategory box is checked, and show an honest excluded-count in the UI" checked><span><span class="opt-b">Hide, but say so</span> <span class="rec">Recommended</span><span class="opt-d">Checking a box means "only jobs we're confident about" — otherwise Backend quietly becomes "Backend plus everything we couldn't read". The unfiltered view still shows all 11,119. Add a visible "N not yet sub-classified" count so it isn't a silent hide.</span></span></label>
+      <label><input type="radio" name="unlabelled" value="Show unlabelled rows alongside matches so nothing disappears"><span><span class="opt-b">Show them</span><span class="opt-d">Nothing vanishes, but every filter is diluted by up to a fifth of the corpus.</span></span></label>
+      <label><input type="radio" name="unlabelled" value="Hide silently, matching how category and level already behave"><span><span class="opt-b">Hide silently</span><span class="opt-d">Consistent with today's behavior — and today's behavior is what the tooltip already lies about.</span></span></label>
+      <button type="submit">Queue answer</button><span class="status"></span>
+    </form>
+  </div>
+
+  <div class="dq">
+    <h4>7. Do saved filters remember a subcategory? <span class="dsp confirmed">Decided — add the column</span></h4>
+    <p class="why"><code>user_saved_filters</code> has only <code>category</code> and <code>level</code>, and the request model is <code>extra='forbid'</code>. Without a column, a selection in the defaults panel either drops silently or 422s.</p>
+    <form data-lavish-question="saved" onsubmit="return q(event,'saved','Saved filters')">
+      <label><input type="radio" name="saved" value="Add a subcategory JSONB column to user_saved_filters so it persists like category and level" checked><span><span class="opt-b">Add the column</span> <span class="rec">Recommended</span><span class="opt-d">A fourth migration nobody scoped, but a filter that forgets while its siblings remember reads as a bug.</span></span></label>
+      <label><input type="radio" name="saved" value="Keep subcategory session-only and drop the tree from the saved-defaults panel"><span><span class="opt-b">Session-only</span><span class="opt-d">Less work; the defaults panel keeps the flat category control and only gets the rename.</span></span></label>
+      <button type="submit">Queue answer</button><span class="status"></span>
+    </form>
+  </div>
+
+  <div class="dq">
+    <h4>8. Smaller calls <span class="dsp confirmed">Decided — all seven accepted</span></h4>
+    <p class="why">Each has a clear default and none blocks the others. (Full Stack expansion moved out of this list — you already confirmed it.)</p>
+    <ul class="tight" style="font-size:13.5px">
+      <li><b>Subcategory chip replaces the "Software Engineering" chip</b> on job cards — net zero new chips, and it makes every label auditable while you browse.</li>
+      <li><b>The tree lands on the Companies page too</b> — the rename is lockstep across three sites anyway.</li>
+      <li><b>Top-level categories keep their server <code>sort_order</code></b>; only the children are alphabetized.</li>
+      <li><b>Ship <code>subcategory_source</code> from day one</b> (<code>classify</code>|<code>backfill</code>|<code>judge</code>) — it's the only thing that makes a rollback scoped instead of nuclear.</li>
+      <li><b>Separate <code>subcategory_confidence</code></b> rather than folding it into the existing confidence — protects the 0.85 judge routing and the committed calibration baseline.</li>
+      <li><b>Cap of 2 stays a code constant</b>, truncate-with-warning rather than reject.</li>
+      <li><b>Clean up the orphan <code>project_manager</code></b> dimension row while we're in there — it's live drift used by zero listings.</li>
+    </ul>
+    <form data-lavish-question="smaller" onsubmit="return q(event,'smaller','Smaller calls')">
+      <label><input type="radio" name="smaller" value="Accept all seven smaller defaults as listed" checked><span><span class="opt-b">Accept all seven</span> <span class="rec">Recommended</span></span></label>
+      <label><input type="radio" name="smaller" value="Mostly yes, but see my annotations on specific items"><span><span class="opt-b">Mostly — see my annotations</span></span></label>
+      <button type="submit">Queue answer</button><span class="status"></span>
+    </form>
+  </div>
+
+  <div class="bulk">
+    <h4 style="margin-top:0">Happy with everything?</h4>
+    <p style="font-size:13.5px;color:var(--g600);margin:0 0 14px">Queues every recommended default in one go — including the deterministic pre-pass for capacity — and I'll start on phase 0.</p>
+    <button type="button" data-lavish-action onclick="acceptAll()">Accept all recommended defaults</button>
+    <span class="status" id="bulkstatus"></span>
+  </div>
+</section>
+
+<footer class="end">
+  <p style="margin:0">Worktrees ready on <code>feat/swe-subcategories</code> in both repos. No code written yet — this plan is the deliverable.<br>
+  Prod figures queried 2026-08-19/20 from JVN Postgres and the live enricher SQLite at <code>/Users/bpotter/developer/personal/app/data/enricher.db</code>. Every blocker independently re-verified.</p>
+</footer>
+
+</div>
+
+<script>
+  function send(text, tag, key, el){
+    if (window.lavish && window.lavish.queuePrompt) {
+      window.lavish.queuePrompt(text, { tag: tag, text: text, queueKey: key, element: el });
+      return true;
+    }
+    return false;
+  }
+  function q(ev, name, tag){
+    ev.preventDefault();
+    var form = ev.currentTarget;
+    var val = new FormData(form).get(name);
+    if (!val) return false;
+    var ok = send('Decision — ' + tag + ': ' + val, tag, name, form);
+    var s = form.querySelector('.status');
+    if (s) s.textContent = ok ? 'queued' : 'queued (offline)';
+    return false;
+  }
+  function acceptAll(){
+    var lines = [];
+    document.querySelectorAll('form[data-lavish-question]').forEach(function(f){
+      var c = f.querySelector('input[type=radio]:checked');
+      if (c) lines.push('• ' + (f.getAttribute('data-lavish-question')) + ': ' + c.value);
+      var s = f.querySelector('.status'); if (s) s.textContent = 'queued';
+    });
+    var ok = send('Accepting all recommended defaults for the SWE subcategories plan:\n' + lines.join('\n') + '\n\nProceed with phase 0 (diagnose the 282-row poison cohort, measure real seconds/row, resolve the alembic fork).', 'accept-all', 'accept-all', document.getElementById('bulkstatus'));
+    document.getElementById('bulkstatus').textContent = ok ? 'all queued — press Send to Agent' : 'queued (offline)';
+  }
+</script>
+</body>
+</html>
