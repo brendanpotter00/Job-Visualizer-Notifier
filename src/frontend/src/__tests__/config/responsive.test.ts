@@ -61,6 +61,7 @@ const SM_DESKTOP: Record<string, number | string> = {
   'landingProto.stepsGridSpacing': 6,
   'landingProto.matrixCellPaddingY': 5,
   'landingProto.matrixCellPaddingRight': 6,
+  'landingProto.matrixTierLabelFontSize': '0.8125rem',
   'landingProto.faqRowPaddingY': 1.75,
   'landingProto.categoryCardPadding': 3,
   'landingProto.categoryGridGap': 3,

@@ -101,16 +101,52 @@ describe('landing prototype content config', () => {
     }
   });
 
+  // The grayed tier is the ONE place unshipped work may appear (owner decision
+  // 2026-08-20, docs/marketing/business-context.md). It is held to the live
+  // cells' terseness because it renders in the same grid, and to a hard count
+  // of three so the exception cannot quietly grow into a roadmap page.
+  it('coming-soon tier is exactly three terse, traceable cells, disjoint from the live set', () => {
+    const { comingSoonLabel, comingSoon, features } = LANDING_CONTENT.featureMatrix;
+    expect(comingSoonLabel.trim().length).toBeGreaterThan(0);
+    expect(comingSoon).toHaveLength(3);
+    const liveIds = new Set(features.map((f) => f.id));
+    for (const feature of comingSoon) {
+      expect(liveIds, `coming-soon id ${feature.id} collides with a live cell`).not.toContain(
+        feature.id
+      );
+      expect(
+        feature.name.trim().split(/\s+/).length,
+        `coming-soon ${feature.id} name too long`
+      ).toBeLessThanOrEqual(4);
+      expect(
+        feature.detail.trim().split(/\s+/).length,
+        `coming-soon ${feature.id} detail too long`
+      ).toBeLessThanOrEqual(8);
+      expect(
+        feature.evidence.trim().length,
+        `coming-soon ${feature.id} needs an epic breadcrumb`
+      ).toBeGreaterThan(0);
+    }
+    expect(new Set(comingSoon.map((f) => f.id)).size).toBe(comingSoon.length);
+  });
+
   // Owner-directed house style (2026-08-09): the landing voice uses periods and
   // commas, never em-dashes. This walks EVERY string in the content config (and
   // the category taxonomy it renders beside), so a new claim, FAQ answer, or
   // blurb cannot smuggle one back in. Comments are prose about the code, not
   // page copy, and are deliberately out of scope.
   it('contains no em-dashes in any user-facing string', () => {
-    const offenders = [
+    const paths = [
       ...walkStrings(LANDING_CONTENT, 'LANDING_CONTENT'),
       ...walkStrings(COMPANY_CATEGORIES, 'COMPANY_CATEGORIES'),
-    ].filter(([, text]) => text.includes('—'));
+    ];
+    // The walk is only a guarantee over the keys it actually reaches, so pin
+    // that the newest copy branch is one of them.
+    expect(
+      paths.some(([path]) => path.startsWith('LANDING_CONTENT.featureMatrix.comingSoon[')),
+      'em-dash walker never reached featureMatrix.comingSoon'
+    ).toBe(true);
+    const offenders = paths.filter(([, text]) => text.includes('—'));
     expect(offenders.map(([path]) => path)).toEqual([]);
   });
 

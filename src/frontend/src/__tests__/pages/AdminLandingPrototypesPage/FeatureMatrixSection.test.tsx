@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { ROUTES } from '../../../config/routes';
 import { LANDING_CONTENT } from '../../../pages/AdminLandingPrototypesPage/content';
@@ -21,22 +21,22 @@ describe('FeatureMatrixSection', () => {
     ).toBeInTheDocument();
   });
 
-  it('renders every feature name and detail, in content order', () => {
+  it('renders every live feature name and detail, in content order', () => {
     renderSection();
+    const live = within(screen.getByTestId('feature-matrix-live'));
     for (const feature of LANDING_CONTENT.featureMatrix.features) {
-      expect(screen.getByRole('heading', { name: feature.name, level: 3 })).toBeInTheDocument();
-      expect(screen.getByText(feature.detail)).toBeInTheDocument();
+      expect(live.getByRole('heading', { name: feature.name, level: 3 })).toBeInTheDocument();
+      expect(live.getByText(feature.detail)).toBeInTheDocument();
     }
-    const rendered = screen
-      .getAllByRole('heading', { level: 3 })
-      .map((el) => el.textContent?.trim());
+    const rendered = live.getAllByRole('heading', { level: 3 }).map((el) => el.textContent?.trim());
     expect(rendered).toEqual(LANDING_CONTENT.featureMatrix.features.map((f) => f.name));
   });
 
-  it('gives every cell a decorative monochrome icon', () => {
+  it('gives every cell in both tiers a decorative monochrome icon', () => {
     renderSection();
     const icons = document.querySelectorAll('svg[data-testid$="OutlinedIcon"]');
-    expect(icons).toHaveLength(LANDING_CONTENT.featureMatrix.features.length);
+    const { features, comingSoon } = LANDING_CONTENT.featureMatrix;
+    expect(icons).toHaveLength(features.length + comingSoon.length);
     for (const icon of icons) {
       // Decorative: the adjacent name carries the meaning, so the icon must not
       // be announced.
@@ -44,12 +44,54 @@ describe('FeatureMatrixSection', () => {
     }
   });
 
-  // The matrix ships LIVE features only — a "Soon" tier was deliberately
-  // dropped so nothing unshipped can read as present-tense (business-context).
-  it('advertises no unshipped features', () => {
+  // Unshipped work may appear ONLY inside the labeled, grayed tier (owner
+  // decision 2026-08-20, docs/marketing/business-context.md). The live cells
+  // stay a present-tense-only zone, so this asserts the boundary from both
+  // sides: nothing roadmap-flavoured above it, the full roadmap below it.
+  it('keeps every unshipped promise out of the live cells', () => {
     renderSection();
-    expect(screen.queryByText(/soon/i)).toBeNull();
-    expect(screen.queryByText(/coming soon|alerts|notification|saved jobs/i)).toBeNull();
+    const live = within(screen.getByTestId('feature-matrix-live'));
+    expect(live.queryByText(/soon|coming|notification|alert|scraper|mcp/i)).toBeNull();
+    for (const feature of LANDING_CONTENT.featureMatrix.comingSoon) {
+      expect(live.queryByText(feature.name)).toBeNull();
+      expect(live.queryByText(feature.detail)).toBeNull();
+    }
+  });
+
+  it('renders exactly the three coming-soon cells under a labeled tier', () => {
+    renderSection();
+    const tier = within(screen.getByTestId('feature-matrix-coming-soon'));
+    // The state is DISCLOSED, not merely implied by the gray.
+    expect(tier.getByText(LANDING_CONTENT.featureMatrix.comingSoonLabel)).toBeInTheDocument();
+    for (const feature of LANDING_CONTENT.featureMatrix.comingSoon) {
+      expect(tier.getByRole('heading', { name: feature.name, level: 3 })).toBeInTheDocument();
+      expect(tier.getByText(feature.detail)).toBeInTheDocument();
+    }
+    const rendered = tier.getAllByRole('heading', { level: 3 }).map((el) => el.textContent?.trim());
+    expect(rendered).toEqual(LANDING_CONTENT.featureMatrix.comingSoon.map((f) => f.name));
+  });
+
+  // Gray is the whole disclosure mechanism, so it is asserted, not eyeballed:
+  // every coming-soon name/detail resolves to a different colour than its live
+  // counterpart. Compares against the live cells rather than a hard-coded rgba
+  // so a theme palette change cannot silently un-gray the tier.
+  it('renders the coming-soon tier in a visually distinct disabled colour', () => {
+    renderSection();
+    const live = screen.getByTestId('feature-matrix-live');
+    const tier = screen.getByTestId('feature-matrix-coming-soon');
+    const colourOf = (el: Element) => window.getComputedStyle(el).color;
+
+    const liveName = within(live).getAllByRole('heading', { level: 3 })[0];
+    const tierNames = within(tier).getAllByRole('heading', { level: 3 });
+    expect(colourOf(liveName)).not.toBe('');
+    for (const name of tierNames) {
+      expect(colourOf(name)).not.toBe(colourOf(liveName));
+    }
+
+    const liveDetail = within(live).getByText(LANDING_CONTENT.featureMatrix.features[0].detail);
+    for (const feature of LANDING_CONTENT.featureMatrix.comingSoon) {
+      expect(colourOf(within(tier).getByText(feature.detail))).not.toBe(colourOf(liveDetail));
+    }
   });
 
   it('closes with the single community-vote link', () => {

@@ -62,6 +62,14 @@ market, monitored") — not as feature claims.
   be "scoped out" as teased sections later, but nothing on the landing page should
   promise them today.
 
+**Owner-decision exception (2026-08-20) — the labeled Coming-soon tier:** unshipped
+features MAY appear on the landing page, but ONLY inside a clearly-labeled, grayed-out
+"Coming soon" tier that is visually disabled and named as such. Outside that tier the rule
+above is unchanged: nothing unshipped may read as present-tense anywhere else on the page.
+Copy inside the tier stays future-tense or capability-neutral, and each entry carries an
+evidence breadcrumb to its epic. Live today: the feature matrix tier (MCP / AI-assistant
+access, AI notifications, track any company).
+
 ## How this constrains marketing copy
 
 1. Candidate-first framing always; the villain is noise/staleness (reposts, stale

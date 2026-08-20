@@ -41,9 +41,12 @@ export interface HowItWorksStep {
 }
 
 /**
- * A cell in the feature matrix. Every entry here is LIVE today — the matrix has
- * no roadmap/"Soon" tier by design (see FeatureMatrixSection for the rationale),
- * so there is deliberately no `status` field to accidentally ship a promise in.
+ * A cell in the feature matrix. The same shape serves both tiers, and the TIER
+ * is the array a cell lives in (`features` = live today, `comingSoon` = not
+ * built yet) rather than a per-cell `status` field: a status flag invites a
+ * third value and a cell that quietly changes tier without its copy changing
+ * tense. Coming-soon copy is written future-tense or capability-neutral, so a
+ * cell literally cannot read as shipped even if it were moved by mistake.
  */
 export interface LandingFeature {
   id: string;
@@ -101,14 +104,21 @@ export interface LandingContent {
    */
   howItWorks: { heading: string; steps: readonly HowItWorksStep[] };
   /**
-   * The live feature set as a skimmable matrix. `nextUp` is the one link out —
-   * the honest answer to "what's coming" is the community vote page, not a
-   * roadmap teaser on the landing page (business-context: nothing unshipped
-   * may read as present-tense).
+   * The feature set as a skimmable matrix, in two tiers: `features` is live
+   * today, `comingSoon` is not built yet and renders grayed out under
+   * `comingSoonLabel`. The second tier exists by owner decision (2026-08-20,
+   * recorded in docs/marketing/business-context.md), which carved a narrow
+   * exception into the "nothing unshipped on the landing page" stance: an
+   * unshipped capability may appear ONLY inside a clearly-labeled, visually
+   * disabled tier. `nextUp` still closes the section, now reading as the coda
+   * after the roadmap rather than the whole answer to "what's next".
    */
   featureMatrix: {
     heading: string;
     features: readonly LandingFeature[];
+    /** Overline above the grayed tier. Must name the state, not imply it. */
+    comingSoonLabel: string;
+    comingSoon: readonly LandingFeature[];
     nextUp: LandingCta;
   };
   /** Factual comparison beat (brief §10 P4). */
@@ -284,6 +294,27 @@ export const LANDING_CONTENT: LandingContent = {
         name: 'Free',
         detail: 'Free to browse, free to sign up.',
         evidence: 'brief §10 P1 (“added every week, free”); FAQ “Is onesecondswe free?”',
+      },
+    ],
+    comingSoonLabel: 'Coming soon',
+    comingSoon: [
+      {
+        id: 'mcp_access',
+        name: 'Bring your AI',
+        detail: 'MCP access from Claude or any assistant.',
+        evidence: 'EPIC Power-user data access (replica + MCP), wdwb1cbnce',
+      },
+      {
+        id: 'ai_notifications',
+        name: 'AI notifications',
+        detail: 'Your resume and rubric, alerts on matches.',
+        evidence: 'EPIC Notifications wdwb1cbncb + 12.1/15.9; resume-rubric per Brendan 2026-08-20',
+      },
+      {
+        id: 'track_any_company',
+        name: 'Track any company',
+        detail: 'Name a company, we will build the scraper.',
+        evidence: 'EPIC Custom company sources wdwb1cbnc2 (in flight)',
       },
     ],
     nextUp: {

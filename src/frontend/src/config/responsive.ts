@@ -307,6 +307,12 @@ export const RESPONSIVE = {
     matrixCellPaddingY: { xs: 3, sm: 5 },
     /** Feature matrix: right gutter inside each cell (the column separation). */
     matrixCellPaddingRight: { xs: 3, sm: 6 },
+    /**
+     * Feature matrix: the quiet overline that labels the grayed coming-soon
+     * tier. Deliberately the smallest type on the page — it names a state, it
+     * is not content to read, so it must not compete with the cell names.
+     */
+    matrixTierLabelFontSize: { xs: '0.75rem', sm: '0.8125rem' },
     /** FAQ: vertical padding on each accordion summary → taller, calmer rows. */
     faqRowPaddingY: { xs: 1, sm: 1.75 },
     /** Curated-category cards: interior padding. */

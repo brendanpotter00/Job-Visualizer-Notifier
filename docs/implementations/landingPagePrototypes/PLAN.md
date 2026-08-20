@@ -229,3 +229,17 @@ Jobs page could deter people; keep the tab but stop investing.
    labeling = Enrichment epic (live); watch-any-company = Epic 7 (in flight); alerts =
    Epic 12/15.9; saved jobs = S1; time-to-close proof for apply-early lands with Epic
    14.3 later. Keep off: talent-movement/VC vision, payments, fabricated social proof.
+
+### Round 4 — 2026-08-20 (post-PR #250, review continues)
+
+1. NEW: grayed-out **"Coming soon" tier in the Features matrix** (owner decision,
+   REVERSES the earlier no-unshipped-features rule for this clearly-labeled tier
+   only): three cells, honest future tense, evidence → real epics:
+   - MCP / AI-assistant access (Claude Code / Desktop / web app / any assistant;
+     headless mode) → EPIC Power-user data access (wdwb1cbnce)
+   - AI-powered notifications: upload resume, set a rubric, get notified →
+     EPIC Notifications (wdwb1cbncb) + 12.1/15.9
+   - Track any company: name one (e.g. TikTok), we find the career page, build and
+     host the scraper → EPIC Custom company sources (wdwb1cbnc2, in flight)
+2. business-context.md gains the owner-decision exception for labeled coming-soon
+   tiers on the landing page.
