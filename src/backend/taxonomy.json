@@ -1,0 +1,183 @@
+{
+  "categories": [
+    {
+      "slug": "software_engineering",
+      "label": "Software Engineering",
+      "sort_order": 0,
+      "parent_slug": null
+    },
+    {
+      "slug": "hardware_engineer",
+      "label": "Hardware Engineer",
+      "sort_order": 1,
+      "parent_slug": null
+    },
+    {
+      "slug": "product_manager",
+      "label": "Product Manager",
+      "sort_order": 2,
+      "parent_slug": null
+    },
+    {
+      "slug": "data_scientist",
+      "label": "Data Scientist",
+      "sort_order": 4,
+      "parent_slug": null
+    },
+    {
+      "slug": "growth",
+      "label": "Growth",
+      "sort_order": 5,
+      "parent_slug": null
+    },
+    {
+      "slug": "business_ops",
+      "label": "Business Ops",
+      "sort_order": 6,
+      "parent_slug": null
+    }
+  ],
+  "levels": [
+    {
+      "slug": "intern",
+      "label": "Intern",
+      "sort_order": 0,
+      "parent_slug": null
+    },
+    {
+      "slug": "new_grad",
+      "label": "New Grad",
+      "sort_order": 1,
+      "parent_slug": "entry"
+    },
+    {
+      "slug": "entry",
+      "label": "Entry",
+      "sort_order": 2,
+      "parent_slug": null
+    },
+    {
+      "slug": "mid",
+      "label": "Mid",
+      "sort_order": 3,
+      "parent_slug": null
+    },
+    {
+      "slug": "senior",
+      "label": "Senior",
+      "sort_order": 4,
+      "parent_slug": null
+    },
+    {
+      "slug": "senior_plus",
+      "label": "Staff / Principal",
+      "sort_order": 5,
+      "parent_slug": null
+    },
+    {
+      "slug": "manager",
+      "label": "Manager",
+      "sort_order": 6,
+      "parent_slug": null
+    }
+  ],
+  "subcategories": [
+    {
+      "slug": "ai_engineering",
+      "label": "AI Engineering",
+      "sort_order": 0,
+      "parent_slug": "software_engineering"
+    },
+    {
+      "slug": "backend",
+      "label": "Backend",
+      "sort_order": 1,
+      "parent_slug": "software_engineering"
+    },
+    {
+      "slug": "data_engineering",
+      "label": "Data Engineering",
+      "sort_order": 2,
+      "parent_slug": "software_engineering"
+    },
+    {
+      "slug": "devops_sre",
+      "label": "DevOps & Site Reliability",
+      "sort_order": 3,
+      "parent_slug": "software_engineering"
+    },
+    {
+      "slug": "embedded_systems",
+      "label": "Embedded & Low-Level Systems",
+      "sort_order": 4,
+      "parent_slug": "software_engineering"
+    },
+    {
+      "slug": "forward_deployed",
+      "label": "Forward Deployed",
+      "sort_order": 5,
+      "parent_slug": "software_engineering"
+    },
+    {
+      "slug": "frontend",
+      "label": "Frontend",
+      "sort_order": 6,
+      "parent_slug": "software_engineering"
+    },
+    {
+      "slug": "full_stack",
+      "label": "Full Stack",
+      "sort_order": 7,
+      "parent_slug": "software_engineering"
+    },
+    {
+      "slug": "infrastructure_platform",
+      "label": "Infrastructure & Platform",
+      "sort_order": 8,
+      "parent_slug": "software_engineering"
+    },
+    {
+      "slug": "ml_engineering",
+      "label": "Machine Learning",
+      "sort_order": 9,
+      "parent_slug": "software_engineering"
+    },
+    {
+      "slug": "mobile",
+      "label": "Mobile",
+      "sort_order": 10,
+      "parent_slug": "software_engineering"
+    },
+    {
+      "slug": "qa_testing",
+      "label": "QA & Testing",
+      "sort_order": 11,
+      "parent_slug": "software_engineering"
+    },
+    {
+      "slug": "quantitative",
+      "label": "Quantitative & Trading Systems",
+      "sort_order": 12,
+      "parent_slug": "software_engineering"
+    },
+    {
+      "slug": "robotics_autonomy",
+      "label": "Robotics & Autonomy",
+      "sort_order": 13,
+      "parent_slug": "software_engineering"
+    },
+    {
+      "slug": "security",
+      "label": "Security",
+      "sort_order": 14,
+      "parent_slug": "software_engineering"
+    }
+  ],
+  "subcategory_sources": [
+    "backfill",
+    "classify",
+    "human",
+    "judge",
+    "rule"
+  ]
+}

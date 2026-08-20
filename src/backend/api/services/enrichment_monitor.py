@@ -1079,7 +1079,27 @@ def get_facets(conn: Connection) -> dict[str, list[dict[str, Any]]]:
             "FROM job_levels ORDER BY rank"
         )
         levels = [dict(r) for r in cur.fetchall()]
-        return {"categories": categories, "levels": levels}
+        # The subcategory arm is guarded on the relation existing, because a
+        # process running ahead of the migration must render today's flat
+        # dropdown rather than 500 the catalog for every visitor.
+        #
+        # PHASE 1 RETURNS [] because the dimension ships EMPTY — seeding it IS
+        # the user-visible publish. `parent_slug` here is a GROUPING edge
+        # ('software_engineering' on every row), NOT the filter-expansion edge
+        # job_levels uses; the frontend must never feed it to the level
+        # expansion builder.
+        subcategories: list[dict[str, Any]] = []
+        if _regclass(cur, "job_subcategories"):
+            cur.execute(
+                "SELECT slug, label, sort_order, parent_slug "
+                "FROM job_subcategories ORDER BY sort_order"
+            )
+            subcategories = [dict(r) for r in cur.fetchall()]
+        return {
+            "categories": categories,
+            "levels": levels,
+            "subcategories": subcategories,
+        }
     finally:
         cur.close()
         conn.rollback()
