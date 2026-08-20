@@ -1178,6 +1178,52 @@ class AdminEnrichmentHealthResponse(BaseModel):
     error_ticks_in_window: int = Field(ge=0)
 
 
+class AdminSettingRow(BaseModel):
+    """One runtime-tunable setting. `updated_at` is NULL for a MATERIALIZED
+    default — i.e. no row exists yet, which is the normal state, not an error."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    key: str
+    # `Any` because the table is JSONB-valued and different keys hold different
+    # types. The service coerces per-key before it gets here, so a bool arrives
+    # as `true`, never as `1`.
+    value: Any = None
+    updated_at: datetime | None = None
+    updated_by: str | None = None
+
+
+class AdminSettingsResponse(BaseModel):
+    """GET /api/admin/settings — every allowlisted setting, defaults included."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    settings: list[AdminSettingRow] = Field(default_factory=list)
+
+
+class AdminSettingUpdateRequest(BaseModel):
+    """PUT /api/admin/settings/{key}. `extra='forbid'` — a typo'd key would
+    otherwise be accepted and silently change nothing."""
+
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
+
+    value: Any
+
+
+class PublicSettingsResponse(BaseModel):
+    """GET /api/jobs/settings — unauthenticated, and deliberately a NAMED field
+    per setting rather than a dict dump, so a future admin-only setting cannot
+    leak by being added to one allowlist."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    # -> `sweSubcategoriesEnabled`. Defaults to False so the reader FAILS CLOSED:
+    # hidden-when-broken beats revealing a filter that returns nothing.
+    swe_subcategories_enabled: bool = False
+
+
 class AdminSubcategoryResetRequest(BaseModel):
     """Body for POST /api/admin/enrichment/subcategories/reset.
 

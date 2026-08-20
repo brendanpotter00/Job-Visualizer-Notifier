@@ -5,7 +5,7 @@ import logging
 from urllib.parse import unquote
 
 import psycopg2
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
 from procrastinate import exceptions as procrastinate_exceptions
 from psycopg2.extensions import connection as Connection
 
@@ -49,6 +49,9 @@ from ..models import (
     AdminEnrichmentTicksResponse,
     AdminUserVisitsResponse,
     AdminUsersStatsResponse,
+    AdminSettingRow,
+    AdminSettingUpdateRequest,
+    AdminSettingsResponse,
     AdminSubcategoryResetRequest,
     AdminSubcategoryResetResponse,
     FeedbackResponse,
@@ -86,6 +89,7 @@ from ..services.enrichment_monitor import (
     request_reenrich,
     reset_subcategories,
 )
+from ..services.app_settings import SettingError, get_settings, set_setting
 from ..services.location_monitor import get_health, get_integrity
 from ..services.location_normalization import normalize_string
 from ..services.user_service import (
@@ -849,6 +853,51 @@ def admin_enrichment_confirm(
         logger.exception("Failed to confirm enrichment")
         raise HTTPException(status_code=500, detail="Failed to confirm enrichment")
     return AdminEnrichmentCorrectionResponse(**result)
+
+
+@router.get("/settings", response_model=AdminSettingsResponse)
+def admin_settings(
+    conn: Connection = Depends(get_db),
+    _admin: TokenClaims = Depends(require_admin),
+) -> AdminSettingsResponse:
+    """Every allowlisted runtime setting, with defaults MATERIALIZED.
+
+    There is no seed row, so a key with no DB row is the NORMAL state and comes
+    back with `value` = the code default and `updatedAt` = null. The UI never has
+    to render "missing"."""
+    try:
+        rows = get_settings(conn)
+    except psycopg2.Error:
+        conn.rollback()
+        logger.exception("Failed to load app settings")
+        raise HTTPException(status_code=500, detail="Failed to load settings")
+    return AdminSettingsResponse(settings=[AdminSettingRow(**r) for r in rows])
+
+
+@router.put("/settings/{key}", response_model=AdminSettingRow)
+def admin_set_setting(
+    body: AdminSettingUpdateRequest,
+    key: str = Path(pattern=r"^[a-z_]{1,64}$"),
+    conn: Connection = Depends(get_db),
+    admin: TokenClaims = Depends(require_admin),
+) -> AdminSettingRow:
+    """Upsert one allowlisted setting. 404 for an un-allowlisted key (a typo must
+    not persist happily while the setting it meant stays at its default), 400 for
+    a value the key's coercer rejects."""
+    try:
+        row = set_setting(
+            conn,
+            key=key,
+            value=body.value,
+            updated_by=admin.get("email", "unknown"),
+        )
+    except SettingError as exc:
+        raise HTTPException(status_code=404 if exc.not_found else 400, detail=str(exc))
+    except psycopg2.Error:
+        conn.rollback()
+        logger.exception("Failed to update app setting")
+        raise HTTPException(status_code=500, detail="Failed to update setting")
+    return AdminSettingRow(**row)
 
 
 @router.post(
