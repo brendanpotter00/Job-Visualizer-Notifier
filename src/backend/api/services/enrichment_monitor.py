@@ -95,6 +95,10 @@ def get_admin_health(conn: Connection, window_hours: int = 24) -> dict[str, Any]
                 "claim_ttl_minutes": settings.enrichment_claim_ttl_minutes,
                 "needs_human_open": 0,
                 "human_corrected_total": 0,
+                "swe_open_total": 0,
+                "swe_subcategorized": 0,
+                "swe_subcategory_labelled": 0,
+                "subcategory_unknown_slugs": 0,
                 "last_enriched_at": None,
                 "last_enriched_age_s": None,
                 "last_tick_uuid": None,
@@ -153,6 +157,61 @@ def get_admin_health(conn: Connection, window_hours: int = 24) -> dict[str, Any]
         )
         human_corrected_total = int(scalar(cur.fetchone(), "n") or 0)
 
+        # --- Subcategory coverage: the number the 90% reveal is read off ------
+        #
+        # THE GUARD IS LOAD-BEARING. `_schema_present` above does not cover the
+        # new relations, and the table and the columns ship in the SAME revision,
+        # so the table's presence is a sound proxy for the columns'. Without it,
+        # a process running against a pre-migration database raises
+        # `UndefinedColumn`, the router turns that into a 500 on the ENTIRE
+        # health endpoint, and the whole verdict banner goes blank — not just the
+        # new tile.
+        swe_open_total = 0
+        swe_subcategorized = 0
+        swe_subcategory_labelled = 0
+        subcategory_unknown_slugs = 0
+        if _regclass(cur, "job_subcategories"):
+            # COVERAGE COUNTS **EVALUATED** ROWS (`IS NOT NULL`), NOT non-empty
+            # ones. `'{}'` is a legitimate terminal answer — "we looked, no
+            # specialty applies" — and roughly 9% of the corpus is expected to
+            # land there. Defining coverage as non-empty asymptotes near 91% and
+            # can therefore NEVER cross the 90% reveal threshold.
+            #
+            # The denominator is OPEN + enrichment_category='software_engineering'
+            # and it MUST match the backfill's PARAM_BACKFILL_DENOMINATOR, or the
+            # tile and the backfill disagree about what 90% means. One index scan
+            # over the OPEN slice per poll (idx_job_listings_status_category).
+            cur.execute(
+                "SELECT COUNT(*) AS total, "
+                "COUNT(*) FILTER (WHERE enrichment_subcategories IS NOT NULL) "
+                "  AS evaluated, "
+                "COUNT(*) FILTER (WHERE cardinality(enrichment_subcategories) > 0) "
+                "  AS labelled "
+                "FROM job_listings "
+                "WHERE status = 'OPEN' AND enrichment_category = 'software_engineering'"
+            )
+            cov = cur.fetchone() or {}
+            swe_open_total = int(cov.get("total") or 0)
+            swe_subcategorized = int(cov.get("evaluated") or 0)
+            swe_subcategory_labelled = int(cov.get("labelled") or 0)
+
+            # The compensating control for the array having NO foreign key:
+            # persisted slugs that are absent from the dimension table. THIS
+            # MUST BE PERMANENTLY 0. Anything else means a producer is writing
+            # slugs the taxonomy does not contain, and the facet dropdown will
+            # never offer them — so those jobs are unreachable through the UI.
+            cur.execute(
+                "SELECT COUNT(*) AS n FROM ("
+                "  SELECT DISTINCT unnest(jl.enrichment_subcategories) AS slug "
+                "  FROM job_listings jl "
+                "  WHERE jl.enrichment_subcategories IS NOT NULL"
+                ") s "
+                "WHERE NOT EXISTS ("
+                "  SELECT 1 FROM job_subcategories d WHERE d.slug = s.slug"
+                ")"
+            )
+            subcategory_unknown_slugs = int(scalar(cur.fetchone(), "n") or 0)
+
         cur.execute(
             "SELECT MAX(enriched_at) AS last, "
             "EXTRACT(EPOCH FROM now() - MAX(enriched_at))::float AS age_s "
@@ -196,6 +255,10 @@ def get_admin_health(conn: Connection, window_hours: int = 24) -> dict[str, Any]
             "claim_ttl_minutes": settings.enrichment_claim_ttl_minutes,
             "needs_human_open": needs_human_open,
             "human_corrected_total": human_corrected_total,
+            "swe_open_total": swe_open_total,
+            "swe_subcategorized": swe_subcategorized,
+            "swe_subcategory_labelled": swe_subcategory_labelled,
+            "subcategory_unknown_slugs": subcategory_unknown_slugs,
             "last_enriched_at": last_row["last"],
             "last_enriched_age_s": last_row["age_s"],
             "last_tick_uuid": last_tick["tick_uuid"] if last_tick else None,

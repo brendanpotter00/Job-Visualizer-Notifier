@@ -1148,6 +1148,21 @@ class AdminEnrichmentHealthResponse(BaseModel):
     # CLOSED jobs and already-corrected rows).
     needs_human_open: int = Field(ge=0)
     human_corrected_total: int = Field(ge=0)
+    # --- Subcategory coverage: the number the 90% reveal is read off ---------
+    #
+    # `swe_open_total` is OPEN + enrichment_category='software_engineering'. It
+    # MUST use the same definition as the backfill's PARAM_BACKFILL_DENOMINATOR,
+    # or the tile and the backfill disagree about what 90% means.
+    swe_open_total: int = Field(default=0, ge=0)
+    # EVALUATED rows (`enrichment_subcategories IS NOT NULL`), NOT non-empty
+    # ones — `'{}'` is a legitimate terminal answer. The non-empty definition
+    # asymptotes near 91% and can never cross the 90% threshold.
+    swe_subcategorized: int = Field(default=0, ge=0)
+    # The non-empty subset, reported separately so both numbers are visible.
+    swe_subcategory_labelled: int = Field(default=0, ge=0)
+    # Persisted slugs absent from job_subcategories — the compensating control
+    # for the array having no FK. MUST BE PERMANENTLY 0.
+    subcategory_unknown_slugs: int = Field(default=0, ge=0)
     last_enriched_at: datetime | None = None
     last_enriched_age_s: float | None = None
     # Latest pushed tick (enrichment_ticks); all None when nothing pushed yet.

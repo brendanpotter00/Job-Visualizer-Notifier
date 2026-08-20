@@ -106,6 +106,72 @@ class TestAdminEnrichmentHealth:
         assert body["lastTickUuid"] is None
         assert body["lastTickStatus"] is None
 
+    def test_subcategory_coverage_counters(self, client, db_conn):
+        """Coverage counts EVALUATED rows, and the denominator is OPEN SWE only.
+
+        `'{}'` is a legitimate terminal answer, so it counts toward coverage.
+        Defining coverage as non-empty instead asymptotes near 91% and can never
+        cross the 90% reveal threshold.
+        """
+        _seed_flagged_job(db_conn, job_id="c-lab", category="software_engineering",
+                          subcategories=["backend"])
+        _seed_flagged_job(db_conn, job_id="c-empty", category="software_engineering",
+                          subcategories=[])
+        _seed_flagged_job(db_conn, job_id="c-null1", category="software_engineering")
+        _seed_flagged_job(db_conn, job_id="c-null2", category="software_engineering")
+        # Not SWE -> outside the denominator even though it carries an array.
+        _seed_flagged_job(db_conn, job_id="c-ds", category="data_scientist",
+                          subcategories=["backend"])
+        # CLOSED -> outside the denominator.
+        _seed_flagged_job(db_conn, job_id="c-closed", status="CLOSED",
+                          category="software_engineering", subcategories=["backend"])
+
+        body = client.get("/api/admin/enrichment/health").json()
+        assert body["sweOpenTotal"] == 4
+        assert body["sweSubcategorized"] == 2       # {backend} + '{}'
+        assert body["sweSubcategoryLabelled"] == 1  # only {backend}
+
+    def test_unknown_slug_counter_is_zero_when_the_dimension_is_empty(
+        self, client, db_conn
+    ):
+        """Phase 1 ships job_subcategories EMPTY, so every persisted slug is
+        'unknown' by definition — which is exactly what the counter reports, and
+        exactly why it must be read against a SEEDED dimension. The counter's
+        contract is 'permanently 0 once seeded'."""
+        body = client.get("/api/admin/enrichment/health").json()
+        assert body["subcategoryUnknownSlugs"] == 0
+
+        _seed_flagged_job(db_conn, job_id="c-bad", category="software_engineering",
+                          subcategories=["not_a_real_slug"])
+        body = client.get("/api/admin/enrichment/health").json()
+        assert body["subcategoryUnknownSlugs"] == 1
+
+    def test_health_still_200s_when_the_dimension_table_is_absent(
+        self, client, db_conn
+    ):
+        """THE GUARD IS LOAD-BEARING: without it a pre-migration process raises
+        UndefinedColumn and the router 500s the ENTIRE endpoint — blanking the
+        verdict banner, not just the new tile."""
+        cur = db_conn.cursor()
+        cur.execute("DROP TABLE IF EXISTS job_subcategories")
+        db_conn.commit()
+        try:
+            resp = client.get("/api/admin/enrichment/health")
+            assert resp.status_code == 200, resp.text
+            body = resp.json()
+            assert body["sweOpenTotal"] == 0
+            assert body["sweSubcategorized"] == 0
+            assert body["subcategoryUnknownSlugs"] == 0
+        finally:
+            cur.execute(
+                "CREATE TABLE IF NOT EXISTS job_subcategories ("
+                "  slug TEXT PRIMARY KEY,"
+                "  label TEXT NOT NULL,"
+                "  parent_slug TEXT NOT NULL REFERENCES job_categories(slug),"
+                "  sort_order INTEGER NOT NULL DEFAULT 0)"
+            )
+            db_conn.commit()
+
 
 class TestAdminEnrichmentNeedsHuman:
     def test_queue_pagination_and_shape(self, client, db_conn):
