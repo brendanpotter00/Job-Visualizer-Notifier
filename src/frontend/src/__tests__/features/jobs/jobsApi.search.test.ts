@@ -45,6 +45,13 @@ async function flush() {
 interface MockResponse {
   status?: number;
   body?: unknown;
+  /**
+   * Raw body text, for the cases where the payload is NOT valid JSON — a proxy's
+   * HTML 502 page, a WAF's plain-text 400. `queryFn` reads an error body with
+   * `response.text()` (once, for both the reader's message and the log), so a
+   * non-JSON error body is expressible here and nowhere else.
+   */
+  text?: string;
 }
 
 type Responder = (params: URLSearchParams, url: string) => MockResponse;
@@ -61,13 +68,16 @@ function makeFetchMock(respond: Responder) {
       throw new Error(`unexpected fetch URL in jobsApi.search test: ${url}`);
     }
     const params = new URLSearchParams(url.slice(url.indexOf('?') + 1));
-    const { status = 200, body = { jobs: [], nextCursor: null } } = respond(params, url);
+    const { status = 200, body = { jobs: [], nextCursor: null }, text } = respond(params, url);
     return Promise.resolve({
       ok: status >= 200 && status < 300,
       status,
       statusText: 'OK',
       headers: new Headers(),
       json: async () => body,
+      // A real `Response` serves both, off ONE stream. Modelling `text()` matters
+      // because the error path reads the body that way.
+      text: async () => text ?? JSON.stringify(body),
     });
   });
 }
@@ -490,19 +500,57 @@ describe('searchJobs response validation', () => {
     walk.unsubscribe();
   });
 
-  it('stays silent when the request is merely aborted', async () => {
+  it('stays silent when the request was REALLY aborted', async () => {
     // RTK Query aborts this signal on every unsubscribe and refetch — which the
     // Recent page does on every filter change — so an abort logged as an error
-    // would bury the real failures in noise.
+    // would bury the real failures in noise. The abort is driven through RTK's
+    // own `abort()` rather than by throwing an AbortError-shaped object, because
+    // `signal.aborted` — not the error's name — is what the silence keys on.
     const logged = vi.spyOn(logger, 'error').mockImplementation(() => {});
-    const abort = new Error('The operation was aborted.');
-    abort.name = 'AbortError';
-    fetchMock.mockRejectedValue(abort);
+    fetchMock.mockImplementation(
+      (_input: unknown, init?: { signal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            const abort = new Error('The operation was aborted.');
+            abort.name = 'AbortError';
+            reject(abort);
+          });
+        }) as Promise<never>
+    );
     const store = makeStore();
     const walk = startWalk(store, makeArgs());
+    await flush();
+    // Precondition: the request genuinely went out and is genuinely in flight,
+    // so the silence below is about an abort and not about a no-op.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    walk.abort();
     await walk;
 
     expect(logged).not.toHaveBeenCalled();
+
+    logged.mockRestore();
+    walk.unsubscribe();
+  });
+
+  it('LOGS an AbortError that no abort actually caused', async () => {
+    // `error.name === 'AbortError'` is a CLAIM: any browser extension, polyfill
+    // or fetch interceptor can raise one, and RTK's signal is untouched when they
+    // do. That is a real failure — the reader is looking at the generic error
+    // line — so silencing it on the name alone left the one class of failure with
+    // no reader-facing reason AND no log. The silence keys on `signal.aborted`,
+    // the fact, which is false here.
+    const logged = vi.spyOn(logger, 'error').mockImplementation(() => {});
+    const impostor = new Error('The operation was aborted.');
+    impostor.name = 'AbortError';
+    fetchMock.mockRejectedValue(impostor);
+    const store = makeStore();
+    const walk = startWalk(store, makeArgs());
+    const result = await walk;
+
+    expect((result.error as { data?: unknown }).data).toBe(ERROR_MESSAGES.LOAD_JOBS_FAILED);
+    expect(logged).toHaveBeenCalledTimes(1);
+    expect(String(logged.mock.calls[0][1])).toContain('The operation was aborted.');
 
     logged.mockRestore();
     walk.unsubscribe();
@@ -513,6 +561,7 @@ describe('searchJobs response validation', () => {
     // calls an endpoint the old backend does not serve. useRecentJobsSearch keeps
     // retrying on exactly this status, so collapsing it to CUSTOM_ERROR would turn
     // a self-healing gap into a hard error page.
+    const logged = vi.spyOn(logger, 'error').mockImplementation(() => {});
     respond = () => ({ status: 404, body: { detail: 'Not Found' } });
     const store = makeStore();
     const walk = startWalk(store, makeArgs());
@@ -521,7 +570,101 @@ describe('searchJobs response validation', () => {
     expect(result.data).toBeUndefined();
     expect((result.error as { status?: unknown }).status).toBe(404);
 
+    logged.mockRestore();
     walk.unsubscribe();
+  });
+});
+
+/**
+ * The non-2xx branch. Two audiences, one body read:
+ *
+ * - the READER gets `error.data`, gated by `READER_FACING_ERROR_STATUSES` so only
+ *   a 400/422 (the client-FIXABLE rejections) shows the endpoint's own words;
+ * - the LOG gets the status and the verbatim body, ungated.
+ *
+ * The gate decides what is fit to put on screen, not whether the failure
+ * happened. Before this, a 500 from a `DB_POOL_MAX` checkout timeout, a proxy
+ * 502/504 and a post-grace-window 404 all produced the generic line on screen and
+ * an EMPTY console — status and body discarded on both sides of the wire.
+ */
+describe('searchJobs non-2xx responses', () => {
+  async function expectErrorResponse(
+    mock: MockResponse,
+    expected: { readerSees: string; loggedStatus: number; loggedBodyFragment: string }
+  ) {
+    const logged = vi.spyOn(logger, 'error').mockImplementation(() => {});
+    respond = () => mock;
+    const store = makeStore();
+    const walk = startWalk(store, makeArgs());
+    const result = await walk;
+
+    expect(result.data).toBeUndefined();
+    expect((result.error as { status?: unknown }).status).toBe(expected.loggedStatus);
+    expect((result.error as { data?: unknown }).data).toBe(expected.readerSees);
+    expect(logged).toHaveBeenCalledTimes(1);
+    expect(String(logged.mock.calls[0][0])).toContain(String(expected.loggedStatus));
+    expect(String(logged.mock.calls[0][1])).toContain(expected.loggedBodyFragment);
+
+    logged.mockRestore();
+    walk.unsubscribe();
+  }
+
+  it('logs a 500 the reader is deliberately not shown', async () => {
+    // Prod runs DB_POOL_MAX=15 / DB_POOL_TIMEOUT=5s and has logged bursts of
+    // `RuntimeError: Timed out waiting for a database connection`. Those surface
+    // HERE, as 500s, and this endpoint is the Recent page's primary read path.
+    await expectErrorResponse(
+      { status: 500, body: { detail: 'Internal Server Error' } },
+      {
+        readerSees: ERROR_MESSAGES.LOAD_JOBS_FAILED,
+        loggedStatus: 500,
+        loggedBodyFragment: 'Internal Server Error',
+      }
+    );
+  });
+
+  it('logs a proxy 502 whose body is not JSON at all', async () => {
+    // The Vercel proxy and the CDN in front of it answer with HTML, which never
+    // parsed and therefore never reached anything. `text()` keeps it.
+    await expectErrorResponse(
+      { status: 502, text: '<html><body>502 Bad Gateway</body></html>' },
+      {
+        readerSees: ERROR_MESSAGES.LOAD_JOBS_FAILED,
+        loggedStatus: 502,
+        loggedBodyFragment: '502 Bad Gateway',
+      }
+    );
+  });
+
+  it('logs a 400 even though its reason DOES reach the reader', async () => {
+    // Reader-facing and loggable are independent decisions. The reason on screen
+    // is what the reader acts on; the log line is what says a rejection happened
+    // at all, which is the only way to notice a filter combination that starts
+    // 400-ing for everyone.
+    await expectErrorResponse(
+      { status: 400, body: { detail: "'include' accepts at most 20 values." } },
+      {
+        readerSees: "'include' accepts at most 20 values.",
+        loggedStatus: 400,
+        loggedBodyFragment: 'at most 20 values',
+      }
+    );
+  });
+
+  it('logs the raw body when a 400 is not JSON', async () => {
+    // The one status class whose reason is client-fixable, arriving as something
+    // FastAPI did not write — so a proxy, WAF or CDN answered instead. The reader
+    // gets the fallback (there is nothing actionable to show), but swallowing the
+    // body in a bare `catch {}` hid the fact that the request never reached the
+    // endpoint's validation at all.
+    await expectErrorResponse(
+      { status: 400, text: 'Bad Request (blocked by edge rule 42)' },
+      {
+        readerSees: ERROR_MESSAGES.LOAD_JOBS_FAILED,
+        loggedStatus: 400,
+        loggedBodyFragment: 'edge rule 42',
+      }
+    );
   });
 });
 

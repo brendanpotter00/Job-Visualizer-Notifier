@@ -170,8 +170,9 @@ describe('RecentJobPostingsPage', () => {
 
   describe('metrics', () => {
     it('feeds the hook’s counts into the total / 24h / 3h tiles', () => {
-      // `total` counts the active filter set; the two recency figures count the
-      // whole open corpus. Three distinct numbers so a mis-wire cannot pass.
+      // `total` counts the active filter set; the two recency figures count only
+      // the companies the reader follows and ignore every other filter. Three
+      // distinct numbers so a mis-wire cannot pass.
       mockSearch({ counts: { total: 42, last24h: 7, last3h: 3 } });
       renderWithProviders(<RecentJobPostingsPage />, { initialEntries: ['/'] });
 

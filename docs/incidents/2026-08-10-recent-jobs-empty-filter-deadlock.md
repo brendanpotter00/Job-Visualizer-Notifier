@@ -84,7 +84,15 @@ What that resolves from the lists above:
   The terminal empty state is gated on `!hasNextPage`, which is the server's own
   end-of-walk signal, not a client-side inference from what happens to be loaded.
 - **Lesson 4's clamp-collapse signature** cannot recur: there is no clamp. The
-  recency tiles are computed by the server over the whole visible corpus.
+  recency tiles are computed by the server, and they honour `company` and nothing
+  else — not category, level, keywords, location, `since` or status. That is the
+  scope the client-side page had (`selectEnabledByCompanyId`, applied before any
+  other filter existed), so the two figures still answer "how busy is the job
+  market I follow" rather than shrinking every time the reader types in the
+  keyword box. Widening them back to the whole visible corpus would inflate them
+  ~40x for a reader following 3 of 133 companies — see `_header_counts_where` in
+  `src/backend/api/services/job_search.py` and the contract in
+  `src/backend/CLAUDE.md`.
 - **Wholesale page-1 failure** is fixed: a failed first page renders a real error
   with a retry, never an empty-results state.
 - **Demo mode** no longer fires real pages — it short-circuits the query entirely.

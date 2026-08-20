@@ -1,4 +1,4 @@
-import { MAX_SEARCH_TAGS } from '../../constants/tags';
+import { canAddSearchTag } from '../../constants/tags';
 import type { KeywordList, SearchTag } from '../../types';
 
 /**
@@ -46,7 +46,7 @@ export function cloneDraftList(list: DraftKeywordList): DraftKeywordList {
 export function addTagToList(list: DraftKeywordList, tag: SearchTag): void {
   const text = tag.text.trim();
   if (!text) return;
-  if (list.tags.length >= MAX_SEARCH_TAGS) return;
+  if (!canAddSearchTag(list.tags)) return;
   if (!list.tags.some((t) => t.text === text)) {
     list.tags.push({ text, mode: tag.mode });
   }

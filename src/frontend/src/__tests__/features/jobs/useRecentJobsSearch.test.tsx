@@ -112,6 +112,9 @@ function makeFetchMock(
       statusText: String(status),
       headers: new Headers(),
       json: async () => body,
+      // A real `Response` serves both off one stream; the error path reads the
+      // body with `text()` so it can log the payload verbatim.
+      text: async () => (body === undefined ? '' : JSON.stringify(body)),
     } as unknown as Response;
   });
 }

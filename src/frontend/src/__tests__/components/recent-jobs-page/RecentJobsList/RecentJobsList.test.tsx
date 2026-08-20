@@ -415,7 +415,10 @@ describe('RecentJobsList', () => {
   describe('signed in', () => {
     it('renders rows through the virtualizer rather than mounting the whole list', () => {
       const jobs = createMockJobs(500);
-      const { container } = renderList({ jobs });
+      const { container } = renderList({
+        jobs,
+        counts: { total: 4137, last24h: 42, last3h: 7 },
+      });
 
       const list = container.querySelector('[role="list"]');
       // `data-client-window` is published by VirtualJobRows alone — the
@@ -423,10 +426,42 @@ describe('RecentJobsList', () => {
       expect(list).toHaveAttribute('data-client-window', '500');
       expect(mountedRowCount()).toBeGreaterThan(0);
       expect(mountedRowCount()).toBeLessThanOrEqual(60);
-      // The virtualizer is handed every row, so a11y hears the real total.
+      // a11y hears the SERVER's count of the filter set, not the 500 rows the
+      // keyset walk happens to have fetched. Passing the loaded count made a
+      // screen reader announce "item 20 of 500" a tenth of the way through a
+      // 4,137-row result set, and "item 500 of 500" at a point that is not the
+      // end of anything.
       expect(container.querySelector('[role="listitem"]')).toHaveAttribute(
         'aria-setsize',
-        '500'
+        '4137'
+      );
+    });
+
+    it('announces an unmeasured total as unknown, never as the rows in hand', () => {
+      // `counts: null` is the hook saying "page 1 has not landed" (or that an
+      // initial error nulled them — see the counts-on-error rule). -1 is ARIA's
+      // own "total unknown"; 500 would be a claim nothing measured.
+      const { container } = renderList({ jobs: createMockJobs(500), counts: null });
+
+      expect(container.querySelector('[role="listitem"]')).toHaveAttribute(
+        'aria-setsize',
+        '-1'
+      );
+    });
+
+    it('never announces fewer items than are already on screen', () => {
+      // The corpus can gain matching rows between page 1 and page N, so a stale
+      // `counts.total` can fall BELOW the rows walked. "item 51 of 30" is worse
+      // than either number alone, so the announced set size floors at the rows
+      // rendered.
+      const { container } = renderList({
+        jobs: createMockJobs(50),
+        counts: { total: 30, last24h: 1, last3h: 0 },
+      });
+
+      expect(container.querySelector('[role="listitem"]')).toHaveAttribute(
+        'aria-setsize',
+        '50'
       );
     });
 

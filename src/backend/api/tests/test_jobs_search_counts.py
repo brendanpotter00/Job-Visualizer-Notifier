@@ -381,7 +381,7 @@ def test_filtered_total_is_unchanged_by_page_size(client, db_conn, seed_taxonomy
 
 
 # ---------------------------------------------------------------------------
-# (4) The recency tiles ignore the active filters
+# (4) The recency tiles ignore every active filter except ``company``
 # ---------------------------------------------------------------------------
 
 
@@ -389,7 +389,9 @@ def _seed_recency_corpus(conn) -> None:
     """Three rows inside the 3h window, two more inside 24h, one long expired.
 
     Company and category vary so the filter cases below can narrow ``filteredTotal``
-    to different values while the tiles must not move at all.
+    to different values. On every dimension EXCEPT ``company`` the tiles must not
+    move at all; ``company`` is the one filter they DO honour, and the two tests
+    below split along exactly that line.
     """
     for n in range(3):
         _insert_job(conn, _make_job({

@@ -57,8 +57,20 @@ const noop = {
 
 function renderInput(value: SearchTag[] | undefined, handlers: Partial<typeof noop> = {}) {
   const props = { ...noop, ...handlers };
-  render(<KeywordFilterInput value={value} {...props} />);
-  return props;
+  const { rerender } = render(<KeywordFilterInput value={value} {...props} />);
+  return {
+    ...props,
+    /**
+     * Push a new `value` in from OUTSIDE, the way Redux does. The component is
+     * controlled, and the two most important `value` changes originate in
+     * siblings: Reset Filters lives in `RecentJobsFilters` and dispatches
+     * `resetRecentJobsFilters` directly, and a chip's include/exclude toggle goes
+     * through `onToggleMode`. Neither reaches this component's own handlers.
+     */
+    setValue(next: SearchTag[] | undefined) {
+      rerender(<KeywordFilterInput value={next} {...props} />);
+    },
+  };
 }
 
 async function openDropdown() {
@@ -436,6 +448,101 @@ describe('KeywordFilterInput', () => {
 
       await user.type(screen.getByRole('combobox', { name: 'Keywords' }), 'r');
 
+      expect(screen.queryByText(/needs \d+ more keyword/)).not.toBeInTheDocument();
+    });
+
+    it('charges only for the tags a PARTIALLY-overlapping list would actually add', async () => {
+      // The realistic trigger, and the one the other cases cannot reach. They
+      // pin 0% overlap (all six new, room 2) and 100% overlap (all six already
+      // chipped, room 0) — both of which stay green if `additions.length` is
+      // replaced by the raw `opt.tags.length`, or if the per-tag
+      // `seen.has(text)` dedupe is dropped. Two of the six SWE tags are already
+      // up, so the real cost is FOUR, and four fits in the four free slots.
+      // Under either mutation the cost reads six, six does not fit, and a list
+      // the reader can plainly see fits is refused.
+      const alreadyChipped = SOFTWARE_ENGINEERING_TAGS.slice(0, 2).map((tag) => ({ ...tag }));
+      const props = renderInput([...alreadyChipped, ...chips(MAX_SEARCH_TAGS - 6)]);
+
+      await pickBuiltinSweList();
+
+      // Only the four NEW tags are dispatched; the two duplicates cost nothing
+      // and are not re-added (dedupe is by text — `addSearchTagToFilters` would
+      // drop them anyway, but they must not be counted against the budget).
+      expect(props.onAdd).toHaveBeenCalledTimes(SOFTWARE_ENGINEERING_TAGS.length - 2);
+      expect(props.onAdd.mock.calls.map(([tag]) => (tag as SearchTag).text)).toEqual(
+        SOFTWARE_ENGINEERING_TAGS.slice(2).map((tag) => tag.text)
+      );
+      expect(screen.queryByText(/needs \d+ more keyword/)).not.toBeInTheDocument();
+    });
+
+    it('states the real shortfall when a partially-overlapping list still does not fit', async () => {
+      // Same partial-overlap shape, one slot short. The refusal has to quote the
+      // NET cost (4), not the list's length (6) — a reader told to free six slots
+      // for a list that needs four is being given a wrong instruction, and the
+      // number is the only thing telling them how many chips to remove.
+      const alreadyChipped = SOFTWARE_ENGINEERING_TAGS.slice(0, 2).map((tag) => ({ ...tag }));
+      const props = renderInput([...alreadyChipped, ...chips(MAX_SEARCH_TAGS - 5)]);
+
+      await pickBuiltinSweList();
+
+      expect(props.onAdd).not.toHaveBeenCalled();
+      expect(
+        screen.getByText(
+          keywordListDoesNotFitHelperText(SOFTWARE_ENGINEERING_TAGS.length - 2, 3)
+        )
+      ).toBeInTheDocument();
+    });
+
+    it('clears a standing refusal when the chips it describes go away', async () => {
+      // Reset Filters is rendered by `RecentJobsFilters`, not by this component,
+      // and dispatches `resetRecentJobsFilters` itself — no handler here runs. So
+      // "only 2 of 20 slots are free. Remove some keywords" stayed on screen above
+      // ZERO chips: false, and an instruction the reader cannot act on.
+      const props = renderInput(chips(MAX_SEARCH_TAGS - 2));
+      await pickBuiltinSweList();
+      expect(screen.getByText(/needs \d+ more keyword/)).toBeInTheDocument();
+
+      props.setValue(undefined);
+
+      expect(screen.queryByText(/needs \d+ more keyword/)).not.toBeInTheDocument();
+    });
+
+    it('clears a standing refusal when a chip merely flips include/exclude', async () => {
+      // `onToggleMode` fires from the chip's own onClick in searchTagInputShared
+      // and likewise never reaches `handleChange`. The chip count is unchanged,
+      // so the arithmetic still holds — but the sentence describes a pick the
+      // reader has since moved on from, and a stale explanation of a refusal is
+      // indistinguishable from a live one.
+      const before = chips(MAX_SEARCH_TAGS - 2);
+      const props = renderInput(before);
+      await pickBuiltinSweList();
+      expect(screen.getByText(/needs \d+ more keyword/)).toBeInTheDocument();
+
+      props.setValue([{ ...before[0], mode: 'exclude' as const }, ...before.slice(1)]);
+
+      expect(screen.queryByText(/needs \d+ more keyword/)).not.toBeInTheDocument();
+    });
+
+    it('still applies a zero-cost list when the chip set is ALREADY over the cap', async () => {
+      // The oversized regime, which no add-time guard can prevent:
+      // `hydrate{Name}Filters` `Object.assign`s a saved list's stored `tags`
+      // straight into `filters.searchTags`, and `KeywordListResponse.tags` carries
+      // no `max_length`, so a legacy over-cap row reads back whole. With a bare
+      // `MAX_SEARCH_TAGS - currentTags.length` the room is NEGATIVE, `0 > -3` is
+      // true in JS, and re-picking an already-applied list — which the function's
+      // own contract says costs nothing — is refused with "needs 0 more keywords
+      // and only 0 of 20 slots are free".
+      const oversized = [
+        ...SOFTWARE_ENGINEERING_TAGS.map((tag) => ({ ...tag })),
+        ...chips(MAX_SEARCH_TAGS - SOFTWARE_ENGINEERING_TAGS.length + 3),
+      ];
+      expect(oversized.length).toBeGreaterThan(MAX_SEARCH_TAGS);
+      const props = renderInput(oversized);
+
+      await pickBuiltinSweList();
+
+      // Nothing to add, so nothing is dispatched — and nothing is refused either.
+      expect(props.onAdd).not.toHaveBeenCalled();
       expect(screen.queryByText(/needs \d+ more keyword/)).not.toBeInTheDocument();
     });
   });

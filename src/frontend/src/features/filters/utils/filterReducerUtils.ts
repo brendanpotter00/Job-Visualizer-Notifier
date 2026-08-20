@@ -1,8 +1,9 @@
 import type { SearchTag } from '../../../types';
 import {
-  MAX_SEARCH_TAGS,
   SOFTWARE_ENGINEERING_TAGS,
+  canAddSearchTag,
   getSoftwareEngineeringTagTexts,
+  roomForSearchTags,
 } from '../../../constants/tags.ts';
 
 /**
@@ -61,7 +62,7 @@ export function addSearchTagToFilters(filters: FiltersWithSearchTags, tag: Searc
     filters.searchTags = [newTag];
   } else {
     const exists = filters.searchTags.some((t) => t.text === newTag.text);
-    if (!exists && filters.searchTags.length < MAX_SEARCH_TAGS) {
+    if (!exists && canAddSearchTag(filters.searchTags)) {
       filters.searchTags.push(newTag);
     }
   }
@@ -163,8 +164,7 @@ export function clearLocations(filters: FiltersWithLocation): void {
  * thing for a toggle to do.
  */
 function appendWithinTagBudget(currentTags: SearchTag[], newTags: SearchTag[]): SearchTag[] {
-  const room = Math.max(0, MAX_SEARCH_TAGS - currentTags.length);
-  return [...currentTags, ...newTags.slice(0, room)];
+  return [...currentTags, ...newTags.slice(0, roomForSearchTags(currentTags))];
 }
 
 /**

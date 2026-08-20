@@ -11,12 +11,18 @@ interface VirtualJobRowsProps {
   jobs: Job[];
   /**
    * Length of the list the reader is navigating, for `aria-setsize` — NOT the
-   * mounted slice, which is a rendering detail assistive tech must never hear.
-   * Today the only caller passes `jobs.length`: the server returns exactly the
-   * matching rows, so every row loaded is a row in the list. It stays a separate
-   * prop because the two diverge the moment anything is loaded but not rendered.
+   * rows loaded so far, which is a paging detail assistive tech must never hear.
+   * The two are different numbers and the difference is the whole point: the
+   * caller pages server-side, so `jobs` is "what has arrived", while this is the
+   * filtered result set the endpoint measured. Passing `jobs.length` makes a
+   * screen reader announce "item 20 of 20" in the middle of a 4,000-row walk.
+   *
+   * `null` means the total is genuinely UNKNOWN — page 1 (which carries the
+   * counts) has not landed, or its failure nulled them. That renders
+   * `aria-setsize="-1"`, which is ARIA's own spelling of "the total number of
+   * items is unknown", rather than a number nothing has measured.
    */
-  totalCount: number;
+  totalCount: number | null;
 }
 
 /**
@@ -44,7 +50,10 @@ interface VirtualJobRowsProps {
  * **A11y.** The rows carry `role="listitem"` inside a `role="list"` container
  * with `aria-setsize`/`aria-posinset`, so assistive tech announces "item N of
  * total" against the FULL list rather than against the handful of mounted
- * nodes — the count a bare virtualized `div` would otherwise report.
+ * nodes — the count a bare virtualized `div` would otherwise report. The total
+ * is the caller's to supply (`totalCount`) because this component only ever
+ * sees the rows that have arrived, which on a server-paged list is not the
+ * list.
  */
 export function VirtualJobRows({ jobs, totalCount }: VirtualJobRowsProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -155,7 +164,8 @@ export function VirtualJobRows({ jobs, totalCount }: VirtualJobRowsProps) {
             data-index={virtualRow.index}
             ref={virtualizer.measureElement}
             role="listitem"
-            aria-setsize={totalCount}
+            // -1 is ARIA's "total unknown", not a sentinel of our own.
+            aria-setsize={totalCount ?? -1}
             aria-posinset={virtualRow.index + 1}
             style={{
               position: 'absolute',

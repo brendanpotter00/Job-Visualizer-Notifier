@@ -53,6 +53,7 @@ export interface RecentJobsListProps {
 export function RecentJobsList({ search }: RecentJobsListProps) {
   const {
     jobs,
+    counts,
     isInitialLoading,
     isRefreshing,
     isFetchingNextPage,
@@ -91,6 +92,19 @@ export function RecentJobsList({ search }: RecentJobsListProps) {
   // for them, so without this guard the list would announce "All 13 jobs loaded"
   // (the fetch limit) while showing 12 cards out of thousands.
   const atTrueEnd = !isSignedOut && !hasNextPage && !isLoadingMore;
+  // What assistive tech hears as `aria-setsize`. It has to be the SERVER's count
+  // of the filter set, not `displayedJobs.length`: the page walks the result set
+  // one keyset page at a time, so the rows in hand are "how far we have got",
+  // and announcing them as the set size tells a screen-reader user they are at
+  // the end of a list they are twenty rows into. `null` is passed through as
+  // genuinely unknown (page 1 carries the counts; before it lands, or after an
+  // initial error nulls them, nothing has measured the total).
+  //
+  // Floored at the rows on screen for the one case where the two can disagree:
+  // the corpus can gain matching rows between page 1 and page N, and "item 51 of
+  // 50" is worse than either number on its own. Only the signed-IN path reaches
+  // the virtualizer, so the signed-out dozen-card cap never enters this math.
+  const announcedTotal = counts === null ? null : Math.max(counts.total, displayedJobs.length);
 
   const { sentinelRef } = useInfiniteScroll({
     hasMore,
@@ -129,7 +143,7 @@ export function RecentJobsList({ search }: RecentJobsListProps) {
               ))}
             </Box>
           ) : (
-            <VirtualJobRows jobs={displayedJobs} totalCount={displayedJobs.length} />
+            <VirtualJobRows jobs={displayedJobs} totalCount={announcedTotal} />
           )}
 
           {isLoadingMore && <LoadingSkeletons count={INFINITE_SCROLL_CONFIG.SKELETON_COUNT} />}

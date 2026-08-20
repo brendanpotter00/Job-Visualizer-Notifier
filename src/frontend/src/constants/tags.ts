@@ -10,12 +10,42 @@ import type { SearchTag } from '../types';
  * chips become the query's keyword parameters, so anything the client lets a user
  * build past this point is a 400 on their next visit to Recent Jobs.
  *
- * Enforced where tags are ADDED (`addSearchTagToFilters`, `addTagToList`) rather
- * than where the request is built: clamping at the request would silently drop
- * filters the reader can see on screen, which is the failure mode this whole
- * endpoint exists to remove.
+ * Enforced where tags are ADDED rather than where the request is built: clamping
+ * at the request would silently drop filters the reader can see on screen, which
+ * is the failure mode this whole endpoint exists to remove.
+ *
+ * Every add site asks `roomForSearchTags` / `canAddSearchTag` below rather than
+ * doing the subtraction itself. That is not tidiness: the number is compared in
+ * five places (two reducers, the list-draft editor, and the two inputs' "you are
+ * at the cap" lines), the comparisons are off-by-one-prone in different
+ * directions (`<` vs `>=` vs a subtraction), and the one site that hand-rolled a
+ * *cost* calculation shipped a live partial-apply bug. A `SearchTag[]` cannot
+ * carry the bound in its own type, so a shared reader is the only thing keeping
+ * the five in agreement.
  */
 export const MAX_SEARCH_TAGS = 20;
+
+/**
+ * How many more chips this set can take before it hits `MAX_SEARCH_TAGS`.
+ *
+ * Floored at zero, and the floor is load-bearing rather than defensive: a set
+ * can legitimately arrive OVER the cap. `hydrate{Name}Filters`
+ * (`createFilterSlice.ts`) `Object.assign`s a saved list's stored `tags` straight
+ * into `filters.searchTags`, and `KeywordListResponse.tags` carries no
+ * `max_length`, so a row written before the cap existed reads back whole and
+ * bypasses every add-time guard. Without the floor `room` goes NEGATIVE, and a
+ * caller asking "does a zero-cost operation fit" gets `0 > -5` — true — and
+ * refuses something free, with a message reading "needs 0 more keywords and only
+ * 0 of 20 slots are free".
+ */
+export function roomForSearchTags(currentTags: readonly SearchTag[]): number {
+  return Math.max(0, MAX_SEARCH_TAGS - currentTags.length);
+}
+
+/** Whether one more chip fits. The add-site spelling of `roomForSearchTags`. */
+export function canAddSearchTag(currentTags: readonly SearchTag[]): boolean {
+  return roomForSearchTags(currentTags) > 0;
+}
 
 /**
  * What the two keyword inputs say once the cap is reached.
@@ -95,34 +125,11 @@ export function isSoftwareOnlyEnabled(searchTags: SearchTag[] | undefined): bool
   );
 }
 
-/**
- * Add all software engineering tags to the provided tags array
- * Returns a new array with SE tags added (no duplicates)
- */
-export function addAllSoftwareEngineeringTags(currentTags: SearchTag[] | undefined): SearchTag[] {
-  const tags = currentTags || [];
-  const tagsToAdd = [...SOFTWARE_ENGINEERING_TAGS];
-  const existingTexts = new Set(tags.map((tag) => tag.text));
-
-  // Only add tags that don't already exist
-  const newTags = tagsToAdd.filter((tag) => !existingTexts.has(tag.text));
-
-  return [...tags, ...newTags];
-}
-
-/**
- * Remove all software engineering tags from the provided tags array
- * Returns a new array with SE tags removed (preserves other tags)
- */
-export function removeAllSoftwareEngineeringTags(
-  currentTags: SearchTag[] | undefined
-): SearchTag[] | undefined {
-  if (!currentTags || currentTags.length === 0) {
-    return undefined;
-  }
-
-  const seTagTexts = getSoftwareEngineeringTagTexts();
-  const filtered = currentTags.filter((tag) => !seTagTexts.includes(tag.text));
-
-  return filtered.length === 0 ? undefined : filtered;
-}
+// `addAllSoftwareEngineeringTags` / `removeAllSoftwareEngineeringTags` used to
+// live here. Both were referenced only by their own unit tests — no component,
+// reducer or selector ever called either — and `addAllSoftwareEngineeringTags`
+// was a `[...tags, ...newTags]` append with NO awareness of `MAX_SEARCH_TAGS`,
+// sitting three screens below the constant. Wiring it up would have built a
+// 26-keyword filter set and made every subsequent Recent Jobs request a 400. The
+// live bulk-add path is `toggleSoftwareOnlyInFilters` / `setSoftwareOnlyInFilters`
+// in `filterReducerUtils.ts`, which goes through `roomForSearchTags`.

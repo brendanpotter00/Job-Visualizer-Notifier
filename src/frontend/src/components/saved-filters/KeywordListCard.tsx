@@ -15,8 +15,8 @@ import LockIcon from '@mui/icons-material/Lock';
 import { Add as AddIcon, Remove as RemoveIcon } from '@mui/icons-material';
 import { SearchTagsInput } from '../shared/filters/SearchTagsInput.tsx';
 import {
-  MAX_SEARCH_TAGS,
   MAX_SEARCH_TAGS_REACHED_HELPER_TEXT,
+  canAddSearchTag,
 } from '../../constants/tags.ts';
 import { extractErrorMessage } from '../../lib/errors.ts';
 import type { KeywordList } from '../../types';
@@ -271,9 +271,7 @@ export function KeywordListCard({
             // Without this line the reader types a 21st keyword, presses Enter,
             // sees nothing, and assumes the input is broken.
             helperText={
-              draft.tags.length >= MAX_SEARCH_TAGS
-                ? MAX_SEARCH_TAGS_REACHED_HELPER_TEXT
-                : undefined
+              canAddSearchTag(draft.tags) ? undefined : MAX_SEARCH_TAGS_REACHED_HELPER_TEXT
             }
             onAdd={(tag) => mutateDraft((d) => addTagToList(d, tag))}
             onRemove={(text) => mutateDraft((d) => removeTagFromList(d, text))}

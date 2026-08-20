@@ -39,44 +39,62 @@ interface JobsQueryResult {
 const READER_FACING_ERROR_STATUSES: ReadonlySet<number> = new Set([400, 422]);
 
 /**
- * The reason a `/api/jobs/search` response failed, as text fit to show a reader.
+ * A failed `/api/jobs/search` response, decoded ONCE for two different audiences.
  *
- * FastAPI puts it in `detail`, and it survives the Vercel proxy intact
- * (`forwardResponse` copies status + body). A 422 from Pydantic's own validation
- * puts a LIST there instead — useful to a developer, not to a reader — so only a
- * non-empty string is taken and everything else falls back. The body is read at
- * most once and never rethrows: a proxy 502 with an HTML body must still produce
- * an error the page can render.
+ * A `Response` body is a stream and can be consumed exactly once, so the read
+ * happens here and yields both halves:
+ *
+ * - `message` is the line the reader sees, gated by
+ *   `READER_FACING_ERROR_STATUSES`. FastAPI puts the reason in `detail`, and it
+ *   survives the Vercel proxy intact (`forwardResponse` copies status + body).
+ * - `diagnostic` is the verbatim payload for the log, ungated.
+ *
+ * They differ on purpose, and the gap between them IS the point of the gate: on
+ * a 500 the reader gets the generic line while the log keeps "Internal Server
+ * Error"; on a proxy 502 the log keeps the HTML. Nothing here rethrows — an
+ * unreadable body must still produce an error the page can render.
  */
-async function readErrorDetail(response: Response): Promise<string> {
+interface SearchErrorResponse {
+  message: string;
+  diagnostic: string;
+}
+
+async function readErrorResponse(response: Response): Promise<SearchErrorResponse> {
+  let raw: string;
+  try {
+    raw = await response.text();
+  } catch (error) {
+    // The connection dropped mid-response: there is no body to decode, but the
+    // status is still worth reporting and this is still a real failure.
+    return {
+      message: ERROR_MESSAGES.LOAD_JOBS_FAILED,
+      diagnostic: `<body unreadable: ${extractErrorMessage(error, 'unknown reason')}>`,
+    };
+  }
   if (!READER_FACING_ERROR_STATUSES.has(response.status)) {
-    return ERROR_MESSAGES.LOAD_JOBS_FAILED;
+    return { message: ERROR_MESSAGES.LOAD_JOBS_FAILED, diagnostic: raw };
   }
   try {
-    const body: unknown = await response.json();
+    const body: unknown = JSON.parse(raw);
     // Wrapped as `{ data }` because that is the shape `extractErrorMessage`
     // decodes: it owns the `detail` / `message` precedence and the "a 422's LIST
     // detail is developer output, not reader output" rule, and re-implementing
     // either here is exactly the duplication rule 3 in `src/frontend/CLAUDE.md`
     // forbids. What stays local is the STATUS gate above, which is a different
     // decision entirely — see `READER_FACING_ERROR_STATUSES`.
-    return extractErrorMessage({ data: body }, ERROR_MESSAGES.LOAD_JOBS_FAILED);
+    return {
+      message: extractErrorMessage({ data: body }, ERROR_MESSAGES.LOAD_JOBS_FAILED),
+      diagnostic: raw,
+    };
   } catch {
-    // Empty or non-JSON body — nothing more specific to say than the fallback.
-    return ERROR_MESSAGES.LOAD_JOBS_FAILED;
+    // A 400/422 whose body is not JSON is the one case worth calling out: this
+    // status class is FastAPI telling the reader which filter to relax, so a
+    // non-JSON body here means something in front of FastAPI (the proxy, a WAF,
+    // a CDN error page) answered instead. The reader gets the fallback because
+    // there is nothing actionable to show them — but the raw text reaches the
+    // log, because that is a different bug from any filter they could change.
+    return { message: ERROR_MESSAGES.LOAD_JOBS_FAILED, diagnostic: raw };
   }
-}
-
-/**
- * An abort is not a failure.
- *
- * RTK Query aborts this `signal` whenever the cache entry is unsubscribed or
- * refetched — which the Recent page does on every filter change — so logging
- * these would drown the log in events that mean "the reader changed their mind".
- * The returned error is discarded by RTK for the same reason.
- */
-function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === 'AbortError';
 }
 
 export const jobsApi = createApi({
@@ -178,9 +196,21 @@ export const jobsApi = createApi({
             // screen the reader cannot know which chip to remove. Server-side and
             // deploy-race statuses fall back instead — see
             // `READER_FACING_ERROR_STATUSES`.
-            return {
-              error: { status: response.status, data: await readErrorDetail(response) },
-            };
+            //
+            // EVERY non-2xx is logged, including the ones the gate silences for
+            // the reader — especially those. The gate decides what is fit to put
+            // on screen, not whether the failure happened: a 500 from a
+            // `DB_POOL_MAX` checkout timeout, a proxy 502/504, and a 404 that
+            // outlived the deploy-race grace window all render the same generic
+            // line, so without this the console is empty and the status and body
+            // are gone. Symmetric with the catch below, which logs for exactly
+            // this reason.
+            const { message, diagnostic } = await readErrorResponse(response);
+            logger.error(
+              `[jobsApi] /api/jobs/search responded ${response.status}:`,
+              diagnostic
+            );
+            return { error: { status: response.status, data: message } };
           }
           const body = validateSearchJobsResponse(await response.json());
           return {
@@ -203,7 +233,16 @@ export const jobsApi = createApi({
           // while the actual reason went nowhere at all. So the reason is LOGGED
           // (the convention in `api/jobs.ts` and `backendScraperClient.ts`) and
           // the reader gets the same line every other unattributable failure gets.
-          if (!isAbortError(error)) {
+          //
+          // The one silence is a genuine abort, and it is keyed on `signal`, the
+          // FACT, rather than on `error.name === 'AbortError'`, a CLAIM any
+          // browser extension, polyfill or fetch interceptor can make. RTK aborts
+          // this signal on every unsubscribe and refetch — i.e. every filter
+          // change — so logging those would bury the real failures. But an
+          // AbortError raised while `signal.aborted` is false is NOT that: the
+          // reader is looking at the generic error line and something really did
+          // fail, so it belongs in the log like any other throw.
+          if (!signal.aborted) {
             logger.error('[jobsApi] /api/jobs/search request failed:', error);
           }
           return {

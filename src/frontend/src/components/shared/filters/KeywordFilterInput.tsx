@@ -6,10 +6,11 @@ import LoginIcon from '@mui/icons-material/Login';
 import { useGetKeywordListsQuery } from '../../../features/savedFilters/savedFiltersApi';
 import { useAuth } from '../../../features/auth/useAuth';
 import {
-  MAX_SEARCH_TAGS,
   MAX_SEARCH_TAGS_REACHED_HELPER_TEXT,
   SOFTWARE_ENGINEERING_TAGS,
+  canAddSearchTag,
   keywordListDoesNotFitHelperText,
+  roomForSearchTags,
 } from '../../../constants/tags';
 import { extractErrorMessage } from '../../../lib/errors.ts';
 import {
@@ -58,6 +59,22 @@ export interface KeywordFilterInputProps {
 function tagsEqual(a: SearchTag[], b: SearchTag[]): boolean {
   if (a.length !== b.length) return false;
   return a.every((ta) => b.some((tb) => tb.text === ta.text && tb.mode === ta.mode));
+}
+
+/**
+ * The chip set a refusal was measured against, as text + mode in order.
+ *
+ * A `listRejection` is a sentence about a specific set of chips ("only 2 of 20
+ * slots are free"). The moment that set changes the sentence is about a state
+ * that no longer exists, and the most visible way it changes is from OUTSIDE
+ * this component: `RecentJobsFilters.tsx` renders Reset Filters and dispatches
+ * `resetRecentJobsFilters` itself, so `value` empties without any handler here
+ * running — leaving "remove some keywords" on screen above zero chips. Mode is
+ * in the signature too, because clicking a chip to flip include/exclude goes
+ * through `onToggleMode` and likewise never reaches `handleChange`.
+ */
+function tagSetSignature(tags: SearchTag[]): string {
+  return tags.map((tag) => `${tag.mode}:${tag.text}`).join('\u0000');
 }
 
 /** Sort user lists by `position`, with the read-only built-in list forced last. */
@@ -116,9 +133,14 @@ export function KeywordFilterInput({
   // keyword-lists fetch and a failed sign-in redirect — surface inline through
   // the TextField error/helperText channel (mirrors AsyncMultiSelectAutocomplete).
   const [loginError, setLoginError] = useState<string | null>(null);
-  // Set only when a picked list is refused for not fitting the budget. Cleared by
-  // the next interaction of any kind, so it never outlives the pick it explains.
-  const [listRejection, setListRejection] = useState<string | null>(null);
+  // Set only when a picked list is refused for not fitting the budget, and
+  // stamped with the chip set it was measured against so it cannot outlive it
+  // (see `tagSetSignature`). `handleChange` / `onInputChange` still clear it
+  // eagerly for the interactions that do not change `value` at all.
+  const [listRejection, setListRejection] = useState<{
+    message: string;
+    tagSignature: string;
+  } | null>(null);
   const listsErrorMessage = isListsError
     ? extractErrorMessage(listsError, 'Failed to load keyword lists')
     : null;
@@ -129,8 +151,17 @@ export function KeywordFilterInput({
   // `addSearchTagToFilters` silently REFUSES the add past this point (it is the
   // search endpoint's combined include+exclude budget — see MAX_SEARCH_TAGS). A
   // refusal with nothing on screen is indistinguishable from a broken input, so
-  // the reason has to be visible before the reader tries.
-  const atTagLimit = currentTags.length >= MAX_SEARCH_TAGS;
+  // the reason has to be visible before the reader tries. Asked of the shared
+  // reader rather than re-derived, so this line and the reducer that actually
+  // refuses cannot disagree about where the boundary is.
+  const atTagLimit = !canAddSearchTag(currentTags);
+  const tagSignature = useMemo(() => tagSetSignature(currentTags), [currentTags]);
+  // Derived, not stored: a refusal renders only while the chips it describes are
+  // still the chips on screen.
+  const listRejectionMessage =
+    listRejection !== null && listRejection.tagSignature === tagSignature
+      ? listRejection.message
+      : null;
 
   const options = useMemo<KeywordOption[]>(() => {
     const ordered = orderLists(isAuthenticated ? (lists ?? []) : [ANON_BUILTIN_SWE_LIST]);
@@ -171,6 +202,15 @@ export function KeywordFilterInput({
    * cost of a list is only the tags it would actually add — a list whose every
    * tag is already a chip costs nothing and is always allowed through. When that
    * cost exceeds the remaining room, not one `onAdd` is dispatched.
+   *
+   * "Costs nothing is always allowed" holds in BOTH regimes, and the second one
+   * is why `room` comes from `roomForSearchTags` instead of a bare subtraction.
+   * At or under the cap the two are identical. OVER it — reachable, because
+   * `hydrate{Name}Filters` `Object.assign`s a legacy oversized saved list
+   * straight into `filters.searchTags` — a bare subtraction is negative, and
+   * `0 > -5` refuses the free re-pick with "needs 0 more keywords and only 0 of
+   * 20 slots are free". The floor makes the zero-cost case fall through to the
+   * (empty) dispatch loop, exactly as it does under the cap.
    */
   const applyList = (opt: Extract<KeywordOption, { kind: 'list' }>) => {
     const seen = new Set(currentTags.map((tag) => tag.text));
@@ -182,9 +222,12 @@ export function KeywordFilterInput({
       additions.push({ text, mode: tag.mode });
     }
 
-    const room = MAX_SEARCH_TAGS - currentTags.length;
+    const room = roomForSearchTags(currentTags);
     if (additions.length > room) {
-      setListRejection(keywordListDoesNotFitHelperText(additions.length, Math.max(0, room)));
+      setListRejection({
+        message: keywordListDoesNotFitHelperText(additions.length, room),
+        tagSignature,
+      });
       return;
     }
     additions.forEach((tag) => onAdd(tag));
@@ -323,7 +366,7 @@ export function KeywordFilterInput({
           // and at 18-of-20 chips the standing notice is not even showing.
           helperText={
             errorMessage ??
-            listRejection ??
+            listRejectionMessage ??
             (atTagLimit ? MAX_SEARCH_TAGS_REACHED_HELPER_TEXT : undefined)
           }
         />
