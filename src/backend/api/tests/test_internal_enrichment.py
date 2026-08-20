@@ -69,6 +69,10 @@ _ENRICHMENT_TABLES = (
     "alias_locations",
     "location_aliases",
     "locations",
+    # BEFORE job_categories: job_subcategories.parent_slug is a real FK onto it,
+    # so the child has to truncate first (TRUNCATE ... CASCADE would otherwise
+    # take a different path through the graph than the one intended).
+    "job_subcategories",
     "job_categories",
     "job_levels",
 )
@@ -2195,6 +2199,70 @@ class TestTaxonomyParity:
 
         actual = {k: set(v) for k, v in _LEVEL_FILTER_EXPANSION.items()}
         assert actual == expected  # {'entry': {'entry', 'new_grad'}}
+
+    def test_subcategory_slug_set_shape(self):
+        """Fifteen slugs, lowercase, no whitespace, no duplicates."""
+        from api.services.enrichment_writer import SUBCATEGORY_SLUGS
+
+        assert len(SUBCATEGORY_SLUGS) == 15
+        for slug in SUBCATEGORY_SLUGS:
+            assert slug == slug.strip().lower()
+            assert " " not in slug
+            assert slug.replace("_", "").isalnum()
+
+    def test_subcategory_slugs_are_disjoint_from_categories(self):
+        """The arrow never runs backwards.
+
+        A slug that means both a category and a subcategory would make every
+        expansion, every facet lookup and every filter ambiguous, and the
+        ambiguity would only show up as wrong results, never as an error.
+        """
+        from api.services.enrichment_writer import (
+            CATEGORY_SLUGS,
+            LEVEL_SLUGS,
+            SUBCATEGORY_SLUGS,
+        )
+
+        assert SUBCATEGORY_SLUGS.isdisjoint(CATEGORY_SLUGS)
+        assert SUBCATEGORY_SLUGS.isdisjoint(LEVEL_SLUGS)
+
+    def test_subcategory_parent_is_a_real_category(self, db_conn):
+        from api.services.enrichment_writer import CATEGORY_SLUGS, SUBCATEGORY_PARENT
+
+        assert SUBCATEGORY_PARENT in CATEGORY_SLUGS
+        cur = db_conn.cursor()
+        cur.execute(
+            "SELECT 1 FROM job_categories WHERE slug = %s", (SUBCATEGORY_PARENT,)
+        )
+        assert cur.fetchone() is not None, (
+            f"{SUBCATEGORY_PARENT!r} is not a seeded category — the subcategory "
+            "dimension's FK target does not exist"
+        )
+
+    def test_seeded_subcategory_rows_are_a_subset_of_code(self, db_conn):
+        """SUBSET + SHAPE, not equality — and that is deliberate.
+
+        Phase 1 ships `job_subcategories` EMPTY in prod, so an equality
+        assertion here would be a FALSE GREEN: it would pass only against a
+        fixture that seeds the table, i.e. against a state production is not in.
+        `<=` holds both while the table is empty and after SCHEMA-7 seeds it;
+        SCHEMA-9 tightens it to `==` in the phase-2 PR, once prod actually
+        carries the rows.
+        """
+        from api.services.enrichment_writer import (
+            SUBCATEGORY_PARENT,
+            SUBCATEGORY_SLUGS,
+        )
+
+        cur = db_conn.cursor()
+        cur.execute("SELECT slug, parent_slug FROM job_subcategories")
+        rows = cur.fetchall()
+        seeded = {r["slug"] for r in rows}
+        assert seeded <= set(SUBCATEGORY_SLUGS), (
+            f"seeded subcategories not present in code: {sorted(seeded - set(SUBCATEGORY_SLUGS))}"
+        )
+        for r in rows:
+            assert r["parent_slug"] == SUBCATEGORY_PARENT
 
     def test_seeded_db_rows_match_code_slug_sets(self, db_conn):
         """The taxonomy the fixture seeds into job_categories/job_levels (a copy
