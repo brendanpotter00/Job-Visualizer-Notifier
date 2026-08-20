@@ -2,7 +2,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { KeywordFilterInput } from '../../../../components/shared/filters/KeywordFilterInput';
-import { SOFTWARE_ENGINEERING_TAGS } from '../../../../constants/tags';
+import {
+  MAX_SEARCH_TAGS,
+  MAX_SEARCH_TAGS_REACHED_HELPER_TEXT,
+  SOFTWARE_ENGINEERING_TAGS,
+} from '../../../../constants/tags';
 import type { KeywordList, SearchTag } from '../../../../types';
 
 const mockLogin = vi.fn(() => Promise.resolve());
@@ -337,6 +341,34 @@ describe('KeywordFilterInput', () => {
         name: 'Software Engineering (default)',
       });
       expect(within(sweOption).queryByTestId('CheckIcon')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('the keyword budget', () => {
+    it('says so once the cap is reached, instead of silently refusing the next add', async () => {
+      // `addSearchTagToFilters` REFUSES the 21st chip (MAX_SEARCH_TAGS is the
+      // endpoint's combined include+exclude budget). Refusing with nothing on
+      // screen is indistinguishable from a broken input: the reader types the
+      // keyword, presses Enter, sees nothing, and retypes it.
+      renderInput(
+        Array.from({ length: MAX_SEARCH_TAGS }, (_, n) => ({
+          text: `tag-${n}`,
+          mode: 'include' as const,
+        }))
+      );
+
+      expect(screen.getByText(MAX_SEARCH_TAGS_REACHED_HELPER_TEXT)).toBeInTheDocument();
+    });
+
+    it('stays quiet one chip below the cap', async () => {
+      renderInput(
+        Array.from({ length: MAX_SEARCH_TAGS - 1 }, (_, n) => ({
+          text: `tag-${n}`,
+          mode: 'include' as const,
+        }))
+      );
+
+      expect(screen.queryByText(MAX_SEARCH_TAGS_REACHED_HELPER_TEXT)).not.toBeInTheDocument();
     });
   });
 

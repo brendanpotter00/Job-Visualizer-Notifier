@@ -126,6 +126,16 @@ describe('RecentJobPostingsPage', () => {
       renderWithProviders(<RecentJobPostingsPage />, { initialEntries: ['/'] });
 
       expect(screen.getByRole('alert')).toHaveTextContent('boom');
+      // …and the tiles above it must not claim a result. The hook nulls `counts`
+      // on an initial error precisely so the page does not render the PREVIOUS
+      // filter set's numbers under the new chips; turning that null into 0 puts
+      // "0 Displayed Jobs" directly above a banner that says the request was
+      // REJECTED, which reads as "your filters matched nothing" and sends the
+      // reader off to widen filters that were never the problem.
+      expect(within(tile('Displayed Jobs')).getByText('—')).toBeInTheDocument();
+      expect(within(tile('Past 24 Hours')).getByText('—')).toBeInTheDocument();
+      expect(within(tile('Past 3 Hours')).getByText('—')).toBeInTheDocument();
+      expect(within(tile('Displayed Jobs')).queryByText('0')).not.toBeInTheDocument();
       // The list owns the empty state, so it must not render — that is the whole
       // point of surfacing an error instead.
       expect(screen.queryByTestId('recent-jobs-list')).not.toBeInTheDocument();
@@ -170,13 +180,40 @@ describe('RecentJobPostingsPage', () => {
       expect(within(tile('Past 3 Hours')).getByText('3')).toBeInTheDocument();
     });
 
-    it('shows zeros while page 1 (which carries the counts) is still in flight', () => {
+    it('reads as unknown, not as zero, while page 1 (which carries the counts) is in flight', () => {
+      // Same rule as the error branch: `counts: null` is "not known yet". A 0
+      // here is a claim about the corpus that nothing has measured, and it is
+      // indistinguishable from a real empty result.
       mockSearch({ counts: null, isInitialLoading: true });
       renderWithProviders(<RecentJobPostingsPage />, { initialEntries: ['/'] });
 
-      expect(within(tile('Displayed Jobs')).getByText('0')).toBeInTheDocument();
-      expect(within(tile('Past 24 Hours')).getByText('0')).toBeInTheDocument();
-      expect(within(tile('Past 3 Hours')).getByText('0')).toBeInTheDocument();
+      expect(within(tile('Displayed Jobs')).getByText('—')).toBeInTheDocument();
+      expect(within(tile('Past 24 Hours')).getByText('—')).toBeInTheDocument();
+      expect(within(tile('Past 3 Hours')).getByText('—')).toBeInTheDocument();
+    });
+
+    it('keeps the previous numbers but marks them not-yet-current during a refresh', () => {
+      // An ordinary filter change is not an error, so the tiles must not blank —
+      // vanishing numbers on every filter edit is its own kind of wrong. But the
+      // figures on screen DO still describe the old filter set while the new page
+      // 1 is in flight, and the chips above them have already changed. So they
+      // stay and are marked busy, rather than silently reading as current.
+      mockSearch({
+        counts: { total: 42, last24h: 7, last3h: 3 },
+        isRefreshing: true,
+        jobs: [makeJob('1')],
+      });
+      renderWithProviders(<RecentJobPostingsPage />, { initialEntries: ['/'] });
+
+      expect(within(tile('Displayed Jobs')).getByText('42')).toBeInTheDocument();
+      expect(screen.getByText('Displayed Jobs').closest('[aria-busy="true"]')).not.toBeNull();
+    });
+
+    it('does not mark the tiles busy when nothing is in flight', () => {
+      mockSearch({ counts: { total: 42, last24h: 7, last3h: 3 } });
+      renderWithProviders(<RecentJobPostingsPage />, { initialEntries: ['/'] });
+
+      expect(screen.getByText('Displayed Jobs').closest('[aria-busy="true"]')).toBeNull();
     });
   });
 

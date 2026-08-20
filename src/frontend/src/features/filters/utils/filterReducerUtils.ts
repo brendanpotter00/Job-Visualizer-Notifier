@@ -149,6 +149,25 @@ export function clearLocations(filters: FiltersWithLocation): void {
 // ============================================================================
 
 /**
+ * Append as many of `newTags` as the keyword budget still has room for.
+ *
+ * The bulk software-only helpers below add up to six tags in ONE action, so the
+ * per-add guard in `addSearchTagToFilters` never sees them. Twenty existing chips
+ * plus this toggle is twenty-six keywords, which is a hard 400 on every
+ * subsequent Recent Jobs request — with only a Retry that reissues the rejected
+ * request (see `MAX_SEARCH_TAGS`).
+ *
+ * Appends only into the REMAINING room and never truncates what is already
+ * there: dropping chips the reader can see on screen is the failure mode
+ * `MAX_SEARCH_TAGS` was set at the ADD sites to avoid, and it would be a strange
+ * thing for a toggle to do.
+ */
+function appendWithinTagBudget(currentTags: SearchTag[], newTags: SearchTag[]): SearchTag[] {
+  const room = Math.max(0, MAX_SEARCH_TAGS - currentTags.length);
+  return [...currentTags, ...newTags.slice(0, room)];
+}
+
+/**
  * Toggle software-only filter by adding/removing all software engineering tags
  */
 export function toggleSoftwareOnlyInFilters(filters: FiltersWithSoftwareOnly): void {
@@ -174,7 +193,7 @@ export function toggleSoftwareOnlyInFilters(filters: FiltersWithSoftwareOnly): v
     // Only add tags that don't already exist
     const newTags = tagsToAdd.filter((tag) => !existingTexts.has(tag.text));
 
-    filters.searchTags = [...currentTags, ...newTags];
+    filters.searchTags = appendWithinTagBudget(currentTags, newTags);
   }
 
   // Keep softwareOnly in sync for backwards compatibility
@@ -194,7 +213,7 @@ export function setSoftwareOnlyInFilters(filters: FiltersWithSoftwareOnly, enabl
     const existingTexts = new Set(currentTags.map((tag) => tag.text));
     const newTags = tagsToAdd.filter((tag) => !existingTexts.has(tag.text));
 
-    filters.searchTags = [...currentTags, ...newTags];
+    filters.searchTags = appendWithinTagBudget(currentTags, newTags);
   } else {
     // Remove all SE tags (smart removal - preserves non-SE tags)
     filters.searchTags = currentTags.filter((tag) => !seTagTexts.includes(tag.text));

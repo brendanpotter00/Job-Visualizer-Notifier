@@ -10,6 +10,12 @@ export interface SearchTagsInputProps {
   onToggleMode: (text: string) => void;
   /** Override the input placeholder (defaults to the include/exclude hint). */
   placeholder?: string;
+  /**
+   * Text under the input. The caller owns it — this component enforces no caps
+   * of its own; the reducers behind `onAdd` do (see `MAX_SEARCH_TAGS`), and a
+   * refused add is invisible without a line here saying why.
+   */
+  helperText?: string;
 }
 
 /**
@@ -22,6 +28,7 @@ export function SearchTagsInput({
   onRemove,
   onToggleMode,
   placeholder,
+  helperText,
 }: SearchTagsInputProps) {
   const [inputValue, setInputValue] = useState('');
 
@@ -64,6 +71,7 @@ export function SearchTagsInput({
               ? 'Add another tag...'
               : 'Type to add search tags: -senior (exclude) or senior (include)...')
           }
+          helperText={helperText}
         />
       )}
       onKeyDown={handleKeyDown}

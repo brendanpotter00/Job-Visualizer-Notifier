@@ -491,6 +491,76 @@ def test_the_recency_tiles_are_scoped_to_the_companies_the_reader_follows(
     ) == expected
 
 
+@pytest.mark.parametrize("params,expected", [
+    pytest.param(
+        {"company": "apple", "category": "software_engineering"}, (1, 1, 0),
+        id="company-plus-category",
+    ),
+    pytest.param(
+        {"company": "google", "category": "product_manager"}, (0, 4, 3),
+        id="company-plus-a-category-it-has-none-of",
+    ),
+    pytest.param(
+        {"company": "google", "level": "mid"}, (4, 4, 3),
+        id="company-plus-level",
+    ),
+    pytest.param(
+        {"company": "apple", "include": "product"}, (1, 1, 0),
+        id="company-plus-keyword",
+    ),
+    pytest.param(
+        {"company": ["google", "apple"], "category": "software_engineering"},
+        (5, 5, 3),
+        id="two-companies-plus-category",
+    ),
+])
+def test_company_combined_with_another_dimension_binds_both_predicates_correctly(
+    client, db_conn, seed_taxonomy, params, expected
+):
+    """``company`` AND another filter — the case where the two WHEREs disagree on arity.
+
+    ``get_search_counts`` renders ONE statement out of two independently-composed
+    predicates: the filtered total's WHERE (the whole filter set) as a scalar
+    subquery, and the recency tiles' WHERE (``company`` only) on the outer scan.
+    Their parameter lists are concatenated ``[*filtered_params, *header_params]``
+    and bound BY POSITION against the combined statement text. That is only correct
+    while the subquery's placeholders really do all precede the outer WHERE's.
+
+    Every other case in this file gives the two clauses the SAME arity — either no
+    company (header binds nothing) or company alone (both bind the same one list) —
+    so a placeholder that crossed the boundary would land on an identically-shaped
+    value and the numbers would still look right. Here they are deliberately
+    UNEQUAL (e.g. status + company + category = 3 params against the header's 1,
+    and the keyword case expands to more still), so a crossed placeholder either
+    raises or produces a visibly wrong triple.
+
+    The expected values are ``(filteredTotal, countLast24h, countLast3h)`` and are
+    chosen so ``filteredTotal`` differs from the tiles in every case: a bug that
+    applied the tiles' company-only predicate to the total (or the total's full
+    predicate to the tiles) cannot pass by coincidence.
+    """
+    _seed_recency_corpus(db_conn)
+
+    unfiltered = client.get(SEARCH_URL, params={"limit": 500}).json()["meta"]
+    assert (unfiltered["countLast24h"], unfiltered["countLast3h"]) == (5, 3), (
+        "corpus drifted; the expectations below are computed from it"
+    )
+
+    resp = client.get(SEARCH_URL, params={**params, "limit": 500})
+    assert resp.status_code == 200, resp.text
+    meta = resp.json()["meta"]
+
+    assert (
+        meta["filteredTotal"],
+        meta["countLast24h"],
+        meta["countLast3h"],
+    ) == expected
+
+    # …and the total still has to agree with the rows, which is what proves the
+    # subquery's own placeholders did not shift among themselves.
+    assert len(resp.json()["jobs"]) == expected[0]
+
+
 # ---------------------------------------------------------------------------
 # (5) …but they do respect the corpus's own visibility rules
 # ---------------------------------------------------------------------------
@@ -528,10 +598,10 @@ def test_recency_counts_stay_open_only_when_the_caller_asks_for_closed(
     """``status=CLOSED`` retargets ``filteredTotal`` and nothing else.
 
     The tiles sit next to a list of closed jobs and still read the live feed —
-    strange-sounding, but it is the same "whole visible OPEN corpus" rule as
-    everywhere else, and the alternative (tiles that flip meaning with a dropdown)
-    is worse. Pinned so a future refactor that threads ``status`` into
-    ``get_header_counts`` has to argue with a test.
+    strange-sounding, but it is the same "the OPEN feed for the companies the
+    reader follows" rule as everywhere else, and the alternative (tiles that flip
+    meaning with a dropdown) is worse. Pinned so a future refactor that threads
+    ``status`` into ``_header_counts_where`` has to argue with a test.
     """
     for n in range(2):
         _insert_job(db_conn, _make_job({

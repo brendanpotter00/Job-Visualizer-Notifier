@@ -78,7 +78,7 @@ def _search(client, **params) -> set[str]:
     """Run one page-1 search and return the set of job ids it matched.
 
     The envelope assertions here are not ceremony — they buy every test in this
-    module coverage of the COUNT query for free. ``count_search_jobs`` composes
+    module coverage of the COUNT query for free. ``get_search_counts`` composes
     the same WHERE clause as the page query through ``build_search_where`` but
     drops the freshness join and runs its own statement, so a keyword predicate
     that behaved differently across the two would be invisible in the ``jobs``

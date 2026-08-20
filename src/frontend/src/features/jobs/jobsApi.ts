@@ -8,6 +8,7 @@ import { transformBackendJob } from '../../api/transformers/backendScraperTransf
 import { buildSearchJobsQuery } from './searchJobsArgs';
 import { validateSearchJobsResponse } from './validateSearchJobsResponse';
 import type { SearchJobsArgs, SearchJobsPage } from './searchJobsTypes';
+import { ERROR_MESSAGES } from '../../constants/messages';
 
 interface JobsQueryResult {
   jobs: Job[];
@@ -19,8 +20,21 @@ interface JobsQueryResult {
   };
 }
 
-/** Shown when the response carried no usable reason of its own. */
-const SEARCH_JOBS_FALLBACK_ERROR = 'Failed to load jobs';
+/**
+ * The only statuses whose `detail` is written FOR the reader.
+ *
+ * `/api/jobs/search` rejects a filter set the client can fix with a 400 (too many
+ * keywords / locations / companies, an empty value, control characters) or a 422
+ * (a cursor replayed under different filters). Those messages name the thing to
+ * change and are worth putting on screen.
+ *
+ * Every OTHER status carries FastAPI's or the proxy's stock text, and showing it
+ * is strictly worse than the generic fallback: the deploy-race 404 the hook waits
+ * out for ~4 minutes on every release would end at the words "Not Found", and a
+ * backend crash would read "Internal Server Error" — neither tells the reader
+ * anything, and both look like the page is broken in a way they caused.
+ */
+const READER_FACING_ERROR_STATUSES: ReadonlySet<number> = new Set([400, 422]);
 
 /**
  * The reason a `/api/jobs/search` response failed, as text fit to show a reader.
@@ -33,6 +47,9 @@ const SEARCH_JOBS_FALLBACK_ERROR = 'Failed to load jobs';
  * an error the page can render.
  */
 async function readErrorDetail(response: Response): Promise<string> {
+  if (!READER_FACING_ERROR_STATUSES.has(response.status)) {
+    return ERROR_MESSAGES.LOAD_JOBS_FAILED;
+  }
   try {
     const body: unknown = await response.json();
     const detail = (body as { detail?: unknown } | null)?.detail;
@@ -40,7 +57,7 @@ async function readErrorDetail(response: Response): Promise<string> {
   } catch {
     // Empty or non-JSON body — nothing more specific to say than the fallback.
   }
-  return SEARCH_JOBS_FALLBACK_ERROR;
+  return ERROR_MESSAGES.LOAD_JOBS_FAILED;
 }
 
 export const jobsApi = createApi({
@@ -133,13 +150,15 @@ export const jobsApi = createApi({
             // backend deploy has not landed yet — recoverable, see
             // useRecentJobsSearch) from a real failure.
             //
-            // The body's `detail` is preserved too, and that is not cosmetic:
-            // the endpoint has several client-FIXABLE rejections (too many
-            // keywords / locations / companies, a malformed slug, an empty
-            // value, control characters, a stale cursor) and the page's only
-            // affordance is a Retry that reissues the identical request. Without
-            // the reason on screen the reader cannot know which chip to remove,
-            // so the generic text below is a fallback, never the default.
+            // The body's `detail` is preserved too — but only for the statuses
+            // that mean "your filter set", and that is not cosmetic: the endpoint
+            // has several client-FIXABLE rejections (too many keywords /
+            // locations / companies, a malformed slug, an empty value, control
+            // characters, a stale cursor) and the page's only affordance is a
+            // Retry that reissues the identical request. Without the reason on
+            // screen the reader cannot know which chip to remove. Server-side and
+            // deploy-race statuses fall back instead — see
+            // `READER_FACING_ERROR_STATUSES`.
             return {
               error: { status: response.status, data: await readErrorDetail(response) },
             };

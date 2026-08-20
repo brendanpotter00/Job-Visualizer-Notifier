@@ -182,8 +182,14 @@ filter set in SQL and pages the *result*. Router `routers/jobs_search.py`, SQL
   end-of-walk signal**. In the body deliberately — `/api/jobs` uses `X-Next-Cursor`
   only because it could not break an existing body contract, and that header needs
   all three delivery hops wired or it vanishes silently. `meta`
-  (`filteredTotal`, `countLast24h`, `countLast3h`) rides page 1 only; the two recency
-  counts ignore the active filters and describe the whole visible OPEN corpus.
+  (`filteredTotal`, `countLast24h`, `countLast3h`) rides page 1 only. `filteredTotal`
+  honours the whole filter set; the two recency counts are scoped to the caller's
+  `company` list and to **nothing else** — they deliberately ignore `category`,
+  `level`, `include`/`exclude`, `location`, `since` and `status`, because "Past 24
+  Hours" answers "how busy are the boards I follow", not "how many rows match my
+  current chips". Dropping the company scope would inflate them ~40x for a reader
+  following 3 of 133 boards; adding any other dimension would change what the tile
+  means while it still looks like the same number.
 - **Cursors are filter-bound.** A search cursor embeds an 8-hex fingerprint of the
   filter set (`compute_filter_fingerprint` in `pagination.py`); replaying one under
   different filters is a **422**, not a silently-incoherent walk. `limit` is excluded

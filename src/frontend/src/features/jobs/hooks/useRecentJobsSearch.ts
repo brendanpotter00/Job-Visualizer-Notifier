@@ -7,7 +7,10 @@ import {
   selectEnabledCompaniesSettled,
 } from '../../preferences/enabledCompaniesSlice.ts';
 import { selectDemoModeEnabled } from '../../ui/uiSlice.ts';
-import { selectRecentJobsFilters } from '../../filters/selectors/recentJobsSelectors.ts';
+import {
+  selectRecentJobsFilters,
+  selectRecentJobsFiltersHydrated,
+} from '../../filters/selectors/recentJobsSelectors.ts';
 import { selectRecentJobsFilterSignature } from '../../filters/selectors/recentJobsFilterSignature.ts';
 import {
   useGetSavedFiltersQuery,
@@ -76,6 +79,7 @@ export interface RecentJobsSearch {
  */
 export function useRecentJobsSearch(): RecentJobsSearch {
   const filters = useAppSelector(selectRecentJobsFilters);
+  const filtersHydrated = useAppSelector(selectRecentJobsFiltersHydrated);
   const filterSignature = useAppSelector(selectRecentJobsFilterSignature);
   const enabledCompanyIds = useAppSelector(selectEnabledCompanyIds);
   const demoModeEnabled = useAppSelector(selectDemoModeEnabled);
@@ -95,24 +99,33 @@ export function useRecentJobsSearch(): RecentJobsSearch {
   const preferencesSettled = useAppSelector(selectEnabledCompaniesSettled);
 
   // The user's SAVED filters have to land before the first request too, for the
-  // same reason: hydration rewrites the time window, locations and keyword tags,
-  // so firing first means one wasted maximally-wide search (the most expensive
-  // shape there is — it pays for the count and the header counts as well) and a
-  // visible flash of rows the reader did not ask for.
+  // same reason: hydration rewrites the time window, locations, category, level
+  // and keyword tags, so firing first means one wasted maximally-wide search (the
+  // most expensive shape there is — it pays for the filtered total and both
+  // recency tiles as well) and a visible flash of rows the reader did not ask for.
   //
-  // Gated on the queries having SETTLED rather than on the slice's `hydrated`
-  // flag, which is only set on success: a failed saved-filters request would
-  // otherwise strand the page exactly the way a failed enabled-companies request
-  // used to. Both hooks are already mounted app-wide, so RTK Query dedupes these
-  // to the same in-flight request rather than issuing new ones.
+  // Gated on the SLICE having been hydrated, not on the two queries having
+  // settled, and the difference is a whole wasted search. `useHydrateSavedFilters`
+  // is mounted at the app ROOT (`app/App.tsx`) and this hook runs in one of its
+  // descendants; React flushes a commit's effects child-first, so on the render
+  // where the responses resolve, the RTK Query subscription below fires BEFORE
+  // the root's hydration effect. A settled-based gate therefore opens exactly one
+  // effect too early, while the slice still holds its defaults. `hydrated` flips
+  // in the same store update that writes the saved values, so no such frame
+  // exists. See `__tests__/features/jobs/recentJobsSearchHydrationGate.test.tsx`.
+  //
+  // `isError` is the escape hatch and is NOT optional: `hydrated` is only set
+  // when BOTH responses succeed, so without it a saved-filters 500 would strand a
+  // signed-in reader on skeletons forever — no rows, no error, no retry — which is
+  // the same failure the enabled-companies gate is settled-based to avoid.
+  // Both hooks are already mounted app-wide, so RTK Query dedupes these to the
+  // same in-flight request rather than issuing new ones.
   const savedFilters = useGetSavedFiltersQuery(undefined, { skip: !isAuthenticated });
   const keywordLists = useGetKeywordListsQuery(undefined, { skip: !isAuthenticated });
-  const savedFiltersSettled =
-    (savedFilters.isSuccess || savedFilters.isError) &&
-    (keywordLists.isSuccess || keywordLists.isError);
+  const savedFiltersReady = filtersHydrated || savedFilters.isError || keywordLists.isError;
 
   const preferencesReady =
-    !authLoading && (!isAuthenticated || (preferencesSettled && savedFiltersSettled));
+    !authLoading && (!isAuthenticated || (preferencesSettled && savedFiltersReady));
 
   // One debounced snapshot of the filters, STAMPED with the instant it settled.
   //
@@ -133,6 +146,31 @@ export function useRecentJobsSearch(): RecentJobsSearch {
     signature: filterSignature,
     at: Date.now(),
   }));
+
+  // Re-seed the snapshot at the exact render the gate opens.
+  //
+  // The gate and the snapshot have to move together. The snapshot is minted at
+  // MOUNT, which for a signed-in reader is several renders before hydration
+  // lands, so without this the first request would still carry the pre-hydration
+  // defaults even though the gate now waits for `hydrated` — and the debounced
+  // re-stamp 300ms later would fire the real search as a second request. That is
+  // the wasted maximally-wide search this gate exists to prevent, just moved.
+  //
+  // React's documented "adjust state during render" pattern rather than an
+  // effect: an effect runs AFTER the query subscription in the same commit (too
+  // late, and `react-hooks/set-state-in-effect` forbids it anyway), while a
+  // guarded render-phase set re-runs this component before anything commits.
+  // `at` is carried over rather than re-read: the clock may only be sampled in
+  // the lazy initializer and inside the debounce timer, and a mount-time stamp
+  // only makes `since` a few seconds wider, never narrower.
+  const [gateWasOpen, setGateWasOpen] = useState(preferencesReady);
+  if (gateWasOpen !== preferencesReady) {
+    setGateWasOpen(preferencesReady);
+    if (preferencesReady && snapshot.signature !== filterSignature) {
+      setSnapshot({ filters, signature: filterSignature, at: snapshot.at });
+    }
+  }
+
   useEffect(() => {
     if (snapshot.signature === filterSignature) return;
     const id = setTimeout(() => {

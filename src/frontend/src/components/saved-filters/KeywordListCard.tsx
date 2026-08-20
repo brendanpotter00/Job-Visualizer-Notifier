@@ -14,6 +14,10 @@ import EditIcon from '@mui/icons-material/Edit';
 import LockIcon from '@mui/icons-material/Lock';
 import { Add as AddIcon, Remove as RemoveIcon } from '@mui/icons-material';
 import { SearchTagsInput } from '../shared/filters/SearchTagsInput.tsx';
+import {
+  MAX_SEARCH_TAGS,
+  MAX_SEARCH_TAGS_REACHED_HELPER_TEXT,
+} from '../../constants/tags.ts';
 import { extractErrorMessage } from '../../lib/errors.ts';
 import type { KeywordList } from '../../types';
 import {
@@ -262,6 +266,15 @@ export function KeywordListCard({
           <SearchTagsInput
             value={draft.tags}
             placeholder="Add a keyword and press Enter — prefix with - to exclude"
+            // `addTagToList` silently REFUSES the add past MAX_SEARCH_TAGS — the
+            // bound the backend enforces on both storage and the search query.
+            // Without this line the reader types a 21st keyword, presses Enter,
+            // sees nothing, and assumes the input is broken.
+            helperText={
+              draft.tags.length >= MAX_SEARCH_TAGS
+                ? MAX_SEARCH_TAGS_REACHED_HELPER_TEXT
+                : undefined
+            }
             onAdd={(tag) => mutateDraft((d) => addTagToList(d, tag))}
             onRemove={(text) => mutateDraft((d) => removeTagFromList(d, text))}
             onToggleMode={(text) => mutateDraft((d) => toggleTagModeInList(d, text))}

@@ -50,10 +50,21 @@ export function RecentJobPostingsPage() {
           <LoadingState caption="Finishing an update — jobs will appear in a moment." />
         ) : (
           <>
+            {/* `null`, not 0. The hook returns null for "unknown" — page 1 has
+                not landed, or it failed and the previous filter set's figures
+                were deliberately dropped — and `?? 0` turned that into three
+                confident zeros directly above the ErrorState, where "0 Displayed
+                Jobs" reads as "your filters matched nothing" next to a banner
+                that actually says the request was rejected. The tiles render an
+                em-dash instead. `pending` covers the other half: during an
+                ordinary filter change the numbers on screen still belong to the
+                OLD filter set, so they stay (blanking them on every edit is its
+                own kind of wrong) but dim until the new page 1 lands. */}
             <RecentJobsMetrics
-              totalJobs={counts?.total ?? 0}
-              jobsLast24Hours={counts?.last24h ?? 0}
-              jobsLast3Hours={counts?.last3h ?? 0}
+              totalJobs={counts?.total ?? null}
+              jobsLast24Hours={counts?.last24h ?? null}
+              jobsLast3Hours={counts?.last3h ?? null}
+              pending={search.isRefreshing}
             />
             {/* The filters stay mounted through an error on purpose. They are
                 persisted across reloads, so when the request failed BECAUSE of

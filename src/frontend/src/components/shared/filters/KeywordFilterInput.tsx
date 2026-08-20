@@ -5,7 +5,11 @@ import CheckIcon from '@mui/icons-material/Check';
 import LoginIcon from '@mui/icons-material/Login';
 import { useGetKeywordListsQuery } from '../../../features/savedFilters/savedFiltersApi';
 import { useAuth } from '../../../features/auth/useAuth';
-import { SOFTWARE_ENGINEERING_TAGS } from '../../../constants/tags';
+import {
+  MAX_SEARCH_TAGS,
+  MAX_SEARCH_TAGS_REACHED_HELPER_TEXT,
+  SOFTWARE_ENGINEERING_TAGS,
+} from '../../../constants/tags';
 import { extractErrorMessage } from '../../../lib/errors.ts';
 import {
   isSearchTag,
@@ -109,6 +113,11 @@ export function KeywordFilterInput({
 
   const currentTags = useMemo(() => value ?? [], [value]);
   const hasTags = currentTags.length > 0;
+  // `addSearchTagToFilters` silently REFUSES the add past this point (it is the
+  // search endpoint's combined include+exclude budget — see MAX_SEARCH_TAGS). A
+  // refusal with nothing on screen is indistinguishable from a broken input, so
+  // the reason has to be visible before the reader tries.
+  const atTagLimit = currentTags.length >= MAX_SEARCH_TAGS;
 
   const options = useMemo<KeywordOption[]>(() => {
     const ordered = orderLists(isAuthenticated ? (lists ?? []) : [ANON_BUILTIN_SWE_LIST]);
@@ -266,7 +275,8 @@ export function KeywordFilterInput({
               : 'Pick a list or type a keyword (- to exclude)…'
           }
           error={errorMessage != null}
-          helperText={errorMessage ?? undefined}
+          // A real failure outranks the cap notice; the cap is a rule, not an error.
+          helperText={errorMessage ?? (atTagLimit ? MAX_SEARCH_TAGS_REACHED_HELPER_TEXT : undefined)}
         />
       )}
       onKeyDown={handleKeyDown}

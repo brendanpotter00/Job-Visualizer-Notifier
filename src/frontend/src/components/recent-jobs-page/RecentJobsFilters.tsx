@@ -29,9 +29,14 @@ import { MultiSelectAutocomplete } from '../shared/filters/MultiSelectAutocomple
 import { AsyncMultiSelectAutocomplete } from '../shared/filters/AsyncMultiSelectAutocomplete.tsx';
 
 /**
- * Filter controls for Recent Job Postings page
- * Subset of filters: time window, location, search tags, software-only
- * Excludes: role category
+ * Filter controls for Recent Job Postings page.
+ *
+ * What is actually rendered: keywords (free text + saved keyword lists), time
+ * window, job title (category), level, location, company, and Reset. The slice
+ * also generates `toggle/setRecentJobsSoftwareOnly`, but
+ * NOTHING dispatches them — there is no software-only control on this page; the
+ * built-in "Software Engineering" keyword list in the keywords input is how a
+ * reader gets that filter now.
  */
 export function RecentJobsFilters() {
   const dispatch = useAppDispatch();

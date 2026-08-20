@@ -437,4 +437,50 @@ describe('filterReducerUtils - Software Only', () => {
       expect(filters.searchTags).toHaveLength(6);
     });
   });
+
+  describe('the keyword budget applies to the bulk helpers too', () => {
+    // Both helpers append up to six tags in ONE action, so the per-add guard in
+    // `addSearchTagToFilters` never sees them. Twenty existing chips plus this
+    // toggle is twenty-six keywords, which is a hard 400 on every subsequent
+    // Recent Jobs request — and the page's only affordance is a Retry that
+    // reissues the rejected request.
+    const nearlyFull = () =>
+      Array.from({ length: MAX_SEARCH_TAGS - 2 }, (_, n) => ({
+        text: `tag-${n}`,
+        mode: 'include' as const,
+      }));
+
+    it('toggleSoftwareOnlyInFilters stops at the cap instead of overflowing it', () => {
+      const filters = { searchTags: nearlyFull(), softwareOnly: false };
+
+      toggleSoftwareOnlyInFilters(filters);
+
+      expect(filters.searchTags).toHaveLength(MAX_SEARCH_TAGS);
+    });
+
+    it('setSoftwareOnlyInFilters stops at the cap instead of overflowing it', () => {
+      const filters = { searchTags: nearlyFull(), softwareOnly: false };
+
+      setSoftwareOnlyInFilters(filters, true);
+
+      expect(filters.searchTags).toHaveLength(MAX_SEARCH_TAGS);
+    });
+
+    it('never truncates chips the reader already has', () => {
+      // Appending "only into the remaining room" — not slicing the merged list.
+      // A saved list stored before the cap existed still reads back oversized
+      // (KeywordListResponse carries no max_length), and silently deleting chips
+      // that are visible on screen is the failure mode the ADD-site caps exist to
+      // avoid.
+      const existing = Array.from({ length: MAX_SEARCH_TAGS + 3 }, (_, n) => ({
+        text: `legacy-${n}`,
+        mode: 'include' as const,
+      }));
+      const filters = { searchTags: [...existing], softwareOnly: false };
+
+      setSoftwareOnlyInFilters(filters, true);
+
+      expect(filters.searchTags).toEqual(existing);
+    });
+  });
 });

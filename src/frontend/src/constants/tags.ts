@@ -18,6 +18,19 @@ import type { SearchTag } from '../types';
 export const MAX_SEARCH_TAGS = 20;
 
 /**
+ * What the two keyword inputs say once the cap is reached.
+ *
+ * A refused add is otherwise INVISIBLE — the reader types a 21st keyword, presses
+ * Enter, and nothing happens, which is indistinguishable from a broken input, so
+ * they retype it. One shared line so the Recent page's `KeywordFilterInput` and
+ * the Saved Filters `KeywordListCard` cannot drift into two different
+ * explanations of the same rule.
+ */
+export const MAX_SEARCH_TAGS_REACHED_HELPER_TEXT =
+  `Keyword limit reached (${MAX_SEARCH_TAGS} of ${MAX_SEARCH_TAGS}). ` +
+  'Remove one to add another.';
+
+/**
  * Predefined search tags for software engineering roles
  * Used by the "Software engineering roles only" toggle
  */

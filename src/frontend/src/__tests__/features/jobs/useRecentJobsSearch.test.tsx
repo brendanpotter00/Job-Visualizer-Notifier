@@ -16,6 +16,7 @@ import { saveEnabledCompanies } from '../../../features/preferences/enabledCompa
 import { createTestStore } from '../../../test/testUtils';
 import type { BackendJobListing } from '../../../api/types';
 import type { RecentJobsFilters } from '../../../types';
+import { ERROR_MESSAGES } from '../../../constants/messages';
 
 // `useAuth` is the seam that tells the hook whether it may fetch at all, so it
 // is a mutable object rather than a per-test factory: several cases flip
@@ -443,7 +444,7 @@ describe('useRecentJobsSearch — failures', () => {
     await flush();
 
     expect(result.current.errorScope).toBe('initial');
-    expect(result.current.error).toBe('Failed to load jobs');
+    expect(result.current.error).toBe(ERROR_MESSAGES.LOAD_JOBS_FAILED);
     // A 500 is not the deploy race, so the page must show the error, not a spinner.
     expect(result.current.isAwaitingDeploy).toBe(false);
     expect(result.current.isInitialLoading).toBe(false);
@@ -474,7 +475,7 @@ describe('useRecentJobsSearch — failures', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(paramsOf(fetchMock.mock.calls[1][0]).get('cursor')).toBe('cursor-2');
     expect(result.current.errorScope).toBe('nextPage');
-    expect(result.current.error).toBe('Failed to load jobs');
+    expect(result.current.error).toBe(ERROR_MESSAGES.LOAD_JOBS_FAILED);
     expect(result.current.jobs.map((job) => job.id)).toEqual(['a', 'b', 'c']);
     expect(result.current.counts?.total).toBe(137);
   });
@@ -594,5 +595,35 @@ describe('useRecentJobsSearch — when a prerequisite fails', () => {
 
     expect(result.current.errorScope).toBe('initial');
     expect(result.current.error).toBe("'include' accepts at most 20 values.");
+  });
+
+  it('does NOT show stock server text — only the statuses that mean "your filters"', async () => {
+    // FastAPI's default `detail` for a 500 is the words "Internal Server Error",
+    // and for a 404 it is "Not Found". Both are strictly worse than the generic
+    // message they would replace: they name nothing the reader can act on and
+    // they read like the page is broken in a way they caused. The 404 case is not
+    // hypothetical — it is the deploy-race status this hook spends ~4 minutes
+    // waiting out on every release, and it surfaces once the budget is spent.
+    install(() => ({ status: 500, body: { detail: 'Internal Server Error' } }));
+
+    const store = makeStore();
+    const { result } = renderSearch(store);
+    await flush();
+
+    expect(result.current.errorScope).toBe('initial');
+    expect(result.current.error).toBe(ERROR_MESSAGES.LOAD_JOBS_FAILED);
+  });
+
+  it('falls back to the generic message once the deploy-race budget is spent', async () => {
+    install(() => ({ status: 404, body: { detail: 'Not Found' } }));
+
+    const store = makeStore();
+    const { result } = renderSearch(store);
+    // Every backoff delay plus a margin, so the grace window is provably over.
+    await flush(300_000);
+
+    expect(result.current.isAwaitingDeploy).toBe(false);
+    expect(result.current.errorScope).toBe('initial');
+    expect(result.current.error).toBe(ERROR_MESSAGES.LOAD_JOBS_FAILED);
   });
 });
