@@ -196,6 +196,56 @@ def test_browser_agent_stagehand_is_subprocess_isolated() -> None:
             assert not offending, f"{module_file} imports agent driver {offending}"
 
 
+def test_browser_fetch_playwright_is_subprocess_isolated() -> None:
+    """E7 Phase 3c boundary: ``_browser_fetch_main`` is the SOLE importer of
+    ``playwright``, and the in-process modules (``runner``/``__init__``) reach NEITHER
+    it — transitively, closure confined to api/ — NOR any forbidden module. This is
+    the AST proof behind the subprocess design for the browser_fetch tier; without it
+    a module-level ``import playwright`` in the runner would make EVERY http_json
+    replay in the same worker start raising (``assert_no_agent_imports`` checks
+    ``sys.modules`` on every call, not just this transport's)."""
+    bf_dir = _API / "services" / "browser_fetch"
+    main = bf_dir / "_browser_fetch_main.py"
+
+    main_names, _ = _imports_and_targets(main)
+    assert "playwright" in main_names, (
+        "_browser_fetch_main must import playwright (the sole importer)"
+    )
+
+    for entry in ("runner.py", "__init__.py"):
+        closure = _closure(bf_dir / entry, confine_to=_API)
+        assert main not in closure, (
+            f"{entry} transitively imports _browser_fetch_main — playwright would leak "
+            "into the replay worker"
+        )
+        for module_file in closure:
+            top_names, _ = _imports_and_targets(module_file)
+            offending = top_names & set(FORBIDDEN_MODULES)
+            assert not offending, f"{module_file} imports forbidden {offending}"
+
+
+def test_importing_the_browser_fetch_runner_leaves_playwright_unresident() -> None:
+    """The runtime half of the proof above: import the browser_fetch runner in a
+    FRESH interpreter and assert no browser driver landed in that process. The parent
+    is what the Procrastinate worker imports; the driver must live only in the child
+    it spawns."""
+    code = (
+        "import sys\n"
+        "import api.services.browser_fetch.runner  # the agent-free parent\n"
+        "leaked = sorted(m for m in ('playwright', 'stagehand', 'browserbase', 'langchain')\n"
+        "                if m in sys.modules)\n"
+        "print(','.join(leaked))\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=str(_BACKEND), env=_SUBPROC_ENV,
+        capture_output=True, text=True, timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    leaked = result.stdout.strip()
+    assert leaked == "", f"the browser_fetch parent made a browser driver resident: {leaked!r}"
+
+
 def test_ast_guard_would_catch_a_planted_forbidden_import(tmp_path: Path) -> None:
     """Meta-test: the AST walk actually detects a forbidden import (so a green run
     means something)."""

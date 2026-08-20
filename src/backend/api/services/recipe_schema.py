@@ -11,11 +11,26 @@ block (BUILD-PLAN section 6). ``transport`` and ``oracle`` mirror the
 ``company_scripts.transport`` / ``oracle_kind`` columns and are validated equal to
 them when the caller passes the column values.
 
-Phase 3a is **HTTP-transport only**: ``transport in {'http_json','http_html'}``.
-Every browser transport (``page_fetch``/``page_request``/``dom``/``browser_dom``)
-and ``click_sequence`` are **rejected** — a rejected op names the missing
-capability so the REFUSE reason is itself the next-primitive roadmap. Phase 4 adds
-browser transports; do not weaken this validator to admit them early.
+Three transports are admitted, and the rule is about WHO ISSUES THE REQUEST, not
+about how much browser a board needs:
+
+* ``http_json`` / ``http_html`` — plain ``httpx`` from the agent-free replay worker.
+* ``browser_fetch`` — the SAME captured request, re-issued by ``fetch()`` inside our
+  own headless Chromium on the board's own origin (E7 Phase 3c). It exists for
+  boards that origin-check / cookie-gate / sign their otherwise-deterministic JSON
+  API (TikTok 400s outside the browser). It is still a deterministic recipe: no
+  LLM, no DOM parsing, no agent. A ``browser_fetch`` script carries one extra
+  REQUIRED top-level key, ``origin_url`` — the page to navigate to before fetching
+  — which is **rejected** on the two HTTP transports (a stray ``origin_url`` there
+  means the author mislabelled the transport, and silently ignoring it would ship a
+  board that never gets its origin).
+
+Everything ELSE browser-shaped is still rejected: the ``page_fetch``/``page_request``/
+``dom``/``browser_dom`` transports and the ``click_sequence`` op are Phase 4
+capabilities, and a rejected op names the missing capability so the REFUSE reason
+is itself the next-primitive roadmap. Do not weaken this validator to admit them
+early — ``browser_fetch`` deliberately buys "run our captured HTTP call on the
+site's origin", NOT "let a script drive a browser".
 
 Anything not enumerated here is a :class:`RecipeError`. Unknown keys inside a step
 are rejected too: a typo must fail loudly, never silently no-op.
@@ -27,10 +42,18 @@ from typing import Any, Callable
 
 RECIPE_VERSION = 1
 
-# HTTP-only transports (Phase 3a). Browser transports are Phase 4 and rejected.
-TRANSPORTS = ("http_json", "http_html")
+# The admitted transports. ``browser_fetch`` re-issues the SAME captured request
+# from inside our own Chromium (Phase 3c); the ``page_*``/``dom`` browser
+# transports below stay Phase 4 and rejected.
+TRANSPORTS = ("http_json", "http_html", "browser_fetch")
 
-# Browser transports / ops that Phase 3a must reject with a capability message.
+# The transport that runs the captured request on the site's origin, and therefore
+# the ONLY one that carries ``origin_url``.
+BROWSER_FETCH = "browser_fetch"
+
+# Browser transports / ops that are still Phase 4 and rejected with a capability
+# message. ``browser_fetch`` is deliberately NOT here — it is a captured-HTTP
+# transport that happens to need an origin, not a drive-the-DOM capability.
 _BROWSER_TRANSPORTS = ("page_fetch", "page_request", "dom", "browser_dom")
 _BROWSER_OPS = ("click_sequence", "page_fetch", "page_request", "dom", "browser_dom")
 
@@ -394,7 +417,8 @@ def validate_recipe(
 
     _reject_unknown_keys(
         {**script, "op": None},
-        {"script_version", "transport", "expected_min_jobs", "steps", "oracle", "base_url"},
+        {"script_version", "transport", "expected_min_jobs", "steps", "oracle", "base_url",
+         "origin_url"},
         "script",
     )
 
@@ -404,13 +428,30 @@ def validate_recipe(
     _require(
         tr not in _BROWSER_TRANSPORTS,
         f"transport {tr!r} is a browser transport (Phase 4 capability, not in Phase 3a) — "
-        f"HTTP-only replay supports {TRANSPORTS}",
+        f"replay supports {TRANSPORTS}",
     )
     _require(tr in TRANSPORTS, f"transport must be one of {TRANSPORTS}, got {tr!r}")
     if transport is not None:
         _require(
             tr == transport,
             f"script.transport {tr!r} != company_scripts.transport {transport!r}",
+        )
+
+    # ``origin_url`` is REQUIRED iff browser_fetch and REJECTED otherwise. Both
+    # directions matter: without it the executor has no page to fetch from, and an
+    # origin_url on an http_json script means the author mislabelled the transport
+    # — silently ignoring it would store a board that never reaches its origin.
+    if tr == BROWSER_FETCH:
+        _require(
+            "origin_url" in script,
+            "script.origin_url is required for transport 'browser_fetch' (the page to "
+            "navigate to before the captured fetch runs on its origin)",
+        )
+        _require_https(script, "origin_url", "script")
+    else:
+        _require(
+            "origin_url" not in script,
+            f"script.origin_url is only valid for transport 'browser_fetch', not {tr!r}",
         )
 
     _require_pos_int(script, "expected_min_jobs", "script")
@@ -420,6 +461,8 @@ def validate_recipe(
     assert isinstance(steps, list)  # narrow for mypy; _require already raised otherwise
 
     counts = {"fetch": 0, "pagination": 0, "extraction": 0}
+    pagination_op: str | None = None
+    extraction_op: str | None = None
     for i, step in enumerate(steps):
         _require(isinstance(step, dict), f"steps[{i}] must be an object")
         op = step.get("op")
@@ -446,13 +489,34 @@ def validate_recipe(
             counts["fetch"] += 1
         elif op in _PAGINATION_OPS:
             counts["pagination"] += 1
+            pagination_op = op
         elif op in _EXTRACTION_OPS:
             counts["extraction"] += 1
+            extraction_op = op
 
     _require(counts["fetch"] == 1, f"exactly one 'fetch' step is required, got {counts['fetch']}")
     _require(steps[0].get("op") == "fetch", "the first step must be 'fetch'")
     _require(counts["pagination"] <= 1, "at most one pagination step is allowed")
     _require(counts["extraction"] == 1, f"exactly one extraction step is required, got {counts['extraction']}")
+
+    if tr == BROWSER_FETCH:
+        # The browser_fetch executor replays ONE captured JSON request per page and
+        # hands the RAW body back to the agent-free parent, which parses it. HTML
+        # extraction has no body to parse (the child never returns markup) and a
+        # facet fan-out would multiply Chromium round-trips per run. Both are
+        # rejected HERE — at write time and again on every read — so an
+        # unreplayable script can never be stored, rather than crashing at 3am.
+        _require(
+            extraction_op == "extract_json_path",
+            f"transport 'browser_fetch' requires the 'extract_json_path' extraction "
+            f"(the subprocess returns raw JSON bodies), got {extraction_op!r}",
+        )
+        _require(
+            pagination_op != "paginate_facet",
+            "transport 'browser_fetch' does not support 'paginate_facet' — a facet "
+            "fan-out would issue one in-browser sweep per facet value; use "
+            "paginate_offset/paginate_page or no pagination",
+        )
 
     _validate_oracle(script.get("oracle"))
     if oracle_kind is not None:

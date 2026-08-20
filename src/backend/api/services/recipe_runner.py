@@ -20,6 +20,15 @@ Non-negotiable contract (BUILD-PLAN, OVERVIEW):
   2026-03-29 false-close class. The leaf task maps the raise to a FAILED run.
 * **Deterministic.** Same script + same responses ⇒ byte-identical rows twice.
 
+It is ALSO the home of the transport-agnostic half every other tier reuses:
+:func:`parse_plan`, :func:`harvest_json_pages` and :func:`finalize_harvest`. The
+``browser_fetch`` tier (Phase 3c) fetches its pages in a Chromium subprocess and
+so can never execute inside this module — but it calls those three, so the
+RAISES-never-empty ladder, the first-occurrence dedupe and the oracle exist in
+exactly one place. The dependency arrow is one-way: ``browser_fetch`` imports
+``recipe_runner``, NEVER the reverse (the AST import guard walks this module's
+whole closure and would fail the moment it could reach a browser driver).
+
 This module imports only the stdlib, ``httpx``, the dependency-free
 :mod:`recipe_schema` / :mod:`harvest_meta`, and (lazily, inside the HTML path)
 ``bs4``. It must stay that thin — the import guard test walks its AST.
@@ -134,7 +143,15 @@ def map_records(records: list[Any], fields: dict[str, str], base_url: str = "") 
 # --------------------------------------------------------------------------
 
 @dataclass(frozen=True)
-class _Plan:
+class RecipePlan:
+    """A validated script folded into the shape the executors read.
+
+    PUBLIC because the ``browser_fetch`` tier (which runs its transport out of
+    process and cannot live in this module) needs the same parsed plan to build its
+    subprocess request and to re-assert the page bound on read. Everything on it is
+    transport-agnostic.
+    """
+
     transport: str
     expected_min_jobs: int
     fetch: dict[str, Any]
@@ -150,7 +167,13 @@ class _Plan:
     window_cap: int | None = field(default=None)
 
 
-def _parse_steps(script: dict[str, Any]) -> _Plan:
+def parse_plan(script: dict[str, Any]) -> RecipePlan:
+    """Fold a VALIDATED script's ``steps`` list into a :class:`RecipePlan`.
+
+    Assumes :func:`~api.services.recipe_schema.validate_recipe` already ran — the
+    ``assert`` below is the shape guarantee it makes, not a check. Public for the
+    same reason :class:`RecipePlan` is.
+    """
     fetch: dict[str, Any] | None = None
     pagination: dict[str, Any] | None = None
     extraction: dict[str, Any] | None = None
@@ -188,7 +211,7 @@ def _parse_steps(script: dict[str, Any]) -> _Plan:
 
     assert fetch is not None and extraction is not None  # guaranteed by validate_recipe
     base_url = script.get("base_url") or extraction.get("base_url", "")
-    return _Plan(
+    return RecipePlan(
         transport=script["transport"],
         expected_min_jobs=script["expected_min_jobs"],
         fetch=fetch,
@@ -289,7 +312,7 @@ class _HarvestState:
 
 def _sweep_offset_page(
     http: httpx.Client,
-    plan: _Plan,
+    plan: RecipePlan,
     state: _HarvestState,
     extra_params: dict[str, Any],
     style: str,
@@ -335,7 +358,7 @@ def _sweep_offset_page(
         state.terminated_cleanly = False
 
 
-def _run_http_json(http: httpx.Client, plan: _Plan) -> _HarvestState:
+def _run_http_json(http: httpx.Client, plan: RecipePlan) -> _HarvestState:
     ext = plan.extraction
     records_path = ext["records_path"]
     fields = ext["fields"]
@@ -384,7 +407,7 @@ def _run_http_json(http: httpx.Client, plan: _Plan) -> _HarvestState:
     return state
 
 
-def _resolve_facet_values(http: httpx.Client, plan: _Plan, pg: dict[str, Any]) -> list[str]:
+def _resolve_facet_values(http: httpx.Client, plan: RecipePlan, pg: dict[str, Any]) -> list[str]:
     if "facet_values" in pg:
         return list(pg["facet_values"])
     # facet_values_path: probe once (no pagination) to read the facet labels.
@@ -411,7 +434,7 @@ def _resolve_facet_values(http: httpx.Client, plan: _Plan, pg: dict[str, Any]) -
 # execution — http_html (embedded island preferred; css last resort)
 # --------------------------------------------------------------------------
 
-def _run_http_html(http: httpx.Client, plan: _Plan) -> _HarvestState:
+def _run_http_html(http: httpx.Client, plan: RecipePlan) -> _HarvestState:
     ext = plan.extraction
     op = ext["op"]
     state = _HarvestState(
@@ -425,7 +448,7 @@ def _run_http_html(http: httpx.Client, plan: _Plan) -> _HarvestState:
     return state
 
 
-def _run_embedded_island(http: httpx.Client, plan: _Plan, state: _HarvestState) -> None:
+def _run_embedded_island(http: httpx.Client, plan: RecipePlan, state: _HarvestState) -> None:
     from bs4 import BeautifulSoup  # local import: html-only dependency
 
     ext = plan.extraction
@@ -462,7 +485,7 @@ def _run_embedded_island(http: httpx.Client, plan: _Plan, state: _HarvestState) 
     state.page_id_sets = [{r["id"] for r in state.rows}]
 
 
-def _run_css(http: httpx.Client, plan: _Plan, state: _HarvestState) -> None:
+def _run_css(http: httpx.Client, plan: RecipePlan, state: _HarvestState) -> None:
     from bs4 import BeautifulSoup  # local import: html-only dependency
 
     ext = plan.extraction
@@ -634,8 +657,13 @@ def _oracle_sitemap(http: httpx.Client, oracle: dict[str, Any]) -> int:
 
 
 def _compute_declared_total(
-    oracle: dict[str, Any], state: _HarvestState, http: httpx.Client
+    oracle: dict[str, Any], state: _HarvestState, http: httpx.Client | None
 ) -> int | None:
+    """``http`` is used by the SITEMAP branch ONLY, and may be ``None`` for a
+    transport that has no HTTP client of its own (browser_fetch passes one only
+    when the oracle needs it — a sitemap GET needs no browser). A ``None`` client
+    with a sitemap oracle RAISES rather than silently reporting no total, because a
+    vanished oracle must be FAILED, never 'no total today'."""
     kind = oracle["kind"]
     if kind == "self_consistent":
         return None
@@ -644,6 +672,10 @@ def _compute_declared_total(
     if kind == "header":
         return _oracle_header(state.first_headers, oracle)
     if kind == "sitemap":
+        if http is None:
+            raise RecipeExecutionError(
+                "sitemap oracle needs an HTTP client but none was supplied; FAILED"
+            )
         return _oracle_sitemap(http, oracle)
     # declared_probed
     try:
@@ -679,7 +711,7 @@ def _page_advance_ok(page_id_sets: list[set[str]]) -> bool | None:
     return True
 
 
-def _assert_pinned(plan: _Plan, state: _HarvestState) -> None:
+def _assert_pinned(plan: RecipePlan, state: _HarvestState) -> None:
     if plan.pinned is None:
         return
     url = plan.fetch["url"]
@@ -701,34 +733,18 @@ def _assert_pinned(plan: _Plan, state: _HarvestState) -> None:
             ) from exc
 
 
-def run_recipe(
-    script: dict[str, Any],
-    http: httpx.Client,
-    *,
-    transport: str | None = None,
-    oracle_kind: str | None = None,
+def finalize_harvest(
+    plan: RecipePlan, state: _HarvestState, http: httpx.Client | None
 ) -> tuple[list[dict], HarvestEvidence]:
-    """Execute a validated script over ``http`` → (rows, evidence). RAISES on failure.
+    """The transport-agnostic tail: pinned-identity → shaping → RAISES-never-empty →
+    dedupe → assert_unique → the ``expected_min_jobs`` floor → oracle → evidence.
 
-    The caller supplies ``http`` so timeouts / SSRF guarding live in one place (the
-    leaf task and discovery pass an SSRF-guarded client). ``transport`` /
-    ``oracle_kind`` are the ``company_scripts`` column values: when supplied, the
-    read-path :func:`validate_recipe` also asserts the stored JSONB's
-    ``transport`` / ``oracle.kind`` equal them, so a JSONB-vs-column drift is caught
-    on replay, not just at write time. The returned :class:`HarvestEvidence` is
-    exactly what ``run_gate`` / ``verify_harvest`` already consume.
+    ONE copy on purpose. Every one of those steps is an invariant-#1 surface, and a
+    second transport that copy-pasted them would drift from this one silently — the
+    exact way a "we saw zero rows" turns back into "no jobs today". ``browser_fetch``
+    calls this same function with a state it built from raw subprocess output, so
+    the ladder cannot fork.
     """
-    assert_no_agent_imports()   # FIRST, every call — the agent-free proof.
-    # validate-on-read: stored scripts drift, and the column-equality check catches
-    # a JSONB row edited out of sync with its transport/oracle_kind columns.
-    validate_recipe(script, transport=transport, oracle_kind=oracle_kind)
-    plan = _parse_steps(script)
-
-    if plan.transport == "http_json":
-        state = _run_http_json(http, plan)
-    else:
-        state = _run_http_html(http, plan)
-
     _assert_pinned(plan, state)
 
     rows = _apply_shaping(state.rows, plan.shaping)
@@ -771,3 +787,90 @@ def run_recipe(
         transport_ok=True,
     )
     return deduped, evidence
+
+
+def harvest_json_pages(
+    plan: RecipePlan,
+    page_payloads: list[Any],
+    *,
+    first_headers: dict[str, str],
+    terminated_cleanly: bool,
+    cap_hit: bool = False,
+    http: httpx.Client | None = None,
+) -> tuple[list[dict], HarvestEvidence]:
+    """Turn ALREADY-FETCHED JSON page bodies into ``(rows, evidence)``.
+
+    The parsing half of ``_run_http_json`` with the transport removed: the caller
+    says WHERE the payloads came from, this says what they MEAN. It exists so the
+    ``browser_fetch`` tier — whose pages are fetched by a Chromium subprocess and
+    can therefore never run inside this module — reuses the exact in-band-error
+    check, ``records_path`` dig, field mapping, per-page id sets, dedupe, oracle and
+    evidence build that the httpx tier uses, instead of a second implementation
+    that drifts.
+
+    ``terminated_cleanly`` / ``cap_hit`` are the CALLER's honest report about how
+    its pagination loop stopped; ``first_headers`` is the first page's response
+    headers (the ``header`` oracle reads them, case-insensitively).
+    """
+    if not page_payloads:
+        raise RecipeExecutionError(
+            "browser transport returned no pages at all — treated as FAILED, never "
+            "as 'no jobs today'"
+        )
+    records_path = plan.extraction["records_path"]
+    fields = plan.extraction["fields"]
+    state = _HarvestState(
+        rows=[], first_payload=page_payloads[0], first_headers=dict(first_headers),
+        page_id_sets=[], cap_hit=cap_hit, terminated_cleanly=terminated_cleanly,
+        pages_fetched=0,
+    )
+    for index, payload in enumerate(page_payloads):
+        _check_inband_error(payload, plan.error_keys)
+        page_records = _dig_records(payload, records_path, f"on page {index}")
+        page_rows = map_records(page_records, fields, plan.base_url)
+        state.rows.extend(page_rows)
+        state.page_id_sets.append({r["id"] for r in page_rows})
+        state.pages_fetched += 1
+    return finalize_harvest(plan, state, http)
+
+
+def run_recipe(
+    script: dict[str, Any],
+    http: httpx.Client,
+    *,
+    transport: str | None = None,
+    oracle_kind: str | None = None,
+) -> tuple[list[dict], HarvestEvidence]:
+    """Execute a validated script over ``http`` → (rows, evidence). RAISES on failure.
+
+    The caller supplies ``http`` so timeouts / SSRF guarding live in one place (the
+    leaf task and discovery pass an SSRF-guarded client). ``transport`` /
+    ``oracle_kind`` are the ``company_scripts`` column values: when supplied, the
+    read-path :func:`validate_recipe` also asserts the stored JSONB's
+    ``transport`` / ``oracle.kind`` equal them, so a JSONB-vs-column drift is caught
+    on replay, not just at write time. The returned :class:`HarvestEvidence` is
+    exactly what ``run_gate`` / ``verify_harvest`` already consume.
+
+    HTTP transports ONLY. The dispatch below is exhaustive and its ``else`` RAISES:
+    ``browser_fetch`` is a valid stored transport that this function must never
+    silently run, because an implicit "everything else is HTML" would hand a JSON
+    API to bs4 and fail with a nonsense selector error instead of naming the real
+    problem (a browser transport reached the agent-free path).
+    """
+    assert_no_agent_imports()   # FIRST, every call — the agent-free proof.
+    # validate-on-read: stored scripts drift, and the column-equality check catches
+    # a JSONB row edited out of sync with its transport/oracle_kind columns.
+    validate_recipe(script, transport=transport, oracle_kind=oracle_kind)
+    plan = parse_plan(script)
+
+    if plan.transport == "http_json":
+        state = _run_http_json(http, plan)
+    elif plan.transport == "http_html":
+        state = _run_http_html(http, plan)
+    else:
+        raise RecipeExecutionError(
+            f"transport {plan.transport!r} cannot run on the agent-free HTTP replay "
+            "path — it needs its own out-of-band executor; FAILED"
+        )
+
+    return finalize_harvest(plan, state, http)

@@ -294,6 +294,37 @@ async def _run_browser_agent_script(
     return recipe_rows_to_job_listings(company_id, rows), evidence
 
 
+async def _run_browser_fetch_script(
+    script: dict[str, Any],
+    company_id: str,
+    *,
+    transport: str,
+    oracle_kind: str,
+) -> tuple[list[JobListing], HarvestEvidence]:
+    """Replay a DISCOVERED ``browser_fetch`` company's stored recipe (E7 Phase 3c).
+
+    Re-issues the board's captured jobs request inside OUR OWN headless Chromium on
+    the board's origin (``run_browser_fetch`` — a subprocess; no Browserbase, no LLM),
+    maps its rows via ``recipe_rows_to_job_listings`` and returns the SAME
+    ``HarvestEvidence`` the ATS / http paths yield, so the gate/verdict/upsert tail
+    below is byte-identical.
+
+    ``run_browser_fetch`` RAISES ``RecipeExecutionError`` on an SSRF-blocked URL, a
+    non-2xx or non-JSON page, an over-budget page count, zero rows, or a Chromium
+    crash/timeout — the leaf task's narrow ``except`` records that as a FAILED run
+    (nothing destructive, NOT a miss). Imported LAZILY (inside this function, i.e.
+    only when the ``browser_fetch`` branch runs) so the leaf task's module import
+    graph never even references the package — ``playwright`` lives solely in the
+    subprocess it spawns, and the import-guard tests hold.
+    """
+    from ..services.browser_fetch import runner as browser_fetch_runner
+
+    rows, evidence = await browser_fetch_runner.run_browser_fetch(
+        script, transport=transport, oracle_kind=oracle_kind
+    )
+    return recipe_rows_to_job_listings(company_id, rows), evidence
+
+
 @procrastinate_app.task(
     queue="custom_ats_fetch",
     name="fetch_custom_company",
@@ -394,6 +425,36 @@ async def fetch_custom_company(company_id: str) -> None:
                         company.get("oracle_kind") or "self_consistent"
                     )
                     raw_jobs, evidence = await _run_browser_agent_script(
+                        script, company_id,
+                        transport=transport, oracle_kind=oracle_kind_effective,
+                    )
+                elif transport == "browser_fetch":
+                    # KILL-SWITCH: ``custom_company_discovery_enabled``, NOT
+                    # ``browser_agent_enabled`` (which is the Stagehand tier's flag
+                    # and is being retired). Rationale: discovery is the ONLY thing
+                    # that ever creates a browser_fetch company, so with the flag off
+                    # the tier is dormant end-to-end, and flipping it off is a
+                    # fleet-wide stop for the whole own-Chromium surface if its SSRF
+                    # posture ever needs one. The cost of that choice, stated plainly:
+                    # turning discovery off ALSO stops re-harvesting boards that were
+                    # already discovered — they go stale rather than partially
+                    # harvested. That is the safe direction (a no-op skip harvests
+                    # nothing, closes nothing, accrues no miss — identical to the
+                    # disabled-company path), and per-company ``enabled=FALSE`` remains
+                    # the single-board switch.
+                    if not settings.custom_company_discovery_enabled:
+                        verdict_reason = "browser_fetch_disabled"
+                        logger.info(
+                            "fetch_custom_company: custom_company_discovery_enabled off; "
+                            "skipping browser_fetch harvest for %s", company_id,
+                        )
+                        return
+                    # DISCOVERED browser_fetch company — replay the captured request
+                    # inside our own Chromium. Use the STORED oracle_kind for the same
+                    # reason the http branch does: a discovered company has no ATS
+                    # provider, so ``effective_oracle_kind`` does not apply.
+                    oracle_kind_effective = str(company.get("oracle_kind") or "none")
+                    raw_jobs, evidence = await _run_browser_fetch_script(
                         script, company_id,
                         transport=transport, oracle_kind=oracle_kind_effective,
                     )
