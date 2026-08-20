@@ -23,6 +23,22 @@ describe('CHANGELOG config', () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
+  it('keeps the reveal announcement as its OWN entry', () => {
+    // Pinned deliberately. The "Job title" -> "Job category" RENAME is visible
+    // the day its code merges; the subcategory TREE is invisible until an admin
+    // flips the reveal flag, so one fused entry would have to announce a
+    // feature nobody can see yet.
+    //
+    // The full two-entry pin also asserts `job-category-rename-2026-08`, which
+    // is FE-CL-1's entry and ships in the rename PR — a SIBLING branch, not an
+    // ancestor of this one. Add that half to this assertion when the two merge,
+    // so a future tidy-up cannot fuse them back together and re-introduce the
+    // lie.
+    const ids = CHANGELOG.map((e) => e.id);
+    expect(ids).toContain('swe-subcategories-2026-08');
+    expect(ids.filter((id) => id === 'swe-subcategories-2026-08')).toHaveLength(1);
+  });
+
   it('entry dates parse as valid dates', () => {
     for (const entry of CHANGELOG) {
       const parsed = Date.parse(entry.date);
