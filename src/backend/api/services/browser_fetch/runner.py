@@ -47,6 +47,7 @@ import os
 import sys
 from pathlib import Path
 from typing import Any, Awaitable, Callable
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -60,16 +61,31 @@ from ..recipe_runner import (
     parse_plan,
 )
 from ..recipe_schema import BROWSER_FETCH, validate_recipe
-from ..url_guard import UrlGuardError, validate_public_url
+from ..url_guard import _DNS_EXECUTOR, UrlGuardError, validate_public_url
 
 logger = logging.getLogger(__name__)
 
-# Subprocess wall-clock cap. Larger than the browser-agent's 120s because this child
-# pays a cold Chromium launch AND up to ``max_pages`` sequential in-page fetches,
-# and smaller than the leaf task's own 120s guard would allow it to matter — the
-# task timeout fires first on a truly wedged run; this one exists so a hung page
-# cannot leave a Chromium parked on the Railway box.
-_SUBPROCESS_TIMEOUT_S = 180.0
+# Subprocess wall-clock cap. It MUST stay strictly BELOW the leaf task's
+# ``_TASK_TIMEOUT_S`` (120s), and that ordering is the whole point, not a detail: if
+# the task's guard fires first it CANCELS this coroutine, a ``CancelledError`` is not
+# an ``asyncio.TimeoutError``, and the timeout branch below — the only place that
+# kills the child — would never run. That is exactly the "Chromium parked on the
+# Railway box" this constant exists to prevent, so 90 < 120 is load-bearing.
+# (The ``finally`` in :func:`_subprocess_run` reaps on the cancellation path too; the
+# ordering is what makes the FAILURE legible as a timeout instead of a task death.)
+#
+# This is the ONLY wall-clock bound on the whole sweep. The child's own budgets are
+# PER-STEP (45s nav + 2.5s settle + 30s per in-page fetch), so at the 25-page ceiling
+# its arithmetic worst case is ~800s; blowing 90s is a FAILED run, which closes
+# nothing and is not a miss, so the cap — not the ceiling — is what bounds a wedged
+# board. A recipe that legitimately needs more than 90s of paging is a recipe this
+# tier cannot serve, and failing loudly is the correct answer to that.
+_SUBPROCESS_TIMEOUT_S = 90.0
+
+# How long to wait for a SIGKILLed child to actually die before giving up on reaping
+# it ourselves. ``tini`` is PID 1 in the container precisely so an unreaped
+# grandchild is still collected (see the Dockerfile's pthread-exhaustion note).
+_REAP_TIMEOUT_S = 10.0
 
 # Hard page ceiling the PARENT enforces on read, independent of what the recipe says
 # and independent of the child's own identical ceiling. Two sides must agree for a
@@ -123,20 +139,33 @@ def _child_pagination(plan: RecipePlan) -> dict[str, Any] | None:
     }
 
 
+def _hostname(url: str) -> str:
+    """Lowercased host of ``url``, or ``''``. Matches the child's own copy."""
+    return (urlsplit(url).hostname or "").lower()
+
+
 def build_subprocess_plan(script: dict[str, Any], plan: RecipePlan) -> dict[str, Any]:
     """The JSON the child reads on stdin. Deliberately NOT the recipe: the child gets
     only what it needs to issue the requests (D3 — the child is dumb), so extraction,
     shaping, dedupe and the oracle stay on this side of the boundary."""
+    origin_url = script["origin_url"]
+    fetch_url = plan.fetch["url"]
     return {
-        "origin_url": script["origin_url"],
+        "origin_url": origin_url,
         "method": plan.fetch.get("method", "GET"),
-        "url": plan.fetch["url"],
+        "url": fetch_url,
         "headers": dict(plan.fetch.get("headers") or {}),
         "body": dict(plan.fetch.get("body") or {}),
         "pagination": _child_pagination(plan),
         # The child counts records ONLY to know when to stop paging; the parent is
         # what turns an unresolvable path into a FAILED run.
         "records_path": plan.extraction["records_path"],
+        # THE HOST-PIN. Exactly the two hosts this parent SSRF-validated below, so
+        # the child can refuse the redirect hops Chromium would otherwise take on
+        # its own — the same host-pin ``guarded_client.GuardedTransport`` gives the
+        # httpx tier against the same stored recipes. Sorted so the plan handed to
+        # the child is deterministic.
+        "allowed_hosts": sorted({_hostname(origin_url), _hostname(fetch_url)} - {""}),
     }
 
 
@@ -156,18 +185,78 @@ def _default_validate_url(url: str) -> None:
         ) from exc
 
 
+# Everything the child legitimately needs, and nothing else. It is an ALLOWLIST on
+# purpose — see :func:`_child_env`.
+_ENV_ALLOWLIST = (
+    "PATH",                 # find the interpreter's own tooling
+    "HOME",                 # where `playwright install` put ~/.cache/ms-playwright
+    "TMPDIR", "TMP", "TEMP",  # Chromium's user-data-dir / crashpad scratch
+    "LANG", "LC_ALL",       # locale-dependent text handling in the child
+    "XDG_CACHE_HOME", "XDG_CONFIG_HOME", "XDG_RUNTIME_DIR",
+    "PYTHONUNBUFFERED",     # the Dockerfile sets it so stderr is line-flushed
+    "SYSTEMROOT",           # Windows-only; harmless elsewhere, fatal to omit there
+)
+
+
+def _child_env() -> dict[str, str]:
+    """The child's ENTIRE environment: an allowlist, NOT a copy of ours.
+
+    ``dict(os.environ)`` would hand a Chromium launched with ``--no-sandbox`` — and
+    pointed at an origin a stored, LLM-authored recipe chose — the worker's whole
+    production credential set (``DATABASE_URL``, ``INTERNAL_API_KEY``,
+    ``ANTHROPIC_API_KEY``, ``BROWSERBASE_API_KEY``), inherited straight into every
+    renderer process. Unlike the Stagehand child this one needs ZERO secrets, so the
+    allowlist is short and the docstring below ("NO credentials are injected") is
+    something the code actually enforces rather than merely asserts.
+
+    ``PLAYWRIGHT_*`` passes through by prefix because the browser-path vars an image
+    may set are not a fixed list; none of them is a secret.
+    """
+    env = {
+        key: os.environ[key]
+        for key in _ENV_ALLOWLIST
+        if key in os.environ
+    }
+    env.update(
+        {k: v for k, v in os.environ.items() if k.startswith("PLAYWRIGHT_")}
+    )
+    return env
+
+
+async def _reap(proc: Any) -> None:
+    """SIGKILL the child if it is still running, then WAIT for it — on EVERY path.
+
+    ``kill()`` without the ``wait()`` leaves a zombie holding its pid and pipes, and
+    no ``kill()`` at all leaves a live headless Chromium (hundreds of MB) on the
+    Railway box plus a child blocked forever writing a report into a pipe whose
+    reader is gone. Swallowing a cancellation here is deliberate: the SIGKILL is
+    already delivered, ``tini`` collects what we could not, and re-raising would
+    replace the real failure with a bookkeeping one.
+    """
+    if proc.returncode is not None:
+        return
+    try:
+        proc.kill()
+    except ProcessLookupError:      # it exited between the check and the kill
+        return
+    try:
+        await asyncio.wait_for(proc.wait(), timeout=_REAP_TIMEOUT_S)
+    except (asyncio.TimeoutError, asyncio.CancelledError):
+        logger.warning("browser_fetch subprocess did not exit after SIGKILL")
+
+
 async def _subprocess_run(subprocess_plan: dict[str, Any]) -> dict[str, Any]:
     """Spawn ``_browser_fetch_main`` and return its parsed JSON report.
 
     NO credentials are injected: this child drives a LOCAL Chromium, so unlike the
-    Browserbase/Stagehand child it needs no API key and must never be handed one. The
-    child imports ``playwright``; THIS parent never does — the boundary that keeps the
-    replay worker agent-free.
+    Browserbase/Stagehand child it needs no API key and must never be handed one —
+    :func:`_child_env` is what makes that true. The child imports ``playwright``;
+    THIS parent never does — the boundary that keeps the replay worker agent-free.
     """
     backend_root = Path(__file__).resolve().parents[3]  # src/backend
     repo_root = backend_root.parents[1]                 # repo root (holds scripts/)
-    env = dict(os.environ)
-    prior = env.get("PYTHONPATH", "")
+    env = _child_env()
+    prior = os.environ.get("PYTHONPATH", "")
     env["PYTHONPATH"] = os.pathsep.join(
         p for p in (str(backend_root), str(repo_root), prior) if p
     )
@@ -186,10 +275,16 @@ async def _subprocess_run(subprocess_plan: dict[str, Any]) -> dict[str, Any]:
             timeout=_SUBPROCESS_TIMEOUT_S,
         )
     except asyncio.TimeoutError as exc:
-        proc.kill()
         raise RecipeExecutionError(
             f"browser_fetch subprocess timed out after {_SUBPROCESS_TIMEOUT_S}s"
         ) from exc
+    finally:
+        # NOT in the ``except`` — the leaf task's 120s ``wait_for`` cancels this
+        # coroutine, and a ``CancelledError`` (a BaseException) skips every
+        # ``except`` clause here. Reaping in the ``finally`` is what makes the
+        # kill unconditional; without it the one path that actually strands a
+        # Chromium is the one path that never killed it.
+        await _reap(proc)
     if proc.returncode != 0:
         raise RecipeExecutionError(
             f"browser_fetch subprocess failed (rc={proc.returncode}): "
@@ -346,9 +441,19 @@ async def run_browser_fetch(
     # SSRF on BOTH user-influenced URLs, BEFORE anything spawns (invariant #4). The
     # origin is what Chromium navigates to; the fetch URL is what runs inside it. A
     # blocked one costs zero browser.
+    #
+    # OFF THE LOOP. ``validate_public_url`` is sync and does a blocking
+    # ``getaddrinfo`` on a host a stored, LLM-authored recipe chose — url_guard
+    # measured the loop ticking 0 times during a 1.0s lookup, and we share this
+    # process with the Procrastinate worker, so a board with a blackholing resolver
+    # would stall every in-flight ATS fetch AND the 120s task backstop meant to save
+    # us. ``_DNS_EXECUTOR`` rather than ``asyncio.to_thread`` for the reason stated
+    # at that constant: the loop's default pool is the one every outbound connection
+    # in this process already shares. Sequential, so the two calls stay ordered.
+    loop = asyncio.get_running_loop()
     check_url = validate_url or _default_validate_url
-    check_url(script["origin_url"])
-    check_url(plan.fetch["url"])
+    await loop.run_in_executor(_DNS_EXECUTOR, check_url, script["origin_url"])
+    await loop.run_in_executor(_DNS_EXECUTOR, check_url, plan.fetch["url"])
 
     subprocess_plan = build_subprocess_plan(script, plan)
     report = await (run_subprocess or _subprocess_run)(subprocess_plan)

@@ -378,7 +378,11 @@ async def test_subprocess_timeout_raises(monkeypatch) -> None:
     )
 
     class _HangingProc:
-        returncode = 0
+        # ``None`` because that is what a still-running child ACTUALLY reports —
+        # the reaper keys off it to tell "hung, kill it" from "already exited,
+        # killing it would be a bug" (the non-zero-exit test below asserts the
+        # other side of that branch).
+        returncode = None
 
         async def communicate(self, input: bytes | None = None) -> tuple[bytes, bytes]:
             await asyncio.sleep(5)
@@ -386,6 +390,10 @@ async def test_subprocess_timeout_raises(monkeypatch) -> None:
 
         def kill(self) -> None:
             self.killed = True
+            self.returncode = -9
+
+        async def wait(self) -> int:
+            return -9
 
     proc = _HangingProc()
 
@@ -483,3 +491,81 @@ def test_child_get_cursor_merge_preserves_the_captured_filters() -> None:
     assert counted == "3"
     # Unknown → stop paging and let the PARENT raise with the real diagnosis.
     assert missing == "None" and unparseable == "None"
+
+
+# --- the host-pin (redirect laundering) --------------------------------------
+#
+# The BROWSER-level proof lives in ``scripts/one_off/http_capture_poc/browser_fetch_pin_repro.py``
+# — it stands up local board/private/CDN servers, runs the REAL child against a REAL
+# Chromium, and shows the private host is never reached while the board's third-party
+# sub-resource still loads. These tests pin the pure pieces that proof depends on, so a
+# refactor cannot quietly remove the control without a red test.
+
+
+def test_the_recipe_fetch_refuses_to_follow_redirects() -> None:
+    """``redirect: 'error'`` is the pin for the request that produces our DATA.
+
+    Chromium follows a 302 itself and ``context.route`` is NOT re-entered for the hop
+    (measured), so ``redirect: 'follow'`` would let a board launder our fetch onto an
+    internal address and hand us that body as if it were jobs. Losing this one word is
+    a silent SSRF regression, hence a test that names it.
+    """
+    code = (
+        "from api.services.browser_fetch._browser_fetch_main import _FETCH_JS\n"
+        "print('error' if \"redirect: 'error'\" in _FETCH_JS else 'MISSING')\n"
+        "print('follow' if \"redirect: 'follow'\" in _FETCH_JS else 'no-follow')\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=str(_BACKEND), env=_SUBPROC_ENV,
+        capture_output=True, text=True, timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    mode, follow = result.stdout.strip().splitlines()
+    assert mode == "error"
+    assert follow == "no-follow"
+
+
+def test_redirect_target_host_reads_the_location_hop() -> None:
+    """What the navigation pin decides on: the host a 3xx would send us to.
+
+    Relative Locations must resolve against the response URL — a board that answers
+    ``Location: /internal`` is not off-host, and one that answers a bare absolute URL
+    is, and confusing the two either breaks clean boards or opens the hole.
+    """
+    code = (
+        "from api.services.browser_fetch._browser_fetch_main import _redirect_target_host\n"
+        "class R:\n"
+        "    def __init__(self, status, loc, url):\n"
+        "        self.status, self.url = status, url\n"
+        "        self.headers = {'location': loc} if loc else {}\n"
+        "print(repr(_redirect_target_host(R(200, '', 'https://board.test/careers'))))\n"
+        "print(repr(_redirect_target_host(R(302, 'http://169.254.169.254/latest/meta-data',"
+        " 'https://board.test/careers'))))\n"
+        "print(repr(_redirect_target_host(R(302, '/jobs', 'https://board.test/careers'))))\n"
+        "print(repr(_redirect_target_host(R(301, 'https://BOARD.TEST/jobs',"
+        " 'https://board.test/careers'))))\n"
+        "print(repr(_redirect_target_host(R(302, '', 'https://board.test/careers'))))\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=str(_BACKEND), env=_SUBPROC_ENV,
+        capture_output=True, text=True, timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    non_redirect, metadata, relative, cased, headerless = result.stdout.strip().splitlines()
+    assert non_redirect == "''"                   # a 200 is not a hop
+    assert metadata == "'169.254.169.254'"        # the case the pin exists for
+    assert relative == "'board.test'"             # same-host, must stay allowed
+    assert cased == "'board.test'"                # host compare is case-insensitive
+    assert headerless == "''"                     # a 3xx with no Location is not a hop
+
+
+async def test_the_plan_pins_exactly_the_two_validated_hosts() -> None:
+    """The child can only pin what the parent hands it, and the parent must hand it
+    exactly the hosts it SSRF-validated — no more (a third host would be unvalidated)
+    and no fewer (a missing host pins the run shut)."""
+    script = _script()
+    plan = parse_plan(script)
+    subprocess_plan = build_subprocess_plan(script, plan)
+    assert subprocess_plan["allowed_hosts"] == ["api.lifeattiktok.com", "lifeattiktok.com"]

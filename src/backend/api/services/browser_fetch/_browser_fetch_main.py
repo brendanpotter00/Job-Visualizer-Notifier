@@ -37,7 +37,7 @@ from __future__ import annotations
 import json
 import sys
 from typing import Any
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
 # The ONLY playwright import in the backend's replay path, and it is in a child process.
 from playwright.sync_api import sync_playwright
@@ -67,8 +67,13 @@ async ({url, method, headers, body, timeoutMs}) => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
+    // redirect:'error' is the HOST-PIN for this request. Chromium follows a 302
+    // itself, and context.route() is NOT re-entered for a redirect hop (measured),
+    // so 'follow' would let a board launder our fetch onto an internal address and
+    // hand us its body as if it were jobs. 'error' rejects instead -> the child
+    // exits non-zero -> the parent raises -> FAILED run -> nothing closes.
     const init = {method: method, headers: headers, credentials: 'same-origin',
-                  signal: controller.signal};
+                  redirect: 'error', signal: controller.signal};
     if (method === 'POST') { init.body = JSON.stringify(body); }
     const r = await fetch(url, init);
     const text = await r.text();
@@ -133,6 +138,93 @@ def _merge_query(url: str, params: dict[str, Any]) -> str:
                 if k not in params]
     existing.extend((k, str(v)) for k, v in params.items())
     return urlunsplit(parts._replace(query=urlencode(existing)))
+
+
+def _hostname(url: str) -> str:
+    """Lowercased host of ``url``, or ``''``. Mirrors ``runner._hostname``."""
+    return (urlsplit(url).hostname or "").lower()
+
+
+def _redirect_target_host(response: Any) -> str:
+    """Lowercased host of a 3xx ``Location``, or ``''`` for a non-redirect."""
+    if not (300 <= int(response.status) < 400):
+        return ""
+    location = response.headers.get("location") or ""
+    if not location:
+        return ""
+    return _hostname(urljoin(response.url, location))
+
+
+def _install_host_pin(context: Any, allowed_hosts: set[str]) -> None:
+    """Pin NAVIGATIONS to the hosts the parent SSRF-validated.
+
+    The parent validates ``origin_url`` and the fetch URL before we are spawned, and
+    that is where its guarantee stops: Chromium then follows redirects ITSELF, from
+    inside the Railway container, with no re-validation. A board that 302s its
+    careers page to ``http://169.254.169.254/…`` gets that request issued from inside
+    our network.
+
+    The obvious fix does NOT work, and this is measured, not assumed: a plain
+    ``context.route`` handler that inspects ``request.url`` is **never re-entered for
+    a redirect hop** — the handler sees only the first request, Chromium follows the
+    302 internally, and the internal host is reached anyway. What does work is asking
+    PLAYWRIGHT to make the request first: ``route.fetch(max_redirects=0)`` returns the
+    3xx itself, so we can read ``Location`` and abort BEFORE Chromium ever takes the
+    hop. We then ``continue_()`` rather than ``fulfill()`` — see the note at the call.
+
+    Scope is deliberately NARROW — navigations only:
+
+    * a navigation is the one request whose redirect we must own, and it carries no
+      board signing, so performing it through Playwright cannot break the tier; and
+    * every other request (the board's own CDN images, fonts, scripts) is passed
+      straight through with ``continue_()``, because routing those through Playwright
+      would change the first-paint settle this tier depends on for no security gain —
+      the recipe does not read them.
+
+    The recipe's OWN fetch is pinned separately and more strongly, by
+    ``redirect: 'error'`` in :data:`_FETCH_JS` — that one must keep running inside the
+    page to stay origin-signed, so it is the request, not the router, that refuses.
+    """
+    def _handler(route: Any, request: Any) -> None:
+        # FAIL CLOSED, and say why. An exception escaping a route handler does not
+        # merely skip the pin — playwright never resolves the route, the request
+        # hangs, and the run dies with an opaque error. Aborting on an unexpected
+        # fault keeps the invariant while making the cause greppable in stderr,
+        # which the parent already surfaces in its RecipeExecutionError.
+        try:
+            if not request.is_navigation_request():
+                route.continue_()
+                return
+            if _hostname(request.url) not in allowed_hosts:
+                print(f"host-pin: aborted navigation {request.url}", file=sys.stderr)
+                route.abort()
+                return
+            # INSPECT-ONLY, and never ``fulfill``. Fulfilling the document from an
+            # APIResponse makes every sub-resource of that document fail with
+            # ``net::ERR_FAILED`` (measured: the board's own CDN image stops
+            # loading), which would break exactly the client-rendered boards this
+            # tier exists to read. So we use ``route.fetch`` purely to LOOK at the
+            # redirect, then hand the request back to Chromium untouched. The cost
+            # is that a clean navigation is fetched twice — an idempotent GET on a
+            # careers page, which is cheap next to the Chromium launch it precedes.
+            response = route.fetch(max_redirects=0)
+            target = _redirect_target_host(response)
+            if target and target not in allowed_hosts:
+                print(
+                    f"host-pin: aborted redirect {request.url} -> {target}",
+                    file=sys.stderr,
+                )
+                route.abort()
+                return
+            route.continue_()
+        except Exception as exc:                       # noqa: BLE001 - see above
+            print(f"host-pin: FAULT on {request.url}: {exc!r}", file=sys.stderr)
+            try:
+                route.abort()
+            except Exception:                          # already resolved
+                pass
+
+    context.route("**/*", _handler)
 
 
 def _effective_max_pages(plan: dict[str, Any]) -> int:
@@ -223,6 +315,10 @@ def run_capture(plan: dict[str, Any]) -> dict[str, Any]:
     origin_url = plan["origin_url"]
     nav_timeout_ms = int(plan.get("nav_timeout_ms") or _DEFAULT_NAV_TIMEOUT_MS)
     settle_ms = int(plan.get("settle_ms") or _DEFAULT_SETTLE_MS)
+    # Defence in depth against a plan that lost the key: an EMPTY allowlist pins
+    # everything shut rather than opening everything up, so a bug here is a FAILED
+    # run, never a silently unpinned browser.
+    allowed_hosts = {str(h).lower() for h in plan.get("allowed_hosts") or []}
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch(
@@ -238,6 +334,9 @@ def run_capture(plan: dict[str, Any]) -> dict[str, Any]:
                 locale="en-US",
                 user_agent=_USER_AGENT,
             )
+            # BEFORE the first navigation — a pin installed after ``goto`` would
+            # miss the one hop that matters.
+            _install_host_pin(context, allowed_hosts)
             page = context.new_page()
             page.goto(origin_url, wait_until="domcontentloaded", timeout=nav_timeout_ms)
             # Settle on-origin before fetching: a client-rendered careers SPA sets the
