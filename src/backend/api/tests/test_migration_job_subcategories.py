@@ -216,3 +216,151 @@ def test_job_subcategories_structure_upgrade_and_downgrade(
         )
         maint_cur.execute(f'DROP DATABASE IF EXISTS "{roundtrip_db}"')
         maint.close()
+
+
+# --- SCHEMA-7 (phase 2): the seed -------------------------------------------
+
+# SCHEMA-11 (retire_project_manager_category) is the parent of the seed
+# revision — the chain is 7c1a4f2b9e30 -> b93d5c17a842 -> 2e6f81ad4b57 -> here.
+_SEED_PARENT = "2e6f81ad4b57"
+_SEED_REV = "5a7d3e9c1b46"
+
+
+def _load_seed_migration():
+    """Import the seed revision module by path.
+
+    Alembic revision files are not importable as a package, so read the module
+    off disk the way `test_internal_enrichment.py` does. Importing rather than
+    re-typing the fifteen rows is the whole point: a copy in this file would be
+    a seventh place the taxonomy can drift.
+    """
+    import importlib.util
+
+    matches = sorted(_SCRIPT_LOCATION.glob("versions/*seed_job_subcategories*.py"))
+    assert len(matches) == 1, f"expected exactly one seed revision file, got {matches}"
+    spec = importlib.util.spec_from_file_location("_seed_job_subcategories", matches[0])
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.skipif(
+    _is_prod_like(TEST_DB_URL),
+    reason="refusing to run migration roundtrip against a prod-like TEST_DATABASE_URL",
+)
+def test_job_subcategories_seed_upgrade_and_downgrade(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The phase-2 seed publishes exactly the fifteen canonical rows.
+
+    Stamps SCHEMA-11 (so Alembic treats the structure migration as applied
+    without re-running the ~30 seed migrations before it), upgrades through THIS
+    revision only, asserts the dimension, then downgrades and asserts the table
+    is empty again but still present.
+    """
+    monkeypatch.delenv("PYTEST_SCHEMA", raising=False)
+
+    seed_mig = _load_seed_migration()
+
+    suffix = uuid.uuid4().hex[:8]
+    roundtrip_db = f"seed_subcat_{suffix}"
+
+    maintenance_url = TEST_DB_URL.rsplit("/", 1)[0] + "/postgres"
+    maint = psycopg2.connect(maintenance_url, cursor_factory=RealDictCursor)
+    maint.autocommit = True
+    maint_cur = maint.cursor()
+    maint_cur.execute(f'DROP DATABASE IF EXISTS "{roundtrip_db}"')
+    maint_cur.execute(f'CREATE DATABASE "{roundtrip_db}"')
+    maint.close()
+
+    roundtrip_url = TEST_DB_URL.rsplit("/", 1)[0] + f"/{roundtrip_db}"
+
+    from api.db_models import Base
+
+    try:
+        from sqlalchemy import create_engine
+
+        engine = create_engine(roundtrip_url)
+        job_categories = Base.metadata.tables["job_categories"]
+        job_subcategories = Base.metadata.tables["job_subcategories"]
+        # The ORM already declares the post-SCHEMA-1 shape, which is exactly the
+        # state this revision expects to find.
+        Base.metadata.create_all(engine, tables=[job_categories, job_subcategories])
+        engine.dispose()
+
+        seed_conn = psycopg2.connect(roundtrip_url, cursor_factory=RealDictCursor)
+        seed_conn.autocommit = True
+        try:
+            cur = seed_conn.cursor()
+            # job_subcategories.parent_slug is a real FK, so the parent category
+            # row has to exist before the seed runs.
+            cur.execute(
+                "INSERT INTO job_categories (slug, label, sort_order) "
+                "VALUES ('software_engineering', 'Software Engineering', 0) "
+                "ON CONFLICT (slug) DO NOTHING"
+            )
+        finally:
+            seed_conn.close()
+
+        from alembic import command
+        from alembic.config import Config
+
+        cfg = Config(str(_ALEMBIC_INI))
+        cfg.set_main_option("sqlalchemy.url", roundtrip_url)
+        cfg.set_main_option("script_location", str(_SCRIPT_LOCATION))
+        cfg.config_file_name = None
+
+        command.stamp(cfg, _SEED_PARENT)
+        command.upgrade(cfg, _SEED_REV)
+
+        verify = psycopg2.connect(roundtrip_url, cursor_factory=RealDictCursor)
+        try:
+            cur = verify.cursor()
+            cur.execute(
+                "SELECT slug, label, parent_slug, sort_order "
+                "FROM job_subcategories ORDER BY sort_order"
+            )
+            rows = cur.fetchall()
+
+            assert len(rows) == 15, f"expected exactly 15 seeded rows, got {len(rows)}"
+
+            # Byte-for-byte against the migration's own export — never re-typed.
+            expected = [
+                (slug, label, sort_order, parent)
+                for slug, label, sort_order, parent in seed_mig.ADDED_SUBCATEGORIES
+            ]
+            actual = [
+                (r["slug"], r["label"], r["sort_order"], r["parent_slug"]) for r in rows
+            ]
+            assert actual == expected
+
+            assert all(r["parent_slug"] == "software_engineering" for r in rows)
+            # Contiguous 0..14, no gaps and no duplicates.
+            assert sorted(r["sort_order"] for r in rows) == list(range(15))
+        finally:
+            verify.close()
+
+        command.downgrade(cfg, _SEED_PARENT)
+
+        verify = psycopg2.connect(roundtrip_url, cursor_factory=RealDictCursor)
+        try:
+            # Downgrade removes exactly those 15 rows and leaves the table.
+            assert _table_exists(verify, "job_subcategories")
+            cur = verify.cursor()
+            cur.execute("SELECT count(*) AS n FROM job_subcategories")
+            assert cur.fetchone()["n"] == 0
+        finally:
+            verify.close()
+
+    finally:
+        maint = psycopg2.connect(maintenance_url, cursor_factory=RealDictCursor)
+        maint.autocommit = True
+        maint_cur = maint.cursor()
+        maint_cur.execute(
+            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+            "WHERE datname = %s AND pid <> pg_backend_pid()",
+            (roundtrip_db,),
+        )
+        maint_cur.execute(f'DROP DATABASE IF EXISTS "{roundtrip_db}"')
+        maint.close()
