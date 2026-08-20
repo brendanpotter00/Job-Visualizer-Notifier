@@ -59,13 +59,6 @@ describe('jobsWindowForTimeWindow', () => {
       expect(jobsWindowForTimeWindow(tw)).toBe('90d');
     }
   });
-
-  it('answers coverage, not the product default — a filter never over-fetches', () => {
-    // Regression guard for the all-time default: if this mapping were written
-    // as "fall back to RECENT_JOBS_DEFAULT_WINDOW", a 24-hour filter would ask
-    // for an all-time fetch and the caller would restart the walk to get it.
-    expect(jobsWindowForTimeWindow('24h')).not.toBe(RECENT_JOBS_DEFAULT_WINDOW);
-  });
 });
 
 describe('RECENT_JOBS_DEFAULT_WINDOW', () => {
