@@ -158,7 +158,7 @@ All configuration via environment variables:
 - `GET /api/users/enabled-companies` - List user's enabled companies (requires Bearer token)
 - `PUT /api/users/enabled-companies` - Update user's enabled companies (requires Bearer token)
 
-**Saved Filters Router (`/api/users/saved-filters`):** all routes require a Bearer token.
+**Saved Filters Router (`/api/users/saved-filters`):** all routes require a Bearer token. The scalar body carries `category`, `level` and `subcategory` — SINGULAR on a saved FILTER, where the plural `subcategories` is the JOB-side field, and the two must not be mixed. ⚠ **The `[]` collision:** `user_saved_filters.subcategory = []` means "no filter selected, show EVERYTHING", while `job_listings.enrichment_subcategories = '{}'` means "evaluated, and no specialty applies" and is TERMINAL. Same literal, opposite meanings, and the same Redux field name flows through both. The PUT is FULL-REPLACE against an `extra='forbid'` model: omitting `subcategory` clears it, and an unknown key 422s the whole object — which is why the column must exist server-side BEFORE the SPA sends the field (Railway first, Vercel second).
 - `GET /api/users/saved-filters` - Scalar saved filters (per-page time windows, shared locations, active keyword-list pointers); never 404s — returns server defaults (`recent=all`, `trend=90d`, no locations) when the user has no row
 - `PUT /api/users/saved-filters` - Full-replace (upsert) the scalar saved filters; 409 if an active keyword-list pointer is unknown or not owned
 - `GET /api/users/saved-filters/keyword-lists` - List the user's named keyword lists by position, with the read-only built-in "Software Engineering" list (`builtin-swe`) synthesized last
@@ -167,9 +167,11 @@ All configuration via environment variables:
 - `DELETE /api/users/saved-filters/keyword-lists/{list_id}` - Delete a list (204; NULLs any active pointer referencing it); 404 if not owned, 422 on the built-in id
 - `GET /api/users/saved-filters/locations/search` - Substring autocomplete over canonical location names (params: `q`, `limit`, `openOnly`)
 
-**Jobs facets:** `GET /api/jobs/facets` - enrichment dropdown catalog (categories + levels + subcategories with labels/order/parent) from the seeded dimensions. `job_subcategories` ships EMPTY in phase 1, so the `subcategories` array is `[]` until it is seeded; the client normalizes a MISSING key to `[]` too, so an older backend renders exactly today's flat dropdown.
+**Jobs facets:** `GET /api/jobs/facets` - enrichment dropdown catalog with THREE dimensions (categories + levels + subcategories, each carrying labels/order/parent) from the seeded tables. All three row shapes match because the categories query selects `NULL AS parent_slug`, so `FacetOption` needs no per-dimension variant. Since SCHEMA-7 the `subcategories` array carries the fifteen seeded rows; the client still normalizes a MISSING key to `[]`, so an older backend renders exactly today's flat dropdown.
 
-**Public settings:** `GET /api/jobs/settings` - unauthenticated read of the client-visible feature flags (`sweSubcategoriesEnabled`). It **fails CLOSED**: any read failure returns `false`, because hidden-when-broken costs a feature that is not visible yet while failing open reveals a filter that returns nothing. Deliberately NOT a field on `/api/jobs/facets` — that query has no `providesTags` and `keepUnusedDataFor: 3600`, and since the SPA sets no `refetchOnFocus`, a SUBSCRIBED facets entry never refetches for the life of the tab.
+⚠ **`parentSlug` carries TWO different meanings and they must never be confused.** On `levels` it is a FILTER-EXPANSION edge (`new_grad` sits under `entry`, so selecting Entry also matches New Grad) — that is what the client's level-expansion builder consumes. On `subcategories` it is a GROUPING edge only (`software_engineering` on every row), naming which parent the option renders under. Feeding the subcategory edges into the level-expansion builder would turn one category selection into fifteen, silently, with a 200. The subcategory FILTER expansion is a separate, static map (`enrichment_writer.SUBCATEGORY_FILTER_EXPANSION`) precisely because `full_stack` has two expansion parents that one self-FK column cannot express.
+
+**Public settings:** `GET /api/jobs/settings` - unauthenticated read of the client-visible feature flags (`sweSubcategoriesEnabled`). It **fails CLOSED**: any read failure returns `false`, because hidden-when-broken costs a feature that is not visible yet while failing open reveals a filter that returns nothing. The CLIENT fails closed too — a non-2xx, a non-object body, a missing key and a non-boolean value all resolve to `false` as DATA, never as an RTK error, so a 404 during a Vercel-ahead-of-Railway window looks exactly like "the flag is off". **It is a UI REVEAL switch only: the backend does NOT gate `?subcategory=` on it**, so flipping it off hides the control without stopping a value a user already saved from filtering. Deliberately NOT a field on `/api/jobs/facets` — that query has no `providesTags` and `keepUnusedDataFor: 3600`, and since the SPA sets no `refetchOnFocus`, a SUBSCRIBED facets entry never refetches for the life of the tab.
 
 **Jobs Search Router (`/api/jobs/search`)** — the Recent Jobs page's read path. Where
 `GET /api/jobs` is a windowed dump the client filters, this applies the user's whole
@@ -177,10 +179,43 @@ filter set in SQL and pages the *result*. Router `routers/jobs_search.py`, SQL
 `services/job_search.py`.
 
 - **Params:** `status` (default `OPEN`, unlike `/api/jobs` which has none), `since`
-  (inclusive, tz-aware ISO), `cursor`, `limit` (default 100, max 500), plus six
-  **repeatable** multi-value filters: `category`, `level`, `company`, `location`,
-  `include`, `exclude`. Repeated (`?category=a&category=b`) rather than CSV because
-  canonical location names and keywords legitimately contain commas.
+  (inclusive, tz-aware ISO), `cursor`, `limit` (default 100, max 500), plus seven
+  **repeatable** multi-value filters: `category`, `subcategory`, `level`, `company`,
+  `location`, `include`, `exclude`. Repeated (`?category=a&category=b`) rather than
+  CSV because canonical location names and keywords legitimately contain commas.
+- **`?subcategory=` in full**, because every clause of it is load-bearing:
+  - **Repeatable, OR within the dimension, AND across dimensions.** `?category=growth
+    &subcategory=backend` returns NOTHING — Growth rows carry no subcategories and
+    the two predicates AND. That is the same composition every other dimension uses
+    rather than a special case, and it is worth a product call before the reveal.
+  - **Every slug implies the `software_engineering` parent.** The dimension hangs
+    off exactly one category; the server does not enforce that, it simply falls out
+    of the data.
+  - **HIDES NULL AND EMPTY ARRAYS.** The predicate is `enrichment_subcategories &&
+    %s::text[]`, and `NULL && x` is NULL while `'{}' && x` is false. So an active
+    filter excludes BOTH the rows nobody has evaluated yet AND the rows evaluated to
+    "no specialty applies". Mid-backfill that is most SWE rows; on day 0 it is all
+    of them. **This is why the reveal flag exists.**
+  - **`frontend` and `backend` each also match `full_stack`; `full_stack` alone
+    stays EXACT.** One-way, keyed on the SELECTED slug, same direction as
+    `entry ⊃ new_grad`.
+  - **20-value cap** (400 past it, like `category`/`level`). Note this is the SEARCH
+    cap; `models.py` allows 50 in a SAVED filter, and the two are deliberately
+    different numbers bounding different things.
+  - **A well-formed but UNKNOWN slug matches nothing rather than erroring.**
+    Validating against the live taxonomy would make a taxonomy migration a breaking
+    API change for anyone holding a bookmarked URL.
+  - **It joins the cursor fingerprint ONLY when present.** An absent key leaves the
+    canonical form byte-identical to the pre-subcategory build, so every cursor
+    minted before the deploy stays valid. A key that were always present — even as
+    `[]` — would 409 every in-flight walk once, on deploy day, for every reader.
+- **SOLE-EXPANDER SPLIT.** The `full_stack` widening runs in exactly one place per
+  path. For `/api/jobs/search` that place is `services/job_search.py::expand_subcategories`
+  and **the client sends its selection UNEXPANDED**. For the client-side path — the
+  Companies trend page and demo mode, i.e. `filterJobsByFilters` — it is
+  `matchesSubcategory`. Expanding on both sides would put two copies of the taxonomy
+  in play and would persist the widened pair `['backend','full_stack']` into the
+  user's saved filters and into the chips they see.
 - **Response is an ENVELOPE**, not a bare array: `{jobs, nextCursor, meta}`.
   `nextCursor` present iff the page came back full; **its absence is the only
   end-of-walk signal**. In the body deliberately — `/api/jobs` uses `X-Next-Cursor`
