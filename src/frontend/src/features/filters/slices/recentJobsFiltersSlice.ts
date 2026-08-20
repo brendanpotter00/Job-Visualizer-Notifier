@@ -3,16 +3,18 @@ import type { RecentJobsFilters } from '../../../types';
 
 /**
  * Initial filter state for Recent Jobs page
- * Default time window is 90 days
+ * Default time window is all time
  * No department or roleCategory filters
  */
 const initialFilters: RecentJobsFilters = {
   // Default window for anyone WITHOUT a saved filter (logged-out visitors, and
   // the frame before a signed-in user's saved filters hydrate). Kept in sync
-  // with the Graph slice and the backend no-saved-row default
+  // with the backend no-saved-row default
   // (`saved_filters_service._DEFAULT_RECENT_TIME_WINDOW`) so every "no saved
-  // filter" cohort lands on the same 90-day view.
-  timeWindow: '90d',
+  // filter" cohort lands on the same all-time view. The Graph slice keeps its
+  // own 90-day default — a trend chart wants a bounded span, a recency feed
+  // does not.
+  timeWindow: 'all',
   searchTags: undefined,
   location: undefined,
   employmentType: undefined,

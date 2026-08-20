@@ -111,7 +111,7 @@ function makeFetchMock(
 
 const paramsOf = (url: unknown) => new URLSearchParams(String(url).split('?')[1]);
 
-describe('getAllJobs default load is bounded by a 90-day window', () => {
+describe('getAllJobs default load is bounded by the all-time window', () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
@@ -123,8 +123,7 @@ describe('getAllJobs default load is bounded by a 90-day window', () => {
     vi.resetAllMocks();
   });
 
-  it('sends `since` ~90 days ago on every chunk and never sends limit=50000', async () => {
-    const before = Date.now();
+  it('sends the epoch `since` on every chunk and never sends limit=50000', async () => {
     const store = makeStore();
     const promise = store.dispatch(jobsApi.endpoints.getAllJobs.initiate());
     await promise;
@@ -141,8 +140,10 @@ describe('getAllJobs default load is bounded by a 90-day window', () => {
       expect(since).toBeTruthy();
       // ISO-8601 with a UTC offset — a naive value is a backend 422.
       expect(since).toMatch(/Z$/);
-      const expected = before - 90 * DAY_MS;
-      expect(Math.abs(new Date(since as string).getTime() - expected)).toBeLessThan(60_000);
+      // The default window is all-time, and 'all' is sent as the epoch rather
+      // than as an absent `since` — omitting it drops the backend out of
+      // keyset mode entirely.
+      expect(since).toBe(sinceForWindow('all'));
 
       // The 50k row cap is gone; the page size is the bound now.
       expect(params.get('limit')).toBe(String(RECENT_JOBS_PAGE_SIZE));
@@ -155,7 +156,7 @@ describe('getAllJobs default load is bounded by a 90-day window', () => {
     }
 
     const data = getAllJobsData(store);
-    expect(data?.windowKey).toBe('90d');
+    expect(data?.windowKey).toBe('all');
     expect(data?.since).toBe(paramsOf(urls[0]).get('since'));
 
     promise.unsubscribe();
@@ -411,6 +412,16 @@ describe('fetchNextJobsPage window widening', () => {
     vi.resetAllMocks();
   });
 
+  /**
+   * A walk parked on a genuinely NARROW window, which is what every test in
+   * this block widens away from.
+   *
+   * The default window is all-time, so the initial load has nothing left to
+   * widen to — these tests would all be asserting against a no-op. The extra
+   * dispatch restarts the walk under 90 days (same mock, so it lands in exactly
+   * the state the initial load used to produce back when 90 days WAS the
+   * default) and gives the widening machinery something to widen.
+   */
   async function seedFirstPage() {
     fetchMock = makeFetchMock((params) => {
       const cos = (params.get('companies') ?? '').split(',');
@@ -424,6 +435,8 @@ describe('fetchNextJobsPage window widening', () => {
     const store = makeStore();
     const promise = store.dispatch(jobsApi.endpoints.getAllJobs.initiate());
     await promise;
+    await flush();
+    await store.dispatch(jobsApi.endpoints.fetchNextJobsPage.initiate({ window: '90d' }));
     await flush();
     return { store, promise };
   }
@@ -534,7 +547,7 @@ describe('fetchNextJobsPage window widening', () => {
     promise.unsubscribe();
   });
 
-  it('converges when a widen lands WHILE the initial page-1 load is still in flight', async () => {
+  it('converges when a window change lands WHILE the initial page-1 load is still in flight', async () => {
     // Page 1 hangs until we release it; the widen runs in the gap.
     let releasePageOne: (() => void) | undefined;
     const pageOneGate = new Promise<void>((resolve) => {
@@ -549,20 +562,21 @@ describe('fetchNextJobsPage window widening', () => {
       if (isPageOne) await pageOneGate;
       // Classify by depth, not by an exact ISO match: `since` is minted from
       // `Date.now()` inside the data layer, so it never equals a value the test
-      // recomputes a few ms later.
-      const widened = Date.parse(params.get('since') ?? '') < Date.now() - 120 * DAY_MS;
+      // recomputes a few ms later. The initial load is all-time, i.e. the
+      // epoch, so any later bound belongs to the 180-day restart.
+      const restarted = Date.parse(params.get('since') ?? '') > 0;
       return {
         ok: true,
         status: 200,
         statusText: 'OK',
         headers: new Headers(
-          isPageOne && !widened ? { 'X-Next-Cursor': 'STALE-90D-CURSOR' } : {}
+          isPageOne && !restarted ? { 'X-Next-Cursor': 'STALE-ALL-TIME-CURSOR' } : {}
         ),
         json: async () => [
           makeBackendRow(
             cos[0],
-            widened ? `${cos[0]}-wide` : `${cos[0]}-p1`,
-            widened ? '2026-03-01T00:00:00.000Z' : '2026-08-02T00:00:00.000Z'
+            restarted ? `${cos[0]}-restart` : `${cos[0]}-p1`,
+            restarted ? '2026-03-01T00:00:00.000Z' : '2026-08-02T00:00:00.000Z'
           ),
         ],
       };
@@ -574,27 +588,27 @@ describe('fetchNextJobsPage window widening', () => {
     await promise;
     await flush();
 
-    // Page 1 is airborne and blocked. Widen now.
+    // Page 1 is airborne and blocked. Change the window now.
     gateArmed = false;
-    const widenPromise = store.dispatch(
+    const restartPromise = store.dispatch(
       jobsApi.endpoints.fetchNextJobsPage.initiate({ window: '180d' })
     );
     await flush();
     releasePageOne?.();
-    await widenPromise;
+    await restartPromise;
     await flush();
 
     const data = getAllJobsData(store);
     // The entry is consistently on 180d...
     expect(data?.windowKey).toBe('180d');
     expect(Math.abs(Date.parse(data!.since) - (Date.now() - 180 * DAY_MS))).toBeLessThan(60_000);
-    // ...and the superseded 90d page-1 payload did NOT write its cursor, which
-    // would have paged the wrong window from then on.
-    expect(Object.values(data?.cursors ?? {})).not.toContain('STALE-90D-CURSOR');
+    // ...and the superseded all-time page-1 payload did NOT write its cursor,
+    // which would have paged the wrong window from then on.
+    expect(Object.values(data?.cursors ?? {})).not.toContain('STALE-ALL-TIME-CURSOR');
     // ...nor a stale floor claiming a horizon the new window has not reached.
     expect(data?.chunkFloors[CHUNK_A_KEY]).not.toBe('2026-08-02T00:00:00.000Z');
-    // The widened rows survived — nothing stomped them.
-    expect(data?.byCompanyId[CHUNK_A[0]].map((j) => j.id)).toContain(`${CHUNK_A[0]}-wide`);
+    // The restarted window's rows survived — nothing stomped them.
+    expect(data?.byCompanyId[CHUNK_A[0]].map((j) => j.id)).toContain(`${CHUNK_A[0]}-restart`);
     // And the entry is still readable end to end (no revoked proxies).
     expect(() => JSON.stringify(data)).not.toThrow();
 

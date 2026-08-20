@@ -23,11 +23,13 @@ export type JobsWindowKey = '90d' | '180d' | 'all';
 /**
  * Default fetch window for the Recent page.
  *
- * Matches the product default — the backend saved-filters service returns
- * `recent=90d` for users with no saved row (`src/backend/CLAUDE.md`), and
- * `recentJobsFiltersSlice` initializes to `'90d'`.
+ * Must match the product default — the backend saved-filters service returns
+ * `recent=all` for users with no saved row (`src/backend/CLAUDE.md`), and
+ * `recentJobsFiltersSlice` initializes to `'all'`. If this were narrower than
+ * the filter default, `useRecentJobsPaging` would see the very first page as a
+ * widening and restart the walk, so every default load would pay for two.
  */
-export const RECENT_JOBS_DEFAULT_WINDOW: JobsWindowKey = '90d';
+export const RECENT_JOBS_DEFAULT_WINDOW: JobsWindowKey = 'all';
 
 /** Rows requested per company-chunk per page; see `jobsApi.ts` for the sizing rationale. */
 export const RECENT_JOBS_PAGE_SIZE = 1000;
@@ -53,17 +55,20 @@ export function sinceForWindow(windowKey: JobsWindowKey, now: number = Date.now(
 }
 
 /**
- * Map a UI time-window filter to the fetch window that covers it.
+ * Map a UI time-window filter to the narrowest fetch window that covers it.
  *
- * The fetch window only ever needs to *widen* past the 90-day default: every
- * narrower UI window (30d, 7d, 24h…) is already fully contained in the 90-day
- * fetch, so it maps to `'90d'` and needs no refetch at all. Lets ticket 1.4
- * drive the walk straight from the filter slice with no backend knowledge.
+ * Deliberately NOT expressed in terms of `RECENT_JOBS_DEFAULT_WINDOW`: this is
+ * a fact about the windows themselves ("a 24-hour filter is contained in a
+ * 90-day fetch"), and it must not move when the product default moves. The
+ * caller compares this answer against the window the walk actually holds and
+ * only restarts when this one is strictly wider — so returning a window wider
+ * than the filter needs would force pointless restarts. Lets ticket 1.4 drive
+ * the walk straight from the filter slice with no backend knowledge.
  */
 export function jobsWindowForTimeWindow(timeWindow: TimeWindow): JobsWindowKey {
   if (timeWindow === 'all') return 'all';
   if (timeWindow === '180d') return '180d';
-  return RECENT_JOBS_DEFAULT_WINDOW;
+  return '90d';
 }
 
 /**

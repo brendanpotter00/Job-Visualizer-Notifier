@@ -11,6 +11,7 @@ import {
   RECENT_JOBS_DEFAULT_WINDOW,
   sinceForWindow,
 } from '../../../features/jobs/keysetWalk';
+import recentJobsReducer from '../../../features/filters/slices/recentJobsFiltersSlice';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -48,15 +49,33 @@ describe('sinceForWindow', () => {
 });
 
 describe('jobsWindowForTimeWindow', () => {
-  it('widens only for windows past the 90-day default', () => {
+  it('maps the wide UI windows to their own fetch window', () => {
     expect(jobsWindowForTimeWindow('180d')).toBe('180d');
     expect(jobsWindowForTimeWindow('all')).toBe('all');
   });
 
-  it('maps every narrower UI window to the default (already fully covered)', () => {
+  it('maps every window up to 90 days onto the 90-day fetch (already covered)', () => {
     for (const tw of ['30m', '1h', '24h', '7d', '30d', '90d'] as const) {
-      expect(jobsWindowForTimeWindow(tw)).toBe(RECENT_JOBS_DEFAULT_WINDOW);
+      expect(jobsWindowForTimeWindow(tw)).toBe('90d');
     }
+  });
+
+  it('answers coverage, not the product default — a filter never over-fetches', () => {
+    // Regression guard for the all-time default: if this mapping were written
+    // as "fall back to RECENT_JOBS_DEFAULT_WINDOW", a 24-hour filter would ask
+    // for an all-time fetch and the caller would restart the walk to get it.
+    expect(jobsWindowForTimeWindow('24h')).not.toBe(RECENT_JOBS_DEFAULT_WINDOW);
+  });
+});
+
+describe('RECENT_JOBS_DEFAULT_WINDOW', () => {
+  it('matches the Recent page filter default, so the first load is never a widen', () => {
+    // `useRecentJobsPaging` restarts the walk whenever the filter's covering
+    // window ranks wider than the fetched one. If the walk were seeded narrower
+    // than the filter slice's own default, that restart would fire on every
+    // fresh load of the page and every default visitor would fetch page 1 twice.
+    const initial = recentJobsReducer(undefined, { type: '@@INIT' });
+    expect(jobsWindowForTimeWindow(initial.filters.timeWindow)).toBe(RECENT_JOBS_DEFAULT_WINDOW);
   });
 });
 
