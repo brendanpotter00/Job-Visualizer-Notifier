@@ -22,6 +22,7 @@ def test_all_tables_present():
         "feature_upvotes",
         "feedback",
         "admins",
+        "app_settings",
         "companies",
         "worker_heartbeats",
         "locations",
@@ -374,3 +375,20 @@ def test_job_enrichment_has_subcategory_confidence():
     table = db_models.Base.metadata.tables["job_enrichment"]
     assert "subcategory_confidence" in table.c
     assert table.c["subcategory_confidence"].nullable is True
+
+
+def test_app_settings_shape():
+    """key TEXT PK, value JSONB NOT NULL, updated_at NOT NULL, updated_by NULL.
+
+    No indexes — the table holds single-digit rows.
+    """
+    from sqlalchemy.dialects.postgresql import JSONB
+
+    table = db_models.Base.metadata.tables["app_settings"]
+    assert set(table.c.keys()) == {"key", "value", "updated_at", "updated_by"}
+    assert table.c["key"].primary_key is True
+    assert isinstance(table.c["value"].type, JSONB)
+    assert table.c["value"].nullable is False
+    assert table.c["updated_at"].nullable is False
+    assert table.c["updated_by"].nullable is True
+    assert not table.indexes

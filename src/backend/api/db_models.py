@@ -684,6 +684,36 @@ class FeatureUpvote(Base):
     )
 
 
+class AppSetting(Base):
+    """One row per runtime-tunable application setting. Key/value, JSONB value.
+
+    SEED POLICY: **NO SEED ROW.** An absent key means the code default.
+
+    That is the whole design, and it is deliberate: a fresh database, a flag an
+    admin deleted, and a rolled-back migration then all behave identically, and
+    the reader can never 500 on a missing row. A seeded row would make "no row"
+    an anomalous state that some code path has to handle, and the handling would
+    be wrong somewhere.
+
+    The set of legal keys is an ALLOWLIST IN CODE (`services/app_settings.py`'s
+    `_SETTING_SPECS`), never in the DDL — a new setting must not need a
+    migration. `updated_by` carries the admin email from the JWT claim,
+    mirroring `JobEnrichment.human_corrected_by`.
+
+    No indexes: the table holds single-digit rows and every read is by primary
+    key or a full scan of all of them.
+    """
+
+    __tablename__ = "app_settings"
+
+    key = Column(Text, primary_key=True)
+    value = Column(JSONB, nullable=False)
+    updated_at = Column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_by = Column(Text, nullable=True)          # admin email (JWT claim)
+
+
 class Feedback(Base):
     __tablename__ = "feedback"
 
