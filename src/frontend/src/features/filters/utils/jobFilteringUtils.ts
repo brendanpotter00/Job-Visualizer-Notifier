@@ -8,7 +8,10 @@ import type {
   RecentJobsFilters,
 } from '../../../types';
 import { getTimeWindowDuration } from '../../../lib/date.ts';
-import { LEVEL_FILTER_EXPANSION } from '../../../constants/enrichment.ts';
+import {
+  LEVEL_FILTER_EXPANSION,
+  SUBCATEGORY_FILTER_EXPANSION,
+} from '../../../constants/enrichment.ts';
 import { US_STATE_NAME_TO_CODE, stripUsSuffix } from '../../../lib/location.ts';
 
 /**
@@ -343,6 +346,45 @@ export function matchesLevel(job: Job, levels: string[] | undefined): boolean {
 }
 
 /**
+ * Check if a job matches the SWE subcategory filter (multi-select, OR logic),
+ * honouring the one-way `full_stack` widening: selecting Frontend or Backend
+ * also surfaces Full Stack roles, while selecting Full Stack stays EXACT.
+ *
+ * TRI-STATE HANDLING. `job.subcategories` is `null` (never evaluated — the
+ * backfill queue), `[]` (evaluated, no specialty applies — TERMINAL) or a
+ * 1-2 element ordered array. The `?.length` guard collapses the first two into
+ * "not a match" HERE, at the one place that has to make a yes/no decision,
+ * without any earlier layer having had to destroy the distinction. Both are
+ * hidden once a selection is active, matching the server's `&&` predicate
+ * exactly (`NULL && x` is NULL, `'{}' && x` is false).
+ *
+ * SECONDARY LABELS COUNT: the array is ordered so index 0 is the primary
+ * specialty, but for filtering it is a set.
+ *
+ * SOLE EXPANDER FOR THE CLIENT PATH. `filterJobsByFilters` is reachable from
+ * exactly two places now — `graphFiltersSelectors.ts` (the Companies trend page,
+ * whose chart and list share one filter set) and the demo-only branch of
+ * `useRecentJobsSearch`. THE RECENT PAGE IS SERVER-FILTERED, and its expansion
+ * happens in `services/job_search.py`. Expanding on both sides would put two
+ * copies of the taxonomy in play and would persist the widened pair into saved
+ * filters and chips.
+ */
+export function matchesSubcategory(job: Job, subcategories: string[] | undefined): boolean {
+  if (!subcategories?.length) {
+    return true;
+  }
+  const jobSubs = job.subcategories;
+  if (!jobSubs?.length) {
+    return false;
+  }
+  return subcategories.some((selected) =>
+    (SUBCATEGORY_FILTER_EXPANSION[selected] ?? [selected]).some((slug) =>
+      jobSubs.includes(slug)
+    )
+  );
+}
+
+/**
  * Check if a job matches company filter (multi-select with OR logic)
  */
 export function matchesCompany(job: Job, companies: string[] | undefined): boolean {
@@ -399,6 +441,12 @@ export function filterJobsByFilters(
     // An unenriched job is hidden once a facet filter is active, same as any
     // other non-match — a filter must actually narrow the results shown.
     if (!matchesCategory(job, filters.category)) {
+      return false;
+    }
+    // AND, not OR: category and subcategory compose, so selecting Growth AND
+    // Backend hides every Growth row (they carry no subcategories). That is the
+    // same composition every other dimension uses rather than a special case.
+    if (!matchesSubcategory(job, filters.subcategory)) {
       return false;
     }
     if (!matchesLevel(job, filters.level)) {
