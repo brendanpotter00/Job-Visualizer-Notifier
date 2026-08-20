@@ -130,7 +130,8 @@ def _fetch_listing_facets(db_conn, job_id: str) -> dict:
     cur = db_conn.cursor()
     cur.execute(
         "SELECT enrichment_category, enrichment_level, enrichment_status, "
-        "enrichment_claimed_at, normalization_status FROM job_listings WHERE id = %s",
+        "enrichment_claimed_at, normalization_status, enrichment_subcategories, "
+        "enrichment_subcategory_source FROM job_listings WHERE id = %s",
         (job_id,),
     )
     return cur.fetchone()
@@ -607,6 +608,277 @@ class TestApplyResult:
 # --------------------------------------------------------------------------- #
 # 3. Router: /pending, /results, /health                                       #
 # --------------------------------------------------------------------------- #
+
+
+class TestApplySubcategories:
+    """SCHEMA-3: the `_UNSET` tri-state, the parent rule, and the per-field lock.
+
+    The whole point of these is that the failures they catch are SILENT: the
+    endpoint returns 200 and reports `written: N` in every one of them.
+    """
+
+    def _base(self, job_id, **extra):
+        result = {
+            "job_listing_id": job_id,
+            "source_id": "google_scraper",
+            "category": "software_engineering",
+            "level": "senior",
+            "tags": [],
+            "locations": [],
+        }
+        result.update(extra)
+        return result
+
+    def _seed(self, db_conn, job_id, subcats=None, source=None, confidence=None):
+        _insert_job(db_conn, _make_job({"id": job_id}))
+        if subcats is not None or source is not None:
+            cur = db_conn.cursor()
+            cur.execute(
+                "UPDATE job_listings SET enrichment_subcategories = %s::text[], "
+                "enrichment_subcategory_source = %s WHERE id = %s",
+                (subcats, source, job_id),
+            )
+        if confidence is not None:
+            cur = db_conn.cursor()
+            cur.execute(
+                "INSERT INTO job_enrichment (source_id, job_listing_id, "
+                "subcategory_confidence) VALUES ('google_scraper', %s, %s) "
+                "ON CONFLICT (source_id, job_listing_id) DO UPDATE SET "
+                "subcategory_confidence = EXCLUDED.subcategory_confidence",
+                (job_id, confidence),
+            )
+        db_conn.commit()
+
+    def test_a_v6_payload_leaves_an_existing_array_source_AND_confidence_alone(
+        self, db_conn
+    ):
+        """THE SINGLE MOST IMPORTANT TEST IN THIS STEP.
+
+        An enricher that has not shipped subcategories yet posts ordinary ticks
+        with no `subcategories` key. If that NULLed the column, every ordinary
+        tick would wipe the backfill's work — and the response would still say
+        `written: 1`. This is what makes the enricher-side knob a reversible
+        deploy ORDER instead of a code push.
+        """
+        self._seed(db_conn, "v6-coexist", subcats=["backend", "full_stack"],
+                   source="backfill", confidence=0.77)
+
+        apply_result(db_conn, self._base("v6-coexist"), require_judge_pass=False)
+        db_conn.commit()
+
+        facets = _fetch_listing_facets(db_conn, "v6-coexist")
+        assert facets["enrichment_subcategories"] == ["backend", "full_stack"]
+        assert facets["enrichment_subcategory_source"] == "backfill"
+        audit = _fetch_job_enrichment(db_conn, "v6-coexist")
+        assert audit["subcategory_confidence"] == 0.77
+
+    def test_explicit_null_clears_the_column_and_its_source(self, db_conn):
+        self._seed(db_conn, "sub-null", subcats=["backend"], source="classify")
+        apply_result(
+            db_conn, self._base("sub-null", subcategories=None),
+            require_judge_pass=False,
+        )
+        db_conn.commit()
+        facets = _fetch_listing_facets(db_conn, "sub-null")
+        assert facets["enrichment_subcategories"] is None
+        assert facets["enrichment_subcategory_source"] is None
+
+    def test_empty_list_is_terminal_and_carries_a_source(self, db_conn):
+        """`[]` means "evaluated, nothing applies" — it LEAVES the queue."""
+        self._seed(db_conn, "sub-empty")
+        apply_result(
+            db_conn,
+            self._base("sub-empty", subcategories=[], subcategory_source="backfill"),
+            require_judge_pass=False,
+        )
+        db_conn.commit()
+        facets = _fetch_listing_facets(db_conn, "sub-empty")
+        assert facets["enrichment_subcategories"] == []
+        assert facets["enrichment_subcategory_source"] == "backfill"
+
+    def test_unknown_slug_is_dropped_with_a_warning_never_a_raise(self, db_conn):
+        self._seed(db_conn, "sub-bad")
+        warnings = apply_result(
+            db_conn,
+            self._base("sub-bad", subcategories=["backend", "ai_ml"]),
+            require_judge_pass=False,
+        )
+        db_conn.commit()
+        assert _fetch_listing_facets(db_conn, "sub-bad")["enrichment_subcategories"] == [
+            "backend"
+        ]
+        assert any("ai_ml" in w for w in warnings)
+
+    def test_all_slugs_invalid_yields_empty_NOT_null(self, db_conn):
+        """The enricher DID evaluate the row; it just produced nothing this
+        taxonomy recognizes. Returning null would silently re-queue it forever."""
+        self._seed(db_conn, "sub-allbad")
+        apply_result(
+            db_conn,
+            self._base("sub-allbad", subcategories=["ai_ml", "nonsense"]),
+            require_judge_pass=False,
+        )
+        db_conn.commit()
+        assert _fetch_listing_facets(db_conn, "sub-allbad")[
+            "enrichment_subcategories"
+        ] == []
+
+    def test_non_swe_with_a_non_empty_array_is_forced_to_null_with_a_warning(
+        self, db_conn
+    ):
+        self._seed(db_conn, "sub-nonswe")
+        warnings = apply_result(
+            db_conn,
+            self._base("sub-nonswe", category="growth", subcategories=["backend"]),
+            require_judge_pass=False,
+        )
+        db_conn.commit()
+        assert _fetch_listing_facets(db_conn, "sub-nonswe")[
+            "enrichment_subcategories"
+        ] is None
+        assert any("not 'software_engineering'" in w for w in warnings)
+
+    def test_full_stack_suppresses_frontend_and_backend(self, db_conn):
+        self._seed(db_conn, "sub-fs")
+        apply_result(
+            db_conn,
+            self._base("sub-fs", subcategories=["full_stack", "backend"]),
+            require_judge_pass=False,
+        )
+        db_conn.commit()
+        assert _fetch_listing_facets(db_conn, "sub-fs")[
+            "enrichment_subcategories"
+        ] == ["full_stack"]
+
+    def test_order_is_preserved_and_truncated_at_two(self, db_conn):
+        self._seed(db_conn, "sub-order")
+        apply_result(
+            db_conn,
+            self._base(
+                "sub-order",
+                subcategories=["security", "mobile", "quantitative"],
+            ),
+            require_judge_pass=False,
+        )
+        db_conn.commit()
+        assert _fetch_listing_facets(db_conn, "sub-order")[
+            "enrichment_subcategories"
+        ] == ["security", "mobile"]
+
+    def test_a_scalar_is_promoted_not_rejected(self, db_conn):
+        self._seed(db_conn, "sub-scalar")
+        apply_result(
+            db_conn,
+            self._base("sub-scalar", subcategories="backend"),
+            require_judge_pass=False,
+        )
+        db_conn.commit()
+        assert _fetch_listing_facets(db_conn, "sub-scalar")[
+            "enrichment_subcategories"
+        ] == ["backend"]
+
+    def test_invalid_source_soft_nulls_to_the_default(self, db_conn):
+        self._seed(db_conn, "sub-src")
+        warnings = apply_result(
+            db_conn,
+            self._base(
+                "sub-src", subcategories=["backend"],
+                subcategory_source="backfill_failed",
+            ),
+            require_judge_pass=False,
+        )
+        db_conn.commit()
+        assert _fetch_listing_facets(db_conn, "sub-src")[
+            "enrichment_subcategory_source"
+        ] == "classify"
+        assert any("backfill_failed" in w for w in warnings)
+
+    # --- the per-field human unlock ---------------------------------------
+
+    def _lock(self, db_conn, job_id):
+        cur = db_conn.cursor()
+        cur.execute(
+            "INSERT INTO job_enrichment (source_id, job_listing_id, human_corrected_at) "
+            "VALUES ('google_scraper', %s, now()) "
+            "ON CONFLICT (source_id, job_listing_id) DO UPDATE SET "
+            "human_corrected_at = now()",
+            (job_id,),
+        )
+        db_conn.commit()
+
+    def test_a_human_locked_row_with_a_NULL_array_IS_written(self, db_conn):
+        """The human corrected this row BEFORE subcategories existed, so a NULL
+        array is provably not a human decision — there was nothing to decide.
+        Refusing here would permanently exclude the human-labelled pool from the
+        backfill, and that pool is exactly what the eval gate is built on."""
+        self._seed(db_conn, "lock-null")
+        self._lock(db_conn, "lock-null")
+
+        warnings = apply_result(
+            db_conn,
+            self._base(
+                # The payload's own resolved category has to be SWE — the parent
+                # rule is checked against what THIS payload claims, not against
+                # whatever the locked row happens to hold.
+                "lock-null", category="software_engineering", level="senior",
+                subcategories=["backend"], subcategory_source="backfill",
+                subcategory_confidence=0.9,
+            ),
+            require_judge_pass=False,
+        )
+        db_conn.commit()
+
+        facets = _fetch_listing_facets(db_conn, "lock-null")
+        assert facets["enrichment_subcategories"] == ["backend"]
+        assert facets["enrichment_subcategory_source"] == "backfill"
+        assert _fetch_job_enrichment(db_conn, "lock-null")["subcategory_confidence"] == 0.9
+        # EVERYTHING ELSE stays refused — the lock is still absolute for the
+        # facets a human actually decided.
+        assert facets["enrichment_category"] is None
+        assert facets["enrichment_level"] is None
+        assert any("human-corrected" in w for w in warnings)
+
+    def test_a_human_locked_row_with_a_NON_NULL_array_is_NOT_written(self, db_conn):
+        self._seed(db_conn, "lock-set", subcats=["frontend"], source="human")
+        self._lock(db_conn, "lock-set")
+
+        warnings = apply_result(
+            db_conn,
+            self._base("lock-set", subcategories=["backend"]),
+            require_judge_pass=False,
+        )
+        db_conn.commit()
+
+        facets = _fetch_listing_facets(db_conn, "lock-set")
+        assert facets["enrichment_subcategories"] == ["frontend"]
+        assert facets["enrichment_subcategory_source"] == "human"
+        assert any("skipped: human-corrected" in w for w in warnings)
+
+    def test_a_human_locked_row_with_no_subcategories_key_is_still_refused(
+        self, db_conn
+    ):
+        self._seed(db_conn, "lock-v6")
+        self._lock(db_conn, "lock-v6")
+        warnings = apply_result(
+            db_conn, self._base("lock-v6"), require_judge_pass=False
+        )
+        db_conn.commit()
+        assert _fetch_listing_facets(db_conn, "lock-v6")["enrichment_category"] is None
+        assert any("skipped: human-corrected" in w for w in warnings)
+
+    def test_demote_nulls_the_array_unconditionally(self, db_conn):
+        """A row re-flagged for a human must not keep stale published labels."""
+        self._seed(db_conn, "sub-demote", subcats=["backend"], source="classify")
+        apply_result(
+            db_conn,
+            self._base("sub-demote", judge={"judged": True, "needs_human": True}),
+            require_judge_pass=True,
+        )
+        db_conn.commit()
+        facets = _fetch_listing_facets(db_conn, "sub-demote")
+        assert facets["enrichment_subcategories"] is None
+        assert facets["enrichment_subcategory_source"] is None
+        assert facets["enrichment_status"] == "needs_human"
 
 
 class TestPending:
