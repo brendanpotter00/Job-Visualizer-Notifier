@@ -17,7 +17,31 @@ export interface ChangelogEntry {
   link?: ChangelogLink;
 }
 
+/**
+ * The day the SWE-subcategory REVEAL FLAG is flipped on in production.
+ *
+ * UNMEASURED — placeholder; set by FE-CL-2
+ *
+ * NOT the day this code lands. The tree is invisible until an admin flips
+ * `swe_subcategories_enabled`, which Brendan does by hand once `ADM-11`'s
+ * coverage tile crosses 90%. This entry must merge in the SAME deploy as that
+ * flip, so a reader who follows the link actually finds the chevron there.
+ */
+const SWE_SUBCATEGORIES_REVEAL_DATE = '2026-08-20';
+
 export const CHANGELOG: readonly ChangelogEntry[] = [
+  {
+    id: 'swe-subcategories-2026-08',
+    title: 'Software Engineering now opens up into fifteen specialties',
+    description:
+      'The “Job category” filter has a new second level. Expand Software Engineering — on Recent Job Postings, on Company Hiring Trends, and in your saved-filter defaults — and you can now narrow to a specialty instead of taking the whole field: AI Engineering, Backend, Data Engineering, DevOps & Site Reliability, Embedded & Low-Level Systems, Forward Deployed, Frontend, Full Stack, Infrastructure & Platform, Machine Learning, Mobile, QA & Testing, Quantitative & Trading Systems, Robotics & Autonomy, and Security. Pick as many as you like; they combine the same way every other filter does. Frontend and Backend each also surface Full Stack roles, since those genuinely span both — picking Full Stack on its own stays exact. A job can carry up to two specialties, and its card shows them in place of the broader “Software Engineering” chip. Nothing you have saved changes: leave the filter alone and every Software Engineering job still shows up exactly as before.',
+    tags: ['feature'],
+    date: SWE_SUBCATEGORIES_REVEAL_DATE,
+    link: {
+      to: ROUTES.RECENT_JOBS,
+      label: 'Narrow to your specialty',
+    },
+  },
   {
     id: 'add-meta',
     title: 'Added Meta',
