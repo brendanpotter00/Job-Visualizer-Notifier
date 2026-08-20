@@ -80,8 +80,17 @@ CANONICAL_OPTIONAL_FIELDS = ("location", "posted_at", "department", "company")
 
 # Oracle kinds. The three Phase-3 exact-match oracles, plus the two inherited from
 # Phase 2 (a discovered board with no published total is legitimately
-# ``self_consistent`` — Jane Street, YC).
-ORACLE_KINDS = ("facet_sum", "header", "sitemap", "declared_probed", "self_consistent")
+# ``self_consistent`` — Jane Street, YC), plus ``none``.
+#
+# ``none`` is the EXPLICIT no-claim oracle, matching the value the leaf task already
+# defaults an un-oracled company to. ``verify_harvest`` maps it to UNVERIFIED
+# ``no_oracle``, so a script carrying it shows its jobs every night and can never
+# close one. Discovery stores it for a recipe that reads a single page of a board
+# whose length nobody published — the case where claiming ``self_consistent`` would be
+# certifying a sweep that never happened.
+ORACLE_KINDS = (
+    "facet_sum", "header", "sitemap", "declared_probed", "self_consistent", "none",
+)
 
 # Op categories used to enforce cardinality (exactly-one fetch, <=1 pagination,
 # exactly-one extraction, exactly-one oracle-carrying script). ``paginate_cursor``
@@ -395,7 +404,7 @@ def _validate_oracle(oracle: Any) -> None:
     elif kind == "declared_probed":
         _reject_unknown_keys({**oracle, "op": None}, {"kind", "total_path"}, "oracle")
         _require_str(oracle, "total_path", "oracle")
-    else:  # self_consistent — no params
+    else:  # self_consistent / none — no params
         _reject_unknown_keys({**oracle, "op": None}, {"kind"}, "oracle")
 
 

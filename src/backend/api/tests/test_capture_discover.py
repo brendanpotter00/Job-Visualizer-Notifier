@@ -23,14 +23,17 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
+import httpx
 import pytest
 
 # NOTE: `from ...discover import` (not `import ... as disc`) — the capture package
 # `__init__` re-exports the FUNCTION `discover`, which shadows the submodule attribute.
 from api.services.capture.discover import (
     _MAX_SELECTION_ROUNDS,
+    _inband_error_keys,
     discover,
     synthesize_recipe,
 )
@@ -40,6 +43,7 @@ from api.services.capture.network_capture import (
     _responses_from_report,
 )
 from api.services.capture.request_selector import (
+    NoJobsFeedError,
     PaginationHint,
     RequestSelection,
     RequestSelectionError,
@@ -47,6 +51,7 @@ from api.services.capture.request_selector import (
     prefilter_candidates,
 )
 from api.services.harvest_meta import HarvestEvidence
+from api.services.harvest_verification import UNVERIFIED, GateResult, verify_harvest
 from api.services.recipe_runner import RecipeExecutionError, map_records
 from api.services.url_guard import UrlGuardError
 
@@ -245,6 +250,17 @@ async def test_pins_the_boards_own_success_sentinel_as_an_inband_error_key() -> 
     assert assertion["error_keys"] == ["code"]
 
 
+def test_a_truthy_candidate_key_is_not_pinned_as_an_inband_error_key() -> None:
+    """The falsiness half, on a key that IS a candidate — the case no fixture carries,
+    so nothing exercised the filter and dropping it kept the suite green. A board
+    answering ``status: "ok"`` alongside ``code: 0`` must pin only ``code``:
+    ``recipe_runner._check_inband_error`` fires on TRUTHINESS, so pinning ``status``
+    would raise on every single run and refuse a perfectly readable board."""
+    assert _inband_error_keys(
+        {"status": "ok", "code": 0, "success": True, "jobs": [{"id": 1}]}
+    ) == ["code"]
+
+
 async def test_captured_credentials_never_reach_the_stored_recipe() -> None:
     """The Amazon fixture's captured headers carry a cookie, a bearer token and a CSRF
     token. Storing any of them would produce a board that passes acceptance TODAY and
@@ -317,10 +333,20 @@ async def test_refuses_when_the_replay_returns_far_fewer_jobs_than_the_capture()
     _assert_stores_nothing(outcome)
 
 
-async def test_refuses_when_both_transports_fail_and_candidates_are_exhausted() -> None:
-    """Candidates exhausted → REFUSE, and the ladder is BOUNDED: each round costs a
-    Haiku call and up to two replays inside a 240s task, so an unbounded loop would be a
-    money bug as well as a hang."""
+async def test_a_less_job_shaped_leftover_is_never_offered_a_second_round() -> None:
+    """THE forced-answer bug. The TikTok capture is two candidates: the jobs POST
+    (job_score 5) and the filter catalogue behind it (score 2, records "Engineering"
+    and "Design"). When the jobs feed cannot be replayed either way, the old ladder
+    dropped it and re-asked over the catalogue — and the selector schema REQUIRES an
+    index, so the model had to name it. That forced pick then passed everything: the
+    acceptance gate proves the replay reads the SAME array the browser saw, so a
+    catalogue replayed against itself overlaps 100%. Measured: discovery ACCEPTED
+    ``…/job/filters`` and tracked two categories as the company's jobs, forever, with a
+    nightly harvest that would never fail.
+
+    So a candidate LESS job-shaped than the one that just failed is not offered at all.
+    The floor is the failed candidate's own score, not the pre-filter's top rank — the
+    pre-filter is deliberately dumb and the model correcting it is a designed path."""
     select_calls: list[int] = []
     outcome = await discover(
         _TIKTOK_URL,
@@ -332,10 +358,131 @@ async def test_refuses_when_both_transports_fail_and_candidates_are_exhausted() 
     )
     assert outcome.ok is False
     assert "verifying we can read it" in (outcome.refuse_reason or "")
-    # Two candidates in the TikTok capture → at most _MAX_SELECTION_ROUNDS rounds.
-    assert len(select_calls) == _MAX_SELECTION_ROUNDS
-    assert select_calls == [2, 1]           # the failed candidate is dropped, then re-asked
+    assert select_calls == [2]              # asked once, over both; never re-asked
     _assert_stores_nothing(outcome)
+
+
+async def test_an_equally_job_shaped_candidate_is_tried_and_the_ladder_is_bounded() -> None:
+    """The fallback the round above exists for is still real: a second array that looks
+    just as job-shaped IS re-offered. And the ladder is BOUNDED — each round costs a
+    Haiku call and up to two replays inside a 240s task, so an unbounded loop would be
+    a money bug as well as a hang."""
+    twin = _amazon_response({**_amazon_body(), "hits": 76})
+    other = twin.__class__(**{**twin.__dict__, "url": twin.url + "&page=2"})
+
+    async def _capture(url: str) -> CaptureResult:
+        return CaptureResult(final_url=_AMAZON_URL, page_title="", responses=[twin, other])
+
+    select_calls: list[int] = []
+    outcome = await discover(
+        _AMAZON_URL,
+        capture=_capture,
+        select=_selecting(_amazon_selection(), calls=select_calls),
+        replay_http=_failing_replay(RecipeExecutionError("HTTP 400")),
+        replay_browser=_failing_replay(RecipeExecutionError("Chromium crashed")),
+        validate_url=_allow_all,
+    )
+    assert outcome.ok is False
+    assert select_calls == [2, 1]           # the failed candidate is dropped, then re-asked
+    assert len(select_calls) == _MAX_SELECTION_ROUNDS
+    _assert_stores_nothing(outcome)
+
+
+async def test_the_selector_may_answer_that_none_of_them_is_a_jobs_feed() -> None:
+    """The other half of the same defect: the model's own refusal branch. Re-asking
+    after "none of these is jobs" can only manufacture an answer, so it must STOP — and
+    name the filter step, because that is the user's actual problem (we recorded
+    requests; none of them is a jobs feed)."""
+    select_calls: list[int] = []
+
+    async def _no_feed(candidates: list[Any]) -> RequestSelection:
+        select_calls.append(len(candidates))
+        raise NoJobsFeedError("none of the 2 captured request(s) is a list of job postings")
+
+    outcome = await discover(
+        _TIKTOK_URL, capture=_capturing("tiktok"), select=_no_feed,
+        replay_http=_never_called_replay("http_json"),
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+    )
+    assert outcome.ok is False
+    assert "finding the jobs feed" in (outcome.refuse_reason or "")
+    assert "is a list of job postings" in (outcome.refuse_reason or "")
+    assert select_calls == [2]              # asked once; a second ask cannot help
+    _assert_stores_nothing(outcome)
+
+
+async def test_a_transport_level_network_error_falls_through_to_browser_fetch() -> None:
+    """The ladder's whole point, for the boards it exists for. An anti-bot origin that
+    RSTs or blackholes a non-browser client raises ``httpx.ConnectTimeout`` /
+    ``ConnectError`` / ``RemoteProtocolError`` — none of them a ``RecipeExecutionError``,
+    so they escaped BOTH the transport loop and the round loop into the last-resort
+    handler, and the board was permanently refused with an opaque internal-error
+    message while ``browser_fetch`` was never even tried."""
+    replays: list[str] = []
+    outcome = await discover(
+        _TIKTOK_URL,
+        capture=_capturing("tiktok"),
+        select=_selecting(_tiktok_selection()),
+        replay_http=_failing_replay(httpx.ConnectTimeout("timed out"), calls=replays),
+        replay_browser=_faithful_replay(
+            "tiktok", "data.job_post_list", _TIKTOK_MAP,
+            calls=replays, declared_total=4026,
+        ),
+        validate_url=_allow_all,
+    )
+    assert outcome.ok is True
+    assert outcome.transport == "browser_fetch"
+    assert replays == ["http_json", "browser_fetch"]
+
+
+async def test_the_model_may_correct_the_prefilters_records_path() -> None:
+    """The pre-filter ranks arrays by ``(job_score, record_count)`` — deliberately dumb
+    — and the prompt invites the model to correct it. When it does, everything
+    downstream must follow: ``_capture_ids`` compares the replay against the
+    candidate's records and ``paginate.page_size`` is the candidate's record count.
+    Reading the pre-filter's array while the recipe extracts the model's refused a
+    perfectly readable board ("the replay returned 12 job(s) but the browser saw 30" —
+    a sentence that is also false) and wrote 30 as the page size of a 12-record page."""
+    jobs = [{"id": f"J{i}", "title": f"Engineer {i}", "job_path": f"/jobs/{i}"}
+            for i in range(12)]
+    decoys = [{"id": f"S{i}", "title": f"Saved search {i}", "job_path": f"/s/{i}"}
+              for i in range(30)]
+    body = {"total": 120, "job_list": jobs, "saved_searches": decoys}
+    response = _amazon_response(body)
+
+    async def _capture(url: str) -> CaptureResult:
+        return CaptureResult(final_url=_AMAZON_URL, page_title="", responses=[response])
+
+    field_map = {"id": "id", "title": "title", "url": "https://www.amazon.jobs{job_path}"}
+    corrected = RequestSelection(
+        chosen_request_index=0, records_path="job_list", field_map=dict(field_map),
+        pagination=PaginationHint(style="offset", param="offset", page_size=12),
+    )
+
+    async def _replay(script: dict[str, Any]) -> tuple[list[dict], HarvestEvidence]:
+        # Replays what the STORED recipe says, which is the model's path.
+        (extract,) = [s for s in script["steps"] if s["op"] == "extract_json_path"]
+        rows = map_records(
+            body[extract["records_path"]], extract["fields"], script["base_url"]
+        )
+        return rows, HarvestEvidence(
+            declared_total=120, cap_hit=False, terminated_cleanly=True,
+            page_advance_ok=None, pages_fetched=1, transport_ok=True,
+        )
+
+    # The pre-filter really does prefer the longer decoy — otherwise this proves nothing.
+    assert prefilter_candidates([response])[0].records_path == "saved_searches"
+
+    outcome = await discover(
+        _AMAZON_URL, capture=_capture, select=_selecting(corrected),
+        replay_http=_replay, replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+    )
+    assert outcome.ok is True
+    assert outcome.script is not None
+    (paginate,) = [s for s in outcome.script["steps"] if s["op"].startswith("paginate_")]
+    assert paginate["page_size"] == 12          # the model's array, not the decoy's 30
 
 
 async def test_refuses_when_no_response_is_job_shaped() -> None:
@@ -497,7 +644,10 @@ async def test_missing_llm_key_refuses_without_burning_an_attempt() -> None:
 async def test_never_raises_even_when_a_collaborator_explodes() -> None:
     """The caller is a retry=1 task whose provisional ``discovering`` row is cleared
     only by a RETURNED outcome. An escaping exception wedges that row at "Setting up…"
-    with no recovery but Remove + re-add, so an unexpected crash must still refuse."""
+    with no recovery but Remove + re-add, so an unexpected crash must still refuse.
+
+    The reason must name the step we actually REACHED. A hardcoded "verifying we can
+    read it" told a user whose capture blew up to go look at the wrong thing."""
     async def _explode(url: str) -> CaptureResult:
         raise ZeroDivisionError("something nobody predicted")
 
@@ -509,6 +659,52 @@ async def test_never_raises_even_when_a_collaborator_explodes() -> None:
     )
     assert outcome.ok is False
     assert "ZeroDivisionError" in (outcome.refuse_reason or "")
+    assert (outcome.refuse_reason or "").startswith("opening the careers page")
+    _assert_stores_nothing(outcome)
+
+
+async def test_an_unexpected_crash_in_the_selector_names_the_selection_step() -> None:
+    """Same property, a different step — proving the step is tracked rather than
+    coincidentally right. A selector that raises something nobody anticipated is a
+    "reading the jobs feed" problem, not an acceptance one."""
+    async def _explode(candidates: list[Any]) -> RequestSelection:
+        raise MemoryError("something nobody predicted")
+
+    outcome = await discover(
+        _AMAZON_URL, capture=_capturing("amazon"), select=_explode,
+        replay_http=_never_called_replay("http_json"),
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+    )
+    assert outcome.ok is False
+    assert (outcome.refuse_reason or "").startswith("reading the jobs feed")
+    assert "MemoryError" in (outcome.refuse_reason or "")
+    _assert_stores_nothing(outcome)
+
+
+async def test_a_body_too_big_to_record_says_so_instead_of_blaming_the_board() -> None:
+    """A captured body over the child's cap comes back EMPTY with ``truncated=True``
+    (half a JSON document parses as nothing at all, so truncating it was worse than
+    useless). The pre-filter then drops it — and folding that into "none of them
+    returned a list of job postings" tells the user the exact opposite of what
+    happened about the one request that did, and leaves them no next action."""
+    responses = _capture_result("amazon").responses
+    oversize = [
+        r.__class__(**{**r.__dict__, "body": "", "truncated": True}) for r in responses
+    ]
+
+    async def _capture(url: str) -> CaptureResult:
+        return CaptureResult(final_url=_AMAZON_URL, page_title="", responses=oversize)
+
+    outcome = await discover(
+        _AMAZON_URL, capture=_capture, select=_selecting(_amazon_selection()),
+        replay_http=_never_called_replay("http_json"),
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+    )
+    assert outcome.ok is False
+    assert "finding the jobs feed" in (outcome.refuse_reason or "")
+    assert "more data than we can record" in (outcome.refuse_reason or "")
     _assert_stores_nothing(outcome)
 
 
@@ -523,16 +719,38 @@ def _assert_stores_nothing(outcome: Any) -> None:
 
 # --- synthesis details worth pinning on their own ----------------------------
 
-def test_no_pagination_step_when_the_capture_already_saw_the_whole_board() -> None:
-    """Spotify's shape: the declared total equals the page we captured. A pagination
-    step there would spend a round-trip a night fetching an empty second page."""
+def _amazon_body() -> dict[str, Any]:
+    """The Amazon fixture's jobs response, parsed — the base for shape variations."""
     responses = _responses_from_report(
         json.loads((_FIXTURES / "amazon_capture.json").read_text())
     )
-    body = json.loads(responses[2].body)
+    return dict(json.loads(responses[2].body))
+
+
+def _amazon_response(body: dict[str, Any]) -> Any:
+    """That same captured response carrying ``body`` instead of its own."""
+    responses = _responses_from_report(
+        json.loads((_FIXTURES / "amazon_capture.json").read_text())
+    )
+    original = responses[2]
+    return original.__class__(**{**original.__dict__, "body": json.dumps(body)})
+
+
+def _untotalled_amazon() -> Any:
+    """The Amazon jobs response with every total-ish key removed — a board that
+    publishes no total at all."""
+    body = _amazon_body()
+    del body["hits"]
+    del body["facets"]
+    return _amazon_response(body)
+
+
+def test_no_pagination_step_when_the_capture_already_saw_the_whole_board() -> None:
+    """Spotify's shape: the declared total equals the page we captured. A pagination
+    step there would spend a round-trip a night fetching an empty second page."""
+    body = _amazon_body()
     body["hits"] = 10                                   # == the captured record count
-    whole = responses[2].__class__(**{**responses[2].__dict__, "body": json.dumps(body)})
-    candidate = prefilter_candidates([whole])[0]
+    candidate = prefilter_candidates([_amazon_response(body)])[0]
 
     script = synthesize_recipe(
         candidate, _amazon_selection(), transport="http_json", origin_url=_AMAZON_URL
@@ -540,25 +758,72 @@ def test_no_pagination_step_when_the_capture_already_saw_the_whole_board() -> No
     assert [s["op"] for s in script["steps"] if s["op"].startswith("paginate_")] == []
 
 
-def test_a_board_with_no_declared_total_gets_the_self_consistent_oracle() -> None:
+def test_a_board_with_no_declared_total_still_pages_and_is_self_consistent() -> None:
     """No trusted total → ``self_consistent``, which can only ever VERIFY after the
     3-run streak. Inventing an oracle path instead would make every night a FAILED run;
-    that is why the total is searched deterministically and never asked of the LLM."""
-    responses = _responses_from_report(
-        json.loads((_FIXTURES / "amazon_capture.json").read_text())
-    )
-    body = json.loads(responses[2].body)
-    del body["hits"]
-    del body["facets"]
-    untotalled = responses[2].__class__(
-        **{**responses[2].__dict__, "body": json.dumps(body)}
-    )
-    candidate = prefilter_candidates([untotalled])[0]
+    that is why the total is searched deterministically and never asked of the LLM.
+
+    The paginate step is the other half and used to be dropped here: emitting it only
+    when a total said "there is more" left a paging board stored as a page-1-only
+    recipe, and a page-1-only sweep reports ``terminated_cleanly`` with no cap — so
+    ``self_consistent`` VERIFIED it every night and began closing everything past page
+    one, on a board it never finished reading (invariant #2)."""
+    candidate = prefilter_candidates([_untotalled_amazon()])[0]
 
     script = synthesize_recipe(
         candidate, _amazon_selection(), transport="http_json", origin_url=_AMAZON_URL
     )
     assert script["oracle"] == {"kind": "self_consistent"}
+    (paginate,) = [s for s in script["steps"] if s["op"].startswith("paginate_")]
+    assert paginate["param"] == "offset"
+
+
+def test_a_page_one_only_recipe_makes_no_completeness_claim_at_all() -> None:
+    """The residual of the case above: no declared total AND no paging hint. One
+    request that returns page one of an unknown-length board is indistinguishable from
+    one that returns the whole board, so the recipe must not claim ``self_consistent``
+    — a sweep it never ran. ``none`` maps to UNVERIFIED in ``verify_harvest``, which
+    shows the board's jobs every night and closes none of them."""
+    candidate = prefilter_candidates([_untotalled_amazon()])[0]
+    no_paging = RequestSelection(
+        chosen_request_index=0, records_path="jobs",
+        field_map=dict(_AMAZON_MAP), pagination=None,
+    )
+
+    script = synthesize_recipe(
+        candidate, no_paging, transport="http_json", origin_url=_AMAZON_URL
+    )
+    assert script["oracle"] == {"kind": "none"}
+    assert [s["op"] for s in script["steps"] if s["op"].startswith("paginate_")] == []
+    # ...and prove what that oracle BUYS, in the gate that actually decides closing:
+    # a clean, uncapped, stable run still lands UNVERIFIED, so no miss and no close.
+    clean = HarvestEvidence(
+        declared_total=None, cap_hit=False, terminated_cleanly=True,
+        page_advance_ok=None, pages_fetched=1, transport_ok=True,
+    )
+    verdict = verify_harvest(
+        "none",
+        GateResult(jobs=[], records_harvested=10, id_dedup_dropped=0),
+        clean,
+        SimpleNamespace(median_records=10),
+    )
+    assert verdict.verdict == UNVERIFIED
+
+
+def test_the_declared_total_is_the_largest_total_key_not_the_first_one_found() -> None:
+    """A board that publishes both a per-page and a whole-board count lists them in its
+    own order. Taking the first match pinned the PAGE SIZE as the trusted total: the
+    nightly run harvests page one, matches its own "total" exactly, lands VERIFIED
+    ``declared_exact`` — and ``declared_probed`` is exempt from the id-churn guard, so
+    every job that rolled off page one is closed while still open (invariant #2)."""
+    body = {"resultCount": 10, "hits": 76, "jobs": _amazon_body()["jobs"]}
+    candidate = prefilter_candidates([_amazon_response(body)])[0]
+
+    script = synthesize_recipe(
+        candidate, _amazon_selection(), transport="http_json", origin_url=_AMAZON_URL
+    )
+    assert script["oracle"] == {"kind": "declared_probed", "total_path": "hits"}
+    assert [s["op"] for s in script["steps"] if s["op"].startswith("paginate_")] != []
 
 
 def test_a_post_board_stores_its_captured_body_as_an_object() -> None:

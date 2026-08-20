@@ -35,7 +35,20 @@ and is still the wrong feed.
 
 **A board with no capturable API is REFUSED.** There is no DOM tier to fall back to, by
 design (the owner's deterministic-only principle): every runtime path either works or it
-does not, decided once, here. Refusing is how we never wrong-track.
+does not, decided once, here. Refusing is how we never wrong-track. Two shapes of that,
+both learned the hard way: the selector can answer "none of these is a jobs feed"
+(:class:`~.request_selector.NoJobsFeedError`) rather than be forced to name something,
+and the next-candidate round is only offered arrays at least as job-shaped as the one
+that failed — a forced pick of a leftover filter catalogue passes the acceptance gate
+trivially, because the gate compares the replay against that same array.
+
+**The stored oracle is the completeness CLAIM, and it is deliberately stingy.** A
+declared total makes it ``declared_probed`` (the LARGEST total-ish key, never the first
+— a per-page count pinned as the total is a confident wrong-close); a real paginated
+sweep makes it ``self_consistent``; a single request over a board whose length nobody
+published makes it ``none``, which can only ever be UNVERIFIED. Every one of those
+mistakes ends the same way if you get it wrong in the generous direction: a nightly run
+that certifies a page it never finished reading and closes the rest (invariant #2).
 
 NEVER RAISES. Every failure — including an unexpected one — becomes
 ``DiscoveryOutcome(ok=False, refuse_reason=…)``, because the caller is a ``retry=1``
@@ -53,6 +66,8 @@ from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
 from urllib.parse import urlsplit, urlunsplit
 
+import httpx
+
 from ..discovery.models import DiscoveryOutcome
 from ..guarded_client import guarded_sync_client
 from ..harvest_meta import HarvestEvidence
@@ -64,6 +79,7 @@ from ..url_guard import _DNS_EXECUTOR, UrlGuardError, validate_public_url
 from .network_capture import CaptureError, CaptureResult, capture_board
 from .request_selector import (
     Candidate,
+    NoJobsFeedError,
     RequestSelection,
     RequestSelectionError,
     SelectorKeyMissingError,
@@ -230,9 +246,20 @@ def _find_total_path(payload: Any, records_path: str, record_count: int) -> str 
     big as the page we captured. Anything inside the records array is skipped: a per-job
     ``count`` is not a board total, and mistaking one for an oracle would make every run
     FAIL its exact-match comparison.
+
+    **Every match is collected and the LARGEST value wins** — never the first one found.
+    A board that publishes both a per-page and a whole-board count (``resultCount: 20``
+    beside ``totalCount: 500``) lists them in its own order, and taking the first meant
+    pinning the PAGE SIZE as the trusted total: the nightly run then harvests page one,
+    matches its own "total" exactly, lands VERIFIED ``declared_exact``, and closes every
+    job that rolled off page one — on a board it never finished reading (invariant #2).
+    The tie always breaks toward the larger number because the two errors are not
+    symmetric: too large is UNVERIFIED forever (shows its jobs, closes nothing), too
+    small is a confident wrong-close.
     """
     if not isinstance(payload, dict):
         return None
+    best: tuple[int, int, str] | None = None      # (value, -depth, path)
     frontier: list[tuple[Any, str, int]] = [(payload, "", 0)]
     while frontier:
         node, path, depth = frontier.pop(0)
@@ -248,10 +275,12 @@ def _find_total_path(payload: Any, records_path: str, record_count: int) -> str 
                 and value >= record_count
                 and any(hint in str(key).lower() for hint in _TOTAL_KEY_HINTS)
             ):
-                return child_path
+                found = (value, -depth, child_path)
+                if best is None or found > best:
+                    best = found
             if isinstance(value, dict):
                 frontier.append((value, child_path, depth + 1))
-    return None
+    return best[2] if best is not None else None
 
 
 def synthesize_recipe(
@@ -286,14 +315,17 @@ def synthesize_recipe(
     total_path = _find_total_path(
         candidate.payload, selection.records_path, candidate.record_count
     )
-    # Paginate only when the board says there is more than the page we captured. A
-    # pagination step on a board we already read whole would spend a round-trip a night
-    # to fetch an empty second page; no pagination on a board that HAS more is honest
-    # (we harvest page one and the gate never calls that complete, so it never closes).
     declared_total = dig(candidate.payload, total_path) if total_path else None
-    if selection.pagination is not None and isinstance(declared_total, int) and (
-        declared_total > candidate.record_count
-    ):
+    # PAGE WHENEVER WE HAVE A USABLE HINT. The single exception is a board whose own
+    # total PROVES the captured page is the whole board — there a second request would
+    # buy an empty page every night. Gating on "a total exists AND says there is more"
+    # was the bug: a board that paginates but publishes no total lost its paging step
+    # silently, and a page-1-only sweep reports ``terminated_cleanly`` with no cap, so
+    # ``self_consistent`` VERIFIES it night after night and starts closing everything
+    # past page one (invariant #2). Note the oracle below refuses to certify a
+    # page-1-only recipe for exactly the residual case — no total AND no hint.
+    one_page_proven = isinstance(declared_total, int) and declared_total <= candidate.record_count
+    if selection.pagination is not None and not one_page_proven:
         op = "paginate_offset" if selection.pagination.style == "offset" else "paginate_page"
         steps.append({
             "op": op,
@@ -317,10 +349,21 @@ def synthesize_recipe(
     steps.append({"op": "dedupe_key", "field": "id"})
     steps.append({"op": "assert_unique", "field": "id"})
 
-    oracle: dict[str, Any] = (
-        {"kind": "declared_probed", "total_path": total_path}
-        if total_path else {"kind": "self_consistent"}
-    )
+    # THE COMPLETENESS CLAIM, and the one place discovery may not be generous.
+    # ``self_consistent`` means "the sweep ran to a short page without hitting its cap"
+    # — a claim a recipe with NO sweep has not earned. A single request that returns
+    # page one of an unknown-length board is indistinguishable from one that returns
+    # the whole board, so a page-1-only recipe with no declared total gets ``none``:
+    # ``verify_harvest`` can then only ever answer UNVERIFIED, which shows the board's
+    # jobs every night and closes none of them. That is the safe half of the ambiguity.
+    paginates = any(step["op"].startswith("paginate_") for step in steps)
+    oracle: dict[str, Any]
+    if total_path:
+        oracle = {"kind": "declared_probed", "total_path": total_path}
+    elif paginates:
+        oracle = {"kind": "self_consistent"}
+    else:
+        oracle = {"kind": "none"}
 
     script: dict[str, Any] = {
         "script_version": RECIPE_VERSION,
@@ -380,11 +423,50 @@ async def _default_replay_browser(script: dict[str, Any]) -> tuple[list[dict], H
     )
 
 
+def _rebind_to_selection(candidate: Candidate, selection: RequestSelection) -> Candidate:
+    """Re-point the candidate at the array the MODEL chose, not the pre-filter's guess.
+
+    The pre-filter picks one array per response by ``(job_score, record_count)`` — a
+    deliberately dumb ranking — and the prompt explicitly invites the model to correct
+    it ("use the one you were shown unless it is wrong"). Everything downstream reads
+    the candidate: :func:`_capture_ids` compares the replay against ``candidate.records``,
+    ``paginate.page_size`` and :func:`_find_total_path`'s floor come from
+    ``candidate.record_count``. Left un-rebound, an accepted correction makes those read
+    a DIFFERENT array than the recipe extracts — measured: a 12-job ``job_list`` beside
+    a 30-row ``saved_searches`` decoy refused a perfectly readable board with "the
+    replay returned 12 job(s) but the browser saw 30", a message that is also simply
+    false, and wrote 30 as the page size of a 12-record page.
+
+    ``select_request`` already proved the path resolves; the guard is for an injected
+    selector (tests) and for a future caller that does not.
+    """
+    try:
+        records = dig(candidate.payload, selection.records_path)
+    except RecipeError as exc:
+        raise _Refusal(
+            _STEP_SELECT,
+            f"records_path {selection.records_path!r} does not resolve in the "
+            f"captured response: {exc}",
+        ) from exc
+    if not isinstance(records, list) or not records:
+        raise _Refusal(
+            _STEP_SELECT,
+            f"records_path {selection.records_path!r} is not a non-empty list in the "
+            "captured response",
+        )
+    if selection.records_path == candidate.records_path:
+        return candidate
+    return replace(
+        candidate, records_path=selection.records_path, record_count=len(records)
+    )
+
+
 def _capture_ids(candidate: Candidate, selection: RequestSelection, base_url: str) -> set[str]:
     """The ids the CAPTURE BROWSER saw, mapped with the same field map the recipe uses.
 
     Same ``map_records`` the replay goes through, on purpose: comparing ids derived two
-    different ways would compare the mappers, not the feeds.
+    different ways would compare the mappers, not the feeds. ``candidate`` must already
+    be rebound by :func:`_rebind_to_selection`, or this reads the wrong array.
     """
     rows = map_records(candidate.records, dict(selection.field_map), base_url)
     return {row["id"] for row in rows}
@@ -497,6 +579,10 @@ async def discover(
     run_browser = replay_browser or _default_replay_browser
 
     attempts = 0
+    # The step we are CURRENTLY in, so the last-resort handler at the bottom names the
+    # step that actually blew up. Initialized before the try because an exception can
+    # be raised from the very first line inside it.
+    current_step = _STEP_ENTRY
     try:
         # STEP 1 — SSRF on the pasted URL, off the loop (blocking getaddrinfo on a host
         # a stranger chose; see network_capture for the whole argument).
@@ -509,6 +595,7 @@ async def discover(
             ) from exc
 
         # STEP 2 — one browser session, ever.
+        current_step = _STEP_CAPTURE
         try:
             captured = await do_capture(url)
         except CaptureError as exc:
@@ -523,21 +610,40 @@ async def discover(
         )
 
         # STEP 3 — deterministic pre-filter, then the endpoint SSRF half.
+        current_step = _STEP_FILTER
         candidates = prefilter_candidates(captured.responses)
         if not candidates:
-            # Two genuinely different boards, and the user's next action differs, so the
-            # copy does too: a page that fetched NO JSON at all is server-rendered or
-            # bot-walled (measured: metacareers.com captures zero XHRs), while a page
-            # that fetched plenty and none of it was jobs usually means the jobs live
-            # behind a filter/search the capture never triggered.
-            raise _Refusal(
-                _STEP_FILTER,
-                "this page loaded its jobs without any JSON request we could record — "
-                "it renders them on the server or blocks automated browsers"
-                if not captured.responses else
-                f"none of the {len(captured.responses)} JSON request(s) this page made "
-                "returned a list of job postings",
-            )
+            # Three genuinely different boards, and the user's next action differs, so
+            # the copy does too: a page that fetched NO JSON at all is server-rendered
+            # or bot-walled (measured: metacareers.com captures zero XHRs); a page
+            # whose jobs feed was too big to record whole is a size limit on OUR side,
+            # not a property of the board; and a page that fetched plenty of readable
+            # JSON with no jobs in it usually means the jobs live behind a
+            # filter/search the capture never triggered.
+            #
+            # The middle case has to be named separately or it is a lie: an oversize
+            # body is dropped by the pre-filter's ``json.loads``, and folding that into
+            # "none of them returned a list of job postings" tells the user the exact
+            # opposite of what happened and leaves them nothing to do.
+            oversize = sum(1 for r in captured.responses if r.truncated)
+            if not captured.responses:
+                detail = (
+                    "this page loaded its jobs without any JSON request we could "
+                    "record — it renders them on the server or blocks automated "
+                    "browsers"
+                )
+            elif oversize:
+                detail = (
+                    f"{oversize} of the {len(captured.responses)} JSON request(s) this "
+                    "page made returned more data than we can record in one go, and "
+                    "none of the rest is a list of job postings"
+                )
+            else:
+                detail = (
+                    f"none of the {len(captured.responses)} JSON request(s) this page "
+                    "made returned a list of job postings"
+                )
+            raise _Refusal(_STEP_FILTER, detail)
         candidates = await _public_candidates(candidates, check_url)
         if not candidates:
             raise _Refusal(
@@ -561,8 +667,22 @@ async def discover(
             if not candidates:
                 break
             attempts = round_number
+            current_step = _STEP_SELECT
             try:
                 selection = await do_select(candidates)
+            except NoJobsFeedError as exc:
+                # The model looked at what is left and said none of it is jobs. Asking
+                # again cannot change that, and the alternative — a schema with no
+                # refusal branch — is what lets a leftover filter catalogue be stored
+                # as the company's board. Stop here and name the FILTER step, because
+                # that is the user's real problem: we recorded requests, none is a
+                # jobs feed.
+                logger.info("discovery found no jobs feed for %s: %s", url, exc)
+                raise _Refusal(
+                    _STEP_FILTER,
+                    f"none of the {len(captured.responses)} JSON request(s) this page "
+                    "made is a list of job postings",
+                ) from exc
             except SelectorKeyMissingError as exc:
                 # Not the board's fault and not retryable: refuse WITHOUT counting an
                 # attempt, exactly as the location cascade degrades on a missing key.
@@ -581,12 +701,21 @@ async def discover(
                 logger.info("discovery selection rejected for %s: %s", url, exc)
                 continue
 
-            candidate = candidates[selection.chosen_request_index]
+            current_step = _STEP_SYNTHESIZE
+            try:
+                candidate = _rebind_to_selection(
+                    candidates[selection.chosen_request_index], selection
+                )
+            except _Refusal as exc:
+                last_step, last_error = exc.step, exc.detail
+                logger.info("discovery selection unusable for %s: %s", url, exc.detail)
+                continue
             for transport, replay in (("http_json", run_http), ("browser_fetch", run_browser)):
                 try:
                     script = synthesize_recipe(
                         candidate, selection, transport=transport, origin_url=origin_url
                     )
+                    current_step = _STEP_ACCEPT
                     rows = await _try_acceptance(
                         script, candidate, selection, replay=replay
                     )
@@ -598,7 +727,16 @@ async def discover(
                     )
                     continue
                 except (
-                    RecipeExecutionError, RecipeError, HarvestGateError, ValueError
+                    RecipeExecutionError, RecipeError, HarvestGateError, ValueError,
+                    # A TRANSPORT failure costs this TIER, not the discovery. httpx
+                    # raises ConnectTimeout/ConnectError/RemoteProtocolError — none of
+                    # them a RecipeExecutionError — on exactly the boards tier 1b
+                    # exists for (a bot-walled origin that RSTs or blackholes a
+                    # non-browser client). Uncaught, they escaped BOTH loops into the
+                    # last-resort handler and permanently refused a board browser_fetch
+                    # would have accepted. ``OSError`` covers the same class out of the
+                    # browser_fetch subprocess spawn.
+                    httpx.HTTPError, OSError,
                 ) as exc:
                     last_step = _STEP_ACCEPT
                     last_error = f"{type(exc).__name__}: {exc}"
@@ -625,10 +763,29 @@ async def discover(
                         f"replays as {transport}"
                     ),
                 )
-            # This candidate cannot be replayed either way — drop it and ask again.
+            # This candidate cannot be replayed either way — drop it and ask again over
+            # what is left, but ONLY over arrays that look at least as job-shaped as the
+            # one that just failed. The next round's schema still demands an answer over
+            # whatever it is shown, and the acceptance gate cannot save us: it proves the
+            # replay reads the SAME array the browser saw, so a forced pick of a leftover
+            # facet/filter catalogue overlaps itself 100% and is ACCEPTED. Measured on
+            # the TikTok capture — with the jobs POST dropped, discovery stored
+            # ``…/job/filters`` (records_path ``data.job_category_list``) and tracked
+            # "Engineering" and "Design" as the company's job postings, forever, with a
+            # nightly harvest that would never fail.
+            #
+            # The floor is the FAILED candidate's own score, not the pre-filter's top
+            # rank: the pre-filter is deliberately dumb and the model correcting it is a
+            # designed path, so "must be the highest-ranked" would refuse boards we can
+            # read. "Not less job-shaped than the thing that just failed" costs nothing
+            # real and removes the manufactured answer.
+            floor = candidate.job_score
             candidates = [
                 replace(c, index=i)
-                for i, c in enumerate(c for c in candidates if c.index != candidate.index)
+                for i, c in enumerate(
+                    c for c in candidates
+                    if c.index != candidate.index and c.job_score >= floor
+                )
             ]
 
         raise _Refusal(
@@ -648,7 +805,11 @@ async def discover(
         logger.exception("capture discovery crashed for %s", url)
         return DiscoveryOutcome(
             ok=False,
-            refuse_reason=f"{_STEP_ACCEPT}: discovery failed unexpectedly "
+            # The step we had actually REACHED, not a hardcoded one. The refusal string
+            # is rendered to the user and drives their next action, so telling someone
+            # whose LLM call blew up that we failed "verifying we can read it" points
+            # them at the wrong problem entirely.
+            refuse_reason=f"{current_step}: discovery failed unexpectedly "
                           f"({type(exc).__name__})",
             attempts=attempts,
         )

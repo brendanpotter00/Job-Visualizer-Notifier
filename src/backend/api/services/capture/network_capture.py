@@ -68,6 +68,7 @@ _BROWSERBASE_SESSION_TTL_S = 300
 RunSubprocess = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
 UrlValidator = Callable[[str], Any]
 OpenSession = Callable[[], Awaitable["BrowserSession | None"]]
+HttpClientFactory = Callable[[], httpx.AsyncClient]
 
 
 class CaptureError(RuntimeError):
@@ -225,13 +226,22 @@ def _parse_report(stdout: str) -> dict[str, Any]:
     raise CaptureError("capture subprocess produced no JSON report on stdout")
 
 
-async def _open_browserbase_session() -> BrowserSession | None:
+async def _open_browserbase_session(
+    *, client_factory: HttpClientFactory | None = None
+) -> BrowserSession | None:
     """Create a Browserbase session, or ``None`` when the opt-in is not fully configured.
 
     Returning ``None`` rather than raising is the whole point: Browserbase is an
     OPTIONAL upgrade (stealth IPs + the hosted live view), so a missing key or a
     Browserbase outage must degrade to our own Chromium, not refuse a board we could
     have read for free. Only a hard misconfiguration is logged.
+
+    ``client_factory`` is injectable because the flag is the thing that costs money and
+    "returns None" cannot prove it was honoured: with the opt-in check deleted, this
+    function issues a real ``POST /v1/sessions``, the 401 lands in the ``httpx.HTTPError``
+    swallow below, and it returns the SAME ``None``. The only observable difference is
+    whether a request was attempted — so the test asserts on that, the way the spawn
+    counters elsewhere in this module do.
     """
     if not settings.capture_use_browserbase:
         return None
@@ -245,8 +255,11 @@ async def _open_browserbase_session() -> BrowserSession | None:
         "X-BB-API-Key": settings.browserbase_api_key,
         "Content-Type": "application/json",
     }
+    open_client = client_factory or (
+        lambda: httpx.AsyncClient(timeout=_BROWSERBASE_TIMEOUT_S)
+    )
     try:
-        async with httpx.AsyncClient(timeout=_BROWSERBASE_TIMEOUT_S) as http:
+        async with open_client() as http:
             created = await http.post(
                 _BROWSERBASE_API,
                 headers=headers,

@@ -40,7 +40,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Awaitable, Callable
 from urllib.parse import parse_qsl, urlsplit
 
-from anthropic import AsyncAnthropic
+from anthropic import APIError, AsyncAnthropic
 from pydantic import BaseModel, ValidationError
 
 from ...config import settings
@@ -99,6 +99,18 @@ class SelectorKeyMissingError(RequestSelectionError):
     """``ANTHROPIC_API_KEY`` is unset. Discovery degrades WITHOUT burning an attempt —
     the deployment is misconfigured, which is not the board's fault and must not be
     recorded as "this board is not trackable" any more loudly than it has to be."""
+
+
+class NoJobsFeedError(RequestSelectionError):
+    """The model looked at every candidate and NONE of them is a list of job postings.
+
+    A distinct exception because it means the opposite of the others: re-asking is
+    pointless (the answer will not change) and the caller must stop the ladder rather
+    than spend another round. It exists at all because a schema that REQUIRES an index
+    forces an answer — and a forced answer over a leftover facet/filter catalogue
+    passes every downstream check, since the acceptance gate compares the replay
+    against that SAME array. "None of these" has to be sayable.
+    """
 
 
 # --------------------------------------------------------------------------
@@ -233,7 +245,9 @@ class _Pagination(BaseModel):
 
 
 class _SelectionEnvelope(BaseModel):
-    chosen_request_index: int
+    # ``None`` is THE refusal branch — see :class:`NoJobsFeedError`. The rest of the
+    # envelope is then ignored, so the model is told to send empty strings.
+    chosen_request_index: int | None = None
     records_path: str
     field_map: _FieldMap
     pagination: _Pagination | None = None
@@ -250,7 +264,11 @@ class PaginationHint:
 
 @dataclass(frozen=True)
 class RequestSelection:
-    """The believed-and-re-checked answer: which candidate, and how to read it."""
+    """The believed-and-re-checked answer: which candidate, and how to read it.
+
+    Only ever built for a REAL pick — "none of these is a jobs feed" is
+    :class:`NoJobsFeedError`, not a sentinel index, so no caller can forget to check.
+    """
 
     chosen_request_index: int
     records_path: str
@@ -267,6 +285,11 @@ SYSTEM_PROMPT = (
     "filter list, not a list of offices or departments, not search suggestions, not "
     "analytics. Prefer the response whose records are individual job postings with "
     "titles.\n"
+    "If NONE of the responses is a list of job postings — they are all filter "
+    "catalogues, office lists, suggestions or analytics — return "
+    "chosen_request_index: null with empty strings for records_path and the field "
+    "map, and null pagination. Say null rather than picking the closest thing: a "
+    "wrong pick is stored and tracked as if it were the company's jobs.\n"
     "Then map that record shape to our canonical fields using DOTTED PATHS relative to "
     "ONE record. Use ONLY field names that appear in that response's 'record fields' "
     "list or inside its sample records — never a name you expect a job board to have. "
@@ -296,7 +319,7 @@ _SELECTION_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
     "properties": {
-        "chosen_request_index": {"type": "integer"},
+        "chosen_request_index": {"type": ["integer", "null"]},
         "records_path": {"type": "string"},
         "field_map": {
             "type": "object",
@@ -467,6 +490,34 @@ def _validate_field_map(records: list[Any], field_map: dict[str, str]) -> None:
     )
 
 
+def _validate_url_field(records: list[Any], spec: str) -> None:
+    """Render ``url`` against the REAL records; it must come out link-shaped.
+
+    ``url`` is the third REQUIRED field and, until this check existed, the only one
+    never rendered — so a plausible-looking mapping was stored unchallenged and every
+    "view job" link on the board came out dead. Two measured shapes on
+    lifeattiktok.com: ``url='code'`` renders the bare requisition string ``A215432``
+    (``map_records`` only resolves a value against ``base_url`` when it starts with
+    ``/``, so it is stored verbatim), and a template pointed at the API host renders a
+    well-formed URL that 404s.
+
+    Only the FIRST of those is decidable without fetching, and that is what this
+    enforces: at least one captured record must render an absolute ``http(s)://`` URL
+    or a leading-slash path ``base_url`` can resolve. A board whose job links we
+    cannot build is not trackable, so this REFUSES (like id/title) rather than
+    pruning — and the caller's next round re-asks, which is where a better mapping
+    comes from.
+    """
+    for record in records[:5]:
+        rendered = render_field(record, spec)
+        if isinstance(rendered, str) and rendered.startswith(("https://", "http://", "/")):
+            return
+    raise RequestSelectionError(
+        f"field_map.url {spec!r} renders no usable link on the captured records "
+        "(expected an absolute http(s) URL or a leading-slash path)"
+    )
+
+
 def _prune_non_scalar_optionals(
     records: list[Any], field_map: dict[str, str]
 ) -> dict[str, str]:
@@ -496,6 +547,10 @@ def _prune_non_scalar_optionals(
 
 def _to_selection(envelope: _SelectionEnvelope, candidates: list[Candidate]) -> RequestSelection:
     index = envelope.chosen_request_index
+    if index is None:
+        raise NoJobsFeedError(
+            f"none of the {len(candidates)} captured request(s) is a list of job postings"
+        )
     if not 0 <= index < len(candidates):
         raise RequestSelectionError(
             f"chosen_request_index {index} is not one of the {len(candidates)} "
@@ -517,6 +572,7 @@ def _to_selection(envelope: _SelectionEnvelope, candidates: list[Candidate]) -> 
         if not field_map[required]:
             raise RequestSelectionError(f"field_map.{required} is empty")
     _validate_field_map(records, field_map)
+    _validate_url_field(records, field_map["url"])
     field_map = _prune_non_scalar_optionals(records, field_map)
 
     pagination: PaginationHint | None = None
@@ -548,16 +604,27 @@ async def select_request(
     """Ask Haiku 4.5 which candidate is the jobs feed and how to read its records.
 
     Raises :class:`SelectorKeyMissingError` when no API key is configured (degrade, do
-    not retry) and :class:`RequestSelectionError` for every other unbelievable answer.
-    ``create_message`` is the injectable seam: the unit tests run at $0 against a canned
-    response object.
+    not retry), :class:`NoJobsFeedError` when the model says none of the candidates is
+    a jobs feed (stop, do not re-ask) and :class:`RequestSelectionError` for every
+    other unbelievable answer or a failed call (re-ask). ``create_message`` is the
+    injectable seam: the unit tests run at $0 against a canned response object.
     """
     if not candidates:
         raise RequestSelectionError("no job-shaped JSON responses were captured")
 
-    response = await (create_message or _default_create_message)(
-        build_message_params(candidates)
-    )
+    try:
+        response = await (create_message or _default_create_message)(
+            build_message_params(candidates)
+        )
+    except APIError as exc:
+        # A 529/overload/connection blip is not an unbelievable ANSWER, but the caller
+        # must treat it the same way — as a failed ROUND it can re-ask, not as an
+        # escaping exception. Uncaught, it lands in ``discover``'s last-resort handler
+        # and permanently refuses a trackable board on a transient LLM outage.
+        # ``max_retries=0`` above is why this surfaces at all: the queue owns retries.
+        # Deliberately narrow: ``SelectorKeyMissingError`` is not an ``APIError``, so
+        # the "degrade without burning an attempt" path still passes straight through.
+        raise RequestSelectionError(f"the selector call failed: {exc!r}") from exc
     text = extract_text_content(response)
     if not text:
         raise RequestSelectionError(

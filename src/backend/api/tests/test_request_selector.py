@@ -329,3 +329,94 @@ def test_key_missing_error_is_a_selection_error() -> None:
     attempt) and the general one second; the subclass relationship is what keeps a
     reordered except-chain from silently swallowing the distinction."""
     assert issubclass(rs.SelectorKeyMissingError, rs.RequestSelectionError)
+    assert issubclass(rs.NoJobsFeedError, rs.RequestSelectionError)
+
+
+# --- the url mapping ---------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_a_url_mapping_that_is_not_a_link_refuses() -> None:
+    """``url`` is the third REQUIRED field and was the only one never rendered, so a
+    mapping onto a bare requisition code was stored unchallenged — ``map_records``
+    resolves a value against ``base_url`` only when it starts with ``/``, so every job
+    on the board got ``A215432`` as its link. Measured on a real lifeattiktok run."""
+    answer = {**_AMAZON_ANSWER,
+              "field_map": {**_AMAZON_ANSWER["field_map"], "url": "id_icims"}}
+    with pytest.raises(rs.RequestSelectionError, match="renders no usable link"):
+        await rs.select_request(_candidates("amazon"), create_message=_answering(answer))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("spec", ["job_path", "https://www.amazon.jobs{job_path}"])
+async def test_a_relative_path_or_a_template_is_a_usable_link(spec: str) -> None:
+    """The two shapes a real board actually gives us: a leading-slash path ``base_url``
+    resolves, and a template the model builds. Both must pass, or the check above
+    would refuse boards we can read."""
+    answer = {**_AMAZON_ANSWER,
+              "field_map": {**_AMAZON_ANSWER["field_map"], "url": spec}}
+    selection = await rs.select_request(
+        _candidates("amazon"), create_message=_answering(answer)
+    )
+    assert selection.field_map["url"] == spec
+
+
+# --- "none of these is a jobs feed" ------------------------------------------
+
+@pytest.mark.asyncio
+async def test_the_model_can_answer_that_none_of_them_is_a_jobs_feed() -> None:
+    """The refusal branch. Without it the schema REQUIRES an index, so a round left
+    with only a filter catalogue must name it — and that forced answer then passes
+    every downstream check, because the acceptance gate compares the replay against
+    that same array. ``None`` must reach the caller as its own exception, not as a
+    sentinel index nobody remembers to test for."""
+    answer = {
+        "chosen_request_index": None,
+        "records_path": "",
+        "field_map": {"id": "", "title": "", "url": "",
+                      "location": None, "posted_at": None, "department": None},
+        "pagination": None,
+    }
+    with pytest.raises(rs.NoJobsFeedError, match="is a list of job postings"):
+        await rs.select_request(_candidates("amazon"), create_message=_answering(answer))
+
+
+def test_the_prompt_and_schema_both_offer_the_refusal_branch() -> None:
+    """A nullable field the prompt never mentions is a branch the model never takes."""
+    params = rs.build_message_params(_candidates("amazon"))
+    schema = params["output_config"]["format"]["schema"]
+    assert schema["properties"]["chosen_request_index"]["type"] == ["integer", "null"]
+    assert "chosen_request_index: null" in params["system"]
+
+
+# --- a failed CALL is a failed round, not a crash ----------------------------
+
+@pytest.mark.asyncio
+async def test_an_sdk_error_becomes_a_selection_error() -> None:
+    """``max_retries=0`` means a 529/overload reaches us on the first blip. Uncaught it
+    escapes ``discover``'s round loop entirely and permanently refuses a trackable
+    board on a transient LLM outage — so it has to arrive as the exception the caller
+    already knows how to re-ask after."""
+    import httpx
+    from anthropic import InternalServerError
+
+    async def _overloaded(params: dict[str, Any]) -> Any:
+        raise InternalServerError(
+            "overloaded",
+            response=httpx.Response(
+                529, request=httpx.Request("POST", "https://api.anthropic.com")
+            ),
+            body=None,
+        )
+
+    with pytest.raises(rs.RequestSelectionError, match="the selector call failed"):
+        await rs.select_request(_candidates("amazon"), create_message=_overloaded)
+
+
+@pytest.mark.asyncio
+async def test_a_missing_key_is_still_a_key_error_not_a_call_failure(monkeypatch) -> None:
+    """The SDK-error wrap must not swallow the degradation path: a missing key still
+    has to arrive as ``SelectorKeyMissingError`` so the caller refuses WITHOUT counting
+    an attempt."""
+    monkeypatch.setattr(settings, "anthropic_api_key", None)
+    with pytest.raises(rs.SelectorKeyMissingError):
+        await rs.select_request(_candidates("amazon"))

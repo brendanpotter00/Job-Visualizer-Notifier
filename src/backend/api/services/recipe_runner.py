@@ -665,7 +665,11 @@ def _compute_declared_total(
     with a sitemap oracle RAISES rather than silently reporting no total, because a
     vanished oracle must be FAILED, never 'no total today'."""
     kind = oracle["kind"]
-    if kind == "self_consistent":
+    if kind in ("self_consistent", "none"):
+        # Neither publishes a total. ``none`` additionally makes no completeness claim
+        # at all — ``verify_harvest`` answers UNVERIFIED for it, so the run can never
+        # close a job. Returning None here (rather than falling through to the
+        # declared_probed branch) is what keeps that a verdict and not a KeyError.
         return None
     if kind == "facet_sum":
         return _oracle_facet_sum(state.first_payload, oracle)

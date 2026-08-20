@@ -56,7 +56,16 @@ from playwright.async_api import async_playwright
 _DEFAULT_NAV_TIMEOUT_MS = 45_000
 _DEFAULT_SETTLE_MS = 6_000
 _MAX_RESPONSES = 40           # how many JSON bodies we are willing to carry back
-_MAX_BODY_BYTES = 400_000     # per body; a truncated body still tells us the shape
+# Per body. A body over this is NOT carried — it is recorded with an empty body and
+# ``truncated: True`` so the parent can say so. Truncating it was worse than useless:
+# a JSON document cut mid-object no longer parses, so the pre-filter dropped it and
+# the refusal told the user "none of these returned a list of job postings" about the
+# one request that did. 2 MB clears a realistic full jobs page (~500 KB for ~120
+# postings with descriptions, measured) with headroom.
+_MAX_BODY_BYTES = 2_000_000
+# ...and the aggregate across every body, so raising the per-body cap cannot raise the
+# worst case. One 2 MB jobs feed is fine; forty of them is a container.
+_MAX_TOTAL_BODY_BYTES = 16_000_000
 _SCROLL_PASSES = 2            # cheap lazy-load trigger; never an autonomous agent
 _SCROLL_PAUSE_MS = 1_200
 _DRAIN_TIMEOUT_S = 10.0       # how long in-flight body reads get before we close
@@ -178,7 +187,16 @@ async def _record(response: Any, captured: list[dict[str, Any]], limits: dict[st
         if "json" not in content_type.lower():
             return
         body = await response.text()
-        truncated = len(body) > limits["max_body_bytes"]
+        # ALL OR NOTHING. Half a JSON document is not "the shape" — it does not parse,
+        # so the parent's pre-filter discards it exactly like a tracking ping and the
+        # board's own jobs feed disappears from a refusal that then blames the board.
+        # Carrying the flag with an empty body is what lets the parent say the true
+        # thing ("larger than we can record") instead of the false one.
+        used = sum(len(entry["body"]) for entry in captured)
+        oversize = (
+            len(body) > limits["max_body_bytes"]
+            or used + len(body) > limits["max_total_body_bytes"]
+        )
         captured.append({
             "url": request.url,
             "method": request.method,
@@ -186,8 +204,8 @@ async def _record(response: Any, captured: list[dict[str, Any]], limits: dict[st
             "content_type": content_type,
             "request_headers": _safe_headers(request.headers),
             "post_data": request.post_data,
-            "body": body[: limits["max_body_bytes"]],
-            "truncated": truncated,
+            "body": "" if oversize else body,
+            "truncated": oversize,
         })
     except Exception:  # noqa: BLE001 - see the docstring; a lost response is not fatal
         return
@@ -218,6 +236,9 @@ async def run_capture(plan: dict[str, Any]) -> dict[str, Any]:
     limits = {
         "max_responses": int(plan.get("max_responses") or _MAX_RESPONSES),
         "max_body_bytes": int(plan.get("max_body_bytes") or _MAX_BODY_BYTES),
+        "max_total_body_bytes": int(
+            plan.get("max_total_body_bytes") or _MAX_TOTAL_BODY_BYTES
+        ),
     }
     # Defence in depth against a plan that lost the key: an EMPTY allowlist pins
     # everything shut rather than opening everything up, so a bug here is a refused
