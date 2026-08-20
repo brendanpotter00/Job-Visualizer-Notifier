@@ -170,9 +170,33 @@ half needs backend endpoints that do not exist yet.
 - `components/my-companies/` — form, result, and error displays
 - `pages/MyCompaniesPage/` — the page (signed-out gate + form + results)
 
+**Discovery-progress checklist** (`VITE_DISCOVERY_PROGRESS_ENABLED`, its own flag, default
+off): a non-ATS URL is handed to a one-time backend capture, and the row it creates
+narrates four named steps — *Opening the careers page → Finding the jobs feed → Verifying
+we can read it → Ready to track* — each carrying the specific thing it found ("found 3
+candidate feeds", "read 90 jobs"). Success ends in a job preview; a refusal names the step
+that stopped and offers alternatives (paste the direct board URL / send feedback / remove),
+never a bare retry — discovery is deterministic, so re-running the same URL reproduces the
+same answer.
+
+- The step state rides the **existing** `getUserCompanies` payload (`company.discovery`),
+  polled by the list that already polls; there is no second channel. The cadence drops to
+  4s while a row is `discovering` (four steps of a few seconds each read as a spinner at 15s).
+- **Flag OFF must render byte-for-byte what shipped before** — the gate lives in
+  `MyCompaniesList`, and `MyCompaniesList.test.tsx` pins it against an identical payload.
+- The live-view iframe is optional and absent by default: only a Browserbase capture has a
+  hosted view and the backend runs its own Chromium. When present it is behind a collapsed
+  "Watch live" toggle and `pointer-events: none`.
+- Copy + state helpers are pure and live in `components/my-companies/companyHealth.ts`
+  (`DISCOVERY_STEP_LABELS` is a `Record` over a CLOSED union, so a backend rename is a
+  compile error here); the components are `DiscoveryChecklist.tsx` + `DiscoveryJobPreview.tsx`.
+
 **Env vars** (go in `src/frontend/.env.local` — see Gotcha #2):
 - `VITE_CUSTOM_COMPANIES_ENABLED` — set to exactly `true` to show the My Companies page
   (optional; **defaults to off**, and any other value keeps it off)
+- `VITE_DISCOVERY_PROGRESS_ENABLED` — set to exactly `true` for the discovery checklist,
+  job preview and live view (optional; **defaults to off**; nested under the flag above —
+  it reveals nothing on its own)
 
 ## Frontend Foundations
 

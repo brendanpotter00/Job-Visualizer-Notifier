@@ -84,6 +84,61 @@ export type UserCompanyHealthState =
   | 'refused';
 
 /**
+ * The four steps a one-time discovery walks, in display order (E7 capture pivot).
+ *
+ * A CLOSED union on purpose, unlike `healthState`: the backend owns the vocabulary
+ * (`api/services/discovery/progress.py`) and normalizes unknown keys away before they
+ * reach the wire, so a rename there should be a compile error here — not a blank rung
+ * in a checklist the user is reading to decide what to do next.
+ */
+export type DiscoveryStepKey = 'open_page' | 'find_feed' | 'verify_read' | 'ready';
+
+/** Per-step state. `failed` lands on at most one step per run. */
+export type DiscoveryStepStatus = 'pending' | 'active' | 'done' | 'failed';
+
+/** Terminal-ness of the whole run. `running` includes "queued but not started". */
+export type DiscoveryOutcomeState = 'running' | 'tracking' | 'refused';
+
+export interface DiscoveryStep {
+  key: DiscoveryStepKey;
+  status: DiscoveryStepStatus;
+  /**
+   * The SPECIFIC thing this step found ("found 3 candidate feeds", "read 90 jobs"), or
+   * — on the failed step — why it stopped. Null while pending. A generic tick would be
+   * a spinner with extra steps, which is what this replaced.
+   */
+  result: string | null;
+}
+
+/** One job from the acceptance replay. `url` is present only when it's an http(s) link. */
+export interface DiscoveryJobPreview {
+  title: string;
+  location?: string;
+  url?: string;
+}
+
+/**
+ * The discovery checklist attached to a user company, when it has one.
+ *
+ * Rides the SAME `GET /api/users/companies` payload the list already polls — there is
+ * deliberately no second polling channel. Absent (`undefined`) for every ATS company
+ * and for anything discovered before this shipped.
+ */
+export interface DiscoveryProgress {
+  /** Always all four steps, in order — the backend fills missing ones as `pending`. */
+  steps: DiscoveryStep[];
+  outcome: DiscoveryOutcomeState;
+  /**
+   * Hosted, iframe-embeddable view of the capture session. Only a Browserbase run has
+   * one and our default is our own Chromium, so this is null on nearly every discovery
+   * — the UI treats it as an optional extra and never blocks the checklist on it.
+   */
+  liveViewUrl: string | null;
+  updatedAt: string | null;
+  jobPreview: DiscoveryJobPreview[];
+}
+
+/**
  * A company the signed-in user brought themselves — one row of
  * `GET /api/users/companies`, and the body of a successful add. camelCase on
  * the wire (backend `to_camel`).
@@ -108,6 +163,11 @@ export interface UserCompany {
    * bucket ("N openings already live when tracking began").
    */
   trackingStartedAt: string | null;
+  /**
+   * The 4-step discovery checklist. Optional because it exists only for a discovered
+   * (non-ATS) board — and because a server that predates it simply omits the field.
+   */
+  discovery?: DiscoveryProgress | null;
 }
 
 /** `GET /api/users/companies` envelope — newest first. */
@@ -144,6 +204,14 @@ export interface DiscoveryPendingResponse {
   status: 'discovery_pending';
   detail: string;
   finalUrl?: string;
+  /**
+   * The provisional row's runtime id (and its `custom:<id>` namespace). Without these
+   * the caller could only find the board it just added by diffing the list, so the
+   * "one-time setup" notice could never point at the row now narrating its own
+   * progress. Optional — a server that predates the checklist omits them.
+   */
+  id?: string;
+  sourceId?: string;
 }
 
 /**

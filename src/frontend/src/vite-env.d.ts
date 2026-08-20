@@ -10,6 +10,9 @@ interface ImportMetaEnv {
   readonly VITE_AUTH0_AUDIENCE?: string;
   readonly VITE_GOOGLE_CLIENT_ID?: string;
   readonly VITE_AUTH_BYPASS?: string;
+  // Custom (user-added) company sources, and the discovery-progress checklist inside it.
+  readonly VITE_CUSTOM_COMPANIES_ENABLED?: string;
+  readonly VITE_DISCOVERY_PROGRESS_ENABLED?: string;
 }
 
 interface ImportMeta {

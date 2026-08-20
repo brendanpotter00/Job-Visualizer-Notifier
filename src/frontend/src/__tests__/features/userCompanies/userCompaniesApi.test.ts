@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { configureStore } from '@reduxjs/toolkit';
 import {
+  isDiscoveryPending,
   userCompaniesApi,
   type ResolveUrlResponse,
   type ResolveUrlFailure,
@@ -311,6 +312,39 @@ describe('userCompaniesApi', () => {
       const error = (result as { error: { status: number; data: { reason: string } } }).error;
       expect(error.status).toBe(422);
       expect(error.data.reason).toBe('empty');
+    });
+
+    it('still discriminates the 202 discovery body now that it carries an id', async () => {
+      // The 202 gained `id` / `sourceId` so the UI can point at the row it just
+      // created — and `UserCompany` also has an `id`. `isDiscoveryPending` narrows on
+      // `status`, which only the 202 has, so the two bodies stay tellable apart.
+      fetchMock.mockResolvedValue(
+        jsonResponse(
+          {
+            status: 'discovery_pending',
+            detail: 'One-time setup — …',
+            finalUrl: 'https://careers.acme.example/jobs',
+            id: 'u-discover01',
+            sourceId: 'custom:u-discover01',
+          },
+          202
+        )
+      );
+      const store = makeStore(async () => 'tok');
+
+      const result = await store
+        .dispatch(
+          userCompaniesApi.endpoints.addUserCompany.initiate({
+            url: 'https://careers.acme.example/jobs',
+          })
+        )
+        .unwrap();
+
+      expect(isDiscoveryPending(result)).toBe(true);
+      expect(isDiscoveryPending(SAMPLE_COMPANY)).toBe(false);
+      if (isDiscoveryPending(result)) {
+        expect(result.id).toBe('u-discover01');
+      }
     });
   });
 

@@ -33,12 +33,14 @@ from ..config import settings
 from ..dependencies import get_db
 from ..models import (
     AddUserCompanyRequest,
+    DiscoveryProgressResponse,
     JobListingResponse,
     UserCompanyListResponse,
     UserCompanyResponse,
 )
 from ..services import custom_companies_service as svc
 from ..services.ats_discovery import discover_ats, probe_candidate
+from ..services.discovery.progress import read_progress
 from ..services.database import get_user_company_jobs
 from ..services.user_service import get_or_create_user, get_user_by_email
 
@@ -73,6 +75,13 @@ def _require_flag() -> None:
 
 
 def _to_response(row: dict) -> UserCompanyResponse:
+    # The discovery checklist rides on the SAME row the list already returns, so the
+    # existing 'still settling' poll surfaces it with no second channel (DECISION D2).
+    # ``read_progress`` is total: an ATS company's provider_config has no 'discovery'
+    # key and yields None, and a blob written by an older deployment is trimmed rather
+    # than raised on — this is the one endpoint the My-Companies page cannot live
+    # without, so it must never 500 over a display-only field.
+    progress = read_progress(row.get("provider_config"))
     return UserCompanyResponse(
         id=row["id"],
         display_name=row["display_name"],
@@ -83,6 +92,11 @@ def _to_response(row: dict) -> UserCompanyResponse:
         open_job_count=int(row.get("open_job_count") or 0),
         last_success_at=row.get("last_success_at"),
         tracking_started_at=row.get("tracking_started_at"),
+        discovery=(
+            DiscoveryProgressResponse.model_validate(progress)
+            if progress is not None
+            else None
+        ),
     )
 
 
@@ -212,7 +226,7 @@ async def add_company(
                 # discovery_pending attempt. The discovery task flips it to tracked or
                 # refused; nothing is scraped in the meantime (enabled=false).
                 try:
-                    svc.add_discovering_placeholder(
+                    placeholder = svc.add_discovering_placeholder(
                         conn, user_id=user_id, submitted_url=payload.url,
                         normalized_url=normalized_url,
                         display_name=_discovery_display_name(normalized_url),
@@ -238,6 +252,12 @@ async def add_company(
                     raise HTTPException(
                         status_code=500, detail="Failed to start discovery"
                     )
+                # Hand back the placeholder's id. Without it the caller can only find
+                # the board it just added by diffing the list, so the "one-time setup"
+                # notice could never point at the row now narrating its own progress.
+                # Purely additive: ``isDiscoveryPending`` discriminates on ``status``.
+                # Hand-cased keys — this is a raw dict, not a Pydantic model, so no
+                # ``to_camel`` generator runs over it.
                 return JSONResponse(
                     status_code=202,
                     content={
@@ -247,6 +267,9 @@ async def add_company(
                             "board; jobs appear after the first scan."
                         ),
                         "finalUrl": normalized_url,
+                        "id": placeholder["id"],
+                        "sourceId": placeholder.get("source_id")
+                        or custom(placeholder["id"]),
                     },
                 )
 

@@ -837,3 +837,174 @@ def test_a_post_board_stores_its_captured_body_as_an_object() -> None:
     assert fetch["method"] == "POST"
     assert fetch["body"]["limit"] == 10
     assert fetch["headers"]["website-path"] == "tiktok"      # the header it 400s without
+
+
+# --- the discovery-progress checklist (E7 unit 3) -----------------------------
+
+
+def _steps(progress: dict) -> dict:
+    return {step["key"]: step for step in progress["steps"]}
+
+
+async def test_an_accept_narrates_every_step_with_a_specific_result() -> None:
+    """A generic tick is a spinner with extra steps. Each step must carry the thing it
+    actually found ("found 1 candidate feed", "read 10 jobs") — that number is how a
+    user tells whether the board we are about to track is theirs."""
+    published: list[dict] = []
+
+    async def _emit(snapshot: dict) -> None:
+        published.append(snapshot)
+
+    outcome = await discover(
+        _AMAZON_URL,
+        capture=_capturing("amazon"),
+        select=_selecting(_amazon_selection()),
+        replay_http=_faithful_replay("amazon", "jobs", _AMAZON_MAP, declared_total=76),
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+        emit=_emit,
+    )
+    assert outcome.ok is True
+    assert outcome.progress is not None
+    steps = _steps(outcome.progress)
+    assert outcome.progress["outcome"] == "tracking"
+    assert all(step["status"] == "done" for step in outcome.progress["steps"])
+    assert "www.amazon.jobs" in steps["open_page"]["result"]
+    assert steps["find_feed"]["result"].startswith("found ")
+    assert steps["verify_read"]["result"].startswith("read ")
+    assert "no browser needed" in steps["ready"]["result"]
+
+    # LIVE, not just terminal: the user watches steps land while the run is going.
+    # Three publishes — entering step 1, finishing it, and finishing step 2 — and the
+    # terminal one is deliberately NOT emitted (it rides the outcome so the persist
+    # writes it in the same statement that flips the row).
+    assert len(published) == 3
+    assert _steps(published[0])["open_page"]["status"] == "active"
+    assert _steps(published[1])["open_page"]["status"] == "done"
+    assert _steps(published[2])["verify_read"]["status"] == "active"
+    assert all(p["outcome"] == "running" for p in published)
+
+
+async def test_the_accept_preview_is_the_jobs_the_REPLAY_returned() -> None:
+    """Not the capture's rows — the replay's. Those are the bytes the nightly harvest
+    will read, and showing jobs only the capture browser could see would preview a
+    board we cannot actually track (DECISION D3)."""
+    outcome = await discover(
+        _AMAZON_URL,
+        capture=_capturing("amazon"),
+        select=_selecting(_amazon_selection()),
+        replay_http=_faithful_replay("amazon", "jobs", _AMAZON_MAP, declared_total=76),
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+    )
+    assert outcome.progress is not None
+    preview = outcome.progress["job_preview"]
+    assert 1 <= len(preview) <= 5
+    assert all(row["title"] for row in preview)
+    # Only the renderable fields — the rest of the harvested record is not echoed back.
+    assert all(set(row) <= {"title", "location", "url"} for row in preview)
+
+
+async def test_a_refusal_marks_the_step_that_actually_failed() -> None:
+    """The acceptance gate rejected the replay, so the ✕ belongs on "verifying we can
+    read it" while the earlier steps keep their ticks — that is the difference between
+    "we couldn't read this board" and a next action the user can take."""
+    outcome = await discover(
+        _AMAZON_URL,
+        capture=_capturing("amazon"),
+        select=_selecting(_amazon_selection()),
+        replay_http=_failing_replay(RecipeExecutionError("HTTP 403 from amazon.jobs")),
+        replay_browser=_failing_replay(RecipeExecutionError("blocked in Chromium too")),
+        validate_url=_allow_all,
+    )
+    assert outcome.ok is False
+    assert outcome.progress is not None
+    assert outcome.progress["outcome"] == "refused"
+    steps = _steps(outcome.progress)
+    assert steps["open_page"]["status"] == "done"
+    assert steps["find_feed"]["status"] == "done"
+    assert steps["verify_read"]["status"] == "failed"
+    assert steps["ready"]["status"] == "pending"
+
+
+async def test_a_capture_failure_fails_the_first_step_not_a_later_one() -> None:
+    """A page we could not even open must not report "couldn't confirm the results
+    match" — the user's next action for a bot-walled page is nothing like the one for a
+    feed we read and disbelieved."""
+    async def _blocked(url: str) -> CaptureResult:
+        raise CaptureError("navigation blocked")
+
+    outcome = await discover(
+        _META_URL, capture=_blocked, select=_selecting(_amazon_selection()),
+        replay_http=_never_called_replay("http_json"),
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+    )
+    assert outcome.ok is False
+    assert outcome.progress is not None
+    steps = _steps(outcome.progress)
+    assert steps["open_page"]["status"] == "failed"
+    assert "navigation blocked" in steps["open_page"]["result"]
+    assert steps["find_feed"]["status"] == "pending"
+
+
+async def test_a_failed_step_overrides_the_tick_it_had_already_earned() -> None:
+    """The pre-filter finds job-shaped feeds ("found N candidate feeds" ✓) and the
+    selector then says none of them is a jobs list. Leaving the ✓ on "finding the jobs
+    feed" would hide the one thing the user needs to know."""
+    async def _no_feed(candidates: list[Any]) -> RequestSelection:
+        raise NoJobsFeedError("none of these is a jobs feed")
+
+    outcome = await discover(
+        _AMAZON_URL, capture=_capturing("amazon"), select=_no_feed,
+        replay_http=_never_called_replay("http_json"),
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+    )
+    assert outcome.ok is False
+    steps = _steps(outcome.progress or {"steps": []})
+    assert steps["find_feed"]["status"] == "failed"
+    assert "list of job postings" in steps["find_feed"]["result"]
+
+
+async def test_a_progress_write_that_blows_up_never_refuses_the_board() -> None:
+    """The narration is cosmetic; the discovery is not. An exception out of ``emit``
+    would otherwise land in the broad last-resort handler and refuse a board we can
+    read perfectly well — the exact inversion of what this feature is for."""
+    async def _explode(snapshot: dict) -> None:
+        raise RuntimeError("the progress connection is down")
+
+    outcome = await discover(
+        _AMAZON_URL,
+        capture=_capturing("amazon"),
+        select=_selecting(_amazon_selection()),
+        replay_http=_faithful_replay("amazon", "jobs", _AMAZON_MAP, declared_total=76),
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+        emit=_explode,
+    )
+    assert outcome.ok is True
+    assert outcome.transport == "http_json"
+
+
+async def test_a_browserbase_live_view_url_rides_the_checklist_when_there_is_one() -> None:
+    """Optional garnish, absent by default: only a Browserbase session has a hosted
+    view and our default is our own Chromium, so the UI must treat it as an extra and
+    never block on it (DECISION D4)."""
+    async def _with_live_view(url: str) -> CaptureResult:
+        base = _capture_result("amazon")
+        return CaptureResult(
+            final_url=base.final_url, page_title=base.page_title,
+            responses=base.responses,
+            live_view_url="https://www.browserbase.com/devtools-fullscreen/x?navbar=false",
+        )
+
+    outcome = await discover(
+        _AMAZON_URL, capture=_with_live_view,
+        select=_selecting(_amazon_selection()),
+        replay_http=_faithful_replay("amazon", "jobs", _AMAZON_MAP, declared_total=76),
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+    )
+    assert outcome.progress is not None
+    assert outcome.progress["live_view_url"].startswith("https://www.browserbase.com/")

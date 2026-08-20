@@ -21,6 +21,7 @@ import psycopg2
 from psycopg2.extensions import connection as Connection
 
 from scripts.shared.constants import custom, new_custom_company_id
+from .discovery.progress import initial_snapshot
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +45,8 @@ def find_owned_company_by_source_key(
     cursor.execute(
         """
         SELECT c.id, c.display_name, c.ats, c.board_token, c.health_state,
-               c.last_success_at, c.tracking_started_at, c.created_at
+               c.last_success_at, c.tracking_started_at, c.created_at,
+               c.provider_config
         FROM user_companies uc
         JOIN companies c ON c.id = uc.company_id
         WHERE uc.user_id = %s AND uc.canonical_source_key = %s
@@ -240,6 +242,12 @@ def add_discovering_placeholder(
     Idempotent per ``UNIQUE(user_id, canonical_source_key)`` — a re-add resolves to
     the existing row (whatever state discovery has since moved it to). Returns the row
     dict for the response/list.
+
+    It also seeds the 4-step discovery checklist into ``provider_config['discovery']``
+    with step 1 already in progress. Without that seed the row renders a bare "Setting
+    up…" badge for as long as the queue takes to pick the job up — i.e. exactly the
+    spinner the checklist exists to delete — and a queue that never picks it up would
+    show nothing at all rather than "opening the careers page".
     """
     source_key = discovered_source_key(normalized_url)
     existing = find_owned_company_by_source_key(conn, user_id, source_key)
@@ -247,6 +255,10 @@ def add_discovering_placeholder(
         existing["source_id"] = custom(existing["id"])
         existing["open_job_count"] = count_open_jobs(conn, existing["id"])
         return existing
+
+    # Minted ONCE so the row we write and the dict we return carry the same
+    # ``updated_at`` — two calls would stamp two different times for one event.
+    seeded_progress = initial_snapshot()
 
     last_error: Optional[psycopg2.Error] = None
     for _ in range(_ID_GENERATION_ATTEMPTS):
@@ -260,11 +272,12 @@ def add_discovering_placeholder(
                     visibility, cadence_hours, next_run_at, health_state,
                     consecutive_failures
                 ) VALUES (
-                    %s, %s, %s, %s, FALSE, '{}'::jsonb,
+                    %s, %s, %s, %s, FALSE, %s::jsonb,
                     'user', %s, NULL, 'discovering', 0
                 )
                 """,
                 (company_id, display_name, _DISCOVERED_ATS, normalized_url,
+                 json.dumps({"discovery": seeded_progress}),
                  DEFAULT_CADENCE_HOURS),
             )
             cursor.execute(
@@ -294,6 +307,7 @@ def add_discovering_placeholder(
                 "tracking_started_at": None,
                 "source_id": custom(company_id),
                 "open_job_count": 0,
+                "provider_config": {"discovery": seeded_progress},
             }
         except psycopg2.errors.UniqueViolation as exc:
             conn.rollback()
@@ -314,6 +328,82 @@ def add_discovering_placeholder(
     ) from last_error
 
 
+def record_discovery_progress(
+    conn: Connection,
+    *,
+    user_id: str,
+    normalized_url: str,
+    progress: dict[str, Any],
+) -> bool:
+    """Publish ONE live discovery-checklist update onto the provisional row.
+
+    The narration channel behind the 4-step UI: the discovery task calls this as each
+    step lands, the 202-added row carries the blob, and the existing
+    ``getUserCompanies`` poll picks it up — no second polling channel (DECISION D2).
+
+    ``health_state = 'discovering'`` in the WHERE clause is the load-bearing part. This
+    write races the terminal one: a step update already in flight when the run finishes
+    would otherwise land AFTER the row was flipped to tracked/refused and resurrect
+    "still working" on a settled board. Gating on the provisional state makes a
+    straggler a no-op instead. ``jsonb_set`` (not a whole-column write) for the same
+    class of reason — it must never clobber a sibling key some later feature adds.
+
+    Returns whether a row was actually updated; a False is normal and uninteresting
+    (the run already finished), so callers log at most, never raise. Commits on its own
+    — the caller holds a short-lived connection of its own precisely so no pool
+    connection is held across a 240-second browser session.
+    """
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            """
+            UPDATE companies
+            SET provider_config = jsonb_set(
+                provider_config, '{discovery}', %s::jsonb, true
+            )
+            WHERE id = (
+                SELECT company_id FROM user_companies
+                WHERE user_id = %s AND canonical_source_key = %s
+            )
+              AND visibility = 'user'
+              AND health_state = 'discovering'
+            """,
+            (json.dumps(progress), user_id, discovered_source_key(normalized_url)),
+        )
+        updated = cursor.rowcount
+        conn.commit()
+    except psycopg2.Error:
+        conn.rollback()
+        raise
+    return bool(updated)
+
+
+def _progress_param(progress: Optional[dict[str, Any]]) -> Optional[str]:
+    """The single bind value for the terminal ``provider_config`` write.
+
+    Every terminal writer uses the same one-parameter SQL::
+
+        provider_config = COALESCE(
+            jsonb_set(provider_config, '{discovery}', %s::jsonb, true),
+            provider_config
+        )
+
+    ``jsonb_set`` returns NULL when ANY argument is NULL, so a NULL bind falls through
+    the COALESCE and leaves the column exactly as it was — no dynamic SQL, no second
+    parameter to keep in sync, and the whole thing is still one statement with the
+    state flip beside it.
+
+    LEAVING IT is the right None case, not clearing it. The one place that hits it in
+    production is the discovery TIMEOUT, where there is no outcome to carry a
+    checklist — and there the last LIVE snapshot ("opened careers.acme.example ✓ ·
+    finding the jobs feed…") is precisely the useful thing: it tells the user how far
+    we got before we ran out of time. The frontend frames the row from ``health_state``
+    rather than from the blob's own ``outcome``, so a ``running`` blob on a ``refused``
+    row still reads as a refusal.
+    """
+    return json.dumps(progress) if progress is not None else None
+
+
 def _promote_to_tracked(
     conn: Connection,
     *,
@@ -326,23 +416,32 @@ def _promote_to_tracked(
     script_version: int,
     transport: str,
     oracle_kind: str,
+    progress: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """Flip an existing (usually provisional ``discovering``) row to tracked and write
     its script. The 202-placeholder → tracked transition (§7): the discovery task
     accepted, so enable scraping (``health_state='unverified'``, ``enabled=TRUE``,
     ``next_run_at=now()``) and upsert the ``company_scripts`` row (``ON CONFLICT`` so a
     re-discovery replaces the script). Commits all-or-nothing, then records an
-    ``added`` attempt."""
+    ``added`` attempt.
+
+    ``progress`` is the terminal checklist (all four steps ticked + the job preview),
+    written in the SAME statement as the flip so the two can never disagree — see
+    :func:`_progress_param` for what ``None`` means."""
     cursor = conn.cursor()
     try:
         cursor.execute(
             """
             UPDATE companies
             SET health_state = 'unverified', enabled = TRUE, next_run_at = now(),
-                display_name = %s, board_token = %s
+                display_name = %s, board_token = %s,
+                provider_config = COALESCE(
+                    jsonb_set(provider_config, '{discovery}', %s::jsonb, true),
+                    provider_config
+                )
             WHERE id = %s AND visibility = 'user'
             """,
-            (display_name, normalized_url, company_id),
+            (display_name, normalized_url, _progress_param(progress), company_id),
         )
         cursor.execute(
             """
@@ -378,6 +477,7 @@ def _promote_to_tracked(
         "tracking_started_at": None,
         "source_id": custom(company_id),
         "open_job_count": count_open_jobs(conn, company_id),
+        "provider_config": {"discovery": progress} if progress is not None else {},
     }
 
 
@@ -391,6 +491,7 @@ def add_discovered_company(
     script: dict[str, Any],
     transport: str,
     oracle_kind: str,
+    progress: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """Create the four rows for a DISCOVERED (non-ATS) custom company — E7 Phase 3b.
 
@@ -418,7 +519,7 @@ def add_discovered_company(
             conn, user_id=user_id, company_id=existing["id"],
             submitted_url=submitted_url, normalized_url=normalized_url,
             display_name=display_name, script=script, script_version=script_version,
-            transport=transport, oracle_kind=oracle_kind,
+            transport=transport, oracle_kind=oracle_kind, progress=progress,
         )
 
     last_error: Optional[psycopg2.Error] = None
@@ -433,11 +534,12 @@ def add_discovered_company(
                     visibility, cadence_hours, next_run_at, health_state,
                     consecutive_failures
                 ) VALUES (
-                    %s, %s, %s, %s, TRUE, '{}'::jsonb,
+                    %s, %s, %s, %s, TRUE, %s::jsonb,
                     'user', %s, now(), 'unverified', 0
                 )
                 """,
                 (company_id, display_name, _DISCOVERED_ATS, normalized_url,
+                 json.dumps({"discovery": progress} if progress is not None else {}),
                  DEFAULT_CADENCE_HOURS),
             )
             cursor.execute(
@@ -476,6 +578,7 @@ def add_discovered_company(
                 "tracking_started_at": None,
                 "source_id": custom(company_id),
                 "open_job_count": 0,
+                "provider_config": {"discovery": progress} if progress is not None else {},
             }
         except psycopg2.errors.UniqueViolation as exc:
             conn.rollback()
@@ -489,7 +592,7 @@ def add_discovered_company(
                     submitted_url=submitted_url, normalized_url=normalized_url,
                     display_name=display_name, script=script,
                     script_version=script_version, transport=transport,
-                    oracle_kind=oracle_kind,
+                    oracle_kind=oracle_kind, progress=progress,
                 )
             last_error = exc
             continue
@@ -511,6 +614,7 @@ def record_discovery_refusal(
     normalized_url: str,
     display_name: str,
     reason: str,
+    progress: Optional[dict[str, Any]] = None,
 ) -> str:
     """Record a loud, terminal discovery REFUSAL (E7 Phase 3b, invariant 6).
 
@@ -526,6 +630,12 @@ def record_discovery_refusal(
     ``health_state`` is a ``companies`` column, so surfacing the refusal as a badge
     requires a row — a disabled, script-less one is the coherent terminal state
     that honors the invariant without ever harvesting. Returns the company id.
+
+    ``progress`` is the terminal checklist carrying the NAMED STEP that failed, written
+    in the SAME statement as the flip to ``refused``. That is what turns a bare "Not
+    trackable" badge into "we found the feed, but couldn't confirm the results match" —
+    the difference between a dead end and a next action. ``reason`` still goes to the
+    append-only ``company_add_attempts`` audit, which no endpoint reads back.
     """
     source_key = discovered_source_key(normalized_url)
     existing = find_owned_company_by_source_key(conn, user_id, source_key)
@@ -533,9 +643,16 @@ def record_discovery_refusal(
         cursor = conn.cursor()
         try:
             cursor.execute(
-                "UPDATE companies SET health_state = 'refused', enabled = FALSE, "
-                "next_run_at = NULL WHERE id = %s AND visibility = 'user'",
-                (existing["id"],),
+                """
+                UPDATE companies
+                SET health_state = 'refused', enabled = FALSE, next_run_at = NULL,
+                    provider_config = COALESCE(
+                        jsonb_set(provider_config, '{discovery}', %s::jsonb, true),
+                        provider_config
+                    )
+                WHERE id = %s AND visibility = 'user'
+                """,
+                (_progress_param(progress), existing["id"]),
             )
             conn.commit()
         except psycopg2.Error:
@@ -560,11 +677,12 @@ def record_discovery_refusal(
                     visibility, cadence_hours, next_run_at, health_state,
                     consecutive_failures
                 ) VALUES (
-                    %s, %s, %s, %s, FALSE, '{}'::jsonb,
+                    %s, %s, %s, %s, FALSE, %s::jsonb,
                     'user', NULL, NULL, 'refused', 0
                 )
                 """,
-                (company_id, display_name, _DISCOVERED_ATS, normalized_url),
+                (company_id, display_name, _DISCOVERED_ATS, normalized_url,
+                 json.dumps({"discovery": progress} if progress is not None else {})),
             )
             cursor.execute(
                 """
@@ -627,6 +745,11 @@ def list_owned_companies(conn: Connection, user_id: str) -> list[dict[str, Any]]
         SELECT
             c.id, c.display_name, c.ats, c.board_token, c.health_state,
             c.last_success_at, c.tracking_started_at, c.enabled, c.created_at,
+            -- Carries the discovery checklist for an ats='discovered' row (see
+            -- ``discovery.progress``). For an ATS company it holds that provider's
+            -- config instead, which ``read_progress`` ignores (no 'discovery' key)
+            -- rather than leaking into the response.
+            c.provider_config,
             (
                 SELECT count(*) FROM job_listings j
                 WHERE j.company = c.id

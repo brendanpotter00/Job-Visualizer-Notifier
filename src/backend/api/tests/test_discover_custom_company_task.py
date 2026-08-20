@@ -8,16 +8,24 @@ and no network. Proves: an accept creates the four rows with the captured recipe
 refuse writes a DISABLED ``health_state='refused'`` row + a ``refused`` attempt carrying
 the NAMED STEP and NO script; the ONE discovery flag gates the whole task; and the
 create path is idempotent per (user, discovered-url).
+
+The second half covers the DISCOVERY-PROGRESS CHECKLIST (E7 unit 3): the provisional row
+is seeded already narrating step 1, live step writes land on it and are gated so a
+straggler cannot reopen a settled board, an accept stores four ticks plus the job
+preview, a refusal stores the NAMED STEP that failed, a timeout leaves the last live
+snapshot alone, and a progress write that blows up never costs the discovery.
 """
 
 from __future__ import annotations
 
+import asyncio
 import os
 import uuid
 
 import pytest
 from psycopg2 import sql
 
+import api.services.discovery.progress as dp
 import api.tasks.discover_custom_company as task_mod
 from api.config import settings
 from api.services import custom_companies_service as ccs
@@ -80,7 +88,7 @@ async def test_success_creates_four_rows(db_conn, monkeypatch) -> None:
         oracle_kind="facet_sum", attempts=1,
     )
 
-    async def _fake_discover(url):
+    async def _fake_discover(url, **kwargs):
         assert url == _NORMALIZED
         return outcome
 
@@ -126,7 +134,7 @@ async def test_refuse_writes_disabled_refused_row_and_no_script(db_conn, monkeyp
         attempts=2,
     )
 
-    async def _fake_discover(url):
+    async def _fake_discover(url, **kwargs):
         return outcome
 
     monkeypatch.setattr(task_mod, "discover", _fake_discover)
@@ -172,7 +180,7 @@ async def test_browser_fetch_outcome_stores_that_transport(db_conn, monkeypatch)
         oracle_kind="self_consistent", attempts=1,
     )
 
-    async def _fake_discover(url):
+    async def _fake_discover(url, **kwargs):
         return outcome
 
     monkeypatch.setattr(task_mod, "discover", _fake_discover)
@@ -197,7 +205,7 @@ async def test_flag_off_skips_discovery(db_conn, monkeypatch) -> None:
     assert not hasattr(settings, "browser_agent_enabled")
     user_id = _seed_user(db_conn)
 
-    async def _boom(url):
+    async def _boom(url, **kwargs):
         raise AssertionError("discovery must not run with the flag off")
 
     monkeypatch.setattr(task_mod, "discover", _boom)
@@ -223,3 +231,203 @@ def test_add_discovered_company_is_idempotent(db_conn) -> None:
     )
     assert first["id"] == second["id"]
     assert _row(db_conn, "SELECT count(*) AS n FROM companies WHERE ats = 'discovered'")["n"] == 1
+
+
+# --- discovery-progress checklist (E7 unit 3) ---------------------------------
+
+
+def _progress(db_conn, company_id: str) -> dict:
+    row = _row(
+        db_conn,
+        "SELECT provider_config -> 'discovery' AS d FROM companies WHERE id = %s",
+        (company_id,),
+    )
+    return row["d"]
+
+
+def _placeholder(db_conn, user_id: str) -> str:
+    """The provisional 'discovering' row the 202 add path creates, minted directly."""
+    created = ccs.add_discovering_placeholder(
+        db_conn, user_id=user_id, submitted_url=_SUBMITTED,
+        normalized_url=_NORMALIZED, display_name="careers.acme.example",
+    )
+    return str(created["id"])
+
+
+def test_the_provisional_row_is_seeded_with_step_one_already_running(db_conn) -> None:
+    """Without the seed the row is a bare "Setting up…" badge until the queue picks the
+    job up — the spinner the checklist replaced. It is also the escape hatch when the
+    worker never runs at all: the user still sees which step we were on."""
+    user_id = _seed_user(db_conn)
+    company_id = _placeholder(db_conn, user_id)
+    steps = {s["key"]: s for s in _progress(db_conn, company_id)["steps"]}
+    assert steps["open_page"]["status"] == "active"
+    assert len(steps) == 4
+
+
+def test_live_progress_writes_land_on_the_provisional_row(db_conn) -> None:
+    """The narration channel: the task publishes as each step lands and the EXISTING
+    list poll picks it up — no second polling channel (DECISION D2)."""
+    user_id = _seed_user(db_conn)
+    company_id = _placeholder(db_conn, user_id)
+
+    ledger = dp.ProgressLedger()
+    ledger.finish(dp.STEP_OPEN_PAGE, "opened careers.acme.example — recorded 9 JSON request(s)")
+    ledger.start(dp.STEP_FIND_FEED)
+    assert ccs.record_discovery_progress(
+        db_conn, user_id=user_id, normalized_url=_NORMALIZED, progress=ledger.snapshot()
+    ) is True
+
+    steps = {s["key"]: s for s in _progress(db_conn, company_id)["steps"]}
+    assert steps["open_page"]["status"] == "done"
+    assert "recorded 9" in steps["open_page"]["result"]
+    assert steps["find_feed"]["status"] == "active"
+
+
+def test_a_straggler_progress_write_cannot_reopen_a_settled_row(db_conn) -> None:
+    """The live write races the terminal one. Gating on ``health_state='discovering'``
+    makes a late step update a NO-OP instead of resurrecting "still working" on a board
+    we already refused."""
+    user_id = _seed_user(db_conn)
+    company_id = _placeholder(db_conn, user_id)
+    ccs.record_discovery_refusal(
+        db_conn, user_id=user_id, submitted_url=_SUBMITTED, normalized_url=_NORMALIZED,
+        display_name="careers.acme.example", reason="finding the jobs feed: nope",
+        progress=dp.ProgressLedger().snapshot(outcome=dp.OUTCOME_REFUSED),
+    )
+
+    ledger = dp.ProgressLedger()
+    ledger.start(dp.STEP_VERIFY_READ)
+    assert ccs.record_discovery_progress(
+        db_conn, user_id=user_id, normalized_url=_NORMALIZED, progress=ledger.snapshot()
+    ) is False
+    assert _progress(db_conn, company_id)["outcome"] == dp.OUTCOME_REFUSED
+
+
+async def test_an_accept_stores_the_terminal_checklist_and_the_job_preview(
+    db_conn, monkeypatch
+) -> None:
+    """Success has to be LEGIBLE: four ticks with their specific results plus a few of
+    the jobs the ACCEPTANCE REPLAY actually returned (DECISION D3)."""
+    _patch_env(monkeypatch)
+    user_id = _seed_user(db_conn)
+    _placeholder(db_conn, user_id)
+
+    ledger = dp.ProgressLedger()
+    ledger.finish(dp.STEP_OPEN_PAGE, "opened careers.acme.example — recorded 9 JSON request(s)")
+    ledger.finish(dp.STEP_FIND_FEED, "found 2 candidate feed(s)")
+    ledger.finish(dp.STEP_VERIFY_READ, "read 90 job(s)")
+    ledger.finish(dp.STEP_READY, "reading the board's own feed directly — no browser needed")
+    outcome = DiscoveryOutcome(
+        ok=True, script=_recipe(), transport="http_json", oracle_kind="facet_sum",
+        attempts=1,
+        progress=ledger.snapshot(
+            outcome=dp.OUTCOME_TRACKING,
+            job_preview=[{"id": "1", "title": "Staff Engineer", "location": "Remote",
+                          "url": "https://careers.acme.example/jobs/1"}],
+        ),
+    )
+
+    async def _fake_discover(url, **kwargs):
+        return outcome
+
+    monkeypatch.setattr(task_mod, "discover", _fake_discover)
+    await discover_custom_company(user_id, _SUBMITTED, _NORMALIZED, "careers.acme.example")
+
+    company = _row(db_conn, "SELECT id, health_state FROM companies WHERE ats = 'discovered'")
+    assert company["health_state"] == "unverified"       # tracked
+    stored = _progress(db_conn, company["id"])
+    assert stored["outcome"] == dp.OUTCOME_TRACKING
+    assert all(step["status"] == "done" for step in stored["steps"])
+    assert stored["job_preview"] == [
+        {"title": "Staff Engineer", "location": "Remote",
+         "url": "https://careers.acme.example/jobs/1"}
+    ]
+
+
+async def test_a_refusal_stores_the_named_step_that_failed(db_conn, monkeypatch) -> None:
+    """"Not trackable" with nothing else is a dead end. The failed step is what makes it
+    "we found the feed, but couldn't confirm the results match" — and the audit row that
+    also carries it is not readable by any endpoint, so this blob is the ONLY path from
+    the refusal to the user."""
+    _patch_env(monkeypatch)
+    user_id = _seed_user(db_conn)
+    _placeholder(db_conn, user_id)
+
+    ledger = dp.ProgressLedger()
+    ledger.finish(dp.STEP_OPEN_PAGE, "opened careers.acme.example — recorded 9 JSON request(s)")
+    ledger.finish(dp.STEP_FIND_FEED, "found 2 candidate feed(s)")
+    ledger.fail(dp.STEP_VERIFY_READ,
+                "only 0 of the 12 job(s) the browser saw came back from the replay")
+    outcome = DiscoveryOutcome(
+        ok=False, refuse_reason="verifying we can read it: …", attempts=2,
+        progress=ledger.snapshot(outcome=dp.OUTCOME_REFUSED),
+    )
+
+    async def _fake_discover(url, **kwargs):
+        return outcome
+
+    monkeypatch.setattr(task_mod, "discover", _fake_discover)
+    await discover_custom_company(user_id, _SUBMITTED, _NORMALIZED, "careers.acme.example")
+
+    company = _row(db_conn, "SELECT id, health_state FROM companies WHERE ats = 'discovered'")
+    assert company["health_state"] == "refused"
+    steps = {s["key"]: s for s in _progress(db_conn, company["id"])["steps"]}
+    assert steps["find_feed"]["status"] == "done"
+    assert steps["verify_read"]["status"] == "failed"
+    assert "came back from the replay" in steps["verify_read"]["result"]
+
+
+async def test_a_timeout_leaves_the_last_live_checklist_in_place(db_conn, monkeypatch) -> None:
+    """There is no outcome to carry a terminal checklist, so the refusal must not wipe
+    the narration — how far we got before the clock ran out is the useful thing."""
+    _patch_env(monkeypatch)
+    user_id = _seed_user(db_conn)
+    company_id = _placeholder(db_conn, user_id)
+
+    ledger = dp.ProgressLedger()
+    ledger.finish(dp.STEP_OPEN_PAGE, "opened careers.acme.example — recorded 9 JSON request(s)")
+    ledger.start(dp.STEP_FIND_FEED)
+    ccs.record_discovery_progress(
+        db_conn, user_id=user_id, normalized_url=_NORMALIZED, progress=ledger.snapshot()
+    )
+
+    async def _hang(url, **kwargs):
+        raise asyncio.TimeoutError
+
+    monkeypatch.setattr(task_mod, "discover", _hang)
+    await discover_custom_company(user_id, _SUBMITTED, _NORMALIZED, "careers.acme.example")
+
+    assert _row(db_conn, "SELECT health_state FROM companies WHERE id = %s",
+                (company_id,))["health_state"] == "refused"
+    steps = {s["key"]: s for s in _progress(db_conn, company_id)["steps"]}
+    assert steps["open_page"]["status"] == "done"
+    assert steps["find_feed"]["status"] == "active"
+
+
+async def test_a_failing_progress_write_never_costs_the_discovery(db_conn, monkeypatch) -> None:
+    """The narration is cosmetic; the discovery is not. A database blip while we are
+    narrating must not refuse a board we can read — the exact inversion of the point.
+    Drives the REAL ``emit`` callback the task builds, not a stand-in."""
+    _patch_env(monkeypatch)
+    user_id = _seed_user(db_conn)
+    _placeholder(db_conn, user_id)
+
+    def _explode(*args, **kwargs):
+        raise RuntimeError("progress connection is down")
+
+    monkeypatch.setattr(task_mod.ccs, "record_discovery_progress", _explode)
+
+    async def _fake_discover(url, **kwargs):
+        await kwargs["emit"](dp.ProgressLedger().snapshot())
+        return DiscoveryOutcome(
+            ok=True, script=_recipe(), transport="http_json",
+            oracle_kind="facet_sum", attempts=1,
+        )
+
+    monkeypatch.setattr(task_mod, "discover", _fake_discover)
+    await discover_custom_company(user_id, _SUBMITTED, _NORMALIZED, "careers.acme.example")
+
+    assert _row(
+        db_conn, "SELECT health_state FROM companies WHERE ats = 'discovered'"
+    )["health_state"] == "unverified"

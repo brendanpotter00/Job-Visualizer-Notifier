@@ -30,9 +30,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Any, Awaitable, Callable
 
 import psycopg2
 from procrastinate import RetryStrategy
+from psycopg2.extensions import connection as Connection
 
 from scripts.shared import database as db
 
@@ -48,6 +50,52 @@ logger = logging.getLogger(__name__)
 # ``network_capture._SUBPROCESS_TIMEOUT_S`` (120s) so a capture that overruns is
 # reported as a capture timeout rather than killing the whole task.
 _TASK_TIMEOUT_S: float = 240.0
+
+
+def _progress_writer(
+    user_id: str, normalized_url: str
+) -> Callable[[dict[str, Any]], Awaitable[None]]:
+    """Build the live-checklist callback handed to :func:`discover` as ``emit``.
+
+    EACH WRITE OPENS ITS OWN SHORT-LIVED CONNECTION, deliberately. The persist below
+    opens its connection only AFTER the browser run finishes, precisely so no pool
+    connection is held across a 240-second paid session — reusing that connection for
+    progress would undo the whole point, and holding a second one for the duration
+    would be the same mistake twice. Four or five connect/commit/close cycles over a
+    four-minute run is nothing next to a held connection.
+
+    NEVER RAISES into the caller: ``discover``'s ``_publish`` also swallows, but a
+    connection failure is exactly the case where the narration must not become the
+    outcome. A run whose progress writes all fail still tracks or refuses the board
+    correctly; the user simply sees the terminal checklist instead of a live one.
+    """
+    async def _emit(snapshot: dict[str, Any]) -> None:
+        def _write() -> None:
+            conn: Connection = db.get_connection(
+                settings.database_url, application_name="task_discover_progress"
+            )
+            try:
+                ccs.record_discovery_progress(
+                    conn,
+                    user_id=user_id,
+                    normalized_url=normalized_url,
+                    progress=snapshot,
+                )
+            finally:
+                conn.close()
+
+        try:
+            await asyncio.to_thread(_write)
+        except Exception:  # noqa: BLE001
+            # Belt and braces with ``discover``'s own ``_publish`` guard: this seam is
+            # also reachable from an injected caller, and there is no version of "the
+            # progress connection failed" that should decide whether we track a board.
+            logger.warning(
+                "discovery progress write failed for %s (continuing)",
+                normalized_url, exc_info=True,
+            )
+
+    return _emit
 
 
 @procrastinate_app.task(
@@ -78,7 +126,8 @@ async def discover_custom_company(
 
     try:
         outcome = await asyncio.wait_for(
-            discover(normalized_url), timeout=_TASK_TIMEOUT_S
+            discover(normalized_url, emit=_progress_writer(user_id, normalized_url)),
+            timeout=_TASK_TIMEOUT_S,
         )
     except asyncio.TimeoutError:
         logger.error("discover_custom_company timed out for %s", normalized_url)
@@ -110,6 +159,10 @@ async def discover_custom_company(
                 script=outcome.script,
                 transport=outcome.transport,
                 oracle_kind=outcome.oracle_kind,
+                # The terminal checklist (four ticks + the job preview) lands in the
+                # SAME statement that flips the row to tracked, so the two can never
+                # disagree and no straggler write can reopen a settled board.
+                progress=outcome.progress,
             )
             logger.info(
                 "discover_custom_company: tracking %s as %s (transport=%s oracle=%s)",
@@ -127,6 +180,14 @@ async def discover_custom_company(
                 normalized_url=normalized_url,
                 display_name=display_name,
                 reason=reason[:2000],
+                # Carries the NAMED STEP that failed onto the refused row. Without it
+                # the only record of "which step" is the append-only attempts audit,
+                # which no endpoint reads back — so the user would get "Not trackable"
+                # and nothing to act on. ``None`` on the TIMEOUT path (there is no
+                # outcome to carry a checklist), which LEAVES the last live snapshot in
+                # place: "opened the careers page ✓ · finding the jobs feed…" on a
+                # refused row is exactly the how-far-did-we-get the user wants.
+                progress=outcome.progress if outcome is not None else None,
             )
             logger.info(
                 "discover_custom_company: REFUSED %s (company %s): %s",

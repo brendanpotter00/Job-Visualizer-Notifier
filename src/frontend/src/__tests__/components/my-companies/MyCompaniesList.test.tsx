@@ -155,7 +155,7 @@ describe('MyCompaniesList', () => {
     renderWithProviders(<MyCompaniesList />);
 
     const row = await screen.findByTestId('my-company-row');
-    expect(within(row).getByText(/setting up/i)).toBeInTheDocument();
+    expect(within(row).getByText('Setting up…')).toBeInTheDocument();
   });
 
   it('keeps polling while a board is still discovering (poll predicate)', async () => {
@@ -235,5 +235,191 @@ describe('MyCompaniesList', () => {
 
     const row = await screen.findByTestId('my-company-row');
     expect(within(row).getByText('Not trackable')).toBeInTheDocument();
+  });
+});
+
+// ── the discovery-progress checklist, and its flag ─────────────────────────
+//
+// The flag gate lives in `MyCompaniesList` (not in the checklist component), so this
+// is where "flag OFF renders exactly what shipped before" has to be pinned. Both
+// halves render the SAME payload — a discovering row carrying a real checklist — so
+// the only difference under test is the flag.
+
+const DISCOVERING_WITH_CHECKLIST: UserCompany = {
+  id: 'u-discover03',
+  displayName: 'Acme',
+  ats: 'discovered',
+  boardToken: 'https://careers.acme.example/jobs',
+  sourceId: 'custom:u-discover03',
+  healthState: 'discovering',
+  openJobCount: 0,
+  lastSuccessAt: null,
+  trackingStartedAt: null,
+  discovery: {
+    steps: [
+      {
+        key: 'open_page',
+        status: 'done',
+        result: 'opened careers.acme.example — recorded 14 JSON request(s)',
+      },
+      { key: 'find_feed', status: 'active', result: null },
+      { key: 'verify_read', status: 'pending', result: null },
+      { key: 'ready', status: 'pending', result: null },
+    ],
+    outcome: 'running',
+    liveViewUrl: null,
+    updatedAt: '2026-08-20T12:00:00Z',
+    jobPreview: [],
+  },
+};
+
+/**
+ * Renders the list with the discovery-progress flag in the given state.
+ *
+ * `resetModules()` + a dynamic import, matching `customCompaniesFlagGate.test.tsx`:
+ * `CUSTOM_COMPANIES_CONFIG` reads `import.meta.env` once at module load, and the
+ * component and `testUtils` must come from the SAME freshly-imported module graph or
+ * the store is built from a different copy of the API slice than the component renders
+ * against.
+ */
+async function renderListWithFlag(flagEnabled: boolean) {
+  vi.resetModules();
+  vi.stubEnv('VITE_DISCOVERY_PROGRESS_ENABLED', flagEnabled ? 'true' : '');
+  const [{ MyCompaniesList: List }, { renderWithProviders: renderIt }] = await Promise.all([
+    import('../../../components/my-companies/MyCompaniesList'),
+    import('../../../test/testUtils'),
+  ]);
+  return renderIt(<List />);
+}
+
+describe('MyCompaniesList discovery checklist', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('renders the 4-step checklist on a discovering row when the flag is ON', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ companies: [DISCOVERING_WITH_CHECKLIST] }));
+    await renderListWithFlag(true);
+
+    const row = await screen.findByTestId('my-company-row');
+    const checklist = within(row).getByTestId('discovery-checklist');
+    expect(within(checklist).getByText('Opening the careers page')).toBeInTheDocument();
+    expect(within(checklist).getByTestId('discovery-result-open_page')).toHaveTextContent(
+      /recorded 14 JSON request/i
+    );
+    // The badge is still there — the checklist is additive, not a replacement.
+    expect(within(row).getByText('Setting up…')).toBeInTheDocument();
+  });
+
+  it('FLAG OFF renders identically to today: badge only, no checklist', async () => {
+    // The named regression gate for DECISION D5. The payload is identical to the
+    // flag-ON case above, so anything the checklist adds would show up here.
+    fetchMock.mockResolvedValue(jsonResponse({ companies: [DISCOVERING_WITH_CHECKLIST] }));
+    const { container } = await renderListWithFlag(false);
+
+    const row = await screen.findByTestId('my-company-row');
+    expect(within(row).getByText('Setting up…')).toBeInTheDocument();
+    expect(within(row).getByText(/0 open jobs/i)).toBeInTheDocument();
+    expect(within(row).getByText(/not yet checked/i)).toBeInTheDocument();
+    expect(screen.queryByTestId('discovery-checklist')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('discovery-job-preview')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('discovery-next-actions')).not.toBeInTheDocument();
+    expect(container.querySelectorAll('iframe')).toHaveLength(0);
+  });
+
+  it('polls faster than 15s while a discovery is mid-run (flag ON)', async () => {
+    // Four steps of a few seconds each read as a spinner at the 15s list cadence.
+    // Same query, same component — only the interval changes (DECISION D2).
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      // A fresh Response per call: a polled query reads the body more than once, and a
+      // single shared Response would be consumed after the first poll.
+      fetchMock.mockImplementation(async () =>
+        jsonResponse({ companies: [DISCOVERING_WITH_CHECKLIST] })
+      );
+      await renderListWithFlag(true);
+      await screen.findByTestId('my-company-row');
+      const callsAfterLoad = fetchMock.mock.calls.length;
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000);
+      });
+      expect(fetchMock.mock.calls.length).toBeGreaterThan(callsAfterLoad);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps the 15s cadence with the flag OFF', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      // A fresh Response per call: a polled query reads the body more than once, and a
+      // single shared Response would be consumed after the first poll.
+      fetchMock.mockImplementation(async () =>
+        jsonResponse({ companies: [DISCOVERING_WITH_CHECKLIST] })
+      );
+      await renderListWithFlag(false);
+      await screen.findByTestId('my-company-row');
+      const callsAfterLoad = fetchMock.mock.calls.length;
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000);
+      });
+      expect(fetchMock.mock.calls.length).toBe(callsAfterLoad);
+
+      // ...and the pre-existing 15s poll still fires.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(11_000);
+      });
+      expect(fetchMock.mock.calls.length).toBeGreaterThan(callsAfterLoad);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('shows a refusal with its failed step and alternatives (flag ON)', async () => {
+    const refused: UserCompany = {
+      ...DISCOVERING_WITH_CHECKLIST,
+      healthState: 'refused',
+      discovery: {
+        ...DISCOVERING_WITH_CHECKLIST.discovery!,
+        outcome: 'refused',
+        steps: [
+          { key: 'open_page', status: 'done', result: 'opened careers.acme.example' },
+          { key: 'find_feed', status: 'done', result: 'found 3 candidate feed(s)' },
+          {
+            key: 'verify_read',
+            status: 'failed',
+            result: 'only 1 of the 12 job(s) the browser saw came back from the replay',
+          },
+          { key: 'ready', status: 'pending', result: null },
+        ],
+      },
+    };
+    fetchMock.mockResolvedValue(jsonResponse({ companies: [refused] }));
+    await renderListWithFlag(true);
+
+    const row = await screen.findByTestId('my-company-row');
+    expect(within(row).getByTestId('discovery-headline')).toHaveTextContent(
+      /we couldn't read acme's board/i
+    );
+    expect(within(row).getByTestId('discovery-next-actions')).toBeInTheDocument();
+    // The badge and the Remove button — the row's existing affordances — survive.
+    expect(within(row).getByText('Not trackable')).toBeInTheDocument();
+    expect(within(row).getByTestId('my-company-remove')).toBeInTheDocument();
+  });
+
+  it('drops the success summary once the first harvest lands (flag ON)', async () => {
+    const tracked: UserCompany = {
+      ...DISCOVERING_WITH_CHECKLIST,
+      healthState: 'unverified',
+      openJobCount: 42,
+      discovery: { ...DISCOVERING_WITH_CHECKLIST.discovery!, outcome: 'tracking' },
+    };
+    fetchMock.mockResolvedValue(jsonResponse({ companies: [tracked] }));
+    await renderListWithFlag(true);
+
+    await screen.findByTestId('my-company-row');
+    expect(screen.queryByTestId('discovery-checklist')).not.toBeInTheDocument();
   });
 });

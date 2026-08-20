@@ -1297,6 +1297,63 @@ class AddUserCompanyRequest(BaseModel):
     url: str = Field(min_length=1, max_length=2048)
 
 
+class DiscoveryStepResponse(BaseModel):
+    """One rung of the 4-step discovery checklist (E7 capture pivot).
+
+    ``key`` is one of ``open_page | find_feed | verify_read | ready`` and ``status`` one
+    of ``pending | active | done | failed``; both are bare ``str`` on the wire because
+    the server owns the vocabulary, and the frontend maps them through a closed union so
+    an unknown value is caught there rather than blanking a row.
+
+    ``result`` is the SPECIFIC thing this step found ("found 3 candidate feeds", "read
+    90 jobs") or — on the failed step — why it stopped. A generic tick is a spinner with
+    extra steps, which is what this replaced.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    key: str
+    status: str
+    result: str | None = None
+
+
+class DiscoveryJobPreviewResponse(BaseModel):
+    """One job from the acceptance replay, shown so a user can recognise their board.
+
+    The rows the REPLAY returned, not the capture's — the same bytes the nightly
+    harvest will read. ``url`` is present only when it is an http(s) link (the blob is
+    rendered, and a scraped ``javascript:`` href would be a stored-XSS vector).
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    title: str
+    location: str | None = None
+    url: str | None = None
+
+
+class DiscoveryProgressResponse(BaseModel):
+    """The discovery checklist attached to a user company, if it has one.
+
+    Stored in ``companies.provider_config['discovery']`` (no migration — see
+    ``api.services.discovery.progress``) and read back by the SAME poll the list already
+    runs, so no second polling channel exists (DECISION D2).
+
+    ``liveViewUrl`` is the hosted, iframe-embeddable view of the capture session. It
+    exists ONLY for a Browserbase run and our default is our own Chromium, so it is
+    absent on nearly every discovery and the UI must never block on it (DECISION D4).
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    steps: list[DiscoveryStepResponse] = Field(default_factory=list)
+    # 'running' | 'tracking' | 'refused'
+    outcome: str = "running"
+    live_view_url: str | None = None
+    updated_at: str | None = None
+    job_preview: list[DiscoveryJobPreviewResponse] = Field(default_factory=list)
+
+
 class UserCompanyResponse(BaseModel):
     """One private custom company the caller owns.
 
@@ -1318,6 +1375,10 @@ class UserCompanyResponse(BaseModel):
     # Set on the first VERIFIED harvest (E7 Phase 2). NULL until a company
     # graduates; the trend page uses it to shade the pre-tracking seed bucket.
     tracking_started_at: datetime | None = None
+    # The 4-step discovery checklist, present only for an ``ats='discovered'`` row that
+    # has one. NULL for every ATS company and for anything discovered before this
+    # shipped — the UI renders the badge-only row it always did.
+    discovery: DiscoveryProgressResponse | None = None
 
 
 class UserCompanyListResponse(BaseModel):

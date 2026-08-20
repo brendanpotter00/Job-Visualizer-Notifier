@@ -6,6 +6,7 @@ import Button from '@mui/material/Button';
 import Link from '@mui/material/Link';
 import Typography from '@mui/material/Typography';
 import { buildMyCompanyDetailPath } from '../../config/routes';
+import { CUSTOM_COMPANIES_CONFIG } from '../../config/customCompanies';
 import { extractErrorMessage } from '../../lib/errors';
 import {
   useAddUserCompanyMutation,
@@ -35,11 +36,17 @@ export function DiscoveryCTA({ url }: DiscoveryCTAProps) {
   };
 
   if (data !== undefined && isDiscoveryPending(data)) {
+    // With the checklist on, the row below is now narrating the setup step by step, so
+    // point at it instead of repeating "Setting up…" — rendering a second copy of the
+    // same checklist here would say the same thing twice on a very short page. Flag OFF
+    // keeps the original copy verbatim: there is no checklist to look at.
     return (
       <Alert severity="info" sx={{ mt: 2 }} data-testid="discovery-pending">
         <AlertTitle>One-time setup</AlertTitle>
-        {data.detail} It now shows as “Setting up…” in your companies list below and
-        starts tracking automatically once the first scan finishes.
+        {data.detail}{' '}
+        {CUSTOM_COMPANIES_CONFIG.isDiscoveryProgressEnabled
+          ? 'Follow it step by step on its row in your companies list below — it starts tracking automatically once we can read the board.'
+          : 'It now shows as “Setting up…” in your companies list below and starts tracking automatically once the first scan finishes.'}
       </Alert>
     );
   }

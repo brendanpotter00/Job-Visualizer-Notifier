@@ -16,6 +16,14 @@ class DiscoveryOutcome:
     missing key). ``attempts`` counts the authoring attempts spent (0 when the LLM
     key was unset — no attempt burned). ``cost_note`` is a human string for the
     audit row, never load-bearing.
+
+    ``progress`` is the TERMINAL 4-step checklist blob
+    (:mod:`api.services.discovery.progress`) — every step's specific result plus either
+    a job preview or the named step that failed. It rides the outcome rather than being
+    written by the engine because the row's state flip (``discovering`` → tracked /
+    refused) and its final checklist must land in the SAME statement: a checklist
+    written separately, after the flip, is a straggler that can resurrect "still
+    working" on a board we already refused.
     """
 
     ok: bool
@@ -25,3 +33,4 @@ class DiscoveryOutcome:
     refuse_reason: str | None = None
     attempts: int = 0
     cost_note: str | None = None
+    progress: dict[str, Any] | None = None

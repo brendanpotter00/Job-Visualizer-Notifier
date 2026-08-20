@@ -3,8 +3,11 @@
 > **Status:** **IMPLEMENTED** on `feat/e7-phase3-discovery` (#248) as of 2026-08-20 —
 > the `browser_fetch` replay tier (`services/browser_fetch/`) and the capture discovery
 > engine (`services/capture/`) are both landed, and the Stagehand DOM path is retired
-> and deleted. What remains unbuilt from this plan is the **frontend** progress
-> checklist/live-view (phase 2 below) and the **name input** (phase 3).
+> and deleted. The **frontend** progress checklist / job preview / live-view embed
+> (phase 2 below) is landed too, behind `VITE_DISCOVERY_PROGRESS_ENABLED` (default OFF;
+> with it off the page renders exactly as it did before). Step state is carried in
+> `companies.provider_config -> 'discovery'` — **no migration** — and surfaced on the
+> list poll that already existed. What remains unbuilt is the **name input** (phase 3).
 >
 > Originally written as an implementation plan, validated by POCs (see `scripts/one_off/http_capture_poc/RESULTS.md`
 > and `DETERMINISTIC-CAPTURE-DIRECTION.md`). This is the plan the implementation PR builds against —

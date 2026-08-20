@@ -1,8 +1,19 @@
 import { describe, it, expect } from 'vitest';
 import {
+  DISCOVERY_STEP_LABELS,
+  describeDiscoveryOutcome,
+  describeDiscoveryStep,
   describeHealthState,
   describeLastChecked,
+  failedDiscoveryStep,
+  resolveDiscoveryOutcome,
+  shouldShowDiscovery,
 } from '../../../components/my-companies/companyHealth';
+import type {
+  DiscoveryProgress,
+  DiscoveryStep,
+  DiscoveryStepKey,
+} from '../../../features/userCompanies/userCompaniesApi';
 
 describe('describeHealthState', () => {
   it('frames the provisional discovering state as "Setting up…", not an error', () => {
@@ -53,5 +64,184 @@ describe('describeLastChecked', () => {
     expect(describeLastChecked({ lastSuccessAt: '2026-08-09T10:00:00Z' })).toMatch(
       /^Last checked /
     );
+  });
+});
+
+// ── discovery checklist helpers (E7 capture pivot) ─────────────────────────
+
+function step(
+  key: DiscoveryStepKey,
+  status: DiscoveryStep['status'],
+  result: string | null = null
+): DiscoveryStep {
+  return { key, status, result };
+}
+
+function progress(overrides: Partial<DiscoveryProgress> = {}): DiscoveryProgress {
+  return {
+    steps: [
+      step('open_page', 'pending'),
+      step('find_feed', 'pending'),
+      step('verify_read', 'pending'),
+      step('ready', 'pending'),
+    ],
+    outcome: 'running',
+    liveViewUrl: null,
+    updatedAt: null,
+    jobPreview: [],
+    ...overrides,
+  };
+}
+
+describe('describeDiscoveryStep', () => {
+  it('labels every step in the closed union', () => {
+    const keys: DiscoveryStepKey[] = ['open_page', 'find_feed', 'verify_read', 'ready'];
+    for (const key of keys) {
+      expect(describeDiscoveryStep({ key })).toBe(DISCOVERY_STEP_LABELS[key]);
+      expect(describeDiscoveryStep({ key })).not.toBe('');
+    }
+  });
+
+  it('falls back to the raw key rather than an empty rung', () => {
+    // The union is closed and the backend normalizes unknown keys away, but the value
+    // still arrives as wire data — a blank row in a checklist someone is reading to
+    // decide what to do next is the worst possible failure mode.
+    expect(describeDiscoveryStep({ key: 'some_future_step' as DiscoveryStepKey })).toBe(
+      'some_future_step'
+    );
+  });
+});
+
+describe('resolveDiscoveryOutcome', () => {
+  it('reads a refused row as refused even when its blob still says "running"', () => {
+    // The discovery TIMEOUT: no terminal checklist was written, so the last live
+    // snapshot survives beside health_state='refused'. health_state wins.
+    expect(
+      resolveDiscoveryOutcome({ healthState: 'refused', discovery: progress() })
+    ).toBe('refused');
+  });
+
+  it('reads a discovering row as running whatever the blob says', () => {
+    expect(
+      resolveDiscoveryOutcome({
+        healthState: 'discovering',
+        discovery: progress({ outcome: 'tracking' }),
+      })
+    ).toBe('running');
+  });
+
+  it('otherwise trusts the blob, defaulting to running when there is none', () => {
+    expect(
+      resolveDiscoveryOutcome({
+        healthState: 'unverified',
+        discovery: progress({ outcome: 'tracking' }),
+      })
+    ).toBe('tracking');
+    expect(resolveDiscoveryOutcome({ healthState: 'healthy', discovery: null })).toBe(
+      'running'
+    );
+  });
+});
+
+describe('shouldShowDiscovery', () => {
+  const tracking = progress({ outcome: 'tracking' });
+
+  it('shows the checklist while a board is being set up, and after a refusal', () => {
+    expect(
+      shouldShowDiscovery({
+        healthState: 'discovering',
+        discovery: progress(),
+        openJobCount: 0,
+      })
+    ).toBe(true);
+    expect(
+      shouldShowDiscovery({ healthState: 'refused', discovery: progress(), openJobCount: 0 })
+    ).toBe(true);
+  });
+
+  it('keeps the success summary only until the first harvest lands', () => {
+    // After that the row is an ordinary tracked company and a permanent setup receipt
+    // is clutter — which also means nothing has to sweep the blob away server-side.
+    expect(
+      shouldShowDiscovery({ healthState: 'unverified', discovery: tracking, openJobCount: 0 })
+    ).toBe(true);
+    expect(
+      shouldShowDiscovery({ healthState: 'unverified', discovery: tracking, openJobCount: 42 })
+    ).toBe(false);
+  });
+
+  it('never shows anything for a company with no checklist (every ATS board)', () => {
+    expect(
+      shouldShowDiscovery({ healthState: 'discovering', discovery: null, openJobCount: 0 })
+    ).toBe(false);
+  });
+});
+
+describe('describeDiscoveryOutcome', () => {
+  const refused = progress({
+    outcome: 'refused',
+    steps: [
+      step('open_page', 'done', 'opened acme.example — recorded 4 JSON request(s)'),
+      step('find_feed', 'done', 'found 3 candidate feed(s)'),
+      step('verify_read', 'failed', 'the replay returned a different list'),
+      step('ready', 'pending'),
+    ],
+  });
+
+  it('frames a refusal around the company, and chains the ✓/✕ across the steps', () => {
+    const headline = describeDiscoveryOutcome({
+      displayName: 'Acme',
+      healthState: 'refused',
+      discovery: refused,
+      openJobCount: 0,
+    });
+    expect(headline.title).toBe("We couldn't read Acme's board");
+    expect(headline.severity).toBe('error');
+    expect(headline.summary).toBe(
+      'Opening the careers page ✓ · Finding the jobs feed ✓ · Verifying we can read it ✕'
+    );
+  });
+
+  it('leaves pending steps out of the summary', () => {
+    const headline = describeDiscoveryOutcome({
+      displayName: 'Acme',
+      healthState: 'refused',
+      discovery: refused,
+      openJobCount: 0,
+    });
+    expect(headline.summary).not.toMatch(/ready to track/i);
+  });
+
+  it('frames success and in-progress distinctly', () => {
+    expect(
+      describeDiscoveryOutcome({
+        displayName: 'Acme',
+        healthState: 'unverified',
+        discovery: progress({ outcome: 'tracking' }),
+        openJobCount: 0,
+      })
+    ).toMatchObject({ title: "We can read Acme's board", severity: 'success' });
+    expect(
+      describeDiscoveryOutcome({
+        displayName: 'Acme',
+        healthState: 'discovering',
+        discovery: progress(),
+        openJobCount: 0,
+      })
+    ).toMatchObject({ title: 'Setting up Acme', severity: 'info' });
+  });
+});
+
+describe('failedDiscoveryStep', () => {
+  it('finds the one step a refusal stopped on', () => {
+    const found = failedDiscoveryStep(
+      progress({ steps: [step('open_page', 'done'), step('find_feed', 'failed', 'nope')] })
+    );
+    expect(found?.key).toBe('find_feed');
+  });
+
+  it('returns null when nothing failed — a timeout fails no step', () => {
+    expect(failedDiscoveryStep(progress())).toBeNull();
+    expect(failedDiscoveryStep(null)).toBeNull();
   });
 });

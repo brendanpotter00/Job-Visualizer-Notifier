@@ -21,6 +21,12 @@ The seven steps, in order, each named because the REFUSE reason is rendered to t
    capture.
 7. accept (store) or **REFUSE** (store nothing).
 
+Because those steps are DETERMINISTIC and known before the run starts, they are also
+narrated: :data:`_STEP_TO_CHECKLIST` folds them onto the four user-facing steps in
+:mod:`api.services.discovery.progress`, and ``emit`` publishes the checklist as each one
+lands. That is what replaced the "Setting up…" spinner — the run says "found 3 candidate
+feeds", "read 90 jobs", or names the exact step it failed at.
+
 **The acceptance gate is the whole point** (plan DECISION D5). Tier 1a (``http_json``
 through ``guarded_sync_client`` + ``run_recipe``) is tried first because it costs $0 a
 night; tier 1b (``browser_fetch`` in a fresh Chromium) only when 1a's replay fails,
@@ -69,6 +75,15 @@ from urllib.parse import urlsplit, urlunsplit
 import httpx
 
 from ..discovery.models import DiscoveryOutcome
+from ..discovery.progress import (
+    OUTCOME_REFUSED,
+    OUTCOME_TRACKING,
+    STEP_FIND_FEED,
+    STEP_OPEN_PAGE,
+    STEP_READY,
+    STEP_VERIFY_READ,
+    ProgressLedger,
+)
 from ..guarded_client import guarded_sync_client
 from ..harvest_meta import HarvestEvidence
 from ..harvest_verification import HarvestGateError, run_gate
@@ -97,6 +112,26 @@ _STEP_FILTER = "finding the jobs feed"
 _STEP_SELECT = "reading the jobs feed"
 _STEP_SYNTHESIZE = "writing the replay recipe"
 _STEP_ACCEPT = "verifying we can read it"
+
+# ...and how those six collapse onto the FOUR steps the user is shown
+# (:mod:`api.services.discovery.progress`). Six exist because six things can fail with
+# six different log lines; four are shown because that is how many distinct next
+# ACTIONS a person has. The mapping lives here, with the engine, so the UI's vocabulary
+# survives the next engine swap exactly the way ``DiscoveryOutcome`` did.
+#
+# ``_STEP_SELECT`` is deliberately part of "finding the jobs feed": from outside,
+# knowing WHICH request serves jobs and knowing how to read its fields are one act.
+# Synthesis and acceptance are both "verifying we can read it" — the user cannot act
+# differently on "the recipe we assembled is invalid" than on "the replay came back
+# with different jobs", and both mean the same thing to them.
+_STEP_TO_CHECKLIST: dict[str, str] = {
+    _STEP_ENTRY: STEP_OPEN_PAGE,
+    _STEP_CAPTURE: STEP_OPEN_PAGE,
+    _STEP_FILTER: STEP_FIND_FEED,
+    _STEP_SELECT: STEP_FIND_FEED,
+    _STEP_SYNTHESIZE: STEP_VERIFY_READ,
+    _STEP_ACCEPT: STEP_VERIFY_READ,
+}
 
 # Placeholder company id for the acceptance replay only — the real id is minted by the
 # service when the outcome is persisted.
@@ -167,6 +202,9 @@ CaptureFn = Callable[[str], Awaitable[CaptureResult]]
 SelectFn = Callable[[list[Candidate]], Awaitable[RequestSelection]]
 ReplayFn = Callable[[dict[str, Any]], Awaitable[tuple[list[dict], HarvestEvidence]]]
 UrlValidator = Callable[[str], Any]
+# One live checklist write. Injected (the task supplies a short-lived DB write), and
+# treated as fire-and-forget — see ``_publish`` inside :func:`discover`.
+ProgressFn = Callable[[dict[str, Any]], Awaitable[None]]
 
 
 class _Refusal(Exception):
@@ -185,6 +223,12 @@ class _Refusal(Exception):
 def _origin_of(url: str) -> str:
     parts = urlsplit(url)
     return urlunsplit((parts.scheme, parts.netloc, "", "", ""))
+
+
+def _hostname_of(url: str) -> str:
+    """Host of ``url``, or ``''``. Display only — the checklist says which page we
+    actually landed on, which is how a user spots a redirect to the wrong site."""
+    return urlsplit(url).netloc
 
 
 def _clean_headers(headers: dict[str, str]) -> dict[str, str]:
@@ -560,6 +604,7 @@ async def discover(
     replay_http: ReplayFn | None = None,
     replay_browser: ReplayFn | None = None,
     validate_url: UrlValidator | None = None,
+    emit: ProgressFn | None = None,
 ) -> DiscoveryOutcome:
     """Run one capture discovery for ``url``. NEVER raises — a failure is a REFUSE.
 
@@ -567,6 +612,11 @@ async def discover(
     so the unit tests exercise the whole ladder at $0 with no browser, no LLM and no
     network — the same discipline ``run_browser_fetch`` and the retired browser-agent
     discover used.
+
+    ``emit`` receives the 4-step checklist as the run advances, so the user watches
+    named steps land instead of a spinner. The TERMINAL checklist is NOT emitted — it
+    rides back on ``DiscoveryOutcome.progress`` so the persist writes it in the same
+    statement that flips the row (see that field's docstring).
     """
     # The URL seam is ``url_guard.validate_public_url`` itself — raising
     # ``UrlGuardError``, whose reason codes are an API contract. The step naming is done
@@ -578,12 +628,34 @@ async def discover(
     run_http = replay_http or _default_replay_http
     run_browser = replay_browser or _default_replay_browser
 
+    ledger = ProgressLedger()
+
+    async def _publish() -> None:
+        """Push one live checklist update — and NEVER let it decide the outcome.
+
+        A progress write is cosmetic; the discovery is not. An exception escaping this
+        seam would land in the broad handler at the bottom and REFUSE a board we can
+        perfectly well read, because the database hiccuped while we were narrating —
+        the exact inversion of what this feature is for.
+        """
+        if emit is None:
+            return
+        try:
+            await emit(ledger.snapshot())
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "discovery progress write failed for %s (continuing)", url, exc_info=True
+            )
+
     attempts = 0
     # The step we are CURRENTLY in, so the last-resort handler at the bottom names the
     # step that actually blew up. Initialized before the try because an exception can
     # be raised from the very first line inside it.
     current_step = _STEP_ENTRY
     try:
+        ledger.start(STEP_OPEN_PAGE)
+        await _publish()
+
         # STEP 1 — SSRF on the pasted URL, off the loop (blocking getaddrinfo on a host
         # a stranger chose; see network_capture for the whole argument).
         loop = asyncio.get_running_loop()
@@ -600,6 +672,19 @@ async def discover(
             captured = await do_capture(url)
         except CaptureError as exc:
             raise _Refusal(_STEP_CAPTURE, str(exc)) from exc
+
+        # The hosted live view exists only on a Browserbase session, and our default is
+        # our own Chromium — so this is usually None and the UI must not depend on it
+        # (DECISION D4). Attached the moment we have it, because the session is gone by
+        # the time the run finishes.
+        ledger.set_live_view_url(captured.live_view_url)
+        ledger.finish(
+            STEP_OPEN_PAGE,
+            f"opened {_hostname_of(captured.final_url) or url} — recorded "
+            f"{len(captured.responses)} JSON request(s)",
+        )
+        ledger.start(STEP_FIND_FEED)
+        await _publish()
 
         # The origin a browser_fetch recipe navigates to, and the base for relative
         # hrefs. Falls back to the pasted URL when the capture ended somewhere we may
@@ -651,6 +736,10 @@ async def discover(
                 "the only job-shaped requests this page made point at addresses we "
                 "refuse to fetch",
             )
+        # The count the checklist reports for step 2, pinned BEFORE the round loop
+        # starts eating candidates — "found 1 candidate feed" on round two would be
+        # narrating our own retry, not what we found on this page.
+        feed_count = len(candidates)
 
         # STEPS 4-6 — ask, synthesize, prove. Each round burns ONE Haiku call and at
         # most two replays; a failed candidate is removed and the next round asks again
@@ -687,10 +776,14 @@ async def discover(
                 # Not the board's fault and not retryable: refuse WITHOUT counting an
                 # attempt, exactly as the location cascade degrades on a missing key.
                 logger.warning("discovery cannot run: %s", exc)
+                ledger.fail(
+                    STEP_FIND_FEED, "discovery is not configured on this deployment"
+                )
                 return DiscoveryOutcome(
                     ok=False,
                     refuse_reason=f"{_STEP_SELECT}: discovery is not configured on this deployment",
                     attempts=0,
+                    progress=ledger.snapshot(outcome=OUTCOME_REFUSED),
                 )
             except RequestSelectionError as exc:
                 # A rejected answer costs this ROUND, not the whole discovery: the model
@@ -700,6 +793,10 @@ async def discover(
                 last_step, last_error = _STEP_SELECT, str(exc)
                 logger.info("discovery selection rejected for %s: %s", url, exc)
                 continue
+
+            ledger.finish(STEP_FIND_FEED, f"found {feed_count} candidate feed(s)")
+            ledger.start(STEP_VERIFY_READ)
+            await _publish()
 
             current_step = _STEP_SYNTHESIZE
             try:
@@ -752,6 +849,13 @@ async def discover(
                     url, candidate.method, candidate.url, len(rows),
                     transport, script["oracle"]["kind"], round_number,
                 )
+                ledger.finish(STEP_VERIFY_READ, f"read {len(rows)} job(s)")
+                ledger.finish(
+                    STEP_READY,
+                    "reading the board's own feed directly — no browser needed"
+                    if transport == "http_json"
+                    else "reading the board in a browser each night",
+                )
                 return DiscoveryOutcome(
                     ok=True,
                     script=script,
@@ -761,6 +865,13 @@ async def discover(
                     cost_note=(
                         f"1 browser capture + {round_number} Haiku selection(s); "
                         f"replays as {transport}"
+                    ),
+                    # The rows the ACCEPTANCE REPLAY returned — the same bytes the
+                    # nightly harvest will read, not the capture's. Showing the user
+                    # jobs that only our production path can actually see is the whole
+                    # claim we are making by promising to track this board.
+                    progress=ledger.snapshot(
+                        outcome=OUTCOME_TRACKING, job_preview=rows
                     ),
                 )
             # This candidate cannot be replayed either way — drop it and ask again over
@@ -795,7 +906,17 @@ async def discover(
 
     except _Refusal as exc:
         logger.warning("capture discovery REFUSED %s — %s", url, exc)
-        return DiscoveryOutcome(ok=False, refuse_reason=str(exc), attempts=attempts)
+        # The ✕ lands on the step that actually decided it, and it OVERRIDES a step
+        # already ticked: "found 3 candidate feeds ✓" followed by "none of them is a
+        # jobs list" is one step's story, and showing the ✓ would be a lie about the
+        # only thing the user needs to know.
+        ledger.fail(_STEP_TO_CHECKLIST.get(exc.step, STEP_VERIFY_READ), exc.detail)
+        return DiscoveryOutcome(
+            ok=False,
+            refuse_reason=str(exc),
+            attempts=attempts,
+            progress=ledger.snapshot(outcome=OUTCOME_REFUSED),
+        )
     except Exception as exc:  # noqa: BLE001
         # BROAD ON PURPOSE. The caller is a retry=1 task whose provisional
         # ``discovering`` row is cleared only by an outcome being RETURNED; an escaping
@@ -803,6 +924,10 @@ async def discover(
         # re-add. A loud refusal carrying the exception type is strictly better than a
         # wedged row, and the log line below keeps the stack.
         logger.exception("capture discovery crashed for %s", url)
+        ledger.fail(
+            _STEP_TO_CHECKLIST.get(current_step, STEP_VERIFY_READ),
+            f"something went wrong on our side ({type(exc).__name__})",
+        )
         return DiscoveryOutcome(
             ok=False,
             # The step we had actually REACHED, not a hardcoded one. The refusal string
@@ -812,4 +937,5 @@ async def discover(
             refuse_reason=f"{current_step}: discovery failed unexpectedly "
                           f"({type(exc).__name__})",
             attempts=attempts,
+            progress=ledger.snapshot(outcome=OUTCOME_REFUSED),
         )

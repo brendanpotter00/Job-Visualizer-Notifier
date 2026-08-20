@@ -15,9 +15,11 @@ import httpx
 import pytest
 from psycopg2 import sql
 
+import api.services.discovery.progress as dp
 from api.auth.dependencies import get_current_user
 from api.config import settings
 from api.services import custom_companies_service as svc
+from api.services.user_service import get_or_create_user
 from scripts.shared.constants import custom
 
 GREENHOUSE_URL = "https://boards.greenhouse.io/duolingo"
@@ -66,6 +68,16 @@ def _install_greenhouse(monkeypatch, job_ids: list[int]):
         )
 
     monkeypatch.setattr("api.routers.user_companies._http_client", factory)
+
+
+def _user_id(db_conn, email: str) -> str:
+    """The users row the logged-in caller resolves to (created on demand), so a test can
+    seed service rows the endpoint will then read back for that same caller."""
+    row = get_or_create_user(
+        db_conn, auth0_id=f"auth0|{email}", email=email,
+        given_name="A", family_name="B", picture_url=None,
+    )
+    return str(row["id"])
 
 
 def _count(db_conn, table: str, where: str = "", params: tuple = ()) -> int:
@@ -357,6 +369,11 @@ def test_non_ats_url_enqueues_discovery_202(client, db_conn, monkeypatch):
     body = resp.json()
     assert body["status"] == "discovery_pending"
     assert body["finalUrl"] == _NON_ATS_URL
+    # The placeholder's id rides back on the 202 (E7 unit 3). Without it the caller can
+    # only find the board it just added by diffing the list, so the "one-time setup"
+    # notice could never point at the row now narrating its own progress.
+    assert body["id"].startswith("u-")
+    assert body["sourceId"] == custom(body["id"])
 
     # The one-time discovery task was enqueued exactly once, with the final URL.
     assert len(calls) == 1
@@ -454,3 +471,107 @@ def test_two_users_same_url_get_per_user_discovery_locks(monkeypatch):
         f"discover:user-b:{_NON_ATS_URL}",
     ]
     assert seen_locks[0] != seen_locks[1]   # distinct → no cross-user collision
+
+
+# --- E7 unit 3: the discovery checklist rides the list response ----------------
+
+
+def _steps(company: dict) -> dict:
+    return {step["key"]: step for step in company["discovery"]["steps"]}
+
+
+def test_a_discovering_row_lists_with_its_checklist_already_narrating(
+    client, db_conn, monkeypatch
+):
+    """The whole point of DECISION D2: the checklist arrives on the SAME poll the list
+    already runs, so no second polling channel exists. And the 202 row is narrating
+    before the worker touches it — otherwise it is a bare "Setting up…" badge, i.e. the
+    spinner this replaced."""
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
+    _login(client, "auth0|A", "a@example.com")
+    _patch_no_ats(monkeypatch)
+    _capture_defer(monkeypatch)
+    client.post("/api/users/companies", json={"url": _NON_ATS_URL})
+
+    (company,) = client.get("/api/users/companies").json()["companies"]
+    assert company["healthState"] == "discovering"
+    # camelCase on the wire, via the model's `to_camel` generator.
+    assert company["discovery"]["outcome"] == "running"
+    assert company["discovery"]["liveViewUrl"] is None       # own-Chromium default (D4)
+    assert _steps(company)["open_page"]["status"] == "active"
+    assert [s["key"] for s in company["discovery"]["steps"]] == [
+        "open_page", "find_feed", "verify_read", "ready"
+    ]
+
+
+def test_an_accepted_board_lists_its_four_ticks_and_a_job_preview(client, db_conn):
+    """Success has to be legible: the specific result per step ("read 90 jobs") plus a
+    few real jobs, so the user can tell this is their board (DECISION D3)."""
+    _login(client, "auth0|A", "a@example.com")
+    user_id = _user_id(db_conn, "a@example.com")
+
+    ledger = dp.ProgressLedger()
+    ledger.finish(dp.STEP_OPEN_PAGE, "opened acme.example — recorded 9 JSON request(s)")
+    ledger.finish(dp.STEP_FIND_FEED, "found 3 candidate feed(s)")
+    ledger.finish(dp.STEP_VERIFY_READ, "read 90 job(s)")
+    ledger.finish(dp.STEP_READY, "reading the board's own feed directly — no browser needed")
+    svc.add_discovered_company(
+        db_conn, user_id=user_id, submitted_url=_NON_ATS_URL,
+        normalized_url=_NON_ATS_URL, display_name="acme.example",
+        script={"script_version": 1}, transport="http_json", oracle_kind="none",
+        progress=ledger.snapshot(
+            outcome=dp.OUTCOME_TRACKING,
+            job_preview=[{"id": "1", "title": "Staff Engineer", "location": "Remote",
+                          "url": "https://acme.example/jobs/1"}],
+        ),
+    )
+
+    (company,) = client.get("/api/users/companies").json()["companies"]
+    assert company["discovery"]["outcome"] == "tracking"
+    assert _steps(company)["verify_read"]["result"] == "read 90 job(s)"
+    assert company["discovery"]["jobPreview"] == [
+        {"title": "Staff Engineer", "location": "Remote",
+         "url": "https://acme.example/jobs/1"}
+    ]
+
+
+def test_a_refused_board_lists_the_named_step_that_failed(client, db_conn):
+    """"Not trackable" alone is a dead end. The failed step is what turns it into "we
+    found the feed, but couldn't confirm the results match" — and the audit row that
+    also carries the reason is not readable by ANY endpoint, so this is the only path
+    from a refusal to the user."""
+    _login(client, "auth0|A", "a@example.com")
+    user_id = _user_id(db_conn, "a@example.com")
+
+    ledger = dp.ProgressLedger()
+    ledger.finish(dp.STEP_OPEN_PAGE, "opened acme.example — recorded 9 JSON request(s)")
+    ledger.finish(dp.STEP_FIND_FEED, "found 3 candidate feed(s)")
+    ledger.fail(dp.STEP_VERIFY_READ,
+                "only 1 of the 12 job(s) the browser saw came back from the replay")
+    svc.record_discovery_refusal(
+        db_conn, user_id=user_id, submitted_url=_NON_ATS_URL,
+        normalized_url=_NON_ATS_URL, display_name="acme.example",
+        reason="verifying we can read it: …",
+        progress=ledger.snapshot(outcome=dp.OUTCOME_REFUSED),
+    )
+
+    (company,) = client.get("/api/users/companies").json()["companies"]
+    assert company["healthState"] == "refused"
+    steps = _steps(company)
+    assert steps["find_feed"]["status"] == "done"
+    assert steps["verify_read"]["status"] == "failed"
+    assert "came back from the replay" in steps["verify_read"]["result"]
+
+
+def test_an_ats_companys_provider_config_never_leaks_as_a_checklist(
+    client, db_conn, monkeypatch
+):
+    """``provider_config`` is shared with the ATS providers (Workday's baseUrl lives
+    there). A row with no 'discovery' key must read as "no checklist", never as a
+    half-parsed one and never by echoing the provider's own config back."""
+    _login(client, "auth0|A", "a@example.com")
+    _install_greenhouse(monkeypatch, [1, 2, 3])
+    client.post("/api/users/companies", json={"url": GREENHOUSE_URL})
+
+    (company,) = client.get("/api/users/companies").json()["companies"]
+    assert company["discovery"] is None
