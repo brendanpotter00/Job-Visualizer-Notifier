@@ -1,6 +1,23 @@
 import type { SearchTag } from '../types';
 
 /**
+ * Most keyword chips one filter set — or one saved keyword list — may hold.
+ *
+ * Mirrors the backend's two caps, which are the SAME number on purpose:
+ * `routers/jobs_search._MAX_KEYWORDS` (the per-query budget for include and
+ * exclude terms COMBINED) and `models._MAX_TAGS_PER_LIST` (what may be stored).
+ * A saved list auto-hydrates into the Recent page's chips on page load and those
+ * chips become the query's keyword parameters, so anything the client lets a user
+ * build past this point is a 400 on their next visit to Recent Jobs.
+ *
+ * Enforced where tags are ADDED (`addSearchTagToFilters`, `addTagToList`) rather
+ * than where the request is built: clamping at the request would silently drop
+ * filters the reader can see on screen, which is the failure mode this whole
+ * endpoint exists to remove.
+ */
+export const MAX_SEARCH_TAGS = 20;
+
+/**
  * Predefined search tags for software engineering roles
  * Used by the "Software engineering roles only" toggle
  */

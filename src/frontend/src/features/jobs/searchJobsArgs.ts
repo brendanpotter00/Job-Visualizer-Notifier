@@ -35,8 +35,11 @@ const SINCE_QUANTUM_MS = 60_000;
 /**
  * Resolve a time window to an inclusive ISO lower bound.
  *
- * `now` is injected rather than read here so this stays pure — callers freeze a
- * single value per walk (see `useStableSince`).
+ * `now` is injected rather than read here so this stays pure. Callers freeze a
+ * single value for the lifetime of a walk: `useRecentJobsSearch` stamps the
+ * instant onto its debounced filter snapshot (`snapshot.at`) and derives `since`
+ * from that, so the bound only moves when the filters do. A live clock here would
+ * mint a new cache key on every render and 422 the next cursor.
  */
 export function sinceForTimeWindow(timeWindow: TimeWindow, now: number): string {
   const durationMs = TIME_WINDOW_DURATIONS[timeWindow];

@@ -4,6 +4,7 @@ import React from 'react';
 import { Provider } from 'react-redux';
 import { createTestStore } from '../../../test/testUtils';
 import { useEnabledCompanies } from '../../../features/preferences/useEnabledCompanies';
+import { selectEnabledCompaniesSettled } from '../../../features/preferences/enabledCompaniesSlice';
 
 const mockGetToken = vi.fn();
 const mockAuthState = {
@@ -211,6 +212,60 @@ describe('useEnabledCompanies', () => {
     expect(store.getState().enabledCompanies.loading).toBe(false);
     // Fetch must NOT have been dispatched because token acquisition failed.
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('settles the preference when save aborts a load and then cannot get a token', async () => {
+    // The stuck-skeleton path, end to end. `save()` aborts the in-flight load;
+    // the slice deliberately writes NO error on an abort, so if the token await
+    // that follows also fails, no successor action ever lands and the preference
+    // is left `ids === null && error === null` — which
+    // `selectEnabledCompaniesSettled` reads as "still loading". The Recent page
+    // gates its first fetch on that, so it would sit on skeletons forever with
+    // no error and no retry: the 2026-08-10 failure shape wearing a spinner.
+    mockAuthState.isAuthenticated = true;
+    mockGetToken
+      .mockResolvedValueOnce('tok-1')
+      .mockRejectedValue(new Error('Login required'));
+    // The load never resolves on its own — the abort inside `save()` is the only
+    // thing that ends it.
+    vi.spyOn(globalThis, 'fetch').mockImplementation(
+      (_input, init) =>
+        new Promise((_resolve, reject) => {
+          const signal = (init as RequestInit | undefined)?.signal;
+          signal?.addEventListener('abort', () => {
+            const abortError = new Error('Aborted');
+            abortError.name = 'AbortError';
+            reject(abortError);
+          });
+        })
+    );
+    const store = createTestStore();
+
+    const { result } = renderHook(() => useEnabledCompanies(), {
+      wrapper: makeWrapper(store),
+    });
+
+    await waitFor(() => {
+      expect(store.getState().enabledCompanies.loading).toBe(true);
+    });
+    // Precondition: the load is genuinely in flight and nothing has failed yet.
+    // Without this the test would pass on a mount that had already errored.
+    expect(store.getState().enabledCompanies.error).toBeNull();
+    expect(store.getState().enabledCompanies.ids).toBeNull();
+
+    let caught: unknown = null;
+    await act(async () => {
+      try {
+        await result.current.save(['a']);
+      } catch (err) {
+        caught = err;
+      }
+    });
+
+    expect((caught as Error | null)?.message).toBe('Login required');
+    expect(store.getState().enabledCompanies.ids).toBeNull();
+    expect(store.getState().enabledCompanies.error).toBe('Login required');
+    expect(selectEnabledCompaniesSettled(store.getState())).toBe(true);
   });
 
   it('reload dispatches a fresh fetch while signed in', async () => {

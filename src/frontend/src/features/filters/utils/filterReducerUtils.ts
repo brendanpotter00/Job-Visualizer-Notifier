@@ -1,5 +1,6 @@
 import type { SearchTag } from '../../../types';
 import {
+  MAX_SEARCH_TAGS,
   SOFTWARE_ENGINEERING_TAGS,
   getSoftwareEngineeringTagTexts,
 } from '../../../constants/tags.ts';
@@ -42,7 +43,13 @@ export function setSearchTags(filters: FiltersWithSearchTags, tags: SearchTag[] 
 }
 
 /**
- * Add a search tag to filters with trim and duplicate checking
+ * Add a search tag to filters with trim, duplicate checking and a hard cap.
+ *
+ * The cap is `MAX_SEARCH_TAGS`, which is the search endpoint's per-query keyword
+ * budget: past it, the next Recent Jobs request is a 400 and the page has no
+ * affordance but a Retry that reissues the same rejected request. Refusing the
+ * add is the honest end of that trade — the reader sees the chip fail to appear,
+ * rather than seeing it appear and silently not apply.
  */
 export function addSearchTagToFilters(filters: FiltersWithSearchTags, tag: SearchTag): void {
   const trimmedText = tag.text.trim();
@@ -54,7 +61,7 @@ export function addSearchTagToFilters(filters: FiltersWithSearchTags, tag: Searc
     filters.searchTags = [newTag];
   } else {
     const exists = filters.searchTags.some((t) => t.text === newTag.text);
-    if (!exists) {
+    if (!exists && filters.searchTags.length < MAX_SEARCH_TAGS) {
       filters.searchTags.push(newTag);
     }
   }

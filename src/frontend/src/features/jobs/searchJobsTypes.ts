@@ -12,10 +12,13 @@ import type { Job } from '../../types';
 /**
  * Header metrics, returned with page 1 only.
  *
- * `total` counts the ACTIVE filter set. The two recency figures deliberately do
- * NOT — they count the whole visible OPEN corpus, which is what the Recent page's
- * "Past 24 Hours" / "Past 3 Hours" tiles have always shown. Preserved rather than
- * "fixed" so the migration does not silently change what those numbers mean.
+ * `total` counts the ACTIVE filter set. The two recency figures are scoped to the
+ * companies the reader follows (the `companies` argument) and to NOTHING else —
+ * not category, level, keywords, locations or the time window. That is what the
+ * Recent page's "Past 24 Hours" / "Past 3 Hours" tiles have always shown: before
+ * this endpoint they came off `selectAllJobsFromQuery`, i.e. the enabled-companies
+ * prefilter, applied ahead of every other filter. Preserved rather than
+ * "simplified" so the migration does not silently change what those numbers mean.
  */
 export interface SearchJobsCounts {
   total: number;

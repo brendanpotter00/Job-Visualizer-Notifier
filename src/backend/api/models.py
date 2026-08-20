@@ -621,7 +621,14 @@ KeywordMode = Literal["include", "exclude"]
 # saved_filters_service.MAX_KEYWORD_LISTS_PER_USER, where the existing row count
 # is visible — Pydantic can't enforce it at the request boundary.
 _MAX_LOCATIONS = 100
-_MAX_TAGS_PER_LIST = 100
+# Tied to ``routers.jobs_search._MAX_KEYWORDS``, which is the per-query budget for
+# include+exclude terms COMBINED. A saved list auto-hydrates into the Recent page's
+# filter chips on page load and those chips become the query's keyword parameters,
+# so a list the user may STORE but not QUERY is a hard 400 on Recent Jobs the next
+# time they open it. Lowered from 100 to match; the widest list in prod is 11 tags
+# (2026-08-19), so no stored list is affected, and ``KeywordListResponse`` carries
+# no length bound, so any legacy oversized row still reads back fine.
+_MAX_TAGS_PER_LIST = 20
 _MAX_TAG_TEXT_LEN = 100
 _MAX_LIST_NAME_LEN = 100
 _MAX_LOCATION_LEN = 200  # matches LocationSpec.canonical_name
@@ -1025,9 +1032,11 @@ class JobFacetsResponse(BaseModel):
 class JobSearchMeta(BaseModel):
     """Header metrics for GET /api/jobs/search, returned with page 1 only.
 
-    ``filtered_total`` counts the ACTIVE filter set; the two recency tiles count
-    the whole visible OPEN corpus regardless of filters, which is what the Recent
-    page's "Past 24 Hours" / "Past 3 Hours" cards have always shown.
+    ``filtered_total`` counts the ACTIVE filter set. The two recency tiles are
+    scoped to ``company`` and to nothing else — not category, level, keywords,
+    locations, ``since`` or ``status`` — which is what the Recent page's "Past 24
+    Hours" / "Past 3 Hours" cards have always shown: client-side they were derived
+    from the enabled-companies prefilter before any other filter ran.
     """
 
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)

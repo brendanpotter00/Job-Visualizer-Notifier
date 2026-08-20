@@ -39,7 +39,7 @@ import pytest
 from api.pagination import encode_job_cursor
 from scripts.shared.constants import SourceId
 
-from api.routers.jobs_search import _MAX_KEYWORDS
+from api.routers.jobs_search import _MAX_COMPANIES, _MAX_KEYWORDS
 
 from .conftest import _insert_job, _make_job
 from .test_response_shapes import EXPECTED_JOB_KEYS
@@ -425,13 +425,29 @@ def test_more_than_twenty_level_values_is_a_structural_400(client, db_conn):
     assert "at most 20" in _detail(resp)
 
 
-def test_more_than_one_hundred_fifty_company_ids_is_a_structural_400(client, db_conn):
-    ids = [f"company-{n}" for n in range(151)]
+def test_more_company_ids_than_the_cap_is_a_structural_400(client, db_conn):
+    ids = [f"company-{n}" for n in range(_MAX_COMPANIES + 1)]
 
     resp = client.get(SEARCH, params=[("company", value) for value in ids])
 
     assert resp.status_code == 400, resp.text
-    assert "at most 150" in _detail(resp)
+    assert f"at most {_MAX_COMPANIES}" in _detail(resp)
+
+
+def test_the_company_cap_clears_the_whole_roster_with_room_to_spare(client, db_conn):
+    """The cap must never be reachable by an ordinary "all companies" reader.
+
+    ``auto_enroll_new_companies`` defaults to true, so a default signed-in user
+    sends ONE ``company`` param per company on the roster in a single request —
+    133 enabled of 135 rows in prod on 2026-08-19. A cap sized near the roster is
+    a cliff: the release that adds the company past it turns Recent Jobs into a
+    hard 400 for every such reader at once, with no client-side clamp to soften
+    it. Pinned as a ratio rather than a constant so growing the roster, not just
+    editing the cap, is what has to argue with this test.
+    """
+    assert _MAX_COMPANIES >= 3 * 135, (
+        "the company cap has lost its headroom over the company roster"
+    )
 
 
 def test_more_than_one_hundred_include_terms_is_a_structural_400(client, db_conn):
@@ -457,6 +473,24 @@ def test_the_keyword_cap_counts_include_and_exclude_together(client, db_conn):
 
     assert resp.status_code == 400, resp.text
     assert f"at most {_MAX_KEYWORDS}" in _detail(resp)
+
+
+def test_the_keyword_cap_matches_what_a_saved_keyword_list_can_store():
+    """Storage and query budgets for keywords must be ONE number.
+
+    A saved keyword list auto-hydrates into the Recent page's filter chips on page
+    load, and those chips become this endpoint's ``include``/``exclude`` params. So
+    a list the user is allowed to STORE but not to QUERY is not a validation
+    nicety — it is Recent Jobs returning 400 every time that user opens it, with
+    no client-side clamp anywhere in the chain to soften it and nothing on screen
+    but a Retry that reissues the same rejected request.
+    """
+    from api.models import _MAX_TAGS_PER_LIST
+
+    assert _MAX_KEYWORDS == _MAX_TAGS_PER_LIST, (
+        "a keyword list that can be saved must also be queryable; raise both or "
+        "neither"
+    )
 
 
 def test_values_at_the_cap_boundary_are_accepted(client, db_conn):

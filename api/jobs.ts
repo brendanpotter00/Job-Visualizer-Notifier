@@ -112,6 +112,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (nextCursor) res.setHeader('X-Next-Cursor', nextCursor);
     await forwardResponse(response, res);
   } catch (error) {
+    // Logged, never returned: Node's fetch errors carry the internal backend
+    // hostname and port, which a public 500 must not expose. Same split as every
+    // other proxy in this directory (api/locations.ts, api/admin.ts, …) — this
+    // was the one that swallowed the reason entirely, leaving an opaque 500 with
+    // nothing on either side of the wire to debug from.
+    console.error('[api/jobs] Upstream fetch failed:', error);
     res.status(500).json({ error: 'Failed to fetch from backend' });
   }
 }

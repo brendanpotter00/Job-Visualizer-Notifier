@@ -571,7 +571,7 @@ class _CapturingCursor:
     def execute(self, query, params=None):
         text = query.as_string(self._conn)
         # Session-tuning statements are not the query under test. `search_jobs`
-        # and `count_search_jobs` each issue a `SET LOCAL jit = off` first (JIT
+        # and `get_search_counts` each issue a `SET LOCAL jit = off` first (JIT
         # compilation costs more than the whole query for a multi-term keyword
         # OR-chain), and capturing it would shift every index-based assertion
         # below by one.

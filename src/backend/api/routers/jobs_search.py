@@ -42,8 +42,7 @@ from ..pagination import (
 )
 from ..services.job_search import (
     SearchFilters,
-    count_search_jobs,
-    get_header_counts,
+    get_search_counts,
     resolve_location_selections,
     search_jobs,
 )
@@ -53,11 +52,23 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # Caps. Each mirrors an existing bound elsewhere in the codebase rather than
-# inventing a new number: companies matches ``jobs.py``'s
-# ``_MAX_COMPANIES_PER_REQUEST``; locations and keywords match the saved-filters
-# models' ``_MAX_LOCATIONS`` / ``_MAX_TAGS_PER_LIST`` / ``_MAX_TAG_TEXT_LEN``, which
-# is where these same values are persisted.
-_MAX_COMPANIES = 150
+# inventing a new number: locations and keywords match the saved-filters models'
+# ``_MAX_LOCATIONS`` / ``_MAX_TAGS_PER_LIST`` / ``_MAX_TAG_TEXT_LEN``, which is
+# where these same values are persisted.
+#
+# ``company`` is the exception, and it must NOT mirror ``jobs.py``'s
+# ``_MAX_COMPANIES_PER_REQUEST`` (150) the way it originally did. That endpoint is
+# walked in chunks of 50 ids per request, so its cap was unreachable in practice;
+# here the client sends the reader's WHOLE enabled set in one request, and
+# ``auto_enroll_new_companies`` defaults to true — so the default signed-in user
+# sends one id per company on the roster (133 enabled of 135 rows in prod on
+# 2026-08-19). A cap anywhere near the roster is a cliff: the release that pushes
+# the roster past it turns Recent Jobs into a hard 400 for every "all companies"
+# reader at once. This is a denial-of-service bound, not a product bound, so it
+# sits far above the roster and the correct response to the roster approaching it
+# is to raise it — never to truncate the list, which would silently hide
+# companies the reader follows.
+_MAX_COMPANIES = 500
 _MAX_FACET_VALUES = 20
 _MAX_LOCATIONS = 100
 _MAX_LOCATION_LENGTH = 200
@@ -69,9 +80,16 @@ _MAX_LOCATION_LENGTH = 200
 # This database already has a pool-exhaustion incident
 # (docs/incidents/2026-05-17-recent-jobs-pool-exhaustion.md).
 #
-# 20 is comfortably above any real use (the built-in "Software Engineering" list
-# is 6 terms, and the per-list cap users can build is 100 for STORAGE, not for a
-# single query) while keeping the worst case in the hundreds of milliseconds.
+# 20 is comfortably above any real use — the built-in "Software Engineering" list
+# is 6 terms and the widest list in prod is 11 (2026-08-19) — while keeping the
+# worst case in the hundreds of milliseconds.
+#
+# It is also the SAME number as ``models._MAX_TAGS_PER_LIST``, and that identity
+# is load-bearing rather than tidy. A saved keyword list auto-hydrates into the
+# Recent page's filter chips on page load, which become these very parameters, so
+# a list the user is allowed to STORE but not to QUERY breaks Recent Jobs on
+# arrival for that user, with no client-side clamp anywhere to save them. Raise
+# both together or neither.
 _MAX_KEYWORDS = 20
 _MAX_KEYWORD_LENGTH = 100
 
@@ -270,9 +288,11 @@ def search(
 
     ``meta`` is computed on page 1 only (no ``cursor``) and is ``null`` afterwards:
     the counts describe the whole filter set, so recomputing them per page is pure
-    waste. ``filteredTotal`` counts the active filters; ``countLast24h`` /
-    ``countLast3h`` deliberately ignore them and count the whole visible OPEN
-    corpus, which is what the Recent page's recency tiles have always shown.
+    waste. ``filteredTotal`` counts the active filters. ``countLast24h`` /
+    ``countLast3h`` honour ``company`` and NOTHING else — they answer "how busy is
+    the market I follow", which is what the Recent page's recency tiles have always
+    shown (client-side they came off the enabled-companies prefilter, before any
+    other filter was applied).
 
     CURSORS ARE FILTER-BOUND
     ------------------------
@@ -380,11 +400,16 @@ def search(
 
     meta: JobSearchMeta | None = None
     if parsed_cursor is None:
-        count_last_24h, count_last_3h = get_header_counts(conn)
+        # One statement for all three numbers. Page 1 already spends this
+        # request's single pooled connection on the row query (and on a location
+        # resolve when a location filter is active); splitting the counts back
+        # into two statements adds a round trip to the checkout that prod's
+        # DB_POOL_MAX=15 / 5s timeout has already been seen to run out of.
+        counts = get_search_counts(conn, **filters)
         meta = JobSearchMeta(
-            filtered_total=count_search_jobs(conn, **filters),
-            count_last_24h=count_last_24h,
-            count_last_3h=count_last_3h,
+            filtered_total=counts["filtered_total"],
+            count_last_24h=counts["count_last_24h"],
+            count_last_3h=counts["count_last_3h"],
         )
 
     return JobSearchResponse(

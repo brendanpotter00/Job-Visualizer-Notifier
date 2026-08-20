@@ -76,13 +76,16 @@ export function VirtualJobRows({ jobs, totalCount }: VirtualJobRowsProps) {
     [measureScrollMargin]
   );
 
-  // The header above the list changes height on its own — most visibly when
-  // FetchProgressBarSkeleton swaps for the real FetchProgressBar, and whenever
-  // the filter chips rewrap. Neither is a window resize, so watching `resize`
-  // alone leaves the margin stale and the range shifted. Observing the body
-  // catches every such reflow; the identity guard above means the common case
-  // (the list's own height changing as rows measure) costs one rect read and
-  // no re-render.
+  // The header above the list changes height on its own — the filter chips
+  // rewrap onto another line as the reader adds or removes companies, locations
+  // and keywords, and a filter input grows a helperText row when its options
+  // query fails. (It used to change for a third reason, FetchProgressBarSkeleton
+  // swapping for the real FetchProgressBar; both components were deleted with the
+  // client-side walk, so only the header's own reflow is left.) None of that is a
+  // window resize, so watching `resize` alone leaves the margin stale and the
+  // range shifted. Observing the body catches every such reflow; the identity
+  // guard above means the common case (the list's own height changing as rows
+  // measure) costs one rect read and no re-render.
   useEffect(() => {
     window.addEventListener('resize', measureScrollMargin);
     const observer =

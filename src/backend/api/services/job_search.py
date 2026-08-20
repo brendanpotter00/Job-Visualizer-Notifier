@@ -52,12 +52,20 @@ from .database import (
 logger = logging.getLogger(__name__)
 
 
-class SearchFilters(TypedDict, total=False):
+class SearchFilters(TypedDict):
     """The filter set shared by the page query and the count query.
 
     A TypedDict rather than a long keyword list repeated three times: the router
     builds it once and unpacks it into both, so a filter added here is a type
     error at every site that forgot it instead of a silently unfiltered count.
+
+    TOTALITY IS THE ENFORCEMENT, and it is why this is not ``total=False``. Under
+    ``total=False`` a literal may omit any key and still type-check at both
+    ``**filters`` sites — including ``status``, which
+    :func:`build_search_where` takes as a REQUIRED keyword with no default, so the
+    omission is a runtime ``TypeError`` that mypy is happy with. That made the
+    guarantee in the paragraph above false. "No filter on this dimension" is
+    spelled ``None``, never an absent key.
     """
 
     status: str
@@ -525,7 +533,7 @@ def search_jobs(
     ``cursor`` is an explicit parameter and deliberately NOT part of
     :class:`SearchFilters`: a page position belongs to the reader, not to the
     query, and keeping it out of the shared filter set is what makes it
-    impossible to hand one to :func:`count_search_jobs` — which would silently
+    impossible to hand one to :func:`get_search_counts` — which would silently
     return "rows after here" instead of a total.
     """
     where, params = build_search_where(cursor=cursor, **filters)
@@ -554,53 +562,92 @@ def search_jobs(
 _DISABLE_JIT = sql.SQL("SET LOCAL jit = off")
 
 
-def count_search_jobs(conn: Connection, **filters: Unpack[SearchFilters]) -> int:
-    """How many rows the filter set matches in total.
+def _header_counts_where(companies: list[str] | None) -> tuple[sql.Composable, list]:
+    """WHERE for the two recency tiles: the visible OPEN corpus the reader FOLLOWS.
 
-    Deliberately drops the ``job_freshness`` join the page query carries: the join
-    is lossless by construction (AFTER INSERT trigger + composite FK), so it cannot
-    change the count, and omitting it saves a join over the whole matching set.
-    The caller must not pass ``cursor`` — a total is a property of the filters, not
-    of where the reader happens to be.
+    COMPANY-SCOPED, AND ONLY COMPANY-SCOPED. The tiles ignore category, level,
+    keywords, locations, ``since`` and ``status`` — a "Past 24 Hours" number that
+    shrank as the user typed in the keyword box would answer a different question
+    while looking identical — but they have never counted companies the reader does
+    not follow. On the client-side page this endpoint replaces, both figures came
+    from ``selectRecentJobsTimeBasedCounts`` → ``selectAllJobsFromQuery`` →
+    ``selectEnabledByCompanyId``, i.e. the enabled-companies prefilter and nothing
+    else. Dropping that scope here would multiply the tiles by ~40x for a reader
+    following 3 of 133 companies.
+
+    The ``first_seen_at >= now() - interval '24 hours'`` bound is what keeps this
+    cheap: it restricts the scan to a few hundred index entries of
+    ``idx_job_listings_open_first_seen_keyset`` instead of counting all ~31k OPEN
+    rows. The FILTERs at the call site then split that window into the two tiles.
     """
-    where, params = build_search_where(**filters)
+    conditions: list[sql.Composable] = [
+        sql.SQL("job_listings.status = 'OPEN'"),
+        sql.SQL("job_listings.first_seen_at >= now() - interval '24 hours'"),
+        _HIDDEN_COMPANY_PREDICATE,
+    ]
+    params: list = []
+    if companies:
+        conditions.append(sql.SQL("job_listings.company = ANY(%s::text[])"))
+        params.append(list(companies))
+    return sql.SQL(" WHERE ") + sql.SQL(" AND ").join(conditions), params
+
+
+# All three header numbers in ONE round trip.
+#
+# They used to be two statements on the same pooled connection, and page 1 of a
+# search already holds that connection for the row query (plus a location resolve
+# when a location filter is active). Prod runs ``DB_POOL_MAX=15`` with a 5s
+# checkout timeout and has logged bursts of "Timed out waiting for a database
+# connection", so the number of statements per checkout is a budget, not an
+# implementation detail. The two counts have DIFFERENT predicates — the total
+# honours the whole filter set, the tiles only the company scope — so they are
+# composed as an uncorrelated scalar subquery beside the windowed aggregate
+# rather than merged into one scan.
+#
+# The total deliberately drops the ``job_freshness`` join the page query carries:
+# the join is lossless by construction (AFTER INSERT trigger + composite FK), so
+# it cannot change the count, and omitting it saves a join over the whole matching
+# set.
+_SEARCH_COUNTS_SQL = sql.SQL(
+    "SELECT"
+    " (SELECT count(*) FROM {jobs}{filtered_where}) AS filtered_total,"
+    " count(*) FILTER"
+    "   (WHERE job_listings.first_seen_at >= now() - interval '24 hours')"
+    "   AS count_last_24h,"
+    " count(*) FILTER"
+    "   (WHERE job_listings.first_seen_at >= now() - interval '3 hours')"
+    "   AS count_last_3h"
+    " FROM {jobs}{header_where}"
+)
+
+
+def get_search_counts(conn: Connection, **filters: Unpack[SearchFilters]) -> SearchCounts:
+    """The whole ``meta`` block for page 1, in a single statement.
+
+    ``filtered_total`` counts the active filter set exactly — it is the number the
+    walk will yield if the reader pages to the end. The two recency figures answer
+    "how busy is the market I follow" and are scoped to ``companies`` only; see
+    :func:`_header_counts_where`.
+
+    The caller must not pass ``cursor``: a total is a property of the filters, not
+    of where the reader happens to be, and there is no way to hand one in — the
+    keyset position is not part of :class:`SearchFilters`.
+    """
+    filtered_where, filtered_params = build_search_where(**filters)
+    header_where, header_params = _header_counts_where(filters.get("companies"))
+    query = _SEARCH_COUNTS_SQL.format(
+        jobs=_JOBS_TABLE, filtered_where=filtered_where, header_where=header_where
+    )
     with conn.cursor() as cursor:
         cursor.execute(_DISABLE_JIT)
-        cursor.execute(
-            sql.SQL("SELECT count(*) AS total FROM {}{}").format(_JOBS_TABLE, where),
-            params,
-        )
-        row = cursor.fetchone()
-        return int(row["total"]) if row else 0
-
-
-# Header metrics over the UNFILTERED (but OPEN + not-deactivated) corpus — the
-# "Past 24 Hours" / "Past 3 Hours" tiles, which have always counted the whole feed
-# rather than the active filter set. Preserved as-is so the migration does not
-# silently change what those numbers mean.
-#
-# The outer ``first_seen_at >= now() - interval '24 hours'`` bound is what keeps
-# this cheap: it restricts the scan to a few hundred index entries of
-# ``idx_job_listings_open_first_seen_keyset`` instead of counting all ~31k OPEN
-# rows. The inner FILTERs then split that window into the two tiles.
-_HEADER_COUNTS_SQL = sql.SQL(
-    "SELECT"
-    " count(*) FILTER (WHERE first_seen_at >= now() - interval '24 hours')"
-    "   AS count_last_24h,"
-    " count(*) FILTER (WHERE first_seen_at >= now() - interval '3 hours')"
-    "   AS count_last_3h"
-    " FROM {}"
-    " WHERE status = 'OPEN'"
-    "   AND first_seen_at >= now() - interval '24 hours'"
-    "   AND {}"
-).format(_JOBS_TABLE, _HIDDEN_COMPANY_PREDICATE)
-
-
-def get_header_counts(conn: Connection) -> tuple[int, int]:
-    """``(count_last_24h, count_last_3h)`` over the whole visible OPEN corpus."""
-    with conn.cursor() as cursor:
-        cursor.execute(_HEADER_COUNTS_SQL)
+        # Subquery first: it appears first in the statement text, so its
+        # placeholders bind ahead of the outer WHERE's.
+        cursor.execute(query, [*filtered_params, *header_params])
         row = cursor.fetchone()
         if not row:
-            return 0, 0
-        return int(row["count_last_24h"] or 0), int(row["count_last_3h"] or 0)
+            return SearchCounts(filtered_total=0, count_last_24h=0, count_last_3h=0)
+        return SearchCounts(
+            filtered_total=int(row["filtered_total"] or 0),
+            count_last_24h=int(row["count_last_24h"] or 0),
+            count_last_3h=int(row["count_last_3h"] or 0),
+        )

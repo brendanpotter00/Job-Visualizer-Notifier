@@ -550,4 +550,49 @@ describe('useRecentJobsSearch — when a prerequisite fails', () => {
     expect(result.current.errorScope).toBe('initial');
     expect(result.current.error).toBeTruthy();
   });
+
+  it('drops the previous filter set\'s counts when the new first page fails', async () => {
+    // The other half of the same bug. The page hides the rows on an initial
+    // error but goes on rendering `counts` — which still describes the OLD
+    // filters, because `data` retains their pages. The header tiles are the part
+    // of the screen a reader cannot sanity-check by eye, so "247 matches" over
+    // an error message is a worse lie than the stale rows ever were.
+    const store = makeStore();
+    const fetch = install((params) =>
+      params.getAll('category').length > 0
+        ? { status: 500, body: { detail: 'boom' } }
+        : { body: page(['a', 'b'], null, true) }
+    );
+
+    const { result } = renderSearch(store);
+    await flush();
+    expect(result.current.counts).toEqual({ total: 137, last24h: 42, last3h: 7 });
+
+    act(() => {
+      store.dispatch(setRecentJobsCategory(['software_engineering']));
+    });
+    await flush(400);
+    await flush();
+
+    expect(fetch.mock.calls.length).toBeGreaterThan(1);
+    expect(result.current.errorScope).toBe('initial');
+    expect(result.current.counts).toBeNull();
+  });
+
+  it('surfaces the endpoint\'s reason so the reader can see which filter to relax', async () => {
+    // Every cap on this endpoint is client-fixable, and the page's only
+    // affordance is a Retry that reissues the identical rejected request. A
+    // generic "Failed to load jobs" leaves the reader pressing it forever.
+    install(() => ({
+      status: 400,
+      body: { detail: "'include' accepts at most 20 values." },
+    }));
+
+    const store = makeStore();
+    const { result } = renderSearch(store);
+    await flush();
+
+    expect(result.current.errorScope).toBe('initial');
+    expect(result.current.error).toBe("'include' accepts at most 20 values.");
+  });
 });

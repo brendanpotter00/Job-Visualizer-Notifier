@@ -15,8 +15,13 @@ still looks like a number:
 * ``countLast24h`` / ``countLast3h`` quietly picking up the active filters would
   make the "Past 24 Hours" tile mean something new — a smaller, plausible number
   that changes as the user types in the keyword box. Those tiles have always
-  counted the whole visible OPEN feed, and this endpoint inherited that meaning
-  rather than redefining it.
+  counted the visible OPEN feed FOR THE COMPANIES THE READER FOLLOWS, and this
+  endpoint inherited that meaning rather than redefining it.
+* ...and equally, the tiles quietly DROPPING the company scope would make them
+  mean something new in the other direction: on the client-side page they replace,
+  both came off ``selectAllJobsFromQuery``, which is the enabled-companies
+  prefilter and nothing else. A reader following 3 of 133 companies would watch
+  those two numbers jump by ~40x for no reason they could see.
 
 So the assertions here never spot-check a count against a hand-tallied constant
 alone. The two central invariants are:
@@ -24,9 +29,10 @@ alone. The two central invariants are:
     filteredTotal == the number of rows a complete walk under the same filters
                      returns, exactly
 
-    (countLast24h, countLast3h) are INVARIANT under every filter the caller can
-                     send, and vary only with the corpus's own visibility rules
-                     (OPEN, company not deactivated) and the clock
+    (countLast24h, countLast3h) honour ``company`` and NOTHING else — invariant
+                     under category, level, keywords, locations, ``since`` and
+                     ``status`` — varying otherwise only with the corpus's own
+                     visibility rules (OPEN, company not deactivated) and the clock
 
 Each dimension case seeds a decoy that the filter must exclude, so a predicate
 that silently stopped applying to the count query fails here instead of shipping.
@@ -412,7 +418,6 @@ def _seed_recency_corpus(conn) -> None:
 
 @pytest.mark.parametrize("params,expected_total", [
     pytest.param({"category": "growth"}, 0, id="a-filter-matching-nothing"),
-    pytest.param({"company": "apple"}, 2, id="a-company-narrowing-to-two-rows"),
     pytest.param({"include": "product"}, 1, id="a-keyword-narrowing-to-one-row"),
     pytest.param({"level": "senior"}, 0, id="a-level-nothing-is-labelled-with"),
     pytest.param(
@@ -423,11 +428,11 @@ def _seed_recency_corpus(conn) -> None:
 def test_recency_counts_ignore_the_active_filters(
     client, db_conn, seed_taxonomy, params, expected_total
 ):
-    """The two tiles count the whole visible OPEN corpus, whatever the user filtered.
+    """The two tiles ignore every filter EXCEPT ``company`` (covered separately below).
 
     This is a product decision inherited from the client-side page, not an
-    accident: "Past 24 Hours" answers "how busy is the job market", and a number
-    that shrank every time the user typed in the keyword box would answer a
+    accident: "Past 24 Hours" answers "how busy is the job market I follow", and a
+    number that shrank every time the user typed in the keyword box would answer a
     different question while looking identical. So ``filteredTotal`` moves across
     these cases and the tiles must not move at all.
     """
@@ -447,6 +452,43 @@ def test_recency_counts_ignore_the_active_filters(
     )
     assert meta["countLast24h"] == unfiltered["countLast24h"]
     assert meta["countLast3h"] == unfiltered["countLast3h"]
+
+
+@pytest.mark.parametrize("company,expected", [
+    pytest.param("apple", (2, 1, 0), id="apple-one-row-inside-24h-none-inside-3h"),
+    pytest.param("google", (4, 4, 3), id="google-four-inside-24h-three-inside-3h"),
+])
+def test_the_recency_tiles_are_scoped_to_the_companies_the_reader_follows(
+    client, db_conn, seed_taxonomy, company, expected
+):
+    """``company`` is the ONE filter the tiles honour, and it is not an exception
+    the endpoint invented.
+
+    The page this replaced computed both figures from
+    ``selectRecentJobsTimeBasedCounts`` → ``selectAllJobsFromQuery`` →
+    ``selectEnabledByCompanyId``: the enabled-companies prefilter, applied before
+    any other filter existed. The client sends that same enabled set as
+    ``?company=`` here, so dropping the scope would silently re-scope the tiles
+    from "the boards I follow" to "every board on the site" — ~40x for a reader
+    following 3 of 133 companies, with nothing on screen to explain the jump.
+
+    Both cases are asserted because a single company would not distinguish
+    "scoped" from "happens to equal the corpus".
+    """
+    _seed_recency_corpus(db_conn)
+
+    unfiltered = client.get(SEARCH_URL, params={"limit": 500}).json()["meta"]
+    assert (unfiltered["countLast24h"], unfiltered["countLast3h"]) == (5, 3)
+
+    meta = client.get(
+        SEARCH_URL, params={"company": company, "limit": 500}
+    ).json()["meta"]
+
+    assert (
+        meta["filteredTotal"],
+        meta["countLast24h"],
+        meta["countLast3h"],
+    ) == expected
 
 
 # ---------------------------------------------------------------------------

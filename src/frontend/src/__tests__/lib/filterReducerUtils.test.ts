@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { SearchTag } from '../../types';
+import { MAX_SEARCH_TAGS } from '../../constants/tags';
 import {
   setSearchTags,
   addSearchTagToFilters,
@@ -61,6 +62,25 @@ describe('filterReducerUtils - Search Tags', () => {
       addSearchTagToFilters(filters, tag);
 
       expect(filters.searchTags).toEqual([{ text: 'javascript', mode: 'include' }]);
+    });
+
+    it('refuses to grow the chip set past the search endpoint\'s keyword budget', () => {
+      // MAX_SEARCH_TAGS is the endpoint's COMBINED include+exclude budget and the
+      // saved-list storage cap, deliberately the same number. Letting the reader
+      // build one more chip than that means their next Recent Jobs request is a
+      // 400 — and if the chips are saved as a list, every future page load is too,
+      // with the page offering nothing but a Retry that reissues the same request.
+      const filters = {
+        searchTags: Array.from({ length: MAX_SEARCH_TAGS }, (_, n) => ({
+          text: `tag-${n}`,
+          mode: 'include' as const,
+        })),
+      };
+
+      addSearchTagToFilters(filters, { text: 'one-too-many', mode: 'include' });
+
+      expect(filters.searchTags).toHaveLength(MAX_SEARCH_TAGS);
+      expect(filters.searchTags.map((t) => t.text)).not.toContain('one-too-many');
     });
 
     it('should not add empty tag after trimming', () => {

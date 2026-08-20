@@ -77,7 +77,22 @@ export function useEnabledCompanies() {
       // detect the stale id and skip overwriting saved ids.
       activePromise.current?.abort();
       activePromise.current = null;
-      const token = await getToken();
+      let token: string;
+      try {
+        token = await getToken();
+      } catch (err) {
+        // The abort above rejected the in-flight load, and the slice deliberately
+        // writes NO error on an abort (a cancelled fetch must not clobber the real
+        // reason a load ended). If token acquisition then fails, no save action
+        // ever lands either — so `ids` stays null AND `error` stays null, which
+        // reads as "still loading" forever: `selectEnabledCompaniesSettled` is
+        // false, so the Recent page sits on skeletons with no error and no retry.
+        // Reporting the failure here is what supplies the missing successor.
+        dispatch(
+          enabledCompaniesLoadFailed(extractErrorMessage(err, 'Failed to acquire auth token'))
+        );
+        throw err;
+      }
       await dispatch(
         saveEnabledCompanies({
           token,

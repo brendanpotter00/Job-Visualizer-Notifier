@@ -19,6 +19,30 @@ interface JobsQueryResult {
   };
 }
 
+/** Shown when the response carried no usable reason of its own. */
+const SEARCH_JOBS_FALLBACK_ERROR = 'Failed to load jobs';
+
+/**
+ * The reason a `/api/jobs/search` response failed, as text fit to show a reader.
+ *
+ * FastAPI puts it in `detail`, and it survives the Vercel proxy intact
+ * (`forwardResponse` copies status + body). A 422 from Pydantic's own validation
+ * puts a LIST there instead — useful to a developer, not to a reader — so only a
+ * non-empty string is taken and everything else falls back. The body is read at
+ * most once and never rethrows: a proxy 502 with an HTML body must still produce
+ * an error the page can render.
+ */
+async function readErrorDetail(response: Response): Promise<string> {
+  try {
+    const body: unknown = await response.json();
+    const detail = (body as { detail?: unknown } | null)?.detail;
+    if (typeof detail === 'string' && detail.length > 0) return detail;
+  } catch {
+    // Empty or non-JSON body — nothing more specific to say than the fallback.
+  }
+  return SEARCH_JOBS_FALLBACK_ERROR;
+}
+
 export const jobsApi = createApi({
   reducerPath: 'jobsApi',
   baseQuery: fakeBaseQuery(),
@@ -108,7 +132,17 @@ export const jobsApi = createApi({
             // Status is preserved verbatim so the caller can tell a 404 (the
             // backend deploy has not landed yet — recoverable, see
             // useRecentJobsSearch) from a real failure.
-            return { error: { status: response.status, data: 'Failed to load jobs' } };
+            //
+            // The body's `detail` is preserved too, and that is not cosmetic:
+            // the endpoint has several client-FIXABLE rejections (too many
+            // keywords / locations / companies, a malformed slug, an empty
+            // value, control characters, a stale cursor) and the page's only
+            // affordance is a Retry that reissues the identical request. Without
+            // the reason on screen the reader cannot know which chip to remove,
+            // so the generic text below is a fallback, never the default.
+            return {
+              error: { status: response.status, data: await readErrorDetail(response) },
+            };
           }
           const body = validateSearchJobsResponse(await response.json());
           return {

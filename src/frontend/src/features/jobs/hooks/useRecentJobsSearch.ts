@@ -280,7 +280,15 @@ export function useRecentJobsSearch(): RecentJobsSearch {
 
   return {
     jobs,
-    counts: data?.pages[0]?.counts ?? null,
+    // Nulled on an INITIAL error for exactly the reason the page swaps the list
+    // for an ErrorState: `data` deliberately retains the PREVIOUS filter set's
+    // pages, so `pages[0].counts` describes filters the reader is no longer
+    // looking at. Leaving the tiles populated under the new chips is the
+    // "plausible, fully-populated, wrong result set" the errorScope split above
+    // exists to prevent — half-fixed (rows hidden, tiles left behind) is the
+    // worst of the three states, because the numbers are the part nobody can
+    // check by eye.
+    counts: errorScope === 'initial' ? null : (data?.pages[0]?.counts ?? null),
     // `!preferencesReady` counts as loading, and that clause is load-bearing:
     // while it holds we are deliberately NOT fetching, so without it the list
     // would see zero jobs, no next page, nothing in flight and no error — and
