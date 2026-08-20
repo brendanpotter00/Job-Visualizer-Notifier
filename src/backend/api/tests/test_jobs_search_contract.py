@@ -779,3 +779,26 @@ def test_every_rejection_is_logged(client, db_conn, seed_taxonomy, caplog):
         assert any("jobs-search rejected" in r.getMessage() for r in caplog.records), (
             f"{params} returned {expected_status} but logged nothing"
         )
+
+
+def test_the_shared_keyword_budget_names_the_shared_budget(client, db_conn, seed_taxonomy):
+    """11 include + 10 exclude must not be told that 'include' allows at most 20.
+
+    The budget is shared across both lists, so neither is over the cap on its
+    own. The old message quoted a limit the caller's own list did not exceed and
+    never mentioned the other list — unactionable, and 400 detail is surfaced to
+    the reader verbatim.
+    """
+    over = client.get(
+        "/api/jobs/search",
+        params={"include": ["a"] * 11, "exclude": ["b"] * 10},
+    )
+    assert over.status_code == 400
+    detail = over.json()["detail"]
+    assert "share a budget" in detail, detail
+    assert "21" in detail, detail
+
+    # A single list genuinely over the cap keeps the simpler wording.
+    single = client.get("/api/jobs/search", params={"include": ["a"] * 21})
+    assert single.status_code == 400
+    assert "accepts at most" in single.json()["detail"]

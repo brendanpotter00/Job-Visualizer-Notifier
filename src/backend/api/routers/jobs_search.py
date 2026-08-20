@@ -244,11 +244,27 @@ def _validate_text_list(
     """
     if not values:
         return None
-    total = len(values) + len(combined_with or [])
+    partner_count = len(combined_with or [])
+    total = len(values) + partner_count
     if total > max_values:
+        # Name the SHARED budget when there is one. `include` and `exclude` are
+        # validated against each other, so 11 include + 10 exclude is a 400 even
+        # though neither list is over 20 on its own — and the old wording said
+        # "'include' accepts at most 20 values" to a caller whose include list
+        # held 11. That is unactionable: the number it quotes and the number the
+        # caller can see do not match, and nothing tells them the other list
+        # counts. Both 400 and 422 detail strings are surfaced verbatim to the
+        # reader, so this is user-facing copy, not just a log line.
+        if partner_count:
+            _reject(
+                400,
+                f"'include' and 'exclude' share a budget of {max_values} values "
+                f"(received {total}).",
+                field=field, received=len(values), partner=partner_count,
+                cap=max_values,
+            )
         _reject(400, f"'{field}' accepts at most {max_values} values.",
-                field=field, received=len(values), partner=len(combined_with or []),
-                cap=max_values)
+                field=field, received=len(values), cap=max_values)
     for value in values:
         if not value:
             _reject(422, f"'{field}' values must not be empty.", field=field)
