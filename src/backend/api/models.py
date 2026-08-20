@@ -1177,6 +1177,12 @@ class AdminEnrichmentNeedsHumanRow(BaseModel):
     enrichment_status: str | None = None
     category: str | None = None              # published facet (job_listings)
     level: str | None = None
+    # ORDERED (index 0 = primary), tri-state. Nullable, never
+    # `default_factory=list` — `null` (never evaluated) and `[]` (evaluated,
+    # nothing applies) are different facts and the triage UI renders them
+    # differently.
+    subcategories: list[str] | None = None
+    subcategory_confidence: float | None = None
     tags: list[str] = Field(default_factory=list)
     clean_description: str | None = None
     classify_confidence: float | None = None
@@ -1257,6 +1263,12 @@ class AdminEnrichmentRecentRow(BaseModel):
     enrichment_status: str | None = None
     category: str | None = None
     level: str | None = None
+    # ORDERED (index 0 = primary), tri-state. Nullable, never
+    # `default_factory=list` — `null` (never evaluated) and `[]` (evaluated,
+    # nothing applies) are different facts and the triage UI renders them
+    # differently.
+    subcategories: list[str] | None = None
+    subcategory_confidence: float | None = None
     tags: list[str] = Field(default_factory=list)
     classify_confidence: float | None = None
     classify_reasoning: str | None = None

@@ -222,8 +222,38 @@ _NEEDS_HUMAN_COLUMNS = (
     "je.clean_description, je.classify_confidence, je.classify_reasoning, "
     "je.taxonomy_version, je.judged, je.judge_passed, je.judge_confidence, "
     "je.judge_notes, je.enriched_at, je.human_corrected_at, je.human_corrected_by, "
-    "je.human_decision"
+    "je.human_decision, "
+    "jl.enrichment_subcategories AS subcategories, je.subcategory_confidence"
 )
+
+# Sort allowlist for the triage queue. A whitelist, not string interpolation of
+# whatever the client sent — these values are concatenated into the ORDER BY.
+#
+# `subcategory_confidence` is unconditional: SCHEMA-1 ships the column in the
+# same revision as everything else here, so there is no window where it is
+# missing.
+_NEEDS_HUMAN_SORTS = {
+    "enriched_at": "je.enriched_at",
+    "classify_confidence": "je.classify_confidence",
+    "judge_confidence": "je.judge_confidence",
+    "subcategory_confidence": "je.subcategory_confidence",
+}
+
+# `subcategory_state` lenses.
+#   any            - no predicate
+#   unlabelled_swe - SWE rows the classifier never evaluated. THIS IS THE LENS
+#                    THAT SURFACES HUMAN-LOCKED SWE ROWS, which the backfill's
+#                    per-field unlock can reach but which are invisible in every
+#                    other view.
+#   labelled       - a non-empty array
+_NEEDS_HUMAN_SUBCATEGORY_STATES = {
+    "any": None,
+    "unlabelled_swe": (
+        "jl.enrichment_category = 'software_engineering' "
+        "AND jl.enrichment_subcategories IS NULL"
+    ),
+    "labelled": "cardinality(jl.enrichment_subcategories) > 0",
+}
 
 
 def list_needs_human(
@@ -236,11 +266,34 @@ def list_needs_human(
     level: str | None = None,
     include_corrected: bool = False,
     only_open: bool = True,
+    sort: str = "enriched_at",
+    sort_dir: str = "desc",
+    subcategory: str | None = None,
+    subcategory_state: str = "any",
 ) -> tuple[list[dict[str, Any]], int]:
     """Paginated needs-human queue (rows, total). Filters compose with AND;
     ``category``/``level`` filter on the enricher's PROPOSED facet only when a
     row was published (demoted rows have NULL facets — they match no facet
-    filter, by design: the human decides)."""
+    filter, by design: the human decides).
+
+    SORTING — two details that are not cosmetic
+    -------------------------------------------
+    **``NULLS LAST`` IN BOTH DIRECTIONS.** Postgres defaults to ``NULLS FIRST``
+    on DESC, so a descending confidence sort would open with a wall of unscored
+    rows — defeating the only query an auditor actually runs ("show me the
+    labels we are least sure about"). Ascending gets the same treatment for
+    symmetry: an unscored row is not a low-confidence row.
+
+    **THE COMPOSITE-PK TAIL IS REQUIRED FOR CORRECTNESS, not tidiness.** Without
+    ``, je.source_id ASC, je.job_listing_id ASC`` the order over ties is
+    unspecified, and OFFSET paging across an unspecified order silently
+    duplicates some rows and HIDES others. Confidences tie constantly (0.5 is a
+    common value), so this is the normal case, not an edge one.
+
+    ``sort`` is resolved through the ``_NEEDS_HUMAN_SORTS`` allowlist — the value
+    lands in an ORDER BY, so an unknown key falls back to ``enriched_at`` rather
+    than being interpolated.
+    """
     conditions = ["je.needs_human"]
     params: list[Any] = []
     if not include_corrected:
@@ -256,7 +309,26 @@ def list_needs_human(
     if level:
         conditions.append("jl.enrichment_level = %s")
         params.append(level)
+    if subcategory:
+        # `= ANY(NULL)` is NULL, not false — so this predicate ALSO excludes
+        # every never-evaluated row, which is the intended reading of "show me
+        # the rows proposed as backend".
+        conditions.append("%s = ANY(jl.enrichment_subcategories)")
+        params.append(subcategory)
+    state_predicate = _NEEDS_HUMAN_SUBCATEGORY_STATES.get(subcategory_state)
+    if state_predicate:
+        conditions.append(f"({state_predicate})")
     where = " AND ".join(conditions)
+
+    sort_column = _NEEDS_HUMAN_SORTS.get(sort, _NEEDS_HUMAN_SORTS["enriched_at"])
+    direction = "ASC" if str(sort_dir).lower() == "asc" else "DESC"
+    order_by = f"{sort_column} {direction} NULLS LAST"
+    if sort_column != _NEEDS_HUMAN_SORTS["enriched_at"]:
+        # Secondary recency ordering so a page of ties is still meaningful.
+        order_by += ", je.enriched_at DESC"
+    # Total order. See the docstring — without this, OFFSET paging over ties
+    # duplicates rows and hides others.
+    order_by += ", je.source_id ASC, je.job_listing_id ASC"
 
     cur = conn.cursor()
     try:
@@ -271,7 +343,7 @@ def list_needs_human(
             f"SELECT {_NEEDS_HUMAN_COLUMNS} FROM job_enrichment je "
             "JOIN job_listings jl ON jl.source_id = je.source_id AND jl.id = je.job_listing_id "
             f"WHERE {where} "
-            "ORDER BY je.enriched_at DESC LIMIT %s OFFSET %s",
+            f"ORDER BY {order_by} LIMIT %s OFFSET %s",
             tuple(params) + (limit, offset),
         )
         rows = [dict(r) for r in cur.fetchall()]
@@ -339,8 +411,10 @@ def list_recent(conn: Connection, limit: int = 25) -> list[dict[str, Any]]:
             "COALESCE((SELECT json_agg(tag ORDER BY tag) FROM job_tags "
             "  WHERE job_tags.source_id = je.source_id "
             "  AND job_tags.job_listing_id = je.job_listing_id), '[]'::json) AS tags, "
+            "jl.enrichment_subcategories AS subcategories, "
             "je.classify_confidence, je.classify_reasoning, je.judged, je.judge_passed, "
             "je.judge_confidence, je.judge_notes, je.taxonomy_version, je.needs_human, "
+            "je.subcategory_confidence, "
             "je.human_corrected_at, je.human_decision, je.enriched_at "
             "FROM job_enrichment je "
             "JOIN job_listings jl ON jl.source_id = je.source_id AND jl.id = je.job_listing_id "
@@ -745,7 +819,19 @@ def list_corrections_since(
     ('corrected' | 'confirmed_correct') so the consumer can weight a fixed label
     differently from a flagged-but-validated one (the raised-yet-correct signal
     a future memory layer wants). Both decisions set human_corrected_at, so both
-    flow through this feed."""
+    flow through this feed.
+
+    ``taxonomy_version`` RIDES THIS FEED, AND IT IS NOT OPTIONAL. Without it the
+    consumer cannot tell a PRE-v7 ``confirmed_correct`` row — a human validating
+    a label set that had no subcategory field in it at all — from a genuine
+    subcategory confirmation. Every such row would otherwise become a false
+    ``subcategories: []`` gold label, and the eval gate would be scored against
+    facts nobody ever asserted.
+
+    ``ORDER BY je.human_corrected_at ASC`` MUST STAY: ``cli golden-merge --since``
+    walks this feed forward and relies on monotonic ordering to know where it
+    got to.
+    """
     conditions = ["je.human_corrected_at IS NOT NULL"]
     params: list[Any] = []
     if since is not None:
@@ -759,6 +845,8 @@ def list_corrections_since(
             "COALESCE((SELECT json_agg(tag ORDER BY tag) FROM job_tags "
             "  WHERE job_tags.source_id = je.source_id "
             "  AND job_tags.job_listing_id = je.job_listing_id), '[]'::json) AS tags, "
+            "jl.enrichment_subcategories AS subcategories, "
+            "je.taxonomy_version, "
             "je.human_corrected_at AS corrected_at, je.human_decision AS decision "
             "FROM job_enrichment je "
             "JOIN job_listings jl ON jl.source_id = je.source_id AND jl.id = je.job_listing_id "

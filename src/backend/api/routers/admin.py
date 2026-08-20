@@ -695,8 +695,21 @@ def admin_enrichment_needs_human(
     level: str | None = Query(default=None, pattern=r"^[a-z_]{1,20}$"),
     include_corrected: bool = Query(default=False, alias="includeCorrected"),
     only_open: bool = Query(default=True, alias="onlyOpen"),
+    sort: str = Query(default="enriched_at", pattern=r"^[a-z_]{1,40}$"),
+    sort_dir: str = Query(default="desc", pattern=r"^(asc|desc)$", alias="sortDir"),
+    subcategory: str | None = Query(default=None, pattern=r"^[a-z_]{1,40}$"),
+    subcategory_state: str = Query(
+        default="any",
+        pattern=r"^(any|unlabelled_swe|labelled)$",
+        alias="subcategoryState",
+    ),
 ) -> AdminEnrichmentNeedsHumanResponse:
-    """One page of the needs-human triage queue (ordered newest-first)."""
+    """One page of the needs-human triage queue.
+
+    Default order is newest-first. `sort` is resolved through the service's
+    allowlist (`enriched_at` | `classify_confidence` | `judge_confidence` |
+    `subcategory_confidence`), always NULLS LAST in both directions, with the
+    composite PK as a tiebreak so OFFSET paging over ties is stable."""
     try:
         rows, total = list_needs_human(
             conn,
@@ -707,6 +720,10 @@ def admin_enrichment_needs_human(
             level=level,
             include_corrected=include_corrected,
             only_open=only_open,
+            sort=sort,
+            sort_dir=sort_dir,
+            subcategory=subcategory,
+            subcategory_state=subcategory_state,
         )
     except psycopg2.Error:
         conn.rollback()

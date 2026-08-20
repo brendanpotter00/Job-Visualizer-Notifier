@@ -2303,6 +2303,80 @@ class TestCorrectionsFeed:
         assert c["category"] == "growth" and c["level"] == "mid"
 
 
+    def test_feed_carries_subcategories_and_taxonomy_version(
+        self, enrichment_client, db_conn
+    ):
+        """Both fields, and `taxonomy_version` is the load-bearing one.
+
+        Without it the consumer cannot tell a PRE-v7 `confirmed_correct` row —
+        a human validating a label set that had no subcategory field in it — from
+        a real subcategory confirmation, and every such row becomes a false
+        `subcategories: []` gold label.
+        """
+        from api.services.enrichment_monitor import apply_correction
+
+        _insert_job(db_conn, _make_job({
+            "id": "corr-sub", "source_id": "src-a",
+            "details": json.dumps({"description_html": "<p>x</p>"}),
+        }))
+        cur = db_conn.cursor()
+        cur.execute(
+            "INSERT INTO job_enrichment (source_id, job_listing_id, taxonomy_version) "
+            "VALUES ('src-a', 'corr-sub', 'v7+abc123def456')"
+        )
+        db_conn.commit()
+        apply_correction(
+            db_conn, source_id="src-a", job_listing_id="corr-sub",
+            category="software_engineering", level="mid", tags=[],
+            note=None, admin_email="admin@test",
+            subcategories=["backend", "full_stack"], subcategories_provided=True,
+        )
+        body = enrichment_client.get("/api/internal/enrichment/corrections").json()
+        c = body["corrections"][0]
+        assert c["subcategories"] == ["backend", "full_stack"]
+        assert c["taxonomy_version"] == "v7+abc123def456"
+
+    def test_feed_reports_an_unevaluated_row_as_null_not_empty(
+        self, enrichment_client, db_conn
+    ):
+        """Tri-state survives the feed: null != []."""
+        from api.services.enrichment_monitor import apply_correction
+
+        _insert_job(db_conn, _make_job({
+            "id": "corr-null", "source_id": "src-a",
+            "details": json.dumps({"description_html": "<p>x</p>"}),
+        }))
+        apply_correction(
+            db_conn, source_id="src-a", job_listing_id="corr-null",
+            category="software_engineering", level="mid", tags=[],
+            note=None, admin_email="admin@test",
+        )
+        body = enrichment_client.get("/api/internal/enrichment/corrections").json()
+        c = body["corrections"][0]
+        assert c["subcategories"] is None
+        assert c["taxonomy_version"] is None
+
+    def test_feed_stays_ordered_ascending_by_correction_time(
+        self, enrichment_client, db_conn
+    ):
+        """`cli golden-merge --since` walks this feed forward and relies on it."""
+        from api.services.enrichment_monitor import apply_correction
+
+        for job_id in ("ord-1", "ord-2", "ord-3"):
+            _insert_job(db_conn, _make_job({
+                "id": job_id, "source_id": "src-a",
+                "details": json.dumps({"description_html": "<p>x</p>"}),
+            }))
+            apply_correction(
+                db_conn, source_id="src-a", job_listing_id=job_id,
+                category="growth", level="mid", tags=[],
+                note=None, admin_email="admin@test",
+            )
+        body = enrichment_client.get("/api/internal/enrichment/corrections").json()
+        stamps = [c["corrected_at"] for c in body["corrections"]]
+        assert stamps == sorted(stamps)
+
+
 class TestHealthAdditions:
     """eligible_unenriched + needs_human_open on the internal /health."""
 

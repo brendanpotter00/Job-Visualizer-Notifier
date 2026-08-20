@@ -617,7 +617,13 @@ def corrections(
     ``label_source='human'`` — the loop that turns admin triage into real gold
     labels for the eval gate. Each row's ``decision`` ('corrected' |
     'confirmed_correct') lets the consumer tell a human fix from a
-    flagged-but-validated label (the raised-yet-correct signal)."""
+    flagged-but-validated label (the raised-yet-correct signal).
+
+    ``subcategories`` and ``taxonomy_version`` both ride the feed. The second is
+    what lets the consumer tell a PRE-v7 ``confirmed_correct`` row — a human
+    validating a label set that had no subcategory field in it — from a real
+    subcategory confirmation. Without it every such row becomes a false
+    ``subcategories: []`` gold label."""
     rows = list_corrections_since(conn, since=since, limit=limit)
     return {
         "corrections": [
@@ -629,6 +635,10 @@ def corrections(
                 "category": r["category"],
                 "level": r["level"],
                 "tags": r["tags"],
+                # Tri-state, uncoerced: null = never evaluated, [] = evaluated
+                # and nothing applies.
+                "subcategories": r["subcategories"],
+                "taxonomy_version": r["taxonomy_version"],
                 "decision": r["decision"],
                 "corrected_at": r["corrected_at"].isoformat() if r["corrected_at"] else None,
             }
