@@ -29,6 +29,7 @@ def test_all_tables_present():
         "alias_locations",
         "job_locations",
         "job_categories",
+        "job_subcategories",
         "job_levels",
         "job_tags",
         "job_enrichment",
@@ -186,6 +187,8 @@ def test_expected_indexes_on_job_listings():
         "idx_job_listings_status",
         "idx_job_listings_company",
         "idx_job_listings_problem_jobs",
+        # Partial GIN on the subcategory array, OPEN slice only.
+        "idx_job_listings_open_subcategories_gin",
     }
     missing = expected - index_names
     assert not missing, f"Missing indexes: {missing}; present: {index_names}"
@@ -334,3 +337,40 @@ def test_the_trigram_migration_installs_the_extension_the_model_hook_installs():
     # downgrade) or CASCADE away objects this migration never created.
     assert [d[0] for d in down.dropped] == ["idx_job_tags_tag_trgm"], down.dropped
     assert not any("DROP EXTENSION" in sql.upper() for sql in down.executed), down.executed
+
+def test_job_subcategories_dimension_shape():
+    """The subcategory dimension: PK slug, NOT NULL label + parent_slug + sort_order.
+
+    `parent_slug` is NOT NULL and FKs onto job_categories.slug — every row's
+    parent is 'software_engineering'. It is a GROUPING edge, unlike
+    JobLevel.parent_slug which is a FILTER-EXPANSION edge; the two must never be
+    fed to the same code path.
+    """
+    table = db_models.Base.metadata.tables["job_subcategories"]
+    assert set(table.c.keys()) == {"slug", "label", "parent_slug", "sort_order"}
+    assert table.c["slug"].primary_key is True
+    assert table.c["label"].nullable is False
+    assert table.c["parent_slug"].nullable is False
+    assert table.c["sort_order"].nullable is False
+    fk_targets = {fk.target_fullname for fk in table.c["parent_slug"].foreign_keys}
+    assert fk_targets == {"job_categories.slug"}
+    # Deliberately unindexed: 15 rows, one parent.
+    assert not table.indexes
+
+
+def test_job_listings_subcategory_columns_are_nullable():
+    """NULL is a MEANINGFUL state — "never evaluated", i.e. the backfill queue.
+
+    A NOT NULL default of '{}' here would silently mark the entire corpus
+    "evaluated, nothing applies" and empty the queue before it ever filled.
+    """
+    table = db_models.Base.metadata.tables["job_listings"]
+    assert table.c["enrichment_subcategories"].nullable is True
+    assert table.c["enrichment_subcategory_source"].nullable is True
+    assert table.c["enrichment_subcategories"].server_default is None
+
+
+def test_job_enrichment_has_subcategory_confidence():
+    table = db_models.Base.metadata.tables["job_enrichment"]
+    assert "subcategory_confidence" in table.c
+    assert table.c["subcategory_confidence"].nullable is True

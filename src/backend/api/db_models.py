@@ -34,7 +34,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import DeclarativeBase
 
 
@@ -90,6 +90,25 @@ class JobListing(Base):
     enrichment_category = Column(Text, ForeignKey("job_categories.slug"), nullable=True)
     enrichment_level = Column(Text, ForeignKey("job_levels.slug"), nullable=True)
     enrichment_claimed_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    # SWE subcategories: an ORDERED text[] (index 0 = primary), max 2 entries.
+    # TRI-STATE and every state is load-bearing:
+    #   NULL  -> never evaluated; this is what the backfill queue selects on
+    #   '{}'  -> evaluated, no specialty applies. TERMINAL, never re-queued
+    #   {...} -> labelled
+    # Deliberately an array column and NOT a join table: the only read is
+    # "does this job carry slug X", the cardinality is <= 2, and a join table
+    # would put a second row-per-job table on the hot list path. The price is
+    # that Postgres cannot FK-check the elements — `TestTaxonomyParity` plus
+    # the admin health snapshot's `subcategory_unknown_slugs` counter (which
+    # must be permanently 0) are the compensating controls.
+    enrichment_subcategories = Column(ARRAY(Text), nullable=True)
+    # Which producer wrote the array above. Legal values are
+    # `enrichment_writer.SUBCATEGORY_SOURCES` — cited, not re-listed, because
+    # this enum has already drifted three ways across draft documents.
+    # It exists to make a SCOPED reversal possible: NULLing every row whose
+    # source is 'backfill' undoes one bad backfill run without touching the
+    # human labels the eval gate is built on.
+    enrichment_subcategory_source = Column(Text, nullable=True)
 
     __table_args__ = (
         PrimaryKeyConstraint("source_id", "id"),
@@ -100,6 +119,16 @@ class JobListing(Base):
         Index("idx_job_listings_enrichment_status", "enrichment_status"),
         Index("idx_job_listings_status_category", "status", "enrichment_category"),
         Index("idx_job_listings_status_level", "status", "enrichment_level"),
+        # Membership probes (`%s = ANY(enrichment_subcategories)`) on the OPEN
+        # slice only. PARTIAL on status='OPEN' because every subcategory read —
+        # the public filter, the facet counts, the coverage tile — is scoped to
+        # OPEN, and the CLOSED rows are the majority of the table.
+        Index(
+            "idx_job_listings_open_subcategories_gin",
+            "enrichment_subcategories",
+            postgresql_using="gin",
+            postgresql_where=text("status = 'OPEN'"),
+        ),
         # Partial index on the join key used by the open_only location-search
         # path (saved_filters_service.search_locations): the EXISTS semijoin
         # probes job_listings by id restricted to OPEN rows. A partial index on
@@ -1039,6 +1068,33 @@ class JobCategory(Base):
     sort_order = Column(Integer, nullable=False, server_default=text("0"))
 
 
+class JobSubcategory(Base):
+    # Tiny seeded dimension for the SWE subcategory facet — display labels,
+    # ordering, and the grouping edge the dropdown renders as a tree.
+    #
+    # `parent_slug` is a real FK onto job_categories.slug and is
+    # 'software_engineering' on every row. NOTE the collision of meaning with
+    # JobLevel.parent_slug: there it is a FILTER-EXPANSION edge (new_grad
+    # expands to entry); here it is purely a GROUPING edge and must never be
+    # fed into the level-expansion builder.
+    #
+    # Deliberately NOT indexed on parent_slug: 15 rows, one parent.
+    #
+    # PHASE 1 SHIPS THIS TABLE EMPTY. Its only consumer is get_facets -> the
+    # public dropdown, which the SPA caches for an hour, so seeding it IS the
+    # user-visible publish and ships with the UI (SCHEMA-7). An empty dimension
+    # makes the day-one "every checkbox returns No jobs found" failure
+    # structurally impossible rather than flag-dependent.
+    __tablename__ = "job_subcategories"
+
+    slug = Column(Text, primary_key=True)                 # 'backend', 'ai_engineering', ...
+    label = Column(Text, nullable=False)                  # 'Backend'
+    parent_slug = Column(
+        Text, ForeignKey("job_categories.slug"), nullable=False
+    )                                                     # always 'software_engineering'
+    sort_order = Column(Integer, nullable=False, server_default=text("0"))
+
+
 class JobLevel(Base):
     # Tiny seeded dimension for the leveling facet. `parent_slug` encodes the
     # hierarchy — the whole system's load-bearing case is new_grad -> entry, so
@@ -1145,6 +1201,11 @@ class JobEnrichment(Base):
     clean_description = Column(Text, nullable=True)
     classify_confidence = Column(Float, nullable=True)
     classify_reasoning = Column(Text, nullable=True)
+    # Mirrors classify_confidence, for the subcategory decision specifically.
+    # Separate because the two are produced by different passes (the live
+    # classify tick vs the Tier-2 backfill drain) and a single number could
+    # not be read as "how sure are we about the specialty".
+    subcategory_confidence = Column(Float, nullable=True)
     taxonomy_version = Column(Text, nullable=True)        # provenance for manual re-enrich
     judged = Column(Boolean, nullable=False, server_default=text("false"))
     judge_passed = Column(Boolean, nullable=True)         # NULL not judged | true | false(corrected)
