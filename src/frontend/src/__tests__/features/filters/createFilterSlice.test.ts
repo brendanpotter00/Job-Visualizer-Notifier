@@ -58,6 +58,7 @@ describe('createFilterSlice', () => {
         'setGraphEmploymentType',
         'setGraphCategory',
         'setGraphLevel',
+        'setGraphSubcategory',
         'toggleGraphSoftwareOnly',
         'setGraphSoftwareOnly',
         'hydrateGraphFilters',
@@ -69,9 +70,9 @@ describe('createFilterSlice', () => {
         expect(actionNames).toContain(actionName);
       });
 
-      // 18 prior actions + hydrate{Name}Filters + set{Name}Hydrated
-      // + set{Name}Category + set{Name}Level (enrichment facets)
-      expect(actionNames).toHaveLength(22);
+      // main's 22 (18 prior + hydrate{Name}Filters + set{Name}Hydrated
+      // + set{Name}Category + set{Name}Level) plus set{Name}Subcategory.
+      expect(actionNames).toHaveLength(23);
     });
   });
 
@@ -424,6 +425,54 @@ describe('createFilterSlice', () => {
 
       // Should remove all SE tags, resulting in undefined
       expect(newState.filters.searchTags).toBeUndefined();
+    });
+  });
+
+  describe('subcategory reducer (the third enrichment facet)', () => {
+    const baseFilters: GraphFilters = {
+      timeWindow: '30d',
+      softwareOnly: false,
+    };
+
+    function reduce(payload: string[] | undefined) {
+      const slice = createFilterSlice('graph', baseFilters);
+      return slice.reducer(
+        { filters: { ...baseFilters }, hydrated: false, userModified: false },
+        { type: 'graphFilters/setGraphSubcategory', payload }
+      );
+    }
+
+    it('sets the field from a non-empty selection', () => {
+      expect(reduce(['backend']).filters.subcategory).toEqual(['backend']);
+    });
+
+    it('normalizes [] to undefined (the All state)', () => {
+      expect(reduce([]).filters.subcategory).toBeUndefined();
+    });
+
+    it('normalizes undefined to undefined', () => {
+      expect(reduce(undefined).filters.subcategory).toBeUndefined();
+    });
+
+    it('is an EDIT action: it flips userModified and a later hydration is a no-op', () => {
+      // The subcategory setter must NOT be in `nonEditTypes`. If it were, the
+      // hydration guard would not see the edit and a late saved-filters
+      // hydration would silently clobber the user's live selection.
+      const slice = createFilterSlice('graph', baseFilters);
+
+      let state = slice.reducer(slice.getInitialState(), {
+        type: 'graphFilters/setGraphSubcategory',
+        payload: ['backend'],
+      });
+      expect(state.userModified).toBe(true);
+
+      state = slice.reducer(state, {
+        type: 'graphFilters/hydrateGraphFilters',
+        payload: { subcategory: ['frontend'] },
+      });
+
+      expect(state.filters.subcategory).toEqual(['backend']);
+      expect(state.hydrated).toBe(true);
     });
   });
 
