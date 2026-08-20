@@ -26,12 +26,17 @@ logger = logging.getLogger(__name__)
 # Must match the seeded job_categories / job_levels dimensions + the enricher
 # taxonomy SKILL.md. An out-of-enum value is nulled (never 422s the batch) so a
 # taxonomy drift on the laptop degrades to "unlabelled", not a dropped batch.
+#
+# SIX categories, not seven: `project_manager` was retired by the
+# `retire_project_manager_category` migration. It had been an orphan — seeded in
+# the dimension and listed here, but ABSENT from the enricher's own
+# `taxonomy.CATEGORIES` for months, which nothing caught because every guard was
+# intra-repo. Do not re-add it without re-adding it there too.
 CATEGORY_SLUGS = frozenset(
     {
         "software_engineering",
         "hardware_engineer",
         "product_manager",
-        "project_manager",
         "data_scientist",
         "growth",
         "business_ops",

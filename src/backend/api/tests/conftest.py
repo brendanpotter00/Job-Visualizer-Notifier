@@ -315,7 +315,9 @@ _CATEGORY_SEED = [
     ("software_engineering", "Software Engineering", 0),
     ("hardware_engineer", "Hardware Engineer", 1),
     ("product_manager", "Product Manager", 2),
-    ("project_manager", "Project Manager", 3),
+    # `project_manager` was retired by `retire_project_manager_category`
+    # (sort_order 3 is deliberately left as a gap — the seed mirrors the
+    # post-migration DB state, not a renumbering).
     ("data_scientist", "Data Scientist", 4),
     ("growth", "Growth", 5),
     ("business_ops", "Business Ops", 6),

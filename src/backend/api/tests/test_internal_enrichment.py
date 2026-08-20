@@ -38,7 +38,6 @@ _CATEGORY_SEED = [
     ("software_engineering", "Software Engineering", 0),
     ("hardware_engineer", "Hardware Engineer", 1),
     ("product_manager", "Product Manager", 2),
-    ("project_manager", "Project Manager", 3),
     ("data_scientist", "Data Scientist", 4),
     ("growth", "Growth", 5),
     ("business_ops", "Business Ops", 6),
@@ -1893,7 +1892,15 @@ class TestTaxonomyParity:
 
         mig = _load_enrichment_migration()
         intern_mig = _load_enrichment_migration("*add_intern_level*.py")
+        retire_mig = _load_enrichment_migration(
+            "*retire_project_manager_category*.py"
+        )
+        # Categories = the base seed MINUS every later migration's
+        # REMOVED_CATEGORIES — the mirror image of the ADDED_LEVELS union below,
+        # so a retired slug stays in lock-step with the code constants instead
+        # of tripping this guard.
         seed_categories = {slug for slug, _label, _order in mig.CATEGORY_SEED}
+        seed_categories -= set(retire_mig.REMOVED_CATEGORIES)
         # Levels = the base seed UNION every later migration's ADDED_LEVELS, so a
         # tier added by a follow-up migration (e.g. `intern`) stays in lock-step
         # with the code constants instead of tripping this parity guard.
