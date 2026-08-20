@@ -123,8 +123,8 @@ Four layers:
 
 | Asked for | Where it lives | Added cost |
 |---|---|---|
-| Tier 1 — new SWE jobs | The existing tick, unchanged. The subcategory is an extra *field* on the classify call each new job already receives | zero |
-| Tier 3 — general new jobs | The **same** unchanged tick | zero |
+| Tier 1 — new SWE jobs | The existing tick, unchanged. The subcategory is an extra *field* on the classify call each new job already receives — **no extra model call** | no extra call; prompt grows (see note) |
+| Tier 3 — general new jobs | The **same** unchanged tick | no extra call; prompt grows (see note) |
 | Tier 2 — backfill | A separate Claude Code lane | off-GPU |
 
 Tier 1 and Tier 3 are the same operation, so there is no queue to reorder: a new job gets one classify call, and subcategories ride along when the answer is software engineering. The three-tier scheme collapses to **one unchanged lane plus one backfill lane**.
@@ -166,7 +166,7 @@ None of these need a decision. The first three share a failure mode: **they do n
 
 | # | Phase | Why here |
 |---|---|---|
-| 0 | Diagnose the poison cohort; measure real seconds/row; resolve the alembic fork (main `1d2d6c17acfc` vs #252's `4b5d40dbc774`) | Every downstream estimate is fiction until these exist |
+| 0 | Diagnose the poison cohort; measure real seconds/row; resolve the alembic fork (main `1d2d6c17acfc` vs #252's head `536c1cddcd28`) | Every downstream estimate is fiction until these exist |
 | 1 | Eval floor — pre-label to n≥50, capture v6 baselines, add the subcategory scorer and gate entry | Once `SKILL.md` changes, the v6 baseline is gone |
 | 2 | JVN Phase 1 — migration (columns only, no seed), write-back tri-state, facets, admin tri-state fix, parity tests | Migrations run in-process at startup; the enricher must never write a slug the backend rejects |
 | 3 | Enricher dark deploy — store v3→v4 rehearsed on a copy of the 240 MB DB, validators, hardened `reenrich`. **Deploy to `/app`** | Schema first, behavior later, so rollback is a knob flip |
@@ -183,3 +183,21 @@ None of these need a decision. The first three share a failure mode: **they do n
 The reveal flag is a **DB-persisted admin toggle, not an env var** — an env var would need a Vercel redeploy to flip. This repo has no feature-flag mechanism today (`Feature`/`FeatureUpvote` are feature *voting*), so it needs a small `app_settings` key/value row plus a GET/PUT on the admin router, mirroring the enricher's existing knobs pattern. It sits next to the coverage tile. **Delete it in a follow-up PR** once permanently on.
 
 > **Caching gotcha:** `GET /api/jobs/facets` is RTK-Query cached for an hour. A flag riding on that response appears not to work for up to an hour. Either serve it from a short-TTL endpoint or invalidate the facets tag on toggle.
+
+---
+
+## 10. Corrections (2026-08-20, after the build-plan pass)
+
+Four claims above were wrong or have been superseded. They are corrected here rather than silently edited, because the build plan was derived from them.
+
+1. **"Zero added cost" for Tiers 1 and 3 was wrong.** `build_classify_prompt` inlines the entire `SKILL.md` on every classify call, so adding §1b as first specified inflated every classify prompt ~40–50% on a lane already at 485/day against 495–552 arriving. There is still **no extra model call** — that part holds — but the prompt grows. **Decision D3** moves the detailed rubric into a separate file loaded only when needed, keeping §1b compact (measured 3,006 chars); the build plan gates the v7 ship on a measured classify-latency budget.
+
+2. **The regression gate could not fire.** `regression_gate` keys `n` off `current.category.n` and refuses below `GATE_MIN_N = 50`, while `load_truth(human_only=True)` yields 21 — and `--allow-draft` returns 0 even on failure, so it never gates. **Decision D1** builds a real human category pool (21 + a stratified draw of 46 = **67**) *before* `SKILL.md` is touched, which is what makes phase 5's stop condition real.
+
+3. **Admin corrections are not the path to `n≥50`.** `merge_corrections` matches against the 273-row seed by `(source_id, job_listing_id)` and **discards** unmatched rows — it never appends. Against a 76k corpus that is a fraction of a percent. The admin loop is *sustaining*, not bootstrapping; the pool is built by the D1 pre-label + audited-sample run.
+
+4. **JVN coverage lags the backfill.** Backfill labels land in the enricher's local SQLite, and the bulk `sent_at` re-open is correctly refused as write amplification — so the JVN-side counter that gates the 90% reveal would trail by roughly two weeks. **Decision D2** adds a throttled bulk write-back whose rate is derived from a measured pool-slot hold time.
+
+Also: **PR #252's head moved.** It gained a second migration on 2026-08-20 (`536c1cddcd28`, a `job_tags.tag` trigram index), so every reference to `4b5d40dbc774` as the chain point is off by one. And the `department` chip removal shipped independently as **PR #260** (`d6433b3`, merged 06:35 2026-08-20).
+
+The step-by-step build plan derived from this document, with all of the above folded in, is [`2026-08-20-swe-subcategories-build.md`](./2026-08-20-swe-subcategories-build.md).

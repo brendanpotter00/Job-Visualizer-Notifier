@@ -181,6 +181,16 @@
   <h2><span class="num">R</span> Revision log</h2>
   <p class="lede">Every comment you left, and a link to where in the document it's addressed. The answers live in their sections, next to the context you were reading when you asked — this is the index, not the content.</p>
 
+  <div class="rev-h"><span class="tagr">r12</span><span class="dt">2026-08-20 &nbsp;·&nbsp; corrections after the build-plan pass</span></div>
+  <div class="note red">
+    <div class="t">Four claims in this document were wrong. Corrected, not silently edited.</div>
+    <p><b>1. "Zero added cost" for Tiers 1 and 3 (§05) was wrong.</b> <code>build_classify_prompt</code> inlines the entire <code>SKILL.md</code> on every classify call, so §1b as first specified inflated every classify prompt ~40&ndash;50%. There is still <b>no extra model call</b> — that part holds — but the prompt grows. <b>Decision D3</b> moves the detailed rubric to a separate file loaded only when needed, keeping §1b compact (measured 3,006 chars).</p>
+    <p><b>2. The regression gate could not fire (§06).</b> <code>regression_gate</code> keys <code>n</code> off <code>current.category.n</code> and refuses below 50 while the human pool is 21 — and <code>--allow-draft</code> returns 0 even on failure. <b>Decision D1</b> builds a real human category pool (21 + 46 = <b>67</b>) before <code>SKILL.md</code> is touched.</p>
+    <p><b>3. Admin corrections are NOT the path to n&ge;50 (§09).</b> <code>merge_corrections</code> matches against the 273-row seed and <b>discards</b> unmatched rows — it never appends. The admin loop is sustaining, not bootstrapping.</p>
+    <p><b>4. "Overnight" understated the lag (§05).</b> Labels land in local SQLite and the JVN counter that gates the 90% reveal would trail ~2 weeks. <b>Decision D2</b> adds a throttled bulk write-back whose rate is derived from a measured pool-slot hold time.</p>
+    <p>Also: <b>PR #252's head moved</b> — it gained <code>536c1cddcd28</code> on 2026-08-20, so every reference to <code>4b5d40dbc774</code> as the chain point was off by one. And the <code>department</code> chip shipped independently as <b>PR #260</b> (merged 06:35). The step-by-step build plan derived from this document is <code>2026-08-20-swe-subcategories-build.md</code>.</p>
+  </div>
+
   <div class="rev-h"><span class="tagr">r11</span><span class="dt">2026-08-20 &nbsp;·&nbsp; 2 comments — final two items closed</span></div>
   <div class="tw">
     <table>
@@ -602,7 +612,7 @@
 
   <div class="note">
     <div class="t">The tri-state that makes everything else work</div>
-    <p><code>NULL</code> = never evaluated (this <i>is</i> the backfill queue) &nbsp;·&nbsp; <code>'{}'</code> = evaluated, no specialty applies &nbsp;·&nbsp; <code>['backend','ai_ml']</code> = labelled, primary first. This is what lets a v6 enricher coexist safely (absent field &rArr; column untouched) and what makes the backfill resumable and its coverage honest.</p>
+    <p><code>NULL</code> = never evaluated (this <i>is</i> the backfill queue) &nbsp;·&nbsp; <code>'{}'</code> = evaluated, no specialty applies &nbsp;·&nbsp; <code>['backend','ai_engineering']</code> = labelled, primary first. This is what lets a v6 enricher coexist safely (absent field &rArr; column untouched) and what makes the backfill resumable and its coverage honest.</p>
   </div>
 </section>
 
@@ -634,7 +644,7 @@
           <div class="mui-item child"><span class="box"></span><span>Machine Learning</span></div>
           <div class="mui-item child"><span class="box"></span><span>Mobile</span></div>
           <div class="mui-item child"><span class="box"></span><span>QA &amp; Testing</span></div>
-          <div class="mui-item child"><span class="box"></span><span>Quantitative &amp; Trading</span></div>
+          <div class="mui-item child"><span class="box"></span><span>Quantitative &amp; Trading Systems</span></div>
           <div class="mui-item child"><span class="box"></span><span>Robotics &amp; Autonomy</span></div>
           <div class="mui-item child"><span class="box"></span><span>Security</span></div>
           <div class="mui-item parent"><span class="box"></span><span>Hardware Engineer</span></div>
@@ -975,7 +985,7 @@
     <table>
       <thead><tr><th class="num">#</th><th>Phase</th><th>Why it must come here</th></tr></thead>
       <tbody>
-        <tr><td class="num">0</td><td><b>Unblock.</b> Diagnose the 282-row poison cohort. Measure real seconds/row for a subcategory-only prompt on 20 rows. Resolve the alembic fork (main head <code>1d2d6c17acfc</code> vs #252's <code>4b5d40dbc774</code>).</td><td>Every estimate downstream is fiction until these three numbers exist.</td></tr>
+        <tr><td class="num">0</td><td><b>Unblock.</b> Diagnose the 282-row poison cohort. Measure real seconds/row for a subcategory-only prompt on 20 rows. Resolve the alembic fork (main head <code>1d2d6c17acfc</code> vs #252's <code>536c1cddcd28</code>).</td><td>Every estimate downstream is fiction until these three numbers exist.</td></tr>
         <tr><td class="num">1</td><td><b>Eval floor.</b> Hand-review the 126 draft SWE golden rows to reach n&ge;50 human. Capture v6 baselines on both pools. Add the subcategory scorer + gate entry.</td><td>Once SKILL.md changes, the v6 baseline is gone. This is the only window.</td></tr>
         <tr><td class="num">2</td><td><b>JVN Phase 1.</b> Migration (columns only, no seed), write-back tri-state, facets, admin tri-state fix, parity tests. Verify <code>alembic_version</code> actually moved in prod.</td><td>Migrations run in-process at FastAPI startup; the enricher must never write a slug the backend rejects.</td></tr>
         <tr><td class="num">3</td><td><b>Enricher dark deploy.</b> Store v3&rarr;v4 (rehearsed on a copy of the 240 MB DB), validators, hardened <code>reenrich</code>. Subcategories NULL everywhere, write-back knob off. <b>Deploy to <code>/app</code>.</b></td><td>Schema first, behavior later — so a rollback is a knob flip, not a migration.</td></tr>
