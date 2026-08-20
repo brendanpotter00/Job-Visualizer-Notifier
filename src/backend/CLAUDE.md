@@ -117,7 +117,9 @@ All configuration via environment variables:
   every OPEN row every scrape cycle), and `(source_id, id)` is the composite PK, so the tuple
   is unique. Both properties are load-bearing — without the first, a concurrent scrape
   reshuffles the ordering mid-walk; without the second, rows sharing a `first_seen_at` page
-  non-deterministically. Matches the UI's own `selectRecentJobsSorted` (firstSeenAt DESC).
+  non-deterministically. The UI no longer sorts at all — it renders the rows in the order
+  this endpoint returns them (`selectRecentJobsSorted` was deleted with the client-side
+  walk), so this ORDER BY *is* the Recent page's ordering, not a mirror of one.
 - **Header delivery is THREE hops, all wired here:** `api/jobs.ts` (the Vercel proxy)
   re-emits it explicitly — `forwardResponse` copies status + body only — `CORSMiddleware`
   in `main.py` lists it in `expose_headers` for callers hitting the backend directly, and
@@ -198,9 +200,12 @@ filter set in SQL and pages the *result*. Router `routers/jobs_search.py`, SQL
 - **Filter semantics** are a port of the frontend matcher this replaced. Dimensions
   AND, values within a dimension OR. An active `category`/`level` filter **hides
   unenriched (NULL) rows** — ~65% of OPEN rows. `entry` expands to
-  `{entry, new_grad}`. Keyword terms match title / raw location / company / tags;
-  `department`/`team` are deliberately NOT searched (they live in the `details` JSONB
-  and reading it detoasts ~10 KB per row — the 2026-07-13 outage's failure mode).
+  `{entry, new_grad}`. Keyword terms match title / raw location / company / tags /
+  `experience_level` — that last column IS what the frontend calls `department`
+  (`backendScraperTransformer.ts` maps `details.experience_level` → `department`), and
+  it is a denormalized COLUMN, so matching it costs no `details` JSONB read and no
+  ~10 KB/row detoast (the 2026-07-13 outage's failure mode). `team` is not searched
+  because no transformer ever populates it — there is nothing to match.
   Locations resolve hierarchically against the `locations` catalog, including the
   synthesized `United States` and `<State>, US` options that have no catalog row.
 - **Index:** `idx_job_listings_open_category_keyset` on

@@ -6,6 +6,7 @@ import {
   MAX_SEARCH_TAGS,
   MAX_SEARCH_TAGS_REACHED_HELPER_TEXT,
   SOFTWARE_ENGINEERING_TAGS,
+  keywordListDoesNotFitHelperText,
 } from '../../../../constants/tags';
 import type { KeywordList, SearchTag } from '../../../../types';
 
@@ -369,6 +370,73 @@ describe('KeywordFilterInput', () => {
       );
 
       expect(screen.queryByText(MAX_SEARCH_TAGS_REACHED_HELPER_TEXT)).not.toBeInTheDocument();
+    });
+
+    const chips = (n: number) =>
+      Array.from({ length: n }, (_, i) => ({ text: `tag-${i}`, mode: 'include' as const }));
+
+    async function pickBuiltinSweList() {
+      const { user, listbox } = await openDropdown();
+      await user.click(
+        within(listbox).getByRole('option', { name: 'Software Engineering (default)' })
+      );
+      return user;
+    }
+
+    it('refuses a keyword list that does not fit rather than applying part of it', async () => {
+      // The silent-partial-apply bug: `onAdd` per tag, each meeting the cap on its
+      // own, applied 2 of the 6-tag list and dropped 4 — with no statement that it
+      // had, and no checkmark (the option only lights on an EXACT set match), so
+      // the reader searched on a third of the list believing it was applied.
+      const props = renderInput(chips(MAX_SEARCH_TAGS - 2));
+
+      await pickBuiltinSweList();
+
+      expect(props.onAdd).not.toHaveBeenCalled();
+      expect(
+        screen.getByText(keywordListDoesNotFitHelperText(SOFTWARE_ENGINEERING_TAGS.length, 2))
+      ).toBeInTheDocument();
+    });
+
+    it('applies every tag of a list that does fit', async () => {
+      // The other half of all-or-nothing: refusing is only correct if a list that
+      // fits still goes on whole.
+      const props = renderInput(chips(MAX_SEARCH_TAGS - SOFTWARE_ENGINEERING_TAGS.length));
+
+      await pickBuiltinSweList();
+
+      expect(props.onAdd).toHaveBeenCalledTimes(SOFTWARE_ENGINEERING_TAGS.length);
+      expect(props.onAdd.mock.calls.map(([tag]) => (tag as SearchTag).text)).toEqual(
+        SOFTWARE_ENGINEERING_TAGS.map((tag) => tag.text)
+      );
+      expect(screen.queryByText(/needs \d+ more keyword/)).not.toBeInTheDocument();
+    });
+
+    it('costs nothing to re-pick a list whose tags are already all on screen', async () => {
+      // Dedupe is by text, so an already-applied list adds zero tags — it must not
+      // be refused for "not fitting" just because the chip set is full.
+      const alreadyApplied = [
+        ...SOFTWARE_ENGINEERING_TAGS.map((tag) => ({ ...tag })),
+        ...chips(MAX_SEARCH_TAGS - SOFTWARE_ENGINEERING_TAGS.length),
+      ];
+      const props = renderInput(alreadyApplied);
+
+      await pickBuiltinSweList();
+
+      expect(props.onAdd).not.toHaveBeenCalled();
+      expect(screen.queryByText(/needs \d+ more keyword/)).not.toBeInTheDocument();
+    });
+
+    it('drops the refusal once the reader starts typing again', async () => {
+      renderInput(chips(MAX_SEARCH_TAGS - 2));
+      const user = await pickBuiltinSweList();
+      expect(
+        screen.getByText(keywordListDoesNotFitHelperText(SOFTWARE_ENGINEERING_TAGS.length, 2))
+      ).toBeInTheDocument();
+
+      await user.type(screen.getByRole('combobox', { name: 'Keywords' }), 'r');
+
+      expect(screen.queryByText(/needs \d+ more keyword/)).not.toBeInTheDocument();
     });
   });
 

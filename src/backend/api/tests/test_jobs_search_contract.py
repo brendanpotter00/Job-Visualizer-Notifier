@@ -598,7 +598,10 @@ def test_an_unknown_but_well_formed_slug_matches_nothing_instead_of_erroring(
     "field, bad_slug",
     [
         pytest.param("category", "Software Engineering", id="category_with_spaces"),
-        pytest.param("category", "software-engineering-9", id="category_with_digits"),
+        # No hyphen: `_CATEGORY_RE` is `[a-z_]{1,40}`, so a hyphen is rejected on
+        # its own and the digit never gets a vote. This slug is legal in every
+        # respect EXCEPT the digit, so relaxing the digit rule turns it green.
+        pytest.param("category", "software_engineering9", id="category_with_digits"),
         pytest.param("level", "SENIOR", id="level_uppercase"),
     ],
 )

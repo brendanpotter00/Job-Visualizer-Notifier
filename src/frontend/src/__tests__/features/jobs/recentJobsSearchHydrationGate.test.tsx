@@ -20,8 +20,10 @@ import type { SavedFilters, KeywordList } from '../../../types';
  *
  * The cost is not theoretical. Page 1 is the only request that pays for
  * `filteredTotal` and both recency tiles, and the pre-hydration filter set is the
- * widest shape the endpoint ever serves (90 days, no category, no level, no
- * keywords). So the wasted search is the most expensive one available, the real
+ * widest shape the endpoint can be asked for: the slice's default `timeWindow` is
+ * `'all'`, so `since` is the EPOCH and `filteredTotal` counts every OPEN row of
+ * every followed company, with no category, level, location or keyword to narrow
+ * it. So the wasted search is the most expensive one available, the real
  * search follows ~300ms later once the debounced snapshot re-stamps, and in
  * between the reader sees a flash of rows they did not ask for — on every cold
  * load, for every signed-in reader whose saved filters differ from the defaults.
@@ -109,6 +111,9 @@ const SEARCH_PAGE = {
 /** Every `/api/jobs/search` query string the tree issued, in order. */
 let searchQueries: URLSearchParams[];
 
+/** Restored in `afterEach` — a replaced global outlives the file otherwise. */
+const originalFetch = globalThis.fetch;
+
 function installFetch() {
   searchQueries = [];
   globalThis.fetch = vi.fn(async (input: unknown) => {
@@ -129,8 +134,8 @@ function installFetch() {
 
 function makeStore() {
   // `recentJobsFilters` is deliberately NOT preloaded: the slice must start
-  // un-hydrated on its 90d / no-category defaults, which is the state a cold
-  // load actually begins in.
+  // un-hydrated on its all-time / no-category defaults, which is the state a
+  // cold load actually begins in.
   return createTestStore({
     enabledCompanies: {
       ids: ['google'],
@@ -189,6 +194,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  globalThis.fetch = originalFetch;
   vi.resetAllMocks();
 });
 
@@ -217,9 +223,36 @@ describe('the Recent page waits for saved filters to HYDRATE, not merely to arri
     expect(query.getAll('level')).toEqual(['senior']);
     expect(query.getAll('location')).toEqual(['Austin, TX, US']);
     expect(query.getAll('include')).toEqual(['rust']);
-    // The saved 24h window, not the slice's 90d default.
+    // The saved 24h window, not the slice's all-time default (`since` = EPOCH).
     const since = new Date(query.get('since') as string).getTime();
     expect(Date.now() - since).toBeLessThanOrEqual(25 * 60 * 60 * 1000);
+  });
+
+  it('still searches when only the KEYWORD-LISTS request fails', async () => {
+    // The other half of the escape hatch, and the half nothing else covers:
+    // `savedFiltersReady` ORs `savedFilters.isError` with `keywordLists.isError`,
+    // and `useHydrateSavedFilters` needs BOTH bodies (the active-list id in the
+    // saved filters is resolved against the lists), so a lone
+    // `GET /api/users/saved-filters/keyword-lists` failure leaves `hydrated`
+    // false forever. Without this disjunct the reader sits on skeletons with no
+    // rows, no error and no retry — while the endpoint that actually serves the
+    // page is perfectly healthy.
+    const store = makeStore();
+    const { rerender } = renderTree(store);
+    await flush();
+    expect(searchQueries).toHaveLength(0);
+
+    savedFiltersResult.data = SAVED;
+    savedFiltersResult.isSuccess = true;
+    keywordListsResult.isError = true;
+    rerender(<AppRoot />);
+    await flush();
+
+    // Precondition: hydration genuinely could not run, so the gate is being held
+    // open by `isError` alone and not by a hydration that happened anyway.
+    expect(store.getState().recentJobsFilters.hydrated).toBe(false);
+    expect(searchQueries).toHaveLength(1);
+    expect(searchQueries[0].getAll('category')).toEqual([]);
   });
 
   it('still searches when the saved-filters request fails, so a 500 cannot strand the page', async () => {

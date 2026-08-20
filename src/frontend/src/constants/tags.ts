@@ -31,6 +31,26 @@ export const MAX_SEARCH_TAGS_REACHED_HELPER_TEXT =
   'Remove one to add another.';
 
 /**
+ * What the Recent page's keyword input says when a picked keyword LIST does not
+ * fit in the remaining budget.
+ *
+ * Picking a list is all-or-nothing on purpose. Merging it tag-by-tag through
+ * `addSearchTagToFilters` would stop at `MAX_SEARCH_TAGS` mid-list, so the reader
+ * would see a few of the list's keywords appear, no statement that the rest were
+ * dropped, and — because the list's checkmark only lights on an EXACT set match —
+ * no indication that the list is not applied. They would then run a search they
+ * believe is the list's while it is a fragment of it. Refusing the whole list and
+ * saying why is the only outcome that is not a lie.
+ */
+export function keywordListDoesNotFitHelperText(needed: number, room: number): string {
+  return (
+    `That list needs ${needed} more keyword${needed === 1 ? '' : 's'} and only ${room} of ` +
+    `${MAX_SEARCH_TAGS} ${room === 1 ? 'slot is' : 'slots are'} free. ` +
+    'Remove some keywords, then pick it again.'
+  );
+}
+
+/**
  * Predefined search tags for software engineering roles
  * Used by the "Software engineering roles only" toggle
  */

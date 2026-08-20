@@ -256,7 +256,7 @@ def _clear_tables(conn) -> None:
     """Truncate test tables between tests."""
     cursor = conn.cursor()
     cursor.execute(sql.SQL(
-        "TRUNCATE {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {} CASCADE"
+        "TRUNCATE {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {} CASCADE"
     ).format(
         sql.Identifier("feature_upvotes"),
         sql.Identifier("features"),
@@ -289,6 +289,16 @@ def _clear_tables(conn) -> None:
         sql.Identifier("users"),
         sql.Identifier("companies"),
         sql.Identifier("worker_heartbeats"),
+        # The facet dimensions. Not truncating them made `seed_taxonomy`
+        # ORDER-LEAKY: `_seed_taxonomy` is `ON CONFLICT DO NOTHING`, so once any
+        # test in the session had opted into the fixture, its rows survived every
+        # later truncation and a test that never asked for them still found
+        # `enrichment_category`/`enrichment_level` FKs resolvable. Such a test
+        # passes in a full run and fails alone, which is the worst way to learn
+        # about a missing fixture. `job_listings` is truncated above and both are
+        # in this same statement, so the FK from it is not an ordering problem.
+        sql.Identifier("job_categories"),
+        sql.Identifier("job_levels"),
     ))
     conn.commit()
 

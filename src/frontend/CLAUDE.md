@@ -542,7 +542,7 @@ Use the `add-company` skill (repo-root `.claude/skills/add-company/`, `/add-comp
 9. **Test Coverage**: Maintain >80% coverage (1300+ tests passing)
 10. **Memory Management**: Large job datasets require careful handling:
    - **Tables**: Always paginate tables with 100+ rows - unpaginated tables with thousands of rows cause severe browser memory issues (50+ GB)
-   - **Selectors**: `selectAllJobsFromQuery` flattens all jobs - use filtered selectors when possible
+   - **Recent jobs are paged server-side**: the Recent page never holds the whole corpus — `useRecentJobsSearch` walks `/api/jobs/search` a page at a time and `VirtualJobRows` renders only the visible window. Do not reintroduce a selector that flattens every loaded page into one array to filter or sort it client-side; send the filter to the endpoint instead
    - **Pattern**: See QAPage jobs table for pagination pattern (useMemo for slice + TablePagination component)
 
 ## Key Files

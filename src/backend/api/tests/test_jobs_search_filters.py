@@ -483,6 +483,16 @@ _ORACLE_TITLES = (
 )
 _ORACLE_RAW_LOCATIONS = ("Austin, TX", None, "Remote - United States")
 _ORACLE_TAG_POOLS = (("python",), ("golang", "kubernetes"), (), ("react", "python"))
+# The client's ``Job.department`` (``details.experience_level``, mirrored into the
+# column of the same name). Values are deliberately tokens that appear NOWHERE
+# else in the corpus — not in a title, company, raw location or tag — so a filter
+# set naming one can only be satisfied by the ``experience_level`` clause of
+# ``_KEYWORD_PREDICATE``. "Senior"/"Staff"/"Intern" would all have been useless
+# here: every one of them already appears in ``_ORACLE_TITLES``.
+# ``None`` is a value, not a gap: without ``COALESCE(experience_level, '')`` the
+# whole OR-chain evaluates to NULL for these rows, and on the EXCLUDE path
+# ``AND NOT (NULL)`` silently drops them from the result set.
+_ORACLE_EXPERIENCE_LEVELS = ("L4", None, "L5", "Apprenticeship")
 # Index 3 is "no normalized location at all" — a job the location filter must
 # never match, and the case the frontend's ``matchesLocation`` returns false on.
 _ORACLE_LOCATION_NAMES = ("Austin, TX, US", "Berlin, BE, DE", "Remote (US)", None)
@@ -514,6 +524,7 @@ def _seed_oracle_corpus(conn) -> list[_OracleJob]:
         raw_location = _ORACLE_RAW_LOCATIONS[n % 3]
         tags = _ORACLE_TAG_POOLS[(n // 2) % 4]
         canonical = _ORACLE_LOCATION_NAMES[(n // 3) % 4]
+        experience_level = _ORACLE_EXPERIENCE_LEVELS[(n // 5) % 4]
         # A handful of CLOSED rows, so the endpoint's OPEN default is doing work
         # in every single combination below rather than only in the one that
         # names `status` explicitly.
@@ -530,6 +541,7 @@ def _seed_oracle_corpus(conn) -> list[_OracleJob]:
             first_seen_at=first_seen,
             enrichment_category=category,
             enrichment_level=level,
+            experience_level=experience_level,
         )
         for tag in tags:
             _insert_job_tag(conn, source_id, job_id, tag)
@@ -547,6 +559,7 @@ def _seed_oracle_corpus(conn) -> list[_OracleJob]:
             level=level,
             tags=tags,
             canonical_locations=() if canonical is None else (canonical,),
+            experience_level=experience_level,
         ))
     return corpus
 
@@ -576,6 +589,16 @@ _ORACLE_FILTER_SETS: list[dict] = [
     # ``location`` in the haystack — every other keyword set would still pass
     # without it.
     {"include": ["remote"]},
+    # "l4" lives ONLY in ``experience_level`` — the column the client calls
+    # ``department``. Drop that clause from ``_KEYWORD_PREDICATE`` (an earlier
+    # revision did exactly that, believing the field lived in the ``details``
+    # JSONB) and this set is the only one in the list that notices.
+    {"include": ["l4"]},
+    # The same column on the EXCLUDE path, which is the strictly harder one: it
+    # is where a missing ``COALESCE(experience_level, '')`` turns into silent row
+    # loss rather than a visible under-match, because every row whose
+    # ``experience_level`` is NULL evaluates ``AND NOT (NULL)`` and disappears.
+    {"exclude": ["l4"]},
     {"exclude": ["intern"]},
     # Multi-term exclude: a job is dropped if ANY term hits. With a single term
     # "any" and "all" are the same function, so the multi-term case is the only

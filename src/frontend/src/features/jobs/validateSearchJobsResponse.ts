@@ -77,8 +77,9 @@ export function validateSearchJobsResponse(body: unknown): ValidatedSearchJobsBo
   return {
     jobs: body.jobs as unknown as BackendJobListing[],
     nextCursor: (body.nextCursor as string | null | undefined) ?? null,
-    // `meta` is null on cursor pages by design, so only a present, non-null value
-    // is validated.
+    // The wire key is `meta`; `counts` is this module's normalized name for it
+    // (see `SearchJobsResponseBody`). `meta` is null on cursor pages by design, so
+    // only a present, non-null value is validated.
     counts: body.meta == null ? undefined : validateCounts(body.meta),
   };
 }

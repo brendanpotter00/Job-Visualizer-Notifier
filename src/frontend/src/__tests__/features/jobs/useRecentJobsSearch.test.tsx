@@ -187,6 +187,14 @@ async function flush(ms = 0) {
 
 let fetchMock: ReturnType<typeof makeFetchMock>;
 
+/**
+ * Restored in `afterEach`. A replaced global outlives the file otherwise, so
+ * whichever test file the runner happens to schedule next in this worker
+ * inherits this mock — a cross-file coupling that shows up as an unrelated
+ * failure and depends on file order. `jobsApi.search.test.ts` gets this right.
+ */
+const originalFetch = globalThis.fetch;
+
 function install(
   respond: (params: URLSearchParams, callIndex: number) => MockResponse | Promise<MockResponse>
 ) {
@@ -205,6 +213,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  globalThis.fetch = originalFetch;
   vi.resetAllMocks();
 });
 
@@ -226,6 +235,32 @@ describe('useRecentJobsSearch — when it is allowed to fetch', () => {
     expect(result.current.isInitialLoading).toBe(false);
     expect(result.current.hasNextPage).toBe(false);
     expect(result.current.isSkippedEmpty).toBe(false);
+  });
+
+  it('scopes the demo recency tiles to the companies in play, like the server does', async () => {
+    // The server's two recency counts honour `company` and nothing else (see
+    // `_header_counts_where`, Ledger #3). Demo mode counted the WHOLE fixture, so
+    // narrowing to one company left the tiles frozen at the corpus-wide number
+    // while the rows below shrank — the same inflation the server-side count was
+    // re-scoped to remove, reintroduced on the one path with no request to check.
+    const wide = renderSearch(makeStore({ demoModeEnabled: true }));
+    await flush();
+    const wideCounts = wide.result.current.counts;
+
+    const scoped = renderSearch(
+      makeStore({ demoModeEnabled: true, filters: { company: ['google'] } })
+    );
+    await flush();
+    const scopedCounts = scoped.result.current.counts;
+
+    // Precondition: the fixture actually has recent google rows AND recent rows
+    // elsewhere, or "scoped is smaller" would be vacuous.
+    expect(wideCounts?.last24h).toBeGreaterThan(0);
+    expect(scopedCounts?.last24h).toBeGreaterThan(0);
+    expect(scopedCounts?.last24h).toBeLessThan(wideCounts?.last24h as number);
+    expect(scopedCounts?.last3h).toBeLessThanOrEqual(wideCounts?.last3h as number);
+    // ...and the tiles agree with the rows they sit above.
+    expect(scoped.result.current.jobs.every((job) => job.company === 'google')).toBe(true);
   });
 
   it('waits for auth to resolve and for the signed-in user\'s companies to load', async () => {

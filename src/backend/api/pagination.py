@@ -28,9 +28,10 @@ THE SORT KEY: ``(first_seen_at DESC, source_id DESC, id DESC)``
   ``first_seen_at`` (batch inserts do this constantly — a whole company's first
   scrape shares one timestamp) would page non-deterministically: rows dropped,
   rows duplicated, no error.
-* It matches what the UI already does client-side — ``selectRecentJobsSorted``
-  (``src/frontend/src/features/filters/selectors/recentJobsSelectors.ts``) sorts by
-  ``firstSeenAt`` DESC — so server-side paging does not reorder the list.
+* It is now the *only* ordering the Recent page has. The client-side sort this
+  replaced (``selectRecentJobsSorted``) was deleted along with the client-side walk,
+  so the list renders rows in exactly the order the server hands them back — nothing
+  downstream re-sorts, and changing this tuple changes what the reader sees.
 
 WIRE FORMAT
 -----------

@@ -77,6 +77,23 @@ export interface RecentJobsSearch {
  * there are no more, so the list never has to guess how much deeper to dig. That
  * guess is what deadlocked production on 2026-08-10.
  */
+/**
+ * The demo fixture narrowed to the reader's company filter — the ONE dimension
+ * the recency tiles honour on both tiers.
+ *
+ * Deliberately does not also apply the enabled-companies preference, even though
+ * `buildSearchJobsArgs` folds it into the real request's `company` param: demo
+ * mode serves the curated fixture instead of the corpus, so its ROWS
+ * (`filterJobsByFilters`) do not apply that preference either, and applying it to
+ * the tiles alone would put counts UNDER the rows they describe. Applying it to
+ * both would empty the demo page for any admin whose followed companies do not
+ * overlap `DEMO_COMPANY_IDS` — a fixture nobody can see is not a demo.
+ */
+function scopeToCompanyFilter(jobs: Job[], selected: string[] | undefined): Job[] {
+  if (!selected || selected.length === 0) return jobs;
+  return jobs.filter((job) => selected.includes(job.company));
+}
+
 export function useRecentJobsSearch(): RecentJobsSearch {
   const filters = useAppSelector(selectRecentJobsFilters);
   const filtersHydrated = useAppSelector(selectRecentJobsFiltersHydrated);
@@ -261,12 +278,22 @@ export function useRecentJobsSearch(): RecentJobsSearch {
     const matched = filterJobsByFilters(DEMO_JOBS, filters, locationCatalog).sort(
       (a, b) => new Date(b.firstSeenAt).getTime() - new Date(a.firstSeenAt).getTime()
     );
+    // The recency tiles are COMPANY-SCOPED and scoped to nothing else — see
+    // `get_search_counts` / `_header_counts_where`. Demo mode has to apply that
+    // scope by hand, because it has no request to derive it from: counting all
+    // of DEMO_JOBS held the tiles at the corpus-wide number while the rows below
+    // them narrowed to one company, which is exactly the inflation the
+    // server-side count was re-scoped to remove, reintroduced on the one path
+    // with no server to check it. Every OTHER dimension — category, level,
+    // keywords, locations, the time window — stays ignored here just as it is
+    // there, so a narrowed list still sits under an unchanged market reading.
+    const inScope = scopeToCompanyFilter(DEMO_JOBS, filters.company);
     return {
       jobs: matched,
       counts: {
         total: matched.length,
-        last24h: filterJobsByHours(DEMO_JOBS, 24).length,
-        last3h: filterJobsByHours(DEMO_JOBS, 3).length,
+        last24h: filterJobsByHours(inScope, 24).length,
+        last3h: filterJobsByHours(inScope, 3).length,
       },
     };
   }, [demoModeEnabled, filters, locationCatalog]);

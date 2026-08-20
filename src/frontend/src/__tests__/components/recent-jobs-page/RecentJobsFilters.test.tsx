@@ -81,7 +81,8 @@ async function seedRecentStore(
     recentJobsFilters: {
       filters: {
         // Pin a non-default window so the reset test proves the slice's own
-        // default ('90d') is what gets restored, not what was preloaded.
+        // default ('all' — see `recentJobsFiltersSlice.ts`) is what gets restored,
+        // not what was preloaded.
         timeWindow: '30d',
         softwareOnly: false,
         ...overrides,

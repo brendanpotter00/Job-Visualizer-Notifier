@@ -65,6 +65,8 @@ describe('/api/jobs serverless function', () => {
     return (options.headers ?? {}) as Record<string, string>;
   }
 
+  const originalFetch = global.fetch;
+
   beforeEach(() => {
     mockReq = { method: 'GET', query: {}, headers: {}, body: undefined };
 
@@ -76,6 +78,8 @@ describe('/api/jobs serverless function', () => {
     };
 
     fetchMock = vi.fn();
+    // Restored in `afterEach` — a replaced global outlives the file otherwise
+    // and leaks into whatever the runner schedules next in this worker.
     global.fetch = fetchMock as unknown as typeof fetch;
 
     delete process.env.BACKEND_API_URL;
@@ -83,6 +87,7 @@ describe('/api/jobs serverless function', () => {
   });
 
   afterEach(() => {
+    global.fetch = originalFetch;
     vi.clearAllMocks();
     delete process.env.BACKEND_API_URL;
     delete process.env.INTERNAL_API_KEY;

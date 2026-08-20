@@ -337,7 +337,7 @@ describe('RecentJobsList', () => {
 
       expect(screen.getByText(ERROR_TEXT)).toBeInTheDocument();
       expect(
-        screen.getByRole('button', { name: EMPTY_STATE_MESSAGES.RETRY_OLDER_JOBS })
+        screen.getByRole('button', { name: EMPTY_STATE_MESSAGES.RETRY_NEXT_PAGE })
       ).toBeInTheDocument();
       // Losing the loaded rows would punish the reader for a transient blip.
       expect(mountedRowCount()).toBeGreaterThan(0);
@@ -346,7 +346,7 @@ describe('RecentJobsList', () => {
     it('re-runs the failed fetch when the retry is clicked', () => {
       const { search } = renderWithNextPageError();
 
-      fireEvent.click(screen.getByRole('button', { name: EMPTY_STATE_MESSAGES.RETRY_OLDER_JOBS }));
+      fireEvent.click(screen.getByRole('button', { name: EMPTY_STATE_MESSAGES.RETRY_NEXT_PAGE }));
 
       expect(search.retry).toHaveBeenCalledTimes(1);
     });
@@ -371,7 +371,7 @@ describe('RecentJobsList', () => {
 
       expect(screen.queryByText(/No jobs found matching your filters/)).not.toBeInTheDocument();
       expect(
-        screen.getByRole('button', { name: EMPTY_STATE_MESSAGES.RETRY_OLDER_JOBS })
+        screen.getByRole('button', { name: EMPTY_STATE_MESSAGES.RETRY_NEXT_PAGE })
       ).toBeInTheDocument();
     });
   });

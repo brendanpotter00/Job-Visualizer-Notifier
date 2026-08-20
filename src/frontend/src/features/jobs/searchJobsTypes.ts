@@ -26,7 +26,16 @@ export interface SearchJobsCounts {
   last3h: number;
 }
 
-/** Raw envelope as it comes off the wire (camelCase, job rows untransformed). */
+/**
+ * The response envelope AFTER `validateSearchJobsResponse` has normalized it —
+ * job rows still untransformed, but the header metrics renamed.
+ *
+ * NOT byte-for-byte the wire shape: the endpoint sends the metrics as `meta`
+ * (`{filteredTotal, countLast24h, countLast3h}` — see `JobSearchResponse` in
+ * `api/models.py`), and the validator both renames the key to `counts` and maps
+ * the three fields onto `SearchJobsCounts`. The rename happens in exactly one
+ * place; nothing downstream of the validator ever sees `meta`.
+ */
 export interface SearchJobsResponseBody {
   jobs: BackendJobListing[];
   /**

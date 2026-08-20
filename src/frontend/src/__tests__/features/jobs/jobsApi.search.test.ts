@@ -5,6 +5,8 @@ import { jobsApi } from '../../../features/jobs/jobsApi';
 import { buildSearchJobsArgs, RECENT_SEARCH_PAGE_SIZE } from '../../../features/jobs/searchJobsArgs';
 import type { SearchJobsArgs, SearchJobsPage } from '../../../features/jobs/searchJobsTypes';
 import type { RecentJobsFilters } from '../../../types';
+import { ERROR_MESSAGES } from '../../../constants/messages';
+import { logger } from '../../../lib/logger';
 
 /**
  * `searchJobs` is a native RTK `infiniteQuery` whose `queryFn` calls raw
@@ -408,8 +410,17 @@ describe('searchJobs cache isolation', () => {
 });
 
 describe('searchJobs response validation', () => {
-  /** Every malformed body must land as a query ERROR, never as renderable data. */
+  /**
+   * Every malformed body must land as a query ERROR, never as renderable data —
+   * and the diagnostic must land in the LOG, not on the page.
+   *
+   * `messageFragment` is asserted against what was logged, because none of these
+   * strings is written for a reader: "bad job row shape" names a wire contract
+   * they cannot act on and reads as self-inflicted. `extractErrorMessage` renders
+   * `error.data` verbatim in `ErrorState`, so anything put there IS the page.
+   */
   async function expectValidationError(body: unknown, messageFragment: string) {
+    const logged = vi.spyOn(logger, 'error').mockImplementation(() => {});
     respond = () => ({ body });
     const store = makeStore();
     const walk = startWalk(store, makeArgs());
@@ -418,8 +429,11 @@ describe('searchJobs response validation', () => {
     expect(result.data).toBeUndefined();
     expect(result.error).toBeDefined();
     expect((result.error as { status?: unknown }).status).toBe('CUSTOM_ERROR');
-    expect(String((result.error as { data?: unknown }).data)).toContain(messageFragment);
+    expect((result.error as { data?: unknown }).data).toBe(ERROR_MESSAGES.LOAD_JOBS_FAILED);
+    expect(logged).toHaveBeenCalledTimes(1);
+    expect(String(logged.mock.calls[0][1])).toContain(messageFragment);
 
+    logged.mockRestore();
     walk.unsubscribe();
   }
 
@@ -454,6 +468,44 @@ describe('searchJobs response validation', () => {
       { jobs: [makeRow()], nextCursor: null, meta: { filteredTotal: '137' } },
       'bad meta shape'
     );
+  });
+
+  it('does not put a transport failure on the page, but does log it', async () => {
+    // A dropped connection throws a browser-specific TypeError ("Failed to fetch"
+    // in Chrome, "NetworkError when attempting to fetch resource." in Firefox).
+    // Returning it as `data` made the page's error text vary by browser and named
+    // nothing the reader could do; the reason belongs in the log instead.
+    const logged = vi.spyOn(logger, 'error').mockImplementation(() => {});
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+    const store = makeStore();
+    const walk = startWalk(store, makeArgs());
+    const result = await walk;
+
+    expect((result.error as { status?: unknown }).status).toBe('CUSTOM_ERROR');
+    expect((result.error as { data?: unknown }).data).toBe(ERROR_MESSAGES.LOAD_JOBS_FAILED);
+    expect(logged).toHaveBeenCalledTimes(1);
+    expect(String(logged.mock.calls[0][1])).toContain('Failed to fetch');
+
+    logged.mockRestore();
+    walk.unsubscribe();
+  });
+
+  it('stays silent when the request is merely aborted', async () => {
+    // RTK Query aborts this signal on every unsubscribe and refetch — which the
+    // Recent page does on every filter change — so an abort logged as an error
+    // would bury the real failures in noise.
+    const logged = vi.spyOn(logger, 'error').mockImplementation(() => {});
+    const abort = new Error('The operation was aborted.');
+    abort.name = 'AbortError';
+    fetchMock.mockRejectedValue(abort);
+    const store = makeStore();
+    const walk = startWalk(store, makeArgs());
+    await walk;
+
+    expect(logged).not.toHaveBeenCalled();
+
+    logged.mockRestore();
+    walk.unsubscribe();
   });
 
   it('preserves a 404 status so the deploy-grace layer can key off it', async () => {

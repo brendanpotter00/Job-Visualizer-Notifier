@@ -155,7 +155,7 @@ export function RecentJobsList({ search }: RecentJobsListProps) {
                   fontSize: RESPONSIVE.control.buttonFontSize,
                 }}
               >
-                {EMPTY_STATE_MESSAGES.RETRY_OLDER_JOBS}
+                {EMPTY_STATE_MESSAGES.RETRY_NEXT_PAGE}
               </Button>
             </Box>
           )}

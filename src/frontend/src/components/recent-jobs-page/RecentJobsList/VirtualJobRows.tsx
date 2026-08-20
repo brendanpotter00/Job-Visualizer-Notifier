@@ -7,12 +7,14 @@ import { VIRTUAL_LIST_CONFIG } from '../../../constants/ui.ts';
 import { useIsMobile } from '../../../hooks/useIsMobile.ts';
 
 interface VirtualJobRowsProps {
-  /** Rows to render. Already filtered, sorted, and windowed by the caller. */
+  /** Rows to render. Already filtered and ordered by the server. */
   jobs: Job[];
   /**
-   * Size of the FULL list these rows are a prefix of, for `aria-setsize`.
-   * Assistive tech should hear the length of the list the user is navigating,
-   * not the size of the reveal window (and certainly not the mounted slice).
+   * Length of the list the reader is navigating, for `aria-setsize` — NOT the
+   * mounted slice, which is a rendering detail assistive tech must never hear.
+   * Today the only caller passes `jobs.length`: the server returns exactly the
+   * matching rows, so every row loaded is a row in the list. It stays a separate
+   * prop because the two diverge the moment anything is loaded but not rendered.
    */
   totalCount: number;
 }
@@ -124,8 +126,10 @@ export function VirtualJobRows({ jobs, totalCount }: VirtualJobRowsProps) {
     <Box
       ref={attachContainer}
       role="list"
-      // The size of the reveal window, published for tests and for debugging a
-      // list whose mounted rows deliberately tell you nothing about it.
+      // How many rows have been loaded so far, published for tests and for
+      // debugging a list whose mounted rows deliberately tell you nothing about
+      // it. Named for the client-side reveal window it used to measure; it now
+      // measures the pages the keyset walk has fetched.
       data-client-window={jobs.length}
       sx={{
         position: 'relative',
@@ -136,11 +140,12 @@ export function VirtualJobRows({ jobs, totalCount }: VirtualJobRowsProps) {
       }}
     >
       {virtualizer.getVirtualItems().map((virtualRow) => {
-        // The row set can SHRINK under the virtualizer: a window widening
-        // clears the cursors and floors, which drops the completeness clamp and
-        // then re-applies a tighter one as the restarted pages land. Indices
-        // from the render before that are stale, so this guard is load-bearing,
-        // not defensive habit.
+        // The row set can SHRINK under the virtualizer: on a filter change RTK
+        // Query swaps `data` to the new filter set's pages, which is routinely
+        // SHORTER than what was on screen (page 1 of a narrower search replacing
+        // five loaded pages of a wider one). The virtual items computed from the
+        // previous render still carry the old, larger indices. Load-bearing, not
+        // defensive habit — deleting it renders `undefined.id` and throws.
         const job = jobs[virtualRow.index];
         if (!job) return null;
 

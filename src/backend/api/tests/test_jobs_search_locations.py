@@ -472,9 +472,22 @@ def test_a_selection_that_resolves_to_no_structure_falls_back_to_exact_name_matc
     that name and nothing else. The two decoys cover the two ways this degrades —
     treating the absent city as a wildcard (which would sweep in every other
     structureless row) and matching the name as a prefix rather than in full.
+
+    ``other_vague`` therefore carries NO structure at all, not even a country: a
+    wildcard degradation emits ``upper(l.region) IS NOT DISTINCT FROM NULL AND
+    upper(l.country) IS NOT DISTINCT FROM NULL``, which a row with any country
+    fails on structure alone. A decoy that a broken predicate excludes for the
+    wrong reason pins nothing.
+
+    Its ``kind`` differs from ``vague``'s only because it has to: uniqueness on
+    ``locations`` is the tuple ``(kind, city, region, country, remote_scope)`` and
+    excludes ``canonical_name`` (``uq_locations_canonical``), so a SECOND
+    all-NULL ``city`` row is not merely undesirable, it is unrepresentable. The
+    city branch does not read ``kind`` at all, so the decoy is swept in by the
+    degradation exactly as a same-kind row would be.
     """
     vague = _place(db_conn, "Undisclosed")
-    other_vague = _place(db_conn, "Unknown", country="ZZ")
+    other_vague = _place(db_conn, "Unknown", kind="region")
     suffixed = _place(db_conn, "Undisclosed, US", country="US")
     _job(db_conn, "no-place", vague)
     _job(db_conn, "other-no-place", other_vague)

@@ -9,6 +9,8 @@ import { buildSearchJobsQuery } from './searchJobsArgs';
 import { validateSearchJobsResponse } from './validateSearchJobsResponse';
 import type { SearchJobsArgs, SearchJobsPage } from './searchJobsTypes';
 import { ERROR_MESSAGES } from '../../constants/messages';
+import { extractErrorMessage } from '../../lib/errors';
+import { logger } from '../../lib/logger';
 
 interface JobsQueryResult {
   jobs: Job[];
@@ -52,12 +54,29 @@ async function readErrorDetail(response: Response): Promise<string> {
   }
   try {
     const body: unknown = await response.json();
-    const detail = (body as { detail?: unknown } | null)?.detail;
-    if (typeof detail === 'string' && detail.length > 0) return detail;
+    // Wrapped as `{ data }` because that is the shape `extractErrorMessage`
+    // decodes: it owns the `detail` / `message` precedence and the "a 422's LIST
+    // detail is developer output, not reader output" rule, and re-implementing
+    // either here is exactly the duplication rule 3 in `src/frontend/CLAUDE.md`
+    // forbids. What stays local is the STATUS gate above, which is a different
+    // decision entirely — see `READER_FACING_ERROR_STATUSES`.
+    return extractErrorMessage({ data: body }, ERROR_MESSAGES.LOAD_JOBS_FAILED);
   } catch {
     // Empty or non-JSON body — nothing more specific to say than the fallback.
+    return ERROR_MESSAGES.LOAD_JOBS_FAILED;
   }
-  return ERROR_MESSAGES.LOAD_JOBS_FAILED;
+}
+
+/**
+ * An abort is not a failure.
+ *
+ * RTK Query aborts this `signal` whenever the cache entry is unsubscribed or
+ * refetched — which the Recent page does on every filter change — so logging
+ * these would drown the log in events that mean "the reader changed their mind".
+ * The returned error is discarded by RTK for the same reason.
+ */
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError';
 }
 
 export const jobsApi = createApi({
@@ -174,11 +193,21 @@ export const jobsApi = createApi({
             },
           };
         } catch (error) {
+          // NOTHING that lands here was written for a reader.
+          // `validateSearchJobsResponse` throws shape diagnostics ("bad job row
+          // shape"), a non-JSON 200 body throws a SyntaxError about position 0,
+          // and a dropped connection throws a browser-specific TypeError. All
+          // three used to be returned as `data`, which `extractErrorMessage`
+          // renders verbatim in `ErrorState` — the same leak
+          // `READER_FACING_ERROR_STATUSES` closed for the status branch above —
+          // while the actual reason went nowhere at all. So the reason is LOGGED
+          // (the convention in `api/jobs.ts` and `backendScraperClient.ts`) and
+          // the reader gets the same line every other unattributable failure gets.
+          if (!isAbortError(error)) {
+            logger.error('[jobsApi] /api/jobs/search request failed:', error);
+          }
           return {
-            error: {
-              status: 'CUSTOM_ERROR',
-              data: error instanceof Error ? error.message : 'Unknown error',
-            },
+            error: { status: 'CUSTOM_ERROR', data: ERROR_MESSAGES.LOAD_JOBS_FAILED },
           };
         }
       },

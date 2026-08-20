@@ -28,8 +28,12 @@ export const EMPTY_STATE_MESSAGES = {
   /**
    * Retry label on the inline error shown when fetching the NEXT page fails.
    * The rows already loaded stay on screen behind it.
+   *
+   * Named for the next PAGE, not for "older jobs": the client-side keyset walk
+   * that once had a "search older jobs" affordance is gone, and the button now
+   * simply reissues the failed `searchJobs` page request.
    */
-  RETRY_OLDER_JOBS: 'Try again',
+  RETRY_NEXT_PAGE: 'Try again',
 } as const;
 
 /**

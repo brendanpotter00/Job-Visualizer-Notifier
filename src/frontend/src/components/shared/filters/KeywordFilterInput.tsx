@@ -9,6 +9,7 @@ import {
   MAX_SEARCH_TAGS,
   MAX_SEARCH_TAGS_REACHED_HELPER_TEXT,
   SOFTWARE_ENGINEERING_TAGS,
+  keywordListDoesNotFitHelperText,
 } from '../../../constants/tags';
 import { extractErrorMessage } from '../../../lib/errors.ts';
 import {
@@ -78,6 +79,15 @@ function orderLists(lists: KeywordList[]): KeywordList[] {
  * per tag). Dedupe is by text only (see `addSearchTagToFilters`), so on a
  * text collision the existing tag's mode wins (first-writer-wins) and the
  * list's copy is skipped — an intentional, minimal behavior.
+ *
+ * The merge is ALL-OR-NOTHING against `MAX_SEARCH_TAGS`. Dispatching the adds
+ * one at a time and letting each one meet the cap independently means a list
+ * that does not fit is applied in PART: with 18 chips already up, the 6-tag
+ * built-in list contributes 2 keywords and drops 4, with nothing on screen
+ * saying so — and since the option's checkmark only lights on an exact set
+ * match, the reader has no way to tell the list is not the filter running. So
+ * the fit is measured first, and a list that does not fit is refused whole with
+ * the reason in `helperText`.
  */
 export function KeywordFilterInput({
   value,
@@ -106,6 +116,9 @@ export function KeywordFilterInput({
   // keyword-lists fetch and a failed sign-in redirect — surface inline through
   // the TextField error/helperText channel (mirrors AsyncMultiSelectAutocomplete).
   const [loginError, setLoginError] = useState<string | null>(null);
+  // Set only when a picked list is refused for not fitting the budget. Cleared by
+  // the next interaction of any kind, so it never outlives the pick it explains.
+  const [listRejection, setListRejection] = useState<string | null>(null);
   const listsErrorMessage = isListsError
     ? extractErrorMessage(listsError, 'Failed to load keyword lists')
     : null;
@@ -151,12 +164,41 @@ export function KeywordFilterInput({
     addTypedTag(event);
   };
 
+  /**
+   * Apply a whole keyword list, or none of it.
+   *
+   * `addSearchTagToFilters` trims, skips blanks and dedupes by TEXT, so the real
+   * cost of a list is only the tags it would actually add — a list whose every
+   * tag is already a chip costs nothing and is always allowed through. When that
+   * cost exceeds the remaining room, not one `onAdd` is dispatched.
+   */
+  const applyList = (opt: Extract<KeywordOption, { kind: 'list' }>) => {
+    const seen = new Set(currentTags.map((tag) => tag.text));
+    const additions: SearchTag[] = [];
+    for (const tag of opt.tags) {
+      const text = tag.text.trim();
+      if (!text || seen.has(text)) continue;
+      seen.add(text);
+      additions.push({ text, mode: tag.mode });
+    }
+
+    const room = MAX_SEARCH_TAGS - currentTags.length;
+    if (additions.length > room) {
+      setListRejection(keywordListDoesNotFitHelperText(additions.length, Math.max(0, room)));
+      return;
+    }
+    additions.forEach((tag) => onAdd(tag));
+  };
+
   const handleChange = (
     _event: React.SyntheticEvent,
     _newValue: unknown,
     reason: AutocompleteChangeReason,
     details?: AutocompleteChangeDetails<KeywordOption | SearchTag | string>
   ) => {
+    // Any new interaction supersedes a previous list refusal; the branches below
+    // re-set it if this pick is refused too.
+    setListRejection(null);
     // `value` is controlled from Redux; never feed `_newValue` back — it would
     // inject a keyword-list option object as a broken chip. Branch on reason.
     if (reason === 'clear') {
@@ -179,8 +221,7 @@ export function KeywordFilterInput({
           setLoginError(extractErrorMessage(error, 'Sign-in failed. Please try again.'));
         });
       } else {
-        // Merge: one add per tag, reusing the slice's dedupe-by-text.
-        opt.tags.forEach((tag) => onAdd({ ...tag }));
+        applyList(opt);
       }
     }
     // `createOption` (freeSolo Enter) is handled by handleKeyDown; ignore here.
@@ -208,6 +249,7 @@ export function KeywordFilterInput({
       inputValue={inputValue}
       onInputChange={(_, next) => {
         setInputValue(next);
+        setListRejection(null);
         // Typing new text invalidates any prior highlight (including a stale
         // mouse-hover highlight from an earlier list pick), so a typed keyword +
         // Enter is never silently deferred to MUI's selectOption and dropped.
@@ -275,8 +317,15 @@ export function KeywordFilterInput({
               : 'Pick a list or type a keyword (- to exclude)…'
           }
           error={errorMessage != null}
-          // A real failure outranks the cap notice; the cap is a rule, not an error.
-          helperText={errorMessage ?? (atTagLimit ? MAX_SEARCH_TAGS_REACHED_HELPER_TEXT : undefined)}
+          // A real failure outranks both budget lines; the cap is a rule, not an
+          // error. A refused list outranks the standing cap notice because it
+          // explains something the reader just DID, not a standing condition —
+          // and at 18-of-20 chips the standing notice is not even showing.
+          helperText={
+            errorMessage ??
+            listRejection ??
+            (atTagLimit ? MAX_SEARCH_TAGS_REACHED_HELPER_TEXT : undefined)
+          }
         />
       )}
       onKeyDown={handleKeyDown}

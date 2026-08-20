@@ -268,7 +268,8 @@ def search(
         default=None,
         description=(
             "Repeatable keyword. A job matches if ANY include term appears in its "
-            "title, raw location, company, or tags (case-insensitive substring)."
+            "title, raw location, company, tags, or experience level (the field the "
+            "UI labels 'department') — case-insensitive substring."
         ),
     ),
     exclude: list[str] | None = Query(
@@ -308,9 +309,10 @@ def search(
     --------------------------------------------------------------
     Dimensions AND together; values within a dimension OR. An active ``category``
     or ``level`` filter **hides unenriched rows** (NULL category/level) — 65% of
-    OPEN rows at the time of writing. Keyword terms match a narrowed haystack
-    (title, raw location, company, tags) — see ``services/job_search.py`` for why
-    ``department``/``team`` are excluded. A job with no normalized location tags
+    OPEN rows at the time of writing. Keyword terms match title, raw location,
+    company, tags and ``experience_level`` — the column the UI labels ``department``
+    — while ``team`` is unsearched only because no transformer populates it; see
+    ``services/job_search.py`` for the field-by-field parity argument. A job with no normalized location tags
     matches no active location filter.
     """
     categories = _validate_slugs(category, pattern=_CATEGORY_RE, field="category")
