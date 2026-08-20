@@ -54,7 +54,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // traversal like `/api/jobs/../admin` is rejected in canonicalization before
   // it can reach this pattern. The GET-only detail read injects the internal key
   // like every other sub-path and 404s cleanly when no row matches.
-  const sub = resolveProxyPath(path, ['', 'facets', 'search', ':source/:job']);
+  const sub = resolveProxyPath(path, ['', 'facets', 'search', 'settings', ':source/:job']);
   if (sub === null) {
     res.status(PROXY_REJECTION.status).json(PROXY_REJECTION.body);
     return;
