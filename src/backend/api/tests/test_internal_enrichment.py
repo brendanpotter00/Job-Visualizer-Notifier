@@ -2000,6 +2000,99 @@ class TestResults:
         assert resp.status_code == 200
         assert resp.json() == {"written": 0, "failed": [], "warnings": []}
 
+    # --- SCHEMA-3: the `_UNSET` distinction AT THE HTTP BOUNDARY ------------- #
+    #
+    # TestApplySubcategories proves the writer honours `_UNSET`, but it calls
+    # `apply_result` directly, where `_UNSET` comes from the CALLER omitting the
+    # dict key — something the route never does. On the wire the key arrives
+    # absent and `model_dump()` flattens absent and null into the same `None`;
+    # only the router's `model_fields_set` pop carries the distinction into the
+    # writer. These two tests are the only coverage of those lines.
+
+    def _seed_subcategorised(
+        self, db_conn, job_id, subcats, source, confidence, src_id="google_scraper"
+    ):
+        _insert_job(db_conn, _make_job({"id": job_id, "source_id": src_id}))
+        cur = db_conn.cursor()
+        cur.execute(
+            "UPDATE job_listings SET enrichment_subcategories = %s::text[], "
+            "enrichment_subcategory_source = %s WHERE source_id = %s AND id = %s",
+            (subcats, source, src_id, job_id),
+        )
+        cur.execute(
+            "INSERT INTO job_enrichment (source_id, job_listing_id, "
+            "subcategory_confidence) VALUES (%s, %s, %s)",
+            (src_id, job_id, confidence),
+        )
+        db_conn.commit()
+
+    def _v6_item(self, job_id, **extra):
+        """Exactly what a v6 enricher posts: no `subcategories` key at all."""
+        item = {
+            "job_listing_id": job_id,
+            "source_id": "google_scraper",
+            "category": "software_engineering",
+            "level": "senior",
+            "tags": [],
+            "locations": [],
+        }
+        item.update(extra)
+        return item
+
+    def test_a_v6_shaped_REQUEST_leaves_the_array_source_AND_confidence_alone(
+        self, enrichment_client, db_conn
+    ):
+        """⚠ THE SILENT FAILURE, PROVEN THROUGH HTTP.
+
+        Delete the two `model_fields_set` pop lines in the route and every
+        ordinary tick of a v6 enricher wipes the backfill's labels — while the
+        response still says `200 {"written": 1}`. Nothing else in the suite
+        fails when those lines go, because the writer-level test constructs
+        `_UNSET` by omitting a dict key, which no HTTP request can do.
+        """
+        self._seed_subcategorised(
+            db_conn, "r-v6", ["backend", "full_stack"], "backfill", 0.77
+        )
+
+        resp = enrichment_client.post(
+            "/api/internal/enrichment/results",
+            json={"results": [self._v6_item("r-v6")]},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["written"] == 1
+        db_conn.commit()
+
+        facets = _fetch_listing_facets(db_conn, "r-v6")
+        assert facets["enrichment_subcategories"] == ["backend", "full_stack"]
+        assert facets["enrichment_subcategory_source"] == "backfill"
+        assert _fetch_job_enrichment(db_conn, "r-v6")["subcategory_confidence"] == 0.77
+
+    def test_an_explicit_null_over_the_wire_STILL_requeues_the_row(
+        self, enrichment_client, db_conn
+    ):
+        """The other half of the boundary: absent and null must NOT collapse.
+
+        A route that popped the key unconditionally (or dropped `None` values
+        wholesale) would pass the test above and silently make the explicit
+        re-queue signal unreachable — `null` means "never evaluated", and it is
+        how a row gets BACK into the backfill queue.
+        """
+        self._seed_subcategorised(
+            db_conn, "r-null", ["backend"], "classify", 0.55
+        )
+
+        resp = enrichment_client.post(
+            "/api/internal/enrichment/results",
+            json={"results": [self._v6_item("r-null", subcategories=None)]},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["written"] == 1
+        db_conn.commit()
+
+        facets = _fetch_listing_facets(db_conn, "r-null")
+        assert facets["enrichment_subcategories"] is None
+        assert facets["enrichment_subcategory_source"] is None
+
 
 class TestHealth:
     def test_reports_status_counts(self, enrichment_client, db_conn, monkeypatch):
@@ -2948,6 +3041,83 @@ class TestSubcategoryResults:
         body = resp.json()
         assert body["written"] == 0
         assert body["failed"][0]["job_listing_id"] == "ghost"
+
+    def test_an_item_with_NO_subcategories_key_FAILS_and_writes_nothing(
+        self, enrichment_client, db_conn
+    ):
+        """⚠ §1.2(B): the key may NOT be absent on this endpoint.
+
+        There is nothing else in a subcategory item, so an item without the key
+        said nothing at all — and the value it would otherwise be read as (null)
+        NULLs an existing label array AND its source. The writer raises for the
+        `_UNSET` case, but `model_dump()` flattens absent into `None`, so that
+        guard is only reachable because the route pops the key when Pydantic
+        reports it unset. Without the pop this returns `written: 1` and quietly
+        destroys the backfill's work.
+        """
+        self._seed(db_conn, "sr-absent")
+        cur = db_conn.cursor()
+        cur.execute(
+            "UPDATE job_listings SET enrichment_subcategories='{backend}'::text[], "
+            "enrichment_subcategory_source='backfill' WHERE id='sr-absent'"
+        )
+        db_conn.commit()
+
+        resp = enrichment_client.post(
+            self.URL,
+            json={"items": [{"jobListingId": "sr-absent",
+                             "sourceId": "google_scraper",
+                             "taxonomyVersion": "v7+abc123abc123"}]},
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["written"] == 0
+        assert body["failed"][0]["job_listing_id"] == "sr-absent"
+        assert "missing subcategories" in body["failed"][0]["error"]
+        db_conn.commit()
+
+        cur.execute(
+            "SELECT enrichment_subcategories AS s, enrichment_subcategory_source "
+            "AS src FROM job_listings WHERE id='sr-absent'"
+        )
+        row = cur.fetchone()
+        assert row["s"] == ["backend"]
+        assert row["src"] == "backfill"
+
+    def test_an_EXPLICIT_null_is_accepted_and_requeues_the_row(
+        self, enrichment_client, db_conn
+    ):
+        """The counterpart: absent is a client bug, null is a real instruction.
+
+        Popping the key unconditionally would pass the test above while making
+        the "never evaluated, re-queue me" state unsendable on the one endpoint
+        the backfill uses.
+        """
+        self._seed(db_conn, "sr-null")
+        cur = db_conn.cursor()
+        cur.execute(
+            "UPDATE job_listings SET enrichment_subcategories='{backend}'::text[], "
+            "enrichment_subcategory_source='backfill' WHERE id='sr-null'"
+        )
+        db_conn.commit()
+
+        resp = enrichment_client.post(
+            self.URL,
+            json={"items": [{"jobListingId": "sr-null",
+                             "sourceId": "google_scraper",
+                             "subcategories": None}]},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["written"] == 1
+        db_conn.commit()
+
+        cur.execute(
+            "SELECT enrichment_subcategories AS s, enrichment_subcategory_source "
+            "AS src FROM job_listings WHERE id='sr-null'"
+        )
+        row = cur.fetchone()
+        assert row["s"] is None
+        assert row["src"] is None
 
     def test_a_non_swe_row_is_forced_to_null_with_a_warning(
         self, enrichment_client, db_conn

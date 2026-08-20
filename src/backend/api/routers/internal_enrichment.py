@@ -563,8 +563,20 @@ def subcategory_results(
             try:
                 cur.execute("SAVEPOINT subcat_row")
                 item = SubcategoryResultItem.model_validate(raw_item)
+                item_payload = item.model_dump()
+                # Same `model_fields_set` pop as /results, for the OPPOSITE
+                # reason. `model_dump()` flattens "key absent" and "key null"
+                # into the same `None`, and on THIS endpoint the key may not be
+                # absent at all (§1.2 B): there is nothing else in the payload,
+                # so an item without `subcategories` said nothing. Popping it
+                # lets the writer's `_UNSET` guard fire and route the row to
+                # `failed[]` — without this, an absent key would read as an
+                # explicit null and silently NULL an existing label array and
+                # its source while the response still reported `written: 1`.
+                if "subcategories" not in item.model_fields_set:
+                    item_payload.pop("subcategories", None)
                 did_write, warnings = apply_subcategory_result(
-                    conn, item.model_dump()
+                    conn, item_payload
                 )
                 cur.execute("RELEASE SAVEPOINT subcat_row")
                 if did_write:
