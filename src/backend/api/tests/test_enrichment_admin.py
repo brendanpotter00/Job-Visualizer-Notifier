@@ -747,6 +747,59 @@ class TestAdminEnrichmentRecent:
         assert "url" in rows[0]
 
 
+class TestPublicSettings:
+    """GET /api/jobs/settings — the unauthenticated reveal-flag read."""
+
+    URL = "/api/jobs/settings"
+
+    def test_unauthenticated_get_returns_the_default_on_an_empty_table(self, client):
+        resp = client.get(self.URL)
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {"sweSubcategoriesEnabled": False}
+
+    def test_reflects_a_directly_inserted_row(self, client, db_conn):
+        cur = db_conn.cursor()
+        cur.execute("TRUNCATE app_settings")
+        cur.execute(
+            "INSERT INTO app_settings (key, value) VALUES "
+            "('swe_subcategories_enabled', 'true'::jsonb)"
+        )
+        db_conn.commit()
+        try:
+            assert client.get(self.URL).json() == {"sweSubcategoriesEnabled": True}
+        finally:
+            cur.execute("TRUNCATE app_settings")
+            db_conn.commit()
+
+    def test_a_read_failure_returns_false_NOT_a_500(self, client, db_conn):
+        """FAIL CLOSED. This endpoint is unauthenticated and on the critical
+        path for every visitor; a 500 mid-deploy would break the page. Hidden is
+        the right failure direction for a reveal flag — the alternative is
+        revealing a filter that returns nothing."""
+        cur = db_conn.cursor()
+        cur.execute("DROP TABLE IF EXISTS app_settings")
+        db_conn.commit()
+        try:
+            resp = client.get(self.URL)
+            assert resp.status_code == 200, resp.text
+            assert resp.json() == {"sweSubcategoriesEnabled": False}
+        finally:
+            cur.execute(
+                "CREATE TABLE IF NOT EXISTS app_settings ("
+                "  key TEXT PRIMARY KEY,"
+                "  value JSONB NOT NULL,"
+                "  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),"
+                "  updated_by TEXT)"
+            )
+            db_conn.commit()
+
+    def test_the_response_names_its_fields_and_leaks_nothing_else(self, client):
+        """A hard boundary: the model names one field rather than dumping the
+        settings table, so an admin-only setting added later cannot leak by
+        being appended to one dict."""
+        assert set(client.get(self.URL).json()) == {"sweSubcategoriesEnabled"}
+
+
 class TestJobFacets:
     def test_facets_catalog(self, client):
         resp = client.get("/api/jobs/facets")
