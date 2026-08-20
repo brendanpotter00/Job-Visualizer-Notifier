@@ -18,7 +18,9 @@ a relevance ordering has no immutable, unique sort key to seek on.
 
 import logging
 import re
+import time
 from collections.abc import Mapping
+from typing import NoReturn
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -131,6 +133,11 @@ _MAX_LOCATION_LENGTH = 200
 _MAX_KEYWORDS = 20
 _MAX_KEYWORD_LENGTH = 100
 
+# Half of prod's DB_POOL_TIMEOUT (5s). A request past this has not failed, but it
+# is holding a pooled connection long enough that a few concurrent ones would
+# start queueing — which is the shape the 2026-08-19 checkout-timeout burst took.
+_SLOW_SEARCH_MS = 2500.0
+
 # ``\Z``, never ``$``. In Python ``$`` also matches immediately before a trailing
 # newline, so ``?category=software_engineering%0A`` or ``?company=stripe%0A`` would
 # validate here and then be compared against the column as a different string —
@@ -161,6 +168,32 @@ def _dedupe(values: list[str]) -> list[str]:
     return out
 
 
+def _reject(status_code: int, detail: str, **context: object) -> NoReturn:
+    """Log a rejection, then raise it.
+
+    Every rejection on this endpoint goes through here instead of raising
+    ``HTTPException`` directly, so that adding a new one without logging it is
+    not something you can do by accident. Before this, both new modules on the
+    Recent page's primary read path bound a module logger and never called it —
+    a cap that started firing in production was a bare 400 in the access log and
+    nothing else, which is the wrong thing to discover from a user report.
+
+    WARNING, not ERROR: a rejection is the endpoint working. It becomes
+    interesting when the RATE changes — a cap suddenly firing means either a
+    client regression or a bound that reality has outgrown, and both are
+    invisible without a line to count.
+
+    ``detail`` is already reader-safe (it is surfaced verbatim to the browser for
+    400/422), so logging it verbatim leaks nothing that the caller did not send.
+    """
+    if context:
+        extras = " ".join(f"{k}={v!r}" for k, v in sorted(context.items()))
+        logger.warning("jobs-search rejected %d: %s (%s)", status_code, detail, extras)
+    else:
+        logger.warning("jobs-search rejected %d: %s", status_code, detail)
+    raise HTTPException(status_code=status_code, detail=detail)
+
+
 def _validate_slugs(
     values: list[str] | None, *, pattern: re.Pattern[str], field: str
 ) -> list[str] | None:
@@ -174,15 +207,11 @@ def _validate_slugs(
     if not values:
         return None
     if len(values) > _MAX_FACET_VALUES:
-        raise HTTPException(
-            status_code=400,
-            detail=f"'{field}' accepts at most {_MAX_FACET_VALUES} values.",
-        )
+        _reject(400, f"'{field}' accepts at most {_MAX_FACET_VALUES} values.",
+                field=field, received=len(values))
     for value in values:
         if not pattern.match(value):
-            raise HTTPException(
-                status_code=422, detail=f"Invalid '{field}' value: {value!r}"
-            )
+            _reject(422, f"Invalid '{field}' value: {value!r}", field=field)
     return _dedupe(values)
 
 
@@ -190,14 +219,11 @@ def _validate_companies(values: list[str] | None) -> list[str] | None:
     if not values:
         return None
     if len(values) > _MAX_COMPANIES:
-        raise HTTPException(
-            status_code=400, detail=f"'company' accepts at most {_MAX_COMPANIES} IDs."
-        )
+        _reject(400, f"'company' accepts at most {_MAX_COMPANIES} IDs.",
+                received=len(values), cap=_MAX_COMPANIES)
     for value in values:
         if not _COMPANY_ID_RE.match(value):
-            raise HTTPException(
-                status_code=400, detail=f"Invalid company id in 'company': {value!r}"
-            )
+            _reject(400, f"Invalid company id in 'company': {value!r}")
     return _dedupe(values)
 
 
@@ -220,25 +246,18 @@ def _validate_text_list(
         return None
     total = len(values) + len(combined_with or [])
     if total > max_values:
-        raise HTTPException(
-            status_code=400,
-            detail=f"'{field}' accepts at most {max_values} values.",
-        )
+        _reject(400, f"'{field}' accepts at most {max_values} values.",
+                field=field, received=len(values), partner=len(combined_with or []),
+                cap=max_values)
     for value in values:
         if not value:
-            raise HTTPException(
-                status_code=422, detail=f"'{field}' values must not be empty."
-            )
+            _reject(422, f"'{field}' values must not be empty.", field=field)
         if len(value) > max_length:
-            raise HTTPException(
-                status_code=422,
-                detail=f"'{field}' values must be at most {max_length} characters.",
-            )
+            _reject(422, f"'{field}' values must be at most {max_length} characters.",
+                    field=field, length=len(value))
         if _CONTROL_CHARS_RE.search(value):
-            raise HTTPException(
-                status_code=422,
-                detail=f"'{field}' values must not contain control characters.",
-            )
+            _reject(422, f"'{field}' values must not contain control characters.",
+                    field=field)
     return _dedupe(values)
 
 
@@ -422,7 +441,7 @@ def search(
         try:
             parsed_since = parse_utc_timestamp(since, field="'since'")
         except ValueError as exc:
-            raise HTTPException(status_code=422, detail=f"Invalid 'since': {exc}")
+            _reject(422, f"Invalid 'since': {exc}")
 
     # Resolved BEFORE the fingerprint, and folded into it — see below. Also
     # shared by the page query and the count query, so a single request never
@@ -474,9 +493,9 @@ def search(
             # carry out, arriving in a next-page error box whose only affordance
             # replays the SAME stale cursor. Ordered before the InvalidCursorError
             # arm because StaleCursorError subclasses it.
-            raise HTTPException(status_code=409, detail=f"Stale 'cursor': {exc}")
+            _reject(409, f"Stale 'cursor': {exc}")
         except InvalidCursorError as exc:
-            raise HTTPException(status_code=422, detail=f"Invalid 'cursor': {exc}")
+            _reject(422, f"Invalid 'cursor': {exc}")
 
     # Annotated, not inferred: a bare dict literal widens to
     # dict[str, <union of everything>] and the two unpack sites below stop being
@@ -493,6 +512,7 @@ def search(
         "exclude": exclude_terms,
     }
 
+    started = time.monotonic()
     jobs = search_jobs(conn, limit=limit, cursor=parsed_cursor, **filters)
 
     next_cursor: str | None = None
@@ -514,6 +534,24 @@ def search(
             filtered_total=counts["filtered_total"],
             count_last_24h=counts["count_last_24h"],
             count_last_3h=counts["count_last_3h"],
+        )
+
+    # One line per slow request, on the endpoint that owns the Recent page's
+    # entire read path. The keyword predicate runs four un-indexed ILIKEs per
+    # term over job_listings on top of the (now trigram-indexed) job_tags probe,
+    # and page 1 pays the whole predicate twice — so DB time here scales with the
+    # reader's keyword count, against prod's DB_POOL_TIMEOUT of 5s. A checkout
+    # timeout is the failure mode; this is the number that predicts it, and
+    # without it the first sign would be users reporting a dead page.
+    elapsed_ms = (time.monotonic() - started) * 1000
+    if elapsed_ms >= _SLOW_SEARCH_MS:
+        logger.warning(
+            "jobs-search slow: %.0fms page=%s keywords=%d companies=%d locations=%d",
+            elapsed_ms,
+            "1" if parsed_cursor is None else "n",
+            len(include_terms or []) + len(exclude_terms or []),
+            len(companies or []),
+            len(locations or []),
         )
 
     return JobSearchResponse(

@@ -33,6 +33,7 @@ the only way to prove a parameter was actually applied rather than swallowed.
 """
 
 import base64
+import logging
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -754,3 +755,27 @@ def test_the_search_route_does_not_shadow_facets_or_the_job_detail_route(
     search = client.get(SEARCH)
     assert search.status_code == 200, search.text
     assert _ids(search.json()) == ["route-1"]
+
+
+def test_every_rejection_is_logged(client, db_conn, seed_taxonomy, caplog):
+    """A cap that starts firing in production must be visible in the logs.
+
+    Both new modules bound a module logger and never called it, so a 400 was a
+    bare access-log line and nothing else. Routing every rejection through
+    ``_reject`` makes an unlogged one hard to add by accident; this pins that it
+    stays true for a representative rejection from each class.
+    """
+    cases = [
+        ({"company": ["!!bad!!"]}, 400),
+        ({"category": ["Not-A-Slug"]}, 422),
+        ({"include": [""]}, 422),
+        ({"cursor": "garbage"}, 422),
+    ]
+    for params, expected_status in cases:
+        caplog.clear()
+        with caplog.at_level(logging.WARNING, logger="api.routers.jobs_search"):
+            response = client.get("/api/jobs/search", params=params)
+        assert response.status_code == expected_status, (params, response.text)
+        assert any("jobs-search rejected" in r.getMessage() for r in caplog.records), (
+            f"{params} returned {expected_status} but logged nothing"
+        )
