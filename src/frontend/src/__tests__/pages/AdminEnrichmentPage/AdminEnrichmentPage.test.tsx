@@ -379,6 +379,132 @@ describe('AdminEnrichmentPage', () => {
     });
   });
 
+  // ── ADM-9: sortable headers + subcategory filters on the triage queue ────
+
+  function lastNeedsHumanUrl(mock: ReturnType<typeof vi.fn>): string {
+    const urls = mock.mock.calls
+      .map((call) => (call[0] instanceof Request ? call[0].url : String(call[0])))
+      .filter((url) => url.includes('/enrichment/needs-human'));
+    return urls[urls.length - 1] ?? '';
+  }
+
+  it('clicking Confidence sorts desc, clicking again flips to asc — both reset offset', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('Growth Marketing Lead');
+
+    await user.click(screen.getByRole('button', { name: 'Confidence' }));
+    await waitFor(() => {
+      const url = lastNeedsHumanUrl(fetchMock);
+      expect(url).toContain('sort=classify_confidence');
+      expect(url).toContain('sortDir=desc');
+      expect(url).toContain('offset=0');
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Confidence' }));
+    await waitFor(() => {
+      const url = lastNeedsHumanUrl(fetchMock);
+      expect(url).toContain('sort=classify_confidence');
+      expect(url).toContain('sortDir=asc');
+      expect(url).toContain('offset=0');
+    });
+  });
+
+  it('sorts by the Sub conf. column', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('Growth Marketing Lead');
+
+    await user.click(screen.getByRole('button', { name: 'Sub conf.' }));
+    await waitFor(() => {
+      expect(lastNeedsHumanUrl(fetchMock)).toContain('sort=subcategory_confidence');
+    });
+  });
+
+  it('selecting a proposed subcategory issues subcategory=backend', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('Growth Marketing Lead');
+
+    await user.click(screen.getByRole('combobox', { name: 'Proposed subcategory' }));
+    const listbox = await screen.findByRole('listbox');
+    await user.click(within(listbox).getByRole('option', { name: 'Backend' }));
+
+    await waitFor(() => {
+      expect(lastNeedsHumanUrl(fetchMock)).toContain('subcategory=backend');
+    });
+  });
+
+  it('selecting the Unlabelled SWE lens issues subcategoryState', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('Growth Marketing Lead');
+
+    await user.click(screen.getByRole('combobox', { name: 'Subcategory state' }));
+    const listbox = await screen.findByRole('listbox');
+    await user.click(within(listbox).getByRole('option', { name: 'Unlabelled SWE' }));
+
+    await waitFor(() => {
+      expect(lastNeedsHumanUrl(fetchMock)).toContain('subcategoryState=unlabelled_swe');
+    });
+  });
+
+  it('⚠ the queue expander still spans the FULL head row after the column bump', async () => {
+    // The head row went 6 cells -> 7. A stale colSpan={6} leaves the expander
+    // short of the full width, which looks like a rendering bug and is one.
+    const user = userEvent.setup();
+    renderPage();
+
+    const row = (await screen.findByText('Growth Marketing Lead')).closest('tr') as HTMLElement;
+    await user.click(within(row).getByRole('button', { name: 'Expand details' }));
+
+    const table = row.closest('table') as HTMLElement;
+    const headCells = table.querySelectorAll('thead tr th');
+    const expanderCell = table.querySelector('tbody td[colspan]') as HTMLElement;
+    expect(expanderCell.getAttribute('colspan')).toBe(String(headCells.length));
+  });
+
+  it('renders subcategory chips in the queue Proposed cell, primary first', async () => {
+    fetchMock.mockImplementation(
+      routedFetch({
+        needsHumanBody: {
+          ...NEEDS_HUMAN_BODY,
+          rows: [
+            {
+              ...NEEDS_HUMAN_BODY.rows[0],
+              category: 'software_engineering',
+              subcategories: ['backend', 'full_stack'],
+              subcategoryConfidence: 0.77,
+            },
+          ],
+        },
+      })
+    );
+    renderPage();
+
+    const row = (await screen.findByText('Growth Marketing Lead')).closest(
+      'tr'
+    ) as HTMLElement;
+    // Chips render `FACET_LABELS[slug] ?? slug`, and FACET_LABELS is derived
+    // from FALLBACK_CATEGORIES + FALLBACK_LEVELS only — so subcategories fall
+    // through to the raw slug until FE-CT-2 lands FALLBACK_SUBCATEGORIES in the
+    // phase-2 PR. Asserting the slug is asserting what actually renders today.
+    expect(within(row).getByText('backend')).toBeInTheDocument();
+    expect(within(row).getByText('full_stack')).toBeInTheDocument();
+    expect(within(row).getByText('0.77')).toBeInTheDocument();
+  });
+
+  it('renders no subcategory chips and does not throw when the row is null', async () => {
+    renderPage();
+    const row = (await screen.findByText('Growth Marketing Lead')).closest(
+      'tr'
+    ) as HTMLElement;
+    // The default fixture row is `subcategories: null`.
+    expect(within(row).queryByText('backend')).not.toBeInTheDocument();
+    // Sub conf. renders the em-dash placeholder rather than crashing.
+    expect(within(row).getAllByText('—').length).toBeGreaterThan(0);
+  });
+
   // ── ADM-8: the ordered subcategory control inside CorrectionDialog ───────
 
   it('shows the subcategory control only for a SWE row', async () => {
