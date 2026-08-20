@@ -150,6 +150,29 @@ def test_junk_and_missing_input_read_as_no_checklist() -> None:
         assert read_progress(value) is None, value
 
 
+def test_a_non_string_outcome_or_status_degrades_instead_of_raising() -> None:
+    """TOTALITY, the sharp edge: ``x in frozenset`` hashes ``x``.
+
+    A hand-edited (or older-deployment) blob holding a JSON list/object where a plain
+    string belongs used to raise ``TypeError`` out of the read path, 500-ing
+    ``GET /api/users/companies`` over a display-only field.
+    """
+    result = read_progress({
+        "discovery": {
+            "outcome": ["running"],
+            "steps": [
+                {"key": STEP_OPEN_PAGE, "status": {"done": True}},
+                {"key": STEP_FIND_FEED, "status": ["active"]},
+            ],
+        }
+    })
+    assert result is not None
+    assert result["outcome"] == OUTCOME_RUNNING
+    steps = _by_key(result)
+    assert steps[STEP_OPEN_PAGE]["status"] == STATUS_PENDING
+    assert steps[STEP_FIND_FEED]["status"] == STATUS_PENDING
+
+
 def test_a_blob_from_an_older_deployment_is_trimmed_not_raised_on() -> None:
     """Unknown step keys are dropped and missing ones filled as pending, so the
     frontend's closed step union always receives exactly the four it maps."""

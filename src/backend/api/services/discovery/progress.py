@@ -106,6 +106,19 @@ def _clip(text: object) -> str:
     return value if len(value) <= _MAX_TEXT_CHARS else value[: _MAX_TEXT_CHARS - 1] + "…"
 
 
+def _one_of(value: object, allowed: frozenset[str], fallback: str) -> str:
+    """``value`` when it is one of ``allowed``, else ``fallback``.
+
+    The ``isinstance`` guard is not decoration. ``x in frozenset`` HASHES ``x``, so a
+    hand-edited or older-deployment blob whose ``status`` is a JSON list (or whose
+    ``outcome`` is an object) would raise ``TypeError`` from inside :func:`read_progress`
+    — the one reader whose entire contract is that nothing raises, because its caller is
+    the endpoint the My-Companies list cannot live without. A display-only field must
+    never be able to 500 that list.
+    """
+    return value if isinstance(value, str) and value in allowed else fallback
+
+
 def _safe_url(value: object) -> str | None:
     """``value`` if it is an http(s) URL we are willing to render as a link, else None."""
     if not isinstance(value, str):
@@ -226,7 +239,7 @@ class ProgressLedger:
         """
         return {
             "steps": self.steps(),
-            "outcome": outcome if outcome in _OUTCOMES else OUTCOME_RUNNING,
+            "outcome": _one_of(outcome, _OUTCOMES, OUTCOME_RUNNING),
             "live_view_url": self._live_view_url,
             # Also the hook for the future sweeper that un-wedges a 'discovering' row
             # whose worker was SIGKILLed mid-run (see the WEDGED-ROW CAVEAT on the
@@ -279,7 +292,7 @@ def read_progress(provider_config: Any) -> dict[str, Any] | None:
             result = entry.get("result")
             by_key[key] = {
                 "key": key,
-                "status": status if status in _STATUSES else STATUS_PENDING,
+                "status": _one_of(status, _STATUSES, STATUS_PENDING),
                 "result": _clip(result) if isinstance(result, str) and result else None,
             }
 
@@ -293,7 +306,7 @@ def read_progress(provider_config: Any) -> dict[str, Any] | None:
     updated_at = raw.get("updated_at")
     return {
         "steps": steps,
-        "outcome": outcome if outcome in _OUTCOMES else OUTCOME_RUNNING,
+        "outcome": _one_of(outcome, _OUTCOMES, OUTCOME_RUNNING),
         "live_view_url": _safe_url(raw.get("live_view_url")),
         "updated_at": updated_at if isinstance(updated_at, str) else None,
         "job_preview": _clean_preview(

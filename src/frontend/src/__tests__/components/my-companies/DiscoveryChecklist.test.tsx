@@ -216,6 +216,18 @@ describe('DiscoveryChecklist', () => {
     );
     expect(screen.getByTestId('discovery-stalled')).toBeInTheDocument();
     expect(screen.getByTestId('discovery-next-actions')).toBeInTheDocument();
+    // ...and NOTHING is still spinning. The stale `active` step is drawn as the rung we
+    // never got past; an animated spinner on a terminated run makes the same row read as
+    // finished and still working at once.
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('in progress')).not.toBeInTheDocument();
+  });
+
+  it('keeps the live spinner while the run really is still going', () => {
+    // The other half of the pair above: the downgrade is keyed on the run being
+    // terminal, so a `discovering` row must still animate its active step.
+    renderWithProviders(<DiscoveryChecklist company={company('discovering', RUNNING)} />);
+    expect(screen.getByRole('progressbar')).toBeInTheDocument();
   });
 
   it('renders no iframe and no toggle when there is no live-view URL', async () => {

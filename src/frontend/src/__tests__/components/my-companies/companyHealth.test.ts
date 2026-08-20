@@ -151,11 +151,11 @@ describe('shouldShowDiscovery', () => {
       shouldShowDiscovery({
         healthState: 'discovering',
         discovery: progress(),
-        openJobCount: 0,
+        lastSuccessAt: null,
       })
     ).toBe(true);
     expect(
-      shouldShowDiscovery({ healthState: 'refused', discovery: progress(), openJobCount: 0 })
+      shouldShowDiscovery({ healthState: 'refused', discovery: progress(), lastSuccessAt: null })
     ).toBe(true);
   });
 
@@ -163,16 +163,53 @@ describe('shouldShowDiscovery', () => {
     // After that the row is an ordinary tracked company and a permanent setup receipt
     // is clutter — which also means nothing has to sweep the blob away server-side.
     expect(
-      shouldShowDiscovery({ healthState: 'unverified', discovery: tracking, openJobCount: 0 })
+      shouldShowDiscovery({
+        healthState: 'unverified',
+        discovery: tracking,
+        lastSuccessAt: null,
+      })
     ).toBe(true);
     expect(
-      shouldShowDiscovery({ healthState: 'unverified', discovery: tracking, openJobCount: 42 })
+      shouldShowDiscovery({
+        healthState: 'unverified',
+        discovery: tracking,
+        lastSuccessAt: '2026-08-09T10:00:00Z',
+      })
+    ).toBe(false);
+  });
+
+  it('does not resurrect the receipt when a harvested board drops to zero open jobs', () => {
+    // The bug an open-job count stands in for "no harvest yet": a board that genuinely
+    // has no roles today would render a green "We can read X's board" over a "0 open
+    // jobs" chip, linking to postings the harvest just proved gone. `lastSuccessAt` is
+    // the real signal, and it does not go back to null.
+    expect(
+      shouldShowDiscovery({
+        healthState: 'unverified',
+        discovery: tracking,
+        lastSuccessAt: '2026-06-01T00:00:00Z',
+      })
+    ).toBe(false);
+  });
+
+  it('never shows a success receipt on a row the backend has marked broken', () => {
+    // "We can read Acme's board" directly under "Paused — needs a look" is the UI
+    // contradicting the badge beside it. Same for a graduated (healthy) row.
+    expect(
+      shouldShowDiscovery({
+        healthState: 'quarantined',
+        discovery: tracking,
+        lastSuccessAt: null,
+      })
+    ).toBe(false);
+    expect(
+      shouldShowDiscovery({ healthState: 'healthy', discovery: tracking, lastSuccessAt: null })
     ).toBe(false);
   });
 
   it('never shows anything for a company with no checklist (every ATS board)', () => {
     expect(
-      shouldShowDiscovery({ healthState: 'discovering', discovery: null, openJobCount: 0 })
+      shouldShowDiscovery({ healthState: 'discovering', discovery: null, lastSuccessAt: null })
     ).toBe(false);
   });
 });

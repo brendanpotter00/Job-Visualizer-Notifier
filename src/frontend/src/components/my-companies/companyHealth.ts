@@ -117,15 +117,27 @@ export function resolveDiscoveryOutcome(
  * "here's what we found" summary only until its first harvest lands — after that the
  * row is an ordinary tracked company and a permanent setup receipt is clutter. That
  * also means nothing has to sweep the blob away server-side.
+ *
+ * "The first harvest landed" is `lastSuccessAt`, NOT an empty job count. A board that
+ * genuinely has zero open roles today (or one that closes all of them two months from
+ * now) would otherwise resurrect a green "We can read {X}'s board" receipt above a
+ * "0 open jobs" chip, linking to day-one postings the harvest has since proved gone.
+ * `unverified` is required for the same reason: a `quarantined` row is one the backend
+ * has marked broken, and a success receipt under a "Paused — needs a look" badge is the
+ * UI contradicting the badge beside it.
  */
 export function shouldShowDiscovery(
-  company: Pick<UserCompany, 'healthState' | 'discovery' | 'openJobCount'>,
+  company: Pick<UserCompany, 'healthState' | 'discovery' | 'lastSuccessAt'>,
 ): boolean {
   if (!company.discovery) return false;
   if (company.healthState === 'discovering' || company.healthState === 'refused') {
     return true;
   }
-  return resolveDiscoveryOutcome(company) === 'tracking' && company.openJobCount === 0;
+  return (
+    company.healthState === 'unverified' &&
+    resolveDiscoveryOutcome(company) === 'tracking' &&
+    !company.lastSuccessAt
+  );
 }
 
 export interface DiscoveryHeadline {

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
+import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
@@ -43,6 +44,45 @@ const POLL_INTERVAL_MS = 15_000;
 const DISCOVERY_POLL_INTERVAL_MS = 4_000;
 
 /**
+ * How stale a `discovering` row's last progress write may be before we stop believing
+ * anything is still running behind it.
+ *
+ * A row only leaves `discovering` when the task persists an outcome, and that task is
+ * `retry=1`. Three documented paths leave it there for good: the discovery flag flipped
+ * off between enqueue and execution, no worker draining the `custom_discovery` queue, and
+ * the SIGKILL/OOM "WEDGED-ROW CAVEAT" the task itself carries a TODO for. Without a bound,
+ * such a row would poll every 4s for as long as the tab stays open — ~900 requests/hour,
+ * each running a per-row `count(*)` — while the user watches a checklist frozen mid-step.
+ * Past this window the row falls back to the ordinary 15s settling cadence, so a wedged
+ * row costs no more than it did before the checklist existed. Comfortably above the task's
+ * own 240s cap, because a run whose progress writes are all failing still updates nothing
+ * until it terminates — and being slow there is a cadence choice, not a correctness one.
+ */
+const DISCOVERY_STALE_AFTER_MS = 5 * 60_000;
+
+/**
+ * Is this row a discovery we have recent evidence is still moving?
+ *
+ * `discovery.updatedAt` is stamped by every progress write, which is exactly the signal
+ * the backend emits it for. A missing or unparseable timestamp reads as NOT live (an
+ * older blob shouldn't buy the fast cadence); a timestamp in the future does read as live,
+ * since that is clock skew between the server and this browser, not staleness.
+ *
+ * `receivedAt` is RTK Query's `fulfilledTimeStamp`, NOT `Date.now()`: reading the clock
+ * during render is lint-blocked as impure, and "how stale was this row when the payload
+ * carrying it arrived" is the more honest question anyway. It advances on every poll, so
+ * a run that stops writing ages out on its own.
+ */
+function isDiscoveryLive(company: UserCompany, receivedAt: number): boolean {
+  if (company.healthState !== 'discovering') return false;
+  const updatedAt = company.discovery?.updatedAt;
+  if (!updatedAt) return false;
+  const writtenAt = Date.parse(updatedAt);
+  if (Number.isNaN(writtenAt)) return false;
+  return writtenAt >= receivedAt - DISCOVERY_STALE_AFTER_MS;
+}
+
+/**
  * A row is "still settling" if its first harvest hasn't landed yet, so the list
  * should keep polling for it. Two cases:
  *  - `discovering` — the one-time capture setup is still running (E7 capture
@@ -59,15 +99,17 @@ function isStillSettling(company: UserCompany): boolean {
 
 /**
  * How often to re-poll, given the rows we have: nothing while everything is settled,
- * the fast cadence while a discovery is mid-run, the slow one otherwise.
+ * the fast cadence while a discovery is demonstrably mid-run, the slow one otherwise.
  *
- * Pure, and computed from the rows rather than held in state, so `CompaniesPoller`
- * stays a plain-prop component (see below).
+ * Pure — `receivedAt` is passed in rather than read from the clock — and computed from
+ * the rows rather than held in state, so `CompaniesPoller` stays a plain-prop component
+ * (see below). Re-evaluated on every render, so a run that goes quiet drops itself to
+ * the slow cadence on the next poll without anything having to notice.
  */
-function pollIntervalFor(rows: UserCompany[]): number {
+function pollIntervalFor(rows: UserCompany[], receivedAt: number): number {
   if (
     CUSTOM_COMPANIES_CONFIG.isDiscoveryProgressEnabled &&
-    rows.some((company) => company.healthState === 'discovering')
+    rows.some((company) => isDiscoveryLive(company, receivedAt))
   ) {
     return DISCOVERY_POLL_INTERVAL_MS;
   }
@@ -157,10 +199,21 @@ function CompanyRow({
  * makes no network call in a flag-off build. Polls `getUserCompanies` every 15s
  * *only* while some row is an empty unverified board — a brand-new add whose
  * first harvest hasn't landed yet — and stops as soon as every row has jobs or
- * leaves the unverified state, so a settled list is not polled forever.
+ * leaves the unverified state, so a settled list is not polled forever. A
+ * discovery whose progress blob is still moving gets the faster cadence instead
+ * (see `pollIntervalFor`), bounded by staleness so a wedged row cannot hold it.
  */
 export function MyCompaniesList() {
-  const { data: companies, isLoading, isError, error, refetch } = useGetUserCompaniesQuery();
+  const {
+    data: companies,
+    isLoading,
+    isError,
+    error,
+    refetch,
+    // When the payload we are rendering actually landed. Stands in for `Date.now()`,
+    // which cannot be read during render — see `isDiscoveryLive`.
+    fulfilledTimeStamp,
+  } = useGetUserCompaniesQuery();
 
   const [removeUserCompany] = useRemoveUserCompanyMutation();
   const [pendingRemoval, setPendingRemoval] = useState<UserCompany | null>(null);
@@ -176,7 +229,12 @@ export function MyCompaniesList() {
     return <LoadingState minHeight={120} caption="Loading your companies…" />;
   }
 
-  if (isError) {
+  // ONLY when there is nothing to show. RTK Query keeps `data` from the last good fetch
+  // and still flips the entry to rejected, so taking this branch on every `isError` let
+  // one transient 502 on a *poll* delete every row — and unmount `CompaniesPoller` with
+  // them, so auto-refresh never resumed without a manual Retry. That lands hardest on a
+  // mid-run discovery, the one screen whose entire point is being live.
+  if (isError && !companies) {
     return (
       <ErrorState
         inline
@@ -192,7 +250,24 @@ export function MyCompaniesList() {
     <Box>
       {/* Auto-refresh while any brand-new board hasn't reported jobs yet — faster
           while a discovery is mid-run so its checklist reads as live. */}
-      <CompaniesPoller intervalMs={pollIntervalFor(rows)} />
+      <CompaniesPoller intervalMs={pollIntervalFor(rows, fulfilledTimeStamp ?? 0)} />
+
+      {/* A failed refresh over a list we already have: say so, keep the list, keep
+          polling. The next tick usually fixes it without the user doing anything. */}
+      {isError ? (
+        <Alert
+          severity="warning"
+          sx={{ mb: 1.5 }}
+          data-testid="my-companies-refresh-warning"
+          action={
+            <Button color="inherit" size="small" onClick={() => void refetch()}>
+              Retry
+            </Button>
+          }
+        >
+          We couldn&apos;t refresh just now — showing what we last loaded.
+        </Alert>
+      ) : null}
 
       <Typography variant="h6" component="h2" gutterBottom>
         Companies you&apos;re tracking

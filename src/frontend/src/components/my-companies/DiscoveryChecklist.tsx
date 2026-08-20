@@ -10,6 +10,7 @@ import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import { ROUTES } from '../../config/routes';
 import type {
+  DiscoveryOutcomeState,
   DiscoveryStep,
   UserCompany,
 } from '../../features/userCompanies/userCompaniesApi';
@@ -45,15 +46,32 @@ function liveViewSrc(url: string): string {
   return url.includes('navbar=') ? url : `${url}${url.includes('?') ? '&' : '?'}navbar=false`;
 }
 
-function StepRow({ step }: { step: DiscoveryStep }) {
-  const mark = STEP_MARK[step.status] ?? '○';
+/**
+ * The status to RENDER for a step, given how the whole run ended.
+ *
+ * A discovery TIMEOUT deliberately writes no terminal checklist — the last live snapshot
+ * survives beside `health_state='refused'`, because how far we got is the useful part.
+ * That snapshot still names a step `active`, and an animated spinner on a run that has
+ * already terminated makes one row read as finished and still working at the same time.
+ * A terminal run therefore draws a leftover `active` step as `pending`: the rung we never
+ * got past, not a rung still in flight.
+ */
+function renderedStatus(
+  step: DiscoveryStep,
+  outcome: DiscoveryOutcomeState,
+): DiscoveryStep['status'] {
+  return outcome !== 'running' && step.status === 'active' ? 'pending' : step.status;
+}
+
+function StepRow({ step, status }: { step: DiscoveryStep; status: DiscoveryStep['status'] }) {
+  const mark = STEP_MARK[status] ?? '○';
   return (
     <Stack direction="row" spacing={1} alignItems="flex-start" data-testid={`discovery-step-${step.key}`}>
       <Box sx={{ width: 20, flexShrink: 0, textAlign: 'center', lineHeight: '1.5rem' }}>
-        {step.status === 'active' ? (
+        {status === 'active' ? (
           <CircularProgress size={12} aria-label="in progress" />
         ) : (
-          <Typography component="span" color={STEP_COLOR[step.status] ?? 'text.disabled'}>
+          <Typography component="span" color={STEP_COLOR[status] ?? 'text.disabled'}>
             {mark}
           </Typography>
         )}
@@ -61,8 +79,8 @@ function StepRow({ step }: { step: DiscoveryStep }) {
       <Box sx={{ minWidth: 0 }}>
         <Typography
           variant="body2"
-          color={step.status === 'pending' ? 'text.disabled' : 'text.primary'}
-          sx={{ fontWeight: step.status === 'active' ? 600 : 400 }}
+          color={status === 'pending' ? 'text.disabled' : 'text.primary'}
+          sx={{ fontWeight: status === 'active' ? 600 : 400 }}
         >
           {describeDiscoveryStep(step)}
         </Typography>
@@ -72,7 +90,7 @@ function StepRow({ step }: { step: DiscoveryStep }) {
         {step.result ? (
           <Typography
             variant="caption"
-            color={step.status === 'failed' ? 'error.main' : 'text.secondary'}
+            color={status === 'failed' ? 'error.main' : 'text.secondary'}
             sx={{ display: 'block', overflowWrap: 'anywhere' }}
             data-testid={`discovery-result-${step.key}`}
           >
@@ -184,7 +202,7 @@ export function DiscoveryChecklist({ company }: DiscoveryChecklistProps) {
 
       <Stack spacing={0.75} sx={{ mt: 1 }}>
         {discovery.steps.map((step) => (
-          <StepRow key={step.key} step={step} />
+          <StepRow key={step.key} step={step} status={renderedStatus(step, outcome)} />
         ))}
       </Stack>
 

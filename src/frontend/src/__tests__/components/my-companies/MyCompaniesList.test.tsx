@@ -268,8 +268,21 @@ const DISCOVERING_WITH_CHECKLIST: UserCompany = {
     ],
     outcome: 'running',
     liveViewUrl: null,
-    updatedAt: '2026-08-20T12:00:00Z',
+    // Deliberately RELATIVE to now, not a fixed date: the fast cadence is bought by a
+    // recent progress write, so a hard-coded timestamp would silently age into the
+    // wedged-row case and stop testing what it says it tests.
+    updatedAt: new Date().toISOString(),
     jobPreview: [],
+  },
+};
+
+/** The same row after its worker died mid-run — nothing has written progress since. */
+const WEDGED_DISCOVERING: UserCompany = {
+  ...DISCOVERING_WITH_CHECKLIST,
+  id: 'u-discover04',
+  discovery: {
+    ...DISCOVERING_WITH_CHECKLIST.discovery!,
+    updatedAt: new Date(Date.now() - 60 * 60_000).toISOString(),
   },
 };
 
@@ -414,6 +427,7 @@ describe('MyCompaniesList discovery checklist', () => {
       ...DISCOVERING_WITH_CHECKLIST,
       healthState: 'unverified',
       openJobCount: 42,
+      lastSuccessAt: '2026-08-20T11:00:00Z',
       discovery: { ...DISCOVERING_WITH_CHECKLIST.discovery!, outcome: 'tracking' },
     };
     fetchMock.mockResolvedValue(jsonResponse({ companies: [tracked] }));
@@ -421,5 +435,102 @@ describe('MyCompaniesList discovery checklist', () => {
 
     await screen.findByTestId('my-company-row');
     expect(screen.queryByTestId('discovery-checklist')).not.toBeInTheDocument();
+  });
+
+  it('drops the success summary on a harvested board that has zero open jobs', async () => {
+    // A tracked board can genuinely have no roles today. Keying the receipt on the job
+    // count resurrected it — a green "We can read Acme's board" over a "0 open jobs"
+    // chip, linking to postings the harvest had just proved gone.
+    const tracked: UserCompany = {
+      ...DISCOVERING_WITH_CHECKLIST,
+      healthState: 'unverified',
+      openJobCount: 0,
+      lastSuccessAt: '2026-08-20T11:00:00Z',
+      discovery: { ...DISCOVERING_WITH_CHECKLIST.discovery!, outcome: 'tracking' },
+    };
+    fetchMock.mockResolvedValue(jsonResponse({ companies: [tracked] }));
+    await renderListWithFlag(true);
+
+    const row = await screen.findByTestId('my-company-row');
+    expect(within(row).getByText(/0 open jobs/i)).toBeInTheDocument();
+    expect(screen.queryByTestId('discovery-checklist')).not.toBeInTheDocument();
+  });
+
+  it('drops back to the 15s cadence once a discovering row goes stale (flag ON)', async () => {
+    // A row only leaves `discovering` when the task persists an outcome, and that task
+    // is retry=1 — a flag flipped off mid-flight, an undrained queue or the documented
+    // SIGKILL wedge all strand it there. Unbounded, the fast cadence would then hammer
+    // the list endpoint every 4s for as long as the tab stays open.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      fetchMock.mockImplementation(async () =>
+        jsonResponse({ companies: [WEDGED_DISCOVERING] })
+      );
+      await renderListWithFlag(true);
+      await screen.findByTestId('my-company-row');
+      const callsAfterLoad = fetchMock.mock.calls.length;
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000);
+      });
+      expect(fetchMock.mock.calls.length).toBe(callsAfterLoad);
+
+      // ...but the row is still settling, so the ordinary 15s poll keeps it alive.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(11_000);
+      });
+      expect(fetchMock.mock.calls.length).toBeGreaterThan(callsAfterLoad);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('survives a failed poll: keeps the rows, keeps polling (flag ON)', async () => {
+    // RTK Query keeps `data` from the last good fetch and still marks the entry
+    // rejected. Blanking the list on that deleted every row AND unmounted the poller,
+    // so one transient 502 stopped auto-refresh for good — on a screen whose whole
+    // point is being live.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let calls = 0;
+      fetchMock.mockImplementation(async () => {
+        calls += 1;
+        // First poll after the initial load fails; everything after it succeeds.
+        if (calls === 2) return jsonResponse({ detail: 'bad gateway' }, 502);
+        return jsonResponse({ companies: [DISCOVERING_WITH_CHECKLIST] });
+      });
+      await renderListWithFlag(true);
+      await screen.findByTestId('my-company-row');
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000);
+      });
+      // The row and its checklist survive, and the staleness is stated rather than hidden.
+      expect(screen.getByTestId('my-company-row')).toBeInTheDocument();
+      expect(screen.getByTestId('discovery-checklist')).toBeInTheDocument();
+      expect(screen.getByTestId('my-companies-refresh-warning')).toBeInTheDocument();
+
+      // The next tick recovers on its own — no Retry click needed.
+      const afterFailure = fetchMock.mock.calls.length;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000);
+      });
+      expect(fetchMock.mock.calls.length).toBeGreaterThan(afterFailure);
+      await waitFor(() => {
+        expect(screen.queryByTestId('my-companies-refresh-warning')).not.toBeInTheDocument();
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('still shows the error card when the very first load fails', async () => {
+    // The other half: with nothing cached there is no list to preserve, so the
+    // full-width error + Retry is still the right render.
+    fetchMock.mockResolvedValue(jsonResponse({ detail: 'bad gateway' }, 502));
+    await renderListWithFlag(true);
+
+    expect(await screen.findByRole('button', { name: /retry/i })).toBeInTheDocument();
+    expect(screen.queryByTestId('my-company-row')).not.toBeInTheDocument();
   });
 });

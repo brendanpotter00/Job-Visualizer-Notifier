@@ -181,7 +181,14 @@ same answer.
 
 - The step state rides the **existing** `getUserCompanies` payload (`company.discovery`),
   polled by the list that already polls; there is no second channel. The cadence drops to
-  4s while a row is `discovering` (four steps of a few seconds each read as a spinner at 15s).
+  4s while a row is `discovering` (four steps of a few seconds each read as a spinner at 15s)
+  — but only while `discovery.updatedAt` is recent. A row can be stranded in `discovering`
+  forever (flag flipped off mid-flight, undrained queue, the task's SIGKILL "wedged-row"
+  caveat), and an unbounded 4s poll would hammer the list endpoint for as long as the tab
+  stays open; past the staleness window it falls back to the ordinary 15s cadence.
+- A failed poll is **non-destructive**: RTK Query keeps the last good `data` while marking
+  the entry rejected, so the list renders on with an inline "couldn't refresh" warning and
+  the poller stays mounted. Only a load with nothing cached becomes the full error card.
 - **Flag OFF must render byte-for-byte what shipped before** — the gate lives in
   `MyCompaniesList`, and `MyCompaniesList.test.tsx` pins it against an identical payload.
 - The live-view iframe is optional and absent by default: only a Browserbase capture has a
