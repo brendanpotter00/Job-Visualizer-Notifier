@@ -697,6 +697,9 @@ class SavedFiltersResponse(BaseModel):
     locations: list[str]
     category: list[str]
     level: list[str]
+    # SINGULAR on a saved FILTER; the plural `subcategories` is the JOB-side
+    # field. `[]` here means "no filter selected, show everything".
+    subcategory: list[str]
     recent_active_keyword_list_id: str | None = None
     trend_active_keyword_list_id: str | None = None
 
@@ -704,9 +707,16 @@ class SavedFiltersResponse(BaseModel):
 class SavedFiltersUpdateRequest(BaseModel):
     """Full-replace body for PUT /api/users/saved-filters.
 
-    Locations, category, and level are deduped (order-preserving) at the
-    boundary. ``category`` / ``level`` hold enrichment facet slugs shared by both
-    the Recent and Trend pages (an empty list means "no filter"). The active-list
+    Locations, category, level and subcategory are deduped (order-preserving) at
+    the boundary. ``category`` / ``level`` / ``subcategory`` hold enrichment facet
+    slugs shared by both the Recent and Trend pages (an empty list means "no
+    filter").
+
+    FULL-REPLACE, and the model is ``extra='forbid'``: a PUT that OMITS
+    ``subcategory`` clears it to ``[]`` like any other field, while a PUT
+    carrying an unknown key is a 422 for the WHOLE object. That is why this field
+    has to exist server-side before the SPA starts sending it — Railway first,
+    Vercel second. The active-list
     pointers are bounded at 64 chars to match the uuid4-hex id shape and the
     ``'builtin-swe'`` sentinel; service-layer ownership validation decides
     whether a non-null pointer is accepted (409 otherwise).
@@ -733,6 +743,16 @@ class SavedFiltersUpdateRequest(BaseModel):
             str, StringConstraints(min_length=1, max_length=_MAX_FACET_SLUG_LEN)
         ]
     ] = Field(default_factory=list, max_length=_MAX_FACET_VALUES)
+    # Shaped exactly like `category`, and note WHICH constants: the
+    # `_MAX_FACET_VALUES` here is models.py's 50, not the search router's
+    # same-named 20. They bound different things — what a user may STORE versus
+    # what one request may QUERY — and conflating them would let a user save a
+    # default their own Recent page then rejects.
+    subcategory: list[
+        Annotated[
+            str, StringConstraints(min_length=1, max_length=_MAX_FACET_SLUG_LEN)
+        ]
+    ] = Field(default_factory=list, max_length=_MAX_FACET_VALUES)
     recent_active_keyword_list_id: str | None = Field(default=None, max_length=64)
     trend_active_keyword_list_id: str | None = Field(default=None, max_length=64)
 
@@ -741,7 +761,7 @@ class SavedFiltersUpdateRequest(BaseModel):
     def _dedup_locations_field(cls, value: list[str]) -> list[str]:
         return _dedup_locations(value)
 
-    @field_validator("category", "level")
+    @field_validator("category", "level", "subcategory")
     @classmethod
     def _dedup_facet_field(cls, value: list[str]) -> list[str]:
         return _dedup_strings(value)
