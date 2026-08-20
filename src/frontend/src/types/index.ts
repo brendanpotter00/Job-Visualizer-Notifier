@@ -333,3 +333,20 @@ export interface JobFacets {
    */
   subcategories?: FacetOption[];
 }
+
+/**
+ * GET /api/jobs/settings response — the unauthenticated, public read of the
+ * admin-controlled reveal switches.
+ *
+ * Deliberately a separate endpoint from `/api/jobs/facets`: that response is
+ * cached for an hour with no `providesTags`, so a flag riding it would be
+ * invisible for up to an hour after a flip and could not be tag-invalidated.
+ * This one is cached for 60 seconds instead.
+ *
+ * `sweSubcategoriesEnabled` is a UI REVEAL switch only — the backend does not
+ * gate `?subcategory=` on it. Flipping it off hides the control; it does not
+ * make a stored selection stop filtering.
+ */
+export interface PublicSettings {
+  sweSubcategoriesEnabled: boolean;
+}
