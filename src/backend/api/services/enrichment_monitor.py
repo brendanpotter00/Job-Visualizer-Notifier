@@ -1151,7 +1151,12 @@ def _jsonb(value: Any) -> Any:
 
 
 def get_facets(conn: Connection) -> dict[str, list[dict[str, Any]]]:
-    """Dropdown catalog from the seeded dimensions (GET /api/jobs/facets)."""
+    """Dropdown catalog from the seeded dimensions (GET /api/jobs/facets).
+
+    THREE dimensions since phase 2: categories, levels and subcategories. All
+    three row shapes match — the categories query selects `NULL AS parent_slug`
+    — so `FacetOption` needs no per-dimension variant.
+    """
     cur = conn.cursor()
     try:
         cur.execute(
@@ -1168,11 +1173,15 @@ def get_facets(conn: Connection) -> dict[str, list[dict[str, Any]]]:
         # process running ahead of the migration must render today's flat
         # dropdown rather than 500 the catalog for every visitor.
         #
-        # PHASE 1 RETURNS [] because the dimension ships EMPTY — seeding it IS
-        # the user-visible publish. `parent_slug` here is a GROUPING edge
-        # ('software_engineering' on every row), NOT the filter-expansion edge
-        # job_levels uses; the frontend must never feed it to the level
-        # expansion builder.
+        # PHASE 2 (SCHEMA-7) SEEDS THE FIFTEEN ROWS, so this arm now returns a
+        # populated list. Seeding IS the user-visible publish — the reveal flag
+        # is a second, independent gate on the TREE, not on these options.
+        #
+        # `parent_slug` here is a GROUPING edge ('software_engineering' on every
+        # row), NOT the filter-expansion edge `job_levels` uses for
+        # new_grad ⊂ entry. Same field name on the wire, two meanings; the
+        # frontend must never feed this one to the level-expansion builder,
+        # which would silently expand one category selection into fifteen.
         subcategories: list[dict[str, Any]] = []
         if _regclass(cur, "job_subcategories"):
             cur.execute(
