@@ -279,19 +279,30 @@ def list_jobs(
 @router.get("/facets", response_model=JobFacetsResponse)
 def list_facets(conn: Connection = Depends(get_db)) -> JobFacetsResponse:
     """Dropdown catalog for the enrichment facets, straight from the seeded
-    job_categories / job_levels dimensions — labels, ordering and the
-    new_grad->entry parent all stay data-driven, so a taxonomy change ships as
-    a migration without a frontend redeploy. Declared above the parametrized
-    detail route by convention (different segment count, so no actual overlap).
+    job_categories / job_levels / job_subcategories dimensions — labels,
+    ordering and the parent edges all stay data-driven, so a taxonomy change
+    ships as a migration without a frontend redeploy. Declared above the
+    parametrized detail route by convention (different segment count, so no
+    actual overlap).
+
+    `parentSlug` CARRIES TWO DIFFERENT MEANINGS and they must not be confused:
+
+    * on `levels` it is a FILTER-EXPANSION edge (`new_grad` sits under `entry`,
+      so selecting Entry also matches New Grad) — this is what the client's
+      level-expansion builder consumes;
+    * on `subcategories` it is a GROUPING edge only (`software_engineering` on
+      every row), naming which parent row the option renders under.
+
+    Feeding the subcategory edges into the level-expansion builder would turn
+    one category selection into fifteen, silently and with a 200.
     """
     data = get_facets(conn)
     return JobFacetsResponse(
         categories=[FacetOption(**row) for row in data["categories"]],
         levels=[FacetOption(**row) for row in data["levels"]],
-        # ADDITIVE and EMPTY in phase 1 — the dimension table ships unseeded, so
-        # this is `[]` until SCHEMA-7 publishes it. The client normalizes a
-        # missing key to `[]` too, so an older backend and a phase-1 backend
-        # render the same flat dropdown.
+        # POPULATED since SCHEMA-7 seeded the dimension. Still additive: the
+        # client normalizes a MISSING key to `[]`, so an older backend and a
+        # phase-1 backend both render the same flat dropdown.
         subcategories=[FacetOption(**row) for row in data.get("subcategories", [])],
     )
 
