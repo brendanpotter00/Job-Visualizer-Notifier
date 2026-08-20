@@ -518,7 +518,13 @@ def test_the_keyword_cap_counts_include_and_exclude_together(client, db_conn):
     resp = client.get(SEARCH, params=params)
 
     assert resp.status_code == 400, resp.text
-    assert f"at most {_MAX_KEYWORDS}" in _detail(resp)
+    # Deliberately NOT the single-list wording. Neither list exceeds the cap on
+    # its own here, so quoting a per-field limit would name a number the caller's
+    # own list does not exceed. The message names the shared budget instead.
+    detail = _detail(resp)
+    assert "share a budget" in detail, detail
+    assert str(_MAX_KEYWORDS) in detail, detail
+    assert str(half * 2) in detail, detail
 
 
 def test_the_keyword_cap_matches_what_a_saved_keyword_list_can_store():
