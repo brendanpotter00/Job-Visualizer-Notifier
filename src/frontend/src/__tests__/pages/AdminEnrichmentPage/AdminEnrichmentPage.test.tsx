@@ -379,6 +379,52 @@ describe('AdminEnrichmentPage', () => {
     });
   });
 
+  // ── ADM-10: subcategory chips in the recent table's existing Labels cell ─
+
+  it('renders subcategory chips in the recent Labels cell, primary first', async () => {
+    renderPage();
+    const row = (await screen.findByText('Senior Platform Engineer')).closest(
+      'tr'
+    ) as HTMLElement;
+    // Raw slugs: FACET_LABELS only covers categories + levels until FE-CT-2
+    // lands FALLBACK_SUBCATEGORIES in the phase-2 PR.
+    expect(within(row).getByText('backend')).toBeInTheDocument();
+    expect(within(row).getByText('full_stack')).toBeInTheDocument();
+  });
+
+  it('renders no subcategory chips for a null row and does not throw', async () => {
+    fetchMock.mockImplementation(
+      routedFetch({
+        recentBody: {
+          rows: [{ ...RECENT_BODY.rows[0], subcategories: null }],
+        },
+      })
+    );
+    renderPage();
+    const row = (await screen.findByText('Senior Platform Engineer')).closest(
+      'tr'
+    ) as HTMLElement;
+    expect(within(row).queryByText('backend')).not.toBeInTheDocument();
+    expect(within(row).getByText('Senior')).toBeInTheDocument();
+  });
+
+  it('⚠ the recent expander still spans the full head row — NO column was added', async () => {
+    // Subcategory chips reuse the existing Labels cell, so colSpan={7} is
+    // correct as-is. This pins that so nobody "fixes" it to 8.
+    const user = userEvent.setup();
+    renderPage();
+
+    const row = (await screen.findByText('Senior Platform Engineer')).closest(
+      'tr'
+    ) as HTMLElement;
+    await user.click(within(row).getByRole('button', { name: 'Expand reasoning' }));
+
+    const table = row.closest('table') as HTMLElement;
+    const headCells = table.querySelectorAll('thead tr th');
+    const expanderCell = table.querySelector('tbody td[colspan]') as HTMLElement;
+    expect(expanderCell.getAttribute('colspan')).toBe(String(headCells.length));
+  });
+
   // ── ADM-9: sortable headers + subcategory filters on the triage queue ────
 
   function lastNeedsHumanUrl(mock: ReturnType<typeof vi.fn>): string {
