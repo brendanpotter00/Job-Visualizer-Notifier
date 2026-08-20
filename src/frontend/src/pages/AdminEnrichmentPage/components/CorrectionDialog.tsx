@@ -17,7 +17,11 @@ import {
 import { useGetFacetsQuery } from '../../../features/jobs/jobsApi';
 import { FALLBACK_CATEGORIES, FALLBACK_LEVELS } from '../../../constants/enrichment';
 import { FacetSelect } from '../../../components/shared/filters/FacetSelect';
+import { SubcategoryOrderedSelect } from './SubcategoryOrderedSelect';
 import { extractErrorMessage } from '../../../lib/errors';
+
+/** The one category that carries subcategories. Mirrors the backend constant. */
+const SUBCATEGORY_PARENT = 'software_engineering';
 
 interface CorrectionDialogProps {
   open: boolean;
@@ -51,8 +55,25 @@ function CorrectionForm({ row, onClose }: { row: EnrichmentCorrectionTarget; onC
 
   const [category, setCategory] = useState<string | undefined>(row.category ?? undefined);
   const [level, setLevel] = useState<string | undefined>(row.level ?? undefined);
+  const [subcategories, setSubcategories] = useState<string[]>(row.subcategories ?? []);
   const [tags, setTags] = useState<string[]>(row.tags);
   const [note, setNote] = useState('');
+
+  const isSwe = category === SUBCATEGORY_PARENT;
+  // LIVE facets only — never FALLBACK_*. An admin writing a human label must not
+  // be offered a slug the database will reject, nor denied one it has.
+  const subcategoryOptions = facets?.subcategories ?? [];
+
+  /**
+   * Clearing on a category change happens HERE, in the handler — not in an
+   * effect. A `useEffect` that reset the control's value would be the
+   * setState-in-effect pattern the component's docstring forbids, and it would
+   * also run a render late, briefly submitting a stale selection.
+   */
+  const handleCategoryChange = (next: string | undefined) => {
+    setCategory(next);
+    if (next !== SUBCATEGORY_PARENT) setSubcategories([]);
+  };
 
   const handleSave = async () => {
     const result = await correct({
@@ -63,6 +84,11 @@ function CorrectionForm({ row, onClose }: { row: EnrichmentCorrectionTarget; onC
         level: level ?? null,
         tags,
         note: note.trim() || null,
+        // ⚠ A non-SWE row OMITS THE KEY ENTIRELY. Sending `[]` would be an
+        // instruction ("evaluated, nothing applies"); omitting it means "leave
+        // whatever is stored alone", which is what the backend's tri-state
+        // needs to hear from a dialog that never showed the control.
+        ...(isSwe ? { subcategories } : {}),
       },
     });
     if (!('error' in result)) {
@@ -100,7 +126,7 @@ function CorrectionForm({ row, onClose }: { row: EnrichmentCorrectionTarget; onC
             label="Category"
             options={facets?.categories ?? FALLBACK_CATEGORIES}
             value={category}
-            onChange={setCategory}
+            onChange={handleCategoryChange}
           />
           <FacetSelect
             label="Level"
@@ -109,6 +135,13 @@ function CorrectionForm({ row, onClose }: { row: EnrichmentCorrectionTarget; onC
             onChange={setLevel}
           />
         </Box>
+        {isSwe && (
+          <SubcategoryOrderedSelect
+            options={subcategoryOptions}
+            value={subcategories}
+            onChange={setSubcategories}
+          />
+        )}
         <Autocomplete
           multiple
           freeSolo
