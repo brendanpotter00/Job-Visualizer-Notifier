@@ -52,6 +52,19 @@ interface MockResponse {
    * non-JSON error body is expressible here and nowhere else.
    */
   text?: string;
+  /**
+   * Make `text()` REJECT instead of resolving.
+   *
+   * A real `Response` resolves its headers and status as soon as they arrive and
+   * streams the body afterwards, so `response.text()` can reject on its own — the
+   * connection drops, the proxy resets, the body is truncated — long after
+   * `fetch()` itself has settled. That is not the same failure as `fetch()`
+   * rejecting (`fetchMock.mockRejectedValue`), and it is the failure mode a 500
+   * under DB-pool pressure produces: a status worth reporting with no body behind
+   * it. The mock resolved a string unconditionally before this, so the case could
+   * not be expressed at all.
+   */
+  textError?: unknown;
 }
 
 type Responder = (params: URLSearchParams, url: string) => MockResponse;
@@ -68,7 +81,12 @@ function makeFetchMock(respond: Responder) {
       throw new Error(`unexpected fetch URL in jobsApi.search test: ${url}`);
     }
     const params = new URLSearchParams(url.slice(url.indexOf('?') + 1));
-    const { status = 200, body = { jobs: [], nextCursor: null }, text } = respond(params, url);
+    const {
+      status = 200,
+      body = { jobs: [], nextCursor: null },
+      text,
+      textError,
+    } = respond(params, url);
     return Promise.resolve({
       ok: status >= 200 && status < 300,
       status,
@@ -76,8 +94,12 @@ function makeFetchMock(respond: Responder) {
       headers: new Headers(),
       json: async () => body,
       // A real `Response` serves both, off ONE stream. Modelling `text()` matters
-      // because the error path reads the body that way.
-      text: async () => text ?? JSON.stringify(body),
+      // because the error path reads the body that way — including the case where
+      // reading it FAILS after the status has already arrived.
+      text: async () => {
+        if (textError !== undefined) throw textError;
+        return text ?? JSON.stringify(body);
+      },
     });
   });
 }
@@ -90,7 +112,7 @@ const originalFetch = globalThis.fetch;
 
 beforeEach(() => {
   // Default: one terminal empty page. Tests that care about the body override it.
-  respond = () => ({ body: { jobs: [], nextCursor: null } });
+  respond = () => ({ body: { jobs: [], nextCursor: null, meta: META } });
   fetchMock = makeFetchMock((params, url) => respond(params, url));
   globalThis.fetch = fetchMock as unknown as typeof fetch;
 });
@@ -305,7 +327,9 @@ describe('searchJobs paging', () => {
     respond = (params) => {
       const cursor = params.get('cursor');
       if (cursor === null) {
-        return { body: { jobs: [makeRow({ id: 'a' }), makeRow({ id: 'b' })], nextCursor: CURSOR_1 } };
+        return {
+          body: { jobs: [makeRow({ id: 'a' }), makeRow({ id: 'b' })], nextCursor: CURSOR_1, meta: META },
+        };
       }
       if (cursor === CURSOR_1) {
         return { body: { jobs: [makeRow({ id: 'c' })], nextCursor: CURSOR_2 } };
@@ -501,11 +525,18 @@ describe('searchJobs response validation', () => {
   });
 
   it('stays silent when the request was REALLY aborted', async () => {
-    // RTK Query aborts this signal on every unsubscribe and refetch — which the
-    // Recent page does on every filter change — so an abort logged as an error
-    // would bury the real failures in noise. The abort is driven through RTK's
-    // own `abort()` rather than by throwing an AbortError-shaped object, because
-    // `signal.aborted` — not the error's name — is what the silence keys on.
+    // A cancelled request is not a failure, so it must not reach the log. The
+    // abort is driven through RTK's own `abort()` rather than by throwing an
+    // AbortError-shaped object, because `signal.aborted` — not the error's name
+    // — is what the silence keys on.
+    //
+    // `abort()` is how the branch is reached AT ALL. In RTK Query 2.11.0 this
+    // signal is aborted only by the `keepUnusedDataFor` removal timer (10
+    // minutes after the last subscriber leaves) and by `resetApiState`, neither
+    // of which the Recent page reaches — a filter change merely unsubscribes.
+    // So this case pins the contract, not a production frequency; the branch
+    // below it ("LOGS an AbortError that no abort actually caused") is the one
+    // that can actually fire.
     const logged = vi.spyOn(logger, 'error').mockImplementation(() => {});
     fetchMock.mockImplementation(
       (_input: unknown, init?: { signal?: AbortSignal }) =>
@@ -666,6 +697,66 @@ describe('searchJobs non-2xx responses', () => {
       }
     );
   });
+
+  it('still logs the status when the body cannot be read at all', async () => {
+    // The status arrives, then the body stream dies — a connection reset, a proxy
+    // hanging up mid-response, a truncated chunked body. `response.text()` rejects
+    // AFTER `fetch()` has already resolved, so this is not the transport-failure
+    // case above: the status is known and is the single most useful fact about the
+    // failure. Without the marker the log would say only "responded 500:" with
+    // nothing after it, and the reader would still be looking at the generic line.
+    //
+    // This is the exact shape a `DB_POOL_MAX` checkout timeout takes when the
+    // container is under enough pressure to drop the connection as well.
+    await expectErrorResponse(
+      { status: 500, textError: new TypeError('network error') },
+      {
+        readerSees: ERROR_MESSAGES.LOAD_JOBS_FAILED,
+        loggedStatus: 500,
+        loggedBodyFragment: '<body unreadable: network error>',
+      }
+    );
+  });
+
+  it('marks an EMPTY body rather than logging a bare trailing colon', async () => {
+    // A 502 with a zero-length body is a real and common proxy behaviour. Logged
+    // as `''` it renders as "responded 502:" with nothing after it — which reads
+    // as a broken log line, not as a fact about the response, and sends whoever is
+    // debugging looking for a bug in the logging instead of in the proxy.
+    await expectErrorResponse(
+      { status: 502, text: '' },
+      {
+        readerSees: ERROR_MESSAGES.LOAD_JOBS_FAILED,
+        loggedStatus: 502,
+        loggedBodyFragment: '<empty body>',
+      }
+    );
+  });
+
+  it('truncates a multi-megabyte error page instead of logging it verbatim', async () => {
+    // A CDN or WAF block page can be megabytes (inlined CSS, a base64 logo). The
+    // whole thing went to `console.error` verbatim, which floods the console and
+    // any error transport reading it — for a payload whose first few lines already
+    // say which layer answered. The cap keeps enough to identify it and says how
+    // much was dropped, so the number is never silently wrong.
+    const huge = `<html><body>Blocked by edge rule 42.${'x'.repeat(2_000_000)}</body></html>`;
+    const logged = vi.spyOn(logger, 'error').mockImplementation(() => {});
+    respond = () => ({ status: 502, text: huge });
+    const store = makeStore();
+    const walk = startWalk(store, makeArgs());
+    await walk;
+
+    const diagnostic = String(logged.mock.calls[0][1]);
+    expect(diagnostic.length).toBeLessThan(huge.length / 100);
+    // The head survives, so the log still identifies who answered...
+    expect(diagnostic).toContain('Blocked by edge rule 42');
+    // ...and the marker carries the real size, so "short body" is never inferred
+    // from a truncated one.
+    expect(diagnostic).toContain(`<truncated: ${huge.length} chars total>`);
+
+    logged.mockRestore();
+    walk.unsubscribe();
+  });
 });
 
 describe('searchJobs row mapping and counts', () => {
@@ -727,6 +818,61 @@ describe('searchJobs row mapping and counts', () => {
     expect(result.data?.pages[0].counts).toEqual({ total: 137, last24h: 42, last3h: 7 });
     expect(result.data?.pages[1].counts).toBeUndefined();
 
+    walk.unsubscribe();
+  });
+
+  it('logs — but does not throw — when PAGE 1 arrives without meta', async () => {
+    // The endpoint sends `meta` on page 1 unconditionally, so its absence is a
+    // broken contract: a serializer regression, or a proxy that rewrote the
+    // envelope. Before this it was accepted in total silence and the page
+    // degraded PERMANENTLY to em-dash tiles and `aria-setsize="-1"` — correct
+    // degradation, zero diagnostic, and nothing on screen a reader would report.
+    // The rows are still good, so throwing would blank a working page; the fact
+    // belongs in the log instead.
+    const logged = vi.spyOn(logger, 'error').mockImplementation(() => {});
+    respond = () => ({ body: { jobs: [makeRow({ id: 'p1' })], nextCursor: null } });
+    const store = makeStore();
+    const walk = startWalk(store, makeArgs());
+    const result = await walk;
+
+    // Degraded, not failed: the rows rendered and no error reached the page.
+    expect(result.error).toBeUndefined();
+    expect(result.data?.pages[0].jobs).toHaveLength(1);
+    expect(result.data?.pages[0].counts).toBeUndefined();
+
+    expect(logged).toHaveBeenCalledTimes(1);
+    expect(String(logged.mock.calls[0][0])).toContain('page 1 came back without');
+
+    logged.mockRestore();
+    walk.unsubscribe();
+  });
+
+  it('stays silent when a CURSOR page arrives without meta', async () => {
+    // The other half of the same contract, and the reason the validator has to be
+    // TOLD which page it is looking at: `meta` is absent on every cursor page by
+    // design (the counts describe the filter set, not the page, so the endpoint
+    // computes them once). A check that could not tell the two apart would either
+    // log on every page of every walk or never log at all.
+    const logged = vi.spyOn(logger, 'error').mockImplementation(() => {});
+    respond = (params) =>
+      params.get('cursor') === null
+        ? { body: { jobs: [makeRow({ id: 'p1' })], nextCursor: CURSOR_1, meta: META } }
+        : { body: { jobs: [makeRow({ id: 'p2' })], nextCursor: null } };
+
+    const store = makeStore();
+    const walk = startWalk(store, makeArgs());
+    await walk;
+    await store.dispatch(
+      jobsApi.endpoints.searchJobs.initiate(makeArgs(), { direction: 'forward' })
+    );
+    await flush();
+
+    // Precondition: page 2 really did go out, so the silence is about the page
+    // and not about a request that never happened.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(logged).not.toHaveBeenCalled();
+
+    logged.mockRestore();
     walk.unsubscribe();
   });
 });

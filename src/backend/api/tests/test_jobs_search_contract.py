@@ -32,6 +32,7 @@ files; nothing here asserts *which* rows come back except where a decoy row is
 the only way to prove a parameter was actually applied rather than swallowed.
 """
 
+import base64
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -339,14 +340,23 @@ def test_a_cursor_minted_under_one_filter_set_is_refused_under_another(client, d
 
     Pages walked across a filter change enumerate neither set completely, and
     nothing downstream can tell — so the endpoint refuses, and says why.
+
+    **409, not 422**, and the status is the contract. This rejection's ``detail``
+    is addressed to the CLIENT ("drop the cursor and restart the walk from page
+    1"), not to a reader who could relax a filter — and the frontend surfaces
+    400/422 ``detail`` verbatim in an error box whose only affordance replays the
+    same request. A distinct status is what lets the client recognize it and
+    restart instead of replaying a token that will never be accepted. See
+    ``StaleCursorError`` in ``api/pagination.py``.
     """
     _seed_fingerprint_corpus(db_conn)
     cursor = _mint(client, {"company": "google", "limit": 1})
 
     resp = client.get(SEARCH, params={"company": "apple", "limit": 1, "cursor": cursor})
 
-    assert resp.status_code == 422, resp.text
+    assert resp.status_code == 409, resp.text
     assert "different filter set" in _detail(resp)
+    assert "restart the walk from page 1" in _detail(resp)
 
 
 def test_a_cursor_is_refused_when_the_filters_are_dropped_entirely(client, db_conn):
@@ -360,8 +370,43 @@ def test_a_cursor_is_refused_when_the_filters_are_dropped_entirely(client, db_co
 
     resp = client.get(SEARCH, params={"limit": 1, "cursor": cursor})
 
-    assert resp.status_code == 422, resp.text
+    assert resp.status_code == 409, resp.text
     assert "different filter set" in _detail(resp)
+
+
+def test_a_cursor_from_an_older_format_is_a_409_not_a_422(client, db_conn):
+    """A version-tag bump is the OTHER way a good client ends up holding a stale
+    token, and it is the one that hits everyone at once.
+
+    ``_SEARCH_CURSOR_VERSION`` moves in a deploy; every walk in flight at that
+    moment is suddenly carrying a cursor this build will not accept. That is not a
+    malformed request — the token is exactly what the previous build minted — so it
+    must land in the same recoverable class as a fingerprint mismatch, or half the
+    clients holding stale cursors would restart and the other half would not.
+
+    Asserted alongside a MALFORMED cursor staying a 422, because a change that
+    collapsed the two classes back together would still pass either check alone.
+    """
+    _seed_fingerprint_corpus(db_conn)
+    good = _mint(client, {"company": "google", "limit": 1})
+    # Re-mint the same five fields under a different version tag. Decoding the
+    # real cursor first means every OTHER field is genuinely valid, so the version
+    # check is the only thing that can reject it.
+    raw = base64.urlsafe_b64decode(good + "=" * (-len(good) % 4)).decode("utf-8")
+    _, fingerprint, first_seen_at, source_id, job_id = raw.split("|", 4)
+    older = base64.urlsafe_b64encode(
+        "|".join(("s0", fingerprint, first_seen_at, source_id, job_id)).encode("utf-8")
+    ).decode("ascii").rstrip("=")
+
+    resp = client.get(SEARCH, params={"company": "google", "limit": 1, "cursor": older})
+
+    assert resp.status_code == 409, resp.text
+    assert "restart the walk from page 1" in _detail(resp)
+
+    # ...and a genuinely malformed token is still a 422: nothing downstream can
+    # repair it, so telling the client to restart would be a lie.
+    malformed = client.get(SEARCH, params={"company": "google", "cursor": "not-base64"})
+    assert malformed.status_code == 422, malformed.text
 
 
 def test_a_cursor_survives_a_page_size_change_mid_walk(client, db_conn):

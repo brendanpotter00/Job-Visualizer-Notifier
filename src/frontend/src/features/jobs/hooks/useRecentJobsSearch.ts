@@ -22,7 +22,7 @@ import { filterJobsByHours } from '../../../lib/date.ts';
 import { extractErrorMessage } from '../../../lib/errors.ts';
 import { ERROR_MESSAGES } from '../../../constants/messages.ts';
 import type { Job } from '../../../types';
-import { useSearchJobsInfiniteQuery } from '../jobsApi.ts';
+import { STALE_CURSOR_STATUS, useSearchJobsInfiniteQuery } from '../jobsApi.ts';
 import { DEMO_JOBS } from '../demoJobs.ts';
 import { buildSearchJobsArgs, sinceForTimeWindow } from '../searchJobsArgs.ts';
 import type { SearchJobsCounts } from '../searchJobsTypes.ts';
@@ -321,10 +321,25 @@ export function useRecentJobsSearch(): RecentJobsSearch {
       : 'initial'
     : null;
 
+  // A next-page failure retries the next page; anything else re-runs the walk.
+  //
+  // The exception is `STALE_CURSOR_STATUS` (409), and it is the one status where
+  // "retry the same request" is provably a no-op: the server rejected the CURSOR,
+  // and `rtkFetchNextPage()` derives that same cursor from the same cached page,
+  // so every press replays the identical rejected request forever. Restarting the
+  // walk is the fix the endpoint's own `detail` asks for — `refetch()` re-requests
+  // page 1 from `initialPageParam` and re-derives each subsequent page's cursor
+  // from the FRESH response (RTK Query's infinite-query refetch takes
+  // `cachedPageParams[0]` — always `null` here — and then walks forward via
+  // `getNextPageParam` on the new data), so no stale token survives it.
+  //
+  // Reachable only after a backend deploy moves the cursor version or the
+  // fingerprint inputs mid-session; the client cannot produce it on its own,
+  // because RTK Query keys the cache by the whole filter set.
   const retry = useCallback(() => {
-    if (errorScope === 'nextPage') rtkFetchNextPage();
+    if (errorScope === 'nextPage' && status !== STALE_CURSOR_STATUS) rtkFetchNextPage();
     else refetch();
-  }, [errorScope, rtkFetchNextPage, refetch]);
+  }, [errorScope, status, rtkFetchNextPage, refetch]);
 
   if (demo) {
     return {

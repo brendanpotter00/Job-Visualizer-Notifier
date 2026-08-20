@@ -133,10 +133,12 @@ describe('VirtualJobRows', () => {
   });
 
   it('survives the row set shrinking underneath it', () => {
-    // A window widening clears the cursors/floors, dropping the completeness
-    // clamp, then re-applies a tighter one as the restarted pages land — so the
-    // list can genuinely get SHORTER between renders while the virtualizer
-    // still holds indices from the longer one.
+    // On a filter change RTK Query swaps `data` to the NEW filter set's pages,
+    // which is routinely shorter than what was on screen — page 1 of a narrower
+    // search replacing five loaded pages of a wider one. So the list genuinely
+    // gets SHORTER between renders while the virtual items computed from the
+    // previous render still carry the old, larger indices. See the guard's own
+    // note in `VirtualJobRows.tsx`; deleting it renders `undefined.id` and throws.
     const { rerender, container } = render(
       <VirtualJobRows jobs={createMockJobs(1000)} totalCount={1000} />
     );

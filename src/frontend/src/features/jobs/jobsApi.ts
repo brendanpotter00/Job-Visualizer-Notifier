@@ -23,18 +23,38 @@ interface JobsQueryResult {
 }
 
 /**
+ * The endpoint's "your cursor is stale — restart the walk from page 1" status.
+ *
+ * Deliberately NOT in `READER_FACING_ERROR_STATUSES`. It is the one rejection on
+ * this endpoint whose `detail` is addressed to the CLIENT rather than the reader:
+ * nobody can carry out "drop the cursor and restart the walk" by editing a filter
+ * chip, and the next-page error box's only affordance is a Retry that replays the
+ * same rejected cursor — so surfacing that sentence produces an error that can
+ * never clear. `useRecentJobsSearch` keys its recovery on this status instead
+ * (retry restarts the walk), which is the whole reason it has its own code.
+ *
+ * Unreachable from THIS client today — RTK Query's per-arg cache isolation means
+ * a cursor and the filters that minted it always travel together — but reachable
+ * the first time a backend deploy moves `_SEARCH_CURSOR_VERSION` or the
+ * fingerprint inputs mid-session, which is exactly when nobody is watching.
+ */
+export const STALE_CURSOR_STATUS = 409;
+
+/**
  * The only statuses whose `detail` is written FOR the reader.
  *
  * `/api/jobs/search` rejects a filter set the client can fix with a 400 (too many
- * keywords / locations / companies, an empty value, control characters) or a 422
- * (a cursor replayed under different filters). Those messages name the thing to
- * change and are worth putting on screen.
+ * keywords / locations / companies, an empty value) or a 422 (a malformed
+ * `since`, a bad slug, a value with control characters in it). Those messages
+ * name the thing to change and are worth putting on screen.
  *
  * Every OTHER status carries FastAPI's or the proxy's stock text, and showing it
  * is strictly worse than the generic fallback: the deploy-race 404 the hook waits
  * out for ~4 minutes on every release would end at the words "Not Found", and a
  * backend crash would read "Internal Server Error" — neither tells the reader
- * anything, and both look like the page is broken in a way they caused.
+ * anything, and both look like the page is broken in a way they caused. The
+ * stale-cursor 409 is excluded for a different reason — see
+ * `STALE_CURSOR_STATUS`.
  */
 const READER_FACING_ERROR_STATUSES: ReadonlySet<number> = new Set([400, 422]);
 
@@ -59,6 +79,35 @@ interface SearchErrorResponse {
   diagnostic: string;
 }
 
+/**
+ * Cap on the body text that reaches `console.error`.
+ *
+ * The reader-facing half of this response is a short `detail` string, but the
+ * DIAGNOSTIC half is whatever answered — and the things that answer instead of
+ * FastAPI are exactly the verbose ones: a CDN or WAF block page, a proxy 502
+ * with an inlined stack trace, an HTML error document with a base64 logo in it.
+ * Logging one of those verbatim floods the console (and any error-reporting
+ * transport reading it) with megabytes for a single failed request. 4 KB is far
+ * more than any `detail` and enough of an HTML page to recognize which layer
+ * produced it, which is the only thing the log is asked to answer.
+ */
+const MAX_DIAGNOSTIC_LENGTH = 4096;
+
+/**
+ * Turn a raw error body into the string the log gets.
+ *
+ * An empty body is spelled out rather than passed through: `logger.error` with
+ * `''` as its second argument renders as a bare trailing colon with nothing
+ * after it, which is indistinguishable from a formatting bug in the log line
+ * itself. It is the same reason the unreadable case below is marked — the log
+ * has to say WHICH kind of nothing it got.
+ */
+function toDiagnostic(raw: string): string {
+  if (raw === '') return '<empty body>';
+  if (raw.length <= MAX_DIAGNOSTIC_LENGTH) return raw;
+  return `${raw.slice(0, MAX_DIAGNOSTIC_LENGTH)} <truncated: ${raw.length} chars total>`;
+}
+
 async function readErrorResponse(response: Response): Promise<SearchErrorResponse> {
   let raw: string;
   try {
@@ -71,8 +120,9 @@ async function readErrorResponse(response: Response): Promise<SearchErrorRespons
       diagnostic: `<body unreadable: ${extractErrorMessage(error, 'unknown reason')}>`,
     };
   }
+  const diagnostic = toDiagnostic(raw);
   if (!READER_FACING_ERROR_STATUSES.has(response.status)) {
-    return { message: ERROR_MESSAGES.LOAD_JOBS_FAILED, diagnostic: raw };
+    return { message: ERROR_MESSAGES.LOAD_JOBS_FAILED, diagnostic };
   }
   try {
     const body: unknown = JSON.parse(raw);
@@ -84,7 +134,7 @@ async function readErrorResponse(response: Response): Promise<SearchErrorRespons
     // decision entirely — see `READER_FACING_ERROR_STATUSES`.
     return {
       message: extractErrorMessage({ data: body }, ERROR_MESSAGES.LOAD_JOBS_FAILED),
-      diagnostic: raw,
+      diagnostic,
     };
   } catch {
     // A 400/422 whose body is not JSON is the one case worth calling out: this
@@ -93,7 +143,7 @@ async function readErrorResponse(response: Response): Promise<SearchErrorRespons
     // a CDN error page) answered instead. The reader gets the fallback because
     // there is nothing actionable to show them — but the raw text reaches the
     // log, because that is a different bug from any filter they could change.
-    return { message: ERROR_MESSAGES.LOAD_JOBS_FAILED, diagnostic: raw };
+    return { message: ERROR_MESSAGES.LOAD_JOBS_FAILED, diagnostic };
   }
 }
 
@@ -212,7 +262,14 @@ export const jobsApi = createApi({
             );
             return { error: { status: response.status, data: message } };
           }
-          const body = validateSearchJobsResponse(await response.json());
+          // `pageParam === null` IS "this is page 1" — it is the endpoint's own
+          // spelling of it (`initialPageParam`, and the value `buildSearchJobsQuery`
+          // omits the `cursor` param for). The validator needs it because a missing
+          // `meta` is correct on a cursor page and a broken contract on page 1, and
+          // the body alone cannot tell those apart.
+          const body = validateSearchJobsResponse(await response.json(), {
+            isFirstPage: pageParam === null,
+          });
           return {
             data: {
               // Same rows as GET /api/jobs, so the existing transformer applies
@@ -236,12 +293,23 @@ export const jobsApi = createApi({
           //
           // The one silence is a genuine abort, and it is keyed on `signal`, the
           // FACT, rather than on `error.name === 'AbortError'`, a CLAIM any
-          // browser extension, polyfill or fetch interceptor can make. RTK aborts
-          // this signal on every unsubscribe and refetch — i.e. every filter
-          // change — so logging those would bury the real failures. But an
-          // AbortError raised while `signal.aborted` is false is NOT that: the
-          // reader is looking at the generic error line and something really did
-          // fail, so it belongs in the log like any other throw.
+          // browser extension, polyfill or fetch interceptor can make. An
+          // AbortError raised while `signal.aborted` is false is not an abort:
+          // the reader is looking at the generic error line and something really
+          // did fail, so it belongs in the log like any other throw.
+          //
+          // How often does the silence actually fire? Effectively never, and
+          // that asymmetry is deliberate. In the installed RTK Query (2.11.0)
+          // this signal is aborted from exactly two places, neither of which the
+          // Recent page reaches: the `keepUnusedDataFor` removal timer, which
+          // runs 10 minutes after the LAST subscriber leaves a cache entry and
+          // so fires long after any request has settled
+          // (`rtk-query.modern.mjs:2253`), and `api.util.resetApiState`, which
+          // this app never dispatches. A filter change only unsubscribes, and
+          // `unsubscribe()` dispatches `unsubscribeQueryResult` and nothing else
+          // (`:637`) — it does not abort. So the gate errs toward LOGGING, which
+          // is the safe direction: a silence that never fires costs nothing,
+          // while a silence keyed on a forgeable name loses real failures.
           if (!signal.aborted) {
             logger.error('[jobsApi] /api/jobs/search request failed:', error);
           }

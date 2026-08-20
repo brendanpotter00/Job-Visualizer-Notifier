@@ -194,9 +194,18 @@ filter set in SQL and pages the *result*. Router `routers/jobs_search.py`, SQL
   means while it still looks like the same number.
 - **Cursors are filter-bound.** A search cursor embeds an 8-hex fingerprint of the
   filter set (`compute_filter_fingerprint` in `pagination.py`); replaying one under
-  different filters is a **422**, not a silently-incoherent walk. `limit` is excluded
+  different filters is a **409**, not a silently-incoherent walk. `limit` is excluded
   from the fingerprint, so changing page size mid-walk stays legal — but `since` is
   included, so **a client must freeze its window bound and replay it verbatim**.
+- **409 vs 422 on `cursor` is a contract, not a detail.** `409` = the token decoded
+  perfectly but names a different query (fingerprint moved, or `_SEARCH_CURSOR_VERSION`
+  did) — the fix is mechanical and belongs to the CLIENT: drop the cursor, re-request
+  page 1. `422` = the token is malformed and nothing downstream can repair it. The
+  frontend needs the split: it renders 400/422 `detail` to the reader verbatim, and
+  "restart the walk from page 1" is not a sentence a reader can act on — while its
+  next-page Retry replays the same rejected cursor. `useRecentJobsSearch` keys its
+  restart on the 409 (`STALE_CURSOR_STATUS`). Raised as `StaleCursorError`, a subclass
+  of `InvalidCursorError` so `/api/jobs` (no fingerprint, never raises it) is unchanged.
 - **Filter semantics** are a port of the frontend matcher this replaced. Dimensions
   AND, values within a dimension OR. An active `category`/`level` filter **hides
   unenriched (NULL) rows** — ~65% of OPEN rows. `entry` expands to

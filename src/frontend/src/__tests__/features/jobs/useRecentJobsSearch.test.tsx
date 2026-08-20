@@ -517,6 +517,63 @@ describe('useRecentJobsSearch — failures', () => {
     expect(result.current.jobs.map((job) => job.id)).toEqual(['a', 'b', 'c']);
     expect(result.current.counts?.total).toBe(137);
   });
+
+  it('RESTARTS the walk when the next page is refused for a stale cursor', async () => {
+    // The endpoint answers a cursor minted under a different filter set (or an
+    // older cursor format) with 409 and the words "drop the cursor and restart the
+    // walk from page 1". That instruction is addressed to the CLIENT — no reader
+    // can act on it — and the ordinary next-page `retry` is `fetchNextPage()`,
+    // which derives the SAME cursor from the SAME cached page. Every press would
+    // replay the identical rejected request, forever, on the one error whose fix
+    // is mechanical.
+    //
+    // Reachable only after a deploy moves `_SEARCH_CURSOR_VERSION` or the
+    // fingerprint inputs mid-session; this client cannot mint the mismatch itself,
+    // because RTK Query keys the cache by the whole filter set.
+    let cursorAccepted = false;
+    const fetch = install((params) => {
+      const cursor = params.get('cursor');
+      if (cursor === null) {
+        // After the restart, page 1 hands back a cursor this build DOES accept.
+        cursorAccepted = true;
+        return { body: page(['a', 'b'], 'cursor-fresh', true) };
+      }
+      if (cursor === 'cursor-fresh' && cursorAccepted) {
+        return { body: page(['c'], null) };
+      }
+      return { status: 409, body: { detail: "Stale 'cursor': cursor was minted under a different filter set" } };
+    });
+
+    const store = makeStore();
+    const { result } = renderSearch(store);
+    await flush();
+    expect(result.current.jobs.map((job) => job.id)).toEqual(['a', 'b']);
+
+    // Poison the walk: the first next-page attempt is refused as stale.
+    cursorAccepted = false;
+    act(() => {
+      result.current.fetchNextPage();
+    });
+    await flush();
+    expect(result.current.errorScope).toBe('nextPage');
+    // The reason is NOT put on screen — it is an instruction to the client.
+    expect(result.current.error).toBe(ERROR_MESSAGES.LOAD_JOBS_FAILED);
+
+    const callsBeforeRetry = fetch.mock.calls.length;
+    act(() => {
+      result.current.retry();
+    });
+    await flush();
+
+    // The recovery IS the assertion: retry re-requested page 1 (no cursor) rather
+    // than replaying the rejected token.
+    const retryCursors = fetch.mock.calls
+      .slice(callsBeforeRetry)
+      .map((call) => paramsOf(call[0]).get('cursor'));
+    expect(retryCursors[0]).toBeNull();
+    expect(result.current.errorScope).toBeNull();
+    expect(result.current.jobs.map((job) => job.id)).toEqual(['a', 'b']);
+  });
 });
 
 describe('useRecentJobsSearch — when a prerequisite fails', () => {

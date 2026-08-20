@@ -34,6 +34,7 @@ from ..pagination import (
     MAX_CURSOR_LENGTH,
     MAX_TIMESTAMP_LENGTH,
     InvalidCursorError,
+    StaleCursorError,
     JobCursor,
     compute_filter_fingerprint,
     decode_search_cursor,
@@ -72,17 +73,41 @@ _MAX_COMPANIES = 500
 _MAX_FACET_VALUES = 20
 _MAX_LOCATIONS = 100
 _MAX_LOCATION_LENGTH = 200
-# Keyword terms are the one filter whose cost is linear in the number of VALUES:
-# each term adds four ILIKEs plus a correlated EXISTS over job_tags, evaluated per
-# candidate row, on BOTH the page query and the page-1 count. Measured at prod
-# scale, 100 terms takes ~8.8s per query — two of those would pin a pooled
-# connection for ~18s, and with DB_POOL_MAX=15 that starves every other route.
-# This database already has a pool-exhaustion incident
+# Keyword terms are the one filter whose cost is linear in the number of VALUES,
+# and the mechanism is NOT the one you would guess from reading
+# ``_KEYWORD_PREDICATE``. Each term adds four ILIKEs plus an ``EXISTS`` over
+# ``job_tags`` — but Postgres DE-CORRELATES that EXISTS into a hashed ``SubPlan``,
+# so it is not evaluated per candidate row at all. It is ONE full scan of
+# ``job_tags`` per term, executed once (``loops=1``) and then probed. That makes it
+# **independent of LIMIT**: a 100-row page pays the same tag scans as a count over
+# the whole corpus.
+#
+# Why a full scan: ``_KEYWORD_PREDICATE`` matches ``t.tag ILIKE '%…%'`` and
+# ``job_tags`` carries only the plain btree ``idx_job_tags_tag`` (migration
+# ``0fa33aca5bda``). A btree cannot serve a leading-wildcard ILIKE, and there is no
+# ``pg_trgm`` extension in this database.
+#
+# MEASURED ON PROD, 2026-08-20 (112,880 ``job_tags`` rows, ~31.9k OPEN listings):
+#   * ~80-100 ms per term, per statement — one whole ``job_tags`` scan each.
+#   * The built-in 6-term "Software Engineering" list: **1.73 s** for the counts
+#     statement + **0.52 s** for the page query = ~2.25 s of DB time for ONE page-1
+#     load. (Of the page query's 521 ms, ~514 ms is the six tag scans.)
+#   * Extrapolating the same per-term cost, a full 20-term filter set is ~1.7-2.0 s
+#     per statement, so ~3.5 s per page-1 load.
+#
+# PAGE 1 PAYS IT TWICE. ``get_search_counts``' ``filtered_total`` subquery applies
+# the identical predicate alongside the page query, on the SAME pooled connection.
+# With ``DB_POOL_MAX=15`` and ``DB_POOL_TIMEOUT=5s``, a 20-term search holds one of
+# fifteen connections for most of the checkout window on its own. This database
+# already has a pool-exhaustion incident
 # (docs/incidents/2026-05-17-recent-jobs-pool-exhaustion.md).
 #
-# 20 is comfortably above any real use — the built-in "Software Engineering" list
-# is 6 terms and the widest list in prod is 11 (2026-08-19) — while keeping the
-# worst case in the hundreds of milliseconds.
+# 20 is above any observed use — the built-in list is 6 terms and the widest list
+# in prod is 11 (2026-08-19) — but it is NOT a comfortable ceiling, and it is not
+# "hundreds of milliseconds" as this comment previously claimed. The real remedy is
+# a ``pg_trgm`` GIN index on ``job_tags(tag)``, which turns each per-term scan into
+# an index probe; that is new prod DDL and is deliberately out of scope here. Until
+# it lands, treat this cap as a load bound that is already being felt, not headroom.
 #
 # It is also the SAME number as ``models._MAX_TAGS_PER_LIST``, and that identity
 # is load-bearing rather than tidy. A saved keyword list auto-hydrates into the
@@ -223,7 +248,7 @@ def search(
             "Recency lower bound, INCLUSIVE (first_seen_at >= since). ISO-8601 with "
             "a UTC offset. MUST be frozen for the duration of a walk and replayed "
             "verbatim on every page — it participates in the cursor fingerprint, so "
-            "recomputing it per page is a 422."
+            "recomputing it per page is a 409."
         ),
     ),
     cursor: str | None = Query(
@@ -231,7 +256,10 @@ def search(
         max_length=MAX_CURSOR_LENGTH,
         description=(
             "Opaque token from the previous response's `nextCursor`. Echo it back "
-            "verbatim. Only valid under the exact filter set that minted it."
+            "verbatim. Only valid under the exact filter set that minted it: a "
+            "cursor from a different filter set (or an older cursor format) is a "
+            "409, which means DROP THE CURSOR AND RE-REQUEST PAGE 1. A malformed "
+            "token is a 422, which means fix the caller."
         ),
     ),
     limit: int = Query(
@@ -298,12 +326,20 @@ def search(
     CURSORS ARE FILTER-BOUND
     ------------------------
     Unlike ``/api/jobs``, a cursor here embeds a fingerprint of the filters that
-    minted it, and replaying it against a different filter set is a **422**. On an
+    minted it, and replaying it against a different filter set is a **409**. On an
     endpoint that filters server-side, a cursor carried across a filter change
     produces a plausible 200 whose pages enumerate neither filter set completely —
     silent, and the exact failure mode keyset paging exists to eliminate. The
     fingerprint covers ``status``, ``since`` and every filter list; it deliberately
     excludes ``limit``, so changing page size mid-walk stays legal.
+
+    **409 vs 422 on ``cursor``** is a contract, not a detail. 409 = the token is
+    well-formed but names a different query (fingerprint moved, or the format tag
+    did): the fix is mechanical and belongs to the client — drop the cursor and
+    restart from page 1. 422 = the token is malformed: nothing downstream can
+    repair it. A client that cannot tell them apart has to either replay a cursor
+    that will never be accepted or restart on every cursor error; both are wrong.
+    See ``StaleCursorError`` in ``api/pagination.py``.
 
     FILTER SEMANTICS (parity with the client matcher this replaced)
     --------------------------------------------------------------
@@ -367,6 +403,16 @@ def search(
     if cursor is not None:
         try:
             parsed_cursor = decode_search_cursor(cursor, expected_fingerprint=fingerprint)
+        except StaleCursorError as exc:
+            # 409, not 422, and the split is about WHO can act on it. Every other
+            # rejection on this endpoint names something the caller's filter set
+            # got wrong, which is why the client surfaces 400/422 `detail` to the
+            # reader verbatim. This one decoded perfectly and says "restart the
+            # walk from page 1" — an instruction to the CLIENT that no reader can
+            # carry out, arriving in a next-page error box whose only affordance
+            # replays the SAME stale cursor. Ordered before the InvalidCursorError
+            # arm because StaleCursorError subclasses it.
+            raise HTTPException(status_code=409, detail=f"Stale 'cursor': {exc}")
         except InvalidCursorError as exc:
             raise HTTPException(status_code=422, detail=f"Invalid 'cursor': {exc}")
 

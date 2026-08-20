@@ -32,7 +32,14 @@ All paths below are relative to `src/frontend/src/`.
 - Factory patterns: `createAPIClient` (api/clients/baseClient.ts) and `createFilterSlice` (features/filters/slices/createFilterSlice.ts)
 - The company hiring-trend page has a single filter source (`graphFilters`) that drives both the graph and the job list — the list reflects the graph
 - The timeline chart in `GraphSection.tsx` is collapsible (local `useState`, default expanded, not persisted); collapsing hides only the chart — the filters stay visible because they also drive the list
-- Jobs normalized by company ID in `byCompanyId` map for O(1) lookup
+- Two job read paths, and they do NOT share a cache shape. The company hiring-trend
+  page uses `getJobsForCompany` (one RTK Query entry per company id). The Recent
+  Jobs page pages `GET /api/jobs/search` through the `searchJobs` **infinite**
+  query, whose cache key is the whole filter set and whose entry is a list of
+  server-returned pages. The old `byCompanyId` map — the all-companies fan-out both
+  pages once shared — was removed with the client-side walk; there is no store-wide
+  index of every job any more, and re-adding one would put the whole corpus back in
+  memory (see Gotcha #10)
 
 **Data Flow:**
 User selects company → `getJobsForCompany` RTK Query endpoint (features/jobs/jobsApi.ts) → Factory selects API client → Transform to normalized Job model → RTK Query cache update → Memoized selectors filter data → Components render

@@ -48,6 +48,12 @@ never "ignore it and serve page 1". A cursor the server silently discards is
 indistinguishable to the client from a cursor it honoured, and the result is the
 exact failure this whole module exists to prevent: a paging walk that quietly
 restarts and never terminates, or terminates early and drops the tail.
+
+The one split within that: :class:`StaleCursorError` (a well-formed cursor minted
+under different filters, or under an older format tag) is a **409** rather than a
+422, because it is an instruction to the CLIENT — restart the walk — not a
+validation error a reader could fix. See that class for why the status carries the
+distinction rather than the message.
 """
 
 import base64
@@ -105,6 +111,28 @@ class InvalidCursorError(ValueError):
     Carries a human-readable reason; the router surfaces it verbatim in the 422
     ``detail`` so a caller debugging a broken paging loop sees *which* part of
     their cursor was wrong rather than a generic "bad request".
+    """
+
+
+class StaleCursorError(InvalidCursorError):
+    """A cursor that decoded PERFECTLY but belongs to a different query.
+
+    The distinction is not cosmetic, it is about who can act on the failure.
+    Every other :class:`InvalidCursorError` says "this token is malformed" — the
+    caller sent garbage and nobody downstream can repair it. This one says "this
+    token is fine, it is just no longer yours": the fingerprint moved, or the
+    format tag did. The remedy is mechanical and belongs to the CLIENT — drop the
+    cursor, re-request page 1, walk forward from the cursors that come back.
+
+    Which is why the router answers it with **409 Conflict** instead of 422. A
+    reader cannot fix "restart the walk from page 1" by editing a filter, so
+    putting that sentence on screen (where the only affordance is a Retry that
+    replays the SAME stale cursor) produces an error box that can never clear.
+    A distinct status lets the client recognize it and actually recover.
+
+    Subclasses :class:`InvalidCursorError` on purpose: ``/api/jobs``' decoder has
+    no fingerprint and never raises this, so its single ``except
+    InvalidCursorError`` handler keeps its exact current behaviour.
     """
 
 
@@ -351,12 +379,13 @@ def encode_search_cursor(
 def decode_search_cursor(raw: str, *, expected_fingerprint: str) -> JobCursor:
     """Decode a search cursor and assert it was minted under the same filters.
 
-    :raises InvalidCursorError: on malformed input (over-long, non-base64url,
-        non-UTF-8, wrong version tag, wrong field count, unparseable/naive
-        timestamp, bad ``source_id``) **or** on a fingerprint mismatch. Both are
-        422s at the router; the mismatch message names the cause explicitly so a
-        client debugging a stuck walk is told to restart it rather than left
-        guessing why its pages went strange.
+    :raises InvalidCursorError: on malformed input — over-long, non-base64url,
+        non-UTF-8, wrong field count, unparseable/naive timestamp, bad
+        ``source_id``. A 422 at the router.
+    :raises StaleCursorError: on a fingerprint mismatch or an unrecognized version
+        tag — a cursor that decodes perfectly but names a different query. A 409 at
+        the router, so a client can tell "restart the walk" apart from "you sent
+        garbage" without parsing the message.
     """
     if not raw:
         raise InvalidCursorError("cursor must not be empty")
@@ -387,12 +416,16 @@ def decode_search_cursor(raw: str, *, expected_fingerprint: str) -> JobCursor:
     if version != _SEARCH_CURSOR_VERSION:
         # Catches a ``/api/jobs`` cursor pasted at ``/api/jobs/search`` (3 fields,
         # so it usually fails the count check above) and any future format bump.
-        raise InvalidCursorError(
+        # STALE, not malformed: a five-field cursor carrying some OTHER version tag
+        # is one this service minted before ``_SEARCH_CURSOR_VERSION`` moved, which
+        # is a mid-session deploy, not a bad request. Same remedy as below.
+        raise StaleCursorError(
             f"cursor has an unrecognized format tag {version!r}; expected "
-            f"{_SEARCH_CURSOR_VERSION!r}"
+            f"{_SEARCH_CURSOR_VERSION!r} — drop the cursor and restart the walk "
+            f"from page 1"
         )
     if fingerprint != expected_fingerprint:
-        raise InvalidCursorError(
+        raise StaleCursorError(
             "cursor was minted under a different filter set — a keyset walk is only "
             "a complete enumeration of the filters it started with, so drop the "
             "cursor and restart the walk from page 1"
@@ -413,6 +446,7 @@ def decode_search_cursor(raw: str, *, expected_fingerprint: str) -> JobCursor:
 __all__: Sequence[str] = (
     "InvalidCursorError",
     "JobCursor",
+    "StaleCursorError",
     "MAX_CURSOR_LENGTH",
     "MAX_TIMESTAMP_LENGTH",
     "compute_filter_fingerprint",

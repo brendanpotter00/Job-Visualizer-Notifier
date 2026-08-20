@@ -608,6 +608,17 @@ def _header_counts_where(companies: list[str] | None) -> tuple[sql.Composable, l
 # the join is lossless by construction (AFTER INSERT trigger + composite FK), so
 # it cannot change the count, and omitting it saves a join over the whole matching
 # set.
+#
+# COST WARNING — ``filtered_total`` is the EXPENSIVE half when keywords are active,
+# and it is expensive for a reason that is easy to miss: ``_KEYWORD_PREDICATE``'s
+# ``EXISTS`` over ``job_tags`` is de-correlated by the planner into a hashed
+# ``SubPlan``, i.e. one FULL ``job_tags`` scan per term, executed once. That is
+# LIMIT-independent, so the un-LIMITed count here pays exactly what the page query
+# pays — and page 1 therefore runs the whole keyword predicate TWICE on one pooled
+# connection. Measured on prod 2026-08-20, the built-in 6-term "Software
+# Engineering" list costs 1.73 s here + 0.52 s for the page query. See the
+# ``_MAX_KEYWORDS`` comment in ``routers/jobs_search.py`` for the full numbers and
+# for why a ``pg_trgm`` GIN index on ``job_tags(tag)`` is the actual fix.
 _SEARCH_COUNTS_SQL = sql.SQL(
     "SELECT"
     " (SELECT count(*) FROM {jobs}{filtered_where}) AS filtered_total,"

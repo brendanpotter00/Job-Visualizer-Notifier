@@ -15,6 +15,7 @@
 
 import type { BackendJobListing } from '../../api/types.ts';
 import type { SearchJobsCounts, SearchJobsResponseBody } from './searchJobsTypes.ts';
+import { logger } from '../../lib/logger.ts';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -44,7 +45,23 @@ export interface ValidatedSearchJobsBody extends SearchJobsResponseBody {
   counts?: SearchJobsCounts;
 }
 
-export function validateSearchJobsResponse(body: unknown): ValidatedSearchJobsBody {
+export interface ValidateSearchJobsOptions {
+  /**
+   * Whether this body answers the FIRST request of a walk (`cursor === null`).
+   *
+   * Load-bearing, and the validator cannot derive it: `meta` is absent on every
+   * cursor page BY DESIGN (the counts describe the filter set, not the page, so
+   * the endpoint computes them once), and absent on page 1 only when something
+   * went wrong. Those two are indistinguishable in the body — the caller is the
+   * only party that knows which request it made.
+   */
+  isFirstPage: boolean;
+}
+
+export function validateSearchJobsResponse(
+  body: unknown,
+  { isFirstPage }: ValidateSearchJobsOptions
+): ValidatedSearchJobsBody {
   if (!isRecord(body)) {
     throw new Error('Invalid /api/jobs/search response: body is not an object');
   }
@@ -72,6 +89,29 @@ export function validateSearchJobsResponse(body: unknown): ValidatedSearchJobsBo
     ) {
       throw new Error('Invalid /api/jobs/search response: bad job row shape');
     }
+  }
+
+  if (isFirstPage && body.meta == null) {
+    // LOGGED, not thrown, and the asymmetry is deliberate.
+    //
+    // The endpoint sends `meta` on page 1 unconditionally (`jobs_search.py`:
+    // `if parsed_cursor is None`), so its absence here is a broken contract —
+    // a serializer regression, or a proxy/CDN that rewrote the envelope. The
+    // consequence is not loud: `counts` stays undefined, the header tiles render
+    // em-dashes and `aria-setsize` becomes -1 (ARIA's "unknown"), which is the
+    // CORRECT degradation and is why this must not throw. Throwing would blank a
+    // page whose rows are perfectly good.
+    //
+    // But degrading silently is how a permanent regression stays invisible: the
+    // page looks deliberate, nothing errors, and the only symptom is three
+    // dashes nobody files a bug about. So the fact goes to the log — this is the
+    // one contract violation on this endpoint that produced no diagnostic
+    // anywhere. Every OTHER shape problem in this file throws.
+    logger.error(
+      '[jobsApi] /api/jobs/search page 1 came back without `meta`:',
+      'header counts unavailable; tiles will render as em-dashes and aria-setsize as -1 ' +
+        'until a new page 1 lands'
+    );
   }
 
   return {
