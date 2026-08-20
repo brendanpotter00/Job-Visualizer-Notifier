@@ -45,8 +45,59 @@ describe('jobsApi getFacets', () => {
     const result = await store.dispatch(jobsApi.endpoints.getFacets.initiate());
 
     expect(result.error).toBeUndefined();
-    expect(result.data).toEqual(VALID_FACETS);
+    // `subcategories: []` is ADDED by the endpoint's normalization — the
+    // expectation is amended rather than the assertion weakened, because the
+    // key always being present is exactly what consumers rely on.
+    expect(result.data).toEqual({ ...VALID_FACETS, subcategories: [] });
     expect(String(fetchMock.mock.calls[0][0])).toContain('/api/jobs/facets');
+  });
+
+  it('resolves with subcategories: [] when the backend omits the key', async () => {
+    // A backend that has not shipped the subcategory dimension yet. This MUST
+    // NOT error: erroring would blank `data` and drop every consumer back to
+    // FALLBACK_CATEGORIES, regressing the LIVE category dropdown to a stale
+    // constant on every Vercel-before-Railway deploy window.
+    fetchMock.mockResolvedValue(jsonResponse(VALID_FACETS));
+    const store = makeStore();
+
+    const result = await store.dispatch(jobsApi.endpoints.getFacets.initiate());
+
+    expect(result.error).toBeUndefined();
+    expect(result.data?.subcategories).toEqual([]);
+    expect(result.data?.categories).toEqual(VALID_FACETS.categories);
+  });
+
+  it('passes a body carrying all three dimensions through unchanged', async () => {
+    const withSubcats = {
+      ...VALID_FACETS,
+      subcategories: [
+        {
+          slug: 'backend',
+          label: 'Backend',
+          sortOrder: 1,
+          parentSlug: 'software_engineering',
+        },
+      ],
+    };
+    fetchMock.mockResolvedValue(jsonResponse(withSubcats));
+    const store = makeStore();
+
+    const result = await store.dispatch(jobsApi.endpoints.getFacets.initiate());
+
+    expect(result.error).toBeUndefined();
+    expect(result.data).toEqual(withSubcats);
+  });
+
+  it('is TOLERANT of a malformed subcategories value — [] , not an error', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ ...VALID_FACETS, subcategories: 'nope' })
+    );
+    const store = makeStore();
+
+    const result = await store.dispatch(jobsApi.endpoints.getFacets.initiate());
+
+    expect(result.error).toBeUndefined();
+    expect(result.data?.subcategories).toEqual([]);
   });
 
   it('errors when the response is not ok (500)', async () => {

@@ -325,4 +325,11 @@ export interface FacetOption {
 export interface JobFacets {
   categories: FacetOption[];
   levels: FacetOption[];
+  /**
+   * SWE subcategories. OPTIONAL on the wire — a backend that has not shipped
+   * the dimension yet simply omits the key, and that is a supported response,
+   * not an error. `getFacets` NORMALIZES it to `[]`, so the query RESULT always
+   * carries the key even when the response did not.
+   */
+  subcategories?: FacetOption[];
 }
