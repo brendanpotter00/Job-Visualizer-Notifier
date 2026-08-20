@@ -18,6 +18,7 @@ a relevance ordering has no immutable, unique sort key to seek on.
 
 import logging
 import re
+from collections.abc import Mapping
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -42,6 +43,7 @@ from ..pagination import (
     parse_utc_timestamp,
 )
 from ..services.job_search import (
+    LocationDescriptor,
     SearchFilters,
     get_search_counts,
     resolve_location_selections,
@@ -240,6 +242,35 @@ def _validate_text_list(
     return _dedupe(values)
 
 
+def _fingerprint_location_descriptors(
+    descriptors: Mapping[str, LocationDescriptor],
+) -> list[str]:
+    """Canonical, order-independent rendering of a resolved location mapping.
+
+    One entry per selection that resolved, ``name>tier|city|region|country|scope``,
+    sorted by name. Returned as a LIST so ``compute_filter_fingerprint`` applies
+    its own NUL join — the fields can contain commas ("Austin, TX, US") and a
+    comma join would let two different mappings serialize identically, which is a
+    hole in the one mechanism whose whole job is spotting a changed filter set.
+
+    A selection that resolves to nothing is absent here, exactly as it is absent
+    from the mapping: it still matches by exact canonical name via
+    ``_location_condition``, and that path does not depend on live ranking, so it
+    has nothing to drift.
+    """
+    return [
+        "{}>{}|{}|{}|{}|{}".format(
+            name,
+            d["tier"],
+            d["city"] or "",
+            d["region"] or "",
+            d["country"] or "",
+            d["remote_scope"] or "",
+        )
+        for name, d in sorted(descriptors.items())
+    ]
+
+
 @router.get("", response_model=JobSearchResponse)
 def search(
     conn: Connection = Depends(get_db),
@@ -393,10 +424,29 @@ def search(
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=f"Invalid 'since': {exc}")
 
+    # Resolved BEFORE the fingerprint, and folded into it — see below. Also
+    # shared by the page query and the count query, so a single request never
+    # resolves the same names twice.
+    location_descriptors = (
+        resolve_location_selections(conn, locations) if locations else {}
+    )
+
     # Fingerprint the EFFECTIVE filter set (post-validation, post-dedupe) so two
     # requests that mean the same thing hash the same way. ``since`` uses the
     # normalized UTC form rather than the raw string, so an equivalent offset
     # (+00:00 vs Z) does not invalidate a walk.
+    #
+    # ``location_resolved`` is in here, and the ordering above exists for it.
+    # A location SELECTION is a canonical name, but what actually reaches the
+    # WHERE clause is the DESCRIPTOR that name resolves to, and that resolution
+    # reads live data: ``_RESOLVE_LOCATIONS_SQL`` ranks duplicate
+    # ``canonical_name`` rows with ``row_number()`` over a per-row
+    # ``job_locations`` count, and prod carries 48 duplicated canonical names.
+    # A scrape that moves one job between two same-named rows can therefore flip
+    # which descriptor wins BETWEEN page 1 and page N — the reader keeps paging,
+    # every cursor still validates, and the filter set has silently changed
+    # underneath them. Fingerprinting the raw names cannot see that; fingerprinting
+    # what they resolved to can, and turns it into the 409 restart below.
     fingerprint = compute_filter_fingerprint(
         {
             "status": status,
@@ -405,6 +455,7 @@ def search(
             "level": levels or [],
             "company": companies or [],
             "location": locations or [],
+            "location_resolved": _fingerprint_location_descriptors(location_descriptors),
             "include": include_terms or [],
             "exclude": exclude_terms or [],
         }
@@ -426,12 +477,6 @@ def search(
             raise HTTPException(status_code=409, detail=f"Stale 'cursor': {exc}")
         except InvalidCursorError as exc:
             raise HTTPException(status_code=422, detail=f"Invalid 'cursor': {exc}")
-
-    # Resolved once and shared by the page query and the count query below, so a
-    # single request never resolves the same names twice.
-    location_descriptors = (
-        resolve_location_selections(conn, locations) if locations else {}
-    )
 
     # Annotated, not inferred: a bare dict literal widens to
     # dict[str, <union of everything>] and the two unpack sites below stop being

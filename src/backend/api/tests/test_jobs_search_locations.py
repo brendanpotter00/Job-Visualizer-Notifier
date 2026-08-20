@@ -686,3 +686,43 @@ def test_the_most_referenced_duplicate_wins_regardless_of_insert_order(
     assert _ids(_search(client, location="Springfield")) == {
         "sf-1", "sf-2", "sf-3", "lonely-1",
     }
+
+
+def test_a_resolution_flip_mid_walk_invalidates_the_cursor(client, db_conn, seed_taxonomy):
+    """A duplicated canonical_name whose winner flips mid-walk must 409, not drift.
+
+    ``_RESOLVE_LOCATIONS_SQL`` ranks same-named ``locations`` rows by their live
+    ``job_locations`` count, and prod carries 48 duplicated canonical names. A
+    scrape that moves jobs between two same-named rows changes which descriptor
+    the filter actually uses — so the reader keeps paging, every cursor still
+    validates, and the filter set has silently changed underneath them.
+
+    Fingerprinting the raw selection cannot see that, because the selection string
+    never changed. Fingerprinting what it RESOLVED to can. Without the
+    ``location_resolved`` key this test fails by returning 200.
+    """
+    loser = _place(db_conn, "Springfield", city="Springfield", region="IL", country="US")
+    winner = _place(db_conn, "Springfield", city="Springfield", region="MO", country="US")
+
+    # `winner` starts with the higher job_locations count, so it resolves first.
+    for i in range(3):
+        _job(db_conn, f"spring-win-{i}", winner)
+    _job(db_conn, "spring-lose-0", loser)
+
+    first = client.get("/api/jobs/search", params={"location": "Springfield", "limit": 1})
+    assert first.status_code == 200
+    cursor = first.json()["nextCursor"]
+    assert cursor, "need a live cursor to exercise the flip"
+
+    # Flip the ranking: `loser` now outnumbers `winner`, so a different row wins.
+    for i in range(5):
+        _job(db_conn, f"spring-flip-{i}", loser)
+
+    second = client.get(
+        "/api/jobs/search",
+        params={"location": "Springfield", "limit": 1, "cursor": cursor},
+    )
+    assert second.status_code == 409, (
+        "the resolution flipped between pages but the cursor was still accepted "
+        f"(got {second.status_code}) — the walk silently changed filter sets"
+    )

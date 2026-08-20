@@ -70,6 +70,7 @@ def _fingerprint(
     level: list[str] | None = None,
     company: list[str] | None = None,
     location: list[str] | None = None,
+    location_resolved: list[str] | None = None,
     include: list[str] | None = None,
     exclude: list[str] | None = None,
 ) -> str:
@@ -87,6 +88,11 @@ def _fingerprint(
             "level": level or [],
             "company": company or [],
             "location": location or [],
+            # Mirrors the router: the RESOLVED descriptors are fingerprinted too,
+            # so a duplicated canonical_name whose winner flips mid-walk is caught
+            # instead of silently changing the filter set. Empty for every test
+            # here, none of which sends a location filter.
+            "location_resolved": location_resolved or [],
             "include": include or [],
             "exclude": exclude or [],
         }
