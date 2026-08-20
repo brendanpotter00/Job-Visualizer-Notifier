@@ -1068,7 +1068,65 @@ class JobTag(Base):
     __table_args__ = (
         PrimaryKeyConstraint("source_id", "job_listing_id", "tag"),
         Index("idx_job_tags_tag", "tag"),
+        # Serves the keyword filter behind GET /api/jobs/search. That predicate
+        # (`_KEYWORD_PREDICATE` in api/services/job_search.py) matches
+        # `t.tag ILIKE '%term%'`, and a LEADING wildcard is unservable by the
+        # plain btree above — so before this index every keyword term cost one
+        # FULL scan of job_tags, de-correlated by the planner into a hashed
+        # SubPlan and therefore INDEPENDENT of the page LIMIT. Page 1 pays the
+        # predicate twice (the page query and `get_search_counts`' filtered
+        # total), on one pooled connection against DB_POOL_TIMEOUT=5s.
+        #
+        # GIN + gin_trgm_ops rather than a btree variant: trigram is the only
+        # index class Postgres can consult for a leading-wildcard ILIKE. Measured
+        # at prod scale (76,030 listings / 111,831 tags), the six-term built-in
+        # "Software Engineering" list goes from six Seq Scans on job_tags to six
+        # Bitmap Index Scans on this index — see migration 536c1cddcd28 for the
+        # full before/after table.
+        #
+        # KNOWN BLIND SPOT, kept here because a future reader will hit it: a term
+        # SHORTER THAN THREE CHARACTERS yields no complete trigram, so pg_trgm
+        # can extract no index key and the planner correctly falls back to the
+        # Seq Scan. `go`, `ai` and `ml` are all real, popular tags. Those terms
+        # cost exactly what they cost today; this index neither helps nor hurts
+        # them.
+        Index(
+            "idx_job_tags_tag_trgm",
+            "tag",
+            postgresql_using="gin",
+            postgresql_ops={"tag": "gin_trgm_ops"},
+        ),
     )
+
+
+# --- pg_trgm, as model metadata -------------------------------------------
+# Same contract as the job_freshness sync trigger further up this file:
+# migration 536c1cddcd28
+# installs the extension on the prod deploy path, and this `before_create` hook
+# installs it on the create_all-based test/parity bootstrap (api/tests/conftest.py
+# and scripts/tests/conftest.py create_all + stamp rather than running migration
+# bodies). Without it, create_all would reach `idx_job_tags_tag_trgm` and fail
+# with `operator class "gin_trgm_ops" does not exist`, because the operator class
+# ships WITH the extension rather than with core.
+#
+# `before_create` on this table specifically, not on the whole metadata: the
+# operator class only has to exist by the time job_tags' indexes are emitted, and
+# hanging it off the one table that needs it keeps the dependency visible at the
+# point of use.
+#
+# WITH SCHEMA public, explicitly. A bare CREATE EXTENSION lands in the first
+# entry of search_path, which under PYTEST_SCHEMA is the per-module `test_<hex>`
+# schema — and that schema is dropped CASCADE at module teardown, which would
+# take gin_trgm_ops down with it and break every later module in the session.
+# The test fixtures pin `search_path TO "test_<hex>", public`, so public is
+# reachable from the test schema; in prod public IS the schema.
+_PG_TRGM_EXTENSION = DDL("CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public")
+
+event.listen(
+    JobTag.__table__,
+    "before_create",
+    _PG_TRGM_EXTENSION.execute_if(dialect="postgresql"),
+)
 
 
 class JobEnrichment(Base):

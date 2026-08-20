@@ -224,6 +224,21 @@ filter set in SQL and pages the *result*. Router `routers/jobs_search.py`, SQL
   corpus. Four columns, not five: wedging `enrichment_level` in would order entries
   by level within a category and destroy the ordering for the common category-only
   query.
+- **Keyword index:** `idx_job_tags_tag_trgm`, a **GIN trigram** index on
+  `job_tags(tag)` plus `CREATE EXTENSION pg_trgm` (migration `536c1cddcd28`).
+  `_KEYWORD_PREDICATE` matches `t.tag ILIKE '%term%'`, and a LEADING wildcard is
+  unservable by the plain btree `idx_job_tags_tag` — so before this, every keyword
+  term cost one FULL scan of `job_tags`, **LIMIT-independent** (the planner
+  de-correlates the `EXISTS` into a hashed `SubPlan` run once), and **page 1 pays
+  it twice** (the page query and `filtered_total`). Measured at prod scale, the
+  6-term built-in list goes 617 ms → 209 ms of DB time and a 20-term set
+  1807 ms → 442 ms; the `job_tags` share drops ~25x (~43 ms → ~1.5 ms per term).
+  **Blind spot to know about:** a term under THREE characters has no complete
+  trigram, so `go`/`ai`/`ml` still get the `Seq Scan` (~110 ms each). The index is
+  mirrored in `db_models.py` with a `before_create` hook that installs the
+  extension, because `create_all` would otherwise fail on `gin_trgm_ops`.
+  `downgrade()` drops the index but NOT the extension — an extension is
+  database-global and a `DROP … CASCADE` could take unrelated objects with it.
 
 **Internal Enrichment Router (`/api/internal/enrichment`, X-Internal-Key):** `GET /pending` (claim batch; title-priority order — entry-level/intern, then software-engineering, then everything else, newest `first_seen_at` within each tier; the batch is **split** — `ENRICHMENT_CUSTOM_SHARE_PCT` of it is reserved for custom companies, dealt round-robin across them, and each slice absorbs the other's unused budget so the reservation never idles the enricher), `POST /results` (idempotent write-back; returns `written`/`failed[]`(+`source_id`)/`warnings[]`), `GET /sample`, `GET /health`, `POST /metrics` (per-tick push → `enrichment_ticks`, idempotent on `tick_uuid`), `GET /corrections` (human-correction feed for the enricher's golden-merge).
 

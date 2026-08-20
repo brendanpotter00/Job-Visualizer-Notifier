@@ -77,37 +77,48 @@ _MAX_LOCATION_LENGTH = 200
 # and the mechanism is NOT the one you would guess from reading
 # ``_KEYWORD_PREDICATE``. Each term adds four ILIKEs plus an ``EXISTS`` over
 # ``job_tags`` — but Postgres DE-CORRELATES that EXISTS into a hashed ``SubPlan``,
-# so it is not evaluated per candidate row at all. It is ONE full scan of
-# ``job_tags`` per term, executed once (``loops=1``) and then probed. That makes it
-# **independent of LIMIT**: a 100-row page pays the same tag scans as a count over
-# the whole corpus.
-#
-# Why a full scan: ``_KEYWORD_PREDICATE`` matches ``t.tag ILIKE '%…%'`` and
-# ``job_tags`` carries only the plain btree ``idx_job_tags_tag`` (migration
-# ``0fa33aca5bda``). A btree cannot serve a leading-wildcard ILIKE, and there is no
-# ``pg_trgm`` extension in this database.
-#
-# MEASURED ON PROD, 2026-08-20 (112,880 ``job_tags`` rows, ~31.9k OPEN listings):
-#   * ~80-100 ms per term, per statement — one whole ``job_tags`` scan each.
-#   * The built-in 6-term "Software Engineering" list: **1.73 s** for the counts
-#     statement + **0.52 s** for the page query = ~2.25 s of DB time for ONE page-1
-#     load. (Of the page query's 521 ms, ~514 ms is the six tag scans.)
-#   * Extrapolating the same per-term cost, a full 20-term filter set is ~1.7-2.0 s
-#     per statement, so ~3.5 s per page-1 load.
-#
-# PAGE 1 PAYS IT TWICE. ``get_search_counts``' ``filtered_total`` subquery applies
-# the identical predicate alongside the page query, on the SAME pooled connection.
-# With ``DB_POOL_MAX=15`` and ``DB_POOL_TIMEOUT=5s``, a 20-term search holds one of
-# fifteen connections for most of the checkout window on its own. This database
-# already has a pool-exhaustion incident
+# so it is not evaluated per candidate row at all. It is executed ONCE
+# (``loops=1``) and then probed, which makes it **independent of LIMIT**: a 50-row
+# page pays the same tag work as a count over the whole corpus. And PAGE 1 PAYS IT
+# TWICE — ``get_search_counts``' ``filtered_total`` subquery applies the identical
+# predicate alongside the page query, on the SAME pooled connection, against
+# ``DB_POOL_MAX=15`` / ``DB_POOL_TIMEOUT=5s``. This database already has a
+# pool-exhaustion incident
 # (docs/incidents/2026-05-17-recent-jobs-pool-exhaustion.md).
 #
-# 20 is above any observed use — the built-in list is 6 terms and the widest list
-# in prod is 11 (2026-08-19) — but it is NOT a comfortable ceiling, and it is not
-# "hundreds of milliseconds" as this comment previously claimed. The real remedy is
-# a ``pg_trgm`` GIN index on ``job_tags(tag)``, which turns each per-term scan into
-# an index probe; that is new prod DDL and is deliberately out of scope here. Until
-# it lands, treat this cap as a load bound that is already being felt, not headroom.
+# WHAT THAT SUBPLAN COSTS IS NOW BOUNDED BY AN INDEX. Migration ``536c1cddcd28``
+# added ``idx_job_tags_tag_trgm``, a GIN trigram index on ``job_tags(tag)``, so the
+# per-term ``t.tag ILIKE '%…%'`` is a ``Bitmap Index Scan`` instead of the full
+# ``Seq Scan`` the plain btree ``idx_job_tags_tag`` could never serve (a btree
+# cannot answer a LEADING wildcard).
+#
+# MEASURED at prod scale (76,030 listings / 31,941 OPEN / 111,831 tags; the
+# endpoint's own statements, ``SET LOCAL jit = off`` in force, ``limit=50``,
+# 133-company roster, ``since`` = epoch), BEFORE -> AFTER that index:
+#   * per term, ``job_tags`` work:  ~43 ms  ->  ~1.5 ms   (~25x)
+#   * 1 term    page + counts:    116.5 ms  ->   50.0 ms
+#   * 6 terms   page + counts:    617.5 ms  ->  208.6 ms   (the built-in list)
+#   * 20 terms  page + counts:   1806.6 ms  ->  441.9 ms   (this cap)
+# Prod's absolute numbers run ~2.5-4x these (round 5 measured the 6-term list
+# UNindexed at 1.73 s counts + 0.52 s page on prod, 2026-08-20); the plan shape —
+# which is what the index changes — is the same. See the migration for the full
+# table and for the measurement method.
+#
+# So a full 20-term set now costs LESS than the 6-term built-in list did, and the
+# residual is no longer in ``job_tags`` at all — it is the four un-indexed ILIKEs
+# per term over the OPEN ``job_listings`` rows. That is the thing to attack next if
+# this cap ever needs to rise; do NOT raise it on the strength of the trigram index
+# alone.
+#
+# 20 is still above any observed use — the built-in list is 6 terms and the widest
+# saved list in prod is 11 (2026-08-19).
+#
+# NOT covered by the index: a term shorter than THREE characters yields no complete
+# trigram, so pg_trgm can extract no key and the planner keeps the ``Seq Scan``.
+# ``go``, ``ai`` and ``ml`` are all real, popular tags. Measured, ONE such term
+# costs 110-118 ms of page-1 DB time against 50 ms for a 3+ character term, over a
+# 13 ms no-keyword floor — so its marginal cost is ~2.5x a long term's, and it is
+# the only shape of this filter the index cannot bound.
 #
 # It is also the SAME number as ``models._MAX_TAGS_PER_LIST``, and that identity
 # is load-bearing rather than tidy. A saved keyword list auto-hydrates into the

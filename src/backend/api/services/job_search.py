@@ -612,13 +612,25 @@ def _header_counts_where(companies: list[str] | None) -> tuple[sql.Composable, l
 # COST WARNING — ``filtered_total`` is the EXPENSIVE half when keywords are active,
 # and it is expensive for a reason that is easy to miss: ``_KEYWORD_PREDICATE``'s
 # ``EXISTS`` over ``job_tags`` is de-correlated by the planner into a hashed
-# ``SubPlan``, i.e. one FULL ``job_tags`` scan per term, executed once. That is
+# ``SubPlan``, executed ONCE per term rather than per candidate row. That is
 # LIMIT-independent, so the un-LIMITed count here pays exactly what the page query
 # pays — and page 1 therefore runs the whole keyword predicate TWICE on one pooled
-# connection. Measured on prod 2026-08-20, the built-in 6-term "Software
-# Engineering" list costs 1.73 s here + 0.52 s for the page query. See the
-# ``_MAX_KEYWORDS`` comment in ``routers/jobs_search.py`` for the full numbers and
-# for why a ``pg_trgm`` GIN index on ``job_tags(tag)`` is the actual fix.
+# connection.
+#
+# ``idx_job_tags_tag_trgm`` (migration ``536c1cddcd28``) is what keeps that
+# affordable: each term's ``t.tag ILIKE '%…%'`` is now a ``Bitmap Index Scan`` over
+# a GIN trigram index rather than a full ``Seq Scan`` of ``job_tags``. Measured at
+# prod scale, this statement with the built-in 6-term "Software Engineering" list
+# went 399.8 ms -> 196.1 ms, and with a full 20-term set 1091.5 ms -> 406.5 ms.
+#
+# What is LEFT is this statement's own shape, not the tags: the ``job_tags``
+# SubPlans are down to ~10 ms of the 196 ms (6 terms) and ~29 ms of the 406 ms
+# (20 terms). The remainder is the FOUR un-indexed ILIKEs each term applies to
+# ``job_listings`` (title / location / experience_level / company) across the OPEN
+# corpus, which no index on ``job_tags`` can touch. So this is still the half to
+# watch, and it is still the half to measure before anyone raises
+# ``_MAX_KEYWORDS`` — see that constant's comment in ``routers/jobs_search.py``
+# for the full before/after table and for the sub-3-character blind spot.
 _SEARCH_COUNTS_SQL = sql.SQL(
     "SELECT"
     " (SELECT count(*) FROM {jobs}{filtered_where}) AS filtered_total,"
