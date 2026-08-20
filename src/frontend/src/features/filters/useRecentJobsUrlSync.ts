@@ -54,8 +54,10 @@ export function useRecentJobsUrlSync(): void {
     dispatch(setRecentJobsHydrated(true));
     // Mount-only on purpose: this reads the URL the reader ARRIVED on. Later URL
     // changes are this hook's own `replaceState` writes, and re-reading them
-    // would be a loop.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // would be a loop. `window.location` is not reactive, so `[dispatch]` is a
+    // complete dependency list and no lint suppression is needed here —
+    // src/frontend/CLAUDE.md forbids new eslint-disable directives, and this one
+    // was both unnecessary and against that rule.
   }, [dispatch]);
 
   // WRITE — mirror filter state into the address bar.
