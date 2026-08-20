@@ -85,6 +85,19 @@ describe('FALLBACK_SUBCATEGORIES', () => {
   });
 });
 
+describe('FALLBACK_CATEGORIES', () => {
+  it('has exactly six entries with contiguous sortOrder', () => {
+    // SIX, not seven: `project_manager` was retired by SCHEMA-11 as live drift
+    // used by zero listings.
+    expect(FALLBACK_CATEGORIES).toHaveLength(6);
+    expect(FALLBACK_CATEGORIES.map((o) => o.sortOrder)).toEqual([0, 1, 2, 3, 4, 5]);
+  });
+
+  it('no longer offers project_manager', () => {
+    expect(FALLBACK_CATEGORIES.map((o) => o.slug)).not.toContain('project_manager');
+  });
+});
+
 describe('FACET_LABELS', () => {
   it('resolves every subcategory slug to its label', () => {
     for (const option of FALLBACK_SUBCATEGORIES) {
