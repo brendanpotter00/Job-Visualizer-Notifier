@@ -286,6 +286,11 @@ def list_facets(conn: Connection = Depends(get_db)) -> JobFacetsResponse:
     return JobFacetsResponse(
         categories=[FacetOption(**row) for row in data["categories"]],
         levels=[FacetOption(**row) for row in data["levels"]],
+        # ADDITIVE and EMPTY in phase 1 — the dimension table ships unseeded, so
+        # this is `[]` until SCHEMA-7 publishes it. The client normalizes a
+        # missing key to `[]` too, so an older backend and a phase-1 backend
+        # render the same flat dropdown.
+        subcategories=[FacetOption(**row) for row in data.get("subcategories", [])],
     )
 
 
