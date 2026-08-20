@@ -268,6 +268,92 @@ def _valid_subcategories(
     return cleaned
 
 
+def apply_subcategory_result(
+    conn: Connection, item: dict[str, Any]
+) -> tuple[bool, list[str]]:
+    """Write ONLY the subcategory triple for one row. Returns (written, warnings).
+
+    WHY THIS EXISTS AT ALL. ``/results`` is FULL-REPLACE: every item ships
+    ``clean_description``, and its upsert overwrites the whole audit row. Pushing
+    ~8k backfilled labels through it would mean re-shipping ~8k full job
+    descriptions to set two columns, and at the enricher's write-back batch size
+    the coverage counter would lag an overnight backfill by roughly two weeks —
+    contradicting the entire "overnight instead of a week" premise.
+
+    This function issues EXACTLY TWO narrow UPDATEs and nothing else. Not the
+    description, not category/level, not tags, not ``enriched_at``. If that ever
+    stops being true, the endpoint stops being cheap and starts being a second
+    way to clobber enrichment state.
+
+    PER-FIELD HUMAN LOCK: a row is skipped only when
+    ``enrichment_subcategory_source = 'human'``. NOT when ``human_corrected_at``
+    is set — that stamp means a human fixed the category or level, usually before
+    subcategories existed at all, and treating it as a subcategory lock would make
+    the backfill permanently miss exactly the human-labelled pool the eval gate
+    is built on.
+
+    Returns ``written=False`` for a skipped row so the caller can report it in
+    ``skipped[]`` rather than inflating ``written``.
+    """
+    warnings: list[str] = []
+    job_id = item["job_listing_id"]
+    source_id = item.get("source_id")
+    if not source_id:
+        raise ValueError(f"missing source_id for job_listing_id={job_id!r}")
+
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "SELECT enrichment_category, enrichment_subcategory_source "
+            "FROM job_listings WHERE source_id = %s AND id = %s",
+            (source_id, job_id),
+        )
+        row = cur.fetchone()
+        if row is None:
+            raise ValueError(
+                f"no job_listings row for (source_id={source_id!r}, id={job_id!r})"
+            )
+        if row["enrichment_subcategory_source"] == "human":
+            warnings.append("skipped: subcategory human-locked")
+            return False, warnings
+
+        subcategories = _valid_subcategories(
+            item.get("subcategories", _UNSET),
+            row["enrichment_category"],
+            job_id,
+            warnings,
+        )
+        if subcategories is _UNSET:
+            # The key may not be absent on this endpoint — there is nothing else
+            # in the payload, so an absent key means the request said nothing.
+            raise ValueError(
+                f"missing subcategories for (source_id={source_id!r}, id={job_id!r})"
+            )
+        source = (
+            None
+            if subcategories is None
+            else _valid_source(item.get("subcategory_source"), job_id, warnings)
+        )
+        confidence = None if not subcategories else item.get("subcategory_confidence")
+
+        # The ::text[] cast is REQUIRED — psycopg2 renders [] untyped and
+        # Postgres raises "cannot determine type of empty array".
+        cur.execute(
+            "UPDATE job_listings SET enrichment_subcategories = %s::text[], "
+            "enrichment_subcategory_source = %s WHERE source_id = %s AND id = %s",
+            (subcategories, source, source_id, job_id),
+        )
+        cur.execute(
+            "UPDATE job_enrichment SET subcategory_confidence = %s, "
+            "taxonomy_version = COALESCE(%s, taxonomy_version) "
+            "WHERE source_id = %s AND job_listing_id = %s",
+            (confidence, item.get("taxonomy_version"), source_id, job_id),
+        )
+        return True, warnings
+    finally:
+        cur.close()
+
+
 def apply_result(
     conn: Connection, result: dict[str, Any], *, require_judge_pass: bool
 ) -> list[str]:

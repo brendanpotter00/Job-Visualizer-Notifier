@@ -2724,6 +2724,252 @@ class TestCorrectionsFeed:
         assert stamps == sorted(stamps)
 
 
+class TestSubcategoryResults:
+    """SCHEMA-14: POST /subcategories — the only PARTIAL write path.
+
+    What these actually guard is that the endpoint stays CHEAP and NARROW. The
+    moment it touches anything besides the subcategory triple it stops being a
+    drain and becomes a second way to clobber enrichment state.
+    """
+
+    URL = "/api/internal/enrichment/subcategories"
+
+    def _seed(self, db_conn, job_id, source="google_scraper", **enrich):
+        _insert_job(db_conn, _make_job({"id": job_id, "source_id": source}))
+        cur = db_conn.cursor()
+        cur.execute(
+            "UPDATE job_listings SET enrichment_category='software_engineering', "
+            "enrichment_level='senior', enrichment_status='done' "
+            "WHERE source_id=%s AND id=%s",
+            (source, job_id),
+        )
+        cur.execute(
+            "INSERT INTO job_enrichment (source_id, job_listing_id, clean_description, "
+            "classify_confidence, taxonomy_version, human_corrected_at) "
+            "VALUES (%s, %s, 'the original description', 0.9, 'v6+aaa', %s)",
+            (source, job_id, enrich.get("human_corrected_at")),
+        )
+        cur.execute(
+            "INSERT INTO job_tags (source_id, job_listing_id, tag) VALUES (%s, %s, 'go')",
+            (source, job_id),
+        )
+        if enrich.get("subcategory_source"):
+            cur.execute(
+                "UPDATE job_listings SET enrichment_subcategory_source=%s "
+                "WHERE source_id=%s AND id=%s",
+                (enrich["subcategory_source"], source, job_id),
+            )
+        db_conn.commit()
+
+    def _snapshot(self, db_conn, job_id, source="google_scraper"):
+        cur = db_conn.cursor()
+        cur.execute(
+            "SELECT jl.enrichment_category, jl.enrichment_level, "
+            "jl.enrichment_status, je.clean_description, je.enriched_at, "
+            "je.classify_confidence, "
+            "COALESCE((SELECT json_agg(tag ORDER BY tag) FROM job_tags "
+            "  WHERE source_id=jl.source_id AND job_listing_id=jl.id), '[]'::json) AS tags "
+            "FROM job_listings jl JOIN job_enrichment je "
+            "  ON je.source_id=jl.source_id AND je.job_listing_id=jl.id "
+            "WHERE jl.source_id=%s AND jl.id=%s",
+            (source, job_id),
+        )
+        return dict(cur.fetchone())
+
+    def test_a_batch_writes_the_arrays_AND_TOUCHES_NOTHING_ELSE(
+        self, enrichment_client, db_conn
+    ):
+        """The cheapness assertion, byte-for-byte.
+
+        If this endpoint ever starts writing `clean_description` or bumping
+        `enriched_at`, it is no longer a partial write path — it is `/results`
+        with extra steps, and the whole reason it exists is gone.
+        """
+        self._seed(db_conn, "sr-1")
+        self._seed(db_conn, "sr-2")
+        before = {j: self._snapshot(db_conn, j) for j in ("sr-1", "sr-2")}
+
+        resp = enrichment_client.post(
+            self.URL,
+            json={
+                "items": [
+                    {
+                        "jobListingId": "sr-1", "sourceId": "google_scraper",
+                        "subcategories": ["infrastructure_platform", "backend"],
+                        "subcategoryConfidence": 0.82,
+                        "subcategorySource": "backfill",
+                        "taxonomyVersion": "v7+abc123abc123",
+                    },
+                    {
+                        "jobListingId": "sr-2", "sourceId": "google_scraper",
+                        "subcategories": [], "subcategorySource": "backfill",
+                        "taxonomyVersion": "v7+abc123abc123",
+                    },
+                ]
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["written"] == 2
+        db_conn.commit()
+
+        cur = db_conn.cursor()
+        cur.execute(
+            "SELECT id, enrichment_subcategories AS s, enrichment_subcategory_source "
+            "AS src FROM job_listings WHERE id IN ('sr-1','sr-2') ORDER BY id"
+        )
+        rows = {r["id"]: r for r in cur.fetchall()}
+        # ORDER preserved: index 0 is the primary.
+        assert rows["sr-1"]["s"] == ["infrastructure_platform", "backend"]
+        assert rows["sr-1"]["src"] == "backfill"
+        assert rows["sr-2"]["s"] == []
+
+        for job_id in ("sr-1", "sr-2"):
+            after = self._snapshot(db_conn, job_id)
+            for field in ("enrichment_category", "enrichment_level",
+                          "enrichment_status", "clean_description",
+                          "enriched_at", "classify_confidence", "tags"):
+                assert after[field] == before[job_id][field], (
+                    f"{job_id}.{field} changed — this endpoint must touch ONLY "
+                    "the subcategory triple"
+                )
+
+        cur.execute(
+            "SELECT subcategory_confidence AS c, taxonomy_version AS v "
+            "FROM job_enrichment WHERE job_listing_id='sr-1'"
+        )
+        audit = cur.fetchone()
+        assert audit["c"] == 0.82
+        assert audit["v"] == "v7+abc123abc123"
+
+    def test_a_human_LOCKED_row_is_skipped_and_reported(
+        self, enrichment_client, db_conn
+    ):
+        self._seed(db_conn, "sr-human", subcategory_source="human")
+        cur = db_conn.cursor()
+        cur.execute(
+            "UPDATE job_listings SET enrichment_subcategories='{frontend}'::text[] "
+            "WHERE id='sr-human'"
+        )
+        db_conn.commit()
+
+        resp = enrichment_client.post(
+            self.URL,
+            json={"items": [{"jobListingId": "sr-human",
+                             "sourceId": "google_scraper",
+                             "subcategories": ["backend"],
+                             "subcategorySource": "backfill"}]},
+        )
+        body = resp.json()
+        assert body["written"] == 0
+        assert body["skipped"][0]["job_listing_id"] == "sr-human"
+        db_conn.commit()
+        cur.execute("SELECT enrichment_subcategories AS s FROM job_listings "
+                    "WHERE id='sr-human'")
+        assert cur.fetchone()["s"] == ["frontend"]
+
+    def test_human_corrected_at_ALONE_does_NOT_block_the_write(
+        self, enrichment_client, db_conn
+    ):
+        """THE PER-FIELD FIX.
+
+        `human_corrected_at` means a human fixed the category or level — usually
+        before subcategories existed at all. Treating it as a subcategory lock
+        would make the backfill permanently miss exactly the human-labelled pool
+        the eval gate is built on.
+        """
+        self._seed(db_conn, "sr-hc", human_corrected_at="2026-01-01T00:00:00Z")
+
+        resp = enrichment_client.post(
+            self.URL,
+            json={"items": [{"jobListingId": "sr-hc", "sourceId": "google_scraper",
+                             "subcategories": ["backend"],
+                             "subcategorySource": "backfill"}]},
+        )
+        assert resp.json()["written"] == 1, resp.text
+        db_conn.commit()
+        cur = db_conn.cursor()
+        cur.execute("SELECT enrichment_subcategories AS s FROM job_listings "
+                    "WHERE id='sr-hc'")
+        assert cur.fetchone()["s"] == ["backend"]
+
+    def test_out_of_enum_slug_is_dropped_with_a_warning_never_a_422(
+        self, enrichment_client, db_conn
+    ):
+        self._seed(db_conn, "sr-bad")
+        resp = enrichment_client.post(
+            self.URL,
+            json={"items": [{"jobListingId": "sr-bad", "sourceId": "google_scraper",
+                             "subcategories": ["backend", "ai_ml"],
+                             "subcategorySource": "backfill"}]},
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["written"] == 1
+        assert any("ai_ml" in w for w in body["warnings"][0]["warnings"])
+
+    def test_an_unknown_key_422s_LOUDLY(self, enrichment_client, db_conn):
+        """One client, no legacy fleet. An accidental `category` key must fail
+        loudly rather than read as "wrote nothing, reported success"."""
+        self._seed(db_conn, "sr-extra")
+        resp = enrichment_client.post(
+            self.URL,
+            json={"items": [{"jobListingId": "sr-extra", "sourceId": "google_scraper",
+                             "subcategories": ["backend"], "category": "growth"}]},
+        )
+        assert resp.status_code == 200
+        # The ELEMENT fails (per-row isolation), not the batch.
+        body = resp.json()
+        assert body["written"] == 0
+        assert body["failed"][0]["job_listing_id"] == "sr-extra"
+        assert "category" in body["failed"][0]["error"]
+
+    def test_a_mis_keyed_envelope_422s_up_front(self, enrichment_client):
+        resp = enrichment_client.post(
+            self.URL, json={"results": [{"jobListingId": "x", "sourceId": "y"}]}
+        )
+        assert resp.status_code == 422
+
+    def test_over_500_items_422s(self, enrichment_client):
+        items = [
+            {"jobListingId": f"j{i}", "sourceId": "s", "subcategories": []}
+            for i in range(501)
+        ]
+        resp = enrichment_client.post(self.URL, json={"items": items})
+        assert resp.status_code == 422
+
+    def test_an_unknown_job_lands_in_failed_not_written(
+        self, enrichment_client, db_conn
+    ):
+        resp = enrichment_client.post(
+            self.URL,
+            json={"items": [{"jobListingId": "ghost", "sourceId": "nowhere",
+                             "subcategories": ["backend"]}]},
+        )
+        body = resp.json()
+        assert body["written"] == 0
+        assert body["failed"][0]["job_listing_id"] == "ghost"
+
+    def test_a_non_swe_row_is_forced_to_null_with_a_warning(
+        self, enrichment_client, db_conn
+    ):
+        self._seed(db_conn, "sr-growth")
+        cur = db_conn.cursor()
+        cur.execute(
+            "UPDATE job_listings SET enrichment_category='growth' WHERE id='sr-growth'"
+        )
+        db_conn.commit()
+        resp = enrichment_client.post(
+            self.URL,
+            json={"items": [{"jobListingId": "sr-growth", "sourceId": "google_scraper",
+                             "subcategories": ["backend"]}]},
+        )
+        assert resp.status_code == 200, resp.text
+        db_conn.commit()
+        cur.execute("SELECT enrichment_subcategories AS s FROM job_listings "
+                    "WHERE id='sr-growth'")
+        assert cur.fetchone()["s"] is None
+
+
 class TestHealthAdditions:
     """eligible_unenriched + needs_human_open on the internal /health."""
 

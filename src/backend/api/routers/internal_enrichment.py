@@ -15,6 +15,12 @@ laptop makes only OUTBOUND calls to these routes:
                             untouched. Either slice absorbs the other's unused
                             budget, so the reservation never idles the enricher.
     POST /results           idempotent per-row upsert of enrichment results
+                            (FULL-REPLACE — every item ships clean_description)
+    POST /subcategories     BULK PARTIAL write-back: the subcategory triple ONLY,
+                            two narrow UPDATEs per row and nothing else. The one
+                            partial write path into enrichment, and the reason
+                            an overnight backfill's labels reach JVN overnight
+                            instead of over the following fortnight.
     GET  /sample?n=&...     stratified raw sample for the eval golden set
     GET  /health            enrichment_status counts + stale/needs_human + metrics
     POST /metrics           per-tick pipeline snapshot push (idempotent on tick_uuid)
@@ -25,8 +31,8 @@ jobs are handed out, so the cloud-Haiku location pipeline stays the sole floor.
 The stale-claim RECLAIM inside /pending runs regardless of the flag — the kill
 switch's contract is "claimed rows auto-reclaim after the TTL", which must hold
 precisely when the flag was just turned off (otherwise in-flight rows strand at
-'claimed' forever). /results, /sample, /health, /metrics and /corrections all
-run regardless of the flag.
+'claimed' forever). /results, /subcategories, /sample, /health, /metrics and
+/corrections all run regardless of the flag.
 """
 
 from __future__ import annotations
@@ -42,13 +48,19 @@ from scripts.shared.constants import CUSTOM_SOURCE_PREFIX
 
 from ..config import settings
 from ..dependencies import get_db
-from ..models import EnrichmentMetricsBody, EnrichmentResultItem, EnrichmentResultsBody
+from ..models import (
+    EnrichmentMetricsBody,
+    EnrichmentResultItem,
+    EnrichmentResultsBody,
+    SubcategoryResultItem,
+    SubcategoryResultsBody,
+)
 from ..services.enrichment_monitor import (
     DESCRIPTION_SQL,
     list_corrections_since,
     record_tick,
 )
-from ..services.enrichment_writer import apply_result
+from ..services.enrichment_writer import apply_result, apply_subcategory_result
 
 logger = logging.getLogger(__name__)
 
@@ -496,6 +508,109 @@ def results(
     finally:
         cur.close()
     return {"written": written, "failed": failed, "warnings": row_warnings}
+
+
+@router.post("/subcategories")
+def subcategory_results(
+    payload: SubcategoryResultsBody,
+    conn: Connection = Depends(get_db),
+) -> dict[str, Any]:
+    """BULK subcategory write-back — the ONLY partial write path into enrichment.
+
+    Two narrow UPDATEs per row and nothing else: not the description, not
+    category/level, not tags, not `enriched_at`. `/results` is full-replace and
+    every one of its items ships `clean_description`, so draining ~8k backfilled
+    labels through it would mean re-shipping ~8k full descriptions to set two
+    columns — and the coverage counter would lag an overnight backfill by weeks.
+
+    Same envelope-vs-element split as `/results`: the ENVELOPE is validated up
+    front (a mis-keyed body 422s instead of returning `200 {"written": 0}`) while
+    each ELEMENT is validated inside its own SAVEPOINT so one bad element lands
+    in `failed[]`.
+
+    THE BATCH BOUND IS THE SAME 500 as `/results`, for the same reason:
+    `DB_POOL_MAX` is 15 and `docs/incidents/2026-05-17-recent-jobs-pool-exhaustion.md`
+    is on record. The DRAIN RATE — how often the client sends a batch — is the
+    enricher's knob, not JVN's.
+
+    No per-route auth: this router sits behind `require_internal_key`.
+    """
+    if len(payload.items) > MAX_RESULTS_PER_BATCH:
+        raise HTTPException(
+            status_code=422,
+            detail=f"subcategory batch exceeds {MAX_RESULTS_PER_BATCH} items",
+        )
+    written = 0
+    skipped: list[dict[str, Any]] = []
+    failed: list[dict[str, Any]] = []
+    row_warnings: list[dict[str, Any]] = []
+    cur = conn.cursor()
+    try:
+        for index, raw_item in enumerate(payload.items):
+            # Best-effort ids captured BEFORE validation so a failed row still
+            # reports which job it was. Both spellings, because the enricher
+            # posts camelCase aliases and a failed row would otherwise come back
+            # with `job_listing_id: null` — useless to the client trying to
+            # retry it.
+            fallback_id = (
+                raw_item.get("job_listing_id") or raw_item.get("jobListingId")
+                if isinstance(raw_item, dict) else None
+            )
+            fallback_source = (
+                raw_item.get("source_id") or raw_item.get("sourceId")
+                if isinstance(raw_item, dict) else None
+            )
+            try:
+                cur.execute("SAVEPOINT subcat_row")
+                item = SubcategoryResultItem.model_validate(raw_item)
+                did_write, warnings = apply_subcategory_result(
+                    conn, item.model_dump()
+                )
+                cur.execute("RELEASE SAVEPOINT subcat_row")
+                if did_write:
+                    written += 1
+                else:
+                    skipped.append(
+                        {
+                            "job_listing_id": item.job_listing_id,
+                            "source_id": item.source_id,
+                            "reason": "human-locked",
+                        }
+                    )
+                if warnings:
+                    row_warnings.append(
+                        {
+                            "job_listing_id": item.job_listing_id,
+                            "source_id": item.source_id,
+                            "warnings": warnings,
+                        }
+                    )
+            except Exception as exc:  # noqa: BLE001 — one bad row must not fail the batch
+                cur.execute("ROLLBACK TO SAVEPOINT subcat_row")
+                logger.warning(
+                    "enrichment /subcategories: item %d (%s) failed: %s",
+                    index, fallback_id or _item_ident(raw_item), exc,
+                    exc_info=True,
+                )
+                failed.append(
+                    {
+                        "job_listing_id": fallback_id,
+                        "source_id": fallback_source,
+                        "error": str(exc),
+                    }
+                )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+    return {
+        "written": written,
+        "skipped": skipped,
+        "failed": failed,
+        "warnings": row_warnings,
+    }
 
 
 @router.get("/sample")

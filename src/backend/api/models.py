@@ -977,6 +977,46 @@ class EnrichmentResultsBody(BaseModel):
     results: list[Any]
 
 
+class SubcategoryResultItem(BaseModel):
+    """One row of the BULK subcategory drain (POST /enrichment/subcategories).
+
+    ``extra='forbid'``, UNLIKE ``EnrichmentResultItem``, and the difference is
+    deliberate. That model has a legacy fleet — an older enricher posting a key
+    this backend has not learned about must degrade, not fail. This endpoint has
+    exactly ONE client and no legacy fleet, so an unknown key (``category``,
+    ``tags``, a typo) is a client bug that must fail LOUDLY. The alternative is
+    the specific failure mode this whole endpoint exists to avoid: a 200 reporting
+    ``written: N`` while nothing of consequence was written.
+
+    ``subcategories`` is typed ``Any`` on purpose (same reasoning as
+    ``EnrichmentResultItem``): the WRITER is the sole arbiter, and a malformed
+    value must degrade with a warning rather than route the row to ``failed[]``.
+    """
+
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid"
+    )
+
+    job_listing_id: Annotated[str, StringConstraints(min_length=1, strip_whitespace=True)]
+    source_id: Annotated[str, StringConstraints(min_length=1, strip_whitespace=True)]
+    subcategories: Any = None
+    subcategory_confidence: float | None = None
+    subcategory_source: str | None = None
+    taxonomy_version: str | None = None
+
+
+class SubcategoryResultsBody(BaseModel):
+    """Envelope for POST /enrichment/subcategories: ``{"items": [...]}``.
+
+    Mirrors ``EnrichmentResultsBody``: ``items`` is REQUIRED (no default) so a
+    mis-keyed body 422s up front instead of returning ``200 {"written": 0}``,
+    while the ELEMENT type stays ``list[Any]`` and each element is validated
+    inside the per-row SAVEPOINT so one bad element lands in ``failed[]``.
+    """
+
+    items: list[Any]
+
+
 class EnrichmentTickCounters(BaseModel):
     """Per-tick pipeline counters pushed by the enricher. All default 0 so a
     partial counters object degrades to zeros instead of failing the push —
