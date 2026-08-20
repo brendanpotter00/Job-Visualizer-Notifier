@@ -31,6 +31,7 @@ function mockJsonResponse(status: number, body: unknown, headers: Record<string,
  */
 const REPEATABLE_PARAMS = [
   'category',
+  'subcategory',
   'level',
   'company',
   'location',
@@ -278,15 +279,16 @@ describe('/api/jobs serverless function', () => {
     });
 
     it('carries every filter of a fully-loaded search in one request', async () => {
-      // The shape the Recent page actually sends once a user has picked from all
-      // six dropdowns — no filter may be dropped or flattened on the way through.
+      // The shape the Recent page actually sends once a user has picked from
+      // every dropdown — no filter may be dropped or flattened on the way through.
       mockReq.query = {
         path: 'search',
         since: '2026-08-09T12:00:00.000Z',
         limit: '100',
         cursor: 'eyJwYWdlIjoyfQ',
         company: ['google', 'stripe'],
-        category: ['backend', 'data'],
+        category: ['software_engineering'],
+        subcategory: ['backend', 'frontend'],
         level: ['entry', 'senior'],
         location: ['Austin, TX, US'],
         include: ['rust', 'distributed systems'],
@@ -301,7 +303,11 @@ describe('/api/jobs serverless function', () => {
       expect(params.get('limit')).toBe('100');
       expect(params.get('cursor')).toBe('eyJwYWdlIjoyfQ');
       expect(params.getAll('company')).toEqual(['google', 'stripe']);
-      expect(params.getAll('category')).toEqual(['backend', 'data']);
+      expect(params.getAll('category')).toEqual(['software_engineering']);
+      // TWO appended params, never the comma-joined 'backend,frontend' that
+      // `String(array)` would produce — that would reach the backend as one
+      // bogus slug and match nothing, with a 200.
+      expect(params.getAll('subcategory')).toEqual(['backend', 'frontend']);
       expect(params.getAll('level')).toEqual(['entry', 'senior']);
       expect(params.getAll('location')).toEqual(['Austin, TX, US']);
       expect(params.getAll('include')).toEqual(['rust', 'distributed systems']);
