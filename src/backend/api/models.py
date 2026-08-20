@@ -1248,6 +1248,13 @@ class AdminEnrichmentCorrectionRequest(BaseModel):
 
     category: str | None = None
     level: str | None = None
+    # TRI-STATE, and `model_fields_set` is what reads the third state. OMITTING
+    # the key means "leave the existing array alone" — that is how a level-only
+    # correction stops being a silent data loss. `null` means "re-queue this row
+    # for the backfill"; a list is a human label. The handler MUST pass
+    # `subcategories_provided='subcategories' in body.model_fields_set` — at the
+    # service signature `None` and "absent" are the same value.
+    subcategories: list[str] | None = None
     tags: list[str] = Field(default_factory=list, max_length=16)
     note: str | None = Field(default=None, max_length=2000)
 
@@ -1278,6 +1285,10 @@ class AdminEnrichmentCorrectionResponse(BaseModel):
     enrichment_status: str | None = None
     category: str | None = None
     level: str | None = None
+    # Read back from the row, so the not-sent path reports what is ACTUALLY
+    # stored rather than echoing a request field that was never sent. Nullable,
+    # never `default_factory=list` — `null` and `[]` mean different things.
+    subcategories: list[str] | None = None
     tags: list[str] = Field(default_factory=list)
     human_corrected_at: datetime | None = None
     human_corrected_by: str | None = None

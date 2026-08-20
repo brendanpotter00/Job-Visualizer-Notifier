@@ -23,7 +23,14 @@ from psycopg2.extensions import connection as Connection
 
 from ..config import settings
 from .db_rows import scalar
-from .enrichment_writer import CATEGORY_SLUGS, LEVEL_SLUGS, MAX_TAGS_PER_JOB
+from .enrichment_writer import (
+    CATEGORY_SLUGS,
+    LEVEL_SLUGS,
+    MAX_SUBCATEGORIES,
+    MAX_TAGS_PER_JOB,
+    SUBCATEGORY_PARENT,
+    SUBCATEGORY_SLUGS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -351,6 +358,55 @@ def _facet_slugs(cur: Any, table: str) -> set[str]:
     return {r["slug"] for r in cur.fetchall()}
 
 
+class _Unset:
+    """Sentinel for "the client did not send this key at all"."""
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return "<UNSET>"
+
+
+_UNSET = _Unset()
+
+
+def _validate_subcategories(
+    cur: Any, value: list[str] | None, category: str | None
+) -> list[str] | None:
+    """Validate an EXPLICITLY SENT subcategory array for a correction.
+
+    Never called for the absent-key case — that is handled by the caller, and
+    keeping the two apart is the whole point (see `apply_correction`).
+
+    Order is PRESERVED and dedupe is order-preserving: index 0 is the primary
+    specialty, so `set()` anywhere in this function would be a bug.
+    """
+    if value is None:
+        return None
+    if category != SUBCATEGORY_PARENT:
+        # The parent constraint an array column has no FK to express.
+        raise CorrectionError(
+            f"subcategories are only valid for category {SUBCATEGORY_PARENT!r}, "
+            f"got {category!r}"
+        )
+    # Live dims first — the same pattern as the category/level validation two
+    # lines above. Phase 1 ships job_subcategories EMPTY, so the code constants
+    # are what actually answer until SCHEMA-7 seeds it.
+    allowed = _facet_slugs(cur, "job_subcategories") or set(SUBCATEGORY_SLUGS)
+    cleaned: list[str] = []
+    for raw in value:
+        slug = str(raw).strip().lower()
+        if not slug:
+            continue
+        if slug not in allowed:
+            raise CorrectionError(f"unknown subcategory slug {slug!r}")
+        if slug not in cleaned:      # order-preserving dedupe; NEVER set()
+            cleaned.append(slug)
+    if len(cleaned) > MAX_SUBCATEGORIES:
+        raise CorrectionError(
+            f"more than {MAX_SUBCATEGORIES} subcategories ({len(cleaned)})"
+        )
+    return cleaned
+
+
 def apply_correction(
     conn: Connection,
     *,
@@ -361,13 +417,53 @@ def apply_correction(
     tags: list[str],
     note: str | None,
     admin_email: str,
+    subcategories: list[str] | None = None,
+    subcategories_provided: bool = False,
 ) -> dict[str, Any]:
     """Apply a human facet correction. Owns commit/rollback (location_admin
     convention). Publishes the corrected facets (enrichment_status='done'),
     replaces the tag set, clears needs_human, and stamps human_corrected_at/by —
     which locks the row against later automated overwrite (see apply_result's
     guard). Validates slugs against the LIVE dimension tables so a stale admin
-    UI gets a CorrectionError (409), never a silent null."""
+    UI gets a CorrectionError (409), never a silent null.
+
+    THE SUBCATEGORY WRITE RULE, stated once, in full
+    ------------------------------------------------
+    `subcategories=None` and "the client did not send the key" are the SAME
+    VALUE at this signature, so the caller MUST pass
+    `subcategories_provided='subcategories' in body.model_fields_set`. Do not
+    "simplify" the branch below into `if subcategories is None`.
+
+    | resolved category | key sent?     | what happens to enrichment_subcategories |
+    |-------------------|---------------|------------------------------------------|
+    | SWE               | not sent      | **UNTOUCHED** — not in the SET list       |
+    | SWE               | a list        | validated, order-preserving, primary first|
+    | SWE               | explicit null | set to NULL — an explicit re-queue        |
+    | another slug      | not sent      | forced to `'{}'`                          |
+    | another slug      | null or `[]`  | forced to `'{}'`                          |
+    | another slug      | non-empty     | **409** — CorrectionError                 |
+    | NULL (unlabelled) | not sent      | **UNTOUCHED**                             |
+    | NULL (unlabelled) | non-empty     | **409**                                   |
+    | NULL (unlabelled) | null or `[]`  | written as sent                           |
+
+    The UNTOUCHED row is the fix, and it is not cosmetic. Appending
+    `enrichment_subcategories = %s` unconditionally would mean a LEVEL-ONLY
+    correction NULLs the array and then stamps `human_corrected_at`, locking the
+    row — so no backfill could ever repair it. Silent, permanent, and invisible
+    in the response.
+
+    The `category IS NULL` rows are deliberately UNTOUCHED rather than forced to
+    `'{}'`. A NULL category means "not labelled", not "labelled as something
+    other than software engineering", so writing the terminal empty array would
+    be asserting a fact nobody established — and it would do so on exactly the
+    level-only correction path this step exists to protect. Forcing only fires
+    for an EXPLICIT non-SWE slug.
+
+    `enrichment_subcategory_source` is written alongside, and only alongside:
+    `'human'` whenever an array is written (including the forced `'{}'`), and
+    NULL when the array is set to NULL, so an explicit re-queue really does
+    re-enter the backfill queue instead of sitting there locked and empty.
+    """
     cur = conn.cursor()
     try:
         # Validate against live dims (they may be ahead of the code constants
@@ -382,11 +478,56 @@ def apply_correction(
         if len(tags) > MAX_TAGS_PER_JOB:
             raise CorrectionError(f"more than {MAX_TAGS_PER_JOB} tags")
 
+        # Resolve the subcategory write into (write_it?, value) per the table in
+        # the docstring. `subcategories_provided` is the ONLY thing separating
+        # "sent null" from "not sent".
+        write_subcategories = False
+        subcategory_value: list[str] | None = None
+        if category == SUBCATEGORY_PARENT:
+            if subcategories_provided:
+                write_subcategories = True
+                subcategory_value = _validate_subcategories(cur, subcategories, category)
+            # else: NOT SENT -> leave the column out of the SET list entirely.
+        elif subcategories_provided and subcategories:
+            # A non-empty array under any other category is a client bug: the
+            # parent constraint an array column has no FK to express.
+            raise CorrectionError(
+                f"subcategories are only valid for category "
+                f"{SUBCATEGORY_PARENT!r}, got {category!r}"
+            )
+        elif category is not None:
+            # An EXPLICIT non-SWE slug: "no SWE specialty" is a true and
+            # permanent statement about this job, so write the terminal empty
+            # array whether or not the client sent the key.
+            write_subcategories = True
+            subcategory_value = []
+        elif subcategories_provided:
+            # category IS NULL and the client sent null or [] — honour it.
+            write_subcategories = True
+            subcategory_value = subcategories
+        # else: category IS NULL and the key was not sent -> UNTOUCHED.
+
+        set_parts = [
+            "enrichment_category = %s",
+            "enrichment_level = %s",
+            "enrichment_status = 'done'",
+            "enrichment_claimed_at = NULL",
+        ]
+        params: list[Any] = [category, level]
+        if write_subcategories:
+            # The ::text[] cast is REQUIRED: psycopg2 renders [] untyped and
+            # Postgres raises "cannot determine type of empty array".
+            set_parts.append("enrichment_subcategories = %s::text[]")
+            params.append(subcategory_value)
+            set_parts.append("enrichment_subcategory_source = %s")
+            params.append("human" if subcategory_value is not None else None)
+        params.extend([source_id, job_listing_id])
+
         cur.execute(
-            "UPDATE job_listings SET enrichment_category = %s, enrichment_level = %s, "
-            "enrichment_status = 'done', enrichment_claimed_at = NULL "
-            "WHERE source_id = %s AND id = %s",
-            (category, level, source_id, job_listing_id),
+            "UPDATE job_listings SET "  # noqa: S608 — set_parts is a literal allowlist
+            + ", ".join(set_parts)
+            + " WHERE source_id = %s AND id = %s",
+            tuple(params),
         )
         if cur.rowcount == 0:
             raise CorrectionError(
@@ -429,7 +570,9 @@ def apply_correction(
         )
         cur.execute(
             "SELECT jl.enrichment_status, jl.enrichment_category AS category, "
-            "jl.enrichment_level AS level, je.human_corrected_at, je.human_corrected_by, "
+            "jl.enrichment_level AS level, "
+            "jl.enrichment_subcategories AS subcategories, "
+            "je.human_corrected_at, je.human_corrected_by, "
             "je.human_decision "
             "FROM job_listings jl "
             "JOIN job_enrichment je ON je.source_id = jl.source_id AND je.job_listing_id = jl.id "
@@ -444,6 +587,10 @@ def apply_correction(
             "enrichment_status": row["enrichment_status"],
             "category": row["category"],
             "level": row["level"],
+            # Read BACK from the row, never echoed from the request — on the
+            # not-sent path the request has nothing to echo, and echoing would
+            # report a NULL the endpoint deliberately did not write.
+            "subcategories": row["subcategories"],
             "tags": tags,
             "human_corrected_at": row["human_corrected_at"],
             "human_corrected_by": row["human_corrected_by"],

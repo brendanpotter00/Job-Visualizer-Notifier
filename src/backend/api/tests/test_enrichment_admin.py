@@ -22,7 +22,8 @@ from .test_internal_enrichment import _enrichment_isolation  # noqa: F401 — au
 
 def _seed_flagged_job(db_conn, job_id="q-1", source_id="src-a", *, status="OPEN",
                       company="google", confidence=0.4, corrected=False,
-                      category=None, level=None):
+                      category=None, level=None, subcategories=None,
+                      subcategory_source=None, subcategory_confidence=None):
     """Seed a needs-human row. By default the published facets are NULL (a row
     demoted under require_judge_pass — nothing to one-click confirm). Pass
     ``category``/``level`` to seed a row that kept its proposal (the flag-off
@@ -43,14 +44,21 @@ def _seed_flagged_job(db_conn, job_id="q-1", source_id="src-a", *, status="OPEN"
             "WHERE source_id=%s AND id=%s",
             (category, level, source_id, job_id),
         )
+    if subcategories is not None or subcategory_source is not None:
+        cur.execute(
+            "UPDATE job_listings SET enrichment_subcategories = %s::text[], "
+            "enrichment_subcategory_source = %s WHERE source_id=%s AND id=%s",
+            (subcategories, subcategory_source, source_id, job_id),
+        )
     cur.execute(
         "INSERT INTO job_enrichment (source_id, job_listing_id, clean_description, "
         "classify_confidence, classify_reasoning, judged, judge_passed, "
-        "judge_confidence, judge_notes, needs_human, human_corrected_at) "
+        "judge_confidence, judge_notes, needs_human, human_corrected_at, "
+        "subcategory_confidence) "
         "VALUES (%s, %s, 'clean text', %s, 'because', true, false, 0.5, "
-        "'ambiguous level', true, %s)",
+        "'ambiguous level', true, %s, %s)",
         (source_id, job_id, confidence,
-         "2026-01-01T00:00:00Z" if corrected else None),
+         "2026-01-01T00:00:00Z" if corrected else None, subcategory_confidence),
     )
     db_conn.commit()
 
@@ -162,6 +170,163 @@ class TestAdminEnrichmentCorrect:
 
         # queue no longer lists it
         assert client.get("/api/admin/enrichment/needs-human").json()["total"] == 0
+
+    # --- subcategories: the tri-state, and THE DATA-LOSS FIX -----------------
+
+    def _subcats(self, db_conn, source_id="src-a", job_id="q-1"):
+        cur = db_conn.cursor()
+        cur.execute(
+            "SELECT enrichment_subcategories AS subcats, "
+            "enrichment_subcategory_source AS source, enrichment_level AS level "
+            "FROM job_listings WHERE source_id=%s AND id=%s",
+            (source_id, job_id),
+        )
+        return cur.fetchone()
+
+    def test_level_only_correction_leaves_subcategories_intact(self, client, db_conn):
+        """THE regression this step exists to prevent.
+
+        A correction body that never mentions subcategories must not touch the
+        column. Writing NULL here and THEN stamping human_corrected_at would lock
+        the row with an empty array, so no backfill could ever repair it —
+        silent, permanent, and invisible in the 200 response.
+
+        Adding the field is not enough. THIS is the assertion.
+        """
+        _seed_flagged_job(db_conn, subcategories=["backend", "full_stack"],
+                          subcategory_source="backfill")
+        resp = client.post(
+            "/api/admin/enrichment/jobs/src-a/q-1/correct",
+            json={"level": "senior"},
+        )
+        assert resp.status_code == 200, resp.text
+
+        row = self._subcats(db_conn)
+        assert row["subcats"] == ["backend", "full_stack"], (
+            "a level-only correction wiped enrichment_subcategories"
+        )
+        assert row["source"] == "backfill"
+        assert row["level"] == "senior"
+
+        cur = db_conn.cursor()
+        cur.execute(
+            "SELECT human_corrected_at FROM job_enrichment "
+            "WHERE source_id='src-a' AND job_listing_id='q-1'"
+        )
+        assert cur.fetchone()["human_corrected_at"] is not None
+
+    def test_swe_correction_without_the_key_leaves_subcategories_intact(
+        self, client, db_conn
+    ):
+        """Same fix, on the path the admin UI actually takes (category IS sent)."""
+        _seed_flagged_job(db_conn, subcategories=["backend"],
+                          subcategory_source="classify")
+        resp = client.post(
+            "/api/admin/enrichment/jobs/src-a/q-1/correct",
+            json={"category": "software_engineering", "level": "senior"},
+        )
+        assert resp.status_code == 200, resp.text
+        row = self._subcats(db_conn)
+        assert row["subcats"] == ["backend"]
+        assert row["source"] == "classify"
+
+    def test_explicit_null_requeues(self, client, db_conn):
+        """`null` is an EXPLICIT re-queue — the column and its source both clear."""
+        _seed_flagged_job(db_conn, subcategories=["backend"],
+                          subcategory_source="classify")
+        resp = client.post(
+            "/api/admin/enrichment/jobs/src-a/q-1/correct",
+            json={"category": "software_engineering", "subcategories": None},
+        )
+        assert resp.status_code == 200, resp.text
+        row = self._subcats(db_conn)
+        assert row["subcats"] is None
+        assert row["source"] is None
+        assert resp.json()["subcategories"] is None
+
+    def test_explicit_empty_is_terminal(self, client, db_conn):
+        """`[]` is "evaluated, no specialty applies" — TERMINAL, never re-queued."""
+        _seed_flagged_job(db_conn, subcategories=["backend"],
+                          subcategory_source="classify")
+        resp = client.post(
+            "/api/admin/enrichment/jobs/src-a/q-1/correct",
+            json={"category": "software_engineering", "subcategories": []},
+        )
+        assert resp.status_code == 200, resp.text
+        row = self._subcats(db_conn)
+        assert row["subcats"] == []
+        assert row["source"] == "human"
+        assert resp.json()["subcategories"] == []
+
+    def test_subcategories_provided_is_false_for_absent_key(self):
+        """Pin the _UNSET mechanism itself.
+
+        Nobody should be able to "simplify" the handler's
+        `'subcategories' in body.model_fields_set` into `is None` — at the
+        service signature those two are the SAME VALUE, and collapsing them
+        reintroduces the data loss above.
+        """
+        from api.models import AdminEnrichmentCorrectionRequest
+
+        absent = AdminEnrichmentCorrectionRequest(level="senior")
+        assert "subcategories" not in absent.model_fields_set
+        assert absent.subcategories is None
+
+        explicit = AdminEnrichmentCorrectionRequest(subcategories=None)
+        assert "subcategories" in explicit.model_fields_set
+        assert explicit.subcategories is None
+
+    def test_ordered_dedupe_preserves_primary_first(self, client, db_conn):
+        _seed_flagged_job(db_conn)
+        resp = client.post(
+            "/api/admin/enrichment/jobs/src-a/q-1/correct",
+            json={"category": "software_engineering",
+                  "subcategories": ["backend", "backend", "frontend"]},
+        )
+        assert resp.status_code == 200, resp.text
+        # Order preserved and index 0 is still the primary — a set() here would
+        # be a coin flip.
+        assert self._subcats(db_conn)["subcats"] == ["backend", "frontend"]
+        assert self._subcats(db_conn)["source"] == "human"
+
+    def test_more_than_two_subcategories_409(self, client, db_conn):
+        _seed_flagged_job(db_conn)
+        resp = client.post(
+            "/api/admin/enrichment/jobs/src-a/q-1/correct",
+            json={"category": "software_engineering",
+                  "subcategories": ["backend", "frontend", "mobile"]},
+        )
+        assert resp.status_code == 409, resp.text
+
+    def test_unknown_subcategory_slug_409(self, client, db_conn):
+        _seed_flagged_job(db_conn)
+        resp = client.post(
+            "/api/admin/enrichment/jobs/src-a/q-1/correct",
+            json={"category": "software_engineering", "subcategories": ["ai_ml"]},
+        )
+        assert resp.status_code == 409
+        assert "ai_ml" in resp.json()["detail"]
+
+    def test_non_swe_with_subcategories_409(self, client, db_conn):
+        _seed_flagged_job(db_conn)
+        resp = client.post(
+            "/api/admin/enrichment/jobs/src-a/q-1/correct",
+            json={"category": "growth", "subcategories": ["backend"]},
+        )
+        assert resp.status_code == 409, resp.text
+
+    def test_non_swe_forces_the_terminal_empty_array(self, client, db_conn):
+        """Re-categorizing away from SWE ends the row's subcategory life."""
+        _seed_flagged_job(db_conn, subcategories=["backend"],
+                          subcategory_source="classify")
+        resp = client.post(
+            "/api/admin/enrichment/jobs/src-a/q-1/correct",
+            json={"category": "growth", "level": "mid"},
+        )
+        assert resp.status_code == 200, resp.text
+        row = self._subcats(db_conn)
+        assert row["subcats"] == []
+        assert row["source"] == "human"
 
     def test_unknown_slug_409(self, client, db_conn):
         _seed_flagged_job(db_conn)

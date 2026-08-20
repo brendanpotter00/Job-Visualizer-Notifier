@@ -783,6 +783,12 @@ def admin_enrichment_correct(
             tags=body.tags,
             note=body.note,
             admin_email=admin.get("email", "unknown"),
+            subcategories=body.subcategories,
+            # `None` and "key absent" are the SAME VALUE by the time they reach
+            # apply_correction; `model_fields_set` is the only thing that can
+            # still tell them apart, and the difference is whether a level-only
+            # correction wipes the row's subcategories.
+            subcategories_provided="subcategories" in body.model_fields_set,
         )
     except CorrectionError as exc:
         raise HTTPException(status_code=404 if exc.not_found else 409, detail=str(exc))
