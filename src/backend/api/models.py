@@ -991,6 +991,13 @@ class SubcategoryResultItem(BaseModel):
     ``subcategories`` is typed ``Any`` on purpose (same reasoning as
     ``EnrichmentResultItem``): the WRITER is the sole arbiter, and a malformed
     value must degrade with a warning rather than route the row to ``failed[]``.
+
+    The ``= None`` default does NOT mean "absent reads as null": the key may not
+    be absent on this endpoint (§1.2 B). ``model_dump()`` cannot tell the two
+    apart, so the ROUTER pops the key when ``model_fields_set`` reports it
+    unset, and the writer's ``_UNSET`` guard then fails the row into
+    ``failed[]``. Drop that pop and an item with no ``subcategories`` key NULLs
+    an existing array and its source while reporting ``written: 1``.
     """
 
     model_config = ConfigDict(
