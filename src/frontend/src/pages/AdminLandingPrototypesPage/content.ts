@@ -301,7 +301,7 @@ export const LANDING_CONTENT: LandingContent = {
       {
         id: 'mcp_access',
         name: 'Bring your AI',
-        detail: 'MCP access from Claude or any assistant.',
+        detail: 'MCP access from Claude or any agent.',
         evidence: 'EPIC Power-user data access (replica + MCP), wdwb1cbnce',
       },
       {
