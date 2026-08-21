@@ -472,10 +472,11 @@ describe('AdminEnrichmentPage', () => {
     const row = (await screen.findByText('Senior Platform Engineer')).closest(
       'tr'
     ) as HTMLElement;
-    // Raw slugs: FACET_LABELS only covers categories + levels until FE-CT-2
-    // lands FALLBACK_SUBCATEGORIES in the phase-2 PR.
-    expect(within(row).getByText('backend')).toBeInTheDocument();
-    expect(within(row).getByText('full_stack')).toBeInTheDocument();
+    // DISPLAY LABELS now, not raw slugs: FE-CT-2 folded
+    // FALLBACK_SUBCATEGORIES into FACET_LABELS, so the chips resolve. This is
+    // the assertion the phase-1 test said would replace it.
+    expect(within(row).getByText('Backend')).toBeInTheDocument();
+    expect(within(row).getByText('Full Stack')).toBeInTheDocument();
   });
 
   it('renders no subcategory chips for a null row and does not throw', async () => {
@@ -490,7 +491,7 @@ describe('AdminEnrichmentPage', () => {
     const row = (await screen.findByText('Senior Platform Engineer')).closest(
       'tr'
     ) as HTMLElement;
-    expect(within(row).queryByText('backend')).not.toBeInTheDocument();
+    expect(within(row).queryByText('Backend')).not.toBeInTheDocument();
     expect(within(row).getByText('Senior')).toBeInTheDocument();
   });
 
@@ -617,12 +618,11 @@ describe('AdminEnrichmentPage', () => {
     const row = (await screen.findByText('Growth Marketing Lead')).closest(
       'tr'
     ) as HTMLElement;
-    // Chips render `FACET_LABELS[slug] ?? slug`, and FACET_LABELS is derived
-    // from FALLBACK_CATEGORIES + FALLBACK_LEVELS only — so subcategories fall
-    // through to the raw slug until FE-CT-2 lands FALLBACK_SUBCATEGORIES in the
-    // phase-2 PR. Asserting the slug is asserting what actually renders today.
-    expect(within(row).getByText('backend')).toBeInTheDocument();
-    expect(within(row).getByText('full_stack')).toBeInTheDocument();
+    // Chips render `FACET_LABELS[slug] ?? slug`, and FE-CT-2 folded
+    // FALLBACK_SUBCATEGORIES into FACET_LABELS — so the display labels resolve
+    // and the raw-slug fallback is no longer reached for a known slug.
+    expect(within(row).getByText('Backend')).toBeInTheDocument();
+    expect(within(row).getByText('Full Stack')).toBeInTheDocument();
     expect(within(row).getByText('0.77')).toBeInTheDocument();
   });
 
@@ -632,7 +632,7 @@ describe('AdminEnrichmentPage', () => {
       'tr'
     ) as HTMLElement;
     // The default fixture row is `subcategories: null`.
-    expect(within(row).queryByText('backend')).not.toBeInTheDocument();
+    expect(within(row).queryByText('Backend')).not.toBeInTheDocument();
     // Sub conf. renders the em-dash placeholder rather than crashing.
     expect(within(row).getAllByText('—').length).toBeGreaterThan(0);
   });
