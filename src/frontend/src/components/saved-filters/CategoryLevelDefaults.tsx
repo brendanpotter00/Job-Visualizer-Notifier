@@ -44,10 +44,10 @@ export interface CategoryLevelDefaultsProps {
  * constants cover the pre-fetch frame and an endpoint outage, exactly as the
  * live filter bars do. An empty selection means "no filter" on that page.
  *
- * NAMING: the "category" facet is surfaced to users as "Job title" (heading,
- * label, save button). The data model — the `category` prop/field, the API
- * param, the DB column — stays "category"; this is a UI-only rename because
- * users click a "Job title" filter far more than a "Category" one, and the
+ * NAMING: the "category" facet is surfaced to users as "Job category" on the
+ * control's LABEL. The data model — the `category` prop/field, the API param,
+ * the DB column — stays "category"; this is a UI-only rename because
+ * users click a "Job category" filter far more than a bare "Category" one, and the
  * values will subdivide over time (e.g. "Software Engineering" → "Frontend
  * SWE" / "Backend SWE") and read as categories again. Matches the live filter
  * bars in GraphFilters.tsx / RecentJobsFilters.tsx. Rename copy only — never

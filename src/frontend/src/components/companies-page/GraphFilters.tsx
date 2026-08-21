@@ -88,15 +88,20 @@ export function GraphFilters() {
           />
 
           {/*
-            The label says "Job title" but the data model underneath is
+            The label says "Job category" but the data model underneath is
             "category" all the way down — the `filters.category` slice field, the
             `setGraphCategory` action, the API param, and the DB column are all
             "category". This is a deliberate UI-only rename: users engage with a
-            "Job title" filter far more than a "Category" one. It stays a category
+            "Job category" filter far more than a bare "Category" one. It stays a category
             under the hood because these values will subdivide over time (e.g.
             "Software Engineering" → "Frontend SWE" / "Backend SWE"), at which
             point they read as categories again. Rename the label only — never the
             data model.
+
+            NOTE: the LABEL below now reads "Job category" — that value comes
+            from FE-CP-1, the copy-rename step, which ships in a SIBLING PR. The
+            heading and tooltips still carry the pre-rename copy until that PR
+            merges; resolve toward it when it does.
           */}
           <FacetTreeMultiSelect
             label="Job category"
