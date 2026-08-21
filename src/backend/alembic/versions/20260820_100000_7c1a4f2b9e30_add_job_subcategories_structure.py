@@ -35,7 +35,12 @@ path. The compensating controls are named so they cannot be forgotten:
 * ``TestTaxonomyParity`` / ``test_taxonomy_artifact.py`` — the code, the seed and
   the API must all carry the same slug set;
 * the admin health snapshot's ``subcategory_unknown_slugs`` counter, which counts
-  persisted slugs absent from ``job_subcategories`` and **must be permanently 0**.
+  persisted slugs absent from the TAXONOMY and **must be permanently 0** — including
+  during Phase 1. This table ships EMPTY here and SCHEMA-7 seeds it later, so the
+  counter reads against ``enrichment_writer.SUBCATEGORY_SLUGS`` while it is empty and
+  against this table the moment it has rows. Comparing against an empty table would
+  make every legitimate slug "unknown" and leave the admin warning permanently red
+  for the whole labelling window — a control nobody reads is not a control.
 
 Legal values for ``enrichment_subcategory_source`` are
 ``api.services.enrichment_writer.SUBCATEGORY_SOURCES``. Cited, not re-listed —

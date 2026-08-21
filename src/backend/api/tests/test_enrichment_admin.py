@@ -131,20 +131,71 @@ class TestAdminEnrichmentHealth:
         assert body["sweSubcategorized"] == 2       # {backend} + '{}'
         assert body["sweSubcategoryLabelled"] == 1  # only {backend}
 
-    def test_unknown_slug_counter_is_zero_when_the_dimension_is_empty(
+    def test_unknown_slug_counter_stays_zero_for_LEGITIMATE_slugs_in_phase_1(
         self, client, db_conn
     ):
-        """Phase 1 ships job_subcategories EMPTY, so every persisted slug is
-        'unknown' by definition — which is exactly what the counter reports, and
-        exactly why it must be read against a SEEDED dimension. The counter's
-        contract is 'permanently 0 once seeded'."""
+        """⚠ THE PHASE-1 WINDOW IS THE WHOLE POINT.
+
+        `job_subcategories` ships EMPTY (SCHEMA-7 seeds it later), so comparing
+        persisted slugs against the *table* makes every legitimate slug
+        "unknown" — the counter reads non-zero from the moment PR-C/D start
+        labelling, AdminEnrichmentPage renders a permanent red warning, and the
+        only compensating control for the array having no FK gets ignored
+        exactly when it matters. The reference set is the TAXONOMY; the
+        dimension is only its persisted form.
+
+        The old version of this test exercised `not_a_real_slug` only, so it
+        passed against that broken shape.
+        """
+        _seed_flagged_job(db_conn, job_id="c-be", category="software_engineering",
+                          subcategories=["backend"])
+        _seed_flagged_job(db_conn, job_id="c-fe", category="software_engineering",
+                          subcategories=["frontend"])
+        _seed_flagged_job(db_conn, job_id="c-mob", category="software_engineering",
+                          subcategories=["mobile"])
+        body = client.get("/api/admin/enrichment/health").json()
+        assert body["subcategoryUnknownSlugs"] == 0
+
+    def test_unknown_slug_counter_still_catches_a_bogus_slug_in_phase_1(
+        self, client, db_conn
+    ):
+        """The control must not be inert while the dimension is empty: falling
+        back to the code arbiter still flags a producer writing off-taxonomy
+        slugs, which is the only thing this counter exists for."""
         body = client.get("/api/admin/enrichment/health").json()
         assert body["subcategoryUnknownSlugs"] == 0
 
         _seed_flagged_job(db_conn, job_id="c-bad", category="software_engineering",
                           subcategories=["not_a_real_slug"])
+        _seed_flagged_job(db_conn, job_id="c-ok", category="software_engineering",
+                          subcategories=["backend"])
         body = client.get("/api/admin/enrichment/health").json()
         assert body["subcategoryUnknownSlugs"] == 1
+
+    def test_a_seeded_dimension_takes_over_from_the_code_arbiter(
+        self, client, db_conn
+    ):
+        """Once SCHEMA-7 seeds the table, the DIMENSION is authoritative again —
+        the fallback is scoped to the empty-table window and nothing else. Seed
+        a PARTIAL dimension: slugs the code knows but the table does not must
+        now count, or the post-Phase-1 semantics silently never come back."""
+        _seed_flagged_job(db_conn, job_id="c-be", category="software_engineering",
+                          subcategories=["backend"])
+        _seed_flagged_job(db_conn, job_id="c-fe", category="software_engineering",
+                          subcategories=["frontend"])
+        cur = db_conn.cursor()
+        cur.execute(
+            "INSERT INTO job_subcategories (slug, label, parent_slug, sort_order) "
+            "VALUES ('backend','Backend','software_engineering',1) "
+            "ON CONFLICT (slug) DO NOTHING"
+        )
+        db_conn.commit()
+        try:
+            body = client.get("/api/admin/enrichment/health").json()
+            assert body["subcategoryUnknownSlugs"] == 1  # 'frontend' is not seeded
+        finally:
+            cur.execute("DELETE FROM job_subcategories WHERE slug='backend'")
+            db_conn.commit()
 
     def test_health_still_200s_when_the_dimension_table_is_absent(
         self, client, db_conn
