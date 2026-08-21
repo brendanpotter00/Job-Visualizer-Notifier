@@ -36,7 +36,12 @@ function createMockJobs(count: number): Job[] {
     return {
       id: `job-${i}`,
       title: `Software Engineer ${i}`,
-      company: 'test-company',
+      // A REAL first-party id, not a synthetic one. `JobListingCard` resolves an
+      // unrecognized id against the signed-in user's own boards, which needs a
+      // Redux Provider — a dependency this list test has no reason to take on,
+      // and which production never hits here (the Recent Jobs feed only fans out
+      // over `COMPANIES`).
+      company: 'spacex',
       location: 'Remote',
       employmentType: 'Full-time',
       createdAt,
