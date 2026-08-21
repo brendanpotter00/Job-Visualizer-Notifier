@@ -115,6 +115,13 @@ afterEach(() => {
   window.history.pushState({}, '', '/');
 });
 
+// Ten full `<App />` renders in one file. On an idle machine it takes ~12s, and it was
+// measured blowing a 15s cap on a loaded machine (15013ms) — a red CI run that says
+// nothing about the code. The renders are the point of this gate (route registration
+// lives in App.tsx and cannot be checked from the routes config), so the cap is raised
+// rather than the assertions thinned.
+const FULL_APP_RENDER_TIMEOUT_MS = 45_000;
+
 describe('custom company sources — feature flag gate', () => {
   describe('flag OFF (the default)', () => {
     it('registers NO /my-companies route', async () => {
@@ -127,7 +134,7 @@ describe('custom company sources — feature flag gate', () => {
       await waitFor(() =>
         expect(screen.queryByText('JOBS FROM THE SOURCE')).not.toBeInTheDocument()
       );
-    });
+    }, FULL_APP_RENDER_TIMEOUT_MS);
 
     it('registers NO /my-companies/:id trend route', async () => {
       await renderAppAt('/my-companies/u-abc1234567', false);
@@ -136,14 +143,14 @@ describe('custom company sources — feature flag gate', () => {
       await waitFor(() =>
         expect(screen.queryByText('JOBS FROM THE SOURCE')).not.toBeInTheDocument()
       );
-    });
+    }, FULL_APP_RENDER_TIMEOUT_MS);
 
     it('shows NO "My Companies" nav entry', async () => {
       await renderAppAt('/', false);
       await findShell();
 
       expect(screen.queryByText('My Companies')).not.toBeInTheDocument();
-    });
+    }, FULL_APP_RENDER_TIMEOUT_MS);
 
     it('leaves the existing nav items untouched', async () => {
       await renderAppAt('/', false);
@@ -154,7 +161,7 @@ describe('custom company sources — feature flag gate', () => {
       expect(screen.getAllByText('Recent Job Postings').length).toBeGreaterThan(0);
       expect(screen.getAllByText('Company Hiring Trends').length).toBeGreaterThan(0);
       expect(screen.getAllByText('Saved Filters').length).toBeGreaterThan(0);
-    });
+    }, FULL_APP_RENDER_TIMEOUT_MS);
 
     it('omits /my-companies from the exported nav config', async () => {
       vi.resetModules();
@@ -163,7 +170,7 @@ describe('custom company sources — feature flag gate', () => {
 
       expect(PRIMARY_NAV_ITEMS.map((i) => i.path)).not.toContain(ROUTES.MY_COMPANIES);
       expect(USER_NAV_ITEMS.map((i) => i.path)).not.toContain(ROUTES.MY_COMPANIES);
-    });
+    }, FULL_APP_RENDER_TIMEOUT_MS);
   });
 
   describe('flag ON', () => {
@@ -171,19 +178,19 @@ describe('custom company sources — feature flag gate', () => {
       await renderAppAt('/my-companies', true);
 
       expect(await screen.findByTestId('my-companies-page')).toBeInTheDocument();
-    });
+    }, FULL_APP_RENDER_TIMEOUT_MS);
 
     it('registers the /my-companies/:id trend route', async () => {
       await renderAppAt('/my-companies/u-abc1234567', true);
 
       expect(await screen.findByTestId('my-company-trend-page')).toBeInTheDocument();
-    });
+    }, FULL_APP_RENDER_TIMEOUT_MS);
 
     it('shows the "My Companies" nav entry', async () => {
       await renderAppAt('/', true);
 
       expect(await screen.findByText('My Companies')).toBeInTheDocument();
-    });
+    }, FULL_APP_RENDER_TIMEOUT_MS);
 
     it('appends /my-companies to the exported nav config', async () => {
       vi.resetModules();
@@ -196,11 +203,11 @@ describe('custom company sources — feature flag gate', () => {
       // The icon name must exist in NavigationDrawer's iconMap or the entry
       // renders as a blank square.
       expect(item?.icon).toBe('AddBusiness');
-    });
+    }, FULL_APP_RENDER_TIMEOUT_MS);
 
     it('keeps the path constant stable at /my-companies', async () => {
       const { ROUTES } = await import('../../config/routes');
       expect(ROUTES.MY_COMPANIES).toBe('/my-companies');
-    });
+    }, FULL_APP_RENDER_TIMEOUT_MS);
   });
 });
