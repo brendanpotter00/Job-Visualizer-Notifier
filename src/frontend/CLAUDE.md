@@ -143,17 +143,37 @@ own eventual signup. Event taxonomy (custom events live in `features/analytics/e
 
 ## Custom company sources (My Companies)
 
-Flag-gated, currently a **resolve-only preview**: the `/my-companies` page takes a pasted
-careers URL, asks the backend whether a supported job board sits behind it, and shows what it
-found. Nothing is persisted — no company is added, no scraping is scheduled. The "save it"
-half needs backend endpoints that do not exist yet.
+Flag-gated. The `/my-companies` page takes a pasted careers URL and tracks the company
+behind it — **one user action, two outcomes**:
 
+- **A supported board** (Greenhouse / Ashby / Lever / Gem / Workday / Eightfold) is resolved,
+  probed, and previewed ("Found 663 open jobs on Workday"). Nothing is persisted until the
+  user presses **Track this company** — a readable board is cheap, so the confirm stays.
+- **Anything else** goes straight to a **one-time discovery** from that same submit: the page
+  POSTs the add endpoint the moment the resolver answers `no_ats_detected`, and the backend
+  answers `202 discovery_pending`. There is deliberately **no second button** — the removed
+  "Try one-time discovery" CTA was a click standing between the user and the only thing left
+  to do. Because discovery costs a Claude call and a headless Chromium session, the submit
+  button says **"Check & set up"** and the page's intro alert names both outcomes: that copy
+  is the consent, and it must not be softened back into "nothing is added".
+- **The trigger is exactly `no_ats_detected`.** Every other resolver failure (malformed URL,
+  SSRF refusal, 429, 503, timeout) stays a plain error and starts nothing — a typo must never
+  cost an LLM call. `MyCompaniesPage` owns both mutations plus one synchronous `busy` flag
+  spanning the handoff, so the form is never re-enabled mid-action;
+  `components/my-companies/DiscoveryStatus.tsx` is purely presentational and only renders the
+  outcome (202 pending / idempotent 200 / failure).
+- **Discovery has its own server flag.** With `CUSTOM_COMPANY_DISCOVERY_ENABLED` off the add
+  endpoint returns 422 instead of starting anything, and `DiscoveryStatus` renders that
+  verdict plus the boards we read without setup — never an endless spinner.
 - **Two independent flags.** `VITE_CUSTOM_COMPANIES_ENABLED` only reveals the page; the
   backend has its own `CUSTOM_COMPANY_SOURCES_ENABLED` setting and answers **503** while it
   is off. Both must be on for the flow to work. With the frontend flag off there is no nav
   entry, no route (`App.tsx` skips registering it), and no network calls.
-- **One endpoint:** `POST /api/companies/resolve` (Bearer auth, 10 requests/60s per user).
-  It reaches the backend through the existing `api/companies.ts` Vercel proxy — no new proxy.
+- **Two endpoints, in that order:** `POST /api/companies/resolve` (Bearer auth, 10 requests/60s
+  per user) then, only on `no_ats_detected`, `POST /api/users/companies`. They reach the backend
+  through the existing `api/companies.ts` / `api/users.ts` Vercel proxies — no new proxy. The
+  resolve rate limit is what indirectly bounds how fast discoveries can be started, since every
+  discovery is preceded by a resolve.
 - **Two different 422 bodies.** The resolver's own failure is *flat*
   (`{reason, finalUrl, hops}`); FastAPI request-validation failure is
   `{detail: [...]}` with no `reason`. `features/userCompanies/resolveErrors.ts` is the single

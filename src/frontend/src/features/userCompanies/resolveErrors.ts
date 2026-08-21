@@ -40,8 +40,14 @@ export interface ResolveErrorDisplay {
   reasonCode?: string;
 }
 
-/** Human-facing job boards we can actually track. Named in the `no_ats_detected` copy. */
-const SUPPORTED_BOARDS = 'Greenhouse, Ashby, Lever, Gem, Workday, and Eightfold';
+/**
+ * Human-facing job boards we can read directly, no discovery required. Named in the
+ * `no_ats_detected` copy — and exported because the discovery panel needs the same
+ * list when a one-time setup fails: "paste a link to one of these instead" is the
+ * only actionable thing left to tell the user at that point, and two hand-maintained
+ * copies of the list would drift the moment a provider is added.
+ */
+export const SUPPORTED_BOARDS = 'Greenhouse, Ashby, Lever, Gem, Workday, and Eightfold';
 
 /**
  * Copy for every known `reason`. Keyed by the closed union so adding a code to

@@ -7,25 +7,29 @@ import Typography from '@mui/material/Typography';
 import { RESPONSIVE } from '../../config/responsive';
 import { useAuth } from '../../features/auth/useAuth';
 import { LoadingState } from '../../components/shared/LoadingIndicator';
-import { useResolveCareersUrlMutation } from '../../features/userCompanies/userCompaniesApi';
+import {
+  useAddUserCompanyMutation,
+  useResolveCareersUrlMutation,
+} from '../../features/userCompanies/userCompaniesApi';
 import Divider from '@mui/material/Divider';
 import { ResolveUrlForm } from '../../components/my-companies/ResolveUrlForm';
 import { ResolveResultDisplay } from '../../components/my-companies/ResolveResultDisplay';
 import { ResolveErrorDisplay } from '../../components/my-companies/ResolveErrorDisplay';
-import { DiscoveryCTA } from '../../components/my-companies/DiscoveryCTA';
+import { DiscoveryStatus } from '../../components/my-companies/DiscoveryStatus';
 import { MyCompaniesList } from '../../components/my-companies/MyCompaniesList';
 import { describeResolveError } from '../../features/userCompanies/resolveErrors';
 import { useState } from 'react';
 
 /**
- * "My Companies" — currently a resolve-only preview.
+ * "My Companies" — paste a careers URL, get the company tracked.
  *
- * This page checks whether a pasted careers URL hides a job board we can read.
- * It deliberately persists NOTHING: there is no saved list, no company record,
- * no scraping scheduled. Saving arrives with the backend endpoints that store
- * user-owned companies. The copy below has to keep saying so, because a page
- * titled "My Companies" that reports "Found 663 open jobs" reads like it just
- * added something.
+ * ONE user action covers both outcomes. The submit runs the ATS resolver; if a supported
+ * board is behind the URL the user still gets the preview and an explicit "Track this
+ * company" confirm (a readable board is cheap and reversible, and the job count is worth
+ * seeing before committing). If the resolver finds NO supported board, the same action
+ * immediately hands the URL to one-time discovery instead of parking the user in front of
+ * a second button — that second click was the whole defect this page's copy now has to
+ * pay for by naming the spend up front.
  *
  * Reached only when `VITE_CUSTOM_COMPANIES_ENABLED === 'true'` — with the flag
  * off, App.tsx never registers the route.
@@ -33,11 +37,17 @@ import { useState } from 'react';
 export function MyCompaniesPage() {
   const { isAuthenticated, isLoading: authLoading, login } = useAuth();
   const [resolveCareersUrl, resolveState] = useResolveCareersUrlMutation();
-  // Keep the last-submitted URL so a "no ATS found" result can offer one-time
-  // discovery against the same address. Declared here — ABOVE the auth ladder's
-  // early returns — so the hook count stays stable across renders (a hook after
-  // a conditional return breaks the Rules of Hooks).
-  const [lastUrl, setLastUrl] = useState('');
+  const [addUserCompany, addState] = useAddUserCompanyMutation();
+  // One busy flag for the WHOLE action, flipped synchronously around the pair of calls
+  // rather than derived from the two mutations' `isLoading`. Between the resolve
+  // rejecting and the discovery POST being dispatched both are idle, so a derived flag
+  // would re-enable the form and flash the raw resolver error for a frame in the middle
+  // of an action that is still running. It is also what keeps a PREVIOUS URL's discovery
+  // outcome off the screen while the next one runs, so no explicit mutation reset is
+  // needed. Declared here — ABOVE the auth ladder's early
+  // returns — so the hook count stays stable across renders (a hook after a conditional
+  // return breaks the Rules of Hooks).
+  const [busy, setBusy] = useState(false);
 
   // ── auth ladder (mirrors SavedFiltersPage / AccountPage) ─────────────────
   if (authLoading) {
@@ -63,17 +73,40 @@ export function MyCompaniesPage() {
   }
 
   // `isLoading` is the mutation's in-flight flag; RTK Query resets it (and
-  // clears `data` / `error`) on each new submit, so the three states below are
+  // clears `data` / `error`) on each new submit, so the states below are
   // mutually exclusive without any local bookkeeping.
   const { isLoading: resolving, data: result, error } = resolveState;
   const noAtsDetected =
     error !== undefined && describeResolveError(error).reasonCode === 'no_ats_detected';
 
+  const runCheck = async (url: string) => {
+    setBusy(true);
+    try {
+      const outcome = await resolveCareersUrl({ url });
+      // The auto-start, and the narrowest possible trigger for it. ONLY
+      // `no_ats_detected` — "we read the page and there is no board we support" — is a
+      // job for discovery. A malformed URL, an SSRF refusal, a 429, a 503, or a resolver
+      // timeout must stay a plain error: spending a Claude call and a headless Chromium
+      // session on a typo is exactly the failure this check prevents.
+      if (
+        'error' in outcome &&
+        describeResolveError(outcome.error).reasonCode === 'no_ats_detected'
+      ) {
+        // The URL the user submitted, not the resolver's `finalUrl` — the add endpoint
+        // re-resolves from scratch and records `submitted_url`, so handing it the
+        // original keeps the server-side audit trail matching what was typed.
+        await addUserCompany({ url });
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handleSubmit = (url: string) => {
-    setLastUrl(url);
-    // Fire-and-forget: the rendered state comes from `resolveState`, and an
-    // unhandled rejection here would be noise — the error is already surfaced.
-    void resolveCareersUrl({ url });
+    // `void`: everything rendered below reads from the two mutations' own state, and
+    // neither trigger rejects (RTK Query resolves them to `{ data }` / `{ error }`), so
+    // there is nothing here to await or to catch.
+    void runCheck(url);
   };
 
   return (
@@ -83,27 +116,45 @@ export function MyCompaniesPage() {
       </Typography>
 
       <Stack spacing={3}>
+        {/* This copy is the consent. The submit below can spend real work on the user's
+            behalf without asking a second time, so the two outcomes — preview-then-choose
+            vs. setup-starts-now — have to be stated before they paste anything. */}
         <Alert severity="info">
-          Paste a careers URL to <strong>check</strong> whether we can read the job board behind
-          it. If we can, add it with <strong>Track this company</strong> and we&apos;ll start
-          building its hiring history — <strong>private to you</strong>. Nothing is added to your
-          account until you choose to track it.
+          Paste a careers URL and we&apos;ll check it. If it&apos;s a job board we already read,
+          you&apos;ll see what we found and nothing is tracked until you press{' '}
+          <strong>Track this company</strong>. If it isn&apos;t, we start a{' '}
+          <strong>one-time setup</strong> that teaches us to read it — that begins straight
+          away and the company appears in your list while it runs. Everything here is{' '}
+          <strong>private to you</strong>.
         </Alert>
 
         <Paper sx={{ p: RESPONSIVE.spacing.paperPaddingLg }}>
-          <ResolveUrlForm onSubmit={handleSubmit} resolving={resolving} />
+          <ResolveUrlForm
+            onSubmit={handleSubmit}
+            status={resolving ? 'checking' : busy ? 'setting-up' : 'idle'}
+          />
         </Paper>
 
-        {resolving && <LoadingState minHeight={120} caption="Checking that URL…" />}
-
-        {!resolving && error !== undefined && (
-          <>
-            <ResolveErrorDisplay error={error} />
-            {noAtsDetected && lastUrl && <DiscoveryCTA url={lastUrl} />}
-          </>
+        {/* One spinner for both halves of the action — `busy` spans the handoff, so the
+            caption changes without the UI ever going dead between the two calls. */}
+        {busy && (
+          <LoadingState
+            minHeight={120}
+            caption={resolving ? 'Checking that URL…' : 'Setting this board up…'}
+          />
         )}
 
-        {!resolving && error === undefined && result !== undefined && (
+        {/* A resolver failure we are NOT acting on: show it as the error it is. The
+            `no_ats_detected` case is deliberately excluded — discovery is already running
+            for it, and a red "we couldn't find a job board" above a working setup would
+            report a failure that isn't one. */}
+        {!busy && error !== undefined && !noAtsDetected && <ResolveErrorDisplay error={error} />}
+
+        {!busy && noAtsDetected && (
+          <DiscoveryStatus result={addState.data} error={addState.error} />
+        )}
+
+        {!busy && error === undefined && result !== undefined && (
           <ResolveResultDisplay result={result} />
         )}
 
