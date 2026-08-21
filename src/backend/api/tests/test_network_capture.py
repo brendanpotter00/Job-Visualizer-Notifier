@@ -334,3 +334,46 @@ def test_a_page_that_refuses_to_scroll_still_gets_the_whole_window() -> None:
     18 of the 24 seconds rather than 2.4 of 8.4.
     """
     assert _settle_window("print(window(True) == window(False))") == "True"
+
+
+def test_the_per_body_cap_clears_the_biggest_real_jobs_feed() -> None:
+    """A whole jobs feed must fit in ONE body, and 2 MB did not.
+
+    Same failure shape as the 8.4s window, from the other ceiling. Measured on
+    ``binance.com/en/careers/job-openings``: its feed
+    (``/bapi/career/jobs-lever/v0/postings/binance``, a Lever export — 14 departments,
+    279 postings) is **2,775,685 bytes**. Over the old 2 MB cap it was recorded EMPTY,
+    the pre-filter dropped it along with the tracking pings, and discovery refused the
+    board for "none of the 40 JSON request(s) this page made is a list of job
+    postings". A/B on one page load with the cap as the only variable: 2 MB refuses,
+    4 MB accepts and reads the feed.
+
+    Asserted as a FLOOR with margin rather than an exact value — what has to hold is
+    "a 2.78 MB feed still fits, with room for a board slightly bigger", not any
+    particular constant. The AGGREGATE is asserted as a ceiling in the same breath
+    because it, not the per-body cap, is what bounds the worst case: raising what one
+    body may cost must never raise what forty of them may cost.
+
+    Subprocess for the same reason as the tests above: importing ``_capture_main``
+    makes ``playwright`` resident in the pytest process and every later
+    ``assert_no_agent_imports()`` in the suite would then raise.
+    """
+    result = subprocess.run(
+        [sys.executable, "-c",
+         "from api.services.capture._capture_main import ("
+         "_MAX_BODY_BYTES, _MAX_TOTAL_BODY_BYTES)\n"
+         "print(_MAX_BODY_BYTES, _MAX_TOTAL_BODY_BYTES)\n"],
+        cwd=str(_BACKEND), env=_SUBPROC_ENV,
+        capture_output=True, text=True, timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    per_body, aggregate = (int(v) for v in result.stdout.strip().split()[-2:])
+
+    assert per_body >= 3_500_000, (
+        "the biggest real jobs feed measured is 2,775,685 bytes (binance.com); a cap "
+        "at or below it records the feed empty and refuses the board for having none"
+    )
+    assert aggregate <= 16_000_000, (
+        "the aggregate is what bounds the worst case — raising the per-body cap must "
+        "not raise it"
+    )

@@ -60,11 +60,22 @@ _MAX_RESPONSES = 40           # how many JSON bodies we are willing to carry bac
 # ``truncated: True`` so the parent can say so. Truncating it was worse than useless:
 # a JSON document cut mid-object no longer parses, so the pre-filter dropped it and
 # the refusal told the user "none of these returned a list of job postings" about the
-# one request that did. 2 MB clears a realistic full jobs page (~500 KB for ~120
-# postings with descriptions, measured) with headroom.
-_MAX_BODY_BYTES = 2_000_000
+# one request that did.
+#
+# It used to be 2 MB, and — exactly like the 8.4s window above — that budget SILENTLY
+# LOST a board. Measured on ``binance.com/en/careers/job-openings``: its jobs feed
+# (``/bapi/career/jobs-lever/v0/postings/binance``, a Lever export, 14 departments,
+# 279 postings) is **2,775,685 bytes**, 39% over the old cap. It was recorded empty,
+# the pre-filter dropped it with the tracking pings, and discovery refused the board
+# for "none of the 40 JSON request(s) this page made is a list of job postings" — our
+# limit, reported as the board's fault. A/B on one page load, cap the only variable:
+# 2 MB refuses, 4 MB accepts and reads the feed. The two biggest real jobs feeds
+# measured across 70 boards are Binance (2.78 MB) and Atlassian (1.85 MB), so 4 MB
+# clears the worst known board by ~44%.
+_MAX_BODY_BYTES = 4_000_000
 # ...and the aggregate across every body, so raising the per-body cap cannot raise the
-# worst case. One 2 MB jobs feed is fine; forty of them is a container.
+# worst case. THIS is the number that protects the container and the pipe, and it does
+# not move: one 4 MB jobs feed is fine; forty of them is a container.
 _MAX_TOTAL_BODY_BYTES = 16_000_000
 # The rest of the observation window, spent scrolling a couple of screens at a time so
 # a lazy-loaded feed is triggered as well as merely waited for. Together with
