@@ -772,6 +772,33 @@ def list_owned_companies(conn: Connection, user_id: str) -> list[dict[str, Any]]
     return out
 
 
+def list_owned_source_ids(conn: Connection, user_id: str) -> list[str]:
+    """The ``custom:<id>`` namespaces the caller owns — the authorization input for
+    the cross-company jobs read.
+
+    Deliberately returns SOURCE IDs, not company ids: ``custom:<id>`` is the
+    namespace the job rows actually carry, so the caller's feed query filters on
+    the same key the database keys the data by, with no id->namespace translation
+    left for a caller to get wrong. Derived from ``user_companies``, so the set
+    can only ever be what this user owns.
+
+    The ``visibility = 'user'`` filter is defense-in-depth: a contrived ownership
+    row pointing at a public company must not smuggle that company into a private
+    read path (the mirror of the guard in :func:`remove_owned_company`).
+    """
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT c.id
+        FROM user_companies uc
+        JOIN companies c ON c.id = uc.company_id
+        WHERE uc.user_id = %s AND c.visibility = 'user'
+        """,
+        (user_id,),
+    )
+    return [custom(row["id"]) for row in cursor.fetchall()]
+
+
 def get_company_if_owner(
     conn: Connection, user_id: str, company_id: str
 ) -> Optional[dict[str, Any]]:
@@ -791,15 +818,46 @@ def get_company_if_owner(
     return dict(row) if row else None
 
 
-def delete_ownership(conn: Connection, user_id: str, company_id: str) -> str:
-    """Remove the caller's ownership; disable the company if it was the last owner.
+def remove_owned_company(conn: Connection, user_id: str, company_id: str) -> str:
+    """Remove the caller's ownership AND, if that was the last owner, PURGE the
+    company and every row it owns — in ONE transaction.
+
+    The Phase-1 behaviour was ``UPDATE companies SET enabled = FALSE`` and nothing
+    else. That left, per removed board, an ownerless ``companies`` row, its
+    ``company_scripts`` recipe, and the whole ``custom:<id>`` job namespace
+    (10,000 rows on the owner's Amazon board) alive in the database forever:
+    invisible to every UI — the list joins ``user_companies``, which no longer has
+    a row — and unreachable by any future re-add, because a re-add mints a NEW
+    company id. "Remove" has to mean removed.
+
+    SHARED vs PER-USER. A ``companies`` row is never shared. Every
+    ``user_companies`` INSERT in this module is paired with a fresh
+    ``INSERT INTO companies`` in the same statement block
+    (:func:`add_custom_company`, :func:`add_discovering_placeholder`,
+    :func:`add_discovered_company`, :func:`record_discovery_refusal`) — nothing
+    ever links a second user to an existing row — so two users who add the same
+    board get two distinct companies and two distinct ``custom:<id>`` namespaces
+    (see :class:`api.db_models.UserCompany`). A hard delete is therefore correct
+    and cannot reach another user's data. The last-owner count below is kept
+    anyway: it is the guard that makes this still safe if row sharing is ever
+    introduced, and it costs one indexed count.
+
+    ORDER matters. ``job_freshness`` has a composite FK ``ON DELETE CASCADE`` onto
+    ``job_listings``, so it goes automatically; ``job_locations`` has NO FK and is
+    keyed by ``job_listing_id`` alone, so it must be cleared while the listings it
+    is derived from still exist. Everything runs on one cursor with a single
+    terminal ``commit()`` — a partial purge would strand exactly the rows this
+    function exists to remove, with no owner left to retry it.
 
     Returns:
         ``'not_owner'`` if the caller did not own it (→ router 404),
-        ``'disabled'`` if this removed the last owner and the company was set
-        ``enabled=false`` (rows are kept, never deleted),
-        ``'removed'`` if other owners remain.
+        ``'purged'`` if this removed the last owner and the company + its data
+        were deleted,
+        ``'unlinked'`` if only the ownership link went (another owner remains, or
+        the id resolved to a company that is NOT ``visibility='user'`` — a public
+        board's data must never be destroyed through this path).
     """
+    source_id = custom(company_id)
     cursor = conn.cursor()
     try:
         cursor.execute(
@@ -809,27 +867,86 @@ def delete_ownership(conn: Connection, user_id: str, company_id: str) -> str:
         if cursor.rowcount == 0:
             conn.rollback()
             return "not_owner"
+
         cursor.execute(
             "SELECT count(*) AS n FROM user_companies WHERE company_id = %s",
             (company_id,),
         )
         remaining = cursor.fetchone()
-        if remaining and int(remaining["n"]) == 0:
-            # Last owner gone: disable (never DELETE — keep the jobs + audit).
-            # ``AND visibility = 'user'`` is defense-in-depth: this path should
-            # only ever reach a private company, but the guard makes it
-            # impossible to disable a curated public company even if a future
-            # caller passed a public id (which would take a public board's jobs
-            # off the site).
-            cursor.execute(
-                "UPDATE companies SET enabled = FALSE "
-                "WHERE id = %s AND visibility = 'user'",
-                (company_id,),
-            )
+        if remaining and int(remaining["n"]) > 0:
             conn.commit()
-            return "disabled"
+            return "unlinked"
+
+        # ``FOR UPDATE`` pins the row for the rest of the transaction so a
+        # concurrent claim tick cannot flip it to running between this read and
+        # the DELETE below. A missing row (already purged, or an ownership row
+        # that outlived its company) still purges the ``custom:<id>`` namespace —
+        # that namespace is derived from the id we just proved the caller owned,
+        # so orphaned jobs under it are exactly what we came to collect.
+        cursor.execute(
+            "SELECT visibility FROM companies WHERE id = %s FOR UPDATE",
+            (company_id,),
+        )
+        company_row = cursor.fetchone()
+        if company_row is not None and company_row["visibility"] != "user":
+            # Defense-in-depth, same intent as the old ``AND visibility='user'``
+            # guard: a public company id reaching this path (a contrived
+            # ownership row, a future caller bug) must lose only the link. Purging
+            # here would take a curated board's jobs off the public site.
+            conn.commit()
+            return "unlinked"
+
+        # Location links first — no FK, and the subquery reads job_listings.
+        # The ``NOT EXISTS`` narrows the delete to job ids used ONLY by this
+        # source: ``job_locations`` carries no source_id, so a bare
+        # ``job_listing_id IN (...)`` would also drop the location tags of an
+        # unrelated public listing that happens to share an id.
+        cursor.execute(
+            """
+            DELETE FROM job_locations jl
+            WHERE jl.job_listing_id IN (
+                    SELECT id FROM job_listings WHERE source_id = %s
+                )
+              AND NOT EXISTS (
+                    SELECT 1 FROM job_listings o
+                    WHERE o.id = jl.job_listing_id AND o.source_id <> %s
+                )
+            """,
+            (source_id, source_id),
+        )
+        # These three ARE keyed by source_id, so the namespace scopes them exactly.
+        cursor.execute("DELETE FROM job_tags WHERE source_id = %s", (source_id,))
+        cursor.execute("DELETE FROM job_enrichment WHERE source_id = %s", (source_id,))
+        # Scoped by source_id ALONE, not ``company = %s AND source_id = %s``:
+        # ``custom:<id>`` is this company's private namespace and can belong to no
+        # other company, so the wider predicate guarantees nothing is stranded
+        # even if a row's ``company`` column were ever wrong. Cascades job_freshness.
+        cursor.execute("DELETE FROM job_listings WHERE source_id = %s", (source_id,))
+
+        # Per-company operational state. Deleted, not kept: none of it is reachable
+        # once the company is gone (no UI joins it, and a re-add mints a new id),
+        # and a leftover scrape_runs row for a company that no longer exists is a
+        # false signal to the health watchdog. ``scrape_runs`` is scoped by
+        # ``company`` rather than source_id so a row written before source_id was
+        # populated still goes; a custom company id is globally unique, so this
+        # cannot reach a public board's runs.
+        cursor.execute("DELETE FROM company_harvests WHERE company_id = %s", (company_id,))
+        cursor.execute("DELETE FROM scrape_runs WHERE company = %s", (company_id,))
+        cursor.execute("DELETE FROM company_scripts WHERE company_id = %s", (company_id,))
+        cursor.execute(
+            "DELETE FROM companies WHERE id = %s AND visibility = 'user'",
+            (company_id,),
+        )
+
+        # DELIBERATELY KEPT: ``company_add_attempts``. It is the append-only audit
+        # of what the user pasted and what happened to it (see
+        # :class:`api.db_models.CompanyAddAttempt` — "a fact about what happened,
+        # not a piece of the user's profile"), it is the only record that an add
+        # ever occurred, and it is what a support question about a board that
+        # never worked is answered from. Its ``company_id`` is a soft link with no
+        # FK, so the now-dangling id is a historical reference, not an orphan.
         conn.commit()
-        return "removed"
+        return "purged"
     except psycopg2.Error:
         conn.rollback()
         raise

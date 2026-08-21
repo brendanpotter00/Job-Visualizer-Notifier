@@ -16,11 +16,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from datetime import datetime
 from urllib.parse import urlparse
 
 import httpx
 import psycopg2
-from fastapi import APIRouter, Depends, HTTPException, Path, Response
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
 from fastapi.responses import JSONResponse
 from psycopg2.extensions import connection as Connection
 
@@ -38,10 +39,23 @@ from ..models import (
     UserCompanyListResponse,
     UserCompanyResponse,
 )
+from ..pagination import (
+    MAX_CURSOR_LENGTH,
+    MAX_TIMESTAMP_LENGTH,
+    InvalidCursorError,
+    JobCursor,
+    decode_job_cursor,
+    encode_job_cursor,
+    parse_utc_timestamp,
+)
+# Imported, NOT redeclared: ``main.py`` wires exactly this constant into
+# ``CORSMiddleware(expose_headers=...)``. A second copy of the string here would
+# let the two drift and the header would silently stop reaching the browser.
+from ..routers.jobs import NEXT_CURSOR_HEADER
 from ..services import custom_companies_service as svc
 from ..services.ats_discovery import discover_ats, probe_candidate
 from ..services.discovery.progress import read_progress
-from ..services.database import get_user_company_jobs
+from ..services.database import get_owned_custom_jobs, get_user_company_jobs
 from ..services.user_service import get_or_create_user, get_user_by_email
 
 logger = logging.getLogger(__name__)
@@ -364,14 +378,101 @@ async def list_companies(
     return UserCompanyListResponse(companies=[_to_response(c) for c in companies])
 
 
+@router.get("/jobs", response_model=list[JobListingResponse])
+async def get_all_owned_jobs(
+    response: Response,
+    conn: Connection = Depends(get_db),
+    user: TokenClaims = Depends(get_current_user),
+    status: str | None = Query(default=None, pattern=r"^(OPEN|CLOSED)$"),
+    limit: int = Query(default=1000, ge=1, le=5000),
+    since: str | None = Query(
+        default=None,
+        max_length=MAX_TIMESTAMP_LENGTH,
+        description=(
+            "Recency lower bound, INCLUSIVE — same contract as `GET /api/jobs`. "
+            "Presence switches this endpoint into keyset-paging mode."
+        ),
+    ),
+    cursor: str | None = Query(
+        default=None,
+        max_length=MAX_CURSOR_LENGTH,
+        description="Opaque token echoed back from a previous `X-Next-Cursor`.",
+    ),
+) -> list[JobListingResponse]:
+    """The caller's OWN custom-company jobs, across every board they own.
+
+    This is what puts a user's private boards on the Recent Jobs feed. The public
+    ``GET /api/jobs`` still excludes ``visibility='user'`` UNCONDITIONALLY — that
+    guard is not relaxed and must not be, because a viewer-scoped version of it
+    would turn an unconditional leak into a conditional one. Instead the feed
+    makes a SECOND, authenticated request here and merges the two pages; an
+    anonymous caller cannot make this request at all (401), and a signed-in
+    non-owner gets only their own boards because the company set is derived from
+    ``user_companies``, never from the request.
+
+    Declared BEFORE the ``/{company_id}`` routes: FastAPI matches in declaration
+    order, and a future ``GET /{company_id}`` would otherwise swallow ``/jobs``
+    and answer this with a 404-shaped "company not found".
+
+    Same ``since``/``cursor``/``X-Next-Cursor`` contract as ``GET /api/jobs`` so
+    the frontend's existing keyset walk drives both halves of the feed with one
+    implementation. ``limit`` is capped lower (5000) than the public endpoint's
+    50000: one user's private boards are a handful, not the whole corpus.
+    """
+    _require_flag()
+    email = user.get("email")
+    if not email:
+        raise HTTPException(status_code=401, detail="Token missing required 'email' claim")
+
+    parsed_cursor: JobCursor | None = None
+    if cursor is not None:
+        try:
+            parsed_cursor = decode_job_cursor(cursor)
+        except InvalidCursorError as exc:
+            raise HTTPException(status_code=422, detail=f"Invalid 'cursor': {exc}")
+    parsed_since: datetime | None = None
+    if since is not None:
+        try:
+            parsed_since = parse_utc_timestamp(since, field="'since'")
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=f"Invalid 'since': {exc}")
+
+    row = get_user_by_email(conn, email)
+    if row is None:
+        # Signed in but no users row yet — they cannot own anything. Empty, not an
+        # error: the feed always issues this request, and a 404 here would make
+        # every brand-new user's Recent page render an error banner.
+        return []
+    source_ids = svc.list_owned_source_ids(conn, row["id"])
+    jobs = get_owned_custom_jobs(
+        conn, source_ids, status=status, since=parsed_since,
+        cursor=parsed_cursor, limit=limit,
+    )
+
+    # Mint the next token only in keyset mode off a FULL page — byte-identical
+    # rule to ``GET /api/jobs``. Its ABSENCE is the only end-of-walk signal, so a
+    # short page must not carry one.
+    if (parsed_since is not None or parsed_cursor is not None) and len(jobs) == limit:
+        tail = jobs[-1]
+        response.headers[NEXT_CURSOR_HEADER] = encode_job_cursor(
+            tail["first_seen_at"], tail["source_id"], tail["id"]
+        )
+    return [JobListingResponse(**job) for job in jobs]
+
+
 @router.delete("/{company_id}", status_code=204)
 async def delete_company(
     company_id: str = Path(max_length=64),
     conn: Connection = Depends(get_db),
     user: TokenClaims = Depends(get_current_user),
 ) -> Response:
-    """Remove the caller's ownership. If that was the last owner, disable the
-    company (``enabled=false``) — rows are kept, never deleted."""
+    """Remove the caller's ownership and, if that was the last owner, PURGE the
+    company: its ``companies`` row, its ``company_scripts`` recipe, every job in
+    its ``custom:<id>`` namespace (plus the freshness/location/tag/enrichment rows
+    hanging off them), its harvests and its scrape runs — one transaction. Only
+    the append-only ``company_add_attempts`` audit survives. "Remove" means gone,
+    not hidden: a disabled-but-present row was invisible to the user and
+    unreachable by a re-add, so it could only ever accumulate."""
     _require_flag()
     email = user.get("email")
     if not email:
@@ -380,7 +481,7 @@ async def delete_company(
     if row is None:
         raise HTTPException(status_code=404, detail="Company not found")
     try:
-        outcome = svc.delete_ownership(conn, row["id"], company_id)
+        outcome = svc.remove_owned_company(conn, row["id"], company_id)
     except psycopg2.Error:
         logger.exception("Failed to delete custom company %s for user=%s", company_id, row["id"])
         raise HTTPException(status_code=500, detail="Failed to remove company")

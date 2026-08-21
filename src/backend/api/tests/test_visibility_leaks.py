@@ -6,15 +6,22 @@ cross-user surface:
   2. the public ``GET /api/jobs`` list AND single-job detail,
   3. the auto-enroll UNION (never pulled into another user's feed), and
   4. the six ATS fan-outs (``list_enabled_companies(conn, ats)``).
+
+Leak 5 (added with the Recent-feed integration) covers the SECOND authed path
+that serves private jobs — ``GET /api/users/companies/jobs`` — which must stay
+owner-scoped without weakening any of the four above.
 """
 
 from __future__ import annotations
 
 import uuid
 
+import pytest
 from psycopg2 import sql
 
 from scripts.shared.constants import custom
+from api.auth.dependencies import get_current_user
+from api.config import settings
 from scripts.shared.database import (
     list_enabled_companies as list_ats_enabled_companies,
 )
@@ -160,3 +167,120 @@ def test_ats_fan_out_excludes_user_company(db_conn):
     ids = {r["id"] for r in rows}
     assert "pub-gh" in ids
     assert "u-privgh01" not in ids
+
+
+# --- Leak 5: the owner-scoped Recent-feed union ------------------------------
+#
+# ``GET /api/users/companies/jobs`` is what puts a user's private boards on the
+# Recent Jobs page. It is the SECOND path that serves ``visibility='user'`` jobs,
+# so it needs the same three-way proof the per-company path has: anonymous sees
+# nothing, a signed-in NON-owner sees nothing, and the owner sees their own. The
+# first two are the ones that can silently stop asserting anything — a fixture
+# that quietly failed to log anyone in would make "non-owner sees nothing" pass
+# forever, so each test also asserts the POSITIVE half on the same data.
+
+
+@pytest.fixture
+def flag_on(monkeypatch):
+    """The endpoint 503s with the feature flag off, which would make every leak
+    assertion below vacuously true. Turn it ON so the tests prove the guard, not
+    the kill switch."""
+    monkeypatch.setattr(settings, "custom_company_sources_enabled", True)
+
+
+def _own(conn, user_id: str, company_id: str) -> None:
+    cur = conn.cursor()
+    cur.execute(
+        sql.SQL(
+            "INSERT INTO {} (user_id, company_id, canonical_source_key) "
+            "VALUES (%s, %s, %s)"
+        ).format(sql.Identifier("user_companies")),
+        (user_id, company_id, f"greenhouse:{company_id}"),
+    )
+    conn.commit()
+
+
+def _login_as(client, email: str) -> None:
+    client.app.dependency_overrides[get_current_user] = lambda: {
+        "sub": f"auth0|{email}", "email": email,
+        "given_name": "A", "family_name": "B", "picture": None,
+    }
+
+
+def test_owner_feed_serves_only_the_callers_own_private_jobs(client, db_conn, flag_on):
+    owner_id = uuid.uuid4().hex
+    other_id = uuid.uuid4().hex
+    _insert_user(db_conn, owner_id, f"{owner_id}@example.com")
+    _insert_user(db_conn, other_id, f"{other_id}@example.com")
+    _insert_company(db_conn, "u-feedown01", visibility="user")
+    _insert_company(db_conn, "u-feedoth01", visibility="user")
+    _own(db_conn, owner_id, "u-feedown01")
+    _own(db_conn, other_id, "u-feedoth01")
+    _insert_job(db_conn, "mine", "u-feedown01", custom("u-feedown01"))
+    _insert_job(db_conn, "theirs", "u-feedoth01", custom("u-feedoth01"))
+
+    original = client.app.dependency_overrides.get(get_current_user)
+    try:
+        _login_as(client, f"{owner_id}@example.com")
+        ids = {j["id"] for j in client.get("/api/users/companies/jobs").json()}
+        assert ids == {"mine"}, "owner must see their own board and nothing else"
+
+        # Signed in, but owns a DIFFERENT private company: the other user's job
+        # must not appear. This is the cross-user leak.
+        _login_as(client, f"{other_id}@example.com")
+        ids_other = {j["id"] for j in client.get("/api/users/companies/jobs").json()}
+        assert ids_other == {"theirs"}
+    finally:
+        if original is not None:
+            client.app.dependency_overrides[get_current_user] = original
+
+
+def test_owner_feed_is_401_for_anonymous(client, db_conn, flag_on):
+    _insert_user(db_conn, "feedanonusr", "feedanon@example.com")
+    _insert_company(db_conn, "u-feedanon1", visibility="user")
+    _own(db_conn, "feedanonusr", "u-feedanon1")
+    _insert_job(db_conn, "anon-secret", "u-feedanon1", custom("u-feedanon1"))
+
+    original = client.app.dependency_overrides.pop(get_current_user, None)
+    try:
+        resp = client.get("/api/users/companies/jobs")
+        assert resp.status_code == 401
+        assert "anon-secret" not in resp.text
+    finally:
+        if original is not None:
+            client.app.dependency_overrides[get_current_user] = original
+            # The same row IS served to its owner — proof the 401 above came from
+            # the auth gate, not from an empty fixture.
+            _login_as(client, "feedanon@example.com")
+            ids = {j["id"] for j in client.get("/api/users/companies/jobs").json()}
+            assert "anon-secret" in ids
+            client.app.dependency_overrides[get_current_user] = original
+
+
+def test_public_jobs_list_still_omits_private_jobs_after_the_feed_endpoint_exists(
+    client, db_conn, flag_on
+):
+    """The regression guard for the tempting-but-wrong fix: making the Recent feed
+    work by relaxing ``_USER_COMPANY_PREDICATE`` on ``/api/jobs``. That endpoint
+    is unauthenticated and forwarded verbatim by ``api/jobs.ts``, so its guard
+    must stay UNCONDITIONAL no matter who is asking."""
+    user_id = uuid.uuid4().hex
+    _insert_user(db_conn, user_id, f"{user_id}@example.com")
+    _insert_company(db_conn, "u-feedpub01", visibility="user")
+    _own(db_conn, user_id, "u-feedpub01")
+    _insert_job(db_conn, "still-private", "u-feedpub01", custom("u-feedpub01"))
+
+    original = client.app.dependency_overrides.get(get_current_user)
+    try:
+        # Even with the owner "signed in", the PUBLIC endpoint serves nothing.
+        _login_as(client, f"{user_id}@example.com")
+        assert client.get("/api/jobs", params={"company": "u-feedpub01"}).json() == []
+        assert client.get(
+            f"/api/jobs/{custom('u-feedpub01')}/still-private"
+        ).status_code == 404
+        # ...while the authed feed does serve it, proving the row exists at all.
+        ids = {j["id"] for j in client.get("/api/users/companies/jobs").json()}
+        assert "still-private" in ids
+    finally:
+        if original is not None:
+            client.app.dependency_overrides[get_current_user] = original

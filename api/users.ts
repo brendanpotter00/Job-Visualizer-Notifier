@@ -47,6 +47,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const response = await fetch(targetUrl, fetchOptions);
+    // `GET /api/users/companies/jobs` (the owner-scoped half of the Recent Jobs
+    // feed) pages with the same keyset contract as `/api/jobs`, and the ABSENCE
+    // of this header is its only end-of-walk signal. `forwardResponse` copies
+    // status + body only, so without this line the client would see every page
+    // as the last one and silently stop after the first. Copied only when
+    // present, exactly as `api/jobs.ts` does, and set BEFORE `forwardResponse`
+    // because that helper ends the response.
+    const nextCursor = response.headers.get('X-Next-Cursor');
+    if (nextCursor) res.setHeader('X-Next-Cursor', nextCursor);
     await forwardResponse(response, res);
   } catch (error) {
     // Network-level failure (DNS, connection refused, upstream down).

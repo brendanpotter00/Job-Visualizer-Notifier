@@ -12,6 +12,7 @@ from __future__ import annotations
 import socket
 
 import httpx
+import psycopg2
 import pytest
 from psycopg2 import sql
 
@@ -89,15 +90,133 @@ def _count(db_conn, table: str, where: str = "", params: tuple = ()) -> int:
     return int(cur.fetchone()["n"])
 
 
-def _seed_job_for(db_conn, company_id: str, job_id: str) -> None:
+def _seed_job_for(
+    db_conn, company_id: str, job_id: str, *, first_seen_at: str = "2025-01-01T00:00:00Z",
+    status: str = "OPEN",
+) -> None:
     cur = db_conn.cursor()
     cur.execute(
         sql.SQL(
             "INSERT INTO {} (id, title, company, url, source_id, created_at, "
-            "first_seen_at, status) VALUES (%s, %s, %s, %s, %s, %s, %s, 'OPEN')"
+            "first_seen_at, status) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"
         ).format(sql.Identifier("job_listings")),
         (job_id, "Eng", company_id, "https://x/1", custom(company_id),
-         "2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z"),
+         "2025-01-01T00:00:00Z", first_seen_at, status),
+    )
+    db_conn.commit()
+
+
+def _seed_public_job(db_conn, job_id: str, company: str = "pub-co") -> None:
+    """A PUBLIC listing, so a purge can be shown not to reach across the boundary."""
+    cur = db_conn.cursor()
+    cur.execute(
+        sql.SQL(
+            "INSERT INTO {} (id, display_name, ats, board_token, enabled, visibility) "
+            "VALUES (%s, %s, 'greenhouse', %s, TRUE, 'public') ON CONFLICT DO NOTHING"
+        ).format(sql.Identifier("companies")),
+        (company, company, company),
+    )
+    cur.execute(
+        sql.SQL(
+            "INSERT INTO {} (id, title, company, url, source_id, created_at, "
+            "first_seen_at, status) VALUES (%s, 'Eng', %s, 'https://x/p', "
+            "'greenhouse_api', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z', 'OPEN')"
+        ).format(sql.Identifier("job_listings")),
+        (job_id, company),
+    )
+    db_conn.commit()
+
+
+def _seed_location(db_conn, name: str) -> int:
+    # ``remote_scope`` is part of ``uq_locations_canonical`` (NULLS NOT DISTINCT),
+    # so it carries the uniqueness here — the ``db_conn`` fixture is module-scoped
+    # and two bare kind='remote' rows would collide across tests.
+    cur = db_conn.cursor()
+    cur.execute(
+        sql.SQL(
+            "INSERT INTO {} (canonical_name, kind, remote_scope) "
+            "VALUES (%s, 'remote', %s) RETURNING id"
+        ).format(sql.Identifier("locations")),
+        (name, name),
+    )
+    db_conn.commit()
+    return int(cur.fetchone()["id"])
+
+
+def _link_location(db_conn, job_id: str, location_id: int) -> None:
+    cur = db_conn.cursor()
+    cur.execute(
+        sql.SQL(
+            "INSERT INTO {} (job_listing_id, normalized_location_id, is_primary) "
+            "VALUES (%s, %s, TRUE)"
+        ).format(sql.Identifier("job_locations")),
+        (job_id, location_id),
+    )
+    db_conn.commit()
+
+
+class _FailingCursor:
+    """Delegates to a real cursor but raises on the first statement containing
+    ``needle`` — used to prove the purge is one transaction."""
+
+    def __init__(self, cursor, needle: str) -> None:
+        self._cursor = cursor
+        self._needle = needle
+
+    def execute(self, query, params=None):
+        if self._needle in str(query):
+            raise psycopg2.OperationalError("injected failure")
+        return self._cursor.execute(query, params)
+
+    def __getattr__(self, name):
+        return getattr(self._cursor, name)
+
+
+class _FailingConn:
+    def __init__(self, conn, needle: str) -> None:
+        self._conn = conn
+        self._needle = needle
+
+    def cursor(self, *args, **kwargs):
+        return _FailingCursor(self._conn.cursor(*args, **kwargs), self._needle)
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+
+def _seed_sibling_rows(db_conn, company_id: str) -> None:
+    """One row in each per-company sidecar the purge is responsible for: a
+    location link per job, a tag, an enrichment row, a harvest and a scrape run."""
+    source_id = custom(company_id)
+    loc_id = _seed_location(db_conn, f"Remote {company_id}")
+    for job_id in ("j1", "j2"):
+        _link_location(db_conn, job_id, loc_id)
+    cur = db_conn.cursor()
+    cur.execute(
+        sql.SQL(
+            "INSERT INTO {} (source_id, job_listing_id, tag) VALUES (%s, 'j1', 'go')"
+        ).format(sql.Identifier("job_tags")),
+        (source_id,),
+    )
+    cur.execute(
+        sql.SQL(
+            "INSERT INTO {} (source_id, job_listing_id) VALUES (%s, 'j1')"
+        ).format(sql.Identifier("job_enrichment")),
+        (source_id,),
+    )
+    cur.execute(
+        sql.SQL(
+            "INSERT INTO {} (company_id, run_id, started_at, verdict, oracle_kind) "
+            "VALUES (%s, 'run-1', now(), 'UNVERIFIED', 'none')"
+        ).format(sql.Identifier("company_harvests")),
+        (company_id,),
+    )
+    cur.execute(
+        sql.SQL(
+            "INSERT INTO {} (run_id, company, started_at, mode, source_id) "
+            "VALUES ('run-1', %s, '2025-01-01T00:00:00Z', 'full', %s)"
+        ).format(sql.Identifier("scrape_runs")),
+        (company_id, source_id),
     )
     db_conn.commit()
 
@@ -169,17 +288,25 @@ def test_two_users_get_distinct_companies_and_delete_is_isolated(client, db_conn
     assert a["sourceId"] != b["sourceId"]
     assert _count(db_conn, "companies", "WHERE visibility = 'user'") == 2
 
-    # A deletes A's company (last owner → disabled). B's rows untouched.
+    # Each user's board carries its own jobs under its own custom:<id> namespace.
+    _seed_job_for(db_conn, a["id"], "ja")
+    _seed_job_for(db_conn, b["id"], "jb")
+
+    # A removes A's company (last owner → purged). B's rows untouched. This is
+    # the assertion that proves the hard delete cannot cross users: the two rows
+    # were minted by the SAME board URL, so a delete keyed on anything but the
+    # per-user company id would take B's data with it.
     _login(client, "auth0|A", "a@example.com")
     resp = client.delete(f"/api/users/companies/{a['id']}")
     assert resp.status_code == 204
 
     assert _count(db_conn, "user_companies", "WHERE company_id = %s", (a["id"],)) == 0
     assert _count(db_conn, "user_companies", "WHERE company_id = %s", (b["id"],)) == 1
-    assert _count(db_conn, "companies", "WHERE id = %s AND enabled", (a["id"],)) == 0
+    assert _count(db_conn, "companies", "WHERE id = %s", (a["id"],)) == 0
     assert _count(db_conn, "companies", "WHERE id = %s AND enabled", (b["id"],)) == 1
-    # Rows are disabled, never deleted.
-    assert _count(db_conn, "companies", "WHERE id = %s", (a["id"],)) == 1
+    assert _count(db_conn, "job_listings", "WHERE source_id = %s", (custom(a["id"]),)) == 0
+    assert _count(db_conn, "job_listings", "WHERE source_id = %s", (custom(b["id"]),)) == 1
+    assert _count(db_conn, "company_scripts", "WHERE company_id = %s", (b["id"],)) == 1
 
 
 # --- GET list -----------------------------------------------------------------
@@ -203,14 +330,124 @@ def test_get_returns_owner_list(client, db_conn, monkeypatch):
 # --- DELETE -------------------------------------------------------------------
 
 
-def test_delete_last_owner_disables_company(client, db_conn, monkeypatch):
+def test_delete_last_owner_purges_the_company_and_everything_under_it(
+    client, db_conn, monkeypatch
+):
+    """The owner's bug: Remove left an ownerless company, its recipe and 10,000
+    job rows alive forever — invisible to every UI and unreachable by a re-add.
+    Remove must take the whole per-company footprint with it."""
+    _login(client, "auth0|A", "a@example.com")
+    _install_greenhouse(monkeypatch, [1])
+    added = client.post("/api/users/companies", json={"url": GREENHOUSE_URL}).json()
+    company_id = added["id"]
+    source_id = custom(company_id)
+    _seed_job_for(db_conn, company_id, "j1")
+    _seed_job_for(db_conn, company_id, "j2")
+    _seed_sibling_rows(db_conn, company_id)
+
+    # Everything is there before the delete — otherwise the assertions below
+    # would pass against a fixture that never wrote anything.
+    assert _count(db_conn, "job_listings", "WHERE source_id = %s", (source_id,)) == 2
+    assert _count(db_conn, "job_freshness", "WHERE source_id = %s", (source_id,)) == 2
+    assert _count(db_conn, "job_locations", "WHERE job_listing_id IN ('j1','j2')") == 2
+    assert _count(db_conn, "job_tags", "WHERE source_id = %s", (source_id,)) == 1
+    assert _count(db_conn, "job_enrichment", "WHERE source_id = %s", (source_id,)) == 1
+    assert _count(db_conn, "company_harvests", "WHERE company_id = %s", (company_id,)) == 1
+    assert _count(db_conn, "scrape_runs", "WHERE company = %s", (company_id,)) == 1
+
+    resp = client.delete(f"/api/users/companies/{company_id}")
+    assert resp.status_code == 204
+
+    assert _count(db_conn, "user_companies", "WHERE company_id = %s", (company_id,)) == 0
+    assert _count(db_conn, "companies", "WHERE id = %s", (company_id,)) == 0
+    assert _count(db_conn, "company_scripts", "WHERE company_id = %s", (company_id,)) == 0
+    assert _count(db_conn, "job_listings", "WHERE source_id = %s", (source_id,)) == 0
+    # Cascaded by the composite FK, not by an explicit DELETE — assert it anyway,
+    # because losing that FK would silently strand a freshness row per job.
+    assert _count(db_conn, "job_freshness", "WHERE source_id = %s", (source_id,)) == 0
+    assert _count(db_conn, "job_locations", "WHERE job_listing_id IN ('j1','j2')") == 0
+    assert _count(db_conn, "job_tags", "WHERE source_id = %s", (source_id,)) == 0
+    assert _count(db_conn, "job_enrichment", "WHERE source_id = %s", (source_id,)) == 0
+    assert _count(db_conn, "company_harvests", "WHERE company_id = %s", (company_id,)) == 0
+    assert _count(db_conn, "scrape_runs", "WHERE company = %s", (company_id,)) == 0
+
+    # DELIBERATELY KEPT: the append-only add audit.
+    assert _count(
+        db_conn, "company_add_attempts", "WHERE company_id = %s", (company_id,)
+    ) == 1
+
+
+def test_remove_leaves_no_row_that_a_later_re_add_could_collide_with(
+    client, db_conn, monkeypatch
+):
+    """Re-adding the same board after a Remove must behave like a first add: a
+    fresh company id, a fresh namespace, zero carried-over jobs. Under the old
+    soft-disable the ownership row was gone but the company row was not, so the
+    board could never be reclaimed and its jobs were orphaned for good."""
+    _login(client, "auth0|A", "a@example.com")
+    _install_greenhouse(monkeypatch, [1])
+    first = client.post("/api/users/companies", json={"url": GREENHOUSE_URL}).json()
+    _seed_job_for(db_conn, first["id"], "old-job")
+
+    assert client.delete(f"/api/users/companies/{first['id']}").status_code == 204
+
+    second = client.post("/api/users/companies", json={"url": GREENHOUSE_URL})
+    assert second.status_code == 201, second.text
+    body = second.json()
+    assert body["id"] != first["id"]
+    assert body["openJobCount"] == 0
+    assert _count(db_conn, "companies", "WHERE visibility = 'user'") == 1
+    assert _count(db_conn, "job_listings", "WHERE source_id = %s", (custom(first["id"]),)) == 0
+
+
+def test_purge_keeps_location_links_of_a_colliding_public_job(client, db_conn, monkeypatch):
+    """``job_locations`` carries no source_id, so a bare
+    ``job_listing_id IN (...)`` delete would drop the location tags of an
+    unrelated PUBLIC listing that happens to share a job id."""
     _login(client, "auth0|A", "a@example.com")
     _install_greenhouse(monkeypatch, [1])
     added = client.post("/api/users/companies", json={"url": GREENHOUSE_URL}).json()
 
-    resp = client.delete(f"/api/users/companies/{added['id']}")
-    assert resp.status_code == 204
-    assert _count(db_conn, "companies", "WHERE id = %s AND NOT enabled", (added["id"],)) == 1
+    shared_id = "collide-1"
+    _seed_job_for(db_conn, added["id"], shared_id)
+    _seed_public_job(db_conn, shared_id)
+    loc_id = _seed_location(db_conn, "Remote")
+    _link_location(db_conn, shared_id, loc_id)
+    assert _count(db_conn, "job_locations", "WHERE job_listing_id = %s", (shared_id,)) == 1
+
+    assert client.delete(f"/api/users/companies/{added['id']}").status_code == 204
+
+    # The custom listing is gone; the public one — and its location link — is not.
+    assert _count(
+        db_conn, "job_listings", "WHERE source_id = %s", (custom(added["id"]),)
+    ) == 0
+    assert _count(db_conn, "job_listings", "WHERE source_id = 'greenhouse_api'") == 1
+    assert _count(db_conn, "job_locations", "WHERE job_listing_id = %s", (shared_id,)) == 1
+
+
+def test_purge_is_one_transaction(client, db_conn, monkeypatch):
+    """A partial purge would strand exactly the rows this exists to remove, with
+    no owner left to retry it. Break the LAST statement and assert the ownership
+    row and the jobs deleted earlier in the same transaction both came back."""
+    _login(client, "auth0|A", "a@example.com")
+    _install_greenhouse(monkeypatch, [1])
+    added = client.post("/api/users/companies", json={"url": GREENHOUSE_URL}).json()
+    company_id = added["id"]
+    _seed_job_for(db_conn, company_id, "j1")
+
+    user_id = _user_id(db_conn, "a@example.com")
+
+    # A proxy rather than monkeypatching the connection: psycopg2's connection is
+    # a C extension type whose ``cursor`` attribute cannot be reassigned.
+    with pytest.raises(psycopg2.Error):
+        svc.remove_owned_company(
+            _FailingConn(db_conn, "DELETE FROM companies"), user_id, company_id
+        )
+
+    assert _count(db_conn, "user_companies", "WHERE company_id = %s", (company_id,)) == 1
+    assert _count(db_conn, "companies", "WHERE id = %s", (company_id,)) == 1
+    assert _count(db_conn, "company_scripts", "WHERE company_id = %s", (company_id,)) == 1
+    assert _count(db_conn, "job_listings", "WHERE source_id = %s", (custom(company_id),)) == 1
 
 
 def test_delete_unknown_company_is_404(client, monkeypatch):
@@ -241,6 +478,139 @@ def test_get_jobs_403_for_non_owner_200_for_owner(client, db_conn, monkeypatch):
     client.get("/api/users/companies")  # creates nothing; B has no row yet
     resp_b = client.get(f"/api/users/companies/{a['id']}/jobs")
     assert resp_b.status_code == 403
+
+
+# --- GET /jobs — the Recent-feed union ---------------------------------------
+
+
+def test_all_owned_jobs_returns_every_board_the_caller_owns(client, db_conn, monkeypatch):
+    """The owner's bug: custom jobs were reachable ONLY from a company's own trend
+    page. This is the union endpoint the Recent feed calls."""
+    _login(client, "auth0|A", "a@example.com")
+    _install_greenhouse(monkeypatch, [1])
+    one = client.post("/api/users/companies", json={"url": GREENHOUSE_URL}).json()
+    # A second board for the same user, created directly so the fixture does not
+    # have to mock a second ATS.
+    user_id = _user_id(db_conn, "a@example.com")
+    two = svc.add_custom_company(
+        db_conn, user_id=user_id, ats="lever", board_token="acme",
+        provider_config={}, display_name="Acme", submitted_url="https://x",
+        normalized_url="https://x",
+    )
+    _seed_job_for(db_conn, one["id"], "u1")
+    _seed_job_for(db_conn, two["id"], "u2")
+
+    resp = client.get("/api/users/companies/jobs")
+    assert resp.status_code == 200, resp.text
+    got = {(j["sourceId"], j["id"]) for j in resp.json()}
+    assert (custom(one["id"]), "u1") in got
+    assert (custom(two["id"]), "u2") in got
+
+
+def test_all_owned_jobs_is_empty_for_a_signed_in_non_owner(client, db_conn, monkeypatch):
+    """The leak that matters most: B is authenticated, so the endpoint answers —
+    but the company set is derived from B's OWN ownership rows, so A's private
+    jobs are not in it."""
+    _login(client, "auth0|A", "a@example.com")
+    _install_greenhouse(monkeypatch, [1])
+    a = client.post("/api/users/companies", json={"url": GREENHOUSE_URL}).json()
+    _seed_job_for(db_conn, a["id"], "secret-1")
+
+    _login(client, "auth0|B", "b@example.com")
+    _user_id(db_conn, "b@example.com")  # B exists as a user, owns nothing
+    resp = client.get("/api/users/companies/jobs")
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
+def test_all_owned_jobs_never_serves_a_public_company(client, db_conn):
+    """A contrived ownership row pointing at a PUBLIC company must not smuggle
+    that company's jobs onto a private read path (mirror of the purge guard)."""
+    cur = db_conn.cursor()
+    cur.execute(
+        sql.SQL(
+            "INSERT INTO {} (id, display_name, ats, board_token, enabled, visibility) "
+            "VALUES ('pub-feed', 'Pub', 'greenhouse', 'pub', TRUE, 'public')"
+        ).format(sql.Identifier("companies"))
+    )
+    cur.execute(
+        sql.SQL(
+            "INSERT INTO {} (id, title, company, url, source_id, created_at, "
+            "first_seen_at, status) VALUES ('pf1', 'Eng', 'pub-feed', 'https://x/1', "
+            "%s, '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z', 'OPEN')"
+        ).format(sql.Identifier("job_listings")),
+        (custom("pub-feed"),),
+    )
+    db_conn.commit()
+    _login(client, "auth0|P", "p@example.com")
+    user_id = _user_id(db_conn, "p@example.com")
+    cur.execute(
+        sql.SQL(
+            "INSERT INTO {} (user_id, company_id, canonical_source_key) "
+            "VALUES (%s, 'pub-feed', 'greenhouse:pub-feed')"
+        ).format(sql.Identifier("user_companies")),
+        (user_id,),
+    )
+    db_conn.commit()
+
+    resp = client.get("/api/users/companies/jobs")
+    assert resp.status_code == 200
+    assert [j["id"] for j in resp.json()] == []
+
+
+def test_all_owned_jobs_filters_by_status(client, db_conn, monkeypatch):
+    _login(client, "auth0|S", "s@example.com")
+    _install_greenhouse(monkeypatch, [1])
+    added = client.post("/api/users/companies", json={"url": GREENHOUSE_URL}).json()
+    _seed_job_for(db_conn, added["id"], "open-1", status="OPEN")
+    _seed_job_for(db_conn, added["id"], "closed-1", status="CLOSED")
+
+    ids = {j["id"] for j in client.get(
+        "/api/users/companies/jobs", params={"status": "OPEN"}
+    ).json()}
+    assert "open-1" in ids and "closed-1" not in ids
+
+
+def test_all_owned_jobs_pages_by_keyset_and_stops_on_a_short_page(
+    client, db_conn, monkeypatch
+):
+    """Same ``since``/``cursor``/``X-Next-Cursor`` contract as ``GET /api/jobs``,
+    so the frontend's existing keyset walk drives both halves of the feed. The
+    ABSENCE of the header is the only end-of-walk signal — a short page that
+    still carried one would loop forever."""
+    _login(client, "auth0|K", "k@example.com")
+    _install_greenhouse(monkeypatch, [1])
+    added = client.post("/api/users/companies", json={"url": GREENHOUSE_URL}).json()
+    for n, stamp in enumerate(
+        ["2025-03-01T00:00:00Z", "2025-02-01T00:00:00Z", "2025-01-01T00:00:00Z"]
+    ):
+        _seed_job_for(db_conn, added["id"], f"k{n}", first_seen_at=stamp)
+
+    page1 = client.get(
+        "/api/users/companies/jobs",
+        params={"since": "2020-01-01T00:00:00Z", "limit": 2},
+    )
+    assert page1.status_code == 200
+    assert [j["id"] for j in page1.json()] == ["k0", "k1"]
+    token = page1.headers.get("X-Next-Cursor")
+    assert token, "a full page must mint the next-page token"
+
+    page2 = client.get(
+        "/api/users/companies/jobs",
+        params={"since": "2020-01-01T00:00:00Z", "limit": 2, "cursor": token},
+    )
+    assert [j["id"] for j in page2.json()] == ["k2"]
+    assert "X-Next-Cursor" not in page2.headers, "a short page is the end of the walk"
+
+
+def test_all_owned_jobs_rejects_a_malformed_cursor(client, monkeypatch):
+    """Fail loud: a silently-ignored cursor restarts the walk at page 1 with a
+    200, which the client cannot tell from a honoured one."""
+    _login(client, "auth0|K", "k@example.com")
+    resp = client.get("/api/users/companies/jobs", params={"cursor": "not-a-cursor"})
+    assert resp.status_code == 422
+    resp_since = client.get("/api/users/companies/jobs", params={"since": "2025-01-01"})
+    assert resp_since.status_code == 422
 
 
 # --- Non-ATS / empty board ----------------------------------------------------
@@ -281,13 +651,14 @@ def test_resolvable_board_with_zero_jobs_is_422(client, db_conn, monkeypatch):
     assert _count(db_conn, "company_add_attempts", "WHERE outcome = 'empty'") == 1
 
 
-# --- delete_ownership defense-in-depth guard ----------------------------------
+# --- remove_owned_company defense-in-depth guard ------------------------------
 
 
-def test_delete_ownership_never_disables_a_public_company(client, db_conn):
-    """FIX 3: even if a public company id reaches delete_ownership as the 'last
-    owner', the ``AND visibility = 'user'`` guard must leave it enabled — a
-    public board's jobs must never be pulled off the site through this path."""
+def test_remove_owned_company_never_purges_a_public_company(client, db_conn):
+    """FIX 3, now load-bearing twice over: a public company id reaching this path
+    as the 'last owner' must lose ONLY the ownership link. Under the old code the
+    worst case was a disabled public board; under a hard delete it would be a
+    curated board and its jobs deleted outright."""
     cur = db_conn.cursor()
     # A public company + a contrived ownership row pointing at it.
     cur.execute(
@@ -308,12 +679,29 @@ def test_delete_ownership_never_disables_a_public_company(client, db_conn):
             "VALUES ('uguard', 'pub-guard', 'greenhouse:pub')"
         ).format(sql.Identifier("user_companies"))
     )
+    cur.execute(
+        sql.SQL(
+            "INSERT INTO {} (id, title, company, url, source_id, created_at, "
+            "first_seen_at, status) VALUES ('pg1', 'Eng', 'pub-guard', 'https://x/1', "
+            "'greenhouse_api', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z', 'OPEN')"
+        ).format(sql.Identifier("job_listings"))
+    )
     db_conn.commit()
 
-    svc.delete_ownership(db_conn, "uguard", "pub-guard")
+    outcome = svc.remove_owned_company(db_conn, "uguard", "pub-guard")
 
+    assert outcome == "unlinked"
     cur.execute("SELECT enabled FROM companies WHERE id = 'pub-guard'")
-    assert cur.fetchone()["enabled"] is True, "public company must stay enabled"
+    row = cur.fetchone()
+    assert row is not None, "public company must not be deleted"
+    assert row["enabled"] is True, "public company must stay enabled"
+    cur.execute("SELECT count(*) AS n FROM job_listings WHERE company = 'pub-guard'")
+    assert int(cur.fetchone()["n"]) == 1, "public company's jobs must survive"
+    # The link itself IS removed — that part is the caller's own row.
+    cur.execute(
+        "SELECT count(*) AS n FROM user_companies WHERE company_id = 'pub-guard'"
+    )
+    assert int(cur.fetchone()["n"]) == 0
 
 
 # --- Feature flag -------------------------------------------------------------
@@ -326,6 +714,7 @@ def test_flag_off_returns_503(client, monkeypatch):
     assert client.get("/api/users/companies").status_code == 503
     assert client.delete("/api/users/companies/u-x").status_code == 503
     assert client.get("/api/users/companies/u-x/jobs").status_code == 503
+    assert client.get("/api/users/companies/jobs").status_code == 503
 
 
 # --- E7 Phase 3b: non-ATS URL → async discovery (202) behind the sub-flag ------

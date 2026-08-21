@@ -56,16 +56,23 @@ from datetime import datetime, timezone
 from typing import NamedTuple
 
 # ``source_id`` is a controlled vocabulary (``scripts/shared/constants.py``
-# ``SourceId``: google_scraper, greenhouse_api, ashby_api, ...). The pattern is
+# ``SourceId``: google_scraper, greenhouse_api, ashby_api, ...) plus the E7
+# per-company custom namespace ``custom:<company_id>``. The pattern is
 # deliberately a little wider than today's values so adding an ATS does not
 # require touching this file, but narrow enough to reject the ``|`` delimiter
 # and any binary garbage a malformed cursor might carry.
+#
+# ``:`` is in the class for ``custom:<id>``. Without it every private custom job
+# was un-pageable: ``encode_job_cursor`` raised a ValueError -> 500 on the FIRST
+# full page of the owner-scoped feed. It is safe to admit — the field separator
+# is ``|`` and ``:`` cannot appear in the leading ISO-8601 field's *split*
+# semantics (``maxsplit=2`` only ever splits on ``|``).
 #
 # ``\Z``, NOT ``$``: in Python ``$`` also matches immediately before a trailing
 # newline, so ``"google_scraper\n"`` would pass a ``$``-anchored check and then be
 # compared against the column as a different string — a cursor that validates and
 # silently matches nothing. ``\Z`` anchors at the true end of the string.
-_SOURCE_ID_RE = re.compile(r"\A[A-Za-z0-9_.\-]{1,100}\Z")
+_SOURCE_ID_RE = re.compile(r"\A[A-Za-z0-9_.:\-]{1,100}\Z")
 
 # Bounds the decode work a single request can ask for. A real cursor is ~100
 # chars; anything near this ceiling is an attack or a bug, not a page token.
