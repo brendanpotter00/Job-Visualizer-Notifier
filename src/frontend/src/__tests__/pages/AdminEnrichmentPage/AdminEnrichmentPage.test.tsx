@@ -413,7 +413,7 @@ describe('AdminEnrichmentPage', () => {
     );
     renderPage();
     expect(
-      await screen.findByText(/are not in the dimension table/)
+      await screen.findByText(/are not in the taxonomy/)
     ).toBeInTheDocument();
   });
 

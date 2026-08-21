@@ -551,7 +551,9 @@ export interface EnrichmentHealth {
    * (`IS NOT NULL`), not non-empty ones — `[]` is a legitimate terminal answer,
    * and the non-empty definition can never cross the 90% reveal threshold.
    * `subcategoryUnknownSlugs` is the compensating control for the array having
-   * no FK and MUST be permanently 0.
+   * no FK and MUST be permanently 0 — including through Phase 1, where the
+   * backend compares against the code taxonomy because the dimension table is
+   * still empty.
    *
    * All four are OPTIONAL-BY-DEFAULT at runtime: a backend that predates them
    * omits them and the transform coerces to 0 rather than throwing. See the

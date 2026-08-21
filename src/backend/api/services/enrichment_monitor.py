@@ -197,20 +197,50 @@ def get_admin_health(conn: Connection, window_hours: int = 24) -> dict[str, Any]
             swe_subcategory_labelled = int(cov.get("labelled") or 0)
 
             # The compensating control for the array having NO foreign key:
-            # persisted slugs that are absent from the dimension table. THIS
-            # MUST BE PERMANENTLY 0. Anything else means a producer is writing
-            # slugs the taxonomy does not contain, and the facet dropdown will
-            # never offer them — so those jobs are unreachable through the UI.
-            cur.execute(
-                "SELECT COUNT(*) AS n FROM ("
-                "  SELECT DISTINCT unnest(jl.enrichment_subcategories) AS slug "
-                "  FROM job_listings jl "
-                "  WHERE jl.enrichment_subcategories IS NOT NULL"
-                ") s "
-                "WHERE NOT EXISTS ("
-                "  SELECT 1 FROM job_subcategories d WHERE d.slug = s.slug"
-                ")"
-            )
+            # persisted slugs that are absent from the taxonomy. THIS MUST BE
+            # PERMANENTLY 0. Anything else means a producer is writing slugs the
+            # taxonomy does not contain, and the facet dropdown will never offer
+            # them — so those jobs are unreachable through the UI.
+            #
+            # ⚠ THE REFERENCE SET IS THE TAXONOMY, AND THE DIMENSION TABLE IS
+            # ONLY ITS PERSISTED FORM. Phase 1 ships `job_subcategories` EMPTY
+            # (SCHEMA-7 seeds it later), so comparing against the table alone
+            # makes EVERY legitimate slug "unknown": the counter would read
+            # non-zero from the moment PR-C/D start labelling until SCHEMA-7
+            # lands, AdminEnrichmentPage would render a permanently red warning,
+            # and the only compensating control this array has would be ignored
+            # exactly when it is doing real work. So while the table is empty we
+            # fall back to the CODE ARBITER (`enrichment_writer.SUBCATEGORY_SLUGS`,
+            # which the SCHEMA-15 parity test pins to the same taxonomy.json the
+            # seed is generated from). A genuinely off-taxonomy slug still counts
+            # in both branches — the control is never inert.
+            #
+            # The fallback is SCOPED TO THE EMPTY TABLE and nothing else: the
+            # moment the dimension has rows it is authoritative again, so a seed
+            # that drifts from the code is still caught.
+            cur.execute("SELECT EXISTS (SELECT 1 FROM job_subcategories) AS n")
+            dimension_seeded = bool(scalar(cur.fetchone(), "n"))
+            if dimension_seeded:
+                cur.execute(
+                    "SELECT COUNT(*) AS n FROM ("
+                    "  SELECT DISTINCT unnest(jl.enrichment_subcategories) AS slug "
+                    "  FROM job_listings jl "
+                    "  WHERE jl.enrichment_subcategories IS NOT NULL"
+                    ") s "
+                    "WHERE NOT EXISTS ("
+                    "  SELECT 1 FROM job_subcategories d WHERE d.slug = s.slug"
+                    ")"
+                )
+            else:
+                cur.execute(
+                    "SELECT COUNT(*) AS n FROM ("
+                    "  SELECT DISTINCT unnest(jl.enrichment_subcategories) AS slug "
+                    "  FROM job_listings jl "
+                    "  WHERE jl.enrichment_subcategories IS NOT NULL"
+                    ") s "
+                    "WHERE NOT (s.slug = ANY(%s))",
+                    (sorted(SUBCATEGORY_SLUGS),),
+                )
             subcategory_unknown_slugs = int(scalar(cur.fetchone(), "n") or 0)
 
         cur.execute(

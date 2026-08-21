@@ -100,7 +100,8 @@ class JobListing(Base):
     # would put a second row-per-job table on the hot list path. The price is
     # that Postgres cannot FK-check the elements — `TestTaxonomyParity` plus
     # the admin health snapshot's `subcategory_unknown_slugs` counter (which
-    # must be permanently 0) are the compensating controls.
+    # must be permanently 0 — it reads against `SUBCATEGORY_SLUGS` while the
+    # dimension is still empty) are the compensating controls.
     enrichment_subcategories: "Column[list[str] | None]" = Column(
         ARRAY(Text()), nullable=True
     )

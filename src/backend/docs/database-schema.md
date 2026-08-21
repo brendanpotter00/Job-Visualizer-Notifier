@@ -252,7 +252,9 @@ Indexed by `idx_job_listings_open_subcategories_gin`, a PARTIAL GIN `WHERE statu
 — every subcategory read is scoped to OPEN, and the CLOSED rows are most of the table.
 ⚠ **The array has NO FOREIGN KEY** — Postgres cannot FK-check array elements. The
 compensating controls are `TestTaxonomyParity` / `test_taxonomy_artifact.py` and the admin
-health snapshot's `subcategory_unknown_slugs` counter, **which must be permanently 0**.
+health snapshot's `subcategory_unknown_slugs` counter, **which must be permanently 0** —
+including during the Phase-1 window, when `job_subcategories` is still empty and the counter
+reads against `enrichment_writer.SUBCATEGORY_SLUGS` instead (`enrichment_monitor.py`).
 `enrichment_subcategory_source` (`rule | classify | backfill | judge | human`, see
 `enrichment_writer.SUBCATEGORY_SOURCES`) exists so a bad automated run can be reversed in a
 SCOPED way — NULLing every row whose source is `'backfill'` — without destroying the human

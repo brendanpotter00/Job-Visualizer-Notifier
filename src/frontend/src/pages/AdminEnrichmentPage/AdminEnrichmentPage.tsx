@@ -285,7 +285,7 @@ export function AdminEnrichmentPage() {
               {health.subcategoryUnknownSlugs > 0 && (
                 <Alert severity="warning" sx={{ mt: 1 }}>
                   {health.subcategoryUnknownSlugs.toLocaleString()} persisted
-                  subcategory slug(s) are not in the dimension table. This must be
+                  subcategory slug(s) are not in the taxonomy. This must be
                   permanently 0 — the array has no foreign key, and this counter
                   is the only thing that catches a producer writing slugs the
                   taxonomy does not contain.
