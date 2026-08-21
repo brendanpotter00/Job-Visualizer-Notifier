@@ -19,6 +19,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'linkedin-outreach-link-audit',
+    title: 'Every job card now links straight to that company’s hiring posts',
+    description:
+      'The link on each job card used to read “Find recruiter and hiring manager posts on LinkedIn”. It now reads “DM the hiring team on LinkedIn”, which says the same thing in a quarter of the space. More importantly, every one of those links was audited against LinkedIn. Fourteen companies were not actually filtered to themselves — eight had no link at all, and six (including Google, Robinhood, Squarespace, Zoox, Applied Intuition and Base Power) pointed at a generic “hiring software engineer” search that returned posts from every company on LinkedIn rather than that one. TikTok’s link pointed at a dead company page that returns nothing. All fifteen are fixed, and all 133 tracked companies now carry a link scoped to their own LinkedIn page.',
+    tags: ['improvement'],
+    date: '2026-08-20',
+    link: {
+      to: ROUTES.RECENT_JOBS,
+      label: 'Browse recent postings',
+    },
+  },
+  {
     id: 'recent-default-all-time',
     title: 'Recent Job Postings now opens to all time',
     description:

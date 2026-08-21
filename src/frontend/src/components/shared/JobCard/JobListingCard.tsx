@@ -160,7 +160,7 @@ export function JobListingCard({ job }: JobListingCardProps) {
                 cursor: 'pointer',
               }}
             >
-              Find recruiter and hiring manager posts on LinkedIn
+              DM the hiring team on LinkedIn
               <OpenInNew sx={{ fontSize: '0.875rem' }} />
             </Link>
           )}
