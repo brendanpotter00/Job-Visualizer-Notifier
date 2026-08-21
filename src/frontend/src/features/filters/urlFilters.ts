@@ -20,9 +20,25 @@
  */
 import type { RecentJobsFilters, SearchTag, TimeWindow } from '../../types';
 import { TIME_WINDOW_DURATIONS } from '../../constants/time';
+import { canAddSearchTag } from '../../constants/tags';
 
 /** Every param this module owns. Anything else in the URL is left alone. */
 export const FILTER_PARAMS = ['time', 'category', 'level', 'location', 'tag'] as const;
+
+/**
+ * The endpoint's own per-dimension caps, mirrored — see
+ * `routers/jobs_search._MAX_FACET_VALUES` (20, for `category` and `level` alike)
+ * and `_MAX_LOCATIONS` (100).
+ *
+ * A hand-edited link is the ONE add-site with no UI control in front of it: every
+ * other way a filter grows goes through a chip input that already asks the shared
+ * guard first. Over the cap the endpoint answers a hard 400 to every subsequent
+ * search, and the reader's only route back is deleting chips one at a time — so a
+ * link is truncated here, on the way in, for the same reason `MAX_SEARCH_TAGS` is
+ * enforced where tags are added rather than where the request is built.
+ */
+export const MAX_URL_FACET_VALUES = 20;
+export const MAX_URL_LOCATIONS = 100;
 
 /**
  * `-` prefixes an excluded keyword: `tag=backend&tag=-senior`.
@@ -40,16 +56,29 @@ function encodeTag(tag: SearchTag): string {
   return tag.mode === 'exclude' ? `${EXCLUDE_PREFIX}${text}` : text;
 }
 
+/**
+ * Inverse of `encodeTag`, and the ORDER of the two steps is the whole point.
+ *
+ * `encodeTag` escapes first and prefixes second, so `{text: '-suite', mode:
+ * 'exclude'}` goes out as `-\-suite`. Unescaping only in the "no exclude prefix"
+ * branch — which is what this did — handled the include half and corrupted the
+ * exclude half: `-\-suite` came back as the literal text `\-suite`, excluded.
+ * That is a keyword that matches nothing, so every job the sender excluded
+ * silently reappears for the recipient, and the chip on screen reads `\-suite`.
+ * Stripping the prefix FIRST and unescaping the remainder makes the decode the
+ * exact mirror of the encode in both modes.
+ */
 function decodeTag(raw: string): SearchTag | null {
   if (!raw) return null;
-  if (raw.startsWith(ESCAPED_PREFIX)) {
-    return { text: `${EXCLUDE_PREFIX}${raw.slice(ESCAPED_PREFIX.length)}`, mode: 'include' };
-  }
-  if (raw.startsWith(EXCLUDE_PREFIX)) {
-    const text = raw.slice(EXCLUDE_PREFIX.length);
-    return text ? { text, mode: 'exclude' } : null;
-  }
-  return { text: raw, mode: 'include' };
+  // An escaped literal dash (`\-`) is not the exclude prefix — check the prefix
+  // against the raw string, whose first character can only be one or the other.
+  const excluded = raw.startsWith(EXCLUDE_PREFIX);
+  const body = excluded ? raw.slice(EXCLUDE_PREFIX.length) : raw;
+  if (!body) return null;
+  const text = body.startsWith(ESCAPED_PREFIX)
+    ? `${EXCLUDE_PREFIX}${body.slice(ESCAPED_PREFIX.length)}`
+    : body;
+  return { text, mode: excluded ? 'exclude' : 'include' };
 }
 
 const isTimeWindow = (value: string): value is TimeWindow =>
@@ -67,6 +96,23 @@ const isTimeWindow = (value: string): value is TimeWindow =>
  * hand-edited or truncated by a chat client, and showing a slightly wider result
  * set beats showing an error page. A dropped value cannot silently narrow what
  * the reader sees, which is the direction that would actually mislead.
+ *
+ * ...but a link whose owned params ALL fail validation is an ordinary visit, not
+ * an empty shared link, and returning `{}` for it was actively destructive.
+ * `hydrate{Name}Filters` marks the slice hydrated UNCONDITIONALLY
+ * (`createFilterSlice.ts`), so `?time=garbage` made the real saved-filters
+ * hydration a permanent no-op and a signed-in reader silently got site defaults
+ * instead of their own configuration — no error, no log, and a chat client
+ * truncating a link is enough to cause it. Dropping to `null` widens nothing that
+ * "drop the bad value" did not already widen; it only stops the drop from taking
+ * the reader's whole saved set with it.
+ *
+ * Nothing representable is lost by that. A DELIBERATELY-cleared link is spelled
+ * `?time=all`, which survives validation, comes back non-empty, and still wins
+ * over saved filters. A link that clears EVERYTHING including the window is
+ * already indistinguishable from an ordinary visit at the other end of the pipe:
+ * `buildSearchFromFilters` emits nothing at all for a default filter set, so `/`
+ * is what "cleared" looks like on the way out.
  */
 export function parseFiltersFromSearch(search: string): Partial<RecentJobsFilters> | null {
   const params = new URLSearchParams(search);
@@ -77,19 +123,28 @@ export function parseFiltersFromSearch(search: string): Partial<RecentJobsFilter
   const time = params.get('time');
   if (time && isTimeWindow(time)) filters.timeWindow = time;
 
-  const category = params.getAll('category').filter(Boolean);
+  const category = params.getAll('category').filter(Boolean).slice(0, MAX_URL_FACET_VALUES);
   if (category.length) filters.category = category;
 
-  const level = params.getAll('level').filter(Boolean);
+  const level = params.getAll('level').filter(Boolean).slice(0, MAX_URL_FACET_VALUES);
   if (level.length) filters.level = level;
 
-  const location = params.getAll('location').filter(Boolean);
+  const location = params.getAll('location').filter(Boolean).slice(0, MAX_URL_LOCATIONS);
   if (location.length) filters.location = location;
 
-  const tags = params.getAll('tag').map(decodeTag).filter((t): t is SearchTag => t !== null);
+  // Asks the SHARED guard rather than counting: this is the fifth site that has
+  // to agree with `MAX_SEARCH_TAGS`, and a hand-rolled copy is exactly what
+  // shipped the last cap bug. A malformed `tag` costs no room — it is dropped,
+  // not counted — so a truncated link still fills its 20 slots with real chips.
+  const tags: SearchTag[] = [];
+  for (const raw of params.getAll('tag')) {
+    if (!canAddSearchTag(tags)) break;
+    const tag = decodeTag(raw);
+    if (tag) tags.push(tag);
+  }
   if (tags.length) filters.searchTags = tags;
 
-  return filters;
+  return Object.keys(filters).length > 0 ? filters : null;
 }
 
 /**

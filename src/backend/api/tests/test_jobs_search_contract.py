@@ -41,6 +41,7 @@ import pytest
 from api.pagination import encode_job_cursor
 from scripts.shared.constants import SourceId
 
+from api.routers import jobs_search
 from api.routers.jobs_search import _MAX_COMPANIES, _MAX_KEYWORDS
 
 from .conftest import _insert_job, _make_job
@@ -808,3 +809,149 @@ def test_the_shared_keyword_budget_names_the_shared_budget(client, db_conn, seed
     single = client.get("/api/jobs/search", params={"include": ["a"] * 21})
     assert single.status_code == 400
     assert "accepts at most" in single.json()["detail"]
+
+
+class _FakeClock:
+    """A monotonic clock the test drives by hand.
+
+    Substituted for the ``time`` MODULE inside ``routers.jobs_search`` — not for
+    ``time.monotonic`` globally — so nothing else in the request (psycopg2,
+    starlette, pytest's own timing) is affected, and the elapsed figure the slow
+    line reports is exact rather than "however long this machine took". Without
+    that, asserting anything about the threshold means either sleeping for
+    seconds or accepting a flaky test.
+    """
+
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def monotonic(self) -> float:
+        return self.now
+
+
+def test_a_slow_search_logs_one_line_and_the_clock_starts_at_the_LOCATION_RESOLVE(
+    client, db_conn, seed_taxonomy, monkeypatch, caplog
+):
+    """The slow-search line, and the thing it must not exclude.
+
+    ``resolve_location_selections`` holds the SAME pooled connection as the page
+    query and the counts query — that is the entire reason it was hoisted above
+    the fingerprint and shared between them. A timer started after it excludes
+    its hold time from a line that goes on to report ``locations=%d``, so the one
+    request shape whose cost the message explicitly attributes is the one shape
+    it under-measures. The fake clock advances ONLY inside the resolve, so this
+    test is precisely "was the resolve inside the timed region".
+
+    It also pins the format string itself. Five substitutions on the production
+    read path: a mismatch here does not degrade the line, it raises inside
+    ``logger.warning`` and turns a slow-but-successful search into a 500.
+    """
+    _seed(db_conn, "slow-1")
+    clock = _FakeClock()
+    monkeypatch.setattr(jobs_search, "time", clock)
+
+    real_resolve = jobs_search.resolve_location_selections
+
+    def slow_resolve(conn, names):
+        clock.now += 3.0  # the location query's hold time, and nothing else
+        return real_resolve(conn, names)
+
+    monkeypatch.setattr(jobs_search, "resolve_location_selections", slow_resolve)
+
+    with caplog.at_level(logging.WARNING, logger="api.routers.jobs_search"):
+        response = client.get(
+            SEARCH,
+            params={
+                "location": ["Austin, TX, US"],
+                "include": ["backend"],
+                "company": ["google"],
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    slow = [r.getMessage() for r in caplog.records if "jobs-search slow" in r.getMessage()]
+    assert len(slow) == 1, slow
+    assert slow[0] == (
+        "jobs-search slow: 3000ms page=1 keywords=1 companies=1 locations=1"
+    ), slow[0]
+
+
+def test_a_search_that_RAISES_still_emits_its_slow_line(
+    client, db_conn, seed_taxonomy, monkeypatch, caplog
+):
+    """The failure case is the case this instrument exists for.
+
+    What the line predicts is a pool-checkout timeout under prod's
+    ``DB_POOL_MAX=15`` / ``DB_POOL_TIMEOUT=5s``, and a request slow enough to
+    cause one is a request likely to RAISE rather than return. Emitted only on
+    the happy path, the warning was silent in exactly the situation it was added
+    to make visible.
+    """
+    _seed(db_conn, "slow-2")
+    clock = _FakeClock()
+    monkeypatch.setattr(jobs_search, "time", clock)
+
+    def boom(*args, **kwargs):
+        clock.now += 4.0
+        raise RuntimeError("Timed out waiting for a database connection")
+
+    monkeypatch.setattr(jobs_search, "search_jobs", boom)
+
+    with caplog.at_level(logging.WARNING, logger="api.routers.jobs_search"):
+        with pytest.raises(RuntimeError, match="Timed out"):
+            client.get(SEARCH, params={"include": ["backend", "rust"]})
+
+    slow = [r.getMessage() for r in caplog.records if "jobs-search slow" in r.getMessage()]
+    assert len(slow) == 1, slow
+    assert "4000ms" in slow[0] and "keywords=2" in slow[0], slow[0]
+
+
+def test_a_cursor_page_is_logged_as_page_n(
+    client, db_conn, seed_taxonomy, monkeypatch, caplog
+):
+    """``page`` separates the two cost profiles, so it has to be right.
+
+    Page 1 is the only request that pays the keyword predicate TWICE (the page
+    query and ``filtered_total``), so a slow page-1 line and a slow page-n line
+    mean different things. It is read off the RAW ``cursor`` argument rather than
+    the decoded one, which also keeps it truthful when decoding is what failed.
+    """
+    _seed(db_conn, "slow-3", minutes_before=0)
+    _seed(db_conn, "slow-4", minutes_before=1)
+
+    first = client.get(SEARCH, params={"limit": 1})
+    assert first.status_code == 200, first.text
+    cursor = first.json()["nextCursor"]
+    assert cursor, first.json()
+
+    clock = _FakeClock()
+    monkeypatch.setattr(jobs_search, "time", clock)
+    real_search = jobs_search.search_jobs
+
+    def slow_search(*args, **kwargs):
+        clock.now += 2.6
+        return real_search(*args, **kwargs)
+
+    monkeypatch.setattr(jobs_search, "search_jobs", slow_search)
+
+    with caplog.at_level(logging.WARNING, logger="api.routers.jobs_search"):
+        page2 = client.get(SEARCH, params={"limit": 1, "cursor": cursor})
+
+    assert page2.status_code == 200, page2.text
+    slow = [r.getMessage() for r in caplog.records if "jobs-search slow" in r.getMessage()]
+    assert len(slow) == 1, slow
+    assert "page=n" in slow[0], slow[0]
+
+
+def test_an_ordinary_search_logs_no_slow_line(client, db_conn, seed_taxonomy, caplog):
+    """The threshold is real: a normal request must stay silent.
+
+    Without this, every assertion above stays green if ``_SLOW_SEARCH_MS`` is
+    dropped to zero, and the log fills with one line per request on the busiest
+    endpoint in the app.
+    """
+    _seed(db_conn, "slow-5")
+    with caplog.at_level(logging.WARNING, logger="api.routers.jobs_search"):
+        response = client.get(SEARCH)
+    assert response.status_code == 200, response.text
+    assert not [r for r in caplog.records if "jobs-search slow" in r.getMessage()]

@@ -171,12 +171,20 @@ def _dedupe(values: list[str]) -> list[str]:
 def _reject(status_code: int, detail: str, **context: object) -> NoReturn:
     """Log a rejection, then raise it.
 
-    Every rejection on this endpoint goes through here instead of raising
+    Every rejection **this module raises** goes through here instead of raising
     ``HTTPException`` directly, so that adding a new one without logging it is
     not something you can do by accident. Before this, both new modules on the
     Recent page's primary read path bound a module logger and never called it —
     a cap that started firing in production was a bare 400 in the access log and
     nothing else, which is the wrong thing to discover from a user report.
+
+    It is NOT every rejection the endpoint can produce, and the gap is worth
+    knowing about when you are counting these lines. FastAPI enforces the
+    ``Query`` constraints in the signature — the ``status`` pattern, the
+    ``since`` / ``cursor`` ``max_length``, ``limit``'s ``ge``/``le`` — before the
+    handler body runs at all, and answers 422 from its own
+    ``RequestValidationError`` handler. ``main.py`` registers no override for
+    that handler, so those never reach this function and are not logged here.
 
     WARNING, not ERROR: a rejection is the endpoint working. It becomes
     interesting when the RATE changes — a cap suddenly firing means either a
@@ -459,119 +467,132 @@ def search(
         except ValueError as exc:
             _reject(422, f"Invalid 'since': {exc}")
 
-    # Resolved BEFORE the fingerprint, and folded into it — see below. Also
-    # shared by the page query and the count query, so a single request never
-    # resolves the same names twice.
-    location_descriptors = (
-        resolve_location_selections(conn, locations) if locations else {}
-    )
-
-    # Fingerprint the EFFECTIVE filter set (post-validation, post-dedupe) so two
-    # requests that mean the same thing hash the same way. ``since`` uses the
-    # normalized UTC form rather than the raw string, so an equivalent offset
-    # (+00:00 vs Z) does not invalidate a walk.
-    #
-    # ``location_resolved`` is in here, and the ordering above exists for it.
-    # A location SELECTION is a canonical name, but what actually reaches the
-    # WHERE clause is the DESCRIPTOR that name resolves to, and that resolution
-    # reads live data: ``_RESOLVE_LOCATIONS_SQL`` ranks duplicate
-    # ``canonical_name`` rows with ``row_number()`` over a per-row
-    # ``job_locations`` count, and prod carries 48 duplicated canonical names.
-    # A scrape that moves one job between two same-named rows can therefore flip
-    # which descriptor wins BETWEEN page 1 and page N — the reader keeps paging,
-    # every cursor still validates, and the filter set has silently changed
-    # underneath them. Fingerprinting the raw names cannot see that; fingerprinting
-    # what they resolved to can, and turns it into the 409 restart below.
-    fingerprint = compute_filter_fingerprint(
-        {
-            "status": status,
-            "since": parsed_since.isoformat() if parsed_since else None,
-            "category": categories or [],
-            "level": levels or [],
-            "company": companies or [],
-            "location": locations or [],
-            "location_resolved": _fingerprint_location_descriptors(location_descriptors),
-            "include": include_terms or [],
-            "exclude": exclude_terms or [],
-        }
-    )
-
-    parsed_cursor: JobCursor | None = None
-    if cursor is not None:
-        try:
-            parsed_cursor = decode_search_cursor(cursor, expected_fingerprint=fingerprint)
-        except StaleCursorError as exc:
-            # 409, not 422, and the split is about WHO can act on it. Every other
-            # rejection on this endpoint names something the caller's filter set
-            # got wrong, which is why the client surfaces 400/422 `detail` to the
-            # reader verbatim. This one decoded perfectly and says "restart the
-            # walk from page 1" — an instruction to the CLIENT that no reader can
-            # carry out, arriving in a next-page error box whose only affordance
-            # replays the SAME stale cursor. Ordered before the InvalidCursorError
-            # arm because StaleCursorError subclasses it.
-            _reject(409, f"Stale 'cursor': {exc}")
-        except InvalidCursorError as exc:
-            _reject(422, f"Invalid 'cursor': {exc}")
-
-    # Annotated, not inferred: a bare dict literal widens to
-    # dict[str, <union of everything>] and the two unpack sites below stop being
-    # type-checked at all.
-    filters: SearchFilters = {
-        "status": status,
-        "since": parsed_since,
-        "categories": categories,
-        "levels": levels,
-        "companies": companies,
-        "locations": locations,
-        "location_descriptors": location_descriptors,
-        "include": include_terms,
-        "exclude": exclude_terms,
-    }
-
+    # The timer starts at the FIRST database work, not at ``search_jobs``.
+    # ``resolve_location_selections`` holds this request's single pooled
+    # connection just like everything below it, so starting after it excluded
+    # that hold time from a line that goes on to REPORT ``locations=%d`` — the
+    # one number in the message the old placement could not account for.
     started = time.monotonic()
-    jobs = search_jobs(conn, limit=limit, cursor=parsed_cursor, **filters)
-
-    next_cursor: str | None = None
-    if len(jobs) == limit:
-        tail = jobs[-1]
-        next_cursor = encode_search_cursor(
-            tail["first_seen_at"], tail["source_id"], tail["id"], fingerprint
+    try:
+        # Resolved BEFORE the fingerprint, and folded into it — see below. Also
+        # shared by the page query and the count query, so a single request never
+        # resolves the same names twice.
+        location_descriptors = (
+            resolve_location_selections(conn, locations) if locations else {}
         )
 
-    meta: JobSearchMeta | None = None
-    if parsed_cursor is None:
-        # One statement for all three numbers. Page 1 already spends this
-        # request's single pooled connection on the row query (and on a location
-        # resolve when a location filter is active); splitting the counts back
-        # into two statements adds a round trip to the checkout that prod's
-        # DB_POOL_MAX=15 / 5s timeout has already been seen to run out of.
-        counts = get_search_counts(conn, **filters)
-        meta = JobSearchMeta(
-            filtered_total=counts["filtered_total"],
-            count_last_24h=counts["count_last_24h"],
-            count_last_3h=counts["count_last_3h"],
+        # Fingerprint the EFFECTIVE filter set (post-validation, post-dedupe) so two
+        # requests that mean the same thing hash the same way. ``since`` uses the
+        # normalized UTC form rather than the raw string, so an equivalent offset
+        # (+00:00 vs Z) does not invalidate a walk.
+        #
+        # ``location_resolved`` is in here, and the ordering above exists for it.
+        # A location SELECTION is a canonical name, but what actually reaches the
+        # WHERE clause is the DESCRIPTOR that name resolves to, and that resolution
+        # reads live data: ``_RESOLVE_LOCATIONS_SQL`` ranks duplicate
+        # ``canonical_name`` rows with ``row_number()`` over a per-row
+        # ``job_locations`` count, and prod carries 48 duplicated canonical names.
+        # A scrape that moves one job between two same-named rows can therefore flip
+        # which descriptor wins BETWEEN page 1 and page N — the reader keeps paging,
+        # every cursor still validates, and the filter set has silently changed
+        # underneath them. Fingerprinting the raw names cannot see that; fingerprinting
+        # what they resolved to can, and turns it into the 409 restart below.
+        fingerprint = compute_filter_fingerprint(
+            {
+                "status": status,
+                "since": parsed_since.isoformat() if parsed_since else None,
+                "category": categories or [],
+                "level": levels or [],
+                "company": companies or [],
+                "location": locations or [],
+                "location_resolved": _fingerprint_location_descriptors(location_descriptors),
+                "include": include_terms or [],
+                "exclude": exclude_terms or [],
+            }
         )
 
-    # One line per slow request, on the endpoint that owns the Recent page's
-    # entire read path. The keyword predicate runs four un-indexed ILIKEs per
-    # term over job_listings on top of the (now trigram-indexed) job_tags probe,
-    # and page 1 pays the whole predicate twice — so DB time here scales with the
-    # reader's keyword count, against prod's DB_POOL_TIMEOUT of 5s. A checkout
-    # timeout is the failure mode; this is the number that predicts it, and
-    # without it the first sign would be users reporting a dead page.
-    elapsed_ms = (time.monotonic() - started) * 1000
-    if elapsed_ms >= _SLOW_SEARCH_MS:
-        logger.warning(
-            "jobs-search slow: %.0fms page=%s keywords=%d companies=%d locations=%d",
-            elapsed_ms,
-            "1" if parsed_cursor is None else "n",
-            len(include_terms or []) + len(exclude_terms or []),
-            len(companies or []),
-            len(locations or []),
-        )
+        parsed_cursor: JobCursor | None = None
+        if cursor is not None:
+            try:
+                parsed_cursor = decode_search_cursor(cursor, expected_fingerprint=fingerprint)
+            except StaleCursorError as exc:
+                # 409, not 422, and the split is about WHO can act on it. Every other
+                # rejection on this endpoint names something the caller's filter set
+                # got wrong, which is why the client surfaces 400/422 `detail` to the
+                # reader verbatim. This one decoded perfectly and says "restart the
+                # walk from page 1" — an instruction to the CLIENT that no reader can
+                # carry out, arriving in a next-page error box whose only affordance
+                # replays the SAME stale cursor. Ordered before the InvalidCursorError
+                # arm because StaleCursorError subclasses it.
+                _reject(409, f"Stale 'cursor': {exc}")
+            except InvalidCursorError as exc:
+                _reject(422, f"Invalid 'cursor': {exc}")
 
-    return JobSearchResponse(
-        jobs=[JobListingResponse(**job) for job in jobs],
-        next_cursor=next_cursor,
-        meta=meta,
-    )
+        # Annotated, not inferred: a bare dict literal widens to
+        # dict[str, <union of everything>] and the two unpack sites below stop being
+        # type-checked at all.
+        filters: SearchFilters = {
+            "status": status,
+            "since": parsed_since,
+            "categories": categories,
+            "levels": levels,
+            "companies": companies,
+            "locations": locations,
+            "location_descriptors": location_descriptors,
+            "include": include_terms,
+            "exclude": exclude_terms,
+        }
+
+        jobs = search_jobs(conn, limit=limit, cursor=parsed_cursor, **filters)
+
+        next_cursor: str | None = None
+        if len(jobs) == limit:
+            tail = jobs[-1]
+            next_cursor = encode_search_cursor(
+                tail["first_seen_at"], tail["source_id"], tail["id"], fingerprint
+            )
+
+        meta: JobSearchMeta | None = None
+        if parsed_cursor is None:
+            # One statement for all three numbers. Page 1 already spends this
+            # request's single pooled connection on the row query (and on a location
+            # resolve when a location filter is active); splitting the counts back
+            # into two statements adds a round trip to the checkout that prod's
+            # DB_POOL_MAX=15 / 5s timeout has already been seen to run out of.
+            counts = get_search_counts(conn, **filters)
+            meta = JobSearchMeta(
+                filtered_total=counts["filtered_total"],
+                count_last_24h=counts["count_last_24h"],
+                count_last_3h=counts["count_last_3h"],
+            )
+        return JobSearchResponse(
+            jobs=[JobListingResponse(**job) for job in jobs],
+            next_cursor=next_cursor,
+            meta=meta,
+        )
+    finally:
+        # ``finally``, so a request that dies inside ``search_jobs`` or
+        # ``get_search_counts`` still emits its line. That is not an edge case
+        # here: the failure this instrument exists to predict is a pool-checkout
+        # timeout under prod's DB_POOL_MAX=15 / DB_POOL_TIMEOUT=5s, and a request
+        # slow enough to cause one is a request likely to raise rather than
+        # return. On the happy-path-only version, the case worth seeing was the
+        # exact case that logged nothing.
+        #
+        # One line per slow request, on the endpoint that owns the Recent page's
+        # entire read path. The keyword predicate runs four un-indexed ILIKEs per
+        # term over job_listings on top of the (now trigram-indexed) job_tags
+        # probe, and page 1 pays the whole predicate twice — so DB time here
+        # scales with the reader's keyword count. ``page`` is read off the RAW
+        # ``cursor`` argument rather than the decoded one so it stays truthful on
+        # the path where decoding is what failed.
+        elapsed_ms = (time.monotonic() - started) * 1000
+        if elapsed_ms >= _SLOW_SEARCH_MS:
+            logger.warning(
+                "jobs-search slow: %.0fms page=%s keywords=%d companies=%d locations=%d",
+                elapsed_ms,
+                "1" if cursor is None else "n",
+                len(include_terms or []) + len(exclude_terms or []),
+                len(companies or []),
+                len(locations or []),
+            )

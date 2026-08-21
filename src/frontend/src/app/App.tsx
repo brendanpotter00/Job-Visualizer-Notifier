@@ -100,6 +100,10 @@ function AppContent() {
   // guard: whichever hydration lands first is the one that sticks. This reads the
   // URL synchronously while saved filters need a round trip, so it would win
   // anyway — declaring it first makes that a decision instead of an accident.
+  // Mounted at the root but SCOPED INTERNALLY to the Recent Jobs route, the same
+  // way useURLSync above is scoped to /companies: it has to run before the
+  // hydration hook, and the hydration hook lives here, but its query params
+  // belong on one page only.
   useRecentJobsUrlSync();
   // Hydrate the filter slices (time windows, locations, active keyword list)
   // from saved filters once on sign-in; reset on sign-out. A no-op when the line
