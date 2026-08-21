@@ -56,7 +56,7 @@ All configuration via environment variables:
 |---------|-------------|---------|
 | `DATABASE_URL` | PostgreSQL connection URL | `postgresql://postgres:postgres@localhost:5432/jobscraper` |
 | `SCRAPER_INTERVAL_HOURS` | Hours between auto-scrape cycles | `1` |
-| `SCRAPER_COMPANIES` | Comma-separated company list | `apple,google,microsoft` |
+| `SCRAPER_COMPANIES` | Comma-separated company list | `apple,google,microsoft,amazon` |
 | `SCRAPER_DETAIL_SCRAPE` | Fetch job detail pages | `true` |
 | `SCRAPER_TIMEOUT_MINUTES` | Max time per scrape | `90` |
 | `SCRAPER_SCRIPTS_PATH` | Path to Python scripts | `../../scripts` (local) / `/app/scripts` (Docker) |
@@ -97,8 +97,8 @@ All configuration via environment variables:
   `ORDER BY first_seen_at DESC, source_id DESC, id DESC` with a row-value boundary
   predicate. Locked by `api/tests/test_jobs_keyset_pagination.py`.
 - **`?since=`** — ISO-8601 **with a UTC offset** (`Z` or `±HH:MM`); naive values are a 422,
-  never assumed-UTC. **Inclusive**: `first_seen_at >= since`. No server default; the 90-day
-  default is the frontend's business.
+  never assumed-UTC. **Inclusive**: `first_seen_at >= since`. No server default; which window
+  the Recent page opens on is the frontend's business.
 - **`?cursor=`** — opaque `base64url("<first_seen_at ISO-8601 UTC>|<source_id>|<id>")`,
   minted by the server, echoed back verbatim by the client. Codec + validation live in
   `api/pagination.py`. Malformed input is a **422 with a specific reason** — never a
@@ -151,7 +151,7 @@ All configuration via environment variables:
 - `PUT /api/users/enabled-companies` - Update user's enabled companies (requires Bearer token)
 
 **Saved Filters Router (`/api/users/saved-filters`):** all routes require a Bearer token.
-- `GET /api/users/saved-filters` - Scalar saved filters (per-page time windows, shared locations, active keyword-list pointers); never 404s — returns server defaults (`recent=90d`, `trend=90d`, no locations) when the user has no row
+- `GET /api/users/saved-filters` - Scalar saved filters (per-page time windows, shared locations, active keyword-list pointers); never 404s — returns server defaults (`recent=all`, `trend=90d`, no locations) when the user has no row
 - `PUT /api/users/saved-filters` - Full-replace (upsert) the scalar saved filters; 409 if an active keyword-list pointer is unknown or not owned
 - `GET /api/users/saved-filters/keyword-lists` - List the user's named keyword lists by position, with the read-only built-in "Software Engineering" list (`builtin-swe`) synthesized last
 - `POST /api/users/saved-filters/keyword-lists` - Create a keyword list (201); 409 on duplicate/reserved name, 422 at the per-user list cap
@@ -249,7 +249,7 @@ src/backend/api/
 │   ├── rate_limit.py        # Per-key async rate limiter (used by ATS clients)
 │   ├── scraper_lock.py  # asyncio.Lock singleton shared by runner + auto-scraper
 │   ├── scraper_runner.py # Async subprocess runner for scrapers
-│   ├── auto_scraper.py  # Background scheduled scraping (Google/Apple/Microsoft)
+│   ├── auto_scraper.py  # Background scheduled scraping (Google/Apple/Microsoft/Amazon)
 │   ├── ashby_client.py      # Ashby ATS HTTP client
 │   ├── eightfold_client.py  # Eightfold ATS HTTP client (SSRF allowlist lives here)
 │   ├── gem_client.py        # Gem ATS HTTP client
@@ -298,8 +298,9 @@ anti-join invariants the `/api/jobs` INNER JOIN depends on — runbook in
 - **Response serialization**: Pydantic models with `alias_generator=to_camel` produce camelCase JSON matching frontend expectations
 - **Background workers**: Two workers run in the FastAPI lifespan context:
   1. **Procrastinate worker** (`tasks/procrastinate_app.py`) — drains the Procrastinate job queue; handles Greenhouse, Ashby, Lever, Gem, Eightfold, and Workday ATS companies via fan-out + per-company fetch tasks. Supervised with auto-restart on crash.
-  2. **Auto-scraper loop** (`services/auto_scraper.py`) — asyncio task that periodically spawns subprocesses for Google, Apple, and Microsoft scrapers.
+  2. **Auto-scraper loop** (`services/auto_scraper.py`) — asyncio task that periodically spawns subprocesses for the script-ats scrapers (Google, Apple, Microsoft, Amazon, TikTok).
 - **Scraper subprocess**: Runs `scripts/run_scraper.py` via `asyncio.create_subprocess_exec`
+- **DB watchdog** (`services/db_watchdog.py`): daemon thread probing the DB on fresh connections with hard wall-clock deadlines; exits the process after ~5-6 sustained minutes of unreachability so Railway restarts the container (see `railway.toml` and the 2026-08-10 incident doc).
 
 ### Schema migrations
 

@@ -19,6 +19,54 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    id: 'recent-default-all-time',
+    title: 'Recent Job Postings now opens to all time',
+    description:
+      "If you don't have a saved time window — whether you're signed out or just haven't set your own default — the Recent Job Postings page now opens on all time instead of the last 90 days, so the first thing you see is everything tracked rather than a slice of it. Narrow it back down whenever you like; the time-window picker is unchanged and every other window still works exactly as before. Your saved default, if you've set one, still takes precedence. Company Hiring Trends is unaffected and still opens on a 90-day window, since a trend chart needs a bounded span to be readable.",
+    tags: ['improvement'],
+    date: '2026-08-19',
+    link: {
+      to: ROUTES.RECENT_JOBS,
+      label: 'See every tracked posting',
+    },
+  },
+  {
+    id: 'retire-poke-2026-08',
+    title: 'Poke is retired — acquired by Cognition',
+    description:
+      'Poke, the proactive AI assistant from The Interaction Company of California, has been acquired by Cognition (the team behind Devin), and its job board was taken down this morning — its careers page now redirects to Cognition. There is no Poke board left to read, so rather than keep showing nine listings that no longer exist, Poke has been retired from the company list. If you had Poke saved in your preferences, you can safely leave it there; nothing else is affected. The automated scraper-health watchdog caught this within hours of the board going dark.',
+    tags: ['improvement'],
+    date: '2026-08-16',
+    link: {
+      to: ROUTES.SAVED_FILTERS,
+      label: 'Review your saved companies',
+    },
+  },
+  {
+    id: 'add-tiktok',
+    title: 'Added TikTok',
+    description:
+      "TikTok — the short-form video platform, plus its advertising and TikTok Shop businesses — is now tracked. Its careers site has no standard job board behind it, so this needed a purpose-built scraper rather than the usual ATS integration, joining Google, Apple, Microsoft, and Amazon in the Custom Web Scrapers group. Coverage is US software and data roles, currently around 380 open postings out of a ~3,900-role global catalogue, refreshed hourly like everything else. One quirk worth knowing: TikTok's listings carry no posted date at all, so their timeline reflects when this site first saw them.",
+    tags: ['new-companies'],
+    date: '2026-08-13',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add TikTok to your company preferences',
+    },
+  },
+  {
+    id: 'add-amazon',
+    title: 'Added Amazon',
+    description:
+      "Amazon — the world's largest e-commerce marketplace and, through AWS, the leading cloud platform — is now tracked. Amazon has no standard job board behind it, so this one needed a purpose-built scraper rather than the usual ATS integration, joining Google, Apple, and Microsoft in the Custom Web Scrapers group. Coverage is US software and data roles, refreshed hourly.",
+    tags: ['new-companies'],
+    date: '2026-08-10',
+    link: {
+      to: ROUTES.ACCOUNT,
+      label: 'Add Amazon to your company preferences',
+    },
+  },
+  {
     id: 'ats-migrations-2026-08',
     title: 'Fireworks AI and Thinking Machines are live again',
     description:

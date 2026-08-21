@@ -60,6 +60,6 @@ describe('saved-filters hydrate -> logout reset', () => {
     expect(state.filters).toEqual(initial.filters);
     expect(state.filters.location).toBeUndefined();
     expect(state.filters.searchTags).toBeUndefined();
-    expect(state.filters.timeWindow).toBe('90d');
+    expect(state.filters.timeWindow).toBe('all');
   });
 });

@@ -53,7 +53,7 @@ export function JobListingCard({ job }: JobListingCardProps) {
         sx={{
           p: RESPONSIVE.spacing.cardPadding,
           '&:last-child': { pb: RESPONSIVE.spacing.cardPaddingBottom },
-          // Shrink every chip (location, employment-type, dept/remote) on mobile
+          // Shrink every chip (location, employment-type, remote/enrichment) on mobile
           // only. Gated on isMobile so desktop keeps MUI's defaults untouched:
           // MUI's small-chip label padding is variant-dependent, so restating a
           // single sm value would regress some variant — we override nothing on
@@ -141,12 +141,7 @@ export function JobListingCard({ job }: JobListingCardProps) {
             )}
           </Stack>
 
-          <JobChipsSection
-            department={job.department}
-            isRemote={job.isRemote}
-            category={job.category}
-            level={job.level}
-          />
+          <JobChipsSection isRemote={job.isRemote} category={job.category} level={job.level} />
 
           {/* LinkedIn recruiter link */}
           {recruiterLinkedInUrl && (

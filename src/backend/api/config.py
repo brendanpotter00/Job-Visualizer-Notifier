@@ -10,7 +10,12 @@ class Settings(BaseSettings):
 
     # Scraper settings
     scraper_interval_hours: int = Field(default=1, gt=0)
-    scraper_companies: str = "apple,google,microsoft"
+    # NOTE: SCRAPER_COMPANIES overrides this default if set. It is currently
+    # NOT set in Railway prod (verified 2026-08-10), so this literal is what
+    # production actually runs — adding a scraper here does enable it on the
+    # next deploy. If someone later sets the env var, it silently wins and this
+    # line stops mattering; check Railway before assuming a scraper is live.
+    scraper_companies: str = "apple,google,microsoft,amazon,tiktok"
     scraper_detail_scrape: bool = True
     scraper_timeout_minutes: int = Field(default=90, gt=0)
     scraper_scripts_path: str = "../../scripts"
@@ -28,6 +33,22 @@ class Settings(BaseSettings):
                 f"db_pool_min ({self.db_pool_min}) must not exceed db_pool_max ({self.db_pool_max})"
             )
         return self
+
+    # DB watchdog (services/db_watchdog.py): exits the process after ~5-6
+    # sustained minutes of DB unreachability so Railway restarts the
+    # container. Probe every 30s, 15s hard deadline per probe.
+    db_watchdog_enabled: bool = True
+    db_watchdog_probe_interval_seconds: float = Field(default=30.0, gt=0)
+    db_watchdog_probe_deadline_seconds: float = Field(default=15.0, gt=0)
+    db_watchdog_failure_window_seconds: float = Field(default=300.0, gt=0)
+
+    # Boot-time budget for retrying startup migrations through DB-connectivity
+    # failures (migrations.apply_alembic_migrations_with_retry). Keeps a
+    # watchdog-triggered restart during a long DB outage from crash-looping
+    # in seconds and burning railway.toml's restartPolicyMaxRetries budget.
+    # In practice the watchdog window (~6 min) caps it. Set 0 to fail fast
+    # when booting locally without Postgres.
+    db_boot_connect_retry_seconds: float = Field(default=600.0, ge=0)
 
     # Auth0 authentication
     auth0_domain: str | None = None

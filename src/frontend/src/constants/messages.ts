@@ -38,6 +38,14 @@ export const EMPTY_STATE_MESSAGES = {
 
   /** Label for the same affordance after a failed fetch. */
   RETRY_OLDER_JOBS: 'Try again',
+
+  /**
+   * Shown in place of the list while the filter matches nothing loaded so far
+   * but the keyset walk still holds older pages and is auto-deepening. The
+   * terminal "no jobs found" state is reserved for an exhausted walk — showing
+   * it here was the 2026-08-10 empty-filter deadlock.
+   */
+  SEARCHING_OLDER_JOBS_IN_PROGRESS: 'No matches in the newest postings yet — searching older jobs…',
 } as const;
 
 /**

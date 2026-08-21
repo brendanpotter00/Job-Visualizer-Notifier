@@ -550,13 +550,6 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2237415928%22%5D',
   }),
-  // The Interaction Company of California (makers of Poke). Ashby board slug is
-  // 'interaction' (board_token), surfaced here as 'Poke'.
-  createBackendScraperCompany('poke', 'Poke', 'https://jobs.ashbyhq.com/interaction', {
-    sourceAts: 'ashby',
-    recruiterLinkedInUrl:
-      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22106772435%22%5D',
-  }),
   createBackendScraperCompany('sierra', 'Sierra', 'https://jobs.ashbyhq.com/Sierra', {
     sourceAts: 'ashby',
     recruiterLinkedInUrl:
@@ -771,7 +764,13 @@ export const COMPANIES: Company[] = [
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%22165158%22%5D',
   }),
 
-  // Backend scraper companies (Python-scraped: Google, Apple, Microsoft)
+  // Backend scraper companies (Python-scraped: Google, Apple, Microsoft,
+  // Amazon, TikTok). These deliberately omit `sourceAts` — that absence is what
+  // groups them under "Custom Web Scrapers" (see config/atsSource.ts).
+  createBackendScraperCompany('amazon', 'Amazon', 'https://www.amazon.jobs/', {
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%221586%22%5D',
+  }),
   createBackendScraperCompany('google', 'Google', 'https://careers.google.com/', {
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring+software+engineer&origin=FACETED_SEARCH',
@@ -784,6 +783,10 @@ export const COMPANIES: Company[] = [
     recruiterLinkedInUrl:
       'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%221035%22%5D',
   }),
+  createBackendScraperCompany('tiktok', 'TikTok', 'https://lifeattiktok.com/search', {
+    recruiterLinkedInUrl:
+      'https://www.linkedin.com/search/results/content/?keywords=hiring%20software%20engineer&origin=FACETED_SEARCH&sortBy=%5B%22relevance%22%5D&authorCompany=%5B%2210998147%22%5D',
+  }),
 ];
 
 export const enum COMPANY_IDS {
@@ -791,6 +794,7 @@ export const enum COMPANY_IDS {
   Affirm = 'affirm',
   Airbnb = 'airbnb',
   Airtable = 'airtable',
+  Amazon = 'amazon',
   AndurilIndustries = 'andurilindustries',
   Anthropic = 'anthropic',
   ApexTechnologyInc = 'apex-technology-inc',
@@ -870,7 +874,6 @@ export const enum COMPANY_IDS {
   Pylon = 'pylon-labs',
   Pinterest = 'pinterest',
   Plaid = 'plaid',
-  Poke = 'poke',
   Ramp = 'ramp',
   Reddit = 'reddit',
   Reducto = 'reducto',
@@ -895,6 +898,7 @@ export const enum COMPANY_IDS {
   Sunday = 'sunday',
   Supabase = 'supabase',
   ThinkingMachines = 'thinkingmachines',
+  TikTok = 'tiktok',
   TogetherAI = 'togetherai',
   Trajectory = 'trajectory',
   Traversal = 'traversal',
