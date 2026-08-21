@@ -143,9 +143,21 @@ export function FacetTreeMultiSelect({
     }));
   };
 
+  // With NO children on offer this control IS the flat select, and it has to be
+  // inert in both directions:
+  //
+  //  - the stored child selection stays OUT of the displayed value, or the
+  //    closed field would show a raw slug for an option this control cannot
+  //    label, let alone offer;
+  //  - and it is PRESERVED on emit rather than recomputed, or every category
+  //    click would silently clear a subcategory the user saved while the reveal
+  //    flag was on. That flag is a UI switch; flipping it off must not destroy
+  //    data.
+  const treeEnabled = childOptions.length > 0;
+
   // ONE array for the Select. Parents first so `renderValue`'s join reads
   // "Software Engineering, Backend" rather than the other way round.
-  const merged = [...selectedParents, ...selectedChildren];
+  const merged = treeEnabled ? [...selectedParents, ...selectedChildren] : [...selectedParents];
 
   const handleChange = (raw: string[] | string) => {
     // MUI can hand back a comma-joined string on native events; normalize.
@@ -172,7 +184,10 @@ export function FacetTreeMultiSelect({
       if (parent && !categories.includes(parent)) categories = [...categories, parent];
     }
 
-    onChange({ category: categories, subcategory: subcategories });
+    onChange({
+      category: categories,
+      subcategory: treeEnabled ? subcategories : selectedChildren,
+    });
   };
 
   const control = (
