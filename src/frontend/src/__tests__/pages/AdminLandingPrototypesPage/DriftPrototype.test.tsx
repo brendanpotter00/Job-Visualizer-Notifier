@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import { renderWithProviders } from '../../../test/testUtils';
 import { DriftPrototype } from '../../../pages/AdminLandingPrototypesPage/prototypes/DriftPrototype/DriftPrototype';
 import { detectWebGLSupport } from '../../../pages/AdminLandingPrototypesPage/prototypes/shared3d/detectWebGL';
@@ -54,6 +54,21 @@ afterEach(() => {
 });
 
 describe('DriftPrototype', () => {
+  it('opens with the shared landing header above the clipped hero', () => {
+    renderDrift();
+    const bar = screen.getByTestId('landing-header');
+    expect(
+      within(bar).getByRole('link', { name: LANDING_CONTENT.header.wordmark.label })
+    ).toHaveAttribute('href', LANDING_CONTENT.header.wordmark.to);
+    expect(
+      within(bar).getByRole('link', { name: LANDING_CONTENT.header.signUp.label })
+    ).toHaveClass('MuiButton-contained');
+    expect(
+      bar.compareDocumentPosition(screen.getByRole('heading', { level: 1 })) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
   it('renders the terse hero h1 with the source subheadline and both CTAs', () => {
     renderDrift();
     const h1 = screen.getByRole('heading', { level: 1 });

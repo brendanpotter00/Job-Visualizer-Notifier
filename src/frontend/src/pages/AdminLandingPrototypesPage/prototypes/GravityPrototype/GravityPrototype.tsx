@@ -3,6 +3,7 @@ import { Box, Container } from '@mui/material';
 import { RESPONSIVE } from '../../../../config/responsive';
 import { COMPANIES } from '../../../../config/companies';
 import type { LandingPrototypeProps } from '../../types';
+import { LandingHeader } from '../../sections/LandingHeader';
 import { HeroCopy } from '../../sections/HeroCopy';
 import { CTAButtons } from '../../sections/CTAButtons';
 import { FreshJobsTriptych } from '../../sections/FreshJobsTriptych';
@@ -48,6 +49,11 @@ export function GravityPrototype({ content, jobs, now }: LandingPrototypeProps) 
 
   return (
     <Box>
+      {/* Above the hero, not inside it: the hero wrapper clips (`overflow:
+          hidden`) for the canvas, and a sticky child of a clipped box scrolls
+          away with that box. Keeping the bar outside also starts the canvas
+          below it, so falling tiles never cross the links. */}
+      <LandingHeader content={content} />
       {/* Hero region: DOM copy over the physics canvas. */}
       <Box sx={{ position: 'relative', overflow: 'hidden' }}>
         {/* Furthest-back layer: faint mock posting-cadence line. The canvas

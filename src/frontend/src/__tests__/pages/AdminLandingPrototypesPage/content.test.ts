@@ -38,6 +38,10 @@ describe('landing prototype content config', () => {
 
   it('every internal link target is a real ROUTES value', () => {
     const links = [
+      LANDING_CONTENT.header.wordmark,
+      ...LANDING_CONTENT.header.nav,
+      LANDING_CONTENT.header.logIn,
+      LANDING_CONTENT.header.signUp,
       LANDING_CONTENT.ctas.primary,
       LANDING_CONTENT.ctas.secondary,
       LANDING_CONTENT.featureMatrix.nextUp,
@@ -47,6 +51,27 @@ describe('landing prototype content config', () => {
     for (const link of links) {
       expect(ROUTE_VALUES, `bad link target: ${link.label} -> ${link.to}`).toContain(link.to);
     }
+  });
+
+  // The header is chrome, not a site map: the two-link cap is the whole point
+  // of the section, so it is asserted rather than left to reviewer discipline.
+  it('header carries a wordmark, exactly two nav links, and both auth labels', () => {
+    const { wordmark, nav, logIn, signUp, sourceCode, evidence } = LANDING_CONTENT.header;
+    expect(wordmark.label).toBe(LANDING_CONTENT.productName);
+    expect(nav).toHaveLength(2);
+    for (const link of [wordmark, ...nav, logIn, signUp]) {
+      expect(link.label.trim().length, `header link ${link.to} needs a label`).toBeGreaterThan(0);
+    }
+    expect(new Set(nav.map((item) => item.label)).size).toBe(nav.length);
+    expect(evidence.trim().length, 'header needs an owner breadcrumb').toBeGreaterThan(0);
+    // External by definition, so it must NOT masquerade as an internal route.
+    expect(sourceCode.href.startsWith('https://')).toBe(true);
+    expect(ROUTE_VALUES).not.toContain(sourceCode.href);
+    expect(sourceCode.label.trim().length).toBeGreaterThan(0);
+    expect(
+      sourceCode.evidence.trim().length,
+      'source-code link needs an owner breadcrumb'
+    ).toBeGreaterThan(0);
   });
 
   it('quotable claims and FAQ entries are present and answer-first', () => {
@@ -145,6 +170,10 @@ describe('landing prototype content config', () => {
     expect(
       paths.some(([path]) => path.startsWith('LANDING_CONTENT.featureMatrix.comingSoon[')),
       'em-dash walker never reached featureMatrix.comingSoon'
+    ).toBe(true);
+    expect(
+      paths.some(([path]) => path.startsWith('LANDING_CONTENT.header.')),
+      'em-dash walker never reached the header copy'
     ).toBe(true);
     const offenders = paths.filter(([, text]) => text.includes('—'));
     expect(offenders.map(([path]) => path)).toEqual([]);

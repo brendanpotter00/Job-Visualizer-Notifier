@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { RESPONSIVE } from '../../../../config/responsive';
 import { usePrefersReducedMotion } from '../../usePrefersReducedMotion';
 import type { LandingPrototypeProps } from '../../types';
+import { LandingHeader } from '../../sections/LandingHeader';
 import { HeroCopy } from '../../sections/HeroCopy';
 import { CTAButtons } from '../../sections/CTAButtons';
 import { LogoWall } from '../../sections/LogoWall';
@@ -20,6 +21,7 @@ import { FooterLite } from '../../sections/FooterLite';
 export function SignalPrototype({ content, jobs, now }: LandingPrototypeProps) {
   return (
     <Box>
+      <LandingHeader content={content} />
       <Container maxWidth="lg">
         {/* Hero — the LCP element is this DOM text, by design. */}
         <Box sx={{ py: RESPONSIVE.landingProto.heroPaddingY }}>

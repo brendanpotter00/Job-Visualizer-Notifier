@@ -79,6 +79,31 @@ export interface LandingFaqEntry {
   answer: string;
 }
 
+/**
+ * The landing header — the one piece of page chrome all four prototypes share.
+ * Deliberately four slots and no menu: a wordmark, two quiet nav links, and the
+ * two auth actions. The header is wayfinding; the sections below do the selling,
+ * so a third nav link (or a dropdown) is a content bug, not a layout choice. The
+ * two-link cap is enforced by the content test, not by convention.
+ */
+export interface LandingHeaderContent {
+  /** Plain-text wordmark, top-left. No logo image — the product name IS the mark. */
+  wordmark: LandingCta;
+  /** Quiet nav, desktop only (hidden at xs, where the bar is wordmark + Sign up). */
+  nav: readonly LandingCta[];
+  /** Text-button auth link. Hidden at xs so Sign up carries the phone bar alone. */
+  logIn: LandingCta;
+  /** Contained auth CTA — the only button that survives to the xs layout. */
+  signUp: LandingCta;
+  /**
+   * Source-code mark on the right. External, so it carries an absolute `href`
+   * rather than a `to` (nothing in ROUTES can describe it).
+   */
+  sourceCode: { label: string; href: string; evidence: string };
+  /** Traceability breadcrumb (not rendered). */
+  evidence: string;
+}
+
 export interface LandingContent {
   productName: string;
   /**
@@ -86,6 +111,8 @@ export interface LandingContent {
    * page and reused wherever a one-liner describes the product.
    */
   categoryLine: string;
+  /** The sticky top bar every prototype opens with. */
+  header: LandingHeaderContent;
   heroVariants: Record<HeroVariantId, HeroVariant>;
   /** SWE-flagship support line (brief §2). */
   broadSupportLine: string;
@@ -169,6 +196,22 @@ export const LANDING_CONTENT: LandingContent = {
   productName: 'onesecondswe',
   categoryLine:
     'onesecondswe is a free job board for software engineers that shows jobs the day they’re posted.',
+  header: {
+    wordmark: { label: 'onesecondswe', to: ROUTES.RECENT_JOBS },
+    nav: [
+      { label: 'Companies', to: ROUTES.CURATED_COMPANIES },
+      { label: 'Why', to: ROUTES.WHY },
+    ],
+    logIn: { label: 'Log in', to: ROUTES.ACCOUNT },
+    signUp: { label: 'Sign up', to: ROUTES.ACCOUNT },
+    sourceCode: {
+      label: 'Source code',
+      href: 'https://github.com/brendanpotter00/Job-Visualizer-Notifier',
+      evidence: 'owner-suggested 2026-08-20, mock ok while repo private',
+    },
+    evidence:
+      'owner-directed 2026-08-20 (a normal header: wordmark left, Log in / Sign up right). Both auth targets are the mock ACCOUNT route the hero CTAs already use; real Auth0 wiring is promotion-time work.',
+  },
   heroVariants: {
     source: {
       id: 'source',

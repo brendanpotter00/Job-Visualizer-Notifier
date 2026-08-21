@@ -261,6 +261,16 @@ export const RESPONSIVE = {
    * on the pin-completeness test below like `curatedCard`/`keywordCard`.
    */
   landingProto: {
+    /**
+     * Landing header: bar height (px). Compact on a phone so the sticky bar
+     * costs as little of the fold as possible; 64 is the desktop design value.
+     * The theme's 44px MuiButton min-height floor still fits inside the xs bar.
+     */
+    headerHeight: { xs: 52, sm: 64 },
+    /** Landing header: plain-text wordmark font size (rendered at weight 600). */
+    headerWordmarkFontSize: { xs: '0.9375rem', sm: '1.0625rem' },
+    /** Landing header: gap between the right-hand cluster items (theme units). */
+    headerGap: { xs: 1, sm: 1.5 },
     /** Hero h1 (rendered with fontWeight 600 like theme headings). */
     heroHeadlineFontSize: { xs: '2rem', sm: '3.25rem' },
     /** Hero subheadline (fragment stack under the h1). */

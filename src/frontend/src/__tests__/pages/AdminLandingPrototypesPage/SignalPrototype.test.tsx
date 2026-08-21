@@ -29,6 +29,22 @@ function secondaryCtaButtons() {
 }
 
 describe('SignalPrototype', () => {
+  it('opens with the shared landing header above the hero', () => {
+    renderSignal();
+    const bar = screen.getByTestId('landing-header');
+    expect(
+      within(bar).getByRole('link', { name: LANDING_CONTENT.header.wordmark.label })
+    ).toHaveAttribute('href', LANDING_CONTENT.header.wordmark.to);
+    expect(
+      within(bar).getByRole('link', { name: LANDING_CONTENT.header.signUp.label })
+    ).toHaveClass('MuiButton-contained');
+    // Chrome first: the bar must precede the h1 it sits above.
+    expect(
+      bar.compareDocumentPosition(screen.getByRole('heading', { level: 1 })) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
   it('renders the source-led hero as the single h1 with the primary CTA', () => {
     renderSignal();
     const h1 = screen.getByRole('heading', { level: 1 });

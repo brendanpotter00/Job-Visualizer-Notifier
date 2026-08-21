@@ -1,6 +1,7 @@
 import { Box, Container } from '@mui/material';
 import { RESPONSIVE } from '../../../../config/responsive';
 import type { LandingPrototypeProps } from '../../types';
+import { LandingHeader } from '../../sections/LandingHeader';
 import { HeroCopy } from '../../sections/HeroCopy';
 import { CTAButtons } from '../../sections/CTAButtons';
 import { LogoWall } from '../../sections/LogoWall';
@@ -18,6 +19,7 @@ import { MiniJobBoard } from './MiniJobBoard';
 export function BoardPrototype({ content, jobs, stats, now }: LandingPrototypeProps) {
   return (
     <Box>
+      <LandingHeader content={content} />
       <Container maxWidth="lg">
         {/* Compact hero strip — the board must start within one viewport. */}
         <Box sx={{ pt: { xs: 5, sm: 8 }, pb: { xs: 3, sm: 5 } }}>

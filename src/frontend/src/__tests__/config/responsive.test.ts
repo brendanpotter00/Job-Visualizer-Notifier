@@ -49,6 +49,9 @@ const SM_DESKTOP: Record<string, number | string> = {
   'statTile.gap': 1.5,
   // Landing prototypes are NEW surfaces: the `sm` slot IS the desktop design
   // value (no pre-existing layout to preserve); pinned so it can't drift.
+  'landingProto.headerHeight': 64,
+  'landingProto.headerWordmarkFontSize': '1.0625rem',
+  'landingProto.headerGap': 1.5,
   'landingProto.heroHeadlineFontSize': '3.25rem',
   'landingProto.heroSubFontSize': '1.25rem',
   'landingProto.heroPaddingY': 14,

@@ -243,3 +243,8 @@ Jobs page could deter people; keep the tab but stop investing.
      host the scraper → EPIC Custom company sources (wdwb1cbnc2, in flight)
 2. business-context.md gains the owner-decision exception for labeled coming-soon
    tiers on the landing page.
+3. NEW `LandingHeader` (in flight): sticky landing header on all four prototypes —
+   wordmark left; quiet Companies/Why nav (desktop); right: GitHub source icon +
+   "Log in" (text) + "Sign up" (contained), auth links mock → /account. Transparent
+   over hero, opaque + hairline once scrolled (IO sentinel). Mobile: wordmark +
+   Sign up only. Brendan confirmed sticky explicitly.

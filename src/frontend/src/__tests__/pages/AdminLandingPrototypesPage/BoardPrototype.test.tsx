@@ -22,6 +22,21 @@ function renderBoard(sparse = false) {
 }
 
 describe('BoardPrototype', () => {
+  it('opens with the shared landing header above the hero', () => {
+    renderBoard();
+    const bar = screen.getByTestId('landing-header');
+    expect(
+      within(bar).getByRole('link', { name: LANDING_CONTENT.header.wordmark.label })
+    ).toHaveAttribute('href', LANDING_CONTENT.header.wordmark.to);
+    expect(
+      within(bar).getByRole('link', { name: LANDING_CONTENT.header.signUp.label })
+    ).toHaveClass('MuiButton-contained');
+    expect(
+      bar.compareDocumentPosition(screen.getByRole('heading', { level: 1 })) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
   it('renders the anti-noise hero and embedded job cards with Apply links', () => {
     renderBoard();
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(

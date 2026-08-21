@@ -2,6 +2,7 @@ import { lazy, Suspense, useMemo } from 'react';
 import { Box, Container, Typography } from '@mui/material';
 import { RESPONSIVE } from '../../../../config/responsive';
 import type { LandingPrototypeProps } from '../../types';
+import { LandingHeader } from '../../sections/LandingHeader';
 import { CTAButtons } from '../../sections/CTAButtons';
 import { LogoWall } from '../../sections/LogoWall';
 import { FAQSection } from '../../sections/FAQSection';
@@ -52,6 +53,7 @@ export function DriftPrototype({ content, jobs, now }: LandingPrototypeProps) {
 
   return (
     <Box>
+      <LandingHeader content={content} />
       {/* Hero: terse noun phrase over the particle field. */}
       <Box sx={{ position: 'relative', overflow: 'hidden' }}>
         {tier.tier === 'full' ? (

@@ -84,6 +84,23 @@ afterEach(() => {
 });
 
 describe('GravityPrototype', () => {
+  // The bar lives OUTSIDE the clipped hero wrapper (a sticky child of an
+  // `overflow: hidden` box scrolls away with it), so assert it precedes the h1.
+  it('opens with the shared landing header above the clipped hero', () => {
+    renderGravity();
+    const bar = screen.getByTestId('landing-header');
+    expect(
+      within(bar).getByRole('link', { name: LANDING_CONTENT.header.wordmark.label })
+    ).toHaveAttribute('href', LANDING_CONTENT.header.wordmark.to);
+    expect(
+      within(bar).getByRole('link', { name: LANDING_CONTENT.header.signUp.label })
+    ).toHaveClass('MuiButton-contained');
+    expect(
+      bar.compareDocumentPosition(screen.getByRole('heading', { level: 1 })) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
   // Gravity is converging as the primary landing design, so it carries the
   // anti-noise headline ("No reposts. No stale listings. No noise.").
   it('renders the anti-noise hero as the single h1 with both CTAs', () => {
