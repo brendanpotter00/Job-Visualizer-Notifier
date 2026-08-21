@@ -79,6 +79,27 @@ export interface CustomJobsPage {
  * of the custom-company UI (the My Companies list, the trend page, the job
  * card's company lookup) already uses.
  */
+/**
+ * Whether `companyId` is a user-added board rather than one of the curated
+ * compile-time companies.
+ *
+ * The backend mints these as `u-<base36>` (`new_custom_company_id`), and the
+ * shape is the ONLY signal available downstream: by the time a row reaches the
+ * Recent selectors its `custom:` source-id namespace has already been stripped
+ * to the runtime id the rest of the custom-company UI keys on.
+ *
+ * Exported because the enabled-companies prefilter needs it: `enabledCompanies.ids`
+ * is the curated PUBLIC roster (built from `COMPANIES`, and the backend's
+ * auto-enroll query excludes `visibility='user'`), so a `u-<id>` can never appear
+ * in it. Without this check a user who has saved a company set would silently see
+ * none of their own private boards — the preference is about which public
+ * companies to show, not a reason to hide the user's own.
+ */
+export function isCustomCompanyId(companyId: string): boolean {
+  return /^u-[0-9a-z]+$/.test(companyId);
+}
+
+
 function companyIdForRow(row: BackendJobListing): string {
   return row.sourceId?.startsWith(CUSTOM_SOURCE_PREFIX)
     ? row.sourceId.slice(CUSTOM_SOURCE_PREFIX.length)

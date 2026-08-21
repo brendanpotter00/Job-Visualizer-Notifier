@@ -7,6 +7,7 @@ import { isSoftwareOnlyEnabled } from '../../../constants/tags.ts';
 import { getCompanyById } from '../../../config/companies.ts';
 import { filterJobsByHours } from '../../../lib/date.ts';
 import { selectEnabledCompanyIds } from '../../preferences/enabledCompaniesSlice.ts';
+import { isCustomCompanyId } from '../../userCompanies/customJobsClient.ts';
 import { selectDemoModeEnabled } from '../../ui/uiSlice.ts';
 import { DEMO_JOBS } from '../../jobs/demoJobs.ts';
 import { selectCompleteHorizon } from '../../jobs/jobsSelectors.ts';
@@ -26,7 +27,15 @@ const selectEnabledByCompanyId = createSelector(
     const enabledSet = new Set(enabledIds);
     const filtered: typeof byCompanyId = {};
     for (const [companyId, jobs] of Object.entries(byCompanyId)) {
-      if (enabledSet.has(companyId)) filtered[companyId] = jobs;
+      // A user-added board is ALWAYS kept. `enabledIds` is the curated public
+      // roster, so a `u-<id>` can never be a member — filtering on membership
+      // alone made a user who had saved a company set see none of their own
+      // private boards on Recent, while a user with the default empty set (=
+      // "show all") saw them fine. The preference chooses among PUBLIC
+      // companies; it is not a reason to hide the user's own.
+      if (enabledSet.has(companyId) || isCustomCompanyId(companyId)) {
+        filtered[companyId] = jobs;
+      }
     }
     return filtered;
   }

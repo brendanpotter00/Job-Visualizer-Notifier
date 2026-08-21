@@ -426,3 +426,37 @@ describe('recentJobsSelectors', () => {
     });
   });
 });
+
+
+describe('user-added boards vs the enabled-companies preference', () => {
+  // `enabledCompanies.ids` is the curated PUBLIC roster — the backend's auto-enroll
+  // query excludes `visibility='user'`, so a `u-<id>` can never be a member. Filtering
+  // on membership alone hid every private board from any user who had saved a company
+  // set, while users on the default empty set ("show all") saw them fine — the kind of
+  // bug that only reproduces for a subset of accounts.
+  it('keeps a private board even when the user has a saved company set', () => {
+    const publicJob = createMockJob({ id: 'p1', company: 'spacex' });
+    const customJob = createMockJob({ id: 'c1', company: 'u-4tv5lkey5f' });
+
+    const state = createMockStoreWithJobs(
+      [publicJob, customJob],
+      { timeWindow: 'all', softwareOnly: false },
+      ['spacex'] // a saved set that names only the public company
+    );
+
+    const companies = selectRecentJobsSorted(state).map((job) => job.company);
+    expect(companies).toContain('u-4tv5lkey5f');
+    expect(companies).toContain('spacex');
+  });
+
+  it('still honours the saved set for public companies', () => {
+    const kept = createMockJob({ id: 'p1', company: 'spacex' });
+    const excluded = createMockJob({ id: 'p2', company: 'openai' });
+
+    const state = createMockStoreWithJobs([kept, excluded], { timeWindow: 'all', softwareOnly: false }, ['spacex']);
+
+    const companies = selectRecentJobsSorted(state).map((job) => job.company);
+    expect(companies).toContain('spacex');
+    expect(companies).not.toContain('openai');
+  });
+});
