@@ -66,8 +66,27 @@ _MAX_BODY_BYTES = 2_000_000
 # ...and the aggregate across every body, so raising the per-body cap cannot raise the
 # worst case. One 2 MB jobs feed is fine; forty of them is a container.
 _MAX_TOTAL_BODY_BYTES = 16_000_000
-_SCROLL_PASSES = 2            # cheap lazy-load trigger; never an autonomous agent
-_SCROLL_PAUSE_MS = 1_200
+# The rest of the observation window, spent scrolling a couple of screens at a time so
+# a lazy-loaded feed is triggered as well as merely waited for. Together with
+# ``_DEFAULT_SETTLE_MS`` this is the WHOLE of how long we watch: 6s + 12 x 1.5s = 24s.
+#
+# It used to be 6s + 2 x 1.2s = 8.4s, and that budget SILENTLY LOST boards. Measured on
+# ``atlassian.com/company/careers/all-jobs``: its jobs XHR
+# (``/endpoint/careers/listings``, 1.85 MB, 268 postings) lands ~10.6s after ``goto``
+# returns on 10 of 11 runs — so the capture carried back 14 unrelated consent/analytics
+# pings, the pre-filter found no jobs in them, and discovery refused the board saying
+# "none of these is a list of job postings". We blamed the board for our own clock, and
+# on the 11th run (the feed arrived at 0.55s) the very same board was accepted, which is
+# what a too-short window looks like from the outside: a flaky board, not a bug.
+#
+# Fixed rather than adaptive ON PURPOSE. There is no signal that says "the feed is still
+# coming": Playwright's ``networkidle`` fires ~1.7s into that page, and the stream goes
+# completely silent for ~3s before the feed lands, so every quiet-period heuristic we
+# could write stops early on exactly the board that needs the wait. The only honest
+# answer is to spend a generous fixed budget, and 24s leaves the subprocess's own 120s
+# cap (45s nav + 24s settle + 10s drain = 79s worst case) intact.
+_SCROLL_PASSES = 12           # cheap lazy-load trigger; never an autonomous agent
+_SCROLL_PAUSE_MS = 1_500
 _DRAIN_TIMEOUT_S = 10.0       # how long in-flight body reads get before we close
 
 _USER_AGENT = (
@@ -212,18 +231,28 @@ async def _record(response: Any, captured: list[dict[str, Any]], limits: dict[st
 
 
 async def _settle(page: Any, settle_ms: int) -> None:
-    """Wait for first paint, then scroll a couple of screens to trigger lazy loads.
+    """Watch the page for the whole observation window, scrolling as we go.
 
     Deterministic and cheap ON PURPOSE — this is the whole of "step 1" and it must not
     become an agent. A board whose jobs feed only fires after a click/filter is a board
     we refuse, not one we go hunting through.
+
+    WAITING and SCROLLING are separate concerns and the wait is the load-bearing half.
+    A failed ``scrollBy`` used to ``break``, which threw away every remaining pass —
+    i.e. a page that will not scroll (CSP, a navigation mid-scroll, a detached frame)
+    silently got an 8.4s window cut back to 6s. That is the same failure mode as a
+    too-short window: a board refused for "none of these is a list of job postings"
+    when the feed was simply still in flight. Losing the scroll is survivable; losing
+    the watch is not, so a scroll fault only stops SCROLLING.
     """
     await page.wait_for_timeout(settle_ms)
+    scrollable = True
     for _ in range(_SCROLL_PASSES):
-        try:
-            await page.evaluate("() => window.scrollBy(0, window.innerHeight * 2)")
-        except Exception:  # noqa: BLE001 - a page that refuses to scroll is still capturable
-            break
+        if scrollable:
+            try:
+                await page.evaluate("() => window.scrollBy(0, window.innerHeight * 2)")
+            except Exception:  # noqa: BLE001 - stop scrolling, NEVER stop watching
+                scrollable = False
         await page.wait_for_timeout(_SCROLL_PAUSE_MS)
 
 

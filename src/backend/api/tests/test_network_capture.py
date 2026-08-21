@@ -267,3 +267,70 @@ def test_the_child_never_carries_half_a_body() -> None:
         [True, False],      # over the per-body cap — flagged, nothing carried
         [True, False],      # over the aggregate budget — same
     ]
+
+
+# The fake page both window tests drive. No browser, no network: ``_settle`` only ever
+# calls ``wait_for_timeout`` and ``evaluate``, so a counter for the first and a switch
+# for the second is the whole seam.
+_FAKE_PAGE = (
+    "import asyncio\n"
+    "from api.services.capture._capture_main import _DEFAULT_SETTLE_MS, _settle\n"
+    "class Page:\n"
+    "    def __init__(self, scrollable):\n"
+    "        self.waited = 0; self._scrollable = scrollable\n"
+    "    async def wait_for_timeout(self, ms):\n"
+    "        self.waited += ms\n"
+    "    async def evaluate(self, script):\n"
+    "        if not self._scrollable:\n"
+    "            raise RuntimeError('scrollBy blocked')\n"
+    "def window(scrollable):\n"
+    "    page = Page(scrollable)\n"
+    "    asyncio.run(_settle(page, _DEFAULT_SETTLE_MS))\n"
+    "    return page.waited\n"
+)
+
+
+def _settle_window(script: str) -> str:
+    """Run ``script`` against the fake page IN A SUBPROCESS and return its last line.
+
+    Subprocess for the same reason as ``test_the_child_never_carries_half_a_body``:
+    importing ``_capture_main`` makes ``playwright`` resident in the pytest process and
+    every later ``assert_no_agent_imports()`` in the suite would then raise.
+    """
+    result = subprocess.run(
+        [sys.executable, "-c", _FAKE_PAGE + script],
+        cwd=str(_BACKEND), env=_SUBPROC_ENV,
+        capture_output=True, text=True, timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    return result.stdout.strip().splitlines()[-1]
+
+
+def test_the_observation_window_outlasts_a_slow_boards_jobs_xhr() -> None:
+    """We watch the page for TWENTY-PLUS seconds, not the 8.4s we used to.
+
+    The number is not decoration. Measured on
+    ``atlassian.com/company/careers/all-jobs``, the jobs XHR
+    (``/endpoint/careers/listings``, 268 postings) lands ~10.6s after ``goto`` returns
+    on 10 of 11 runs. Under the old 6s + 2 x 1.2s budget the capture carried back 14
+    consent/analytics pings and discovery refused the board for "none of these is a
+    list of job postings" — our clock, reported as the board's fault. The 11th run,
+    where the same feed arrived at 0.55s, was accepted, so the symptom was a board that
+    looked flaky rather than a bug that looked like one.
+
+    Asserted as a FLOOR with real margin rather than an exact total: what has to hold
+    is "comfortably past 10.6s on a container slower than the laptop that measured it",
+    not any particular arithmetic of passes x pause.
+    """
+    assert int(_settle_window("print(window(True))")) >= 20_000
+
+
+def test_a_page_that_refuses_to_scroll_still_gets_the_whole_window() -> None:
+    """A scroll fault stops SCROLLING. It must never cut the watch short.
+
+    ``_settle`` used to ``break`` out of the loop when ``scrollBy`` raised, so a page
+    that will not scroll (CSP, a navigation mid-scroll, a detached frame) silently lost
+    every remaining pass — the same under-capture as a too-short window, and now worth
+    18 of the 24 seconds rather than 2.4 of 8.4.
+    """
+    assert _settle_window("print(window(True) == window(False))") == "True"
