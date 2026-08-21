@@ -457,6 +457,19 @@ def test_delete_unknown_company_is_404(client, monkeypatch):
     assert resp.status_code == 404
 
 
+def test_delete_an_id_we_could_never_have_minted_is_404_not_500(client, db_conn):
+    """``company_id`` arrives straight off the URL path and ``custom()`` RAISES on
+    a shape it would not have minted. Resolving the source_id before the ownership
+    check turned every such request into an unhandled 500.
+
+    The user row MUST exist first: without it the router 404s on
+    ``get_user_by_email`` and never calls the service at all, which would make
+    this test pass no matter what the service does."""
+    _login(client, "auth0|M", "mint@example.com")
+    _user_id(db_conn, "mint@example.com")
+    assert client.delete("/api/users/companies/NOT_A_MINTED_ID").status_code == 404
+
+
 # --- GET owner-scoped jobs ----------------------------------------------------
 
 

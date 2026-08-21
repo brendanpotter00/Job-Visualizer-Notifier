@@ -857,7 +857,6 @@ def remove_owned_company(conn: Connection, user_id: str, company_id: str) -> str
         the id resolved to a company that is NOT ``visibility='user'`` — a public
         board's data must never be destroyed through this path).
     """
-    source_id = custom(company_id)
     cursor = conn.cursor()
     try:
         cursor.execute(
@@ -893,6 +892,24 @@ def remove_owned_company(conn: Connection, user_id: str, company_id: str) -> str
             # guard: a public company id reaching this path (a contrived
             # ownership row, a future caller bug) must lose only the link. Purging
             # here would take a curated board's jobs off the public site.
+            conn.commit()
+            return "unlinked"
+
+        # Resolved HERE, not at the top: ``company_id`` arrives straight off the
+        # URL path, and ``custom()`` RAISES on an id it would not have minted. Up
+        # front that turned "DELETE an id that isn't yours" — any 404, and any
+        # hand-inserted ownership row — into an unhandled 500. By this point the
+        # caller has been proven to own a ``visibility='user'`` row, so a rejection
+        # means an id we never minted and therefore a ``custom:<id>`` namespace
+        # that cannot contain anything: drop the link and stop, rather than failing
+        # a cleanup.
+        try:
+            source_id = custom(company_id)
+        except ValueError:
+            logger.warning(
+                "remove_owned_company: unlinked %s but skipped the purge — the id "
+                "is not one we could have minted", company_id,
+            )
             conn.commit()
             return "unlinked"
 
