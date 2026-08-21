@@ -844,7 +844,13 @@ def test_a_slow_search_logs_one_line_and_the_clock_starts_at_the_LOCATION_RESOLV
 
     It also pins the format string itself. Five substitutions on the production
     read path: a mismatch here does not degrade the line, it raises inside
-    ``logger.warning`` and turns a slow-but-successful search into a 500.
+    ``logger.warning``. That premise was WRONG and is corrected here rather than
+    quietly dropped: stdlib logging routes a formatting error to
+    ``Handler.handleError``, which prints it to stderr and swallows it — a
+    mismatch would NOT turn a slow search into a 500. The real cost is quieter
+    and still worth a test: the one line that predicts pool exhaustion would
+    silently stop carrying its numbers, and the first sign would be a checkout
+    timeout nobody could explain.
     """
     _seed(db_conn, "slow-1")
     clock = _FakeClock()

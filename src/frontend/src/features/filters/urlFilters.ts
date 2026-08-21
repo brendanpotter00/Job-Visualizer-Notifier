@@ -39,6 +39,16 @@ export const FILTER_PARAMS = ['time', 'category', 'level', 'location', 'tag'] as
  */
 export const MAX_URL_FACET_VALUES = 20;
 export const MAX_URL_LOCATIONS = 100;
+/** Mirrors `routers/jobs_search._MAX_LOCATION_LENGTH`. */
+export const MAX_URL_LOCATION_LENGTH = 200;
+
+/**
+ * Mirrors the endpoint's `_CATEGORY_RE` / `_LEVEL_RE` (`\A[a-z_]{1,40}\Z`).
+ * A slug that cannot match is dropped on the way in rather than 422-ing every
+ * search for the visit.
+ */
+const FACET_SLUG_RE = /^[a-z_]{1,40}$/;
+const isFacetSlug = (value: string): boolean => FACET_SLUG_RE.test(value);
 
 /**
  * `-` prefixes an excluded keyword: `tag=backend&tag=-senior`.
@@ -87,17 +97,26 @@ const isTimeWindow = (value: string): value is TimeWindow =>
 /**
  * Read the filter subset this module owns out of a query string.
  *
- * Returns `null` when the URL carries NONE of them, which is the signal that
- * this is an ordinary visit and saved filters should hydrate as usual. An empty
- * object would be indistinguishable from "shared link with everything cleared",
- * and those two must behave differently.
+ * Returns `null` in TWO cases, and both mean "ordinary visit — let saved filters
+ * hydrate": the URL carries none of our params, OR it carries some but not one
+ * survived validation. See the note on the second case below; it is the more
+ * surprising of the two and it was a real bug before it was a rule.
  *
  * Unknown or malformed values are DROPPED rather than rejected: a link is often
- * hand-edited or truncated by a chat client, and showing a slightly wider result
- * set beats showing an error page. A dropped value cannot silently narrow what
- * the reader sees, which is the direction that would actually mislead.
+ * hand-edited or truncated by a chat client, and showing a result set that is
+ * merely imprecise beats showing an error page.
  *
- * ...but a link whose owned params ALL fail validation is an ordinary visit, not
+ * A DROP IS NOT ALWAYS SAFE IN THE SAME DIRECTION, and an earlier version of
+ * this comment claimed it was. Dropping an unparseable `time` widens the result
+ * set, which is the harmless direction. But `category`, `level`, `location` and
+ * include-`tag` are OR-ed WITHIN their dimension, so losing one of them — to a
+ * truncated link, or to the caps below — makes the recipient's set strictly
+ * SMALLER than the sender's, silently. That is accepted deliberately (see the
+ * caps' own note: a hard 400 the reader can only escape by deleting chips one at
+ * a time is worse), but it is a tradeoff, not an invariant. Do not read this
+ * paragraph as licence to add further silent drops.
+ *
+ * ...and a link whose owned params ALL fail validation is an ordinary visit, not
  * an empty shared link, and returning `{}` for it was actively destructive.
  * `hydrate{Name}Filters` marks the slice hydrated UNCONDITIONALLY
  * (`createFilterSlice.ts`), so `?time=garbage` made the real saved-filters
@@ -123,13 +142,24 @@ export function parseFiltersFromSearch(search: string): Partial<RecentJobsFilter
   const time = params.get('time');
   if (time && isTimeWindow(time)) filters.timeWindow = time;
 
-  const category = params.getAll('category').filter(Boolean).slice(0, MAX_URL_FACET_VALUES);
+  // Shape, not just count. The endpoint's slug pattern is `\A[a-z_]{1,40}\Z`
+  // (`routers/jobs_search._CATEGORY_RE`), so `?category=Software%20Engineering`
+  // is a 422 on EVERY search for the whole visit — the same
+  // malformed-link-degrades-the-page failure the caps exist to prevent, left
+  // half-implemented when only the count was bounded. Dropping the bad value is
+  // what this module already does everywhere else.
+  const category = params.getAll('category').filter(isFacetSlug).slice(0, MAX_URL_FACET_VALUES);
   if (category.length) filters.category = category;
 
-  const level = params.getAll('level').filter(Boolean).slice(0, MAX_URL_FACET_VALUES);
+  const level = params.getAll('level').filter(isFacetSlug).slice(0, MAX_URL_FACET_VALUES);
   if (level.length) filters.level = level;
 
-  const location = params.getAll('location').filter(Boolean).slice(0, MAX_URL_LOCATIONS);
+  // Locations are free text (canonical names like "Austin, TX, US"), so there is
+  // no pattern to check — only the endpoint's length bound.
+  const location = params
+    .getAll('location')
+    .filter((value) => value.length > 0 && value.length <= MAX_URL_LOCATION_LENGTH)
+    .slice(0, MAX_URL_LOCATIONS);
   if (location.length) filters.location = location;
 
   // Asks the SHARED guard rather than counting: this is the fifth site that has
@@ -137,10 +167,16 @@ export function parseFiltersFromSearch(search: string): Partial<RecentJobsFilter
   // shipped the last cap bug. A malformed `tag` costs no room — it is dropped,
   // not counted — so a truncated link still fills its 20 slots with real chips.
   const tags: SearchTag[] = [];
+  const seenTagText = new Set<string>();
   for (const raw of params.getAll('tag')) {
     if (!canAddSearchTag(tags)) break;
     const tag = decodeTag(raw);
-    if (tag) tags.push(tag);
+    // Dedupe by text, matching `addSearchTagToFilters`. Without it
+    // `?tag=foo&tag=foo` renders two identical chips AND spends two of the
+    // twenty slots, so "fills its slots with real chips" would be optimistic.
+    if (!tag || seenTagText.has(tag.text)) continue;
+    seenTagText.add(tag.text);
+    tags.push(tag);
   }
   if (tags.length) filters.searchTags = tags;
 

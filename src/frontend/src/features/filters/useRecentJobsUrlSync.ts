@@ -68,6 +68,14 @@ export function useRecentJobsUrlSync(): void {
    * incoming link. Nothing implemented that. It is load-bearing now, and for a
    * different reason: see the write effect's gate.
    */
+  // LIFETIME NOTE, because two reviewers read more into these than they do:
+  // both refs latch once per MOUNT, not once per arrival. This hook is mounted
+  // at the app root and never unmounts, so a SECOND SPA-internal arrival at `/`
+  // carrying new params would be discarded and then overwritten by the in-memory
+  // filters. That is unreachable today — every in-app route to `/` is a bare
+  // path (`GlobalAppBar`, `NavigationDrawer`, `AdminRoute`), so params can only
+  // arrive via a full page load, which remounts. Recorded rather than guarded
+  // because a guard for an unreachable case is a guard nothing tests.
   const arrivalHadParams = useRef<boolean | null>(null);
 
   /** Set once the READ effect has had its turn on this route. */

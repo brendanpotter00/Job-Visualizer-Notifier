@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   MAX_URL_FACET_VALUES,
   MAX_URL_LOCATIONS,
+  MAX_URL_LOCATION_LENGTH,
   buildSearchFromFilters,
   parseFiltersFromSearch,
 } from '../../../features/filters/urlFilters';
@@ -88,10 +89,14 @@ describe('parseFiltersFromSearch', () => {
   });
 
   it('truncates category, level and location at the endpoint caps', () => {
+    // Values must be digit-free: the endpoint's slug pattern is /[a-z_]{1,40}/,
+    // so `v0` is a 422 and is now dropped on the way in. Using it here made the
+    // test assert truncation with values that never survived validation.
+    const letters = (i: number) => `v${'abcdefghijklmnopqrstuvwxyz'[i % 26]}${'_'.repeat(Math.floor(i / 26))}`;
     const many = (name: string, n: number) =>
-      Array.from({ length: n }, (_, i) => `${name}=v${i}`).join('&');
+      Array.from({ length: n }, (_, i) => `${name}=${letters(i)}`).join('&');
     const parsed = parseFiltersFromSearch(
-      `?${many('category', 30)}&${many('level', 30)}&${many('location', 120)}`
+      `?${many('category', 30)}&${many('level', 30)}&${Array.from({ length: 120 }, (_, i) => `location=City ${i}`).join('&')}`
     );
     expect(parsed?.category).toHaveLength(MAX_URL_FACET_VALUES);
     expect(parsed?.level).toHaveLength(MAX_URL_FACET_VALUES);
@@ -181,6 +186,36 @@ describe('buildSearchFromFilters', () => {
     expect(parseFiltersFromSearch(buildSearchFromFilters(filters))?.location).toEqual([
       'Austin, TX, US',
       'Remote (US)',
+    ]);
+  });
+});
+
+describe('parseFiltersFromSearch — malformed values are dropped, not carried', () => {
+  it('drops a facet slug the endpoint would reject', () => {
+    // `_CATEGORY_RE` is /\A[a-z_]{1,40}\Z/, so "Software Engineering" 422s EVERY
+    // search for the whole visit. Bounding only the COUNT left this half-done.
+    expect(parseFiltersFromSearch('?category=Software Engineering')).toBeNull();
+    expect(parseFiltersFromSearch('?category=Software Engineering&category=data_scientist')).toEqual(
+      { category: ['data_scientist'] }
+    );
+    expect(parseFiltersFromSearch('?level=Entry-Level')).toBeNull();
+  });
+
+  it('drops an over-length location', () => {
+    const tooLong = 'x'.repeat(MAX_URL_LOCATION_LENGTH + 1);
+    expect(parseFiltersFromSearch(`?location=${tooLong}`)).toBeNull();
+    expect(
+      parseFiltersFromSearch(`?location=${tooLong}&location=Austin, TX, US`)?.location
+    ).toEqual(['Austin, TX, US']);
+  });
+
+  it('does not let a duplicate tag eat a budgeted slot', () => {
+    // `addSearchTagToFilters` dedupes by text; this path has to agree or
+    // `?tag=foo&tag=foo` renders two identical chips AND spends two of twenty.
+    const parsed = parseFiltersFromSearch('?tag=foo&tag=foo&tag=bar');
+    expect(parsed?.searchTags).toEqual([
+      { text: 'foo', mode: 'include' },
+      { text: 'bar', mode: 'include' },
     ]);
   });
 });

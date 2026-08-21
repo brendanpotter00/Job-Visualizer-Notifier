@@ -572,12 +572,19 @@ def search(
         )
     finally:
         # ``finally``, so a request that dies inside ``search_jobs`` or
-        # ``get_search_counts`` still emits its line. That is not an edge case
-        # here: the failure this instrument exists to predict is a pool-checkout
-        # timeout under prod's DB_POOL_MAX=15 / DB_POOL_TIMEOUT=5s, and a request
-        # slow enough to cause one is a request likely to raise rather than
-        # return. On the happy-path-only version, the case worth seeing was the
-        # exact case that logged nothing.
+        # ``get_search_counts`` still emits its line.
+        #
+        # A correction, because the first version of this comment had the
+        # mechanism backwards: a pool-checkout timeout is NOT something this
+        # request can catch. It is a ``RuntimeError`` raised inside ``get_db``
+        # (``api/dependencies.py``), which FastAPI resolves BEFORE this handler is
+        # entered, so it can never reach this ``try``. What this line measures is
+        # the connection HOLD TIME that causes that timeout for the NEXT reader —
+        # this request is the cause, not the victim. The ``finally`` still earns
+        # its place: a statement timeout, a dropped connection, or a failing
+        # ``resolve_location_selections`` do raise in here, and on the
+        # happy-path-only version those were exactly the cases that logged
+        # nothing.
         #
         # One line per slow request, on the endpoint that owns the Recent page's
         # entire read path. The keyword predicate runs four un-indexed ILIKEs per
