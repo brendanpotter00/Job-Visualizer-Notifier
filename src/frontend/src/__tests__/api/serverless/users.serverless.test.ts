@@ -56,6 +56,11 @@ describe('/api/users serverless function', () => {
       status: vi.fn().mockReturnThis(),
       json: vi.fn().mockReturnThis(),
       end: vi.fn().mockReturnThis(),
+      // The real VercelResponse has this, and the handler calls it to re-emit
+      // X-Next-Cursor (keyset pagination). Omitting it made every response whose
+      // upstream carried that header throw inside the handler and land as a 500 —
+      // the mock's shape, not the handler's behaviour, was the bug.
+      setHeader: vi.fn().mockReturnThis(),
     };
 
     fetchMock = vi.fn();

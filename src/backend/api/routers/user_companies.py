@@ -121,10 +121,53 @@ def _reject(status: int, reason: str, detail: str, final_url: str | None = None)
     return JSONResponse(status_code=status, content=body)
 
 
+# Hosts that carry no company identity — the label has to come from the label BEFORE
+# these, or a board on `jobs.acme.co.uk` would be named "Co".
+_HOST_NOISE_PREFIXES = ("www", "jobs", "careers", "boards", "apply", "talent", "life")
+# Second-level labels that are part of the suffix, not the name (`acme.co.uk`).
+_HOST_SUFFIX_LABELS = ("co", "com", "net", "org", "ac", "gov", "edu")
+
+
 def _discovery_display_name(final_url: str) -> str:
-    """A human label for a discovered company — the host of its final URL."""
-    host = urlparse(final_url).netloc
-    return host or final_url
+    """A human label for a discovered company, derived from its final URL's host.
+
+    The host is what we have — a discovered board has no name field to read. But the
+    RAW host is what the user then sees on every job card and in their companies list,
+    and `www.janestreet.com` reads like a URL someone forgot to clean up rather than a
+    company. So we take the registrable label and title-case it: `Jane Street`.
+
+    Deliberately conservative about WHICH label: stripping only a leading `www.` names
+    `jobs.acme.com` as "Jobs". We drop every leading noise label, then walk back from
+    the TLD past compound suffixes (`.co.uk`) so `careers.acme.co.uk` is "Acme", not
+    "Co". A host that is nothing but noise (or an IP, or empty) falls back to the raw
+    host — a slightly ugly name is much better than a confidently wrong one.
+
+    Hyphens and underscores become spaces so `jane-street.com` reads the same as
+    `janestreet.com`. We do NOT try to split a run-together label into words: there is
+    no reliable way to tell `janestreet` from `mongodb`, and "Mongo Db" is worse than
+    "Janestreet". The user can rename it; we just must not invent.
+    """
+    host = urlparse(final_url).netloc.split("@")[-1].split(":")[0].strip().lower()
+    if not host:
+        return final_url
+
+    labels = [label for label in host.split(".") if label]
+    # An IPv4 literal has no registrable name to find — keep it verbatim.
+    if len(labels) < 2 or all(label.isdigit() for label in labels):
+        return host
+
+    # Drop the TLD, then any compound-suffix label sitting in front of it.
+    labels = labels[:-1]
+    if len(labels) > 1 and labels[-1] in _HOST_SUFFIX_LABELS:
+        labels = labels[:-1]
+    # Then drop leading noise, but never the last label — that IS the name.
+    while len(labels) > 1 and labels[0] in _HOST_NOISE_PREFIXES:
+        labels = labels[1:]
+
+    name = labels[-1].replace("-", " ").replace("_", " ").strip()
+    if not name or name in _HOST_NOISE_PREFIXES:
+        return host
+    return " ".join(word.capitalize() for word in name.split())
 
 
 async def _defer_discovery(

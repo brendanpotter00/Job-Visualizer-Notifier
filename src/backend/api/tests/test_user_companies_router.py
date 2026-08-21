@@ -20,6 +20,7 @@ import api.services.discovery.progress as dp
 from api.auth.dependencies import get_current_user
 from api.config import settings
 from api.services import custom_companies_service as svc
+from api.routers.user_companies import _discovery_display_name
 from api.services.user_service import get_or_create_user
 from scripts.shared.constants import custom
 
@@ -780,7 +781,9 @@ def test_non_ats_url_enqueues_discovery_202(client, db_conn, monkeypatch):
     # The one-time discovery task was enqueued exactly once, with the final URL.
     assert len(calls) == 1
     assert calls[0]["normalized_url"] == _NON_ATS_URL
-    assert calls[0]["display_name"] == "acme.example"
+    # The label the row is stored under is derived from the host, not the raw
+    # host itself — "acme.example" reads like a URL, "Acme" reads like a company.
+    assert calls[0]["display_name"] == "Acme"
     # A discovery_pending attempt row was recorded (§7).
     assert _count(db_conn, "company_add_attempts", "WHERE outcome = 'discovery_pending'") == 1
     # A PROVISIONAL 'discovering' companies row now exists so the list shows the
@@ -977,3 +980,41 @@ def test_an_ats_companys_provider_config_never_leaks_as_a_checklist(
 
     (company,) = client.get("/api/users/companies").json()["companies"]
     assert company["discovery"] is None
+
+
+# --- the label a discovered company is stored under -----------------------------
+
+
+@pytest.mark.parametrize(
+    "url,expected",
+    [
+        # The case that prompted this: a job card read "www.janestreet.com", which
+        # looks like a URL nobody cleaned up rather than a company.
+        ("https://www.janestreet.com/join-jane-street/open-roles/", "Janestreet"),
+        # Stripping only `www.` would name this board "Jobs".
+        ("https://jobs.uber.com/en/jobs/", "Uber"),
+        ("https://careers.acme.co.uk/roles", "Acme"),      # compound suffix, not "Co"
+        ("https://www.atlassian.com/company/careers/all-jobs", "Atlassian"),
+        ("https://amazon.jobs/en/search", "Amazon"),       # noise label as the TLD
+        ("https://jane-street.com/x", "Jane Street"),      # hyphens are word breaks
+        ("https://jobs.example.com", "Example"),
+    ],
+)
+def test_discovery_display_name_reads_like_a_company(url, expected):
+    assert _discovery_display_name(url) == expected
+
+
+@pytest.mark.parametrize(
+    "url,expected",
+    [
+        # No reliable way to split a run-together label — "Mongo Db" is worse than
+        # "Mongodb", so we capitalise and stop. We must not invent word boundaries.
+        ("https://www.mongodb.com/careers", "Mongodb"),
+        # An IP literal has no registrable name; keep it verbatim rather than guess.
+        ("http://192.168.1.1/jobs", "192.168.1.1"),
+        # Nothing parseable at all falls back to what we were given.
+        ("not-a-url", "not-a-url"),
+    ],
+)
+def test_discovery_display_name_declines_to_invent(url, expected):
+    assert _discovery_display_name(url) == expected
