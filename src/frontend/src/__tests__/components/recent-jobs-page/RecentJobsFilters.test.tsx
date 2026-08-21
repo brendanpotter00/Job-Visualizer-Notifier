@@ -4,9 +4,45 @@ import userEvent from '@testing-library/user-event';
 import { renderWithProviders, createTestStore } from '../../../test/testUtils';
 import { RecentJobsFilters } from '../../../components/recent-jobs-page/RecentJobsFilters';
 import { jobsApi } from '../../../features/jobs/jobsApi';
+import { userCompaniesApi } from '../../../features/userCompanies/userCompaniesApi';
 import type { Job } from '../../../types';
 
 const { searchMock } = vi.hoisted(() => ({ searchMock: vi.fn() }));
+
+// Whether the component sees a signed-in user. Mutable so a single mock can
+// serve both the anonymous default (what every test below assumed before custom
+// companies existed) and the signed-in case.
+const { authState } = vi.hoisted(() => ({ authState: { isAuthenticated: false } }));
+
+// The custom-companies feature flag, read once at module load — a getter keeps
+// it flippable per test.
+const { flagState } = vi.hoisted(() => ({ flagState: { isEnabled: true } }));
+vi.mock('../../../config/customCompanies', () => ({
+  CUSTOM_COMPANIES_CONFIG: {
+    get isEnabled() {
+      return flagState.isEnabled;
+    },
+    isDiscoveryProgressEnabled: false,
+  },
+}));
+
+// Only `useAuth` is overridden — `NotAuthenticatedError` from the same module is
+// what `getTokenOrNull` narrows on, so the real exports have to survive.
+vi.mock('../../../features/auth/useAuth', async (importActual) => {
+  const actual = await importActual<typeof import('../../../features/auth/useAuth')>();
+  return {
+    ...actual,
+    useAuth: () => ({
+      isEnabled: true,
+      isAuthenticated: authState.isAuthenticated,
+      isLoading: false,
+      user: null,
+      login: vi.fn(),
+      logout: vi.fn(),
+      getToken: vi.fn(),
+    }),
+  };
+});
 
 // The Location control is the server-backed AsyncMultiSelectAutocomplete; keep
 // the real `locationsApi` object (store wiring needs its reducer/middleware)
@@ -20,6 +56,8 @@ vi.mock('../../../features/locations/locationsApi', async (importActual) => {
 beforeEach(() => {
   searchMock.mockReset();
   searchMock.mockReturnValue({ data: [], isFetching: false, isError: false, error: undefined });
+  authState.isAuthenticated = false;
+  flagState.isEnabled = true;
 });
 
 // getAllJobs has an onCacheEntryAdded side effect that iterates ALL companies
@@ -379,5 +417,122 @@ describe('RecentJobsFilters', () => {
 
     // An action on recentJobsFilters should NOT touch the graph slice.
     expect(store.getState().graphFilters).toBe(graphBefore);
+  });
+});
+
+describe('RecentJobsFilters — custom (user-added) companies', () => {
+  const CUSTOM_ID = 'u-6hkpc6fh0z';
+
+  /** Seed the feed with one public job and one job from a custom company. */
+  async function seedWithCustomCompany() {
+    const store = createTestStore({
+      recentJobsFilters: { filters: { timeWindow: '30d', softwareOnly: false } },
+    });
+    const customJob: Job = {
+      ...seededJobs[0],
+      id: 'c1',
+      company: CUSTOM_ID,
+      title: 'Controls Engineer',
+      url: 'https://example.com/c1',
+    };
+    await store.dispatch(
+      jobsApi.util.upsertQueryData('getAllJobs', undefined, {
+        byCompanyId: { spacex: seededJobs, [CUSTOM_ID]: [customJob] },
+        metadata: {
+          spacex: { totalCount: seededJobs.length, fetchedAt: recentISO(0) },
+          [CUSTOM_ID]: { totalCount: 1, fetchedAt: recentISO(0) },
+        },
+        errors: {},
+        progress: { completed: 1, total: 1, companies: [] },
+        isStreaming: false,
+        cursors: {},
+        chunkFloors: {},
+        windowKey: '90d' as const,
+        since: recentISO(90 * ONE_DAY_MS),
+      })
+    );
+    return store;
+  }
+
+  async function seedOwnedCompanies(store: ReturnType<typeof createTestStore>) {
+    await store.dispatch(
+      userCompaniesApi.util.upsertQueryData('getUserCompanies', undefined, [
+        {
+          id: CUSTOM_ID,
+          displayName: 'Acme Robotics',
+          ats: 'greenhouse',
+          boardToken: 'acme',
+          sourceId: `custom:${CUSTOM_ID}`,
+          healthState: 'healthy',
+          openJobCount: 1,
+          lastSuccessAt: recentISO(0),
+          trackingStartedAt: recentISO(ONE_DAY_MS),
+        },
+      ])
+    );
+  }
+
+  it('labels a custom company by its display name, not its runtime id', async () => {
+    authState.isAuthenticated = true;
+    const store = await seedWithCustomCompany();
+    await seedOwnedCompanies(store);
+    const user = userEvent.setup();
+    renderWithProviders(<RecentJobsFilters />, { store });
+
+    await user.click(screen.getByPlaceholderText('Select company...'));
+    const listbox = await screen.findByRole('listbox');
+    const labels = within(listbox)
+      .getAllByRole('option')
+      .map((o) => o.textContent);
+
+    // `config/companies.ts` has no entry for a runtime `u-<id>`, so without the
+    // My Companies lookup this dropdown offers the raw id as a choice.
+    expect(labels).toContain('Acme Robotics');
+    expect(labels).not.toContain(CUSTOM_ID);
+  });
+
+  it('still resolves the picked name back to the company id', async () => {
+    authState.isAuthenticated = true;
+    const store = await seedWithCustomCompany();
+    await seedOwnedCompanies(store);
+    const user = userEvent.setup();
+    renderWithProviders(<RecentJobsFilters />, { store });
+
+    await user.click(screen.getByPlaceholderText('Select company...'));
+    const listbox = await screen.findByRole('listbox');
+    await user.click(within(listbox).getByRole('option', { name: 'Acme Robotics' }));
+
+    // Renaming the option must not break the name -> id round trip the filter
+    // slice stores.
+    expect(store.getState().recentJobsFilters.filters.company).toContain(CUSTOM_ID);
+  });
+
+  it('does not query the authed My Companies endpoint with the flag off', async () => {
+    authState.isAuthenticated = true;
+    flagState.isEnabled = false;
+    const store = await seedWithCustomCompany();
+    renderWithProviders(<RecentJobsFilters />, { store });
+
+    // Flag-off contract: no network calls for a feature that does not exist.
+    const queries = store.getState()[userCompaniesApi.reducerPath].queries;
+    expect(
+      Object.values(queries).filter(
+        (q) => (q as { endpointName?: string })?.endpointName === 'getUserCompanies'
+      )
+    ).toHaveLength(0);
+  });
+
+  it('does not query the authed My Companies endpoint when signed out', async () => {
+    const store = await seedWithCustomCompany();
+    renderWithProviders(<RecentJobsFilters />, { store });
+
+    // The endpoint is authed; issuing it anonymously would be a guaranteed 401
+    // on every signed-out page load. `skip` means the query never even
+    // registers a cache entry.
+    const queries = store.getState()[userCompaniesApi.reducerPath].queries;
+    const owned = Object.values(queries).filter(
+      (q) => (q as { endpointName?: string })?.endpointName === 'getUserCompanies'
+    );
+    expect(owned).toHaveLength(0);
   });
 });

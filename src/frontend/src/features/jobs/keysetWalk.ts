@@ -82,6 +82,24 @@ export function parseChunkKey(key: string): string[] {
 }
 
 /**
+ * Reserved cursor/floor key for the caller's OWN custom companies.
+ *
+ * The private half of the feed (`GET /api/users/companies/jobs`) is one more
+ * keyset walk running beside the public company-chunks, so it books its cursor
+ * and its floor in the SAME `cursors` / `chunkFloors` maps. That is the whole
+ * reason it interleaves correctly: `selectHasMoreJobs` and — critically —
+ * `computeCompleteHorizon` then account for it with no special casing, so the
+ * merged feed is clamped to the depth *both* halves have reached rather than
+ * showing custom rows as an unbounded tail below the public horizon.
+ *
+ * Contains a `:`, which no `COMPANIES` id does, so it can never collide with a
+ * `chunkKey()` of real company ids. It is NOT a chunk of company ids, so it must
+ * never be handed to `parseChunkKey` + `fetchJobsPage` — `fetchNextJobsPage`
+ * filters it out of the public plan explicitly.
+ */
+export const CUSTOM_JOBS_CHUNK_KEY = 'custom:jobs';
+
+/**
  * Append-dedupe key. Backend rows are keyed by the composite PK
  * `(source_id, id)`, not `id` alone; `company` is included because the cache
  * is partitioned by it. `Job.raw` is typed `unknown`, hence the guarded read.
