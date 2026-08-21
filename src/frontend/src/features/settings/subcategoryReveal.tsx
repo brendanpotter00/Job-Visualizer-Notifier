@@ -53,6 +53,7 @@ export function SubcategoryRevealProvider({ children }: { children: ReactNode })
 }
 
 /** `true` only when the backend says so. Never throws, never suspends. */
+// eslint-disable-next-line react-refresh/only-export-components
 export function useSubcategoryRevealEnabled(): boolean {
   return useContext(SubcategoryRevealContext);
 }
