@@ -48,6 +48,21 @@ and the next-candidate round is only offered arrays at least as job-shaped as th
 that failed — a forced pick of a leftover filter catalogue passes the acceptance gate
 trivially, because the gate compares the replay against that same array.
 
+**ACCEPTANCE AND HARVEST ARE TWO DIFFERENT BUDGETS.** Acceptance asks "can we read this
+board from our own environment?", which two pages settle as well as a hundred
+(:data:`_ACCEPTANCE_MAX_PAGES`, applied by :func:`probe_script` to the very recipe about
+to be stored). The nightly harvest asks "read the WHOLE board", so its budget is DERIVED
+per board from the board's own declared total and page size (:func:`_harvest_max_pages`)
+under a wall-clock ceiling. One constant serving both was a real defect: amazon.jobs
+declares ~22,000 jobs, ten pages of its own ten-per-page UI read **97**, and a company
+that can never prove it saw the whole board sits at ``health_state='unverified'``
+forever. And the PAGE SIZE is itself a recipe parameter — raised toward
+:data:`_TARGET_PAGE_SIZE` when the captured request carries one — which turns 1,000
+sequential requests into ~100. It is derived from the captured bytes and then PROVEN by
+the acceptance replay (:func:`_assert_page_size_honoured`), never assumed: a board that
+caps the page silently serves a SHORT page, and a short page is exactly how the sweep
+decides the board ended.
+
 **The stored oracle is the completeness CLAIM, and it is deliberately stingy.** A
 declared total makes it ``declared_probed`` (the LARGEST total-ish key, never the first
 — a per-page count pinned as the total is a confident wrong-close); a real paginated
@@ -55,6 +70,13 @@ sweep makes it ``self_consistent``; a single request over a board whose length n
 published makes it ``none``, which can only ever be UNVERIFIED. Every one of those
 mistakes ends the same way if you get it wrong in the generous direction: a nightly run
 that certifies a page it never finished reading and closes the rest (invariant #2).
+
+**...and a declared total the board's own facets CONTRADICT is not a total at all**
+(:func:`_facet_consensus_total`). amazon.jobs answers ``hits: 10000`` — its
+Elasticsearch WINDOW, not its size, while six of its facet blocks agree on 22,621. A
+budget big enough to reach that "total" matches it exactly, VERIFIES, and closes 12,621
+live jobs. So the guard is not optional decoration on the budget fix; it is the half
+that stops the budget fix from creating a confident wrong-close.
 
 NEVER RAISES. Every failure — including an unexpected one — becomes
 ``DiscoveryOutcome(ok=False, refuse_reason=…)``, because the caller is a ``retry=1``
@@ -67,10 +89,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
 import httpx
 
@@ -89,7 +111,14 @@ from ..harvest_meta import HarvestEvidence
 from ..harvest_verification import HarvestGateError, run_gate
 from ..recipe_rows import recipe_rows_to_job_listings
 from ..recipe_runner import RecipeExecutionError, map_records, run_recipe
-from ..recipe_schema import RECIPE_VERSION, RecipeError, dig, validate_recipe
+from ..recipe_schema import (
+    BROWSER_FETCH,
+    BROWSER_FETCH_MAX_PAGES,
+    RECIPE_VERSION,
+    RecipeError,
+    dig,
+    validate_recipe,
+)
 from ..url_guard import _DNS_EXECUTOR, UrlGuardError, validate_public_url
 from .network_capture import CaptureError, CaptureResult, capture_board
 from .request_selector import (
@@ -156,12 +185,59 @@ _ACCEPTANCE_MIN_RATIO = 0.5
 # at the wrong array from being stored.
 _MIN_ID_OVERLAP_RATIO = 0.5
 
-# The stored page budget. Ten pages of whatever the board's own page size is covers the
-# ordinary board; a bigger one simply lands UNVERIFIED every night (it cannot prove it
-# saw the whole board) which shows its jobs and never closes one. Deliberately below
-# ``browser_fetch.runner._MAX_PAGES_CEILING`` (25) so the tier's own ceiling is never
-# the thing that decides.
-_MAX_PAGES = 10
+# --------------------------------------------------------------------------
+# THE TWO PAGE BUDGETS. They answer different questions and were one constant.
+# --------------------------------------------------------------------------
+# ACCEPTANCE asks "does this recipe read this board from OUR environment?" — which two
+# pages answer exactly as well as a hundred, and the whole discovery task is bounded at
+# 240s (``discover_custom_company._TASK_TIMEOUT_S``) with a browser capture and an LLM
+# call already spent out of it. TWO rather than one because the page-size proof below
+# needs a SECOND full page to tell "the board honoured the page size we synthesized"
+# apart from "it ignored it and served its own short page".
+_ACCEPTANCE_MAX_PAGES = 2
+
+# HARVEST asks "read the WHOLE board", so the stored budget is DERIVED per board from
+# its own declared total and the page size we proved (:func:`_harvest_max_pages`).
+# This is only the CEILING on that derivation, and it is set by WALL CLOCK, not by
+# taste. Measured end to end against the biggest board this ceiling can produce
+# (amazon.jobs, 100 pages of 100 records, ~1 MB each): **72.2s** for the whole leaf
+# task — the sweep, the gate, and the 10,000-row upsert — against
+# ``fetch_custom_company._TASK_TIMEOUT_S`` (120s). That is the number this constant is
+# chosen to fit, so the cap did not have to move. If a slower environment ever pushes a
+# full sweep past 120s the result is a FAILED run (nothing written, nothing closed, not
+# a miss) retried on the next daily claim, and the two levers are this ceiling and that
+# cap — in that order, because a smaller ceiling degrades to a partial-but-UNVERIFIED
+# harvest while a bigger cap holds a worker slot longer.
+#
+# Over-budgeting costs NOTHING at runtime: the sweep stops on the first short page, so
+# this is a ceiling, never a target. (Same number, same reasoning, as
+# ``workday_client.WORKDAY_MAX_PAGES``.)
+_MAX_HARVEST_PAGES = 100
+
+# Slack on top of ``ceil(declared_total / page_size)``. A board grows between the night
+# we discovered it and every night after; with no slack the first new job pushes the
+# sweep one page short of the total and the run lands UNVERIFIED forever.
+_HARVEST_PAGE_HEADROOM = 2
+
+# THE PAGE SIZE IS A RECIPE PARAMETER, not a property of the board. A careers page asks
+# for the page size its own LAYOUT wants (amazon.jobs paints 10 cards), and replaying
+# that verbatim is what turned a 22,000-job board into 1,000 sequential requests that
+# no nightly budget can hold. Raising it toward this target turns the same board into
+# ~100 requests — but ONLY once the board itself has PROVEN it honours the bigger page
+# (:func:`_assert_page_size_honoured`). Assuming is the wrong-close: a board that
+# silently caps the page at its own size serves a SHORT first page, and a short page is
+# precisely how the sweep decides the board ENDED — so an assumed page size reports a
+# partial board as a complete one.
+_TARGET_PAGE_SIZE = 100
+
+# Parameter names that carry a page size. Matched by SUBSTRING and then CONFIRMED
+# against the captured bytes — the parameter's own value must equal the number of
+# records the response actually returned. That confirmation is what tells a page-size
+# parameter apart from an offset, a radius, or a version number that happens to be
+# spelled ``count``.
+_PAGE_SIZE_PARAM_HINTS = (
+    "limit", "size", "count", "per_page", "perpage", "rows", "take", "results",
+)
 
 # How many candidates the acceptance ladder is allowed to work through. Each round costs
 # one Haiku call and up to two replays (one of them a Chromium launch), and the whole
@@ -214,6 +290,18 @@ class _Refusal(Exception):
         super().__init__(f"{step}: {detail}")
         self.step = step
         self.detail = detail
+
+
+class _PageSizeRefusal(_Refusal):
+    """The board did not honour the page size we SYNTHESIZED — retry it as captured.
+
+    A distinct type because the recovery is distinct: every other acceptance refusal
+    means this transport cannot read this feed (move to the next tier), while this one
+    means only that one derived PARAMETER was wrong, and the same tier replaying the
+    board's own observed page size is very likely to work. Without the split, a board
+    that caps its page size would be refused outright — the opposite of "detect it at
+    acceptance and fall back".
+    """
 
 
 # --------------------------------------------------------------------------
@@ -327,12 +415,230 @@ def _find_total_path(payload: Any, records_path: str, record_count: int) -> str 
     return best[2] if best is not None else None
 
 
+def _facet_consensus_total(payload: Any, records_path: str) -> int | None:
+    """A whole-board count at least TWO of the board's own facet blocks AGREE on.
+
+    THE CROSS-CHECK ON A DECLARED TOTAL, and the reason it exists is a measured
+    wrong-close: amazon.jobs publishes ``hits: 10000`` — not its size, but its
+    Elasticsearch WINDOW (``offset + result_limit > 10000`` is a hard in-band error) —
+    while six of its facet blocks independently sum to 22,621. A budget derived from
+    ``hits`` reads exactly 10,000 rows, matches the "total" exactly, lands VERIFIED
+    ``declared_exact`` and closes the other 12,621 live jobs. That is invariant #2
+    failing confidently, and it is a failure the OLD flat 10-page budget only avoided
+    by never getting anywhere near the total.
+
+    A single facet block is not evidence: one that covers without partitioning
+    over-counts (GM's 1,042-vs-835, and amazon's own ``location_facet`` sums to 35,048
+    against a real 22,621). AGREEMENT between two independently-computed partitions is,
+    and it is the same "believe the corroborated number" rule :func:`_find_total_path`
+    already applies when it takes the largest total-ish key.
+
+    Deliberately conservative in its own right: the value is used ONLY to DISTRUST a
+    declared total, never to become one. A false positive costs a board its
+    ``declared_probed`` oracle (UNVERIFIED forever — shows its jobs, closes nothing);
+    a false negative is the wrong-close above.
+    """
+    if not isinstance(payload, dict):
+        return None
+    sums: list[int] = []
+    frontier: list[tuple[Any, str, int]] = [(payload, "", 0)]
+    while frontier:
+        node, path, depth = frontier.pop(0)
+        if depth > _MAX_TOTAL_SEARCH_DEPTH or not isinstance(node, dict):
+            continue
+        for key, value in node.items():
+            child_path = f"{path}.{key}" if path else str(key)
+            if child_path == records_path:
+                continue
+            if isinstance(value, dict):
+                frontier.append((value, child_path, depth + 1))
+                continue
+            # A facet BLOCK: a non-empty list of ``{label: count}`` objects, the exact
+            # shape ``recipe_runner.sum_single_valued_facet`` already sums.
+            if not isinstance(value, list) or not value:
+                continue
+            counts: list[int] = []
+            for bucket in value:
+                if not isinstance(bucket, dict) or not bucket:
+                    counts = []
+                    break
+                for count in bucket.values():
+                    if not isinstance(count, int) or isinstance(count, bool) or count < 0:
+                        counts = []
+                        break
+                    counts.append(count)
+                if not counts:
+                    break
+            if counts:
+                sums.append(sum(counts))
+    agreed = [value for value in set(sums) if sums.count(value) >= 2]
+    return max(agreed) if agreed else None
+
+
+@dataclass(frozen=True)
+class _PageSizeParam:
+    """Where a captured request carries the page size it asked for."""
+
+    location: str      # "query" | "body"
+    name: str
+
+
+def _apply_page_size(
+    fetch: dict[str, Any], candidate: Candidate, page_size: int
+) -> int:
+    """Rewrite ``fetch`` to ask for ``page_size`` records; return the size it now asks
+    for. RAISES a :class:`_Refusal` if the parameter is no longer identifiable.
+
+    The rewrite and the ``paginate.page_size`` must always be the SAME number: the
+    sweep reads "fewer records than page_size" as the end of the board, so a recipe
+    that asks for 10 and pages by 100 would skip 90 jobs per page, and one that asks
+    for 100 and pages by 10 would re-read the same jobs forever.
+    """
+    param = _page_size_param(candidate)
+    if param is None:  # pragma: no cover - the caller only overrides when one exists
+        raise _Refusal(
+            _STEP_SYNTHESIZE,
+            "cannot raise this board's page size: no page-size parameter is "
+            "identifiable in the request we captured",
+        )
+    if param.location == "query":
+        fetch["url"] = str(
+            httpx.URL(fetch["url"]).copy_set_param(param.name, str(page_size))
+        )
+    else:
+        fetch.setdefault("body", {})[param.name] = page_size
+    return page_size
+
+
+def _is_page_size(name: str, value: Any, record_count: int) -> bool:
+    """``name=value`` is the page-size parameter of a response holding ``record_count``.
+
+    Both halves are required. The NAME hint alone matches ``loc_group_id`` and
+    ``resultCount``; the VALUE match alone matches an ``offset=10`` on page two. A
+    parameter that names a size AND whose captured value is exactly the size we got
+    back is the one the board actually paged on.
+    """
+    if record_count <= 0:
+        return False
+    if not any(hint in name.lower() for hint in _PAGE_SIZE_PARAM_HINTS):
+        return False
+    try:
+        return int(str(value)) == record_count
+    except (TypeError, ValueError):
+        return False
+
+
+def _page_size_param(candidate: Candidate) -> _PageSizeParam | None:
+    """The request parameter that set the page we captured, or ``None``. DERIVED from
+    the captured request + response, never asked of the model — a guessed page-size
+    parameter is a silently-short sweep, which is the wrong-close direction."""
+    for name, raw in parse_qsl(urlsplit(candidate.url).query, keep_blank_values=True):
+        if _is_page_size(name, raw, candidate.record_count):
+            return _PageSizeParam("query", name)
+    if candidate.method == "POST":
+        try:
+            body = json.loads(candidate.post_data or "", strict=False)
+        except Exception:  # noqa: BLE001 - a body we cannot parse carries no parameter
+            return None
+        if isinstance(body, dict):
+            for name, value in body.items():
+                if _is_page_size(str(name), value, candidate.record_count):
+                    return _PageSizeParam("body", str(name))
+    return None
+
+
+def _declared_total(candidate: Candidate, selection: RequestSelection) -> int | None:
+    """The board's own declared total for this candidate, or ``None``. Pure."""
+    total_path = _find_total_path(
+        candidate.payload, selection.records_path, candidate.record_count
+    )
+    if not total_path:
+        return None
+    try:
+        value = dig(candidate.payload, total_path)
+    except RecipeError:  # pragma: no cover - _find_total_path only returns live paths
+        return None
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def page_size_attempts(
+    candidate: Candidate, selection: RequestSelection
+) -> tuple[int | None, ...]:
+    """The page sizes acceptance should try, best first (``None`` = as captured).
+
+    Returns two attempts ONLY for a board where the upgrade is both possible and worth
+    a second replay: it pages, it carries a page-size parameter we could identify from
+    its own bytes, its captured page is smaller than the target, and its declared total
+    says there are at least :data:`_ACCEPTANCE_MAX_PAGES` full target-size pages to
+    prove the upgrade against. That last gate is what keeps the fallback replay (a
+    second Chromium launch on the browser tier) off every small board — and it is also
+    what makes :func:`_assert_page_size_honoured` a sound proof rather than a coin
+    flip, since a board with 150 jobs would serve a legitimately short second page.
+    """
+    if selection.pagination is None:
+        return (None,)
+    if candidate.record_count >= _TARGET_PAGE_SIZE:
+        return (None,)
+    if _page_size_param(candidate) is None:
+        return (None,)
+    declared = _declared_total(candidate, selection)
+    if declared is None or declared < _TARGET_PAGE_SIZE * _ACCEPTANCE_MAX_PAGES:
+        return (None,)
+    return (_TARGET_PAGE_SIZE, None)
+
+
+def _harvest_max_pages(declared_total: int | None, page_size: int, *, transport: str) -> int:
+    """The STORED page budget: ``ceil(total / page_size)`` + slack, under the ceiling.
+
+    Derived from the board's own two numbers, because a flat constant is wrong in both
+    directions at once — 10 pages is a 97-job sample of amazon.jobs and 10 wasted
+    round-trips on a board with 30 jobs.
+
+    With NO declared total the derivation has no input, and the only defensible budget
+    left is the ceiling itself: the sweep stops on the first short page, so a board
+    smaller than the ceiling pays nothing for it, while any smaller flat number would
+    truncate exactly the boards whose length we cannot otherwise measure — and a
+    ``self_consistent`` board that never reaches its own end is UNVERIFIED forever.
+    """
+    ceiling = (
+        BROWSER_FETCH_MAX_PAGES if transport == BROWSER_FETCH else _MAX_HARVEST_PAGES
+    )
+    if not isinstance(declared_total, int) or declared_total <= 0 or page_size <= 0:
+        return ceiling
+    needed = -(-declared_total // page_size) + _HARVEST_PAGE_HEADROOM
+    return max(1, min(needed, ceiling))
+
+
+def probe_script(script: dict[str, Any]) -> dict[str, Any]:
+    """The recipe as ACCEPTANCE replays it: identical except the page budget.
+
+    Acceptance must run the PRODUCTION path over the recipe we are about to store —
+    that is the whole claim the gate makes — but it must not run the whole HARVEST,
+    which is now sized to the board (100 pages of amazon.jobs is ~60s, inside a 240s
+    task that has already spent a browser capture and an LLM call). Clamping the one
+    field that means "how far", and re-validating, keeps everything acceptance actually
+    proves — the URL, headers, body, field map, oracle, in-band error keys and the
+    synthesized PAGE SIZE — byte-identical to what gets stored.
+    """
+    probe: dict[str, Any] = json.loads(json.dumps(script))
+    for step in probe["steps"]:
+        if step["op"] in ("paginate_offset", "paginate_page"):
+            step["max_pages"] = min(step["max_pages"], _ACCEPTANCE_MAX_PAGES)
+    # validate-on-write applies to the probe too: a clamp that produced an invalid
+    # recipe would be replayed as one, and the refusal would name the wrong thing.
+    validate_recipe(
+        probe, transport=probe["transport"], oracle_kind=probe["oracle"]["kind"]
+    )
+    return probe
+
+
 def synthesize_recipe(
     candidate: Candidate,
     selection: RequestSelection,
     *,
     transport: str,
     origin_url: str,
+    page_size_override: int | None = None,
 ) -> dict[str, Any]:
     """Assemble a validated replay recipe from one candidate + the model's mapping.
 
@@ -341,6 +647,11 @@ def synthesize_recipe(
     and the body all come from the real request/response. That is deliberate — those are
     the parts where a plausible hallucination costs a nightly FAILED run rather than a
     refusal we would see immediately.
+
+    ``page_size_override`` is the one parameter this function does NOT derive on its
+    own: raising the board's page size is a claim only the acceptance replay can settle
+    (see :func:`page_size_attempts`), so the caller decides which size to build and the
+    gate decides whether it was true. ``None`` reproduces the captured page exactly.
 
     RAISES :class:`_Refusal` (never a bare ``RecipeError``) so the caller's reason names
     the step the user is shown.
@@ -360,6 +671,30 @@ def synthesize_recipe(
         candidate.payload, selection.records_path, candidate.record_count
     )
     declared_total = dig(candidate.payload, total_path) if total_path else None
+    # IS THE DECLARED TOTAL THE BOARD'S SIZE, OR ITS SEARCH WINDOW? See
+    # :func:`_facet_consensus_total` — amazon.jobs' ``hits: 10000`` is a window whose
+    # real board is 22,621, and trusting it as an oracle closes 12,621 live jobs the
+    # moment the budget below is big enough to reach it. When the board's own facets
+    # contradict its total we keep the number (it is still the furthest offset the API
+    # will serve, so it makes a correct ``window_cap``) and refuse to make it the
+    # completeness ORACLE.
+    consensus_total = _facet_consensus_total(candidate.payload, selection.records_path)
+    total_is_capped = (
+        isinstance(declared_total, int)
+        and consensus_total is not None
+        and consensus_total > declared_total
+    )
+    if total_is_capped:
+        logger.info(
+            "discovery distrusts declared total %s at %r — the board's own facets agree "
+            "on %s; storing it as a window_cap, not an oracle",
+            declared_total, total_path, consensus_total,
+        )
+
+    page_size = candidate.record_count
+    if page_size_override is not None:
+        page_size = _apply_page_size(fetch, candidate, page_size_override)
+
     # PAGE WHENEVER WE HAVE A USABLE HINT. The single exception is a board whose own
     # total PROVES the captured page is the whole board — there a second request would
     # buy an empty page every night. Gating on "a total exists AND says there is more"
@@ -368,19 +703,37 @@ def synthesize_recipe(
     # ``self_consistent`` VERIFIES it night after night and starts closing everything
     # past page one (invariant #2). Note the oracle below refuses to certify a
     # page-1-only recipe for exactly the residual case — no total AND no hint.
-    one_page_proven = isinstance(declared_total, int) and declared_total <= candidate.record_count
+    one_page_proven = (
+        isinstance(declared_total, int)
+        and declared_total <= candidate.record_count
+        and not total_is_capped
+    )
     if selection.pagination is not None and not one_page_proven:
         op = "paginate_offset" if selection.pagination.style == "offset" else "paginate_page"
-        steps.append({
+        paginate: dict[str, Any] = {
             "op": op,
             "param": selection.pagination.param,
-            # The OBSERVED page size, not the model's guess: the captured response IS
-            # page one, so its record count is the board's real page size. A page_size
-            # that disagrees with reality terminates the sweep one page early ("short
-            # page") and reports a partial board as a complete one.
-            "page_size": candidate.record_count,
-            "max_pages": _MAX_PAGES,
-        })
+            # The page size the recipe ACTUALLY ASKS FOR — the captured one unless the
+            # caller is testing an upgrade, in which case ``fetch`` was rewritten to
+            # request it. Never the model's guess: a page_size that disagrees with what
+            # the request asks for terminates the sweep one page early ("short page")
+            # and reports a partial board as a complete one.
+            "page_size": page_size,
+            # DERIVED from this board's own total and page size, not a flat constant —
+            # the harvest has to be able to reach the end of the board, or the
+            # completeness gate can never answer anything but UNVERIFIED.
+            "max_pages": _harvest_max_pages(
+                declared_total if isinstance(declared_total, int) else None,
+                page_size,
+                transport=transport,
+            ),
+        }
+        if total_is_capped and isinstance(declared_total, int):
+            # The furthest the API will serve. Without it the sweep walks past the
+            # window and the board answers with an in-band error — a FAILED run every
+            # night instead of an honest ``cap_hit`` → UNVERIFIED.
+            paginate["window_cap"] = declared_total
+        steps.append(paginate)
 
     steps.append({
         "op": "extract_json_path",
@@ -402,7 +755,7 @@ def synthesize_recipe(
     # jobs every night and closes none of them. That is the safe half of the ambiguity.
     paginates = any(step["op"].startswith("paginate_") for step in steps)
     oracle: dict[str, Any]
-    if total_path:
+    if total_path and not total_is_capped:
         oracle = {"kind": "declared_probed", "total_path": total_path}
     elif paginates:
         oracle = {"kind": "self_consistent"}
@@ -543,12 +896,39 @@ def _assert_matches_capture(
         )
 
 
+def _assert_page_size_honoured(evidence: HarvestEvidence, page_size: int) -> None:
+    """PROVE the board served the page size the recipe asked for. Raises
+    :class:`_PageSizeRefusal`.
+
+    THE CHECK THAT MAKES A SYNTHESIZED PAGE SIZE SAFE. A board that ignores or caps the
+    parameter answers a 100-record request with its own 10 records, and the sweep reads
+    that short page as "the board ended" — so the harvest would report 10 jobs as a
+    COMPLETE board and, on a ``self_consistent`` oracle, VERIFY it and close the rest.
+    Detecting it here is the difference between a derived parameter and a guessed one.
+
+    The evidence is read exactly: a probe budget of :data:`_ACCEPTANCE_MAX_PAGES` that
+    ran out (``terminated_cleanly`` False means the sweep did NOT stop on a short page)
+    having fetched every page it was allowed is the same statement as "both pages came
+    back full at the size we asked for". ``page_size_attempts`` only offers the upgrade
+    when the declared total says that many full pages exist, so a short page here is
+    the board disagreeing with us, never the board simply being small.
+    """
+    if evidence.pages_fetched < _ACCEPTANCE_MAX_PAGES or evidence.terminated_cleanly:
+        raise _PageSizeRefusal(
+            _STEP_ACCEPT,
+            f"this board does not serve {page_size} records per page — it returned a "
+            f"short page after {evidence.pages_fetched} page(s), which a sweep would "
+            "read as the end of the board",
+        )
+
+
 async def _try_acceptance(
     script: dict[str, Any],
     candidate: Candidate,
     selection: RequestSelection,
     *,
     replay: ReplayFn,
+    prove_page_size: int | None = None,
 ) -> list[dict]:
     """Replay ``script`` from the production path and assert it read the right board.
 
@@ -558,8 +938,14 @@ async def _try_acceptance(
     that this runs the SAME structural gate the nightly harvest runs (so a board that
     could never pass the gate is refused now rather than discovered and then broken every
     night), and finally the match-the-capture check.
+
+    ``prove_page_size`` is set when the recipe asked for a page size the board did not
+    choose for itself; it is checked FIRST because it is the most specific diagnosis
+    available — every later check would pass on a short page and blame the wrong thing.
     """
     rows, evidence = await replay(script)
+    if prove_page_size is not None:
+        _assert_page_size_honoured(evidence, prove_page_size)
     jobs = recipe_rows_to_job_listings(_PROBE_COMPANY_ID, rows)
     gate = run_gate(jobs, evidence, oracle_kind=script["oracle"]["kind"])
     if gate.is_zero or not gate.jobs:
@@ -807,47 +1193,84 @@ async def discover(
                 last_step, last_error = exc.step, exc.detail
                 logger.info("discovery selection unusable for %s: %s", url, exc.detail)
                 continue
+            # The page sizes to try, best first. ``None`` means "exactly what the
+            # capture asked for" and is ALWAYS the last attempt, so a board that
+            # refuses a bigger page falls back to the recipe we know works rather than
+            # being refused for a parameter we chose.
+            attempts_ps = page_size_attempts(candidate, selection)
+            accepted: tuple[str, dict[str, Any], list[dict]] | None = None
             for transport, replay in (("http_json", run_http), ("browser_fetch", run_browser)):
-                try:
-                    script = synthesize_recipe(
-                        candidate, selection, transport=transport, origin_url=origin_url
-                    )
-                    current_step = _STEP_ACCEPT
-                    rows = await _try_acceptance(
-                        script, candidate, selection, replay=replay
-                    )
-                except _Refusal as exc:
-                    last_step, last_error = exc.step, exc.detail
-                    logger.info(
-                        "discovery %s rejected for %s on %s: %s",
-                        transport, url, candidate.url, exc.detail,
-                    )
-                    continue
-                except (
-                    RecipeExecutionError, RecipeError, HarvestGateError, ValueError,
-                    # A TRANSPORT failure costs this TIER, not the discovery. httpx
-                    # raises ConnectTimeout/ConnectError/RemoteProtocolError — none of
-                    # them a RecipeExecutionError — on exactly the boards tier 1b
-                    # exists for (a bot-walled origin that RSTs or blackholes a
-                    # non-browser client). Uncaught, they escaped BOTH loops into the
-                    # last-resort handler and permanently refused a board browser_fetch
-                    # would have accepted. ``OSError`` covers the same class out of the
-                    # browser_fetch subprocess spawn.
-                    httpx.HTTPError, OSError,
-                ) as exc:
-                    last_step = _STEP_ACCEPT
-                    last_error = f"{type(exc).__name__}: {exc}"
-                    logger.info(
-                        "discovery %s replay failed for %s on %s: %s",
-                        transport, url, candidate.url, last_error,
-                    )
-                    continue
+                for page_size_override in attempts_ps:
+                    try:
+                        script = synthesize_recipe(
+                            candidate, selection, transport=transport,
+                            origin_url=origin_url,
+                            page_size_override=page_size_override,
+                        )
+                        current_step = _STEP_ACCEPT
+                        # THE STORED recipe carries the whole-board budget; ACCEPTANCE
+                        # replays the same recipe with only that budget clamped. Two
+                        # budgets, one recipe — see ``probe_script``.
+                        rows = await _try_acceptance(
+                            probe_script(script), candidate, selection, replay=replay,
+                            prove_page_size=page_size_override,
+                        )
+                    except _Refusal as exc:
+                        last_step, last_error = exc.step, exc.detail
+                        logger.info(
+                            "discovery %s rejected for %s on %s (page_size=%s): %s",
+                            transport, url, candidate.url, page_size_override,
+                            exc.detail,
+                        )
+                        # A page-size refusal costs this ATTEMPT; every other refusal
+                        # is about the FEED and the next page size cannot fix it.
+                        if isinstance(exc, _PageSizeRefusal):
+                            continue
+                        break
+                    except (
+                        RecipeExecutionError, RecipeError, HarvestGateError, ValueError,
+                        # A TRANSPORT failure costs this TIER, not the discovery. httpx
+                        # raises ConnectTimeout/ConnectError/RemoteProtocolError — none
+                        # of them a RecipeExecutionError — on exactly the boards tier 1b
+                        # exists for (a bot-walled origin that RSTs or blackholes a
+                        # non-browser client). Uncaught, they escaped BOTH loops into the
+                        # last-resort handler and permanently refused a board browser_fetch
+                        # would have accepted. ``OSError`` covers the same class out of the
+                        # browser_fetch subprocess spawn.
+                        httpx.HTTPError, OSError,
+                    ) as exc:
+                        last_step = _STEP_ACCEPT
+                        last_error = f"{type(exc).__name__}: {exc}"
+                        logger.info(
+                            "discovery %s replay failed for %s on %s (page_size=%s): %s",
+                            transport, url, candidate.url, page_size_override, last_error,
+                        )
+                        # A board that REJECTS the bigger page (amazon.jobs answers
+                        # "Result limit cannot be greater than 100" in-band, i.e. a
+                        # RecipeExecutionError, not a short page) must fall back to the
+                        # captured size, not be refused for a parameter we invented.
+                        if page_size_override is not None:
+                            continue
+                        break
 
+                    accepted = (transport, script, rows)
+                    break
+                if accepted is not None:
+                    break
+
+            if accepted is not None:
+                transport, script, rows = accepted
+                (paginate_step,) = (
+                    [s for s in script["steps"] if s["op"].startswith("paginate_")]
+                    or [{}]
+                )
                 logger.info(
-                    "capture discovery ACCEPTED %s: %s %s -> %d jobs "
-                    "(transport=%s oracle=%s round=%d)",
+                    "capture discovery ACCEPTED %s: %s %s -> %d jobs on a %d-page probe "
+                    "(transport=%s oracle=%s round=%d harvest_budget=%sx%s)",
                     url, candidate.method, candidate.url, len(rows),
-                    transport, script["oracle"]["kind"], round_number,
+                    _ACCEPTANCE_MAX_PAGES, transport, script["oracle"]["kind"],
+                    round_number, paginate_step.get("max_pages"),
+                    paginate_step.get("page_size"),
                 )
                 ledger.finish(STEP_VERIFY_READ, f"read {len(rows)} job(s)")
                 ledger.finish(

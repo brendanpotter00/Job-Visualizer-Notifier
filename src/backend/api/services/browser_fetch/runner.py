@@ -61,7 +61,7 @@ from ..recipe_runner import (
     harvest_json_pages,
     parse_plan,
 )
-from ..recipe_schema import BROWSER_FETCH, validate_recipe
+from ..recipe_schema import BROWSER_FETCH, BROWSER_FETCH_MAX_PAGES, validate_recipe
 from ..url_guard import _DNS_EXECUTOR, UrlGuardError, validate_public_url
 
 logger = logging.getLogger(__name__)
@@ -91,7 +91,14 @@ _REAP_TIMEOUT_S = 10.0
 # Hard page ceiling the PARENT enforces on read, independent of what the recipe says
 # and independent of the child's own identical ceiling. Two sides must agree for a
 # run to be accepted (§ the bound, re-asserted on read).
-_MAX_PAGES_CEILING = 25
+#
+# ALIASED to the schema's constant rather than restated: ``validate_recipe`` now
+# REJECTS a browser_fetch recipe whose ``max_pages`` exceeds it (on write and on every
+# read), so discovery can never author one and a drifted row FAILS loudly instead of
+# being silently clamped down to a truncated sweep. Two copies of this number would
+# drift, and the direction they drift in decides whether an over-budget board is a
+# loud failure or a quiet partial harvest.
+_MAX_PAGES_CEILING = BROWSER_FETCH_MAX_PAGES
 
 RunSubprocess = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
 UrlValidator = Callable[[str], Any]

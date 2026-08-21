@@ -53,6 +53,7 @@ from api.services.capture.request_selector import (
 from api.services.harvest_meta import HarvestEvidence
 from api.services.harvest_verification import UNVERIFIED, GateResult, verify_harvest
 from api.services.recipe_runner import RecipeExecutionError, map_records
+from api.services.recipe_schema import BROWSER_FETCH_MAX_PAGES
 from api.services.url_guard import UrlGuardError
 
 pytestmark = pytest.mark.asyncio
@@ -219,7 +220,12 @@ async def test_falls_back_to_browser_fetch_when_the_http_replay_fails() -> None:
     )
     assert outcome.ok is True
     assert outcome.transport == "browser_fetch"
-    assert replays == ["http_json", "browser_fetch"]
+    # Each tier is tried TWICE because TikTok's captured POST carries ``limit: 10``
+    # against a declared 4,026, so acceptance offers the synthesized 100-record page
+    # first and the captured 10 second. This fake always replies with the capture's one
+    # page, so the page-size proof never passes and the fallback attempt is what lands
+    # — which is exactly the ordering under test: 1a before 1b, upgrade before capture.
+    assert replays == ["http_json", "http_json", "browser_fetch", "browser_fetch"]
     script = outcome.script
     assert script is not None
     # The origin the capture LANDED on — a browser_fetch replay navigates there before
@@ -433,7 +439,9 @@ async def test_a_transport_level_network_error_falls_through_to_browser_fetch() 
     )
     assert outcome.ok is True
     assert outcome.transport == "browser_fetch"
-    assert replays == ["http_json", "browser_fetch"]
+    # Two attempts per tier — the synthesized page size then the captured one; see
+    # ``test_falls_back_to_browser_fetch_when_the_http_replay_fails``.
+    assert replays == ["http_json", "http_json", "browser_fetch", "browser_fetch"]
 
 
 async def test_the_model_may_correct_the_prefilters_records_path() -> None:
@@ -1008,3 +1016,314 @@ async def test_a_browserbase_live_view_url_rides_the_checklist_when_there_is_one
     )
     assert outcome.progress is not None
     assert outcome.progress["live_view_url"].startswith("https://www.browserbase.com/")
+
+
+# --- THE TWO PAGE BUDGETS, and the page size that makes them affordable -------
+#
+# One constant used to be both the acceptance budget AND the nightly harvest budget
+# (``_MAX_PAGES = 10``), and the page size was always whatever the careers page's own
+# layout asked for. On amazon.jobs that is ten pages of ten: 97 jobs out of ~22,000,
+# a company pinned at ``health_state='unverified'`` forever, and a user shown a sliver
+# of the board. Acceptance and harvest are different questions — "can we read this?"
+# and "read all of it" — and these lock them apart.
+
+
+def _big_amazon(hits: int = 5000, *, facet_consensus: int | None = None) -> Any:
+    """The Amazon fixture's response with a bigger declared total (and optionally a
+    facet block pair that CONTRADICTS it — the window-cap shape)."""
+    body = _amazon_body()
+    body["hits"] = hits
+    if facet_consensus is None:
+        body["facets"] = {"normalized_state_name_facet": [{"Washington": hits}]}
+    else:
+        # TWO independently-computed partitions agreeing on a bigger number: the
+        # signal that ``hits`` is a search WINDOW, not the size of the board.
+        body["facets"] = {
+            "category_facet": [{"Software Development": facet_consensus}],
+            "business_category_facet": [
+                {"aws": facet_consensus - 1}, {"retail": 1},
+            ],
+            # ...and one that merely COVERS without partitioning, which must not be
+            # able to create a consensus on its own (GM's 1,042-vs-835).
+            "location_facet": [{"Seattle": facet_consensus * 2}],
+        }
+    return _amazon_response(body)
+
+
+def _capturing_big(hits: int = 5000, *, facet_consensus: int | None = None):
+    """The Amazon capture with a board big enough for the page-size upgrade to be
+    worth proving (the fixture's own ``hits: 76`` is one page and change)."""
+    async def _capture(url: str) -> CaptureResult:
+        original = _capture_result("amazon")
+        responses = list(original.responses)
+        responses[2] = _big_amazon(hits, facet_consensus=facet_consensus)
+        return CaptureResult(
+            final_url=original.final_url, page_title=original.page_title,
+            responses=responses,
+        )
+    return _capture
+
+
+def _paging_replay(
+    *,
+    declared_total: int,
+    honours_page_size: bool = True,
+    rejects_page_size: bool = False,
+    calls: list[dict[str, Any]] | None = None,
+):
+    """A replay that answers the way a REAL board answers a page-size request.
+
+    Records ``{page_size, max_pages}`` per call, so a test can assert what acceptance
+    actually asked for. ``honours_page_size=False`` is the board that silently caps the
+    page at its own size — it returns the capture's one short page, which is exactly
+    what a sweep reads as "the board ended"; ``rejects_page_size=True`` is the board
+    that says so out loud (amazon.jobs answers ``"Result limit cannot be greater than
+    100"`` in-band, which the runner raises on).
+    """
+    async def _replay(script: dict[str, Any]) -> tuple[list[dict], HarvestEvidence]:
+        (paginate,) = [s for s in script["steps"] if s["op"].startswith("paginate_")]
+        page_size = paginate["page_size"]
+        if calls is not None:
+            calls.append({"page_size": page_size, "max_pages": paginate["max_pages"]})
+        captured = prefilter_candidates(_capture_result("amazon").responses)[0]
+        rows = map_records(captured.records, _AMAZON_MAP, script.get("base_url", ""))
+        upgraded = page_size > len(rows)
+        if upgraded and rejects_page_size:
+            raise RecipeExecutionError(
+                "in-band error key 'error' present in a 200 body: "
+                "'Result limit cannot be greater than 100'"
+            )
+        if upgraded and not honours_page_size:
+            # A SHORT first page. The sweep stops there and reports a clean terminus.
+            return rows, HarvestEvidence(
+                declared_total=declared_total, cap_hit=False, terminated_cleanly=True,
+                page_advance_ok=None, pages_fetched=1, transport_ok=True,
+            )
+        # Both probe pages came back FULL: the real capture rows plus filler, so the
+        # match-the-capture check still compares against ids the browser really saw.
+        filler = [
+            {**rows[0], "id": f"filler-{i}"}
+            for i in range(page_size * 2 - len(rows))
+        ]
+        return rows + filler, HarvestEvidence(
+            declared_total=declared_total, cap_hit=False, terminated_cleanly=False,
+            page_advance_ok=True, pages_fetched=2, transport_ok=True,
+        )
+    return _replay
+
+
+def test_the_harvest_budget_is_derived_from_the_boards_own_total() -> None:
+    """The stored budget must be able to REACH the end of the board.
+
+    A flat constant is wrong in both directions at once: ten pages of a board that
+    declares 5,000 is a 5% sample that ``verify_harvest`` can never certify (so the
+    company never leaves 'unverified' and the user never sees the other 95%), while the
+    same ten pages on a 30-job board are eight wasted round-trips a night. Derived from
+    the board's own two numbers, it is neither.
+    """
+    candidate = prefilter_candidates([_big_amazon(hits=5000)])[0]
+
+    script = synthesize_recipe(
+        candidate, _amazon_selection(), transport="http_json",
+        origin_url=_AMAZON_URL, page_size_override=100,
+    )
+    (paginate,) = [s for s in script["steps"] if s["op"].startswith("paginate_")]
+    assert paginate["page_size"] == 100
+    # ceil(5000 / 100) + the growth headroom — enough to read the whole board and
+    # still terminate on a short page after the board grows.
+    assert paginate["max_pages"] == 52
+
+
+def test_the_harvest_budget_never_exceeds_the_transports_own_ceiling() -> None:
+    """A budget the transport cannot honour is not a budget. ``browser_fetch`` runs
+    every page as a fresh in-browser fetch inside one 90s Chromium session, so its
+    ceiling is far lower than the http tier's — and the parent's ``min()`` clamp is the
+    WRONG place to discover that, because a clamped sweep still reports a terminus."""
+    candidate = prefilter_candidates([_big_amazon(hits=50_000)])[0]
+
+    http_script = synthesize_recipe(
+        candidate, _amazon_selection(), transport="http_json", origin_url=_AMAZON_URL
+    )
+    browser_script = synthesize_recipe(
+        candidate, _amazon_selection(), transport="browser_fetch",
+        origin_url=_AMAZON_URL,
+    )
+    (http_paginate,) = [s for s in http_script["steps"] if s["op"].startswith("paginate_")]
+    (bf_paginate,) = [s for s in browser_script["steps"] if s["op"].startswith("paginate_")]
+    assert http_paginate["max_pages"] == 100
+    assert bf_paginate["max_pages"] == BROWSER_FETCH_MAX_PAGES
+
+
+def test_a_board_with_no_declared_total_gets_the_ceiling_not_a_flat_ten() -> None:
+    """With no total there is no derivation, and the only defensible budget left is the
+    ceiling: the sweep stops on the first short page, so a small board pays nothing for
+    it, while any smaller flat number truncates exactly the boards whose length we
+    cannot otherwise measure — and a ``self_consistent`` board that never reaches its
+    own end is UNVERIFIED forever."""
+    candidate = prefilter_candidates([_untotalled_amazon()])[0]
+
+    script = synthesize_recipe(
+        candidate, _amazon_selection(), transport="http_json", origin_url=_AMAZON_URL
+    )
+    (paginate,) = [s for s in script["steps"] if s["op"].startswith("paginate_")]
+    assert paginate["max_pages"] == 100
+
+
+async def test_acceptance_is_bounded_while_the_stored_budget_is_not() -> None:
+    """THE SPLIT. Acceptance asks "can we read this board from our own environment?",
+    which two pages answer as well as a hundred — and it runs inside a 240s task that
+    has already spent a browser capture and an LLM call. The STORED recipe carries the
+    whole-board budget. One constant doing both jobs is what capped amazon.jobs at 97.
+    """
+    calls: list[dict[str, Any]] = []
+    outcome = await discover(
+        _AMAZON_URL,
+        capture=_capturing_big(),
+        select=_selecting(_amazon_selection()),
+        replay_http=_paging_replay(declared_total=5000, calls=calls),
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+    )
+    assert outcome.ok is True
+    assert outcome.script is not None
+    (stored,) = [s for s in outcome.script["steps"] if s["op"].startswith("paginate_")]
+    # What ACCEPTANCE replayed vs what got STORED — same recipe, different budgets.
+    assert [c["max_pages"] for c in calls] == [2]
+    assert stored["max_pages"] == 52
+
+
+async def test_the_page_size_is_synthesized_and_the_board_must_prove_it() -> None:
+    """The page size is a RECIPE parameter, not a property of the board: amazon.jobs
+    paints ten cards because that is what its layout wants, and replaying that verbatim
+    turns a 22,000-job board into 1,000 sequential requests no nightly budget can hold.
+
+    Raised to 100 it is ~100 requests — but only because the ACCEPTANCE REPLAY proved
+    the board serves full 100-record pages. The recipe's URL and its ``page_size`` must
+    move together, or the sweep either skips 90 jobs a page or re-reads the same ten.
+    """
+    calls: list[dict[str, Any]] = []
+    outcome = await discover(
+        _AMAZON_URL,
+        capture=_capturing_big(),
+        select=_selecting(_amazon_selection()),
+        replay_http=_paging_replay(declared_total=5000, calls=calls),
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+    )
+    assert outcome.ok is True
+    assert outcome.script is not None
+    fetch, *_ = outcome.script["steps"]
+    (paginate,) = [s for s in outcome.script["steps"] if s["op"].startswith("paginate_")]
+    assert "result_limit=100" in fetch["url"]        # the request ASKS for 100...
+    assert paginate["page_size"] == 100              # ...and the sweep pages by 100
+    assert [c["page_size"] for c in calls] == [100]  # proven on the real replay path
+
+
+async def test_a_board_that_ignores_the_bigger_page_falls_back_to_the_captured_one() -> None:
+    """THE WRONG-CLOSE THIS PROOF PREVENTS. A board that silently caps the page answers
+    a 100-record request with its own 10 — and ``_sweep_offset_page`` reads a page
+    shorter than ``page_size`` as THE END OF THE BOARD. Stored unchallenged, that
+    recipe reports 10 jobs as a complete board every night and, on a ``self_consistent``
+    oracle, VERIFIES it and closes everything else. Detected at acceptance it costs one
+    extra replay and the board is stored exactly as it was captured.
+    """
+    calls: list[dict[str, Any]] = []
+    outcome = await discover(
+        _AMAZON_URL,
+        capture=_capturing_big(),
+        select=_selecting(_amazon_selection()),
+        replay_http=_paging_replay(
+            declared_total=5000, honours_page_size=False, calls=calls
+        ),
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+    )
+    assert outcome.ok is True                        # fall back, never refuse
+    assert outcome.script is not None
+    (paginate,) = [s for s in outcome.script["steps"] if s["op"].startswith("paginate_")]
+    assert [c["page_size"] for c in calls] == [100, 10]   # tried, disproven, fell back
+    assert paginate["page_size"] == 10
+    assert "result_limit=10" in outcome.script["steps"][0]["url"]
+
+
+async def test_a_board_that_rejects_the_bigger_page_falls_back_instead_of_refusing() -> None:
+    """The louder half of the same case: amazon.jobs answers ``"Result limit cannot be
+    greater than 100"`` in a 200 body, which the runner RAISES on. A parameter WE chose
+    must never be able to refuse a board we can otherwise read."""
+    calls: list[dict[str, Any]] = []
+    outcome = await discover(
+        _AMAZON_URL,
+        capture=_capturing_big(),
+        select=_selecting(_amazon_selection()),
+        replay_http=_paging_replay(
+            declared_total=5000, rejects_page_size=True, calls=calls
+        ),
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+    )
+    assert outcome.ok is True
+    assert [c["page_size"] for c in calls] == [100, 10]
+    assert outcome.script is not None
+    (paginate,) = [s for s in outcome.script["steps"] if s["op"].startswith("paginate_")]
+    assert paginate["page_size"] == 10
+
+
+def test_a_window_capped_declared_total_is_never_a_completeness_oracle() -> None:
+    """MEASURED ON amazon.jobs, and the reason a bigger budget is not enough on its own.
+
+    ``hits: 10000`` is not the size of Amazon's board — it is its Elasticsearch WINDOW
+    (``offset + result_limit > 10000`` is a hard in-band error), while six of its own
+    facet blocks independently sum to 22,621. A budget derived from ``hits`` reads
+    exactly 10,000 rows, matches that "total" EXACTLY, lands VERIFIED
+    ``declared_exact`` — and closes the other 12,621 live jobs. The old flat 10-page
+    budget only avoided that by never getting near the total, so raising the budget
+    without this guard would have CREATED a confident wrong-close (invariant #2).
+
+    The number is still kept, as the furthest offset the API will serve
+    (``window_cap``); what it may not become is the thing that certifies the run.
+    """
+    candidate = prefilter_candidates(
+        [_big_amazon(hits=10_000, facet_consensus=22_621)]
+    )[0]
+
+    script = synthesize_recipe(
+        candidate, _amazon_selection(), transport="http_json",
+        origin_url=_AMAZON_URL, page_size_override=100,
+    )
+    assert script["oracle"] == {"kind": "self_consistent"}
+    (paginate,) = [s for s in script["steps"] if s["op"].startswith("paginate_")]
+    assert paginate["window_cap"] == 10_000
+
+    # ...and prove what that buys IN THE GATE THAT ACTUALLY CLOSES JOBS: a sweep that
+    # read the whole 10,000-row window and ran out of budget cannot be VERIFIED, so it
+    # increments no misses and closes nothing.
+    exhausted = HarvestEvidence(
+        declared_total=None, cap_hit=False, terminated_cleanly=False,
+        page_advance_ok=True, pages_fetched=100, transport_ok=True,
+    )
+    verdict = verify_harvest(
+        script["oracle"]["kind"],
+        GateResult(jobs=[], records_harvested=10_000, id_dedup_dropped=0),
+        exhausted,
+        SimpleNamespace(median_records=10_000),
+    )
+    assert verdict.verdict == UNVERIFIED
+
+
+def test_a_single_facet_block_cannot_discredit_a_declared_total_on_its_own() -> None:
+    """The other side of the same guard. One facet that COVERS without PARTITIONING
+    over-counts (GM's 1,042-vs-835; amazon's own ``location_facet`` sums to 35,048
+    against a real 22,621), so a lone block bigger than the total is not evidence — and
+    treating it as evidence would strip ``declared_probed`` off every honest board with
+    a multi-valued facet, leaving it UNVERIFIED forever."""
+    body = _amazon_body()
+    body["hits"] = 76
+    body["facets"] = {"location_facet": [{"Seattle": 60}, {"Austin": 60}]}
+    candidate = prefilter_candidates([_amazon_response(body)])[0]
+
+    script = synthesize_recipe(
+        candidate, _amazon_selection(), transport="http_json", origin_url=_AMAZON_URL
+    )
+    assert script["oracle"] == {"kind": "declared_probed", "total_path": "hits"}
+    (paginate,) = [s for s in script["steps"] if s["op"].startswith("paginate_")]
+    assert "window_cap" not in paginate

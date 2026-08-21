@@ -51,6 +51,18 @@ TRANSPORTS = ("http_json", "http_html", "browser_fetch")
 # the ONLY one that carries ``origin_url``.
 BROWSER_FETCH = "browser_fetch"
 
+# THE BROWSER TIER'S PAGE CEILING, and the reason it lives in the SCHEMA rather than
+# only in ``browser_fetch.runner``: a page budget the tier cannot honour is a property
+# of the RECIPE, so it must be caught where every other unstorable recipe is — on write
+# (discovery may not author one) and again on read (a drifted JSONB row FAILS loudly).
+# The parent's own ``min(max_pages, ceiling)`` clamp still exists as defence in depth,
+# but a clamp is the wrong last line: it silently truncates the sweep, and a truncated
+# sweep that still terminates "cleanly" is how a partial board gets reported as a
+# complete one. Each page here is a fresh in-browser ``fetch()`` inside one Chromium
+# session bounded at 90s (``runner._SUBPROCESS_TIMEOUT_S``), which is what fixes the
+# number at 25 rather than the http tier's 100.
+BROWSER_FETCH_MAX_PAGES = 25
+
 # Browser transports / ops that are still Phase 4 and rejected with a capability
 # message. ``browser_fetch`` is deliberately NOT here — it is a captured-HTTP
 # transport that happens to need an origin, not a drive-the-DOM capability.
@@ -482,6 +494,7 @@ def validate_recipe(
 
     counts = {"fetch": 0, "pagination": 0, "extraction": 0}
     pagination_op: str | None = None
+    pagination_step: dict[str, Any] | None = None
     extraction_op: str | None = None
     for i, step in enumerate(steps):
         _require(isinstance(step, dict), f"steps[{i}] must be an object")
@@ -510,6 +523,7 @@ def validate_recipe(
         elif op in _PAGINATION_OPS:
             counts["pagination"] += 1
             pagination_op = op
+            pagination_step = step
         elif op in _EXTRACTION_OPS:
             counts["extraction"] += 1
             extraction_op = op
@@ -537,6 +551,18 @@ def validate_recipe(
             "fan-out would issue one in-browser sweep per facet value; use "
             "paginate_offset/paginate_page or no pagination",
         )
+        # THE TIER'S PAGE CEILING, asserted on the RECIPE (see
+        # :data:`BROWSER_FETCH_MAX_PAGES`). Rejecting here — on write AND on every
+        # nightly read — rather than leaving it to the parent's ``min()`` clamp is what
+        # stops an over-budget browser recipe from harvesting a TRUNCATED board that
+        # still reports a finished sweep.
+        if pagination_step is not None:
+            _require(
+                pagination_step["max_pages"] <= BROWSER_FETCH_MAX_PAGES,
+                f"transport 'browser_fetch' allows at most {BROWSER_FETCH_MAX_PAGES} "
+                f"pages per run, got max_pages={pagination_step['max_pages']} — each "
+                f"page is a fresh in-browser fetch inside one 90s Chromium session",
+            )
 
     _validate_oracle(script.get("oracle"))
     if oracle_kind is not None:

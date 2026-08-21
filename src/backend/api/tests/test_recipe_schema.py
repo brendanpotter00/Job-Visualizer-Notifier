@@ -21,7 +21,11 @@ from pathlib import Path
 
 import pytest
 
-from api.services.recipe_schema import RecipeError, validate_recipe
+from api.services.recipe_schema import (
+    BROWSER_FETCH_MAX_PAGES,
+    RecipeError,
+    validate_recipe,
+)
 
 _FIXTURES = Path(__file__).parent / "fixtures" / "recipes"
 
@@ -295,6 +299,31 @@ def test_browser_fetch_facet_pagination_rejected() -> None:
     })
     with pytest.raises(RecipeError, match="paginate_facet"):
         validate_recipe(script)
+
+
+def test_browser_fetch_page_budget_over_the_tier_ceiling_is_rejected() -> None:
+    """The stored harvest budget is DERIVED per board now, so it can be large — and
+    ``browser_fetch`` cannot honour large. Rejecting it in the SCHEMA (write AND read)
+    rather than leaving it to the parent's ``min(max_pages, ceiling)`` clamp is the
+    load-bearing part: a clamped sweep still reports a terminus, so a silently
+    truncated browser harvest looks exactly like a finished one — which is how a
+    partial board gets certified and the rest of it closed."""
+    script = _load("tiktok_browser_fetch.json")
+    (paginate,) = [s for s in script["steps"] if s["op"] == "paginate_offset"]
+    paginate["max_pages"] = BROWSER_FETCH_MAX_PAGES + 1
+    with pytest.raises(RecipeError, match="at most 25 pages"):
+        validate_recipe(script)
+
+    paginate["max_pages"] = BROWSER_FETCH_MAX_PAGES
+    validate_recipe(script)                       # exactly at the ceiling is fine
+
+    # ...and the SAME budget on the http tier is not the schema's business: 100 pages
+    # of httpx is ~60s, which is what the tiers differ on.
+    http = _load("janestreet.json")
+    http["steps"].insert(1, {
+        "op": "paginate_offset", "param": "offset", "page_size": 100, "max_pages": 100,
+    })
+    validate_recipe(http)
 
 
 def test_browser_fetch_does_not_open_the_phase4_door() -> None:
