@@ -50,6 +50,19 @@ describe('JobListingCard', () => {
     expect(apply).toHaveAttribute('rel', 'noopener noreferrer');
   });
 
+  it('renders the LinkedIn outreach link for the resolved company', () => {
+    // The link points at a company-scoped LinkedIn content search, so it must
+    // carry that company's authorCompany facet — a bare keyword search would
+    // show hiring posts from every company instead of this one.
+    render(<JobListingCard job={mockJob} />);
+    const linkedIn = screen.getByRole('link', {
+      name: 'DM the hiring team on LinkedIn',
+    });
+    expect(linkedIn).toHaveAttribute('target', '_blank');
+    expect(linkedIn).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(linkedIn.getAttribute('href')).toContain('authorCompany=');
+  });
+
   it('renders the company logo (resolved from job.company)', () => {
     // Guards the CompanyLogo wiring: 'spacex' -> /logos/icons/spacex.png. The logo
     // is decorative (the company name is shown as adjacent text), so it has an
