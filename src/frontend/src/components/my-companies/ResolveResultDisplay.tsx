@@ -76,8 +76,6 @@ export function ResolveResultDisplay({ result }: ResolveResultDisplayProps) {
   const [hopsOpen, setHopsOpen] = useState(false);
   const { candidate, probe, via, hops, finalUrl } = result;
 
-  const providerConfigEntries = Object.entries(candidate.providerConfig);
-
   return (
     <Paper variant="outlined" sx={{ p: 3 }} data-testid="resolve-result">
       {probe.ok ? (
@@ -86,9 +84,8 @@ export function ResolveResultDisplay({ result }: ResolveResultDisplayProps) {
             Found {probe.jobCount.toLocaleString()} open{' '}
             {probe.jobCount === 1 ? 'job' : 'jobs'} on {atsLabel(candidate.ats)}
           </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-            This board can be tracked.
-          </Typography>
+          {/* No "This board can be tracked." under that headline: finding 663 open jobs
+              IS the statement that it can be tracked, and the button below says the rest. */}
           {/* Persist the resolved board to the caller's account. Lives inside
               the `probe.ok` branch because only a readable board can be tracked. */}
           <AddCompanyCTA finalUrl={finalUrl} />
@@ -136,17 +133,11 @@ export function ResolveResultDisplay({ result }: ResolveResultDisplayProps) {
           </Link>
         </DetailRow>
 
-        {providerConfigEntries.length > 0 && (
-          <DetailRow label="Board settings">
-            <Stack spacing={0.25}>
-              {providerConfigEntries.map(([key, value]) => (
-                <Typography key={key} variant="body2" sx={{ fontFamily: 'monospace' }}>
-                  {key}: {value}
-                </Typography>
-              ))}
-            </Stack>
-          </DetailRow>
-        )}
+        {/* A "Board settings" row used to print the raw `providerConfig` here —
+            `baseUrl: https://intel.wd1.myworkdayjobs.com`, `tenantSlug: intel`. That is
+            the machine's copy of what "Final URL" above already says in a form a person
+            can click, so it was three lines of config on a card whose job is to answer
+            one question: is this the right board? */}
       </Stack>
 
       {hops.length > 0 && (

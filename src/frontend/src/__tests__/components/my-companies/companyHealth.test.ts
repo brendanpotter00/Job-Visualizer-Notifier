@@ -22,22 +22,35 @@ describe('describeHealthState', () => {
     expect(badge.color).toBe('info');
   });
 
-  it('frames the Phase-1 unverified state as steady progress, not an error', () => {
+  it('says a tracked board is tracked — in green — before it is verified', () => {
+    // The defect this pins: `unverified` shipped as a BLUE "Tracking — building
+    // history" chip, which reads as "something here is still wrong" on a board that
+    // is working. A board we are successfully reading says so, in the success colour.
     const badge = describeHealthState('unverified');
-    expect(badge.label).toMatch(/building history/i);
-    expect(badge.color).toBe('info');
-  });
-
-  it('frames the Phase-2 healthy state as "Tracking — healthy" progress', () => {
-    const badge = describeHealthState('healthy');
-    expect(badge.label).toMatch(/tracking — healthy/i);
+    expect(badge.label).toBe('Successfully tracking');
     expect(badge.color).toBe('success');
   });
 
+  it('says exactly the same thing once the board graduates to healthy', () => {
+    // `unverified` vs `healthy` is whether WE have an oracle for the board yet. The
+    // user cannot act on that, so two different chips for it is a distinction they
+    // are made to learn for nothing.
+    expect(describeHealthState('healthy')).toEqual(describeHealthState('unverified'));
+  });
+
   it('maps the other known states to distinct colors', () => {
-    expect(describeHealthState('healthy').color).toBe('success');
+    expect(describeHealthState('discovering').color).toBe('info');
     expect(describeHealthState('quarantined').color).toBe('warning');
     expect(describeHealthState('refused').color).toBe('error');
+  });
+
+  it('keeps the whole set in one vocabulary', () => {
+    // Four states, four colours, one family of words — a person reading a list of
+    // rows should be able to sort them without a legend.
+    expect(describeHealthState('discovering').label).toBe('Setting up…');
+    expect(describeHealthState('unverified').label).toBe('Successfully tracking');
+    expect(describeHealthState('quarantined').label).toBe('Tracking paused');
+    expect(describeHealthState('refused').label).toBe('Not trackable');
   });
 
   it('echoes an unknown/newer code verbatim rather than blanking the chip', () => {
@@ -88,7 +101,6 @@ function progress(overrides: Partial<DiscoveryProgress> = {}): DiscoveryProgress
     outcome: 'running',
     liveViewUrl: null,
     updatedAt: null,
-    jobPreview: [],
     ...overrides,
   };
 }
@@ -100,6 +112,16 @@ describe('describeDiscoveryStep', () => {
       expect(describeDiscoveryStep({ key })).toBe(DISCOVERY_STEP_LABELS[key]);
       expect(describeDiscoveryStep({ key })).not.toBe('');
     }
+  });
+
+  it('names the four rungs in the words a person uses, not the engine\'s', () => {
+    // The KEYS are the backend contract and must not move; the LABELS are ours. The
+    // previous set ("Finding the jobs feed", "Verifying we can read it") described our
+    // pipeline — this set describes what the user gets out of each step.
+    expect(DISCOVERY_STEP_LABELS.open_page).toBe('Opening the page');
+    expect(DISCOVERY_STEP_LABELS.find_feed).toBe('Reading jobs');
+    expect(DISCOVERY_STEP_LABELS.verify_read).toBe('Building web scraper');
+    expect(DISCOVERY_STEP_LABELS.ready).toBe('Ready to track');
   });
 
   it('falls back to the raw key rather than an empty rung', () => {
@@ -225,28 +247,17 @@ describe('describeDiscoveryOutcome', () => {
     ],
   });
 
-  it('frames a refusal around the company, and chains the ✓/✕ across the steps', () => {
-    const headline = describeDiscoveryOutcome({
-      displayName: 'Acme',
-      healthState: 'refused',
-      discovery: refused,
-      openJobCount: 0,
-    });
-    expect(headline.title).toBe("We couldn't read Acme's board");
-    expect(headline.severity).toBe('error');
-    expect(headline.summary).toBe(
-      'Opening the careers page ✓ · Finding the jobs feed ✓ · Verifying we can read it ✕'
-    );
-  });
-
-  it('leaves pending steps out of the summary', () => {
-    const headline = describeDiscoveryOutcome({
-      displayName: 'Acme',
-      healthState: 'refused',
-      discovery: refused,
-      openJobCount: 0,
-    });
-    expect(headline.summary).not.toMatch(/ready to track/i);
+  it('frames a refusal around the company, in one line and no more', () => {
+    // It used to return a title AND a "Opening the careers page ✓ · Finding the jobs
+    // feed ✕" chain of the same four steps rendered directly underneath it. One fact,
+    // stated once: the heading is the verdict, the rungs below show how far we got.
+    expect(
+      describeDiscoveryOutcome({
+        displayName: 'Acme',
+        healthState: 'refused',
+        discovery: refused,
+      })
+    ).toBe("We couldn't read Acme's board");
   });
 
   it('frames success and in-progress distinctly', () => {
@@ -255,17 +266,15 @@ describe('describeDiscoveryOutcome', () => {
         displayName: 'Acme',
         healthState: 'unverified',
         discovery: progress({ outcome: 'tracking' }),
-        openJobCount: 0,
       })
-    ).toMatchObject({ title: "We can read Acme's board", severity: 'success' });
+    ).toBe("We can read Acme's board");
     expect(
       describeDiscoveryOutcome({
         displayName: 'Acme',
         healthState: 'discovering',
         discovery: progress(),
-        openJobCount: 0,
       })
-    ).toMatchObject({ title: 'Setting up Acme', severity: 'info' });
+    ).toBe('Setting up Acme');
   });
 });
 

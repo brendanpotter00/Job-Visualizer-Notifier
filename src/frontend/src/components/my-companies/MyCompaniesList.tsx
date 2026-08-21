@@ -276,7 +276,10 @@ export function MyCompaniesList() {
       {rows.length === 0 ? (
         <EmptyState
           title="No companies yet"
-          message="Check a careers URL above, then choose “Track this company” to start building its hiring history."
+          // Names the ONE action, not the branch it might take. The old copy told the
+          // user to press "Track this company" — a button that never appears on the
+          // discovery path, which is the path anything not on a supported board takes.
+          message="Paste a careers URL above to start tracking a company."
         />
       ) : (
         <Stack spacing={1.5} data-testid="my-companies-list">

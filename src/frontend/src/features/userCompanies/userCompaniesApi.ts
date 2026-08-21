@@ -110,13 +110,6 @@ export interface DiscoveryStep {
   result: string | null;
 }
 
-/** One job from the acceptance replay. `url` is present only when it's an http(s) link. */
-export interface DiscoveryJobPreview {
-  title: string;
-  location?: string;
-  url?: string;
-}
-
 /**
  * The discovery checklist attached to a user company, when it has one.
  *
@@ -135,7 +128,11 @@ export interface DiscoveryProgress {
    */
   liveViewUrl: string | null;
   updatedAt: string | null;
-  jobPreview: DiscoveryJobPreview[];
+  // The wire also carries `job_preview` — the handful of jobs the acceptance replay
+  // returned. It is deliberately NOT typed here: nothing renders it any more (the
+  // "a few of the jobs we found" block was cut as noise), and an untyped extra field
+  // on the response is free. The backend keeps sending it; re-add the type here if
+  // something ever wants to show it again.
 }
 
 /**

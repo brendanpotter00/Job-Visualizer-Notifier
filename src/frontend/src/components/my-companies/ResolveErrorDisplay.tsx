@@ -11,25 +11,21 @@ interface ResolveErrorDisplayProps {
 /**
  * Renders a failed resolve. All copy decisions live in `resolveErrors.ts`; this
  * component only lays them out.
+ *
+ * Title + one plain sentence, and nothing else. The raw `reasonCode` used to be
+ * printed underneath in monospace so a screenshot could be quoted back at us — but
+ * every code we recognise is already spelled out in the sentence above it, and the
+ * ones we do not recognise carry `(code: …)` inside that sentence from
+ * `describeResolveError`. So the line only ever repeated the message in machine
+ * language, on a page whose problem was that it says everything twice.
  */
 export function ResolveErrorDisplay({ error }: ResolveErrorDisplayProps) {
-  const { title, detail, reasonCode } = describeResolveError(error);
+  const { title, detail } = describeResolveError(error);
 
   return (
     <Alert severity="error" data-testid="resolve-error">
       <AlertTitle>{title}</AlertTitle>
       <Typography variant="body2">{detail}</Typography>
-      {reasonCode && (
-        // Kept visible (not just in a console log) so a user reporting a
-        // problem can quote the exact code from a screenshot.
-        <Typography
-          variant="caption"
-          color="text.secondary"
-          sx={{ display: 'block', mt: 1, fontFamily: 'monospace' }}
-        >
-          {reasonCode}
-        </Typography>
-      )}
     </Alert>
   );
 }

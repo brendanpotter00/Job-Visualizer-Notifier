@@ -118,14 +118,16 @@ export function MyCompaniesPage() {
       <Stack spacing={3}>
         {/* This copy is the consent. The submit below can spend real work on the user's
             behalf without asking a second time, so the two outcomes — preview-then-choose
-            vs. setup-starts-now — have to be stated before they paste anything. */}
+            vs. setup-starts-now — have to be stated before they paste anything. Trimmed,
+            not softened: "nothing is tracked until you press" and "that begins straight
+            away" are the two halves that make it consent, and the only words cut are the
+            ones the setup notice below repeats verbatim once a setup actually starts. */}
         <Alert severity="info">
-          Paste a careers URL and we&apos;ll check it. If it&apos;s a job board we already read,
-          you&apos;ll see what we found and nothing is tracked until you press{' '}
+          Paste a careers URL. If it&apos;s a job board we already read, you&apos;ll see what
+          we found and nothing is tracked until you press{' '}
           <strong>Track this company</strong>. If it isn&apos;t, we start a{' '}
           <strong>one-time setup</strong> that teaches us to read it — that begins straight
-          away and the company appears in your list while it runs. Everything here is{' '}
-          <strong>private to you</strong>.
+          away. Everything here is <strong>private to you</strong>.
         </Alert>
 
         <Paper sx={{ p: RESPONSIVE.spacing.paperPaddingLg }}>

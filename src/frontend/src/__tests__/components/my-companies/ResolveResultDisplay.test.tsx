@@ -118,9 +118,33 @@ describe('ResolveResultDisplay — Add company CTA', () => {
     await user.click(screen.getByTestId('add-company-button'));
 
     const error = await screen.findByTestId('add-company-error');
-    expect(error).toHaveTextContent(/no open jobs/i);
-    expect(error).toHaveTextContent('empty');
+    // The headline is the reason, in English; the body is the server's sentence.
+    expect(error).toHaveTextContent('That board has no open jobs right now');
+    expect(error).toHaveTextContent(/no open jobs\./i);
+    // ...and NOT the raw token. For a reason we have copy for, "(code: empty)" was the
+    // same fact a second time, in machine language, mid-sentence.
+    expect(error).not.toHaveTextContent('code: empty');
     expect(screen.queryByTestId('add-company-success')).not.toBeInTheDocument();
+  });
+
+  it('still prints the raw code for a reason this build has no copy for', async () => {
+    // The other half of the cut above. A newer server can name a reason we have no
+    // headline for; there the headline is generic, so the token is the only thing that
+    // makes a screenshot diagnosable and it has to survive.
+    fetchMock.mockResolvedValue(
+      jsonResponse(
+        { reason: 'some_future_reason', detail: 'The board was rejected.', finalUrl: FINAL_URL },
+        422
+      )
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<ResolveResultDisplay result={OK_RESULT} />);
+
+    await user.click(screen.getByTestId('add-company-button'));
+
+    const error = await screen.findByTestId('add-company-error');
+    expect(error).toHaveTextContent("We couldn't add that company");
+    expect(error).toHaveTextContent('code: some_future_reason');
   });
 
   it('treats an idempotent 200 (already added) as success, not a crash', async () => {

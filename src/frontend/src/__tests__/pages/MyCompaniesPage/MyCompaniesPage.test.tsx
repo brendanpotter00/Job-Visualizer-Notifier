@@ -474,6 +474,9 @@ describe('MyCompaniesPage', () => {
 
       const alert = await screen.findByTestId('resolve-error');
       expect(alert).toHaveTextContent(/couldn't load that page/i);
+      // Title + one plain sentence. The raw `fetch_failed` token used to be printed
+      // underneath in monospace — the same fact a second time, in machine language.
+      expect(alert).not.toHaveTextContent('fetch_failed');
       // A typo or a flaky site must never cost a Claude call and a browser session.
       expect(addCalls()).toHaveLength(0);
       expect(screen.queryByTestId('discovery-pending')).not.toBeInTheDocument();

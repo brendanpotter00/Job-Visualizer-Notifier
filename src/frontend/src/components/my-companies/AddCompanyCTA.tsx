@@ -109,7 +109,13 @@ export function AddCompanyCTA({ finalUrl }: AddCompanyCTAProps) {
               <AlertTitle>
                 {ADD_REASON_TITLES[failure.reason] ?? "We couldn't add that company"}
               </AlertTitle>
-              {failure.detail || 'The board was rejected.'} (code: {failure.reason})
+              {/* The trailing "(code: probe_failed)" is gone for every reason we have
+                  copy for — the headline above already says it in English, and the raw
+                  token was machine noise in the middle of a sentence. An UNMAPPED reason
+                  still prints it: there the headline is generic, so the code is the only
+                  thing that makes a screenshot diagnosable. */}
+              {failure.detail || 'The board was rejected.'}
+              {ADD_REASON_TITLES[failure.reason] ? '' : ` (code: ${failure.reason})`}
             </>
           ) : (
             extractErrorMessage(error, "We couldn't add that company. Please try again.")

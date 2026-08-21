@@ -20,7 +20,6 @@ import {
   failedDiscoveryStep,
   resolveDiscoveryOutcome,
 } from './companyHealth';
-import { DiscoveryJobPreview } from './DiscoveryJobPreview';
 
 /** Status glyph per step. Text, not icons, so the state survives a screenshot. */
 const STEP_MARK: Record<DiscoveryStep['status'], string> = {
@@ -84,13 +83,16 @@ function StepRow({ step, status }: { step: DiscoveryStep; status: DiscoveryStep[
         >
           {describeDiscoveryStep(step)}
         </Typography>
-        {/* The SPECIFIC result is the point of the whole checklist — "found 3 candidate
-            feeds" is what tells a user we are looking at their board; a bare tick is a
-            spinner with extra steps. */}
-        {step.result ? (
+        {/* The step's `result` is rendered ONLY on the ✕, where it is the error message.
+            On a ✓ it is engine telemetry — "recorded 14 JSON request(s)", "found 3
+            candidate feed(s)" — which named our internals rather than anything the reader
+            can act on, and put a second line of jargon under every rung of a list whose
+            whole job is being scannable. On the failed step it is the one thing that says
+            whether this board is unreadable or the pasted URL was the wrong page. */}
+        {status === 'failed' && step.result ? (
           <Typography
             variant="caption"
-            color={status === 'failed' ? 'error.main' : 'text.secondary'}
+            color="error.main"
             sx={{ display: 'block', overflowWrap: 'anywhere' }}
             data-testid={`discovery-result-${step.key}`}
           >
@@ -103,39 +105,35 @@ function StepRow({ step, status }: { step: DiscoveryStep; status: DiscoveryStep[
 }
 
 /**
- * What to do when we could not read a board. Deliberately NOT a retry button.
+ * The one thing that changes the answer when we could not read a board.
  *
- * Discovery is deterministic: the same URL runs the same capture and reaches the same
- * refusal, so "try again" spends a browser session and an LLM call to reproduce the
- * answer the user already has. Every action here changes an input instead.
+ * Deliberately NOT a retry button. Discovery is deterministic: the same URL runs the
+ * same capture and reaches the same refusal, so "try again" spends a browser session
+ * and an LLM call to reproduce the answer the user already has.
+ *
+ * ONE action, not the three this used to list. "Remove it" restated the Remove button
+ * sitting a few pixels above; "tell us about this board" survives as a caption because
+ * it is the only escape hatch for a board we genuinely cannot support, but it is not a
+ * peer of the action that actually fixes most refusals — the pasted URL being a
+ * marketing careers page rather than the job listings themselves.
  */
 function NextActions({ boardUrl }: { boardUrl: string }) {
   return (
     <Box sx={{ mt: 1.5 }} data-testid="discovery-next-actions">
-      <Typography variant="subtitle2" gutterBottom>
-        What you can do
+      <Typography variant="body2">
+        Careers pages often hide the real board behind a “See open roles” link. Open{' '}
+        <Link href={boardUrl} target="_blank" rel="noopener noreferrer">
+          the page you pasted
+        </Link>
+        , click into a job, and paste that address instead.
       </Typography>
-      <Stack component="ul" spacing={0.75} sx={{ m: 0, pl: 2.5 }}>
-        <Typography component="li" variant="body2">
-          <strong>Paste the direct board URL.</strong> Many careers pages embed a
-          Greenhouse, Ashby or Lever board — open a job from{' '}
-          <Link href={boardUrl} target="_blank" rel="noopener noreferrer">
-            this careers page
-          </Link>{' '}
-          and paste the address you land on instead.
-        </Typography>
-        <Typography component="li" variant="body2">
-          <strong>Tell us about this board.</strong>{' '}
-          <Link component={RouterLink} to={ROUTES.VOTE_FEATURES}>
-            Send it through as feedback
-          </Link>{' '}
-          and we&apos;ll look at supporting it.
-        </Typography>
-        <Typography component="li" variant="body2">
-          <strong>Remove it.</strong> Nothing is being scraped for this board, so it is
-          only taking up a row — use <strong>Remove</strong> above to clear it.
-        </Typography>
-      </Stack>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+        Or{' '}
+        <Link component={RouterLink} to={ROUTES.VOTE_FEATURES}>
+          tell us about this board
+        </Link>
+        .
+      </Typography>
     </Box>
   );
 }
@@ -148,10 +146,14 @@ interface DiscoveryChecklistProps {
  * The 4-step discovery checklist that replaced the "Setting up…" spinner.
  *
  * Because the capture engine's steps are deterministic and known before the run
- * starts, they can be named up front and ticked off with what each one actually found
- * — ending in either a job preview ("we can read this board") or a refusal that names
- * the step that stopped, framed as "we couldn't read {Company}'s board" with real next
- * actions.
+ * starts, they can be named up front and ticked off as they land: opening the page →
+ * reading jobs → building web scraper → ready to track.
+ *
+ * ONE heading, four rungs, and — on a refusal only — the reason and the one action
+ * that changes it. The version before this said the same thing four times over: a
+ * headline, a one-line ✓/✕ chain of the same steps, the steps themselves with a line
+ * of engine telemetry under each, and a three-bullet "What you can do". Everything a
+ * reader cannot act on has been cut; what is left is the narration and the error.
  *
  * Presentational and flag-free: the caller decides whether the feature is on. It reads
  * only `company`, whose `discovery` blob arrives on the list poll the page already runs
@@ -173,7 +175,6 @@ export function DiscoveryChecklist({ company }: DiscoveryChecklistProps) {
   }
 
   const outcome = resolveDiscoveryOutcome(company);
-  const headline = describeDiscoveryOutcome(company);
   const failed = failedDiscoveryStep(discovery);
   const liveViewUrl = outcome === 'running' ? discovery.liveViewUrl : null;
 
@@ -184,29 +185,15 @@ export function DiscoveryChecklist({ company }: DiscoveryChecklistProps) {
       data-testid="discovery-checklist"
       data-outcome={outcome}
     >
-      <Typography variant="subtitle2" data-testid="discovery-headline">
-        {headline.title}
+      <Typography variant="subtitle2" gutterBottom data-testid="discovery-headline">
+        {describeDiscoveryOutcome(company)}
       </Typography>
-      {/* The ✓/✕ chain: "Found the feed ✓ · Couldn't confirm the results match ✕".
-          Rendered even on success — it is the one-line version of the list below. */}
-      {headline.summary ? (
-        <Typography
-          variant="caption"
-          color="text.secondary"
-          sx={{ display: 'block', mb: 1 }}
-          data-testid="discovery-summary"
-        >
-          {headline.summary}
-        </Typography>
-      ) : null}
 
-      <Stack spacing={0.75} sx={{ mt: 1 }}>
+      <Stack spacing={0.75}>
         {discovery.steps.map((step) => (
           <StepRow key={step.key} step={step} status={renderedStatus(step, outcome)} />
         ))}
       </Stack>
-
-      {outcome === 'tracking' ? <DiscoveryJobPreview jobs={discovery.jobPreview} /> : null}
 
       {outcome === 'refused' ? (
         <>

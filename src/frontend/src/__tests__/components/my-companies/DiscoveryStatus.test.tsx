@@ -46,8 +46,12 @@ describe('DiscoveryStatus', () => {
     renderWithProviders(<DiscoveryStatus result={PENDING} error={undefined} />);
 
     expect(screen.getByTestId('discovery-pending')).toBeInTheDocument();
-    expect(screen.getByText('One-time setup')).toBeInTheDocument();
-    expect(screen.getByText(/jobs appear after the first scan/)).toBeInTheDocument();
+    expect(screen.getByText('Setting this board up')).toBeInTheDocument();
+    // The server's own sentence, plus ONE line saying where to watch it. The two
+    // flag-dependent variants this used to carry were two ways of saying that.
+    expect(screen.getByTestId('discovery-pending')).toHaveTextContent(
+      /jobs appear after the first scan\. Watch it in your list below\./,
+    );
   });
 
   it('renders an idempotent 200 as an already-tracked company with a link to it', () => {

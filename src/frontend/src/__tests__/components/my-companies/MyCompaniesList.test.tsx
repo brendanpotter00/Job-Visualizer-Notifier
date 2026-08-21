@@ -74,7 +74,7 @@ describe('MyCompaniesList', () => {
     // Company A: unverified badge, 0 open jobs, never checked.
     const rowA = rows[0];
     expect(within(rowA).getByText('Duolingo')).toBeInTheDocument();
-    expect(within(rowA).getByText(/tracking — building history/i)).toBeInTheDocument();
+    expect(within(rowA).getByText('Successfully tracking')).toBeInTheDocument();
     expect(within(rowA).getByText(/0 open jobs/i)).toBeInTheDocument();
     expect(within(rowA).getByText(/not yet checked/i)).toBeInTheDocument();
     // Links to the private trend page by runtime id.
@@ -272,7 +272,6 @@ const DISCOVERING_WITH_CHECKLIST: UserCompany = {
     // recent progress write, so a hard-coded timestamp would silently age into the
     // wedged-row case and stop testing what it says it tests.
     updatedAt: new Date().toISOString(),
-    jobPreview: [],
   },
 };
 
@@ -316,10 +315,8 @@ describe('MyCompaniesList discovery checklist', () => {
 
     const row = await screen.findByTestId('my-company-row');
     const checklist = within(row).getByTestId('discovery-checklist');
-    expect(within(checklist).getByText('Opening the careers page')).toBeInTheDocument();
-    expect(within(checklist).getByTestId('discovery-result-open_page')).toHaveTextContent(
-      /recorded 14 JSON request/i
-    );
+    expect(within(checklist).getByText('Opening the page')).toBeInTheDocument();
+    expect(within(checklist).getByText('Reading jobs')).toBeInTheDocument();
     // The badge is still there — the checklist is additive, not a replacement.
     expect(within(row).getByText('Setting up…')).toBeInTheDocument();
   });
@@ -335,8 +332,8 @@ describe('MyCompaniesList discovery checklist', () => {
     expect(within(row).getByText(/0 open jobs/i)).toBeInTheDocument();
     expect(within(row).getByText(/not yet checked/i)).toBeInTheDocument();
     expect(screen.queryByTestId('discovery-checklist')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('discovery-job-preview')).not.toBeInTheDocument();
     expect(screen.queryByTestId('discovery-next-actions')).not.toBeInTheDocument();
+    expect(screen.queryByText('Opening the page')).not.toBeInTheDocument();
     expect(container.querySelectorAll('iframe')).toHaveLength(0);
   });
 

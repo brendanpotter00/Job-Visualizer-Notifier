@@ -23,24 +23,31 @@ export interface HealthBadge {
  * a blank chip — the `default` branch echoes the raw code so a screenshot stays
  * diagnosable.
  *
- * `discovering` is the provisional pre-tracking state (E7 capture pivot): a
- * non-ATS board whose one-time browser-agent setup is still running — it isn't
- * tracked yet, so it reads as "Setting up…" (neutral, in progress), NOT as an
- * error. `unverified` (no oracle yet) then reads as steady progress —
- * "building history". Phase 2 graduates a proven company to `healthy`, whose
- * badge stays in the same "Tracking — …" family so the states read as one
- * continuum rather than unrelated words.
+ * FOUR user-visible states, one per colour, because four is what a person can
+ * hold at a glance: setting up (blue), tracking (green), paused (amber), dead
+ * (red). `discovering` is the provisional pre-tracking state (E7 capture pivot):
+ * a non-ATS board whose one-time setup is still running — in progress, NOT an
+ * error.
+ *
+ * `unverified` and `healthy` deliberately SHARE one green "Successfully
+ * tracking" chip. The difference between them is whether the backend has an
+ * oracle for that board yet, which is our problem and not something the user can
+ * act on; splitting it produced a blue "Tracking — building history" chip that
+ * read as "something is still wrong here" on a board that was working perfectly.
+ * A working board says so, in green, in the same words in both states.
  */
 export function describeHealthState(healthState: string): HealthBadge {
   switch (healthState) {
     case 'discovering':
       return { label: 'Setting up…', color: 'info' };
+    // Tracked and working. Same words either side of the Phase-2 graduation.
     case 'unverified':
-      return { label: 'Tracking — building history', color: 'info' };
     case 'healthy':
-      return { label: 'Tracking — healthy', color: 'success' };
+      return { label: 'Successfully tracking', color: 'success' };
     case 'quarantined':
-      return { label: 'Paused — needs a look', color: 'warning' };
+      // "Tracking paused", not "Paused", so the chip names WHAT stopped and stays
+      // in the same vocabulary as the green one above it.
+      return { label: 'Tracking paused', color: 'warning' };
     case 'refused':
       return { label: 'Not trackable', color: 'error' };
     default:
@@ -68,19 +75,24 @@ export function describeLastChecked(company: Pick<UserCompany, 'lastSuccessAt'>)
 //
 // The one-time setup used to be a spinner because the retired DOM agent's work was
 // genuinely unpredictable. The capture engine's steps are deterministic and known
-// before the run starts, so they get NAMED — and each finished one carries the
-// specific thing it found, which is what lets a user tell whether the board we're
-// about to track is theirs.
+// before the run starts, so they get NAMED — four rungs a person can watch tick
+// across, in the order they happen.
 
 /**
  * Label per step. `Record<DiscoveryStepKey, …>` on a CLOSED union, so a backend
  * rename is a compile error here rather than a blank rung in a list someone is
  * reading to decide what to do next.
+ *
+ * The KEYS are the backend's contract and never change here; the LABELS are ours
+ * and describe what the user gets, not what the engine does. The engine "finds a
+ * jobs feed" and "verifies a replay"; the person watching wants to know we read
+ * their jobs and then built something that can keep reading them. Naming the rungs
+ * after our internals is what made the previous set unreadable.
  */
 export const DISCOVERY_STEP_LABELS: Record<DiscoveryStepKey, string> = {
-  open_page: 'Opening the careers page',
-  find_feed: 'Finding the jobs feed',
-  verify_read: 'Verifying we can read it',
+  open_page: 'Opening the page',
+  find_feed: 'Reading jobs',
+  verify_read: 'Building web scraper',
   ready: 'Ready to track',
 };
 
@@ -123,7 +135,7 @@ export function resolveDiscoveryOutcome(
  * now) would otherwise resurrect a green "We can read {X}'s board" receipt above a
  * "0 open jobs" chip, linking to day-one postings the harvest has since proved gone.
  * `unverified` is required for the same reason: a `quarantined` row is one the backend
- * has marked broken, and a success receipt under a "Paused — needs a look" badge is the
+ * has marked broken, and a success receipt under a "Tracking paused" badge is the
  * UI contradicting the badge beside it.
  */
 export function shouldShowDiscovery(
@@ -140,50 +152,29 @@ export function shouldShowDiscovery(
   );
 }
 
-export interface DiscoveryHeadline {
-  title: string;
-  /** The one-line ✓/✕ chain across the steps, or '' while nothing has landed yet. */
-  summary: string;
-  severity: 'info' | 'success' | 'error';
-}
-
 /**
- * The heading above the checklist, framed from the COMPANY's point of view.
+ * The one heading above the checklist, framed from the COMPANY's point of view.
  *
- * A refusal says "we couldn't read {name}'s board" and then names the step — "Found
- * the feed ✓ · Couldn't confirm the results match ✕". "Discovery failed" tells the
- * user nothing they can act on; which step stopped tells them whether to paste a
- * different URL or to give up on this site.
+ * A bare string, and the ONLY prose the panel gets. This used to return a title, a
+ * one-line "Opening the careers page ✓ · Finding the jobs feed ✕" chain AND a
+ * severity — and the chain said, in one line, exactly what the four rungs below it
+ * said in four. One fact, stated once: the heading names the verdict, the rungs
+ * show how far we got, and the ✕ carries why.
+ *
+ * "Discovery failed" would tell the user nothing they can act on, so a refusal names
+ * the company instead: this is about their board, not about our pipeline.
  */
 export function describeDiscoveryOutcome(
-  company: Pick<UserCompany, 'displayName' | 'healthState' | 'discovery' | 'openJobCount'>,
-): DiscoveryHeadline {
+  company: Pick<UserCompany, 'displayName' | 'healthState' | 'discovery'>,
+): string {
   const outcome = resolveDiscoveryOutcome(company);
-  const steps = company.discovery?.steps ?? [];
-  const summary = steps
-    .filter((step) => step.status === 'done' || step.status === 'failed')
-    .map((step) => `${describeDiscoveryStep(step)} ${step.status === 'done' ? '✓' : '✕'}`)
-    .join(' · ');
-
   if (outcome === 'refused') {
-    return {
-      title: `We couldn't read ${company.displayName}'s board`,
-      summary,
-      severity: 'error',
-    };
+    return `We couldn't read ${company.displayName}'s board`;
   }
   if (outcome === 'tracking') {
-    return {
-      title: `We can read ${company.displayName}'s board`,
-      summary,
-      severity: 'success',
-    };
+    return `We can read ${company.displayName}'s board`;
   }
-  return {
-    title: `Setting up ${company.displayName}`,
-    summary,
-    severity: 'info',
-  };
+  return `Setting up ${company.displayName}`;
 }
 
 /** The step a refusal stopped on, or null (e.g. a timeout, which fails no step). */

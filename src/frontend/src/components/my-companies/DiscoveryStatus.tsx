@@ -4,7 +4,6 @@ import AlertTitle from '@mui/material/AlertTitle';
 import Link from '@mui/material/Link';
 import Typography from '@mui/material/Typography';
 import { buildMyCompanyDetailPath } from '../../config/routes';
-import { CUSTOM_COMPANIES_CONFIG } from '../../config/customCompanies';
 import { extractErrorMessage } from '../../lib/errors';
 import { SUPPORTED_BOARDS } from '../../features/userCompanies/resolveErrors';
 import {
@@ -40,17 +39,15 @@ interface DiscoveryStatusProps {
  */
 export function DiscoveryStatus({ result, error }: DiscoveryStatusProps) {
   if (result !== undefined && isDiscoveryPending(result)) {
-    // With the checklist on, the row below is now narrating the setup step by step, so
-    // point at it instead of repeating "Setting up…" — rendering a second copy of the
-    // same checklist here would say the same thing twice on a very short page. Flag OFF
-    // keeps the original copy verbatim: there is no checklist to look at.
+    // One line after the server's own `detail`, and it says where to look — the row
+    // below is already narrating the setup, so anything more here is a second copy of
+    // it. Flag-free on purpose: "watch it in your list below" is true whether that row
+    // shows the four-step checklist or just a "Setting up…" chip, and the two branches
+    // this used to have were two ways of saying the same sentence.
     return (
       <Alert severity="info" data-testid="discovery-pending">
-        <AlertTitle>One-time setup</AlertTitle>
-        {result.detail}{' '}
-        {CUSTOM_COMPANIES_CONFIG.isDiscoveryProgressEnabled
-          ? 'Follow it step by step on its row in your companies list below — it starts tracking automatically once we can read the board.'
-          : 'It now shows as “Setting up…” in your companies list below and starts tracking automatically once the first scan finishes.'}
+        <AlertTitle>Setting this board up</AlertTitle>
+        {result.detail} Watch it in your list below.
       </Alert>
     );
   }
@@ -76,8 +73,8 @@ export function DiscoveryStatus({ result, error }: DiscoveryStatusProps) {
           {extractErrorMessage(error, "The one-time setup couldn't be started. Please try again.")}
         </Typography>
         <Typography variant="body2" sx={{ mt: 1 }}>
-          We can always read {SUPPORTED_BOARDS} boards without any setup — if this company
-          uses one, pasting a link to its actual job listings will track it right away.
+          We read {SUPPORTED_BOARDS} boards with no setup at all — if this company uses
+          one, paste a link to its job listings instead.
         </Typography>
       </Alert>
     );

@@ -14,12 +14,15 @@ import type {
  *
  * The properties under test are the ones that make it worth building at all:
  *
- * - every landed step shows its SPECIFIC result ("found 3 candidate feeds", "read 90
- *   jobs"), never a bare tick — a generic checkmark is a spinner with extra steps;
- * - a refusal NAMES the step that stopped and offers real alternatives, never a bare
- *   "retry" (discovery is deterministic: the same URL reaches the same refusal, so a
- *   retry spends a browser session to reproduce an answer the user already has);
- * - success shows a job preview, so "we can read this board" is evidenced; and
+ * - the four rungs are named in the user's words — opening the page → reading jobs →
+ *   building web scraper → ready to track — in that order, in every state;
+ * - a refusal NAMES the step that stopped and carries WHY on it, then offers the one
+ *   thing that changes the answer — never a bare "retry" (discovery is deterministic:
+ *   the same URL reaches the same refusal, so a retry spends a browser session to
+ *   reproduce an answer the user already has);
+ * - a step that SUCCEEDED shows a tick and nothing else. Its `result` is engine
+ *   telemetry ("recorded 14 JSON request(s)") and putting it under every rung buried
+ *   the four words that matter in four lines of jargon; and
  * - with no live-view URL — the DEFAULT, because our own Chromium has no hosted view —
  *   there is no iframe, no toggle, and nothing missing from the layout.
  *
@@ -47,7 +50,6 @@ function progress(overrides: Partial<DiscoveryProgress> = {}): DiscoveryProgress
     outcome: 'running',
     liveViewUrl: null,
     updatedAt: '2026-08-20T12:00:00Z',
-    jobPreview: [],
     ...overrides,
   };
 }
@@ -89,10 +91,6 @@ const TRACKING = progress({
     step('verify_read', 'done', 'read 90 job(s)'),
     step('ready', 'done', "reading the board's own feed directly — no browser needed"),
   ],
-  jobPreview: [
-    { title: 'Staff Engineer', location: 'Remote', url: 'https://careers.acme.example/jobs/1' },
-    { title: 'Product Designer', location: 'Berlin' },
-  ],
 });
 
 const REFUSED = progress({
@@ -110,31 +108,31 @@ const REFUSED = progress({
 });
 
 describe('DiscoveryChecklist', () => {
-  it('names all four steps, in order, whatever the state', () => {
+  it('names all four steps, in the user\'s words, in order, whatever the state', () => {
     renderWithProviders(<DiscoveryChecklist company={company('discovering', RUNNING)} />);
 
     const list = screen.getByTestId('discovery-checklist');
-    expect(within(list).getByText('Opening the careers page')).toBeInTheDocument();
-    expect(within(list).getByText('Finding the jobs feed')).toBeInTheDocument();
-    expect(within(list).getByText('Verifying we can read it')).toBeInTheDocument();
+    expect(within(list).getByText('Opening the page')).toBeInTheDocument();
+    expect(within(list).getByText('Reading jobs')).toBeInTheDocument();
+    expect(within(list).getByText('Building web scraper')).toBeInTheDocument();
     expect(within(list).getByText('Ready to track')).toBeInTheDocument();
   });
 
-  it('shows the SPECIFIC result of each landed step, not a generic tick', () => {
+  it('shows a tick and nothing else on a step that succeeded', () => {
+    // The engine's own words for a finished step — "recorded 14 JSON request(s)",
+    // "found 3 candidate feed(s)" — describe our pipeline, not anything the reader can
+    // do, and one under every rung turned a 4-line list into an 8-line one.
     renderWithProviders(<DiscoveryChecklist company={company('unverified', TRACKING)} />);
 
-    expect(screen.getByTestId('discovery-result-open_page')).toHaveTextContent(
-      /recorded 14 JSON request/i,
-    );
-    expect(screen.getByTestId('discovery-result-find_feed')).toHaveTextContent(
-      'found 3 candidate feed(s)',
-    );
-    expect(screen.getByTestId('discovery-result-verify_read')).toHaveTextContent(
-      'read 90 job(s)',
-    );
+    expect(screen.getByText('Reading jobs')).toBeInTheDocument();
+    expect(screen.queryByTestId('discovery-result-open_page')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('discovery-result-find_feed')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('discovery-result-verify_read')).not.toBeInTheDocument();
+    expect(screen.queryByText(/JSON request/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/candidate feed/i)).not.toBeInTheDocument();
   });
 
-  it('renders a mid-run board as still working, with no result on the pending steps', () => {
+  it('renders a mid-run board as still working', () => {
     renderWithProviders(<DiscoveryChecklist company={company('discovering', RUNNING)} />);
 
     expect(screen.getByTestId('discovery-checklist')).toHaveAttribute(
@@ -142,54 +140,51 @@ describe('DiscoveryChecklist', () => {
       'running',
     );
     expect(screen.getByTestId('discovery-headline')).toHaveTextContent(/setting up acme/i);
-    expect(screen.queryByTestId('discovery-result-verify_read')).not.toBeInTheDocument();
     // Nothing to act on yet — the alternatives belong to a refusal.
     expect(screen.queryByTestId('discovery-next-actions')).not.toBeInTheDocument();
   });
 
-  it('renders success as "we can read this board" plus a preview of real jobs', () => {
+  it('renders success as "we can read this board", and says it once', () => {
+    // No job preview ("A few of the jobs we found") and no ✓/✕ summary chain: both
+    // restated, in a second form, what the ticked rungs beside them already say.
     renderWithProviders(<DiscoveryChecklist company={company('unverified', TRACKING)} />);
 
     expect(screen.getByTestId('discovery-headline')).toHaveTextContent(
       /we can read acme's board/i,
     );
-    const preview = screen.getByTestId('discovery-job-preview');
-    expect(within(preview).getByText('Staff Engineer')).toHaveAttribute(
-      'href',
-      'https://careers.acme.example/jobs/1',
-    );
-    // A row the backend kept without a safe URL still renders — as plain text, not as
-    // a dead link.
-    expect(within(preview).getByText('Product Designer').tagName).not.toBe('A');
+    expect(screen.queryByTestId('discovery-job-preview')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('discovery-summary')).not.toBeInTheDocument();
+    expect(screen.queryByText(/jobs we found/i)).not.toBeInTheDocument();
   });
 
-  it('frames a refusal as "we couldn\'t read {Company}\'s board" and names the failed step', () => {
+  it('frames a refusal as "we couldn\'t read {Company}\'s board" and says why on the step', () => {
     renderWithProviders(<DiscoveryChecklist company={company('refused', REFUSED)} />);
 
     expect(screen.getByTestId('discovery-headline')).toHaveTextContent(
       /we couldn't read acme's board/i,
     );
-    // The ✓/✕ chain: "Found the jobs feed ✓ · Verifying we can read it ✕".
-    const summary = screen.getByTestId('discovery-summary');
-    expect(summary).toHaveTextContent('Finding the jobs feed ✓');
-    expect(summary).toHaveTextContent('Verifying we can read it ✕');
-    expect(screen.getByTestId('discovery-result-verify_read')).toHaveTextContent(
+    // The reason rides the step that stopped, so "what went wrong" and "where" are one
+    // thing to read rather than two.
+    const failedStep = screen.getByTestId('discovery-step-verify_read');
+    expect(within(failedStep).getByText('Building web scraper')).toBeInTheDocument();
+    expect(within(failedStep).getByTestId('discovery-result-verify_read')).toHaveTextContent(
       /came back from the replay/i,
     );
   });
 
-  it('offers real alternatives on a refusal — never a bare retry', () => {
+  it('offers one real alternative on a refusal — never a bare retry', () => {
     renderWithProviders(<DiscoveryChecklist company={company('refused', REFUSED)} />);
 
     const actions = screen.getByTestId('discovery-next-actions');
-    expect(within(actions).getByText(/paste the direct board url/i)).toBeInTheDocument();
-    expect(within(actions).getByText(/tell us about this board/i)).toBeInTheDocument();
-    expect(within(actions).getByText(/^remove it\.$/i)).toBeInTheDocument();
-    // The careers page is linked so the user can go find the embedded board.
-    expect(within(actions).getByText(/this careers page/i)).toHaveAttribute(
+    // The fix for most refusals: the pasted URL was the marketing page, not the board.
+    expect(within(actions).getByText(/click into a job/i)).toBeInTheDocument();
+    expect(within(actions).getByText(/the page you pasted/i)).toHaveAttribute(
       'href',
       'https://careers.acme.example/jobs',
     );
+    expect(within(actions).getByText(/tell us about this board/i)).toBeInTheDocument();
+    // Cut: "Remove it." restated the Remove button a few pixels above.
+    expect(within(actions).queryByText(/^remove it\.$/i)).not.toBeInTheDocument();
     // Discovery is deterministic — re-running the same URL reproduces the same refusal.
     expect(
       screen.queryByRole('button', { name: /try again|retry/i }),
