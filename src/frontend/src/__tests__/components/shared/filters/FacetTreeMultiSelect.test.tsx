@@ -60,6 +60,38 @@ describe('FacetTreeMultiSelect', () => {
     expect(within(listbox).queryByRole('button')).toBeNull();
   });
 
+  it('(1b) with childOptions empty, a stored childValue is neither shown nor destroyed', async () => {
+    // The flag-off state, and it must be inert in BOTH directions. Showing the
+    // stored slug would render an unlabelled raw string in the closed field;
+    // recomputing it on emit would silently clear a selection the user saved
+    // while the flag was on. A UI switch must not destroy data.
+    const onChange = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <FacetTreeMultiSelect
+        label="Job category"
+        options={PARENTS}
+        childOptions={[]}
+        value={['parent_a']}
+        childValue={['child_a']}
+        onChange={onChange}
+      />
+    );
+
+    const combobox = screen.getByRole('combobox', { name: 'Job category' });
+    expect(combobox).toHaveTextContent('Category A');
+    expect(combobox).not.toHaveTextContent('child_a');
+
+    await user.click(combobox);
+    const listbox = await screen.findByRole('listbox');
+    await user.click(within(listbox).getByRole('option', { name: /Category B/ }));
+
+    expect(onChange).toHaveBeenCalledWith({
+      category: ['parent_a', 'parent_b'],
+      subcategory: ['child_a'],
+    });
+  });
+
   it('(2) renders no chevron on a parent that has no children', async () => {
     const user = userEvent.setup();
     render(
