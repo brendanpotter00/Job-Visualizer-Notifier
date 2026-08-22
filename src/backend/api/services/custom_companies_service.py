@@ -21,7 +21,7 @@ import psycopg2
 from psycopg2.extensions import connection as Connection
 
 from scripts.shared.constants import custom, new_custom_company_id
-from .discovery.progress import initial_snapshot
+from .discovery.progress import initial_snapshot, with_first_scan
 
 logger = logging.getLogger(__name__)
 
@@ -376,6 +376,61 @@ def record_discovery_progress(
         conn.rollback()
         raise
     return bool(updated)
+
+
+def record_first_scan(
+    conn: Connection, company_id: str, *, ok: bool, detail: str
+) -> bool:
+    """Settle the FIRST-SCAN rung on a discovered company's checklist. Returns written.
+
+    The harvest task's one write into a blob discovery owns, and the reason the
+    checklist can now be honest about "0 open jobs": discovery leaves this rung OPEN
+    when it accepts a board, and the run that actually stores jobs is what ticks it.
+
+    READ-MODIFY-WRITE under ``FOR UPDATE`` rather than a clever ``jsonb_set`` path
+    expression, because the rung's position in the steps array is not fixed (a row
+    written before this rung existed has no entry for it at all) and
+    :func:`~api.services.discovery.progress.with_first_scan` is where that
+    normalization already lives. The lock costs one row for the length of one UPDATE;
+    the discovery writer has long since finished by the time any harvest runs, so it
+    exists only to make a concurrent re-discovery a serialization rather than a
+    lost update.
+
+    ``False`` — no discovery blob on this row (every ATS custom company, and any
+    pre-discovery row) — is the normal, uninteresting case: write nothing. Callers
+    treat ANY failure here as cosmetic and never let it fail a harvest; this blob is
+    display-only and can never make us scrape, close or refuse anything.
+    """
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "SELECT provider_config FROM companies WHERE id = %s AND visibility = 'user' "
+            "FOR UPDATE",
+            (company_id,),
+        )
+        row = cursor.fetchone()
+        if row is None:
+            conn.rollback()
+            return False
+        updated = with_first_scan(row["provider_config"], ok=ok, detail=detail)
+        if updated is None:
+            conn.rollback()
+            return False
+        cursor.execute(
+            """
+            UPDATE companies
+            SET provider_config = jsonb_set(
+                provider_config, '{discovery}', %s::jsonb, true
+            )
+            WHERE id = %s AND visibility = 'user'
+            """,
+            (json.dumps(updated), company_id),
+        )
+        conn.commit()
+    except psycopg2.Error:
+        conn.rollback()
+        raise
+    return True
 
 
 def _progress_param(progress: Optional[dict[str, Any]]) -> Optional[str]:

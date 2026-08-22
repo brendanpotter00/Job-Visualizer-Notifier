@@ -26,6 +26,7 @@ import pytest
 from psycopg2 import sql
 
 import api.services.discovery.progress as dp
+import api.tasks.claim_custom_companies as claim_mod
 import api.tasks.discover_custom_company as task_mod
 from api.config import settings
 from api.services import custom_companies_service as ccs
@@ -262,7 +263,10 @@ def test_the_provisional_row_is_seeded_with_step_one_already_running(db_conn) ->
     company_id = _placeholder(db_conn, user_id)
     steps = {s["key"]: s for s in _progress(db_conn, company_id)["steps"]}
     assert steps["open_page"]["status"] == "active"
-    assert len(steps) == 4
+    assert len(steps) == 5
+    # The harvest's rung is on the seeded blob from the very first render, pending —
+    # the checklist tells the user up front that reading the board is a step too.
+    assert steps["first_scan"]["status"] == "pending"
 
 
 def test_live_progress_writes_land_on_the_provisional_row(db_conn) -> None:
@@ -338,7 +342,13 @@ async def test_an_accept_stores_the_terminal_checklist_and_the_job_preview(
     assert company["health_state"] == "unverified"       # tracked
     stored = _progress(db_conn, company["id"])
     assert stored["outcome"] == dp.OUTCOME_TRACKING
-    assert all(step["status"] == "done" for step in stored["steps"])
+    terminal = {s["key"]: s for s in stored["steps"]}
+    assert all(
+        terminal[key]["status"] == "done"
+        for key in ("open_page", "find_feed", "verify_read", "ready")
+    )
+    # ...and the harvest's rung is NOT ticked by discovery - the row has no jobs yet.
+    assert terminal["first_scan"]["status"] != "done"
     assert stored["job_preview"] == [
         {"title": "Staff Engineer", "location": "Remote",
          "url": "https://careers.acme.example/jobs/1"}
@@ -431,3 +441,226 @@ async def test_a_failing_progress_write_never_costs_the_discovery(db_conn, monke
     assert _row(
         db_conn, "SELECT health_state FROM companies WHERE ats = 'discovered'"
     )["health_state"] == "unverified"
+
+
+# --- the FIRST harvest: jobs without waiting for a claim tick (E7) -------------
+#
+# What this section pins is the whole answer to "I added a board and it shows 0 jobs".
+# Discovery used to accept a board, mark it tracked with every step green, and leave the
+# actual reading to the ``*/15 * * * *`` claim tick — so the user watched a finished
+# checklist sit above "0 open jobs" for up to a quarter of an hour. The accept now
+# enqueues the first harvest itself, and the two enqueue paths must be provably unable
+# to run the same board twice.
+
+
+def _accepting(monkeypatch, transport: str = "http_json") -> None:
+    """Patch ``discover`` to ACCEPT with a recipe on ``transport``."""
+    script = _recipe()
+    script["transport"] = transport
+    outcome = DiscoveryOutcome(
+        ok=True, script=script, transport=transport,
+        oracle_kind="facet_sum", attempts=1,
+    )
+
+    async def _fake_discover(url, **kwargs):
+        return outcome
+
+    monkeypatch.setattr(task_mod, "discover", _fake_discover)
+
+
+def _record_defers(monkeypatch, result: str = "deferred") -> list[str]:
+    """Capture every ``fetch_custom_company`` enqueue from BOTH paths.
+
+    Patched on the claim module and re-patched on the discovery task's own binding,
+    because the task imported the name — so a test that only patched one of the two
+    would silently measure half the system.
+    """
+    calls: list[str] = []
+
+    async def _defer(company_id: str) -> str:
+        calls.append(company_id)
+        return result
+
+    monkeypatch.setattr(claim_mod, "defer_fetch", _defer)
+    monkeypatch.setattr(task_mod, "defer_fetch", _defer)
+    return calls
+
+
+def _seconds_until_next_run(db_conn, company_id: str) -> float:
+    db_conn.rollback()
+    row = _row(
+        db_conn,
+        "SELECT EXTRACT(EPOCH FROM (next_run_at - now())) AS s "
+        "FROM companies WHERE id = %s",
+        (company_id,),
+    )
+    return float(row["s"])
+
+
+def _discovered_id(db_conn, board_url: str) -> str:
+    db_conn.rollback()
+    return str(
+        _row(
+            db_conn,
+            "SELECT id FROM companies WHERE ats = 'discovered' AND board_token = %s",
+            (board_url,),
+        )["id"]
+    )
+
+
+async def test_an_accept_enqueues_the_first_harvest_immediately(db_conn, monkeypatch) -> None:
+    """THE FIX. Without this the board is tracked, green all the way down, and empty
+    until the next 15-minute tick — which reads as "we looked and your board has no
+    jobs" rather than "we have not read it yet"."""
+    _patch_env(monkeypatch)
+    user_id = _seed_user(db_conn)
+    url = "https://careers.first-harvest.example/jobs"
+    _accepting(monkeypatch)
+    calls = _record_defers(monkeypatch)
+
+    await discover_custom_company(user_id, _SUBMITTED, url, "first-harvest.example")
+
+    assert calls == [_discovered_id(db_conn, url)]
+
+
+async def test_the_immediate_harvest_takes_the_row_off_the_claim_ticks_list(
+    db_conn, monkeypatch
+) -> None:
+    """THE INTERLOCK, primary half. ``add_discovered_company`` leaves ``next_run_at =
+    now()``; once the harvest is on the broker the row is pushed a full cadence ahead,
+    so the tick — which selects on ``next_run_at <= now()`` — cannot even see it. That
+    is what makes a second, concurrent harvest of the same board impossible rather than
+    merely unlikely."""
+    _patch_env(monkeypatch)
+    user_id = _seed_user(db_conn)
+    url = "https://careers.interlock.example/jobs"
+    _accepting(monkeypatch)
+    _record_defers(monkeypatch)
+
+    await discover_custom_company(user_id, _SUBMITTED, url, "interlock.example")
+    company_id = _discovered_id(db_conn, url)
+
+    # A cadence (24h) minus the ±90 min jitter floor — i.e. nowhere near due.
+    assert _seconds_until_next_run(db_conn, company_id) > 22 * 3600
+    assert company_id not in claim_mod._claim_due_companies(db_conn, 10)
+
+
+async def test_a_claim_tick_right_after_an_accept_queues_no_second_harvest(
+    db_conn, monkeypatch
+) -> None:
+    """END TO END: accept, then fire the real periodic tick. Exactly ONE
+    ``fetch_custom_company`` exists for the board — the tick is a no-op for it, not a
+    duplicate."""
+    _patch_env(monkeypatch)
+    user_id = _seed_user(db_conn)
+    url = "https://careers.one-run.example/jobs"
+    _accepting(monkeypatch)
+    calls = _record_defers(monkeypatch)
+
+    await discover_custom_company(user_id, _SUBMITTED, url, "one-run.example")
+    company_id = _discovered_id(db_conn, url)
+
+    # Park every OTHER row this module-scoped schema accumulated, so the tick's budget
+    # of 3 cannot be spent elsewhere and mask the result.
+    cur = db_conn.cursor()
+    cur.execute("UPDATE companies SET next_run_at = NULL WHERE id <> %s", (company_id,))
+    db_conn.commit()
+
+    assert await claim_mod.claim_custom_companies(timestamp=1) == 0
+    assert calls.count(company_id) == 1
+
+
+async def test_a_failed_defer_leaves_the_row_due_for_the_next_claim_tick(
+    db_conn, monkeypatch
+) -> None:
+    """The safe direction. A broker that would not take the job must NOT also cost the
+    board a cadence: the row stays due so the 15-minute tick runs it — exactly the
+    behaviour that existed before the immediate enqueue."""
+    _patch_env(monkeypatch)
+    user_id = _seed_user(db_conn)
+    url = "https://careers.broker-down.example/jobs"
+    _accepting(monkeypatch)
+    _record_defers(monkeypatch, result="failed")
+
+    await discover_custom_company(user_id, _SUBMITTED, url, "broker-down.example")
+    company_id = _discovered_id(db_conn, url)
+
+    assert _seconds_until_next_run(db_conn, company_id) < 60
+    assert company_id in claim_mod._claim_due_companies(db_conn, 10)
+
+
+async def test_a_refusal_never_enqueues_a_harvest(db_conn, monkeypatch) -> None:
+    """A refused board has no script and ``enabled=FALSE``; enqueueing a harvest for it
+    would be a job that can only no-op, and the row must stay off every schedule."""
+    _patch_env(monkeypatch)
+    user_id = _seed_user(db_conn)
+    url = "https://careers.refused-nofetch.example/jobs"
+    calls = _record_defers(monkeypatch)
+
+    async def _fake_discover(u, **kwargs):
+        return DiscoveryOutcome(ok=False, refuse_reason="finding the jobs feed: nope",
+                                attempts=1)
+
+    monkeypatch.setattr(task_mod, "discover", _fake_discover)
+    await discover_custom_company(user_id, _SUBMITTED, url, "refused-nofetch.example")
+
+    assert calls == []
+
+
+async def test_the_kill_switch_stops_an_immediate_browser_fetch_harvest(
+    db_conn, monkeypatch
+) -> None:
+    """The flag can flip DURING a 240-second discovery. The immediate enqueue applies the
+    same rule the leaf task does — a browser_fetch harvest is skipped while discovery is
+    off — so we do not queue a job whose only possible outcome is a no-op, and the row
+    stays due so the tick picks it up for free once the flag returns."""
+    _patch_env(monkeypatch)
+    user_id = _seed_user(db_conn)
+    url = "https://careers.killswitch.example/jobs"
+    calls = _record_defers(monkeypatch)
+
+    script = _recipe()
+    script["transport"] = "browser_fetch"
+    outcome = DiscoveryOutcome(
+        ok=True, script=script, transport="browser_fetch",
+        oracle_kind="self_consistent", attempts=1,
+    )
+
+    async def _fake_discover(u, **kwargs):
+        # Flipped off mid-run, after the task's own entry gate passed.
+        monkeypatch.setattr(settings, "custom_company_discovery_enabled", False)
+        return outcome
+
+    monkeypatch.setattr(task_mod, "discover", _fake_discover)
+    await discover_custom_company(user_id, _SUBMITTED, url, "killswitch.example")
+
+    assert calls == []
+    company_id = _discovered_id(db_conn, url)
+    assert _seconds_until_next_run(db_conn, company_id) < 60
+
+
+async def test_an_http_json_board_is_not_gated_by_the_discovery_kill_switch(
+    db_conn, monkeypatch
+) -> None:
+    """The leaf task gates only the browser_fetch tier on that flag (an http_json replay
+    opens no browser), so neither does this. Gating it here would quietly stop harvesting
+    a whole class of board the leaf task is perfectly willing to run."""
+    _patch_env(monkeypatch)
+    user_id = _seed_user(db_conn)
+    url = "https://careers.httpjson-flag.example/jobs"
+    calls = _record_defers(monkeypatch)
+
+    script = _recipe()
+    outcome = DiscoveryOutcome(
+        ok=True, script=script, transport="http_json",
+        oracle_kind="facet_sum", attempts=1,
+    )
+
+    async def _fake_discover(u, **kwargs):
+        monkeypatch.setattr(settings, "custom_company_discovery_enabled", False)
+        return outcome
+
+    monkeypatch.setattr(task_mod, "discover", _fake_discover)
+    await discover_custom_company(user_id, _SUBMITTED, url, "httpjson-flag.example")
+
+    assert calls == [_discovered_id(db_conn, url)]

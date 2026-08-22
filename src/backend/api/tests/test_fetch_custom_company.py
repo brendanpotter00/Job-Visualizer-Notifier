@@ -26,6 +26,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from psycopg2 import sql
 
+import api.services.discovery.progress as dp
 import api.tasks.fetch_custom_company as task_mod
 from api.config import settings
 from api.services import greenhouse_client
@@ -364,3 +365,142 @@ async def test_http_json_transport_replay_failure_is_failed_not_a_miss(db_conn, 
         (company_id,),
     )
     assert cur.fetchone()["success"] is False
+
+
+# --- the FIRST-SCAN rung: the checklist stops lying about "0 open jobs" --------
+#
+# Discovery accepts a board, ticks its four steps and enqueues this task. Until this
+# task lands the company genuinely holds zero jobs, and a complete green checklist over
+# that read as "we looked and found nothing". So the run that reads the board settles
+# the fifth rung itself — with the count, or with why it could not.
+
+
+def _seed_discovery_blob(db_conn, company_id: str) -> None:
+    """The blob discovery leaves behind: four ticks and an OPEN first-scan rung."""
+    ledger = dp.ProgressLedger()
+    ledger.finish(dp.STEP_OPEN_PAGE, "opened careers.acme.example")
+    ledger.finish(dp.STEP_FIND_FEED, "found 1 candidate feed(s)")
+    ledger.finish(dp.STEP_VERIFY_READ, "read 3 job(s)")
+    ledger.finish(dp.STEP_READY, "reading the board's own feed directly")
+    ledger.start(dp.STEP_FIRST_SCAN)
+    cur = db_conn.cursor()
+    cur.execute(
+        sql.SQL(
+            "UPDATE {} SET provider_config = jsonb_set(provider_config, "
+            "'{{discovery}}', %s::jsonb, true) WHERE id = %s"
+        ).format(sql.Identifier("companies")),
+        (json.dumps(ledger.snapshot(outcome=dp.OUTCOME_TRACKING)), company_id),
+    )
+    db_conn.commit()
+
+
+def _checklist(db_conn, company_id: str) -> dict:
+    db_conn.rollback()
+    cur = db_conn.cursor()
+    cur.execute(
+        sql.SQL("SELECT provider_config FROM {} WHERE id = %s").format(
+            sql.Identifier("companies")
+        ),
+        (company_id,),
+    )
+    progress = dp.read_progress(cur.fetchone()["provider_config"])
+    assert progress is not None
+    return {step["key"]: step for step in progress["steps"]}
+
+
+async def test_the_first_harvest_ticks_the_first_scan_rung_with_its_count(
+    db_conn, monkeypatch
+) -> None:
+    """The rung the user is actually waiting on. It carries the number of jobs we read,
+    because "done" with no number is the generic tick this whole checklist replaced."""
+    _patch_env(monkeypatch)
+    _patch_recipe_http(monkeypatch, _HTTP_JSON_PAYLOAD)
+    company_id = "u-firstscan01"
+    _seed_discovered_company(db_conn, company_id, script=_http_json_script())
+    _seed_discovery_blob(db_conn, company_id)
+
+    await fetch_custom_company(company_id=company_id)
+
+    rung = _checklist(db_conn, company_id)["first_scan"]
+    assert rung["status"] == "done"
+    assert "3" in rung["result"]
+    # The four discovery rungs are untouched — the harvest owns exactly one rung.
+    assert _checklist(db_conn, company_id)["verify_read"]["status"] == "done"
+
+
+async def test_a_failed_first_harvest_marks_the_rung_and_refuses_nothing(
+    db_conn, monkeypatch
+) -> None:
+    """A first scan that fails must not make a good board look REFUSED: the row stays
+    tracked and enabled, its discovery outcome stays 'tracking', and the ✕ lands only on
+    the rung the harvest owns — carrying the reason, which is the one thing that tells
+    the user whether to wait for tonight or do something."""
+    _patch_env(monkeypatch)
+    _patch_recipe_http(monkeypatch, {"unexpected": "shape"})
+    company_id = "u-firstscan02"
+    _seed_discovered_company(db_conn, company_id, script=_http_json_script())
+    _seed_discovery_blob(db_conn, company_id)
+
+    with pytest.raises(Exception):
+        await fetch_custom_company(company_id=company_id)
+
+    rung = _checklist(db_conn, company_id)["first_scan"]
+    assert rung["status"] == "failed"
+    assert rung["result"]
+
+    db_conn.rollback()
+    cur = db_conn.cursor()
+    cur.execute(
+        sql.SQL(
+            "SELECT health_state, enabled, provider_config -> 'discovery' ->> 'outcome' "
+            "AS outcome FROM {} WHERE id = %s"
+        ).format(sql.Identifier("companies")),
+        (company_id,),
+    )
+    row = cur.fetchone()
+    assert row["health_state"] != "refused"
+    assert row["enabled"] is True
+    assert row["outcome"] == "tracking"
+    # And a FAILED run is still not a miss and closes nothing (invariant #2).
+    assert _rows(db_conn, "company_harvests", company_id)[0]["verdict"] == "FAILED"
+    assert _job_status(db_conn, company_id) == {}
+
+
+async def test_a_later_success_heals_a_failed_first_scan_rung(db_conn, monkeypatch) -> None:
+    """A permanent ✕ describing a problem that has since gone away is worse than no
+    rung at all — the next successful harvest overwrites it."""
+    _patch_env(monkeypatch)
+    company_id = "u-firstscan03"
+    _seed_discovered_company(db_conn, company_id, script=_http_json_script())
+    _seed_discovery_blob(db_conn, company_id)
+
+    _patch_recipe_http(monkeypatch, {"unexpected": "shape"})
+    with pytest.raises(Exception):
+        await fetch_custom_company(company_id=company_id)
+    assert _checklist(db_conn, company_id)["first_scan"]["status"] == "failed"
+
+    _patch_recipe_http(monkeypatch, _HTTP_JSON_PAYLOAD)
+    await fetch_custom_company(company_id=company_id)
+    assert _checklist(db_conn, company_id)["first_scan"]["status"] == "done"
+
+
+async def test_a_company_with_no_checklist_gets_no_blob_written(db_conn, monkeypatch) -> None:
+    """The rung is display-only and belongs to discovered boards. An ATS custom company
+    has a provider_config the leaf task READS for its provider settings; inventing a
+    'discovery' key on it would put a setup checklist on a row that never had one."""
+    _patch_env(monkeypatch)
+    patch_greenhouse_meta(monkeypatch, [_raw_job(1)], declared_total=1)
+    company_id = "u-firstscan04"
+    _seed_custom_company(db_conn, company_id, "tok-fs04")
+
+    await fetch_custom_company(company_id=company_id)
+
+    db_conn.rollback()
+    cur = db_conn.cursor()
+    cur.execute(
+        sql.SQL("SELECT provider_config FROM {} WHERE id = %s").format(
+            sql.Identifier("companies")
+        ),
+        (company_id,),
+    )
+    assert "discovery" not in (cur.fetchone()["provider_config"] or {})

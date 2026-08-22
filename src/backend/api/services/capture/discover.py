@@ -22,10 +22,12 @@ The seven steps, in order, each named because the REFUSE reason is rendered to t
 7. accept (store) or **REFUSE** (store nothing).
 
 Because those steps are DETERMINISTIC and known before the run starts, they are also
-narrated: :data:`_STEP_TO_CHECKLIST` folds them onto the four user-facing steps in
+narrated: :data:`_STEP_TO_CHECKLIST` folds them onto the four user-facing DISCOVERY steps in
 :mod:`api.services.discovery.progress`, and ``emit`` publishes the checklist as each one
 lands. That is what replaced the "Setting up…" spinner — the run says "found 3 candidate
-feeds", "read 90 jobs", or names the exact step it failed at.
+feeds", "read 90 jobs", or names the exact step it failed at. An accepted run also OPENS
+the fifth rung (``first_scan``) that the first harvest closes; discovery never ticks it,
+because discovery is not what puts jobs on the row.
 
 **The acceptance gate is the whole point** (plan DECISION D5). Tier 1a (``http_json``
 through ``guarded_sync_client`` + ``run_recipe``) is tried first because it costs $0 a
@@ -102,6 +104,7 @@ from ..discovery.progress import (
     OUTCOME_REFUSED,
     OUTCOME_TRACKING,
     STEP_FIND_FEED,
+    STEP_FIRST_SCAN,
     STEP_OPEN_PAGE,
     STEP_READY,
     STEP_VERIFY_READ,
@@ -145,7 +148,7 @@ _STEP_SELECT = "reading the jobs feed"
 _STEP_SYNTHESIZE = "writing the replay recipe"
 _STEP_ACCEPT = "verifying we can read it"
 
-# ...and how those six collapse onto the FOUR steps the user is shown
+# ...and how those six collapse onto the four DISCOVERY steps the user is shown
 # (:mod:`api.services.discovery.progress`). Six exist because six things can fail with
 # six different log lines; four are shown because that is how many distinct next
 # ACTIONS a person has. The mapping lives here, with the engine, so the UI's vocabulary
@@ -1321,8 +1324,8 @@ async def discover(
     network — the same discipline ``run_browser_fetch`` and the retired browser-agent
     discover used.
 
-    ``emit`` receives the 4-step checklist as the run advances, so the user watches
-    named steps land instead of a spinner. The TERMINAL checklist is NOT emitted — it
+    ``emit`` receives the checklist as the run advances, so the user watches named
+    steps land instead of a spinner. The TERMINAL checklist is NOT emitted — it
     rides back on ``DiscoveryOutcome.progress`` so the persist writes it in the same
     statement that flips the row (see that field's docstring).
     """
@@ -1647,6 +1650,14 @@ async def discover(
                     if transport == "http_json"
                     else "reading the board in a browser each night",
                 )
+                # THE RUNG THIS RUN DOES NOT OWN. The caller enqueues the first harvest
+                # the moment it persists this outcome, and that harvest is what puts
+                # jobs on the row — so the checklist opens the rung here and the harvest
+                # task closes it (``progress.with_first_scan``). Leaving the list at
+                # four ✓ is what made an accepted board render as "all done" above "0
+                # open jobs" for as long as the harvest took: a complete checklist over
+                # an empty company reads as "we finished and there was nothing there".
+                ledger.start(STEP_FIRST_SCAN)
                 return DiscoveryOutcome(
                     ok=True,
                     script=script,

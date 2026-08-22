@@ -1,4 +1,4 @@
-"""DISCOVERY PROGRESS — the 4-step checklist the user actually reads (E7 capture pivot).
+"""DISCOVERY PROGRESS — the 5-step checklist the user actually reads (E7 capture pivot).
 
 Discovery used to be an opaque spinner ("Setting up…") because the retired DOM agent's
 work genuinely was unpredictable: nobody could say what it would do next. The capture
@@ -10,11 +10,22 @@ run got to and what it found:
 2. :data:`STEP_FIND_FEED`   — finding the jobs feed
 3. :data:`STEP_VERIFY_READ` — verifying we can read it
 4. :data:`STEP_READY`       — ready to track
+5. :data:`STEP_FIRST_SCAN`  — reading the board for the first time
 
-Four, not the engine's six. The engine's internal steps are named for the code that can
-fail (``writing the replay recipe`` is a distinct failure with a distinct log line); the
-user's four are named for the things a person can act on. :mod:`api.services.capture.
-discover` owns the mapping between them, because it owns both.
+The first four, not the engine's six. The engine's internal steps are named for the code
+that can fail (``writing the replay recipe`` is a distinct failure with a distinct log
+line); the user's are named for the things a person can act on. :mod:`api.services.
+capture.discover` owns the mapping between them, because it owns both.
+
+THE FIFTH RUNG IS NOT DISCOVERY'S — it belongs to the first ``fetch_custom_company``
+harvest, and it exists because the first four going green was a LIE ABOUT THE THING THE
+USER WAS LOOKING AT. Discovery ends by proving we can read the board and enqueuing the
+first harvest; until that harvest lands the company's row honestly says "0 open jobs",
+and a complete green checklist above it read as "we finished and found nothing". So
+discovery ticks 1-4 and STARTS rung 5, and the harvest task settles it (:func:`with_
+first_scan`) with the jobs it actually stored — or an ✕ carrying why it did not. "Ready
+to track" stays a discovery outcome because it is TRUE the moment the recipe is proven;
+what was missing was any rung for the scan itself.
 
 **Every completed step carries a SPECIFIC result** ("found 3 candidate feeds", "read 90
 jobs"), never a bare tick. That is the whole point: a generic checkmark is a spinner
@@ -54,12 +65,18 @@ STEP_OPEN_PAGE = "open_page"
 STEP_FIND_FEED = "find_feed"
 STEP_VERIFY_READ = "verify_read"
 STEP_READY = "ready"
+# Written by the HARVEST task, not by discovery — see the module docstring. A row that
+# predates this rung reads it back as ``pending`` (``read_progress`` fills missing steps),
+# which is exactly right for a board discovered before the rung existed, and self-heals
+# to a ✓ on its next nightly harvest.
+STEP_FIRST_SCAN = "first_scan"
 
 DISCOVERY_STEPS: tuple[str, ...] = (
     STEP_OPEN_PAGE,
     STEP_FIND_FEED,
     STEP_VERIFY_READ,
     STEP_READY,
+    STEP_FIRST_SCAN,
 )
 
 STATUS_PENDING = "pending"
@@ -281,7 +298,8 @@ def read_progress(provider_config: Any) -> dict[str, Any] | None:
     recognised one is trimmed to the parts we can render.
 
     Unknown step keys are DROPPED and missing ones are filled as ``pending``, so the
-    frontend's closed step union always receives exactly the four steps it maps.
+    frontend's closed step union always receives exactly the five steps it maps — a blob
+    written before the FIRST-SCAN rung existed reads back with that rung ``pending``.
     """
     if not isinstance(provider_config, Mapping):
         return None
@@ -325,3 +343,42 @@ def read_progress(provider_config: Any) -> dict[str, Any] | None:
             else ()
         ),
     }
+
+
+def with_first_scan(
+    provider_config: Any, *, ok: bool, detail: str
+) -> dict[str, Any] | None:
+    """``provider_config``'s discovery blob with the FIRST-SCAN rung settled, or None.
+
+    The one seam through which the HARVEST task touches a checklist discovery wrote.
+    ``None`` means "this row has no checklist" (every ATS company, and any custom row
+    added before discovery existed) and the caller must then write NOTHING — that is
+    what keeps this display-only blob off the harvest's critical path.
+
+    It re-normalizes through :func:`read_progress` on purpose: the input is a JSONB
+    column, the writer is a task whose whole contract is that it never breaks a harvest,
+    and a blob that has been hand-edited or written by an older deployment must degrade
+    rather than raise. Same reason the ✕ carries ``detail`` verbatim-but-clipped: it is
+    rendered, and an unbounded exception string on a rendered rung is how one bad board
+    bloats every row of the list response.
+
+    Deliberately NOT "only if the rung is still pending". A first scan that FAILED must
+    be able to become a ✓ when the next nightly harvest succeeds, or the row would carry
+    a permanent ✕ describing a problem that has since gone away. Overwriting a ✓ with an
+    identical ✓ every night is free by comparison.
+    """
+    normalized = read_progress(provider_config)
+    if normalized is None:
+        return None
+    normalized["steps"] = [
+        {
+            "key": STEP_FIRST_SCAN,
+            "status": STATUS_DONE if ok else STATUS_FAILED,
+            "result": _clip(detail),
+        }
+        if step["key"] == STEP_FIRST_SCAN
+        else step
+        for step in normalized["steps"]
+    ]
+    normalized["updated_at"] = _now_iso()
+    return normalized

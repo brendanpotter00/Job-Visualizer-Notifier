@@ -26,12 +26,14 @@ from api.services.discovery.progress import (
     STATUS_FAILED,
     STATUS_PENDING,
     STEP_FIND_FEED,
+    STEP_FIRST_SCAN,
     STEP_OPEN_PAGE,
     STEP_READY,
     STEP_VERIFY_READ,
     ProgressLedger,
     initial_snapshot,
     read_progress,
+    with_first_scan,
 )
 
 
@@ -41,9 +43,9 @@ def _by_key(snapshot: dict) -> dict[str, dict]:
 
 # --- the ledger ---------------------------------------------------------------
 
-def test_a_snapshot_always_carries_all_four_steps_in_order() -> None:
+def test_a_snapshot_always_carries_all_five_steps_in_order() -> None:
     """The row carries the WHOLE checklist on every write. A poll landing mid-run must
-    render four rungs, not reconstruct the missing ones."""
+    render five rungs, not reconstruct the missing ones."""
     snapshot = ProgressLedger().snapshot()
     assert [step["key"] for step in snapshot["steps"]] == list(DISCOVERY_STEPS)
     assert all(step["status"] == STATUS_PENDING for step in snapshot["steps"])
@@ -214,7 +216,13 @@ def test_read_back_preserves_a_real_terminal_blob() -> None:
     result = read_progress(stored)
     assert result is not None
     assert result["outcome"] == OUTCOME_TRACKING
-    assert all(step["status"] == STATUS_DONE for step in result["steps"])
+    assert all(
+        _by_key(result)[key]["status"] == STATUS_DONE
+        for key in (STEP_OPEN_PAGE, STEP_FIND_FEED, STEP_VERIFY_READ, STEP_READY)
+    )
+    # The FIFTH rung belongs to the harvest, not to discovery: a terminal discovery blob
+    # must NOT tick it, or the checklist is green again over a company with no jobs.
+    assert _by_key(result)[STEP_FIRST_SCAN]["status"] == STATUS_PENDING
     assert _by_key(result)[STEP_VERIFY_READ]["result"] == "read 90 job(s)"
     assert result["job_preview"] == [
         {"title": "Staff Engineer", "location": "Remote",
@@ -236,3 +244,81 @@ def test_read_back_drops_an_unsafe_preview_url_written_before_the_check_existed(
     assert result is not None
     assert result["job_preview"] == [{"title": "Engineer"}]
     assert result["live_view_url"] is None
+
+
+# --- with_first_scan: the harvest's one write into discovery's blob ------------
+
+
+def _terminal_blob() -> dict:
+    ledger = ProgressLedger()
+    ledger.finish(STEP_OPEN_PAGE, "opened acme.example — recorded 9 JSON request(s)")
+    ledger.finish(STEP_FIND_FEED, "found 2 candidate feed(s)")
+    ledger.finish(STEP_VERIFY_READ, "read 90 job(s)")
+    ledger.finish(STEP_READY, "reading the board's own feed directly")
+    ledger.start(STEP_FIRST_SCAN)
+    return {"discovery": ledger.snapshot(outcome=OUTCOME_TRACKING)}
+
+
+def test_a_landed_first_scan_ticks_only_its_own_rung() -> None:
+    """The harvest owns exactly ONE rung. Touching any other would let a nightly run
+    rewrite what discovery found — the two are different runs, days apart."""
+    result = with_first_scan(_terminal_blob(), ok=True, detail="read 88 job(s) from the board")
+    assert result is not None
+    steps = _by_key(result)
+    assert steps[STEP_FIRST_SCAN]["status"] == STATUS_DONE
+    assert steps[STEP_FIRST_SCAN]["result"] == "read 88 job(s) from the board"
+    assert steps[STEP_VERIFY_READ]["result"] == "read 90 job(s)"
+    assert steps[STEP_OPEN_PAGE]["status"] == STATUS_DONE
+
+
+def test_a_failed_first_scan_marks_the_rung_without_refusing_the_board() -> None:
+    """A first scan that fails is not a refusal: the board is still readable (discovery
+    proved that), so the run-level outcome must stay 'tracking' and only the rung go ✕."""
+    result = with_first_scan(_terminal_blob(), ok=False, detail="the board timed out")
+    assert result is not None
+    assert result["outcome"] == OUTCOME_TRACKING
+    assert _by_key(result)[STEP_FIRST_SCAN]["status"] == STATUS_FAILED
+    assert _by_key(result)[STEP_FIRST_SCAN]["result"] == "the board timed out"
+
+
+def test_a_success_overwrites_an_earlier_failed_rung() -> None:
+    """Deliberately not "only if still pending". Tonight's success has to be able to
+    clear last night's ✕, or the row carries an error that is no longer true."""
+    failed = {"discovery": with_first_scan(_terminal_blob(), ok=False, detail="nope")}
+    healed = with_first_scan(failed, ok=True, detail="read 12 job(s) from the board")
+    assert healed is not None
+    assert _by_key(healed)[STEP_FIRST_SCAN]["status"] == STATUS_DONE
+
+
+def test_a_row_written_before_the_rung_existed_still_gets_one() -> None:
+    """A board discovered before this rung shipped has a four-step blob. ``read_progress``
+    fills the fifth as pending, so its next nightly harvest self-heals it to a ✓ — no
+    backfill migration for a display-only field."""
+    legacy = {"discovery": {"steps": [
+        {"key": STEP_OPEN_PAGE, "status": STATUS_DONE, "result": "opened acme.example"},
+        {"key": STEP_FIND_FEED, "status": STATUS_DONE, "result": "found 1 candidate feed(s)"},
+        {"key": STEP_VERIFY_READ, "status": STATUS_DONE, "result": "read 4 job(s)"},
+        {"key": STEP_READY, "status": STATUS_DONE, "result": "reading the board"},
+    ], "outcome": OUTCOME_TRACKING}}
+    result = with_first_scan(legacy, ok=True, detail="read 4 job(s) from the board")
+    assert result is not None
+    assert _by_key(result)[STEP_FIRST_SCAN]["status"] == STATUS_DONE
+
+
+def test_a_config_with_no_checklist_writes_nothing() -> None:
+    """None means "this row has no checklist" — every ATS company. The caller must then
+    write NOTHING, which is what keeps a display-only blob off the harvest's path and
+    off provider_configs that mean something else entirely."""
+    assert with_first_scan({}, ok=True, detail="read 4 job(s)") is None
+    assert with_first_scan(None, ok=True, detail="read 4 job(s)") is None
+    assert with_first_scan(
+        {"workday_host": "acme.wd1.myworkdayjobs.com"}, ok=True, detail="read 4 job(s)"
+    ) is None
+
+
+def test_a_pathological_detail_cannot_bloat_every_row_of_the_list() -> None:
+    """The detail comes from an exception string and is RENDERED. Clipped on write for
+    the same reason every other result string is."""
+    result = with_first_scan(_terminal_blob(), ok=False, detail="x" * 5000)
+    assert result is not None
+    assert len(_by_key(result)[STEP_FIRST_SCAN]["result"]) <= 400

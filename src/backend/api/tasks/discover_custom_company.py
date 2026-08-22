@@ -9,8 +9,9 @@ synthesize a deterministic recipe, and prove it replays from our production path
 * **accept** → :func:`custom_companies_service.add_discovered_company` flips the
   provisional ``health_state='discovering'`` row to tracked and writes the recipe with
   ``transport='http_json'`` (replays for $0) or ``transport='browser_fetch'`` (replays
-  in our own Chromium); the existing nightly ``fetch_custom_company`` leaf task replays
-  it deterministically — no LLM at runtime, ever — and
+  in our own Chromium); the FIRST ``fetch_custom_company`` is then enqueued immediately
+  (:func:`_start_first_harvest`) and the nightly claim tick takes over from there — all
+  replays deterministic, no LLM at runtime, ever — and
 * **refuse** → :func:`custom_companies_service.record_discovery_refusal` flips that row
   to a disabled ``health_state='refused'`` + a ``company_add_attempts`` row carrying the
   NAMED STEP that failed ("verifying we can read it: …"), so the user sees why we can't
@@ -19,6 +20,13 @@ synthesize a deterministic recipe, and prove it replays from our production path
 A board with no capturable API is refused by design (the deterministic-only principle):
 there is no DOM/agent tier to fall back to, because such a tier could silently drift and
 burn resources daily. That is the whole reason the Stagehand path was retired.
+
+WHY THE FIRST HARVEST IS ENQUEUED HERE and not left to the 15-minute claim tick: the
+accept flips the row to tracked with all its discovery steps green, and until a harvest
+lands the company genuinely has ZERO jobs. A finished checklist over "0 open jobs" reads
+as "we looked and your board is empty", which is the single most confusing thing this
+feature did. Enqueuing here collapses that window from up to ~15 minutes to the length
+of one harvest.
 
 Runs on its OWN queue (``custom_discovery``) so a slow browser run never starves the
 nightly ``custom_ats_fetch`` harvest queue. The capture drives its Chromium OUT OF
@@ -41,6 +49,7 @@ from scripts.shared import database as db
 from ..config import settings
 from ..services import custom_companies_service as ccs
 from ..services.capture import discover
+from .claim_custom_companies import defer_fetch, push_next_run_at
 from .procrastinate_app import procrastinate_app
 
 logger = logging.getLogger(__name__)
@@ -96,6 +105,83 @@ def _progress_writer(
             )
 
     return _emit
+
+
+async def _start_first_harvest(
+    conn: Connection, *, company_id: str, transport: str
+) -> None:
+    """Enqueue the accepted board's FIRST harvest now, not on the next claim tick.
+
+    Reuses ``claim_custom_companies``' two scheduling primitives rather than issuing its
+    own defer, so there is exactly ONE way a ``fetch_custom_company`` gets queued:
+
+    1. :func:`defer_fetch` — same per-company queueing lock ``custom:{id}``. If the tick
+       somehow already queued this company, Procrastinate answers ``already_queued`` and
+       we do not add a second job.
+    2. :func:`push_next_run_at` — moves the row's ``next_run_at`` a full cadence ± jitter
+       ahead, but ONLY once the defer is on the broker. That is the real interlock: the
+       15-minute tick selects on ``next_run_at <= now()``, so a rescheduled row is not
+       even a candidate and the two enqueue paths can never produce two concurrent
+       harvests of the same board.
+
+    THE FAILURE PATH IS THE OLD BEHAVIOUR, deliberately. If the defer fails, we leave
+    ``next_run_at = now()`` (where :func:`add_discovered_company` set it) and say so in
+    the log — the next tick claims the row within 15 minutes exactly as it did before
+    this existed. Never push the schedule forward on a failed defer: that trades a
+    15-minute wait for a 24-hour one, silently.
+
+    NEVER RAISES. The board is already tracked and its recipe is already stored by the
+    time we get here; an enqueue problem must not turn a successful discovery into a
+    failed task (which, at ``retry=1``, would just log a traceback and change nothing).
+    """
+    # THE SAME KILL-SWITCH THE LEAF TASK APPLIES, re-read here because the flag can be
+    # flipped during a 240-second run. ``fetch_custom_company`` skips a browser_fetch
+    # harvest when discovery is off (that tier exists only because discovery created
+    # it); queueing a job that will immediately no-op is just noise, and leaving the row
+    # due means the tick retries it for free once the flag comes back. An http_json
+    # board is NOT gated there and is not gated here.
+    if transport == "browser_fetch" and not settings.custom_company_discovery_enabled:
+        logger.info(
+            "_start_first_harvest: custom_company_discovery_enabled off; leaving %s "
+            "for the claim tick rather than queueing a browser_fetch no-op", company_id,
+        )
+        return
+
+    try:
+        result = await defer_fetch(company_id)
+    except Exception:  # noqa: BLE001
+        # ``defer_fetch`` already narrows to broker/database errors; this is the
+        # last-resort guard so no enqueue surprise can cost us an accepted board.
+        logger.exception(
+            "_start_first_harvest: unexpected error deferring %s; the claim tick will "
+            "pick it up", company_id,
+        )
+        return
+
+    if result == "failed":
+        logger.warning(
+            "_start_first_harvest: could not queue the first harvest for %s; leaving it "
+            "due so the next claim tick runs it", company_id,
+        )
+        return
+
+    try:
+        await asyncio.to_thread(push_next_run_at, conn, company_id)
+    except psycopg2.Error:
+        # The harvest IS queued; only the reschedule failed. Worst case the next tick
+        # sees the row due and calls defer_fetch again, which the queueing lock answers
+        # with ``already_queued`` — the backstop doing exactly its job.
+        logger.warning(
+            "_start_first_harvest: queued the first harvest for %s but could not push "
+            "next_run_at; the queueing lock will absorb a duplicate claim",
+            company_id, exc_info=True,
+        )
+        return
+
+    logger.info(
+        "_start_first_harvest: %s first harvest %s (transport=%s); next cadence "
+        "scheduled", company_id, result, transport,
+    )
 
 
 @procrastinate_app.task(
@@ -167,6 +253,13 @@ async def discover_custom_company(
             logger.info(
                 "discover_custom_company: tracking %s as %s (transport=%s oracle=%s)",
                 normalized_url, created["id"], outcome.transport, outcome.oracle_kind,
+            )
+            # The board is tracked and has a proven recipe but ZERO jobs — read it NOW.
+            # This is the last thing the accept does, after the row and script are
+            # committed, so the harvest the worker picks up can never see a half-written
+            # company.
+            await _start_first_harvest(
+                conn, company_id=str(created["id"]), transport=outcome.transport,
             )
         else:
             reason = (

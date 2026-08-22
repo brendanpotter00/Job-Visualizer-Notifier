@@ -724,6 +724,37 @@ async def fetch_custom_company(company_id: str) -> None:
                     "Failed to update last_success_at for %s", company_id
                 )
 
+        # THE FIFTH RUNG on a discovered company's setup checklist (see
+        # ``services/discovery/progress``). Discovery ends by proving it can read the
+        # board and enqueuing THIS run; the row is tracked, green all the way down, and
+        # holding zero jobs until we land. So the run that lands says so — a ✓ carrying
+        # the count, or an ✕ carrying why — and a user watching "0 open jobs" has an
+        # answer instead of a finished-looking checklist.
+        #
+        # DISPLAY-ONLY, and guarded like it: a no-op for any company without a discovery
+        # blob, and any failure is swallowed with a log. Nothing about closing, missing
+        # or verifying reads this blob, so it must never be able to fail a harvest — the
+        # same stance ``record_company_harvest`` and ``mark_last_success`` take here.
+        try:
+            await asyncio.to_thread(
+                ccs.record_first_scan,
+                conn,
+                company_id,
+                ok=success,
+                detail=(
+                    f"read {jobs_seen} job(s) from the board"
+                    if success
+                    # The reason is RENDERED on the ✕, and it is the only thing that
+                    # distinguishes "we will retry tonight" from "this board changed".
+                    else "we could not read the board on this run "
+                         f"({verdict_reason or 'unknown error'}) — we will try again"
+                ),
+            )
+        except Exception:
+            logger.exception(
+                "Failed to record the first-scan checklist rung for %s", company_id
+            )
+
         # Per-run evidence — written for every run (VERIFIED/UNVERIFIED/FAILED) so
         # a wrong match / silent failure is diagnosable weeks later. oracle_kind is
         # the EFFECTIVE oracle (D2), and the completeness signals ride along.

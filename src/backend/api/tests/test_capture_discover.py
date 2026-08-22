@@ -884,7 +884,14 @@ async def test_an_accept_narrates_every_step_with_a_specific_result() -> None:
     assert outcome.progress is not None
     steps = _steps(outcome.progress)
     assert outcome.progress["outcome"] == "tracking"
-    assert all(step["status"] == "done" for step in outcome.progress["steps"])
+    assert all(
+        steps[key]["status"] == "done"
+        for key in ("open_page", "find_feed", "verify_read", "ready")
+    )
+    # The FIFTH rung is left OPEN for the first harvest to settle. Ticking it here would
+    # put a complete checklist over a company that still holds zero jobs — the exact
+    # "we looked and found nothing" misread this rung exists to prevent.
+    assert steps["first_scan"]["status"] == "active"
     assert "www.amazon.jobs" in steps["open_page"]["result"]
     assert steps["find_feed"]["result"].startswith("found ")
     assert steps["verify_read"]["result"].startswith("read ")

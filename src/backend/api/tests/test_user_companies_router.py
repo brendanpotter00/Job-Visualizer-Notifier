@@ -905,7 +905,7 @@ def test_a_discovering_row_lists_with_its_checklist_already_narrating(
     assert company["discovery"]["liveViewUrl"] is None       # own-Chromium default (D4)
     assert _steps(company)["open_page"]["status"] == "active"
     assert [s["key"] for s in company["discovery"]["steps"]] == [
-        "open_page", "find_feed", "verify_read", "ready"
+        "open_page", "find_feed", "verify_read", "ready", "first_scan"
     ]
 
 
