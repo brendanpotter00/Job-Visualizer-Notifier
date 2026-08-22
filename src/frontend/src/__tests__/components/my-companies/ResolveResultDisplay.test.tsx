@@ -102,7 +102,7 @@ describe('ResolveResultDisplay — Add company CTA', () => {
     const success = await screen.findByTestId('add-company-success');
     expect(success).toHaveTextContent(/now tracking duolingo/i);
     const link = screen.getByTestId('view-company-link');
-    expect(link).toHaveAttribute('href', '/my-companies/u-abc1234567');
+    expect(link).toHaveAttribute('href', '/add-companies/u-abc1234567');
   });
 
   it('renders the 422 reason instead of crashing', async () => {

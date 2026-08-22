@@ -13,12 +13,19 @@ export const ROUTES = {
   // Flag-gated (VITE_CUSTOM_COMPANIES_ENABLED). The path constant always
   // exists — App.tsx decides whether to register a route for it, and
   // PRIMARY_NAV_ITEMS decides whether to link to it.
-  MY_COMPANIES: '/my-companies',
+  MY_COMPANIES: '/add-companies',
   // Private per-company trend page for a user-added company. Flag-gated exactly
   // like MY_COMPANIES; `:id` is a RUNTIME `u-…` id, never a compile-time
   // `COMPANY_IDS` member — the page fetches by id instead of the companies-page
   // selector chain. Build a concrete path with `buildMyCompanyDetailPath`.
-  MY_COMPANY_DETAIL: '/my-companies/:id',
+  MY_COMPANY_DETAIL: '/add-companies/:id',
+  // The pre-rename path, kept ONLY so links and open tabs from before the
+  // "My Companies" → "Add Companies" rename keep working. App.tsx registers a
+  // splat route on it that redirects to MY_COMPANIES, sub-path and query
+  // included — the failure this prevents is a bookmarked
+  // `/my-companies/u-abc123` turning into a blank 404 rather than that
+  // company's trend page. Nothing links here; do not add a nav entry.
+  MY_COMPANIES_LEGACY: '/my-companies',
   WHY: '/why',
   QA: '/qa',
   ACCOUNT: '/account',
@@ -39,7 +46,7 @@ export const ROUTES = {
  * with the route pattern.
  */
 export function buildMyCompanyDetailPath(id: string): string {
-  return `/my-companies/${id}`;
+  return `/add-companies/${id}`;
 }
 
 /**
@@ -110,7 +117,7 @@ const PRIMARY_NAV_BASE = [
  */
 const MY_COMPANIES_NAV_ITEM = {
   path: ROUTES.MY_COMPANIES,
-  label: 'My Companies',
+  label: 'Add Companies',
   icon: 'AddBusiness',
 } as const;
 

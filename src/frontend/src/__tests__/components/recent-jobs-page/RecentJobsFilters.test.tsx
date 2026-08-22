@@ -486,7 +486,7 @@ describe('RecentJobsFilters — custom (user-added) companies', () => {
       .map((o) => o.textContent);
 
     // `config/companies.ts` has no entry for a runtime `u-<id>`, so without the
-    // My Companies lookup this dropdown offers the raw id as a choice.
+    // Add Companies lookup this dropdown offers the raw id as a choice.
     expect(labels).toContain('Acme Robotics');
     expect(labels).not.toContain(CUSTOM_ID);
   });
@@ -507,7 +507,7 @@ describe('RecentJobsFilters — custom (user-added) companies', () => {
     expect(store.getState().recentJobsFilters.filters.company).toContain(CUSTOM_ID);
   });
 
-  it('does not query the authed My Companies endpoint with the flag off', async () => {
+  it('does not query the authed Add Companies endpoint with the flag off', async () => {
     authState.isAuthenticated = true;
     flagState.isEnabled = false;
     const store = await seedWithCustomCompany();
@@ -522,7 +522,7 @@ describe('RecentJobsFilters — custom (user-added) companies', () => {
     ).toHaveLength(0);
   });
 
-  it('does not query the authed My Companies endpoint when signed out', async () => {
+  it('does not query the authed Add Companies endpoint when signed out', async () => {
     const store = await seedWithCustomCompany();
     renderWithProviders(<RecentJobsFilters />, { store });
 

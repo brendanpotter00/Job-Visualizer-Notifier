@@ -76,7 +76,7 @@ export interface CustomJobsPage {
  * does not recognize.
  *
  * The result must be the `u-<...>` runtime id, because that is the key the rest
- * of the custom-company UI (the My Companies list, the trend page, the job
+ * of the custom-company UI (the Add Companies list, the trend page, the job
  * card's company lookup) already uses.
  */
 /**

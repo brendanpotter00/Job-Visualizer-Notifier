@@ -57,7 +57,7 @@ export function CompanyJobHeader({ companyId, title, logoSize }: CompanyJobHeade
 /**
  * Name resolution for a board the user added themselves.
  *
- * Reads the name off the same `GET /api/users/companies` cache the My Companies
+ * Reads the name off the same `GET /api/users/companies` cache the Add Companies
  * list already subscribes to, so arriving from that list costs no extra request
  * and a deep link/refresh costs exactly one (RTK Query dedupes it across every
  * card on the page).

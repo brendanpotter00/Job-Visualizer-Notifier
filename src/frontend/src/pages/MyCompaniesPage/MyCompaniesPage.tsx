@@ -21,7 +21,7 @@ import { describeResolveError } from '../../features/userCompanies/resolveErrors
 import { useState } from 'react';
 
 /**
- * "My Companies" — paste a careers URL, get the company tracked.
+ * "Add Companies" — paste a careers URL, get the company tracked.
  *
  * ONE user action covers both outcomes. The submit runs the ATS resolver; if a supported
  * board is behind the URL the user still gets the preview and an explicit "Track this
@@ -59,7 +59,7 @@ export function MyCompaniesPage() {
       <Container maxWidth="sm" sx={{ py: RESPONSIVE.spacing.pageMarginY }}>
         <Paper sx={{ p: RESPONSIVE.spacing.paperPaddingLg, textAlign: 'center' }}>
           <Typography variant="h5" gutterBottom>
-            My Companies
+            Add Companies
           </Typography>
           <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
             Sign in to check whether a company&apos;s careers page can be tracked.
@@ -112,7 +112,7 @@ export function MyCompaniesPage() {
   return (
     <Container maxWidth="md" sx={{ py: RESPONSIVE.spacing.pageMarginY }}>
       <Typography variant="h4" component="h1" gutterBottom>
-        My Companies
+        Add Companies
       </Typography>
 
       <Stack spacing={3}>

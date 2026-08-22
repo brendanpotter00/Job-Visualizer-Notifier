@@ -141,10 +141,17 @@ own eventual signup. Event taxonomy (custom events live in `features/analytics/e
 - `VITE_POSTHOG_KEY` — PostHog project key (optional; analytics off when unset)
 - `VITE_POSTHOG_HOST` — ingestion host (optional; defaults to `/ingest`)
 
-## Custom company sources (My Companies)
+## Custom company sources (Add Companies)
 
-Flag-gated. The `/my-companies` page takes a pasted careers URL and tracks the company
+Flag-gated. The `/add-companies` page takes a pasted careers URL and tracks the company
 behind it — **one user action, two outcomes**:
+
+**The page was renamed** from "My Companies" / `/my-companies`. The old path is still
+registered (behind the same flag) as a splat route that redirects onto `/add-companies`,
+sub-path and query preserved, so a bookmarked `/my-companies/u-abc123` still lands on that
+company's trend page. `ROUTES.MY_COMPANIES` / `MyCompaniesPage` / `components/my-companies/`
+kept their old *internal* names on purpose — renaming files and symbols would have churned
+every import for zero user-visible gain.
 
 - **A supported board** (Greenhouse / Ashby / Lever / Gem / Workday / Eightfold) is resolved,
   probed, and previewed ("Found 663 open jobs on Workday"). Nothing is persisted until the
@@ -154,8 +161,9 @@ behind it — **one user action, two outcomes**:
   answers `202 discovery_pending`. There is deliberately **no second button** — the removed
   "Try one-time discovery" CTA was a click standing between the user and the only thing left
   to do. Because discovery costs a Claude call and a headless Chromium session, the submit
-  button says **"Check & set up"** and the page's intro alert names both outcomes: that copy
-  is the consent, and it must not be softened back into "nothing is added".
+  button says **"Add company"** and the page's intro alert names both outcomes: that copy
+  is the consent, and it must not be softened back into "nothing is added". The button label
+  may change; what it may never do is shrink back to promising a read-only check.
 - **The trigger is exactly `no_ats_detected`.** Every other resolver failure (malformed URL,
   SSRF refusal, 429, 503, timeout) stays a plain error and starts nothing — a typo must never
   cost an LLM call. `MyCompaniesPage` owns both mutations plus one synchronous `busy` flag
@@ -219,7 +227,7 @@ same answer.
   compile error here); the components are `DiscoveryChecklist.tsx` + `DiscoveryJobPreview.tsx`.
 
 **Env vars** (go in `src/frontend/.env.local` — see Gotcha #2):
-- `VITE_CUSTOM_COMPANIES_ENABLED` — set to exactly `true` to show the My Companies page
+- `VITE_CUSTOM_COMPANIES_ENABLED` — set to exactly `true` to show the Add Companies page
   (optional; **defaults to off**, and any other value keeps it off)
 - `VITE_DISCOVERY_PROGRESS_ENABLED` — set to exactly `true` for the discovery checklist,
   job preview and live view (optional; **defaults to off**; nested under the flag above —

@@ -114,7 +114,7 @@ function routeFetch(resolve: Response, add?: Response) {
 async function submitUrl(url = 'https://intel.com/careers') {
   const user = userEvent.setup();
   await user.type(screen.getByLabelText(/careers page url/i), url);
-  await user.click(screen.getByRole('button', { name: /check & set up/i }));
+  await user.click(screen.getByRole('button', { name: /add company/i }));
   return user;
 }
 
@@ -130,7 +130,23 @@ describe('MyCompaniesPage', () => {
     expect(screen.queryByLabelText(/careers page url/i)).not.toBeInTheDocument();
   });
 
+  // The page is named "Add Companies" in the sidebar, so it has to be named that here
+  // too — a nav entry that lands on a differently-titled page reads as a wrong turn.
+  // Both auth states carry the name, because the signed-out prompt is the first thing a
+  // logged-out visitor following the nav link sees.
+  it('titles the page "Add Companies" once signed in', () => {
+    renderWithProviders(<MyCompaniesPage />);
+    expect(screen.getByRole('heading', { level: 1, name: 'Add Companies' })).toBeInTheDocument();
+  });
+
   describe('signed out', () => {
+    it('names the page in the sign-in prompt too', () => {
+      mockAuthState.isAuthenticated = false;
+      renderWithProviders(<MyCompaniesPage />);
+
+      expect(screen.getByRole('heading', { name: 'Add Companies' })).toBeInTheDocument();
+    });
+
     it('shows a sign-in prompt instead of the form', () => {
       mockAuthState.isAuthenticated = false;
       renderWithProviders(<MyCompaniesPage />);
@@ -171,7 +187,7 @@ describe('MyCompaniesPage', () => {
 
     it('labels the button for what it actually does, not just a read-only check', () => {
       renderWithProviders(<MyCompaniesPage />);
-      expect(screen.getByRole('button', { name: /check & set up/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /add company/i })).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /^check url$/i })).not.toBeInTheDocument();
     });
 
@@ -179,7 +195,7 @@ describe('MyCompaniesPage', () => {
       const user = userEvent.setup();
       renderWithProviders(<MyCompaniesPage />);
 
-      const button = screen.getByRole('button', { name: /check & set up/i });
+      const button = screen.getByRole('button', { name: /add company/i });
       expect(button).toBeDisabled();
 
       await user.type(screen.getByLabelText(/careers page url/i), 'https://intel.com');
@@ -191,7 +207,7 @@ describe('MyCompaniesPage', () => {
       renderWithProviders(<MyCompaniesPage />);
 
       await user.type(screen.getByLabelText(/careers page url/i), '   ');
-      expect(screen.getByRole('button', { name: /check & set up/i })).toBeDisabled();
+      expect(screen.getByRole('button', { name: /add company/i })).toBeDisabled();
     });
 
     it('trims whitespace before sending the URL', async () => {
@@ -250,7 +266,7 @@ describe('MyCompaniesPage', () => {
       renderWithProviders(<MyCompaniesPage />);
 
       await user.type(screen.getByLabelText(/careers page url/i), 'https://intel.com');
-      await user.click(screen.getByRole('button', { name: /check & set up/i }));
+      await user.click(screen.getByRole('button', { name: /add company/i }));
 
       const toggle = await screen.findByRole('button', { name: /redirect chain \(2\)/i });
       await user.click(toggle);
@@ -300,8 +316,8 @@ describe('MyCompaniesPage', () => {
     });
   });
 
-  // The defect: "There should not be two steps between Check URL and do one-time
-  // discovery." A URL with no supported ATS behind it must reach discovery from the
+  // The defect: "There should not be two steps between checking a URL and doing the
+  // one-time discovery." A URL with no supported ATS behind it must reach discovery from the
   // SAME action, while everything else keeps the behavior it had.
   describe('one-action discovery (non-ATS URL)', () => {
     it('starts discovery from a single submit, with no second button to click', async () => {
@@ -369,7 +385,7 @@ describe('MyCompaniesPage', () => {
       releaseAdd(jsonResponse(DISCOVERY_202, 202));
 
       expect(await screen.findByTestId('discovery-pending')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /check & set up/i })).toBeEnabled();
+      expect(screen.getByRole('button', { name: /add company/i })).toBeEnabled();
     });
 
     it('resolves an already-discovered board to the tracked company (idempotent 200)', async () => {
@@ -397,7 +413,7 @@ describe('MyCompaniesPage', () => {
       expect(await screen.findByTestId('discovery-already-tracked')).toBeInTheDocument();
       expect(screen.getByRole('link', { name: /view its trend page/i })).toHaveAttribute(
         'href',
-        '/my-companies/u-abc1234567'
+        '/add-companies/u-abc1234567'
       );
     });
 

@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useURLSync, useBrowserNavigation } from './hooks';
 import { RootLayout } from '../components/layout/RootLayout.tsx';
 import { CompaniesPage } from '../pages/CompaniesPage/CompaniesPage';
@@ -28,6 +28,23 @@ import { useRecordVisit } from '../features/auth/useRecordVisit';
 import { usePostHogPageview } from '../features/analytics/usePostHogPageview';
 import { usePostHogIdentify } from '../features/analytics/usePostHogIdentify';
 import { useSignupFunnel } from '../features/analytics/useSignupFunnel';
+
+/**
+ * Redirects the pre-rename `/my-companies…` path onto `/add-companies…`.
+ *
+ * Mounted on a splat route, so it stands in for the list page AND everything
+ * under it. It rebuilds the destination from whatever followed the old prefix
+ * rather than sending everyone to the bare list, because the case that matters
+ * is an open tab or a bookmark on `/my-companies/u-abc123` — one company's
+ * trend page — quietly becoming "here is the list, go find it again". `search`
+ * and `hash` ride along for the same reason. `replace` keeps the dead path out
+ * of history so Back doesn't land on it and bounce forward again.
+ */
+function LegacyMyCompaniesRedirect() {
+  const { pathname, search, hash } = useLocation();
+  const suffix = pathname.slice(ROUTES.MY_COMPANIES_LEGACY.length);
+  return <Navigate to={`${ROUTES.MY_COMPANIES}${suffix}${search}${hash}`} replace />;
+}
 
 /**
  * App content component with routing and hooks
@@ -115,18 +132,32 @@ function AppContent() {
           <Route path={ROUTES.SAVED_FILTERS} element={<SavedFiltersPage />} />
           <Route path={ROUTES.VOTE_FEATURES} element={<VoteFeaturesPage />} />
           {/* Flag-gated: with VITE_CUSTOM_COMPANIES_ENABLED off the route is
-              not registered at all, so /my-companies is a 404 rather than a
+              not registered at all, so /add-companies is a 404 rather than a
               reachable-but-hidden page. */}
           {CUSTOM_COMPANIES_CONFIG.isEnabled && (
             <Route path={ROUTES.MY_COMPANIES} element={<MyCompaniesPage />} />
           )}
           {/* Private per-company trend page. Same flag gate — with the flag off
-              the `/my-companies/:id` route is not registered, so a runtime id
+              the `/add-companies/:id` route is not registered, so a runtime id
               is a 404 rather than a reachable-but-empty page. */}
           {CUSTOM_COMPANIES_CONFIG.isEnabled && (
             <Route path={ROUTES.MY_COMPANY_DETAIL} element={<MyCompanyTrendPage />} />
           )}
         </Route>
+        {/* The pre-rename path, still routable so tabs and bookmarks on
+            /my-companies survive the rename. Behind the SAME flag as the two
+            routes above: with the feature off neither the new path nor the old
+            one is registered, so the app is byte-for-byte what shipped before
+            the feature existed. Deliberately a sibling of the layout route
+            rather than a child — the element only redirects, and mounting the
+            whole shell (drawer, page hooks, its network calls) for a URL that
+            is replaced on the first effect is work nobody ever sees. */}
+        {CUSTOM_COMPANIES_CONFIG.isEnabled && (
+          <Route
+            path={`${ROUTES.MY_COMPANIES_LEGACY}/*`}
+            element={<LegacyMyCompaniesRedirect />}
+          />
+        )}
       </Routes>
     </>
   );

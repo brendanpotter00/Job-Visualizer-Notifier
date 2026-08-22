@@ -35,7 +35,7 @@ describe('isDiscoveryPending', () => {
 
 describe('DiscoveryStatus', () => {
   it('renders no button — discovery is already running by the time this shows', () => {
-    // The defect this component was reshaped to fix: a second click between "Check URL"
+    // The defect this component was reshaped to fix: a second click between the submit
     // and the one-time discovery. If a button ever comes back here, that click is back.
     renderWithProviders(<DiscoveryStatus result={undefined} error={undefined} />);
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
@@ -61,7 +61,7 @@ describe('DiscoveryStatus', () => {
     expect(screen.getByText(/now tracking acme\.example/i)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /view its trend page/i })).toHaveAttribute(
       'href',
-      '/my-companies/u-abc1234567',
+      '/add-companies/u-abc1234567',
     );
   });
 

@@ -106,7 +106,7 @@ describe('fetchMyCustomJobsPage', () => {
   it('groups rows by the company id carried in source_id, not by the company column', async () => {
     // A row whose `company` column disagrees with its `custom:<id>` namespace.
     // The namespace wins: it is what the endpoint's authorization and the rest
-    // of the custom-company UI (My Companies, the trend page) are keyed on.
+    // of the custom-company UI (Add Companies, the trend page) are keyed on.
     mockFetch([
       makeCustomRow('u-aaa', 'j1'),
       makeCustomRow('u-bbb', 'j2'),

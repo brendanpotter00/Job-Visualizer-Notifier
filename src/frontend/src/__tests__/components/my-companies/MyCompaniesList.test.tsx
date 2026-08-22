@@ -80,7 +80,7 @@ describe('MyCompaniesList', () => {
     // Links to the private trend page by runtime id.
     expect(within(rowA).getByTestId('my-company-link')).toHaveAttribute(
       'href',
-      '/my-companies/u-aaaaaaaaaa'
+      '/add-companies/u-aaaaaaaaaa'
     );
 
     // Company B: has a job count and a last-checked timestamp.

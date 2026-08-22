@@ -27,11 +27,18 @@ interface ResolveUrlFormProps {
  * flight (disabled, not cleared) so a failed URL can be edited and retried
  * instead of retyped.
  *
- * The label says "Check & set up", not "Check URL", because this button no longer only
+ * The label says "Add company", never "Check URL", because this button no longer only
  * reads: a URL with no supported ATS behind it goes straight into a one-time discovery
  * that costs an LLM call and a headless browser session. A button promising a read-only
  * check that quietly spends money is a worse defect than the extra click it replaced, so
- * the label and the helper text below both name the second outcome up front.
+ * the label names the thing the user is actually asking for — the company ends up tracked
+ * — and the helper text below, plus the page's intro alert, name which of the two routes
+ * it takes to get there. Whatever this label becomes, it must never shrink back to
+ * promising a read-only check.
+ *
+ * The in-flight labels stay phase-specific ("Checking…" then "Setting up…") rather than
+ * echoing the button: they are the only place the user can see WHICH half of the action
+ * is running, and the discovery half is the slow, expensive one.
  */
 export function ResolveUrlForm({ onSubmit, status }: ResolveUrlFormProps) {
   const [value, setValue] = useState('');
@@ -70,7 +77,7 @@ export function ResolveUrlForm({ onSubmit, status }: ResolveUrlFormProps) {
             ? 'Setting up…'
             : status === 'checking'
               ? 'Checking…'
-              : 'Check & set up'}
+              : 'Add company'}
         </Button>
       </Stack>
     </Box>

@@ -83,9 +83,9 @@ function rawJob(id: string, firstSeenAt: string): BackendJobListing {
 function renderTrendPage(id = 'u-abc1234567') {
   return renderWithProviders(
     <Routes>
-      <Route path="/my-companies/:id" element={<MyCompanyTrendPage />} />
+      <Route path="/add-companies/:id" element={<MyCompanyTrendPage />} />
     </Routes>,
-    { initialEntries: [`/my-companies/${id}`] }
+    { initialEntries: [`/add-companies/${id}`] }
   );
 }
 

@@ -113,7 +113,7 @@ export function MyCompanyTrendPage() {
 
   const backLink = (
     <Link component={RouterLink} to={ROUTES.MY_COMPANIES} variant="body2">
-      ← Back to My Companies
+      ← Back to Add Companies
     </Link>
   );
 
