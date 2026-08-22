@@ -225,6 +225,42 @@ export function describeDiscoveryOutcome(
   return `Setting up ${company.displayName}`;
 }
 
+/**
+ * The hosted live-view URL WHILE THERE IS STILL A BROWSER OPEN — otherwise null.
+ *
+ * The URL alone is not permission to render it. The backend publishes it the moment the
+ * Browserbase session exists and then never clears it: the ledger keeps it for the
+ * record, and the terminal write copies it back in. So a blob 200 seconds past the end
+ * of the session still carries a URL that now points at nothing.
+ *
+ * `outcome === 'running'` is NOT the window either, and that was the bug. A run stays
+ * `running` for its whole 240s budget, but the session is released in `capture_board`'s
+ * `finally` — which returns straight into `ledger.finish(STEP_OPEN_PAGE)` +
+ * `ledger.start(STEP_FIND_FEED)` + one publish. Capture is ~30s of a ~90s run, so the
+ * frame spent the remaining minute pointed at a socket the backend had already closed,
+ * and Browserbase's own inspector painted "WebSocket disconnected" across a 16:10 box
+ * inside our page. Every successful run did this; it was never an error state.
+ *
+ * `open_page` being `active` IS the window, exactly, and for free: the same publish that
+ * ticks that step over is the one that follows the release, so "step 1 is still running"
+ * and "the browser is still open" are the same instant on the same write. No backend
+ * signal needed — the one we want is already in the blob.
+ *
+ * The `outcome` check stays as the second half of the AND because a discovery TIMEOUT
+ * freezes the last live snapshot with a step still `active` (see `renderedStatus`); a
+ * run that is over has no browser open no matter what its stalled checklist says.
+ */
+export function watchableLiveViewUrl(
+  company: Pick<UserCompany, 'healthState' | 'discovery'>,
+): string | null {
+  const url = company.discovery?.liveViewUrl;
+  if (!url || resolveDiscoveryOutcome(company) !== 'running') {
+    return null;
+  }
+  const openPage = company.discovery?.steps.find((step) => step.key === 'open_page');
+  return openPage?.status === 'active' ? url : null;
+}
+
 /** The step a refusal stopped on, or null (e.g. a timeout, which fails no step). */
 export function failedDiscoveryStep(
   discovery: Pick<DiscoveryProgress, 'steps'> | null | undefined,

@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { screen, within } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '../../../test/testUtils';
 import { DiscoveryChecklist } from '../../../components/my-companies/DiscoveryChecklist';
@@ -24,7 +24,13 @@ import type {
  *   telemetry ("recorded 14 JSON request(s)") and putting it under every rung buried
  *   the four words that matter in four lines of jargon; and
  * - with no live-view URL — the DEFAULT, because our own Chromium has no hosted view —
- *   there is no iframe, no toggle, and nothing missing from the layout.
+ *   there is no iframe, no toggle, and nothing missing from the layout; and
+ * - the live view is torn down when the BROWSER closes, not when the RUN ends. Those
+ *   are ~60 seconds apart, and the gap is the whole bug this suite now pins: the
+ *   backend releases the session in `capture_board`'s `finally`, which ticks `open_page`
+ *   over while the run stays `running` for another minute. The frame used to sit there
+ *   the whole time rendering Browserbase's own "WebSocket disconnected" across a 16:10
+ *   box, on every SUCCESSFUL run.
  *
  * The component is presentational and flag-free (its caller owns the flag), so these
  * render it directly. The flag-off render is asserted in `MyCompaniesList.test.tsx`,
@@ -74,10 +80,31 @@ function company(
   };
 }
 
+/**
+ * Mid-run, and PAST the capture: `open_page` has ticked over, which is the same publish
+ * that follows the backend handing the browser back. The run is still `running` for
+ * another ~60s. There is nothing left to watch here.
+ */
 const RUNNING = progress({
   steps: [
     step('open_page', 'done', 'opened careers.acme.example — recorded 14 JSON request(s)'),
     step('find_feed', 'active'),
+    step('verify_read', 'pending'),
+    step('ready', 'pending'),
+  ],
+});
+
+const LIVE_VIEW_URL = 'https://www.browserbase.com/devtools-fullscreen/s/abc';
+
+/**
+ * The ONLY window in which a hosted session is watchable: `open_page` still `active`,
+ * so the browser the URL points at is still open. ~30 seconds of a ~90 second run.
+ */
+const CAPTURING = progress({
+  liveViewUrl: LIVE_VIEW_URL,
+  steps: [
+    step('open_page', 'active'),
+    step('find_feed', 'pending'),
     step('verify_read', 'pending'),
     step('ready', 'pending'),
   ],
@@ -240,22 +267,12 @@ describe('DiscoveryChecklist', () => {
     expect(screen.getByTestId('discovery-step-ready')).toBeInTheDocument();
   });
 
-  it('shows the live view straight away, read-only, when a session has one', async () => {
+  it('shows the live view straight away, read-only, while the browser is open', async () => {
     const user = userEvent.setup();
-    renderWithProviders(
-      <DiscoveryChecklist
-        company={company(
-          'discovering',
-          progress({
-            ...RUNNING,
-            liveViewUrl: 'https://www.browserbase.com/devtools-fullscreen/s/abc',
-          }),
-        )}
-      />,
-    );
+    renderWithProviders(<DiscoveryChecklist company={company('discovering', CAPTURING)} />);
 
-    // EXPANDED on arrival. The session lasts about a minute; a run that ends before the
-    // user notices a "Watch live" button showed them nothing at all.
+    // EXPANDED on arrival. The session lasts about thirty seconds; a run that ends
+    // before the user notices a "Watch live" button showed them nothing at all.
     const frame = screen.getByTestId('discovery-live-view');
     // `navbar=false` strips the host's own chrome; the wrapper kills pointer events so
     // nobody can drive someone else's browser session from our page.
@@ -278,20 +295,147 @@ describe('DiscoveryChecklist', () => {
     expect(screen.queryByTestId('discovery-live-view')).not.toBeInTheDocument();
   });
 
+  it('reserves ZERO height when there is no live view — not an empty box', () => {
+    // The strongest form of "no dead space": with no URL the section is not in the DOM
+    // at all, so there is no node that could have a height. A `Collapse` left mounted at
+    // `height: 0` would satisfy the eye and still be a node; `unmountOnExit` is what
+    // makes this assertion possible.
+    const { container } = renderWithProviders(
+      <DiscoveryChecklist company={company('discovering', progress({ ...RUNNING }))} />,
+    );
+    expect(screen.queryByTestId('discovery-live-view-section')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('discovery-live-view-frame')).not.toBeInTheDocument();
+    expect(container.querySelectorAll('iframe')).toHaveLength(0);
+    // The checklist itself is whole — the panel's last child is the fourth rung, with
+    // nothing after it.
+    expect(screen.getByTestId('discovery-step-ready')).toBeInTheDocument();
+  });
+
+  it('unmounts the frame when the BROWSER closes, while the run is still running', () => {
+    // THE BUG. The backend releases the Browserbase session in `capture_board`'s
+    // `finally`, and the very next thing it does is tick `open_page` over — but the run
+    // stays `running` for another ~60 seconds of feed-finding and replay-verifying.
+    // Gating on `outcome === 'running'` therefore held a frame over a socket the backend
+    // had already closed, and Browserbase's inspector filled it with "WebSocket
+    // disconnected" — on every SUCCESSFUL run, not on any error.
+    const { container, rerender } = renderWithProviders(
+      <DiscoveryChecklist company={company('discovering', CAPTURING)} />,
+    );
+    expect(screen.getByTestId('discovery-live-view')).toBeInTheDocument();
+
+    // Same blob one poll later: the URL is STILL there (the ledger keeps it for the
+    // record and the terminal write copies it back), so the URL alone cannot be the
+    // signal. `open_page` going `done` is.
+    const released = progress({ ...RUNNING, liveViewUrl: LIVE_VIEW_URL });
+    rerender(<DiscoveryChecklist company={company('discovering', released)} />);
+
+    expect(screen.getByTestId('discovery-checklist')).toHaveAttribute('data-outcome', 'running');
+    expect(released.liveViewUrl).toBe(LIVE_VIEW_URL);
+    // GONE, not hidden: while it is mounted it is Browserbase's page and it is free to
+    // paint their error text into our layout. No styling answers that.
+    expect(screen.queryByTestId('discovery-live-view')).not.toBeInTheDocument();
+    expect(container.querySelectorAll('iframe')).toHaveLength(0);
+  });
+
+  it('closes the space smoothly and ends with nothing in it', async () => {
+    const { rerender } = renderWithProviders(
+      <DiscoveryChecklist company={company('discovering', CAPTURING)} />,
+    );
+    const frameBox = screen.getByTestId('discovery-live-view-frame');
+    const panel = screen.getByTestId('discovery-checklist');
+
+    rerender(
+      <DiscoveryChecklist
+        company={company('discovering', progress({ ...RUNNING, liveViewUrl: LIVE_VIEW_URL }))}
+      />,
+    );
+
+    // NO JUMP. The sized wrapper is the SAME node, still mounted and still holding the
+    // shape — that is what `Collapse` measures to know the height to animate down from.
+    // Tearing it out with the iframe would drop ~375px in one frame and then animate the
+    // 36px remainder: a jump followed by a slide.
+    expect(screen.getByTestId('discovery-live-view-frame')).toBe(frameBox);
+    // ...and the checklist above it never remounts, so the rungs the user is reading
+    // stay exactly where they are.
+    expect(screen.getByTestId('discovery-checklist')).toBe(panel);
+
+    // AND IT ENDS AT NOTHING. Once the exit settles the whole section is unmounted —
+    // no toggle for a session that is over, no 0px box, nothing.
+    await waitFor(() => {
+      expect(screen.queryByTestId('discovery-live-view-section')).not.toBeInTheDocument();
+    });
+    expect(screen.queryByTestId('discovery-live-view-frame')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('discovery-live-view-toggle')).not.toBeInTheDocument();
+  });
+
+  it('takes the space back from a frame that never loads', () => {
+    // A frame that shows nothing is the same dead space as a frame showing a dead
+    // socket. NOTE the signal: `onError` on an <iframe> can never fire — react-dom 19
+    // attaches only `load` for the iframe tag — so the watchdog is keyed on the ABSENCE
+    // of a `load` rather than on a failure event that does not exist.
+    vi.useFakeTimers();
+    try {
+      renderWithProviders(<DiscoveryChecklist company={company('discovering', CAPTURING)} />);
+      expect(screen.getByTestId('discovery-live-view')).toBeInTheDocument();
+
+      act(() => {
+        vi.advanceTimersByTime(10_000);
+      });
+
+      expect(screen.queryByTestId('discovery-live-view')).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('leaves a frame that DID load alone', () => {
+    // The other half of the watchdog, and the one that matters: it must not delete a
+    // working live view. A frame that reports `load` is never touched again, however
+    // long the capture then takes.
+    vi.useFakeTimers();
+    try {
+      renderWithProviders(<DiscoveryChecklist company={company('discovering', CAPTURING)} />);
+      fireEvent.load(screen.getByTestId('discovery-live-view'));
+
+      act(() => {
+        vi.advanceTimersByTime(60_000);
+      });
+
+      expect(screen.getByTestId('discovery-live-view')).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('hides the live view once the run is over', () => {
     renderWithProviders(
       <DiscoveryChecklist
-        company={company(
-          'refused',
-          progress({
-            ...REFUSED,
-            liveViewUrl: 'https://www.browserbase.com/devtools-fullscreen/s/abc',
-          }),
-        )}
+        company={company('refused', progress({ ...REFUSED, liveViewUrl: LIVE_VIEW_URL }))}
       />,
     );
     // The session is gone by then — the URL would render a dead frame.
     expect(screen.queryByTestId('discovery-live-view-toggle')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('discovery-live-view')).not.toBeInTheDocument();
+  });
+
+  it('shows nothing to watch on a run that TIMED OUT mid-capture', () => {
+    // The stalled-snapshot case: the 240s guard cancels the task while `open_page` is
+    // still `active`, so the blob freezes with a live-looking step AND a URL. The row
+    // flips to `refused`. The browser is long gone — "step 1 is active" is only a live
+    // browser while the run itself is still live.
+    const stalledMidCapture = progress({
+      liveViewUrl: LIVE_VIEW_URL,
+      steps: [
+        step('open_page', 'active'),
+        step('find_feed', 'pending'),
+        step('verify_read', 'pending'),
+        step('ready', 'pending'),
+      ],
+    });
+    renderWithProviders(<DiscoveryChecklist company={company('refused', stalledMidCapture)} />);
+
+    expect(screen.queryByTestId('discovery-live-view')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('discovery-live-view-section')).not.toBeInTheDocument();
   });
 
   it('renders nothing at all for a company with no checklist', () => {

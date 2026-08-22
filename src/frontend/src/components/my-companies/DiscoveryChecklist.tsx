@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -19,6 +19,7 @@ import {
   describeDiscoveryStep,
   failedDiscoveryStep,
   resolveDiscoveryOutcome,
+  watchableLiveViewUrl,
 } from './companyHealth';
 
 /** Status glyph per step. Text, not icons, so the state survives a screenshot. */
@@ -43,6 +44,114 @@ const STEP_COLOR: Record<DiscoveryStep['status'], string> = {
  */
 function liveViewSrc(url: string): string {
   return url.includes('navbar=') ? url : `${url}${url.includes('?') ? '&' : '?'}navbar=false`;
+}
+
+/** How long a live-view frame may show nothing before we take its space back. */
+const FRAME_LOAD_TIMEOUT_MS = 10_000;
+
+/**
+ * The optional "watch it happen" panel, and — more importantly — the thing that takes
+ * itself away again.
+ *
+ * `url` is `watchableLiveViewUrl`, which is non-null only while a browser is genuinely
+ * open. Everything here keys off that ONE fact, in two different ways on purpose:
+ *
+ * - The IFRAME is gated on it directly, so it unmounts in the very same render the
+ *   session ends. Not hidden, not zero-height, not `display: none` — GONE. While it is
+ *   mounted it is Browserbase's page, free to paint whatever it likes into our layout,
+ *   and what it paints over a released session is "WebSocket disconnected" in their
+ *   voice. There is no styling that answers that; only unmounting does.
+ * - The SECTION is gated on it through a `Collapse`, so ~375px of frame does not
+ *   vanish from under a checklist the user is mid-read. `unmountOnExit` is what makes
+ *   the collapsed state truly nothing rather than a 0px box: react-transition-group
+ *   returns `null` once the exit settles, so the common case — our own Chromium, which
+ *   has no hosted view at all — renders not one node and reserves not one pixel.
+ *
+ * The sized wrapper stays mounted through the exit while the frame inside it does not.
+ * That is deliberate and it is what makes the two gates cooperate: `Collapse` measures
+ * the wrapper to know what height to animate down FROM, so dropping the frame without
+ * it would collapse 375px→36px instantly and then animate the leftover — a jump, then
+ * a slide. Empty, it holds the shape for ~300ms and closes.
+ *
+ * A frame that never loads is treated as a session that ended — see LOAD WATCHDOG. All
+ * three "nothing to show" states are recorded as the URL they refer to rather than as a
+ * boolean, so no verdict can outlive its own session and suppress the next one.
+ */
+function LiveView({ url }: { url: string | null }) {
+  const [open, setOpen] = useState(true);
+  const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
+  const [deadUrl, setDeadUrl] = useState<string | null>(null);
+
+  // LOAD WATCHDOG — the only way to notice a frame that never arrives.
+  //
+  // `onError` on an <iframe> is DEAD CODE in React and looks like it works: react-dom
+  // 19 registers non-delegated listeners per tag, and its `iframe` case attaches `load`
+  // and nothing else (`error` is wired for img/image/embed/source/link only). So the
+  // obvious guard never fires — not rarely, never — and neither would a hand-rolled one
+  // in the general case, because a cross-origin host that answers with an error PAGE
+  // fires `load` like any successful navigation. There is no reachable signal that says
+  // "this failed".
+  //
+  // What is reachable is `load` itself, so the question is inverted: not "did it fail?"
+  // but "has anything arrived at all?" A frame that has produced no `load` by the time
+  // the capture it is narrating is a third over has nothing in it, and an empty 16:10
+  // box is the dead space this whole component is about. It gets taken away.
+  //
+  // The window is generous ON PURPOSE. A slow frame that lands at 11s loses the rest of
+  // a ~30s session, which costs the user some of a garnish; a window tight enough to
+  // fire on a merely-slow load would delete the feature on every slow connection.
+  useEffect(() => {
+    if (url === null || url === loadedUrl) {
+      return undefined;
+    }
+    const timer = setTimeout(() => setDeadUrl(url), FRAME_LOAD_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [url, loadedUrl]);
+
+  const liveUrl = url !== null && url !== deadUrl ? url : null;
+
+  return (
+    <Collapse in={liveUrl !== null} unmountOnExit>
+      <Box sx={{ mt: 1.5 }} data-testid="discovery-live-view-section">
+        <Button
+          size="small"
+          onClick={() => setOpen((isOpen) => !isOpen)}
+          aria-expanded={open}
+          data-testid="discovery-live-view-toggle"
+        >
+          {open ? 'Hide live view' : 'Watch live'}
+        </Button>
+        <Collapse in={open}>
+          <Box
+            // `pointer-events: none` — read-only by construction. This is someone
+            // else's hosted browser session; it is here to be watched, never driven.
+            data-testid="discovery-live-view-frame"
+            sx={{
+              mt: 1,
+              pointerEvents: 'none',
+              position: 'relative',
+              width: '100%',
+              aspectRatio: '16 / 10',
+              overflow: 'hidden',
+              borderRadius: 1,
+            }}
+          >
+            {liveUrl ? (
+              <Box
+                component="iframe"
+                src={liveViewSrc(liveUrl)}
+                title="Live view of the setup session"
+                sandbox="allow-scripts allow-same-origin"
+                onLoad={() => setLoadedUrl(liveUrl)}
+                data-testid="discovery-live-view"
+                sx={{ width: '100%', height: '100%', border: 0 }}
+              />
+            ) : null}
+          </Box>
+        </Collapse>
+      </Box>
+    </Collapse>
+  );
 }
 
 /**
@@ -164,14 +273,17 @@ interface DiscoveryChecklistProps {
  * no iframe, no toggle, and a checklist that renders exactly as it always has — no
  * empty box, no reserved space, no layout shift.
  *
- * When there IS one it opens EXPANDED, because the thing it shows lasts about a minute:
- * a hosted session is watchable only while the capture is running, and a run that ends
- * before the user notices a "Watch live" button showed them nothing. The toggle stays
- * so it can be collapsed, and the frame is `pointer-events: none` either way — this is
- * someone else's browser, here to be watched and never driven.
+ * When there IS one it opens EXPANDED, because the thing it shows lasts about thirty
+ * seconds: a hosted session is watchable only while the capture is running, and a run
+ * that ends before the user notices a "Watch live" button showed them nothing. The
+ * toggle stays so it can be collapsed, and the frame is `pointer-events: none` either
+ * way — this is someone else's browser, here to be watched and never driven.
+ *
+ * And it is watchable for the CAPTURE, not for the run: the browser is handed back the
+ * moment step 1 ticks over, roughly a third of the way through. `watchableLiveViewUrl`
+ * is the whole of that rule; see it for why `outcome === 'running'` is not.
  */
 export function DiscoveryChecklist({ company }: DiscoveryChecklistProps) {
-  const [liveOpen, setLiveOpen] = useState(true);
   const discovery = company.discovery;
   if (!discovery) {
     return null;
@@ -179,7 +291,6 @@ export function DiscoveryChecklist({ company }: DiscoveryChecklistProps) {
 
   const outcome = resolveDiscoveryOutcome(company);
   const failed = failedDiscoveryStep(discovery);
-  const liveViewUrl = outcome === 'running' ? discovery.liveViewUrl : null;
 
   return (
     <Paper
@@ -216,42 +327,12 @@ export function DiscoveryChecklist({ company }: DiscoveryChecklistProps) {
         </>
       ) : null}
 
-      {liveViewUrl ? (
-        <Box sx={{ mt: 1.5 }}>
-          <Button
-            size="small"
-            onClick={() => setLiveOpen((open) => !open)}
-            aria-expanded={liveOpen}
-            data-testid="discovery-live-view-toggle"
-          >
-            {liveOpen ? 'Hide live view' : 'Watch live'}
-          </Button>
-          <Collapse in={liveOpen}>
-            <Box
-              // `pointer-events: none` — read-only by construction. This is someone
-              // else's hosted browser session; it is here to be watched, never driven.
-              sx={{
-                mt: 1,
-                pointerEvents: 'none',
-                position: 'relative',
-                width: '100%',
-                aspectRatio: '16 / 10',
-                overflow: 'hidden',
-                borderRadius: 1,
-              }}
-            >
-              <Box
-                component="iframe"
-                src={liveViewSrc(liveViewUrl)}
-                title="Live view of the setup session"
-                sandbox="allow-scripts allow-same-origin"
-                data-testid="discovery-live-view"
-                sx={{ width: '100%', height: '100%', border: 0 }}
-              />
-            </Box>
-          </Collapse>
-        </Box>
-      ) : null}
+      {/* Rendered UNCONDITIONALLY, and empty until there is something to watch. The
+          section owns its own exit animation, so it has to outlive the URL that feeds
+          it by the length of that animation — a `{url ? <LiveView/> : null}` here would
+          tear the whole subtree out before it could play, which is the snap it exists
+          to avoid. With no URL it renders nothing at all. */}
+      <LiveView url={watchableLiveViewUrl(company)} />
     </Paper>
   );
 }
