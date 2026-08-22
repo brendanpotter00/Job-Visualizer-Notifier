@@ -87,6 +87,10 @@ _UNIMPLEMENTED_OPS = ("paginate_cursor",)
 # into ``details``. ``validate_recipe`` requires the mandatory three and, being a
 # read-path check over possibly-drifted stored data, does not otherwise constrain
 # the key set.
+# The one non-literal segment a ``records_path`` may carry: "every element of the list
+# here". See :func:`dig_records` for what it buys and why it is not in :func:`dig`.
+RECORDS_WILDCARD = "*"
+
 CANONICAL_REQUIRED_FIELDS = ("id", "title", "url")
 CANONICAL_OPTIONAL_FIELDS = ("location", "posted_at", "department", "company")
 
@@ -175,6 +179,65 @@ def dig(payload: Any, path: str) -> Any:
     return current
 
 
+def dig_records(payload: Any, path: str) -> Any:
+    """Resolve a ``records_path``, which MAY carry one :data:`RECORDS_WILDCARD` segment.
+
+    THE ONE PATH SHAPE ``dig`` CANNOT EXPRESS, and the reason it exists is a measured
+    partial read: binance.com serves its whole board as a list of 14 department groups
+    (``[{title, postings: [...]}, ...]``), so every concrete path — ``4.postings`` — is
+    ONE department. ``*.postings`` is the union of all fourteen: 276 postings instead
+    of 88, from the very same captured bytes. Where the whole board is present in the
+    response, ``records_path`` must be able to point at the whole board.
+
+    ``*`` means "for each element of the list here, resolve the rest of the path and
+    concatenate the lists it yields". At most ONE wildcard is admitted (validated on
+    write and again on read): a second one is a cross-product whose cost is unbounded
+    in a payload we did not write, and no real board has needed it.
+
+    An element that does not carry the remainder is SKIPPED rather than fatal — a
+    grouped board legitimately ships an empty or shapeless group beside fourteen good
+    ones, and refusing the whole board over one of them is the wrong trade. A path that
+    yields nothing at all still raises through the caller's own non-empty check
+    (``recipe_runner._dig_records``, ``request_selector._resolved_records``), so the
+    RAISES-never-empty contract is unchanged.
+
+    Kept beside :func:`dig` rather than folded into it on purpose: ``dig`` also resolves
+    oracle totals and field templates, where a path returning a CONCATENATION instead of
+    the value at that path would be a silent type change in the one place a wrong number
+    closes jobs.
+    """
+    segments = path.split(".")
+    if RECORDS_WILDCARD not in segments:
+        return dig(payload, path)
+    at = segments.index(RECORDS_WILDCARD)
+    if at == len(segments) - 1 or RECORDS_WILDCARD in segments[at + 1:]:
+        raise RecipeError(
+            f"records_path {path!r} must carry at most one {RECORDS_WILDCARD!r} segment, "
+            "and it may not be the last one"
+        )
+    # An EMPTY head is the common case, not an edge one: the payload itself is the list
+    # of groups (binance ships a bare ``[{title, postings}, ...]``), which is the path
+    # ``*.postings`` with nothing before the wildcard. ``dig(payload, "")`` returns the
+    # payload, so this needs no special case — only a split that survives it.
+    head = ".".join(segments[:at])
+    tail = ".".join(segments[at + 1:])
+    groups = dig(payload, head)
+    if not isinstance(groups, list):
+        raise RecipeError(
+            f"records_path {path!r}: {head or '<root>'!r} is a "
+            f"{type(groups).__name__}, not a list to iterate"
+        )
+    out: list[Any] = []
+    for group in groups:
+        try:
+            found = dig(group, tail)
+        except RecipeError:
+            continue
+        if isinstance(found, list):
+            out.extend(found)
+    return out
+
+
 # --------------------------------------------------------------------------
 # per-op validators (the closed vocabulary)
 # --------------------------------------------------------------------------
@@ -247,12 +310,38 @@ def _v_fields(fields: Any, where: str) -> None:
         )
 
 
+def _require_records_path(step: dict[str, Any], where: str) -> None:
+    """``records_path`` is a string, and its wildcard use is one this engine can run.
+
+    Checked on WRITE and again on READ, like everything else here, because the wildcard
+    is the one segment whose cost is not obvious from the string: a second ``*`` is a
+    cross-product over a payload a stranger's board authored, and a TRAILING ``*`` names
+    no key at all. Both are rejected where every other unrunnable recipe is rejected —
+    loudly, before a nightly replay can discover it.
+    """
+    path = step.get("records_path")
+    _require(
+        isinstance(path, str),
+        f"{where}.records_path is required (may be '' for a top-level array)",
+    )
+    assert isinstance(path, str)  # narrow for mypy
+    segments = path.split(".")
+    wildcards = segments.count(RECORDS_WILDCARD)
+    _require(
+        wildcards <= 1,
+        f"{where}.records_path {path!r} carries {wildcards} {RECORDS_WILDCARD!r} "
+        "segments; at most one is supported",
+    )
+    _require(
+        not (wildcards and segments[-1] == RECORDS_WILDCARD),
+        f"{where}.records_path {path!r} ends in {RECORDS_WILDCARD!r}, which names no "
+        "records to collect",
+    )
+
+
 def _v_extract_json_path(step: dict[str, Any]) -> None:
     _reject_unknown_keys(step, {"records_path", "fields"}, "extract_json_path")
-    _require(
-        isinstance(step.get("records_path"), str),
-        "extract_json_path.records_path is required (may be '' for a top-level array)",
-    )
+    _require_records_path(step, "extract_json_path")
     _v_fields(step.get("fields"), "extract_json_path")
 
 
@@ -262,10 +351,7 @@ def _v_extract_embedded_island(step: dict[str, Any]) -> None:
         "extract_embedded_island",
     )
     _require_str(step, "selector", "extract_embedded_island")
-    _require(
-        isinstance(step.get("records_path"), str),
-        "extract_embedded_island.records_path is required (may be '' for a top-level array)",
-    )
+    _require_records_path(step, "extract_embedded_island")
     source = step.get("source", "attribute")
     _require(
         source in ("attribute", "text"),

@@ -35,6 +35,10 @@ export interface HealthBadge {
  * act on; splitting it produced a blue "Tracking — building history" chip that
  * read as "something is still wrong here" on a board that was working perfectly.
  * A working board says so, in green, in the same words in both states.
+ *
+ * ONE THING THIS CANNOT SAY: whether the board we read is the whole board. That is
+ * not a `healthState` — a board tracked at partial scope is perfectly healthy — so it
+ * lives beside this in `describeCompanyHealth`, which is what rows should call.
  */
 export function describeHealthState(healthState: string): HealthBadge {
   switch (healthState) {
@@ -54,6 +58,37 @@ export function describeHealthState(healthState: string): HealthBadge {
       // Unknown/newer code: surface it verbatim rather than blanking the chip.
       return { label: healthState || 'Unknown', color: 'default' };
   }
+}
+
+/**
+ * The badge for a ROW, which is `describeHealthState` plus the one thing
+ * `healthState` cannot say: we are only reading part of this board.
+ *
+ * A partial board is genuinely tracked — every job it can see is refreshed daily and
+ * none is ever closed — so its `healthState` is `unverified`/`healthy` like any other
+ * working company, and the green "Successfully tracking" chip was therefore accurate
+ * about the plumbing and a lie about the board. Three measured boards sat behind it:
+ * Binance tracked one department of fourteen, Kakao the tab its own page opened by
+ * itself, Walmart ten jobs of forty-seven thousand.
+ *
+ * Amber rather than green, and it names WHAT is partial in the same vocabulary as
+ * "Tracking paused" beside it. It is deliberately NOT red: nothing is broken and there
+ * is nothing to fix — the checklist below the row carries the board's own numbers.
+ *
+ * The signal comes from the discovery blob, not from `healthState`, because the backend
+ * decides it once at discovery from the captured bytes and there is no column for it —
+ * see `OUTCOME_PARTIAL` in `api/services/discovery/progress.py`.
+ */
+export function describeCompanyHealth(
+  company: Pick<UserCompany, 'healthState' | 'discovery'>,
+): HealthBadge {
+  if (
+    (company.healthState === 'unverified' || company.healthState === 'healthy') &&
+    company.discovery?.outcome === 'partial'
+  ) {
+    return { label: 'Tracking part of this board', color: 'warning' };
+  }
+  return describeHealthState(company.healthState);
 }
 
 /**
@@ -145,6 +180,14 @@ export function shouldShowDiscovery(
   if (company.healthState === 'discovering' || company.healthState === 'refused') {
     return true;
   }
+  // A PARTIAL board keeps its checklist forever, and that is the one place this panel
+  // is not a setup receipt. The amber chip says we read part of the board; the checklist
+  // is the only thing that says WHICH part and how we know ("read 8 jobs, but this
+  // board's own category counts add up to 31"). Hiding it after the first harvest would
+  // leave a permanent claim with its evidence deleted.
+  if (resolveDiscoveryOutcome(company) === 'partial') {
+    return company.healthState === 'unverified' || company.healthState === 'healthy';
+  }
   return (
     company.healthState === 'unverified' &&
     resolveDiscoveryOutcome(company) === 'tracking' &&
@@ -170,6 +213,11 @@ export function describeDiscoveryOutcome(
   const outcome = resolveDiscoveryOutcome(company);
   if (outcome === 'refused') {
     return `We couldn't read ${company.displayName}'s board`;
+  }
+  if (outcome === 'partial') {
+    // "Part of" rather than "some of": the shortfall is a SCOPE, not a sample. The
+    // rungs below carry the board's own numbers, so the heading does not repeat them.
+    return `We can only read part of ${company.displayName}'s board`;
   }
   if (outcome === 'tracking') {
     return `We can read ${company.displayName}'s board`;

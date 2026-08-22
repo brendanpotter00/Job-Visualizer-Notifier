@@ -96,8 +96,17 @@ export type DiscoveryStepKey = 'open_page' | 'find_feed' | 'verify_read' | 'read
 /** Per-step state. `failed` lands on at most one step per run. */
 export type DiscoveryStepStatus = 'pending' | 'active' | 'done' | 'failed';
 
-/** Terminal-ness of the whole run. `running` includes "queued but not started". */
-export type DiscoveryOutcomeState = 'running' | 'tracking' | 'refused';
+/**
+ * Terminal-ness of the whole run. `running` includes "queued but not started".
+ *
+ * `partial` is tracked-but-not-the-whole-board: the recipe reads a real slice of the
+ * company's jobs and nothing more, because the board's own captured response proved
+ * there is more than the recipe can reach (one department of a grouped payload, the tab
+ * the page opened by itself, ten of forty-seven thousand). It is a SUCCESS — every job
+ * we can see is refreshed daily and none is ever closed — but it is not the same
+ * success as a board we read completely, and it used to render identically to one.
+ */
+export type DiscoveryOutcomeState = 'running' | 'tracking' | 'partial' | 'refused';
 
 export interface DiscoveryStep {
   key: DiscoveryStepKey;

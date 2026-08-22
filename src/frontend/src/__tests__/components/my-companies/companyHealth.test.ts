@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   DISCOVERY_STEP_LABELS,
+  describeCompanyHealth,
   describeDiscoveryOutcome,
   describeDiscoveryStep,
   describeHealthState,
@@ -289,5 +290,115 @@ describe('failedDiscoveryStep', () => {
   it('returns null when nothing failed — a timeout fails no step', () => {
     expect(failedDiscoveryStep(progress())).toBeNull();
     expect(failedDiscoveryStep(null)).toBeNull();
+  });
+});
+
+describe('describeCompanyHealth — a partial board must not look like a whole one', () => {
+  // The bug this pins, measured on three live boards: Binance tracked one department
+  // of fourteen, Kakao the tab its own page opened by itself, Walmart ten jobs of
+  // forty-seven thousand — and all three showed the same green "Successfully tracking"
+  // chip as a board we had read completely. Nothing was broken; the label was a lie.
+  it('says WHAT is partial, in amber, when discovery only reached part of the board', () => {
+    const badge = describeCompanyHealth({
+      healthState: 'unverified',
+      discovery: progress({ outcome: 'partial' }),
+    });
+    expect(badge.label).toBe('Tracking part of this board');
+    expect(badge.color).toBe('warning');
+  });
+
+  it('keeps saying it after the board graduates to healthy', () => {
+    // Coverage is a property of the RECIPE, decided once at discovery. Graduating to
+    // `healthy` means we grew an oracle for the slice we read — it does not widen it.
+    expect(
+      describeCompanyHealth({ healthState: 'healthy', discovery: progress({ outcome: 'partial' }) })
+    ).toEqual(
+      describeCompanyHealth({
+        healthState: 'unverified',
+        discovery: progress({ outcome: 'partial' }),
+      })
+    );
+  });
+
+  it('leaves every other row exactly as it was', () => {
+    // A board read whole, a board with no discovery blob at all (every ATS company),
+    // and the two states that are genuinely about health must be byte-identical to
+    // what shipped — this wrapper may only ever ADD the one thing healthState cannot say.
+    for (const outcome of ['tracking', 'running'] as const) {
+      expect(
+        describeCompanyHealth({ healthState: 'unverified', discovery: progress({ outcome }) })
+      ).toEqual(describeHealthState('unverified'));
+    }
+    expect(describeCompanyHealth({ healthState: 'unverified', discovery: null })).toEqual(
+      describeHealthState('unverified')
+    );
+    for (const state of ['discovering', 'quarantined', 'refused'] as const) {
+      expect(
+        describeCompanyHealth({ healthState: state, discovery: progress({ outcome: 'partial' }) })
+      ).toEqual(describeHealthState(state));
+    }
+  });
+});
+
+describe('a partial discovery keeps its evidence on screen', () => {
+  it('names the shortfall in the heading', () => {
+    expect(
+      describeDiscoveryOutcome({
+        displayName: 'Walmart',
+        healthState: 'unverified',
+        discovery: progress({ outcome: 'partial' }),
+      })
+    ).toBe("We can only read part of Walmart's board");
+  });
+
+  it('keeps the checklist visible for good, unlike a setup receipt', () => {
+    // Every other tracked row drops its checklist once the first harvest lands, because
+    // a permanent setup receipt is clutter. A partial row is the exception: the amber
+    // chip makes a claim, and the rungs below it are the only place the board's own
+    // numbers ("read 8 jobs, but its category counts add up to 31") are written down.
+    const partial = progress({ outcome: 'partial' });
+    expect(
+      shouldShowDiscovery({
+        healthState: 'unverified',
+        discovery: partial,
+        lastSuccessAt: '2026-08-22T00:00:00Z',
+      })
+    ).toBe(true);
+    expect(
+      shouldShowDiscovery({
+        healthState: 'healthy',
+        discovery: partial,
+        lastSuccessAt: '2026-08-22T00:00:00Z',
+      })
+    ).toBe(true);
+    // ...and a board read whole still loses it, exactly as before.
+    expect(
+      shouldShowDiscovery({
+        healthState: 'unverified',
+        discovery: progress({ outcome: 'tracking' }),
+        lastSuccessAt: '2026-08-22T00:00:00Z',
+      })
+    ).toBe(false);
+    // A quarantined row is one the backend marked broken; a success receipt under a
+    // "Tracking paused" badge would be the UI contradicting the badge beside it.
+    expect(
+      shouldShowDiscovery({ healthState: 'quarantined', discovery: partial, lastSuccessAt: null })
+    ).toBe(false);
+  });
+
+  it('reads the outcome off the blob', () => {
+    expect(
+      resolveDiscoveryOutcome({
+        healthState: 'unverified',
+        discovery: progress({ outcome: 'partial' }),
+      })
+    ).toBe('partial');
+    // ...but `refused` on the row still wins: a discovery timeout leaves a stale blob.
+    expect(
+      resolveDiscoveryOutcome({
+        healthState: 'refused',
+        discovery: progress({ outcome: 'partial' }),
+      })
+    ).toBe('refused');
   });
 });

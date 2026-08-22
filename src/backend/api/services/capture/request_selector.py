@@ -46,7 +46,7 @@ from pydantic import BaseModel, ValidationError
 from ...config import settings
 from ..llm_client import extract_text_content
 from ..recipe_runner import render_field
-from ..recipe_schema import RecipeError, dig
+from ..recipe_schema import RECORDS_WILDCARD, RecipeError, dig_records
 
 logger = logging.getLogger(__name__)
 
@@ -143,7 +143,7 @@ class Candidate:
         """The record list this candidate was selected for. Never raises — the
         pre-filter already proved the path resolves to a list."""
         try:
-            found = dig(self.payload, self.records_path)
+            found = dig_records(self.payload, self.records_path)
         except RecipeError:  # pragma: no cover - the pre-filter guarantees otherwise
             return []
         return found if isinstance(found, list) else []
@@ -159,6 +159,58 @@ def _job_score(records: list[Any]) -> tuple[int, tuple[str, ...]]:
     return score, tuple(sorted(keys))
 
 
+def _grouped_union_arrays(
+    node: list[Any], path: str, out: list[tuple[str, int, int, tuple[str, ...]]]
+) -> None:
+    """Emit a ``<path>.*.<key>`` candidate for every array this list of groups SHARES.
+
+    THE WHOLE-BOARD PATH on a grouped payload, and the reason it exists is a measured
+    partial read: binance.com returns its entire board as 14 department groups
+    (``[{title, postings: [...]}, ...]``). Every concrete path into that is one
+    department — the ranking below picked ``4.postings``, 88 of 276 postings — while the
+    other 188 sat in the same response we had already downloaded. ``*.postings`` is the
+    union, and it is the path ``records_path`` should carry whenever the whole board is
+    present (see :func:`recipe_schema.dig_records`).
+
+    The union is only offered when it is STRICTLY bigger than the largest single group.
+    A key only one group carries would otherwise be offered twice — once concrete, once
+    wildcarded — for exactly the same records, and spending one of the model's six
+    candidate slots on a duplicate is a real cost.
+
+    Deliberately walks EVERY element, unlike the recursion below which samples five: the
+    count is the claim being made ("this is the whole board"), and a count taken over
+    five of fourteen groups would understate it by exactly the amount that matters. The
+    job-shape SAMPLE stays at five records, because that is a shape question, not a
+    size one.
+    """
+    if len(node) < 2:
+        return
+    shared: set[str] | None = None
+    for element in node:
+        if not isinstance(element, dict):
+            return
+        listy = {str(k) for k, v in element.items() if isinstance(v, list)}
+        shared = listy if shared is None else (shared & listy)
+        if not shared:
+            return
+    for key in sorted(shared or ()):
+        sample: list[Any] = []
+        total = 0
+        largest = 0
+        for element in node:
+            inner = element[key]
+            total += len(inner)
+            largest = max(largest, len(inner))
+            if len(sample) < 5:
+                sample.extend(x for x in inner[:5] if isinstance(x, dict))
+        if total <= largest:
+            continue
+        score, keys = _job_score(sample)
+        if score >= _MIN_JOB_SCORE:
+            union_path = f"{path}.{RECORDS_WILDCARD}.{key}" if path else f"{RECORDS_WILDCARD}.{key}"
+            out.append((union_path, total, score, keys))
+
+
 def _walk_record_arrays(
     node: Any, path: str, depth: int, out: list[tuple[str, int, int, tuple[str, ...]]]
 ) -> None:
@@ -170,6 +222,7 @@ def _walk_record_arrays(
             score, keys = _job_score(node)
             if score >= _MIN_JOB_SCORE:
                 out.append((path, len(node), score, keys))
+            _grouped_union_arrays(node, path, out)
         for i, child in enumerate(node[:5]):
             _walk_record_arrays(child, f"{path}.{i}" if path else str(i), depth + 1, out)
     elif isinstance(node, dict):
@@ -307,7 +360,12 @@ SYSTEM_PROMPT = (
     "array. If the value lives inside an object, point at the LEAF: 'city_info.en_name', "
     "not 'city_info'.\n"
     "Set records_path to the dotted path of the job array inside the chosen response "
-    "(use the one you were shown unless it is wrong).\n"
+    "(use the one you were shown unless it is wrong). A path containing '*' means "
+    "'every element of the list here' — e.g. '*.postings' is the union of the postings "
+    "arrays of ALL groups, while '4.postings' is only the fifth group's. When the "
+    "response splits the board into groups (by department, category or office), ALWAYS "
+    "choose the '*' path: the concrete one tracks a single department as if it were the "
+    "whole company.\n"
     "Finally, if the request has an obvious paging parameter you can see in its URL or "
     "POST body (offset/from/start, or page/pageNumber), return pagination with style "
     "'offset' (the parameter counts RECORDS) or 'page' (it counts PAGES), the exact "
@@ -448,7 +506,7 @@ def _resolved_records(candidate: Candidate, records_path: str) -> list[Any]:
     here costs nothing, while finding it out at 3am costs a FAILED run every night.
     """
     try:
-        found = dig(candidate.payload, records_path)
+        found = dig_records(candidate.payload, records_path)
     except RecipeError as exc:
         raise RequestSelectionError(
             f"records_path {records_path!r} does not resolve in the captured response: {exc}"

@@ -33,7 +33,10 @@ import pytest
 # `__init__` re-exports the FUNCTION `discover`, which shadows the submodule attribute.
 from api.services.capture.discover import (
     _MAX_SELECTION_ROUNDS,
+    _coverage,
     _inband_error_keys,
+    _labelled_facet_total,
+    _totals_beside_records,
     discover,
     synthesize_recipe,
 )
@@ -58,7 +61,7 @@ from api.services.discovery.progress import (
 from api.services.harvest_meta import HarvestEvidence
 from api.services.harvest_verification import UNVERIFIED, GateResult, verify_harvest
 from api.services.recipe_runner import RecipeExecutionError, map_records
-from api.services.recipe_schema import BROWSER_FETCH_MAX_PAGES
+from api.services.recipe_schema import BROWSER_FETCH_MAX_PAGES, dig_records
 from api.services.url_guard import UrlGuardError
 
 pytestmark = pytest.mark.asyncio
@@ -1380,3 +1383,336 @@ def test_a_single_facet_block_cannot_discredit_a_declared_total_on_its_own() -> 
     assert script["oracle"] == {"kind": "declared_probed", "total_path": "hits"}
     (paginate,) = [s for s in script["steps"] if s["op"].startswith("paginate_")]
     assert "window_cap" not in paginate
+
+
+# =========================================================================
+# READING A SLIVER OF A BOARD — the widening, and the honest label when we
+# cannot widen. Three boards passed every gate above while tracking a slice.
+# =========================================================================
+
+_GROUPED_URL = "https://www.binance.com/en/careers/job-openings"
+_GROUPED_MAP = {
+    "id": "id", "title": "text", "url": "hostedUrl", "location": "country",
+    "posted_at": "createdAt",
+}
+
+
+def _grouped_selection(records_path: str) -> RequestSelection:
+    """What the model answered. ``2.postings`` is the pre-filter's old top pick — the
+    biggest single department — and is the answer this whole section exists to correct."""
+    return RequestSelection(
+        chosen_request_index=0, records_path=records_path,
+        field_map=dict(_GROUPED_MAP), pagination=None,
+    )
+
+
+def _replay_from_path(name: str, records_path: str, field_map: dict[str, str]):
+    """A faithful replay that reads the path THE RECIPE ASKS FOR, not a fixed one.
+
+    The widening is invisible to a fake that hardcodes its own path — it would return
+    the same rows either way and the test would pass with the bug still in place.
+    """
+    async def _replay(script: dict[str, Any]) -> tuple[list[dict], HarvestEvidence]:
+        (extract,) = [s for s in script["steps"] if s["op"] == "extract_json_path"]
+        candidate = prefilter_candidates(_capture_result(name).responses)[0]
+        records = dig_records(candidate.payload, extract["records_path"])
+        rows = map_records(records, field_map, script.get("base_url", ""))
+        return rows, HarvestEvidence(
+            declared_total=None, cap_hit=False, terminated_cleanly=True,
+            page_advance_ok=None, pages_fetched=1, transport_ok=True,
+        )
+    return _replay
+
+
+async def test_a_grouped_board_is_widened_to_the_whole_board_before_it_is_stored() -> None:
+    """binance.com, trimmed: 4 department groups of 2/1/4/3. The model answers with ONE
+    group and the stored recipe must still read all ten.
+
+    The measured bug, exactly: ``records_path: '4.postings'`` was stored, 81 of 279
+    postings were tracked, and every downstream check agreed — because each of them
+    compares the replay against that same 81-record array. Nothing in the pipeline could
+    see the other 198 sitting in the response we had already downloaded.
+    """
+    outcome = await discover(
+        _GROUPED_URL,
+        capture=_capturing("grouped"),
+        select=_selecting(_grouped_selection("2.postings")),
+        replay_http=_replay_from_path("grouped", "2.postings", _GROUPED_MAP),
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+    )
+    assert outcome.ok is True
+    assert outcome.script is not None
+    (extract,) = [s for s in outcome.script["steps"] if s["op"] == "extract_json_path"]
+    assert extract["records_path"] == "*.postings"
+    assert outcome.progress is not None
+    verify = next(s for s in outcome.progress["steps"] if s["key"] == "verify_read")
+    assert verify["result"] == "read 10 job(s)"          # the union, not the group of 4
+    # A widened board is not a partial one: there is nothing left in the response we
+    # are not reading.
+    assert outcome.progress["outcome"] == "tracking"
+
+
+async def test_a_model_that_already_answers_the_union_is_left_alone() -> None:
+    """The prompt names the ``*`` path, so the common case is that no widening is
+    needed. It must be a no-op then, not a second rewrite."""
+    outcome = await discover(
+        _GROUPED_URL,
+        capture=_capturing("grouped"),
+        select=_selecting(_grouped_selection("*.postings")),
+        replay_http=_replay_from_path("grouped", "*.postings", _GROUPED_MAP),
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+    )
+    assert outcome.ok is True
+    assert outcome.script is not None
+    (extract,) = [s for s in outcome.script["steps"] if s["op"] == "extract_json_path"]
+    assert extract["records_path"] == "*.postings"
+
+
+async def test_widening_is_declined_when_the_wider_path_maps_no_extra_jobs() -> None:
+    """The union must map to strictly MORE usable rows through the SAME field map, or we
+    keep the narrow path. That is what stops a wildcard from sweeping in a group whose
+    array holds something other than job postings — the id/title render is the proof,
+    and it is the only one available before the replay."""
+    body = [
+        {"title": "Eng", "postings": [
+            {"id": "a", "text": "Engineer", "hostedUrl": "https://x/1"},
+        ]},
+        # A second group whose entries carry no id and no title: job-SHAPED enough for
+        # the pre-filter's key-name score, worthless to ``map_records``.
+        {"title": "Perks", "postings": [
+            {"category": "office", "location": "NYC", "posted": "yes"},
+            {"category": "remote", "location": "LON", "posted": "yes"},
+        ]},
+    ]
+    response = _amazon_response(body)
+    candidates = prefilter_candidates([response])
+    assert candidates[0].records_path == "*.postings"    # the pre-filter offers it...
+
+    selection = RequestSelection(
+        chosen_request_index=0, records_path="0.postings",
+        field_map={"id": "id", "title": "text", "url": "hostedUrl"}, pagination=None,
+    )
+    outcome = await discover(
+        _GROUPED_URL,
+        capture=_capture_of(response),
+        select=_selecting(selection),
+        replay_http=_replay_records(body, "0.postings", selection.field_map),
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+    )
+    assert outcome.ok is True
+    assert outcome.script is not None
+    (extract,) = [s for s in outcome.script["steps"] if s["op"] == "extract_json_path"]
+    assert extract["records_path"] == "0.postings"       # ...and discovery declines it
+
+
+# --- the partial verdict ----------------------------------------------------
+
+def _jobs(n: int, prefix: str = "j") -> list[dict[str, Any]]:
+    return [
+        {"job_id": f"{prefix}{i}", "jobPostingTitle": f"Role {i}", "city": "Bentonville"}
+        for i in range(n)
+    ]
+
+
+_PARTIAL_MAP = {
+    "id": "job_id", "title": "jobPostingTitle",
+    "url": "https://careers.walmart.com/job/{job_id}", "location": "city",
+}
+
+
+def _capture_of(*responses: Any) -> Any:
+    async def _capture(url: str, **_: Any) -> CaptureResult:
+        return CaptureResult(
+            final_url="https://careers.walmart.com/us/en/results",
+            page_title="Careers", responses=list(responses),
+        )
+    return _capture
+
+
+def _replay_records(payload: Any, records_path: str, field_map: dict[str, str]):
+    """Replay straight out of a literal payload, honouring the recipe's own path."""
+    async def _replay(script: dict[str, Any]) -> tuple[list[dict], HarvestEvidence]:
+        (extract,) = [s for s in script["steps"] if s["op"] == "extract_json_path"]
+        rows = map_records(
+            dig_records(payload, extract["records_path"]), field_map,
+            script.get("base_url", ""),
+        )
+        return rows, HarvestEvidence(
+            declared_total=None, cap_hit=False, terminated_cleanly=True,
+            page_advance_ok=None, pages_fetched=1, transport_ok=True,
+        )
+    return _replay
+
+
+async def test_a_board_whose_own_response_counts_far_more_is_stored_as_partial() -> None:
+    """careers.walmart.com: a chat endpoint that answers ten jobs and, in the same body,
+    says the board has 47,298.
+
+    Nothing here is broken — the recipe replays, the ids match the capture, the gate
+    passes, and the ``none`` oracle means the nightly run can never close a job. What was
+    wrong is only what we SAID about it: the same green "Successfully tracking" chip and
+    the same "read 10 jobs" tick as a board we had read completely.
+    """
+    body = {"data": {"assistant": {"tool_messages": [{"artifact": {
+        "total_jobs": 47298,
+        "total_future_roles": 276561,     # a bigger count of something that is NOT jobs
+        "page_size": 10,
+        "jobs": _jobs(10),
+    }}]}}}
+    path = "data.assistant.tool_messages.0.artifact.jobs"
+    response = _amazon_response(body)
+    selection = RequestSelection(
+        chosen_request_index=0, records_path=path,
+        field_map=dict(_PARTIAL_MAP), pagination=None,
+    )
+    outcome = await discover(
+        "https://careers.walmart.com/results",
+        capture=_capture_of(response),
+        select=_selecting(selection),
+        replay_http=_replay_records(body, path, _PARTIAL_MAP),
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+    )
+    assert outcome.ok is True                       # still TRACKED — nothing is refused
+    assert outcome.oracle_kind == "none"            # ...and the oracle is untouched
+    assert outcome.progress is not None
+    assert outcome.progress["outcome"] == "partial"
+    verify = next(s for s in outcome.progress["steps"] if s["key"] == "verify_read")
+    assert verify["result"] == (
+        "read 10 job(s), but this board's own response counts 47,298 job(s) — "
+        "we can only track part of this board"
+    )
+    assert "PARTIAL" in (outcome.cost_note or "")
+
+
+def test_the_total_that_counts_THESE_records_wins_over_the_bigger_one_beside_it() -> None:
+    """walmart publishes ``total_jobs: 47298`` next to ``total_future_roles: 276561``.
+    Taking the largest would report a board of 47,298 as a board of 276,561, in copy the
+    user reads — so the count whose NAME matches the records array wins outright."""
+    artifact = {
+        "total_jobs": 47298, "total_future_roles": 276561, "total_content": 36,
+        "page_size": 10, "jobs": _jobs(10),
+    }
+    body = {"data": {"assistant": {"tool_messages": [{"artifact": artifact}]}}}
+    path = "data.assistant.tool_messages.0.artifact.jobs"
+    assert _totals_beside_records(body, path, 10) == 47298
+
+    # With no name match left, the largest in scope is the only defensible answer.
+    del artifact["total_jobs"]
+    assert _totals_beside_records(body, path, 10) == 276561
+
+
+def test_a_per_record_count_two_levels_down_is_not_a_board_total() -> None:
+    """kakao's ``jobTypeCountDtoList.2.jobCount`` is 14 and is a facet bucket, not a
+    board size. Scoping the search to the records array's own containers is what keeps
+    every payload's per-row counts out of a number we render."""
+    body = {
+        "jobList": _jobs(8),
+        "jobTypeCountDtoList": [{"jobType": "TECH", "jobCount": 14}],
+        "totalJobCount": 8,
+    }
+    assert _totals_beside_records(body, "jobList", 8) == 8
+
+
+async def test_a_board_narrowed_to_a_tab_its_own_page_opened_is_stored_as_partial() -> None:
+    """careers.kakao.com. The user pasted ``/jobs`` with no filter; the page redirected
+    itself to ``part=TECHNOLOGY`` and the capture recorded THAT request.
+
+    The board says both things in one response — ``totalJobCount: 8`` for the tab it
+    happened to open, and its own category counts adding to 31 for the whole board — so
+    this needs no guess about what the URL meant. The recipe stays at the scope it was
+    captured at (widening a filter is a change we cannot validate); what changes is that
+    we stop calling it the whole board.
+    """
+    body = {
+        "jobList": _jobs(8, "P-"),
+        "jobTypeCountDtoList": [
+            {"jobType": "TECHNOLOGY", "jobCount": 8},
+            {"jobType": "DESIGN", "jobCount": 3},
+            {"jobType": "BUSINESS_SERVICES", "jobCount": 14},
+            {"jobType": "STAFF", "jobCount": 6},
+        ],
+        "totalJobCount": 8,
+        "totalPage": 1,
+    }
+    assert _labelled_facet_total(body, "jobList") == 31
+
+    response = _amazon_response(body)
+    selection = RequestSelection(
+        chosen_request_index=0, records_path="jobList",
+        field_map=dict(_PARTIAL_MAP), pagination=None,
+    )
+    outcome = await discover(
+        "https://careers.kakao.com/jobs",
+        capture=_capture_of(response),
+        select=_selecting(selection),
+        replay_http=_replay_records(body, "jobList", _PARTIAL_MAP),
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+    )
+    assert outcome.ok is True
+    assert outcome.oracle_kind == "declared_probed"   # unchanged: 8 of 8 is still exact
+    assert outcome.progress is not None
+    assert outcome.progress["outcome"] == "partial"
+    verify = next(s for s in outcome.progress["steps"] if s["key"] == "verify_read")
+    assert "category counts add up to 31" in (verify["result"] or "")
+
+
+def test_a_histogram_facet_is_not_read_as_a_tab_count() -> None:
+    """amazon's ``{"US, WA, Seattle": 3409}`` buckets over-count multi-located jobs — its
+    own location facet sums to 34,794 against a real 22,492 — so a single one of them may
+    never become the number we quote. Requiring a STRING LABEL beside exactly one integer
+    is what separates kakao's tab counts from amazon's histograms."""
+    body = {
+        "jobs": _jobs(10),
+        "facets": {"location_facet": [{"US, WA, Seattle": 3409}, {"IN, KA": 1220}]},
+    }
+    assert _labelled_facet_total(body, "jobs") is None
+
+
+async def test_a_board_read_completely_is_not_labelled_partial() -> None:
+    """The control, and the one that keeps the label meaningful. Every board in the
+    tracked set reaches at least as far as its own published total; the label must not
+    fire on any of them."""
+    outcome = await discover(
+        _AMAZON_URL,
+        capture=_capturing("amazon"),
+        select=_selecting(_amazon_selection()),
+        replay_http=_faithful_replay("amazon", "jobs", _AMAZON_MAP, declared_total=76),
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+    )
+    assert outcome.ok is True
+    assert outcome.progress is not None
+    assert outcome.progress["outcome"] == "tracking"
+    verify = next(s for s in outcome.progress["steps"] if s["key"] == "verify_read")
+    assert verify["result"] == "read 10 job(s)"
+
+
+def test_the_partial_bar_is_a_shortfall_AND_a_ratio_not_either_alone() -> None:
+    """Both guards, and each is load-bearing on a different size of board.
+
+    The RATIO stops a big board being called partial for a rounding error (95 of 100 is
+    not a sliver). The ABSOLUTE floor stops a small one being called partial for drift —
+    two jobs closing between the capture and the replay seconds later is 20% of a
+    ten-job board, and a label that fires on every board that breathes stops meaning
+    anything. Neither alone covers the other's case.
+    """
+    def coverage_of(records: int, declared: int):
+        body = {"jobs": _jobs(records), "total_jobs": declared}
+        candidate = prefilter_candidates([_amazon_response(body)])[0]
+        selection = RequestSelection(
+            chosen_request_index=0, records_path="jobs",
+            field_map=dict(_PARTIAL_MAP), pagination=None,
+        )
+        script = synthesize_recipe(
+            candidate, selection, transport="http_json", origin_url=_AMAZON_URL
+        )
+        return _coverage(script, candidate, selection)
+
+    assert coverage_of(95, 100).is_partial is False    # ratio 0.95 — a rounding error
+    assert coverage_of(8, 10).is_partial is False      # 2 jobs — drift on a small board
+    assert coverage_of(98, 400).is_partial is True     # a quarter of the board

@@ -24,6 +24,7 @@ import pytest
 from api.services.recipe_schema import (
     BROWSER_FETCH_MAX_PAGES,
     RecipeError,
+    dig_records,
     validate_recipe,
 )
 
@@ -338,3 +339,79 @@ def test_browser_fetch_does_not_open_the_phase4_door() -> None:
     script["steps"].append({"op": "click_sequence", "selectors": ["a.next"]})
     with pytest.raises(RecipeError, match="Phase 4"):
         validate_recipe(script)
+
+
+# --- the records_path wildcard (the whole-board path on a grouped payload) ---
+
+def test_the_wildcard_records_path_is_the_union_of_every_group() -> None:
+    """``*.postings`` reads all 14 of binance's department groups, not one of them.
+
+    THE MEASURED PARTIAL READ this segment exists for: the whole board was already in
+    the captured response, and every concrete path into it — ``4.postings`` — is one
+    department. Both halves are asserted here, because the value of the union is exactly
+    the difference between them."""
+    payload = [
+        {"title": "Eng", "postings": [{"id": "a"}, {"id": "b"}]},
+        {"title": "Ops", "postings": [{"id": "c"}]},
+        {"title": "Empty", "postings": []},
+    ]
+    assert dig_records(payload, "0.postings") == [{"id": "a"}, {"id": "b"}]
+    assert dig_records(payload, "*.postings") == [{"id": "a"}, {"id": "b"}, {"id": "c"}]
+
+    # ...and with a head in front of the wildcard, and a tail behind it.
+    nested = {"data": {"groups": [
+        {"bucket": {"jobs": [{"id": "a"}]}},
+        {"bucket": {"jobs": [{"id": "b"}]}},
+    ]}}
+    assert dig_records(nested, "data.groups.*.bucket.jobs") == [{"id": "a"}, {"id": "b"}]
+
+
+def test_a_group_that_does_not_carry_the_array_is_skipped_not_fatal() -> None:
+    """A grouped board legitimately ships one shapeless group beside a dozen good ones;
+    refusing the whole board over it would be the wrong trade. Emptiness is still caught
+    — by the callers' own non-empty check, which is the RAISES-never-empty contract."""
+    payload = [{"postings": [{"id": "a"}]}, {"title": "no postings key"}, "not an object"]
+    assert dig_records(payload, "*.postings") == [{"id": "a"}]
+    assert dig_records([{"title": "x"}], "*.postings") == []
+
+
+def test_a_wildcard_over_something_that_is_not_a_list_raises() -> None:
+    with pytest.raises(RecipeError, match="not a list to iterate"):
+        dig_records({"groups": {"a": 1}}, "groups.*.jobs")
+
+
+def test_dig_records_leaves_a_plain_path_to_dig() -> None:
+    """No wildcard, no new behaviour. Every board that works today now resolves its
+    records through this function, so the un-wildcarded path has to stay byte-identical
+    — including the failure message a drifted stored row depends on."""
+    payload = {"data": {"jobs": [{"id": "a"}]}, "hits": 3}
+    assert dig_records(payload, "data.jobs") == [{"id": "a"}]
+    assert dig_records(payload, "hits") == 3
+    assert dig_records(payload, "") is payload
+    with pytest.raises(RecipeError, match="missing key"):
+        dig_records(payload, "data.nope")
+
+
+@pytest.mark.parametrize(
+    "bad_path, message",
+    [
+        ("*.groups.*.jobs", "at most one"),
+        ("groups.*", "names no records"),      # trailing wildcard names no key
+        ("*", "names no records"),
+    ],
+)
+def test_an_unrunnable_wildcard_path_is_rejected_on_write_and_on_read(
+    bad_path: str, message: str
+) -> None:
+    """A second ``*`` is an unbounded cross-product over a payload a stranger's board
+    authored, and a trailing one names no records at all. Both are rejected where every
+    other unrunnable recipe is — in the validator, which runs on write AND on every
+    nightly read of a stored row."""
+    script = _load("janestreet.json")
+    (extract,) = [s for s in script["steps"] if s["op"] == "extract_json_path"]
+    extract["records_path"] = bad_path
+    with pytest.raises(RecipeError, match=message):
+        validate_recipe(script)
+
+    extract["records_path"] = "*.postings"     # ...and one wildcard is accepted
+    validate_recipe(script)

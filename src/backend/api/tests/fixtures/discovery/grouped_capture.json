@@ -1,0 +1,30 @@
+{
+ "final_url": "https://www.binance.com/en/careers/job-openings",
+ "page_title": "Careers | Binance",
+ "responses": [
+  {
+   "url": "https://www.binance.com/bapi/composite/v1/public/marketing/tardis/list",
+   "method": "GET",
+   "status": 200,
+   "content_type": "application/json",
+   "request_headers": {
+    "accept": "application/json"
+   },
+   "post_data": null,
+   "body": "{\"data\": [{\"id\": 1, \"slug\": \"spring-promo\", \"name\": \"banner\"}]}",
+   "truncated": false
+  },
+  {
+   "url": "https://www.binance.com/bapi/career/jobs-lever/v0/postings/binance?group=department&mode=json",
+   "method": "GET",
+   "status": 200,
+   "content_type": "application/json; charset=utf-8",
+   "request_headers": {
+    "accept": "application/json"
+   },
+   "post_data": null,
+   "body": "[{\"title\": \"Business Development\", \"postings\": [{\"id\": \"6e1b2cbf-037b-4095-b152-0e7c160593ca\", \"text\": \"Binance Accelerator Programme - VIP Sales (SEA)\", \"hostedUrl\": \"https://jobs.lever.co/binance/6e1b2cbf-037b-4095-b152-0e7c160593ca\", \"country\": \"VN\", \"createdAt\": 1776824714111}, {\"id\": \"0f3ddaff-9103-4e7b-9a92-a4d228c64143\", \"text\": \"Business Development - Payment (Global)\", \"hostedUrl\": \"https://jobs.lever.co/binance/0f3ddaff-9103-4e7b-9a92-a4d228c64143\", \"country\": \"GB\", \"createdAt\": 1771849157238}]}, {\"title\": \"Communications\", \"postings\": [{\"id\": \"8b6f3a93-f9d3-4227-87c3-5e56832b54a7\", \"text\": \"Global PR and Communications\", \"hostedUrl\": \"https://jobs.lever.co/binance/8b6f3a93-f9d3-4227-87c3-5e56832b54a7\", \"country\": \"AE\", \"createdAt\": 1786370000944}]}, {\"title\": \"Customer Support\", \"postings\": [{\"id\": \"8f870d45-fa09-4ea6-b90f-fa5906412692\", \"text\": \"Account Manager - VIP Clients (APAC)\", \"hostedUrl\": \"https://jobs.lever.co/binance/8f870d45-fa09-4ea6-b90f-fa5906412692\", \"country\": \"VN\", \"createdAt\": 1701703519526}, {\"id\": \"eb8d067d-75be-4b54-848d-0f1bdb3ce63c\", \"text\": \"Binance Accelerator Program - VIP Support (Gulf Binance)\", \"hostedUrl\": \"https://jobs.lever.co/binance/eb8d067d-75be-4b54-848d-0f1bdb3ce63c\", \"country\": \"TH\", \"createdAt\": 1783580951201}, {\"id\": \"ba1c88e9-1684-4c6d-aae4-d91292c475b6\", \"text\": \"Customer Service Business Process Specialist\", \"hostedUrl\": \"https://jobs.lever.co/binance/ba1c88e9-1684-4c6d-aae4-d91292c475b6\", \"country\": \"SG\", \"createdAt\": 1781007326589}, {\"id\": \"8b668c72-88f1-45be-b8bb-70cc8620e6b5\", \"text\": \"Customer Service Representative (Spanish and Portuguese speaker)\", \"hostedUrl\": \"https://jobs.lever.co/binance/8b668c72-88f1-45be-b8bb-70cc8620e6b5\", \"country\": \"CO\", \"createdAt\": 1715780633954}]}, {\"title\": \"Data & Research\", \"postings\": [{\"id\": \"fb9d588a-e49e-4496-a464-9c6c5cc4ca46\", \"text\": \"Binance Accelerator Program - Research On Chain Data Analyst\", \"hostedUrl\": \"https://jobs.lever.co/binance/fb9d588a-e49e-4496-a464-9c6c5cc4ca46\", \"country\": \"SG\", \"createdAt\": 1777476947838}, {\"id\": \"f919775a-7959-452a-877f-b53ec3e094a6\", \"text\": \"Business Development \\u2014 Equity Capital Markets\", \"hostedUrl\": \"https://jobs.lever.co/binance/f919775a-7959-452a-877f-b53ec3e094a6\", \"country\": \"SG\", \"createdAt\": 1784887857368}, {\"id\": \"88a5d981-4dbd-4571-80f1-b72321e67eb6\", \"text\": \"Data Analytics Manager (Risk/Fraud/KYC)\", \"hostedUrl\": \"https://jobs.lever.co/binance/88a5d981-4dbd-4571-80f1-b72321e67eb6\", \"country\": \"SG\", \"createdAt\": 1781088019735}]}]",
+   "truncated": false
+  }
+ ]
+}

@@ -98,6 +98,7 @@ import httpx
 
 from ..discovery.models import DiscoveryOutcome
 from ..discovery.progress import (
+    OUTCOME_PARTIAL,
     OUTCOME_REFUSED,
     OUTCOME_TRACKING,
     STEP_FIND_FEED,
@@ -115,8 +116,10 @@ from ..recipe_schema import (
     BROWSER_FETCH,
     BROWSER_FETCH_MAX_PAGES,
     RECIPE_VERSION,
+    RECORDS_WILDCARD,
     RecipeError,
     dig,
+    dig_records,
     validate_recipe,
 )
 from ..url_guard import _DNS_EXECUTOR, UrlGuardError, validate_public_url
@@ -250,6 +253,45 @@ _MAX_SELECTION_ROUNDS = 2
 # into a FAILED run instead of a silently empty harvest. A key whose captured value is
 # already truthy (``message: "ok"``) is NOT pinned — it would fail every single run.
 _INBAND_ERROR_KEY_CANDIDATES = ("error", "errors", "code", "status", "success")
+
+# --------------------------------------------------------------------------
+# THE COVERAGE CHECK — "does the recipe read the board, or a sliver of it?"
+# --------------------------------------------------------------------------
+# A stored recipe INHERITS THE CAPTURE'S FILTER SCOPE, and that is deliberate: paste a
+# careers URL you already narrowed to "Engineering, Remote" and the board is tracked at
+# that scope forever, because widening it is a change we cannot validate. That rule is
+# right for narrowing THE USER CHOSE. It is wrong for narrowing THE PAGE CHOSE — a
+# default tab, a preselected facet, a grouped payload we bound one group of — and the
+# three boards below all passed every gate while reading a sliver:
+#
+#   binance.com    81 of 276 postings — the whole board was in the response, in 14
+#                  department groups, and ``records_path`` bound to group 4
+#   careers.kakao  8 of 31 — the page fired its own ``part=TECHNOLOGY`` default tab
+#   walmart        10 of 47,298 — a chat endpoint that pages 10 at a time
+#
+# Telling the two apart by INSPECTING THE URL is guesswork. Telling them apart by
+# READING THE CAPTURED BYTES is not: a board narrowed by a filter the user asked for
+# publishes counts that AGREE with what came back, while a board narrowed by its own
+# page publishes counts that contradict it (kakao answers ``totalJobCount: 8`` beside
+# its own category counts summing to 31). So the check is: what does the recipe reach,
+# against what do the captured bytes prove is there. Detectable, board-agnostic, and it
+# needs nothing we did not already download.
+#
+# The remedy is ordered: WIDEN if we can prove the wider read is the same board
+# (:func:`_widen_to_union`), otherwise STOP CLAIMING A CLEAN SUCCESS
+# (:data:`OUTCOME_PARTIAL`). It is never a refusal — a partial board still shows every
+# job it can see, and refusing it would trade a truthful partial for nothing at all.
+#
+# NOTE WHAT THIS DOES NOT TOUCH: the oracle, the gate, ``verify_harvest``. A partial
+# board keeps exactly the completeness claim it earned, which for all three above is
+# one that can never close a job. Coverage is an HONESTY signal, not a safety one — the
+# safety is the oracle's job and stays where it is.
+_MIN_CAPTURE_COVERAGE = 0.9
+
+# ...and the shortfall must also be worth a word. A board whose own total moved by two
+# jobs between the capture and the replay is drift, not a sliver, and labelling it
+# "partial" would burn the label on every board that breathes.
+_MIN_COVERAGE_SHORTFALL = 5
 
 # Where a board publishes its own total. Searched deterministically (never asked of the
 # LLM) because a hallucinated oracle path is a nightly FAILED run, and because this is
@@ -491,6 +533,207 @@ def _facet_consensus_total(payload: Any, records_path: str) -> int | None:
                 sums.append(sum(counts))
     agreed = [value for value in set(sums) if sums.count(value) >= 2]
     return max(agreed) if agreed else None
+
+
+def _records_stem(records_path: str) -> str:
+    """What the records array CALLS itself, reduced to a matchable stem.
+
+    ``jobs`` → ``job``, ``jobList`` → ``job``, ``data.job_post_list`` → ``jobpost``.
+    Used to pick, out of several counts a payload publishes side by side, the one that
+    counts THESE records: walmart's response carries ``total_jobs: 47298`` beside
+    ``total_future_roles: 276561`` and ``total_content: 36``, and only the first is a
+    statement about the array we bound to. Taking the largest instead would report a
+    board of 47,298 as a board of 276,561.
+    """
+    segments = [
+        s for s in records_path.split(".")
+        if s and s != RECORDS_WILDCARD and not s.isdigit()
+    ]
+    if not segments:
+        return ""
+    stem = "".join(ch for ch in segments[-1].lower() if ch.isalnum())
+    for suffix in ("list", "s"):
+        if len(stem) > len(suffix) + 1 and stem.endswith(suffix):
+            return stem[: -len(suffix)]
+    return stem
+
+
+def _totals_beside_records(payload: Any, records_path: str, floor: int) -> int | None:
+    """The board's own count of THESE records, read from the objects that contain them.
+
+    Scoped to the records array's own container and its dict ANCESTORS, which is where
+    a board publishes a total and is not where it publishes anything else: kakao's
+    ``jobTypeCountDtoList.2.jobCount`` (14) is a facet bucket two levels down and would
+    otherwise be read as a board total, and every payload is full of per-record counts
+    shaped exactly like one.
+
+    Deliberately separate from :func:`_find_total_path`, which picks the ORACLE. That
+    one may only ever look where a wrong answer is survivable, and its answer decides
+    whether a nightly run may close jobs. This one is display-only: it decides whether
+    we say "we are reading part of this board", so it can afford to descend a list
+    index (walmart buries its total under ``tool_messages.0.artifact``) that the oracle
+    search deliberately will not.
+    """
+    stem = _records_stem(records_path)
+    key_of_records = records_path.split(".")[-1] if records_path else ""
+    node: Any = payload
+    scopes: list[dict[str, Any]] = []
+    for segment in [s for s in records_path.split(".") if s]:
+        if isinstance(node, dict):
+            scopes.append(node)
+            if segment not in node:
+                break
+            node = node[segment]
+        elif isinstance(node, list):
+            if segment == RECORDS_WILDCARD:
+                break
+            try:
+                node = node[int(segment)]
+            except (ValueError, IndexError):
+                break
+        else:
+            break
+    if isinstance(node, dict):  # a records_path of "" — the payload IS the array's home
+        scopes.append(node)
+
+    named: list[int] = []
+    anonymous: list[int] = []
+    for scope in scopes:
+        for key, value in scope.items():
+            if key == key_of_records:
+                continue
+            if not isinstance(value, int) or isinstance(value, bool) or value < floor:
+                continue
+            flat = "".join(ch for ch in str(key).lower() if ch.isalnum())
+            if not any(hint.replace("_", "") in flat for hint in _TOTAL_KEY_HINTS):
+                continue
+            (named if stem and stem in flat else anonymous).append(value)
+    # A count that NAMES these records wins outright, however small; only when nothing
+    # names them do we fall back to the largest total-ish number in scope.
+    pool = named or anonymous
+    return max(pool) if pool else None
+
+
+def _labelled_facet_total(payload: Any, records_path: str) -> int | None:
+    """Σ of a ``[{label: "...", count: N}, ...]`` facet block — the board's own tab counts.
+
+    THE KAKAO SIGNAL. Its jobs API answers ``totalJobCount: 8`` for the tab the page
+    happened to open, and beside it ships ``jobTypeCountDtoList`` — TECHNOLOGY 8,
+    DESIGN 3, BUSINESS_SERVICES 14, STAFF 6. The board is 31 and it says so in the same
+    response; the 8 is the scope OUR capture landed in, not the board's size.
+
+    A distinct shape from :func:`_facet_consensus_total`'s ``{label: count}`` buckets,
+    and that is exactly what keeps them apart: a bucket carrying a STRING label beside
+    ONE integer is a named tab count, while amazon's ``{"US, WA, Seattle": 3409}`` is a
+    location histogram that over-counts multi-located jobs (its own ``location_facet``
+    sums to 34,794 against a real 22,492). Requiring a string label admits the first and
+    excludes the second, so this signal never has to be corroborated the way the other
+    one does.
+
+    Used ONLY to say "we are reading part of this board", never as an oracle and never
+    as a budget — a false positive costs a truthful-but-pessimistic label, which is the
+    survivable direction.
+    """
+    if not isinstance(payload, dict):
+        return None
+    best: int | None = None
+    frontier: list[tuple[Any, str, int]] = [(payload, "", 0)]
+    while frontier:
+        node, path, depth = frontier.pop(0)
+        if depth > _MAX_TOTAL_SEARCH_DEPTH or not isinstance(node, dict):
+            continue
+        for key, value in node.items():
+            child_path = f"{path}.{key}" if path else str(key)
+            if child_path == records_path:
+                continue
+            if isinstance(value, dict):
+                frontier.append((value, child_path, depth + 1))
+                continue
+            if not isinstance(value, list) or len(value) < 2:
+                continue
+            total = 0
+            ok = True
+            for bucket in value:
+                if not isinstance(bucket, dict):
+                    ok = False
+                    break
+                counts = [
+                    v for v in bucket.values()
+                    if isinstance(v, int) and not isinstance(v, bool) and v >= 0
+                ]
+                labels = [v for v in bucket.values() if isinstance(v, str) and v]
+                if len(counts) != 1 or not labels:
+                    ok = False
+                    break
+                total += counts[0]
+            if ok and total > 0 and (best is None or total > best):
+                best = total
+    return best
+
+
+@dataclass(frozen=True)
+class _Coverage:
+    """What the stored recipe can reach, against what the CAPTURED BYTES prove is there.
+
+    ``evidence`` names where ``visible`` came from, in the board's own vocabulary, so a
+    partial verdict is checkable rather than asserted — it is rendered to the user and
+    read back off the row months later.
+    """
+
+    reachable: int
+    visible: int
+    evidence: str
+
+    @property
+    def is_partial(self) -> bool:
+        return (
+            self.visible - self.reachable >= _MIN_COVERAGE_SHORTFALL
+            and self.reachable < self.visible * _MIN_CAPTURE_COVERAGE
+        )
+
+
+def _reachable_records(script: dict[str, Any], candidate: Candidate) -> int:
+    """The MOST rows the stored recipe could ever return, at its full nightly budget.
+
+    Not what acceptance read — acceptance is clamped to two pages on purpose
+    (:func:`probe_script`) and comparing that against a board's total would call every
+    paginated board partial. The claim under test is what the HARVEST can reach.
+    """
+    for step in script["steps"]:
+        if step["op"] in ("paginate_offset", "paginate_page"):
+            budget = int(step["page_size"]) * int(step["max_pages"])
+            window_cap = step.get("window_cap")
+            if isinstance(window_cap, int) and window_cap > 0:
+                return min(budget, window_cap)
+            return budget
+    return candidate.record_count
+
+
+def _coverage(
+    script: dict[str, Any], candidate: Candidate, selection: RequestSelection
+) -> _Coverage:
+    """Measure the stored recipe against the board's own published counts."""
+    reachable = _reachable_records(script, candidate)
+    payload, records_path = candidate.payload, selection.records_path
+    claims: list[tuple[int, str]] = []
+
+    declared = _totals_beside_records(payload, records_path, candidate.record_count)
+    if declared is not None:
+        claims.append((declared, f"this board's own response counts {declared:,} job(s)"))
+    consensus = _facet_consensus_total(payload, records_path)
+    if consensus is not None:
+        claims.append((consensus, f"this board's own facets agree on {consensus:,} job(s)"))
+    labelled = _labelled_facet_total(payload, records_path)
+    if labelled is not None:
+        claims.append((labelled, f"this board's own category counts add up to {labelled:,}"))
+
+    # The LARGEST claim wins. Each one is a lower bound the board published about
+    # itself, so the biggest is the strongest statement that we are short — and the
+    # error we care about is missing a sliver, not over-reporting one.
+    if not claims:
+        return _Coverage(reachable, reachable, "")
+    visible, evidence = max(claims)
+    return _Coverage(reachable, max(visible, reachable), evidence)
 
 
 @dataclass(frozen=True)
@@ -856,7 +1099,7 @@ def _rebind_to_selection(candidate: Candidate, selection: RequestSelection) -> C
     selector (tests) and for a future caller that does not.
     """
     try:
-        records = dig(candidate.payload, selection.records_path)
+        records = dig_records(candidate.payload, selection.records_path)
     except RecipeError as exc:
         raise _Refusal(
             _STEP_SELECT,
@@ -873,6 +1116,67 @@ def _rebind_to_selection(candidate: Candidate, selection: RequestSelection) -> C
         return candidate
     return replace(
         candidate, records_path=selection.records_path, record_count=len(records)
+    )
+
+
+def _union_records_path(records_path: str) -> str | None:
+    """``4.postings`` → ``*.postings``: the same array in EVERY group, or ``None``."""
+    segments = records_path.split(".")
+    for i, segment in enumerate(segments):
+        if segment.isdigit() and i < len(segments) - 1:
+            return ".".join(segments[:i] + [RECORDS_WILDCARD] + segments[i + 1:])
+    return None
+
+
+def _widen_to_union(
+    candidate: Candidate, selection: RequestSelection, base_url: str
+) -> tuple[Candidate, RequestSelection]:
+    """Re-point a path that bound ONE GROUP of a grouped payload at the whole board.
+
+    THE BINANCE FIX, and the reason it is deterministic code rather than a better
+    prompt: binance.com answers with 14 department groups, the pre-filter ranked
+    ``4.postings`` top because 88 was the biggest single group, and the model — shown
+    that path and asked to correct it only "if it is wrong" — agreed. Every downstream
+    check then passed, because every one of them compares the replay against that same
+    88-record array. Nothing in the pipeline could see the other 188 postings sitting in
+    the response we had already downloaded. The prompt now names the ``*`` path too, but
+    a prompt is a request; this is the guarantee.
+
+    Widening is PROVEN, not assumed, and the proof is the only one that matters: the
+    union must map to strictly MORE usable job rows through the same field map. That
+    rules out the two ways this could go wrong — a wildcard over groups whose arrays
+    hold something other than jobs (they would not render an id and a title), and a
+    wildcard that resolves to the same records under another name. The acceptance replay
+    then re-proves the whole thing against the live board.
+
+    A widened selection is still the SAME REQUEST at the SAME filter scope. Nothing here
+    edits a URL, drops a query parameter or changes what the browser asked for — it only
+    stops throwing away part of the answer we already had.
+    """
+    union_path = _union_records_path(selection.records_path)
+    if union_path is None:
+        return candidate, selection
+    try:
+        union = dig_records(candidate.payload, union_path)
+    except RecipeError:
+        return candidate, selection
+    if not isinstance(union, list) or len(union) <= candidate.record_count:
+        return candidate, selection
+    field_map = dict(selection.field_map)
+    widened_rows = map_records(union, field_map, base_url)
+    if len(widened_rows) <= len(map_records(candidate.records, field_map, base_url)):
+        # The extra groups carry no job we can actually write. Keeping the narrow path
+        # is the honest outcome — the coverage check below still tells the user we are
+        # only reading part of the board.
+        return candidate, selection
+    logger.info(
+        "discovery widened records_path %r -> %r: %d -> %d record(s) from the SAME "
+        "captured response",
+        selection.records_path, union_path, candidate.record_count, len(union),
+    )
+    return (
+        replace(candidate, records_path=union_path, record_count=len(union)),
+        replace(selection, records_path=union_path),
     )
 
 
@@ -1221,6 +1525,13 @@ async def discover(
                 candidate = _rebind_to_selection(
                     candidates[selection.chosen_request_index], selection
                 )
+                # ...and if that bound ONE GROUP of a grouped payload, take the whole
+                # board instead. Before the acceptance ladder, because everything it
+                # measures — the page size, the ids to match, the coverage verdict —
+                # must be about the array we are actually going to store.
+                candidate, selection = _widen_to_union(
+                    candidate, selection, _origin_of(origin_url)
+                )
             except _Refusal as exc:
                 last_step, last_error = exc.step, exc.detail
                 logger.info("discovery selection unusable for %s: %s", url, exc.detail)
@@ -1296,18 +1607,43 @@ async def discover(
                     [s for s in script["steps"] if s["op"].startswith("paginate_")]
                     or [{}]
                 )
+                # THE LAST QUESTION, and the one nothing above can answer: we proved we
+                # can read this feed — is this feed the board? Measured against the
+                # board's own published counts, in the bytes we already captured.
+                coverage = _coverage(script, candidate, selection)
                 logger.info(
                     "capture discovery ACCEPTED %s: %s %s -> %d jobs on a %d-page probe "
-                    "(transport=%s oracle=%s round=%d harvest_budget=%sx%s)",
+                    "(transport=%s oracle=%s round=%d harvest_budget=%sx%s "
+                    "coverage=%d/%d%s)",
                     url, candidate.method, candidate.url, len(rows),
                     _ACCEPTANCE_MAX_PAGES, transport, script["oracle"]["kind"],
                     round_number, paginate_step.get("max_pages"),
                     paginate_step.get("page_size"),
+                    coverage.reachable, coverage.visible,
+                    " PARTIAL" if coverage.is_partial else "",
                 )
-                ledger.finish(STEP_VERIFY_READ, f"read {len(rows)} job(s)")
+                if coverage.is_partial:
+                    logger.warning(
+                        "capture discovery accepted %s at PARTIAL scope: the recipe "
+                        "reaches %d record(s) but %s (records_path=%r)",
+                        url, coverage.reachable, coverage.evidence,
+                        selection.records_path,
+                    )
+                # The step's result is the honest one either way. A board we can only
+                # read a slice of must not tick the same tick as one we read whole —
+                # that identical green tick is the bug this whole check exists for.
+                ledger.finish(
+                    STEP_VERIFY_READ,
+                    f"read {len(rows)} job(s), but {coverage.evidence} — we can only "
+                    f"track part of this board"
+                    if coverage.is_partial
+                    else f"read {len(rows)} job(s)",
+                )
                 ledger.finish(
                     STEP_READY,
-                    "reading the board's own feed directly — no browser needed"
+                    "reading part of the board — every job we can see, refreshed daily"
+                    if coverage.is_partial
+                    else "reading the board's own feed directly — no browser needed"
                     if transport == "http_json"
                     else "reading the board in a browser each night",
                 )
@@ -1320,13 +1656,20 @@ async def discover(
                     cost_note=(
                         f"1 browser capture + {round_number} Haiku selection(s); "
                         f"replays as {transport}"
+                        + (
+                            f"; PARTIAL — reaches {coverage.reachable} of {coverage.visible}"
+                            if coverage.is_partial else ""
+                        )
                     ),
                     # The rows the ACCEPTANCE REPLAY returned — the same bytes the
                     # nightly harvest will read, not the capture's. Showing the user
                     # jobs that only our production path can actually see is the whole
                     # claim we are making by promising to track this board.
                     progress=ledger.snapshot(
-                        outcome=OUTCOME_TRACKING, job_preview=rows
+                        outcome=(
+                            OUTCOME_PARTIAL if coverage.is_partial else OUTCOME_TRACKING
+                        ),
+                        job_preview=rows,
                     ),
                 )
             # This candidate cannot be replayed either way — drop it and ask again over

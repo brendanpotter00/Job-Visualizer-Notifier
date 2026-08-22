@@ -1,8 +1,11 @@
 # Testable Boards — measured, not guessed
 
-**Measured 2026-08-20. Re-measured and corrected 2026-08-21** — the first sweep ran with
-a capture bug that lost boards. **Read [the correction](#correction--2026-08-21) before
-trusting any refusal.** Every row was produced by calling
+**Measured 2026-08-20. Re-measured and corrected 2026-08-21 and 2026-08-22.** The
+2026-08-21 sweep ran with a capture bug that lost boards
+([correction](#correction--2026-08-21)); the 2026-08-22 pass fixed the three boards that
+were *accepted while reading a sliver*
+([correction](#correction--2026-08-22--the-sliver-reads)). **Read both before trusting a
+row.** Every row was produced by calling
 `api.services.capture.discover.discover()` for real — real headless Chromium, real Haiku
 call, real acceptance replay. Nothing here is a guess. **Live boards drift** — a ✅ can
 become a ❌ the week a company redesigns its careers page.
@@ -12,6 +15,95 @@ The refusal tables below list **41** of those — Google and Bloomberg were each
 two different URLs and refused identically both times.
 
 **No board landed `browser_fetch`.** See [The browser_fetch hunt](#the-browser_fetch-hunt).
+
+---
+
+## Correction — 2026-08-22 — the sliver reads
+
+**Three boards were stored as "Successfully tracking" while reading a sliver.** All three
+passed every gate — the recipe replayed, the ids matched the capture, the completeness
+oracle was honest, and none of them can ever close a job. What was wrong was only what we
+*said* about them: the same green chip and the same "read N jobs" tick as a board we had
+read completely.
+
+| Board | Was | Now | Root cause |
+|---|---|---|---|
+| **Binance** | 81 of 276 | **250**, `records_path: '*.postings'` | The response is 14 department groups and every concrete path into it is ONE department. The whole board was in bytes we had already downloaded |
+| **Kakao** | 8, green | **8, amber "Tracking part of this board"** | The page fires its own `part=TECHNOLOGY` default tab. The board is 31 and says so in the same response (`jobTypeCountDtoList` sums to 31 beside `totalJobCount: 8`) |
+| **Walmart** | 10, green | **10, amber "Tracking part of this board"** | The captured feed is a chat-assistant GraphQL endpoint (`jobSearchAssistant`) that serves 10 jobs a page and publishes `total_jobs: 47298` in the same body |
+
+**How a page-imposed narrowing is told apart from a user-chosen one.** By reading the
+CAPTURED BYTES, never by inspecting the URL. A board narrowed by a filter the user asked
+for publishes counts that agree with what came back; a board narrowed by its own page
+publishes counts that contradict it. So the rule *"a stored recipe inherits the capture's
+filter scope"* is unchanged — nothing drops a query parameter, nothing rewrites a URL —
+and the new check only compares **what the stored recipe can reach at its full nightly
+budget** against **what the response proves is there**. Three signals, all from the
+capture: a grouped payload's union, the board's own total in the object holding the
+records, and a `{label, count}` facet block's sum.
+
+### What a partial read looks like now
+
+* the discovery outcome is `partial`, not `tracking`;
+* the row's chip is amber **"Tracking part of this board"**, not green "Successfully
+  tracking";
+* the checklist stays on the row **for good** (every other tracked board drops it after
+  the first harvest) and carries the board's own numbers — *"read 8 job(s), but this
+  board's own category counts add up to 31 — we can only track part of this board"*.
+
+**Nothing about harvesting changed.** The oracle, `run_gate` and `verify_harvest` are
+untouched: Kakao is still `declared_probed` (8 of 8 is still exact for the scope it
+reads), Walmart and Binance still `oracle: none` → UNVERIFIED forever → they show every
+job they can see and close none. Coverage is an honesty signal, not a safety one.
+
+### `records_path` may now carry one `*`
+
+`*.postings` is the union of every group's array (`recipe_schema.dig_records`). At most
+one wildcard, never trailing — rejected by the validator on write **and** on every
+nightly read, like every other unrunnable recipe. `discover` also widens a single-group
+path to the union **deterministically**, after the model answers, and only when the union
+maps to strictly more usable job rows through the same field map: the prompt now names
+the `*` path, but a prompt is a request and this is the guarantee.
+
+### Amazon is now labelled partial, and that is correct
+
+`10,000` reachable (its Elasticsearch window) against the `22,492` its own facets agree
+on. Its recipe, budget, oracle and probe read are **byte-identical** to before — only the
+label moved, from a green chip that claimed the whole board to an amber one that does
+not.
+
+### Measured, before and after, on the same captures
+
+Real `discover()`, real Haiku, real acceptance replays; captures taken 2026-08-22 with
+**Browserbase off** (local Chromium, $0) and replayed from disk so before/after saw the
+same bytes. No database touched.
+
+| Board | Probe read before | Probe read after | Outcome before → after |
+|---|---|---|---|
+| **Binance** | 81 | **250** | `tracking` → `tracking` (whole board) |
+| **Kakao** | 8 | 8 | `tracking` → **`partial`** |
+| **Walmart** | 10 | 10 | `tracking` → **`partial`** |
+| SpaceX | 2,198 | 2,198 | unchanged |
+| Amazon | 200 (100 × 100, cap 10,000) | 200 (100 × 100, cap 10,000) | `tracking` → **`partial`** |
+| TikTok | 200 (43 × 100) | 200 (43 × 100) | unchanged |
+| Jane Street | 233 | 233 | unchanged |
+| Spotify | 88 | 88 | unchanged |
+
+### Still not fixed, and now visible
+
+* **Binance loses 26 of its 276 postings to a bad field map.** The model answered
+  `title: 'opening'` — Lever's *description* blob — where the title is `text`. 26 postings
+  have an empty `opening`, so `map_records` drops them, and the 250 that survive carry a
+  page of HTML as their job title. A field-map quality bug, not a scope one, and the
+  widening is what made it big enough to see.
+* **Walmart cannot be read completely and probably never will be.** 47,298 jobs at 10 a
+  page is 4,730 requests against a 100-page ceiling, its page parameter is buried four
+  levels down a POST body the recipe vocabulary cannot address, and the endpoint is a
+  chat thread with a per-page-load `thread_id`. The honest answer is the amber chip.
+* **Kakao's whole board needs an invented parameter value.** Dropping `part=TECHNOLOGY`
+  and `company=KAKAO` changes nothing (the API defaults to TECHNOLOGY server-side); only
+  `company=ALL` returns all 31, across 3 pages. Guessing a value we never observed is the
+  scope change this feature deliberately does not attempt.
 
 ---
 
@@ -74,11 +166,11 @@ tracks now, and the board never changed.
 |---|---|---|---|---|---|---|
 | **SpaceX** | `https://www.spacex.com/careers/jobs/` | `http_json` | `none` | **2,188** | 1 request | Whole board in one static CDN file |
 | **🆕 Atlassian** | `https://www.atlassian.com/company/careers/all-jobs` | `http_json` | `none` | **250** | 1 request | Feed lands **~10.6 s** in — invisible to the old 8.4 s window |
-| **🆕 Binance** | `https://www.binance.com/en/careers/job-openings` | `http_json` | `none` | 81 | 1 request | Feed is **2.78 MB** — invisible to the old 2 MB body cap. **Tracks one department** |
+| **🆕 Binance** | `https://www.binance.com/en/careers/job-openings` | `http_json` | `none` | **250** | 1 request | Feed is **2.78 MB** — invisible to the old 2 MB body cap. 14 department groups read as one via `records_path: '*.postings'` ([2026-08-22](#correction--2026-08-22--the-sliver-reads)) |
 | **Jane Street** | `https://www.janestreet.com/join-jane-street/open-roles/` | `http_json` | `none` | 233 | 1 request | — |
 | **Spotify** | `https://www.lifeatspotify.com/jobs` | `http_json` | `none` | 87 | 1 request | — |
 | **Rockstar Games** | `https://www.rockstargames.com/careers/openings` | `http_json` | `none` | 68 | 1 request | Persisted GraphQL query replays fine |
-| **Amazon** | `https://www.amazon.jobs/en/search` | `http_json` | `self_consistent` | 200 | 100 × 100, **window cap 10,000** | Its own `hits: 10000` is distrusted — facets say 22k |
+| **Amazon** | `https://www.amazon.jobs/en/search` | `http_json` | `self_consistent` | 200 | 100 × 100, **window cap 10,000** | Its own `hits: 10000` is distrusted — facets say 22k. **⚠️ partial** (10,000 of 22,492) |
 | **TikTok** | `https://lifeattiktok.com/search` | `http_json` | `declared_probed` | 200 | 43 × 100 (~4,300) | — |
 | **Shopee** | `https://careers.shopee.com/jobs` | `http_json` | `declared_probed` | 200 | 29 × 100 (~2,900) | Redirects to `careers.shopee.sg`; feed is `ats.workatsea.com` |
 | **Tencent** | `https://careers.tencent.com/en-us/search.html` | `http_json` | `declared_probed` | 200 | 25 × 100 (~2,500) | — |
@@ -87,8 +179,8 @@ tracks now, and the board never changed.
 | **Didi** | `https://talent.didiglobal.com/social` | `http_json` | `declared_probed` | 32 | 68 × 16 (~1,088) | Chinese-language titles |
 | **Microsoft** | `https://jobs.careers.microsoft.com/global/en/search` | `http_json` | `declared_probed` | 20 | 100 × 10 → **hard-capped at 1,000** | Resolves to a different host, `apply.careers.microsoft.com` |
 | **Meituan** | `https://zhaopin.meituan.com/web/position` | `http_json` | `declared_probed` | 10 | 100 × 10 → **hard-capped at 1,000** | Chinese-language titles |
-| **Kakao** | `https://careers.kakao.com/jobs` | `http_json` | `declared_probed` | 8 | 1 page only | Captured request is **pre-filtered** to `part=TECHNOLOGY` |
-| **Walmart** | `https://careers.walmart.com/results` | `http_json` | `none` | 10 | 1 page only | **Tracks 10 jobs** on a board with tens of thousands |
+| **Kakao** | `https://careers.kakao.com/jobs` | `http_json` | `declared_probed` | 8 | 1 page only | Captured request is **pre-filtered** to `part=TECHNOLOGY`. **⚠️ partial** (8 of 31) |
+| **Walmart** | `https://careers.walmart.com/results` | `http_json` | `none` | 10 | 1 page only | Chat-assistant GraphQL, 10 a page. **⚠️ partial** (10 of 47,298) |
 
 ### What each group demonstrates
 
@@ -112,17 +204,12 @@ recipe pages 10 at a time and hits the 100-page ceiling at 1,000 jobs. Both have
 `UNVERIFIED` forever. Correct, just partial.
 → **Microsoft, Meituan**.
 
-**Accepted but narrow — good bug bait.** All three pass every gate and still track a
-sliver. Walmart's GraphQL response paginates in a way the selector did not spot; Kakao's
-captured XHR carried the page's own `part=TECHNOLOGY&company=KAKAO` filter into the
-stored recipe; **Binance's feed is 14 department groups and the selector bound
-`records_path: "4.postings"` — Engineering only, 81 of 279 postings.** None is *wrong* —
-they read exactly the list the browser saw — but none is the whole board.
-→ **Walmart** (10 jobs), **Kakao** (8 jobs), **Binance** (81 of 279).
-
-**Binance is the one to fix next.** It is the only board here whose whole board is
-already in the captured body — the selector picked a sub-list of it. That is a selector
-problem with the evidence sitting in the fixture, not a board we cannot read.
+**Accepted but narrow — ⚠️ `partial`.** These read a real slice of the company's jobs and
+nothing more, and since [2026-08-22](#correction--2026-08-22--the-sliver-reads) they say
+so: amber chip, and a checklist that stays on the row carrying the board's own numbers.
+Binance left this group — its whole board was already in the captured body and
+`records_path: '*.postings'` now reads all of it.
+→ **Walmart** (10 of 47,298), **Kakao** (8 of 31), **Amazon** (10,000 of 22,492).
 
 ---
 

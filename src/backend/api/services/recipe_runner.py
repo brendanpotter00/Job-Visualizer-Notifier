@@ -46,7 +46,7 @@ from xml.etree import ElementTree
 import httpx
 
 from .harvest_meta import HarvestEvidence
-from .recipe_schema import RecipeError, dig, validate_recipe
+from .recipe_schema import RecipeError, dig, dig_records, validate_recipe
 
 # The full agent/LLM/browser set the REPLAY CODE PATH must never be able to import.
 # ``playwright`` ADDED vs the spike: Phase-3a replay is HTTP-only, so a browser driver
@@ -282,8 +282,13 @@ def _check_inband_error(payload: Any, error_keys: tuple[str, ...]) -> None:
 
 
 def _dig_records(payload: Any, records_path: str, where: str) -> list[Any]:
+    # ``dig_records``, not ``dig``: a ``records_path`` may carry one ``*`` segment
+    # meaning "the union of every group's array" (binance.com ships its whole board as
+    # 14 department groups). Everything else about this function is unchanged — a path
+    # that does not resolve, or resolves to something that is not a list, is still the
+    # loud failure it always was.
     try:
-        records = dig(payload, records_path)
+        records = dig_records(payload, records_path)
     except RecipeError as exc:
         raise RecipeExecutionError(
             f"records_path {records_path!r} did not resolve {where}: {exc}"

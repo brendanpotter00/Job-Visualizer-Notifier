@@ -24,7 +24,7 @@ import {
   type UserCompany,
 } from '../../features/userCompanies/userCompaniesApi';
 import {
-  describeHealthState,
+  describeCompanyHealth,
   describeLastChecked,
   shouldShowDiscovery,
 } from './companyHealth';
@@ -136,7 +136,7 @@ function CompanyRow({
   company: UserCompany;
   onRemove: (company: UserCompany) => void;
 }) {
-  const badge = describeHealthState(company.healthState);
+  const badge = describeCompanyHealth(company);
   // Flag OFF must render byte-for-byte what shipped before the checklist existed, so
   // the gate is here rather than inside the component: no extra element, no wrapper.
   const showChecklist =

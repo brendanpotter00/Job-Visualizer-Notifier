@@ -75,8 +75,18 @@ _STATUSES = frozenset({STATUS_PENDING, STATUS_ACTIVE, STATUS_DONE, STATUS_FAILED
 OUTCOME_RUNNING = "running"
 OUTCOME_TRACKING = "tracking"
 OUTCOME_REFUSED = "refused"
+# TRACKED, BUT NOT THE WHOLE BOARD. A recipe that reads a sliver — one department of a
+# grouped payload, the tab the page happened to open, ten jobs of forty-seven thousand
+# — passes every gate we have and is a perfectly valid thing to keep reading. What it
+# is not is the same outcome as a board we read completely, and it used to render
+# identically: the same green "Successfully tracking" chip, the same "read N jobs" tick.
+# ``capture.discover`` decides this by measuring the stored recipe against the counts
+# the board published in the response we captured; see its ``_coverage``.
+OUTCOME_PARTIAL = "partial"
 
-_OUTCOMES = frozenset({OUTCOME_RUNNING, OUTCOME_TRACKING, OUTCOME_REFUSED})
+_OUTCOMES = frozenset({
+    OUTCOME_RUNNING, OUTCOME_TRACKING, OUTCOME_PARTIAL, OUTCOME_REFUSED,
+})
 
 # A preview, not a job list — enough to recognise "yes, that is my board" at a glance.
 # The real list is one click away on the company's trend page once the first harvest

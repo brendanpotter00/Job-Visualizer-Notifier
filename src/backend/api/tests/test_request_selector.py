@@ -420,3 +420,64 @@ async def test_a_missing_key_is_still_a_key_error_not_a_call_failure(monkeypatch
     monkeypatch.setattr(settings, "anthropic_api_key", None)
     with pytest.raises(rs.SelectorKeyMissingError):
         await rs.select_request(_candidates("amazon"))
+
+
+# --- the grouped payload (binance): offer the WHOLE board, not one group ----
+
+def test_a_grouped_board_offers_the_union_and_ranks_it_over_a_single_group() -> None:
+    """binance.com's real shape, trimmed: 4 department groups of 2/1/4/3 postings.
+
+    The pre-filter used to rank ``2.postings`` top — the biggest single group — and
+    everything downstream then agreed with it, because every later check compares the
+    replay against that same array. What was lost is visible in the numbers here: the
+    winner must be the union of all four groups, not the largest of them."""
+    candidates = _candidates("grouped")
+    feed = next(c for c in candidates if "jobs-lever" in c.url)
+
+    assert feed.records_path == "*.postings"
+    assert feed.record_count == 10                       # 2 + 1 + 4 + 3
+    assert len(feed.records) == 10
+    assert len({r["id"] for r in feed.records}) == 10     # every group, no duplicates
+    # ...and the largest single group, which is what it beat.
+    assert max(len(g["postings"]) for g in feed.payload) == 4
+
+
+def test_the_union_is_only_offered_when_it_beats_every_single_group() -> None:
+    """One group carrying the array is not a grouped board — offering ``*.jobs`` beside
+    ``0.jobs`` there would spend one of the model's six candidate slots on the same
+    records under a second name."""
+    one_group_has_it = [{"jobs": [{"id": "a", "title": "t", "url": "/u"}]}, {"jobs": []}]
+    paths = []
+    rs._walk_record_arrays(one_group_has_it, "", 0, paths)
+    assert [p for p, *_ in paths if "*" in p] == []
+
+    two_groups_have_it = [
+        {"jobs": [{"id": "a", "title": "t", "url": "/u"}]},
+        {"jobs": [{"id": "b", "title": "t", "url": "/u"}]},
+    ]
+    paths = []
+    rs._walk_record_arrays(two_groups_have_it, "", 0, paths)
+    assert ("*.jobs", 2) in [(p, n) for p, n, *_ in paths]
+
+
+def test_the_union_counts_every_group_not_the_five_the_walk_recurses_into() -> None:
+    """The recursion samples five children of a list; the union may not. binance ships
+    FOURTEEN groups, so a count taken over five of them would understate the board by
+    exactly the amount this whole path exists to recover."""
+    groups = [
+        {"postings": [{"id": f"{g}-{i}", "title": "t", "url": "/u"} for i in range(3)]}
+        for g in range(14)
+    ]
+    paths = []
+    rs._walk_record_arrays(groups, "", 0, paths)
+    assert ("*.postings", 42) in [(p, n) for p, n, *_ in paths]
+
+
+def test_the_prompt_tells_the_model_what_a_star_path_means() -> None:
+    """The pre-filter offers ``*.postings``; a model that does not know what the segment
+    means would 'correct' it back to a single group, which is the exact bug. The
+    deterministic widening in ``discover`` is the guarantee — this is what keeps it from
+    having to fire."""
+    assert "'*.postings'" in rs.SYSTEM_PROMPT
+    listing = rs.build_message_params(_candidates("grouped"))["messages"][0]["content"]
+    assert "records_path: *.postings" in listing
