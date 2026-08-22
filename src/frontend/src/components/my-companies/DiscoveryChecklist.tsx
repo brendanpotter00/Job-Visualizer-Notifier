@@ -168,6 +168,11 @@ function renderedStatus(
   step: DiscoveryStep,
   outcome: DiscoveryOutcomeState,
 ): DiscoveryStep['status'] {
+  // `first_scan` is settled by the FIRST HARVEST, a different run that starts after
+  // discovery has already reached its terminal outcome ('tracking'/'partial'). So it is
+  // the one rung that is legitimately `active` while the outcome is not `running`, and
+  // downgrading it would draw a grey circle over the only thing still happening.
+  if (step.key === 'first_scan') return step.status;
   return outcome !== 'running' && step.status === 'active' ? 'pending' : step.status;
 }
 

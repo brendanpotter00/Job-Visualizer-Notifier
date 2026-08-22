@@ -445,3 +445,67 @@ describe('DiscoveryChecklist', () => {
     expect(container).toBeEmptyDOMElement();
   });
 });
+
+
+describe('the first-scan rung', () => {
+  // `first_scan` is settled by the FIRST HARVEST — a different run that begins AFTER
+  // discovery has already reached its terminal outcome ('tracking'). It is therefore the
+  // one rung legitimately `active` while the outcome is not `running`, and the spinner on
+  // it is the only signal that anything is still happening. Before it existed the panel
+  // went fully green while the row still read "0 open jobs": every rung was true, and the
+  // thing the user was actually waiting for had no rung at all.
+  const scanning = (status: DiscoveryStep['status'], result?: string) =>
+    progress({
+      outcome: 'tracking',
+      steps: [
+        step('open_page', 'done', 'opened careers.acme.example — recorded 14 JSON request(s)'),
+        step('find_feed', 'done', 'found 3 candidate feed(s)'),
+        step('verify_read', 'done', 'read 88 job(s)'),
+        step('ready', 'done', "reading the board's own feed directly — no browser needed"),
+        step('first_scan', status, result),
+      ],
+    });
+
+  it('names the fifth rung in words, never its raw key', () => {
+    renderWithProviders(<DiscoveryChecklist company={company('unverified', scanning('active'))} />);
+    expect(screen.getByText('Reading the board')).toBeInTheDocument();
+    expect(screen.queryByText('first_scan')).not.toBeInTheDocument();
+  });
+
+  it('keeps its spinner while the harvest runs, even though the outcome is terminal', () => {
+    renderWithProviders(<DiscoveryChecklist company={company('unverified', scanning('active'))} />);
+    const row = screen.getByTestId('discovery-step-first_scan');
+    // Every OTHER rung is downgraded active -> pending once the outcome settles. This one
+    // must not be, or the only thing still happening draws as a grey circle.
+    expect(within(row).getByLabelText('in progress')).toBeInTheDocument();
+  });
+
+  it('settles to a plain tick, without the engine telemetry, once the harvest lands', () => {
+    renderWithProviders(
+      <DiscoveryChecklist
+        company={company('unverified', scanning('done', 'read 88 job(s) from the board'))}
+      />,
+    );
+    const row = screen.getByTestId('discovery-step-first_scan');
+    expect(within(row).getByText('Reading the board')).toBeInTheDocument();
+    // No spinner — this rung is finished.
+    expect(within(row).queryByLabelText('in progress')).not.toBeInTheDocument();
+    // Per-step detail rides ONLY on a failed rung. On a done one it is engine telemetry,
+    // and the real job count belongs on the row itself once the harvest sets lastSuccessAt.
+    expect(screen.queryByText(/read 88 job\(s\) from the board/)).not.toBeInTheDocument();
+  });
+
+  it('a failed first scan carries its reason and does NOT read as a refusal', () => {
+    renderWithProviders(
+      <DiscoveryChecklist
+        company={company(
+          'unverified',
+          scanning('failed', 'we could not read the board on this run — we will try again'),
+        )}
+      />,
+    );
+    expect(screen.getByText(/we will try again/)).toBeInTheDocument();
+    // The board IS tracked — a bad first harvest must never present as "not trackable".
+    expect(screen.queryByText(/couldn.t read/i)).not.toBeInTheDocument();
+  });
+});

@@ -91,7 +91,16 @@ export type UserCompanyHealthState =
  * reach the wire, so a rename there should be a compile error here — not a blank rung
  * in a checklist the user is reading to decide what to do next.
  */
-export type DiscoveryStepKey = 'open_page' | 'find_feed' | 'verify_read' | 'ready';
+export type DiscoveryStepKey =
+  | 'open_page'
+  | 'find_feed'
+  | 'verify_read'
+  | 'ready'
+  // The FIFTH rung, and the only one a different run settles. Discovery ticks 1-4
+  // and OPENS this one; the first harvest closes it. Before it existed the panel
+  // went fully green while the row still read "0 open jobs" — every rung was true,
+  // and the thing the user was actually waiting for had no rung at all.
+  | 'first_scan';
 
 /** Per-step state. `failed` lands on at most one step per run. */
 export type DiscoveryStepStatus = 'pending' | 'active' | 'done' | 'failed';

@@ -129,6 +129,7 @@ export const DISCOVERY_STEP_LABELS: Record<DiscoveryStepKey, string> = {
   find_feed: 'Reading jobs',
   verify_read: 'Building web scraper',
   ready: 'Ready to track',
+  first_scan: 'Reading the board',
 };
 
 /**
