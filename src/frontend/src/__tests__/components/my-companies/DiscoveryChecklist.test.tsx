@@ -240,7 +240,7 @@ describe('DiscoveryChecklist', () => {
     expect(screen.getByTestId('discovery-step-ready')).toBeInTheDocument();
   });
 
-  it('offers the live view behind a toggle, read-only, when a session has one', async () => {
+  it('shows the live view straight away, read-only, when a session has one', async () => {
     const user = userEvent.setup();
     renderWithProviders(
       <DiscoveryChecklist
@@ -254,15 +254,28 @@ describe('DiscoveryChecklist', () => {
       />,
     );
 
-    // Collapsed by default: the checklist is the thing worth reading.
-    expect(screen.getByTestId('discovery-live-view-toggle')).toHaveTextContent(/watch live/i);
-    await user.click(screen.getByTestId('discovery-live-view-toggle'));
-
+    // EXPANDED on arrival. The session lasts about a minute; a run that ends before the
+    // user notices a "Watch live" button showed them nothing at all.
     const frame = screen.getByTestId('discovery-live-view');
     // `navbar=false` strips the host's own chrome; the wrapper kills pointer events so
     // nobody can drive someone else's browser session from our page.
     expect(frame).toHaveAttribute('src', expect.stringContaining('navbar=false'));
     expect(getComputedStyle(frame.parentElement as HTMLElement).pointerEvents).toBe('none');
+
+    // ...and it can still be put away.
+    expect(screen.getByTestId('discovery-live-view-toggle')).toHaveTextContent(/hide live view/i);
+    await user.click(screen.getByTestId('discovery-live-view-toggle'));
+    expect(screen.getByTestId('discovery-live-view-toggle')).toHaveTextContent(/watch live/i);
+  });
+
+  it('renders no live-view box at all when there is no session to watch', () => {
+    // The DEFAULT path: our own headless Chromium has no hosted view, so the checklist
+    // must render exactly as it always has — no toggle, no empty frame, no layout shift.
+    renderWithProviders(
+      <DiscoveryChecklist company={company('discovering', progress({ ...RUNNING }))} />,
+    );
+    expect(screen.queryByTestId('discovery-live-view-toggle')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('discovery-live-view')).not.toBeInTheDocument();
   });
 
   it('hides the live view once the run is over', () => {

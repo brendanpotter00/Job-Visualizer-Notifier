@@ -161,14 +161,17 @@ interface DiscoveryChecklistProps {
  *
  * The live view is OPTIONAL and degrades silently (DECISION D4): only a Browserbase
  * capture has one and our default is our own Chromium, so on almost every run there is
- * no iframe and no toggle at all. It stays behind a collapsed "Watch live" button on
- * every breakpoint rather than only on mobile — the checklist is the thing worth
- * reading, a size-dependent default would need a second source of truth for the
- * collapse state, and the iframe is `pointer-events: none` so it is a picture either
- * way.
+ * no iframe, no toggle, and a checklist that renders exactly as it always has — no
+ * empty box, no reserved space, no layout shift.
+ *
+ * When there IS one it opens EXPANDED, because the thing it shows lasts about a minute:
+ * a hosted session is watchable only while the capture is running, and a run that ends
+ * before the user notices a "Watch live" button showed them nothing. The toggle stays
+ * so it can be collapsed, and the frame is `pointer-events: none` either way — this is
+ * someone else's browser, here to be watched and never driven.
  */
 export function DiscoveryChecklist({ company }: DiscoveryChecklistProps) {
-  const [liveOpen, setLiveOpen] = useState(false);
+  const [liveOpen, setLiveOpen] = useState(true);
   const discovery = company.discovery;
   if (!discovery) {
     return null;

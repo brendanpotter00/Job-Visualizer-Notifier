@@ -91,7 +91,7 @@ import json
 import logging
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Protocol
 from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
 import httpx
@@ -274,7 +274,25 @@ _HEADER_DROP_EXACT = frozenset({
 _HEADER_DROP_SUBSTRINGS = ("token", "auth", "session", "csrf", "xsrf", "signature", "secret")
 _HEADER_DROP_PREFIXES = ("sec-", ":")
 
-CaptureFn = Callable[[str], Awaitable[CaptureResult]]
+# One live checklist write, and the live-view URL that reaches it mid-run.
+LiveViewFn = Callable[[str], Awaitable[None]]
+
+
+class CaptureFn(Protocol):
+    """The capture seam — :func:`network_capture.capture_board` or a $0 test double.
+
+    A Protocol rather than a ``Callable`` alias because of the keyword: ``on_live_view``
+    fires the MOMENT a hosted browser session exists, which on the Browserbase path is
+    before the page has even been opened. The live view is only worth anything while
+    the run is happening, so it cannot ride back on the return value — by then the
+    session is released and the iframe would render a dead frame.
+    """
+
+    def __call__(
+        self, url: str, *, on_live_view: LiveViewFn | None = None
+    ) -> Awaitable[CaptureResult]: ...
+
+
 SelectFn = Callable[[list[Candidate]], Awaitable[RequestSelection]]
 ReplayFn = Callable[[dict[str, Any]], Awaitable[tuple[list[dict], HarvestEvidence]]]
 UrlValidator = Callable[[str], Any]
@@ -1033,6 +1051,17 @@ async def discover(
                 "discovery progress write failed for %s (continuing)", url, exc_info=True
             )
 
+    async def _publish_live_view(live_view_url: str) -> None:
+        """Put the hosted live view on the row WHILE step 1 is still running.
+
+        This is the entire reason the capture seam takes a callback. Written from here
+        the blob reaches the poller with ``open_page`` still ``active``, which is the
+        only window in which a user can actually watch the session; the terminal write
+        below carries the same URL only so the record is complete.
+        """
+        ledger.set_live_view_url(live_view_url)
+        await _publish()
+
     attempts = 0
     # The step we are CURRENTLY in, so the last-resort handler at the bottom names the
     # step that actually blew up. Initialized before the try because an exception can
@@ -1055,15 +1084,18 @@ async def discover(
         # STEP 2 — one browser session, ever.
         current_step = _STEP_CAPTURE
         try:
-            captured = await do_capture(url)
+            captured = await do_capture(url, on_live_view=_publish_live_view)
         except CaptureError as exc:
             raise _Refusal(_STEP_CAPTURE, str(exc)) from exc
 
         # The hosted live view exists only on a Browserbase session, and our default is
         # our own Chromium — so this is usually None and the UI must not depend on it
-        # (DECISION D4). Attached the moment we have it, because the session is gone by
-        # the time the run finishes.
-        ledger.set_live_view_url(captured.live_view_url)
+        # (DECISION D4). ``_publish_live_view`` already put it on the row mid-run; this
+        # is the belt-and-braces copy for a capture seam that returns the URL without
+        # ever calling the callback. Guarded on truthiness so it can only ever ADD one
+        # — a ``None`` here must not erase a URL the callback already published.
+        if captured.live_view_url:
+            ledger.set_live_view_url(captured.live_view_url)
         ledger.finish(
             STEP_OPEN_PAGE,
             f"opened {_hostname_of(captured.final_url) or url} — recorded "

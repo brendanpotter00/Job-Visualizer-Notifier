@@ -10,13 +10,16 @@ real credentials.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import os
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 
 from api.config import settings
@@ -377,3 +380,342 @@ def test_the_per_body_cap_clears_the_biggest_real_jobs_feed() -> None:
         "the aggregate is what bounds the worst case — raising the per-body cap must "
         "not raise it"
     )
+
+
+# --- THE BROWSERBASE OPT-IN: the live view, and giving the browser back -------
+#
+# All $0. Every one of these fakes the HTTP and the CDP side, because the thing under
+# test is precisely the code that would otherwise create a real, billed browser.
+
+
+class _FakeResponse:
+    """Just enough of ``httpx.Response`` for the three calls this module makes."""
+
+    def __init__(self, status_code: int, payload: Any = None, text: str = "") -> None:
+        self.status_code = status_code
+        self.text = text
+        self._payload = payload
+
+    def json(self) -> Any:
+        if self._payload is None:
+            raise ValueError("response body is not JSON")
+        return self._payload
+
+
+class _FakeBrowserbase:
+    """A Browserbase stand-in that RECORDS calls instead of making them.
+
+    Recording is the assertion surface: "did we release it" and "did we ask for the
+    live view at all" are both invisible in a return value — the same trick the
+    session-create counter above uses to prove the opt-in was honoured.
+    """
+
+    def __init__(
+        self,
+        *,
+        create: "_FakeResponse | None" = None,
+        debug: "_FakeResponse | None" = None,
+        release: "_FakeResponse | None" = None,
+    ) -> None:
+        self.create = create or _FakeResponse(
+            201, {"id": "s1", "connectUrl": "wss://cdp/s1"}
+        )
+        self.debug = debug or _FakeResponse(
+            200,
+            {"debuggerFullscreenUrl":
+             "https://www.browserbase.com/devtools-fullscreen/s1"},
+        )
+        self.release = release or _FakeResponse(200, {"status": "REQUEST_RELEASE"})
+        self.posts: list[tuple[str, dict[str, Any]]] = []
+        self.gets: list[str] = []
+
+    def factory(self) -> "_FakeBrowserbase":
+        return self
+
+    async def __aenter__(self) -> "_FakeBrowserbase":
+        return self
+
+    async def __aexit__(self, *exc: object) -> bool:
+        return False
+
+    async def post(self, url: str, **kwargs: Any) -> _FakeResponse:
+        self.posts.append((url, dict(kwargs.get("json") or {})))
+        return self.create if url == nc._BROWSERBASE_API else self.release
+
+    async def get(self, url: str, **kwargs: Any) -> _FakeResponse:
+        self.gets.append(url)
+        return self.debug
+
+
+@pytest.fixture
+def browserbase_on(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "capture_use_browserbase", True)
+    monkeypatch.setattr(settings, "browserbase_api_key", "bb-key")
+    monkeypatch.setattr(settings, "browserbase_project_id", "proj")
+
+
+async def test_the_live_view_url_is_fetched_from_the_debug_endpoint(
+    browserbase_on: None,
+) -> None:
+    """``GET /v1/sessions/{id}/debug`` -> ``debuggerFullscreenUrl``, and NOT the
+    deprecated ``/recording`` rrweb endpoint — which is also the wrong primitive, since
+    a recording only exists once the session has ENDED and nobody wants to watch that.
+    """
+    fake = _FakeBrowserbase()
+    session = await nc._open_browserbase_session(client_factory=fake.factory)
+    assert session is not None
+    assert session.session_id == "s1"
+    assert session.cdp_url == "wss://cdp/s1"
+    assert session.live_view_url == "https://www.browserbase.com/devtools-fullscreen/s1"
+    assert fake.gets == [f"{nc._BROWSERBASE_API}/s1/debug"]
+    assert not any("recording" in url for url in fake.gets)
+
+
+async def test_a_402_from_browserbase_degrades_to_our_own_chromium(
+    browserbase_on: None, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The status an owner actually hits ("free plan limit reached"). It must never
+    wedge a discovery: we fall back to our own Chromium and read the board for free.
+
+    The body is REAL JSON, deliberately. A bodyless 402 would be refused by ``.json()``
+    on the way past and the status check would look load-bearing while doing nothing —
+    the fake has to be able to sail through a missing check for the test to guard one.
+
+    And the assertion is on the LOG, because that is the only thing a 402 does
+    differently: it degrades exactly like an outage does, but the owner's next action is
+    "top up the plan", not "wait it out". A generic warning cannot tell them which.
+    """
+    fake = _FakeBrowserbase(
+        create=_FakeResponse(
+            402,
+            {"message": "free plan limit reached"},
+            text='{"message":"free plan limit reached"}',
+        )
+    )
+    with caplog.at_level(logging.WARNING, logger=nc.logger.name):
+        assert await nc._open_browserbase_session(client_factory=fake.factory) is None
+    assert any(
+        "402" in record.getMessage() and "free plan limit reached" in record.getMessage()
+        for record in caplog.records
+    ), f"the 402 was not named in the log: {[r.getMessage() for r in caplog.records]}"
+    # We DID try — this is the degrade path, not the never-configured one.
+    assert fake.posts and fake.posts[0][0] == nc._BROWSERBASE_API
+    # ...and we never went looking for a live view on a session that does not exist.
+    assert fake.gets == []
+
+
+async def test_a_browserbase_outage_degrades_to_our_own_chromium(
+    browserbase_on: None,
+) -> None:
+    """A transport error rather than a status code — the shape an outage actually takes."""
+
+    class _Down(_FakeBrowserbase):
+        async def post(self, url: str, **kwargs: Any) -> _FakeResponse:
+            raise httpx.ConnectError("browserbase unreachable")
+
+    assert await nc._open_browserbase_session(client_factory=_Down().factory) is None
+
+
+async def test_a_session_we_cannot_drive_is_released_before_we_fall_back(
+    browserbase_on: None,
+) -> None:
+    """A create that succeeds but carries no ``connectUrl`` has still BILLED us. Falling
+    back without releasing it is a silent charge for a browser that never opened a page.
+    """
+    fake = _FakeBrowserbase(create=_FakeResponse(201, {"id": "s9"}))
+    assert await nc._open_browserbase_session(client_factory=fake.factory) is None
+    assert [call for call in fake.posts if call[0].endswith("/s9")] == [
+        (f"{nc._BROWSERBASE_API}/s9", {"projectId": "proj", "status": "REQUEST_RELEASE"})
+    ]
+
+
+async def test_releasing_a_session_asks_browserbase_to_end_it_now(
+    browserbase_on: None,
+) -> None:
+    """Browserbase bills per browser-hour: a session we merely stop using goes on
+    charging until its own timeout expires."""
+    fake = _FakeBrowserbase()
+    await nc._release_browserbase_session(
+        BrowserSession(cdp_url="wss://cdp/s1", session_id="s1"),
+        client_factory=fake.factory,
+    )
+    assert fake.posts == [
+        (f"{nc._BROWSERBASE_API}/s1", {"projectId": "proj", "status": "REQUEST_RELEASE"})
+    ]
+
+
+@pytest.mark.parametrize(
+    "boom",
+    [
+        httpx.ConnectError("browserbase unreachable"),
+        # NOT an httpx error, and not theoretical: this runs during teardown, where
+        # opening a client on a loop that is already closing raises exactly this.
+        RuntimeError("Event loop is closed"),
+    ],
+    ids=["outage", "teardown"],
+)
+async def test_a_failed_release_never_becomes_the_captures_failure(
+    browserbase_on: None, boom: Exception
+) -> None:
+    """It runs in a ``finally``. An exception here would replace the real outcome with a
+    billing-cleanup one, and the user would be told the wrong thing about their board."""
+
+    class _Refuses(_FakeBrowserbase):
+        async def post(self, url: str, **kwargs: Any) -> _FakeResponse:
+            raise boom
+
+    await nc._release_browserbase_session(
+        BrowserSession(cdp_url="wss://cdp/s1", session_id="s1"),
+        client_factory=_Refuses().factory,
+    )
+
+
+async def test_the_live_view_is_published_before_the_page_is_ever_opened() -> None:
+    """THE ORDERING IS THE FEATURE. A hosted view handed over after the capture returns
+    points at a session that has already been released — a dead iframe every time."""
+    order: list[str] = []
+
+    async def _session() -> BrowserSession:
+        return BrowserSession(
+            cdp_url="wss://cdp/s1",
+            live_view_url="https://www.browserbase.com/devtools-fullscreen/s1",
+            session_id="s1",
+        )
+
+    async def _run(plan: dict[str, Any]) -> dict[str, Any]:
+        order.append("capture")
+        return _report()
+
+    async def _published(url: str) -> None:
+        order.append(f"live_view:{url}")
+
+    async def _release(session: BrowserSession) -> None:
+        order.append("release")
+
+    result = await capture_board(
+        _URL,
+        run_subprocess=_run,
+        validate_url=_allow_all,
+        open_session=_session,
+        release_session=_release,
+        on_live_view=_published,
+    )
+    assert order == [
+        "live_view:https://www.browserbase.com/devtools-fullscreen/s1",
+        "capture",
+        "release",
+    ]
+    assert result.live_view_url == "https://www.browserbase.com/devtools-fullscreen/s1"
+
+
+async def test_a_live_view_publish_failure_never_fails_the_capture() -> None:
+    """The callback writes to the database. Narration must not be able to refuse a board
+    we can perfectly well read — the same rule ``discover._publish`` follows."""
+
+    async def _session() -> BrowserSession:
+        return BrowserSession(
+            cdp_url="wss://cdp/s1", live_view_url="https://bb/live", session_id="s1"
+        )
+
+    async def _explodes(url: str) -> None:
+        raise RuntimeError("progress write failed")
+
+    async def _release(session: BrowserSession) -> None:
+        return None
+
+    result = await capture_board(
+        _URL,
+        run_subprocess=_child(_report()),
+        validate_url=_allow_all,
+        open_session=_session,
+        release_session=_release,
+        on_live_view=_explodes,
+    )
+    assert len(result.responses) == 3
+
+
+async def test_the_session_is_released_when_the_capture_fails() -> None:
+    """The paths that leak money are the ones that skip ``except`` clauses. A refusal
+    must give the browser back exactly like a success does."""
+    released: list[str | None] = []
+
+    async def _session() -> BrowserSession:
+        return BrowserSession(cdp_url="wss://cdp/s1", session_id="s1")
+
+    async def _fails(plan: dict[str, Any]) -> dict[str, Any]:
+        raise CaptureError("capture subprocess timed out after 120.0s")
+
+    async def _release(session: BrowserSession) -> None:
+        released.append(session.session_id)
+
+    with pytest.raises(CaptureError, match="timed out"):
+        await capture_board(
+            _URL,
+            run_subprocess=_fails,
+            validate_url=_allow_all,
+            open_session=_session,
+            release_session=_release,
+        )
+    assert released == ["s1"]
+
+
+async def test_the_session_is_released_when_the_discovery_task_cancels_us() -> None:
+    """The 240s task guard CANCELS this coroutine, and ``CancelledError`` is a
+    BaseException that skips every ``except``. Only the ``finally`` gives the browser
+    back — otherwise it bills to its own TTL on the one path that already went wrong."""
+    released: list[str | None] = []
+
+    async def _session() -> BrowserSession:
+        return BrowserSession(cdp_url="wss://cdp/s1", session_id="s1")
+
+    driving = asyncio.Event()
+
+    async def _hangs(plan: dict[str, Any]) -> dict[str, Any]:
+        driving.set()
+        await asyncio.sleep(30)
+        raise AssertionError("unreachable")
+
+    async def _release(session: BrowserSession) -> None:
+        released.append(session.session_id)
+
+    task = asyncio.ensure_future(
+        capture_board(
+            _URL,
+            run_subprocess=_hangs,
+            validate_url=_allow_all,
+            open_session=_session,
+            release_session=_release,
+        )
+    )
+    # Cancel only once the paid browser is genuinely open and being driven — cancelling
+    # earlier proves nothing, because there is no session to give back yet.
+    await driving.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert released == ["s1"]
+
+
+async def test_our_own_chromium_never_calls_browserbase_at_all() -> None:
+    """The DEFAULT path. No session, so nothing to publish and nothing to release — the
+    live-view plumbing cannot cost anything on a free capture."""
+    releases: list[Any] = []
+    views: list[str] = []
+
+    async def _release(session: BrowserSession) -> None:
+        releases.append(session)
+
+    async def _published(url: str) -> None:
+        views.append(url)
+
+    result = await capture_board(
+        _URL,
+        run_subprocess=_child(_report()),
+        validate_url=_allow_all,
+        open_session=_no_session,
+        release_session=_release,
+        on_live_view=_published,
+    )
+    assert result.live_view_url is None
+    assert releases == []
+    assert views == []

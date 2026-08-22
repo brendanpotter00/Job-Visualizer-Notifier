@@ -50,6 +50,11 @@ from api.services.capture.request_selector import (
     SelectorKeyMissingError,
     prefilter_candidates,
 )
+from api.services.discovery.progress import (
+    OUTCOME_RUNNING,
+    STATUS_ACTIVE,
+    STEP_OPEN_PAGE,
+)
 from api.services.harvest_meta import HarvestEvidence
 from api.services.harvest_verification import UNVERIFIED, GateResult, verify_harvest
 from api.services.recipe_runner import RecipeExecutionError, map_records
@@ -93,7 +98,7 @@ def _capture_result(name: str) -> CaptureResult:
 
 
 def _capturing(name: str, *, calls: list[str] | None = None):
-    async def _capture(url: str) -> CaptureResult:
+    async def _capture(url: str, **_: Any) -> CaptureResult:
         if calls is not None:
             calls.append(url)
         return _capture_result(name)
@@ -376,7 +381,7 @@ async def test_an_equally_job_shaped_candidate_is_tried_and_the_ladder_is_bounde
     twin = _amazon_response({**_amazon_body(), "hits": 76})
     other = twin.__class__(**{**twin.__dict__, "url": twin.url + "&page=2"})
 
-    async def _capture(url: str) -> CaptureResult:
+    async def _capture(url: str, **_: Any) -> CaptureResult:
         return CaptureResult(final_url=_AMAZON_URL, page_title="", responses=[twin, other])
 
     select_calls: list[int] = []
@@ -459,7 +464,7 @@ async def test_the_model_may_correct_the_prefilters_records_path() -> None:
     body = {"total": 120, "job_list": jobs, "saved_searches": decoys}
     response = _amazon_response(body)
 
-    async def _capture(url: str) -> CaptureResult:
+    async def _capture(url: str, **_: Any) -> CaptureResult:
         return CaptureResult(final_url=_AMAZON_URL, page_title="", responses=[response])
 
     field_map = {"id": "id", "title": "title", "url": "https://www.amazon.jobs{job_path}"}
@@ -518,7 +523,7 @@ async def test_a_page_that_fetches_no_json_at_all_gets_its_own_refusal_copy() ->
     """Measured on metacareers.com: it captures ZERO JSON XHRs. That is a different board
     from one that fetched plenty of JSON, none of it jobs, and the user's next action
     differs — so the two must not share a sentence."""
-    async def _empty(url: str) -> CaptureResult:
+    async def _empty(url: str, **_: Any) -> CaptureResult:
         return CaptureResult(final_url=_META_URL, page_title="Meta", responses=[])
 
     outcome = await discover(
@@ -540,7 +545,7 @@ async def test_refuses_when_the_synthesized_recipe_fails_validate_recipe() -> No
     report = json.loads((_FIXTURES / "amazon_capture.json").read_text())
     report["responses"][2]["url"] = "http://www.amazon.jobs/en/search.json?offset=0"
 
-    async def _capture(url: str) -> CaptureResult:
+    async def _capture(url: str, **_: Any) -> CaptureResult:
         return CaptureResult(
             final_url=report["final_url"], page_title="",
             responses=_responses_from_report(report),
@@ -600,7 +605,7 @@ async def test_refuses_a_blocked_discovered_endpoint_before_the_llm_sees_it() ->
 
 
 async def test_refuses_when_the_capture_itself_fails() -> None:
-    async def _capture(url: str) -> CaptureResult:
+    async def _capture(url: str, **_: Any) -> CaptureResult:
         raise CaptureError("capture subprocess timed out after 120.0s")
 
     outcome = await discover(
@@ -656,7 +661,7 @@ async def test_never_raises_even_when_a_collaborator_explodes() -> None:
 
     The reason must name the step we actually REACHED. A hardcoded "verifying we can
     read it" told a user whose capture blew up to go look at the wrong thing."""
-    async def _explode(url: str) -> CaptureResult:
+    async def _explode(url: str, **_: Any) -> CaptureResult:
         raise ZeroDivisionError("something nobody predicted")
 
     outcome = await discover(
@@ -701,7 +706,7 @@ async def test_a_body_too_big_to_record_says_so_instead_of_blaming_the_board() -
         r.__class__(**{**r.__dict__, "body": "", "truncated": True}) for r in responses
     ]
 
-    async def _capture(url: str) -> CaptureResult:
+    async def _capture(url: str, **_: Any) -> CaptureResult:
         return CaptureResult(final_url=_AMAZON_URL, page_title="", responses=oversize)
 
     outcome = await discover(
@@ -939,7 +944,7 @@ async def test_a_capture_failure_fails_the_first_step_not_a_later_one() -> None:
     """A page we could not even open must not report "couldn't confirm the results
     match" — the user's next action for a bot-walled page is nothing like the one for a
     feed we read and disbelieved."""
-    async def _blocked(url: str) -> CaptureResult:
+    async def _blocked(url: str, **_: Any) -> CaptureResult:
         raise CaptureError("navigation blocked")
 
     outcome = await discover(
@@ -999,7 +1004,7 @@ async def test_a_browserbase_live_view_url_rides_the_checklist_when_there_is_one
     """Optional garnish, absent by default: only a Browserbase session has a hosted
     view and our default is our own Chromium, so the UI must treat it as an extra and
     never block on it (DECISION D4)."""
-    async def _with_live_view(url: str) -> CaptureResult:
+    async def _with_live_view(url: str, **_: Any) -> CaptureResult:
         base = _capture_result("amazon")
         return CaptureResult(
             final_url=base.final_url, page_title=base.page_title,
@@ -1016,6 +1021,54 @@ async def test_a_browserbase_live_view_url_rides_the_checklist_when_there_is_one
     )
     assert outcome.progress is not None
     assert outcome.progress["live_view_url"].startswith("https://www.browserbase.com/")
+
+
+async def test_the_live_view_url_lands_on_the_row_while_step_one_is_still_running() -> None:
+    """THE WHOLE POINT of the live view, and the thing an end-of-run write cannot do.
+
+    A hosted Browserbase view is watchable only while the session is alive — a capture
+    runs 30-120s and the session is released the moment it returns. So the URL has to
+    reach the polled blob during ``open_page``, not with the terminal checklist. The
+    assertion is on the FIRST snapshot that carries a URL: it must still show step 1
+    ``active``, which is exactly what an end-of-run write could never produce.
+    """
+    snapshots: list[dict[str, Any]] = []
+
+    async def _record(snapshot: dict[str, Any]) -> None:
+        snapshots.append(snapshot)
+
+    async def _capture_with_session(
+        url: str, *, on_live_view: Any = None, **_: Any
+    ) -> CaptureResult:
+        # What ``capture_board`` does on the Browserbase path: publish the moment the
+        # session exists, THEN spend the next half-minute driving the browser.
+        assert on_live_view is not None
+        await on_live_view("https://www.browserbase.com/devtools-fullscreen/s1")
+        return _capture_result("amazon")
+
+    outcome = await discover(
+        _AMAZON_URL,
+        capture=_capture_with_session,
+        select=_selecting(_amazon_selection()),
+        replay_http=_faithful_replay("amazon", "jobs", _AMAZON_MAP, declared_total=76),
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+        emit=_record,
+    )
+    assert outcome.ok is True
+
+    live = [s for s in snapshots if s["live_view_url"]]
+    assert live, "the live-view URL never reached a mid-run progress write"
+    first = live[0]
+    assert first["live_view_url"] == "https://www.browserbase.com/devtools-fullscreen/s1"
+    assert first["outcome"] == OUTCOME_RUNNING
+    open_page = next(s for s in first["steps"] if s["key"] == STEP_OPEN_PAGE)
+    assert open_page["status"] == STATUS_ACTIVE
+    # ...and it survives to the terminal blob the persist writes with the row.
+    assert outcome.progress is not None
+    assert outcome.progress["live_view_url"] == (
+        "https://www.browserbase.com/devtools-fullscreen/s1"
+    )
 
 
 # --- THE TWO PAGE BUDGETS, and the page size that makes them affordable -------
@@ -1053,7 +1106,7 @@ def _big_amazon(hits: int = 5000, *, facet_consensus: int | None = None) -> Any:
 def _capturing_big(hits: int = 5000, *, facet_consensus: int | None = None):
     """The Amazon capture with a board big enough for the page-size upgrade to be
     worth proving (the fixture's own ``hits: 76`` is one page and change)."""
-    async def _capture(url: str) -> CaptureResult:
+    async def _capture(url: str, **_: Any) -> CaptureResult:
         original = _capture_result("amazon")
         responses = list(original.responses)
         responses[2] = _big_amazon(hits, facet_consensus=facet_consensus)
