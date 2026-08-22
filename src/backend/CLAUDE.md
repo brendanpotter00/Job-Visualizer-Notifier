@@ -56,7 +56,7 @@ All configuration via environment variables:
 |---------|-------------|---------|
 | `DATABASE_URL` | PostgreSQL connection URL | `postgresql://postgres:postgres@localhost:5432/jobscraper` |
 | `SCRAPER_INTERVAL_HOURS` | Hours between auto-scrape cycles | `1` |
-| `SCRAPER_COMPANIES` | Comma-separated company list | `apple,google,microsoft,amazon` |
+| `SCRAPER_COMPANIES` | Comma-separated company list | `apple,google,microsoft,amazon,tiktok` |
 | `SCRAPER_DETAIL_SCRAPE` | Fetch job detail pages | `true` |
 | `SCRAPER_TIMEOUT_MINUTES` | Max time per scrape | `90` |
 | `SCRAPER_SCRIPTS_PATH` | Path to Python scripts | `../../scripts` (local) / `/app/scripts` (Docker) |
@@ -249,7 +249,7 @@ src/backend/api/
 │   ├── rate_limit.py        # Per-key async rate limiter (used by ATS clients)
 │   ├── scraper_lock.py  # asyncio.Lock singleton shared by runner + auto-scraper
 │   ├── scraper_runner.py # Async subprocess runner for scrapers
-│   ├── auto_scraper.py  # Background scheduled scraping (Google/Apple/Microsoft/Amazon)
+│   ├── auto_scraper.py  # Background scheduled scraping (Google/Apple/Microsoft/Amazon/TikTok)
 │   ├── ashby_client.py      # Ashby ATS HTTP client
 │   ├── eightfold_client.py  # Eightfold ATS HTTP client (SSRF allowlist lives here)
 │   ├── gem_client.py        # Gem ATS HTTP client
