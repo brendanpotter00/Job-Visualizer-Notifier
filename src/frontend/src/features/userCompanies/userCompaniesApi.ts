@@ -129,6 +129,70 @@ export interface DiscoveryStep {
 }
 
 /**
+ * What happened to one recorded response, in the order the outcomes are decided.
+ *
+ * A closed union for the same reason `DiscoveryStepKey` is one — the backend owns the
+ * vocabulary (`api/services/discovery/progress.py`) and normalizes anything else away
+ * before it reaches the wire.
+ */
+export type DiscoveryRequestState =
+  /** Seen and recorded. The ordinary case. */
+  | 'recorded'
+  /** Body over the capture's per-response ceiling, so it was never parsed. OUR limit. */
+  | 'oversize'
+  /** Job-shaped, but its address failed our outbound-safety check. */
+  | 'blocked'
+  /** The one we picked — and proved we can replay from our own servers. */
+  | 'chosen';
+
+/**
+ * One JSON request the capture browser watched the careers page make.
+ *
+ * The evidence behind the verdict. A refusal saying "none of the 14 JSON requests this
+ * page made returned a list of job postings" is an assertion with nothing attached;
+ * these are the fourteen requests.
+ *
+ * `url` has already been redacted server-side — userinfo and port stripped, every query
+ * VALUE replaced with an ellipsis — because a board that signs its URLs signs them in
+ * the query. There are deliberately no headers, no cookies and no request body here.
+ */
+export interface DiscoveryRequest {
+  method: string;
+  url: string;
+  status: number;
+  /** Size of the response body, in bytes. The real size even when it was too big to keep. */
+  bytes: number;
+  /** Job-shaped records found in it. `null` = we have not looked yet; `0` = we looked. */
+  records: number | null;
+  state: DiscoveryRequestState;
+  /** Why this row is what it is. Set on the chosen and blocked rows only. */
+  note: string | null;
+}
+
+/** One record from the request we picked, pretty-printed — the "show me the JSON" bit. */
+export interface DiscoveryPayloadSample {
+  /** Where in the response the records live (`data.jobs`). */
+  path: string;
+  /** How many records the response held. */
+  records: number;
+  /** The pretty-printed record. Redacted and clipped server-side; render as-is. */
+  text: string;
+}
+
+/**
+ * The network log behind the checklist.
+ *
+ * `recorded` can exceed `requests.length`: the stored blob is clipped to a size budget
+ * because every open tab re-downloads it every 4s while a discovery runs, and the
+ * heading stays truthful about what we saw even when the list under it is shorter.
+ */
+export interface DiscoveryNetwork {
+  requests: DiscoveryRequest[];
+  recorded: number;
+  sample: DiscoveryPayloadSample | null;
+}
+
+/**
  * The discovery checklist attached to a user company, when it has one.
  *
  * Rides the SAME `GET /api/users/companies` payload the list already polls — there is
@@ -146,6 +210,14 @@ export interface DiscoveryProgress {
    */
   liveViewUrl: string | null;
   updatedAt: string | null;
+  /**
+   * What the capture browser actually saw — the requests, and which one we chose.
+   *
+   * Optional because a server that predates it simply omits the field; the backend
+   * always sends it (possibly empty) once deployed. Empty means there is nothing to
+   * show, which is a real state: a page that fetched no JSON at all recorded nothing.
+   */
+  network?: DiscoveryNetwork | null;
   // The wire also carries `job_preview` — the handful of jobs the acceptance replay
   // returned. It is deliberately NOT typed here: nothing renders it any more (the
   // "a few of the jobs we found" block was cut as noise), and an untyped extra field

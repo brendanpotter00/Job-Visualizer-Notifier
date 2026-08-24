@@ -237,7 +237,41 @@ async def _record(response: Any, captured: list[dict[str, Any]], limits: dict[st
             "body": "" if oversize else body,
             "truncated": oversize,
         })
+        _emit_event({
+            "event": "response",
+            "method": request.method,
+            "url": request.url,
+            "status": int(response.status),
+            "bytes": len(body),
+            "truncated": oversize,
+        })
     except Exception:  # noqa: BLE001 - see the docstring; a lost response is not fatal
+        return
+
+
+def _emit_event(event: dict[str, Any]) -> None:
+    """Announce one recorded response on stdout, NOW, as a single JSON line.
+
+    THE STREAMING HALF of the discovery UX: without it the parent learns what this
+    browser saw only when the process exits, which on a slow board is 30-80 seconds
+    after the first request landed — so the user's "here is what we are doing" panel
+    would fill in one lump at the end and narrate nothing.
+
+    STDOUT, not stderr, because stdout is already the data channel: the parent's
+    ``_parse_report`` scans it in reverse for the LAST line carrying both ``responses``
+    and ``final_url``, and an event line carries neither. Putting these on stderr would
+    have polluted the one thing stderr is for here — the ``rc != 0`` failure text the
+    parent quotes back into a refusal.
+
+    NEVER RAISES and never blocks the capture: a broken pipe (a parent that gave up) or
+    an unserializable field must cost the narration, never the recording. The body
+    itself is deliberately NOT in the event — 4 MB per response down a pipe we are
+    writing from inside a response handler is how a capture becomes a stall.
+    """
+    try:
+        sys.stdout.write(json.dumps(event) + "\n")
+        sys.stdout.flush()
+    except Exception:  # noqa: BLE001 - narration must never fail a capture
         return
 
 

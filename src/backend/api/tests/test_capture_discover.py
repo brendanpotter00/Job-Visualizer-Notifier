@@ -32,6 +32,7 @@ import pytest
 # NOTE: `from ...discover import` (not `import ... as disc`) — the capture package
 # `__init__` re-exports the FUNCTION `discover`, which shadows the submodule attribute.
 from api.services.capture.discover import (
+    _MAX_REQUEST_PUBLISHES,
     _MAX_SELECTION_ROUNDS,
     _coverage,
     _inband_error_keys,
@@ -1723,3 +1724,148 @@ def test_the_partial_bar_is_a_shortfall_AND_a_ratio_not_either_alone() -> None:
     assert coverage_of(95, 100).is_partial is False    # ratio 0.95 — a rounding error
     assert coverage_of(8, 10).is_partial is False      # 2 jobs — drift on a small board
     assert coverage_of(98, 400).is_partial is True     # a quarter of the board
+
+
+# --------------------------------------------------------------------------
+# THE NETWORK LOG — "show me what you actually did"
+# --------------------------------------------------------------------------
+# The checklist says what happened; this says what we SAW. It matters most on a
+# refusal, where the panel's whole content used to be a conclusion with no evidence
+# attached ("none of the 14 JSON requests this page made is a list of job postings").
+
+
+def _log(progress: dict) -> list[dict]:
+    return progress["network"]["requests"]
+
+
+async def test_an_accepted_board_marks_which_request_won_and_what_it_returned() -> None:
+    outcome = await discover(
+        _AMAZON_URL,
+        capture=_capturing("amazon"),
+        select=_selecting(_amazon_selection()),
+        replay_http=_faithful_replay("amazon", "jobs", _AMAZON_MAP, declared_total=76),
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+    )
+    assert outcome.ok is True
+    assert outcome.progress is not None
+    rows = _log(outcome.progress)
+    # Every response the browser saw, in the order it saw them — not re-ranked.
+    assert [row["url"] for row in rows] == [
+        "https://metrics.example-cdn.com/collect",
+        "https://www.amazon.jobs/config/locales.json",
+        "https://www.amazon.jobs/en/search.json?sort=…&offset=…&result_limit=…",
+    ]
+    assert [row["state"] for row in rows] == ["recorded", "recorded", "chosen"]
+    # ...and the two that were not jobs say so, which is the evidence for the pick.
+    assert [row["records"] for row in rows] == [0, 0, 10]
+    assert "came back when we replayed it" in rows[2]["note"]
+    sample = outcome.progress["network"]["sample"]
+    assert sample["path"] == "jobs"
+    assert sample["records"] == 10
+    # The board's OWN json, not our mapped rows — this is the "see the payload" bit.
+    assert '"title"' in sample["text"]
+
+
+async def test_a_refusal_publishes_every_request_it_looked_at() -> None:
+    """THE point of the whole panel. metacareers-shaped: three JSON requests, none of
+    them a jobs feed. The refusal sentence counts them; the log is the count."""
+    outcome = await discover(
+        _META_URL,
+        capture=_capturing("noise"),
+        select=_selecting(_amazon_selection()),
+        replay_http=_never_called_replay("http_json"),
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+    )
+    assert outcome.ok is False
+    assert outcome.progress is not None
+    rows = _log(outcome.progress)
+    assert len(rows) == 3
+    # Scored, not un-examined: "we looked and there were no job postings in it".
+    assert all(row["records"] == 0 for row in rows)
+    assert all(row["state"] == "recorded" for row in rows)
+    assert outcome.progress["network"]["sample"] is None
+    assert outcome.progress["network"]["recorded"] == 3
+
+
+async def test_a_request_we_refuse_to_fetch_is_named_as_that_and_not_as_empty() -> None:
+    """A job-shaped feed on a private address is a different story from a response with
+    no jobs in it, and the user's next action differs."""
+    outcome = await discover(
+        _AMAZON_URL,
+        capture=_capturing("amazon"),
+        select=_selecting(_amazon_selection()),
+        replay_http=_never_called_replay("http_json"),
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_blocking("search.json"),
+    )
+    assert outcome.ok is False
+    assert outcome.progress is not None
+    blocked = [row for row in _log(outcome.progress) if row["state"] == "blocked"]
+    assert len(blocked) == 1
+    assert blocked[0]["url"].startswith("https://www.amazon.jobs/en/search.json")
+    assert blocked[0]["note"] == "we refuse to fetch this address"
+
+
+async def test_the_log_streams_while_the_browser_is_open_but_not_per_response() -> None:
+    """Narration must be visible AND cheap. The rows arrive as the browser sees them;
+    the DATABASE sees at most :data:`_MAX_REQUEST_PUBLISHES` extra writes, because a
+    write per response would turn one capture into dozens of UPDATEs on a row every
+    open tab is already polling."""
+    snapshots: list[dict] = []
+
+    async def _emit(snapshot: dict) -> None:
+        snapshots.append(snapshot)
+
+    async def _chatty(url: str, *, on_request: Any = None, **_: Any) -> CaptureResult:
+        for i in range(60):
+            assert on_request is not None
+            await on_request({
+                "method": "GET", "url": f"https://www.amazon.jobs/x{i}",
+                "status": 200, "bytes": 10, "truncated": False,
+            })
+        return _capture_result("amazon")
+
+    outcome = await discover(
+        _AMAZON_URL,
+        capture=_chatty,
+        select=_selecting(_amazon_selection()),
+        replay_http=_faithful_replay("amazon", "jobs", _AMAZON_MAP, declared_total=76),
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+        emit=_emit,
+    )
+    assert outcome.ok is True
+    # The first response published immediately (nothing had been published yet), and
+    # the interval throttle swallowed the other 59 — a real capture spreads them over
+    # tens of seconds, so this asserts the CEILING, not the shape of one burst.
+    mid_run = [s for s in snapshots if s["network"]["requests"]]
+    assert 1 <= len(mid_run) <= _MAX_REQUEST_PUBLISHES
+    assert mid_run[0]["network"]["requests"][0]["url"] == "https://www.amazon.jobs/x0"
+
+
+async def test_the_finished_capture_replaces_whatever_was_streamed() -> None:
+    """The streamed rows are provisional: the parent drops report entries it cannot
+    read, so the list the user ends up reading has to be the capture's, or the record
+    counts would land on the wrong rows."""
+    async def _lying(url: str, *, on_request: Any = None, **_: Any) -> CaptureResult:
+        assert on_request is not None
+        await on_request({
+            "method": "GET", "url": "https://www.amazon.jobs/never-happened",
+            "status": 200, "bytes": 1, "truncated": False,
+        })
+        return _capture_result("amazon")
+
+    outcome = await discover(
+        _AMAZON_URL,
+        capture=_lying,
+        select=_selecting(_amazon_selection()),
+        replay_http=_faithful_replay("amazon", "jobs", _AMAZON_MAP, declared_total=76),
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+    )
+    assert outcome.progress is not None
+    urls = [row["url"] for row in _log(outcome.progress)]
+    assert "https://www.amazon.jobs/never-happened" not in urls
+    assert len(urls) == 3

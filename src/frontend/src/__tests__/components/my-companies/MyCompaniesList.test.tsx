@@ -267,6 +267,32 @@ const DISCOVERING_WITH_CHECKLIST: UserCompany = {
       { key: 'ready', status: 'pending', result: null },
     ],
     outcome: 'running',
+    // Carried so the FLAG-OFF gate below is a real one: with a network log in the
+    // payload, anything the evidence panel renders shows up in the flag-off render.
+    network: {
+      recorded: 2,
+      requests: [
+        {
+          method: 'GET',
+          url: 'https://careers.acme.example/api/session',
+          status: 200,
+          bytes: 512,
+          records: null,
+          state: 'recorded',
+          note: null,
+        },
+        {
+          method: 'GET',
+          url: 'https://careers.acme.example/api/jobs?limit=…',
+          status: 200,
+          bytes: 90_000,
+          records: null,
+          state: 'recorded',
+          note: null,
+        },
+      ],
+      sample: null,
+    },
     liveViewUrl: null,
     // Deliberately RELATIVE to now, not a fixed date: the fast cadence is bought by a
     // recent progress write, so a hard-coded timestamp would silently age into the
@@ -317,6 +343,8 @@ describe('MyCompaniesList discovery checklist', () => {
     const checklist = within(row).getByTestId('discovery-checklist');
     expect(within(checklist).getByText('Opening the page')).toBeInTheDocument();
     expect(within(checklist).getByText('Reading jobs')).toBeInTheDocument();
+    // ...and the evidence line under it, collapsed, carrying the live count.
+    expect(within(checklist).getByText('2 requests so far')).toBeInTheDocument();
     // The badge is still there — the checklist is additive, not a replacement.
     expect(within(row).getByText('Setting up…')).toBeInTheDocument();
   });
@@ -335,6 +363,10 @@ describe('MyCompaniesList discovery checklist', () => {
     expect(screen.queryByTestId('discovery-next-actions')).not.toBeInTheDocument();
     expect(screen.queryByText('Opening the page')).not.toBeInTheDocument();
     expect(container.querySelectorAll('iframe')).toHaveLength(0);
+    // The evidence panel is inside the checklist, so it is gated by the same flag —
+    // asserted here rather than assumed, because "inside" is a fact about one import.
+    expect(screen.queryByTestId('discovery-network')).not.toBeInTheDocument();
+    expect(screen.queryByText(/requests so far/)).not.toBeInTheDocument();
   });
 
   it('polls faster than 15s while a discovery is mid-run (flag ON)', async () => {

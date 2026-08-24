@@ -29,6 +29,7 @@ from api.services.capture.network_capture import (
     CaptureError,
     _child_env,
     _parse_report,
+    _pump_stdout,
     _responses_from_report,
     capture_board,
 )
@@ -48,10 +49,18 @@ def _report(name: str = "amazon") -> dict[str, Any]:
     return json.loads((_FIXTURES / f"{name}_capture.json").read_text())
 
 
-def _child(report: dict[str, Any], *, plans: list[dict] | None = None):
-    async def _run(plan: dict[str, Any]) -> dict[str, Any]:
+def _child(report: dict[str, Any], *, plans: list[dict] | None = None,
+           events: list[dict] | None = None):
+    """A canned child. ``events`` are replayed through ``on_event`` before the report,
+    which is how the streaming half of the capture is exercised without a browser."""
+    async def _run(
+        plan: dict[str, Any], *, on_event: Any = None, **_: Any
+    ) -> dict[str, Any]:
         if plans is not None:
             plans.append(plan)
+        for event in events or ():
+            if on_event is not None:
+                await on_event(event)
         return report
     return _run
 
@@ -582,7 +591,7 @@ async def test_the_live_view_is_published_before_the_page_is_ever_opened() -> No
             session_id="s1",
         )
 
-    async def _run(plan: dict[str, Any]) -> dict[str, Any]:
+    async def _run(plan: dict[str, Any], **_: Any) -> dict[str, Any]:
         order.append("capture")
         return _report()
 
@@ -642,7 +651,7 @@ async def test_the_session_is_released_when_the_capture_fails() -> None:
     async def _session() -> BrowserSession:
         return BrowserSession(cdp_url="wss://cdp/s1", session_id="s1")
 
-    async def _fails(plan: dict[str, Any]) -> dict[str, Any]:
+    async def _fails(plan: dict[str, Any], **_: Any) -> dict[str, Any]:
         raise CaptureError("capture subprocess timed out after 120.0s")
 
     async def _release(session: BrowserSession) -> None:
@@ -670,7 +679,7 @@ async def test_the_session_is_released_when_the_discovery_task_cancels_us() -> N
 
     driving = asyncio.Event()
 
-    async def _hangs(plan: dict[str, Any]) -> dict[str, Any]:
+    async def _hangs(plan: dict[str, Any], **_: Any) -> dict[str, Any]:
         driving.set()
         await asyncio.sleep(30)
         raise AssertionError("unreachable")
@@ -719,3 +728,117 @@ async def test_our_own_chromium_never_calls_browserbase_at_all() -> None:
     assert result.live_view_url is None
     assert releases == []
     assert views == []
+
+
+# --------------------------------------------------------------------------
+# STREAMING — the child narrates while the browser is still open
+# --------------------------------------------------------------------------
+# The capture takes 30-120 seconds and used to say nothing until it exited, so the
+# progress panel had a list that appeared all at once at the end. These pin the two
+# halves of the fix: the child's lines reach the caller AS THEY ARRIVE, and nothing
+# about that path can cost us a capture.
+
+
+async def test_recorded_responses_reach_the_caller_before_the_report_does() -> None:
+    seen: list[dict[str, Any]] = []
+
+    async def _on_request(record: dict[str, Any]) -> None:
+        seen.append(record)
+
+    await capture_board(
+        _URL,
+        run_subprocess=_child(_report(), events=[
+            {"event": "response", "method": "GET", "url": "https://a.example/ping",
+             "status": 204, "bytes": 12, "truncated": False},
+            {"event": "response", "method": "POST", "url": "https://a.example/api/jobs",
+             "status": 200, "bytes": 90_000, "truncated": True},
+            # Not a response event — a future event type must not be forwarded as one.
+            {"event": "something_else", "url": "https://a.example/x"},
+        ]),
+        validate_url=_allow_all,
+        open_session=_no_session,
+        on_request=_on_request,
+    )
+    assert [record["url"] for record in seen] == [
+        "https://a.example/ping", "https://a.example/api/jobs"
+    ]
+    assert seen[1] == {
+        "method": "POST", "url": "https://a.example/api/jobs", "status": 200,
+        "bytes": 90_000, "truncated": True,
+    }
+
+
+async def test_a_publish_failure_never_fails_the_capture() -> None:
+    """Same rule the live-view callback follows: narration writes to the database, and
+    there is no version of "the progress write failed" that should refuse a board."""
+
+    async def _explodes(record: dict[str, Any]) -> None:
+        raise RuntimeError("progress write failed")
+
+    result = await capture_board(
+        _URL,
+        run_subprocess=_child(_report(), events=[
+            {"event": "response", "method": "GET", "url": "https://a.example/x",
+             "status": 200, "bytes": 1, "truncated": False},
+        ]),
+        validate_url=_allow_all,
+        open_session=_no_session,
+        on_request=_explodes,
+    )
+    assert len(result.responses) == 3
+
+
+async def test_the_stream_survives_a_report_line_bigger_than_the_reader_limit() -> None:
+    """THE regression this pump exists for. ``StreamReader.readline`` carries a 64 KiB
+    line limit and the child's report is ONE line of up to ~16 MB, so the obvious
+    implementation raises ``LimitOverrunError`` on every real capture — while passing
+    every test written against a small fixture."""
+    events: list[dict[str, Any]] = []
+
+    async def _on_event(event: dict[str, Any]) -> None:
+        events.append(event)
+
+    reader = asyncio.StreamReader(limit=64 * 1024)
+    reader.feed_data(b'{"event":"response","url":"https://a.example/x"}\n')
+    big = json.dumps({"final_url": _URL, "responses": [{"pad": "y" * 300_000}]})
+    reader.feed_data(big.encode() + b"\n")
+    reader.feed_eof()
+
+    stdout = await _pump_stdout(reader, _on_event)
+    assert [event["url"] for event in events] == ["https://a.example/x"]
+    # ...and the report still comes back whole, which is what discovery actually runs on.
+    assert _parse_report(stdout.decode())["final_url"] == _URL
+
+
+async def test_chromium_chatter_is_not_mistaken_for_narration() -> None:
+    """The child shares stdout with a browser that prints whatever it likes."""
+    events: list[dict[str, Any]] = []
+
+    async def _on_event(event: dict[str, Any]) -> None:
+        events.append(event)
+
+    reader = asyncio.StreamReader()
+    reader.feed_data(b"[0824/090000.1:ERROR:bus.cc(399)] Failed to connect\n")
+    reader.feed_data(b'{"not": "an event"}\n')
+    reader.feed_data(b'{"event":"response","url":"https://a.example/x"}\n')
+    reader.feed_eof()
+
+    await _pump_stdout(reader, _on_event)
+    assert len(events) == 1
+
+
+def test_an_oversize_response_reports_what_it_actually_weighed() -> None:
+    """``body`` is emptied when a response is too big to carry, so ``len(body)`` would
+    report the board's biggest response as 0 bytes — the precise opposite of the
+    evidence a "larger than we can record" refusal needs."""
+    responses = _responses_from_report({
+        "final_url": _URL,
+        "responses": [
+            {"url": "https://a.example/api/jobs", "method": "GET", "status": 200,
+             "body": "", "truncated": True, "bytes": 2_775_685},
+            # A report from a child that predates the field falls back to the body.
+            {"url": "https://a.example/ok", "method": "GET", "status": 200,
+             "body": "12345", "truncated": False},
+        ],
+    })
+    assert [r.body_bytes for r in responses] == [2_775_685, 5]

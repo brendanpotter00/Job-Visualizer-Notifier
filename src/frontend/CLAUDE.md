@@ -222,9 +222,21 @@ same answer.
 - The live-view iframe is optional and absent by default: only a Browserbase capture has a
   hosted view and the backend runs its own Chromium. When present it is behind a collapsed
   "Watch live" toggle and `pointer-events: none`.
+- **The network log** (`DiscoveryNetworkLog.tsx`) is the evidence under the checklist:
+  every JSON request the capture browser recorded, which one we picked, and a sample of
+  the JSON it returned. **Collapsed in every state** — the checklist was deliberately cut
+  back for being busy, so what this adds by default is ONE summary line whose count ticks
+  up while the browser is open (`11 requests so far` → `14 requests · 1 picked`). It
+  renders nothing when nothing was recorded. Backed by `discovery.network` on the same
+  poll; the backend streams rows as the capture sees them, throttled to at most 12 extra
+  writes per run (`capture/discover.py`'s `_MAX_REQUEST_PUBLISHES`).
+- **Nothing secret is published.** No request headers, no cookies, no POST bodies, and
+  no query *values* — `discovery/progress.py::display_url` strips userinfo and port and
+  replaces every query value with `…`, on write AND again on read.
 - Copy + state helpers are pure and live in `components/my-companies/companyHealth.ts`
   (`DISCOVERY_STEP_LABELS` is a `Record` over a CLOSED union, so a backend rename is a
-  compile error here); the components are `DiscoveryChecklist.tsx` + `DiscoveryJobPreview.tsx`.
+  compile error here); the components are `DiscoveryChecklist.tsx`,
+  `DiscoveryNetworkLog.tsx` + `DiscoveryJobPreview.tsx`.
 
 **Env vars** (go in `src/frontend/.env.local` — see Gotcha #2):
 - `VITE_CUSTOM_COMPANIES_ENABLED` — set to exactly `true` to show the Add Companies page

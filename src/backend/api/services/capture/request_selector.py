@@ -137,6 +137,15 @@ class Candidate:
     record_count: int
     job_score: int
     sample_keys: tuple[str, ...] = ()
+    # WHERE THIS CAME FROM in the capture — the position of its response in
+    # ``CaptureResult.responses``, which is the order the browser saw them in.
+    #
+    # Distinct from ``index``, and both are needed. ``index`` is reassigned after
+    # ranking and again after every dropped candidate, because it means "the position in
+    # the list the MODEL was shown" and is what ``chosen_request_index`` refers to.
+    # ``source_index`` never moves, which is what lets the network log the user is
+    # reading — capture order, never re-sorted — say which of those rows we picked.
+    source_index: int = -1
 
     @property
     def records(self) -> list[Any]:
@@ -243,7 +252,7 @@ def prefilter_candidates(responses: list[Any]) -> list[Candidate]:
     what the model sees and what the acceptance ladder tries first.
     """
     scored: list[Candidate] = []
-    for response in responses:
+    for source_index, response in enumerate(responses):
         if not (200 <= response.status < 300):
             continue
         try:
@@ -271,6 +280,7 @@ def prefilter_candidates(responses: list[Any]) -> list[Candidate]:
             record_count=count,
             job_score=score,
             sample_keys=keys,
+            source_index=source_index,
         ))
     scored.sort(key=lambda c: (c.job_score, c.record_count), reverse=True)
     ranked = scored[:_MAX_CANDIDATES]

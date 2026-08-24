@@ -1332,6 +1332,66 @@ class DiscoveryJobPreviewResponse(BaseModel):
     url: str | None = None
 
 
+class DiscoveryRequestResponse(BaseModel):
+    """One response the capture browser recorded — a row of the network log.
+
+    THE EVIDENCE BEHIND THE VERDICT. Discovery's commonest refusal is "none of the 14
+    JSON requests this page made returned a list of job postings", which is a conclusion
+    with nothing attached; these rows are the fourteen requests, so a user can see for
+    themselves whether we opened the wrong page.
+
+    WHAT IS DELIBERATELY ABSENT is the point: no request headers, no cookies, no POST
+    body, and no query VALUES. ``url`` has already been through
+    ``discovery.progress.display_url`` — userinfo and port stripped, every query value
+    replaced by an ellipsis — because a board that signs its URLs puts the signature in
+    the query and this blob is rendered in a browser.
+
+    ``records`` is ``null`` until the pre-filter has looked at the response, then the
+    number of job-shaped records found in it (``0`` for the analytics and config traffic
+    every careers page fires). ``state`` is ``recorded | oversize | blocked | chosen``.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    method: str
+    url: str
+    status: int
+    bytes: int
+    records: int | None = None
+    state: str = "recorded"
+    note: str | None = None
+
+
+class DiscoveryPayloadSampleResponse(BaseModel):
+    """One record from the request we picked, pretty-printed — "show me the JSON".
+
+    ``text`` is a SAMPLE and not the body: a captured body can be 4 MB, and the question
+    it answers ("is this actually my board?") is settled by one record. Credential-shaped
+    keys are redacted and long strings clipped before it is stored.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    path: str = ""
+    records: int = 0
+    text: str
+
+
+class DiscoveryNetworkResponse(BaseModel):
+    """What the capture browser saw, and which of it we chose.
+
+    ``recorded`` is how many responses the capture recorded, which can exceed
+    ``len(requests)`` when the stored blob was clipped to its size budget — the heading
+    stays truthful about what we saw even when the list under it is shorter.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    requests: list[DiscoveryRequestResponse] = Field(default_factory=list)
+    recorded: int = 0
+    sample: DiscoveryPayloadSampleResponse | None = None
+
+
 class DiscoveryProgressResponse(BaseModel):
     """The discovery checklist attached to a user company, if it has one.
 
@@ -1352,6 +1412,10 @@ class DiscoveryProgressResponse(BaseModel):
     live_view_url: str | None = None
     updated_at: str | None = None
     job_preview: list[DiscoveryJobPreviewResponse] = Field(default_factory=list)
+    # The network log behind the checklist. Always present (``read_progress`` fills an
+    # empty one), so the frontend never has to distinguish "no evidence" from "a blob
+    # written before this existed" — both are an empty list, and both render nothing.
+    network: DiscoveryNetworkResponse = Field(default_factory=DiscoveryNetworkResponse)
 
 
 class UserCompanyResponse(BaseModel):

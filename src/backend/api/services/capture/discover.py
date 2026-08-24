@@ -91,6 +91,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Protocol
@@ -109,6 +110,7 @@ from ..discovery.progress import (
     STEP_READY,
     STEP_VERIFY_READ,
     ProgressLedger,
+    payload_sample,
 )
 from ..guarded_client import guarded_sync_client
 from ..harvest_meta import HarvestEvidence
@@ -126,7 +128,7 @@ from ..recipe_schema import (
     validate_recipe,
 )
 from ..url_guard import _DNS_EXECUTOR, UrlGuardError, validate_public_url
-from .network_capture import CaptureError, CaptureResult, capture_board
+from .network_capture import CaptureError, CaptureResult, RequestFn, capture_board
 from .request_selector import (
     Candidate,
     NoJobsFeedError,
@@ -319,6 +321,26 @@ _HEADER_DROP_EXACT = frozenset({
 _HEADER_DROP_SUBSTRINGS = ("token", "auth", "session", "csrf", "xsrf", "signature", "secret")
 _HEADER_DROP_PREFIXES = ("sec-", ":")
 
+# --------------------------------------------------------------------------
+# NARRATING THE CAPTURE — how often the streaming network log may hit the database
+# --------------------------------------------------------------------------
+# The capture browser sees a response every few hundred milliseconds during page load,
+# and each one is a row the user is watching appear. Publishing per response would turn
+# ONE capture into dozens of UPDATEs on the row every open tab is already polling — the
+# narration costing more than the thing narrated.
+#
+# So it is throttled TWICE, because the two bounds fail differently. The INTERVAL is
+# tuned to the reader: the list poll runs at 4s (``MyCompaniesList``), so a write more
+# often than every ~3s is one nobody can see. The COUNT is the hard bound: the capture
+# window is up to 45s of navigation + 24s of settling + a 10s drain, and a purely
+# time-based throttle over that is ~26 writes for a board that keeps talking. Twelve
+# covers the burst every board fires while its page loads — which is the part worth
+# watching — and everything after it rides the step boundaries that were already
+# published. Worst case is therefore 12 extra writes per discovery, against the ~5 this
+# had before, each one a single ``jsonb_set`` on one row.
+_REQUEST_PUBLISH_INTERVAL_S = 3.0
+_MAX_REQUEST_PUBLISHES = 12
+
 # One live checklist write, and the live-view URL that reaches it mid-run.
 LiveViewFn = Callable[[str], Awaitable[None]]
 
@@ -334,7 +356,11 @@ class CaptureFn(Protocol):
     """
 
     def __call__(
-        self, url: str, *, on_live_view: LiveViewFn | None = None
+        self,
+        url: str,
+        *,
+        on_live_view: LiveViewFn | None = None,
+        on_request: RequestFn | None = None,
     ) -> Awaitable[CaptureResult]: ...
 
 
@@ -1369,6 +1395,41 @@ async def discover(
         ledger.set_live_view_url(live_view_url)
         await _publish()
 
+    # Throttle state for the streaming network log. Plain locals + ``nonlocal`` rather
+    # than a dict, so mypy sees a float and an int and not ``dict[str, object]``.
+    last_request_publish = 0.0
+    request_publishes = 0
+
+    async def _publish_request(record: dict[str, Any]) -> None:
+        """Record ONE response the capture browser just saw, and maybe say so.
+
+        The ledger always gets the row — accumulating is free and the terminal write
+        would carry it anyway. What is throttled is the DATABASE, on the two bounds at
+        :data:`_REQUEST_PUBLISH_INTERVAL_S` / :data:`_MAX_REQUEST_PUBLISHES`.
+
+        Dropping a publish is not dropping the row: the very next publish carries every
+        row accumulated since, because the ledger renders the WHOLE log on every write.
+        That is what makes throttling safe here and would not be true of an event
+        stream — a poll that lands mid-capture always sees a complete, self-consistent
+        list, which is the same property the checklist itself is built on.
+        """
+        nonlocal last_request_publish, request_publishes
+        ledger.note_request(
+            method=record.get("method"),
+            url=record.get("url"),
+            status=record.get("status"),
+            size_bytes=record.get("bytes"),
+            truncated=bool(record.get("truncated")),
+        )
+        now = time.monotonic()
+        if request_publishes >= _MAX_REQUEST_PUBLISHES:
+            return
+        if now - last_request_publish < _REQUEST_PUBLISH_INTERVAL_S:
+            return
+        last_request_publish = now
+        request_publishes += 1
+        await _publish()
+
     attempts = 0
     # The step we are CURRENTLY in, so the last-resort handler at the bottom names the
     # step that actually blew up. Initialized before the try because an exception can
@@ -1391,7 +1452,9 @@ async def discover(
         # STEP 2 — one browser session, ever.
         current_step = _STEP_CAPTURE
         try:
-            captured = await do_capture(url, on_live_view=_publish_live_view)
+            captured = await do_capture(
+                url, on_live_view=_publish_live_view, on_request=_publish_request
+            )
         except CaptureError as exc:
             raise _Refusal(_STEP_CAPTURE, str(exc)) from exc
 
@@ -1403,6 +1466,25 @@ async def discover(
         # — a ``None`` here must not erase a URL the callback already published.
         if captured.live_view_url:
             ledger.set_live_view_url(captured.live_view_url)
+        # THE CAPTURE IS THE AUTHORITY, so the streamed log is thrown away and rebuilt
+        # from it. The two can legitimately differ: the child announces a response the
+        # moment it records one, and the parent then DROPS report entries it cannot
+        # fully believe (``_responses_from_report`` skips a malformed row rather than
+        # failing the capture). The list the user is reading has to be the same list the
+        # pre-filter is about to score, or every record count below would land one row
+        # out — so this rebuilds rather than trying to reconcile two lists by position.
+        ledger.reset_requests()
+        for response in captured.responses:
+            ledger.note_request(
+                method=response.method,
+                url=response.url,
+                status=response.status,
+                # ``body_bytes`` and not ``len(body)``: an oversize body is carried back
+                # EMPTY, and reporting the board's biggest response as 0 bytes is the
+                # precise opposite of the evidence an oversize refusal needs.
+                size_bytes=response.body_bytes or len(response.body),
+                truncated=response.truncated,
+            )
         ledger.finish(
             STEP_OPEN_PAGE,
             f"opened {_hostname_of(captured.final_url) or url} — recorded "
@@ -1422,6 +1504,13 @@ async def discover(
         # STEP 3 — deterministic pre-filter, then the endpoint SSRF half.
         current_step = _STEP_FILTER
         candidates = prefilter_candidates(captured.responses)
+        # THE PRE-FILTER'S VERDICT ON EVERY ROW, published before any refusal below can
+        # leave the function. The commonest refusal we serve is "none of the 14 JSON
+        # requests this page made returned a list of job postings", and that sentence is
+        # an assertion with no evidence unless the fourteen rows are sitting under it
+        # saying 0 records each.
+        scores = {c.source_index: c.record_count for c in candidates}
+        ledger.score_requests(scores)
         if not candidates:
             # Three genuinely different boards, and the user's next action differs, so
             # the copy does too: a page that fetched NO JSON at all is server-rendered
@@ -1454,7 +1543,14 @@ async def discover(
                     "made returned a list of job postings"
                 )
             raise _Refusal(_STEP_FILTER, detail)
-        candidates = await _public_candidates(candidates, check_url)
+        public = await _public_candidates(candidates, check_url)
+        blocked = set(scores) - {c.source_index for c in public}
+        if blocked:
+            # Re-marked rather than marked once, because "job-shaped but at an address
+            # we refuse to fetch" is a different row state from "no jobs in it" and it
+            # is only knowable after the SSRF re-check.
+            ledger.score_requests(scores, blocked=blocked)
+        candidates = public
         if not candidates:
             raise _Refusal(
                 _STEP_FILTER,
@@ -1632,6 +1728,31 @@ async def discover(
                         url, coverage.reachable, coverage.evidence,
                         selection.records_path,
                     )
+                # MARK THE WINNER IN THE NETWORK LOG, with the bytes behind it. This is
+                # the answer to "which one did you pick, and what did it say?" — and it
+                # is only written HERE, after the acceptance replay, so "chosen" can
+                # never mean "the model liked the look of it".
+                #
+                # The sample is one record FROM THE CAPTURE, not from the replay rows:
+                # the rows are already mapped into our own {title, location, url} shape
+                # (that is what ``job_preview`` shows), and the question this answers is
+                # what the BOARD sent. ``payload_sample`` clips and redacts it — a
+                # captured record can be tens of kilobytes of HTML description and can
+                # echo a session token back in its own JSON.
+                captured_records = candidate.records
+                ledger.choose_request(
+                    candidate.source_index,
+                    note=(
+                        f"{len(rows)} job(s) came back when we replayed it "
+                        + ("in a browser" if transport == "browser_fetch"
+                           else "from our own servers")
+                    ),
+                    records_path=candidate.records_path,
+                    records=len(captured_records),
+                    sample=payload_sample(
+                        captured_records[0] if captured_records else None
+                    ),
+                )
                 # The step's result is the honest one either way. A board we can only
                 # read a slice of must not tick the same tick as one we read whole —
                 # that identical green tick is the bug this whole check exists for.

@@ -45,7 +45,7 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Protocol
 from urllib.parse import urlsplit
 
 import httpx
@@ -69,6 +69,21 @@ _SUBPROCESS_TIMEOUT_S = 120.0
 # still collected (see the Dockerfile's pthread-exhaustion note).
 _REAP_TIMEOUT_S = 10.0
 
+# How much of the child's stdout to take per read. The report itself can be ~16 MB (the
+# child's aggregate body ceiling), so this is a pump size, not a limit.
+_READ_CHUNK_BYTES = 65_536
+
+# The longest line we are willing to try to parse as a narration EVENT. An event is a
+# couple of hundred bytes; the report is megabytes. Without this, every report would be
+# JSON-parsed twice — once here and once in ``_parse_report`` — for nothing.
+_MAX_EVENT_LINE_BYTES = 4_096
+
+# How long ONE narration callback may take before we stop waiting on it. This runs
+# INSIDE the loop draining the child's stdout pipe, so a progress write that hangs would
+# stop us reading, fill the pipe, and block the browser mid-capture: the narration would
+# have taken down the thing it narrates. Bounded, and a timeout is logged and dropped.
+_EVENT_CALLBACK_TIMEOUT_S = 5.0
+
 # Browserbase session bounds (opt-in path only).
 _BROWSERBASE_API = "https://api.browserbase.com/v1/sessions"
 _BROWSERBASE_TIMEOUT_S = 20.0
@@ -84,13 +99,34 @@ _BROWSERBASE_SESSION_TTL_S = 300
 # is arranged to prevent.
 _BROWSERBASE_RELEASE_TIMEOUT_S = 10.0
 
-RunSubprocess = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
+# One line of narration off the child's stdout, already parsed. Async because the only
+# real implementation writes a progress row to Postgres.
+EventFn = Callable[[dict[str, Any]], Awaitable[None]]
+
+
+class RunSubprocess(Protocol):
+    """The child seam — :func:`_subprocess_run` or a $0 test double.
+
+    A Protocol rather than a ``Callable`` alias because of ``on_event``, which is what
+    makes the capture NARRATABLE: the child announces each recorded response as it lands
+    and this callback forwards it, so a test double can drive the streaming path without
+    a browser exactly the way it drives the report path.
+    """
+
+    def __call__(
+        self, plan: dict[str, Any], *, on_event: EventFn | None = None
+    ) -> Awaitable[dict[str, Any]]: ...
+
+
 UrlValidator = Callable[[str], Any]
 OpenSession = Callable[[], Awaitable["BrowserSession | None"]]
 ReleaseSession = Callable[["BrowserSession"], Awaitable[None]]
 # Called with the hosted live-view URL the MOMENT a session has one — see the call site
 # in :func:`capture_board` for why it is a callback and not a return value.
 LiveViewFn = Callable[[str], Awaitable[None]]
+# Called with ONE display-ready record per response the browser saw, the moment it is
+# seen — see :func:`capture_board` for why it is a callback and not a return value.
+RequestFn = Callable[[dict[str, Any]], Awaitable[None]]
 HttpClientFactory = Callable[[], httpx.AsyncClient]
 
 
@@ -125,6 +161,11 @@ class CapturedResponse:
     post_data: str | None
     body: str
     truncated: bool
+    # What the response ACTUALLY weighed, which is not ``len(body)`` once a body has
+    # been dropped for being oversize. Display-only — the pre-filter reads ``body`` —
+    # and it is what lets a refusal say "2.7 MB, larger than we can record in one go"
+    # instead of reporting the board's biggest response as empty.
+    body_bytes: int = 0
 
 
 @dataclass(frozen=True)
@@ -192,12 +233,75 @@ async def _reap(proc: Any) -> None:
         logger.warning("capture subprocess did not exit after SIGKILL")
 
 
-async def _subprocess_run(plan: dict[str, Any]) -> dict[str, Any]:
-    """Spawn ``_capture_main`` and return its parsed JSON report.
+async def _pump_stdout(
+    stream: asyncio.StreamReader, on_event: EventFn | None
+) -> bytes:
+    """Read the child's stdout to EOF, dispatching each complete line as it arrives.
+
+    Deliberately ``read(n)`` and a hand-rolled line split rather than ``readline()``:
+    ``StreamReader`` carries a 64 KiB line limit and the child's report is a SINGLE line
+    of up to ~16 MB, so ``readline`` would raise ``LimitOverrunError`` on every real
+    capture. Raising the stream limit instead would work and would also pre-allocate the
+    ceiling; this costs one ``find``.
+
+    The whole of stdout is still returned — same bytes ``communicate`` used to hand
+    back, same ``_parse_report`` reading them — because the report is the thing
+    discovery actually runs on and narration must not become load-bearing for it. The
+    scan cursor is what keeps that free: lines are dispatched out of the SAME buffer,
+    never copied into a second one.
+    """
+    buf = bytearray()
+    scanned = 0
+    while True:
+        chunk = await stream.read(_READ_CHUNK_BYTES)
+        if not chunk:
+            break
+        buf += chunk
+        while True:
+            newline = buf.find(b"\n", scanned)
+            if newline < 0:
+                break
+            line = bytes(buf[scanned:newline])
+            scanned = newline + 1
+            await _dispatch_event(line, on_event)
+    return bytes(buf)
+
+
+async def _dispatch_event(line: bytes, on_event: EventFn | None) -> None:
+    """Forward ``line`` if it is a narration event. NEVER raises, never blocks for long.
+
+    Three guards, each closing a way narration could damage the capture it narrates:
+    the length check keeps us from JSON-parsing a 16 MB report line a second time, the
+    ``wait_for`` bounds a progress write that hangs (we are inside the pipe drain — a
+    stall here stalls the browser), and the swallow means a failed write costs a row of
+    a display panel and nothing else.
+    """
+    if on_event is None or not line or len(line) > _MAX_EVENT_LINE_BYTES:
+        return
+    try:
+        parsed = json.loads(line)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return  # Chromium is chatty; a line we cannot read is not an event
+    if not isinstance(parsed, dict) or "event" not in parsed:
+        return
+    try:
+        await asyncio.wait_for(on_event(parsed), timeout=_EVENT_CALLBACK_TIMEOUT_S)
+    except Exception:  # noqa: BLE001 - see the docstring
+        logger.warning("capture progress event dropped (continuing)", exc_info=True)
+
+
+async def _subprocess_run(
+    plan: dict[str, Any], *, on_event: EventFn | None = None
+) -> dict[str, Any]:
+    """Spawn ``_capture_main``, narrate its stdout, and return its parsed JSON report.
 
     The child imports ``playwright``; THIS parent never does — the boundary that keeps
     the shared replay worker agent-free. The plan (including a Browserbase CDP URL when
     one is in play) goes on **stdin**, never argv.
+
+    ``on_event`` receives each line the child prints about a response it just recorded,
+    as it is printed. It is optional and it is cosmetic: a run with no callback behaves
+    exactly as this did before streaming existed.
     """
     backend_root = Path(__file__).resolve().parents[3]  # src/backend
     repo_root = backend_root.parents[1]                 # repo root (holds scripts/)
@@ -215,10 +319,46 @@ async def _subprocess_run(plan: dict[str, Any]) -> dict[str, Any]:
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
+
+    async def _feed_and_collect() -> tuple[bytes, bytes]:
+        """Write the plan in, then drain BOTH pipes to EOF, narrating stdout as it goes.
+
+        This replaced ``proc.communicate()`` for exactly one reason: ``communicate``
+        returns when the process EXITS, so every line the child printed while the
+        browser was open arrived 30-80 seconds late, all at once. Nothing about the
+        capture changed; what changed is that the parent now sees each response as the
+        child records it.
+
+        BOTH pipes are drained CONCURRENTLY, which is the part that is not optional: a
+        child blocked writing a full stderr pipe never gets to finish its report, and a
+        sequential reader is how that deadlock happens. (``communicate`` did this too —
+        this is keeping the property, not adding one.)
+
+        The plan is written first rather than inside the gather because it is a few
+        hundred bytes, i.e. orders of magnitude under one pipe buffer; a plan that could
+        fill a pipe would have to move into the gather.
+        """
+        assert proc.stdin is not None and proc.stdout is not None
+        assert proc.stderr is not None
+        proc.stdin.write(json.dumps(plan).encode("utf-8"))
+        try:
+            await proc.stdin.drain()
+        except (BrokenPipeError, ConnectionResetError):
+            # The child died before reading its plan. Not our error to report: it exits
+            # non-zero and the rc branch below quotes its stderr, which says why.
+            pass
+        proc.stdin.close()
+        out, err = await asyncio.gather(
+            _pump_stdout(proc.stdout, on_event), proc.stderr.read()
+        )
+        # Both pipes are at EOF, so this is bookkeeping rather than a wait — but it is
+        # what makes ``proc.returncode`` below a real exit status instead of ``None``.
+        await proc.wait()
+        return out, err
+
     try:
         stdout, stderr = await asyncio.wait_for(
-            proc.communicate(input=json.dumps(plan).encode("utf-8")),
-            timeout=_SUBPROCESS_TIMEOUT_S,
+            _feed_and_collect(), timeout=_SUBPROCESS_TIMEOUT_S
         )
     except asyncio.TimeoutError as exc:
         raise CaptureError(
@@ -469,6 +609,14 @@ def _responses_from_report(report: dict[str, Any]) -> list[CapturedResponse]:
             post_data=entry.get("post_data") if isinstance(entry.get("post_data"), str) else None,
             body=body,
             truncated=bool(entry.get("truncated")),
+            # Falls back to the body we DID get, so a report from a child that predates
+            # the field still reports a sane size rather than zero.
+            body_bytes=(
+                entry["bytes"]
+                if isinstance(entry.get("bytes"), int)
+                and not isinstance(entry.get("bytes"), bool)
+                else len(body)
+            ),
         ))
     return out
 
@@ -481,6 +629,7 @@ async def capture_board(
     open_session: OpenSession | None = None,
     release_session: ReleaseSession | None = None,
     on_live_view: LiveViewFn | None = None,
+    on_request: RequestFn | None = None,
 ) -> CaptureResult:
     """Open ``url`` once in a browser and return everything JSON it fetched.
 
@@ -494,6 +643,12 @@ async def capture_board(
     does not return for another 30-120 seconds. :attr:`CaptureResult.live_view_url`
     still carries it for the terminal record; the callback is what puts it on screen in
     time to be watched.
+
+    ``on_request`` is a callback for the same reason and settles the same argument about
+    a different thing: :attr:`CaptureResult.responses` carries the whole recording, but
+    it carries it 30-120 seconds after the first request landed. This fires as each one
+    is recorded, which is what lets the progress panel show a network log filling up
+    instead of a spinner followed by a finished list.
     """
     # SSRF on the pasted URL BEFORE anything spawns (invariant #4). OFF THE LOOP:
     # ``validate_public_url`` is sync and does a blocking ``getaddrinfo`` on a host a
@@ -550,7 +705,28 @@ async def capture_board(
                         exc_info=True,
                     )
 
-        report = await (run_subprocess or _subprocess_run)(plan)
+        async def _forward(event: dict[str, Any]) -> None:
+            """One child event -> one ``on_request`` call. Guarded, like every other
+            narration seam here: a callback that raises must not fail a capture we can
+            otherwise complete (the rule ``on_live_view`` above follows, and
+            ``discover._publish`` follows one layer up)."""
+            if on_request is None or event.get("event") != "response":
+                return
+            try:
+                await on_request({
+                    "method": event.get("method"),
+                    "url": event.get("url"),
+                    "status": event.get("status"),
+                    "bytes": event.get("bytes"),
+                    "truncated": bool(event.get("truncated")),
+                })
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "capture request publish failed for %s (continuing)", url,
+                    exc_info=True,
+                )
+
+        report = await (run_subprocess or _subprocess_run)(plan, on_event=_forward)
         responses = _responses_from_report(report)
         final_url = report.get("final_url")
         if not isinstance(final_url, str) or not final_url:

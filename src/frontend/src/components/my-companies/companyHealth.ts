@@ -262,6 +262,49 @@ export function watchableLiveViewUrl(
   return openPage?.status === 'active' ? url : null;
 }
 
+/**
+ * A byte count a person can read. Binary units, one decimal, no thousands separators
+ * past KB — the number here is context for "is this the jobs feed or a tracking ping",
+ * not an accounting figure.
+ */
+export function formatByteSize(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+  if (bytes < 1024) return `${Math.round(bytes)} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/**
+ * The one line that stands in for the whole network log while it is collapsed.
+ *
+ * The log is closed by default (the panel it lives in was just cut back for being busy),
+ * so this line is doing the work the log would otherwise do: it has to be specific
+ * enough that a user knows whether opening it is worth it, and it has to MOVE while the
+ * capture is running, because a count ticking up is what "we are watching your page
+ * right now" looks like in one line.
+ *
+ * Null when there is nothing recorded — a page that fetched no JSON at all has no
+ * evidence to offer, and the checklist's ✕ already says exactly that.
+ */
+export function describeNetworkSummary(
+  company: Pick<UserCompany, 'healthState' | 'discovery'>,
+): string | null {
+  const network = company.discovery?.network;
+  const requests = network?.requests ?? [];
+  if (requests.length === 0) return null;
+  // `recorded` over `requests.length`: the stored list is clipped to a size budget, and
+  // the honest headline is what we SAW, not how much of it survived the budget.
+  const count = Math.max(network?.recorded ?? 0, requests.length);
+  const noun = count === 1 ? 'request' : 'requests';
+  if (resolveDiscoveryOutcome(company) === 'running') {
+    return `${count} ${noun} so far`;
+  }
+  if (requests.some((request) => request.state === 'chosen')) {
+    return `${count} ${noun} · 1 picked`;
+  }
+  return `${count} ${noun} · none we could use`;
+}
+
 /** The step a refusal stopped on, or null (e.g. a timeout, which fails no step). */
 export function failedDiscoveryStep(
   discovery: Pick<DiscoveryProgress, 'steps'> | null | undefined,

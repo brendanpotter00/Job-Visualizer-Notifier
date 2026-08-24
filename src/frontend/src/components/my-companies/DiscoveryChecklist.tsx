@@ -9,6 +9,7 @@ import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import { ROUTES } from '../../config/routes';
+import { DiscoveryNetworkLog } from './DiscoveryNetworkLog';
 import type {
   DiscoveryOutcomeState,
   DiscoveryStep,
@@ -269,6 +270,12 @@ interface DiscoveryChecklistProps {
  * of engine telemetry under each, and a three-bullet "What you can do". Everything a
  * reader cannot act on has been cut; what is left is the narration and the error.
  *
+ * ...and, since that cut, ONE collapsed line of evidence beneath it: the network log
+ * (`DiscoveryNetworkLog`). It is deliberately closed in every state, because the whole
+ * point of the cut was that this panel is read at a glance — what it adds by default is
+ * a single summary line whose count ticks up while the browser is open, which is the
+ * cheapest honest way to show a person that we are watching their page right now.
+ *
  * Presentational and flag-free: the caller decides whether the feature is on. It reads
  * only `company`, whose `discovery` blob arrives on the list poll the page already runs
  * — there is no second polling channel and no fetching here.
@@ -331,6 +338,15 @@ export function DiscoveryChecklist({ company }: DiscoveryChecklistProps) {
           <NextActions boardUrl={company.boardToken} />
         </>
       ) : null}
+
+      {/* THE EVIDENCE, one click away and closed by default.
+          It sits below the refusal copy on purpose: on a refusal the reader needs the
+          verdict and the one action that changes it first, and the log is what they
+          open when that action does not obviously apply to their board. It renders
+          nothing at all until the capture has recorded a request, so a run that has not
+          opened the page yet — and a page that never fetched any JSON — adds no line
+          and reserves no space. See `DiscoveryNetworkLog` for why it is collapsed. */}
+      <DiscoveryNetworkLog company={company} />
 
       {/* Rendered UNCONDITIONALLY, and empty until there is something to watch. The
           section owns its own exit animation, so it has to outlive the URL that feeds
