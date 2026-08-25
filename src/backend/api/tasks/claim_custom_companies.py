@@ -19,13 +19,16 @@ The claim task carries no queueing lock of its own — if two ticks race, the
 ``FOR UPDATE SKIP LOCKED`` claim + the per-company defer lock make the second a
 cheap no-op.
 
-THE TWO PUBLIC HELPERS BELOW (:func:`defer_fetch`, :func:`push_next_run_at`) are this
-module's scheduling contract, and ``discover_custom_company`` calls both when it accepts
-a board so the first harvest starts in seconds instead of on the next tick. They are
-exported rather than copied precisely so there is ONE way a custom harvest gets
-enqueued: same per-company queueing lock, same cadence±jitter push. A second enqueue
-path with its own idea of the lock is how the same board ends up harvested twice
-concurrently — which is the one thing the lock exists to prevent.
+THE THREE PUBLIC HELPERS BELOW (:func:`defer_fetch`, :func:`push_next_run_at` and
+:func:`start_first_harvest`, which composes the first two) are this module's scheduling
+contract. BOTH add paths call :func:`start_first_harvest` the moment a company becomes
+trackable — ``discover_custom_company`` when it accepts a discovered board, and
+``routers/user_companies.add_company`` when a pasted URL resolves to a supported ATS —
+so the first harvest starts in seconds instead of on the next tick. They live here
+rather than being copied precisely so there is ONE way a custom harvest gets enqueued:
+same per-company queueing lock, same cadence±jitter push. A second enqueue path with its
+own idea of the lock is how the same board ends up harvested twice concurrently — which
+is the one thing the lock exists to prevent.
 """
 
 from __future__ import annotations
@@ -108,10 +111,11 @@ def push_next_run_at(conn: psycopg2.extensions.connection, company_id: str) -> N
     """Push ONE company's ``next_run_at`` forward by a cadence ± jitter, committed.
 
     The claim tick does this INSIDE its claim transaction; this is the standalone form
-    for a harvest enqueued outside a tick (``discover_custom_company``'s first harvest).
-    It is the PRIMARY interlock against a double harvest: with ``next_run_at`` a cadence
-    away the 15-minute tick simply does not select the row, so it never even reaches the
-    defer. The per-company queueing lock is the backstop for the window where it does.
+    for a harvest enqueued outside a tick (:func:`start_first_harvest`, on either add
+    path). It is the PRIMARY interlock against a double harvest: with ``next_run_at`` a
+    cadence away the 15-minute tick simply does not select the row, so it never even
+    reaches the defer. The per-company queueing lock is the backstop for the window
+    where it does.
 
     Call it only AFTER the defer has succeeded. Pushing first and failing to enqueue
     would silently cost the board a whole cadence — the caller's fallback is to leave
@@ -169,9 +173,10 @@ DeferResult = Literal["deferred", "already_queued", "failed"]
 async def defer_fetch(company_id: str) -> DeferResult:
     """Enqueue ONE ``fetch_custom_company`` under the per-company queueing lock.
 
-    THE single place a custom harvest is enqueued (the claim tick and the accepted-board
-    first harvest both come through here). The lock ``custom:{company_id}`` is what makes
-    a duplicate enqueue impossible while a job for that company is still ``todo``:
+    THE single place a custom harvest is enqueued (the claim tick, and both add paths'
+    first harvest via :func:`start_first_harvest`). The lock ``custom:{company_id}`` is
+    what makes a duplicate enqueue impossible while a job for that company is still
+    ``todo``:
     Procrastinate rejects the second defer with ``AlreadyEnqueued``, which is a normal
     outcome here and not an error.
 
@@ -199,6 +204,98 @@ async def defer_fetch(company_id: str) -> DeferResult:
             "Failed to defer fetch_custom_company for %s; continuing", company_id,
         )
         return "failed"
+
+
+async def start_first_harvest(
+    conn: psycopg2.extensions.connection, *, company_id: str, transport: str
+) -> None:
+    """Enqueue a just-added company's FIRST harvest now, not on the next claim tick.
+
+    BOTH add paths call this: ``discover_custom_company`` when it accepts a discovered
+    board, and ``routers/user_companies.add_company`` when a pasted URL resolves
+    straight to a supported ATS. They share it because they share the bug — a row that
+    says "Successfully tracking" over "0 open jobs · Not yet checked" for up to fifteen
+    minutes, which reads as "we looked and your board is empty" rather than "we have not
+    read it yet". Enqueuing here collapses that window to the length of one harvest.
+
+    It composes the two primitives above rather than issuing its own defer, so there is
+    exactly ONE way a ``fetch_custom_company`` gets queued:
+
+    1. :func:`defer_fetch` — same per-company queueing lock ``custom:{id}``. If the tick
+       somehow already queued this company, Procrastinate answers ``already_queued`` and
+       we do not add a second job.
+    2. :func:`push_next_run_at` — moves the row's ``next_run_at`` a full cadence ± jitter
+       ahead, but ONLY once the defer is on the broker. That is the real interlock: the
+       15-minute tick selects on ``next_run_at <= now()``, so a rescheduled row is not
+       even a candidate and the two enqueue paths can never produce two concurrent
+       harvests of the same board.
+
+    THE ONLY GATE IS THE TRANSPORT, and it is the leaf task's own rule mirrored here, not
+    a second policy: ``fetch_custom_company`` skips a ``browser_fetch`` harvest while
+    ``custom_company_discovery_enabled`` is off (discovery is the only thing that ever
+    creates that tier), so queueing one would be queueing a guaranteed no-op. Every other
+    transport — ``ats_client`` from the ATS fast path, ``http_json`` from a discovered
+    board — is NOT gated there and MUST NOT be gated here: an ATS board has nothing to do
+    with discovery, and reading that flag for it would silently break the immediate
+    harvest for every ATS add whenever the flag is off, which is the production default.
+    The parent ``custom_company_sources_enabled`` flag is the caller's gate; you cannot
+    reach either add path with it off.
+
+    THE FAILURE PATH IS THE OLD BEHAVIOUR, deliberately. If the defer fails, we leave
+    ``next_run_at = now()`` (where the add left it) and say so in the log — the next tick
+    claims the row within 15 minutes exactly as it did before this existed. Never push
+    the schedule forward on a failed defer: that trades a 15-minute wait for a 24-hour
+    one, silently.
+
+    NEVER RAISES. The company is already created and committed by the time we get here;
+    an enqueue problem must not turn a successful add into a failed one — not a failed
+    task on the discovery side, and not a 500 on the synchronous ATS add the user is
+    waiting on.
+    """
+    if transport == "browser_fetch" and not settings.custom_company_discovery_enabled:
+        logger.info(
+            "start_first_harvest: custom_company_discovery_enabled off; leaving %s "
+            "for the claim tick rather than queueing a browser_fetch no-op", company_id,
+        )
+        return
+
+    try:
+        result = await defer_fetch(company_id)
+    except Exception:  # noqa: BLE001
+        # ``defer_fetch`` already narrows to broker/database errors; this is the
+        # last-resort guard so no enqueue surprise can cost us a company that is
+        # otherwise fully added (``AppNotOpen`` is the concrete one — a Procrastinate
+        # exception, NOT a ConnectorException, so it escapes the narrow tuple).
+        logger.exception(
+            "start_first_harvest: unexpected error deferring %s; the claim tick will "
+            "pick it up", company_id,
+        )
+        return
+
+    if result == "failed":
+        logger.warning(
+            "start_first_harvest: could not queue the first harvest for %s; leaving it "
+            "due so the next claim tick runs it", company_id,
+        )
+        return
+
+    try:
+        await asyncio.to_thread(push_next_run_at, conn, company_id)
+    except psycopg2.Error:
+        # The harvest IS queued; only the reschedule failed. Worst case the next tick
+        # sees the row due and calls defer_fetch again, which the queueing lock answers
+        # with ``already_queued`` — the backstop doing exactly its job.
+        logger.warning(
+            "start_first_harvest: queued the first harvest for %s but could not push "
+            "next_run_at; the queueing lock will absorb a duplicate claim",
+            company_id, exc_info=True,
+        )
+        return
+
+    logger.info(
+        "start_first_harvest: %s first harvest %s (transport=%s); next cadence "
+        "scheduled", company_id, result, transport,
+    )
 
 
 @procrastinate_app.periodic(cron="*/15 * * * *", periodic_id="custom_companies_claim")

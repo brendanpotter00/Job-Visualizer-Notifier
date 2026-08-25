@@ -25,8 +25,11 @@ from .discovery.progress import initial_snapshot, with_first_scan
 
 logger = logging.getLogger(__name__)
 
-# A custom company is scraped daily; next_run_at is seeded to now() so the first
-# harvest happens on the next claim tick rather than 24h later.
+# A custom company is scraped daily; next_run_at is seeded to now() so the row is
+# DUE the instant it exists. The add path then enqueues the first harvest itself
+# (``claim_custom_companies.start_first_harvest``) and pushes next_run_at forward; the
+# seeded-due state is what the 15-minute claim tick falls back to when that enqueue
+# could not happen.
 DEFAULT_CADENCE_HOURS = 24
 # Bounded retry on the astronomically-unlikely companies.id PK collision.
 _ID_GENERATION_ATTEMPTS = 5
@@ -116,6 +119,12 @@ def add_custom_company(
     ``find_owned_company_by_source_key`` first); as a race backstop this catches
     the ``UNIQUE(user_id, canonical_source_key)`` violation and returns the
     existing row instead of erroring.
+
+    The returned dict carries ``created``: True only when this call INSERTED the row.
+    The router reads it to decide whether to kick off the first harvest, because the
+    race backstop resolves to a company someone else just created — and whoever created
+    it already started its harvest. Without the flag the two indistinguishable return
+    shapes would make a double-add fire two harvests at one board.
     """
     source_key = canonical_source_key(ats, board_token)
     script = {"kind": "ats_client", "provider": ats, "token": board_token}
@@ -186,6 +195,7 @@ def add_custom_company(
                 "tracking_started_at": None,
                 "source_id": custom(company_id),
                 "open_job_count": 0,
+                "created": True,
             }
         except psycopg2.errors.UniqueViolation as exc:
             conn.rollback()
@@ -196,6 +206,7 @@ def add_custom_company(
             if existing is not None:
                 existing["source_id"] = custom(existing["id"])
                 existing["open_job_count"] = count_open_jobs(conn, existing["id"])
+                existing["created"] = False
                 return existing
             last_error = exc
             continue

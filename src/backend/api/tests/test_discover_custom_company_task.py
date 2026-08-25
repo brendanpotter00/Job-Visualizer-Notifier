@@ -469,11 +469,13 @@ def _accepting(monkeypatch, transport: str = "http_json") -> None:
 
 
 def _record_defers(monkeypatch, result: str = "deferred") -> list[str]:
-    """Capture every ``fetch_custom_company`` enqueue from BOTH paths.
+    """Capture every ``fetch_custom_company`` enqueue.
 
-    Patched on the claim module and re-patched on the discovery task's own binding,
-    because the task imported the name — so a test that only patched one of the two
-    would silently measure half the system.
+    ONE binding to patch, and that is the point: ``start_first_harvest`` lives in the
+    claim module beside ``defer_fetch``, so the accept path, the ATS add path and the
+    tick all call the same function object. When the discovery task owned its own copy
+    of the helper this had to patch two modules, and a test that patched one of them
+    silently measured half the system.
     """
     calls: list[str] = []
 
@@ -482,7 +484,6 @@ def _record_defers(monkeypatch, result: str = "deferred") -> list[str]:
         return result
 
     monkeypatch.setattr(claim_mod, "defer_fetch", _defer)
-    monkeypatch.setattr(task_mod, "defer_fetch", _defer)
     return calls
 
 

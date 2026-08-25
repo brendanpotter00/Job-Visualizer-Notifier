@@ -70,6 +70,13 @@ _RESOLVE_BUDGET_S = 25.0
 _RESOLVE_GRACE_S = 2.0
 _RESOLVE_CLIENT_TIMEOUT_S = 30.0
 
+# Wall-clock cap on the first-harvest ENQUEUE (not the harvest — that runs on the
+# worker). It is two local statements, an INSERT on the broker and an UPDATE on
+# ``companies``, so this bound is never reached in practice; it exists because the user
+# is synchronously waiting on this response and a sick broker connection must cost them
+# a bounded pause and today's 15-minute-tick behaviour, not an open-ended hang.
+_FIRST_HARVEST_ENQUEUE_BUDGET_S = 5.0
+
 
 def _http_client() -> httpx.AsyncClient:
     """The client discovery + probe share for one add. Module-level so tests can
@@ -193,6 +200,52 @@ async def _defer_discovery(
         normalized_url=normalized_url,
         display_name=display_name,
     )
+
+
+async def _start_first_harvest(conn: Connection, company_id: str) -> None:
+    """Read the freshly-added ATS board NOW instead of at the next claim tick.
+
+    THE BUG THIS FIXES: an ATS add commits a row with ``next_run_at = now()`` and then
+    waits for the ``*/15 * * * *`` claim tick, so for up to fifteen minutes the user
+    stares at their new company saying "Successfully tracking · 0 open jobs · Not yet
+    checked" right under a preview that just told them we found 1,200 jobs on it.
+    Discovery already fixed this for discovered boards; this is the same fix for the
+    fast path, through the SAME helper — one enqueue path, one queueing lock, one idea
+    of what "already scheduled" means.
+
+    THREE PROPERTIES THIS SEAM OWNS, all about the fact that ``POST
+    /api/users/companies`` is a request the user is sitting in front of:
+
+    * **It never fails the add.** The company is created and committed before we get
+      here. ``start_first_harvest`` already swallows broker and database trouble, so the
+      blanket ``except`` is for the genuinely unforeseen (an import error, a connector
+      that raises something new); degrading to "the tick runs it within 15 minutes" is
+      the old behaviour and always better than a 500 on a company that IS added.
+    * **It cannot hang the response.** ``wait_for`` bounds a sick broker to
+      ``_FIRST_HARVEST_ENQUEUE_BUDGET_S``. ``CancelledError`` is BaseException and
+      deliberately NOT caught — a disconnected client should still unwind.
+    * **It is lazy-imported**, like ``_defer_discovery`` above: the task package pulls in
+      the worker's import graph, which the request path has no reason to carry, and the
+      indirection is also the seam tests patch instead of opening a live broker.
+    """
+    from ..tasks.claim_custom_companies import start_first_harvest
+
+    try:
+        await asyncio.wait_for(
+            # transport='ats_client' is the literal transport ``add_custom_company``
+            # writes to company_scripts. It matters: the helper skips a
+            # ``browser_fetch`` enqueue while discovery is off, and an ATS board must
+            # never inherit that gate — discovery had no part in creating it.
+            start_first_harvest(
+                conn, company_id=company_id, transport="ats_client"
+            ),
+            timeout=_FIRST_HARVEST_ENQUEUE_BUDGET_S,
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "Could not start the first harvest for %s; the claim tick will pick it up "
+            "within 15 minutes", company_id, exc_info=True,
+        )
 
 
 @router.post("", response_model=UserCompanyResponse)
@@ -394,6 +447,14 @@ async def add_company(
     except psycopg2.Error:
         logger.exception("Failed to create custom company for user=%s", user_id)
         raise HTTPException(status_code=500, detail="Failed to add company")
+
+    # ONLY on a row this call actually inserted. A re-add returns 200 from the
+    # idempotent branch far above and never reaches here; the one path that does is
+    # ``add_custom_company``'s UNIQUE race backstop, where a concurrent add created the
+    # company — and started its harvest — microseconds ago. Harvesting on every add of
+    # an existing board would turn this endpoint into a manual scrape button.
+    if created.get("created"):
+        await _start_first_harvest(conn, str(created["id"]))
 
     response.status_code = 201
     return _to_response(created)

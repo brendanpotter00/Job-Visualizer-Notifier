@@ -665,6 +665,233 @@ def test_resolvable_board_with_zero_jobs_is_422(client, db_conn, monkeypatch):
     assert _count(db_conn, "company_add_attempts", "WHERE outcome = 'empty'") == 1
 
 
+# --- the first harvest of an ATS add (E7) -------------------------------------
+#
+# What this section pins is the owner's bug: he pasted a Workday careers URL, the page
+# said "Found 1,200 open jobs", and the row it created then sat at "Successfully
+# tracking · 0 open jobs · Not yet checked" — because the ATS fast path created the row
+# due and left the reading to the ``*/15 * * * *`` claim tick. Discovery already
+# enqueued its own first harvest; this is the SAME helper wired into the fast path, so
+# the two can never disagree about the queueing lock or about what "already scheduled"
+# means.
+
+
+def _record_defers(monkeypatch, result: str = "deferred") -> list[str]:
+    """Capture every ``fetch_custom_company`` enqueue the add path makes.
+
+    Patched on ``claim_custom_companies`` — the ONE module that enqueues a custom
+    harvest. The router reaches it through ``start_first_harvest``, which resolves
+    ``defer_fetch`` off that module at call time, so this sees the real path rather
+    than a stub standing in for it.
+    """
+    import api.tasks.claim_custom_companies as claim_mod
+
+    calls: list[str] = []
+
+    async def _defer(company_id: str) -> str:
+        calls.append(company_id)
+        return result
+
+    monkeypatch.setattr(claim_mod, "defer_fetch", _defer)
+    return calls
+
+
+def _seconds_until_next_run(db_conn, company_id: str) -> float:
+    db_conn.rollback()
+    cur = db_conn.cursor()
+    cur.execute(
+        "SELECT EXTRACT(EPOCH FROM (next_run_at - now())) AS s "
+        "FROM companies WHERE id = %s",
+        (company_id,),
+    )
+    return float(cur.fetchone()["s"])
+
+
+def test_an_ats_add_enqueues_its_first_harvest_immediately(client, db_conn, monkeypatch):
+    """THE FIX. Without it the company is tracked, green, and empty until the next
+    15-minute tick — which reads as "we looked and your board has no jobs" directly
+    under a preview that just said we found some."""
+    _login(client, "auth0|A", "a@example.com")
+    _install_greenhouse(monkeypatch, [1, 2, 3])
+    calls = _record_defers(monkeypatch)
+
+    resp = client.post("/api/users/companies", json={"url": GREENHOUSE_URL})
+
+    assert resp.status_code == 201, resp.text
+    assert calls == [resp.json()["id"]]
+
+
+def test_the_immediate_harvest_takes_the_row_off_the_claim_ticks_list(
+    client, db_conn, monkeypatch
+):
+    """THE INTERLOCK, primary half. ``add_custom_company`` leaves ``next_run_at =
+    now()``; once the harvest is on the broker the row is pushed a full cadence ± jitter
+    ahead, so the tick — which selects on ``next_run_at <= now()`` — cannot even see it.
+    That is what makes a second, concurrent harvest of the same board impossible rather
+    than merely unlikely."""
+    import api.tasks.claim_custom_companies as claim_mod
+
+    _login(client, "auth0|A", "a@example.com")
+    _install_greenhouse(monkeypatch, [1])
+    _record_defers(monkeypatch)
+
+    company_id = client.post(
+        "/api/users/companies", json={"url": GREENHOUSE_URL}
+    ).json()["id"]
+
+    # A cadence (24h) minus the ±90 min jitter floor — i.e. nowhere near due.
+    assert _seconds_until_next_run(db_conn, company_id) > 22 * 3600
+    assert company_id not in claim_mod._claim_due_companies(db_conn, 10)
+
+
+def test_the_first_harvest_is_not_gated_by_the_discovery_flag(
+    client, db_conn, monkeypatch
+):
+    """THE TRAP. ``custom_company_discovery_enabled`` is OFF in production, and an ATS
+    board has nothing to do with discovery — it was resolved and probed for free. Gating
+    the immediate harvest on that flag (which the discovered ``browser_fetch`` tier DOES
+    need, because discovery is the only thing that creates it) would leave every ATS add
+    exactly as broken as it was, in the default configuration."""
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", False)
+    _login(client, "auth0|A", "a@example.com")
+    _install_greenhouse(monkeypatch, [1, 2])
+    calls = _record_defers(monkeypatch)
+
+    resp = client.post("/api/users/companies", json={"url": GREENHOUSE_URL})
+
+    assert resp.status_code == 201, resp.text
+    assert calls == [resp.json()["id"]]
+    assert _seconds_until_next_run(db_conn, resp.json()["id"]) > 22 * 3600
+
+
+def test_a_re_add_of_a_tracked_board_starts_no_second_harvest(
+    client, db_conn, monkeypatch
+):
+    """Re-pasting a URL already tracked resolves to the existing row (200). It must NOT
+    harvest again, or the add form becomes a manual scrape button anyone can hold down —
+    and the second run would land on a board whose ``next_run_at`` says it is not due."""
+    _login(client, "auth0|A", "a@example.com")
+    _install_greenhouse(monkeypatch, [1, 2, 3])
+    calls = _record_defers(monkeypatch)
+
+    first = client.post("/api/users/companies", json={"url": GREENHOUSE_URL})
+    second = client.post("/api/users/companies", json={"url": GREENHOUSE_URL})
+
+    assert (first.status_code, second.status_code) == (201, 200)
+    assert calls == [first.json()["id"]]
+
+
+def test_a_racing_double_add_starts_only_one_harvest(client, db_conn, monkeypatch):
+    """The other half of idempotency, and the only one the 200 branch cannot cover: two
+    adds of the same board in flight together. The loser's pre-check sees no company, so
+    it reaches ``add_custom_company`` and lands on the UNIQUE race backstop — which
+    resolves to the row the winner just created AND already started a harvest for.
+    Reading ``created`` is what tells those two return shapes apart."""
+    _login(client, "auth0|A", "a@example.com")
+    _install_greenhouse(monkeypatch, [1, 2])
+    calls = _record_defers(monkeypatch)
+
+    winner = client.post("/api/users/companies", json={"url": GREENHOUSE_URL})
+
+    # Simulate the race: the SECOND request's ownership pre-check runs before the
+    # winner's INSERT is visible to it, so it proceeds as if the board were new. Only
+    # the first lookup is blinded; the service's own backstop lookup must still find
+    # the row, which is what makes this the race and not just a missing company.
+    real_lookup = svc.find_owned_company_by_source_key
+    seen: list[int] = []
+
+    def _blind_once(conn, user_id, source_key):
+        seen.append(1)
+        if len(seen) == 1:
+            return None
+        return real_lookup(conn, user_id, source_key)
+
+    monkeypatch.setattr(svc, "find_owned_company_by_source_key", _blind_once)
+
+    loser = client.post("/api/users/companies", json={"url": GREENHOUSE_URL})
+
+    assert loser.json()["id"] == winner.json()["id"]
+    assert _count(db_conn, "companies", "WHERE visibility = 'user'") == 1
+    assert calls == [winner.json()["id"]]
+
+
+def test_a_broker_that_will_not_take_the_job_still_adds_the_company(
+    client, db_conn, monkeypatch
+):
+    """The safe direction, twice over. The user is waiting on this response: a broker
+    problem must not turn a perfectly good add into a 500. And it must not cost the
+    board a cadence either — the row stays DUE, so the next tick runs it exactly as it
+    did before the immediate enqueue existed. Pushing ``next_run_at`` on a failed defer
+    would silently trade a 15-minute wait for a 24-hour one."""
+    import api.tasks.claim_custom_companies as claim_mod
+
+    _login(client, "auth0|A", "a@example.com")
+    _install_greenhouse(monkeypatch, [1])
+    _record_defers(monkeypatch, result="failed")
+
+    resp = client.post("/api/users/companies", json={"url": GREENHOUSE_URL})
+
+    assert resp.status_code == 201, resp.text
+    company_id = resp.json()["id"]
+    assert _seconds_until_next_run(db_conn, company_id) < 60
+    assert company_id in claim_mod._claim_due_companies(db_conn, 10)
+
+
+def test_an_enqueue_that_explodes_never_fails_the_add(client, db_conn, monkeypatch):
+    """``defer_fetch`` narrows to broker/database errors, so anything else — the
+    ``AppNotOpen`` a mis-wired connector raises, an import error, a new Procrastinate
+    exception — arrives here unswallowed. The company is already committed at that
+    point; the ONLY acceptable outcome is the pre-existing one, a tracked row the claim
+    tick will read."""
+    import api.tasks.claim_custom_companies as claim_mod
+
+    _login(client, "auth0|A", "a@example.com")
+    _install_greenhouse(monkeypatch, [1])
+
+    async def _boom(company_id: str) -> str:
+        raise RuntimeError("broker is on fire")
+
+    monkeypatch.setattr(claim_mod, "defer_fetch", _boom)
+
+    resp = client.post("/api/users/companies", json={"url": GREENHOUSE_URL})
+
+    assert resp.status_code == 201, resp.text
+    assert _count(db_conn, "companies", "WHERE visibility = 'user'") == 1
+    assert _seconds_until_next_run(db_conn, resp.json()["id"]) < 60
+
+
+def test_a_claim_tick_right_after_an_add_queues_no_second_harvest(
+    client, db_conn, monkeypatch
+):
+    """END TO END: add, then fire the real periodic tick. Exactly ONE
+    ``fetch_custom_company`` exists for the board — the tick is a no-op for it, not a
+    duplicate."""
+    import asyncio
+    import os
+
+    import api.tasks.claim_custom_companies as claim_mod
+
+    # The tick opens its OWN connection off ``settings.database_url`` (it runs on the
+    # worker, not on a request), so point it at the schema this test's fixture built.
+    monkeypatch.setattr(settings, "database_url", os.environ["DATABASE_URL"])
+    _login(client, "auth0|A", "a@example.com")
+    _install_greenhouse(monkeypatch, [1])
+    calls = _record_defers(monkeypatch)
+
+    company_id = client.post(
+        "/api/users/companies", json={"url": GREENHOUSE_URL}
+    ).json()["id"]
+
+    # Park every OTHER row this module-scoped schema accumulated, so the tick's budget
+    # of 3 cannot be spent elsewhere and mask the result.
+    cur = db_conn.cursor()
+    cur.execute("UPDATE companies SET next_run_at = NULL WHERE id <> %s", (company_id,))
+    db_conn.commit()
+
+    assert asyncio.run(claim_mod.claim_custom_companies(timestamp=1)) == 0
+    assert calls.count(company_id) == 1
+
+
 # --- remove_owned_company defense-in-depth guard ------------------------------
 
 
