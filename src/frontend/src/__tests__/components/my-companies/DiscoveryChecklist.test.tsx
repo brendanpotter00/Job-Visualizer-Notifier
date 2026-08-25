@@ -25,12 +25,16 @@ import type {
  *   the four words that matter in four lines of jargon; and
  * - with no live-view URL — the DEFAULT, because our own Chromium has no hosted view —
  *   there is no iframe, no toggle, and nothing missing from the layout; and
- * - the live view is torn down when the BROWSER closes, not when the RUN ends. Those
- *   are ~60 seconds apart, and the gap is the whole bug this suite now pins: the
- *   backend releases the session in `capture_board`'s `finally`, which ticks `open_page`
- *   over while the run stays `running` for another minute. The frame used to sit there
- *   the whole time rendering Browserbase's own "WebSocket disconnected" across a 16:10
- *   box, on every SUCCESSFUL run.
+ * - the live view is torn down when the BROWSER closes, not when the RUN ends. Those are
+ *   ~60 seconds apart and the frame used to sit there the whole time rendering
+ *   Browserbase's own "WebSocket disconnected" across a 16:10 box, on every SUCCESSFUL
+ *   run. The trigger is the backend nulling `liveViewUrl` at release — NOT anything
+ *   derived from the checklist. An earlier fix keyed it on `open_page` leaving `active`
+ *   and a screenshot disproved that: the step was still bold and spinning while the
+ *   frame under it already showed the dead socket; and
+ * - the network log renders BELOW the live view. While a browser is open the frame is
+ *   the headline and the requests are its record, so rows arriving must not push the
+ *   only watchable thing on the page down.
  *
  * The component is presentational and flag-free (its caller owns the flag), so these
  * render it directly. The flag-off render is asserted in `MyCompaniesList.test.tsx`,
@@ -81,9 +85,9 @@ function company(
 }
 
 /**
- * Mid-run, and PAST the capture: `open_page` has ticked over, which is the same publish
- * that follows the backend handing the browser back. The run is still `running` for
- * another ~60s. There is nothing left to watch here.
+ * Mid-run, and PAST the capture: `open_page` has ticked over and the run is still
+ * `running` for another ~60s. It carries no `liveViewUrl`, which is the ONLY reason
+ * there is nothing to watch — the ticked step says nothing about it either way.
  */
 const RUNNING = progress({
   steps: [
@@ -97,8 +101,9 @@ const RUNNING = progress({
 const LIVE_VIEW_URL = 'https://www.browserbase.com/devtools-fullscreen/s/abc';
 
 /**
- * The ONLY window in which a hosted session is watchable: `open_page` still `active`,
- * so the browser the URL points at is still open. ~30 seconds of a ~90 second run.
+ * The window in which a hosted session is watchable: the backend has published a URL and
+ * has not yet nulled it. ~30 seconds of a ~90 second run. `open_page` is `active` here
+ * only because that is what a real mid-capture blob looks like — nothing reads it.
  */
 const CAPTURING = progress({
   liveViewUrl: LIVE_VIEW_URL,
@@ -311,30 +316,50 @@ describe('DiscoveryChecklist', () => {
     expect(screen.getByTestId('discovery-step-ready')).toBeInTheDocument();
   });
 
-  it('unmounts the frame when the BROWSER closes, while the run is still running', () => {
-    // THE BUG. The backend releases the Browserbase session in `capture_board`'s
-    // `finally`, and the very next thing it does is tick `open_page` over — but the run
-    // stays `running` for another ~60 seconds of feed-finding and replay-verifying.
-    // Gating on `outcome === 'running'` therefore held a frame over a socket the backend
-    // had already closed, and Browserbase's inspector filled it with "WebSocket
-    // disconnected" — on every SUCCESSFUL run, not on any error.
+  it('unmounts the frame the instant the URL goes null — even mid-step', () => {
+    // THE BUG, AND THE SHAPE THE PREVIOUS FIX GOT WRONG.
+    //
+    // That fix tore the frame down when `open_page` stopped being `active`, on the
+    // theory that the backend releases the session and ticks the step in one breath. A
+    // screenshot disproved it: `Opening the page` was still bold with its spinner
+    // turning while the frame beneath it already read "Debugging connection was closed.
+    // Reason: WebSocket disconnected" over a white box. The CDP socket dies when the
+    // BROWSER closes, which is strictly before the ledger write that moves the step, and
+    // that gap is where the dead frame lives.
+    //
+    // So this pins the case the screenshot showed: `open_page` STILL ACTIVE, run still
+    // `running`, and only `liveViewUrl` going null — which is what the backend now
+    // publishes at release. Nothing about the checklist may be consulted.
     const { container, rerender } = renderWithProviders(
       <DiscoveryChecklist company={company('discovering', CAPTURING)} />,
     );
     expect(screen.getByTestId('discovery-live-view')).toBeInTheDocument();
 
-    // Same blob one poll later: the URL is STILL there (the ledger keeps it for the
-    // record and the terminal write copies it back), so the URL alone cannot be the
-    // signal. `open_page` going `done` is.
-    const released = progress({ ...RUNNING, liveViewUrl: LIVE_VIEW_URL });
+    const released = progress({ ...CAPTURING, liveViewUrl: null });
     rerender(<DiscoveryChecklist company={company('discovering', released)} />);
 
+    // Everything the old rule looked at is UNCHANGED: still running, step 1 still
+    // active, still spinning. Only the URL moved.
     expect(screen.getByTestId('discovery-checklist')).toHaveAttribute('data-outcome', 'running');
-    expect(released.liveViewUrl).toBe(LIVE_VIEW_URL);
+    expect(released.steps[0]).toMatchObject({ key: 'open_page', status: 'active' });
+    expect(screen.getByRole('progressbar')).toBeInTheDocument();
     // GONE, not hidden: while it is mounted it is Browserbase's page and it is free to
     // paint their error text into our layout. No styling answers that.
     expect(screen.queryByTestId('discovery-live-view')).not.toBeInTheDocument();
     expect(container.querySelectorAll('iframe')).toHaveLength(0);
+  });
+
+  it('keeps watching while the URL stands, even after step 1 has ticked over', () => {
+    // The other half of the correction, and the reason it is not just a stricter
+    // version of the old rule: a session the backend has NOT released must keep
+    // rendering, whatever the checklist says. Inferring death from step state killed
+    // live views that were still alive as readily as it missed dead ones.
+    renderWithProviders(
+      <DiscoveryChecklist
+        company={company('discovering', progress({ ...RUNNING, liveViewUrl: LIVE_VIEW_URL }))}
+      />,
+    );
+    expect(screen.getByTestId('discovery-live-view')).toBeInTheDocument();
   });
 
   it('closes the space smoothly and ends with nothing in it', async () => {
@@ -346,7 +371,7 @@ describe('DiscoveryChecklist', () => {
 
     rerender(
       <DiscoveryChecklist
-        company={company('discovering', progress({ ...RUNNING, liveViewUrl: LIVE_VIEW_URL }))}
+        company={company('discovering', progress({ ...CAPTURING, liveViewUrl: null }))}
       />,
     );
 
@@ -436,6 +461,37 @@ describe('DiscoveryChecklist', () => {
 
     expect(screen.queryByTestId('discovery-live-view')).not.toBeInTheDocument();
     expect(screen.queryByTestId('discovery-live-view-section')).not.toBeInTheDocument();
+  });
+
+  it('puts the network log BELOW the live view', () => {
+    // The live view is the headline while a browser is open — it is the one thing on the
+    // page a person can literally watch — and the requests are the record that browser
+    // is producing. With the log above, every batch of arriving rows shoved the frame
+    // further down the page under the reader's eye.
+    renderWithProviders(
+      <DiscoveryChecklist
+        company={company('discovering', {
+          ...CAPTURING,
+          network: {
+            recorded: 2,
+            requests: [
+              { method: 'GET', url: 'https://acme.example/a', status: 200, bytes: 512, records: null, state: 'recorded', note: null },
+              { method: 'GET', url: 'https://acme.example/b', status: 200, bytes: 512, records: null, state: 'recorded', note: null },
+            ],
+            sample: null,
+          },
+        })}
+      />,
+    );
+
+    const liveView = screen.getByTestId('discovery-live-view-section');
+    const log = screen.getByTestId('discovery-network');
+    // DOCUMENT_POSITION_FOLLOWING: the log comes after the live view in document order.
+    expect(liveView.compareDocumentPosition(log) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // ...and both are really on screen — an ordering assertion over a missing node
+    // passes for the wrong reason.
+    expect(screen.getByTestId('discovery-live-view')).toBeInTheDocument();
+    expect(screen.getAllByTestId('discovery-request')).toHaveLength(2);
   });
 
   it('renders nothing at all for a company with no checklist', () => {

@@ -55,7 +55,12 @@ const FRAME_LOAD_TIMEOUT_MS = 10_000;
  * itself away again.
  *
  * `url` is `watchableLiveViewUrl`, which is non-null only while a browser is genuinely
- * open. Everything here keys off that ONE fact, in two different ways on purpose:
+ * open — the backend now clears `live_view_url` in the same write that releases the
+ * session, so that is a published fact rather than something inferred from step state.
+ * (It was inferred once, from `open_page` being `active`, and a screenshot killed it:
+ * that step was still bold and spinning while the frame under it already read "WebSocket
+ * disconnected". The socket dies with the browser, before the step ticks.) Everything
+ * here keys off that ONE fact, in two different ways on purpose:
  *
  * - The IFRAME is gated on it directly, so it unmounts in the very same render the
  *   session ends. Not hidden, not zero-height, not `display: none` — GONE. While it is
@@ -270,11 +275,13 @@ interface DiscoveryChecklistProps {
  * of engine telemetry under each, and a three-bullet "What you can do". Everything a
  * reader cannot act on has been cut; what is left is the narration and the error.
  *
- * ...and, since that cut, ONE collapsed line of evidence beneath it: the network log
- * (`DiscoveryNetworkLog`). It is deliberately closed in every state, because the whole
- * point of the cut was that this panel is read at a glance — what it adds by default is
- * a single summary line whose count ticks up while the browser is open, which is the
- * cheapest honest way to show a person that we are watching their page right now.
+ * Then, in order: the live view while there is a browser to watch, and under it the
+ * network log (`DiscoveryNetworkLog`) — open, streaming, and narrowing to the one
+ * request we picked as soon as there is one. The log used to sit above the frame and
+ * start closed; both were wrong. Above, it pushed the only watchable thing on the page
+ * down as rows arrived; closed, it hid the arriving rows, which are the streaming.
+ * Narrowing is what keeps that affordable: many rows while we are working, one row and
+ * its JSON once we are done.
  *
  * Presentational and flag-free: the caller decides whether the feature is on. It reads
  * only `company`, whose `discovery` blob arrives on the list poll the page already runs
@@ -291,9 +298,10 @@ interface DiscoveryChecklistProps {
  * toggle stays so it can be collapsed, and the frame is `pointer-events: none` either
  * way — this is someone else's browser, here to be watched and never driven.
  *
- * And it is watchable for the CAPTURE, not for the run: the browser is handed back the
- * moment step 1 ticks over, roughly a third of the way through. `watchableLiveViewUrl`
- * is the whole of that rule; see it for why `outcome === 'running'` is not.
+ * And it is watchable for the CAPTURE, not for the run: the browser is handed back
+ * roughly a third of the way through, and the backend nulls the URL in the same write.
+ * `watchableLiveViewUrl` is the whole of that rule; see it for why we consume that null
+ * instead of guessing at it from the checklist.
  */
 export function DiscoveryChecklist({ company }: DiscoveryChecklistProps) {
   const discovery = company.discovery;
@@ -339,21 +347,26 @@ export function DiscoveryChecklist({ company }: DiscoveryChecklistProps) {
         </>
       ) : null}
 
-      {/* THE EVIDENCE, one click away and closed by default.
-          It sits below the refusal copy on purpose: on a refusal the reader needs the
-          verdict and the one action that changes it first, and the log is what they
-          open when that action does not obviously apply to their board. It renders
-          nothing at all until the capture has recorded a request, so a run that has not
-          opened the page yet — and a page that never fetched any JSON — adds no line
-          and reserves no space. See `DiscoveryNetworkLog` for why it is collapsed. */}
-      <DiscoveryNetworkLog company={company} />
-
       {/* Rendered UNCONDITIONALLY, and empty until there is something to watch. The
           section owns its own exit animation, so it has to outlive the URL that feeds
           it by the length of that animation — a `{url ? <LiveView/> : null}` here would
           tear the whole subtree out before it could play, which is the snap it exists
           to avoid. With no URL it renders nothing at all. */}
       <LiveView url={watchableLiveViewUrl(company)} />
+
+      {/* THE EVIDENCE, UNDER the live view — which is the ordering, not an accident.
+          While a browser is open the frame is the headline (it is the thing the user
+          can literally watch) and the requests are what that browser is producing, so
+          they read as the record beneath it. With the log above, the frame kept getting
+          pushed down the page by rows arriving underneath the reader's eye.
+
+          Below the refusal copy for the same reason: on a refusal there is no live view
+          at all, the reader needs the verdict and the one action that changes it first,
+          and the log is what they read when that action does not obviously apply to
+          their board. It renders nothing until the capture has recorded a request, so a
+          run that has not opened the page yet — and a page that never fetched any JSON
+          — adds no line and reserves no space. */}
+      <DiscoveryNetworkLog company={company} />
     </Paper>
   );
 }

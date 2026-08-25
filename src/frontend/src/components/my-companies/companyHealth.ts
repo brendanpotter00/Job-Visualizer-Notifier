@@ -1,6 +1,7 @@
 import type {
   DiscoveryOutcomeState,
   DiscoveryProgress,
+  DiscoveryRequest,
   DiscoveryStep,
   DiscoveryStepKey,
   UserCompany,
@@ -229,27 +230,29 @@ export function describeDiscoveryOutcome(
 /**
  * The hosted live-view URL WHILE THERE IS STILL A BROWSER OPEN — otherwise null.
  *
- * The URL alone is not permission to render it. The backend publishes it the moment the
- * Browserbase session exists and then never clears it: the ledger keeps it for the
- * record, and the terminal write copies it back in. So a blob 200 seconds past the end
- * of the session still carries a URL that now points at nothing.
+ * The URL used to outlive its own session: the backend published it the moment the
+ * Browserbase session existed and then never cleared it, so a blob 200 seconds past the
+ * end of the session still carried a URL pointing at a closed socket. Browserbase's own
+ * inspector painted "Debugging connection was closed. Reason: WebSocket disconnected"
+ * across a 16:10 box inside our page — on every SUCCESSFUL run, never an error state.
  *
- * `outcome === 'running'` is NOT the window either, and that was the bug. A run stays
- * `running` for its whole 240s budget, but the session is released in `capture_board`'s
- * `finally` — which returns straight into `ledger.finish(STEP_OPEN_PAGE)` +
- * `ledger.start(STEP_FIND_FEED)` + one publish. Capture is ~30s of a ~90s run, so the
- * frame spent the remaining minute pointed at a socket the backend had already closed,
- * and Browserbase's own inspector painted "WebSocket disconnected" across a 16:10 box
- * inside our page. Every successful run did this; it was never an error state.
+ * The backend now CLEARS `live_view_url` in the same write that releases the session, so
+ * the server states the fact and this function mostly consumes it.
  *
- * `open_page` being `active` IS the window, exactly, and for free: the same publish that
- * ticks that step over is the one that follows the release, so "step 1 is still running"
- * and "the browser is still open" are the same instant on the same write. No backend
- * signal needed — the one we want is already in the blob.
+ * IT IS NOT `open_page` BEING `active`, and that was the previous fix's mistake. The
+ * theory was that the release in `capture_board`'s `finally` returns straight into
+ * `ledger.finish(STEP_OPEN_PAGE)`, making "step 1 is still running" the same instant as
+ * "the browser is still open". A screenshot disproved it: `Opening the page` was still
+ * bold with its spinner turning while the frame beneath it already read "WebSocket
+ * disconnected". The CDP socket dies when the BROWSER closes, which is strictly earlier
+ * than the ledger write that ticks the step over, and that gap is exactly where the dead
+ * frame lives. Never infer browser liveness from step state — it is always at least one
+ * write behind the thing it is guessing at.
  *
- * The `outcome` check stays as the second half of the AND because a discovery TIMEOUT
- * freezes the last live snapshot with a step still `active` (see `renderedStatus`); a
- * run that is over has no browser open no matter what its stalled checklist says.
+ * `outcome === 'running'` stays as the second half of the AND, belt-and-braces: a
+ * discovery TIMEOUT freezes the last live snapshot instead of writing a terminal one
+ * (see `renderedStatus`), so a stalled blob can still carry a URL the killed task never
+ * reached the code to clear. A run that is over has no browser open, whatever it says.
  */
 export function watchableLiveViewUrl(
   company: Pick<UserCompany, 'healthState' | 'discovery'>,
@@ -258,8 +261,7 @@ export function watchableLiveViewUrl(
   if (!url || resolveDiscoveryOutcome(company) !== 'running') {
     return null;
   }
-  const openPage = company.discovery?.steps.find((step) => step.key === 'open_page');
-  return openPage?.status === 'active' ? url : null;
+  return url;
 }
 
 /**
@@ -275,13 +277,39 @@ export function formatByteSize(bytes: number): string {
 }
 
 /**
- * The one line that stands in for the whole network log while it is collapsed.
+ * The request we picked, or null while we are still looking (and forever, on a refusal).
  *
- * The log is closed by default (the panel it lives in was just cut back for being busy),
- * so this line is doing the work the log would otherwise do: it has to be specific
- * enough that a user knows whether opening it is worth it, and it has to MOVE while the
- * capture is running, because a count ticking up is what "we are watching your page
- * right now" looks like in one line.
+ * ONE predicate, exported, because two things narrow on it and they must never disagree:
+ * the log shows this row alone once it exists, and `describeNetworkSummary` above it
+ * says "· 1 picked". A local `.find()` in each would eventually drift into a heading
+ * that counts a winner the list is not showing.
+ *
+ * Deliberately NOT keyed on the run being over. `choose_request` is written during
+ * `verify_read` — after the acceptance replay proves the recipe, but before the terminal
+ * write flips `health_state` — so there is a real window where a winner exists on a run
+ * that is still `running`. The panel should narrow the moment we know, not a poll later.
+ */
+export function chosenDiscoveryRequest(
+  company: Pick<UserCompany, 'discovery'>,
+): DiscoveryRequest | null {
+  return company.discovery?.network?.requests.find((r) => r.state === 'chosen') ?? null;
+}
+
+/**
+ * The one line that heads the network log — and, once a request is picked, the only
+ * place the discarded ones are still counted.
+ *
+ * The log is OPEN by default now, so this is no longer a stand-in for rows nobody can
+ * see; it is the frame around them. Two jobs, both load-bearing:
+ *
+ * - while the capture runs it has to MOVE, because a count ticking up is what "we are
+ *   watching your page right now" looks like in one line; and
+ * - once we have picked one, the list below narrows to that single row — so `14
+ *   requests · 1 picked` is the only thing left saying there were fourteen. Dropping the
+ *   total here would turn "we chose this out of fourteen" into "we saw one thing".
+ *
+ * `recorded` over `requests.length` for the same reason: the stored list is clipped to a
+ * size budget, and the honest headline is what we SAW.
  *
  * Null when there is nothing recorded — a page that fetched no JSON at all has no
  * evidence to offer, and the checklist's ✕ already says exactly that.
@@ -296,11 +324,14 @@ export function describeNetworkSummary(
   // the honest headline is what we SAW, not how much of it survived the budget.
   const count = Math.max(network?.recorded ?? 0, requests.length);
   const noun = count === 1 ? 'request' : 'requests';
+  // "Did we pick one" is asked BEFORE "is it still running", so this line always
+  // describes the list directly beneath it. The other order let a winner written during
+  // `verify_read` narrow the list to one row under a heading still saying "so far".
+  if (chosenDiscoveryRequest(company) !== null) {
+    return `${count} ${noun} · 1 picked`;
+  }
   if (resolveDiscoveryOutcome(company) === 'running') {
     return `${count} ${noun} so far`;
-  }
-  if (requests.some((request) => request.state === 'chosen')) {
-    return `${count} ${noun} · 1 picked`;
   }
   return `${count} ${noun} · none we could use`;
 }

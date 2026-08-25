@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '../../../test/testUtils';
 import { DiscoveryNetworkLog } from '../../../components/my-companies/DiscoveryNetworkLog';
@@ -15,15 +15,17 @@ import type {
  *
  * The properties under test are the ones the whole panel exists for:
  *
- * - it is COLLAPSED in every state, because the checklist above it was cut back for
- *   being busy and a forty-row log would undo that on the first chatty board. What it
- *   adds by default is one summary line;
- * - that line is never generic. It carries a live count while the browser is open
- *   (which is what "streaming" looks like in one line) and the verdict afterwards;
- * - the request we PICKED is visibly not one of the also-rans, and the JSON it returned
- *   is one click away — that is the literal ask;
- * - it is as useful on a REFUSAL as on a success, which is the case it was built for:
- *   "none of these is a jobs list" with the list attached; and
+ * - it is OPEN on arrival, because the rows landing three and four at a time ARE the
+ *   streaming and a closed box has none of it in it;
+ * - it NARROWS to the one request we picked as soon as there is one, with the JSON that
+ *   request returned. That is what pays for opening it: many rows while we work, one row
+ *   and a payload once we are done — and it happens the moment a winner exists, which is
+ *   one publish before the run goes terminal;
+ * - the discarded rows are one caption-sized link away, never deleted, and the heading
+ *   keeps counting them ("14 requests · 1 picked");
+ * - a REFUSAL has no winner, so nothing narrows and the whole list stays. That is the
+ *   case the panel was built for: "none of these is a jobs list" with the list attached;
+ *   and
  * - it renders NOTHING when nothing was recorded. A page that fetched no JSON at all
  *   has no evidence to show, and the checklist's ✕ already says exactly that.
  */
@@ -70,20 +72,51 @@ function company(
   };
 }
 
+/**
+ * A settled, successful run: three rows survived the size budget out of fourteen we
+ * saw, the last of them is the winner, and it carries the sample of what it returned.
+ */
+const PICKED: Partial<DiscoveryProgress> = {
+  outcome: 'tracking',
+  network: {
+    recorded: 14,
+    requests: [
+      request({ url: 'https://careers.acme.example/api/session' }),
+      request({ url: 'https://careers.acme.example/graphql/flags' }),
+      request({
+        url: 'https://careers.acme.example/api/jobs?limit=…',
+        state: 'chosen',
+        records: 88,
+        note: '88 job(s) came back when we replayed it from our own servers',
+      }),
+    ],
+    sample: { path: 'data.jobs', records: 88, text: '{\n  "title": "Staff Engineer"\n}' },
+  },
+};
+
 describe('DiscoveryNetworkLog', () => {
-  it('adds ONE line by default and hides the rows behind it', async () => {
-    // The declutter constraint, stated as a test: the panel above this was cut from
-    // ~14 lines to ~8, and this must not put them back.
+  it('is OPEN on arrival, with the rows already showing', async () => {
+    // The rows landing while the browser is open are the only watchable part of a
+    // one-time setup. Collapsed by default, that happened inside a closed box.
     renderWithProviders(<DiscoveryNetworkLog company={company('discovering')} />);
 
     expect(screen.getByTestId('discovery-network-toggle')).toHaveAttribute(
       'aria-expanded',
+      'true'
+    );
+    expect(screen.getByTestId('discovery-request-list')).toBeInTheDocument();
+
+    // ...and it can still be put away, to NOTHING — not a 0px box full of list items.
+    // `waitFor` because `unmountOnExit` drops the subtree when the exit SETTLES, not
+    // when the click lands.
+    await userEvent.click(screen.getByTestId('discovery-network-toggle'));
+    expect(screen.getByTestId('discovery-network-toggle')).toHaveAttribute(
+      'aria-expanded',
       'false'
     );
-    expect(screen.queryByTestId('discovery-request-list')).not.toBeInTheDocument();
-
-    await userEvent.click(screen.getByTestId('discovery-network-toggle'));
-    expect(screen.getByTestId('discovery-request-list')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByTestId('discovery-request-list')).not.toBeInTheDocument();
+    });
   });
 
   it('counts the requests as they stream in, while the run is still going', () => {
@@ -102,26 +135,11 @@ describe('DiscoveryNetworkLog', () => {
     expect(screen.getByText('3 requests so far')).toBeInTheDocument();
   });
 
-  it('says which one it picked once the run has settled', () => {
-    renderWithProviders(
-      <DiscoveryNetworkLog
-        company={company('unverified', {
-          outcome: 'tracking',
-          network: network({
-            requests: [request(), request({ state: 'chosen', records: 88 })],
-            recorded: 14,
-          }),
-        })}
-      />
-    );
-    // `recorded`, not the row count: the stored list is clipped to a size budget and
-    // the headline stays truthful about what we SAW.
-    expect(screen.getByText('14 requests · 1 picked')).toBeInTheDocument();
-  });
-
-  it('is as useful on a refusal as on a success', () => {
-    // THE case this was built for. "None of the 14 JSON requests this page made is a
-    // list of job postings" is a conclusion; these rows are the evidence for it.
+  it('keeps the WHOLE list on a refusal — there is no winner to narrow to', () => {
+    // THE case this was built for, and the one case narrowing must never touch.
+    // "None of the requests this page made is a list of job postings" is a conclusion;
+    // every one of these rows is the evidence for it, so all of them stay on screen
+    // with no link standing between the reader and them.
     renderWithProviders(
       <DiscoveryNetworkLog
         company={company('refused', {
@@ -130,57 +148,105 @@ describe('DiscoveryNetworkLog', () => {
             requests: [
               request({ url: 'https://careers.acme.example/api/session', records: 0 }),
               request({ url: 'https://careers.acme.example/graphql/flags', records: 0 }),
+              request({ url: 'https://careers.acme.example/api/tracking', records: 0 }),
             ],
-            recorded: 2,
+            recorded: 3,
           }),
         })}
       />
     );
-    expect(screen.getByText('2 requests · none we could use')).toBeInTheDocument();
+    expect(screen.getByText('3 requests · none we could use')).toBeInTheDocument();
+    expect(screen.getAllByTestId('discovery-request')).toHaveLength(3);
+    expect(screen.getByTestId('discovery-request-list')).toHaveAttribute(
+      'data-narrowed',
+      'false'
+    );
+    expect(screen.queryByTestId('discovery-show-all')).not.toBeInTheDocument();
   });
 
-  it('marks the chosen request and shows the JSON it sent back', async () => {
-    renderWithProviders(
-      <DiscoveryNetworkLog
-        company={company('unverified', {
-          outcome: 'tracking',
-          network: {
-            recorded: 2,
-            requests: [
-              request({ url: 'https://careers.acme.example/api/ping' }),
-              request({
-                url: 'https://careers.acme.example/api/jobs?limit=…',
-                state: 'chosen',
-                records: 88,
-                note: '88 job(s) came back when we replayed it from our own servers',
-              }),
-            ],
-            sample: {
-              path: 'data.jobs',
-              records: 88,
-              text: '{\n  "title": "Staff Engineer"\n}',
-            },
-          },
-        })}
-      />
-    );
-    await userEvent.click(screen.getByTestId('discovery-network-toggle'));
+  it('narrows to the ONE it picked, with the JSON that request sent back', async () => {
+    // THE literal ask: once a request has been chosen, show that one — not fourteen
+    // rows with one of them highlighted.
+    renderWithProviders(<DiscoveryNetworkLog company={company('unverified', PICKED)} />);
 
     const rows = screen.getAllByTestId('discovery-request');
-    expect(rows).toHaveLength(2);
-    expect(rows[0]).toHaveAttribute('data-state', 'recorded');
-    expect(rows[1]).toHaveAttribute('data-state', 'chosen');
-    expect(within(rows[1]).getByText('Picked')).toBeInTheDocument();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toHaveAttribute('data-state', 'chosen');
+    expect(within(rows[0]).getByText('Picked')).toBeInTheDocument();
     expect(
-      within(rows[1]).getByText(/88 job\(s\) came back when we replayed it/)
+      within(rows[0]).getByText(/88 job\(s\) came back when we replayed it/)
     ).toBeInTheDocument();
+    expect(screen.getByTestId('discovery-request-list')).toHaveAttribute(
+      'data-narrowed',
+      'true'
+    );
 
+    // ...and the payload sits directly under the one row it came from.
     const sample = screen.getByTestId('discovery-payload-sample');
     expect(within(sample).getByText(/One of the 88 records it sent back/)).toBeInTheDocument();
     expect(within(sample).getByText(/Staff Engineer/)).toBeInTheDocument();
   });
 
-  it('tells "we have not looked yet" apart from "we looked and found nothing"', async () => {
+  it('keeps the discarded rows one link away, and the heading keeps counting them', async () => {
+    // Narrowing must not DELETE the evidence: "why did you pick that one and not the
+    // endpoint I can see in my own devtools" is a real question on a partial board.
+    renderWithProviders(<DiscoveryNetworkLog company={company('unverified', PICKED)} />);
+
+    // `recorded`, not the row count: the stored list is clipped to a size budget, and
+    // this line is now the ONLY thing saying there were fourteen at all.
+    expect(screen.getByText('14 requests · 1 picked')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByTestId('discovery-show-all'));
+    const shown = screen.getAllByTestId('discovery-request');
+    expect(shown).toHaveLength(3);
+    expect(shown.map((row) => row.getAttribute('data-state'))).toEqual([
+      'recorded',
+      'recorded',
+      'chosen',
+    ]);
+
+    // ...and back to the calm state.
+    await userEvent.click(screen.getByTestId('discovery-show-all'));
+    expect(screen.getAllByTestId('discovery-request')).toHaveLength(1);
+  });
+
+  it('narrows the moment a winner EXISTS, not a poll later', () => {
+    // `choose_request` is written during `verify_read`, one publish before the terminal
+    // write flips `health_state` — so running-with-a-winner is a real combination, and
+    // keying the narrowing on the outcome would leave a settled answer looking like an
+    // open search. The heading has to agree with the list it heads, too.
+    renderWithProviders(
+      <DiscoveryNetworkLog
+        company={company('discovering', {
+          outcome: 'running',
+          network: network({
+            requests: [request(), request({ state: 'chosen', records: 88 })],
+            recorded: 2,
+          }),
+        })}
+      />
+    );
+    expect(screen.getAllByTestId('discovery-request')).toHaveLength(1);
+    expect(screen.getByText('2 requests · 1 picked')).toBeInTheDocument();
+  });
+
+  it('offers no "show the others" when the winner is the only thing we recorded', () => {
+    renderWithProviders(
+      <DiscoveryNetworkLog
+        company={company('unverified', {
+          outcome: 'tracking',
+          network: network({
+            requests: [request({ state: 'chosen', records: 88 })],
+            recorded: 1,
+          }),
+        })}
+      />
+    );
+    expect(screen.getAllByTestId('discovery-request')).toHaveLength(1);
+    expect(screen.queryByTestId('discovery-show-all')).not.toBeInTheDocument();
+  });
+
+  it('tells "we have not looked yet" apart from "we looked and found nothing"', () => {
     // `records: null` lands on every row while the browser is still open; `0` is the
     // pre-filter's verdict. Collapsing them would make a mid-run capture claim we had
     // already ruled every request out.
@@ -198,13 +264,12 @@ describe('DiscoveryNetworkLog', () => {
         })}
       />
     );
-    await userEvent.click(screen.getByTestId('discovery-network-toggle'));
 
     const details = screen.getAllByTestId('discovery-request-detail').map((n) => n.textContent);
     expect(details).toEqual(['2.0 KB', '1.5 KB — no job postings in it', '90.0 KB — 12 job postings']);
   });
 
-  it('blames our own ceiling for an oversize body, not the board', async () => {
+  it('blames our own ceiling for an oversize body, not the board', () => {
     // Measured on binance.com: a 2.78 MB jobs feed was dropped by our cap and the
     // refusal told the user their board had no jobs feed. The row has to say whose
     // limit it was.
@@ -219,7 +284,6 @@ describe('DiscoveryNetworkLog', () => {
         })}
       />
     );
-    await userEvent.click(screen.getByTestId('discovery-network-toggle'));
     expect(
       screen.getByText('2.6 MB — bigger than we can read in one go')
     ).toBeInTheDocument();
