@@ -34,6 +34,7 @@ import pytest
 from api.services.capture.discover import (
     _MAX_REQUEST_PUBLISHES,
     _MAX_SELECTION_ROUNDS,
+    _PAGES_WITHIN_TIME_BUDGET,
     _coverage,
     _inband_error_keys,
     _labelled_facet_total,
@@ -61,7 +62,11 @@ from api.services.discovery.progress import (
 )
 from api.services.harvest_meta import HarvestEvidence
 from api.services.harvest_verification import UNVERIFIED, GateResult, verify_harvest
-from api.services.recipe_runner import RecipeExecutionError, map_records
+from api.services.recipe_runner import (
+    MAX_HARVEST_RECORDS,
+    RecipeExecutionError,
+    map_records,
+)
 from api.services.recipe_schema import BROWSER_FETCH_MAX_PAGES, dig_records
 from api.services.url_guard import UrlGuardError
 
@@ -1260,12 +1265,44 @@ def test_the_harvest_budget_is_derived_from_the_boards_own_total() -> None:
     assert paginate["max_pages"] == 52
 
 
+def test_the_ceiling_is_denominated_in_jobs_not_pages() -> None:
+    """THE MICROSOFT BUG. A flat PAGE ceiling is a different JOB ceiling on every board,
+    because the page size belongs to the board and not to us: 100 pages was 10,000 jobs
+    of amazon.jobs (100/page) and 1,000 jobs of Microsoft's Eightfold board, which is
+    hard-wired to 10 and ignores ``num``/``limit``/``size``/``pageSize`` alike. Microsoft
+    declares 2,111, so we read 47% of its board and then told its owner we were
+    "tracking part of this board" — truncated by our own constant and by nothing about
+    Microsoft.
+
+    Denominating the ceiling in JOBS and converting it through the page size we proved
+    gives every board the same ceiling however it paginates.
+    """
+    ten_per_page = prefilter_candidates([_big_amazon(hits=2111)])[0]
+    assert ten_per_page.record_count == 10       # the Microsoft shape, from the fixture
+
+    script = synthesize_recipe(
+        ten_per_page, _amazon_selection(), transport="http_json", origin_url=_AMAZON_URL
+    )
+    (paginate,) = [s for s in script["steps"] if s["op"].startswith("paginate_")]
+    assert paginate["page_size"] == 10
+    # ceil(2111 / 10) + the growth headroom = 214 pages, i.e. the WHOLE board — where
+    # the old flat ceiling stopped this exact shape at 100 pages / 1,000 jobs.
+    assert paginate["max_pages"] == 214
+    assert paginate["page_size"] * paginate["max_pages"] >= 2111
+
+
 def test_the_harvest_budget_never_exceeds_the_transports_own_ceiling() -> None:
     """A budget the transport cannot honour is not a budget. ``browser_fetch`` runs
     every page as a fresh in-browser fetch inside one 90s Chromium session, so its
     ceiling is far lower than the http tier's — and the parent's ``min()`` clamp is the
-    WRONG place to discover that, because a clamped sweep still reports a terminus."""
-    candidate = prefilter_candidates([_big_amazon(hits=50_000)])[0]
+    WRONG place to discover that, because a clamped sweep still reports a terminus.
+
+    The two ceilings are also denominated differently on purpose, and this locks that:
+    the http tier bounds ROWS (a page there is one cheap GET), the browser tier bounds
+    PAGES (a page there holds a Chromium renderer). Dropping the http tier's flat page
+    ceiling did not move the browser tier's.
+    """
+    candidate = prefilter_candidates([_big_amazon(hits=500_000)])[0]
 
     http_script = synthesize_recipe(
         candidate, _amazon_selection(), transport="http_json", origin_url=_AMAZON_URL
@@ -1276,7 +1313,8 @@ def test_the_harvest_budget_never_exceeds_the_transports_own_ceiling() -> None:
     )
     (http_paginate,) = [s for s in http_script["steps"] if s["op"].startswith("paginate_")]
     (bf_paginate,) = [s for s in browser_script["steps"] if s["op"].startswith("paginate_")]
-    assert http_paginate["max_pages"] == 100
+    # 50,000 rows at the 10-per-page this board proved — a job ceiling, not a page one.
+    assert http_paginate["max_pages"] == MAX_HARVEST_RECORDS // 10
     assert bf_paginate["max_pages"] == BROWSER_FETCH_MAX_PAGES
 
 
@@ -1292,7 +1330,33 @@ def test_a_board_with_no_declared_total_gets_the_ceiling_not_a_flat_ten() -> Non
         candidate, _amazon_selection(), transport="http_json", origin_url=_AMAZON_URL
     )
     (paginate,) = [s for s in script["steps"] if s["op"].startswith("paginate_")]
-    assert paginate["max_pages"] == 100
+    assert paginate["max_pages"] == MAX_HARVEST_RECORDS // 10
+
+
+def test_the_coverage_claim_is_bounded_by_the_runtime_clock_too() -> None:
+    """We may not PROMISE more of a board than the nightly clock can read.
+
+    Walmart publishes 47,298 jobs ten at a time: the derived budget is 4,732 pages,
+    which "reaches" the whole board on paper and about a fifth of it in the ~10 minutes
+    ``recipe_runner.HARVEST_TIME_BUDGET_S`` allows. Every such run is safe — it stops on
+    the clock with ``cap_hit`` and closes nothing — but the user would have been told at
+    discovery that we track the whole board, and that promise is exactly what the
+    partial banner exists to make honestly.
+    """
+    walmart = prefilter_candidates([_big_amazon(hits=47_298)])[0]
+    script = synthesize_recipe(
+        walmart, _amazon_selection(), transport="http_json", origin_url=_AMAZON_URL
+    )
+    (paginate,) = [s for s in script["steps"] if s["op"].startswith("paginate_")]
+
+    # The stored budget is NOT clamped by the clock — a latency guess baked into a
+    # recipe is a flat cap in disguise, and the runtime clock measures instead.
+    assert paginate["max_pages"] == 4732
+
+    coverage = _coverage(script, walmart, _amazon_selection())
+    assert coverage.visible == 47_298
+    assert coverage.reachable == 10 * _PAGES_WITHIN_TIME_BUDGET
+    assert coverage.is_partial is True
 
 
 async def test_acceptance_is_bounded_while_the_stored_budget_is_not() -> None:

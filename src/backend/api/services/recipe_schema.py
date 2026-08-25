@@ -60,7 +60,19 @@ BROWSER_FETCH = "browser_fetch"
 # sweep that still terminates "cleanly" is how a partial board gets reported as a
 # complete one. Each page here is a fresh in-browser ``fetch()`` inside one Chromium
 # session bounded at 90s (``runner._SUBPROCESS_TIMEOUT_S``), which is what fixes the
-# number at 25 rather than the http tier's 100.
+# number at 25.
+#
+# IT DID NOT MOVE WHEN THE HTTP TIER'S DID, and that asymmetry is deliberate. The http
+# tier dropped its flat page ceiling for a row ceiling plus a 600s clock
+# (``recipe_runner.MAX_HARVEST_RECORDS`` / ``HARVEST_TIME_BUDGET_S``) because there a
+# page is one cheap ``httpx`` GET and rows are what cost something. Here the PAGE is
+# what costs: it holds a Chromium renderer, and the binding constraint is the single
+# 90s session, not this count. Raising this number without raising that session just
+# converts an honest truncated-and-UNVERIFIED sweep (which shows the board's jobs and
+# closes none of them) into a FAILED run; raising the session means parking a browser
+# on the worker for ten minutes per board, which is a different cost profile from 830
+# sequential GETs. A browser-tier board bigger than 25 pages is a board this tier
+# cannot fully read, and saying so is the correct answer.
 BROWSER_FETCH_MAX_PAGES = 25
 
 # Browser transports / ops that are still Phase 4 and rejected with a capability

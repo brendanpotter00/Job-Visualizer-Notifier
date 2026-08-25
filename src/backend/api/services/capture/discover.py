@@ -116,7 +116,13 @@ from ..guarded_client import guarded_sync_client
 from ..harvest_meta import HarvestEvidence
 from ..harvest_verification import HarvestGateError, run_gate
 from ..recipe_rows import recipe_rows_to_job_listings
-from ..recipe_runner import RecipeExecutionError, map_records, run_recipe
+from ..recipe_runner import (
+    HARVEST_TIME_BUDGET_S,
+    MAX_HARVEST_RECORDS,
+    RecipeExecutionError,
+    map_records,
+    run_recipe,
+)
 from ..recipe_schema import (
     BROWSER_FETCH,
     BROWSER_FETCH_MAX_PAGES,
@@ -206,21 +212,36 @@ _ACCEPTANCE_MAX_PAGES = 2
 
 # HARVEST asks "read the WHOLE board", so the stored budget is DERIVED per board from
 # its own declared total and the page size we proved (:func:`_harvest_max_pages`).
-# This is only the CEILING on that derivation, and it is set by WALL CLOCK, not by
-# taste. Measured end to end against the biggest board this ceiling can produce
-# (amazon.jobs, 100 pages of 100 records, ~1 MB each): **72.2s** for the whole leaf
-# task — the sweep, the gate, and the 10,000-row upsert — against
-# ``fetch_custom_company._TASK_TIMEOUT_S`` (120s). That is the number this constant is
-# chosen to fit, so the cap did not have to move. If a slower environment ever pushes a
-# full sweep past 120s the result is a FAILED run (nothing written, nothing closed, not
-# a miss) retried on the next daily claim, and the two levers are this ceiling and that
-# cap — in that order, because a smaller ceiling degrades to a partial-but-UNVERIFIED
-# harvest while a bigger cap holds a worker slot longer.
 #
-# Over-budgeting costs NOTHING at runtime: the sweep stops on the first short page, so
-# this is a ceiling, never a target. (Same number, same reasoning, as
-# ``workday_client.WORKDAY_MAX_PAGES``.)
-_MAX_HARVEST_PAGES = 100
+# THERE IS NO FLAT PAGE CEILING ON THAT DERIVATION ANY MORE, and removing it is the
+# whole of this change. A flat PAGE ceiling means a different JOB ceiling on every
+# board, because the page size belongs to the board: 100 pages was 10,000 jobs of
+# amazon.jobs (100/page) and 1,000 jobs of Microsoft's Eightfold board (10/page, hard —
+# it ignores ``num``/``limit``/``size``/``pageSize`` alike). Microsoft declares 2,111,
+# so we read 47% of it and then labelled it "tracking part of this board" — truncated
+# by our own constant and by nothing about Microsoft. The 100 was chosen to fit the leaf
+# task's then-120s timeout; the timeout was the thing that was wrong, and it moved
+# (``fetch_custom_company._TASK_TIMEOUT_S``).
+#
+# What bounds a sweep now is what actually costs something, and both live at RUNTIME
+# where they can be measured instead of guessed: :data:`recipe_runner.MAX_HARVEST_RECORDS`
+# (rows, i.e. memory) and :data:`recipe_runner.HARVEST_TIME_BUDGET_S` (wall clock, i.e.
+# the worker slot). The stored budget only has to be big enough to REACH the end of the
+# board — over-budgeting costs nothing, because the sweep stops on the first short page.
+
+# THE COVERAGE CLAIM's own bound, and the ONLY place a per-page latency guess is
+# allowed. ``_reachable_records`` tells the user how much of their board we can read;
+# promising ``page_size * max_pages`` would promise Walmart's whole 47,298 through a
+# 10-per-page API — 4,730 sequential pages, ~57 minutes, five times the runtime clock.
+# The clock would stop that sweep honestly (cap_hit → UNVERIFIED, closes nothing), but
+# the user would already have been told at discovery that we track the whole board. So
+# the CLAIM is bounded by what the clock can plausibly read, at the slowest per-page
+# cost we have measured on a real board (amazon.jobs ~0.72s; Microsoft ~0.25s) —
+# slowest, because the optimistic direction is the one that misleads. The STORED budget
+# deliberately does NOT use this number: a latency guess baked into a recipe is a flat
+# cap wearing a disguise, and the runtime clock measures rather than guesses.
+_MEASURED_SECONDS_PER_PAGE = 0.72
+_PAGES_WITHIN_TIME_BUDGET = int(HARVEST_TIME_BUDGET_S / _MEASURED_SECONDS_PER_PAGE)
 
 # Slack on top of ``ceil(declared_total / page_size)``. A board grows between the night
 # we discovered it and every night after; with no slack the first new job pushes the
@@ -736,10 +757,19 @@ def _reachable_records(script: dict[str, Any], candidate: Candidate) -> int:
     Not what acceptance read — acceptance is clamped to two pages on purpose
     (:func:`probe_script`) and comparing that against a board's total would call every
     paginated board partial. The claim under test is what the HARVEST can reach.
+
+    ...and the harvest is bounded by a CLOCK, not only by its page budget, so the claim
+    is too (:data:`_PAGES_WITHIN_TIME_BUDGET`). Without that second bound a 10-per-page
+    board declaring 47,298 jobs (Walmart) derives a 4,732-page budget, "reaches" all of
+    it on paper, and is presented to the user as fully tracked — while every nightly run
+    stops on the clock at roughly a fifth of it and comes back UNVERIFIED forever. The
+    run is safe either way (an unfinished sweep closes nothing); it is the PROMISE that
+    would be false, and a false promise here is what the partial banner exists to make.
     """
     for step in script["steps"]:
         if step["op"] in ("paginate_offset", "paginate_page"):
-            budget = int(step["page_size"]) * int(step["max_pages"])
+            pages = min(int(step["max_pages"]), _PAGES_WITHIN_TIME_BUDGET)
+            budget = int(step["page_size"]) * pages
             window_cap = step.get("window_cap")
             if isinstance(window_cap, int) and window_cap > 0:
                 return min(budget, window_cap)
@@ -893,16 +923,30 @@ def _harvest_max_pages(declared_total: int | None, page_size: int, *, transport:
     directions at once — 10 pages is a 97-job sample of amazon.jobs and 10 wasted
     round-trips on a board with 30 jobs.
 
+    THE CEILING IS EXPRESSED IN JOBS, NOT PAGES, and that is the fix. A flat page
+    ceiling silently re-imposes the board's own page size as a job ceiling — 100 pages
+    of Microsoft's 10-per-page Eightfold board is 1,000 of its 2,111 jobs. Converting
+    :data:`~api.services.recipe_runner.MAX_HARVEST_RECORDS` through the page size we
+    PROVED gives every board the same job ceiling regardless of how it paginates.
+    ``browser_fetch`` keeps its own, much lower, PAGE ceiling because there the cost is
+    per page and not per row — see :data:`~api.services.recipe_schema.BROWSER_FETCH_MAX_PAGES`.
+
     With NO declared total the derivation has no input, and the only defensible budget
     left is the ceiling itself: the sweep stops on the first short page, so a board
     smaller than the ceiling pays nothing for it, while any smaller flat number would
     truncate exactly the boards whose length we cannot otherwise measure — and a
     ``self_consistent`` board that never reaches its own end is UNVERIFIED forever.
     """
+    if page_size <= 0:
+        # Defensive: a zero/negative page size would divide by zero below, and a recipe
+        # that asks for no rows per page cannot be budgeted at all. One page.
+        return 1
     ceiling = (
-        BROWSER_FETCH_MAX_PAGES if transport == BROWSER_FETCH else _MAX_HARVEST_PAGES
+        BROWSER_FETCH_MAX_PAGES
+        if transport == BROWSER_FETCH
+        else max(1, MAX_HARVEST_RECORDS // page_size)
     )
-    if not isinstance(declared_total, int) or declared_total <= 0 or page_size <= 0:
+    if not isinstance(declared_total, int) or declared_total <= 0:
         return ceiling
     needed = -(-declared_total // page_size) + _HARVEST_PAGE_HEADROOM
     return max(1, min(needed, ceiling))

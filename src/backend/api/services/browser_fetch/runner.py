@@ -67,11 +67,11 @@ from ..url_guard import _DNS_EXECUTOR, UrlGuardError, validate_public_url
 logger = logging.getLogger(__name__)
 
 # Subprocess wall-clock cap. It MUST stay strictly BELOW the leaf task's
-# ``_TASK_TIMEOUT_S`` (120s), and that ordering is the whole point, not a detail: if
+# ``_TASK_TIMEOUT_S`` (900s), and that ordering is the whole point, not a detail: if
 # the task's guard fires first it CANCELS this coroutine, a ``CancelledError`` is not
 # an ``asyncio.TimeoutError``, and the timeout branch below — the only place that
 # kills the child — would never run. That is exactly the "Chromium parked on the
-# Railway box" this constant exists to prevent, so 90 < 120 is load-bearing.
+# Railway box" this constant exists to prevent, so 90 < 900 is load-bearing.
 # (The ``finally`` in :func:`_subprocess_run` reaps on the cancellation path too; the
 # ordering is what makes the FAILURE legible as a timeout instead of a task death.)
 #

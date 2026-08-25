@@ -83,9 +83,41 @@ _SELF_CONSISTENT_STREAK_REQUIRED = 3
 # its trusted total already corroborates a genuine drop, so it closes normally.
 _ID_CHURN_CLOSE_THRESHOLD = 0.5
 
-# Per-task wall-clock cap (matches the six ATS leaf tasks). Hitting this raises
-# asyncio.TimeoutError → Procrastinate retries. Tests monkeypatch it low.
-_TASK_TIMEOUT_S: float = 120.0
+# Per-task wall-clock cap. Hitting this raises asyncio.TimeoutError → a recorded FAILED
+# run (nothing written, nothing closed, NOT a miss). Tests monkeypatch it low.
+#
+# WAS 120s, matching the six public ATS leaf tasks, and that number was quietly deciding
+# how much of a board we were allowed to see: the stored page budget was capped at 100
+# pages purely so a full sweep would fit inside it. Microsoft's board is 10 jobs/page and
+# 2,111 jobs — 212 pages, ~55s of requests — so under the old cap it could not even be
+# ATTEMPTED, let alone finish. The budget is the thing that should be sized to the board,
+# so the timeout is now sized to the budget instead of the other way round:
+#
+#     600s  recipe_runner.HARVEST_TIME_BUDGET_S — the sweep's own mid-flight clock
+#   +  30s  guarded_client._DEFAULT_TIMEOUT_S — the one request that can still be
+#           in flight when the sweep's clock runs out (the budget is checked BETWEEN
+#           pages, so it is exceeded by at most one request)
+#   + 270s  the destructive tail: baseline read, the upsert (up to
+#           MAX_HARVEST_RECORDS rows at a 60s statement timeout), the miss increment
+#           and the close
+#   = 900s
+#
+# For scale, measured end to end on this machine: amazon.jobs — 100 pages of ~1 MB plus
+# a 10,000-row upsert — is 90.1s for the WHOLE task, and Microsoft's 212-page sweep plus
+# its 2,107-row upsert is 61.4s. Amazon at 90.1s was already 75% of the old 120s cap,
+# which is how thin the headroom had become before any budget moved.
+#
+# It is safe because it is a BACKSTOP, not a budget: the sweep's own clock stops at 600s,
+# so a healthy run never approaches this. What it costs when it does fire is one of the
+# worker's five concurrency slots (``main.py``: one in-process Procrastinate worker,
+# ``concurrency=5``, shared with the six public ATS fan-outs, discovery, normalize_location
+# and the heartbeat) held for 15 minutes instead of 2. That is affordable because the
+# harvest runs in ``asyncio.to_thread`` — the API's event loop is never blocked by it —
+# and because ``retry=RetryStrategy(max_attempts=1)`` means a wedged board burns the slot
+# once a night, not five times. The ordering that IS load-bearing stays intact and gets
+# more headroom, not less: ``browser_fetch.runner._SUBPROCESS_TIMEOUT_S`` (90s) must
+# remain strictly below this, or a cancelled coroutine leaves a Chromium parked.
+_TASK_TIMEOUT_S: float = 900.0
 
 # ``details`` JSONB hard cap (§2.2). A large job body (Greenhouse ``content``
 # HTML) can blow past this; TOAST/OOM incidents are why it is capped, not

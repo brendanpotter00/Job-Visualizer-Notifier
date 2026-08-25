@@ -37,8 +37,10 @@ This module imports only the stdlib, ``httpx``, the dependency-free
 from __future__ import annotations
 
 import json
+import logging
 import re
 import sys
+import time
 from dataclasses import dataclass, field
 from typing import Any
 from xml.etree import ElementTree
@@ -47,6 +49,8 @@ import httpx
 
 from .harvest_meta import HarvestEvidence
 from .recipe_schema import RecipeError, dig, dig_records, validate_recipe
+
+logger = logging.getLogger(__name__)
 
 # The full agent/LLM/browser set the REPLAY CODE PATH must never be able to import.
 # ``playwright`` ADDED vs the spike: Phase-3a replay is HTTP-only, so a browser driver
@@ -71,6 +75,38 @@ _RUNTIME_FORBIDDEN_MODULES = ("playwright", "stagehand", "browserbase", "langcha
 # The amazon.jobs ES window; the default cap above which `hits` is untrustworthy
 # and a single-valued facet sum becomes the only path to the true total.
 _DEFAULT_FACET_WINDOW_CAP = 10000
+
+# --------------------------------------------------------------------------
+# THE TWO RUNTIME BOUNDS ON A SWEEP. Neither is a page count, and that is the point.
+# --------------------------------------------------------------------------
+# There used to be a third: a FLAT 100-page ceiling baked into the stored recipe (the
+# now-deleted ``capture/discover._MAX_HARVEST_PAGES``). A flat page ceiling means a
+# different job ceiling on every board, because the page SIZE is the board's choice —
+# 100 pages is
+# 10,000 jobs of amazon.jobs (100/page) and 1,000 jobs of Microsoft's Eightfold board
+# (10/page, hard — it ignores every page-size parameter). Microsoft declares 2,111 and
+# we read 1,000 of them: under half the board, truncated by our constant and by nothing
+# about Microsoft. The ceiling existed to fit the leaf task's 120s timeout, which is the
+# tail wagging the dog — the timeout moved (``fetch_custom_company._TASK_TIMEOUT_S``)
+# and the bounds below replaced the page count with the two things that actually cost
+# something.
+#
+# WALL CLOCK is the real protection, and the only one a lying board cannot inflate. A
+# fake feed that declares ten million jobs still gets exactly this many seconds; a
+# 47,000-job board (Walmart, the largest measured anywhere) reads as far as the clock
+# allows and reports honestly that it did not finish. Ten minutes at the ~0.25-0.72s
+# per page measured on real boards is ~830-2,400 pages, which covers every board we
+# have measured except Walmart-scale ones — and those are the ones that MUST come back
+# incomplete rather than pretend.
+HARVEST_TIME_BUDGET_S = 600.0
+
+# ...and a ROW ceiling, because time alone does not bound memory. Every row is held in
+# ``_HarvestState.rows`` until ``finalize_harvest``, so a fast-paging board could stay
+# inside the clock and still stream a very large transient allocation into a worker
+# that co-hosts the API. 50,000 covers Walmart's 47,298 — the largest board measured
+# anywhere — with headroom, so it is a backstop nobody should ever meet, not a
+# truncation.
+MAX_HARVEST_RECORDS = 50_000
 
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
@@ -313,6 +349,11 @@ class _HarvestState:
     cap_hit: bool
     terminated_cleanly: bool
     pages_fetched: int
+    # Set when :data:`HARVEST_TIME_BUDGET_S` ran out mid-sweep. Distinct from
+    # ``cap_hit`` (which it also sets) because a FACET fan-out must tell the two
+    # apart: a ``window_cap`` stops ONE facet and the next one still deserves its
+    # sweep, while an exhausted clock stops the whole run.
+    budget_exhausted: bool = False
 
 
 def _sweep_offset_page(
@@ -328,12 +369,49 @@ def _sweep_offset_page(
     window_cap: int | None,
     records_path: str,
     fields: dict[str, str],
+    deadline: float | None = None,
 ) -> None:
-    """One offset/page sweep. Appends mapped rows + per-page id sets onto ``state``."""
+    """One offset/page sweep. Appends mapped rows + per-page id sets onto ``state``.
+
+    ``deadline`` is a ``time.monotonic()`` stamp shared across the WHOLE harvest (every
+    facet included). Blowing it stops the sweep exactly like a ``window_cap`` does —
+    ``cap_hit=True`` and no short final page — which is what makes an over-budget run
+    read as UNVERIFIED ``cap_hit`` in ``verify_harvest`` instead of a completed read.
+    That routing is the load-bearing half: an unfinished sweep that looked finished
+    would let the destructive tail close every job it never got to (invariant #2).
+    """
     cursor = 0 if style == "offset" else start_page
     seen_pages = 0
     ended_short = False
     while seen_pages < max_pages:
+        # THE TWO RUNTIME BOUNDS, checked BEFORE the request so neither is exceeded
+        # rather than merely detected. Both are gated on at least one page having been
+        # fetched somewhere in this harvest: the first page of a run must always
+        # happen, or an already-spent budget would turn a run into zero rows — and zero
+        # rows is FAILED ("we learned nothing"), which is a louder, wronger answer than
+        # a partial UNVERIFIED read.
+        if state.pages_fetched > 0:
+            if deadline is not None and time.monotonic() >= deadline:
+                state.cap_hit = True
+                state.budget_exhausted = True
+                logger.warning(
+                    "recipe sweep hit the %.0fs wall-clock budget after %d page(s) / "
+                    "%d row(s) at %s — the run is INCOMPLETE (cap_hit → UNVERIFIED, "
+                    "closes nothing). Raise HARVEST_TIME_BUDGET_S only together with "
+                    "fetch_custom_company._TASK_TIMEOUT_S.",
+                    HARVEST_TIME_BUDGET_S, state.pages_fetched, len(state.rows),
+                    plan.fetch.get("url"),
+                )
+                break
+            if len(state.rows) >= MAX_HARVEST_RECORDS:
+                state.cap_hit = True
+                state.budget_exhausted = True
+                logger.warning(
+                    "recipe sweep hit the %d-record ceiling after %d page(s) at %s — "
+                    "the run is INCOMPLETE (cap_hit → UNVERIFIED, closes nothing)",
+                    MAX_HARVEST_RECORDS, state.pages_fetched, plan.fetch.get("url"),
+                )
+                break
         # Cap check BEFORE the request: offset + page_size must stay <= window_cap.
         if style == "offset" and window_cap is not None and cursor + page_size > window_cap:
             state.cap_hit = True
@@ -386,6 +464,11 @@ def _run_http_json(http: httpx.Client, plan: RecipePlan) -> _HarvestState:
         state.terminated_cleanly = True
         return state
 
+    # ONE deadline for the whole harvest, stamped here rather than per sweep: a facet
+    # fan-out is N sweeps of the same board, and N budgets would multiply the wall clock
+    # by the facet count — which is exactly the bound we are trying to hold.
+    deadline = time.monotonic() + HARVEST_TIME_BUDGET_S
+
     op = pg["op"]
     if op == "paginate_facet":
         facet_values = _resolve_facet_values(http, plan, pg)
@@ -397,7 +480,13 @@ def _run_http_json(http: httpx.Client, plan: RecipePlan) -> _HarvestState:
             _sweep_offset_page(
                 http, plan, state, {facet_param: value}, "offset", "offset",
                 page_size, max_pages, 0, window_cap, records_path, fields,
+                deadline=deadline,
             )
+            # An exhausted clock ends the RUN, not just this facet — otherwise every
+            # remaining facet pays one wasted request to discover the same thing, and
+            # a 38-facet board turns the bound into 38 extra round-trips.
+            if state.budget_exhausted:
+                break
     else:
         style = {"paginate_offset": "offset", "paginate_page": "page"}[op]
         param = pg["param"]
@@ -407,7 +496,7 @@ def _run_http_json(http: httpx.Client, plan: RecipePlan) -> _HarvestState:
         window_cap = pg.get("window_cap")
         _sweep_offset_page(
             http, plan, state, {}, style, param, page_size, max_pages,
-            start_page, window_cap, records_path, fields,
+            start_page, window_cap, records_path, fields, deadline=deadline,
         )
     return state
 

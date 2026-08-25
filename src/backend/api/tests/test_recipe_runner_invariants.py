@@ -25,6 +25,7 @@ from api.services.harvest_verification import (
     GateResult,
     verify_harvest,
 )
+from api.services import recipe_runner
 from api.services.recipe_runner import (
     FORBIDDEN_MODULES,
     RecipeExecutionError,
@@ -219,3 +220,156 @@ def test_inv_offset_wrap_sets_page_advance_false() -> None:
 
 def test_inv_playwright_is_in_forbidden_set() -> None:
     assert "playwright" in FORBIDDEN_MODULES
+
+
+# --- the two RUNTIME bounds that replaced the flat page ceiling --------------
+#
+# The stored budget used to be clamped at 100 pages so a full sweep would fit the leaf
+# task's 120s timeout. That made the JOB ceiling a function of the board's own page
+# size — 10,000 jobs of amazon.jobs, 1,000 of Microsoft's 10-per-page board — and
+# truncated Microsoft at 47% of itself. The clamp is gone; these are what bound a sweep
+# now, and the property that matters about both is not that they stop it but that a run
+# they stopped can never present as a complete read.
+
+
+class _FakeClock:
+    """A monotonic clock that advances a fixed step per READING.
+
+    Deterministic on purpose: a test that stops a sweep by really sleeping would be
+    timing-dependent, and the thing under test (WHERE the sweep stops) is exactly what
+    a flaky clock would blur.
+    """
+
+    def __init__(self, step: float = 1.0) -> None:
+        self.now = 0.0
+        self.step = step
+
+    def monotonic(self) -> float:
+        self.now += self.step
+        return self.now
+
+
+def _counting_handler(n: int, total: int | None = None):
+    """``_dataset_handler`` plus a request tally — how far a sweep actually got."""
+    calls: list[int] = []
+    inner = _dataset_handler(n, total)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(int(request.url.params.get("offset", "0")))
+        return inner(request)
+    return handler, calls
+
+
+def test_a_short_page_still_ends_the_sweep_at_a_huge_budget(monkeypatch) -> None:
+    """THE PROPERTY THAT MAKES A BIG BUDGET SAFE. Dropping the flat ceiling raised the
+    stored budget from 100 pages to thousands; if the short-page terminus had stopped
+    being the real stop condition, a 5-job board would now cost 5,000 pointless requests
+    a night instead of three. The budget is a CEILING, never a target — which is also
+    why raising it on already-stored recipes needs no acceptance replay.
+    """
+    monkeypatch.setattr(recipe_runner, "HARVEST_TIME_BUDGET_S", 600.0)
+    script = _json_script(expected_min_jobs=1, oracle={"kind": "self_consistent"})
+    script["steps"][1]["max_pages"] = 5000
+
+    handler, calls = _counting_handler(5)
+    with _client(handler) as http:
+        rows, ev = run_recipe(script, http)
+
+    assert calls == [0, 2, 4]            # 2 + 2 + a SHORT page of 1, and then stop
+    assert len(rows) == 5
+    assert ev.cap_hit is False
+    assert ev.terminated_cleanly is True
+
+
+def test_the_wall_clock_budget_stops_the_sweep_mid_flight(monkeypatch) -> None:
+    """Enforced BETWEEN pages, not hoped for. A budget that only existed as a page
+    count would be a flat cap again, and one that was merely 'expected to be enough'
+    would be enforced by the task timeout — which kills the run instead of ending it,
+    losing the rows it did read.
+    """
+    clock = _FakeClock(step=1.0)
+    monkeypatch.setattr(recipe_runner, "time", clock)
+    monkeypatch.setattr(recipe_runner, "HARVEST_TIME_BUDGET_S", 5.0)
+
+    script = _json_script(expected_min_jobs=1, oracle={"kind": "self_consistent"})
+    script["steps"][1]["max_pages"] = 5000
+
+    handler, calls = _counting_handler(500)
+    with _client(handler) as http:
+        rows, ev = run_recipe(script, http)
+
+    # The clock is read once to stamp the deadline and once per page thereafter, so a
+    # 5s budget at 1s/reading buys 5 pages of 2 — and then the sweep ENDS, with the
+    # rows it read, instead of being killed.
+    assert len(calls) == 5
+    assert len(rows) == 10
+    assert ev.cap_hit is True
+    assert ev.terminated_cleanly is False
+
+
+def test_a_budget_stopped_run_can_never_verify(monkeypatch) -> None:
+    """...and therefore can never close a job (invariant #2). The whole reason the
+    budget sets ``cap_hit`` rather than just breaking: an unfinished sweep that reported
+    a clean terminus would let ``self_consistent`` certify it, and the destructive tail
+    would close every job past the page the clock stopped on.
+    """
+    clock = _FakeClock(step=1.0)
+    monkeypatch.setattr(recipe_runner, "time", clock)
+    monkeypatch.setattr(recipe_runner, "HARVEST_TIME_BUDGET_S", 3.0)
+
+    script = _json_script(expected_min_jobs=1, oracle={"kind": "self_consistent"})
+    script["steps"][1]["max_pages"] = 5000
+    with _client(_dataset_handler(500)) as http:
+        rows, ev = run_recipe(script, http)
+
+    verdict = verify_harvest(
+        "self_consistent", _gate(len(rows)), ev, Baseline(None, 0, 0.5)
+    )
+    assert verdict.verdict == UNVERIFIED
+    assert verdict.reason == "cap_hit"
+
+
+def test_the_record_ceiling_stops_the_sweep_too(monkeypatch) -> None:
+    """Time does not bound MEMORY. Every row is held until ``finalize_harvest``, so a
+    board that pages fast enough to stay inside the clock could still stream itself into
+    a worker that co-hosts the API. Same stop, same honesty: cap_hit, not a terminus.
+    """
+    monkeypatch.setattr(recipe_runner, "MAX_HARVEST_RECORDS", 6)
+    script = _json_script(expected_min_jobs=1, oracle={"kind": "self_consistent"})
+    script["steps"][1]["max_pages"] = 5000
+
+    handler, calls = _counting_handler(500)
+    with _client(handler) as http:
+        rows, ev = run_recipe(script, http)
+
+    assert len(calls) == 3       # 3 pages of 2 reaches the 6-row ceiling
+    assert len(rows) == 6
+    assert ev.cap_hit is True
+    assert ev.terminated_cleanly is False
+
+
+def test_the_clock_is_one_budget_across_the_whole_facet_fan_out(monkeypatch) -> None:
+    """A facet fan-out is N sweeps of the SAME board. A per-sweep budget would multiply
+    the wall clock by the facet count — amazon.jobs has 38 — which is the bound we are
+    trying to hold, so the deadline is stamped once for the run and an exhausted clock
+    ends the RUN rather than moving on to pay one wasted request per remaining facet.
+    """
+    clock = _FakeClock(step=1.0)
+    monkeypatch.setattr(recipe_runner, "time", clock)
+    monkeypatch.setattr(recipe_runner, "HARVEST_TIME_BUDGET_S", 2.0)
+
+    facets: list[str | None] = []
+    inner = _facet_handler()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        facets.append(request.url.params.get("f"))
+        return inner(request)
+
+    script = _facet_script()
+    script["expected_min_jobs"] = 1
+    with _client(handler) as http:
+        _rows, ev = run_recipe(script, http)
+
+    assert facets == ["a", "a"]   # facet "b" is never asked for
+    assert ev.cap_hit is True
+    assert ev.terminated_cleanly is False
