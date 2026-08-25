@@ -731,6 +731,184 @@ async def test_our_own_chromium_never_calls_browserbase_at_all() -> None:
 
 
 # --------------------------------------------------------------------------
+# THE TEARDOWN HALF — saying when the live view STOPS being one
+# --------------------------------------------------------------------------
+# The frontend used to infer this from the checklist ("step 1 is still active, so the
+# browser must still be open") and it was wrong every time: the child closes the browser
+# before it exits, and step 1 is not ticked over until discovery has scored the capture,
+# published the network log and started step 2. In between, the iframe sat on a socket
+# Browserbase had already closed — "Debugging connection was closed" over a blank page,
+# under a spinner that said we were still opening it. These pin the fact that the moment
+# is ANNOUNCED, on every path that can reach the finally.
+
+
+async def _live_session() -> BrowserSession:
+    return BrowserSession(
+        cdp_url="wss://cdp/s1",
+        live_view_url="https://www.browserbase.com/devtools-fullscreen/s1",
+        session_id="s1",
+    )
+
+
+async def test_the_live_view_is_retracted_the_moment_the_browser_closes() -> None:
+    """ORDERING AGAIN, and the other end of it. The retraction has to be announced
+    before the release POST (up to 10s, i.e. two of the UI's 4s polls) and long before
+    the caller ticks a step — everything the caller does after this returns happens over
+    an iframe that is already dead."""
+    order: list[str] = []
+
+    async def _run(plan: dict[str, Any], **_: Any) -> dict[str, Any]:
+        order.append("capture")
+        return _report()
+
+    async def _published(url: str) -> None:
+        order.append(f"live_view:{url}")
+
+    async def _closed() -> None:
+        order.append("live_view_closed")
+
+    async def _release(session: BrowserSession) -> None:
+        order.append("release")
+
+    result = await capture_board(
+        _URL,
+        run_subprocess=_run,
+        validate_url=_allow_all,
+        open_session=_live_session,
+        release_session=_release,
+        on_live_view=_published,
+        on_live_view_closed=_closed,
+    )
+    assert order == [
+        "live_view:https://www.browserbase.com/devtools-fullscreen/s1",
+        "capture",
+        "live_view_closed",
+        "release",
+    ]
+    # The result still CARRIES the URL — it is the record of which session ran, not a
+    # claim that it is still watchable. The caller must not republish it (see
+    # ``discover``'s note where that copy used to be).
+    assert result.live_view_url == "https://www.browserbase.com/devtools-fullscreen/s1"
+
+
+async def test_the_live_view_is_retracted_when_the_capture_fails() -> None:
+    """A refusal kills the browser exactly as dead as a success does. If only the happy
+    path retracted, every failed discovery would keep a dead frame on the row until the
+    run ended."""
+    closed: list[str] = []
+
+    async def _fails(plan: dict[str, Any], **_: Any) -> dict[str, Any]:
+        raise CaptureError("capture subprocess timed out after 120.0s")
+
+    async def _closed() -> None:
+        closed.append("closed")
+
+    async def _release(session: BrowserSession) -> None:
+        return None
+
+    with pytest.raises(CaptureError, match="timed out"):
+        await capture_board(
+            _URL,
+            run_subprocess=_fails,
+            validate_url=_allow_all,
+            open_session=_live_session,
+            release_session=_release,
+            on_live_view_closed=_closed,
+        )
+    assert closed == ["closed"]
+
+
+async def test_the_live_view_is_retracted_when_the_discovery_task_cancels_us() -> None:
+    """The 240s task guard CANCELS us, and on THAT path the refusal carries no terminal
+    checklist — the task persists ``progress=None`` and the last live snapshot is what
+    the user is left looking at. So the retraction has to survive a ``CancelledError``
+    unwinding through the same ``finally``, or a timed-out run keeps a dead live view on
+    the row permanently."""
+    closed: list[str] = []
+    driving = asyncio.Event()
+
+    async def _hangs(plan: dict[str, Any], **_: Any) -> dict[str, Any]:
+        driving.set()
+        await asyncio.sleep(30)
+        raise AssertionError("unreachable")
+
+    async def _closed() -> None:
+        closed.append("closed")
+
+    async def _release(session: BrowserSession) -> None:
+        return None
+
+    task = asyncio.ensure_future(
+        capture_board(
+            _URL,
+            run_subprocess=_hangs,
+            validate_url=_allow_all,
+            open_session=_live_session,
+            release_session=_release,
+            on_live_view_closed=_closed,
+        )
+    )
+    await driving.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert closed == ["closed"]
+
+
+async def test_a_run_that_never_had_a_live_view_never_retracts_one() -> None:
+    """Our own Chromium is the DEFAULT and has no hosted view at all; a Browserbase
+    session whose ``/debug`` lookup failed has none either. Firing the retraction there
+    would be a database write per run to set a key that is already null — and, worse, a
+    caller could reasonably read it as "the live view you had is gone"."""
+    closed: list[str] = []
+
+    async def _closed() -> None:
+        closed.append("closed")
+
+    async def _viewless_session() -> BrowserSession:
+        return BrowserSession(cdp_url="wss://cdp/s1", session_id="s1")
+
+    async def _release(session: BrowserSession) -> None:
+        return None
+
+    for opener in (_no_session, _viewless_session):
+        await capture_board(
+            _URL,
+            run_subprocess=_child(_report()),
+            validate_url=_allow_all,
+            open_session=opener,
+            release_session=_release,
+            on_live_view_closed=_closed,
+        )
+    assert closed == []
+
+
+async def test_a_failed_live_view_retraction_never_becomes_the_captures_failure(
+) -> None:
+    """It writes to the database from inside a ``finally``. An exception escaping there
+    would replace the real outcome with a narration one — and it would also skip the
+    release, turning a cosmetic failure into a paid browser nobody handed back."""
+    released: list[str | None] = []
+
+    async def _explodes() -> None:
+        raise RuntimeError("progress write failed")
+
+    async def _release(session: BrowserSession) -> None:
+        released.append(session.session_id)
+
+    result = await capture_board(
+        _URL,
+        run_subprocess=_child(_report()),
+        validate_url=_allow_all,
+        open_session=_live_session,
+        release_session=_release,
+        on_live_view_closed=_explodes,
+    )
+    assert len(result.responses) == 3
+    assert released == ["s1"]
+
+
+# --------------------------------------------------------------------------
 # STREAMING — the child narrates while the browser is still open
 # --------------------------------------------------------------------------
 # The capture takes 30-120 seconds and used to say nothing until it exited, so the

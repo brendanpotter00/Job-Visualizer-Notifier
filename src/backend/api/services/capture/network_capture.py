@@ -26,7 +26,10 @@ Two rules make that opt-in safe to leave on:
 
 * the live-view URL is handed to the caller through the ``on_live_view`` CALLBACK the
   instant the session exists — before the child spawns, before the page loads — because
-  a hosted view of a session that has already ended is a dead iframe; and
+  a hosted view of a session that has already ended is a dead iframe, and RETRACTED
+  through ``on_live_view_closed`` the instant it stops being watchable, because the
+  caller cannot work that moment out for itself (it is earlier than any step it ticks);
+  and
 * the session is RELEASED in a ``finally``, on the success path, the refusal path and
   the cancellation path alike. Browserbase bills per browser-hour; a session we merely
   stop using goes on charging until its own ``timeout`` expires.
@@ -124,6 +127,15 @@ ReleaseSession = Callable[["BrowserSession"], Awaitable[None]]
 # Called with the hosted live-view URL the MOMENT a session has one — see the call site
 # in :func:`capture_board` for why it is a callback and not a return value.
 LiveViewFn = Callable[[str], Awaitable[None]]
+# Called with nothing the moment that hosted view stops being WATCHABLE — the teardown
+# half of ``LiveViewFn``, fired from the same ``finally`` that hands the session back.
+# It exists because "is the browser still open?" was being INFERRED by the UI from the
+# checklist ("step 1 is active, so there must be a browser"), and that inference is
+# false: the child closes the browser (killing the CDP socket the live view is a view
+# OF) and only then does discovery score, publish and tick step 1 over. The frame went
+# dead seconds before the checklist admitted it. This callback is the backend stating
+# the fact instead of the frontend guessing at it.
+LiveViewClosedFn = Callable[[], Awaitable[None]]
 # Called with ONE display-ready record per response the browser saw, the moment it is
 # seen — see :func:`capture_board` for why it is a callback and not a return value.
 RequestFn = Callable[[dict[str, Any]], Awaitable[None]]
@@ -629,6 +641,7 @@ async def capture_board(
     open_session: OpenSession | None = None,
     release_session: ReleaseSession | None = None,
     on_live_view: LiveViewFn | None = None,
+    on_live_view_closed: LiveViewClosedFn | None = None,
     on_request: RequestFn | None = None,
 ) -> CaptureResult:
     """Open ``url`` once in a browser and return everything JSON it fetched.
@@ -643,6 +656,13 @@ async def capture_board(
     does not return for another 30-120 seconds. :attr:`CaptureResult.live_view_url`
     still carries it for the terminal record; the callback is what puts it on screen in
     time to be watched.
+
+    ``on_live_view_closed`` is the OTHER half of that, and it is not optional bookkeeping
+    — it is the fix for a live view that outlived its session on screen. It fires from
+    the ``finally`` below, i.e. the instant the paid browser stops being watchable, which
+    is always EARLIER than any step the checklist ticks afterwards. A caller that infers
+    "the browser must still be open" from "step 1 is still active" is reading a signal
+    that goes stale seconds before it changes; this one is exact.
 
     ``on_request`` is a callback for the same reason and settles the same argument about
     a different thing: :attr:`CaptureResult.responses` carries the whole recording, but
@@ -748,4 +768,28 @@ async def capture_board(
         # this coroutine, and a ``CaptureError`` raised above. Same reasoning, and the
         # same shape, as ``_subprocess_run``'s unconditional ``_reap``.
         if session is not None:
+            # RETRACT THE LIVE VIEW FIRST, THEN GIVE THE BROWSER BACK. By the time
+            # control reaches here the thing the iframe was watching is already gone on
+            # EVERY path: the child closes the browser before it exits (so the report
+            # path arrives here microseconds after the CDP socket dropped), the timeout
+            # path SIGKILLed it, and the cancellation path SIGKILLed it too. The release
+            # POST below is billing bookkeeping, not the moment of death — so waiting
+            # for it (up to 10s, longer than two of the UI's 4s polls) would leave the
+            # user staring at Browserbase's "Debugging connection was closed" panel for
+            # no reason. Announcing it first is honest and it is prompt.
+            #
+            # Guarded, and only when there was something to retract: the callback writes
+            # to the database from inside a ``finally`` that may be unwinding a
+            # cancellation, and an exception escaping here would replace the real
+            # failure with a narration one — the same rule ``on_live_view`` above and
+            # ``discover._publish`` one layer up already follow. ``except Exception``
+            # deliberately does not catch the ``CancelledError`` that put us here.
+            if session.live_view_url and on_live_view_closed is not None:
+                try:
+                    await on_live_view_closed()
+                except Exception:  # noqa: BLE001
+                    logger.warning(
+                        "live-view teardown publish failed for %s (continuing)", url,
+                        exc_info=True,
+                    )
             await release(session)

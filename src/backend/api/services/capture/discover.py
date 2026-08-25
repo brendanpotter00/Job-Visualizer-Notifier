@@ -343,16 +343,24 @@ _MAX_REQUEST_PUBLISHES = 12
 
 # One live checklist write, and the live-view URL that reaches it mid-run.
 LiveViewFn = Callable[[str], Awaitable[None]]
+# ...and the write that takes it back off the row when the browser closes.
+LiveViewClosedFn = Callable[[], Awaitable[None]]
 
 
 class CaptureFn(Protocol):
     """The capture seam — :func:`network_capture.capture_board` or a $0 test double.
 
-    A Protocol rather than a ``Callable`` alias because of the keyword: ``on_live_view``
-    fires the MOMENT a hosted browser session exists, which on the Browserbase path is
-    before the page has even been opened. The live view is only worth anything while
-    the run is happening, so it cannot ride back on the return value — by then the
-    session is released and the iframe would render a dead frame.
+    A Protocol rather than a ``Callable`` alias because of the keywords.
+    ``on_live_view`` fires the MOMENT a hosted browser session exists, which on the
+    Browserbase path is before the page has even been opened. The live view is only
+    worth anything while the run is happening, so it cannot ride back on the return
+    value — by then the session is released and the iframe would render a dead frame.
+
+    ``on_live_view_closed`` fires when that stops being true, and it is the ONLY
+    trustworthy statement of that fact. The browser dies before this function returns;
+    step 1 is not ticked over until after the pre-filter has scored the capture and the
+    checklist has been published again. Anything downstream that reads "step 1 is still
+    active" as "the browser is still open" is reading a signal that is already wrong.
     """
 
     def __call__(
@@ -360,6 +368,7 @@ class CaptureFn(Protocol):
         url: str,
         *,
         on_live_view: LiveViewFn | None = None,
+        on_live_view_closed: LiveViewClosedFn | None = None,
         on_request: RequestFn | None = None,
     ) -> Awaitable[CaptureResult]: ...
 
@@ -1395,6 +1404,27 @@ async def discover(
         ledger.set_live_view_url(live_view_url)
         await _publish()
 
+    async def _publish_live_view_closed() -> None:
+        """Take the hosted live view back OFF the row the moment it stops being one.
+
+        The capture seam fires this from the ``finally`` that releases the session, so
+        it lands while ``open_page`` is still ``active`` — there is a whole pre-filter,
+        an LLM call and a replay between the browser closing and step 1 ticking over.
+        That gap is the bug this exists to close: the frontend used to infer liveness
+        from the step state and kept the iframe mounted over a socket Browserbase had
+        already hung up on ("Debugging connection was closed"). Now liveness is a FACT
+        the blob carries, not something the UI derives from a step that means something
+        else.
+
+        Deliberately NOT routed through the request throttle: this is a state change
+        with no later write guaranteed to repeat it, and a dropped one is a dead iframe
+        that stays on screen for the rest of the run. ``_publish`` is unconditional;
+        only :func:`_publish_request` throttles, and only because every one of its
+        writes is superseded by the next.
+        """
+        ledger.set_live_view_url(None)
+        await _publish()
+
     # Throttle state for the streaming network log. Plain locals + ``nonlocal`` rather
     # than a dict, so mypy sees a float and an int and not ``dict[str, object]``.
     last_request_publish = 0.0
@@ -1453,19 +1483,23 @@ async def discover(
         current_step = _STEP_CAPTURE
         try:
             captured = await do_capture(
-                url, on_live_view=_publish_live_view, on_request=_publish_request
+                url,
+                on_live_view=_publish_live_view,
+                on_live_view_closed=_publish_live_view_closed,
+                on_request=_publish_request,
             )
         except CaptureError as exc:
             raise _Refusal(_STEP_CAPTURE, str(exc)) from exc
 
-        # The hosted live view exists only on a Browserbase session, and our default is
-        # our own Chromium — so this is usually None and the UI must not depend on it
-        # (DECISION D4). ``_publish_live_view`` already put it on the row mid-run; this
-        # is the belt-and-braces copy for a capture seam that returns the URL without
-        # ever calling the callback. Guarded on truthiness so it can only ever ADD one
-        # — a ``None`` here must not erase a URL the callback already published.
-        if captured.live_view_url:
-            ledger.set_live_view_url(captured.live_view_url)
+        # ``captured.live_view_url`` IS DELIBERATELY NOT COPIED BACK ONTO THE LEDGER
+        # HERE. It used to be, as a belt-and-braces "in case the callback never fired",
+        # and that copy is precisely how a retracted live view came back from the dead:
+        # the capture seam clears the URL from inside the ``finally`` that closes the
+        # browser, and this line — three statements later, before the very next publish
+        # — put the now-dead URL straight back on the row. The URL on the result is a
+        # record of which session ran, not a claim that it is still watchable; every
+        # session that ever had one published it through ``_publish_live_view`` while it
+        # was live, which is the only moment the value is true.
         # THE CAPTURE IS THE AUTHORITY, so the streamed log is thrown away and rebuilt
         # from it. The two can legitimately differ: the child announces a response the
         # moment it records one, and the parent then DROPS report entries it cannot

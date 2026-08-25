@@ -1011,10 +1011,11 @@ async def test_a_progress_write_that_blows_up_never_refuses_the_board() -> None:
     assert outcome.transport == "http_json"
 
 
-async def test_a_browserbase_live_view_url_rides_the_checklist_when_there_is_one() -> None:
-    """Optional garnish, absent by default: only a Browserbase session has a hosted
-    view and our default is our own Chromium, so the UI must treat it as an extra and
-    never block on it (DECISION D4)."""
+async def test_a_live_view_url_that_only_rides_the_result_is_never_published() -> None:
+    """A URL that reaches us on the RETURN VALUE describes a session that has already
+    been closed and released — the capture seam does both before it returns. Copying it
+    onto the row there is how the retracted live view used to come back from the dead:
+    the ``finally`` cleared it, and three statements later this put the corpse back."""
     async def _with_live_view(url: str, **_: Any) -> CaptureResult:
         base = _capture_result("amazon")
         return CaptureResult(
@@ -1031,7 +1032,7 @@ async def test_a_browserbase_live_view_url_rides_the_checklist_when_there_is_one
         validate_url=_allow_all,
     )
     assert outcome.progress is not None
-    assert outcome.progress["live_view_url"].startswith("https://www.browserbase.com/")
+    assert outcome.progress["live_view_url"] is None
 
 
 async def test_the_live_view_url_lands_on_the_row_while_step_one_is_still_running() -> None:
@@ -1075,11 +1076,72 @@ async def test_the_live_view_url_lands_on_the_row_while_step_one_is_still_runnin
     assert first["outcome"] == OUTCOME_RUNNING
     open_page = next(s for s in first["steps"] if s["key"] == STEP_OPEN_PAGE)
     assert open_page["status"] == STATUS_ACTIVE
-    # ...and it survives to the terminal blob the persist writes with the row.
-    assert outcome.progress is not None
-    assert outcome.progress["live_view_url"] == (
-        "https://www.browserbase.com/devtools-fullscreen/s1"
+    # What happens at the OTHER end of the session is the next test's job: this double
+    # only ever opens a live view, so nothing here retracts one.
+
+
+async def test_the_live_view_is_retracted_while_step_one_is_still_active() -> None:
+    """THE BUG THIS CLOSES, stated as a sequence of polls.
+
+    The browser dies when the capture's ``finally`` runs; ``open_page`` is not ticked
+    over until after the pre-filter has scored the capture and rebuilt the network log.
+    A frontend that treats "step 1 is active" as "there is a browser to watch" therefore
+    renders a dead iframe for that whole gap — which is exactly what the user
+    screenshotted: ``Opening the page`` spinning above ``Debugging connection was
+    closed``. So the assertion is deliberately the awkward one: there must exist a
+    snapshot carrying NO live view WHILE step 1 is still ``active``, i.e. the backend
+    stated the browser was gone before its own checklist moved on.
+    """
+    snapshots: list[dict[str, Any]] = []
+
+    async def _record(snapshot: dict[str, Any]) -> None:
+        snapshots.append(snapshot)
+
+    async def _capture_with_session(
+        url: str, *, on_live_view: Any = None, on_live_view_closed: Any = None,
+        **_: Any,
+    ) -> CaptureResult:
+        # ``capture_board``'s two halves, in its order: publish when the session exists,
+        # drive the browser, retract from the ``finally`` that releases it — and still
+        # hand back a result carrying the URL, the way the real one does.
+        assert on_live_view is not None and on_live_view_closed is not None
+        await on_live_view("https://www.browserbase.com/devtools-fullscreen/s1")
+        base = _capture_result("amazon")
+        await on_live_view_closed()
+        return CaptureResult(
+            final_url=base.final_url, page_title=base.page_title,
+            responses=base.responses,
+            live_view_url="https://www.browserbase.com/devtools-fullscreen/s1",
+        )
+
+    outcome = await discover(
+        _AMAZON_URL,
+        capture=_capture_with_session,
+        select=_selecting(_amazon_selection()),
+        replay_http=_faithful_replay("amazon", "jobs", _AMAZON_MAP, declared_total=76),
+        replay_browser=_never_called_replay("browser_fetch"),
+        validate_url=_allow_all,
+        emit=_record,
     )
+    assert outcome.ok is True
+
+    def _status(snapshot: dict[str, Any], key: str) -> str:
+        return next(s for s in snapshot["steps"] if s["key"] == key)["status"]
+
+    live_at = [i for i, s in enumerate(snapshots) if s["live_view_url"]]
+    assert live_at, "the live-view URL never reached a mid-run progress write"
+    retracted = [
+        s for s in snapshots[live_at[-1] + 1:] if s["live_view_url"] is None
+    ]
+    assert retracted, "the live view was never taken back off the row"
+    # THE ORDERING CLAIM: the retraction reached a poll while the checklist still said
+    # we were opening the page.
+    assert _status(retracted[0], STEP_OPEN_PAGE) == STATUS_ACTIVE
+    # ...and no later write resurrects it, including the terminal one the persist
+    # writes in the same statement that flips the row to tracked.
+    assert all(s["live_view_url"] is None for s in snapshots[live_at[-1] + 1:])
+    assert outcome.progress is not None
+    assert outcome.progress["live_view_url"] is None
 
 
 # --- THE TWO PAGE BUDGETS, and the page size that makes them affordable -------
