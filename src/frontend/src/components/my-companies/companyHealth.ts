@@ -13,6 +13,17 @@ type ChipColor = 'default' | 'info' | 'success' | 'warning' | 'error';
 export interface HealthBadge {
   label: string;
   color: ChipColor;
+  /**
+   * MUI `Chip` weight. Filled is the norm; OUTLINED is how a state says "this is a
+   * fact about your board, not a thing to do about it".
+   *
+   * It exists because amber was doing that job and doing it wrong — see
+   * `describeCompanyHealth`. Colour is reserved for severity (green working, amber
+   * needs you, red dead); weight carries the qualifier inside a severity. That way a
+   * complete board and a partial one differ at a glance — solid green vs hollow green
+   * — without the partial one borrowing the colour that means "act on me".
+   */
+  variant?: 'filled' | 'outlined';
 }
 
 /**
@@ -72,24 +83,106 @@ export function describeHealthState(healthState: string): HealthBadge {
  * Binance tracked one department of fourteen, Kakao the tab its own page opened by
  * itself, Walmart ten jobs of forty-seven thousand.
  *
- * Amber rather than green, and it names WHAT is partial in the same vocabulary as
- * "Tracking paused" beside it. It is deliberately NOT red: nothing is broken and there
- * is nothing to fix — the checklist below the row carries the board's own numbers.
+ * GREEN, OUTLINED — and it used to be amber, which was the bug. Amber is the colour
+ * this app spends on "Tracking paused", i.e. something has gone wrong and you may need
+ * to look at it. There is nothing to look at here: Microsoft's own feed is hard-capped
+ * at 1,000 (100 pages × 10) and Amazon's at 10,000 of ~22,500, permanently, by their
+ * API and not by anything we or the user can change. An alarm colour over a permanent
+ * property of someone else's server trains people to ignore the colour — and it sat
+ * directly above five green ticks, so the row read as a malfunction rather than as a
+ * fact ("Why is this stuck in orange? All the steps are done").
+ *
+ * It is still not the same chip as a whole board, and that is the other half of the
+ * fix: same hue, hollow instead of solid, and it names WHAT is partial. Solid green
+ * "Successfully tracking" vs hollow green "Tracking part of this board" separates at a
+ * glance without claiming anything is broken. The checklist below carries the board's
+ * own numbers (`describePartialScope`), and the LAST RUNG carries the same fact — so
+ * the chip now corroborates the list instead of contradicting it.
  *
  * The signal comes from the discovery blob, not from `healthState`, because the backend
  * decides it once at discovery from the captured bytes and there is no column for it —
  * see `OUTCOME_PARTIAL` in `api/services/discovery/progress.py`.
  */
 export function describeCompanyHealth(
-  company: Pick<UserCompany, 'healthState' | 'discovery'>,
+  company: Pick<UserCompany, 'healthState' | 'discovery' | 'lastSuccessAt'>,
 ): HealthBadge {
+  // BEFORE the partial check and before the green one, and that order is the whole
+  // point — see `isFirstScanInFlight`. A row whose first harvest has not landed knows
+  // nothing yet about how much of the board it got, so it must claim neither success
+  // nor shortfall.
+  if (company.healthState === 'unverified' && !company.lastSuccessAt) {
+    return isFirstScanFailing(company)
+      ? // The one thing we can say that stays true however long this lasts. Blue, not
+        // amber: a harvest that failed tonight is retried tomorrow by the scheduler, and
+        // there is nothing for the reader to do in between.
+        { label: "Couldn't fetch yet — retrying", color: 'info' }
+      : { label: 'Fetching all current jobs…', color: 'info' };
+  }
   if (
     (company.healthState === 'unverified' || company.healthState === 'healthy') &&
     company.discovery?.outcome === 'partial'
   ) {
-    return { label: 'Tracking part of this board', color: 'warning' };
+    return { label: 'Tracking part of this board', color: 'success', variant: 'outlined' };
   }
   return describeHealthState(company.healthState);
+}
+
+/**
+ * Has the FIRST HARVEST reported yet? — the difference between "we are still fetching"
+ * and "this is all there is", which the row used to render identically.
+ *
+ * THE MISREAD THIS EXISTS TO PREVENT, observed live: a row showing a settled chip, a
+ * job count, and a fifth rung with a spinner on it. The reader took the chip as the
+ * verdict on a fetch that was still running — reasonably, because nothing said
+ * otherwise. Mid-fetch and settled were one pixel apart.
+ *
+ * A partial verdict is decided at DISCOVERY time, from the captured bytes, and the
+ * harvest it enqueues runs afterwards — so `outcome: 'partial'` genuinely exists on a
+ * row whose count is still climbing, and a chip reading "Tracking part of this board"
+ * over a number that is not final is asserting the end of a story mid-sentence. Worse,
+ * the count it sits above is the one the reader would use to check it.
+ *
+ * `first_scan` — the rung — is the signal here rather than `lastSuccessAt`, because this
+ * one describes the PANEL, and the panel only exists on a discovered board where the
+ * rung is authoritative. The row-level chip uses `lastSuccessAt` instead: an ATS company
+ * (Workday, Greenhouse) has no checklist at all and still has a first-scan window, which
+ * since `853457f` is ~20 seconds rather than ~15 minutes but is still a window in which
+ * "Successfully tracking" over "0 open jobs" is a lie.
+ *
+ * `active` OR `failed`, both meaning "not landed yet": `failed` retries on the next
+ * nightly harvest with nobody doing anything, so it is a fetch still in progress rather
+ * than a finished one. `pending` is deliberately EXCLUDED — a blob written before this
+ * rung existed has no entry for it and `read_progress` fills it in as `pending`, so
+ * treating that as in-flight would strand every legacy row on "Fetching…" forever.
+ */
+export function isFirstScanInFlight(company: Pick<UserCompany, 'discovery'>): boolean {
+  const scan = company.discovery?.steps.find((step) => step.key === 'first_scan');
+  return scan?.status === 'active' || scan?.status === 'failed';
+}
+
+/**
+ * Do we KNOW the first harvest has already tried and failed?
+ *
+ * The one guard against a chip that rots. `!lastSuccessAt` never expires on its own, so
+ * "Fetching all current jobs…" would sit on a board that has been failing for three days
+ * looking like it started a moment ago — an in-progress claim about a thing that is not
+ * in progress. Where the checklist gives us the fact (a discovered board writes
+ * `first_scan: failed` on every failed harvest), the chip says so instead.
+ *
+ * IT CANNOT COVER AN ATS ROW, which has no checklist: there is nothing on
+ * `GET /api/users/companies` that distinguishes "added ten seconds ago" from "has failed
+ * every night this week" — no created-at, no last-attempt, no last-failure. That is a
+ * real gap and it needs a wire field, not a cleverer read of this one. Until then the
+ * backstop is the backend's own: repeated failures quarantine the row, and the chip goes
+ * amber — which is the right colour there, because a board that has stopped working IS
+ * something the reader may want to act on.
+ */
+function isFirstScanFailing(company: Pick<UserCompany, 'discovery'>): boolean {
+  return (
+    company.discovery?.steps.some(
+      (step) => step.key === 'first_scan' && step.status === 'failed',
+    ) ?? false
+  );
 }
 
 /**
@@ -130,7 +223,12 @@ export const DISCOVERY_STEP_LABELS: Record<DiscoveryStepKey, string> = {
   find_feed: 'Reading jobs',
   verify_read: 'Building web scraper',
   ready: 'Ready to track',
-  first_scan: 'Reading the board',
+  // "Fetching all current jobs", not "Reading the board": this rung is the FIRST
+  // HARVEST, and what it does is pull down every posting the board will hand us. It is
+  // also the rung that a partial board cannot honestly tick — which is the point. The
+  // word "all" is what makes `renderedStatus`'s ◐ mean something; a vaguer label would
+  // have let a 1,000-of-22,500 board keep a plain ✓ and keep contradicting its chip.
+  first_scan: 'Fetching all current jobs',
 };
 
 /**
@@ -162,39 +260,62 @@ export function resolveDiscoveryOutcome(
 /**
  * Should this row show its checklist at all?
  *
- * `discovering` and `refused` are the whole point. A just-accepted board keeps its
- * "here's what we found" summary only until its first harvest lands — after that the
- * row is an ordinary tracked company and a permanent setup receipt is clutter. That
- * also means nothing has to sweep the blob away server-side.
+ * NOW: whenever there is one to show, except on a `quarantined` row. It used to
+ * disappear the moment `lastSuccessAt` was set, on the reasoning that a permanent setup
+ * receipt is clutter — and that reasoning was right about a panel that was always
+ * expanded. It is no longer one: the checklist is a COLLAPSED accordion once a row has
+ * settled (`shouldExpandDiscovery`), so what a tracked row now carries forever is one
+ * caption-sized line. Clutter was the entire cost, and the accordion pays it.
  *
- * "The first harvest landed" is `lastSuccessAt`, NOT an empty job count. A board that
- * genuinely has zero open roles today (or one that closes all of them two months from
- * now) would otherwise resurrect a green "We can read {X}'s board" receipt above a
- * "0 open jobs" chip, linking to day-one postings the harvest has since proved gone.
- * `unverified` is required for the same reason: a `quarantined` row is one the backend
- * has marked broken, and a success receipt under a "Tracking paused" badge is the
- * UI contradicting the badge beside it.
+ * What the old rule cost, measured on the owner's own list: he assumed the evidence was
+ * gone ("I'm assuming if I refresh it all goes away"). It never was — the blob is 5 KB
+ * of `provider_config->'discovery'` and survives every reload — but a panel that
+ * vanishes on the first harvest is indistinguishable from one that was deleted. The one
+ * record of HOW we read a board (which request we picked out of sixteen, the JSON it
+ * returned) is worth more than the line it costs, and now it costs a line.
+ *
+ * `quarantined` is still excluded, and for the original reason: that row is one the
+ * backend has marked broken, and a "We can read {X}'s board" receipt under a "Tracking
+ * paused" badge is the UI contradicting the badge beside it. Any UNKNOWN/newer
+ * `healthState` is excluded too — same defensive stance as `describeHealthState`, since
+ * we cannot know whether a state we have never heard of makes the receipt a lie.
  */
 export function shouldShowDiscovery(
   company: Pick<UserCompany, 'healthState' | 'discovery' | 'lastSuccessAt'>,
 ): boolean {
   if (!company.discovery) return false;
-  if (company.healthState === 'discovering' || company.healthState === 'refused') {
-    return true;
-  }
-  // A PARTIAL board keeps its checklist forever, and that is the one place this panel
-  // is not a setup receipt. The amber chip says we read part of the board; the checklist
-  // is the only thing that says WHICH part and how we know ("read 8 jobs, but this
-  // board's own category counts add up to 31"). Hiding it after the first harvest would
-  // leave a permanent claim with its evidence deleted.
-  if (resolveDiscoveryOutcome(company) === 'partial') {
-    return company.healthState === 'unverified' || company.healthState === 'healthy';
-  }
   return (
-    company.healthState === 'unverified' &&
-    resolveDiscoveryOutcome(company) === 'tracking' &&
-    !company.lastSuccessAt
+    company.healthState === 'discovering' ||
+    company.healthState === 'refused' ||
+    company.healthState === 'unverified' ||
+    company.healthState === 'healthy'
   );
+}
+
+/**
+ * Should the checklist start OPEN, or as one collapsed line?
+ *
+ * ONE rule: open while something is still happening, or while something went wrong.
+ * Closed once the row has settled into an ordinary tracked company.
+ *
+ * `lastSuccessAt` is what "settled" means, and it is the same signal the old
+ * `shouldShowDiscovery` used to DELETE the panel on — the change is that the evidence
+ * now folds away instead of being thrown away. So:
+ *  - `discovering` → open. The rungs ticking and the requests arriving ARE the feature;
+ *    a one-time setup that happens inside a closed box is the spinner it replaced.
+ *  - `refused` → open. The verdict and the one action that changes it must not need a
+ *    click to find, and it stays open even though a refused row can never harvest.
+ *  - accepted, first harvest not yet landed → open. `first_scan` is still spinning.
+ *  - tracked and harvested (including a PARTIAL board) → closed. This is the scannable
+ *    state: a list of rows, each one line of evidence away from its receipt.
+ *
+ * Read ONCE, as a `useState` initial value, deliberately: a harvest landing mid-read
+ * must not snap the panel shut under someone who is looking at it.
+ */
+export function shouldExpandDiscovery(
+  company: Pick<UserCompany, 'healthState' | 'discovery' | 'lastSuccessAt'>,
+): boolean {
+  return resolveDiscoveryOutcome(company) === 'refused' || !company.lastSuccessAt;
 }
 
 /**
@@ -216,6 +337,13 @@ export function describeDiscoveryOutcome(
   if (outcome === 'refused') {
     return `We couldn't read ${company.displayName}'s board`;
   }
+  // AHEAD of the verdicts below, matching the chip (`describeCompanyHealth`): while the
+  // first harvest is still running we do not yet know how much of the board we got, so
+  // the heading narrates instead of concluding. Same words as the rung and the chip —
+  // one action keeps one name the whole way down the row.
+  if (outcome !== 'running' && isFirstScanInFlight(company)) {
+    return `Fetching ${company.displayName}'s jobs`;
+  }
   if (outcome === 'partial') {
     // "Part of" rather than "some of": the shortfall is a SCOPE, not a sample. The
     // rungs below carry the board's own numbers, so the heading does not repeat them.
@@ -225,6 +353,56 @@ export function describeDiscoveryOutcome(
     return `We can read ${company.displayName}'s board`;
   }
   return `Setting up ${company.displayName}`;
+}
+
+/**
+ * The board's own numbers behind a `partial` verdict — the sentence that goes UNDER the
+ * last rung — or null when we cannot state them.
+ *
+ * THE INCONSISTENCY THIS CLOSES. A partial row used to render five unqualified ✓s,
+ * ending in one that read as complete success, under a chip saying we only read part of
+ * the board. Two things disagreeing, and the chip lost: it looked like a malfunction.
+ * The chip was the correct one, so the fix is to make the last rung say what it actually
+ * achieved. Then the chip corroborates the list.
+ *
+ * The numbers exist in exactly ONE place on the wire, and it is prose: `verify_read`'s
+ * result, which the backend composes as
+ *
+ *     read {N} job(s), but {board's own claim} — we can only track part of this board
+ *
+ * (see `_coverage` / `STEP_VERIFY_READ` in `api/services/capture/discover.py`). We take
+ * the middle clause and nothing else, on purpose:
+ *
+ *  - the LEADING "read {N} job(s)" is the ACCEPTANCE PROBE's count, clamped to two pages
+ *    — 20 for Microsoft, on a row whose chip beside it says "1,000 open jobs". Rendering
+ *    it would answer one confusion with a worse one, so the left-hand number comes from
+ *    `openJobCount` instead: what we actually hold, live, and already on the row.
+ *  - the TRAILING verdict is what `describeDiscoveryOutcome` says one line above. Said
+ *    twice it is noise; the heading names the scope, the rung names the numbers.
+ *
+ * Split on the separators rather than on the numbers, because the claim itself is one of
+ * three templates with a formatted count in it ("this board's own facets agree on
+ * 22,500 job(s)", "…category counts add up to 47,000") and pattern-matching those would
+ * break the moment a fourth is added. Anything that does not parse returns null and the
+ * rung simply carries its ◐ with no caption — a missing sentence, never a wrong one.
+ *
+ * A SNAPSHOT, not a live figure: the claim is what the board published about itself on
+ * the day we captured it, and the rung is a setup rung, so a board that has since grown
+ * is described by the count we measured. That is the honest thing for a receipt to say
+ * and the reason it lives on a rung rather than in the chip.
+ */
+export function describePartialScope(
+  company: Pick<UserCompany, 'discovery' | 'openJobCount'>,
+): string | null {
+  const verified = company.discovery?.steps.find((step) => step.key === 'verify_read');
+  const [, afterBut] = (verified?.result ?? '').split(', but ');
+  const claim = afterBut?.split(' — ')[0]?.trim();
+  if (!claim) return null;
+  const sentence = claim.charAt(0).toUpperCase() + claim.slice(1);
+  if (company.openJobCount <= 0) {
+    return `${sentence}.`;
+  }
+  return `${sentence}; we can reach ${company.openJobCount.toLocaleString()}.`;
 }
 
 /**

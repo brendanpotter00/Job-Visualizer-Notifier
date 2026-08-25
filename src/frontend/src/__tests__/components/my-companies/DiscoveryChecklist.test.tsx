@@ -524,7 +524,9 @@ describe('the first-scan rung', () => {
 
   it('names the fifth rung in words, never its raw key', () => {
     renderWithProviders(<DiscoveryChecklist company={company('unverified', scanning('active'))} />);
-    expect(screen.getByText('Reading the board')).toBeInTheDocument();
+    // "Fetching all current jobs", not "Reading the board". This rung IS the first
+    // harvest, and the word "all" is what a partial board cannot honestly tick.
+    expect(screen.getByText('Fetching all current jobs')).toBeInTheDocument();
     expect(screen.queryByText('first_scan')).not.toBeInTheDocument();
   });
 
@@ -543,7 +545,7 @@ describe('the first-scan rung', () => {
       />,
     );
     const row = screen.getByTestId('discovery-step-first_scan');
-    expect(within(row).getByText('Reading the board')).toBeInTheDocument();
+    expect(within(row).getByText('Fetching all current jobs')).toBeInTheDocument();
     // No spinner — this rung is finished.
     expect(within(row).queryByLabelText('in progress')).not.toBeInTheDocument();
     // Per-step detail rides ONLY on a failed rung. On a done one it is engine telemetry,
@@ -563,5 +565,230 @@ describe('the first-scan rung', () => {
     expect(screen.getByText(/we will try again/)).toBeInTheDocument();
     // The board IS tracked — a bad first harvest must never present as "not trackable".
     expect(screen.queryByText(/couldn.t read/i)).not.toBeInTheDocument();
+  });
+
+  it('draws a failed first scan CALMLY — no ✕, no red, because there is nothing to do', () => {
+    // THE SAME ANTI-PATTERN AS THE AMBER CHIP, pointing the other way. This rung used to
+    // draw the exact red ✕ a refusal draws, under a chip that said the board was being
+    // tracked — and the scheduler retries tonight on its own, so there is no button, no
+    // URL to change, nothing the reader can do. Alarm chrome over a no-op teaches people
+    // to ignore alarm chrome.
+    renderWithProviders(
+      <DiscoveryChecklist
+        company={company(
+          'unverified',
+          scanning('failed', 'we could not read the board on this run — we will try again'),
+        )}
+      />,
+    );
+    const row = screen.getByTestId('discovery-step-first_scan');
+    expect(within(row).queryByText('✕')).not.toBeInTheDocument();
+    expect(within(row).getByText('○')).toBeInTheDocument();
+    // The reason still shows — only the colour changed.
+    expect(within(row).getByTestId('discovery-result-first_scan')).toHaveTextContent(
+      /we will try again/,
+    );
+  });
+
+  it('leaves the ✕ exactly where it belongs — on a refusal', () => {
+    // The other half: calming the unactionable states must not calm the one state the
+    // reader CAN act on. A refused board keeps its red ✕, and it is the only thing that
+    // says whether the pasted URL was the wrong page.
+    renderWithProviders(<DiscoveryChecklist company={company('refused', REFUSED)} />);
+    expect(
+      within(screen.getByTestId('discovery-step-verify_read')).getByText('✕'),
+    ).toBeInTheDocument();
+  });
+
+  it('spends the alarm colour on the refusal and on nothing else', () => {
+    // The rule, asserted as a comparison rather than against a hard-coded rgb: the one
+    // detail line a reader can act on is a different colour from the one they cannot.
+    // Without this, quietening the retry line and quietening the REFUSAL line look the
+    // same to the suite — which is how a fix for over-alarming turns into under-alarming.
+    const { unmount } = renderWithProviders(
+      <DiscoveryChecklist company={company('refused', REFUSED)} />,
+    );
+    const refusal = getComputedStyle(
+      screen.getByTestId('discovery-result-verify_read'),
+    ).color;
+    unmount();
+
+    renderWithProviders(
+      <DiscoveryChecklist
+        company={company(
+          'unverified',
+          scanning('failed', 'we could not read the board on this run — we will try again'),
+        )}
+      />,
+    );
+    const retry = getComputedStyle(screen.getByTestId('discovery-result-first_scan')).color;
+
+    expect(refusal).not.toBe('');
+    expect(retry).not.toBe('');
+    expect(retry).not.toBe(refusal);
+  });
+});
+
+describe('a partial board, and the rung that used to argue with its chip', () => {
+  // THE CONTRADICTION. Five unqualified ✓s — the last of them reading as complete
+  // success — under a chip saying we only read part of the board. The chip was the
+  // correct one, so the fix is the last rung saying what it actually achieved. Then the
+  // chip corroborates the list instead of looking like a malfunction.
+  const PARTIAL = progress({
+    outcome: 'partial',
+    steps: [
+      step('open_page', 'done', 'opened careers.acme.example — recorded 16 JSON request(s)'),
+      step('find_feed', 'done', 'found 3 candidate feed(s)'),
+      step(
+        'verify_read',
+        'done',
+        "read 20 job(s), but this board's own response counts 22,500 job(s) — we can only " +
+          'track part of this board',
+      ),
+      step('ready', 'done', 'reading part of the board — every job we can see, refreshed daily'),
+      step('first_scan', 'done', 'read 1,000 job(s) from the board'),
+    ],
+  });
+
+  const partialCompany = () =>
+    company('unverified', PARTIAL, { openJobCount: 1_000, lastSuccessAt: null });
+
+  it('marks the LAST rung ◐ and puts the board’s own numbers under it', () => {
+    renderWithProviders(<DiscoveryChecklist company={partialCompany()} />);
+
+    const row = screen.getByTestId('discovery-step-first_scan');
+    expect(within(row).getByText('◐')).toBeInTheDocument();
+    expect(within(row).queryByText('✓')).not.toBeInTheDocument();
+    expect(within(row).getByTestId('discovery-result-first_scan')).toHaveTextContent(
+      "This board's own response counts 22,500 job(s); we can reach 1,000.",
+    );
+  });
+
+  it('leaves the four CAPABILITY rungs as plain ticks', () => {
+    // Every one of them fully succeeded: we opened the page, read jobs, built a scraper,
+    // and are ready to track. Only COVERAGE is partial. Qualifying all five would mark
+    // four true things to fix one false one — and cost the list the scannability it was
+    // cut back to get.
+    renderWithProviders(<DiscoveryChecklist company={partialCompany()} />);
+
+    for (const key of ['open_page', 'find_feed', 'verify_read', 'ready']) {
+      const row = screen.getByTestId(`discovery-step-${key}`);
+      expect(within(row).getByText('✓')).toBeInTheDocument();
+      expect(within(row).queryByText('◐')).not.toBeInTheDocument();
+    }
+    // ...and none of them leaked engine telemetry to get there.
+    expect(screen.queryByText(/JSON request/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/candidate feed/i)).not.toBeInTheDocument();
+  });
+
+  it('never shows the ACCEPTANCE PROBE’s count, which contradicts the row', () => {
+    // The backend's sentence opens with "read 20 job(s)" — the two-page acceptance
+    // probe — on a row whose chip says 1,000 open jobs. Printing it verbatim would
+    // answer one confusion with a worse one.
+    renderWithProviders(<DiscoveryChecklist company={partialCompany()} />);
+    expect(screen.queryByText(/read 20 job/)).not.toBeInTheDocument();
+    // ...and the verdict clause is not repeated under a heading that already says it.
+    expect(screen.getByTestId('discovery-headline')).toHaveTextContent(
+      /we can only read part of acme's board/i,
+    );
+    expect(screen.queryByText(/we can only track part of this board/)).not.toBeInTheDocument();
+  });
+
+  it('keeps its ✓ while the harvest is still running — partial is not known yet', () => {
+    // A partial verdict is decided at DISCOVERY time; the harvest runs afterwards. A ◐
+    // over a count that is still climbing asserts the end of a story mid-sentence.
+    const stillFetching = progress({
+      ...PARTIAL,
+      steps: [...PARTIAL.steps.slice(0, 4), step('first_scan', 'active')],
+    });
+    renderWithProviders(
+      <DiscoveryChecklist company={company('unverified', stillFetching, { openJobCount: 0 })} />,
+    );
+    const row = screen.getByTestId('discovery-step-first_scan');
+    expect(within(row).getByLabelText('in progress')).toBeInTheDocument();
+    expect(within(row).queryByText('◐')).not.toBeInTheDocument();
+    // ...and the heading narrates rather than concluding.
+    expect(screen.getByTestId('discovery-headline')).toHaveTextContent(/fetching acme's jobs/i);
+  });
+
+  it('marks nothing on a board we read WHOLE', () => {
+    const whole = progress({
+      ...PARTIAL,
+      outcome: 'tracking',
+      steps: [...PARTIAL.steps.slice(0, 4), step('first_scan', 'done', 'read 90 job(s)')],
+    });
+    renderWithProviders(<DiscoveryChecklist company={company('unverified', whole)} />);
+    const row = screen.getByTestId('discovery-step-first_scan');
+    expect(within(row).getByText('✓')).toBeInTheDocument();
+    expect(within(row).queryByText('◐')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('discovery-result-first_scan')).not.toBeInTheDocument();
+  });
+});
+
+describe('the accordion', () => {
+  const settled = (overrides: Partial<UserCompany> = {}) =>
+    company('unverified', progress({ outcome: 'tracking', steps: TRACKING.steps }), {
+      openJobCount: 42,
+      lastSuccessAt: '2026-08-22T00:00:00Z',
+      ...overrides,
+    });
+
+  it('is CLOSED on a settled row — one line, and nothing else in the DOM', () => {
+    const { container } = renderWithProviders(<DiscoveryChecklist company={settled()} />);
+
+    expect(screen.getByTestId('discovery-checklist')).toHaveAttribute('data-open', 'false');
+    expect(screen.getByTestId('discovery-headline')).toHaveTextContent(
+      /we can read acme's board/i,
+    );
+    // `unmountOnExit`: the rungs are absent, not hidden. That is what makes it
+    // affordable to keep the evidence on every tracked row forever.
+    expect(screen.queryByTestId('discovery-step-open_page')).not.toBeInTheDocument();
+    expect(container.querySelectorAll('iframe')).toHaveLength(0);
+    expect(screen.getByTestId('discovery-toggle')).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('opens on a click, and closes again', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<DiscoveryChecklist company={settled()} />);
+
+    await user.click(screen.getByTestId('discovery-toggle'));
+    expect(screen.getByTestId('discovery-step-open_page')).toBeInTheDocument();
+    expect(screen.getByTestId('discovery-toggle')).toHaveAttribute('aria-expanded', 'true');
+
+    await user.click(screen.getByTestId('discovery-toggle'));
+    expect(screen.getByTestId('discovery-toggle')).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('is OPEN while the setup is running — the streaming must not happen in a box', () => {
+    renderWithProviders(<DiscoveryChecklist company={company('discovering', RUNNING)} />);
+    expect(screen.getByTestId('discovery-checklist')).toHaveAttribute('data-open', 'true');
+    expect(screen.getByTestId('discovery-step-open_page')).toBeInTheDocument();
+  });
+
+  it('is OPEN on a refusal — the verdict and its one action need no click', () => {
+    renderWithProviders(<DiscoveryChecklist company={company('refused', REFUSED)} />);
+    expect(screen.getByTestId('discovery-checklist')).toHaveAttribute('data-open', 'true');
+    expect(screen.getByTestId('discovery-next-actions')).toBeInTheDocument();
+  });
+
+  it('is OPEN on an accepted board whose first harvest has not landed', () => {
+    // `first_scan` is still spinning; that is the only thing happening and it is the
+    // thing the user is waiting on.
+    renderWithProviders(<DiscoveryChecklist company={company('unverified', TRACKING)} />);
+    expect(screen.getByTestId('discovery-checklist')).toHaveAttribute('data-open', 'true');
+  });
+
+  it('does NOT slam shut when the harvest lands under a reader', () => {
+    // The open state is read ONCE, on mount. A panel that closed itself mid-sentence —
+    // at the exact moment the rung being read ticked over — would be the worst possible
+    // time to take it away.
+    const { rerender } = renderWithProviders(
+      <DiscoveryChecklist company={company('unverified', TRACKING)} />,
+    );
+    expect(screen.getByTestId('discovery-checklist')).toHaveAttribute('data-open', 'true');
+
+    rerender(<DiscoveryChecklist company={settled()} />);
+    expect(screen.getByTestId('discovery-checklist')).toHaveAttribute('data-open', 'true');
+    expect(screen.getByTestId('discovery-step-open_page')).toBeInTheDocument();
   });
 });

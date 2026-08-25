@@ -200,12 +200,28 @@ every import for zero user-visible gain.
 
 **Discovery-progress checklist** (`VITE_DISCOVERY_PROGRESS_ENABLED`, its own flag, default
 off): a non-ATS URL is handed to a one-time backend capture, and the row it creates
-narrates four named steps — *Opening the careers page → Finding the jobs feed → Verifying
-we can read it → Ready to track* — each carrying the specific thing it found ("found 3
-candidate feeds", "read 90 jobs"). Success ends in a job preview; a refusal names the step
-that stopped and offers alternatives (paste the direct board URL / send feedback / remove),
-never a bare retry — discovery is deterministic, so re-running the same URL reproduces the
-same answer.
+narrates five named steps — *Opening the page → Reading jobs → Building web scraper →
+Ready to track → Fetching all current jobs*. The first four are ticked by discovery; the
+fifth is opened by discovery and closed by the **first harvest**, which is a different
+run. A refusal names the step that stopped, carries the reason on it, and offers the ONE
+thing that changes the answer (paste the URL of the actual listings) — never a bare retry,
+because discovery is deterministic and re-running the same URL reproduces the same answer.
+
+- **It is an accordion.** OPEN while something is happening (`discovering`, an accepted
+  board whose first harvest hasn't landed) or something went wrong (`refused`); CLOSED
+  once the row settles, i.e. `lastSuccessAt` is set. `shouldExpandDiscovery` is the whole
+  rule, read once on mount so a landing harvest can't snap the panel shut under a reader.
+  `Collapse` + `unmountOnExit`, so a closed row is one line and *zero* extra DOM.
+- **The evidence is now permanent on every tracked row**, not just partial ones. It used
+  to disappear the moment `lastSuccessAt` was set (a permanent setup receipt is clutter —
+  true while the panel was always expanded). Folded, it costs one line, and the record of
+  *how* we read a board stops looking deleted. Still hidden on `quarantined` (a success
+  receipt under a "Tracking paused" badge contradicts the badge) and on any unknown
+  `healthState`.
+- **A ✓'s `result` is never rendered.** It is engine telemetry ("recorded 14 JSON
+  request(s)"), and one under every rung doubled the length of a list whose job is being
+  scannable. Exactly three rungs carry a line: a ✕ (the reason), a ○ that already tried
+  (`first_scan` failed — see below), and a ◐ (the board's own numbers).
 
 - The step state rides the **existing** `getUserCompanies` payload (`company.discovery`),
   polled by the list that already polls; there is no second channel. The cadence drops to
@@ -220,14 +236,21 @@ same answer.
 - **Flag OFF must render byte-for-byte what shipped before** — the gate lives in
   `MyCompaniesList`, and `MyCompaniesList.test.tsx` pins it against an identical payload.
 - The live-view iframe is optional and absent by default: only a Browserbase capture has a
-  hosted view and the backend runs its own Chromium. When present it is behind a collapsed
-  "Watch live" toggle and `pointer-events: none`.
+  hosted view and the backend runs its own Chromium. When present it opens **expanded**
+  (the session lasts ~30s — a run that ends before the user notices a "Watch live" button
+  showed them nothing) behind a toggle that can put it away, and `pointer-events: none`
+  either way. It unmounts the instant the backend nulls `liveViewUrl` at session release;
+  never infer browser liveness from step state, which is always at least one write behind.
 - **The network log** (`DiscoveryNetworkLog.tsx`) is the evidence under the checklist:
   every JSON request the capture browser recorded, which one we picked, and a sample of
-  the JSON it returned. **Collapsed in every state** — the checklist was deliberately cut
-  back for being busy, so what this adds by default is ONE summary line whose count ticks
-  up while the browser is open (`11 requests so far` → `14 requests · 1 picked`). It
-  renders nothing when nothing was recorded. Backed by `discovery.network` on the same
+  the JSON it returned. **Open by default, and it NARROWS** (one decision, not two):
+  rows landing three and four at a time is the only part of a one-time setup a person can
+  watch, and that was happening inside a closed box — but the moment a request is picked
+  the list becomes that one row plus its JSON, with the discarded ones one caption-sized
+  "Show the other 13 requests" away. Its heading keeps counting them (`11 requests so far`
+  → `14 requests · 1 picked`). A refusal has no winner, so nothing narrows and the whole
+  list stays — that case is why the panel exists. It renders nothing when nothing was
+  recorded. Backed by `discovery.network` on the same
   poll; the backend streams rows as the capture sees them, throttled to at most 12 extra
   writes per run (`capture/discover.py`'s `_MAX_REQUEST_PUBLISHES`).
 - **Nothing secret is published.** No request headers, no cookies, no POST bodies, and
@@ -235,8 +258,37 @@ same answer.
   replaces every query value with `…`, on write AND again on read.
 - Copy + state helpers are pure and live in `components/my-companies/companyHealth.ts`
   (`DISCOVERY_STEP_LABELS` is a `Record` over a CLOSED union, so a backend rename is a
-  compile error here); the components are `DiscoveryChecklist.tsx`,
-  `DiscoveryNetworkLog.tsx` + `DiscoveryJobPreview.tsx`.
+  compile error here); the components are `DiscoveryChecklist.tsx` and
+  `DiscoveryNetworkLog.tsx`.
+
+**Row chips: alarm colour is only for states the reader can act on.** This is a rule, not
+a palette preference — an amber chip promises "this needs you", and spending it on
+something with no available action teaches people to ignore amber everywhere else.
+
+| Row state | Chip | Why |
+| --- | --- | --- |
+| `discovering` | blue `Setting up…` | one-time capture in flight |
+| `unverified`, no `lastSuccessAt` | blue `Fetching all current jobs…` | first harvest hasn't landed; applies to **ATS rows too**, which have no checklist at all |
+| ...and `first_scan` is `failed` | blue `Couldn't fetch yet — retrying` | the scheduler retries tonight; nothing for the reader to do |
+| tracked, whole board | **filled** green `Successfully tracking` | |
+| tracked, `outcome: partial` | **outlined** green `Tracking part of this board` | the board's own API refuses to go further (Amazon hard-refuses `offset + limit > 10000`). Same hue, hollow, different words — separable at a glance without claiming anything is broken |
+| `quarantined` | amber `Tracking paused` | tracking has genuinely stopped; amber is right here |
+| `refused` | red `Not trackable` | |
+
+- A **partial** board is a success — every job it can see is refreshed daily and none is
+  ever closed. It used to be amber, sitting directly above five green ticks, and the row
+  read as a malfunction. The fix is two-sided: the chip stops shouting, AND the last rung
+  stops claiming it fetched everything (`◐` + `describePartialScope`, which lifts the
+  board's own count out of `verify_read`'s prose and pairs it with `openJobCount`). The
+  chip now corroborates the list instead of contradicting it.
+- **A row mid-fetch must never claim partiality.** The verdict is decided at discovery
+  time and the harvest runs afterwards, so `outcome: 'partial'` genuinely exists over a
+  count that is still climbing — asserting the end of a story mid-sentence, right above
+  the number a reader would check it against.
+- **Known gap:** an ATS row has no signal on the wire distinguishing "added ten seconds
+  ago" from "has failed every night this week" (no created-at, no last-attempt). A
+  discovered row does (`first_scan: failed`). The backstop is the backend's own —
+  repeated failures quarantine the row.
 
 **Env vars** (go in `src/frontend/.env.local` — see Gotcha #2):
 - `VITE_CUSTOM_COMPANIES_ENABLED` — set to exactly `true` to show the Add Companies page

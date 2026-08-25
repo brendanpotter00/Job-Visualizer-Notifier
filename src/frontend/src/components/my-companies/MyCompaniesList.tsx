@@ -166,7 +166,16 @@ function CompanyRow({
             useFlexGap
             sx={{ mt: 0.5 }}
           >
-            <Chip size="small" color={badge.color} label={badge.label} />
+            {/* `variant` carries the one qualifier colour is not allowed to carry: a
+                hollow green chip is a board we track incompletely, and it must not
+                borrow the amber that means "something needs you" for a permanent
+                property of someone else's API. See `describeCompanyHealth`. */}
+            <Chip
+              size="small"
+              color={badge.color}
+              variant={badge.variant ?? 'filled'}
+              label={badge.label}
+            />
             <Typography variant="body2" color="text.secondary">
               {company.openJobCount.toLocaleString()}{' '}
               {company.openJobCount === 1 ? 'open job' : 'open jobs'}

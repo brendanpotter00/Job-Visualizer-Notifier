@@ -71,10 +71,15 @@ describe('MyCompaniesList', () => {
     const rows = await screen.findAllByTestId('my-company-row');
     expect(rows).toHaveLength(2);
 
-    // Company A: unverified badge, 0 open jobs, never checked.
+    // Company A: added but NOT yet scraped. It used to say "Successfully tracking" over
+    // "0 open jobs" and "Not yet checked", which is three lines on one row disagreeing
+    // with each other. An ATS board has no discovery checklist, so this chip is the only
+    // thing that can say a first scan is in flight — since `853457f` that window is ~20s
+    // rather than ~15min, but a green success chip is a lie for as long as it lasts.
     const rowA = rows[0];
     expect(within(rowA).getByText('Duolingo')).toBeInTheDocument();
-    expect(within(rowA).getByText('Successfully tracking')).toBeInTheDocument();
+    expect(within(rowA).getByText('Fetching all current jobs…')).toBeInTheDocument();
+    expect(within(rowA).queryByText('Successfully tracking')).not.toBeInTheDocument();
     expect(within(rowA).getByText(/0 open jobs/i)).toBeInTheDocument();
     expect(within(rowA).getByText(/not yet checked/i)).toBeInTheDocument();
     // Links to the private trend page by runtime id.
@@ -83,8 +88,9 @@ describe('MyCompaniesList', () => {
       '/add-companies/u-aaaaaaaaaa'
     );
 
-    // Company B: has a job count and a last-checked timestamp.
+    // Company B: harvested. NOW it says it is tracking, in green.
     const rowB = rows[1];
+    expect(within(rowB).getByText('Successfully tracking')).toBeInTheDocument();
     expect(within(rowB).getByText(/42 open jobs/i)).toBeInTheDocument();
     expect(within(rowB).getByText(/last checked/i)).toBeInTheDocument();
   });
@@ -367,6 +373,8 @@ describe('MyCompaniesList discovery checklist', () => {
     // asserted here rather than assumed, because "inside" is a fact about one import.
     expect(screen.queryByTestId('discovery-network')).not.toBeInTheDocument();
     expect(screen.queryByText(/requests so far/)).not.toBeInTheDocument();
+    // ...and the accordion the checklist now lives in adds no toggle either.
+    expect(screen.queryByTestId('discovery-toggle')).not.toBeInTheDocument();
   });
 
   it('polls faster than 15s while a discovery is mid-run (flag ON)', async () => {
@@ -451,7 +459,13 @@ describe('MyCompaniesList discovery checklist', () => {
     expect(within(row).getByTestId('my-company-remove')).toBeInTheDocument();
   });
 
-  it('drops the success summary once the first harvest lands (flag ON)', async () => {
+  it('FOLDS the summary once the first harvest lands, instead of deleting it (flag ON)', async () => {
+    // THE RULE THAT CHANGED. The panel used to vanish on `lastSuccessAt`, because a
+    // permanent setup receipt is clutter — true while it was always expanded. Folded, a
+    // settled row costs one line, and in exchange the record of how we read this board
+    // stops disappearing. (It never was deleted: the blob sits in `provider_config` and
+    // survives every reload. But a panel that vanishes is indistinguishable from data
+    // that was thrown away, and that is exactly how the owner read it.)
     const tracked: UserCompany = {
       ...DISCOVERING_WITH_CHECKLIST,
       healthState: 'unverified',
@@ -462,14 +476,98 @@ describe('MyCompaniesList discovery checklist', () => {
     fetchMock.mockResolvedValue(jsonResponse({ companies: [tracked] }));
     await renderListWithFlag(true);
 
-    await screen.findByTestId('my-company-row');
-    expect(screen.queryByTestId('discovery-checklist')).not.toBeInTheDocument();
+    const row = await screen.findByTestId('my-company-row');
+    // Reachable...
+    expect(within(row).getByTestId('discovery-checklist')).toHaveAttribute(
+      'data-open',
+      'false'
+    );
+    expect(within(row).getByTestId('discovery-headline')).toHaveTextContent(
+      /we can read acme's board/i
+    );
+    // ...and costing nothing while it is closed: `unmountOnExit` means the rungs, the
+    // request rows and any iframe are not in the DOM at all, not merely hidden.
+    expect(within(row).queryByText('Opening the page')).not.toBeInTheDocument();
+    expect(within(row).queryByTestId('discovery-network')).not.toBeInTheDocument();
   });
 
-  it('drops the success summary on a harvested board that has zero open jobs', async () => {
-    // A tracked board can genuinely have no roles today. Keying the receipt on the job
-    // count resurrected it — a green "We can read Acme's board" over a "0 open jobs"
-    // chip, linking to postings the harvest had just proved gone.
+  it('opens on one click, showing the steps and the request we picked', async () => {
+    // "Can you make all the cards accordions with all the different steps that were
+    // completed? The request that was chosen and the job stuff."
+    const tracked: UserCompany = {
+      ...DISCOVERING_WITH_CHECKLIST,
+      healthState: 'unverified',
+      openJobCount: 42,
+      lastSuccessAt: '2026-08-20T11:00:00Z',
+      discovery: { ...DISCOVERING_WITH_CHECKLIST.discovery!, outcome: 'tracking' },
+    };
+    fetchMock.mockResolvedValue(jsonResponse({ companies: [tracked] }));
+    const user = userEvent.setup();
+    await renderListWithFlag(true);
+
+    const row = await screen.findByTestId('my-company-row');
+    await user.click(within(row).getByTestId('discovery-toggle'));
+
+    expect(within(row).getByText('Opening the page')).toBeInTheDocument();
+    expect(within(row).getByTestId('discovery-network')).toBeInTheDocument();
+  });
+
+  it('renders a partial board as a HOLLOW green chip, beside a solid green one', async () => {
+    // The whole "distinguishable at a glance" claim, asserted on the rendered row rather
+    // than on the helper that decides it: same hue, different weight. `describeCompanyHealth`
+    // can return `variant: 'outlined'` all it likes if the row never passes it to the Chip.
+    const partial: UserCompany = {
+      ...DISCOVERING_WITH_CHECKLIST,
+      id: 'u-partial0001',
+      healthState: 'unverified',
+      openJobCount: 1_000,
+      lastSuccessAt: '2026-08-20T11:00:00Z',
+      discovery: {
+        ...DISCOVERING_WITH_CHECKLIST.discovery!,
+        outcome: 'partial',
+        steps: [
+          { key: 'open_page', status: 'done', result: null },
+          { key: 'find_feed', status: 'done', result: null },
+          {
+            key: 'verify_read',
+            status: 'done',
+            result:
+              "read 20 job(s), but this board's own response counts 22,500 job(s) — we can only track part of this board",
+          },
+          { key: 'ready', status: 'done', result: null },
+          { key: 'first_scan', status: 'done', result: 'read 1,000 job(s) from the board' },
+        ],
+      },
+    };
+    const whole: UserCompany = {
+      ...partial,
+      id: 'u-whole00001',
+      openJobCount: 90,
+      discovery: { ...partial.discovery!, outcome: 'tracking' },
+    };
+    fetchMock.mockResolvedValue(jsonResponse({ companies: [partial, whole] }));
+    await renderListWithFlag(true);
+
+    const rows = await screen.findAllByTestId('my-company-row');
+    const partialChip = within(rows[0]).getByText('Tracking part of this board')
+      .parentElement as HTMLElement;
+    const wholeChip = within(rows[1]).getByText('Successfully tracking')
+      .parentElement as HTMLElement;
+
+    expect(partialChip.className).toMatch(/MuiChip-outlined/);
+    expect(wholeChip.className).toMatch(/MuiChip-filled/);
+    // ...and NOT amber. Amber promises the reader something to do; this board's cap is
+    // its own API's, permanently, and there is nothing to do.
+    expect(partialChip.className).toMatch(/Success/);
+    expect(partialChip.className).not.toMatch(/Warning/);
+  });
+
+  it('keeps the evidence on a harvested board that has zero open jobs', async () => {
+    // A tracked board can genuinely have no roles today. That used to be a reason to
+    // delete the receipt (a green "We can read Acme's board" over a "0 open jobs" chip
+    // read as a contradiction) — but the receipt is now one collapsed line making no
+    // claim about today's postings, and the job preview that DID link to stale jobs was
+    // cut long ago.
     const tracked: UserCompany = {
       ...DISCOVERING_WITH_CHECKLIST,
       healthState: 'unverified',
@@ -482,7 +580,10 @@ describe('MyCompaniesList discovery checklist', () => {
 
     const row = await screen.findByTestId('my-company-row');
     expect(within(row).getByText(/0 open jobs/i)).toBeInTheDocument();
-    expect(screen.queryByTestId('discovery-checklist')).not.toBeInTheDocument();
+    expect(within(row).getByTestId('discovery-checklist')).toHaveAttribute(
+      'data-open',
+      'false'
+    );
   });
 
   it('drops back to the 15s cadence once a discovering row goes stale (flag ON)', async () => {

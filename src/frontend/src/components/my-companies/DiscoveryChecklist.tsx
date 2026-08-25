@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
+import ButtonBase from '@mui/material/ButtonBase';
 import CircularProgress from '@mui/material/CircularProgress';
 import Collapse from '@mui/material/Collapse';
 import Link from '@mui/material/Link';
@@ -18,23 +19,77 @@ import type {
 import {
   describeDiscoveryOutcome,
   describeDiscoveryStep,
+  describePartialScope,
   failedDiscoveryStep,
   resolveDiscoveryOutcome,
+  shouldExpandDiscovery,
   watchableLiveViewUrl,
 } from './companyHealth';
 
-/** Status glyph per step. Text, not icons, so the state survives a screenshot. */
-const STEP_MARK: Record<DiscoveryStep['status'], string> = {
+/**
+ * How a rung DRAWS, which is the wire status plus one state the wire has no word for.
+ *
+ * `partial` is "this rung did its job, and its job was not all of the board" — a ✓ that
+ * is true about the work and false about the coverage. It is a rendering fact, not a
+ * step status: the backend settles `first_scan` as plain `done` (the harvest ran, it
+ * stored what it could) and the shortfall is a property of the whole RUN. Keeping it out
+ * of `DiscoveryStepStatus` keeps that union the backend's contract.
+ */
+type RenderedStatus = DiscoveryStep['status'] | 'partial' | 'waiting';
+
+/**
+ * Status glyph per step. Text, not icons, so the state survives a screenshot.
+ *
+ * `◐` for partial, and the shape is the whole message: a half-filled circle beside four
+ * ✓s reads as "this one got some of the way" without a legend, and — unlike a ✕ — makes
+ * no claim that anything failed. Nothing here did.
+ *
+ * `waiting` borrows `pending`'s empty circle because that is what it is: a rung we have
+ * not got past yet, which will be tried again tonight without anyone doing anything. Its
+ * caption is the difference — "not yet, and here's why" rather than a silent ○.
+ */
+const STEP_MARK: Record<RenderedStatus, string> = {
   pending: '○',
   active: '',
   done: '✓',
+  partial: '◐',
+  waiting: '○',
   failed: '✕',
 };
 
-const STEP_COLOR: Record<DiscoveryStep['status'], string> = {
+/**
+ * `partial` stays in the SUCCESS colour, same as `done`. The board is being tracked and
+ * there is nothing to fix — Amazon's API hard-refuses `offset + limit > 10000` — so the
+ * shortfall is carried by the glyph's shape and the sentence under it, never by an alarm
+ * colour. Same decision as the chip on the row above (see `describeCompanyHealth`).
+ *
+ * `waiting` is grey for the same reason in the other direction: a first harvest that
+ * failed on a TRACKED board is not an error the reader owns. See `renderedStatus`.
+ */
+const STEP_COLOR: Record<RenderedStatus, string> = {
   pending: 'text.disabled',
   active: 'text.primary',
   done: 'success.main',
+  partial: 'success.main',
+  waiting: 'text.disabled',
+  failed: 'error.main',
+};
+
+/**
+ * Colour for the ONE line a rung is allowed under it — and the whole point is that only
+ * a genuine ✕ gets `error.main`.
+ *
+ * The rule this encodes: alarm colour is for a state the reader can do something about.
+ * A refusal qualifies (the pasted URL was probably the wrong page, and `NextActions`
+ * says so). A partial board and a first scan that will retry tonight do not, and
+ * dressing them in red or amber is telling someone to act when there is no act.
+ */
+const STEP_DETAIL_COLOR: Record<RenderedStatus, string> = {
+  pending: 'text.secondary',
+  active: 'text.secondary',
+  done: 'text.secondary',
+  partial: 'text.secondary',
+  waiting: 'text.secondary',
   failed: 'error.main',
 };
 
@@ -170,19 +225,69 @@ function LiveView({ url }: { url: string | null }) {
  * A terminal run therefore draws a leftover `active` step as `pending`: the rung we never
  * got past, not a rung still in flight.
  */
-function renderedStatus(
-  step: DiscoveryStep,
-  outcome: DiscoveryOutcomeState,
-): DiscoveryStep['status'] {
+function renderedStatus(step: DiscoveryStep, outcome: DiscoveryOutcomeState): RenderedStatus {
   // `first_scan` is settled by the FIRST HARVEST, a different run that starts after
   // discovery has already reached its terminal outcome ('tracking'/'partial'). So it is
   // the one rung that is legitimately `active` while the outcome is not `running`, and
   // downgrading it would draw a grey circle over the only thing still happening.
-  if (step.key === 'first_scan') return step.status;
+  if (step.key === 'first_scan') {
+    // THE RUNG THE CHIP WAS ARGUING WITH. On a partial board this one says "Fetching all
+    // current jobs" and it did not fetch all of them — a plain ✓ here is the reason five
+    // green ticks sat under a chip saying we only read part of the board, and the reason
+    // the chip read as a malfunction. ONLY this rung: the four above it are about
+    // CAPABILITY (we opened the page, we read jobs, we built a scraper, we're ready) and
+    // every one of them fully succeeded. This one is about COVERAGE, and coverage is what
+    // is partial. Marking all five would qualify four true things to fix one false one,
+    // and would cost the list the scannability it was cut back to get.
+    if (step.status === 'done' && outcome === 'partial') return 'partial';
+    // A FIRST HARVEST THAT FAILED IS NOT AN ERROR THE READER OWNS, and it used to draw
+    // the same red ✕ a refusal draws — under a chip that said "Successfully tracking",
+    // which is the badge-versus-rungs contradiction again, pointing the other way. The
+    // board is tracked, the scheduler retries tonight, and there is no button, no URL to
+    // change, nothing. So it renders as the rung we have not got past yet, with the
+    // backend's own "we will try again" underneath it in plain grey.
+    //
+    // ONLY on a run that was not refused: a refusal genuinely is red, and its ✕ is the
+    // one thing that tells the reader their pasted URL was the wrong page.
+    if (step.status === 'failed' && outcome !== 'refused') return 'waiting';
+    return step.status;
+  }
   return outcome !== 'running' && step.status === 'active' ? 'pending' : step.status;
 }
 
-function StepRow({ step, status }: { step: DiscoveryStep; status: DiscoveryStep['status'] }) {
+/**
+ * The ONE line a rung may carry under its label, or null for the usual silence.
+ *
+ * Three sources, one slot, so no rung can ever show two:
+ *  - `failed` / `waiting` — the step's own `result`, which is the reason. On the ✕ it
+ *    says whether the board is unreadable or the pasted URL was the wrong page; on the ○
+ *    it says why tonight's harvest came back empty.
+ *  - `partial` — the board's own numbers (`describePartialScope`), which is the entire
+ *    content of the claim the chip above makes.
+ *  - everything else — nothing. A ✓'s `result` is engine telemetry ("recorded 14 JSON
+ *    request(s)", "found 3 candidate feed(s)"): it names our internals rather than
+ *    anything the reader can act on, and one under every rung turned a 5-line list into
+ *    a 10-line one.
+ */
+function stepDetail(
+  step: DiscoveryStep,
+  status: RenderedStatus,
+  scope: string | null,
+): string | null {
+  if (status === 'partial') return scope;
+  if (status === 'failed' || status === 'waiting') return step.result;
+  return null;
+}
+
+function StepRow({
+  step,
+  status,
+  detail,
+}: {
+  step: DiscoveryStep;
+  status: RenderedStatus;
+  detail?: string | null;
+}) {
   const mark = STEP_MARK[status] ?? '○';
   return (
     <Stack direction="row" spacing={1} alignItems="flex-start" data-testid={`discovery-step-${step.key}`}>
@@ -203,20 +308,17 @@ function StepRow({ step, status }: { step: DiscoveryStep; status: DiscoveryStep[
         >
           {describeDiscoveryStep(step)}
         </Typography>
-        {/* The step's `result` is rendered ONLY on the ✕, where it is the error message.
-            On a ✓ it is engine telemetry — "recorded 14 JSON request(s)", "found 3
-            candidate feed(s)" — which named our internals rather than anything the reader
-            can act on, and put a second line of jargon under every rung of a list whose
-            whole job is being scannable. On the failed step it is the one thing that says
-            whether this board is unreadable or the pasted URL was the wrong page. */}
-        {status === 'failed' && step.result ? (
+        {/* One slot, one line, whatever fed it — see `stepDetail`. The COLOUR is the
+            decision here: alarm red only on a genuine ✕, because that is the only one of
+            these the reader can do anything about. */}
+        {detail ? (
           <Typography
             variant="caption"
-            color="error.main"
+            color={STEP_DETAIL_COLOR[status] ?? 'text.secondary'}
             sx={{ display: 'block', overflowWrap: 'anywhere' }}
             data-testid={`discovery-result-${step.key}`}
           >
-            {step.result}
+            {detail}
           </Typography>
         ) : null}
       </Box>
@@ -263,17 +365,30 @@ interface DiscoveryChecklistProps {
 }
 
 /**
- * The 4-step discovery checklist that replaced the "Setting up…" spinner.
+ * The 5-step discovery checklist that replaced the "Setting up…" spinner — now an
+ * ACCORDION, headed by the one sentence that says how the board turned out.
  *
  * Because the capture engine's steps are deterministic and known before the run
  * starts, they can be named up front and ticked off as they land: opening the page →
- * reading jobs → building web scraper → ready to track.
+ * reading jobs → building web scraper → ready to track → fetching all current jobs.
  *
- * ONE heading, four rungs, and — on a refusal only — the reason and the one action
+ * ONE heading, five rungs, and — on a refusal only — the reason and the one action
  * that changes it. The version before this said the same thing four times over: a
  * headline, a one-line ✓/✕ chain of the same steps, the steps themselves with a line
  * of engine telemetry under each, and a three-bullet "What you can do". Everything a
  * reader cannot act on has been cut; what is left is the narration and the error.
+ *
+ * THE ACCORDION IS WHAT LETS THE EVIDENCE STAY. This panel used to delete itself the
+ * moment the first harvest landed, because a permanent setup receipt on every row is
+ * clutter — and it was, while it was always expanded. Folded, a settled row costs one
+ * line, and in exchange the record of HOW we read a board (which request we picked out
+ * of sixteen, the JSON it returned) stops vanishing. It never was deleted server-side;
+ * it is 5 KB sitting in `provider_config->'discovery'` surviving every reload, and a
+ * panel that disappears is indistinguishable from data that was thrown away.
+ *
+ * OPEN while something is still happening or something went wrong, CLOSED once the row
+ * has settled — `shouldExpandDiscovery` is the whole of that rule, and it is read once
+ * on mount so nothing snaps shut under a reader.
  *
  * Then, in order: the live view while there is a browser to watch, and under it the
  * network log (`DiscoveryNetworkLog`) — open, streaming, and narrowing to the one
@@ -304,6 +419,11 @@ interface DiscoveryChecklistProps {
  * instead of guessing at it from the checklist.
  */
 export function DiscoveryChecklist({ company }: DiscoveryChecklistProps) {
+  // READ ONCE, on mount. `shouldExpandDiscovery` flips when the first harvest lands, and
+  // a panel that slammed shut under a reader mid-sentence — while they watched the rung
+  // it belongs to tick over — would be the worst possible moment to take it away. The
+  // initial value decides; after that the panel is the reader's.
+  const [open, setOpen] = useState(() => shouldExpandDiscovery(company));
   const discovery = company.discovery;
   if (!discovery) {
     return null;
@@ -311,6 +431,7 @@ export function DiscoveryChecklist({ company }: DiscoveryChecklistProps) {
 
   const outcome = resolveDiscoveryOutcome(company);
   const failed = failedDiscoveryStep(discovery);
+  const scope = describePartialScope(company);
 
   return (
     <Paper
@@ -318,55 +439,103 @@ export function DiscoveryChecklist({ company }: DiscoveryChecklistProps) {
       sx={{ mt: 1.5, p: 1.5, bgcolor: 'action.hover' }}
       data-testid="discovery-checklist"
       data-outcome={outcome}
+      data-open={open ? 'true' : 'false'}
     >
-      <Typography variant="subtitle2" gutterBottom data-testid="discovery-headline">
-        {describeDiscoveryOutcome(company)}
-      </Typography>
+      {/* THE SUMMARY, and the whole of a settled row. Same caret and same ButtonBase as
+          `DiscoveryNetworkLog`'s own toggle one level down, so the panel reads as one
+          system of disclosures rather than two components that each invented a chevron.
+          The heading is the summary — there is no second "Setup details" vocabulary to
+          learn, and the line a collapsed row keeps forever is the one sentence that says
+          how this board turned out. */}
+      <ButtonBase
+        onClick={() => setOpen((isOpen) => !isOpen)}
+        aria-expanded={open}
+        data-testid="discovery-toggle"
+        sx={{
+          width: '100%',
+          justifyContent: 'flex-start',
+          alignItems: 'flex-start',
+          borderRadius: 1,
+          px: 0.5,
+          py: 0.25,
+          textAlign: 'left',
+          // On a settled row this line IS the panel, so it has to read as pressable. The
+          // caret alone is the affordance one level down, where the log sits inside an
+          // already-open box; out here it is the only control and gets a hover ground
+          // too. `action.selected` because the Paper under it is already `action.hover`.
+          '&:hover': { bgcolor: 'action.selected' },
+        }}
+      >
+        <Typography
+          component="span"
+          aria-hidden
+          sx={{ mr: 0.75, color: 'text.secondary', fontSize: '0.7rem', lineHeight: 1.9 }}
+        >
+          {open ? '▾' : '▸'}
+        </Typography>
+        <Typography variant="subtitle2" data-testid="discovery-headline">
+          {describeDiscoveryOutcome(company)}
+        </Typography>
+      </ButtonBase>
 
-      <Stack spacing={0.75}>
-        {discovery.steps.map((step) => (
-          <StepRow key={step.key} step={step} status={renderedStatus(step, outcome)} />
-        ))}
-      </Stack>
+      {/* `unmountOnExit`: a closed row is NOTHING, not a hidden checklist plus forty
+          hidden request nodes plus an iframe still holding someone else's browser
+          session. That is what makes it affordable to keep the evidence on every tracked
+          row forever (`shouldShowDiscovery`) — the cost of a settled row is one line. */}
+      <Collapse in={open} unmountOnExit>
+        <Stack spacing={0.75} sx={{ mt: 0.75 }}>
+          {discovery.steps.map((step) => {
+            const status = renderedStatus(step, outcome);
+            return (
+              <StepRow
+                key={step.key}
+                step={step}
+                status={status}
+                detail={stepDetail(step, status, scope)}
+              />
+            );
+          })}
+        </Stack>
 
-      {outcome === 'refused' ? (
-        <>
-          {/* A timeout fails no step, so there is nothing to name — say that plainly
-              rather than leaving the user staring at four unresolved rungs. */}
-          {failed === null ? (
-            <Typography
-              variant="body2"
-              color="error.main"
-              sx={{ mt: 1.5 }}
-              data-testid="discovery-stalled"
-            >
-              This setup stopped before it could finish.
-            </Typography>
-          ) : null}
-          <NextActions boardUrl={company.boardToken} />
-        </>
-      ) : null}
+        {outcome === 'refused' ? (
+          <>
+            {/* A timeout fails no step, so there is nothing to name — say that plainly
+                rather than leaving the user staring at four unresolved rungs. */}
+            {failed === null ? (
+              <Typography
+                variant="body2"
+                color="error.main"
+                sx={{ mt: 1.5 }}
+                data-testid="discovery-stalled"
+              >
+                This setup stopped before it could finish.
+              </Typography>
+            ) : null}
+            <NextActions boardUrl={company.boardToken} />
+          </>
+        ) : null}
 
-      {/* Rendered UNCONDITIONALLY, and empty until there is something to watch. The
+        {/* Rendered UNCONDITIONALLY, and empty until there is something to watch. The
           section owns its own exit animation, so it has to outlive the URL that feeds
           it by the length of that animation — a `{url ? <LiveView/> : null}` here would
           tear the whole subtree out before it could play, which is the snap it exists
-          to avoid. With no URL it renders nothing at all. */}
-      <LiveView url={watchableLiveViewUrl(company)} />
+            to avoid. With no URL it renders nothing at all. */}
+        <LiveView url={watchableLiveViewUrl(company)} />
 
-      {/* THE EVIDENCE, UNDER the live view — which is the ordering, not an accident.
+        {/* THE EVIDENCE, UNDER the live view — which is the ordering, not an accident.
           While a browser is open the frame is the headline (it is the thing the user
           can literally watch) and the requests are what that browser is producing, so
           they read as the record beneath it. With the log above, the frame kept getting
           pushed down the page by rows arriving underneath the reader's eye.
 
-          Below the refusal copy for the same reason: on a refusal there is no live view
-          at all, the reader needs the verdict and the one action that changes it first,
-          and the log is what they read when that action does not obviously apply to
-          their board. It renders nothing until the capture has recorded a request, so a
-          run that has not opened the page yet — and a page that never fetched any JSON
-          — adds no line and reserves no space. */}
-      <DiscoveryNetworkLog company={company} />
+            Below the refusal copy for the same reason: on a refusal there is no live view
+            at all, the reader needs the verdict and the one action that changes it first,
+            and the log is what they read when that action does not obviously apply to
+            their board. It renders nothing until the capture has recorded a request, so a
+            run that has not opened the page yet — and a page that never fetched any JSON
+            — adds no line and reserves no space. */}
+        <DiscoveryNetworkLog company={company} />
+      </Collapse>
     </Paper>
   );
 }
