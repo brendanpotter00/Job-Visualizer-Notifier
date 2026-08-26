@@ -878,6 +878,14 @@ class WorkerHeartbeat(Base):
     at = Column(
         TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
     )
+    # Which worker lane wrote this tick: 'bulk' or 'interactive'. There are two
+    # workers (see `_BULK_QUEUES` / `_INTERACTIVE_QUEUES` in api.main), and one
+    # can die while the other stays healthy. With a single undifferentiated
+    # stream, /health/worker would have stayed green on the survivor's ticks and
+    # the dead lane would have gone unnoticed — which is precisely how a dead
+    # worker went unnoticed for 14 hours on 2026-08-26. Server default 'bulk' so
+    # rows written by an older deploy mid-rollout are attributed correctly.
+    lane = Column(Text, nullable=False, server_default="bulk")
 
     __table_args__ = (
         # Plain ASC btree — Postgres' planner uses it for both
@@ -885,6 +893,9 @@ class WorkerHeartbeat(Base):
         # `at < now() - interval '24h'` (the cleanup task) with a
         # forward or backward scan. No DESC needed.
         Index("idx_worker_heartbeats_at", "at"),
+        # Per-lane freshness for /health/worker's
+        # `MAX(at) FILTER (WHERE lane = ...)`.
+        Index("idx_worker_heartbeats_lane_at", "lane", "at"),
     )
 
 

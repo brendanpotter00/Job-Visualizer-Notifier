@@ -46,7 +46,7 @@ from scripts.shared import database as db
 
 from ..config import settings
 from .fetch_custom_company import fetch_custom_company
-from .procrastinate_app import procrastinate_app
+from .procrastinate_app import CUSTOM_ATS_FIRST_FETCH_QUEUE, procrastinate_app
 
 logger = logging.getLogger(__name__)
 
@@ -170,7 +170,7 @@ def _claim_due_companies(conn: psycopg2.extensions.connection, limit: int) -> li
 DeferResult = Literal["deferred", "already_queued", "failed"]
 
 
-async def defer_fetch(company_id: str) -> DeferResult:
+async def defer_fetch(company_id: str, *, queue: str | None = None) -> DeferResult:
     """Enqueue ONE ``fetch_custom_company`` under the per-company queueing lock.
 
     THE single place a custom harvest is enqueued (the claim tick, and both add paths'
@@ -179,6 +179,14 @@ async def defer_fetch(company_id: str) -> DeferResult:
     ``todo``:
     Procrastinate rejects the second defer with ``AlreadyEnqueued``, which is a normal
     outcome here and not an error.
+
+    ``queue`` overrides the task's declared queue for THIS defer only. The claim tick
+    passes nothing and lands on ``custom_ats_fetch`` (the bulk lane). The add-time
+    first harvest passes ``CUSTOM_ATS_FIRST_FETCH_QUEUE`` so a user watching the
+    add checklist is not queued behind the nightly re-harvest of every other tracked
+    board. The queueing lock is a UNIQUE index on ``queueing_lock`` across all
+    unfinished jobs regardless of queue, so routing the first harvest elsewhere does
+    NOT weaken the "never two concurrent harvests of one board" interlock.
 
     Three outcomes, because the two callers need to distinguish them:
 
@@ -190,9 +198,16 @@ async def defer_fetch(company_id: str) -> DeferResult:
       a state that says the harvest is scheduled.
     """
     try:
-        await fetch_custom_company.configure(
-            queueing_lock=f"custom:{company_id}",
-        ).defer_async(company_id=company_id)
+        deferrer = (
+            fetch_custom_company.configure(
+                queueing_lock=f"custom:{company_id}", queue=queue
+            )
+            if queue is not None
+            else fetch_custom_company.configure(
+                queueing_lock=f"custom:{company_id}"
+            )
+        )
+        await deferrer.defer_async(company_id=company_id)
         return "deferred"
     except procrastinate_exceptions.AlreadyEnqueued:
         logger.info(
@@ -223,7 +238,11 @@ async def start_first_harvest(
 
     1. :func:`defer_fetch` — same per-company queueing lock ``custom:{id}``. If the tick
        somehow already queued this company, Procrastinate answers ``already_queued`` and
-       we do not add a second job.
+       we do not add a second job. The ONE thing that differs from the tick's defer is
+       the queue: this one goes to ``CUSTOM_ATS_FIRST_FETCH_QUEUE``, drained by the
+       reserved interactive worker in ``api.main``'s lifespan, because a user is
+       watching the add checklist's fifth step wait on exactly this job. The nightly
+       re-harvests stay on ``custom_ats_fetch`` in the bulk lane.
     2. :func:`push_next_run_at` — moves the row's ``next_run_at`` a full cadence ± jitter
        ahead, but ONLY once the defer is on the broker. That is the real interlock: the
        15-minute tick selects on ``next_run_at <= now()``, so a rescheduled row is not
@@ -260,7 +279,9 @@ async def start_first_harvest(
         return
 
     try:
-        result = await defer_fetch(company_id)
+        result = await defer_fetch(
+            company_id, queue=CUSTOM_ATS_FIRST_FETCH_QUEUE
+        )
     except Exception:  # noqa: BLE001
         # ``defer_fetch`` already narrows to broker/database errors; this is the
         # last-resort guard so no enqueue surprise can cost us a company that is

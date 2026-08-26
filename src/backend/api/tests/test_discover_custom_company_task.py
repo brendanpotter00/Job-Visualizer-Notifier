@@ -479,7 +479,10 @@ def _record_defers(monkeypatch, result: str = "deferred") -> list[str]:
     """
     calls: list[str] = []
 
-    async def _defer(company_id: str) -> str:
+    # **kwargs absorbs the `queue=` the first-harvest path now passes so it can
+    # land on the reserved interactive lane; which queue it targets is asserted
+    # in test_worker_lanes.py, not here.
+    async def _defer(company_id: str, **_kwargs: object) -> str:
         calls.append(company_id)
         return result
 

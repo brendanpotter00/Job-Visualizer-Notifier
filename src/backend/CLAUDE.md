@@ -200,7 +200,7 @@ All configuration via environment variables:
 
 **Health:**
 - `GET /health` - Health check (returns "OK" 200, or "UNAVAILABLE" 503 if pool is down)
-- `GET /health/worker` - Procrastinate worker liveness probe; checks `procrastinate_events` and `worker_heartbeats` freshness windows; returns 200 OK or 503; used as Railway's `healthcheckPath`
+- `GET /health/worker` - Procrastinate worker liveness probe; checks `procrastinate_events` freshness, combined `worker_heartbeats` freshness, **and each lane's own heartbeat freshness** (`lanes` + `stale_lanes` in the payload name which worker is dead); returns 200 OK or 503; used as Railway's `healthcheckPath`
 
 ## Key Files
 
@@ -259,8 +259,8 @@ src/backend/api/
 │   ├── lever_client.py      # Lever ATS HTTP client
 │   └── workday_client.py    # Workday ATS HTTP client
 └── tasks/
-    ├── procrastinate_app.py         # Procrastinate App instance + schema setup
-    ├── heartbeat.py                 # Heartbeat task (liveness probe for /health/worker)
+    ├── procrastinate_app.py         # Procrastinate App instance (explicit pool sizing — two workers each pin a LISTEN connection) + schema setup + CUSTOM_ATS_FIRST_FETCH_QUEUE
+    ├── heartbeat.py                 # Per-lane heartbeat tasks (bulk + interactive) backing /health/worker
     ├── enqueue_*_fan_out.py (×6)    # Fan-out tasks: enqueue per-company fetch for each ATS
     ├── fetch_*_company.py (×6)      # Leaf tasks: fetch + upsert one company's jobs
     ├── normalize_location.py        # Leaf task: normalize one job's free-text location via Claude Haiku
@@ -298,9 +298,12 @@ anti-join invariants the `/api/jobs` INNER JOIN depends on — runbook in
 
 - **Database**: Connection pool managed by `dependencies.py`; table naming reused from `scripts/shared/database.py`
 - **Response serialization**: Pydantic models with `alias_generator=to_camel` produce camelCase JSON matching frontend expectations
-- **Background workers**: Two workers run in the FastAPI lifespan context:
-  1. **Procrastinate worker** (`tasks/procrastinate_app.py`) — drains the Procrastinate job queue; handles Greenhouse, Ashby, Lever, Gem, Eightfold, and Workday ATS companies via fan-out + per-company fetch tasks. Supervised with auto-restart on crash.
-  2. **Auto-scraper loop** (`services/auto_scraper.py`) — asyncio task that periodically spawns subprocesses for the script-ats scrapers (Google, Apple, Microsoft, Amazon, TikTok).
+- **Background workers**: Three tasks run in the FastAPI lifespan context — **two Procrastinate workers on disjoint queue sets**, plus the auto-scraper:
+  1. **Bulk Procrastinate worker** (`_BULK_QUEUES` in `main.py`, concurrency 5) — the six public ATS fan-outs + per-company fetches, the `*/15` custom-company claim tick and nightly re-harvests (`custom_ats_fetch`), `heartbeat`, `normalize`. Scheduled, unattended, tens of thousands of jobs.
+  2. **Interactive Procrastinate worker** (`_INTERACTIVE_QUEUES`, concurrency 2) — a **reserved lane** for work a human is watching a spinner for: `custom_discovery` (a pasted URL + its five-step checklist), `custom_ats_first_fetch` (the add-time first harvest, which closes the checklist's last step), and `interactive_heartbeat`. It exists because these used to share one worker with the bulk queues, so a fan-out tick holding all five slots left a user's discovery job sitting in `todo` (2026-08-26). Splitting by queue rather than by `priority` is deliberate — priority only decides who goes next when a slot frees, and the problem was that no slot ever freed.
+  - Both are supervised with auto-restart, and both pass **`install_signal_handlers=False`**. This is load-bearing: Procrastinate's default installs `loop.add_signal_handler(SIGTERM, worker.stop)`, which clobbers the `signal.signal(SIGTERM, server.handle_exit)` uvicorn set in `Server.capture_signals()`. One SIGTERM then stops only the worker — `run_worker_async` returns *normally*, so nothing is logged — and uvicorn keeps serving with no worker while still holding the port. That is exactly what happened on 2026-08-26 (14h of no jobs drained; the operator's replacement uvicorn died on "address already in use"). A normal return from `run_worker_async` is now logged as an error and restarted, never returned from.
+  - **Observability:** each lane has its own heartbeat queue, so `worker_heartbeats.lane` tells you *which* worker died and `/health/worker` 503s on either lane going stale. A single undifferentiated heartbeat would let one dead lane hide behind the survivor's ticks.
+  3. **Auto-scraper loop** (`services/auto_scraper.py`) — asyncio task that periodically spawns subprocesses for the script-ats scrapers (Google, Apple, Microsoft, Amazon, TikTok).
 - **Scraper subprocess**: Runs `scripts/run_scraper.py` via `asyncio.create_subprocess_exec`
 - **Job lifecycle (first seen → missed → closed → reopened)**: every `fetch_*_company.py` leaf task writes through `scripts/shared/database.py`, so the lifecycle rules are shared with the script scrapers and documented once in **`scripts/CLAUDE.md` § Job Lifecycle**. Read it before assuming anything about `first_seen_at`, `closed_on` or `consecutive_misses` — in particular, `first_seen_at` is stamped once at INSERT and is **never** updated when a closed job reopens, which is what makes it a safe keyset sort key (`api/pagination.py`). **What it now holds is the effective posted date, not "when we first saw it"** — seeded at INSERT from the board's own posting date when the board publishes a real one, from first sight otherwise; `created_at` is the true insert time and `posted_on` the raw board value. A board that publishes a bucket (`"Posted 30+ Days Ago"`) has published no date, and we never synthesise one.
 - **DB watchdog** (`services/db_watchdog.py`): daemon thread probing the DB on fresh connections with hard wall-clock deadlines; exits the process after ~5-6 sustained minutes of unreachability so Railway restarts the container (see `railway.toml` and the 2026-08-10 incident doc).

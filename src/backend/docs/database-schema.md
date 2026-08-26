@@ -145,6 +145,7 @@ erDiagram
     worker_heartbeats {
         integer id PK "autoincrement"
         timestamptz at "NOT NULL default now(), indexed"
+        text lane "NOT NULL default 'bulk' — 'bulk' | 'interactive'"
     }
 ```
 
@@ -300,8 +301,14 @@ One row per scrape execution — bookkeeping/metrics (`jobs_seen`, `new_jobs`, `
 `details_fetched`, `error_count`). `started_at`/`completed_at` are legacy `Text`.
 
 ### `worker_heartbeats`
-Liveness ticks written by the Procrastinate worker's periodic task every 5 min; `MAX(at)`
-backs `/health/worker`. A cleanup task prunes rows older than 24h. Indexed on `at`.
+Liveness ticks written every 5 min; `MAX(at)` backs `/health/worker`. A cleanup task
+prunes rows older than 24h. Indexed on `at`, and on `(lane, at)` for the per-lane probe.
+
+`lane` names which Procrastinate worker wrote the tick — `bulk` or `interactive` (see
+`_BULK_QUEUES` / `_INTERACTIVE_QUEUES` in `api/main.py`). Each lane's heartbeat task rides
+a queue only that lane drains, so a fresh row proves *that* worker is dequeuing.
+`/health/worker` 503s if either lane goes stale; without the tag, one dead worker would
+hide behind the other's ticks.
 
 ## Notes on conventions
 
