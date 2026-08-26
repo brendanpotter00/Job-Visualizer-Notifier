@@ -12,6 +12,7 @@ describe('transformBackendJob', () => {
     url: 'https://careers.google.com/jobs/results/123456',
     sourceId: 'google_scraper',
     details: JSON.stringify({
+      department: 'Cloud Infrastructure',
       experience_level: 'Mid-Senior',
       is_remote_eligible: true,
       minimum_qualifications: 'BS in CS',
@@ -83,10 +84,29 @@ describe('transformBackendJob', () => {
     expect(job.firstSeenAt).toBe('2025-01-05T08:00:00Z');
   });
 
-  it('should extract department from experience_level', () => {
+  it('maps department from details.department, not from experience_level', () => {
+    // The mock carries BOTH keys, which is the only shape that tells the two
+    // apart. Reading experience_level here is what made the UI's "Department"
+    // filter offer seniority values for every backend-scraped company.
     const job = transformBackendJob(mockBackendJob, 'google');
 
-    expect(job.department).toBe('Mid-Senior');
+    expect(job.department).toBe('Cloud Infrastructure');
+    expect(job.department).not.toBe('Mid-Senior');
+  });
+
+  it('gives no department to a row that only carries experience_level', () => {
+    // The Google/Apple/Microsoft scrapers write experience_level and no
+    // department. Absent must stay absent rather than silently borrowing the
+    // seniority string.
+    const seniorityOnlyJob: BackendJobListing = {
+      ...mockBackendJob,
+      details: JSON.stringify({ experience_level: 'Mid-Senior' }),
+    };
+
+    const job = transformBackendJob(seniorityOnlyJob, 'google');
+
+    expect(job.department).toBeUndefined();
+    expect(job.tags).toContain('Mid-Senior');
   });
 
   it('should generate tags from details', () => {
@@ -215,7 +235,7 @@ describe('transformBackendJob', () => {
 
     const job = transformBackendJob(experienceOnlyJob, 'google');
 
-    expect(job.department).toBe('Senior');
+    expect(job.department).toBeUndefined();
     expect(job.tags).toEqual(['Senior']);
     expect(job.isRemote).toBeUndefined();
   });

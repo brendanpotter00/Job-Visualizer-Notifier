@@ -35,6 +35,7 @@ from scripts.shared.models import JobListing
 from scripts.shared.utils import get_iso_timestamp
 
 from .harvest_meta import HarvestEvidence
+from .job_details import has_description
 
 logger = logging.getLogger(__name__)
 
@@ -197,7 +198,10 @@ def _transform_one(
         first_seen_at=now,
         last_seen_at=now,
         consecutive_misses=0,
-        details_scraped=True,
+        # Truthful, not hard-coded True: this claims we HAVE the job's detail
+        # content. See ``job_details.has_description`` for what that means and
+        # which rows were lying.
+        details_scraped=has_description(details),
         status="OPEN",
         has_matched=False,
         ai_metadata={},

@@ -33,7 +33,12 @@ export function transformBackendJob(raw: BackendJobListing, companyId: string): 
     source: 'backend-scraper' as const,
     company: companyId,
     title: raw.title,
-    department: details.experience_level,
+    // `details.department`, not `details.experience_level`. The two were swapped,
+    // so the UI's "Department" filter has been offering seniority values
+    // ("Mid-Senior", "Junior") all along while the real department key — written
+    // by Ashby, Gem, Eightfold and Workday — reached no screen. `experience_level`
+    // is still surfaced, as a tag, which is where it belonged.
+    department: details.department,
     location: raw.location || undefined,
     locations: raw.locations ?? [],
     isRemote: details.is_remote_eligible,

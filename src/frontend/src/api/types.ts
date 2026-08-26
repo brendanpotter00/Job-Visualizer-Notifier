@@ -10,6 +10,12 @@ export interface BackendJobDetails {
   preferred_qualifications?: string;
   about_the_job?: string;
   responsibilities?: string;
+  // The org/team the role sits in. Ashby, Gem, Eightfold and Workday all write
+  // this key; the Google/Apple/Microsoft scrapers do not. Until now the
+  // transformer read `experience_level` into `Job.department` instead, so the
+  // UI's "Department" filter has been showing seniority and this key reached
+  // no screen at all.
+  department?: string;
   experience_level?: string;
   salary_range?: string;
   is_remote_eligible?: boolean;
