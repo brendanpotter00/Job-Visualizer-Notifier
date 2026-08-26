@@ -7,9 +7,11 @@ import { buildMyCompanyDetailPath } from '../../config/routes';
 import { extractErrorMessage } from '../../lib/errors';
 import { SUPPORTED_BOARDS } from '../../features/userCompanies/resolveErrors';
 import {
+  isAlreadyPublic,
   isDiscoveryPending,
   type AddUserCompanyResult,
 } from '../../features/userCompanies/userCompaniesApi';
+import { AlreadyPublicNotice } from './AlreadyPublicNotice';
 
 interface DiscoveryStatusProps {
   /** The add mutation's body, once it has one: a `202` pending or a `200`/`201` company. */
@@ -50,6 +52,15 @@ export function DiscoveryStatus({ result, error }: DiscoveryStatusProps) {
         {result.detail} Watch it in your list below.
       </Alert>
     );
+  }
+
+  if (result !== undefined && isAlreadyPublic(result)) {
+    // Rare but real: this component only ever sees a result when the FIRST resolve
+    // said `no_ats_detected`, and the add re-resolves from scratch. A transient
+    // failure on the first call followed by a hit on the second lands here. No
+    // "track it anyway" button — this component owns no mutation by design, and the
+    // user can re-paste; being handed a wrong link would be the worse outcome.
+    return <AlreadyPublicNotice result={result} />;
   }
 
   if (result !== undefined) {

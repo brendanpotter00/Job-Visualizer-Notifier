@@ -3,6 +3,7 @@ import { screen } from '@testing-library/react';
 import { renderWithProviders } from '../../../test/testUtils';
 import { DiscoveryStatus } from '../../../components/my-companies/DiscoveryStatus';
 import {
+  isAlreadyPublic,
   isDiscoveryPending,
   type AddUserCompanyResult,
 } from '../../../features/userCompanies/userCompaniesApi';
@@ -26,10 +27,27 @@ const TRACKED: AddUserCompanyResult = {
   trackingStartedAt: null,
 };
 
+const ALREADY_PUBLIC: AddUserCompanyResult = {
+  status: 'already_public',
+  detail: 'That URL is the same job board as our public Spotify page.',
+  companyId: 'spotify',
+  displayName: 'Spotify',
+  finalUrl: 'https://jobs.lever.co/spotify',
+};
+
 describe('isDiscoveryPending', () => {
   it('discriminates the 202 discovery_pending body from a tracked UserCompany', () => {
     expect(isDiscoveryPending(PENDING)).toBe(true);
     expect(isDiscoveryPending(TRACKED)).toBe(false);
+    expect(isDiscoveryPending(ALREADY_PUBLIC)).toBe(false);
+  });
+});
+
+describe('isAlreadyPublic', () => {
+  it('discriminates the already-published body from the other two', () => {
+    expect(isAlreadyPublic(ALREADY_PUBLIC)).toBe(true);
+    expect(isAlreadyPublic(TRACKED)).toBe(false);
+    expect(isAlreadyPublic(PENDING)).toBe(false);
   });
 });
 
@@ -52,6 +70,24 @@ describe('DiscoveryStatus', () => {
     expect(screen.getByTestId('discovery-pending')).toHaveTextContent(
       /jobs appear after the first scan\. Watch it in your list below\./,
     );
+  });
+
+  it('links to the public page when the add resolved to a board we already publish', () => {
+    // Reachable when the FIRST resolve said `no_ats_detected` and the add's own
+    // re-resolve then found the board. Without this branch the fall-through below
+    // would read "Now tracking undefined" and link to `/add-companies/undefined`.
+    renderWithProviders(<DiscoveryStatus result={ALREADY_PUBLIC} error={undefined} />);
+
+    expect(screen.getByTestId('already-public')).toHaveTextContent(
+      /we already track spotify/i,
+    );
+    expect(screen.getByTestId('already-public-link')).toHaveAttribute(
+      'href',
+      '/companies?company=spotify',
+    );
+    expect(screen.queryByTestId('discovery-already-tracked')).not.toBeInTheDocument();
+    // This component owns no mutation, so it must not grow a button here either.
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
 
   it('renders an idempotent 200 as an already-tracked company with a link to it', () => {

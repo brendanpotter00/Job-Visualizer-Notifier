@@ -60,6 +60,90 @@ def find_owned_company_by_source_key(
     return dict(row) if row else None
 
 
+def find_public_company_for_candidate(
+    conn: Connection,
+    *,
+    ats: str,
+    board_token: str,
+    provider_config: dict[str, Any],
+) -> Optional[dict[str, Any]]:
+    """The ENABLED public company that IS this board, or None (the P2 dedupe).
+
+    One SELECT against the ~130 ``visibility='public'`` rows, run on the add path
+    before anything is created. A hit means the user pasted a board we already
+    publish to everybody — Spotify's Lever board, Netflix's Eightfold tenant — and
+    the right answer is to point at that page rather than scrape a private second
+    copy of it.
+
+    Returns ``{id, display_name}``. Both are already public, unauthenticated data
+    (``GET /api/companies`` serves every enabled row's id and display name), so a
+    hit discloses nothing the caller could not already read.
+
+    **Matching is per-ATS, and a naive ``(ats, board_token)`` equality would be
+    wrong for two of the six.** Checked against the 129 public rows:
+
+    * **Workday** — ``board_token`` on a public row is OUR internal company id
+      (``gm``, ``slack``), not the tenant the resolver emits (``generalmotors``,
+      ``salesforce``). All 11 rows would miss. The identity lives in
+      ``provider_config``, so match ``tenant_slug`` AND ``career_site_slug``:
+      ``salesforce`` hosts both ``/Slack`` and other career sites, and matching on
+      the tenant alone would answer a Salesforce URL with "we already track Slack".
+    * **Ashby** — 8 public rows store a mixed-case token (``Sierra``, ``Linear``,
+      ``GigaML``) while the resolver lowercases every Ashby token, so those 8 would
+      miss on ``=``. ``lower()`` on both sides fixes it and is a no-op for the
+      Greenhouse / Lever / Gem rows, which are all lowercase already — no two
+      public boards differ only by case, so it cannot create a false hit.
+    * **Eightfold** — matched on ``provider_config->>'domain'``, which is the
+      actual tenant key. ``board_token`` there is the domain's first label and is
+      documented as cosmetic; comparing the real key costs the same SELECT.
+
+    ``ats='script'`` (Google, Apple, Microsoft) is deliberately unreachable here:
+    the resolver never emits it, so those three can never be deduped this way. See
+    the honest-limit note on the add path.
+    """
+    if ats == "workday":
+        tenant_slug = provider_config.get("tenant_slug")
+        career_site_slug = provider_config.get("career_site_slug")
+        if not tenant_slug or not career_site_slug:
+            # A Workday candidate always carries both. Without them there is no
+            # identity to compare, and guessing one is how a user gets pointed at
+            # a different company's chart.
+            return None
+        predicate = (
+            "provider_config->>'tenant_slug' = %s "
+            "AND provider_config->>'career_site_slug' = %s"
+        )
+        params: tuple[Any, ...] = (tenant_slug, career_site_slug)
+    elif ats == "eightfold":
+        domain = provider_config.get("domain")
+        if not domain:
+            return None
+        predicate = "provider_config->>'domain' = %s"
+        params = (domain,)
+    else:
+        predicate = "lower(board_token) = lower(%s)"
+        params = (board_token,)
+
+    cursor = conn.cursor()
+    cursor.execute(
+        # ``enabled`` is part of the match, not an afterthought: a disabled public
+        # row is a board we have STOPPED reading, and sending someone to a chart
+        # that no longer updates is worse than letting them track their own copy.
+        #
+        # ``predicate`` is a literal from the branches above — never user input —
+        # and every compared VALUE is still a bound parameter.
+        f"""
+        SELECT id, display_name
+        FROM companies
+        WHERE visibility = 'public' AND enabled AND ats = %s AND {predicate}
+        LIMIT 1
+        """,
+        (ats,) + params,
+    )
+    row = cursor.fetchone()
+    return dict(row) if row else None
+
+
 def record_add_attempt(
     conn: Connection,
     *,

@@ -4,13 +4,16 @@ import AlertTitle from '@mui/material/AlertTitle';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Link from '@mui/material/Link';
+import Typography from '@mui/material/Typography';
 import { buildMyCompanyDetailPath } from '../../config/routes';
 import { extractErrorMessage } from '../../lib/errors';
 import {
   useAddUserCompanyMutation,
+  isAlreadyPublic,
   isDiscoveryPending,
   type AddUserCompanyFailure,
 } from '../../features/userCompanies/userCompaniesApi';
+import { AlreadyPublicNotice } from './AlreadyPublicNotice';
 
 interface AddCompanyCTAProps {
   /** The resolver's final URL — what we actually probed and now persist. */
@@ -62,6 +65,13 @@ export function AddCompanyCTA({ finalUrl }: AddCompanyCTAProps) {
     void addUserCompany({ url: finalUrl });
   };
 
+  // Re-submits the SAME url with the override, so the already-published branch is
+  // skipped and a private copy is created. Same mutation, so its result replaces the
+  // notice below with the ordinary success alert — no second piece of state.
+  const handleTrackAnyway = () => {
+    void addUserCompany({ url: finalUrl, trackAnyway: true });
+  };
+
   if (data !== undefined && isDiscoveryPending(data)) {
     // A non-ATS URL was routed to one-time discovery (async). Nothing is tracked
     // yet — it will surface in the list below after the first scan.
@@ -70,6 +80,32 @@ export function AddCompanyCTA({ finalUrl }: AddCompanyCTAProps) {
         <AlertTitle>One-time setup</AlertTitle>
         {data.detail}
       </Alert>
+    );
+  }
+
+  if (data !== undefined && isAlreadyPublic(data)) {
+    // Nothing was created. The primary action is the link inside the notice; this
+    // secondary one is deliberately a plain text button, and its caption names the
+    // cost so "anyway" is a choice rather than a reflex.
+    return (
+      <AlreadyPublicNotice
+        result={data}
+        action={
+          <Box sx={{ mt: 1 }}>
+            <Button
+              size="small"
+              onClick={handleTrackAnyway}
+              disabled={isLoading}
+              data-testid="track-anyway-button"
+            >
+              {isLoading ? 'Adding…' : 'Track it separately anyway'}
+            </Button>
+            <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary' }}>
+              Adds a private copy of the same board. Its history starts today.
+            </Typography>
+          </Box>
+        }
+      />
     );
   }
 

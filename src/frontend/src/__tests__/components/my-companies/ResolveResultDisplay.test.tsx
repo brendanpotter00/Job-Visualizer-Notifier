@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '../../../test/testUtils';
 import { ResolveResultDisplay } from '../../../components/my-companies/ResolveResultDisplay';
 import type {
+  AlreadyPublicResponse,
   ResolveUrlResponse,
   UserCompany,
 } from '../../../features/userCompanies/userCompaniesApi';
@@ -53,6 +54,20 @@ const ADDED: UserCompany = {
   openJobCount: 0,
   lastSuccessAt: null,
   trackingStartedAt: null,
+};
+
+/**
+ * The 200 body for a board we already publish. Spotify is not decoration: the owner
+ * tracks it publicly on Lever AND had added it privately, so one company had two
+ * scrapers and two job sets. This is the response that stops the second one.
+ */
+const ALREADY_PUBLIC: AlreadyPublicResponse = {
+  status: 'already_public',
+  detail:
+    'That URL is the same job board as our public Spotify page, so there is nothing to set up — its hiring trend is already there.',
+  companyId: 'spotify',
+  displayName: 'Spotify',
+  finalUrl: FINAL_URL,
 };
 
 let fetchMock: ReturnType<typeof vi.fn>;
@@ -155,5 +170,73 @@ describe('ResolveResultDisplay — Add company CTA', () => {
     await user.click(screen.getByTestId('add-company-button'));
 
     expect(await screen.findByTestId('add-company-success')).toBeInTheDocument();
+  });
+
+  describe('a board we already publish', () => {
+    it('links to the public hiring trend instead of confirming a new company', async () => {
+      fetchMock.mockResolvedValue(jsonResponse(ALREADY_PUBLIC, 200));
+      const user = userEvent.setup();
+      renderWithProviders(<ResolveResultDisplay result={OK_RESULT} />);
+
+      await user.click(screen.getByTestId('add-company-button'));
+
+      const notice = await screen.findByTestId('already-public');
+      expect(notice).toHaveTextContent(/we already track spotify/i);
+      expect(screen.getByTestId('already-public-link')).toHaveAttribute(
+        'href',
+        '/companies?company=spotify',
+      );
+      // Nothing was created, so the "Now tracking …" confirmation must not appear —
+      // that alert is the one that would send the user to a private page that has no
+      // company behind it.
+      expect(screen.queryByTestId('add-company-success')).not.toBeInTheDocument();
+      // It is not an error either: nothing failed and there is nothing to fix.
+      expect(screen.queryByTestId('add-company-error')).not.toBeInTheDocument();
+    });
+
+    it('offers "track it anyway" as a secondary action that names its cost', async () => {
+      fetchMock.mockResolvedValue(jsonResponse(ALREADY_PUBLIC, 200));
+      const user = userEvent.setup();
+      renderWithProviders(<ResolveResultDisplay result={OK_RESULT} />);
+
+      await user.click(screen.getByTestId('add-company-button'));
+
+      const notice = await screen.findByTestId('already-public');
+      expect(screen.getByTestId('track-anyway-button')).toBeInTheDocument();
+      expect(notice).toHaveTextContent(/its history starts today/i);
+    });
+
+    it('re-sends the url with trackAnyway when the user insists', async () => {
+      fetchMock.mockResolvedValueOnce(jsonResponse(ALREADY_PUBLIC, 200));
+      fetchMock.mockResolvedValueOnce(jsonResponse(ADDED, 201));
+      const user = userEvent.setup();
+      renderWithProviders(<ResolveResultDisplay result={OK_RESULT} />);
+
+      await user.click(screen.getByTestId('add-company-button'));
+      await user.click(await screen.findByTestId('track-anyway-button'));
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+      const second = fetchMock.mock.calls[1][0] as Request;
+      await expect(second.text()).resolves.toBe(
+        JSON.stringify({ url: FINAL_URL, trackAnyway: true }),
+      );
+      // The override's result replaces the notice with the ordinary success alert —
+      // one mutation, one piece of state.
+      expect(await screen.findByTestId('add-company-success')).toBeInTheDocument();
+    });
+
+    it('does not send trackAnyway on the first, ordinary add', async () => {
+      // The check has to be the DEFAULT. If the flag ever rode along on the first
+      // submit the dedupe would be dead code that still passes its own tests.
+      fetchMock.mockResolvedValue(jsonResponse(ADDED, 201));
+      const user = userEvent.setup();
+      renderWithProviders(<ResolveResultDisplay result={OK_RESULT} />);
+
+      await user.click(screen.getByTestId('add-company-button'));
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      const req = fetchMock.mock.calls[0][0] as Request;
+      await expect(req.text()).resolves.toBe(JSON.stringify({ url: FINAL_URL }));
+    });
   });
 });

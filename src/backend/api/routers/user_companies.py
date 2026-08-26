@@ -34,6 +34,7 @@ from ..config import settings
 from ..dependencies import get_db
 from ..models import (
     AddUserCompanyRequest,
+    AlreadyPublicResponse,
     DiscoveryProgressResponse,
     JobListingResponse,
     UserCompanyListResponse,
@@ -263,6 +264,12 @@ async def add_company(
     ``company_add_attempts`` row with ``outcome='unsupported'`` and returns 422
     (Phase 3 will handle these); a resolvable board that probes 0 jobs or errors
     returns 422 with ``outcome='empty'`` / ``'probe_failed'``.
+
+    A URL that resolves to a board we ALREADY PUBLISH creates nothing and returns
+    200 with an ``AlreadyPublicResponse`` (``outcome='already_public'``) naming
+    that public company — see the dedupe block below for what it does and does not
+    catch. ``trackAnyway: true`` on the request skips the check and adds the
+    private copy anyway.
     """
     _require_flag()
 
@@ -411,6 +418,61 @@ async def add_company(
             existing["open_job_count"] = svc.count_open_jobs(conn, existing["id"])
             response.status_code = 200
             return _to_response(existing)
+
+        # ── The P2 dedupe: a board we ALREADY PUBLISH is not a board to copy ──
+        # One SELECT against the ~130 public rows. On a hit we create NOTHING and
+        # hand back the public company to link to; the audit still gets its row.
+        #
+        # AFTER the idempotent branch above on purpose. Someone who used
+        # ``trackAnyway`` once owns a real private row, and a re-add of that URL has
+        # to keep resolving to THEIR row — otherwise the endpoint stops being
+        # idempotent for exactly the users who opted in.
+        #
+        # BEFORE the probe, so a board we are not going to add costs no outbound
+        # request.
+        #
+        # THE HONEST LIMIT, because the copy must not overstate it: this catches a
+        # pasted Greenhouse / Ashby / Lever / Gem / Workday / Eightfold URL — the
+        # thing the resolver can name. It does NOT catch a company's own careers
+        # site. ``lifeatspotify.com`` resolves to no ATS at all (52 KB of its HTML
+        # names none of the hosts the sniffer knows), so Spotify's own site reaches
+        # discovery and becomes a private duplicate of ``lever:spotify`` exactly as
+        # it does today. Neither can this catch Google / Apple / Microsoft, whose
+        # public rows are ``ats='script'`` — a value the resolver never emits.
+        # Only the job SET links those, which is a separate piece of work.
+        if not payload.track_anyway:
+            published = svc.find_public_company_for_candidate(
+                conn,
+                ats=candidate.ats,
+                board_token=candidate.board_token,
+                provider_config=dict(candidate.provider_config),
+            )
+            if published is not None:
+                svc.record_add_attempt(
+                    conn, user_id=user_id, submitted_url=payload.url,
+                    normalized_url=result.final_url, outcome="already_public",
+                    resolved_ats=candidate.ats, board_token=candidate.board_token,
+                    # The PUBLIC company's id. The column records what the attempt
+                    # resolved to, and that is what it resolved to.
+                    company_id=published["id"],
+                )
+                # 200, not a 4xx. Nothing failed and there is nothing for the user
+                # to fix — they asked for a company and it is already there. A
+                # rejection status would render this as an alarm, which is the one
+                # thing this answer is not.
+                return JSONResponse(
+                    status_code=200,
+                    content=AlreadyPublicResponse(
+                        detail=(
+                            "That URL is the same job board as our public "
+                            f"{published['display_name']} page, so there is nothing "
+                            "to set up — its hiring trend is already there."
+                        ),
+                        company_id=str(published["id"]),
+                        display_name=str(published["display_name"]),
+                        final_url=result.final_url or payload.url,
+                    ).model_dump(by_alias=True),
+                )
 
         # New board — probe it. probe_candidate never raises; a failure is data.
         probe = await probe_candidate(candidate, http, deadline=deadline)

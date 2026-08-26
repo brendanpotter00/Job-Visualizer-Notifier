@@ -665,6 +665,287 @@ def test_resolvable_board_with_zero_jobs_is_422(client, db_conn, monkeypatch):
     assert _count(db_conn, "company_add_attempts", "WHERE outcome = 'empty'") == 1
 
 
+# --- P2 dedupe: a board we already publish is not a board to copy -------------
+#
+# The case the owner hit: he tracks Spotify publicly (``lever:spotify``) AND added it
+# privately, so one company had two scrapers and two job sets. When a pasted URL
+# resolves to a board we already publish, the add creates NOTHING and hands back the
+# public company to link to.
+#
+# What these pin, in order: nothing is written; the audit still records the attempt;
+# the override still works and stays idempotent afterwards; and the three matching
+# rules that a naive ``(ats, board_token) =`` would get wrong.
+
+ASHBY_URL = "https://jobs.ashbyhq.com/sierra"
+WORKDAY_SLACK_URL = "https://salesforce.wd12.myworkdayjobs.com/Slack"
+
+
+def _seed_public_company(
+    db_conn,
+    company_id: str,
+    *,
+    ats: str = "greenhouse",
+    board_token: str,
+    display_name: str | None = None,
+    provider_config: str = "{}",
+    enabled: bool = True,
+) -> None:
+    """One ``visibility='public'`` row — the fleet the dedupe SELECT reads."""
+    cur = db_conn.cursor()
+    cur.execute(
+        sql.SQL(
+            "INSERT INTO {} (id, display_name, ats, board_token, provider_config, "
+            "enabled, visibility) VALUES (%s, %s, %s, %s, %s::jsonb, %s, 'public')"
+        ).format(sql.Identifier("companies")),
+        (company_id, display_name or company_id, ats, board_token,
+         provider_config, enabled),
+    )
+    db_conn.commit()
+
+
+def _install_recording_transport(monkeypatch) -> list[str]:
+    """404 everything, and record every outbound URL the add path asks for.
+
+    The dedupe branch sits BEFORE the probe, so a hit must cost zero requests. A
+    404-everything transport also makes the regression loud rather than silent: if
+    the branch stopped firing, the probe would run and the add would come back 422
+    ``probe_failed`` instead of 200.
+    """
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        return httpx.Response(404)
+
+    def factory() -> httpx.AsyncClient:
+        return httpx.AsyncClient(
+            transport=httpx.MockTransport(handler), follow_redirects=False
+        )
+
+    monkeypatch.setattr("api.routers.user_companies._http_client", factory)
+    return seen
+
+
+def test_a_board_we_already_publish_links_instead_of_adding(
+    client, db_conn, monkeypatch
+):
+    _login(client, "auth0|A", "a@example.com")
+    _seed_public_company(db_conn, "duolingo", board_token="duolingo",
+                         display_name="Duolingo")
+    requests_made = _install_recording_transport(monkeypatch)
+
+    resp = client.post("/api/users/companies", json={"url": GREENHOUSE_URL})
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["status"] == "already_public"
+    assert body["companyId"] == "duolingo"
+    assert body["displayName"] == "Duolingo"
+    assert body["finalUrl"] == GREENHOUSE_URL
+    assert "Duolingo" in body["detail"]
+
+    # ROW COUNTS, not the response shape: the whole point of this branch is that
+    # the four rows an add normally writes are not written.
+    assert _count(db_conn, "companies", "WHERE visibility = 'user'") == 0
+    assert _count(db_conn, "user_companies") == 0
+    assert _count(db_conn, "company_scripts") == 0
+    assert _count(db_conn, "job_listings") == 0
+    # ...and the public row is untouched — no ownership, no second scraper.
+    assert _count(db_conn, "companies", "WHERE id = 'duolingo'") == 1
+
+    # The audit stays complete, and points at the PUBLIC company it resolved to.
+    assert _count(
+        db_conn, "company_add_attempts",
+        "WHERE outcome = 'already_public' AND company_id = 'duolingo' "
+        "AND resolved_ats = 'greenhouse' AND board_token = 'duolingo'",
+    ) == 1
+
+    # No probe, no outbound request at all.
+    assert requests_made == []
+
+
+def test_track_anyway_adds_the_private_copy_and_stays_idempotent(
+    client, db_conn, monkeypatch
+):
+    _login(client, "auth0|A", "a@example.com")
+    _seed_public_company(db_conn, "duolingo", board_token="duolingo",
+                         display_name="Duolingo")
+    _install_greenhouse(monkeypatch, [1, 2, 3])
+
+    optin = client.post(
+        "/api/users/companies", json={"url": GREENHOUSE_URL, "trackAnyway": True}
+    )
+    assert optin.status_code == 201, optin.text
+    company_id = optin.json()["id"]
+    assert _count(db_conn, "companies", "WHERE visibility = 'user'") == 1
+
+    # And the SECOND add of that URL — without the override — must still resolve to
+    # THEIR row. The dedupe check sits after the idempotent branch precisely so the
+    # endpoint does not stop being idempotent for the users who opted in.
+    again = client.post("/api/users/companies", json={"url": GREENHOUSE_URL})
+    assert again.status_code == 200, again.text
+    assert again.json()["id"] == company_id
+    assert _count(db_conn, "companies", "WHERE visibility = 'user'") == 1
+
+
+def test_a_board_we_do_not_publish_is_added_as_usual(client, db_conn, monkeypatch):
+    _login(client, "auth0|A", "a@example.com")
+    # A public Greenhouse row for a DIFFERENT board. The check must key on the
+    # board, not on "we have some public Greenhouse companies".
+    _seed_public_company(db_conn, "someoneelse", board_token="someoneelse")
+    _install_greenhouse(monkeypatch, [1, 2, 3])
+
+    resp = client.post("/api/users/companies", json={"url": GREENHOUSE_URL})
+
+    assert resp.status_code == 201, resp.text
+    assert _count(db_conn, "companies", "WHERE visibility = 'user'") == 1
+    assert _count(db_conn, "company_add_attempts", "WHERE outcome = 'already_public'") == 0
+
+
+def test_a_mixed_case_ashby_token_still_matches(client, db_conn, monkeypatch):
+    """8 of the 58 public Ashby rows store ``Sierra`` / ``Linear`` / ``GigaML``.
+
+    The resolver lowercases every Ashby token, so an ``=`` comparison would miss
+    all eight — the exact class of near-miss that makes a dedupe look like it works
+    until it quietly does not.
+    """
+    _login(client, "auth0|A", "a@example.com")
+    _seed_public_company(db_conn, "sierra", ats="ashby", board_token="Sierra",
+                         display_name="Sierra")
+    _install_recording_transport(monkeypatch)
+
+    resp = client.post("/api/users/companies", json={"url": ASHBY_URL})
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["companyId"] == "sierra"
+    assert _count(db_conn, "companies", "WHERE visibility = 'user'") == 0
+
+
+def test_a_workday_board_matches_on_its_tenant_not_on_our_company_id(
+    client, db_conn, monkeypatch
+):
+    """Public Workday rows keep OUR company id in ``board_token`` (``slack``).
+
+    The resolver emits the tenant (``salesforce``), so all 11 public Workday rows
+    would miss on ``board_token``. The identity is in ``provider_config``.
+    """
+    _login(client, "auth0|A", "a@example.com")
+    _seed_public_company(
+        db_conn, "slack", ats="workday", board_token="slack", display_name="Slack",
+        provider_config=(
+            '{"base_url": "https://salesforce.wd12.myworkdayjobs.com", '
+            '"tenant_slug": "salesforce", "career_site_slug": "Slack"}'
+        ),
+    )
+    _install_recording_transport(monkeypatch)
+
+    resp = client.post("/api/users/companies", json={"url": WORKDAY_SLACK_URL})
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["displayName"] == "Slack"
+    assert _count(db_conn, "companies", "WHERE visibility = 'user'") == 0
+
+
+def test_another_career_site_on_the_same_workday_tenant_is_not_that_company(
+    client, db_conn, monkeypatch
+):
+    """``salesforce`` hosts ``/Slack`` and other career sites.
+
+    Matching on the tenant alone would answer a Salesforce URL with "we already
+    track Slack" — a confidently wrong link to a different company's chart.
+    """
+    _login(client, "auth0|A", "a@example.com")
+    _seed_public_company(
+        db_conn, "slack", ats="workday", board_token="slack", display_name="Slack",
+        provider_config=(
+            '{"base_url": "https://salesforce.wd12.myworkdayjobs.com", '
+            '"tenant_slug": "salesforce", "career_site_slug": "Slack"}'
+        ),
+    )
+    _install_recording_transport(monkeypatch)
+
+    resp = client.post(
+        "/api/users/companies",
+        json={"url": "https://salesforce.wd12.myworkdayjobs.com/External"},
+    )
+
+    # Not a dedupe hit — it falls through to the normal add path, where the
+    # 404-everything transport fails the probe. What matters is that it is NOT a
+    # 200 naming Slack.
+    assert resp.status_code == 422, resp.text
+    assert _count(db_conn, "company_add_attempts", "WHERE outcome = 'already_public'") == 0
+
+
+def test_a_disabled_public_board_is_not_offered_as_the_answer(
+    client, db_conn, monkeypatch
+):
+    """A disabled public row is a board we have STOPPED reading.
+
+    Pointing someone at a chart that no longer updates is worse than letting them
+    track their own copy, so ``enabled`` is part of the match.
+    """
+    _login(client, "auth0|A", "a@example.com")
+    _seed_public_company(db_conn, "duolingo", board_token="duolingo", enabled=False)
+    _install_greenhouse(monkeypatch, [1, 2, 3])
+
+    resp = client.post("/api/users/companies", json={"url": GREENHOUSE_URL})
+
+    assert resp.status_code == 201, resp.text
+    assert _count(db_conn, "companies", "WHERE visibility = 'user'") == 1
+
+
+def test_another_users_private_board_is_never_offered_as_the_answer(
+    client, db_conn, monkeypatch
+):
+    """P1 is DEFERRED, and this is that deferral in executable form.
+
+    User A privately tracks a board; user B pastes the same URL. B must get their
+    own private company, not a pointer at A's — the check reads the PUBLIC fleet
+    only. Dropping ``visibility = 'public'`` from the SELECT would leak the
+    existence (and the display name) of one user's private board to another.
+    """
+    _install_greenhouse(monkeypatch, [1, 2, 3])
+
+    _login(client, "auth0|A", "a@example.com")
+    assert client.post(
+        "/api/users/companies", json={"url": GREENHOUSE_URL}
+    ).status_code == 201
+
+    _login(client, "auth0|B", "b@example.com")
+    resp = client.post("/api/users/companies", json={"url": GREENHOUSE_URL})
+
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["ats"] == "greenhouse"
+    assert _count(db_conn, "companies", "WHERE visibility = 'user'") == 2
+    assert _count(db_conn, "company_add_attempts", "WHERE outcome = 'already_public'") == 0
+
+
+def test_a_public_board_owned_by_another_user_is_still_a_link_for_this_one(
+    client, db_conn, monkeypatch
+):
+    """The check is against the PUBLIC fleet, not against anyone's private list.
+
+    User A opted into a private copy; that must not change the answer user B gets.
+    """
+    _seed_public_company(db_conn, "duolingo", board_token="duolingo",
+                         display_name="Duolingo")
+    _install_greenhouse(monkeypatch, [1, 2, 3])
+
+    _login(client, "auth0|A", "a@example.com")
+    optin = client.post(
+        "/api/users/companies", json={"url": GREENHOUSE_URL, "trackAnyway": True}
+    )
+    assert optin.status_code == 201
+
+    _login(client, "auth0|B", "b@example.com")
+    resp = client.post("/api/users/companies", json={"url": GREENHOUSE_URL})
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["companyId"] == "duolingo"
+    # Still exactly A's one private row.
+    assert _count(db_conn, "companies", "WHERE visibility = 'user'") == 1
+
+
 # --- the first harvest of an ATS add (E7) -------------------------------------
 #
 # What this section pins is the owner's bug: he pasted a Workday careers URL, the page

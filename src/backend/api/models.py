@@ -1295,6 +1295,35 @@ class AddUserCompanyRequest(BaseModel):
     )
 
     url: str = Field(min_length=1, max_length=2048)
+    # The one-line override for the P2 dedupe. Default False, so the FIRST add of a
+    # board we already publish always stops and links to the public page; a caller
+    # who wants a private copy anyway re-sends the same URL with this set. It is
+    # deliberately not sticky and not stored — the check is cheap enough to re-run,
+    # and a persisted "ignore" would be a piece of state nothing ever clears.
+    track_anyway: bool = False
+
+
+class AlreadyPublicResponse(BaseModel):
+    """200 body when a pasted URL is a board we already publish (the P2 dedupe).
+
+    Nothing was created — no ``companies`` row, no ``user_companies`` row, no
+    scraper, no capture — so there is no ``UserCompany`` to return and this is not
+    a failure either. ``status`` is the discriminant the frontend narrows on, the
+    same way it narrows the 202 ``discovery_pending`` body.
+
+    ``company_id`` / ``display_name`` are the PUBLIC company's, and both are
+    already served unauthenticated by ``GET /api/companies``. ``final_url`` is the
+    URL the resolver settled on, echoed back so a caller that decides to track a
+    private copy anyway can re-send exactly what we resolved.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    status: Literal["already_public"] = "already_public"
+    detail: str
+    company_id: str
+    display_name: str
+    final_url: str
 
 
 class DiscoveryStepResponse(BaseModel):

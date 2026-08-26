@@ -173,6 +173,20 @@ every import for zero user-visible gain.
 - **Discovery has its own server flag.** With `CUSTOM_COMPANY_DISCOVERY_ENABLED` off the add
   endpoint returns 422 instead of starting anything, and `DiscoveryStatus` renders that
   verdict plus the boards we read without setup — never an endless spinner.
+- **A board we already publish is not added — it is linked.** Before creating anything,
+  the add endpoint checks the pasted URL's resolved `(ats, board_token)` against the ~130
+  public companies. On a hit it writes **nothing** (no company, no scraper, no jobs) and
+  answers `200 {status: 'already_public', companyId, displayName, finalUrl}`;
+  `AlreadyPublicNotice` renders "We already track Spotify" with a link to
+  `/companies?company=…`, plus a deliberately secondary **"Track it separately anyway"**
+  that re-sends the same URL with `trackAnyway: true`. The user owns nothing afterwards —
+  a public company is already in everyone's list, and putting a `user_companies` row on
+  one would point the private jobs feed and the purge-on-last-owner delete at a public
+  board. Info severity, terminal, not dismissible: nothing failed, and the next submit
+  replaces it. **What this does NOT catch**, and the copy must never imply otherwise: a
+  company's own careers site. `lifeatspotify.com` resolves to no ATS at all, so it still
+  becomes a private duplicate of `lever:spotify`; so do Google / Apple / Microsoft, whose
+  public rows are `ats='script'`. Only the job set links those.
 - **Two independent flags.** `VITE_CUSTOM_COMPANIES_ENABLED` only reveals the page; the
   backend has its own `CUSTOM_COMPANY_SOURCES_ENABLED` setting and answers **503** while it
   is off. Both must be on for the flow to work. With the frontend flag off there is no nav

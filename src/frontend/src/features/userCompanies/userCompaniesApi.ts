@@ -66,6 +66,19 @@ export interface ResolveUrlArgs {
 }
 
 /**
+ * Arg for `addUserCompany`. `trackAnyway` is the single override for the
+ * already-published check: omitted (the default) the add stops and links to the
+ * public company; `true` says "I want my own private copy regardless".
+ *
+ * Not sticky and not stored server-side — it is a property of one submit, so the
+ * user is never silently opted out of the check on a later add.
+ */
+export interface AddUserCompanyArgs {
+  url: string;
+  trackAnyway?: boolean;
+}
+
+/**
  * Health lifecycle a stored user-company can be in. The wire value is a bare
  * `str` (backend-owned, may add codes), so display code narrows it and falls
  * back to raw text — see `companyHealth.ts`.
@@ -302,16 +315,50 @@ export interface DiscoveryPendingResponse {
 }
 
 /**
- * `addUserCompany` resolves to a tracked `UserCompany` (201/200, ATS boards or an
- * idempotent re-add) OR a `DiscoveryPendingResponse` (202, a non-ATS URL routed to
- * one-time discovery). Consumers discriminate with {@link isDiscoveryPending}.
+ * The `200` body when the pasted URL is a job board we ALREADY PUBLISH.
+ *
+ * Nothing was created — no private company, no scraper, no jobs — and nothing failed
+ * either, which is why this arrives as a `200` body rather than an error. The user
+ * asked for a company and it is already there; the UI's job is to hand them the link.
+ *
+ * `companyId` is a PUBLIC company id (`spotify`), not a `u-…` runtime id, so it belongs
+ * on `/companies?company=…` and never on `buildMyCompanyDetailPath`.
+ *
+ * WHAT THIS DOES NOT MEAN: we compared job sets. We did not. All we know is that the
+ * URL resolved to the same ATS board we already read for that company. A company's own
+ * careers site (`lifeatspotify.com`) resolves to no ATS at all and never reaches this
+ * branch, so the copy must not claim we checked the company — only the board.
  */
-export type AddUserCompanyResult = UserCompany | DiscoveryPendingResponse;
+export interface AlreadyPublicResponse {
+  status: 'already_public';
+  detail: string;
+  companyId: string;
+  displayName: string;
+  /** What the resolver settled on — re-send this to track a private copy anyway. */
+  finalUrl: string;
+}
+
+/**
+ * `addUserCompany` resolves to a tracked `UserCompany` (201/200, ATS boards or an
+ * idempotent re-add), a `DiscoveryPendingResponse` (202, a non-ATS URL routed to
+ * one-time discovery), or an `AlreadyPublicResponse` (200, a board we already publish).
+ * Consumers discriminate with {@link isDiscoveryPending} / {@link isAlreadyPublic}.
+ */
+export type AddUserCompanyResult =
+  | UserCompany
+  | DiscoveryPendingResponse
+  | AlreadyPublicResponse;
 
 export function isDiscoveryPending(
   result: AddUserCompanyResult,
 ): result is DiscoveryPendingResponse {
   return (result as DiscoveryPendingResponse).status === 'discovery_pending';
+}
+
+export function isAlreadyPublic(
+  result: AddUserCompanyResult,
+): result is AlreadyPublicResponse {
+  return (result as AlreadyPublicResponse).status === 'already_public';
 }
 
 interface UserCompaniesApiExtra {
@@ -364,14 +411,19 @@ export const userCompaniesApi = createApi({
      * Add a company from an already-resolved final URL. On `201` (created) or
      * an idempotent `200` (already owned) the body is the `UserCompany`; on `202`
      * a non-ATS URL was routed to one-time discovery and the body is a
-     * `DiscoveryPendingResponse` (discriminate with `isDiscoveryPending`); a `422`
+     * `DiscoveryPendingResponse` (discriminate with `isDiscoveryPending`); on a
+     * `200` naming a board we already publish the body is an
+     * `AlreadyPublicResponse` and NOTHING was created (`isAlreadyPublic`); a `422`
      * surfaces `AddUserCompanyFailure` in `error.data` for the UI to explain.
      */
-    addUserCompany: builder.mutation<AddUserCompanyResult, ResolveUrlArgs>({
-      query: ({ url }) => ({
+    addUserCompany: builder.mutation<AddUserCompanyResult, AddUserCompanyArgs>({
+      // `trackAnyway` is omitted from the body unless it is actually set: the
+      // backend model is `extra='forbid'`, so only send fields we mean, and an
+      // absent field is exactly the default the server already applies.
+      query: ({ url, trackAnyway }) => ({
         url: 'users/companies',
         method: 'POST',
-        body: { url },
+        body: trackAnyway ? { url, trackAnyway } : { url },
       }),
       invalidatesTags: ['MyCompanies'],
     }),
