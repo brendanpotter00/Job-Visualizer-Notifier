@@ -239,6 +239,34 @@ export interface DiscoveryProgress {
 }
 
 /**
+ * "This looks like Spotify, which we already track" — a SUGGESTION, never a merge.
+ *
+ * Present once a board's first VERIFIED harvest found that its OPEN job titles overlap a
+ * published company's by at least 70%, on sets of at least 20 titles each. It is the only
+ * thing that catches the case the URL check cannot: `lifeatspotify.com` resolves to no
+ * ATS at all, so nothing about the URL or the captured endpoint links it to `lever:spotify`
+ * — only the job set does.
+ *
+ * WHAT IT DOES NOT MEAN: nothing was merged, moved or changed. The backend writes no job
+ * row and touches no company's identity on this path — there is no un-merge in this
+ * codebase, so a false merge would be permanent and silent while a false suggestion is one
+ * dismissible banner. The user decides, and dismissing is a normal outcome.
+ *
+ * `companyId` is a PUBLIC company id (`spotify`), not a `u-…` runtime id, so it belongs on
+ * `/companies?company=…` and never on `buildMyCompanyDetailPath`.
+ */
+export interface PublicBoardMatch {
+  companyId: string;
+  displayName: string;
+  /** Normalized titles the two boards share — the "70" in "70 of 81 roles match". */
+  shared: number;
+  /** Distinct normalized OPEN titles on THIS board — the "81". */
+  candidateTitles: number;
+  /** When the comparison ran. Null on a blob written without one. */
+  detectedAt: string | null;
+}
+
+/**
  * A company the signed-in user brought themselves — one row of
  * `GET /api/users/companies`, and the body of a successful add. camelCase on
  * the wire (backend `to_camel`).
@@ -268,6 +296,12 @@ export interface UserCompany {
    * (non-ATS) board — and because a server that predates it simply omits the field.
    */
   discovery?: DiscoveryProgress | null;
+  /**
+   * The published-board suggestion, if this board's first VERIFIED harvest found one.
+   * Optional AND nullable: absent from a server that predates it, null on the
+   * overwhelming majority of rows, and both render nothing.
+   */
+  publicMatch?: PublicBoardMatch | null;
 }
 
 /** `GET /api/users/companies` envelope — newest first. */

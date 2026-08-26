@@ -29,6 +29,7 @@ import {
   shouldShowDiscovery,
 } from './companyHealth';
 import { DiscoveryChecklist } from './DiscoveryChecklist';
+import { PublicBoardMatchBanner } from './PublicBoardMatchBanner';
 
 /** Poll cadence while any row is still an empty, unverified board. */
 const POLL_INTERVAL_MS = 15_000;
@@ -214,6 +215,13 @@ function CompanyRow({
       </Stack>
 
       {showChecklist && <DiscoveryChecklist company={company} />}
+
+      {/* "This looks like Spotify, which we already track." Renders only when the backend
+          actually found an overlap, which is almost never — and the component owns its own
+          dismissal, so the row needs no state for it. `onRemove` is the SAME handler the
+          row's Remove button uses, so the banner's remove goes through the ordinary
+          confirmation dialog rather than inventing a shortcut. */}
+      <PublicBoardMatchBanner company={company} onRemove={onRemove} />
     </Paper>
   );
 }

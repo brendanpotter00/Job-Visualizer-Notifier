@@ -1447,6 +1447,33 @@ class DiscoveryProgressResponse(BaseModel):
     network: DiscoveryNetworkResponse = Field(default_factory=DiscoveryNetworkResponse)
 
 
+class PublicMatchResponse(BaseModel):
+    """"This looks like Spotify, which we already track" — a SUGGESTION (E7 unit 10).
+
+    Stored in ``companies.provider_config['public_match']`` (no migration — same sidecar
+    the discovery checklist uses) and read back by the SAME poll the list already runs.
+
+    It means the board's OPEN job titles overlap a published company's by at least 70%,
+    on sets of at least 20 titles each. It does NOT mean anything was merged, moved or
+    changed: nothing on this path writes a ``job_listings`` row or touches a company's
+    identity. The user decides — the banner offers the public page and a dismiss, and
+    dismissing is a normal outcome, not a failure.
+
+    ``companyId`` is a PUBLIC company id (``spotify``), never a ``u-…`` runtime id.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    company_id: str
+    display_name: str
+    #: How many normalized titles the two boards share, out of ``candidateTitles`` on
+    #: this board. The banner renders them as "70 of 81 roles match", so both are
+    #: required — a count with no denominator is not a sentence.
+    shared: int = Field(ge=0)
+    candidate_titles: int = Field(ge=0)
+    detected_at: str | None = None
+
+
 class UserCompanyResponse(BaseModel):
     """One private custom company the caller owns.
 
@@ -1472,6 +1499,9 @@ class UserCompanyResponse(BaseModel):
     # has one. NULL for every ATS company and for anything discovered before this
     # shipped — the UI renders the badge-only row it always did.
     discovery: DiscoveryProgressResponse | None = None
+    # The published-board suggestion, present only once a first VERIFIED harvest found
+    # one. NULL is the overwhelmingly common case and renders nothing.
+    public_match: PublicMatchResponse | None = None
 
 
 class UserCompanyListResponse(BaseModel):

@@ -37,6 +37,7 @@ from ..models import (
     AlreadyPublicResponse,
     DiscoveryProgressResponse,
     JobListingResponse,
+    PublicMatchResponse,
     UserCompanyListResponse,
     UserCompanyResponse,
 )
@@ -56,6 +57,7 @@ from ..routers.jobs import NEXT_CURSOR_HEADER
 from ..services import custom_companies_service as svc
 from ..services.ats_discovery import discover_ats, probe_candidate
 from ..services.discovery.progress import read_progress
+from ..services.published_board_match import read_suggestion
 from ..services.database import get_owned_custom_jobs, get_user_company_jobs
 from ..services.user_service import get_or_create_user, get_user_by_email
 
@@ -104,6 +106,10 @@ def _to_response(row: dict) -> UserCompanyResponse:
     # than raised on — this is the one endpoint the My-Companies page cannot live
     # without, so it must never 500 over a display-only field.
     progress = read_progress(row.get("provider_config"))
+    # Same column, same poll, same total-reader contract (E7 unit 10): a row with no
+    # suggestion — every ATS company, and nearly every discovered one — yields None and
+    # renders exactly what it rendered before this shipped.
+    public_match = read_suggestion(row.get("provider_config"))
     return UserCompanyResponse(
         id=row["id"],
         display_name=row["display_name"],
@@ -117,6 +123,11 @@ def _to_response(row: dict) -> UserCompanyResponse:
         discovery=(
             DiscoveryProgressResponse.model_validate(progress)
             if progress is not None
+            else None
+        ),
+        public_match=(
+            PublicMatchResponse.model_validate(public_match)
+            if public_match is not None
             else None
         ),
     )
