@@ -276,11 +276,17 @@ async def add_company(
     (Phase 3 will handle these); a resolvable board that probes 0 jobs or errors
     returns 422 with ``outcome='empty'`` / ``'probe_failed'``.
 
-    A URL that resolves to a board we ALREADY PUBLISH creates nothing and returns
-    200 with an ``AlreadyPublicResponse`` (``outcome='already_public'``) naming
-    that public company — see the dedupe block below for what it does and does not
-    catch. ``trackAnyway: true`` on the request skips the check and adds the
-    private copy anyway.
+    A URL that is a board we ALREADY PUBLISH creates nothing and returns 200 with
+    an ``AlreadyPublicResponse`` (``outcome='already_public'``) naming that public
+    company. Two checks answer that, in two different places, because a published
+    board has two different kinds of identity:
+
+    * the ``(ats, board_token)`` the resolver named — the six ATS providers, and
+    * the careers HOST, for the five ``ats='script'`` boards (Amazon, Apple,
+      Google, Microsoft, TikTok) that no URL can ever spell as an ATS pair.
+
+    See each block for what it does and does not catch. ``trackAnyway: true`` on
+    the request skips both and adds the private copy anyway.
     """
     _require_flag()
 
@@ -320,6 +326,72 @@ async def add_company(
             return _reject(422, "deadline_exceeded", "Resolving the URL timed out.")
 
         if result.candidate is None:
+            # Whether the caller ALREADY owns a private row for this URL. Hoisted out
+            # of the discovery gate below because the careers-host match needs the
+            # same answer, for the same reason unit 9's dedupe sits after its own
+            # idempotent branch: somebody who pressed "Track it separately anyway"
+            # once owns a real private row, and a re-add of that URL has to keep
+            # resolving to THEIR row rather than being sent back to the public page.
+            owned = (
+                svc.find_owned_company_by_source_key(
+                    conn, user_id, svc.discovered_source_key(result.final_url)
+                )
+                if result.final_url
+                else None
+            )
+
+            # ── The careers-host match: the ats='script' half of the dedupe ──────
+            # Amazon, Apple, Google, Microsoft and TikTok are published to everybody
+            # with ``ats='script'`` — a sentinel the ATS resolver never emits and no
+            # URL ever spells — so unit 9's ``(ats, board_token)`` check above cannot
+            # see them and their careers URLs land HERE, one line from spending a
+            # Claude call and a headless Chromium session on a private duplicate of a
+            # board we have published for years. That is the bug the owner hit with
+            # ``jobs.careers.microsoft.com`` and ``www.amazon.jobs``.
+            #
+            # BEFORE the discovery gate, not inside it, and before the placeholder
+            # insert: on a hit we create NOTHING and enqueue NOTHING. It is also
+            # before the gate because the answer does not depend on it — "we already
+            # publish this board" is true and useful whether or not discovery is on,
+            # and with the flag off the alternative is a 422 that reads as "this
+            # board is unsupported" about a board on our own front page.
+            #
+            # Both URLs are checked: what the user pasted AND what the resolver's
+            # redirect-following settled on. They differ in both directions —
+            # ``careers.tiktok.com`` 302s to ``lifeattiktok.com``, and a company page
+            # that redirects into one of these boards is only recognisable as the
+            # final URL.
+            if owned is None and not payload.track_anyway:
+                published = svc.find_public_company_for_careers_url(
+                    conn, payload.url, result.final_url
+                )
+                if published is not None:
+                    svc.record_add_attempt(
+                        conn, user_id=user_id, submitted_url=payload.url,
+                        normalized_url=result.final_url, outcome="already_public",
+                        # ``script`` is what the public row's ``ats`` actually is, so
+                        # the audit says which half of the dedupe answered without a
+                        # new outcome value that every existing query would miss.
+                        resolved_ats="script", company_id=published["id"],
+                    )
+                    # 200 and the SAME body shape unit 9 returns, so the frontend
+                    # renders the same notice with the same escape hatch. Nothing
+                    # failed and there is nothing to fix — the company they asked for
+                    # is already there.
+                    return JSONResponse(
+                        status_code=200,
+                        content=AlreadyPublicResponse(
+                            detail=(
+                                "That URL is the same job board as our public "
+                                f"{published['display_name']} page, so there is nothing "
+                                "to set up — its hiring trend is already there."
+                            ),
+                            company_id=str(published["id"]),
+                            display_name=str(published["display_name"]),
+                            final_url=result.final_url or payload.url,
+                        ).model_dump(by_alias=True),
+                    )
+
             # Non-ATS URL → one-time capture discovery, gated on the SINGLE
             # ``custom_company_discovery_enabled`` flag (the parent flag is already
             # asserted by ``_require_flag``). With it off this stays 422 'unsupported'
@@ -329,10 +401,7 @@ async def add_company(
             # board is unsupported", with nothing distinguishing the two.
             if settings.custom_company_discovery_enabled and result.final_url:
                 normalized_url = result.final_url
-                source_key = svc.discovered_source_key(normalized_url)
-                existing = svc.find_owned_company_by_source_key(
-                    conn, user_id, source_key
-                )
+                existing = owned
                 if existing is not None:
                     # Idempotent re-add of an already-discovered (or refused) board:
                     # resolve to the existing row instead of re-spending on discovery.
@@ -444,13 +513,16 @@ async def add_company(
         #
         # THE HONEST LIMIT, because the copy must not overstate it: this catches a
         # pasted Greenhouse / Ashby / Lever / Gem / Workday / Eightfold URL — the
-        # thing the resolver can name. It does NOT catch a company's own careers
-        # site. ``lifeatspotify.com`` resolves to no ATS at all (52 KB of its HTML
-        # names none of the hosts the sniffer knows), so Spotify's own site reaches
-        # discovery and becomes a private duplicate of ``lever:spotify`` exactly as
-        # it does today. Neither can this catch Google / Apple / Microsoft, whose
-        # public rows are ``ats='script'`` — a value the resolver never emits.
-        # Only the job SET links those, which is a separate piece of work.
+        # thing the resolver can name. The five ``ats='script'`` boards (Amazon,
+        # Apple, Google, Microsoft, TikTok) are caught by the careers-host match on
+        # the no-candidate path above, which keys on the host instead.
+        #
+        # What NEITHER catches is a company's own careers site fronting an ATS board
+        # we publish. ``lifeatspotify.com`` resolves to no ATS at all (52 KB of its
+        # HTML names none of the hosts the sniffer knows) and is not a declared
+        # careers host, so Spotify's own site still reaches discovery and becomes a
+        # private duplicate of ``lever:spotify``. Only the job SET links those, which
+        # is what ``published_board_match`` (unit 10) suggests after the first harvest.
         if not payload.track_anyway:
             published = svc.find_public_company_for_candidate(
                 conn,

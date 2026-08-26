@@ -969,7 +969,10 @@ def _record_defers(monkeypatch, result: str = "deferred") -> list[str]:
 
     calls: list[str] = []
 
-    async def _defer(company_id: str) -> str:
+    # **kwargs absorbs the `queue=` the first-harvest path now passes so it can
+    # land on the reserved interactive lane; which queue it targets is asserted
+    # in test_worker_lanes.py, not here.
+    async def _defer(company_id: str, **_kwargs: object) -> str:
         calls.append(company_id)
         return result
 
@@ -1129,7 +1132,7 @@ def test_an_enqueue_that_explodes_never_fails_the_add(client, db_conn, monkeypat
     _login(client, "auth0|A", "a@example.com")
     _install_greenhouse(monkeypatch, [1])
 
-    async def _boom(company_id: str) -> str:
+    async def _boom(company_id: str, **_kwargs: object) -> str:
         raise RuntimeError("broker is on fire")
 
     monkeypatch.setattr(claim_mod, "defer_fetch", _boom)
@@ -1526,3 +1529,406 @@ def test_discovery_display_name_reads_like_a_company(url, expected):
 )
 def test_discovery_display_name_declines_to_invent(url, expected):
     assert _discovery_display_name(url) == expected
+
+
+# --- E7 unit 11: the careers-host match for the ats='script' boards ------------
+#
+# Amazon / Apple / Google / Microsoft / TikTok are published with ``ats='script'``, a
+# sentinel the ATS resolver never emits, so unit 9's ``(ats, board_token)`` dedupe
+# cannot see them. Before this unit their careers URLs fell straight through to
+# one-time discovery — a Claude call and a headless Chromium session to build a
+# private duplicate of a board on our own front page. These tests are the assertion
+# that they no longer do.
+
+#: The URLs the owner actually pasted, plus one per remaining script board.
+_SCRIPT_BOARD_URLS = [
+    ("https://jobs.careers.microsoft.com/global/en/search", "microsoft", "Microsoft"),
+    ("https://www.amazon.jobs/en/search", "amazon", "Amazon"),
+    ("https://jobs.apple.com/en-us/search", "apple", "Apple"),
+    ("https://careers.google.com/", "google", "Google"),
+    ("https://lifeattiktok.com/search", "tiktok", "TikTok"),
+]
+
+#: The five published rows, exactly as prod holds them.
+_SEEDED_SCRIPT_ROWS = [
+    ("amazon", "Amazon"), ("apple", "Apple"), ("google", "Google"),
+    ("microsoft", "Microsoft"), ("tiktok", "TikTok"),
+]
+
+
+def _seed_script_company(db_conn, company_id: str, display_name: str) -> None:
+    """One published ``ats='script'`` row, exactly as prod holds it.
+
+    ``board_token`` is the company id — that is what the two seed migrations and
+    ``companies_seed`` write, and it is precisely why the token-based dedupe cannot
+    help here: nothing in a careers URL spells it.
+    """
+    _seed_public_company(db_conn, company_id, ats="script", board_token=company_id,
+                         display_name=display_name)
+
+
+@pytest.mark.parametrize("url,company_id,display_name", _SCRIPT_BOARD_URLS)
+def test_a_script_boards_careers_url_links_instead_of_discovering(
+    client, db_conn, monkeypatch, url, company_id, display_name
+):
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
+    _login(client, "auth0|A", "a@example.com")
+    _seed_script_company(db_conn, company_id, display_name)
+    _patch_no_ats(monkeypatch, final_url=url)
+    calls = _capture_defer(monkeypatch)
+
+    resp = client.post("/api/users/companies", json={"url": url})
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["status"] == "already_public"
+    assert body["companyId"] == company_id
+    assert body["displayName"] == display_name
+    assert body["finalUrl"] == url
+    # The copy names the BOARD, never the company's job set — we matched a host.
+    assert "the same job board" in body["detail"]
+    assert display_name in body["detail"]
+
+    # NOTHING WAS ENQUEUED. This is the assertion the whole unit exists for: the
+    # discovery task is the Claude call and the Chromium session, and a board we
+    # already publish must not cost either.
+    assert calls == []
+
+    # And NOTHING WAS CREATED — row counts, not response shape.
+    assert _count(db_conn, "companies", "WHERE visibility = 'user'") == 0
+    assert _count(db_conn, "user_companies") == 0
+    assert _count(db_conn, "company_scripts") == 0
+    assert _count(db_conn, "job_listings") == 0
+    assert _count(db_conn, "companies", "WHERE id = %s", (company_id,)) == 1
+
+    # The audit stays complete and points at the public company it resolved to.
+    assert _count(
+        db_conn, "company_add_attempts",
+        "WHERE outcome = 'already_public' AND company_id = %s AND resolved_ats = 'script'",
+        (company_id,),
+    ) == 1
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://www.amazon.jobs/en/search",       # with www.
+        "https://amazon.jobs/en/search",           # without
+        "https://WWW.Amazon.Jobs/EN/Search/",      # mixed case + trailing slash
+        "https://www.amazon.jobs/en/search?base_query=engineer&offset=20",  # query
+        "https://amazon.jobs./en/search",          # trailing root dot
+        "https://amazon.jobs:443/en/search",       # explicit port
+        "https://evil.tld@www.amazon.jobs/en/search",  # userinfo before the real host
+    ],
+)
+def test_every_spelling_of_a_script_board_reaches_the_same_answer(
+    client, db_conn, monkeypatch, url
+):
+    """One board, seven URLs. Each is a string a real person or redirect produces."""
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
+    _login(client, "auth0|A", "a@example.com")
+    _seed_script_company(db_conn, "amazon", "Amazon")
+    _patch_no_ats(monkeypatch, final_url=url)
+    calls = _capture_defer(monkeypatch)
+
+    resp = client.post("/api/users/companies", json={"url": url})
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["companyId"] == "amazon"
+    assert calls == []
+    assert _count(db_conn, "companies", "WHERE visibility = 'user'") == 0
+
+
+def test_the_submitted_url_is_matched_even_when_the_resolver_moved_on(
+    client, db_conn, monkeypatch
+):
+    """``careers.tiktok.com`` 302s to ``lifeattiktok.com`` — but a resolver that lost
+    the redirect (or reported a different final URL) must not lose the answer.
+
+    Both URLs are checked precisely because they differ, and they differ in both
+    directions: the redirect alias only exists on the submitted side, while a company
+    page that redirects INTO one of these boards only exists on the final side.
+    """
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
+    _login(client, "auth0|A", "a@example.com")
+    _seed_script_company(db_conn, "tiktok", "TikTok")
+    _patch_no_ats(monkeypatch, final_url="https://some-cdn.example/shell")
+    calls = _capture_defer(monkeypatch)
+
+    resp = client.post("/api/users/companies", json={"url": "https://careers.tiktok.com/"})
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["companyId"] == "tiktok"
+    assert calls == []
+
+
+def test_the_final_url_is_matched_even_when_the_submitted_one_misses(
+    client, db_conn, monkeypatch
+):
+    """A company page that redirects into one of the five is only recognisable there."""
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
+    _login(client, "auth0|A", "a@example.com")
+    _seed_script_company(db_conn, "amazon", "Amazon")
+    _patch_no_ats(monkeypatch, final_url="https://www.amazon.jobs/en/search")
+    calls = _capture_defer(monkeypatch)
+
+    resp = client.post(
+        "/api/users/companies", json={"url": "https://hiring.example/amazon"}
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["companyId"] == "amazon"
+    assert calls == []
+
+
+def test_an_unrelated_host_still_goes_to_discovery(client, db_conn, monkeypatch):
+    """The negative control. Discovery is the right answer for almost every URL, and
+    this change must not have narrowed it."""
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
+    _login(client, "auth0|A", "a@example.com")
+    for company_id, display_name in _SEEDED_SCRIPT_ROWS:
+        _seed_script_company(db_conn, company_id, display_name)
+    _patch_no_ats(monkeypatch)
+    calls = _capture_defer(monkeypatch)
+
+    resp = client.post("/api/users/companies", json={"url": _NON_ATS_URL})
+
+    assert resp.status_code == 202, resp.text
+    assert len(calls) == 1
+    assert _count(db_conn, "companies", "WHERE visibility = 'user'") == 1
+    assert _count(db_conn, "company_add_attempts", "WHERE outcome = 'already_public'") == 0
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        # THE near-miss class, and the reason the match is exact-host rather than
+        # registrable-domain: every one of these shares a registrable domain with a
+        # board above and none of them is that board. Answering "we already track
+        # Microsoft" for learn.microsoft.com would be a confidently wrong link.
+        "https://learn.microsoft.com/en-us/training/",
+        "https://www.microsoft.com/en-us/microsoft-365",
+        "https://microsoft.com/",
+        "https://aws.amazon.com/careers/",
+        "https://www.apple.com/careers/",
+        # Google settles it: the registrable domain is a search engine, and only
+        # /about/careers under it is a board.
+        "https://www.google.com/maps",
+        "https://www.google.com/about/careersomething",
+    ],
+)
+def test_a_near_miss_host_is_not_the_board_and_still_goes_to_discovery(
+    client, db_conn, monkeypatch, url
+):
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
+    _login(client, "auth0|A", "a@example.com")
+    for company_id, display_name in _SEEDED_SCRIPT_ROWS:
+        _seed_script_company(db_conn, company_id, display_name)
+    _patch_no_ats(monkeypatch, final_url=url)
+    calls = _capture_defer(monkeypatch)
+
+    resp = client.post("/api/users/companies", json={"url": url})
+
+    assert resp.status_code == 202, resp.text
+    assert len(calls) == 1
+    assert _count(db_conn, "company_add_attempts", "WHERE outcome = 'already_public'") == 0
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        # The near-miss class the subdomain cases above do NOT cover: each host ENDS
+        # WITH a declared board host without being it, because the shared text stops
+        # mid-label. ``notamazon.jobs`` is registrable by anyone.
+        "https://notamazon.jobs/en/search",
+        "https://evil-careers.microsoft.com/global/en/search",
+        "https://myjobs.apple.com/en-us/search",
+        "https://fakelifeattiktok.com/search",
+    ],
+)
+def test_a_host_that_merely_ends_with_a_board_host_still_goes_to_discovery(
+    client, db_conn, monkeypatch, url
+):
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
+    _login(client, "auth0|A", "a@example.com")
+    for company_id, display_name in _SEEDED_SCRIPT_ROWS:
+        _seed_script_company(db_conn, company_id, display_name)
+    _patch_no_ats(monkeypatch, final_url=url)
+    calls = _capture_defer(monkeypatch)
+
+    resp = client.post("/api/users/companies", json={"url": url})
+
+    assert resp.status_code == 202, resp.text
+    assert len(calls) == 1
+    assert _count(db_conn, "company_add_attempts", "WHERE outcome = 'already_public'") == 0
+
+
+def test_a_non_public_row_carrying_a_script_id_is_not_offered_as_the_answer(
+    client, db_conn, monkeypatch
+):
+    """``visibility = 'public'`` is a rail, not decoration — pinned directly.
+
+    Today nothing can reach this state through the product: ``new_custom_company_id``
+    only ever mints ``u-<base36>``, so a private row cannot carry the id ``amazon``.
+    That is exactly why the clause needs its own test rather than an incidental one —
+    without this, dropping ``visibility = 'public'`` from the SELECT passes the whole
+    suite, and the day an unpublish or import path can produce such a row, the endpoint
+    would start answering with a board it no longer publishes.
+    """
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
+    _login(client, "auth0|A", "a@example.com")
+    cur = db_conn.cursor()
+    cur.execute(
+        sql.SQL(
+            "INSERT INTO {} (id, display_name, ats, board_token, enabled, visibility) "
+            "VALUES ('amazon', 'Amazon', 'script', 'amazon', TRUE, 'user')"
+        ).format(sql.Identifier("companies"))
+    )
+    db_conn.commit()
+    url = "https://www.amazon.jobs/en/search"
+    _patch_no_ats(monkeypatch, final_url=url)
+    calls = _capture_defer(monkeypatch)
+
+    resp = client.post("/api/users/companies", json={"url": url})
+
+    assert resp.status_code == 202, resp.text
+    assert len(calls) == 1
+    assert _count(db_conn, "company_add_attempts", "WHERE outcome = 'already_public'") == 0
+
+
+def test_track_anyway_still_creates_the_private_copy_of_a_script_board(
+    client, db_conn, monkeypatch
+):
+    """Some people legitimately want their own copy, and the escape hatch is the whole
+    reason this answer is allowed to be a 200 instead of a refusal."""
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
+    _login(client, "auth0|A", "a@example.com")
+    _seed_script_company(db_conn, "amazon", "Amazon")
+    url = "https://www.amazon.jobs/en/search"
+    _patch_no_ats(monkeypatch, final_url=url)
+    calls = _capture_defer(monkeypatch)
+
+    resp = client.post(
+        "/api/users/companies", json={"url": url, "trackAnyway": True}
+    )
+
+    assert resp.status_code == 202, resp.text
+    assert resp.json()["status"] == "discovery_pending"
+    assert len(calls) == 1
+    assert _count(db_conn, "companies", "WHERE visibility = 'user'") == 1
+    # ...and the public Amazon row is untouched.
+    assert _count(db_conn, "companies", "WHERE id = 'amazon'") == 1
+
+
+def test_a_re_add_after_track_anyway_still_resolves_to_the_users_own_row(
+    client, db_conn, monkeypatch
+):
+    """The ordering rule unit 9 established, applied to the host match.
+
+    Somebody who opted into a private copy owns a real row; a plain re-add of that URL
+    must keep resolving to THEIR row, or the endpoint stops being idempotent for
+    exactly the users who opted in.
+    """
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
+    _login(client, "auth0|A", "a@example.com")
+    _seed_script_company(db_conn, "amazon", "Amazon")
+    url = "https://www.amazon.jobs/en/search"
+    _patch_no_ats(monkeypatch, final_url=url)
+    _capture_defer(monkeypatch)
+
+    optin = client.post("/api/users/companies", json={"url": url, "trackAnyway": True})
+    assert optin.status_code == 202, optin.text
+    company_id = optin.json()["id"]
+
+    again = client.post("/api/users/companies", json={"url": url})
+
+    assert again.status_code == 200, again.text
+    assert again.json()["id"] == company_id
+    assert again.json().get("status") != "already_public"
+    assert _count(db_conn, "companies", "WHERE visibility = 'user'") == 1
+
+
+def test_a_script_board_links_even_with_discovery_switched_off(
+    client, db_conn, monkeypatch
+):
+    """The answer does not depend on the discovery flag, and must not.
+
+    With the flag off the alternative is a 422 that reads "No supported ATS board was
+    found behind this URL" — about a board on our own front page. "We already publish
+    this" is true either way, and it is the more useful sentence.
+    """
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", False)
+    _login(client, "auth0|A", "a@example.com")
+    _seed_script_company(db_conn, "microsoft", "Microsoft")
+    url = "https://jobs.careers.microsoft.com/global/en/search"
+    _patch_no_ats(monkeypatch, final_url=url)
+    calls = _capture_defer(monkeypatch)
+
+    resp = client.post("/api/users/companies", json={"url": url})
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["companyId"] == "microsoft"
+    assert calls == []
+    assert _count(db_conn, "companies", "WHERE visibility = 'user'") == 0
+
+
+def test_a_disabled_script_company_is_not_offered_as_the_answer(
+    client, db_conn, monkeypatch
+):
+    """Same rail unit 9 has: a disabled public row is a board we have STOPPED reading,
+    and a chart that no longer updates is worse than the user's own copy."""
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
+    _login(client, "auth0|A", "a@example.com")
+    _seed_public_company(db_conn, "amazon", ats="script", board_token="amazon",
+                         display_name="Amazon", enabled=False)
+    url = "https://www.amazon.jobs/en/search"
+    _patch_no_ats(monkeypatch, final_url=url)
+    calls = _capture_defer(monkeypatch)
+
+    resp = client.post("/api/users/companies", json={"url": url})
+
+    assert resp.status_code == 202, resp.text
+    assert len(calls) == 1
+    assert _count(db_conn, "company_add_attempts", "WHERE outcome = 'already_public'") == 0
+
+
+def test_a_script_board_we_do_not_publish_is_not_claimed(client, db_conn, monkeypatch):
+    """The table maps a host to an id; the DATABASE decides whether we publish it.
+
+    With no ``amazon`` row seeded there is nothing to link to, so the URL takes the
+    ordinary path rather than 200-ing at a company that does not exist.
+    """
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
+    _login(client, "auth0|A", "a@example.com")
+    url = "https://www.amazon.jobs/en/search"
+    _patch_no_ats(monkeypatch, final_url=url)
+    calls = _capture_defer(monkeypatch)
+
+    resp = client.post("/api/users/companies", json={"url": url})
+
+    assert resp.status_code == 202, resp.text
+    assert len(calls) == 1
+
+
+def test_another_users_private_copy_is_never_offered_as_the_answer(
+    client, db_conn, monkeypatch
+):
+    """``visibility = 'public'`` is part of the match for the same reason it is in unit
+    9's: without it, one user's private board leaks by name to another."""
+    monkeypatch.setattr(settings, "custom_company_discovery_enabled", True)
+    url = "https://www.amazon.jobs/en/search"
+    _patch_no_ats(monkeypatch, final_url=url)
+    calls = _capture_defer(monkeypatch)
+
+    _login(client, "auth0|A", "a@example.com")
+    assert client.post(
+        "/api/users/companies", json={"url": url, "trackAnyway": True}
+    ).status_code == 202
+
+    _login(client, "auth0|B", "b@example.com")
+    resp = client.post("/api/users/companies", json={"url": url})
+
+    # No public amazon row exists, so B gets their own discovery — not a pointer at A's.
+    assert resp.status_code == 202, resp.text
+    assert len(calls) == 2
+    assert _count(db_conn, "companies", "WHERE visibility = 'user'") == 2

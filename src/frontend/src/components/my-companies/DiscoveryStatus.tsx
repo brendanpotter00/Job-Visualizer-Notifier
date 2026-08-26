@@ -12,18 +12,27 @@ import {
   type AddUserCompanyResult,
 } from '../../features/userCompanies/userCompaniesApi';
 import { AlreadyPublicNotice } from './AlreadyPublicNotice';
+import { TrackAnywayAction } from './TrackAnywayAction';
 
 interface DiscoveryStatusProps {
   /** The add mutation's body, once it has one: a `202` pending or a `200`/`201` company. */
   result: AddUserCompanyResult | undefined;
   /** The add mutation's rejection, if it failed. Typed `unknown` — see `extractErrorMessage`. */
   error: unknown;
+  /**
+   * Re-send this URL with `trackAnyway`, creating the private copy after all. Optional
+   * only so a caller that has no mutation to lend can still render the notice; when it
+   * is absent the already-published branch shows the link alone.
+   */
+  onTrackAnyway?: (url: string) => void;
+  /** The parent's add mutation in flight — disables the escape hatch while it runs. */
+  isTracking?: boolean;
 }
 
 /**
  * What happened to the one-time discovery a non-ATS URL was routed into.
  *
- * PURELY PRESENTATIONAL — it owns no mutation and no button. Discovery is kicked off by
+ * PURELY PRESENTATIONAL — it owns no mutation. Discovery is kicked off by
  * the page's single submit action the moment the resolver reports no supported ATS, so
  * the "Try one-time discovery" button this component used to render was a second click
  * standing between the user and the only thing left to do. The mutation therefore lives
@@ -39,7 +48,12 @@ interface DiscoveryStatusProps {
  *    was found behind this URL". That is a truthful dead end, not a spinner, and it is
  *    the reason this branch also names the boards we can read without discovery.
  */
-export function DiscoveryStatus({ result, error }: DiscoveryStatusProps) {
+export function DiscoveryStatus({
+  result,
+  error,
+  onTrackAnyway,
+  isTracking = false,
+}: DiscoveryStatusProps) {
   if (result !== undefined && isDiscoveryPending(result)) {
     // One line after the server's own `detail`, and it says where to look — the row
     // below is already narrating the setup, so anything more here is a second copy of
@@ -55,12 +69,30 @@ export function DiscoveryStatus({ result, error }: DiscoveryStatusProps) {
   }
 
   if (result !== undefined && isAlreadyPublic(result)) {
-    // Rare but real: this component only ever sees a result when the FIRST resolve
-    // said `no_ats_detected`, and the add re-resolves from scratch. A transient
-    // failure on the first call followed by a hit on the second lands here. No
-    // "track it anyway" button — this component owns no mutation by design, and the
-    // user can re-paste; being handed a wrong link would be the worse outcome.
-    return <AlreadyPublicNotice result={result} />;
+    // NOT a rare branch any more, and that is the change. This component only ever
+    // sees a result when the first resolve said `no_ats_detected` — which is exactly
+    // what the five `ats='script'` boards do. Amazon, Apple, Google, Microsoft and
+    // TikTok resolve to no ATS, so the backend's careers-host match answers
+    // `already_public` HERE rather than in `AddCompanyCTA`, and this is now the
+    // ordinary landing place for "I pasted Microsoft's careers page".
+    //
+    // Which is why the escape hatch had to arrive with it. Before, this branch was a
+    // dead end with no way to say "I want my own copy anyway" — fine when it was a
+    // transient-failure curiosity, wrong once it is where five real companies land.
+    // The mutation is still the parent's; this only renders the button.
+    return (
+      <AlreadyPublicNotice
+        result={result}
+        action={
+          onTrackAnyway && (
+            <TrackAnywayAction
+              onClick={() => onTrackAnyway(result.finalUrl)}
+              isLoading={isTracking}
+            />
+          )
+        }
+      />
+    );
   }
 
   if (result !== undefined) {

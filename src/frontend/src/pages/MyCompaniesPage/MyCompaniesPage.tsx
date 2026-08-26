@@ -102,6 +102,19 @@ export function MyCompaniesPage() {
     }
   };
 
+  // The escape hatch under "we already publish this board". It re-sends the URL the
+  // server settled on with the override, so the private copy is created after all.
+  //
+  // It lives HERE rather than in `DiscoveryStatus` for the same reason the auto-start
+  // does: this page owns the add mutation, and its result is what `DiscoveryStatus`
+  // renders. A second mutation inside that component would resolve into state nothing
+  // on the page reads. It deliberately does NOT touch `busy` — that flag spans the
+  // resolve→discovery handoff, and raising it here would hide the notice the user just
+  // acted on behind a spinner; `addState.isLoading` disables the button instead.
+  const handleTrackAnyway = (url: string) => {
+    void addUserCompany({ url, trackAnyway: true });
+  };
+
   const handleSubmit = (url: string) => {
     // `void`: everything rendered below reads from the two mutations' own state, and
     // neither trigger rejects (RTK Query resolves them to `{ data }` / `{ error }`), so
@@ -153,7 +166,12 @@ export function MyCompaniesPage() {
         {!busy && error !== undefined && !noAtsDetected && <ResolveErrorDisplay error={error} />}
 
         {!busy && noAtsDetected && (
-          <DiscoveryStatus result={addState.data} error={addState.error} />
+          <DiscoveryStatus
+            result={addState.data}
+            error={addState.error}
+            onTrackAnyway={handleTrackAnyway}
+            isTracking={addState.isLoading}
+          />
         )}
 
         {!busy && error === undefined && result !== undefined && (

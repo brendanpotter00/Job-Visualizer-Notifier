@@ -358,10 +358,15 @@ export interface DiscoveryPendingResponse {
  * `companyId` is a PUBLIC company id (`spotify`), not a `u-…` runtime id, so it belongs
  * on `/companies?company=…` and never on `buildMyCompanyDetailPath`.
  *
- * WHAT THIS DOES NOT MEAN: we compared job sets. We did not. All we know is that the
- * URL resolved to the same ATS board we already read for that company. A company's own
- * careers site (`lifeatspotify.com`) resolves to no ATS at all and never reaches this
- * branch, so the copy must not claim we checked the company — only the board.
+ * WHAT THIS DOES NOT MEAN: we compared job sets. We did not. Two different server-side
+ * checks produce this body and neither of them looks at a single job:
+ *  - the URL resolved to the same ATS board (`ats` + `boardToken`) we already read, or
+ *  - the URL's HOST is one of the five script-scraped careers boards (Amazon, Apple,
+ *    Google, Microsoft, TikTok), which have no ATS pair for the first check to compare.
+ *
+ * So the copy says "the same job board", never "the same company". A company's own
+ * careers site fronting an ATS board — `lifeatspotify.com` over `lever:spotify` — is
+ * still caught by neither, and reaches discovery as it always did.
  */
 export interface AlreadyPublicResponse {
   status: 'already_public';

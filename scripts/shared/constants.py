@@ -29,6 +29,78 @@ class SourceId:
     WORKDAY: Final[str] = "workday_api"
 
 
+# --- Careers hosts of the script-scraped boards (E7 unit 11) ------------------
+# The five ``ats='script'`` companies — Amazon, Apple, Google, Microsoft, TikTok
+# — are published to everybody, but NOTHING about them is derivable from a URL
+# the way ``boards.greenhouse.io/<token>`` is. ``ats_link_resolver`` never emits
+# ``script``, so the add path's ``(ats, board_token)`` dedupe
+# (``custom_companies_service.find_public_company_for_candidate``) cannot see
+# them: pasting ``jobs.careers.microsoft.com`` used to fall straight through to
+# one-time discovery and build a private duplicate of a board we already publish.
+#
+# This table is the missing half of that identity, and it is DECLARED rather than
+# derived because no store we own holds it. ``companies`` has no URL column;
+# ``company_profiles.json`` has no URL either; each scraper's ``config.py``
+# ``BASE_URL`` holds only the ONE host that scraper calls, which for three of the
+# five is not the host a person would ever paste (Google's scraper reads
+# ``www.google.com/about/careers/...`` while people paste ``careers.google.com``;
+# Microsoft's reads ``apply.careers.microsoft.com`` while people paste
+# ``jobs.careers.microsoft.com``).
+#
+# It lives HERE — beside ``SourceId``, in the module whose whole job is constants
+# shared between ``scripts/`` and ``src/backend/`` — because adding a script
+# company already means adding a ``SourceId`` member three lines up. A guard test
+# (``test_careers_host_match``) fails if a ``*_scraper`` SourceId ever exists
+# without an entry below, so the mapping cannot go stale in silence.
+#
+# **Every host is an EXACT match after normalization, never a suffix match.**
+# See ``api.services.careers_host_match`` for the normalizer and for why the
+# registrable domain is the wrong unit here.
+#
+# Verified live 2026-08-26 (status → redirect target):
+#   careers.google.com          301 → www.google.com/about/careers/applications/
+#   careers.tiktok.com          302 → lifeattiktok.com/
+#   jobs.careers.microsoft.com  301 → apply.careers.microsoft.com/
+#   careers.microsoft.com       302 → careers.microsoft.com/v2/global/en/home.html
+#   amazon.jobs                 302 → amazon.jobs/en/   (bare and ``www.`` are one site)
+#
+# Each entry is ``(host, path_prefix)``. ``path_prefix`` is ``""`` for a host that
+# IS the careers board, and a leading-slash prefix for the one case where the host
+# is not: ``google.com`` is a search engine, a mail client and a maps app, and only
+# ``/about/careers`` under it is a job board.
+SCRIPT_COMPANY_CAREERS_HOSTS: Final[dict[str, tuple[tuple[str, str], ...]]] = {
+    # ``www.amazon.jobs`` is the scraper's BASE_URL; the bare apex redirects into
+    # the same site, and the normalizer strips the ``www.`` label, so one entry
+    # covers both.
+    "amazon": (("amazon.jobs", ""),),
+    "apple": (("jobs.apple.com", ""),),
+    "google": (
+        # The vanity host people actually paste. It 301s onto the path below.
+        ("careers.google.com", ""),
+        # The scraper's BASE_URL, and the redirect target. PATH-SCOPED on purpose:
+        # ``google.com`` bare is not a job board, and answering "we already track
+        # Google" for ``google.com/maps`` would be a confidently wrong link.
+        ("google.com", "/about/careers"),
+    ),
+    "microsoft": (
+        # The board the owner pasted, ...
+        ("jobs.careers.microsoft.com", ""),
+        # ...what it 301s to (and what the scraper reads), ...
+        ("apply.careers.microsoft.com", ""),
+        # ...and the vanity host in ``companies.ts``.
+        ("careers.microsoft.com", ""),
+    ),
+    "tiktok": (
+        ("lifeattiktok.com", ""),
+        # The API origin the scraper POSTs to. Nobody pastes it, but a captured
+        # request or a copied devtools URL is a real way to arrive here.
+        ("api.lifeattiktok.com", ""),
+        # 302s to lifeattiktok.com.
+        ("careers.tiktok.com", ""),
+    ),
+}
+
+
 # --- Custom company sources (E7) ---------------------------------------------
 # Every custom company gets its OWN ``source_id`` namespace: ``custom:<id>``,
 # never a single shared ``custom`` bucket.

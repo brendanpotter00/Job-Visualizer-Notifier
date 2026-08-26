@@ -344,7 +344,16 @@ Edit company-specific `config.py`:
 2. Implement scraper extending `BaseScraper` from `shared/base_scraper.py`
 3. Create `parser.py`, `config.py`, and optionally `api_client.py`
 4. Add company to `run_scraper.py` CLI choices and scraper factory
-5. Add unit and integration tests
+5. Add a `SourceId.<COMPANY> = "<id>_scraper"` member in `shared/constants.py`
+6. **Register the company's careers hosts** in `SCRIPT_COMPANY_CAREERS_HOSTS`
+   (same file, right below `SourceId`). Without it, a user who pastes the new
+   company's careers URL into Add Companies triggers a one-time discovery — a
+   Claude call and a headless Chromium session — that builds a private duplicate
+   of the board you just published. A guard test
+   (`src/backend/api/tests/test_careers_host_match.py`) fails if a `*_scraper`
+   `SourceId` has no entry, so this cannot be forgotten silently. Full rules:
+   `.claude/skills/add-company/SKILL.md` § Step 7.
+7. Add unit and integration tests
 
 ## Critical Gotchas
 

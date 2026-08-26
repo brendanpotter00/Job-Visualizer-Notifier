@@ -39,8 +39,8 @@ interface AlreadyPublicNoticeProps {
  * When we do not recognise the id we link to the trends page itself and say so.
  *
  * The copy says "the same job board", never "the same company". All we checked is that
- * the URL resolved to a board we already read. We did not compare job sets, and a
- * company's own careers site never reaches this branch at all.
+ * the URL names a board we already read — either by its ATS `(ats, boardToken)` pair or,
+ * for the five script-scraped boards, by its careers host. We did not compare job sets.
  */
 export function AlreadyPublicNotice({ result, action }: AlreadyPublicNoticeProps) {
   const known = getCompanyById(result.companyId) !== undefined;

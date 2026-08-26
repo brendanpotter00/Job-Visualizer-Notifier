@@ -21,6 +21,7 @@ import psycopg2
 from psycopg2.extensions import connection as Connection
 
 from scripts.shared.constants import custom, new_custom_company_id
+from .careers_host_match import match_any_careers_url
 from .discovery.progress import initial_snapshot, with_first_scan
 
 logger = logging.getLogger(__name__)
@@ -97,9 +98,10 @@ def find_public_company_for_candidate(
       actual tenant key. ``board_token`` there is the domain's first label and is
       documented as cosmetic; comparing the real key costs the same SELECT.
 
-    ``ats='script'`` (Google, Apple, Microsoft) is deliberately unreachable here:
-    the resolver never emits it, so those three can never be deduped this way. See
-    the honest-limit note on the add path.
+    ``ats='script'`` (Amazon, Apple, Google, Microsoft, TikTok) is deliberately
+    unreachable here: the resolver never emits it, so those five can never be
+    deduped this way. :func:`find_public_company_for_careers_url` is the other
+    half that catches them, by host.
     """
     if ats == "workday":
         tenant_slug = provider_config.get("tenant_slug")
@@ -139,6 +141,56 @@ def find_public_company_for_candidate(
         LIMIT 1
         """,
         (ats,) + params,
+    )
+    row = cursor.fetchone()
+    return dict(row) if row else None
+
+
+def find_public_company_for_careers_url(
+    conn: Connection, *urls: Optional[str]
+) -> Optional[dict[str, Any]]:
+    """The ENABLED public company whose careers board these URLs are, or None.
+
+    The other half of the dedupe, and the half that closes the gap the owner hit.
+    :func:`find_public_company_for_candidate` keys on the ``(ats, board_token)``
+    pair the ATS resolver emits; the five ``ats='script'`` boards — Amazon, Apple,
+    Google, Microsoft, TikTok — have no such pair, so pasting
+    ``jobs.careers.microsoft.com`` used to reach one-time discovery and build a
+    private duplicate of a board we already publish. This matches the HOST instead.
+
+    Two arguments in the split, deliberately. :mod:`api.services.careers_host_match`
+    is a PURE table lookup and answers with a company **id**; this function is the
+    only part that touches the database, and it asks the same two questions unit 9
+    asks — ``visibility = 'public'`` and ``enabled``. Neither is decoration:
+
+    * ``visibility``, because a private row must never be offered as the answer to
+      another user (unit 9 has a test for exactly that leak), and
+    * ``enabled``, because a disabled public row is a board we have STOPPED reading
+      and pointing somebody at a chart that no longer updates is worse than letting
+      them track their own copy.
+
+    Deliberately NOT filtered on ``ats = 'script'``. The declared table maps a host
+    to a company, and a company that later migrates off its bespoke scraper onto a
+    real ATS is still the company that host belongs to — an ``ats`` filter would
+    silently stop matching on the deploy that moved it.
+
+    Returns ``{id, display_name}``, the same shape unit 9 returns, so the caller and
+    the ``AlreadyPublicResponse`` it builds do not care which half answered. Both
+    fields are already public, unauthenticated data (``GET /api/companies`` serves
+    every enabled row's id and display name), so a hit discloses nothing.
+    """
+    company_id = match_any_careers_url(*urls)
+    if company_id is None:
+        return None
+
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT id, display_name
+        FROM companies
+        WHERE id = %s AND visibility = 'public' AND enabled
+        """,
+        (company_id,),
     )
     row = cursor.fetchone()
     return dict(row) if row else None

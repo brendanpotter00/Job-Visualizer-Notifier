@@ -417,6 +417,87 @@ describe('MyCompaniesPage', () => {
       );
     });
 
+    it('links to the public page — and starts NO discovery — for a script board we already publish', async () => {
+      // THE BUG THIS CLOSES, end to end. Pasting Microsoft's careers page resolved to
+      // no ATS (it is published with `ats='script'`), so the page auto-started a
+      // one-time discovery: a Claude call and a headless Chromium session to build a
+      // private duplicate of a board on our own front page. The backend's careers-host
+      // match now answers `already_public` on that same POST instead.
+      const MICROSOFT_URL = 'https://jobs.careers.microsoft.com/global/en/search';
+      routeFetch(
+        jsonResponse({ ...NO_ATS_422, finalUrl: MICROSOFT_URL }, 422),
+        jsonResponse(
+          {
+            status: 'already_public',
+            detail:
+              'That URL is the same job board as our public Microsoft page, so there ' +
+              'is nothing to set up — its hiring trend is already there.',
+            companyId: 'microsoft',
+            displayName: 'Microsoft',
+            finalUrl: MICROSOFT_URL,
+          },
+          200
+        )
+      );
+      renderWithProviders(<MyCompaniesPage />);
+
+      await submitUrl(MICROSOFT_URL);
+
+      const notice = await screen.findByTestId('already-public');
+      expect(notice).toHaveTextContent(/we already track microsoft/i);
+      // "the same job board", never "the same company" — we matched a host, not a job set.
+      expect(notice).toHaveTextContent(/the same job board/i);
+      expect(screen.getByTestId('already-public-link')).toHaveAttribute(
+        'href',
+        '/companies?company=microsoft'
+      );
+      // NOT the setting-up notice, and not an error either.
+      expect(screen.queryByTestId('discovery-pending')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('discovery-error')).not.toBeInTheDocument();
+      // Exactly one add POST — the one that answered. Nothing retried into discovery.
+      expect(addCalls()).toHaveLength(1);
+    });
+
+    it('still lets the user take a private copy of a script board anyway', async () => {
+      // The escape hatch must survive: some people legitimately want their own copy,
+      // which is why "we already track this" is a 200 rather than a refusal.
+      const AMAZON_URL = 'https://www.amazon.jobs/en/search';
+      let addCallCount = 0;
+      fetchMock.mockImplementation((input: Request) => {
+        if (!input.url.includes('/users/companies')) {
+          return Promise.resolve(jsonResponse({ ...NO_ATS_422, finalUrl: AMAZON_URL }, 422));
+        }
+        addCallCount += 1;
+        return Promise.resolve(
+          addCallCount === 1
+            ? jsonResponse(
+                {
+                  status: 'already_public',
+                  detail: 'That URL is the same job board as our public Amazon page.',
+                  companyId: 'amazon',
+                  displayName: 'Amazon',
+                  finalUrl: AMAZON_URL,
+                },
+                200
+              )
+            : jsonResponse({ ...DISCOVERY_202, finalUrl: AMAZON_URL }, 202)
+        );
+      });
+      renderWithProviders(<MyCompaniesPage />);
+
+      const user = await submitUrl(AMAZON_URL);
+      await screen.findByTestId('already-public');
+
+      await user.click(screen.getByTestId('track-anyway-button'));
+
+      expect(await screen.findByTestId('discovery-pending')).toBeInTheDocument();
+      const [, second] = addCalls();
+      // The override rides the SECOND add, with the URL the server settled on.
+      await expect(second.clone().text()).resolves.toBe(
+        JSON.stringify({ url: AMAZON_URL, trackAnyway: true })
+      );
+    });
+
     it('degrades to a truthful message — not a spinner — when discovery is disabled server-side', async () => {
       // `custom_company_discovery_enabled` OFF: the add endpoint never starts discovery
       // and answers 422 with the same "no supported ATS board" verdict.

@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { screen } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { screen, fireEvent } from '@testing-library/react';
 import { renderWithProviders } from '../../../test/testUtils';
 import { DiscoveryStatus } from '../../../components/my-companies/DiscoveryStatus';
 import {
@@ -88,6 +88,51 @@ describe('DiscoveryStatus', () => {
     expect(screen.queryByTestId('discovery-already-tracked')).not.toBeInTheDocument();
     // This component owns no mutation, so it must not grow a button here either.
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
+  });
+
+  it('offers "track it separately anyway" when the parent lends it a mutation', () => {
+    // WHY THIS BRANCH MATTERS NOW. This component only ever renders when the first
+    // resolve said `no_ats_detected` — which is exactly what Amazon, Apple, Google,
+    // Microsoft and TikTok do, since they are published with `ats='script'` and no URL
+    // spells an ATS pair for them. The backend's careers-host match answers
+    // `already_public` HERE, so this is where somebody who pasted Microsoft's careers
+    // page lands. Without the escape hatch that is a dead end for five real companies.
+    const onTrackAnyway = vi.fn();
+    renderWithProviders(
+      <DiscoveryStatus
+        result={ALREADY_PUBLIC}
+        error={undefined}
+        onTrackAnyway={onTrackAnyway}
+      />,
+    );
+
+    // The link is still the PRIMARY action; the escape hatch is a plain text button
+    // under it, and its caption names the cost rather than leaving "anyway" bare.
+    expect(screen.getByTestId('already-public-link')).toBeInTheDocument();
+    const button = screen.getByTestId('track-anyway-button');
+    expect(button).toHaveTextContent(/track it separately anyway/i);
+    expect(screen.getByText(/its history starts today/i)).toBeInTheDocument();
+
+    fireEvent.click(button);
+
+    // The URL the SERVER settled on, not the one the user typed — that is what
+    // `finalUrl` is on the wire for, and re-sending it is what `AddCompanyCTA` does.
+    expect(onTrackAnyway).toHaveBeenCalledWith('https://jobs.lever.co/spotify');
+  });
+
+  it('disables the escape hatch while the parent add is in flight', () => {
+    renderWithProviders(
+      <DiscoveryStatus
+        result={ALREADY_PUBLIC}
+        error={undefined}
+        onTrackAnyway={vi.fn()}
+        isTracking
+      />,
+    );
+
+    const button = screen.getByTestId('track-anyway-button');
+    expect(button).toBeDisabled();
+    expect(button).toHaveTextContent(/adding/i);
   });
 
   it('renders an idempotent 200 as an already-tracked company with a link to it', () => {

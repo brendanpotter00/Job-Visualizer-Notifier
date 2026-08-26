@@ -46,8 +46,9 @@ lowercase `id` (the slug, e.g. `reducto`, `spacex`, `happyrobot.ai`):
 
 Every company added this way flows through the backend `/api/jobs` endpoint: a
 backend Procrastinate worker fetches its jobs on a ~30-min cron once the
-`companies` row exists. (The only exceptions are Google/Apple/Microsoft, which
-use `ats='script'` Python scrapers — **not** added with this skill.)
+`companies` row exists. (The exceptions are Amazon, Apple, Google, Microsoft and
+TikTok, which use `ats='script'` Python scrapers — mostly **not** added with this
+skill, but see **Step 7** for the one step a new script company still owes.)
 
 ## Inputs you need first
 
@@ -243,6 +244,58 @@ Checklist before declaring done:
 - [ ] `changelog.ts` top entry (recent achievement / reason, today's date)
 - [ ] `icons/<id>.png` + `wordmarks/<id>.png` committed (logo skill)
 - [ ] `npm run type-check` + `npm test` green
+- [ ] **script-scraped company only:** careers hosts registered (step 7)
+
+---
+
+## Step 7 — Script-scraped companies only: register the careers hosts
+
+**Skip this for every ATS company.** It applies to the `ats='script'` five —
+Amazon, Apple, Google, Microsoft, TikTok — and to any sixth bespoke scraper.
+
+A script company has no `(ats, board_token)` pair a URL can spell, so the Add
+Companies page cannot recognise its careers URL the way it recognises
+`boards.greenhouse.io/<token>`. Without an entry here, a user who pastes your new
+company's careers page gets a **one-time discovery** — a Claude call and a headless
+Chromium session — that builds a private duplicate of the board you just published.
+That is a real bug that shipped once; this step is what stops it recurring.
+
+Add the company to **`SCRIPT_COMPANY_CAREERS_HOSTS`** in
+`scripts/shared/constants.py`, immediately below the `SourceId` member you are
+already adding:
+
+```python
+SCRIPT_COMPANY_CAREERS_HOSTS = {
+    ...
+    "<id>": (
+        ("<careers-host>", ""),          # a host that IS the board
+        ("<vanity-host>", ""),           # anything that redirects to it
+        ("<host>", "/path/prefix"),      # only if the board is a PATH, like google.com
+    ),
+}
+```
+
+Rules, all enforced by `src/backend/api/tests/test_careers_host_match.py`:
+
+- **Normalized form only** — lowercase, **no `www.`**, no port, no trailing dot.
+  `www.amazon.jobs` is written `amazon.jobs`; the matcher strips the `www.` label.
+- **Exact hosts, never a registrable domain.** List `jobs.careers.microsoft.com`,
+  not `microsoft.com` — a domain-level rule answers "we already track Microsoft"
+  for `learn.microsoft.com`. Use the path-prefix form when the board is a path on
+  a domain that is mostly something else (`google.com` + `/about/careers`).
+- **Include every host that redirects into the board**, not just the one your
+  scraper calls. Check with
+  `curl -s -o /dev/null -w '%{http_code} %{redirect_url}\n' <url>` and record what
+  you saw in the comment, with the date — the existing entries do.
+- **A host may be claimed by exactly one company.**
+
+There is a guard test that fails if a `*_scraper` `SourceId` exists with no entry
+here, so forgetting this step breaks the build rather than silently shipping the
+bug. Verify with:
+
+```bash
+PYTHONPATH=src/backend:. pytest src/backend/api/tests/test_careers_host_match.py
+```
 
 ---
 

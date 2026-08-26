@@ -4,7 +4,6 @@ import AlertTitle from '@mui/material/AlertTitle';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Link from '@mui/material/Link';
-import Typography from '@mui/material/Typography';
 import { buildMyCompanyDetailPath } from '../../config/routes';
 import { extractErrorMessage } from '../../lib/errors';
 import {
@@ -14,6 +13,7 @@ import {
   type AddUserCompanyFailure,
 } from '../../features/userCompanies/userCompaniesApi';
 import { AlreadyPublicNotice } from './AlreadyPublicNotice';
+import { TrackAnywayAction } from './TrackAnywayAction';
 
 interface AddCompanyCTAProps {
   /** The resolver's final URL — what we actually probed and now persist. */
@@ -84,27 +84,13 @@ export function AddCompanyCTA({ finalUrl }: AddCompanyCTAProps) {
   }
 
   if (data !== undefined && isAlreadyPublic(data)) {
-    // Nothing was created. The primary action is the link inside the notice; this
-    // secondary one is deliberately a plain text button, and its caption names the
-    // cost so "anyway" is a choice rather than a reflex.
+    // Nothing was created. The primary action is the link inside the notice; the
+    // secondary one lives in `TrackAnywayAction`, shared with `DiscoveryStatus` so the
+    // two places this notice appears cannot drift apart.
     return (
       <AlreadyPublicNotice
         result={data}
-        action={
-          <Box sx={{ mt: 1 }}>
-            <Button
-              size="small"
-              onClick={handleTrackAnyway}
-              disabled={isLoading}
-              data-testid="track-anyway-button"
-            >
-              {isLoading ? 'Adding…' : 'Track it separately anyway'}
-            </Button>
-            <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary' }}>
-              Adds a private copy of the same board. Its history starts today.
-            </Typography>
-          </Box>
-        }
+        action={<TrackAnywayAction onClick={handleTrackAnyway} isLoading={isLoading} />}
       />
     );
   }
