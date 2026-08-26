@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from shared.base_scraper import BaseScraper
 from shared.constants import SourceId
 from shared.models import JobListing
+from shared.posted_date import effective_posted_date
 from shared.utils import get_iso_timestamp
 
 from .config import (
@@ -44,6 +45,7 @@ from .parser import (
     extract_job_cards_from_list,
     extract_job_id_from_url,
     check_has_next_page,
+    parse_card_posted_date,
     JobCardExtractionError,
 )
 from .api_client import fetch_job_details, get_apply_url, JobDetailsFetchError
@@ -324,8 +326,19 @@ class AppleJobsScraper(BaseScraper):
 
         created_at = get_iso_timestamp()
 
-        # Get posted date from API response
-        posted_on = job_data.get("posted_on")
+        # Get posted date. Detail mode (api_client) supplies `posted_on`
+        # from `postDateInGMT`; list mode (parser) supplies `posted_date`
+        # scraped off the card. Reading only `posted_on` silently dropped
+        # every list-mode date. Same shape as the Microsoft scraper.
+        # The list-mode value needs normalising and the detail-mode one does not:
+        # `postDateInGMT` is already ISO, the card is human ("Jan 15, 2026").
+        # Half-normalising is worse than none — the raw card string stores fine
+        # in the TIMESTAMPTZ `posted_on` but is rejected by the shared parser, so
+        # the date would reach diagnostics and silently NOT reach `first_seen_at`,
+        # the key users are actually sorted by.
+        posted_on = job_data.get("posted_on") or parse_card_posted_date(
+            job_data.get("posted_date")
+        )
 
         # Build details JSONB with all extended job information
         details = {
@@ -360,7 +373,19 @@ class AppleJobsScraper(BaseScraper):
             has_matched=False,
             ai_metadata={},
             # Incremental tracking fields (will be set by caller if using DB mode)
-            first_seen_at=created_at,
+            # THE EFFECTIVE POSTED DATE, not literally "when we first saw it"
+            # (POSTED-DATE-PLAN.md §2, D9/D10). Same rule BatchWriter.add_job
+            # applies on the way to the DB — kept in step here so the model a
+            # caller inspects says the same thing as the row that gets written.
+            #
+            # Both feeds arrive normalised: detail mode's ``posted_on`` is
+            # ``postDateInGMT``, list mode's ``posted_date`` is normalised to
+            # YYYY-MM-DD by ``parser.parse_card_posted_date``. That normalisation
+            # is load-bearing — the raw card format ("Jan 15, 2026") stores fine
+            # in the TIMESTAMPTZ ``posted_on`` but is rejected by the shared
+            # parser, which would land the date in diagnostics and not in the
+            # sort key.
+            first_seen_at=effective_posted_date(posted_on, created_at),
             last_seen_at=created_at,
             consecutive_misses=0,
             details_scraped=False,

@@ -97,3 +97,72 @@ class TestNavigateToPage:
             await scraper.navigate_to_page(page, "https://jobs.apple.com/x")
 
         assert page.goto.await_count == 2
+
+
+class TestTransformPostedDate:
+    """U5b — list mode's posted date used to be dropped on the floor.
+
+    Apple has two collection paths and they name the field differently:
+    detail mode (`api_client.parse_job_details`) emits `posted_on` from
+    `postDateInGMT`; list mode (`parser.parse_job_element`) emits
+    `posted_date` scraped off the card. `transform_to_job_model` read only
+    `posted_on`, so every list-mode date was silently discarded — a
+    non-detail Apple run stored `posted_on = NULL` for the whole board.
+    """
+
+    def test_list_mode_card_date_is_stored_normalised_and_seeds_first_seen_at(
+        self, scraper
+    ):
+        """U5b stored the card's date; U3 makes it reach the sort key too.
+
+        The raw card string was accepted by ``posted_on`` (a TIMESTAMPTZ —
+        Postgres reads "Jan 15, 2026") but rejected by ``shared/posted_date.py``,
+        which is strict on purpose, so ``first_seen_at`` fell back to first
+        sight. ``parser.parse_card_posted_date`` normalises at the boundary that
+        derives both, following the precedent set by
+        ``amazon_jobs_scraper.api_client.parse_posted_date`` rather than teaching
+        the shared parser to read human dates (``03/04/2026`` is two different
+        days depending on locale — the strictness is the point).
+        """
+        # Exactly what `parser.parse_job_element` returns. Its card regex is
+        # `([A-Z][a-z]{2}\s+\d{1,2},\s+\d{4})`, so this is the real shape — and
+        # it can only ever produce an unambiguous English three-letter month.
+        job = scraper.transform_to_job_model({
+            "id": "200640732-0836",
+            "title": "Software QA Engineer",
+            "job_url": "https://jobs.apple.com/en-us/details/200640732-0836/x",
+            "posted_date": "Jan 15, 2026",
+            "company": "apple",
+        })
+
+        assert job.posted_on == "2026-01-15"
+        assert job.first_seen_at == "2026-01-15T00:00:00+00:00", (
+            "the card's date reached posted_on but not first_seen_at — the fix "
+            "is half-done again"
+        )
+
+    def test_detail_mode_date_still_wins(self, scraper):
+        """`posted_on` (postDateInGMT) is the better source — when both are
+        present the detail value must not be shadowed by the card text."""
+        job = scraper.transform_to_job_model({
+            "id": "200640732-0836",
+            "title": "Software QA Engineer",
+            "job_url": "https://jobs.apple.com/en-us/details/200640732-0836/x",
+            "posted_on": "2026-01-15T10:30:00Z",
+            "posted_date": "Jan 15, 2026",
+            "company": "apple",
+        })
+
+        assert job.posted_on == "2026-01-15T10:30:00Z"
+
+    def test_no_date_from_either_source_stays_none(self, scraper):
+        """A board that publishes nothing must give NULL, never `now()`."""
+        job = scraper.transform_to_job_model({
+            "id": "200640732-0836",
+            "title": "Software QA Engineer",
+            "job_url": "https://jobs.apple.com/en-us/details/200640732-0836/x",
+            "company": "apple",
+        })
+
+        assert job.posted_on is None
+        assert job.created_at is not None

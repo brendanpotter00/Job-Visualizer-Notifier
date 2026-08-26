@@ -111,7 +111,10 @@ class TestBatchWriterAdd:
         assert writer.stats.total_processed == 1
 
     def test_add_job_sets_timestamps(self):
-        """add_job sets first_seen_at and last_seen_at from timestamp"""
+        """add_job sets last_seen_at from timestamp, and first_seen_at too when
+        the job carries no provider posting date (``posted_on`` defaults to None
+        here). The provider-date case is covered by
+        ``TestBatchWriterSeedsTheEffectivePostedDate`` below."""
         mock_conn = MagicMock()
         mock_scraper = MagicMock()
         job = JobListing(
@@ -467,3 +470,82 @@ class TestBatchWriterBufferSize:
         writer.add_job({"id": "job-002"}, "2024-01-15T10:30:00Z")
 
         assert writer.get_buffer_size() == 2
+
+
+class TestBatchWriterSeedsTheEffectivePostedDate:
+    """POSTED-DATE-PLAN.md §5/U3 — ``first_seen_at`` at the buffer boundary.
+
+    ``add_job`` is the one place the published script path decides what a job's
+    posting date is. These run without a database, so they pin the DECISION;
+    ``tests/integration/test_first_seen_at_seeding.py`` pins what the database
+    then does with it (above all, that it never moves again).
+    """
+
+    @staticmethod
+    def _buffered_job(posted_on):
+        mock_conn = MagicMock()
+        mock_scraper = MagicMock()
+        mock_scraper.transform_to_job_model.return_value = JobListing(
+            id="job-001",
+            title="Test Job",
+            company="test",
+            location="Test Location",
+            url="https://test.com/job",
+            source_id="test_scraper",
+            details={},
+            posted_on=posted_on,
+            created_at="2024-01-15T10:30:00Z",
+            status="OPEN",
+            has_matched=False,
+            ai_metadata={},
+            first_seen_at="",   # must be overwritten by add_job
+            last_seen_at="",    # must be overwritten by add_job
+            consecutive_misses=0,
+            details_scraped=False,
+        )
+        writer = BatchWriter(mock_conn, mock_scraper, batch_size=10)
+        writer.add_job({"id": "job-001"}, "2024-01-20T12:00:00Z")
+        return writer._buffer[0]
+
+    def test_real_provider_date_becomes_first_seen_at(self):
+        assert self._buffered_job("2023-11-02T08:15:00Z").first_seen_at == (
+            "2023-11-02T08:15:00+00:00"
+        )
+
+    def test_provider_date_does_not_touch_last_seen_at(self):
+        """``last_seen_at = timestamp`` stays exactly as it was. It is freshness,
+        not recency — backdating it is how a healthy job gets wrong-closed."""
+        assert self._buffered_job("2023-11-02T08:15:00Z").last_seen_at == (
+            "2024-01-20T12:00:00Z"
+        )
+
+    @pytest.mark.parametrize(
+        "posted_on",
+        [None, "", "   ", "Posted 30+ Days Ago", "2 days ago", "about 12 hours",
+         "not-a-date", "2026-13-45"],
+    )
+    def test_a_bucket_or_junk_value_falls_back_to_the_run_timestamp(self, posted_on):
+        """§3: if the board gives us a bucket instead of a date, we do not have a
+        date. It must land on first sight, never on a synthesized timestamp."""
+        assert self._buffered_job(posted_on).first_seen_at == "2024-01-20T12:00:00Z"
+
+    def test_a_far_future_provider_date_falls_back(self):
+        """Parse safety (D5): a value that cannot be a posting date would
+        otherwise pin the row to the top of the recency feed forever."""
+        assert self._buffered_job("2099-01-01T00:00:00Z").first_seen_at == (
+            "2024-01-20T12:00:00Z"
+        )
+
+    def test_an_ancient_provider_date_is_kept(self):
+        """D12: no age floor. A board that stamps a 2009 date on a job it
+        re-listed today is publishing a wrong date, and we pass it through."""
+        assert self._buffered_job("2009-04-01T00:00:00Z").first_seen_at == (
+            "2009-04-01T00:00:00+00:00"
+        )
+
+    def test_first_seen_at_is_never_empty(self):
+        """The column is NOT NULL. Whatever the board sends, add_job must produce
+        a storable value or the whole batch fails and the row-by-row fallback
+        loses exactly those rows (batch_writer.py:120-128)."""
+        for posted_on in [None, "", "garbage", "9999-99-99"]:
+            assert self._buffered_job(posted_on).first_seen_at

@@ -56,6 +56,7 @@ from scripts.shared.utils import get_iso_timestamp
 
 from .harvest_meta import HarvestEvidence
 from .job_details import has_description
+from .posted_date import effective_posted_date
 
 logger = logging.getLogger(__name__)
 
@@ -569,7 +570,22 @@ def _transform_one(
         return None
 
     location = _extract_location(raw)
-    posted_on = _parse_eightfold_epoch(raw.get("t_create"))
+    t_create_raw = raw.get("t_create")
+    posted_on = _parse_eightfold_epoch(t_create_raw)
+    if t_create_raw is not None and posted_on is None:
+        # We had a value and could not turn it into a date. Storing NULL is
+        # correct (never a fake "now"), but doing it silently was this
+        # client's one gap versus Greenhouse — a source-format change would
+        # have quietly zeroed our posted dates with nothing in the logs.
+        # ERROR so Railway surfaces it as @level:error. Per-row only: this
+        # runs in the same task as the close sweep, so it must never raise.
+        logger.error(
+            "Eightfold data quality issue: job %s for company %s had "
+            "unparseable t_create=%r; storing as NULL",
+            job_id,
+            company_id,
+            t_create_raw,
+        )
 
     # ``experience_level``: Eightfold's API sometimes exposes a string here,
     # sometimes nothing. Pass through whatever's there (frontend reads it
@@ -610,7 +626,16 @@ def _transform_one(
         details=details,
         posted_on=posted_on,
         created_at=now,
-        first_seen_at=now,
+        # THE EFFECTIVE POSTED DATE (POSTED-DATE-PLAN.md §2, D9/D10): Eightfold's
+        # ``t_create`` epoch when it parses, first sight otherwise.
+        # ``_parse_eightfold_epoch`` already returns None (and logs one ERROR)
+        # for a value it cannot read, so the helper's fallback covers exactly the
+        # rows this client already refused to date.
+        #
+        # Safe with no first-run predicate because ``first_seen_at`` is absent
+        # from ``_UPSERT_ON_CONFLICT`` (scripts/shared/database.py) — this line
+        # only ever decides an INSERT and can never rewrite an existing row.
+        first_seen_at=effective_posted_date(posted_on, now),
         last_seen_at=now,
         consecutive_misses=0,
         # Truthful, not hard-coded True: this claims we HAVE the job's detail

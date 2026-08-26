@@ -547,3 +547,67 @@ class TestParseEightfoldEpoch:
     def test_zero_or_negative_returns_none(self):
         assert _parse_eightfold_epoch(0) is None
         assert _parse_eightfold_epoch(-1) is None
+
+
+# ----------------------------------------------------------------------------
+# U5c — an unparseable t_create is logged, not swallowed
+# ----------------------------------------------------------------------------
+
+
+class TestUnparseableTCreateLogging:
+    """Eightfold was the only one of the six ATS clients that turned a bad
+    provider date into NULL with nothing in the logs. Greenhouse and Workday
+    both ERROR; a source-format change here would have silently zeroed our
+    posted dates.
+
+    The row must still be emitted with ``posted_on = None``, and the
+    transform must not raise: this runs in the same task as the close sweep,
+    so a bad date has to degrade its own row and nothing else.
+    """
+
+    def test_unparseable_t_create_logs_one_error_and_stores_none(self, caplog):
+        pos = _make_position(1, t_create="not-a-timestamp")
+
+        with caplog.at_level("ERROR", logger="api.services.eightfold_client"):
+            jobs = transform_to_job_listings("netflix", [pos])
+
+        assert len(jobs) == 1
+        assert jobs[0].posted_on is None
+        # Raw value is preserved for a later re-parse without a re-fetch.
+        assert jobs[0].details["t_create_raw"] == "not-a-timestamp"
+
+        errors = [
+            r.getMessage() for r in caplog.records if r.levelname == "ERROR"
+        ]
+        assert len(errors) == 1, errors
+        assert "data quality issue" in errors[0]
+        assert "t_create" in errors[0]
+        assert "not-a-timestamp" in errors[0]
+
+    def test_missing_t_create_is_not_an_error(self, caplog):
+        """No value is not a bad value — a board that publishes no date
+        must not generate ERROR noise on every row of every tick."""
+        pos = _make_position(2, t_create=None)
+
+        with caplog.at_level("ERROR", logger="api.services.eightfold_client"):
+            jobs = transform_to_job_listings("netflix", [pos])
+
+        assert len(jobs) == 1
+        assert jobs[0].posted_on is None
+        assert [r for r in caplog.records if r.levelname == "ERROR"] == []
+
+    def test_bad_date_does_not_take_down_the_batch(self, caplog):
+        """Per-row degradation: the good rows keep their dates."""
+        good_a = _make_position(10)
+        bad = _make_position(11, t_create="garbage")
+        good_b = _make_position(12)
+
+        with caplog.at_level("ERROR", logger="api.services.eightfold_client"):
+            jobs = transform_to_job_listings("netflix", [good_a, bad, good_b])
+
+        assert [j.id for j in jobs] == ["10", "11", "12"]
+        assert jobs[0].posted_on is not None
+        assert jobs[1].posted_on is None
+        assert jobs[2].posted_on is not None
+        # And it never invents "now" for the failed row.
+        assert jobs[1].posted_on != jobs[1].created_at

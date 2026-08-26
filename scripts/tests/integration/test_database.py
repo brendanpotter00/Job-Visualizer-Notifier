@@ -705,14 +705,22 @@ class TestSourceScopedHelpersCrossSource:
 
     def test_update_last_seen_does_not_touch_other_source(self, in_memory_db):
         self._seed_pair(in_memory_db)
+        # Read B's seeded value rather than assuming it. The AFTER INSERT trigger
+        # seeds last_seen_at from now() (7a4c1e93b6d8), not from the model's
+        # first_seen_at, so the literal it used to be compared against is no
+        # longer the seed. What this test is about is that B does not MOVE.
+        b_before = db.get_job_by_id(in_memory_db, "source_b", self.SHARED_ID)[
+            "last_seen_at"
+        ]
         new_ts = "2024-02-01T10:00:00Z"
         db.update_last_seen(in_memory_db, "source_a", [self.SHARED_ID], new_ts)
 
         a = db.get_job_by_id(in_memory_db, "source_a", self.SHARED_ID)
         b = db.get_job_by_id(in_memory_db, "source_b", self.SHARED_ID)
         assert _parse_ts(a["last_seen_at"]) == _parse_ts(new_ts)
-        # Source B unchanged.
-        assert _parse_ts(b["last_seen_at"]) == _parse_ts("2024-01-15T10:00:00Z")
+        # Source B unchanged — and demonstrably not the value A was moved to.
+        assert _parse_ts(b["last_seen_at"]) == _parse_ts(b_before)
+        assert _parse_ts(b["last_seen_at"]) != _parse_ts(new_ts)
 
     def test_increment_consecutive_misses_does_not_touch_other_source(
         self, in_memory_db

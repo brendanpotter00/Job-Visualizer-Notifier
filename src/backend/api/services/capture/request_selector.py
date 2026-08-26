@@ -36,7 +36,9 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
 from urllib.parse import parse_qsl, urlsplit
 
@@ -45,7 +47,11 @@ from pydantic import BaseModel, ValidationError
 
 from ...config import settings
 from ..llm_client import extract_text_content
-from ..recipe_runner import render_field, render_row_field
+# ``_MULTISPACE_RE`` is imported rather than re-declared for the same reason
+# ``render_row_field`` is: :func:`detect_posted_at_format` decides whether a strptime
+# pattern fits, and the runner then applies it — so both must normalize the string
+# identically or discovery stores a format that fails on every replay.
+from ..recipe_runner import _MULTISPACE_RE, render_field, render_row_field
 from ..recipe_schema import RECORDS_WILDCARD, RecipeError, dig_records
 
 logger = logging.getLogger(__name__)
@@ -343,6 +349,20 @@ class PaginationHint:
 
 
 @dataclass(frozen=True)
+class PostedDateFormat:
+    """What the sampled ``posted_at`` values ACTUALLY look like on this board.
+
+    Observed from the captured bytes, never asked of the model — the same rule the
+    oracle, the headers and the in-band error keys already follow. ``mode`` is a
+    ``parse_date`` mode (``recipe_schema.PARSE_DATE_MODES``); ``format`` is the
+    ``strptime`` pattern and is set only for that mode.
+    """
+
+    mode: str
+    format: str | None = None
+
+
+@dataclass(frozen=True)
 class RequestSelection:
     """The believed-and-re-checked answer: which candidate, and how to read it.
 
@@ -354,6 +374,12 @@ class RequestSelection:
     records_path: str
     field_map: dict[str, str]
     pagination: PaginationHint | None = None
+    # POSTED-DATE-PLAN.md §5/U6. ``None`` means one of two DIFFERENT things and the
+    # caller treats them the same way (emit no ``parse_date`` step): the board maps no
+    # ``posted_at`` at all, or it maps one whose values are not a date we can read.
+    # Both correctly end in a NULL ``posted_on`` — §3's rule is that a value we cannot
+    # turn into a date is not a date, and the one thing we may never do is invent one.
+    posted_at_format: PostedDateFormat | None = None
 
 
 SYSTEM_PROMPT = (
@@ -653,6 +679,133 @@ def _prune_non_scalar_optionals(
     return pruned
 
 
+# --------------------------------------------------------------------------
+# what shape is this board's posting date? (POSTED-DATE-PLAN.md §5/U6)
+# --------------------------------------------------------------------------
+
+# Absolute date spellings we will commit to, and the reason the list is this short.
+#
+# Every entry carries a MONTH NAME, which is what makes it unambiguous. The formats
+# deliberately absent are the all-numeric ones — ``%m/%d/%Y`` and ``%d/%m/%Y`` are
+# indistinguishable for any day ≤ 12, so guessing between them silently mis-dates
+# roughly 40% of a board's rows by up to eleven months. A wrong date in the sort key
+# is worse than no date: NULL falls back to first sight and is visibly a fallback,
+# while "2026-03-07" that should be "2026-07-03" is confidently wrong forever.
+# ``%Y/%m/%d`` and ``%Y-%m-%d`` are year-first and therefore safe, but the latter is
+# already ISO and never reaches here.
+_STRPTIME_CANDIDATES: tuple[str, ...] = (
+    "%B %d, %Y",     # "August 26, 2026"  — amazon.jobs
+    "%b %d, %Y",     # "Aug 26, 2026"
+    "%B %d %Y",      # "August 26 2026"
+    "%b %d %Y",      # "Aug 26 2026"
+    "%d %B %Y",      # "26 August 2026"
+    "%d %b %Y",      # "26 Aug 2026"
+    "%Y/%m/%d",      # "2026/08/26"       — year-first, unambiguous
+)
+
+# Epoch plausibility. A jobs feed carries plenty of large integers that are NOT
+# timestamps — Microsoft's ``atsJobId: 200050821`` is one — and reading an id as unix
+# time yields a confident 1976 date. Requiring the result to land in a window a job
+# posting could actually occupy is what separates the two. Deliberately generous on
+# both sides: the sanity WINDOW is the leaf task's job (``_validated_posted_on``), and
+# this only has to answer "is this field a timestamp at all".
+_EPOCH_PLAUSIBLE_MIN_YEAR = 2000
+_EPOCH_PLAUSIBLE_MAX_YEAR = 2100
+
+# Above this, a numeric timestamp is milliseconds — the repo's one rule for this
+# (``recipe_runner._EPOCH_MS_THRESHOLD``, ``eightfold_client._parse_eightfold_epoch``).
+_EPOCH_MS_THRESHOLD = 1e11
+
+_ISO_PREFIX_RE = re.compile(r"^\d{4}-\d{2}-\d{2}([T ]|$)")
+
+
+def _epoch_mode(value: Any) -> str | None:
+    """``'epoch_s'`` / ``'epoch_ms'`` if ``value`` is a plausible unix timestamp."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, str):
+        text = value.strip()
+        # A string is only an epoch if it is ALL digits. ``float()`` would happily
+        # accept "2026" (a year), "1e9" and "nan".
+        if not text.isdigit():
+            return None
+        numeric: float = float(text)
+    elif isinstance(value, (int, float)):
+        numeric = float(value)
+    else:
+        return None
+    if numeric <= 0:
+        return None
+    mode = "epoch_ms" if numeric > _EPOCH_MS_THRESHOLD else "epoch_s"
+    seconds = numeric / 1000.0 if mode == "epoch_ms" else numeric
+    try:
+        year = datetime.fromtimestamp(seconds, tz=timezone.utc).year
+    except (OverflowError, OSError, ValueError):
+        return None
+    if not _EPOCH_PLAUSIBLE_MIN_YEAR <= year <= _EPOCH_PLAUSIBLE_MAX_YEAR:
+        return None
+    return mode
+
+
+def detect_posted_at_format(
+    records: list[Any], spec: str
+) -> PostedDateFormat | None:
+    """The observed shape of ``spec``'s values on the REAL captured records.
+
+    Answers the one question ``synthesize_recipe`` needs: does this board's posting
+    date already arrive as ISO-8601 (nothing to do), does it arrive as unix time or in
+    a datable text format (emit a ``parse_date`` step), or is it something we cannot
+    turn into a date (emit nothing, store NULL).
+
+    **EVERY sampled value must agree.** A format that reads 3 of 5 rows is not this
+    board's format — it is a coincidence, and committing to it writes a wrong date on
+    the rows it happens to fit. Returning ``None`` there costs a NULL; guessing costs a
+    wrong entry in the column the product sorts by.
+
+    Returns ``None`` — never raises. This runs inside discovery's synthesis step,
+    where an exception refuses a board outright; a board whose dates we cannot read is
+    still a perfectly trackable board.
+    """
+    values = [
+        v
+        for v in (render_row_field(r, "posted_at", spec) for r in records[:20]
+                  if isinstance(r, dict))
+        if v is not None and v != ""
+    ]
+    if not values:
+        return None
+
+    if all(isinstance(v, str) and _ISO_PREFIX_RE.match(v.strip()) for v in values):
+        return PostedDateFormat(mode="iso")
+
+    epoch_modes = {_epoch_mode(v) for v in values}
+    if len(epoch_modes) == 1:
+        only = epoch_modes.pop()
+        if only is not None:
+            return PostedDateFormat(mode=only)
+
+    texts = [v.strip() for v in values if isinstance(v, str) and v.strip()]
+    if len(texts) == len(values):
+        for fmt in _STRPTIME_CANDIDATES:
+            if all(_parses_with(t, fmt) for t in texts):
+                return PostedDateFormat(mode="strptime", format=fmt)
+
+    logger.info(
+        "posted_at=%r renders values we cannot read as a date (%r); storing no "
+        "parse_date step — the column stays NULL rather than invented",
+        spec, values[0],
+    )
+    return None
+
+
+def _parses_with(text: str, fmt: str) -> bool:
+    try:
+        datetime.strptime(_MULTISPACE_RE.sub(" ", text), fmt)
+    except (ValueError, TypeError):
+        return False
+    return True
+
+
 def _to_selection(envelope: _SelectionEnvelope, candidates: list[Candidate]) -> RequestSelection:
     index = envelope.chosen_request_index
     if index is None:
@@ -696,11 +849,20 @@ def _to_selection(envelope: _SelectionEnvelope, candidates: list[Candidate]) -> 
         else:
             logger.info("selector returned an unusable pagination hint %r; ignoring", pg)
 
+    # Observed AFTER the prune, so a posted_at that was just deleted for rendering a
+    # container never gets a format (and never gets a step for a field the recipe no
+    # longer maps).
+    posted_at_spec = field_map.get("posted_at")
+    posted_at_format = (
+        detect_posted_at_format(records, posted_at_spec) if posted_at_spec else None
+    )
+
     return RequestSelection(
         chosen_request_index=index,
         records_path=envelope.records_path,
         field_map=field_map,
         pagination=pagination,
+        posted_at_format=posted_at_format,
     )
 
 

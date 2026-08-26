@@ -54,8 +54,10 @@ from ..services import (
 from ..services import custom_companies_service as ccs
 from ..services import recipe_runner
 from ..services.custom_baseline import compute_baseline
+from ..services.posted_date import parse_posted_date
 from ..services.guarded_client import guarded_sync_client
 from ..services.harvest_meta import HarvestEvidence
+from ..services import published_board_match
 from ..services.recipe_rows import recipe_rows_to_job_listings
 from ..services.harvest_verification import (
     FAILED,
@@ -265,25 +267,43 @@ def _cap_details(details: dict[str, Any]) -> dict[str, Any]:
     })
 
 
-def _validated_posted_on(posted_on: str | None, now: datetime) -> str | None:
+# The PAST half of the custom path's sanity window. The future half is the shared
+# helper's ``FUTURE_SKEW_ALLOWANCE`` (7 days — the same number this path has always
+# used), so the effective window is still exactly ``[now-365d, now+7d]``.
+#
+# It stays LOCAL on purpose. POSTED-DATE-PLAN.md §5/U1 settled D5 as parse-safety
+# only: the published clients get **no** age floor, because a board that stamps a
+# 2009 date on a job it re-listed today is publishing a wrong date and D12 says we
+# pass it through. The custom path shipped a floor before that decision and the plan
+# says it stays exactly as it is — so it lives here, on the one path that has one,
+# rather than leaking an age judgement into the shared helper every source calls.
+_POSTED_ON_MAX_AGE = timedelta(days=365)
+
+
+def _validated_posted_on(posted_on: Any, now: datetime) -> str | None:
     """``posted_on`` only if it parses AND lands in [now-365d, now+7d], else None.
 
-    Never synthesize a date. The vendor transformer already normalized to UTC
-    ISO; this is the extra sanity window from §2.2 — a posting dated years ago or
-    in the future is data corruption and is stored as NULL rather than skewing
-    the trend graph.
+    Never synthesize a date. A posting dated years ago or in the future is data
+    corruption and is stored as NULL rather than skewing the trend graph.
+
+    Parsing and the future half of the window belong to the ONE parser
+    (``services.posted_date``, POSTED-DATE-PLAN.md §5/U1) — this used to carry a
+    private copy of both. Delegating widens what is accepted, deliberately: the
+    helper also reads unix epoch seconds/milliseconds and a bare ``YYYY-MM-DD``,
+    which is what a discovered board hands us when its recipe carries no
+    ``parse_date`` step (U6). The WINDOW is unchanged.
+
+    Never raises — this runs in the same task as the close sweep, where an
+    exception is a mass closure rather than a bad date
+    (``docs/incidents/2026-03-29-mass-job-closure.md``). Degradation is per-row.
     """
-    if not posted_on:
+    reference = now if now.tzinfo is not None else now.replace(tzinfo=timezone.utc)
+    parsed = parse_posted_date(posted_on, now=reference)
+    if parsed is None:
         return None
-    try:
-        dt = datetime.fromisoformat(posted_on)
-    except (TypeError, ValueError):
+    if parsed < reference - _POSTED_ON_MAX_AGE:
         return None
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    if not (now - timedelta(days=365) <= dt <= now + timedelta(days=7)):
-        return None
-    return dt.astimezone(timezone.utc).isoformat()
+    return parsed.isoformat()
 
 
 async def _fetch_and_transform(
@@ -358,18 +378,42 @@ def _remap_for_custom(
     validated; the upstream ``id`` kept verbatim (ATS ids are stable).
     Enrichment/normalization stay NULL — those columns are simply not written by
     the upsert path in Phase 1.
+
+    **``first_seen_at`` is seeded from the board's posting date** here — U4, the
+    custom half of POSTED-DATE-PLAN.md §2. It is the effective posted date now:
+    the provider's date when the provider gives us a real one, first sight
+    otherwise. Two properties make that safe with no first-run predicate:
+
+    * ``first_seen_at`` is absent from ``_UPSERT_ON_CONFLICT``
+      (``scripts/shared/database.py``), so it is only ever written at INSERT and
+      a re-harvest cannot move it. Adding it to that SET list is the quiet way to
+      break this — it would import a board's daily date-slide into the sort key
+      and destroy the reopen guarantee.
+    * ``created_at`` still holds the true insert time, so the seeding is
+      reversible from the audit trail.
+
+    The fallback is ``job.last_seen_at`` — the run timestamp every producer on
+    this path stamps, and the field U3 pins as "stays exactly as is". It is NOT
+    ``job.first_seen_at``: an ATS client may already have seeded that from the
+    provider date, and this path must not re-adopt a date it just rejected as
+    out-of-window. Seeding from the VALIDATED value keeps ``posted_on`` and
+    ``first_seen_at`` telling the same story.
     """
-    return [
-        job.model_copy(
-            update={
-                "source_id": source_id,
-                "company": company_id,
-                "posted_on": _validated_posted_on(job.posted_on, now),
-                "details": _cap_details(job.details),
-            }
+    remapped: list[JobListing] = []
+    for job in jobs:
+        posted_on = _validated_posted_on(job.posted_on, now)
+        remapped.append(
+            job.model_copy(
+                update={
+                    "source_id": source_id,
+                    "company": company_id,
+                    "posted_on": posted_on,
+                    "first_seen_at": posted_on or job.last_seen_at,
+                    "details": _cap_details(job.details),
+                }
+            )
         )
-        for job in jobs
-    ]
+    return remapped
 
 
 # SSRF-guarded sync client for the discovered-script (http_json/http_html)
@@ -484,6 +528,11 @@ async def fetch_custom_company(company_id: str) -> None:
     cap_hit = False
     page_advance_ok: bool | None = None
     tolerance_used = 0.0
+    # Did THIS run graduate the board (first VERIFIED harvest)? The one moment its OPEN
+    # title set is both complete and PROVEN complete, which is the only kind of set worth
+    # comparing against the boards we already publish — see the published-board-match
+    # block in the ``finally`` below.
+    graduated_this_run = False
 
     conn = await asyncio.to_thread(
         db.get_connection,
@@ -498,7 +547,7 @@ async def fetch_custom_company(company_id: str) -> None:
                 nonlocal guard_reason, verdict, verdict_reason, records_harvested
                 nonlocal id_dedup_dropped, new_ids, oracle_kind_effective
                 nonlocal declared_total, oracle_total, cap_hit, page_advance_ok
-                nonlocal tolerance_used
+                nonlocal tolerance_used, graduated_this_run
 
                 company = await asyncio.to_thread(
                     ccs.load_custom_company_for_run, conn, company_id
@@ -699,6 +748,7 @@ async def fetch_custom_company(company_id: str) -> None:
                         ccs.mark_verified, conn, company_id,
                         set_tracking=is_first_verified,
                     )
+                    graduated_this_run = is_first_verified
 
                 # ---- close-eligibility precedence (verdict-FIRST; DECISION D1) --
                 # guard_reason records WHY the destructive close was skipped (None
@@ -902,6 +952,32 @@ async def fetch_custom_company(company_id: str) -> None:
             logger.exception(
                 "Failed to record the first-scan checklist rung for %s", company_id
             )
+
+        # "This looks like Spotify, which we already track" (E7 unit 10). Runs ONCE, on
+        # the run that graduated the board, because a first VERIFIED harvest is the first
+        # moment this board's OPEN title set is both complete and proven complete — and a
+        # partial read is exactly how you get a spurious 100% against something it is a
+        # subset of.
+        #
+        # It NEVER MERGES (DECISION D6). It reads title sets, and its only write is a
+        # suggestion blob on this private row's own ``provider_config``; there is no
+        # ``job_listings`` write on this path and no identity column is touched. A false
+        # suggestion is one dismissible banner; a false merge would be permanent and
+        # silent, because this codebase has no un-merge.
+        #
+        # Guarded exactly like the checklist rung above: display-only, so any failure is
+        # swallowed with a log and can never fail a harvest. It also issues NO outbound
+        # request — it compares rows we already hold (see the SSRF note on the module).
+        if graduated_this_run:
+            try:
+                await asyncio.to_thread(
+                    published_board_match.suggest_published_board, conn, company_id
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to check %s against the boards we already publish",
+                    company_id,
+                )
 
         # Per-run evidence — written for every run (VERIFIED/UNVERIFIED/FAILED) so
         # a wrong match / silent failure is diagnosable weeks later. oracle_kind is

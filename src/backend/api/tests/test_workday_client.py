@@ -37,6 +37,11 @@ PROVIDER_CONFIG_SLACK: dict[str, Any] = {
 }
 
 
+def _instant(value: str) -> datetime:
+    """An ISO string as the moment it names, ignoring how it is spelled."""
+    return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
+
+
 def _job(idx: int, **overrides: Any) -> dict[str, Any]:
     base = {
         "title": f"Software Engineer {idx}",
@@ -333,13 +338,71 @@ class TestTransform:
             for r in caplog.records
         )
 
-    def test_first_last_seen_share_now_value(self) -> None:
-        result = transform_to_job_listings(
+    def test_plus_bucket_stores_none_without_erroring(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The `30+` bucket is expected, not a data-quality failure.
+
+        Two things at once: the row survives with `posted_on = None`, and
+        it does NOT log an ERROR. 42.3% of open prod Workday rows sit in
+        this bucket, so an ERROR here would be a per-tick log flood that
+        buries the genuinely-unparseable case above.
+        """
+        import logging
+        raw = [_job(1, postedOn="Posted 30+ Days Ago")]
+        with caplog.at_level(logging.ERROR, logger="api.services.workday_client"):
+            result = transform_to_job_listings(
+                "nvidia", raw, PROVIDER_CONFIG_NVIDIA, now="2026-05-19T15:00:00+00:00",
+            )
+        # Per-row degradation only — the row is still emitted, still OPEN.
+        assert len(result) == 1
+        assert result[0].posted_on is None
+        assert result[0].details["published_at"] is None
+        assert [r.getMessage() for r in caplog.records if r.levelname == "ERROR"] == []
+
+    def test_first_seen_at_is_the_board_date_while_the_rest_share_now(self) -> None:
+        """``first_seen_at`` is the EFFECTIVE POSTED DATE (POSTED-DATE-PLAN §2).
+
+        Previously this asserted all three equalled the injected ``now``. Under
+        D9 ``first_seen_at`` follows ``postedOn`` instead — for Workday that is
+        the 57.7% of rows carrying a real relative date.
+
+        Asserted against ``posted_on`` rather than a literal because the ``now``
+        seam does NOT reach the date parser: ``_parse_workday_date`` takes no
+        reference instant, so ``"Posted Today"`` resolves against the wall clock
+        while ``created_at`` is the injected value. That pre-existing asymmetry
+        is why a hard-coded date here would be a calendar-dependent flake.
+        """
+        r = transform_to_job_listings(
             "nvidia", [_job(1)], PROVIDER_CONFIG_NVIDIA,
             now="2026-05-19T15:00:00+00:00",
-        )
-        r = result[0]
-        assert r.first_seen_at == r.last_seen_at == r.created_at == "2026-05-19T15:00:00+00:00"
+        )[0]
+
+        assert r.posted_on is not None, "'Posted Today' is a real date, not a bucket"
+        # Compared as INSTANTS: this client writes "...T00:00:00.000Z" while the
+        # shared helper emits "+00:00". Both are the same moment and both are
+        # equally valid input to a TIMESTAMPTZ; a string compare here would fail
+        # on spelling and say nothing about the behaviour under test.
+        assert _instant(r.first_seen_at) == _instant(r.posted_on)
+        assert r.last_seen_at == r.created_at == "2026-05-19T15:00:00+00:00"
+        assert r.first_seen_at != r.created_at
+
+    def test_the_30_plus_bucket_seeds_first_sight_not_a_fabricated_date(self) -> None:
+        """§3, and the whole Workday trust story in one assertion.
+
+        ``"Posted 30+ Days Ago"`` is a bucket BOUNDARY. U5a made
+        ``_parse_workday_date`` return None for it; U3 must therefore land those
+        rows — 42.3% of open Workday rows — on first sight. The failure this
+        guards is subtle and silent: seeding ``now - 31d`` would look like a
+        perfectly ordinary posting date and nothing downstream could tell.
+        """
+        r = transform_to_job_listings(
+            "nvidia", [_job(2, postedOn="Posted 30+ Days Ago")], PROVIDER_CONFIG_NVIDIA,
+            now="2026-05-19T15:00:00+00:00",
+        )[0]
+
+        assert r.posted_on is None
+        assert r.first_seen_at == r.created_at == "2026-05-19T15:00:00+00:00"
 
     def test_pagination_drift_dedupes_and_logs_info(
         self, caplog: pytest.LogCaptureFixture
@@ -442,13 +505,29 @@ class TestParseWorkdayDate:
         assert _parse_workday_date("Posted Yesterday", now=self.NOW) == self.YESTERDAY_MIDNIGHT
 
     def test_n_days_ago(self) -> None:
-        # "Posted 30 Days Ago" → exactly 30 days back
+        # "Posted N Days Ago" IS a date — an exact day offset. This is the
+        # 57.7% of prod Workday rows that keep an accurate posted date.
+        assert _parse_workday_date("Posted 3 Days Ago", now=self.NOW) == "2026-05-16T00:00:00.000Z"
         assert _parse_workday_date("Posted 30 Days Ago", now=self.NOW) == "2026-04-19T00:00:00.000Z"
 
-    def test_n_plus_days_ago_adds_one_day(self) -> None:
-        # Frontend semantics: "N+ Days Ago" = 1 day beyond the N bucket.
-        # 30 + 1 = 31 → 2026-04-18.
-        assert _parse_workday_date("Posted 30+ Days Ago", now=self.NOW) == "2026-04-18T00:00:00.000Z"
+    @pytest.mark.parametrize(
+        "bucket",
+        ["Posted 30+ Days Ago", "Posted 7+ Days Ago", "posted 30+ days ago"],
+    )
+    def test_n_plus_days_ago_is_a_bucket_not_a_date(self, bucket: str) -> None:
+        # "N+ Days Ago" is the label of Workday's open-ended oldest bucket,
+        # not a posting date. We used to answer `today - (N + 1)`, which
+        # invented a precise timestamp — 42.3% of open prod Workday rows all
+        # claiming to be exactly 31 days old, sliding forward daily.
+        # NULL is the honest answer; the caller falls back to first sight.
+        assert _parse_workday_date(bucket, now=self.NOW) is None
+
+    def test_plus_bucket_does_not_fall_back_to_now(self) -> None:
+        # The failure mode that matters: a rejected bucket must NOT quietly
+        # become "today". None, and only None.
+        out = _parse_workday_date("Posted 30+ Days Ago", now=self.NOW)
+        assert out is None
+        assert out != self.TODAY_MIDNIGHT
 
     def test_case_insensitive(self) -> None:
         assert _parse_workday_date("posted TODAY", now=self.NOW) == self.TODAY_MIDNIGHT

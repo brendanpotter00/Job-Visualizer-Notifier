@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from shared.base_scraper import BaseScraper
 from shared.constants import SourceId
 from shared.models import JobListing
+from shared.posted_date import effective_posted_date
 from shared.utils import get_iso_timestamp
 
 from .config import (
@@ -388,7 +389,12 @@ class TikTokJobsScraper(BaseScraper):
             status="OPEN",
             has_matched=False,
             ai_metadata={},
-            first_seen_at=created_at,
+            # THE EFFECTIVE POSTED DATE (POSTED-DATE-PLAN.md §2, D9/D10) — which
+            # for TikTok is always first sight, because ``posted_on`` above is
+            # always None. Routed through the shared helper anyway so this
+            # scraper states the rule rather than coinciding with it: the day
+            # TikTok's payload grows a date field, one line changes, not two.
+            first_seen_at=effective_posted_date(None, created_at),
             last_seen_at=created_at,
             consecutive_misses=0,
             details_scraped=False,

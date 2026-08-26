@@ -67,18 +67,96 @@ class TestNormalizePostedDate:
         assert "2024-01-15" in result
 
     def test_normalize_millisecond_timestamp(self):
-        """Large timestamp (milliseconds) handling"""
-        scraper = MicrosoftJobsScraper(headless=True, detail_scrape=False)
-        # Millisecond timestamp (13 digits) - this would be far in the future
-        # The current implementation doesn't specifically handle ms vs s
-        # so this tests the actual behavior
-        timestamp = 1705320000  # seconds
+        """A 13-digit millisecond timestamp lands in the right year.
 
-        result = scraper._normalize_posted_date(timestamp)
+        This test was named for milliseconds but passed 1705320000 —
+        SECONDS, 10 digits. It therefore asserted nothing about the ms
+        path and stayed green while `_normalize_posted_date` read
+        milliseconds as seconds and produced year-58,000 dates. Pass
+        actual milliseconds and assert the resulting year.
+        """
+        scraper = MicrosoftJobsScraper(headless=True, detail_scrape=False)
+        # 1705320000000 ms == 1705320000 s == 2024-01-15 12:00:00 UTC.
+        result = scraper._normalize_posted_date(1705320000000)
 
         assert result is not None
-        # Should produce a valid date string
-        assert isinstance(result, str)
+        assert result.startswith("2024-01-15"), result
+
+    def test_epoch_seconds_and_milliseconds_agree(self):
+        """The live prod value from the plan: `1787617881` (2026). Both
+        scales must land on the same instant — not 1970, not year 58,000.
+        """
+        scraper = MicrosoftJobsScraper(headless=True, detail_scrape=False)
+
+        seconds = scraper._normalize_posted_date(1787617881)
+        millis = scraper._normalize_posted_date(1787617881000)
+
+        assert seconds is not None and millis is not None
+        assert seconds.startswith("2026-"), seconds
+        assert millis.startswith("2026-"), millis
+        assert seconds == millis
+
+    def test_empty_string_returns_none(self):
+        """`_get_first_of` defaults to `""`, not None, so `""` is the
+        normal shape for "Microsoft published no date". It used to be
+        `str()`-ed through into a TIMESTAMPTZ, which failed the INSERT —
+        the batch then retried row-by-row and dropped exactly those rows.
+        NULL is the only safe answer.
+        """
+        scraper = MicrosoftJobsScraper(headless=True, detail_scrape=False)
+
+        assert scraper._normalize_posted_date("") is None
+        assert scraper._normalize_posted_date("   ") is None
+
+    def test_humanized_string_returns_none(self):
+        """A relative bucket is not a date (POSTED-DATE-PLAN.md §3), and
+        Postgres cannot store it either. NULL, never a synthesized date.
+        """
+        scraper = MicrosoftJobsScraper(headless=True, detail_scrape=False)
+
+        for humanized in ("2 days ago", "Posted 30+ Days Ago", "about 12 hours"):
+            assert scraper._normalize_posted_date(humanized) is None, humanized
+
+    def test_bad_value_never_becomes_now(self):
+        """The invariant that matters: a failed parse degrades this row to
+        NULL. It must never fall back to the current time, which would put
+        a stale job on today's bar in the graph.
+        """
+        scraper = MicrosoftJobsScraper(headless=True, detail_scrape=False)
+
+        assert scraper._normalize_posted_date("garbage") is None
+        assert scraper._normalize_posted_date({"not": "a date"}) is None
+        assert scraper._normalize_posted_date([]) is None
+
+    def test_transform_stores_null_rather_than_failing_the_batch(self):
+        """End-to-end through `transform_to_job_model`: the real shape a
+        dateless Microsoft row arrives in is `posted_date == ""`.
+        """
+        scraper = MicrosoftJobsScraper(headless=True, detail_scrape=False)
+
+        job = scraper.transform_to_job_model({
+            "id": "1970393556642428",
+            "title": "Software Engineer",
+            "job_url": "https://jobs.careers.microsoft.com/global/en/job/1970393556642428",
+            "posted_on": "",
+            "posted_date": "",
+        })
+
+        assert job.posted_on is None
+
+    def test_transform_stores_a_real_epoch_date(self):
+        scraper = MicrosoftJobsScraper(headless=True, detail_scrape=False)
+
+        job = scraper.transform_to_job_model({
+            "id": "1970393556642428",
+            "title": "Software Engineer",
+            "job_url": "https://jobs.careers.microsoft.com/global/en/job/1970393556642428",
+            "posted_on": "",
+            "posted_date": 1787617881,
+        })
+
+        assert job.posted_on is not None
+        assert job.posted_on.startswith("2026-"), job.posted_on
 
 
 class TestRandomDelay:

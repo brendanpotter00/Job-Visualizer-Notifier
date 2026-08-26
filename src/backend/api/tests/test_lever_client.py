@@ -240,9 +240,41 @@ class TestTransformToJobListings:
         assert listings[0].id == "9b56dc97-04a5-4c84-bc73-19f7d7f43cce"
         assert listings[1].id == "b2c3d4e5-f6a7-8b9c-0d1e-2f3a4b5c6d7e"
 
-    def test_first_and_last_seen_set_to_same_iso_string(self):
-        listings = transform_to_job_listings("palantir", ONE_JOB_FIXTURE)
-        assert listings[0].first_seen_at == listings[0].last_seen_at
+    def test_first_seen_at_is_the_board_date_and_diverges_from_the_run_clock(self):
+        """``first_seen_at`` is the EFFECTIVE POSTED DATE (POSTED-DATE-PLAN §2).
+
+        Previously this asserted first_seen == last_seen. Under D9 they now mean
+        different things: the fixture's ``createdAt`` (1714857600000 ms =
+        2024-05-04) is over two years before any plausible run clock, so the
+        divergence is pinned to an exact value rather than merely to "different".
+
+        A two-year-old date passing straight through is D12 working as decided,
+        not a bug — Lever never refreshes these and we do not second-guess them.
+        """
+        job = transform_to_job_listings("palantir", ONE_JOB_FIXTURE)[0]
+
+        assert job.first_seen_at == "2024-05-04T21:20:00+00:00"
+        assert job.posted_on == job.first_seen_at
+        assert job.last_seen_at == job.created_at
+        assert job.first_seen_at != job.last_seen_at
+
+    def test_first_seen_at_falls_back_to_the_run_clock_without_a_board_date(self):
+        """No ``createdAt`` -> first sight. Never synthesized, never NULL (the
+        column is NOT NULL and is the keyset sort key)."""
+        raw = {k: v for k, v in ONE_JOB_FIXTURE[0].items() if k != "createdAt"}
+
+        job = transform_to_job_listings("palantir", [raw])[0]
+
+        assert job.posted_on is None
+        assert job.first_seen_at == job.created_at == job.last_seen_at
+
+    def test_unparseable_board_date_falls_back_to_the_run_clock(self):
+        raw = {**ONE_JOB_FIXTURE[0], "createdAt": "not-a-number"}
+
+        job = transform_to_job_listings("palantir", [raw])[0]
+
+        assert job.posted_on is None
+        assert job.first_seen_at == job.created_at
 
     def test_missing_id_raises(self):
         raw = {k: v for k, v in ONE_JOB_FIXTURE[0].items() if k != "id"}

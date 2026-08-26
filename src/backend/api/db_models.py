@@ -272,8 +272,15 @@ class JobFreshness(Base):
 # References are intentionally unqualified so they resolve through the caller's
 # search_path — correct in prod (public) and in the per-worker ``test_<hex>``
 # schema (search_path pinned by the conftest fixtures). Seeds last_seen_at from
-# NEW.first_seen_at and a literal 0 (never NEW.last_seen_at/consecutive_misses)
-# so it keeps working after the Unit 4 contract migration drops those columns.
+# now() and a literal 0 (never NEW.last_seen_at/consecutive_misses) so it keeps
+# working after the Unit 4 contract migration drops those columns.
+#
+# ``now()``, NOT ``NEW.first_seen_at`` (changed by 7a4c1e93b6d8, POSTED-DATE-PLAN
+# §5/U2). ``first_seen_at`` is now the EFFECTIVE POSTED DATE and can be months old
+# at INSERT time; ``last_seen_at`` means "when did a scrape last observe this",
+# and an INSERT is an observation. This is also what ``_upsert_freshness``
+# already writes two statements later on every upsert path. Cannot affect closes:
+# the sweep is purely consecutive_misses-based (shared/database.py:783-790).
 # Physical tuning (fillfactor/autovacuum) stays migration-only — it has no
 # behavioral effect, so create_all test DBs don't need it.
 _JOB_FRESHNESS_SYNC_FUNCTION = DDL(
@@ -282,7 +289,7 @@ _JOB_FRESHNESS_SYNC_FUNCTION = DDL(
     LANGUAGE plpgsql AS $$
     BEGIN
         INSERT INTO job_freshness (source_id, id, last_seen_at, consecutive_misses)
-        VALUES (NEW.source_id, NEW.id, NEW.first_seen_at, 0)
+        VALUES (NEW.source_id, NEW.id, now(), 0)
         ON CONFLICT (source_id, id) DO NOTHING;
         RETURN NULL;  -- AFTER trigger: return value is ignored
     END;

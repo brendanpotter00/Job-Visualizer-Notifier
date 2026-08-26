@@ -424,11 +424,23 @@ def _v_transform(step: dict[str, Any]) -> None:
         _require_str(step, "base_url", "transform")
 
 
+# The closed mode set for ``parse_date``. ``epoch_s``/``epoch_ms`` were added by
+# POSTED-DATE-PLAN.md §5/U6: a board that publishes unix time (Microsoft's
+# ``postedTs: 1787617881``) had no mode that could read it, so discovery emitted no
+# step at all and every one of its rows stored a NULL date. Widening this set is
+# what lets ``synthesize_recipe`` emit one. Both are validated on WRITE and again on
+# every nightly READ, so an older backend can never replay a recipe it cannot parse.
+PARSE_DATE_MODES = ("strptime", "humanized", "iso", "epoch_s", "epoch_ms")
+
+
 def _v_parse_date(step: dict[str, Any]) -> None:
     _reject_unknown_keys(step, {"field", "mode", "format"}, "parse_date")
     _require_str(step, "field", "parse_date")
     mode = step.get("mode")
-    _require(mode in ("strptime", "humanized", "iso"), "parse_date.mode must be strptime|humanized|iso")
+    _require(
+        mode in PARSE_DATE_MODES,
+        f"parse_date.mode must be {'|'.join(PARSE_DATE_MODES)}",
+    )
     if mode == "strptime":
         _require_str(step, "format", "parse_date")
 

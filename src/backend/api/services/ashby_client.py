@@ -39,6 +39,7 @@ from scripts.shared.models import JobListing
 from scripts.shared.utils import get_iso_timestamp
 
 from .job_details import has_description
+from .posted_date import effective_posted_date
 
 logger = logging.getLogger(__name__)
 
@@ -166,7 +167,15 @@ def _transform_one(
         details=details,
         posted_on=posted_on,
         created_at=now,
-        first_seen_at=now,
+        # THE EFFECTIVE POSTED DATE (POSTED-DATE-PLAN.md §2, D9/D10): Ashby's
+        # ``publishedAt`` when it parses, first sight otherwise. ``posted_on`` is
+        # already NULL-on-failure above, so the helper's fallback covers exactly
+        # the rows this client already refused to date.
+        #
+        # Safe with no first-run predicate because ``first_seen_at`` is absent
+        # from ``_UPSERT_ON_CONFLICT`` (scripts/shared/database.py) — this line
+        # only ever decides an INSERT and can never rewrite an existing row.
+        first_seen_at=effective_posted_date(posted_on, now),
         last_seen_at=now,
         consecutive_misses=0,
         # Truthful, not hard-coded True: this claims we HAVE the job's detail

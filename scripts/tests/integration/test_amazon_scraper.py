@@ -36,9 +36,34 @@ class TestTransformToJobModel:
         job = amazon_scraper.transform_to_job_model(sample_amazon_job_data)
         assert job.posted_on == "2026-08-08"
 
-    def test_timestamps_are_consistent(self, amazon_scraper, sample_amazon_job_data):
+    def test_first_seen_at_is_the_cards_posted_date_not_the_run_clock(
+        self, amazon_scraper, sample_amazon_job_data
+    ):
+        """``first_seen_at`` is the EFFECTIVE POSTED DATE (POSTED-DATE-PLAN §2).
+
+        Previously this asserted created_at == first_seen_at == last_seen_at.
+        Under D9 they mean three different things, so the fixture's date-only
+        ``posted_date`` (2026-08-08) is pinned to an exact UTC-midnight value
+        rather than merely asserted "different".
+        """
         job = amazon_scraper.transform_to_job_model(sample_amazon_job_data)
-        assert job.created_at == job.first_seen_at == job.last_seen_at
+
+        assert job.first_seen_at == "2026-08-08T00:00:00+00:00"
+        assert job.first_seen_at != job.created_at
+        # created_at and last_seen_at are both still the run clock, and equal.
+        assert job.created_at == job.last_seen_at
+
+    def test_first_seen_at_falls_back_when_the_card_has_no_date(
+        self, amazon_scraper, sample_amazon_job_data
+    ):
+        """No ``posted_date`` -> first sight. Never synthesized, never empty (the
+        column is NOT NULL and is the keyset sort key)."""
+        card = {k: v for k, v in sample_amazon_job_data.items() if k != "posted_date"}
+
+        job = amazon_scraper.transform_to_job_model(card)
+
+        assert job.posted_on is None
+        assert job.first_seen_at == job.created_at == job.last_seen_at
 
     def test_description_lands_where_the_backend_reads_it(
         self, amazon_scraper, sample_amazon_job_data

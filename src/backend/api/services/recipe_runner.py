@@ -764,11 +764,25 @@ def _transform_value(row: dict, step: dict[str, Any]) -> Any:
     return value
 
 
+# Above this a numeric timestamp is MILLISECONDS, not seconds: 1e11 seconds is the
+# year 5138, so nothing genuinely in seconds can reach it and nothing genuinely in
+# milliseconds (1.7e12 today) falls below it. Same constant, same reasoning, as
+# ``eightfold_client._parse_eightfold_epoch`` and ``scripts/shared/posted_date`` —
+# the repo has exactly one rule for this and this is it.
+_EPOCH_MS_THRESHOLD = 1e11
+
+
 def _parse_date_value(value: Any, step: dict[str, Any]) -> Any:
     """Normalize to ISO-8601; NEVER synthesize — unparseable → None (dropped later)."""
+    mode = step["mode"]
+    # Epoch modes FIRST, and before the string guard: a board that publishes unix
+    # time publishes a JSON *number*, so ``postedTs: 1787617881`` never reaches the
+    # string branch. Requiring a string here is what made Microsoft's 2,055 rows
+    # land with a NULL date even once a parse_date step existed.
+    if mode in ("epoch_s", "epoch_ms"):
+        return _parse_epoch_value(value)
     if not isinstance(value, str) or not value.strip():
         return None
-    mode = step["mode"]
     if mode == "iso":
         return value.strip()
     if mode == "strptime":
@@ -779,8 +793,50 @@ def _parse_date_value(value: Any, step: dict[str, Any]) -> Any:
         except ValueError:
             return None
     # humanized ("about 12 hours") — no reliable absolute timestamp; leave as None so
-    # the leaf task's first_seen tracking governs freshness.
+    # the leaf task's first_seen tracking governs freshness. Correct as written, NOT a
+    # gap: POSTED-DATE-PLAN.md §3 — a board that gives us a bucket has given us no date,
+    # and synthesizing one from "12 hours" is the fabrication that rule exists to stop.
     return None
+
+
+def _parse_epoch_value(value: Any) -> Any:
+    """Unix epoch (seconds or milliseconds, number or numeric string) → ISO-8601 UTC.
+
+    ``epoch_s`` and ``epoch_ms`` name what discovery SAMPLED, and the magnitude
+    decides what is actually parsed — deliberately, because the two failure modes
+    of trusting the declared mode are both silent and both catastrophic for a sort
+    key: milliseconds read as seconds land in the year 58,600, and seconds read as
+    milliseconds land in January 1970. A board that changes magnitude between
+    capture and tonight would produce one of those every night with no error. The
+    mode stays in the schema because it records what the board looked like at
+    capture time; the guard is what makes a drift a non-event.
+
+    Never raises and never synthesizes: anything non-numeric, non-positive, or out
+    of ``datetime``'s range is ``None``, exactly like every other mode here.
+    """
+    if isinstance(value, bool):
+        # ``True`` is an int and epoch 1 is 1970-01-01. A flag in a date field is
+        # not a date.
+        return None
+    if isinstance(value, str):
+        value = value.strip()
+        if not value:
+            return None
+    elif not isinstance(value, (int, float)):
+        return None
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if numeric != numeric or numeric in (float("inf"), float("-inf")) or numeric <= 0:
+        return None
+    if numeric > _EPOCH_MS_THRESHOLD:
+        numeric = numeric / 1000.0
+    from datetime import datetime, timezone
+    try:
+        return datetime.fromtimestamp(numeric, tz=timezone.utc).isoformat()
+    except (OverflowError, OSError, ValueError):
+        return None
 
 
 # --------------------------------------------------------------------------

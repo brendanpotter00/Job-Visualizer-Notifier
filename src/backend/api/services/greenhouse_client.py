@@ -36,6 +36,7 @@ from scripts.shared.utils import get_iso_timestamp
 
 from .harvest_meta import HarvestEvidence
 from .job_details import has_description
+from .posted_date import effective_posted_date
 
 logger = logging.getLogger(__name__)
 
@@ -155,7 +156,21 @@ def _transform_one(
         elif isinstance(value, list):
             tags.extend(v for v in value if isinstance(v, str) and v)
 
-    posted_on_raw = raw.get("first_published") or raw.get("updated_at")
+    # Which field the date came from, recorded alongside it. Greenhouse omits
+    # `first_published` on some boards and we silently fall back to
+    # `updated_at`, which moves whenever anyone edits the posting — so "this
+    # row's date is a real publish date" and "this row's date is a last-touched
+    # date" were indistinguishable after the fact. `posted_on_field` names the
+    # field that supplied the raw value (even if it then failed to parse).
+    if raw.get("first_published"):
+        posted_on_raw = raw["first_published"]
+        posted_on_field: Optional[str] = "first_published"
+    elif raw.get("updated_at"):
+        posted_on_raw = raw["updated_at"]
+        posted_on_field = "updated_at"
+    else:
+        posted_on_raw = None
+        posted_on_field = None
     posted_on = _normalize_iso8601(posted_on_raw) if posted_on_raw else None
     if posted_on_raw and posted_on is None:
         # Per feedback_correctness_over_dont_crash: don't pass through a corrupt
@@ -180,6 +195,7 @@ def _transform_one(
         "absolute_url": absolute_url,
         "updated_at": raw.get("updated_at"),
         "first_published": raw.get("first_published"),
+        "posted_on_field": posted_on_field,
         "content": raw.get("content"),
         "experience_level": None,
         "is_remote_eligible": False,
@@ -195,7 +211,14 @@ def _transform_one(
         details=details,
         posted_on=posted_on,
         created_at=now,
-        first_seen_at=now,
+        # THE EFFECTIVE POSTED DATE (POSTED-DATE-PLAN.md §2, D9/D10): Greenhouse's
+        # ``first_published`` (or its ``updated_at`` fallback — ``details
+        # .posted_on_field`` records which), first sight otherwise.
+        #
+        # Safe with no first-run predicate because ``first_seen_at`` is absent
+        # from ``_UPSERT_ON_CONFLICT`` (scripts/shared/database.py) — this line
+        # only ever decides an INSERT and can never rewrite an existing row.
+        first_seen_at=effective_posted_date(posted_on, now),
         last_seen_at=now,
         consecutive_misses=0,
         # Truthful, not hard-coded True: this claims we HAVE the job's detail

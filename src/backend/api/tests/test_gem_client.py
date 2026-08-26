@@ -371,8 +371,41 @@ class TestTransformToJobListings:
         with pytest.raises(ValueError, match="missing 'id'"):
             transform_to_job_listings("retool", [bad])
 
-    def test_first_and_last_seen_set_to_same_iso_string(self):
-        result = transform_to_job_listings("retool", [ONE_JOB_RAW])
-        job = result[0]
-        assert job.first_seen_at == job.last_seen_at == job.created_at
+    def test_first_seen_at_is_the_board_date_and_diverges_from_the_run_clock(self):
+        """``first_seen_at`` is the EFFECTIVE POSTED DATE (POSTED-DATE-PLAN §2).
+
+        Previously this asserted first_seen == last_seen == created_at. Under D9
+        the three now mean three different things, and the fixture's
+        ``first_published_at`` (2026-01-15T14:30-05:00) is nowhere near the run
+        clock, so the divergence is pinned to an exact value rather than merely
+        to "different".
+        """
+        job = transform_to_job_listings("retool", [ONE_JOB_RAW])[0]
+
+        assert job.first_seen_at == "2026-01-15T19:30:00+00:00"
+        assert job.posted_on == job.first_seen_at
+        # last_seen_at and created_at are still the run clock, and still equal.
+        assert job.last_seen_at == job.created_at
         assert job.created_at.endswith("Z")
+        assert job.first_seen_at != job.created_at
+
+    def test_first_seen_at_follows_the_created_at_fallback(self):
+        """Gem's own fallback chain is ``first_published_at or created_at``, and
+        first_seen_at must follow whichever one the client actually used —
+        not re-derive its own answer."""
+        raw = {**ONE_JOB_RAW, "first_published_at": None}
+
+        job = transform_to_job_listings("retool", [raw])[0]
+
+        assert job.posted_on == job.first_seen_at
+        assert job.first_seen_at == "2026-01-10T08:00:00+00:00"
+
+    def test_first_seen_at_falls_back_to_the_run_clock_without_a_board_date(self):
+        """Both board fields absent -> first sight. Never synthesized, never NULL
+        (the column is NOT NULL and is the keyset sort key)."""
+        raw = {**ONE_JOB_RAW, "first_published_at": None, "created_at": None}
+
+        job = transform_to_job_listings("retool", [raw])[0]
+
+        assert job.posted_on is None
+        assert job.first_seen_at == job.created_at == job.last_seen_at

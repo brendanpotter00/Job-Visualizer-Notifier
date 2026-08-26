@@ -27,8 +27,24 @@ class TestTransformToJobModel:
         """TikTok's payload carries no date field; first_seen_at is the signal."""
         assert tiktok_scraper.transform_to_job_model(sample_tiktok_job_data).posted_on is None
 
-    def test_timestamps_consistent(self, tiktok_scraper, sample_tiktok_job_data):
+    def test_timestamps_converge_because_tiktok_publishes_no_date(
+        self, tiktok_scraper, sample_tiktok_job_data
+    ):
+        """The three timestamps agree here for a REASON, not by definition.
+
+        ``first_seen_at`` is the EFFECTIVE POSTED DATE (POSTED-DATE-PLAN §2) —
+        the board's own date when it has one, first sight otherwise. TikTok's
+        payload carries no date field at all, so first sight is all three. The
+        assertion on ``posted_on`` is what stops this from being a tautology: if
+        TikTok's payload ever grows a date and the scraper starts reading it,
+        that line fails first and names the reason.
+        """
         job = tiktok_scraper.transform_to_job_model(sample_tiktok_job_data)
+
+        assert job.posted_on is None, (
+            "TikTok now publishes a date — first_seen_at must follow it, and this "
+            "test's premise no longer holds"
+        )
         assert job.created_at == job.first_seen_at == job.last_seen_at
 
     def test_description_lands_where_backend_reads_it(self, tiktok_scraper, sample_tiktok_job_data):

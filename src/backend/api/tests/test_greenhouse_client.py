@@ -234,6 +234,35 @@ class TestTransformToJobListings:
             "log message must contain 'data quality issue' for grep-ability"
         )
 
+    def test_details_records_which_field_supplied_the_date(self):
+        """U5d — `posted_on` has two possible sources and they mean
+        different things. `first_published` is a publish date;
+        `updated_at` moves whenever anyone edits the posting. Once
+        `posted_on` is a bare timestamp the two are indistinguishable, so
+        `details.posted_on_field` names the one that was actually used.
+        """
+        result = transform_to_job_listings("stripe", TWO_JOB_FIXTURE["jobs"])
+        # Fixture job 0 has first_published; job 1 does not.
+        assert result[0].details["posted_on_field"] == "first_published"
+        assert result[1].details["posted_on_field"] == "updated_at"
+
+    def test_details_posted_on_field_is_none_when_board_gives_neither(self):
+        raw = dict(ONE_JOB_FIXTURE["jobs"][0])
+        raw.pop("first_published", None)
+        raw.pop("updated_at", None)
+        result = transform_to_job_listings("stripe", [raw])
+        assert result[0].posted_on is None
+        assert result[0].details["posted_on_field"] is None
+
+    def test_details_posted_on_field_survives_a_parse_failure(self):
+        """It records where the raw value CAME FROM, so it still answers
+        "which field did we read" when that value then failed to parse."""
+        raw = dict(ONE_JOB_FIXTURE["jobs"][0])
+        raw["first_published"] = "not-a-real-date"
+        result = transform_to_job_listings("stripe", [raw])
+        assert result[0].posted_on is None
+        assert result[0].details["posted_on_field"] == "first_published"
+
     def test_details_jsonb_has_field_tolerant_keys(self):
         result = transform_to_job_listings("stripe", ONE_JOB_FIXTURE["jobs"])
         details = result[0].details
@@ -261,8 +290,43 @@ class TestTransformToJobListings:
         with pytest.raises(ValueError, match="missing 'id'"):
             transform_to_job_listings("stripe", [bad])
 
-    def test_first_and_last_seen_set_to_same_iso_string(self):
-        result = transform_to_job_listings("stripe", ONE_JOB_FIXTURE["jobs"])
-        job = result[0]
-        assert job.first_seen_at == job.last_seen_at == job.created_at
+    def test_first_seen_at_is_the_board_date_and_diverges_from_the_run_clock(self):
+        """``first_seen_at`` is the EFFECTIVE POSTED DATE (POSTED-DATE-PLAN §2).
+
+        Previously this asserted first_seen == last_seen == created_at. Under D9
+        the three now mean three different things, and the fixture's
+        ``first_published`` (2026-02-13T12:39:30-05:00) is nowhere near the run
+        clock, so the divergence is pinned to an exact UTC value rather than
+        merely to "different".
+        """
+        job = transform_to_job_listings("stripe", ONE_JOB_FIXTURE["jobs"])[0]
+
+        assert job.first_seen_at == "2026-02-13T17:39:30+00:00"
+        assert job.posted_on == job.first_seen_at
+        assert job.details["posted_on_field"] == "first_published"
+        # last_seen_at and created_at are still the run clock, and still equal.
+        assert job.last_seen_at == job.created_at
         assert job.created_at.endswith("Z")
+        assert job.first_seen_at != job.created_at
+
+    def test_first_seen_at_follows_the_updated_at_fallback(self):
+        """Greenhouse's own chain is ``first_published or updated_at``, and
+        first_seen_at must follow whichever the client actually used — the
+        ``posted_on_field`` provenance and the sort key cannot disagree."""
+        job = transform_to_job_listings("stripe", TWO_JOB_FIXTURE["jobs"])[1]
+
+        assert job.details["posted_on_field"] == "updated_at"
+        assert job.posted_on == job.first_seen_at
+        assert job.first_seen_at == "2026-05-10T10:00:00+00:00"
+
+    def test_first_seen_at_falls_back_to_the_run_clock_without_a_board_date(self):
+        """Neither field parseable -> first sight. Never synthesized, never NULL
+        (the column is NOT NULL and is the keyset sort key)."""
+        raw = {**ONE_JOB_FIXTURE["jobs"][0]}
+        raw["first_published"] = "not-a-real-date"
+        raw["updated_at"] = None
+
+        job = transform_to_job_listings("stripe", [raw])[0]
+
+        assert job.posted_on is None
+        assert job.first_seen_at == job.created_at == job.last_seen_at

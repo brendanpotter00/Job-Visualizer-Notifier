@@ -1083,6 +1083,33 @@ def synthesize_recipe(
         "records_path": selection.records_path,
         "fields": dict(selection.field_map),
     })
+
+    # THE POSTING DATE (POSTED-DATE-PLAN.md §5/U6). ``parse_date`` has been fully
+    # implemented in the runner since Phase 3a and was never emitted here, so every
+    # discovered board stored its date exactly as the board spelled it and the leaf
+    # task then failed to read it — 2,217 of 2,217 Microsoft rows with a NULL
+    # ``posted_on`` while the payload carried ``postedTs: 1787617881`` on every one.
+    #
+    # No step for ISO (already the shape the leaf task reads) and no step when the
+    # format is unrecognized: §3's rule is that a value we cannot turn into a date is
+    # not a date, so it stays NULL and ``first_seen_at`` falls back to first sight.
+    # Emitting a `humanized` step for "unrecognized" would claim we identified a
+    # relative string when we did not; the outcome is identical and the claim is not.
+    posted_at_format = selection.posted_at_format
+    if (
+        "posted_at" in selection.field_map
+        and posted_at_format is not None
+        and posted_at_format.mode != "iso"
+    ):
+        parse_date: dict[str, Any] = {
+            "op": "parse_date",
+            "field": "posted_at",
+            "mode": posted_at_format.mode,
+        }
+        if posted_at_format.format is not None:
+            parse_date["format"] = posted_at_format.format
+        steps.append(parse_date)
+
     error_keys = _inband_error_keys(candidate.payload)
     if error_keys:
         steps.append({"op": "assert_no_inband_error", "error_keys": error_keys})

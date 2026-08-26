@@ -66,6 +66,56 @@ class TestTransformToJobModel:
         assert result.details["salary_range"] == "$175,000 - $295,000"
         assert result.details["is_remote_eligible"] is False
 
+    def test_list_mode_card_date_reaches_posted_on_AND_first_seen_at(
+        self, scraper, sample_apple_job_data
+    ):
+        """Both halves, because the first half shipped alone once already.
+
+        A list-mode card carries a human date ("Dec 15, 2024"). Storing it in
+        ``posted_on`` works whether or not it is normalised — the column is a
+        TIMESTAMPTZ and Postgres reads the string — so a test that checked only
+        ``posted_on`` would pass while ``first_seen_at`` silently fell back to
+        first sight, since the shared parser rejects that format on purpose.
+        Asserting both is the only way this stays fixed.
+        """
+        job = scraper.transform_to_job_model(sample_apple_job_data)
+
+        assert job.posted_on == "2024-12-15", "card date not normalised"
+        assert job.first_seen_at == "2024-12-15T00:00:00+00:00", (
+            "the card's date reached posted_on but not the sort key"
+        )
+        assert job.first_seen_at != job.created_at
+
+    def test_detail_mode_iso_date_reaches_both(self, scraper, sample_apple_job_data):
+        """Detail mode supplies ``postDateInGMT`` as ISO and takes priority."""
+        card = {**sample_apple_job_data, "posted_on": "2025-03-04T09:00:00Z"}
+
+        job = scraper.transform_to_job_model(card)
+
+        assert job.posted_on == "2025-03-04T09:00:00Z"
+        assert job.first_seen_at == "2025-03-04T09:00:00+00:00"
+
+    def test_a_dateless_card_falls_back_to_first_sight(self, scraper):
+        job = scraper.transform_to_job_model(
+            {"id": "1", "title": "T", "job_url": "https://jobs.apple.com/x"}
+        )
+
+        assert job.posted_on is None
+        assert job.first_seen_at == job.created_at == job.last_seen_at
+
+    def test_an_unreadable_card_date_falls_back_rather_than_storing_junk(
+        self, scraper, sample_apple_job_data
+    ):
+        """An unparseable card must not pass a string through to a TIMESTAMPTZ —
+        that fails the batch, which then retries row-by-row and loses exactly
+        those rows (batch_writer.py:120-128)."""
+        card = {**sample_apple_job_data, "posted_date": "sometime last spring"}
+
+        job = scraper.transform_to_job_model(card)
+
+        assert job.posted_on is None
+        assert job.first_seen_at == job.created_at
+
     def test_transform_to_job_model_minimal(self, scraper):
         """Minimal data with defaults"""
         minimal_data = {
