@@ -285,10 +285,21 @@ something with no available action teaches people to ignore amber everywhere els
   time and the harvest runs afterwards, so `outcome: 'partial'` genuinely exists over a
   count that is still climbing — asserting the end of a story mid-sentence, right above
   the number a reader would check it against.
+- **The freshness line says "Last fetched", never "Last checked".** It renders
+  `lastSuccessAt`, which the backend stamps only on a run that did NOT fail
+  (`mark_last_success`), so "checked" claimed nobody had looked at a board we look at
+  nightly and fail on nightly — it read as merely quiet instead of broken. "Fetched"
+  survives that case (a failed fetch fetched nothing) and reframes the line as a fact
+  about the count beside it. Not **"Last full scrape"** either: the same stamp is written
+  by a knowingly-partial read, so "full" swaps this lie for a completeness claim we cannot
+  back. Relative (`2 hours ago`, `Not fetched yet`), because the fact behind it is a
+  nightly harvest and seconds-level precision was noise; the exact instant stays on the
+  element's `title`. All of it lives in `describeLastFetched`.
 - **Known gap:** an ATS row has no signal on the wire distinguishing "added ten seconds
-  ago" from "has failed every night this week" (no created-at, no last-attempt). A
-  discovered row does (`first_scan: failed`). The backstop is the backend's own —
-  repeated failures quarantine the row.
+  ago" from "has failed every night this week" (no created-at, no last-attempt, no
+  last-failure). A discovered row does (`first_scan: failed`). This is what stops the
+  freshness line from ever reporting an *attempt* — it can only be honest about the last
+  success. The backstop is the backend's own — repeated failures quarantine the row.
 
 **Env vars** (go in `src/frontend/.env.local` — see Gotcha #2):
 - `VITE_CUSTOM_COMPANIES_ENABLED` — set to exactly `true` to show the Add Companies page

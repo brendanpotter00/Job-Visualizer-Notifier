@@ -5,7 +5,7 @@ import {
   describeDiscoveryOutcome,
   describeDiscoveryStep,
   describeHealthState,
-  describeLastChecked,
+  describeLastFetched,
   describePartialScope,
   failedDiscoveryStep,
   isFirstScanInFlight,
@@ -68,19 +68,91 @@ describe('describeHealthState', () => {
   });
 });
 
-describe('describeLastChecked', () => {
-  it('says "Not yet checked" before the first harvest (null)', () => {
-    expect(describeLastChecked({ lastSuccessAt: null })).toBe('Not yet checked');
+describe('describeLastFetched', () => {
+  const FETCHED_AT = '2026-08-09T10:00:00Z';
+  const fetchedAtMs = Date.parse(FETCHED_AT);
+  const MINUTE = 60_000;
+  const HOUR = 60 * MINUTE;
+  const DAY = 24 * HOUR;
+
+  it('says "Not fetched yet" before the first harvest (null)', () => {
+    expect(describeLastFetched({ lastSuccessAt: null }, fetchedAtMs)).toEqual({
+      label: 'Not fetched yet',
+      exactAt: null,
+    });
   });
 
-  it('treats an unparseable timestamp as never-checked rather than "Invalid Date"', () => {
-    expect(describeLastChecked({ lastSuccessAt: 'not-a-date' })).toBe('Not yet checked');
-  });
-
-  it('renders a "Last checked …" line for a real timestamp', () => {
-    expect(describeLastChecked({ lastSuccessAt: '2026-08-09T10:00:00Z' })).toMatch(
-      /^Last checked /
+  it('treats an unparseable timestamp as never-fetched rather than "Invalid Date"', () => {
+    expect(describeLastFetched({ lastSuccessAt: 'not-a-date' }, fetchedAtMs).label).toBe(
+      'Not fetched yet'
     );
+  });
+
+  // THE DEFECT. `lastSuccessAt` only moves on a run that did NOT fail, so "checked" was a
+  // claim about looking that a nightly-failing board disproved every night. Nothing on this
+  // row may imply we have not looked since — only that this is when we last GOT jobs.
+  it('never says "checked" — the stamp is the last successful fetch, not the last attempt', () => {
+    const line = describeLastFetched({ lastSuccessAt: FETCHED_AT }, fetchedAtMs + 3 * DAY);
+    expect(line.label).toBe('Last fetched 3 days ago');
+    expect(line.label).not.toMatch(/check/i);
+    // ...and not "full"/"complete" either: this same stamp is written by a knowingly
+    // PARTIAL read (Microsoft's 2,055 of 2,075), so a completeness claim is the same bug.
+    expect(line.label).not.toMatch(/full|complete/i);
+  });
+
+  it('counts in the coarsest unit that fits, singular at one', () => {
+    const at = (offsetMs: number) =>
+      describeLastFetched({ lastSuccessAt: FETCHED_AT }, fetchedAtMs + offsetMs).label;
+
+    expect(at(30_000)).toBe('Last fetched just now');
+    expect(at(MINUTE)).toBe('Last fetched 1 minute ago');
+    expect(at(45 * MINUTE)).toBe('Last fetched 45 minutes ago');
+    expect(at(HOUR)).toBe('Last fetched 1 hour ago');
+    expect(at(5 * HOUR)).toBe('Last fetched 5 hours ago');
+    expect(at(DAY)).toBe('Last fetched 1 day ago');
+    expect(at(6 * DAY)).toBe('Last fetched 6 days ago');
+  });
+
+  // Pins the ROUNDING DIRECTION, which every boundary-exact case above leaves free: a
+  // part-used unit is dropped, the "one and a bit" reading, not rounded up to the next
+  // one. Without this the phrase could silently flip to ceiling and read 61 minutes as
+  // "2 hours ago".
+  it('drops the part-unit rather than rounding up to the next one', () => {
+    const at = (offsetMs: number) =>
+      describeLastFetched({ lastSuccessAt: FETCHED_AT }, fetchedAtMs + offsetMs).label;
+
+    expect(at(HOUR + 59 * MINUTE)).toBe('Last fetched 1 hour ago');
+    expect(at(90 * MINUTE)).toBe('Last fetched 1 hour ago');
+    expect(at(DAY + 23 * HOUR)).toBe('Last fetched 1 day ago');
+  });
+
+  it('keeps the exact instant for the tooltip, so rounding loses nothing', () => {
+    const line = describeLastFetched({ lastSuccessAt: FETCHED_AT }, fetchedAtMs + 2 * HOUR);
+    expect(line.label).toBe('Last fetched 2 hours ago');
+    expect(line.exactAt).toBe(new Date(FETCHED_AT).toLocaleString());
+  });
+
+  // A stamp AHEAD of the payload is clock skew between the server and this browser, not a
+  // fetch from the future — the same call `isDiscoveryLive` makes. It must never render a
+  // negative age.
+  it('reads a forward-dated stamp as clock skew, not a negative age', () => {
+    expect(
+      describeLastFetched({ lastSuccessAt: FETCHED_AT }, fetchedAtMs - 5 * MINUTE).label
+    ).toBe('Last fetched just now');
+  });
+
+  // Past a month the relative phrase is arithmetic the reader has to undo.
+  it('falls back to the date once the age passes a month', () => {
+    const line = describeLastFetched({ lastSuccessAt: FETCHED_AT }, fetchedAtMs + 40 * DAY);
+    expect(line.label).toBe(`Last fetched ${new Date(FETCHED_AT).toLocaleDateString()}`);
+  });
+
+  // `receivedAt` is `fulfilledTimeStamp ?? 0`. Measuring an age against the epoch would
+  // make every board look freshly fetched — a new lie in place of the old one.
+  it('shows the date rather than a bogus age when the payload has no timestamp', () => {
+    const line = describeLastFetched({ lastSuccessAt: FETCHED_AT }, 0);
+    expect(line.label).toBe(`Last fetched ${new Date(FETCHED_AT).toLocaleDateString()}`);
+    expect(line.label).not.toMatch(/just now|ago/);
   });
 });
 

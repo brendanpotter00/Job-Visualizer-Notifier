@@ -25,7 +25,7 @@ import {
 } from '../../features/userCompanies/userCompaniesApi';
 import {
   describeCompanyHealth,
-  describeLastChecked,
+  describeLastFetched,
   shouldShowDiscovery,
 } from './companyHealth';
 import { DiscoveryChecklist } from './DiscoveryChecklist';
@@ -128,15 +128,23 @@ function CompaniesPoller({ intervalMs }: { intervalMs: number }) {
   return null;
 }
 
-/** One company row: name → trend page, health badge, count, last-checked, remove. */
+/** One company row: name → trend page, health badge, count, last-fetched, remove. */
 function CompanyRow({
   company,
   onRemove,
+  receivedAt,
 }: {
   company: UserCompany;
   onRemove: (company: UserCompany) => void;
+  /**
+   * `fulfilledTimeStamp` — when THIS payload landed, threaded down so the freshness line
+   * can be relative without any component reading the clock during render (lint-blocked
+   * as impure; the same reason `isDiscoveryLive` takes it as an argument).
+   */
+  receivedAt: number;
 }) {
   const badge = describeCompanyHealth(company);
+  const lastFetched = describeLastFetched(company, receivedAt);
   // Flag OFF must render byte-for-byte what shipped before the checklist existed, so
   // the gate is here rather than inside the component: no extra element, no wrapper.
   const showChecklist =
@@ -180,8 +188,17 @@ function CompanyRow({
               {company.openJobCount.toLocaleString()}{' '}
               {company.openJobCount === 1 ? 'open job' : 'open jobs'}
             </Typography>
-            <Typography variant="body2" color="text.secondary">
-              {describeLastChecked(company)}
+            {/* "Last fetched", never "Last checked": the timestamp behind it only moves
+                on a run that did NOT fail, so a board failing nightly wore a stamp that
+                said nobody had looked. The exact instant moves to `title` — the phrase
+                is for scanning the list, the tooltip is for the one row you care about.
+                See `describeLastFetched`. */}
+            <Typography
+              variant="body2"
+              color="text.secondary"
+              title={lastFetched.exactAt ?? undefined}
+            >
+              {lastFetched.label}
             </Typography>
           </Stack>
         </Box>
@@ -293,7 +310,12 @@ export function MyCompaniesList() {
       ) : (
         <Stack spacing={1.5} data-testid="my-companies-list">
           {rows.map((company) => (
-            <CompanyRow key={company.id} company={company} onRemove={setPendingRemoval} />
+            <CompanyRow
+              key={company.id}
+              company={company}
+              onRemove={setPendingRemoval}
+              receivedAt={fulfilledTimeStamp ?? 0}
+            />
           ))}
         </Stack>
       )}

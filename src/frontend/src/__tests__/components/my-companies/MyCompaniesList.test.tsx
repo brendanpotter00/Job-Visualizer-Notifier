@@ -64,7 +64,7 @@ afterEach(() => {
 });
 
 describe('MyCompaniesList', () => {
-  it('renders each company with a health badge, open-job count, and last-checked', async () => {
+  it('renders each company with a health badge, open-job count, and last-fetched', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ companies: [COMPANY_A, COMPANY_B] }));
     renderWithProviders(<MyCompaniesList />);
 
@@ -72,7 +72,7 @@ describe('MyCompaniesList', () => {
     expect(rows).toHaveLength(2);
 
     // Company A: added but NOT yet scraped. It used to say "Successfully tracking" over
-    // "0 open jobs" and "Not yet checked", which is three lines on one row disagreeing
+    // "0 open jobs" and "Not fetched yet", which is three lines on one row disagreeing
     // with each other. An ATS board has no discovery checklist, so this chip is the only
     // thing that can say a first scan is in flight — since `853457f` that window is ~20s
     // rather than ~15min, but a green success chip is a lie for as long as it lasts.
@@ -81,7 +81,7 @@ describe('MyCompaniesList', () => {
     expect(within(rowA).getByText('Fetching all current jobs…')).toBeInTheDocument();
     expect(within(rowA).queryByText('Successfully tracking')).not.toBeInTheDocument();
     expect(within(rowA).getByText(/0 open jobs/i)).toBeInTheDocument();
-    expect(within(rowA).getByText(/not yet checked/i)).toBeInTheDocument();
+    expect(within(rowA).getByText(/not fetched yet/i)).toBeInTheDocument();
     // Links to the private trend page by runtime id.
     expect(within(rowA).getByTestId('my-company-link')).toHaveAttribute(
       'href',
@@ -92,7 +92,17 @@ describe('MyCompaniesList', () => {
     const rowB = rows[1];
     expect(within(rowB).getByText('Successfully tracking')).toBeInTheDocument();
     expect(within(rowB).getByText(/42 open jobs/i)).toBeInTheDocument();
-    expect(within(rowB).getByText(/last checked/i)).toBeInTheDocument();
+    // "Last fetched", not "Last checked": `lastSuccessAt` moves only on a run that did not
+    // fail, so the old word claimed nobody had looked at a board we look at nightly. The
+    // exact instant lives on `title` — the line itself is relative so the list can be
+    // scanned for freshness instead of parsed for date arithmetic.
+    const lastFetched = within(rowB).getByText(/^Last fetched /);
+    expect(lastFetched).toBeInTheDocument();
+    expect(within(rowB).queryByText(/checked/i)).not.toBeInTheDocument();
+    expect(lastFetched).toHaveAttribute(
+      'title',
+      new Date(COMPANY_B.lastSuccessAt as string).toLocaleString()
+    );
   });
 
   it('shows an empty state when the user tracks nothing', async () => {
@@ -364,7 +374,7 @@ describe('MyCompaniesList discovery checklist', () => {
     const row = await screen.findByTestId('my-company-row');
     expect(within(row).getByText('Setting up…')).toBeInTheDocument();
     expect(within(row).getByText(/0 open jobs/i)).toBeInTheDocument();
-    expect(within(row).getByText(/not yet checked/i)).toBeInTheDocument();
+    expect(within(row).getByText(/not fetched yet/i)).toBeInTheDocument();
     expect(screen.queryByTestId('discovery-checklist')).not.toBeInTheDocument();
     expect(screen.queryByTestId('discovery-next-actions')).not.toBeInTheDocument();
     expect(screen.queryByText('Opening the page')).not.toBeInTheDocument();

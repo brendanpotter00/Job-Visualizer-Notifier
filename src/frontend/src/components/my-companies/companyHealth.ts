@@ -6,6 +6,7 @@ import type {
   DiscoveryStepKey,
   UserCompany,
 } from '../../features/userCompanies/userCompaniesApi';
+import { TIME_UNITS } from '../../constants/time';
 
 /** MUI `Chip` color slots we map health states onto. */
 type ChipColor = 'default' | 'info' | 'success' | 'warning' | 'error';
@@ -186,18 +187,115 @@ function isFirstScanFailing(company: Pick<UserCompany, 'discovery'>): boolean {
 }
 
 /**
- * "Last checked" copy for a company row. Null (never harvested) is a normal
- * pre-first-run state, not an error — say so plainly.
+ * Past this age a relative phrase stops helping. "47 days ago" is arithmetic the reader
+ * has to undo, and a board nothing has fetched in a month is better named by its date.
  */
-export function describeLastChecked(company: Pick<UserCompany, 'lastSuccessAt'>): string {
+const RELATIVE_AGE_LIMIT_MS = 30 * TIME_UNITS.DAY;
+
+/** The freshness line on a company row: what it says, and the exact instant behind it. */
+export interface LastFetchLine {
+  label: string;
+  /**
+   * The full timestamp for the row's `title`, or null when there is none. The relative
+   * label rounds; this does not, so the precise value is one hover away rather than gone.
+   */
+  exactAt: string | null;
+}
+
+/**
+ * The freshness line on a company row — WHEN WE LAST GOT JOBS, not when we last looked.
+ *
+ * THE LIE THIS REPLACES. The line read "Last checked <exact timestamp>" over
+ * `lastSuccessAt`, and `lastSuccessAt` is stamped ONLY by a run that did not fail
+ * (`mark_last_success`, called wherever `scrape_runs.success = true`). So a board the
+ * scheduler hit every night and failed on every night said "Last checked 3 days ago" —
+ * a claim that nobody had looked, about a board we had looked at three times. The board
+ * read as merely quiet when it was actually broken. The number was right; the verb was
+ * not.
+ *
+ * "Last fetched" is the same number under a verb that stays true in that case: a fetch
+ * that failed fetched nothing, so the newest jobs we hold really are three days old. It
+ * also moves the line from an event about us (we looked) to a fact about the count sitting
+ * next to it (this is how old that number is), which is what the reader wanted anyway.
+ *
+ * NOT "Last full scrape", the first wording proposed. `lastSuccessAt` moves on any
+ * non-FAILED run, VERIFIED *or* UNVERIFIED, and a knowingly-partial read is an ordinary
+ * successful run — Microsoft's 2,055 of 2,075 stamps this field. "Full" would trade this
+ * lie for a completeness claim we cannot back, on precisely the boards the hollow green
+ * "Tracking part of this board" chip above it exists to be honest about.
+ *
+ * WHAT NO WORDING HERE CAN SAY: whether anything has tried since. The payload carries no
+ * `lastAttemptAt`/`lastFailureAt` (the same gap `isFirstScanFailing` names), so on an ATS
+ * row "added ten seconds ago" and "failing nightly for a week" are identical bytes. This
+ * line is now honest about what it IS instead of implying it is that. "Last SUCCESSFUL
+ * fetch" was rejected for the same reason: it advertises failures we cannot count, and
+ * pointing at trouble the reader can neither see nor act on is the rule this area already
+ * settled (see `describeCompanyHealth` on amber).
+ *
+ * RELATIVE, not the old `toLocaleString()`. The fact underneath is a nightly harvest, so
+ * "8/24/2026, 10:10:22 PM" spent seconds-level precision on something good to the day and
+ * made the reader do date arithmetic to answer their only question. Coarse buckets read
+ * faster AND stop claiming a precision the fact does not have. The cost, named: a relative
+ * string goes stale in a tab left open, because `receivedAt` advances only on a poll and a
+ * settled list stops polling. Hour/day granularity hides nearly all of that drift, and
+ * `exactAt` on the row's `title` is never wrong.
+ *
+ * `receivedAt` is the caller's `fulfilledTimeStamp`, NOT `Date.now()` — reading the clock
+ * during render is lint-blocked as impure (see `isDiscoveryLive`). A zero/absent one means
+ * we do not know the time, so the label falls back to the date rather than measuring an
+ * age against the epoch and calling a three-day-old fetch "just now".
+ */
+export function describeLastFetched(
+  company: Pick<UserCompany, 'lastSuccessAt'>,
+  receivedAt: number
+): LastFetchLine {
+  // Never harvested is a normal pre-first-run state, not an error — say so plainly, and
+  // in the same verb the in-flight chip uses ("Fetching all current jobs…").
   if (!company.lastSuccessAt) {
-    return 'Not yet checked';
+    return { label: 'Not fetched yet', exactAt: null };
   }
   const when = new Date(company.lastSuccessAt);
   if (Number.isNaN(when.getTime())) {
-    return 'Not yet checked';
+    return { label: 'Not fetched yet', exactAt: null };
   }
-  return `Last checked ${when.toLocaleString()}`;
+
+  const exactAt = when.toLocaleString();
+  const ageMs = receivedAt - when.getTime();
+  if (!Number.isFinite(receivedAt) || receivedAt <= 0 || ageMs >= RELATIVE_AGE_LIMIT_MS) {
+    return { label: `Last fetched ${when.toLocaleDateString()}`, exactAt };
+  }
+  return { label: `Last fetched ${describeAge(ageMs)}`, exactAt };
+}
+
+/**
+ * Age → the phrase a person would say. Coarse on purpose: the underlying event is a
+ * nightly harvest, so a finer grain would be inventing confidence.
+ *
+ * A NEGATIVE age falls in the first branch and reads "just now" — that is clock skew
+ * between the server that stamped the row and this browser, not a fetch from the future,
+ * and it is the same call `isDiscoveryLive` makes about a forward-dated `updatedAt`.
+ */
+function describeAge(ageMs: number): string {
+  if (ageMs < TIME_UNITS.MINUTE) {
+    return 'just now';
+  }
+  if (ageMs < TIME_UNITS.HOUR) {
+    return countAgo(ageMs / TIME_UNITS.MINUTE, 'minute');
+  }
+  if (ageMs < TIME_UNITS.DAY) {
+    return countAgo(ageMs / TIME_UNITS.HOUR, 'hour');
+  }
+  return countAgo(ageMs / TIME_UNITS.DAY, 'day');
+}
+
+/**
+ * `1.9 → "1 hour ago"` — floors, the "one and a bit" reading every elapsed-time UI uses,
+ * so the error is bounded by one unit and always in the direction a reader expects. It is
+ * the reason `exactAt` exists: the rounded phrase is for scanning, the tooltip is exact.
+ */
+function countAgo(value: number, unit: string): string {
+  const count = Math.floor(value);
+  return `${count} ${unit}${count === 1 ? '' : 's'} ago`;
 }
 
 // ── discovery checklist (E7 capture pivot) ─────────────────────────────────
